@@ -21,6 +21,13 @@ export type CachedDiff = {
     order: { string },
 }
 
+export type CachedKinds = {
+    treeVersion: number,
+    kinds: { [string]: ChangeKind },
+    marks: { [string]: ChangeKind },
+    order: { string },
+}
+
 export type Env = {
     I18n: I18nService,
     Diff: DiffService,
@@ -31,6 +38,7 @@ export type Env = {
     -- One document per session, opened once.
     docs: { [string]: DiffDocument },
     cache: { [string]: CachedDiff }?,
+    kindsCache: { [string]: CachedKinds }?,
     -- The sidebar's filter.
     filter: Editor,
     style: StoreValue<{ diffStyle: DiffStyle }>,
@@ -79,6 +87,36 @@ function panel.cached(env: Env, sid: string): CachedDiff
     }
     ;(store :: { [string]: CachedDiff })[sid] = built
     return built
+end
+
+-- Memoizes `kinds`, `marks` and `order` per `doc:Tree():Version()` (`Dep::DiffTree`), so line-only
+-- edits inside an already-modified file never re-marshal `doc:Files()` or dirty `review.changes`.
+function panel.cachedTree(env: Env, sid: string): CachedKinds
+    local doc = panel.doc(env, sid)
+    local tv = doc:Tree():Version()
+    local store = env.kindsCache
+    if store == nil then
+        store = {}
+        env.kindsCache = store
+    end
+    local cur = (store :: { [string]: CachedKinds })[sid]
+    if cur ~= nil and cur.treeVersion == tv then
+        return cur
+    end
+    local files = doc:Files()
+    local k = kinds.of(files)
+    local built: CachedKinds = {
+        treeVersion = tv,
+        kinds = k,
+        marks = kinds.marks(k),
+        order = kinds.sorted(kinds.paths(files)),
+    }
+    ;(store :: { [string]: CachedKinds })[sid] = built
+    return built
+end
+
+function panel.cachedKinds(env: Env, sid: string): { [string]: ChangeKind }
+    return panel.cachedTree(env, sid).kinds
 end
 
 -- Compares `mode` in session `sid`, and remembers it.
@@ -239,104 +277,131 @@ local function noGit(env: Env): ui.Node
 end
 
 -- The sidebar: its header (source, totals, Open in without changes), the filter and the tree.
-local function sidebar(env: Env, view: View, sid: string, doc: DiffDocument, marks: { [string]: ChangeKind }, active: string?): ui.Node
+local function sidebar(env: Env, view: View, sid: string, doc: DiffDocument, marks: { [string]: ChangeKind }, active: string?, treeVer: number): ui.Node
     local totals = doc:Totals()
     local status = doc:Status()
     local query = env.filter:Text()
+    local look = `{env.I18n:Locale().id}:{tostring(view.dark)}`
+    local titleNode = view:Memo("review-title-sidebar-slot", `{sid}:{doc:Source()}:{#doc:Sources()}:{look}`, function()
+        return ui.row({ align = "center", shrink = true, minW = 0 }, {
+            panel.title(env, view, sid, "review-mode-btn"),
+        })
+    end)
     local headerEnd: { ui.Node } = { counts(totals.added, totals.removed) }
     if totals.files == 0 then
         table.insert(headerEnd, ui.openInButton({ key = "review-open-in", path = "" }))
     end
     -- `session-review-v2-sidebar-header`: 48 tall, 46 in past the toggle, 16 from the end.
     local header = ui.row({ key = "review-sidebar-header", w = "full", h = 48, pl = 46, pr = 16, gap = 8, align = "center" }, {
-        panel.title(env, view, sid, "review-mode-btn"),
+        titleNode,
         ui.spacer(),
         ui.row({ gap = 8, align = "center" }, headerEnd),
     })
-    local filter = ui.field({ key = "review-filter", editor = env.filter, variant = "filter", placeholder = env.I18n:T("ui.sessionReviewV2.filterFiles") })
-    local list = if status == "loading"
-        then ui.col({ key = "review-tree-loading", w = "full", grow = 1, px = 10, pt = 12 }, {
-            ui.text(env.I18n:T("ui.sessionReview.image.loading"), { size = 12, lineHeight = 16, color = "text-muted" }),
+    local filter = view:Memo("review-filter-slot", `{env.filter:Version()}:{look}`, function()
+        return ui.col({ w = "full" }, {
+            ui.field({ key = "review-filter", editor = env.filter, variant = "filter", placeholder = env.I18n:T("ui.sessionReviewV2.filterFiles") }),
         })
-        else ui.fileTree({
-            tree = doc:Tree(),
-            filter = query,
-            kinds = marks,
-            selectedPath = active,
-            pt = 4,
-            onSelect = view:Handler(function(event)
-                if event.path then
-                    panel.focus(env, sid, event.path)
-                end
-            end),
+    end)
+    local listVer = if query == "" then treeVer else doc:Version()
+    local list = view:Memo("review-tree-slot", `{sid}:{status}:{query}:{active or ""}:{listVer}:{look}`, function()
+        if status == "loading" then
+            return ui.col({ key = "review-tree-loading", w = "full", grow = 1, px = 10, pt = 12 }, {
+                ui.text(env.I18n:T("ui.sessionReview.image.loading"), { size = 12, lineHeight = 16, color = "text-muted" }),
+            })
+        end
+        return ui.col({ w = "full", grow = 1, minH = 0 }, {
+            ui.fileTree({
+                tree = doc:Tree(),
+                filter = query,
+                kinds = marks,
+                selectedPath = active,
+                pt = 4,
+                grow = 1,
+                onSelect = view:Handler(function(event)
+                    if event.path then
+                        panel.focus(env, sid, event.path)
+                    end
+                end),
+            }),
         })
+    end)
     return ui.col({ w = "full", h = "full" }, { header, filter, list })
 end
 
 -- The toolbar: with the sidebar shut its title, totals and the file's place; the file arrows;
 -- then Open in, the line folding and the layout, 12 apart.
-local function toolbar(env: Env, view: View, sid: string, doc: DiffDocument, order: { string }, active: string?, opened: boolean): ui.Node
-    local start: { ui.Node } = {}
+local function toolbar(env: Env, view: View, sid: string, doc: DiffDocument, order: { string }, active: string?, opened: boolean, treeVer: number): ui.Node
     local index = 0
     for i, path in order do
         if path == active then
             index = i
         end
     end
+    local expandMode = env.expand:Get().expandMode
+    local diffStyle = env.style:Get().diffStyle
+    local look = `{env.I18n:Locale().id}:{tostring(view.dark)}`
+    local shutMeta = ""
     if not opened then
         local totals = doc:Totals()
-        local meta: { ui.Node } = { panel.title(env, view, sid, "review-mode-btn"), counts(totals.added, totals.removed) }
-        if #order > 0 then
-            table.insert(meta, ui.text(`{math.max(index, 1)}/{#order}`, { size = 11, lineHeight = 13, tracking = 0.05, tabular = true, color = "text-faint", noWrap = true }))
-        end
-        table.insert(start, ui.row({ key = "review-collapsed-meta", gap = 8, pr = 8, align = "center", shrink = true, minW = 0 }, meta))
+        shutMeta = `{doc:Source()}:{#doc:Sources()}:{totals.added}:{totals.removed}`
     end
-    local function step(by: number): (() -> ())?
-        if #order == 0 then
-            return nil
+    return view:Memo("review-toolbar-slot", `{sid}:{active or ""}:{#order}:{index}:{treeVer}:{tostring(opened)}:{expandMode}:{diffStyle}:{shutMeta}:{look}`, function()
+        local start: { ui.Node } = {}
+        if not opened then
+            local totals = doc:Totals()
+            local meta: { ui.Node } = { panel.title(env, view, sid, "review-mode-btn"), counts(totals.added, totals.removed) }
+            if #order > 0 then
+                table.insert(meta, ui.text(`{math.max(index, 1)}/{#order}`, { size = 11, lineHeight = 13, tracking = 0.05, tabular = true, color = "text-faint", noWrap = true }))
+            end
+            table.insert(start, ui.row({ key = "review-collapsed-meta", gap = 8, pr = 8, align = "center", shrink = true, minW = 0 }, meta))
         end
-        return function()
-            local at = if index == 0 then 1 else index
-            panel.focus(env, sid, order[(at - 1 + by) % #order + 1])
+        local function step(by: number): (() -> ())?
+            if #order == 0 then
+                return nil
+            end
+            return function()
+                local at = if index == 0 then 1 else index
+                panel.focus(env, sid, order[(at - 1 + by) % #order + 1])
+            end
         end
-    end
-    table.insert(start, arrow(env, view, "review-prev-file", "review-arrow-left", `{env.I18n:T("ui.sessionReviewV2.previousFile")} \u{2190}`, step(-1)))
-    table.insert(start, arrow(env, view, "review-next-file", "review-arrow-right", `{env.I18n:T("ui.sessionReviewV2.nextFile")} \u{2192}`, step(1)))
-    local segments: { ui.Node } = {}
-    if active then
-        table.insert(segments, ui.openInButton({ key = "review-open-in", path = active }))
-    end
-    table.insert(segments, ui.segmented({
-        key = "review-expand-seg",
-        value = env.expand:Get().expandMode,
-        items = {
-            { id = "expand", icon = "review-expand-lines", label = env.I18n:T("ui.sessionReviewV2.showAllLines"), key = "review-expand-all" },
-            { id = "collapse", icon = "review-collapse-lines", label = env.I18n:T("ui.sessionReviewV2.hideNonDiffLines"), key = "review-collapse-unchanged" },
-        },
-        onChange = view:Handler(function(event)
-            env.expand:Set({ expandMode = (event.value or "collapse") :: ExpandMode })
-        end),
-    }))
-    table.insert(segments, ui.segmented({
-        key = "review-style-seg",
-        value = env.style:Get().diffStyle,
-        items = {
-            { id = "unified", icon = "review-unified", label = env.I18n:T("ui.sessionReviewV2.unifiedDiff"), key = "review-style-unified" },
-            { id = "split", icon = "review-split", label = env.I18n:T("ui.sessionReviewV2.splitDiff"), key = "review-style-split" },
-        },
-        onChange = view:Handler(function(event)
-            panel.setStyle(env, (event.value or "split") :: DiffStyle)
-        end),
-    }))
-    -- 48 tall with its rule inside (`session-review-v2-toolbar`: `h-12`, border-box).
-    return ui.col({ w = "full", h = 48 }, {
-        ui.row({ key = "review-toolbar", w = "full", grow = 1, minH = 0, pl = if opened then 8 else 46, pr = 12, gap = 8, align = "center", fill = "bg-base" }, {
-            ui.row({ key = "review-toolbar-start", align = "center", shrink = true, minW = 0 }, start),
-            ui.spacer(),
-            ui.row({ key = "review-toolbar-segments", gap = 12, align = "center" }, segments),
-        }),
-        ui.divider({ color = "border-base" }),
-    })
+        table.insert(start, arrow(env, view, "review-prev-file", "review-arrow-left", `{env.I18n:T("ui.sessionReviewV2.previousFile")} \u{2190}`, step(-1)))
+        table.insert(start, arrow(env, view, "review-next-file", "review-arrow-right", `{env.I18n:T("ui.sessionReviewV2.nextFile")} \u{2192}`, step(1)))
+        local segments: { ui.Node } = {}
+        if active then
+            table.insert(segments, ui.openInButton({ key = "review-open-in", path = active }))
+        end
+        table.insert(segments, ui.segmented({
+            key = "review-expand-seg",
+            value = expandMode,
+            items = {
+                { id = "expand", icon = "review-expand-lines", label = env.I18n:T("ui.sessionReviewV2.showAllLines"), key = "review-expand-all" },
+                { id = "collapse", icon = "review-collapse-lines", label = env.I18n:T("ui.sessionReviewV2.hideNonDiffLines"), key = "review-collapse-unchanged" },
+            },
+            onChange = view:Handler(function(event)
+                env.expand:Set({ expandMode = (event.value or "collapse") :: ExpandMode })
+            end),
+        }))
+        table.insert(segments, ui.segmented({
+            key = "review-style-seg",
+            value = diffStyle,
+            items = {
+                { id = "unified", icon = "review-unified", label = env.I18n:T("ui.sessionReviewV2.unifiedDiff"), key = "review-style-unified" },
+                { id = "split", icon = "review-split", label = env.I18n:T("ui.sessionReviewV2.splitDiff"), key = "review-style-split" },
+            },
+            onChange = view:Handler(function(event)
+                panel.setStyle(env, (event.value or "split") :: DiffStyle)
+            end),
+        }))
+        -- 48 tall with its rule inside (`session-review-v2-toolbar`: `h-12`, border-box).
+        return ui.col({ w = "full", h = 48 }, {
+            ui.row({ key = "review-toolbar", w = "full", grow = 1, minH = 0, pl = if opened then 8 else 46, pr = 12, gap = 8, align = "center", fill = "bg-base" }, {
+                ui.row({ key = "review-toolbar-start", align = "center", shrink = true, minW = 0 }, start),
+                ui.spacer(),
+                ui.row({ key = "review-toolbar-segments", gap = 12, align = "center" }, segments),
+            }),
+            ui.divider({ color = "border-base" }),
+        })
+    end)
 end
 
 -- The Review tab in the side region.
@@ -344,19 +409,18 @@ function panel.wide(env: Env, view: View, props: PanelProps): ui.Node
     local sid = props.sessionId
     local doc = panel.doc(env, sid)
     local status = doc:Status()
-    local cur = panel.cached(env, sid)
-    local files = cur.files
+    local cur = panel.cachedTree(env, sid)
     local order = cur.order
     local active = doc:Active()
     local bar = env.Layout:PanelSidebar()
     local main: { ui.Node } = {}
     local hasRows = doc:Totals().files > 0
     if hasRows or not bar.opened then
-        table.insert(main, toolbar(env, view, sid, doc, order, active, bar.opened))
+        table.insert(main, toolbar(env, view, sid, doc, order, active, bar.opened, cur.treeVersion))
     end
-    if status == "loading" and #files == 0 then
+    if status == "loading" and #order == 0 then
         table.insert(main, loading(env))
-    elseif (status == "error" or status == "offline") and #files == 0 then
+    elseif (status == "error" or status == "offline") and #order == 0 then
         table.insert(main, failed(env, view, doc, doc:Error() or ""))
     elseif status == "no-vcs" then
         table.insert(main, noGit(env))
@@ -373,7 +437,7 @@ function panel.wide(env: Env, view: View, props: PanelProps): ui.Node
     end
     local maxW = math.clamp(props.width * 0.6, 200, 480)
     return ui.panelSidebar({ id = "review", maxWidth = maxW }, {
-        if bar.opened then sidebar(env, view, sid, doc, cur.marks, active) else ui.col({}, {}),
+        if bar.opened then sidebar(env, view, sid, doc, cur.marks, active, cur.treeVersion) else ui.col({}, {}),
         ui.col({ w = "full", h = "full" }, main),
     })
 end

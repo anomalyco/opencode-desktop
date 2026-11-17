@@ -193,7 +193,26 @@ pub(crate) fn code_area(s: &App, p: &Pal, session_id: &str, ws: &SessionFiles, p
     let toolbar = artifact && (loaded || picture.is_some() || clip.is_some() || plugin_view.is_some());
     if toolbar {
         let source = previewable || (loaded && picture.is_none() && clip.is_none() && plugin_view.is_none() && doc.is_some_and(|d| !d.binary()));
-        out = out.child(artifact_toolbar(s, p, session_id, path, rendered, previewable, source, picture.filter(|_| s.files.stage_size.get()[0] > META_MIN_W).map(|img| img.meta())));
+        let meta = picture.filter(|_| s.files.stage_size.get()[0] > META_MIN_W).map(|img| img.meta());
+        let tb_hash = {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::hash::DefaultHasher::new();
+            (
+                (p.theme, p.generation, p.dark),
+                opencode_i18n::locale().id(),
+                session_id,
+                path,
+                rendered,
+                previewable,
+                source,
+                &meta,
+            )
+                .hash(&mut h);
+            h.finish()
+        };
+        out = out.child(rune::memo("files-artifact-toolbar", tb_hash, || {
+            artifact_toolbar(s, p, session_id, path, rendered, previewable, source, meta)
+        }));
     }
     // Pierre's bar floats over the view it searches, rendered or source.
     let bar = doc.filter(|d| d.find_open()).map(|d| {
@@ -329,7 +348,6 @@ fn artifact_toolbar(s: &App, p: &Pal, session_id: &str, path: &str, rendered: bo
     );
     let trailing = row().key("files-artifact-trailing").gap(12.0).center_y().min_w(0.0).children(meta.map(|m| picture_meta(p, m))).child(actions);
     row()
-        .key("files-artifact-toolbar")
         .w_full()
         .h(44.0)
         .pl(20.0)

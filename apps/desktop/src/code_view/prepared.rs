@@ -237,8 +237,27 @@ fn reuse_line_ids(
     (out.into(), prefix, suffix)
 }
 
-/// Gives bands whose lines are 100% newly inserted a fresh `"cbn{lid}"` key so `VirtualList`'s
-/// overscan budget mounts only the viewport plus half a viewport on the reload frame.
+/// Sends a large old buffer to a single background drop thread (`rune::task::serve`), so the UI
+/// thread neither frees proportional-size state nor calls `CreateThread` during a swap.
+pub fn drop_off_ui<T: Send + 'static>(value: T) {
+    static DROP_TX: OnceLock<Option<std::sync::mpsc::Sender<Box<dyn Send>>>> = OnceLock::new();
+    let tx = DROP_TX.get_or_init(|| {
+        let (tx, rx) = std::sync::mpsc::channel::<Box<dyn Send>>();
+        rune::task::serve("bg-drop", rx, |boxed| {
+            drop(boxed);
+            std::ops::ControlFlow::Continue(())
+        })
+        .ok()?;
+        Some(tx)
+    });
+    if let Some(tx) = tx {
+        let _ = tx.send(Box::new(value));
+    }
+}
+
+/// Gives bands whose lines were 100% replaced or newly inserted a fresh `"cbn{lid}"` key so
+/// `VirtualList`'s overscan budget mounts only the visible screen plus half a viewport on the
+/// reload frame, even on a same-length whole-file rewrite.
 fn build_band_keys(
     new_rows: usize,
     old_rows: usize,
@@ -247,7 +266,7 @@ fn build_band_keys(
     line_ids: &[u64],
 ) -> Arc<[Box<str>]> {
     let shared = band_keys(new_rows);
-    if old_rows == 0 || new_rows <= old_rows {
+    if old_rows == 0 {
         return shared;
     }
     let ins_end = new_rows.saturating_sub(suffix);

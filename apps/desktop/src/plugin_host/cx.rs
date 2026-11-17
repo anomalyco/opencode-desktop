@@ -132,10 +132,24 @@ pub enum Dep {
     Console,
     /// A session's changes (`Diff`).
     Diff(String),
+    /// Whether `Diff` draws split or unified (`Diff:Mode`).
+    DiffMode,
+    /// A session's changed file count and line totals (`DiffDocument:Totals`).
+    DiffTotals(String),
+    /// A session's change tree and file change kinds (`FileTreeModel:Version` on a diff).
+    DiffTree(String),
+    /// A session's change status, source, active path and available sources.
+    DiffMeta(String),
     /// A session's narrow Changes list: the files open in it and the line comments drawn in it.
     NarrowReview(String),
     /// A session's workspace files: its tree, finds and open files (`Workspace`).
     Files(String),
+    /// Whether one open file is missing on disk (`CodeDocument:Missing`).
+    FilesMissing(String, String),
+    /// A session's workspace tree and file search (`FileTreeModel`).
+    FilesTree(String),
+    /// One open document's content, find bar, media and scroll (`CodeDocument`, `ui.codeView`).
+    FilesDoc(String, String),
     /// A session's terminals (`Terminal`).
     Terminals(String),
     /// What a session's terminal surfaces and labels draw.

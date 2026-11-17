@@ -59,7 +59,7 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
         document(lua, &v, &sid)
     })?;
     method(lua, t, "Mode", |_, ()| {
-        cx::read(Dep::Diff(String::new()));
+        cx::read(Dep::DiffMode);
         Ok(if app_now("Diff:Mode")?.review.diff_mode == DiffMode::Split { "split" } else { "unified" })
     })?;
     method(lua, t, "SetMode", |_, mode: String| {
@@ -81,10 +81,18 @@ fn document(lua: &Lua, vmx: &Rc<Vmx>, sid: &str) -> mlua::Result<Table> {
             Ok((app_now(what)?, sid.clone()))
         }
     };
-    let read = with(sid);
+    let with_meta = |sid: &str| {
+        let sid = sid.to_owned();
+        move |what: &str| -> mlua::Result<(&'static App, String)> {
+            cx::read(Dep::DiffMeta(sid.clone()));
+            Ok((app_now(what)?, sid.clone()))
+        }
+    };
+    let sid_totals = sid.to_owned();
     method(lua, &m, "Totals", move |lua, ()| {
-        let (app, sid) = read("DiffDocument:Totals")?;
-        let (files, added, removed) = app.review.sessions.get(&sid).map_or((0, 0, 0), |sr| {
+        cx::read(Dep::DiffTotals(sid_totals.clone()));
+        let app = app_now("DiffDocument:Totals")?;
+        let (files, added, removed) = app.review.sessions.get(&sid_totals).map_or((0, 0, 0), |sr| {
             let (a, d) = sr.totals();
             (sr.root_count, a, d)
         });
@@ -96,28 +104,28 @@ fn document(lua: &Lua, vmx: &Rc<Vmx>, sid: &str) -> mlua::Result<Table> {
         let files = app.review.sessions.get(&sid).map_or_else(Vec::new, files);
         lua_data(lua, Data::List(files))
     })?;
-    let read = with(sid);
+    let read = with_meta(sid);
     method(lua, &m, "Source", move |_, ()| {
         let (app, sid) = read("DiffDocument:Source")?;
         Ok(app.review.sessions.get(&sid).map_or(ChangeMode::Git, |sr| sr.mode).name())
     })?;
-    let read = with(sid);
+    let read = with_meta(sid);
     method(lua, &m, "Sources", move |lua, ()| {
         let (app, sid) = read("DiffDocument:Sources")?;
         let modes = app.review.sessions.get(&sid).map_or_else(|| vec![ChangeMode::Git, ChangeMode::Turn], SessionReview::available_modes);
         lua_data(lua, Data::List(modes.into_iter().map(|m| Data::String(m.name().into())).collect()))
     })?;
-    let read = with(sid);
+    let read = with_meta(sid);
     method(lua, &m, "Status", move |_, ()| {
         let (app, sid) = read("DiffDocument:Status")?;
         Ok(status(app.review.sessions.get(&sid)))
     })?;
-    let read = with(sid);
+    let read = with_meta(sid);
     method(lua, &m, "Error", move |_, ()| {
         let (app, sid) = read("DiffDocument:Error")?;
         Ok(app.review.sessions.get(&sid).and_then(|sr| sr.load.failed().map(str::to_owned)))
     })?;
-    let read = with(sid);
+    let read = with_meta(sid);
     method(lua, &m, "Loading", move |_, ()| {
         let (app, sid) = read("DiffDocument:Loading")?;
         Ok(status(app.review.sessions.get(&sid)) == "loading")
@@ -127,7 +135,7 @@ fn document(lua: &Lua, vmx: &Rc<Vmx>, sid: &str) -> mlua::Result<Table> {
         let (app, sid) = read("DiffDocument:Version")?;
         Ok(app.review.sessions.get(&sid).map_or(0, |sr| sr.stamp) as f64)
     })?;
-    let read = with(sid);
+    let read = with_meta(sid);
     method(lua, &m, "Active", move |_, ()| {
         let (app, sid) = read("DiffDocument:Active")?;
         Ok(app.review.sessions.get(&sid).and_then(|sr| sr.active_path.clone()))
@@ -199,6 +207,53 @@ fn files(sr: &SessionReview) -> Vec<Data> {
             map([("path", Data::String(m.path.clone())), ("status", Data::String(status.into())), ("added", Data::Integer(i64::from(m.additions))), ("removed", Data::Integer(i64::from(m.deletions)))])
         })
         .collect()
+}
+
+/// The version of what `Dep::DiffTotals(session)` reads (`DiffDocument:Totals`).
+pub fn totals_version(app: &App, session: &str) -> (usize, u32, u32) {
+    app.review.sessions.get(session).map_or((0, 0, 0), |sr| {
+        let (a, d) = sr.totals();
+        (sr.root_count, a, d)
+    })
+}
+
+/// The version of what `Dep::DiffMeta(session)` reads: source, status, error, active path and
+/// available sources, without hunk line counts or sticky headers.
+pub fn meta_version(app: &App, session: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::hash::DefaultHasher::new();
+    let sr = app.review.sessions.get(session);
+    (
+        sr.map_or(ChangeMode::Git, |r| r.mode).name(),
+        status(sr),
+        sr.and_then(|r| r.load.failed()),
+        sr.and_then(|r| r.active_path.as_deref()),
+        sr.map(SessionReview::available_modes),
+    )
+        .hash(&mut h);
+    h.finish()
+}
+
+/// The version of what `Dep::DiffTree(session)` reads: the visible change-tree rows, their
+/// folder expansion and counts, and each changed file's status kind (`add`, `del`, `mix`).
+pub fn tree_version(app: &App, session: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::hash::DefaultHasher::new();
+    if let Some(sr) = app.review.sessions.get(session) {
+        let len = sr.tree.visible_len();
+        len.hash(&mut h);
+        for i in 0..len {
+            if let Some((node, tr)) = sr.tree.row(i) {
+                (tr.id, node.dir, tr.depth, node.dir && sr.tree.is_expanded(tr.id), sr.folder_label(tr.id)).hash(&mut h);
+            }
+        }
+        sr.listed.len().hash(&mut h);
+        for path in &sr.listed {
+            let st = sr.tree.get(path).and_then(|n| n.data.as_ref()).map(|m| m.status);
+            (path, st).hash(&mut h);
+        }
+    }
+    h.finish()
 }
 
 /// The version of what `Dep::Diff(session)` reads, the file heading stuck over the scrolled

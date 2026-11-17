@@ -140,7 +140,9 @@ pub fn view(a: &mut NodeArgs) -> Result<El, String> {
     body = body.child(col().key(format!("{id}-main")).grow(1.0).min_w(0.0).h_full().child(main));
     // The resize handle lies over the edge, above the content beside it.
     if opened {
-        body = body.child(handle(&pal, &id, w, min, max, st.resize != Resize::Idle));
+        let dragging = st.resize != Resize::Idle;
+        let resize_inputs = ((pal.theme, pal.generation, pal.dark), w.to_bits(), min.to_bits(), max.to_bits(), dragging);
+        body = body.child(rune::memo(format!("{id}-sidebar-resize"), resize_inputs, || handle(&pal, w, min, max, dragging)));
     }
     let toggle_key = crate::plugin_host::icons::intern(&format!("{id}-tree-toggle"));
     Ok(col()
@@ -156,11 +158,10 @@ pub fn view(a: &mut NodeArgs) -> Result<El, String> {
 /// Desktop's `ResizeHandle` over the sidebar's end edge: 8 pt wide, centred on the edge, its
 /// 4 × 40 pill (`border-muted`, as the review sidebar colours it) showing under the pointer and
 /// while dragging.
-fn handle(p: &crate::palette::Pal, id: &str, width: f32, min: f32, max: f32, dragging: bool) -> El {
+fn handle(p: &crate::palette::Pal, width: f32, min: f32, max: f32, dragging: bool) -> El {
     let pill = el().key("pill").size(4.0, 40.0).radius(2.0).fill(p.border_muted);
     let pill = if dragging { pill } else { pill.group_opacity(0.0, 1.0) };
-    el().key(format!("{id}-sidebar-resize"))
-        .pin(Some(width - 4.0), Some(0.0), None, Some(0.0))
+    el().pin(Some(width - 4.0), Some(0.0), None, Some(0.0))
         .w(8.0)
         .center()
         .cursor(Cursor::ResizeColumn)

@@ -286,18 +286,79 @@ pub(super) fn pane_box(
     let mut entries = reg.pane_entries(pane);
     entries.extend(held);
 
-    let bar = tab_bar(
-        s,
-        p,
-        pane,
-        (&reg.session_id, pane_size.0),
-        &entries,
-        pane_active.as_deref(),
-        preview_key,
-        shown_new.map(|n| n.id.as_str()),
-        &live_new,
-        reserve_toggle && s.stage.is_none(),
-    );
+    let reserve_toggle = reserve_toggle && s.stage.is_none();
+    let bar_hash = {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::hash::DefaultHasher::new();
+        let field_in_tab = entries
+            .iter()
+            .find(|e| pane_active.as_deref() == Some(e.key.as_str()))
+            .is_some_and(|e| crate::plugin_host::editors::plugin_focused(s, e.plugin));
+        let composing = rune::Tracked::untracked(&s.composer).focused;
+        let focused = ((s.side.focused && s.side.active_pane_focus == pane) || field_in_tab) && !composing && !s.popup.holds_focus() && !s.side.quiet;
+        (
+            (
+                (p.theme, p.generation, p.dark),
+                opencode_i18n::locale().id(),
+                pane as u8,
+                &reg.session_id,
+                pane_size.0.to_bits(),
+                pane_active.as_deref(),
+            ),
+            (
+                preview_key,
+                shown_new.map(|n| n.id.as_str()),
+                reserve_toggle,
+                focused,
+                s.side.pane_drag.dragging(),
+                entries.len(),
+                live_new.len(),
+            ),
+        )
+            .hash(&mut h);
+        for e in &entries {
+            let active = shown_new.is_none() && pane_active.as_deref() == Some(e.key.as_str());
+            (
+                (
+                    &e.key,
+                    e.plugin,
+                    &e.tab.id,
+                    &e.tab.title,
+                    e.tab.icon.map(|ic| ic.name),
+                    &e.tab.file,
+                    &e.tab.badge,
+                ),
+                (
+                    e.tab.pinned,
+                    e.tab.first,
+                    e.tab.closable as u8,
+                    e.tab.missing,
+                    e.tab.transient,
+                    e.tab.draggable,
+                    e.provider.lead_stamp(s, p, &e.tab, active),
+                ),
+            )
+                .hash(&mut h);
+        }
+        for nt in &live_new {
+            nt.id.hash(&mut h);
+        }
+        h.finish()
+    };
+    let bar = rune::memo(format!("side-tabbar-{}", pane_slug(pane)), bar_hash, || {
+        tab_bar(
+            s,
+            p,
+            pane,
+            (&reg.session_id, pane_size.0),
+            &entries,
+            pane_active.as_deref(),
+            preview_key,
+            shown_new.map(|n| n.id.as_str()),
+            &live_new,
+            reserve_toggle,
+        )
+    });
 
     let content = if shown_new.is_some() {
         new_tab_view(s, p, reg, pane)
@@ -533,7 +594,6 @@ fn tab_bar(
 
     // Every pane's strip is `--tabs-bar-height` tall; its controls end at the header's inset.
     let mut bar = row()
-        .key(format!("side-tabbar-{}", pane_slug(pane)))
         .w_full()
         .h(48.0)
         .pl(12.0)

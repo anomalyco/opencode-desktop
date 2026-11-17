@@ -183,7 +183,10 @@ return plugin.defineWindow(function(ctx)
             return panel.doc(env, sid):Status() ~= "loading"
         end,
         kinds = function(sid: string): { [string]: ChangeKind }
-            return panel.cached(env, sid).kinds
+            return panel.cachedKinds(env, sid)
+        end,
+        kindsVersion = function(sid: string): number
+            return panel.doc(env, sid):Tree():Version()
         end,
         active = function(sid: string): string?
             return panel.doc(env, sid):Active()

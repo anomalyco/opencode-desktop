@@ -79,11 +79,11 @@ pub fn methods(lua: &Lua) -> mlua::Result<Table> {
             let sid: String = this.raw_get("sessionId")?;
             let app = app_now("FileTreeModel:Version")?;
             if is_workspace(&this) {
-                cx::read(Dep::Files(sid.clone()));
-                return Ok((super::files::version(app, &sid) >> 11) as f64);
+                cx::read(Dep::FilesTree(sid.clone()));
+                return Ok((super::files::tree_version(app, &sid) >> 11) as f64);
             }
-            cx::read(Dep::Diff(sid.clone()));
-            Ok(app.review.sessions.get(&sid).map_or(0, |sr| sr.stamp) as f64)
+            cx::read(Dep::DiffTree(sid.clone()));
+            Ok((super::diff::tree_version(app, &sid) >> 11) as f64)
         })?,
     )?;
     m.raw_set(
@@ -92,10 +92,10 @@ pub fn methods(lua: &Lua) -> mlua::Result<Table> {
             let sid: String = this.raw_get("sessionId")?;
             let app = app_now("FileTreeModel:Find")?;
             let found = if is_workspace(&this) {
-                cx::read(Dep::Files(sid.clone()));
+                cx::read(Dep::FilesTree(sid.clone()));
                 app.filtered_files(&sid, &query)
             } else {
-                cx::read(Dep::Diff(sid.clone()));
+                cx::read(Dep::DiffTree(sid.clone()));
                 let all: Vec<String> = app.review.sessions.get(&sid).map(|r| r.meta.iter().map(|m| m.path.clone()).collect()).unwrap_or_default();
                 filter_review_files(&all, &query)
             };
@@ -133,11 +133,12 @@ pub fn view(a: &mut NodeArgs) -> Result<El, String> {
 /// A workspace's tree, or with `filter` the files the server and the tree find; with `narrow`,
 /// the narrow Files view (its open files over the tree, or the open file).
 fn workspace(app: &App, p: &Pal, a: &NodeArgs, sid: &str, kinds: Rc<HashMap<String, String>>, selected: Option<String>, filter: &str) -> El {
-    cx::read(Dep::Files(sid.to_owned()));
     if a.flag("narrow") {
+        cx::read(Dep::Files(sid.to_owned()));
         let project = app.session(sid).map(|s| s.project.clone()).unwrap_or_default();
         return crate::files::narrow::view(app, p, sid, &project, a.number("width").unwrap_or(0.0) as f32);
     }
+    cx::read(Dep::FilesTree(sid.to_owned()));
     let empty = crate::files::SessionFiles::default();
     let ws = app.files.sessions.get(sid).unwrap_or(&empty);
     if !ws.ready {

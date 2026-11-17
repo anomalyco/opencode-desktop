@@ -498,7 +498,7 @@ impl App {
         };
         let sr = self.review.sessions.entry(fetched.session_id.clone()).or_default();
         if sr.mode != fetched.mode {
-            let _ = rune::task::spawn("review-drop", move || drop(prepared));
+            crate::code_view::prepared::drop_off_ui(prepared);
             return None;
         }
         sr.branch_current = fetched.branch_current;
@@ -527,9 +527,7 @@ impl App {
         if !old_diffs.files().is_empty() || !old_meta.is_empty() {
             let old_diffs = old_diffs.into_prepared();
             let old_narrow = old_narrow.into_prepared();
-            let _ = rune::task::spawn("review-drop", move || {
-                drop((old_diffs, old_meta, old_listed, old_tree, old_folders, old_narrow));
-            });
+            crate::code_view::prepared::drop_off_ui((old_diffs, old_meta, old_listed, old_tree, old_folders, old_narrow));
         }
         let focus = sr.load.landed(fetched.mode, fetched.revision, fetched.no_git);
         for folder in reopen { self.expand_review_dir(&fetched.session_id, &folder, true); }

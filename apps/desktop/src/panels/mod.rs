@@ -403,6 +403,10 @@ impl PanelRegistration {
         crate::plugin_host::panels::tab_lead(s, p, self.plugin, tab, selected)
     }
 
+    pub fn lead_stamp(&self, s: &App, p: &Pal, tab: &PanelTabDesc, selected: bool) -> Option<u64> {
+        crate::plugin_host::panels::tab_lead_stamp(s, p, self.plugin, tab, selected)
+    }
+
     /// The pane a new tab of this panel opens in beside none of its others.
     pub fn home_pane(&self, s: &App) -> SessionPane {
         crate::plugin_host::panels::home_pane(s, self.plugin).unwrap_or(self.default_pane)

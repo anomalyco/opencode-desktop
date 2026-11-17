@@ -213,9 +213,7 @@ impl CodeDocState {
         let old_slab = std::mem::replace(&mut self.slab, Slab::Absent);
         let old_matches = (std::mem::take(&mut self.matches), std::mem::take(&mut self.by_line_matches));
         if large {
-            let _ = rune::task::spawn("file-text-drop", move || {
-                drop((old_source, old_ids, old_slab, old_matches, stale_chunks));
-            });
+            super::prepared::drop_off_ui((old_source, old_ids, old_slab, old_matches, stale_chunks));
         }
         self.digits = (self.line_count().max(1).ilog10() + 1).max(3);
         self.cursor = self.cursor.min(self.lines().max(1));

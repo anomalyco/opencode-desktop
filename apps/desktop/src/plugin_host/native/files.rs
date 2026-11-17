@@ -68,28 +68,36 @@ pub fn build(lua: &Lua, t: &Table) -> mlua::Result<()> {
 /// The methods of a `CodeDocument`.
 fn document(lua: &Lua) -> mlua::Result<Table> {
     let m = lua.create_table()?;
-    let read = |this: &Table, what: &str| -> mlua::Result<(&'static App, String, String)> {
+    let read_doc = |this: &Table, what: &str| -> mlua::Result<(&'static App, String, String)> {
         let (sid, path): (String, String) = (this.raw_get("sessionId")?, this.raw_get("Path")?);
-        cx::read(Dep::Files(sid.clone()));
+        cx::read(Dep::FilesDoc(sid.clone(), path.clone()));
         Ok((app_now(what)?, sid, path))
     };
     m.raw_set(
         "Version",
         lua.create_function(move |_, this: Table| {
-            let (app, sid, _) = read(&this, "CodeDocument:Version")?;
-            Ok((version(app, &sid) >> 11) as f64)
+            let (app, sid, path) = read_doc(&this, "CodeDocument:Version")?;
+            Ok((doc_version(app, &sid, &path) >> 11) as f64)
         })?,
     )?;
-    for (name, field) in [("Missing", 0), ("Binary", 1)] {
-        m.raw_set(
-            name,
-            lua.create_function(move |_, this: Table| {
-                let (app, sid, path) = read(&this, "CodeDocument")?;
-                let doc = app.files.sessions.get(&sid).and_then(|w| w.docs.get(&path));
-                Ok(doc.is_some_and(|d| if field == 0 { d.missing() } else { d.binary() }))
-            })?,
-        )?;
-    }
+    m.raw_set(
+        "Missing",
+        lua.create_function(|_, this: Table| {
+            let (sid, path): (String, String) = (this.raw_get("sessionId")?, this.raw_get("Path")?);
+            cx::read(Dep::FilesMissing(sid.clone(), path.clone()));
+            let app = app_now("CodeDocument:Missing")?;
+            let doc = app.files.sessions.get(&sid).and_then(|w| w.docs.get(&path));
+            Ok(doc.is_some_and(|d| d.missing()))
+        })?,
+    )?;
+    m.raw_set(
+        "Binary",
+        lua.create_function(move |_, this: Table| {
+            let (app, sid, path) = read_doc(&this, "CodeDocument:Binary")?;
+            let doc = app.files.sessions.get(&sid).and_then(|w| w.docs.get(&path));
+            Ok(doc.is_some_and(|d| d.binary()))
+        })?,
+    )?;
     m.raw_set(
         "Reload",
         lua.create_function(|_, this: Table| {
@@ -157,13 +165,68 @@ pub fn version(app: &App, session: &str) -> u64 {
     h.finish()
 }
 
+/// Whether `path` in `session` is ready and missing (`Dep::FilesMissing`).
+pub fn missing_version(app: &App, session: &str, path: &str) -> Option<(bool, bool)> {
+    app.files.sessions.get(session).and_then(|w| w.docs.get(path)).map(|d| (d.ready(), d.missing()))
+}
+
+/// The workspace tree and file search version for `session` (`Dep::FilesTree`).
+pub fn tree_version(app: &App, session: &str) -> u64 {
+    let mut h = std::hash::DefaultHasher::new();
+    if let Some(w) = app.files.sessions.get(session) {
+        (w.ready, w.tree.visible_len(), w.known_files.len(), w.known_dirs.len(), w.expanded_dirs.len(), &w.search, &w.highlighted_filter_path).hash(&mut h);
+        for dir in &w.expanded_dirs {
+            let mut dh = std::hash::DefaultHasher::new();
+            dir.hash(&mut dh);
+            let _ = dh.finish();
+        }
+        let mut expanded_xor = 0u64;
+        for dir in &w.expanded_dirs {
+            let mut dh = std::hash::DefaultHasher::new();
+            dir.hash(&mut dh);
+            expanded_xor ^= dh.finish();
+        }
+        expanded_xor.hash(&mut h);
+    }
+    h.finish()
+}
+
+/// One open file's version (`Dep::FilesDoc`): its text, find bar, scroll, markdown and media.
+pub fn doc_version(app: &App, session: &str, path: &str) -> u64 {
+    let mut h = std::hash::DefaultHasher::new();
+    if let Some(w) = app.files.sessions.get(session) {
+        if let Some(d) = w.docs.get(path) {
+            (d.rev, d.ready(), d.missing(), d.binary(), d.size_bytes(), d.wrap(), d.line_count(), d.find_open(), d.match_count(), d.active_match_index(), d.text().len()).hash(&mut h);
+            (&d.find_input.text, d.find_input.focused).hash(&mut h);
+            if d.find_open() { w.file_matches(path, d).hash(&mut h); }
+        }
+        if let Some(r) = rune::memo::layout(&format!("file-code-{session}-{path}-scroll")) {
+            format!("{r:?}").hash(&mut h);
+        }
+        w.md.get(path).map(|v| (v.rendered, v.matches.len(), v.active)).hash(&mut h);
+        w.code_paths.get(path).map(|c| c.rev).hash(&mut h);
+        if let Some(img) = w.images.get(path) {
+            let shown = img.shown();
+            (shown.id(), shown.is_ready(), shown.size(), img.shows(), format!("{:?}", img.zoom)).hash(&mut h);
+        }
+        if let Some(v) = w.videos.get(path) {
+            let p = &v.player;
+            (format!("{:?} {:?} {:?}", p.state(), v.overlay, v.scrub), p.is_playing(), p.muted(), p.has_sound(), p.natural_size(), p.duration().map(f64::to_bits), (p.time() * 4.0) as u64).hash(&mut h);
+        }
+        if w.images.contains_key(path) || w.videos.contains_key(path) {
+            app.files.stage_size.get().map(f32::to_bits).hash(&mut h);
+        }
+    }
+    h.finish()
+}
+
 /// `ui.codeView`: the open file, its find bar and its code (or a Markdown file's rendered page).
 pub fn view(a: &mut NodeArgs) -> Result<El, String> {
     let app = cx::app().ok_or("ui.codeView draws only in a render")?;
     let pal = p(a);
     let sid = handle_field(a, "doc", "sessionId").ok_or("ui.codeView needs a document from Workspace:OpenDocument")?;
     let path = handle_field(a, "doc", "Path").unwrap_or_default();
-    cx::read(Dep::Files(sid.clone()));
+    cx::read(Dep::FilesDoc(sid.clone(), path.clone()));
     let empty = crate::files::SessionFiles::default();
     let ws = app.files.sessions.get(&sid).unwrap_or(&empty);
     Ok(col().w_full().grow(1.0).min_h(0.0).child(crate::files::viewer::code_area(app, &pal, &sid, ws, &path, true)))

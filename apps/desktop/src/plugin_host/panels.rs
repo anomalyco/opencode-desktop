@@ -281,6 +281,26 @@ pub fn tab_lead(app: &App, p: &Pal, plugin: &str, tab: &PanelTabDesc, selected: 
     Some(render_surface(app, p, i, &format!("label:{}:{session}:{}", all[k].spec.id, tab.id), label, data))
 }
 
+/// Version stamp of `tab`'s custom strip label (`None` when the tab draws the standard icon + title).
+pub fn tab_lead_stamp(app: &App, p: &Pal, plugin: &str, tab: &PanelTabDesc, selected: bool) -> Option<u64> {
+    use std::hash::{Hash, Hasher};
+    let (i, all) = panels(app, plugin)?;
+    let k = owner(&all, &tab.id)?;
+    all[k].label.as_ref()?;
+    let plug = &app.plugins.list[i];
+    let script = plug.script()?;
+    let session = app.active_session_id().unwrap_or_default();
+    let surface = format!("label:{}:{session}:{}", all[k].spec.id, tab.id);
+    let reads = plug.half.reads.borrow().get(&surface).cloned();
+    // Until the label has rendered once and recorded its reads, force a build.
+    let Some(reads) = reads else {
+        return Some(app.plugins.renders.get().wrapping_add(1) | (1u64 << 63));
+    };
+    let mut h = std::hash::DefaultHasher::new();
+    (plug.half.surface_version(Some(script)), super::epoch(), p.theme, p.generation, p.dark, cx::stamp(app, &reads), session, &tab.id, selected).hash(&mut h);
+    Some(h.finish())
+}
+
 /// The plugin's `+` and New tab entries: each single panel that wants a launcher, then its
 /// `session.panel` menu items (`menu:<key>`).
 pub fn launchers(app: &App, ctx: &PanelSessionCtx) -> Vec<PanelLauncherDesc> {

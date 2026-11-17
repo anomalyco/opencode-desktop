@@ -297,12 +297,20 @@ fn live(lua: &Lua, vmx: &Rc<Vmx>, id: String) -> mlua::Result<Table> {
         Ok(contract_generation(&i) as f64)
     })?;
     let i = id.clone();
+    let cached: RefCell<Option<(u64, mlua::RegistryKey)>> = RefCell::new(None);
     method(lua, &o, "Get", move |lua, ()| {
         cx::read(Dep::Contract(i.clone()));
-        let Some((data, fns)) = CONTRACTS.with_borrow(|c| c.get(&i).map(|p| (p.data.clone(), p.fns.clone()))) else { return Ok(Value::Nil) };
+        let generation = contract_generation(&i);
+        if let Some((_, key)) = cached.borrow().as_ref().filter(|(g, _)| *g == generation) {
+            return lua.registry_value::<Value>(key);
+        }
+        let Some((data, fns)) = CONTRACTS.with_borrow(|c| c.get(&i).map(|p| (p.data.clone(), p.fns.clone()))) else {
+            cached.borrow_mut().take();
+            return Ok(Value::Nil);
+        };
         let value = data.into_lua(lua)?;
         for (path, f) in fns {
-            let (gen_id, generation) = (i.clone(), contract_generation(&i));
+            let gen_id = i.clone();
             let fn_name = path.join(".");
             let proxy = lua.create_function(move |lua, args: MultiValue| {
                 // A provider that reloaded or went away answers nothing.
@@ -320,6 +328,8 @@ fn live(lua: &Lua, vmx: &Rc<Vmx>, id: String) -> mlua::Result<Table> {
             })?;
             set_path(lua, &value, &path, Value::Function(proxy))?;
         }
+        let key = lua.create_registry_value(value.clone())?;
+        *cached.borrow_mut() = Some((generation, key));
         Ok(value)
     })?;
     o.raw_set("Changed", signal(lua, vmx, &format!("Contracts.{id}.Changed"))?)?;
