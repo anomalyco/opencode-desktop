@@ -49,5 +49,9 @@
   "common.cancel": "අවලංගු කරන්න",
   "common.close": "වසන්න",
   "common.requestFailed": "ඉල්ලීම අසාර්ථක විය",
-  "common.moreOptions": "තවත් විකල්ප"
+  "common.moreOptions": "තවත් විකල්ප",
+  "onboarding.updateOpencode": "OpenCode යාවත්කාලීන කරන්න",
+  "error.updateVersion": "OpenCode යාවත්කාලීන කිරීම අවසන් නමුත් {{distro}} තවමත් වාර්තා කරන්නේ {{installed}}; අපේක්ෂිත {{expected}}",
+  "error.noVersion": "අනුවාදයක් නැත",
+  "error.busy": "{{distro}} වෙනත් කාර්යයක කාර්යබහුලයි. එය අවසන් වූ පසු නැවත උත්සාහ කරන්න."
 }

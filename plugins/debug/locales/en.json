@@ -58,5 +58,9 @@
   "console.placeholder": "Luau: an expression or a chunk, Enter to run",
   "console.costs": "{{plugin}} · {{kb}} KB · {{us}} µs per render · {{hits}} memo hits",
   "console.stopped": "{{plugin}} · not running",
-  "requestFailed": "Request failed"
+  "requestFailed": "Request failed",
+  "session.label": "SESSION",
+  "session.tip": "{{id}}. Click to copy.",
+  "session.none": "No session open",
+  "session.copyFailed": "Failed to copy session ID"
 }

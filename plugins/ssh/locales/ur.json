@@ -33,5 +33,9 @@
   "common.requestFailed": "درخواست ناکام ہوگئی",
   "common.close": "بند",
   "common.moreOptions": "مزید اختیارات",
-  "command.category.server": "سرور"
+  "command.category.server": "سرور",
+  "update": "اپ ڈیٹ کریں اور دوبارہ جڑیں۔",
+  "stage.incompatible": "سرور اپ ڈیٹ درکار ہے۔",
+  "error.version": "ریموٹ سروس کو منسلک کرنے سے پہلے اس ڈیسک ٹاپ ورژن سے مماثل ہونا چاہیے۔",
+  "error.unavailable": "SSH دستیاب نہیں ہے"
 }

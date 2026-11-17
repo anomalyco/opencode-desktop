@@ -33,5 +33,9 @@
   "common.requestFailed": "ጥያቄው አልተሳካም",
   "common.close": "ዝጋ",
   "common.moreOptions": "ተጨማሪ አማራጮች",
-  "command.category.server": "አገልጋይ"
+  "command.category.server": "አገልጋይ",
+  "update": "ያዘምኑ እና እንደገና ያገናኙ",
+  "stage.incompatible": "የአገልጋይ ዝመና ያስፈልጋል",
+  "error.version": "ከመገናኘትዎ በፊት የርቀት አገልግሎቱ ከዚህ የዴስክቶፕ ስሪት ጋር መዛመድ አለበት።",
+  "error.unavailable": "SSH አይገኝም"
 }

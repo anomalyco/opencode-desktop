@@ -33,5 +33,9 @@
   "common.requestFailed": "Beiðni mistókst",
   "common.close": "Loka",
   "common.moreOptions": "Fleiri valkostir",
-  "command.category.server": "Netþjónn"
+  "command.category.server": "Netþjónn",
+  "update": "Uppfærðu og tengdu aftur",
+  "stage.incompatible": "Þörf fyrir uppfærslu á netþjóni",
+  "error.version": "Fjarþjónustan verður að passa við þessa skrifborðsútgáfu áður en hún tengist.",
+  "error.unavailable": "SSH er ekki tiltækt"
 }

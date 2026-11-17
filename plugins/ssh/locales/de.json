@@ -33,5 +33,9 @@
   "common.requestFailed": "Anfrage fehlgeschlagen",
   "common.close": "Schließen",
   "common.moreOptions": "Weitere Optionen",
-  "command.category.server": "Server"
+  "command.category.server": "Server",
+  "update": "Aktualisieren und erneut verbinden",
+  "stage.incompatible": "Server-Update erforderlich",
+  "error.version": "Der Remote-Dienst muss vor der Verbindung mit dieser Desktop-Version übereinstimmen.",
+  "error.unavailable": "SSH ist nicht verfügbar"
 }

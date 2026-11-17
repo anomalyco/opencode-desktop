@@ -49,5 +49,9 @@
   "common.cancel": "Batal",
   "common.close": "Tutup",
   "common.requestFailed": "Permintaan gagal",
-  "common.moreOptions": "Pilihan lanjut"
+  "common.moreOptions": "Pilihan lanjut",
+  "onboarding.updateOpencode": "Kemas kini OpenCode",
+  "error.updateVersion": "Kemas kini OpenCode selesai tetapi {{distro}} masih melaporkan {{installed}}; sepatutnya {{expected}}",
+  "error.noVersion": "tiada versi",
+  "error.busy": "{{distro}} sedang sibuk dengan tugas lain. Cuba lagi apabila ia selesai."
 }

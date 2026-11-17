@@ -752,5 +752,7 @@
   "voice.panel": "Sprachanruf",
   "voice.rejoin": "Wieder beitreten",
   "voice.unmute": "Stummschaltung aufheben",
-  "voice.you": "Sie:"
+  "voice.you": "Sie:",
+  "dialog.directory.parent": "Übergeordnet",
+  "dialog.directory.root": "Stammverzeichnis"
 }

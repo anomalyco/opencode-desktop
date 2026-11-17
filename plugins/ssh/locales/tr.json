@@ -33,5 +33,9 @@
   "common.requestFailed": "İstek başarısız",
   "common.close": "Kapat",
   "common.moreOptions": "Daha fazla seçenek",
-  "command.category.server": "Sunucu"
+  "command.category.server": "Sunucu",
+  "update": "Güncelleyin ve yeniden bağlanın",
+  "stage.incompatible": "Sunucu güncellemesi gerekli",
+  "error.version": "Uzak hizmetin bağlanmadan önce bu Masaüstü sürümüyle eşleşmesi gerekir.",
+  "error.unavailable": "SSH kullanılamıyor"
 }

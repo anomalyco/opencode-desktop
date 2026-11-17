@@ -33,5 +33,9 @@
   "common.requestFailed": "Неуспешна заявка",
   "common.close": "затвори",
   "common.moreOptions": "Още опции",
-  "command.category.server": "сървър"
+  "command.category.server": "сървър",
+  "update": "Актуализиране и повторно свързване",
+  "stage.incompatible": "Изисква се актуализация на сървъра",
+  "error.version": "Отдалечената услуга трябва да съответства на тази версия на настолното приложение, преди да се свържете.",
+  "error.unavailable": "SSH не е наличен"
 }

@@ -49,5 +49,9 @@
   "common.cancel": "İptal",
   "common.close": "Kapat",
   "common.requestFailed": "İstek başarısız",
-  "common.moreOptions": "Daha fazla seçenek"
+  "common.moreOptions": "Daha fazla seçenek",
+  "onboarding.updateOpencode": "OpenCode'u güncelle",
+  "error.updateVersion": "OpenCode güncellemesi tamamlandı ancak {{distro}} hâlâ {{installed}} sürümünü bildiriyor; beklenen sürüm: {{expected}}",
+  "error.noVersion": "sürüm yok",
+  "error.busy": "{{distro}} başka bir görevle meşgul. Bittiğinde tekrar deneyin."
 }

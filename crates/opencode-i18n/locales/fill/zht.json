@@ -733,5 +733,7 @@
   "voice.panel": "語音通話",
   "voice.rejoin": "重新加入",
   "voice.unmute": "取消靜音",
-  "voice.you": "你："
+  "voice.you": "你：",
+  "dialog.directory.parent": "上層目錄",
+  "dialog.directory.root": "根目錄"
 }

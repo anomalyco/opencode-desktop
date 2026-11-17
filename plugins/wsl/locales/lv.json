@@ -49,5 +49,9 @@
   "common.cancel": "Atcelt",
   "common.close": "Aizvērt",
   "common.requestFailed": "Pieprasījums neizdevās",
-  "common.moreOptions": "Vairāk opciju"
+  "common.moreOptions": "Vairāk opciju",
+  "onboarding.updateOpencode": "Atjauniniet OpenCode",
+  "error.updateVersion": "OpenCode atjaunināšana pabeigta, bet {{distro}} joprojām rāda {{installed}}; gaidīts {{expected}}",
+  "error.noVersion": "nav versijas",
+  "error.busy": "{{distro}} ir aizņemts ar citu uzdevumu. Mēģiniet vēlreiz, kad tas būs pabeigts."
 }

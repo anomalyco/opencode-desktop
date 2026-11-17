@@ -49,5 +49,9 @@
   "common.cancel": "Бекор кардан",
   "common.close": "Пӯшед",
   "common.requestFailed": "Дархост иҷро нашуд",
-  "common.moreOptions": "Имконоти бештар"
+  "common.moreOptions": "Имконоти бештар",
+  "onboarding.updateOpencode": "Навсозӣ OpenCode",
+  "error.updateVersion": "OpenCode навсозӣ анҷом ёфт, аммо {{distro}} то ҳол гузориш медиҳад {{installed}}; интизорӣ {{expected}}",
+  "error.noVersion": "версия нест",
+  "error.busy": "{{distro}} бо кори дигар банд аст. Пас аз анҷоми он аз нав кӯшиш кунед."
 }

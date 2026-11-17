@@ -33,5 +33,9 @@
   "common.requestFailed": "Pyyntö epäonnistui",
   "common.close": "Sulje",
   "common.moreOptions": "Lisää vaihtoehtoja",
-  "command.category.server": "Palvelin"
+  "command.category.server": "Palvelin",
+  "update": "Päivitä ja yhdistä uudelleen",
+  "stage.incompatible": "Palvelinpäivitys vaaditaan",
+  "error.version": "Etäpalvelun on vastattava tätä työpöytäversiota ennen yhteyden muodostamista.",
+  "error.unavailable": "SSH ei ole käytettävissä"
 }

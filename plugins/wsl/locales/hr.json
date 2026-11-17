@@ -49,5 +49,9 @@
   "common.cancel": "Otkazati",
   "common.close": "Zatvoriti",
   "common.requestFailed": "Zahtjev nije uspio",
-  "common.moreOptions": "Više opcija"
+  "common.moreOptions": "Više opcija",
+  "onboarding.updateOpencode": "Ažurirajte OpenCode",
+  "error.updateVersion": "Ažuriranje aplikacije OpenCode je završeno, ali {{distro}} i dalje prijavljuje {{installed}}; očekivano je {{expected}}",
+  "error.noVersion": "nema verzije",
+  "error.busy": "{{distro}} je zauzet drugim zadatkom. Pokušajte ponovno kada završi."
 }

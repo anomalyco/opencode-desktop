@@ -1,0 +1,7 @@
+{
+  "dialog.directory.parent": "Parent",
+  "dialog.directory.root": "Root",
+  "dialog.mcp.signIn.paste.label": "Redirect URL",
+  "dialog.mcp.signIn.paste.placeholder": "http://127.0.0.1:…/callback?code=…",
+  "dialog.mcp.signIn.paste.required": "Paste the URL from the browser's address bar"
+}

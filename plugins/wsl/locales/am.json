@@ -49,5 +49,9 @@
   "common.cancel": "ሰርዝ",
   "common.close": "ዝጋ",
   "common.requestFailed": "ጥያቄው አልተሳካም",
-  "common.moreOptions": "ተጨማሪ አማራጮች"
+  "common.moreOptions": "ተጨማሪ አማራጮች",
+  "onboarding.updateOpencode": "አዘምን OpenCode",
+  "error.updateVersion": "OpenCode ዝማኔ አልቋል ግን {{distro}} አሁንም ሪፖርት ያደርጋል {{installed}}; የሚጠበቀው {{expected}}",
+  "error.noVersion": "ምንም ስሪት የለም",
+  "error.busy": "{{distro}} በሌላ ተግባር ተይዟል። ሲጠናቀቅ እንደገና ይሞክሩ።"
 }

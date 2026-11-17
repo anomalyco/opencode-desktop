@@ -33,5 +33,9 @@
   "common.requestFailed": "Хүсэлт амжилтгүй боллоо",
   "common.close": "Хаах",
   "common.moreOptions": "Илүү олон сонголт",
-  "command.category.server": "Сервер"
+  "command.category.server": "Сервер",
+  "update": "Шинэчлэх болон дахин холбох",
+  "stage.incompatible": "Серверийн шинэчлэл шаардлагатай",
+  "error.version": "Холбогдохын өмнө алсын үйлчилгээ нь энэ Десктоп хувилбартай нийцсэн байх ёстой.",
+  "error.unavailable": "SSH боломжгүй байна"
 }

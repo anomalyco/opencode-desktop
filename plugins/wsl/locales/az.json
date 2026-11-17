@@ -49,5 +49,9 @@
   "common.cancel": "Ləğv et",
   "common.close": "Bağla",
   "common.requestFailed": "Sorğu uğursuz oldu",
-  "common.moreOptions": "Daha çox seçim"
+  "common.moreOptions": "Daha çox seçim",
+  "onboarding.updateOpencode": "OpenCode-u yeniləyin",
+  "error.updateVersion": "OpenCode yeniləməsi tamamlandı, lakin {{distro}} hələ də {{installed}} versiyasını bildirir; gözlənilən versiya: {{expected}}",
+  "error.noVersion": "versiya yoxdur",
+  "error.busy": "{{distro}} başqa tapşırıqla məşğuldur. Bitdikdən sonra yenidən cəhd edin."
 }

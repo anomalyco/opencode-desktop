@@ -33,5 +33,9 @@
   "common.requestFailed": "Zahteva ni uspela",
   "common.close": "Zapri",
   "common.moreOptions": "Več možnosti",
-  "command.category.server": "Strežnik"
+  "command.category.server": "Strežnik",
+  "update": "Posodobi in se poveži znova",
+  "stage.incompatible": "Zahteva se posodobitev strežnika",
+  "error.version": "Oddaljena storitev se mora ujemati s to namizno različico pred povezavo.",
+  "error.unavailable": "SSH ni na voljo"
 }

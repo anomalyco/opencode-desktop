@@ -33,5 +33,9 @@
   "common.requestFailed": "A kérés sikertelen",
   "common.close": "Bezárás",
   "common.moreOptions": "További lehetőségek",
-  "command.category.server": "Kiszolgáló"
+  "command.category.server": "Kiszolgáló",
+  "update": "Frissítés és újracsatlakozás",
+  "stage.incompatible": "Szerverfrissítés szükséges",
+  "error.version": "A távoli szolgáltatásnak meg kell egyeznie ezzel az asztali verzióval a csatlakozás előtt.",
+  "error.unavailable": "Az SSH nem érhető el"
 }

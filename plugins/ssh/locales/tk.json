@@ -33,5 +33,9 @@
   "common.requestFailed": "Talap başa barmady",
   "common.close": ".Akyn",
   "common.moreOptions": "Has köp wariant",
-  "command.category.server": "Serwer"
+  "command.category.server": "Serwer",
+  "update": "Täzelen we täzeden birikdir",
+  "stage.incompatible": "Serwer täzelenmesi zerur",
+  "error.version": "Uzakdaky hyzmat birikmezden ozal bu iş stoly wersiýasyna gabat gelmelidir.",
+  "error.unavailable": "SSH elýeterli däl"
 }

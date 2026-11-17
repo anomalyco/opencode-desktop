@@ -33,5 +33,9 @@
   "common.requestFailed": "Το αίτημα απέτυχε",
   "common.close": "Κλείσιμο",
   "common.moreOptions": "Περισσότερες επιλογές",
-  "command.category.server": "Διακομιστής"
+  "command.category.server": "Διακομιστής",
+  "update": "Ενημέρωση και επανασύνδεση",
+  "stage.incompatible": "Απαιτείται ενημέρωση διακομιστή",
+  "error.version": "Η απομακρυσμένη υπηρεσία πρέπει να ταιριάζει με αυτήν την έκδοση επιφάνειας εργασίας πριν από τη σύνδεση.",
+  "error.unavailable": "Το SSH δεν είναι διαθέσιμο"
 }

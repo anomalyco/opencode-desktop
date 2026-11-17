@@ -49,5 +49,9 @@
   "common.cancel": "Tühista",
   "common.close": "Sule",
   "common.requestFailed": "Taotlus ebaõnnestus",
-  "common.moreOptions": "Rohkem valikuid"
+  "common.moreOptions": "Rohkem valikuid",
+  "onboarding.updateOpencode": "Värskenda OpenCode",
+  "error.updateVersion": "OpenCode värskendus on lõpetatud, kuid {{distro}} teatab endiselt {{installed}}; oodata {{expected}}",
+  "error.noVersion": "versiooni pole",
+  "error.busy": "{{distro}} on hõivatud teise ülesandega. Proovi uuesti, kui see lõpeb."
 }

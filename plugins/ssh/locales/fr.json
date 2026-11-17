@@ -33,5 +33,9 @@
   "common.requestFailed": "La demande a échoué",
   "common.close": "Fermer",
   "common.moreOptions": "Plus d'options",
-  "command.category.server": "Serveur"
+  "command.category.server": "Serveur",
+  "update": "Mettre à jour et reconnecter",
+  "stage.incompatible": "Mise à jour du serveur requise",
+  "error.version": "Le service distant doit correspondre à cette version de bureau avant de se connecter.",
+  "error.unavailable": "SSH n’est pas disponible"
 }

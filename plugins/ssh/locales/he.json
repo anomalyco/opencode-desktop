@@ -33,5 +33,9 @@
   "common.requestFailed": "הבקשה נכשלה",
   "common.close": "סגור",
   "common.moreOptions": "אפשרויות נוספות",
-  "command.category.server": "שרת"
+  "command.category.server": "שרת",
+  "update": "עדכון והתחברות מחדש",
+  "stage.incompatible": "נדרש עדכון שרת",
+  "error.version": "גרסת השירות המרוחק חייבת להתאים לגרסת יישום שולחן העבודה לפני ההתחברות.",
+  "error.unavailable": "SSH אינו זמין"
 }

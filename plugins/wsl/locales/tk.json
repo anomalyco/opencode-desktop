@@ -49,5 +49,9 @@
   "common.cancel": "Elatyr",
   "common.close": ".Akyn",
   "common.requestFailed": "Talap başa barmady",
-  "common.moreOptions": "Has köp wariant"
+  "common.moreOptions": "Has köp wariant",
+  "onboarding.updateOpencode": "OpenCode täzeläň",
+  "error.updateVersion": "OpenCode täzelenmesi gutardy, ýöne {{distro}} henizem {{installed}} habar berýär; garaşylýan {{expected}}",
+  "error.noVersion": "wersiýasy ýok",
+  "error.busy": "{{distro}} başga iş bilen meşgul. Ol tamamlanandan soň täzeden synanyşyň."
 }

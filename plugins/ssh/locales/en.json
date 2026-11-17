@@ -34,5 +34,8 @@
   "common.requestFailed": "Request failed",
   "common.close": "Close",
   "common.moreOptions": "More options",
-  "command.category.server": "Server"
+  "command.category.server": "Server",
+  "update": "Update and reconnect",
+  "stage.incompatible": "Server update required",
+  "error.version": "The remote service must match this Desktop version before connecting."
 }

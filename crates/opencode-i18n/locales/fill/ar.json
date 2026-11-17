@@ -828,5 +828,7 @@
   "voice.panel": "مكالمة صوتية",
   "voice.rejoin": "إعادة الانضمام",
   "voice.unmute": "إلغاء كتم الصوت",
-  "voice.you": "أنت:"
+  "voice.you": "أنت:",
+  "dialog.directory.parent": "المجلد الأصل",
+  "dialog.directory.root": "الجذر"
 }

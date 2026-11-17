@@ -49,5 +49,9 @@
   "common.cancel": "キャンセル",
   "common.close": "閉じる",
   "common.requestFailed": "リクエストに失敗しました",
-  "common.moreOptions": "その他のオプション"
+  "common.moreOptions": "その他のオプション",
+  "onboarding.updateOpencode": "OpenCodeを更新",
+  "error.updateVersion": "OpenCodeのアップデートは完了しましたが、{{distro}}から報告されたバージョンはまだ{{installed}}です。想定されるバージョンは{{expected}}です",
+  "error.noVersion": "バージョンなし",
+  "error.busy": "{{distro}}は別のタスクを実行中です。完了してから再試行してください。"
 }

@@ -49,5 +49,9 @@
   "common.cancel": "Cancel·la",
   "common.close": "Tancar",
   "common.requestFailed": "La sol·licitud ha fallat",
-  "common.moreOptions": "Més opcions"
+  "common.moreOptions": "Més opcions",
+  "onboarding.updateOpencode": "Actualització OpenCode",
+  "error.updateVersion": "OpenCode actualització acabada però {{distro}} encara informa {{installed}}; esperat {{expected}}",
+  "error.noVersion": "cap versió",
+  "error.busy": "{{distro}} està ocupat amb una altra tasca. Torneu-ho a provar quan acabi."
 }

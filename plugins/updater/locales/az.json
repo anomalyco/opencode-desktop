@@ -30,5 +30,13 @@
   "releaseNotes.action.hideFuture": "Gələcəkdə göstərmə",
   "releaseNotes.media.alt": "Buraxılış önbaxışı",
   "common.requestFailed": "Sorğu uğursuz oldu",
-  "common.cancel": "Ləğv et"
+  "common.cancel": "Ləğv et",
+  "action.reload": "Yeniləmək üçün yenidən yüklə",
+  "action.reloading": "Yenidən yüklənir…",
+  "web.ready.title": "Yeniləmə hazırdır",
+  "web.ready.message": "OpenCode-un yeni versiyası hazırdır. Bütün açıq pəncərələrdə istifadə etmək üçün yenidən yükləyin.",
+  "web.reload": "Yenidən yüklə",
+  "web.reset.title": "Serverdən yenidən yüklə",
+  "web.reset.description": "Tətbiqin saxlanmış nüsxəsini təmizlə və serverin cari versiyasını yüklə",
+  "web.reset.action": "Serverdən yenidən yüklə"
 }

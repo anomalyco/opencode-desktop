@@ -49,5 +49,9 @@
   "common.cancel": "取消",
   "common.close": "關閉",
   "common.requestFailed": "要求失敗",
-  "common.moreOptions": "更多選項"
+  "common.moreOptions": "更多選項",
+  "onboarding.updateOpencode": "更新 OpenCode",
+  "error.updateVersion": "OpenCode 更新完成，但 {{distro}} 回報的版本仍為 {{installed}}；預期版本為 {{expected}}",
+  "error.noVersion": "無版本資訊",
+  "error.busy": "{{distro}} 正忙於其他工作。請在完成後再試一次。"
 }

@@ -49,5 +49,9 @@
   "common.cancel": "रद्द करें",
   "common.close": "बंद करें",
   "common.requestFailed": "अनुरोध विफल रहा",
-  "common.moreOptions": "अधिक विकल्प"
+  "common.moreOptions": "अधिक विकल्प",
+  "onboarding.updateOpencode": "OpenCode को अपडेट करें",
+  "error.updateVersion": "OpenCode अपडेट पूरा हो गया, लेकिन {{distro}} अब भी {{installed}} रिपोर्ट कर रहा है; अपेक्षित संस्करण {{expected}} है",
+  "error.noVersion": "कोई संस्करण नहीं",
+  "error.busy": "{{distro}} किसी अन्य कार्य में व्यस्त है। उसके पूरा होने पर पुनः प्रयास करें।"
 }

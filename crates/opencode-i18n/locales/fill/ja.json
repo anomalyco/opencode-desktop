@@ -733,5 +733,7 @@
   "voice.panel": "音声通話",
   "voice.rejoin": "再参加",
   "voice.unmute": "ミュートを解除",
-  "voice.you": "あなた:"
+  "voice.you": "あなた:",
+  "dialog.directory.parent": "親フォルダ",
+  "dialog.directory.root": "ルート"
 }

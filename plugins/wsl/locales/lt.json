@@ -49,5 +49,9 @@
   "common.cancel": "Atšaukti",
   "common.close": "Uždaryti",
   "common.requestFailed": "Užklausa nepavyko",
-  "common.moreOptions": "Daugiau parinkčių"
+  "common.moreOptions": "Daugiau parinkčių",
+  "onboarding.updateOpencode": "Atnaujinkite OpenCode",
+  "error.updateVersion": "OpenCode naujinimas baigtas, bet {{distro}} vis dar praneša {{installed}}; tikėtasi {{expected}}",
+  "error.noVersion": "versijos nėra",
+  "error.busy": "{{distro}} užimtas kita užduotimi. Bandykite dar kartą, kai ji bus baigta."
 }

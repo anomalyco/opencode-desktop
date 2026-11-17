@@ -733,5 +733,7 @@
   "voice.panel": "음성 통화",
   "voice.rejoin": "다시 참여",
   "voice.unmute": "음소거 해제",
-  "voice.you": "나:"
+  "voice.you": "나:",
+  "dialog.directory.parent": "상위 폴더",
+  "dialog.directory.root": "루트"
 }

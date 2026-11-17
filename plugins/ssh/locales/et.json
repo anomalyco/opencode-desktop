@@ -33,5 +33,9 @@
   "common.requestFailed": "Taotlus ebaõnnestus",
   "common.close": "Sule",
   "common.moreOptions": "Rohkem valikuid",
-  "command.category.server": "Server"
+  "command.category.server": "Server",
+  "update": "Värskendage ja ühendage uuesti",
+  "stage.incompatible": "Vajalik serveri värskendus",
+  "error.version": "Kaugteenus peab enne ühenduse loomist vastama sellele töölauaversioonile.",
+  "error.unavailable": "SSH pole saadaval"
 }

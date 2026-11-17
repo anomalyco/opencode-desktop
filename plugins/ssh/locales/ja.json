@@ -33,5 +33,9 @@
   "common.requestFailed": "リクエストに失敗しました",
   "common.close": "閉じる",
   "common.moreOptions": "その他のオプション",
-  "command.category.server": "サーバー"
+  "command.category.server": "サーバー",
+  "update": "更新して再接続",
+  "stage.incompatible": "サーバーの更新が必要です",
+  "error.version": "接続する前に、リモートサービスがこのデスクトップバージョンと一致している必要があります。",
+  "error.unavailable": "SSHを利用できません"
 }

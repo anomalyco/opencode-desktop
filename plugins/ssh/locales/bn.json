@@ -33,5 +33,9 @@
   "common.requestFailed": "অনুরোধ ব্যর্থ হয়েছে",
   "common.close": "বন্ধ",
   "common.moreOptions": "আরও বিকল্প",
-  "command.category.server": "সার্ভার"
+  "command.category.server": "সার্ভার",
+  "update": "আপডেট এবং পুনরায় সংযোগ",
+  "stage.incompatible": "সার্ভার আপডেট প্রয়োজন",
+  "error.version": "সংযোগ করার আগে দূরবর্তী পরিষেবা অবশ্যই এই ডেস্কটপ সংস্করণের সাথে মিলবে৷",
+  "error.unavailable": "SSH উপলব্ধ নয়"
 }

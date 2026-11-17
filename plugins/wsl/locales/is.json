@@ -49,5 +49,9 @@
   "common.cancel": "Hætta við",
   "common.close": "Loka",
   "common.requestFailed": "Beiðni mistókst",
-  "common.moreOptions": "Fleiri valkostir"
+  "common.moreOptions": "Fleiri valkostir",
+  "onboarding.updateOpencode": "Uppfærðu OpenCode",
+  "error.updateVersion": "Uppfærslu OpenCode lauk en {{distro}} tilkynnir enn {{installed}}; vænt var {{expected}}",
+  "error.noVersion": "engin útgáfa",
+  "error.busy": "{{distro}} er upptekin við annað verk. Reyndu aftur þegar því lýkur."
 }

@@ -33,5 +33,9 @@
   "common.requestFailed": "Umbønin miseydnaðist",
   "common.close": "Lat aftur",
   "common.moreOptions": "Fleiri møguleikar",
-  "command.category.server": "Ambætari"
+  "command.category.server": "Ambætari",
+  "update": "Dagfør og set samband aftur",
+  "stage.incompatible": "Ambætaradagføring krevst",
+  "error.version": "Fjartænastan skal passa til hesa skriviborðsútgávuna áðrenn tú setur samband.",
+  "error.unavailable": "SSH er ikki tøkt"
 }

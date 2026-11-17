@@ -49,5 +49,9 @@
   "common.cancel": "Hủy",
   "common.close": "Đóng",
   "common.requestFailed": "Không thực hiện được yêu cầu",
-  "common.moreOptions": "Nhiều lựa chọn hơn"
+  "common.moreOptions": "Nhiều lựa chọn hơn",
+  "onboarding.updateOpencode": "Cập nhật OpenCode",
+  "error.updateVersion": "Đã cập nhật OpenCode nhưng {{distro}} vẫn báo phiên bản {{installed}}; phiên bản dự kiến là {{expected}}",
+  "error.noVersion": "không có phiên bản",
+  "error.busy": "{{distro}} đang bận với tác vụ khác. Hãy thử lại khi tác vụ đó hoàn tất."
 }

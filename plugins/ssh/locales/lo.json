@@ -33,5 +33,9 @@
   "common.requestFailed": "ການຮ້ອງຂໍລົ້ມເຫລວ",
   "common.close": "ປິດ",
   "common.moreOptions": "ທາງເລືອກເພີ່ມເຕີມ",
-  "command.category.server": "ເຊີບເວີ"
+  "command.category.server": "ເຊີບເວີ",
+  "update": "ອັບເດດແລະເຊື່ອມຕໍ່ໃຫມ່",
+  "stage.incompatible": "ຕ້ອງການອັບເດດເຊີບເວີ",
+  "error.version": "ບໍລິການທາງໄກຕ້ອງກົງກັບເວີຊັນ Desktop ນີ້ກ່ອນເຊື່ອມຕໍ່.",
+  "error.unavailable": "SSH ບໍ່ສາມາດໃຊ້ໄດ້"
 }

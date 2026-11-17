@@ -49,5 +49,9 @@
   "common.cancel": "لغو کنید",
   "common.close": "بستن",
   "common.requestFailed": "درخواست ناموفق بود",
-  "common.moreOptions": "گزینه های بیشتر"
+  "common.moreOptions": "گزینه های بیشتر",
+  "onboarding.updateOpencode": "OpenCode را به روز کنید",
+  "error.updateVersion": "به‌روزرسانی OpenCode به پایان رسید، اما {{distro}} همچنان {{installed}} را گزارش می‌کند. مورد انتظار {{expected}}",
+  "error.noVersion": "بدون نسخه",
+  "error.busy": "⁨{{distro}}⁩ مشغول کار دیگری است. پس از پایان آن دوباره تلاش کنید."
 }

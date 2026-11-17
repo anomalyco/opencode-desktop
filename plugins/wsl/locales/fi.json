@@ -49,5 +49,9 @@
   "common.cancel": "Peruuta",
   "common.close": "Sulje",
   "common.requestFailed": "Pyyntö epäonnistui",
-  "common.moreOptions": "Lisää vaihtoehtoja"
+  "common.moreOptions": "Lisää vaihtoehtoja",
+  "onboarding.updateOpencode": "Päivitä OpenCode",
+  "error.updateVersion": "OpenCoden päivitys valmistui, mutta {{distro}} ilmoittaa yhä version {{installed}}; odotettu versio on {{expected}}",
+  "error.noVersion": "ei versiota",
+  "error.busy": "{{distro}} on varattu toiseen tehtävään. Yritä uudelleen, kun se on valmis."
 }

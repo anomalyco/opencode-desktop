@@ -771,5 +771,7 @@
   "voice.panel": "שיחה קולית",
   "voice.rejoin": "הצטרפות מחדש",
   "voice.unmute": "ביטול ההשתקה",
-  "voice.you": "אתה:"
+  "voice.you": "אתה:",
+  "dialog.directory.parent": "תיקיית אב",
+  "dialog.directory.root": "שורש"
 }

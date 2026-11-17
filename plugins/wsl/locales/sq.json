@@ -49,5 +49,9 @@
   "common.cancel": "Anulo",
   "common.close": "Mbylle",
   "common.requestFailed": "Kërkesa dështoi",
-  "common.moreOptions": "Më shumë opsione"
+  "common.moreOptions": "Më shumë opsione",
+  "onboarding.updateOpencode": "Përditëso OpenCode",
+  "error.updateVersion": "Përditësimi i OpenCode përfundoi, por {{distro}} ende raporton {{installed}}; pritet {{expected}}",
+  "error.noVersion": "asnjë version",
+  "error.busy": "{{distro}} është i zënë me një detyrë tjetër. Provoni sërish kur të përfundojë."
 }

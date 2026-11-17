@@ -49,5 +49,9 @@
   "common.cancel": "မလုပ်တော့",
   "common.close": "ပိတ်ပါ။",
   "common.requestFailed": "တောင်းဆိုမှု မအောင်မြင်ပါ။",
-  "common.moreOptions": "နောက်ထပ် ရွေးချယ်စရာများ"
+  "common.moreOptions": "နောက်ထပ် ရွေးချယ်စရာများ",
+  "onboarding.updateOpencode": "OpenCode ကို အပ်ဒိတ်လုပ်ပါ။",
+  "error.updateVersion": "OpenCode အပ်ဒိတ် ပြီးဆုံးသွားသော်လည်း {{distro}} သည် {{installed}} မှ ဆက်လက်တင်ပြနေပါသည်။ {{expected}} မျှော်လင့်ထားသည်။",
+  "error.noVersion": "ဗားရှင်းမရှိပါ။",
+  "error.busy": "{{distro}} သည် အခြားလုပ်ငန်းတစ်ခုဖြင့် အလုပ်များနေသည်။ ၎င်းပြီးဆုံးသောအခါ ထပ်ကြိုးစားပါ။"
 }

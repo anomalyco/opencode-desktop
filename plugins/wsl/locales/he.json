@@ -49,5 +49,9 @@
   "common.cancel": "בטל",
   "common.close": "סגור",
   "common.requestFailed": "הבקשה נכשלה",
-  "common.moreOptions": "אפשרויות נוספות"
+  "common.moreOptions": "אפשרויות נוספות",
+  "onboarding.updateOpencode": "עדכון OpenCode",
+  "error.updateVersion": "עדכון OpenCode הסתיים אך {{distro}} עדיין מדווח על {{installed}}; צפוי {{expected}}",
+  "error.noVersion": "אין גרסה",
+  "error.busy": "{{distro}} עסוק במשימה אחרת. נסה שוב כשהיא תסתיים."
 }

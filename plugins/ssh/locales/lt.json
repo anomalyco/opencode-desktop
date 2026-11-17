@@ -33,5 +33,9 @@
   "common.requestFailed": "Užklausa nepavyko",
   "common.close": "Uždaryti",
   "common.moreOptions": "Daugiau parinkčių",
-  "command.category.server": "Serveris"
+  "command.category.server": "Serveris",
+  "update": "Atnaujinkite ir vėl prijunkite",
+  "stage.incompatible": "Reikalingas serverio atnaujinimas",
+  "error.version": "Prieš prisijungiant, nuotolinė paslauga turi atitikti šią darbalaukio versiją.",
+  "error.unavailable": "SSH nepasiekiamas"
 }
