@@ -9,7 +9,7 @@
 /// more on Windows.
 #[cfg(not(target_arch = "wasm32"))]
 #[global_allocator]
-static ALLOC: procwatch::alloc::Counting<mimalloc::MiMalloc> = procwatch::alloc::Counting::new(mimalloc::MiMalloc);
+static ALLOC: procwatch::alloc::Counting<launch::last_exit::OomGuard<mimalloc::MiMalloc>> = procwatch::alloc::Counting::new(launch::last_exit::OomGuard(mimalloc::MiMalloc));
 
 /// mimalloc commits each medium and large page whole when a thread heap takes it; on demand it
 /// commits a page only as blocks are carved from it. Every thread that allocates holds such pages
