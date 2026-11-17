@@ -15,7 +15,7 @@ pub(super) mod touch;
 pub(super) fn composer_dock(s: &App, p: &Pal) -> El {
     let (queue, status) = match &*s.route {
         Route::Session { id, .. } => (
-            Some(crate::queue::panel(s, p, id, s.busy(id))),
+            Some(col().key("queue-room").w_full().items_center().child(crate::queue::panel(s, p, id, s.busy(id)))),
             crate::subagents::reply::status_line(s, p, id),
         ),
         _ => (None, None),

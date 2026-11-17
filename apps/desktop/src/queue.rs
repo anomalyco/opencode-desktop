@@ -350,9 +350,10 @@ const TUCK: f32 = 12.0;
 /// a dock blocks the composer (`SessionQueuePanel hidden={blocked}`); it opens again after.
 pub fn panel(s: &App, p: &Pal, session: &str, busy: bool) -> El {
     let rows = shown_rows(s, session);
-    let shell = col().key("queue").w_full().max_w(session_view::style::dock_w()).clip_soft(0.0);
+    let shell = col().key("queue").w_full().max_w(session_view::style::dock_w()).clip_soft(0.0)
+        .radius(10.0).fill(p.bg_base).box_shadow(Pal::ring_in(p.border));
     if rows.is_empty() {
-        return shell.h(0.0);
+        return shell.h(0.0).inert().a11y_hidden();
     }
     let n = rows.len();
     let ops = s.queue_ops.get(session);
@@ -381,9 +382,6 @@ pub fn panel(s: &App, p: &Pal, session: &str, busy: bool) -> El {
     let mut tray = col()
         .key("queue-tray")
         .w_full()
-        .radius(10.0)
-        .fill(p.bg_base)
-        .box_shadow(Pal::ring_in(p.border))
         .px(6.0)
         .pt(6.0)
         .pb(if n > 4 { TUCK } else { TUCK + 6.0 });
