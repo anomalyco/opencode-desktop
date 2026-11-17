@@ -2,7 +2,8 @@
 //! them (`tips/model.ts` `createTipToasts`, with the coordinator's `tip` from
 //! `shell/notifications/coordinator.ts`): nothing for [`STARTUP_DELAY`] after the window opens,
 //! the first tip [`FIRST_TIP_DELAY`] after the app was first seen, then at most one a day, each
-//! one until it's closed or its button is pressed, shown by one focused window at a time.
+//! one until it's closed or its button is pressed, shown by one focused window at a time. Checked
+//! when the person next acts (input, focus, a route change), never on an idle timer.
 
 use std::cell::Cell;
 
@@ -115,11 +116,6 @@ pub fn select(history: &History, now: i64, installed: &Installed) -> Option<Tip>
     TIPS.iter().copied().find(|t| eligible(t))
 }
 
-/// When the selection may change next (`model.ts`'s timer), in epoch milliseconds.
-fn next_due(history: &History, now: i64) -> Option<i64> {
-    [history.last() + TIP_INTERVAL_MS, history.first_seen + FIRST_TIP_DELAY_MS].into_iter().filter(|t| *t > now).min()
-}
-
 thread_local! {
     /// The coordinator's `opencode:tip` lock: the window showing a tip, so no other one does.
     static HELD: Cell<bool> = const { Cell::new(false) };
@@ -156,6 +152,8 @@ pub enum Sync {
 pub enum Phase {
     #[default]
     Idle,
+    /// User activity asked whether a tip is due; waits only while `browse` or `hex` is still unknown.
+    Checking,
     /// This window shows `tip` in toast `toast`, holding the claim until it leaves this phase.
     Showing { tip: Tip, toast: u64, _claim: Claim },
 }
@@ -165,7 +163,7 @@ pub enum State {
     /// The window hasn't polled yet.
     #[default]
     Unstarted,
-    /// Just opened: nothing until the clock reaches `until` (`awake`).
+    /// Just opened: nothing until the clock reaches `until` and the person acts.
     Starting { until: f64 },
     Awake { sync: Sync, phase: Phase },
 }
@@ -184,6 +182,9 @@ pub struct Poll {
     pub online: bool,
     /// The window is focused and shown (`document.hasFocus() && !document.hidden`).
     pub open: bool,
+    /// Input, window focus or a route change since the last poll: when due tips are checked, so an
+    /// untouched window arms no timer.
+    pub acted: bool,
 }
 
 pub struct Installed {
@@ -203,7 +204,6 @@ pub enum Event {
 
 #[derive(Debug, PartialEq)]
 pub enum Effect {
-    WakeAt(f64),
     SyncMcp,
     CheckHex,
     /// Shows `tip` if no other window holds the [`Claim`], then writes `history` when given.
@@ -240,35 +240,35 @@ pub fn step(state: &mut State, event: Event) -> Vec<Effect> {
 fn polled(state: &mut State, poll: Poll) -> Vec<Effect> {
     match state {
         State::Unstarted => {
-            let until = poll.clock + STARTUP_DELAY;
-            *state = State::Starting { until };
-            vec![Effect::WakeAt(until)]
+            *state = State::Starting { until: poll.clock + STARTUP_DELAY };
+            vec![]
         }
-        State::Starting { until } if poll.clock + 1e-3 < *until => vec![Effect::WakeAt(*until)],
+        State::Starting { until } if poll.clock + 1e-3 < *until || !poll.acted => vec![],
         State::Starting { .. } => {
-            // `tips/model.ts`: start the check when the startup timer fires. Browse can
-            // already show; Hex's `when` waits for an explicit false.
+            // Past the startup quiet window, checked on the person's next input, focus or route
+            // change instead of a timer. Browse can show once listed; Hex waits for an explicit false.
             let check_hex = poll.hex_installed.is_none();
-            *state = State::Awake { sync: Sync::Offline, phase: Phase::Idle };
+            *state = State::Awake { sync: Sync::Offline, phase: Phase::Checking };
             let mut effects = polled(state, poll);
             if check_hex { effects.push(Effect::CheckHex); }
             effects
         }
         State::Awake { sync, phase } => {
             let mut effects = Vec::new();
-            match (*sync, poll.online) {
-                (Sync::Offline, true) => {
-                    *sync = Sync::Asked;
-                    effects.push(Effect::SyncMcp);
-                }
-                (Sync::Asked, false) => *sync = Sync::Offline,
-                _ => {}
+            if !poll.online {
+                *sync = Sync::Offline;
+            }
+            if poll.acted && matches!(phase, Phase::Idle) {
+                *phase = Phase::Checking;
+            }
+            if matches!(phase, Phase::Idle) {
+                return effects;
+            }
+            if *sync == Sync::Offline && poll.online {
+                *sync = Sync::Asked;
+                effects.push(Effect::SyncMcp);
             }
             let Some(browse) = poll.browse_installed else { return effects };
-            if let Some(due) = next_due(&poll.history, poll.now) {
-                let ms = (due - poll.now).min(i64::from(i32::MAX));
-                effects.push(Effect::WakeAt(poll.clock + ms as f64 / 1000.0));
-            }
             let selected = select(&poll.history, poll.now, &Installed { browse, hex: poll.hex_installed });
             if let Phase::Showing { tip, toast, .. } = phase {
                 if selected == Some(*tip) {
@@ -276,7 +276,12 @@ fn polled(state: &mut State, poll: Poll) -> Vec<Effect> {
                 }
                 effects.push(Effect::Hide(*toast));
                 *phase = Phase::Idle;
+                return effects;
             }
+            if browse && poll.hex_installed.is_none() {
+                return effects;
+            }
+            *phase = Phase::Idle;
             let Some(tip) = selected.filter(|_| poll.open) else { return effects };
             // `model.ts`'s show callback: the first showing of a tip starts its day.
             let history = (poll.history.current != tip.id()).then(|| History { current: tip.id().to_owned(), shown_at: poll.now, ..poll.history });

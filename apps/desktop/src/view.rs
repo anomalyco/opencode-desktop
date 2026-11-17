@@ -203,7 +203,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
             s.plugins.window_blurred.set(!focused);
             if focused { crate::launch::network_available(s, tx); }
             // The coordinator's `tip` opens on the window's `focus`.
-            crate::tips::poll(s, tx);
+            crate::tips::on_focus(s, focused);
         })
         // A resize across the breakpoint reaches the drawers in the frame it lands.
         .on_layout_tx(|s: &mut App, _, tx: &mut Tx| { if !crate::narrow::settle(s, tx) { tx.live_only(); } })
