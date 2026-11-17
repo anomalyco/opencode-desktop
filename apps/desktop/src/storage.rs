@@ -63,7 +63,6 @@ enum Opened {
 
 impl Opened {
     fn of(report: opencode_storage::BootReport) -> Opened {
-        BOOT_HOW.get_or_init(|| (report.raw_miss, report.wal_pending));
         match (report.error, report.damaged) {
             (Some(why), _) => Opened::Memory(why),
             (None, Some(kept)) => Opened::Fresh(kept),
@@ -136,9 +135,6 @@ fn told() -> MutexGuard<'static, Told> {
 static WAKERS: Mutex<Vec<Waker>> = Mutex::new(Vec::new());
 /// The boot packet's size and, of it, the plugin values', for the launch trace.
 static BOOT_BYTES: std::sync::OnceLock<(usize, usize)> = std::sync::OnceLock::new();
-/// Why the first frame's record didn't come from the file's start, and whether it came from the
-/// last quit's copy with the WAL still pending, for the launch trace.
-static BOOT_HOW: std::sync::OnceLock<(Option<&'static str>, bool)> = std::sync::OnceLock::new();
 
 fn step(phase: Phase, event: Event) -> (Phase, Option<Effect>) {
     match (phase, event) {
@@ -594,11 +590,6 @@ pub fn boot_bytes() -> Option<(usize, usize)> {
     BOOT_BYTES.get().copied()
 }
 
-/// Why the boot record wasn't read raw (none when it was), and whether the WAL was pending.
-pub fn boot_how() -> (Option<&'static str>, bool) {
-    BOOT_HOW.get().copied().unwrap_or_default()
-}
-
 /// Every plugin's enabled override and trusted files: from memory, or the boot packet when it
 /// knows them; none until stage B when it doesn't (the plugin files weren't imported yet).
 pub fn plugin_records() -> Option<(BTreeMap<String, bool>, BTreeMap<String, String>)> {
@@ -709,9 +700,7 @@ pub fn flush(reason: FlushReason, wait: bool) {
 /// update's helper, the next launch). Later reads and writes stay in memory.
 pub fn close() {
     crate::launch::last_exit::mark_clean();
-    // The quit's phase (a stage B still to join is joined); the storage's close then waits for
-    // the rows and the WAL's sync, once.
-    flush(FlushReason::Quit, false);
+    flush(FlushReason::Quit, true);
     let storage = match &*lock() {
         Some(Phase::Ready(s) | Phase::Early { storage: s, .. }) => s.clone(),
         _ => return,

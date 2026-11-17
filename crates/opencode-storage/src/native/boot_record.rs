@@ -154,11 +154,7 @@ pub enum FastBoot {
     Record(Vec<u8>),
     /// The WAL holds frames, so the record on file is the last checkpoint's: possibly a few
     /// writes behind. Used only when SQLite can't open the file (another process holds it).
-    Checkpointed(Vec<u8>, &'static str),
-    /// The WAL holds frames, and the quit that left them kept the record's copy as it stands
-    /// with them (`bootcopy`, stamped with where the WAL ends): the record, current, with the
-    /// WAL still to be checkpointed.
-    Pending(Vec<u8>, super::walstamp::Stamp),
+    Checkpointed(Vec<u8>),
     /// The file is there but this process may not read it (another process opened it without
     /// sharing).
     Denied,
@@ -173,23 +169,12 @@ const FIRST_READ: usize = 128 * 1024;
 /// Reads the boot record from `db` without SQLite: one `CreateFileW`, one read of the first two
 /// pages (and one per overflow page past them), and a size check of the WAL.
 pub fn read_raw(db: &Path) -> FastBoot {
-    match std::fs::File::open(db) {
-        Ok(file) => read_file(db, &file),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => FastBoot::UseSqlite("no database file"),
-        Err(_) => FastBoot::Denied,
-    }
-}
-
-/// [`read_raw`] through a handle already open on `db` (the storage's kept one, `dbfile`: closing
-/// another would drop the connection's locks on POSIX).
-pub(super) fn read_file(db: &Path, file: &std::fs::File) -> FastBoot {
     let wal_frames = wal_len(&PathBuf::from(format!("{}-wal", db.display()))) > 0;
-    // The last quit left the WAL synced and the record's copy beside it: that's the record, and
-    // the file's own (the last checkpoint's, possibly none yet) isn't read.
-    let pending = if wal_frames { Some(pending_copy(db)) } else { None };
-    if let Some(Ok((copy, stamp))) = pending {
-        return FastBoot::Pending(copy, stamp);
-    }
+    let file = match std::fs::File::open(db) {
+        Ok(file) => file,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return FastBoot::UseSqlite("no database file"),
+        Err(_) => return FastBoot::Denied,
+    };
     // The first 128 KiB: the header, page 2 and, with small pages, most of a record's overflow.
     let mut first = vec![0u8; FIRST_READ];
     let Some(n) = read_some(&file, &mut first, 0) else { return FastBoot::UseSqlite("unreadable") };
@@ -216,25 +201,7 @@ pub(super) fn read_file(db: &Path, file: &std::fs::File) -> FastBoot {
     if stamped != Some(generation) {
         return FastBoot::UseSqlite("stale record");
     }
-    if !wal_frames {
-        return FastBoot::Record(record);
-    }
-    FastBoot::Checkpointed(record, pending.and_then(Result::err).unwrap_or("the WAL holds frames"))
-}
-
-/// The boot record's copy the last quit kept (`bootcopy`), when the WAL still ends where it did:
-/// the copy's file, the WAL's header and last frame header. Before SQLite opens the file.
-/// The error says why there's none (`BootReport::raw_miss`).
-fn pending_copy(db: &Path) -> Result<(Vec<u8>, super::walstamp::Stamp), &'static str> {
-    let (stamp, copy) = super::bootcopy::read(db).ok_or("the WAL holds frames; no whole copy of the record")?;
-    let wal = std::fs::File::open(format!("{}-wal", db.display())).map_err(|_| "the WAL holds frames; it can't be opened")?;
-    let now = super::walstamp::read(&wal).ok_or("the WAL holds frames; it doesn't end in a commit")?;
-    (now == stamp).then_some((copy, stamp)).ok_or("the WAL holds frames written after the record's copy")
-}
-
-/// Whether `db`'s WAL holds anything (its length, without opening it).
-pub(super) fn wal_has_frames(db: &Path) -> bool {
-    wal_len(&PathBuf::from(format!("{}-wal", db.display()))) > 0
+    if wal_frames { FastBoot::Checkpointed(record) } else { FastBoot::Record(record) }
 }
 
 /// The WAL's length without opening it: `GetFileAttributesExW` reads the directory entry, where

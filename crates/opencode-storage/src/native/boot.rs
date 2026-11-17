@@ -25,10 +25,8 @@ use super::{Backend, StorageConfig, journal, sql, writer};
 
 mod damaged;
 mod owed;
-mod quitting;
 use damaged::{adopt_shown, damaged, keep_damaged};
 use owed::{Owe, attach_journal, owned_journal, record_owns_journal};
-use quitting::{Quitting, await_quit, raw_packet};
 use crate::cache::{Cache, Doc, Namespace, OutboxCache};
 use crate::{Storage, WindowFrame};
 
@@ -83,9 +81,6 @@ pub struct BootReport {
     pub journal_replayed: bool,
     /// Why this run has no journal, when it hasn't.
     pub journal_error: Option<String>,
-    /// The first frame's record came from the copy the last quit kept (`FastBoot::Pending`): the
-    /// WAL holds that quit's frames, checkpointed after the first frame.
-    pub wal_pending: bool,
     /// The file couldn't be read (damaged: a power cut, a disk error) and was moved here; this
     /// run started a new one beside it.
     pub damaged: Option<std::path::PathBuf>,
@@ -213,19 +208,37 @@ fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket), gate: &Gate) -> (St
     // record, or a first-run screen when the file can't even be read.
     let mut held: Option<BootPacket> = None;
     let mut owe = Owe { want_journal: true, ..Owe::default() };
-    let raw = boot_record::read_raw(&config.path);
-    // The WAL holds frames the record on file may be behind, and there's no copy of the record
-    // for them: an instance may still be quitting (`await_quit`).
-    let wal_waits = match &raw {
-        FastBoot::Checkpointed(..) => true,
-        FastBoot::UseSqlite(why) => *why != "no database file" && boot_record::wal_has_frames(&config.path),
-        _ => false,
-    };
-    match raw {
-        FastBoot::Record(bytes) => raw_packet(bytes, false, &mut report, &mut owe, &mut packet, t0, send),
-        FastBoot::Pending(bytes, _) => raw_packet(bytes, true, &mut report, &mut owe, &mut packet, t0, send),
-        FastBoot::Checkpointed(bytes, why) => {
-            report.raw_miss = Some(why);
+    match boot_record::read_raw(&config.path) {
+        FastBoot::Record(bytes) => {
+            report.raw_read_ns = ns(t0);
+            let t = Instant::now();
+            report.boot_bytes = bytes.len();
+            match BootPacket::parse(bytes) {
+                Some(mut p) => {
+                    report.decode_ns = ns(t);
+                    report.boot_source = BootSource::Raw;
+                    report.plugin_bytes = p.plugin_bytes();
+                    p.source = BootSource::Raw;
+                    p.read_ns = report.raw_read_ns;
+                    p.decode_ns = report.decode_ns;
+                    report.stage_a_ns = ns(t0);
+                    owe.hint = owned_journal(&p);
+                    // A record that names a journal waits for it (after the claim): what it holds
+                    // may be newer than the record, and the first frame shows the newer. One that
+                    // names none (the first launch after the update) has nothing to wait for: the
+                    // journal is reserved beside the first frame, before the first key.
+                    if owe.hint.is_some() {
+                        owe.packet = Some(p);
+                    } else {
+                        packet = Some(p.clone());
+                        send(p);
+                    }
+                }
+                None => report.raw_miss = Some("torn record"),
+            }
+        }
+        FastBoot::Checkpointed(bytes) => {
+            report.raw_miss = Some("the WAL holds frames");
             held = BootPacket::parse(bytes).map(|mut p| {
                 p.source = BootSource::Checkpoint;
                 p
@@ -256,27 +269,6 @@ fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket), gate: &Gate) -> (St
         journal::decided();
         return (Storage::memory(), report);
     }
-    let mut opened = None;
-    if wal_waits {
-        match await_quit(&config, &mut report, t0, send, &mut owe, &mut early) {
-            Quitting::Opened(result) => {
-                held = None;
-                opened = Some(result);
-            }
-            Quitting::Copy(bytes) => {
-                raw_packet(bytes, true, &mut report, &mut owe, &mut packet, t0, send);
-                if report.boot_source == BootSource::Raw {
-                    held = None;
-                }
-            }
-            Quitting::Waited => {}
-        }
-        if report.boot_source != BootSource::Raw {
-            // After a kill, or a quit that couldn't leave the record's copy: the first frame's
-            // record waited for SQLite to read the WAL.
-            eprintln!("opencode-storage: {}: the first frame's record comes from SQLite", report.raw_miss.unwrap_or_default());
-        }
-    }
     // The record names the journal's place: mapped here, so the windows get their packet without
     // SQLite in the way (another process may hold its lock). A place that doesn't hold it any
     // more: the packet goes as it is, and stage B reserves the journal again.
@@ -293,12 +285,9 @@ fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket), gate: &Gate) -> (St
         packet = Some(p.clone());
         send(p);
     }
-    let mut result = match opened.take() {
-        Some(result) => result,
-        None => match held.take() {
-            Some(fallback) => held_open(&config, &mut report, t0, send, &mut owe, &mut early, gate, fallback, &mut packet),
-            None => stage_b(&config, &mut report, t0, if packet.is_some() { None } else { Some(send) }, &mut owe, &mut early, Lock::Wait),
-        },
+    let mut result = match held.take() {
+        Some(fallback) => held_open(&config, &mut report, t0, send, &mut owe, &mut early, gate, fallback, &mut packet),
+        None => stage_b(&config, &mut report, t0, if packet.is_some() { None } else { Some(send) }, &mut owe, &mut early, Lock::Wait),
     };
     // The packet waited on stage B for its journal: the windows have it now (or, when stage B
     // couldn't open the file, get it without one).
@@ -360,7 +349,7 @@ fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket), gate: &Gate) -> (St
         Ok((conn, cache, deferred)) => {
             let cache = super::shared(cache);
             // A run that read the record through SQLite leaves the WAL to checkpoint at quit.
-            let w = writer::Writer::new(conn, cache.clone(), config.clock, deferred, report.boot_source != BootSource::Raw || report.wal_pending, !report.wal_pending, owe.journal, report.created);
+            let w = writer::Writer::new(conn, cache.clone(), config.clock, deferred, report.boot_source != BootSource::Raw, owe.journal, report.created);
             (Storage::from_parts(cache, Backend::parked(w)), report)
         }
         Err(e) => {

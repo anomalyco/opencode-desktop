@@ -42,9 +42,6 @@ pub struct BootReport {
     pub damaged: Option<std::path::PathBuf>,
     pub created: bool,
     pub journal_replayed: bool,
-    /// Never set on the web (no file to read raw); native's twins.
-    pub raw_miss: Option<&'static str>,
-    pub wal_pending: bool,
 }
 
 type StateKey = (String, String);
