@@ -335,6 +335,15 @@ impl App {
                     }
                 }
                 location::Effect::Close => self.close_project_switcher(true),
+                location::Effect::CreateFrom { project, server, directory, branch } => {
+                    self.close_project_switcher(false);
+                    if let Some(server) = server.filter(|k| k != crate::servers::runtime::active(self)) {
+                        servers::select(self, &server, directory.clone(), tx);
+                    }
+                    self.choose_new_worktree(&project, directory);
+                    self.set_draft_base(Some(branch));
+                    self.composer.focused = self.stage.is_none() && crate::auto_focus_composer(tx);
+                }
             }
         }
         handled

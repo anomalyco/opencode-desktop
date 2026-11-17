@@ -43,6 +43,9 @@ pub(in crate::view) fn location(s: &App, p: &Pal, width: f32) -> El {
     // `workspace/selector.tsx`: the checkout branch opens the location dialog. Local is a
     // destination in the dialog, not a second button next to the branch.
     let branch = project.filter(|p| project_git(&p.id) || branch.is_some()).map(|project| {
+        if s.draft_creates() {
+            return crate::new_worktree::trigger(s, p, branch.unwrap_or_else(|| t!("session.location.noBranch")));
+        }
         let label = s.draft_base().or(branch).unwrap_or_else(|| t!("session.location.noBranch"));
         let id = project.id.clone();
         let help = if used() { t!("session.location.worktree").to_owned() } else {

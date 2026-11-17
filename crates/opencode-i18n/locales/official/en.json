@@ -1040,6 +1040,7 @@
   "session.new.timedOut": "The server took too long to respond. Send again to retry.",
   "session.new.workspace.branch.search.placeholder": "Search branches",
   "session.new.workspace.existingLabel": "Worktree",
+  "session.new.workspace.useMainCheckout": "Use main checkout",
   "session.new.workspace.fromBranch": "from {{branch}}",
   "session.new.workspace.local": "Local repository",
   "session.new.workspace.local.tooltip": "Uses project’s current checkout",

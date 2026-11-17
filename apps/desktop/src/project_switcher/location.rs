@@ -63,6 +63,7 @@ pub(crate) enum Effect {
     Focus(Option<String>),
     /// The new step's field starts on `query`, the caret at its end.
     Query(String),
+    CreateFrom { project: String, server: Option<opencode_kit::servers::ServerKey>, directory: String, branch: String },
     Close,
 }
 
@@ -81,15 +82,8 @@ pub(crate) fn step(mode: &mut StepMode, query: &str, history: &mut Vec<Frame>, e
             (enter(mode, query, history, Some("base".to_owned()), next), true)
         }
         Event::BranchChosen(branch) => {
-            let StepMode::Branches { project, server, direct, .. } = &*mode else { return (Effects::none(), false) };
-            // A branch sets only the dialog's proposed base. The draft changes when Create is chosen.
-            if history.last().is_some_and(|f| matches!(f.mode, StepMode::Worktrees { .. })) {
-                let effects = back(mode, history);
-                if let StepMode::Worktrees { base, .. } = mode { *base = Some(branch); }
-                return (effects, true);
-            }
-            *mode = StepMode::Worktrees { project: project.clone(), server: server.clone(), direct: *direct, base: Some(branch) };
-            (Effects::two(Effect::Query(String::new()), Effect::Focus(None)), true)
+            let StepMode::Branches { project, server, directory, .. } = &*mode else { return (Effects::none(), false) };
+            (Effects::one(Effect::CreateFrom { project: project.clone(), server: server.clone(), directory: directory.clone(), branch }), true)
         }
         // Picking a server again from the server step keeps its search and the way back.
         Event::Servers { active } => {
