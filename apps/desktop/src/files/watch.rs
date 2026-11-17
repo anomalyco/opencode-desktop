@@ -17,11 +17,13 @@ use crate::{App, Source};
 /// `(folder, path)`: the sessions whose open tabs hold its watch.
 pub(crate) type Watches = std::collections::HashMap<(String, String), BTreeSet<String>>;
 
-/// `sid`'s tab for `path` opened or showed: (re)arm its watch.
-pub(crate) fn watch(s: &mut App, sid: &str, path: &str) {
-    let Some(directory) = directory(s, sid, path) else { return };
+/// `sid`'s tab for `path` opened or showed: (re)arm its watch. False when it can't be asked yet
+/// (its session's folder isn't known) or at all (a fixture, a path outside the folder).
+pub(crate) fn watch(s: &mut App, sid: &str, path: &str) -> bool {
+    let Some(directory) = directory(s, sid, path) else { return false };
     s.files.watches.entry((directory.clone(), path.to_owned())).or_default().insert(sid.to_owned());
     send(s, "POST", &directory, path);
+    true
 }
 
 /// `sid`'s tab for `path` closed: the watch stops once no session's tab holds it.

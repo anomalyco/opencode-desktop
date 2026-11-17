@@ -188,6 +188,15 @@ impl Reads {
         self.states.iter().filter(|((s, _), r)| s == sid && **r == Read::Stale).map(|((_, p), _)| p.clone()).collect()
     }
 
+    /// A read that couldn't start (its session's folder isn't known yet): asked again later.
+    pub(crate) fn abandon(&mut self, sid: &str, path: &str) {
+        self.states.insert((sid.to_owned(), path.to_owned()), Read::Stale);
+    }
+
+    pub(crate) fn running(&self, sid: &str, path: &str) -> bool {
+        matches!(self.states.get(&(sid.to_owned(), path.to_owned())), Some(Read::Reading { .. }))
+    }
+
     pub(crate) fn stale(&self, sid: &str, path: &str) -> bool {
         self.states.get(&(sid.to_owned(), path.to_owned())) == Some(&Read::Stale)
     }

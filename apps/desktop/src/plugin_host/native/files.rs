@@ -19,7 +19,8 @@ pub fn build(lua: &Lua, t: &Table) -> mlua::Result<()> {
     method(lua, t, "OpenTree", |lua, directory: String| {
         let app = app_now("Workspace:OpenTree")?;
         let sid = session_for(app, &directory).ok_or_else(|| mlua::Error::runtime(format!("Workspace:OpenTree: no session is open in {directory}")))?;
-        if !app.files.sessions.get(&sid).is_some_and(|w| w.ready) {
+        // Listed once its session's folder is known (an empty one would list the server's own).
+        if !app.files.sessions.get(&sid).is_some_and(|w| w.ready) && app.session(&sid).is_some_and(|i| !i.directory.is_empty()) {
             let id = sid.clone();
             app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
@@ -33,8 +34,12 @@ pub fn build(lua: &Lua, t: &Table) -> mlua::Result<()> {
         let app = app_now("Workspace:OpenDocument")?;
         let sid = app.active_session_id().ok_or_else(|| mlua::Error::runtime("Workspace:OpenDocument: no session is open"))?.to_owned();
         let path = crate::review::data::normalize_path(&path);
-        // A file not read yet, or one a failed refresh left stale, reads as it shows.
-        if !app.files.sessions.get(&sid).is_some_and(|w| w.docs.contains_key(&path)) || app.files.reads.stale(&sid, &path) {
+        // A file not read yet, one still loading with no read running (its session's folder
+        // wasn't known), or one a failed refresh left stale, reads as it shows.
+        let doc = app.files.sessions.get(&sid).and_then(|w| w.docs.get(&path));
+        let known = app.session(&sid).is_some_and(|i| !i.directory.is_empty());
+        let waiting = known && doc.is_some_and(|d| !d.ready()) && !app.files.reads.running(&sid, &path) && !crate::files::video::is_video(&path);
+        if doc.is_none() || waiting || (known && app.files.reads.stale(&sid, &path)) {
             let (id, at) = (sid.clone(), path.clone());
             app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
                 tx.instant();

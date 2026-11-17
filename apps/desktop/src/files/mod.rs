@@ -405,10 +405,11 @@ pub(crate) fn poll_files(s: &mut App, tx: &mut Tx) -> bool {
     }
     // A file tab that comes to show arms its watch again (Desktop's tab `focus` syncs it).
     let shown = s.active_file_tab().and_then(|(sid, path)| Some((sid, path?)));
+    // It counts as shown once its watch could be asked (its session's folder may come later).
     if shown != s.files.shown {
-        s.files.shown = shown.clone();
-        if let Some((sid, path)) = shown {
-            watch::watch(s, &sid, &path);
+        let armed = shown.as_ref().is_none_or(|(sid, path)| watch::watch(s, sid, path) || !matches!(*s.source, Source::Live { .. }));
+        if armed {
+            s.files.shown = shown;
         }
     }
     // Sync active file's live find query if open.
@@ -634,15 +635,14 @@ impl App {
                 ws.rebuild_tree();
             }
             Source::Live { server, .. } => {
+                // A session restored before the server has listed it has no folder yet: an empty
+                // one would list the server's own working folder. It's asked again as it shows.
+                let Some(directory) = self.session(session_id).map(|s| s.directory.clone()).filter(|d| !d.is_empty()) else { return };
                 let ws = self.files.sessions.entry(session_id.to_owned()).or_default();
                 if ws.listed_dirs.contains("") {
                     return;
                 }
                 ws.listed_dirs.insert(String::new());
-                let directory = self
-                    .session(session_id)
-                    .map(|s| s.directory.clone())
-                    .unwrap_or_default();
                 let srv = server.clone();
                 let sid = session_id.to_owned();
                 self.files
@@ -737,10 +737,12 @@ impl App {
             }
             Source::Live { server, .. } => {
                 let wrap = self.files.wrap;
-                let directory = self
-                    .session(session_id)
-                    .map(|s| s.directory.clone())
-                    .unwrap_or_default();
+                // No folder yet (a session restored before the server listed it): the file shows
+                // loading and reads once the folder is known (`OpenDocument` asks again).
+                let Some(directory) = self.session(session_id).map(|s| s.directory.clone()).filter(|d| !d.is_empty()) else {
+                    self.files.sessions.entry(session_id.to_owned()).or_default().docs.entry(path.to_owned()).or_insert_with(|| wrap.doc(path, ""));
+                    return;
+                };
                 // A video streams into its player where it lies: nothing is read first. One that
                 // can't play is read as any other file, and shows as the binary file it is.
                 let failed = self.files.sessions.get(session_id).and_then(|w| w.videos.get(path)).is_some_and(video::FileVideo::failed);
@@ -783,7 +785,10 @@ impl App {
     pub(crate) fn start_read(&mut self, sid: &str, path: &str, attempt: u64) {
         let Source::Live { server, .. } = &*self.source else { return };
         let server = server.clone();
-        let directory = self.session(sid).map(|s| s.directory.clone()).unwrap_or_default();
+        let Some(directory) = self.session(sid).map(|s| s.directory.clone()).filter(|d| !d.is_empty()) else {
+            self.files.reads.abandon(sid, path);
+            return;
+        };
         let find = self.files.sessions.get(sid).and_then(|w| w.docs.get(path)).and_then(|d| d.find_query());
         self.files.reads.start(&server, &directory, sid, path, attempt, find);
     }
