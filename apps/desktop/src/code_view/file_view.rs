@@ -118,11 +118,12 @@ impl<S: 'static> CodeViewer<S> {
         // `pierre/index.ts:329`), and Desktop's file tab leaves 160 px of the panel under the last
         // (`gui-plugins/src/file/view.tsx:480`, `pb-40`).
         let bar = super::scroll_bar(p);
+        let pad_r = super::scroll_gutter(&bar, &scroll_key, &format!("{scroll_key}/rows"));
         let mut list = col()
             .key("rows")
             .w_full()
             .pb(160.0)
-            .pr(super::scroll_gutter(&bar, &scroll_key, &format!("{scroll_key}/rows")))
+            .pr(pad_r)
             .growth(GrowthSpec::default())
             .selection_group(true)
             .role("list")
@@ -130,12 +131,24 @@ impl<S: 'static> CodeViewer<S> {
         if !wrap {
             list = list.min_w(inner.content_width(st).max(st.view_width()));
         }
+        let line_est = if wrap && count > 0 {
+            match rune::memo::layout_with(&scroll_key, |r| r[2].to_bits()).map(f32::from_bits) {
+                Some(w) if w > 0.0 => {
+                    let code_w = (w - pad_r - inner.look.number_w(st.digits()) - 2.0 * inner.look.adv).max(40.0);
+                    let avg_cols = (st.size_bytes() / count).max(1) as f32;
+                    LINE_H * ((avg_cols * inner.look.adv) / code_w).ceil().clamp(1.0, 8.0)
+                }
+                _ => LINE_H,
+            }
+        } else {
+            LINE_H
+        };
         let bands = count.div_ceil(super::prepared::BAND_LINES as usize);
         let build_inner = inner.clone();
         let list = list
             .virtual_rows(
                 bands,
-                LINE_H * super::prepared::BAND_LINES as f32,
+                line_est * super::prepared::BAND_LINES as f32,
                 move |s: &S, b| key_get(s).band_key(b),
                 move |s: &S, b| build_inner.band(s, b),
             )

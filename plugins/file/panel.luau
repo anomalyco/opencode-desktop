@@ -143,7 +143,7 @@ function panel.wide(env: Env, view: View, props: PanelProps): ui.Node
     end
     local maxW = math.clamp(props.width * 0.6, 200, 480)
     return ui.panelSidebar({ id = "files", maxWidth = maxW, locked = launcher }, {
-        sidebar(env, props, tree, path),
+        if opened then sidebar(env, props, tree, path) else ui.col({}, {}),
         ui.col({ key = "files-main", w = "full", h = "full" }, main),
     })
 end

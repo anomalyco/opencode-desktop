@@ -177,13 +177,13 @@ return plugin.defineWindow(function(ctx)
     -- them, for the Files tree's change letters and the session details.
     Contracts:Provide("review.changes", {
         diffs = function(sid: string): { DiffFile }
-            return panel.doc(env, sid):Files()
+            return panel.cached(env, sid).files
         end,
         ready = function(sid: string): boolean
             return panel.doc(env, sid):Status() ~= "loading"
         end,
         kinds = function(sid: string): { [string]: ChangeKind }
-            return kinds.of(panel.doc(env, sid):Files())
+            return panel.cached(env, sid).kinds
         end,
         active = function(sid: string): string?
             return panel.doc(env, sid):Active()

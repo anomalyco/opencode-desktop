@@ -13,6 +13,14 @@ local panel = {}
 export type DiffStyle = "split" | "unified"
 export type ExpandMode = "expand" | "collapse"
 
+export type CachedDiff = {
+    version: number,
+    files: { DiffFile },
+    kinds: { [string]: ChangeKind },
+    marks: { [string]: ChangeKind },
+    order: { string },
+}
+
 export type Env = {
     I18n: I18nService,
     Diff: DiffService,
@@ -22,6 +30,7 @@ export type Env = {
     menuTrigger: boolean,
     -- One document per session, opened once.
     docs: { [string]: DiffDocument },
+    cache: { [string]: CachedDiff }?,
     -- The sidebar's filter.
     filter: Editor,
     style: StoreValue<{ diffStyle: DiffStyle }>,
@@ -43,6 +52,33 @@ function panel.doc(env: Env, sid: string): DiffDocument
         end
     end
     return doc
+end
+
+-- Memoizes `doc:Files()`, `kinds.of(...)`, `kinds.marks(...)` and `kinds.sorted(...)` per
+-- `doc:Version()`, so file reloads and multi-consumer reads do not re-marshal or re-sort paths.
+function panel.cached(env: Env, sid: string): CachedDiff
+    local doc = panel.doc(env, sid)
+    local v = doc:Version()
+    local store = env.cache
+    if store == nil then
+        store = {}
+        env.cache = store
+    end
+    local cur = (store :: { [string]: CachedDiff })[sid]
+    if cur ~= nil and cur.version == v then
+        return cur
+    end
+    local files = doc:Files()
+    local k = kinds.of(files)
+    local built: CachedDiff = {
+        version = v,
+        files = files,
+        kinds = k,
+        marks = kinds.marks(k),
+        order = kinds.sorted(kinds.paths(files)),
+    }
+    ;(store :: { [string]: CachedDiff })[sid] = built
+    return built
 end
 
 -- Compares `mode` in session `sid`, and remembers it.
@@ -203,7 +239,7 @@ local function noGit(env: Env): ui.Node
 end
 
 -- The sidebar: its header (source, totals, Open in without changes), the filter and the tree.
-local function sidebar(env: Env, view: View, sid: string, doc: DiffDocument, files: { DiffFile }, active: string?): ui.Node
+local function sidebar(env: Env, view: View, sid: string, doc: DiffDocument, marks: { [string]: ChangeKind }, active: string?): ui.Node
     local totals = doc:Totals()
     local status = doc:Status()
     local query = env.filter:Text()
@@ -225,7 +261,7 @@ local function sidebar(env: Env, view: View, sid: string, doc: DiffDocument, fil
         else ui.fileTree({
             tree = doc:Tree(),
             filter = query,
-            kinds = kinds.marks(kinds.of(files)),
+            kinds = marks,
             selectedPath = active,
             pt = 4,
             onSelect = view:Handler(function(event)
@@ -308,8 +344,9 @@ function panel.wide(env: Env, view: View, props: PanelProps): ui.Node
     local sid = props.sessionId
     local doc = panel.doc(env, sid)
     local status = doc:Status()
-    local files = doc:Files()
-    local order = kinds.sorted(kinds.paths(files))
+    local cur = panel.cached(env, sid)
+    local files = cur.files
+    local order = cur.order
     local active = doc:Active()
     local bar = env.Layout:PanelSidebar()
     local main: { ui.Node } = {}
@@ -336,7 +373,7 @@ function panel.wide(env: Env, view: View, props: PanelProps): ui.Node
     end
     local maxW = math.clamp(props.width * 0.6, 200, 480)
     return ui.panelSidebar({ id = "review", maxWidth = maxW }, {
-        sidebar(env, view, sid, doc, files, active),
+        if bar.opened then sidebar(env, view, sid, doc, cur.marks, active) else ui.col({}, {}),
         ui.col({ w = "full", h = "full" }, main),
     })
 end

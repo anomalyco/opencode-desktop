@@ -271,6 +271,23 @@ impl<S: 'static> Inner<S> {
         let r = st.rows[i];
         let key = st.keys[i].as_str();
         match r {
+            DiffRow::File(f) if self.d.header_actions.is_none() => {
+                let fu = f as usize;
+                let file = &st.files()[fu];
+                memo(
+                    key,
+                    (
+                        self.look.version,
+                        file.path(),
+                        file.status,
+                        file.additions(),
+                        file.deletions(),
+                        st.collapsed(fu),
+                        self.view_w(st).map(f32::to_bits),
+                    ),
+                    || self.file_header(s, st, fu, false),
+                )
+            }
             DiffRow::File(f) => self.file_header(s, st, f as usize, false),
             DiffRow::Note(f) => {
                 let fu = f as usize;

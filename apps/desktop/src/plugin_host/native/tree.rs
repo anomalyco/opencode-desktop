@@ -144,7 +144,35 @@ fn workspace(app: &App, p: &Pal, a: &NodeArgs, sid: &str, kinds: Rc<HashMap<Stri
         return col().key("files-tree-loading").w_full().grow(1.0).px(10.0).pt(8.0).child(text(opencode_i18n::t!("ui.sessionReview.image.loading")).font(UI_SMALL).color(p.muted));
     }
     if filter.is_empty() {
-        return crate::files::view::workspace_tree_view(p, sid, ws, selected.as_deref(), Some(kinds));
+        let tree_hash = {
+            use std::hash::{DefaultHasher, Hash, Hasher};
+            let mut expanded_xor = 0u64;
+            for dir in &ws.expanded_dirs {
+                let mut h = DefaultHasher::new();
+                dir.hash(&mut h);
+                expanded_xor ^= h.finish();
+            }
+            let mut kinds_xor = 0u64;
+            for (k, v) in kinds.iter() {
+                let mut h = DefaultHasher::new();
+                (k, v).hash(&mut h);
+                kinds_xor ^= h.finish();
+            }
+            (
+                ws.tree.visible_len(),
+                ws.known_files.len(),
+                ws.known_dirs.len(),
+                ws.expanded_dirs.len(),
+                expanded_xor,
+                kinds.len(),
+                kinds_xor,
+            )
+        };
+        return rune::memo(
+            "files-workspace-tree",
+            (p.theme, p.generation, p.dark, sid, selected.as_deref(), tree_hash),
+            || crate::files::view::workspace_tree_view(p, sid, ws, selected.as_deref(), Some(kinds)),
+        );
     }
     if ws.search.asked() != Some(filter) {
         let (id, q) = (sid.to_owned(), filter.to_owned());

@@ -11,7 +11,7 @@ use std::sync::{Arc, OnceLock, RwLock};
 use super::file_state::Slab;
 use super::{CHUNK_LINES, HighlightChunk, SourceLines, lang_for_path};
 
-pub const BAND_LINES: u32 = 8;
+pub const BAND_LINES: u32 = 10;
 const MAX_INTERNED_BANDS: usize = 65_536;
 
 static NEXT_LINE_ID: AtomicU64 = AtomicU64::new(1);
