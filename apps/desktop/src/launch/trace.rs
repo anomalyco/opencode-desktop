@@ -311,6 +311,7 @@ static RENDERER: OnceLock<&'static str> = OnceLock::new();
 
 /// Last thing in `main`: appends the run's line to the `--launch-trace` file.
 pub fn finish(windows: usize) {
+    if let Ok(path)=std::env::var("IB3_BUSY") {let _=std::fs::write(path,serde_json::to_vec(&rune::marks::gate_spans()).unwrap());}
     let Some(path) = crate::arg("--launch-trace") else { return };
     mark("main.return");
     let Some(boot) = BOOT.get() else { return };
