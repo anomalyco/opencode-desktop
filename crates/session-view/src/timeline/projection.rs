@@ -52,15 +52,19 @@ impl Default for Projection {
 }
 
 impl Projection {
-    fn new(spans: Vec<Rc<Vec<RowSpec>>>, t: &Transcript, detail: &crate::detail::Detail) -> Projection {
+    /// `same`: the rows' keys are the previous projection's (`generation`), in the same order.
+    fn new(spans: Vec<Rc<Vec<RowSpec>>>, t: &Transcript, detail: &crate::detail::Detail, same: Option<u64>) -> Projection {
         let mut starts = Vec::with_capacity(spans.len());
         let mut len = 0;
         for s in &spans {
             starts.push(len);
             len += s.len();
         }
-        let generation = GENERATION.get() + 1;
-        GENERATION.set(generation);
+        let generation = same.unwrap_or_else(|| {
+            let g = GENERATION.get() + 1;
+            GENERATION.set(g);
+            g
+        });
         let mut p = Projection { spans, starts, len, seams: Vec::new(), generation };
         p.seams = p.space_seams(t, detail);
         p
@@ -190,7 +194,7 @@ thread_local! {
 
 /// Transcript `t`'s rows: kept while what they read holds, projected only where it doesn't.
 pub fn rows<S: TimelineHost>(s: &S, t: &Transcript) -> Rc<Projection> {
-    let whole = |s: &S| Rc::new(Projection::new(vec![Rc::new(super::project(s, t))], t, &s.timeline_detail()));
+    let whole = |s: &S| Rc::new(Projection::new(vec![Rc::new(super::project(s, t))], t, &s.timeline_detail(), None));
     let Some(version) = s.transcript_version(&t.session) else { return whole(s) };
     let fold_user = s.fold_user_messages();
     // An opened prompt folds by where it stands on screen (`fold::place`): its rows move with the
@@ -298,9 +302,13 @@ fn update<S: TimelineHost>(s: &S, t: &Transcript, inp: &Inputs, mut k: Session, 
         if k.spans.iter().any(|sp| sp.range.end > messages.len() || !span::boundary(messages, sp.range.end) || (sp.range.start > 0 && !span::boundary(messages, sp.range.start))) {
             return Err(k.global);
         }
-        let mut stamps = vec![0; k.spans.len()];
+        // A streamed reply's writes say where they changed messages (`transcript_changed_from`):
+        // the spans that read only messages above that keep their stamps, so a word streaming
+        // into a long transcript compares its own span, not every message above it.
+        let from = if by > 0 { 0 } else { s.transcript_changed_from(&t.session, k.version).unwrap_or(0) };
+        let mut stamps: Vec<u64> = k.spans.iter().map(|sp| sp.stamp).collect();
         let ranges: Vec<Range<usize>> = k.spans.iter().map(|s| s.range.clone()).collect();
-        stamps_of(t, inp, &ranges, &mut stamps);
+        stamps_of(t, inp, &ranges, from, &mut stamps);
         for (sp, stamp) in k.spans.iter_mut().zip(stamps) {
             if sp.stamp != stamp {
                 sp.rows = Rc::new(span::project(s, t, inp, sp.range.clone(), false));
@@ -376,9 +384,17 @@ fn fill<S: TimelineHost>(s: &S, t: &Transcript, inp: &Inputs, mut k: Session) ->
     (assemble(t, inp, k), true)
 }
 
+/// The session's rows from its spans. While a reply streams only its newest span projects again,
+/// usually to the same rows: the projection then keeps its generation, so the timeline's list
+/// keeps the keys it holds instead of asking each row's again.
 fn assemble(t: &Transcript, inp: &Inputs, mut k: Session) -> Session {
     let spans: Vec<Rc<Vec<RowSpec>>> = k.spans.iter().map(|sp| sp.rows.clone()).chain(std::iter::once(k.newest.1.clone())).collect();
-    k.rows = Rc::new(Projection::new(spans, t, &inp.detail));
+    let old = &k.rows.spans;
+    let same = (old.len() == spans.len()
+        && old.iter().zip(&spans).rev().skip(1).all(|(a, b)| Rc::ptr_eq(a, b))
+        && old.last().zip(spans.last()).is_some_and(|(a, b)| a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| x.key == y.key)))
+        .then_some(k.rows.generation);
+    k.rows = Rc::new(Projection::new(spans, t, &inp.detail, same));
     k
 }
 
@@ -397,7 +413,7 @@ fn older(messages: &[Message], top: usize, size: usize) -> Range<usize> {
 fn stamp_all(t: &Transcript, inp: &Inputs, spans: &mut [Kept]) {
     let ranges: Vec<Range<usize>> = spans.iter().map(|s| s.range.clone()).collect();
     let mut stamps = vec![0; ranges.len()];
-    stamps_of(t, inp, &ranges, &mut stamps);
+    stamps_of(t, inp, &ranges, 0, &mut stamps);
     for (sp, stamp) in spans.iter_mut().zip(stamps) {
         sp.stamp = stamp;
     }
@@ -410,14 +426,18 @@ fn hasher() -> impl Hasher {
 /// Each span's stamp: everything about its messages its rows show, the prompts that start the
 /// next span, and the run under way where it starts. A message changing in a way a row shows
 /// changes its span's stamp; one that doesn't (a word of a settled reply is drawn from the
-/// transcript when the row builds) needn't.
-fn stamps_of(t: &Transcript, inp: &Inputs, ranges: &[Range<usize>], out: &mut [u64]) {
+/// transcript when the row builds) needn't. Spans that read only messages before `from` (none of
+/// them changed) keep the stamp `out` holds.
+fn stamps_of(t: &Transcript, inp: &Inputs, ranges: &[Range<usize>], from: usize, out: &mut [u64]) {
     let messages = &t.messages[..inp.shown];
     for (k, r) in ranges.iter().enumerate() {
         // A span's rows read the prompts that start the next one (the turn above runs to their
         // end), the run under way where it starts, and, the transcript's first, whether older
         // messages remain above it.
         let end = if r.end < messages.len() { super::delivery::end(&[], messages, r.end) } else { r.end };
+        if end <= from {
+            continue;
+        }
         let mut h = hasher();
         (span::run_at(messages, r.start), r.start == 0 && inp.older).hash(&mut h);
         for m in &messages[r.start..end.min(messages.len())] {

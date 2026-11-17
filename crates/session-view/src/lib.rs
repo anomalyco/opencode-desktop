@@ -134,6 +134,12 @@ pub trait TimelineHost: Sized + 'static {
     fn transcript_version(&self, _session: &str) -> Option<u64> {
         None
     }
+    /// Session `session`'s first message that may have changed since `transcript_version` read
+    /// `since` (past the end when none did). `None`, the default: the host can't say, and every
+    /// span's messages are compared.
+    fn transcript_changed_from(&self, _session: &str, _since: u64) -> Option<usize> {
+        None
+    }
     fn session_directory(&self, _session: &str) -> Option<&str> {
         None
     }

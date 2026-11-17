@@ -82,6 +82,9 @@ impl session_view::TimelineHost for App {
     fn transcript_version(&self, session: &str) -> Option<u64> {
         Some(self.family_transcript_version(session).1)
     }
+    fn transcript_changed_from(&self, session: &str, since: u64) -> Option<usize> {
+        App::transcript_changed_from(self, session, since)
+    }
     fn session_directory(&self, session: &str) -> Option<&str> {
         self.session(session).map(|i| i.directory.as_str())
     }

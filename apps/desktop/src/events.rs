@@ -17,6 +17,9 @@ pub(crate) struct TranscriptEdits {
     from: u64,
     to: u64,
     session: String,
+    /// The first message the run's writes may have changed (`touched`): a streamed reply's
+    /// writes change only the message they name, so the messages above it hold.
+    low: usize,
 }
 
 impl TranscriptEdits {
@@ -29,13 +32,26 @@ impl TranscriptEdits {
             self.from = before;
             self.session.clear();
             self.session.push_str(id);
+            self.low = usize::MAX;
         }
         self.to = before + 1;
         rows.get_mut(id)
     }
 
+    /// The write just made changed messages from `at` on, as far as anyone can tell.
+    fn touched(&mut self, at: usize) {
+        self.low = self.low.min(at);
+    }
+
     pub(crate) fn only(&self, cell: u32, from: u64, to: u64) -> Option<&str> {
         (cell == self.cell && self.from <= from && from < to && to == self.to).then_some(&self.session)
+    }
+
+    /// Session `session`'s first message that may have changed between versions `from` and `to`
+    /// of the transcripts (`cell`), when only this run of stream writes came between (past its
+    /// end when the run wrote another session); `None` when anything else wrote them.
+    pub(crate) fn changed_from(&self, cell: u32, from: u64, to: u64, session: &str) -> Option<usize> {
+        self.only(cell, from, to).map(|s| if s == session { self.low } else { usize::MAX })
     }
 
     pub(crate) fn from(&self) -> u64 {
@@ -43,7 +59,33 @@ impl TranscriptEdits {
     }
 }
 
+/// The first message stream event `ty` (`d`) may have changed in transcript `t`, which held
+/// `len` messages before it. A step's own events (`Transcript::apply`: started, its text,
+/// reasoning, tools, retry, end) change only the step they name, found from the end as `apply`
+/// finds it; a prompt adds only itself; anything else (compaction, revert, notices) may have
+/// changed any message.
+fn touched_at(t: &Transcript, ty: &str, d: &serde_json::Value, len: usize) -> usize {
+    let step = ty.starts_with("session.tool.")
+        || matches!(ty, "session.text.delta" | "session.reasoning.delta" | "session.text.started" | "session.reasoning.started"
+            | "session.text.ended" | "session.reasoning.ended" | "session.step.started" | "session.step.first-token"
+            | "session.step.streamed" | "session.step.ended" | "session.step.failed" | "session.retry.scheduled");
+    if step && let Some(mid) = d["assistantMessageID"].as_str() {
+        return t.messages.iter().rposition(|m| m.id() == mid).map_or(0, |i| i.min(len));
+    }
+    if matches!(ty, "session.prompted" | "session.user.message") && t.messages.len() == len + 1 {
+        return len;
+    }
+    0
+}
+
 impl App {
+    /// Session `session`'s first message that may have changed since version `since` of its
+    /// family's transcripts, when only stream writes to it came between (`TranscriptEdits`).
+    pub(crate) fn transcript_changed_from(&self, session: &str, since: u64) -> Option<usize> {
+        let (cell, now) = (rune::Tracked::id(&self.transcripts), rune::Tracked::version(&self.transcripts));
+        self.transcript_edits.changed_from(cell, since, now, session)
+    }
+
     /// Version of `session`'s family in `self.transcripts`: unchanged across an uninterrupted
     /// stream run on an unrelated session (`TranscriptEdits`), and jumping to the map's version
     /// whenever anything else writes `self.transcripts`.
@@ -234,6 +276,7 @@ impl App {
         if ty == "session.usage.updated" {
             done.info |= self.usage_updated(&sid, data["cost"].as_f64());
         }
+        let len = self.transcripts.get(&sid).map_or(0, |t| t.messages.len());
         if let Some(t) = self.transcript_edits.get_mut(&mut self.transcripts, &sid) {
             done.transcript = match self.stream_gaps.get_mut(&sid) {
                 Some(gapped) => {
@@ -248,6 +291,10 @@ impl App {
                 }
                 None => t.apply(ty, data, now),
             };
+        }
+        if done.transcript {
+            let at = self.transcripts.get(&sid).map_or(0, |t| touched_at(t, ty, data, len));
+            self.transcript_edits.touched(at);
         }
         // A user's message can reach the transcript before the separate inbox delivery.
         // Once the echo landed, the steer is that row, not another copy below Working.
