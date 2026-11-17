@@ -865,8 +865,10 @@ impl App {
         };
 
         if let Some(e) = &entry {
-            if let Some(path) = key.strip_prefix("file:").and_then(crate::files::data::file_tab_path)
-                && let Some(ws) = self.files.sessions.get_mut(&sid) { ws.close_preview(&path); }
+            if let Some(path) = key.strip_prefix("file:").and_then(crate::files::data::file_tab_path) {
+                if let Some(ws) = self.files.sessions.get_mut(&sid) { ws.close_preview(&path); }
+                crate::files::watch::unwatch(self, &sid, &path);
+            }
             e.provider.close(self, &sid, &e.tab.id, tx);
         }
 

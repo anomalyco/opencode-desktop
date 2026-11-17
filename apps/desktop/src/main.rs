@@ -883,6 +883,7 @@ impl App {
             for id in &files_gone {
                 s.files.sessions.remove(id);
                 s.files.reads.forget_session(id);
+                files::watch::forget_session(s, id);
             }
         }
         // What `opencode_kit` keeps beside each user message (files, mentions, comments, times):

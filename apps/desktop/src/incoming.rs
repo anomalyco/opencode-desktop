@@ -60,9 +60,14 @@ fn message(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             s.stream_back();
             s.check_sends();
             s.resync_view();
+            // A restarted server forgets its file watches (`server.connected` in Desktop).
+            crate::files::watch::connected(s);
         }
         // The first open: the link was never down, but the health poll can stand down now.
-        Incoming::Opened => reconnect::back(s),
+        Incoming::Opened => {
+            reconnect::back(s);
+            crate::files::watch::connected(s);
+        }
         Incoming::Status(e) => status_toast::from_server(s, e),
         Incoming::Failed(e) => failed(s, e, tx),
         Incoming::StreamDown(e) => reconnect::stream_down(s, e, tx),

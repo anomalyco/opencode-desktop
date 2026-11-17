@@ -17,6 +17,7 @@ pub mod links;
 pub mod markdown;
 pub mod narrow;
 pub(crate) mod trace;
+pub(crate) mod watch;
 pub(crate) mod path_index;
 mod markdown_stories;
 mod stories;
@@ -247,8 +248,12 @@ pub struct FilesPane {
     pub dirty: bool,
     pub wrap: markdown::WrapPrefs,
     dir_fetch: Latest<(String, String, Vec<(String, bool)>)>,
-    /// Each file's reads (content).
+    /// Each file's reads (`content`).
     pub(crate) reads: content::Reads,
+    /// The server watches the open files hold (`watch`).
+    pub(crate) watches: watch::Watches,
+    /// The file tab shown last, so a tab that comes to show arms its watch again.
+    shown: Option<(String, String)>,
     find_fetch: Latest<(String, String, Vec<String>)>,
     /// Decodes picture files, once one opens.
     images: Option<rune::ImageCache>,
@@ -271,6 +276,8 @@ impl Default for FilesPane {
             wrap: markdown::WrapPrefs::default(),
             dir_fetch: Latest::default(),
             reads: Default::default(),
+            watches: Default::default(),
+            shown: None,
             find_fetch: Latest::default().debounce(Duration::from_millis(100)),
             images: None,
             waker: None,
@@ -356,6 +363,14 @@ pub(crate) fn poll_files(s: &mut App, tx: &mut Tx) -> bool {
         if let Some(sid) = s.active_session_id().map(str::to_owned) {
             s.ensure_workspace_files(&sid);
             changed = true;
+        }
+    }
+    // A file tab that comes to show arms its watch again (Desktop's tab `focus` syncs it).
+    let shown = s.active_file_tab().and_then(|(sid, path)| Some((sid, path?)));
+    if shown != s.files.shown {
+        s.files.shown = shown.clone();
+        if let Some((sid, path)) = shown {
+            watch::watch(s, &sid, &path);
         }
     }
     // Sync active file's live find query if open.
@@ -756,6 +771,7 @@ impl App {
     ) {
         let saved_focus = (self.composer.focused, self.side.focused);
         self.ensure_file_loaded(sid, path);
+        watch::watch(self, sid, path);
         let tab_key = file_tab_key(path);
         // Remove transient `file:open` tab once a concrete file is picked (`file/renderer.tsx:128`).
         if let Some(st) = self.side.sessions.get_mut(sid) {
