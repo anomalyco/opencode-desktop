@@ -452,9 +452,9 @@ pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
         None => md,
     };
     match media {
-        Some(m) => crate::images::picture_body::<S>(md, m, p),
-        None => md.build(crate::palette::kit(p)),
-    }.selection_group(false)
+        Some(m) => crate::images::markdown_pictures::<S>(md, m),
+        None => md,
+    }.build(crate::palette::kit(p)).selection_group(false)
 }
 
 /// A code block with Desktop's Copy button (`markdown.css`'s `markdown-copy-button`): a 24 pt
