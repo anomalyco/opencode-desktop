@@ -58,6 +58,62 @@ pub(crate) fn connected(s: &mut App) {
     }
 }
 
+/// `filesystem.changed`: an open file changed on disk (Desktop's `invalidateFromWatcher`,
+/// `packages/app/src/workspaces/files/watcher.ts`), read again at once, keeping the view, for
+/// each session holding it, shown or not. Matched by its absolute path inside each session's
+/// folder, whatever the separators (Desktop compares them as they come, so on Windows a file in
+/// a folder never matches). `.git` isn't a file anyone opens. A file gone (`unlink`) from a
+/// folder the tree has listed lists that folder again, as Desktop's does.
+pub(crate) fn changed(s: &mut App, data: &serde_json::Value) {
+    let Some(file) = data["file"].as_str() else { return };
+    let mut reads = Vec::new();
+    let mut lists = Vec::new();
+    for (sid, ws) in s.files.sessions.iter() {
+        let Some(path) = s.session(sid).and_then(|i| crate::tool_open::relative(file, &i.directory)) else { continue };
+        if path == ".git" || path.starts_with(".git/") {
+            continue;
+        }
+        let parent = path.rsplit_once('/').map_or("", |(dir, _)| dir).to_owned();
+        if data["event"] == "unlink" && ws.listed_dirs.contains(&parent) {
+            lists.push((sid.clone(), parent));
+        }
+        if ws.docs.contains_key(&path) {
+            reads.push((sid.clone(), path));
+        }
+    }
+    for (sid, path) in reads {
+        reload(s, &sid, &path);
+    }
+    for (sid, dir) in lists {
+        s.relist_workspace_dir(&sid, &dir);
+    }
+}
+
+/// `sid`'s `path` may have changed: read it again, keeping what shows meanwhile. A video's
+/// player opens it again (its file changed under it).
+pub(crate) fn reload(s: &mut App, sid: &str, path: &str) {
+    super::trace::changed(sid, path);
+    if super::video::is_video(path)
+        && let Some(ws) = s.files.sessions.get_mut(sid)
+        && ws.videos.remove(path).is_some()
+    {
+        ws.docs.remove(path);
+        s.ensure_file_loaded(sid, path);
+        return;
+    }
+    s.read_file(sid, path, true);
+}
+
+/// The stream came back: a change made while the server was away went unreported, so every
+/// open file reads again once, the shown one first (one read at a time per file, as in a burst).
+pub(crate) fn reread(s: &mut App) {
+    for (sid, path) in open_tabs(s) {
+        if s.files.sessions.get(&sid).is_some_and(|w| w.docs.contains_key(&path)) {
+            reload(s, &sid, &path);
+        }
+    }
+}
+
 /// Every session's open file tabs, the shown one first.
 pub(crate) fn open_tabs(s: &App) -> Vec<(String, String)> {
     let shown = s.active_file_tab().and_then(|(sid, path)| Some((sid, path?)));

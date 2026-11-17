@@ -90,6 +90,11 @@ pub fn fetch_live_file_payload(server: &Server, directory: &str, path: &str) -> 
 
 /// Lists direct children of `rel_dir` (`""` for workspace root) via `/api/fs/list`.
 pub fn fetch_live_dir(server: &Server, directory: &str, rel_dir: &str) -> Vec<(String, bool)> {
+    try_fetch_live_dir(server, directory, rel_dir).unwrap_or_default()
+}
+
+/// `fetch_live_dir`, `None` when the server didn't list it (so nothing is taken as gone).
+pub fn try_fetch_live_dir(server: &Server, directory: &str, rel_dir: &str) -> Option<Vec<(String, bool)>> {
     let mut url = format!(
         "/api/fs/list?location%5Bdirectory%5D={}",
         crate::switcher::encode(directory)
@@ -97,22 +102,20 @@ pub fn fetch_live_dir(server: &Server, directory: &str, rel_dir: &str) -> Vec<(S
     if !rel_dir.is_empty() {
         url.push_str(&format!("&path={}", crate::switcher::encode(rel_dir)));
     }
-    let Ok(v) = server.get(&url) else {
-        return Vec::new();
-    };
-    let Some(arr) = v["data"].as_array().or_else(|| v.as_array()) else {
-        return Vec::new();
-    };
-    arr.iter()
-        .filter_map(|e| {
-            let p = normalize_path(e["path"].as_str()?);
-            if p.is_empty() {
-                return None;
-            }
-            let is_dir = e["type"].as_str() == Some("directory");
-            Some((p, is_dir))
-        })
-        .collect()
+    let v = server.get(&url).ok()?;
+    let arr = v["data"].as_array().or_else(|| v.as_array())?;
+    Some(
+        arr.iter()
+            .filter_map(|e| {
+                let p = normalize_path(e["path"].as_str()?);
+                if p.is_empty() {
+                    return None;
+                }
+                let is_dir = e["type"].as_str() == Some("directory");
+                Some((p, is_dir))
+            })
+            .collect(),
+    )
 }
 
 /// Searches workspace files via `/api/fs/find`, at most `limit` of them.

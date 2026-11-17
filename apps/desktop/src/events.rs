@@ -356,6 +356,9 @@ impl App {
         let mut changed = self.note_agent(ty, data, &sid);
         changed |= done.status | self.status_landed(ty, data, &sid);
         changed |= self.note_review_event(ty);
+        if ty == "filesystem.changed" {
+            crate::files::watch::changed(self, data);
+        }
         if ty.starts_with("pty.") || ty.starts_with("persistent-pty.") {
             changed |= self.apply_pty_event(ty, data);
         }

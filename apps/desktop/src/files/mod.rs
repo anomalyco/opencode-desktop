@@ -254,6 +254,8 @@ pub struct FilesPane {
     pub(crate) watches: watch::Watches,
     /// The file tab shown last, so a tab that comes to show arms its watch again.
     shown: Option<(String, String)>,
+    /// Folders listed again after a file in them went, each on its own worker.
+    relists: (std::sync::mpsc::Sender<(String, String, Vec<(String, bool)>)>, std::sync::mpsc::Receiver<(String, String, Vec<(String, bool)>)>),
     find_fetch: Latest<(String, String, Vec<String>)>,
     /// Decodes picture files, once one opens.
     images: Option<rune::ImageCache>,
@@ -278,6 +280,7 @@ impl Default for FilesPane {
             reads: Default::default(),
             watches: Default::default(),
             shown: None,
+            relists: std::sync::mpsc::channel(),
             find_fetch: Latest::default().debounce(Duration::from_millis(100)),
             images: None,
             waker: None,
@@ -337,6 +340,30 @@ pub(crate) fn poll_files(s: &mut App, tx: &mut Tx) -> bool {
             ws.reindex(waker.as_ref());
         }
         ws.ready = true;
+        ws.rebuild_tree();
+        changed = true;
+    }
+    // A folder listed again after one of its open files went: what's gone leaves the tree.
+    while let Ok((session_id, rel_dir, entries)) = s.files.relists.1.try_recv() {
+        tx.instant();
+        let waker = s.files.waker.clone();
+        let Some(ws) = s.files.sessions.get_mut(&session_id) else { continue };
+        let parent = |p: &str| p.rsplit_once('/').map_or("", |(dir, _)| dir).to_owned();
+        let listed: BTreeSet<&str> = entries.iter().map(|(p, _)| p.as_str()).collect();
+        let before = ws.known_files.len();
+        ws.known_files.retain(|f| parent(f) != rel_dir || listed.contains(f.as_str()));
+        ws.known_dirs.retain(|d| parent(d) != rel_dir || listed.contains(d.as_str()));
+        let mut moved = ws.known_files.len() != before;
+        for (path, is_dir) in entries {
+            if is_dir {
+                ws.known_dirs.insert(path);
+            } else {
+                moved |= ws.known_files.insert(path);
+            }
+        }
+        if moved {
+            ws.reindex(waker.as_ref());
+        }
         ws.rebuild_tree();
         changed = true;
     }
@@ -650,6 +677,23 @@ impl App {
                     (sid, rel, entries)
                 });
         }
+    }
+
+    /// Lists `sid`'s folder `dir` again (a file in it went), on a worker of its own, so it never
+    /// takes the place of a folder the person just opened.
+    pub(crate) fn relist_workspace_dir(&mut self, sid: &str, dir: &str) {
+        let Source::Live { server, .. } = &*self.source else { return };
+        let (server, sid, rel) = (server.clone(), sid.to_owned(), dir.to_owned());
+        let directory = self.session(&sid).map(|s| s.directory.clone()).unwrap_or_default();
+        let (sender, waker) = (self.files.relists.0.clone(), self.files.waker.clone());
+        let _ = rune::task::spawn("file-relist", move || {
+            let Some(entries) = data::try_fetch_live_dir(&server, &directory, &rel) else { return };
+            if sender.send((sid, rel, entries)).is_ok()
+                && let Some(w) = waker
+            {
+                w();
+            }
+        });
     }
 
     pub fn ensure_file_loaded(&mut self, session_id: &str, path: &str) {

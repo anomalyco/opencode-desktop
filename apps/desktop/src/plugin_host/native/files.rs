@@ -88,12 +88,14 @@ fn document(lua: &Lua) -> mlua::Result<Table> {
         "Reload",
         lua.create_function(|_, this: Table| {
             let (sid, path): (String, String) = (this.raw_get("sessionId")?, this.raw_get("Path")?);
+            // Read again in place, as a change on disk reads it: the view keeps where it is.
             app_now("CodeDocument:Reload")?.later(Box::new(move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
-                if let Some(w) = s.files.sessions.get_mut(&sid) {
-                    w.invalidate_document(&path);
+                if s.files.sessions.get(&sid).is_some_and(|w| w.docs.contains_key(&path)) {
+                    crate::files::watch::reload(s, &sid, &path);
+                } else {
+                    s.ensure_file_loaded(&sid, &path);
                 }
-                s.ensure_file_loaded(&sid, &path);
             }));
             Ok(())
         })?,
