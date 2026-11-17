@@ -577,6 +577,11 @@ impl BrowserHost {
             match msg {
                 EngineMsg::Ready { downloads, .. } => {
                     self.engine_downloads = downloads;
+                    // A new engine starts with an empty downloads folder and numbers its files
+                    // from 1 again: the last one's files are gone.
+                    for t in &mut self.tabs {
+                        t.files.clear();
+                    }
                     rune::marks::mark("browser.engine.ready");
                     *self.status.lock().unwrap() = EngineStatus::Ready;
                     // Before any page loads, so the first draws in the app's scheme.
