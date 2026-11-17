@@ -83,7 +83,7 @@ pub struct Settings {
     /// Questions take the keyboard-first dock instead of Classic (Desktop's `general.newQuestionUI`,
     /// Settings › Experimental › New question UI). Off unless turned on, as there.
     pub new_question_ui: bool,
-    /// Carry the Pending label and queued tray through a live timeline delivery.
+    /// Ease a live delivery into place: the Pending label, the tray's room and joined prompts.
     pub smooth_timeline: bool,
     /// macOS: Option in the terminal is Meta (Esc and the key, for a shell's word motions) instead
     /// of typing the layout's character. Off by default, so Option+E types é as everywhere else
