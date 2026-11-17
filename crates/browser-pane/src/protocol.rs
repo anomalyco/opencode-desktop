@@ -128,6 +128,12 @@ pub enum HostMsg {
         height_pt: f32,
         scale: f32,
         focused: bool,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        file_roots: Vec<String>,
+    },
+    SetTabPolicy {
+        tab_id: u64,
+        file_roots: Vec<String>,
     },
     CloseTab {
         tab_id: u64,
@@ -233,6 +239,14 @@ pub enum EngineMsg {
         /// The engine keeps a page's downloads (`Download`); an engine from before it says nothing.
         #[serde(default)]
         downloads: bool,
+        /// The engine enforces URL and workspace `file://` policy in its request handlers.
+        #[serde(default)]
+        policy: bool,
+    },
+    /// A frame navigation or redirect was refused by URL policy while keeping the current page.
+    Refused {
+        tab_id: u64,
+        reason: String,
     },
     TabList {
         tabs: Vec<TabSnapshot>,

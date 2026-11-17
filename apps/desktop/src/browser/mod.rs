@@ -167,6 +167,19 @@ impl App {
         self.composer.focused = false;
     }
 
+    /// Workspace directories whose `file://` documents may open in session `sid` (`pane.ts:162`):
+    /// the session's folder when the active server shares this disk (`is_sidecar`), else empty.
+    pub fn browser_file_roots(&self, sid: Option<&str>) -> Vec<String> {
+        if !crate::servers::runtime::active(self).is_sidecar() {
+            return Vec::new();
+        }
+        let dir = sid
+            .or_else(|| self.active_session_id())
+            .map(|id| self.link_directory(id))
+            .unwrap_or_else(|| self.draft_dir().to_owned());
+        if dir.is_empty() { Vec::new() } else { vec![dir] }
+    }
+
     pub fn open_new_browser_tab(&mut self, url: &str) -> u64 {
         self.open_new_browser_tab_in(url, None)
     }
@@ -177,15 +190,31 @@ impl App {
     }
 
     pub fn open_new_browser_tab_for_session(&mut self, sid: Option<&str>, url: &str, target_pane: Option<SessionPane>, steal_focus: bool) -> u64 {
+        self.open_new_browser_tab_for_session_with(sid, url, target_pane, steal_focus, false)
+    }
+
+    pub fn open_new_browser_tab_for_session_with(
+        &mut self,
+        sid: Option<&str>,
+        url: &str,
+        target_pane: Option<SessionPane>,
+        steal_focus: bool,
+        from_address: bool,
+    ) -> u64 {
+        let roots = self.browser_file_roots(sid);
         let id = if self.use_mock_browser() {
-            let resolved = browser_pane::resolve_address(url);
+            let candidate = if from_address { browser_pane::resolve_address(url) } else { browser_pane::with_scheme(url) };
+            let refused = browser_pane::refusal(&candidate, &roots);
+            let resolved = if refused.is_some() { "about:blank".into() } else { candidate };
             let title = if resolved == "about:blank" { String::new() } else { bare_url(&resolved) };
             let id = self.browser.host.insert_mock_tab(&resolved, &title, EngineStatus::Ready);
-            // A new tab has no history yet.
             self.browser.host.set_mock_history(id, false, false);
+            if let Some(why) = refused {
+                self.browser.host.set_mock_refusal(id, why.code());
+            }
             id
         } else {
-            self.browser.host.open_tab(url)
+            self.browser.host.open_tab_with_roots(url, roots, from_address)
         };
         if let Some(sid) = sid {
             self.browser.session_tabs.entry(sid.to_owned()).or_default().push(id);
@@ -201,13 +230,20 @@ impl App {
 
     /// Loads `url` (or a `:port`) in page `id`. A mock page shows it loaded at once.
     pub fn navigate_browser_tab(&mut self, id: u64, url: &str) {
+        let sid = self.browser_tab_session(id).map(str::to_owned);
+        let roots = self.browser_file_roots(sid.as_deref());
         let resolved = browser_pane::resolve_address(url);
         if self.use_mock_browser() {
+            if let Some(why) = browser_pane::refusal(&resolved, &roots) {
+                self.browser.host.set_mock_refusal(id, why.code());
+                return;
+            }
             let title = if resolved == "about:blank" { String::new() } else { bare_url(&resolved) };
             self.browser.host.set_mock_page(id, &resolved, &title);
             return;
         }
-        self.browser.host.navigate(id, &resolved);
+        self.browser.host.set_tab_policy(id, roots);
+        self.browser.host.navigate_with_policy(id, &resolved, false);
     }
 
     pub fn register_existing_browser_tab(&mut self, id: u64) {

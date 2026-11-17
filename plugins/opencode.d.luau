@@ -1,4 +1,4 @@
--- OpenCode plugin contract 1.2: global types for luau-lsp.
+-- OpenCode plugin contract 1.3: global types for luau-lsp.
 -- Generated from crates/opencode-plugin-spec/contract.json by `cargo run -p opencode-plugin-spec -- --write`. Do not edit.
 -- Load it with `luau-lsp analyze --definitions=@opencode=plugins/opencode.d.luau`.
 
@@ -3922,6 +3922,8 @@ export type BrowserEngine = {
     message: string?,
     --- The engine that runs (or last ran) keeps a page's downloads for `BrowserTab:Files`; false before one has run, and for an engine from before downloads.
     downloads: boolean,
+    --- The engine that runs (or last ran) confines frame and sub-resource requests to the page's URL policy; false before one has run, and for an engine from before URL policy.
+    policy: boolean,
 }
 
 --- An element the user picked in a page with the element picker.
@@ -3958,6 +3960,10 @@ export type BrowserTab = {
     Files: (self: BrowserTab) -> { BrowserFile },
     --- Why the page shows no document: the engine's error for a load that failed (`net::ERR_CONNECTION_REFUSED`), or `page_crashed` when its renderer went away; nil while it shows one. A reload or another address loads it again.
     LoadError: (self: BrowserTab) -> string?,
+    --- Why the last navigation was refused while keeping the page (`browser.address.credentials`, `browser.address.workspace`, `browser.address.web`, or `ERR_BLOCKED_BY_CLIENT`); nil once an allowed navigation starts.
+    Refusal: (self: BrowserTab) -> string?,
+    --- Count of refused navigations on this page, so a repeated refusal still ends the address field's hold.
+    Rejected: (self: BrowserTab) -> number,
     --- Loads a URL, or a local `:port`.
     Navigate: (self: BrowserTab, url: string) -> (),
     --- Goes back.
@@ -5118,6 +5124,8 @@ export type BrowserService = {
     Available: (self: BrowserService) -> boolean,
     --- Where the browser engine stands.
     Engine: (self: BrowserService) -> BrowserEngine,
+    --- Normalizes a URL for `sessionId`'s URL policy (adding `http://` or `https://` when omitted), or raises the agent refusal message when the URL is not supported.
+    NormalizeUrl: (self: BrowserService, url: string, sessionId: string?) -> string,
     --- A page is likely to open within `seconds` (5 by default, at most 60): the pointer is on a launcher for one, or an agent that uses the browser starts a turn. The engine's process starts now, so the page doesn't wait for it, and stops again once `seconds` pass with no page opened; a later call's `seconds` replace the earlier's. Does nothing while a page is open or the engine runs, and never downloads it: call it on a sign of intent, not at launch or on a timer.
     Prepare: (self: BrowserService, seconds: number?) -> (),
     --- Fires with a page's id when its address, title or loading changes, or it closes.

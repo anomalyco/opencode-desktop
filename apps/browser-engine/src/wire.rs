@@ -66,7 +66,17 @@ pub struct PickedElement {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum HostMsg {
     Hello { mach_service: Option<String>, pid: u32 },
-    OpenTab { tab_id: u64, url: String, width_pt: f32, height_pt: f32, scale: f32, focused: bool },
+    OpenTab {
+        tab_id: u64,
+        url: String,
+        width_pt: f32,
+        height_pt: f32,
+        scale: f32,
+        focused: bool,
+        #[serde(default)]
+        file_roots: Vec<String>,
+    },
+    SetTabPolicy { tab_id: u64, file_roots: Vec<String> },
     CloseTab { tab_id: u64 },
     FocusTab { tab_id: u64 },
     Navigate { tab_id: u64, url: String },
@@ -93,7 +103,9 @@ pub enum HostMsg {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum EngineMsg {
     /// `downloads`: this engine keeps a page's downloads (`EngineMsg::Download`).
-    Ready { chromium_major: u32, pid: u32, downloads: bool },
+    /// `policy`: this engine enforces URL and workspace `file://` policy in its request handlers.
+    Ready { chromium_major: u32, pid: u32, downloads: bool, policy: bool },
+    Refused { tab_id: u64, reason: String },
     TabList { tabs: Vec<TabSnapshot> },
     TabUpdate { tab: TabSnapshot },
     TabClosed { tab_id: u64 },

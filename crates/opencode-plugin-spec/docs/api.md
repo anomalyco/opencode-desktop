@@ -1,4 +1,4 @@
-# OpenCode plugin API reference (contract 1.2)
+# OpenCode plugin API reference (contract 1.3)
 
 > Generated from crates/opencode-plugin-spec/contract.json by `cargo run -p opencode-plugin-spec -- --write`. Do not edit. For a walkthrough, read [Writing a plugin](writing-a-plugin.md).
 
@@ -6,7 +6,7 @@ Contents: [Versioning](#versioning) · [Modules and globals](#modules-and-global
 
 ## Versioning
 
-Contract versions are `MAJOR.MINOR`. This is contract `1.2`.
+Contract versions are `MAJOR.MINOR`. This is contract `1.3`.
 
 - A plugin names the contract it targets in plugin.toml: `contract = "1.0"`.
 - Minor versions (1.1, 1.2, …) only add: new optional properties on `ui.*` nodes and specs, new semantic tokens (each with a 1.0 fallback token), new services, methods, signals, contribution kinds and enum values. A plugin that targets 1.0 runs unchanged on every 1.x host.
@@ -417,6 +417,7 @@ Pages in this window's embedded browser, each a tab of a session's side region. 
 | `:Focused` | `() -> BrowserTab?` | The routed session's selected page while the keyboard is in its pane: its page, or a field of this plugin's. |
 | `:Available` | `() -> boolean` | Pages can open here: this build has a browser engine for its platform. |
 | `:Engine` | `() -> BrowserEngine` | Where the browser engine stands. |
+| `:NormalizeUrl` | `(url: string, sessionId: string?) -> string` | Normalizes a URL for `sessionId`'s URL policy (adding `http://` or `https://` when omitted), or raises the agent refusal message when the URL is not supported. |
 | `:Prepare` | `(seconds: number?) -> ()` | A page is likely to open within `seconds` (5 by default, at most 60): the pointer is on a launcher for one, or an agent that uses the browser starts a turn. The engine's process starts now, so the page doesn't wait for it, and stops again once `seconds` pass with no page opened; a later call's `seconds` replace the earlier's. Does nothing while a page is open or the engine runs, and never downloads it: call it on a sign of intent, not at launch or on a timer. |
 | `.Changed` | `Signal<string>` | Fires with a page's id when its address, title or loading changes, or it closes. |
 | `.Picked` | `Signal<BrowserPick>` | Fires when the element picker picks an element. |
@@ -2642,6 +2643,7 @@ Where the browser engine stands.
 | `state` | `BrowserEngineState` | Its state. |
 | `message` | `string?` | Why it failed, for `failed`. |
 | `downloads` | `boolean` | The engine that runs (or last ran) keeps a page's downloads for `BrowserTab:Files`; false before one has run, and for an engine from before downloads. |
+| `policy` | `boolean` | The engine that runs (or last ran) confines frame and sub-resource requests to the page's URL policy; false before one has run, and for an engine from before URL policy. |
 
 ### BrowserPick
 
@@ -2670,6 +2672,8 @@ A page in the app's browser, for `ui.browserSurface`.
 | `:Inspecting` | `() -> boolean` | The element picker waits for a click in the page. |
 | `:Files` | `() -> { BrowserFile }` | What the page downloaded, oldest first: each file in the engine's private downloads folder, with no dialog, until its tab closes or the engine ends; one over 5 MiB is cancelled, and a tab keeps at most 64. Empty with an engine that doesn't keep downloads (`Browser:Engine().downloads`). |
 | `:LoadError` | `() -> string?` | Why the page shows no document: the engine's error for a load that failed (`net::ERR_CONNECTION_REFUSED`), or `page_crashed` when its renderer went away; nil while it shows one. A reload or another address loads it again. |
+| `:Refusal` | `() -> string?` | Why the last navigation was refused while keeping the page (`browser.address.credentials`, `browser.address.workspace`, `browser.address.web`, or `ERR_BLOCKED_BY_CLIENT`); nil once an allowed navigation starts. |
+| `:Rejected` | `() -> number` | Count of refused navigations on this page, so a repeated refusal still ends the address field's hold. |
 | `:Navigate` | `(url: string) -> ()` | Loads a URL, or a local `:port`. |
 | `:Back` | `() -> ()` | Goes back. |
 | `:Forward` | `() -> ()` | Goes forward. |

@@ -64,15 +64,30 @@ impl BrowserHost {
         if self.keep_engine {
             return;
         }
-        let (opened, prepared, outbox) = (self.opened.clone(), self.prepared.clone(), self.outbox.clone());
+        let (opened, prepared, outbox, conn_gen, status) = (
+            self.opened.clone(),
+            self.prepared.clone(),
+            self.outbox.clone(),
+            self.conn_gen.clone(),
+            self.status.clone(),
+        );
+        let sock = self.engine_socket().ok();
         let tabs = opened.load(Ordering::Relaxed);
         let _ = std::thread::Builder::new().name("opencode-browser-hold".into()).spawn(move || {
             std::thread::sleep(hold);
             if prepared.load(Ordering::Relaxed) == call && opened.load(Ordering::Relaxed) == tabs {
                 let mut outbox = outbox.lock().unwrap();
                 if let Some(tx) = outbox.take() {
+                    conn_gen.fetch_add(1, Ordering::Relaxed);
+                    if let Some(sock) = sock {
+                        let _ = std::fs::remove_file(sock);
+                    }
                     rune::marks::mark("browser.engine.unprepared");
                     let _ = tx.send(crate::protocol::HostMsg::Shutdown);
+                    let mut st = status.lock().unwrap();
+                    if *st == EngineStatus::Ready || *st == EngineStatus::Connecting {
+                        *st = EngineStatus::Installed;
+                    }
                 }
             }
         });
@@ -116,7 +131,7 @@ impl BrowserHost {
         }
     }
 
-    fn engine_socket(&self) -> Result<std::path::PathBuf, &'static str> {
+    pub(crate) fn engine_socket(&self) -> Result<std::path::PathBuf, &'static str> {
         self.socket_override.as_deref().map_or_else(installer::try_socket_path, installer::custom_socket)
     }
 
@@ -132,8 +147,11 @@ impl BrowserHost {
                 return;
             }
         };
+        let generation = self.conn_gen.fetch_add(1, std::sync::atomic::Ordering::Relaxed).wrapping_add(1);
         let profile = profile::for_spawn(self.profile_dir.as_deref());
         let link = Link {
+            generation,
+            conn_gen: self.conn_gen.clone(),
             status: self.status.clone(),
             outbox: self.outbox.clone(),
             inbox_tx: self.inbox_tx.clone(),

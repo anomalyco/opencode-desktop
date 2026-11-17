@@ -4,9 +4,9 @@
 use crate::{Half, string_enum};
 
 /// The contract version this crate describes.
-pub const CONTRACT: &str = "1.2";
+pub const CONTRACT: &str = "1.3";
 pub const CONTRACT_MAJOR: u16 = 1;
-pub const CONTRACT_MINOR: u16 = 2;
+pub const CONTRACT_MINOR: u16 = 3;
 
 string_enum! {
     /// A contribution kind, by its contract name.
@@ -262,7 +262,7 @@ impl ServiceName {
             Self::Workspace => &["ReadFileAsync", "SaveDownloadAsync", "OpenDocument", "OpenTree", "OpenInApps", "OpenIn", "Relative", "OpenFile", "FileChanged"],
             Self::Diff => &["Open", "Mode", "SetMode"],
             Self::Terminal => &["Create", "Attach", "List", "Available", "New", "Toggle", "Select", "OpenAsync"],
-            Self::Browser => &["OpenAsync", "Tabs", "Get", "List", "Active", "Selected", "Focused", "Available", "Engine", "Prepare", "Changed", "Picked"],
+            Self::Browser => &["OpenAsync", "Tabs", "Get", "List", "Active", "Selected", "Focused", "Available", "Engine", "NormalizeUrl", "Prepare", "Changed", "Picked"],
             Self::Composer => &["InsertPill"],
             Self::Office => &["OpenAsync", "Version", "SetSheet", "Sheet", "Close"],
             Self::Updater => &["State", "CheckAsync", "InstallAsync", "StateChanged"],

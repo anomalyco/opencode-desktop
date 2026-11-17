@@ -857,8 +857,10 @@ pub struct BrowserEngine {
     pub message: Option<String>,
     /// The engine that runs (or last ran) keeps a page's downloads for `BrowserTab:Files`; false before one has run, and for an engine from before downloads.
     pub downloads: bool,
+    /// The engine that runs (or last ran) confines frame and sub-resource requests to the page's URL policy; false before one has run, and for an engine from before URL policy.
+    pub policy: bool,
 }
-impl_record!(BrowserEngine, ["state", "message", "downloads"], [], []);
+impl_record!(BrowserEngine, ["state", "message", "downloads", "policy"], [], []);
 
 /// An element the user picked in a page with the element picker.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

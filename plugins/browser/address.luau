@@ -26,12 +26,14 @@ export type Epoch = {
     settled: number,
     -- URL changes and finished loads.
     followed: number,
+    -- Refused navigations.
+    rejected: number,
     -- Any reported movement.
     moved: number,
 }
 
 -- A submitted address, and the counts when it was submitted.
-export type Hold = { text: string, followed: number, moved: number }
+export type Hold = { text: string, followed: number, rejected: number, moved: number }
 
 export type Edit = { status: "rest" } | {
     status: "editing",
@@ -84,8 +86,12 @@ end
 -- or that names no host a page opens on (`localhost`, a port, a dotted host).
 function address.searches(input: string): boolean
     local value = string.gsub(input, "^%s*(.-)%s*$", "%1")
-    if value == "" or string.match(string.lower(value), "^about:%S*$") then
+    local lower = string.lower(value)
+    if value == "" or string.match(lower, "^about:%S*$") or string.match(lower, "^data:%S*$") or string.match(lower, "^javascript:%S*$") or string.match(lower, "^blob:%S*$") or string.match(lower, "^file:%S*$") then
         return false
+    end
+    if string.match(lower, "^file://") then
+        return string.match(value, "^[%a][%w+.-]*://%S+") == nil
     end
     if string.match(value, "^[%a][%w+.-]*://") then
         return string.match(value, "^[%a][%w+.-]*://[^/?#%s]+") == nil
@@ -94,25 +100,28 @@ function address.searches(input: string): boolean
         return true
     end
     local host = string.match(value, "^[^/?#]*") or ""
+    if string.find(host, "@", 1, true) then
+        return true
+    end
     local named = string.match(string.lower(host), "^localhost:?%d*$") ~= nil or string.match(host, "^%[[%x:.]+%]:?%d*$") ~= nil or string.match(host, ":%d+$") ~= nil or string.match(host, "^[^.]+%.[^.]") ~= nil
     return not named
 end
 
 -- Folds a page report into its counts.
-function address.fold(previous: Epoch?, url: string, loading: boolean): Epoch
+function address.fold(previous: Epoch?, url: string, loading: boolean, rejected: number): Epoch
     if previous == nil then
-        return { url = url, loading = loading, settled = 0, followed = 0, moved = 0 }
+        return { url = url, loading = loading, settled = 0, followed = 0, rejected = rejected, moved = 0 }
     end
     local settled = if previous.loading and not loading then previous.settled + 1 else previous.settled
     local followed = if url ~= previous.url or settled ~= previous.settled then previous.followed + 1 else previous.followed
-    local moved = if url ~= previous.url or loading ~= previous.loading then previous.moved + 1 else previous.moved
-    return { url = url, loading = loading, settled = settled, followed = followed, moved = moved }
+    local moved = if url ~= previous.url or loading ~= previous.loading or rejected ~= previous.rejected then previous.moved + 1 else previous.moved
+    return { url = url, loading = loading, settled = settled, followed = followed, rejected = rejected, moved = moved }
 end
 
--- The hold of page `tab`, while the page has reported no URL change or finished load since.
+-- The hold of page `tab`, while the page has reported no URL change, finished load or refusal since.
 local function activeHold(state: State, tab: string, epoch: Epoch): Hold?
     local hold = state.holds[tab]
-    if hold and hold.followed == epoch.followed then
+    if hold and hold.followed == epoch.followed and hold.rejected == epoch.rejected then
         return hold
     end
     return nil
@@ -145,7 +154,7 @@ end
 local function navigate(state: State, tab: string, url: string, epoch: Epoch): (State, { Effect })
     local holds = table.clone(state.holds)
     -- A blank page keeps the field empty.
-    holds[tab] = { text = if url == "about:blank" then "" else url, followed = epoch.followed, moved = epoch.moved }
+    holds[tab] = { text = if url == "about:blank" then "" else url, followed = epoch.followed, rejected = epoch.rejected, moved = epoch.moved }
     return { edit = { status = "rest" }, holds = holds }, { { type = "navigate", tab = tab, url = url }, BLUR }
 end
 

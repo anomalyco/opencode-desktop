@@ -9,13 +9,15 @@ use std::sync::{Arc, Mutex};
 
 use cef::rc::Rc as _;
 use cef::{
-    AcceleratedPaintInfo, Browser, CefString, CursorInfo, CursorType, DevToolsMessageObserver,
-    DisplayHandler, Errorcode, Frame, ImplDevToolsMessageObserver, ImplDisplayHandler, ImplFrame,
-    ImplLoadHandler, ImplRenderHandler, ImplRequestHandler, LoadHandler, PaintElementType, Rect,
-    RenderHandler, RequestHandler, ScreenInfo, TerminationStatus, WrapDevToolsMessageObserver,
-    WrapDisplayHandler, WrapLoadHandler, WrapRenderHandler, WrapRequestHandler, sys,
-    wrap_dev_tools_message_observer, wrap_display_handler, wrap_load_handler, wrap_render_handler,
-    wrap_request_handler,
+    AcceleratedPaintInfo, Browser, Callback, CefString, CursorInfo, CursorType,
+    DevToolsMessageObserver, DisplayHandler, Errorcode, Frame, ImplDevToolsMessageObserver,
+    ImplDisplayHandler, ImplFrame, ImplLoadHandler, ImplRenderHandler, ImplRequest,
+    ImplRequestHandler, ImplResourceRequestHandler, LoadHandler, PaintElementType, Rect,
+    RenderHandler, Request, RequestHandler, ResourceRequestHandler, Response, ReturnValue,
+    ScreenInfo, TerminationStatus, WindowOpenDisposition, WrapDevToolsMessageObserver,
+    WrapDisplayHandler, WrapLoadHandler, WrapRenderHandler, WrapRequestHandler,
+    WrapResourceRequestHandler, sys, wrap_dev_tools_message_observer, wrap_display_handler,
+    wrap_load_handler, wrap_render_handler, wrap_request_handler, wrap_resource_request_handler,
 };
 use serde_json::Value;
 
@@ -370,6 +372,8 @@ wrap_display_handler! {
 
 wrap_load_handler! {
     pub struct TabLoadHandler {
+        tab_id: u64,
+        file_roots: Arc<Mutex<Vec<String>>>,
         snap: Arc<Mutex<TabSnapshot>>,
         out_tx: Output,
     }
@@ -411,7 +415,25 @@ wrap_load_handler! {
             error_text: Option<&CefString>,
             failed_url: Option<&CefString>,
         ) {
-            if frame.is_some_and(|f| f.is_main() != 1) || *error_code.as_ref() == sys::cef_errorcode_t::ERR_ABORTED {
+            use sys::cef_errorcode_t as E;
+            let code = *error_code.as_ref();
+            if frame.is_some_and(|f| f.is_main() != 1) || code == E::ERR_ABORTED {
+                return;
+            }
+            // Chromium blocks unsafe cross-scheme redirects (`302 -> file://` or `302 -> data:`)
+            // and disallowed schemes in the network layer before `on_before_browse`: keep the
+            // open page and report the policy refusal, matching Desktop's `will-redirect`.
+            if matches!(code, E::ERR_UNSAFE_REDIRECT | E::ERR_DISALLOWED_URL_SCHEME | E::ERR_UNKNOWN_URL_SCHEME) {
+                let roots = self.file_roots.lock().unwrap().clone();
+                let why = if roots.is_empty() {
+                    crate::policy::Refusal::Web
+                } else {
+                    crate::policy::Refusal::Workspace
+                };
+                let _ = self.out_tx.send(EngineMsg::Refused {
+                    tab_id: self.tab_id,
+                    reason: why.code().to_owned(),
+                });
                 return;
             }
             let mut s = self.snap.lock().unwrap();
@@ -428,13 +450,127 @@ wrap_load_handler! {
     }
 }
 
+wrap_resource_request_handler! {
+    pub struct TabResourceRequestHandler {
+        file_roots: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl ResourceRequestHandler {
+        // Sub-resources (`img`, `script`, `link`, `fetch`, `XHR`) may never read `file:` URLs
+        // outside the tab's allowed workspace roots (`pane.ts:103-107`).
+        fn on_before_resource_load(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            request: Option<&mut Request>,
+            _callback: Option<&mut Callback>,
+        ) -> ReturnValue {
+            let url = request.map(|r| CefString::from(&r.url()).to_string()).unwrap_or_default();
+            let roots = self.file_roots.lock().unwrap().clone();
+            if crate::policy::subresource_allowed(&url, &roots) {
+                ReturnValue::CONTINUE
+            } else {
+                ReturnValue::CANCEL
+            }
+        }
+
+        fn on_resource_redirect(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            _request: Option<&mut Request>,
+            _response: Option<&mut Response>,
+            new_url: Option<&mut CefString>,
+        ) {
+            let Some(new_url) = new_url else { return };
+            let target = new_url.to_string();
+            let roots = self.file_roots.lock().unwrap().clone();
+            if !crate::policy::subresource_allowed(&target, &roots) {
+                *new_url = CefString::from("");
+            }
+        }
+
+        // Never launch external OS protocol handlers (`mailto:`, `ms-calculator:`, ...) from CEF.
+        fn on_protocol_execution(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            _request: Option<&mut Request>,
+            allow_os_execution: Option<&mut ::std::os::raw::c_int>,
+        ) {
+            if let Some(allow) = allow_os_execution {
+                *allow = 0;
+            }
+        }
+    }
+}
+
 wrap_request_handler! {
     pub struct TabRequestHandler {
+        tab_id: u64,
+        file_roots: Arc<Mutex<Vec<String>>>,
         snap: Arc<Mutex<TabSnapshot>>,
         out_tx: Output,
     }
 
     impl RequestHandler {
+        // Navigation and redirect guard (`chromium.ts:432-446`): main-frame navigations require
+        // `about:blank`, credential-free `http:`/`https:`, or a `file:` URL inside `file_roots`;
+        // sub-frames additionally forbid `file:` URLs outside `file_roots`.
+        fn on_before_browse(
+            &self,
+            _browser: Option<&mut Browser>,
+            frame: Option<&mut Frame>,
+            request: Option<&mut Request>,
+            _user_gesture: ::std::os::raw::c_int,
+            _is_redirect: ::std::os::raw::c_int,
+        ) -> ::std::os::raw::c_int {
+            let is_main = frame.map_or(true, |f| f.is_main() == 1);
+            let url = request.map(|r| CefString::from(&r.url()).to_string()).unwrap_or_default();
+            let roots = self.file_roots.lock().unwrap().clone();
+            if let Some(why) = crate::policy::frame_guard(&url, is_main, &roots) {
+                let _ = self.out_tx.send(EngineMsg::Refused {
+                    tab_id: self.tab_id,
+                    reason: why.code().to_owned(),
+                });
+                return 1;
+            }
+            0
+        }
+
+        fn on_open_urlfrom_tab(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            target_url: Option<&CefString>,
+            _target_disposition: WindowOpenDisposition,
+            _user_gesture: ::std::os::raw::c_int,
+        ) -> ::std::os::raw::c_int {
+            let url = target_url.map(CefString::to_string).unwrap_or_default();
+            let roots = self.file_roots.lock().unwrap().clone();
+            if let Some(why) = crate::policy::frame_guard(&url, true, &roots) {
+                let _ = self.out_tx.send(EngineMsg::Refused {
+                    tab_id: self.tab_id,
+                    reason: why.code().to_owned(),
+                });
+                return 1;
+            }
+            0
+        }
+
+        fn resource_request_handler(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            _request: Option<&mut Request>,
+            _is_navigation: ::std::os::raw::c_int,
+            _is_download: ::std::os::raw::c_int,
+            _request_initiator: Option<&CefString>,
+            _disable_default_handling: Option<&mut ::std::os::raw::c_int>,
+        ) -> Option<ResourceRequestHandler> {
+            Some(TabResourceRequestHandler::new(self.file_roots.clone()))
+        }
+
         // The page's renderer went away (crashed, killed, out of memory): the tab keeps its address,
         // and a reload loads it in a new renderer, as Desktop's crashed tab does.
         fn on_render_process_terminated(

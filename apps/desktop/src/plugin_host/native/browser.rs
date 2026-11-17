@@ -102,7 +102,24 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
         cx::read(Dep::Browser);
         let app = app_now("Browser:Engine")?;
         let (state, message) = engine(app);
-        mlua::IntoLua::into_lua(map([("state", Data::String(state.into())), ("message", message.map_or(Data::Nil, Data::String)), ("downloads", Data::Bool(app.browser.host.engine_downloads()))]), lua)
+        mlua::IntoLua::into_lua(
+            map([
+                ("state", Data::String(state.into())),
+                ("message", message.map_or(Data::Nil, Data::String)),
+                ("downloads", Data::Bool(app.browser.host.engine_downloads())),
+                ("policy", Data::Bool(app.browser.host.engine_policy())),
+            ]),
+            lua,
+        )
+    })?;
+    method(lua, t, "NormalizeUrl", |_, (url, sid): (String, Option<String>)| {
+        let app = app_now("Browser:NormalizeUrl")?;
+        let roots = if app.browser.host.has_live_sidecar() && !app.browser.host.engine_policy() {
+            Vec::new()
+        } else {
+            app.browser_file_roots(sid.as_deref())
+        };
+        browser_pane::normalize_url(&url, &roots).map_err(mlua::Error::runtime)
     })?;
     method(lua, t, "Prepare", |_, seconds: Option<f64>| {
         let hold = Duration::from_secs_f64(seconds.unwrap_or(PREPARE_HOLD_S).clamp(1.0, PREPARE_HOLD_MAX_S));
@@ -320,6 +337,14 @@ fn tab_methods(lua: &Lua) -> mlua::Result<Table> {
         lua.create_function(move |_, this: Table| read(&this, "BrowserTab:LoadError").map(|(app, id)| app.browser.host.tab(id).and_then(|t| t.load_error.clone())))?,
     )?;
     m.raw_set(
+        "Refusal",
+        lua.create_function(move |_, this: Table| read(&this, "BrowserTab:Refusal").map(|(app, id)| app.browser.host.tab(id).and_then(|t| t.refusal.clone())))?,
+    )?;
+    m.raw_set(
+        "Rejected",
+        lua.create_function(move |_, this: Table| read(&this, "BrowserTab:Rejected").map(|(app, id)| app.browser.host.tab(id).map_or(0i64, |t| t.rejected as i64)))?,
+    )?;
+    m.raw_set(
         "Files",
         lua.create_function(move |lua, this: Table| {
             let (app, id) = read(&this, "BrowserTab:Files")?;
@@ -336,16 +361,18 @@ fn tab_methods(lua: &Lua) -> mlua::Result<Table> {
         m.raw_set(
             name,
             lua.create_function(move |_, this: Table| {
-                let app = app_now("BrowserTab")?;
-                let id = id_of(&this)?;
-                let host = &app.browser.host;
-                match name {
-                    "Back" => host.back(id),
-                    "Forward" => host.forward(id),
-                    "Reload" => host.reload(id),
-                    _ => host.stop(id),
-                }
-                Ok(())
+                later(&this, "BrowserTab", move |s, id, _| {
+                    if name != "Stop" {
+                        s.browser.host.clear_refusal(id);
+                    }
+                    let host = &s.browser.host;
+                    match name {
+                        "Back" => host.back(id),
+                        "Forward" => host.forward(id),
+                        "Reload" => host.reload(id),
+                        _ => host.stop(id),
+                    }
+                })
             })?,
         )?;
     }
@@ -426,8 +453,9 @@ pub fn version(app: &App) -> u64 {
     let mut h = std::hash::DefaultHasher::new();
     format!("{:?}", app.browser.host.status()).hash(&mut h);
     app.browser.host.engine_downloads().hash(&mut h);
+    app.browser.host.engine_policy().hash(&mut h);
     for t in app.browser.host.tabs() {
-        (t.id, &t.url, &t.title, t.loading, t.can_go_back, t.can_go_forward, t.zoom.to_bits(), t.inspecting, &t.load_error).hash(&mut h);
+        (t.id, &t.url, &t.title, t.loading, t.can_go_back, t.can_go_forward, t.zoom.to_bits(), t.inspecting, &t.load_error, &t.refusal, t.rejected).hash(&mut h);
         // A download's step or end: `BrowserTab:Files` reads them.
         t.files.iter().for_each(|f| (&f.id, f.bytes, f.state as u8, &f.error).hash(&mut h));
     }
@@ -442,7 +470,7 @@ pub fn version(app: &App) -> u64 {
     h.finish()
 }
 
-/// Each open page's id and a number that moves with its address, title and loading, for
+/// Each open page's id and a number that moves with its address, title, loading and refusal, for
 /// `Browser.Changed`.
 pub fn pages(app: &App) -> Vec<(String, u64)> {
     app.browser
@@ -451,7 +479,7 @@ pub fn pages(app: &App) -> Vec<(String, u64)> {
         .iter()
         .map(|t| {
             let mut h = std::hash::DefaultHasher::new();
-            (&t.url, &t.title, t.loading).hash(&mut h);
+            (&t.url, &t.title, t.loading, &t.refusal, t.rejected).hash(&mut h);
             (t.id.to_string(), h.finish())
         })
         .collect()

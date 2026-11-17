@@ -137,17 +137,37 @@ function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutServ
         error("Browser engine isn't installed yet in OpenCode (Rune)", 0)
     end
 
-    -- Answer once the page says where it went (it changed address and stopped loading, or failed),
-    -- as Desktop's navigate answers after the load; at most 10 s.
-    local function waitLoad(tab: BrowserTab, before: string)
+    -- Answer once the page says where it went (it changed address and stopped loading, was refused
+    -- after `beforeRejected`, or failed), as Desktop's navigate answers after the load; at most 10 s.
+    local function waitLoad(tab: BrowserTab, before: string, beforeRejected: number)
         local loaded = tab:Loading()
         for _ = 1, 100 do
-            if tab:LoadError() ~= nil or ((loaded or tab:Url() ~= before) and not tab:Loading()) then
+            if tab:Rejected() > beforeRejected or tab:LoadError() ~= nil or ((loaded or tab:Url() ~= before) and not tab:Loading()) then
                 break
             end
             task.wait(0.1)
             loaded = loaded or tab:Loading()
         end
+    end
+
+    local function refusalMessage(code: string): string
+        if code == "browser.address.credentials" then
+            return "URLs with a user name or password are not supported. Remove them from the URL."
+        end
+        if code == "browser.address.workspace" then
+            return "Only HTTP, HTTPS, about:blank, and file URLs inside the workspace are supported."
+        end
+        return "Only HTTP, HTTPS, and about:blank URLs are supported."
+    end
+
+    local function normalizeUrl(raw: string, sid: string): string
+        local ok, out = pcall(Browser.NormalizeUrl, Browser, raw, sid)
+        if not ok then
+            local msg = string.gsub(tostring(out), "^runtime error: ", "")
+            msg = string.match(msg, "^([^\r\n]+)") or msg
+            error(msg, 0)
+        end
+        return out
     end
 
     local function tool(name: string, description: string, properties: { [string]: any }, required: { string }?, call: (args: { [string]: any }, sid: string) -> any)
@@ -176,11 +196,20 @@ function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutServ
         url = { type = "string", description = "URL or ':port' address to open (defaults to 'about:blank')." },
     }, nil, function(args, sid)
         checkEngine()
-        local tab = Browser:OpenAsync({ url = if type(args.url) == "string" then args.url else "about:blank", sessionId = sid, background = true })
+        local normalized = normalizeUrl(if type(args.url) == "string" then args.url else "about:blank", sid)
+        local tab = Browser:OpenAsync({ url = normalized, sessionId = sid, background = true })
         if tab == nil then
             error(UNSUPPORTED, 0)
         end
         waitEngine(tab)
+        if normalized ~= "about:blank" then
+            waitLoad(tab, "", 0)
+        end
+        if tab:Rejected() > 0 then
+            local refused = tab:Refusal() or "browser.address.web"
+            tab:Close()
+            error(refusalMessage(refused), 0)
+        end
         return { tabID = id(tab), url = tab:Url() }
     end)
 
@@ -196,21 +225,34 @@ function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutServ
         if args.tabID ~= nil and Browser:Get(tostring(args.tabID)) == nil then
             error(`No browser tab with tabID {args.tabID}`, 0)
         end
+        local normalized = normalizeUrl(url, sid)
         local tab = if args.tabID ~= nil then Browser:Get(tostring(args.tabID)) else Browser:Active(sid)
         if tab == nil then
-            local opened = Browser:OpenAsync({ url = url, sessionId = sid, background = true })
+            local opened = Browser:OpenAsync({ url = normalized, sessionId = sid, background = true })
             if opened == nil then
                 error(UNSUPPORTED, 0)
             end
             waitEngine(opened)
-            waitLoad(opened, "")
+            if normalized ~= "about:blank" then
+                waitLoad(opened, "", 0)
+            end
+            if opened:Rejected() > 0 then
+                local refused = opened:Refusal() or "browser.address.web"
+                opened:Close()
+                error(refusalMessage(refused), 0)
+            end
             return { tabID = id(opened), url = opened:Url() }
         end
         local before = tab:Url()
-        tab:Navigate(url)
+        local beforeRejected = tab:Rejected()
+        tab:Navigate(normalized)
         tab:Show({ sessionId = sid, background = true })
+        task.wait(0.05)
         waitEngine(nil)
-        waitLoad(tab, before)
+        waitLoad(tab, before, beforeRejected)
+        if tab:Rejected() > beforeRejected then
+            error(refusalMessage(tab:Refusal() or "browser.address.web"), 0)
+        end
         return { tabID = id(tab), url = tab:Url() }
     end)
 

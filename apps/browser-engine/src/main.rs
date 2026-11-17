@@ -19,6 +19,7 @@ mod output;
 mod handlers;
 #[cfg(target_os = "macos")]
 mod mac_app;
+mod policy;
 mod profile;
 mod tab_client;
 mod wire;

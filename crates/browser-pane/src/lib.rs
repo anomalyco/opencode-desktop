@@ -24,6 +24,7 @@ pub mod installer;
 mod keys;
 #[cfg(all(feature = "engine", target_os = "macos"))]
 pub mod mach_pipe;
+pub mod policy;
 #[cfg(feature = "engine")]
 mod prefetch;
 #[cfg(feature = "engine")]
@@ -47,6 +48,10 @@ pub use client::BrowserHost;
 pub use client::BrowserTab;
 pub use frame::TabSurface;
 pub use installer::{Distrust, ENGINE_DOWNLOAD_MB, ENGINE_REVISION, EngineStatus, Failure, Fault, Net, PauseReason, Version};
+pub use policy::{
+    Refusal, allowed_destination, destination_origin, file_url_within, frame_guard, local_file_path,
+    normalize_url, refusal, subresource_allowed, with_scheme,
+};
 #[cfg(feature = "engine")]
 pub use profile::shared_profile_dir;
 pub use protocol::CursorKind;

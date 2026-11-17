@@ -62,7 +62,7 @@ return plugin.defineWindow(function(ctx)
 
     -- Page `tab`'s report counts, folded with what it reports now.
     local function epoch(tab: BrowserTab): address.Epoch
-        local e = address.fold(epochs[tab.Id], pageUrl(tab), tab:Loading())
+        local e = address.fold(epochs[tab.Id], pageUrl(tab), tab:Loading(), tab:Rejected())
         epochs[tab.Id] = e
         return e
     end

@@ -196,6 +196,7 @@ wrap_browser_process_handler! {
 struct ManagedTab {
     browser: Browser,
     host: BrowserHost,
+    file_roots: Arc<Mutex<Vec<String>>>,
     view_state: Arc<Mutex<ViewRectState>>,
     snap: Arc<Mutex<TabSnapshot>>,
     cdp_id_map: Arc<Mutex<HashMap<i32, u64>>>,
@@ -325,6 +326,7 @@ impl EngineManager {
                     chromium_major: sys::CHROME_VERSION_MAJOR as u32,
                     pid: std::process::id(),
                     downloads: true,
+                    policy: true,
                 });
                 if !self.tabs.is_empty() {
                     let list: Vec<TabSnapshot> = self
@@ -342,8 +344,13 @@ impl EngineManager {
                     }
                 }
             }
-            HostMsg::OpenTab { tab_id, url, width_pt, height_pt, scale, focused } => {
-                self.open_tab(tab_id, &url, width_pt, height_pt, scale, focused);
+            HostMsg::OpenTab { tab_id, url, width_pt, height_pt, scale, focused, file_roots } => {
+                self.open_tab(tab_id, &url, width_pt, height_pt, scale, focused, file_roots);
+            }
+            HostMsg::SetTabPolicy { tab_id, file_roots } => {
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    *t.file_roots.lock().unwrap() = file_roots;
+                }
             }
             HostMsg::CloseTab { tab_id } => {
                 if let Some(tab) = self.tabs.remove(&tab_id) {
@@ -363,10 +370,16 @@ impl EngineManager {
                 }
             }
             HostMsg::Navigate { tab_id, url } => {
-                if let Some(t) = self.tabs.get(&tab_id)
-                    && let Some(frame) = t.browser.main_frame()
-                {
-                    frame.load_url(Some(&CefString::from(url.as_str())));
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    let roots = t.file_roots.lock().unwrap().clone();
+                    if let Some(why) = crate::policy::frame_guard(&url, true, &roots) {
+                        let _ = self.out_tx.send(EngineMsg::Refused {
+                            tab_id,
+                            reason: why.code().to_owned(),
+                        });
+                    } else if let Some(frame) = t.browser.main_frame() {
+                        frame.load_url(Some(&CefString::from(url.as_str())));
+                    }
                 }
             }
             HostMsg::Back { tab_id } => {
@@ -576,6 +589,24 @@ impl EngineManager {
             }
             HostMsg::CdpCall { tab_id, request_id, method, params, session_id } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
+                    if method == "Page.navigate"
+                        && let Some(url) = params.get("url").and_then(Value::as_str)
+                    {
+                        let roots = t.file_roots.lock().unwrap().clone();
+                        if let Some(why) = crate::policy::frame_guard(url, session_id.is_none(), &roots) {
+                            let _ = self.out_tx.send(EngineMsg::Refused {
+                                tab_id,
+                                reason: why.code().to_owned(),
+                            });
+                            let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                                tab_id,
+                                request_id,
+                                ok: false,
+                                result: json!({ "message": why.code() }),
+                            });
+                            return true;
+                        }
+                    }
                     let msg_id = self.next_cdp_id.fetch_add(1, Ordering::Relaxed);
                     t.cdp_id_map.lock().unwrap().insert(msg_id, request_id);
                     let mut payload = json!({
@@ -616,7 +647,11 @@ impl EngineManager {
         height_pt: f32,
         scale: f32,
         focused: bool,
+        file_roots: Vec<String>,
     ) {
+        let refused = crate::policy::frame_guard(url, true, &file_roots);
+        let initial_url = if refused.is_some() { "about:blank" } else { url };
+        let file_roots = Arc::new(Mutex::new(file_roots));
         let view_state = Arc::new(Mutex::new(ViewRectState {
             width_pt: width_pt.max(1.0),
             height_pt: height_pt.max(1.0),
@@ -624,9 +659,9 @@ impl EngineManager {
         }));
         let snap = Arc::new(Mutex::new(TabSnapshot {
             tab_id,
-            url: url.to_owned(),
+            url: initial_url.to_owned(),
             title: "New tab".into(),
-            loading: true,
+            loading: refused.is_none(),
             can_go_back: false,
             can_go_forward: false,
             zoom: 1.0,
@@ -653,9 +688,14 @@ impl EngineManager {
             frames.clone(),
         );
         let display = TabDisplayHandler::new(snap.clone(), self.out_tx.clone());
-        let load = TabLoadHandler::new(snap.clone(), self.out_tx.clone());
-        let request = TabRequestHandler::new(snap.clone(), self.out_tx.clone());
-        let download = crate::downloads::TabDownloadHandler::new(tab_id, self.downloads.clone(), self.out_tx.clone());
+        let load = TabLoadHandler::new(tab_id, file_roots.clone(), snap.clone(), self.out_tx.clone());
+        let request = TabRequestHandler::new(tab_id, file_roots.clone(), snap.clone(), self.out_tx.clone());
+        let download = crate::downloads::TabDownloadHandler::new(
+            tab_id,
+            file_roots.clone(),
+            self.downloads.clone(),
+            self.out_tx.clone(),
+        );
         let mut client = SidecarTabClient::new(render, display, load, request, download);
 
         let mut win_info = WindowInfo::default().set_as_windowless(Default::default());
@@ -671,7 +711,7 @@ impl EngineManager {
         let Some(browser) = cef::browser_host_create_browser_sync(
             Some(&win_info),
             Some(&mut client),
-            Some(&CefString::from(url)),
+            Some(&CefString::from(initial_url)),
             Some(&browser_settings),
             None,
             None,
@@ -707,6 +747,7 @@ impl EngineManager {
             ManagedTab {
                 browser,
                 host,
+                file_roots,
                 view_state,
                 snap,
                 cdp_id_map,
@@ -717,6 +758,12 @@ impl EngineManager {
                 frames,
             },
         );
+        if let Some(why) = refused {
+            let _ = self.out_tx.send(EngineMsg::Refused {
+                tab_id,
+                reason: why.code().to_owned(),
+            });
+        }
     }
 
     fn send_color_scheme(&self, host: &BrowserHost, dark: bool) {

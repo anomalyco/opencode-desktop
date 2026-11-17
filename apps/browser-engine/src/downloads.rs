@@ -91,12 +91,18 @@ fn remove_file_folder(path: &str) {
 wrap_download_handler! {
     pub struct TabDownloadHandler {
         tab_id: u64,
+        file_roots: Arc<Mutex<Vec<String>>>,
         downloads: Arc<Downloads>,
         out_tx: Output,
     }
 
     impl DownloadHandler {
-        fn can_download(&self, _browser: Option<&mut Browser>, _url: Option<&CefString>, _method: Option<&CefString>) -> ::std::os::raw::c_int {
+        fn can_download(&self, _browser: Option<&mut Browser>, url: Option<&CefString>, _method: Option<&CefString>) -> ::std::os::raw::c_int {
+            let url = url.map(CefString::to_string).unwrap_or_default();
+            let roots = self.file_roots.lock().unwrap().clone();
+            if !crate::policy::subresource_allowed(&url, &roots) || crate::policy::is_http_with_credentials(&url) {
+                return 0;
+            }
             1
         }
 

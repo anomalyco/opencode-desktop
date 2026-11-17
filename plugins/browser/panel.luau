@@ -393,6 +393,32 @@ local function suggestions(env: Env, view: View, tab: BrowserTab, state: address
     }, rows)
 end
 
+local function alertRow(key: string, words: string): ui.Node
+    return ui.col({ key = key, role = "alert", w = "full" }, {
+        ui.col({ dir = "auto", w = "full", px = 12, py = 6 }, {
+            ui.text(words, { size = 12, weight = "regular", lineHeight = 16, color = "status-danger", wrap = true }),
+        }),
+        ui.divider(),
+    })
+end
+
+-- Refused navigation notice (`panel.tsx:713-721`, `model.ts:121-131`), shown while keeping the page.
+local function refusal(env: Env, tab: BrowserTab): ui.Node?
+    if tab:LoadError() ~= nil then
+        return nil
+    end
+    local code = tab:Refusal()
+    if code == nil then
+        return nil
+    end
+    local words = if code == "browser.address.credentials"
+        then env.I18n:T("refused.credentials")
+        elseif code == "browser.address.workspace" then env.I18n:T("refused.workspace")
+        elseif code == "browser.address.web" then env.I18n:T("refused.web")
+        else env.I18n:T("common.requestFailed")
+    return alertRow("browser-refusal", words)
+end
+
 -- The page's last download, when it failed: one line under the bar, as Desktop's published error
 -- (panel.tsx's `role="alert"` row: 12 regular, the danger colour, 12 and 6 in, a muted rule
 -- under it). A successful download shows nothing there, as Desktop's doesn't: it's for the
@@ -408,12 +434,7 @@ local function download(env: Env, tab: BrowserTab): ui.Node?
         elseif last.error == "canceled" then env.I18n:T("download.failed.canceled", { name = last.name })
         elseif last.error == "too_many" then env.I18n:T("download.failed.tooMany", { name = last.name })
         else env.I18n:T("download.failed.other", { name = last.name, reason = last.error or "failed" })
-    return ui.col({ key = "browser-download-error", role = "alert", w = "full" }, {
-        ui.col({ dir = "auto", w = "full", px = 12, py = 6 }, {
-            ui.text(words, { size = 12, weight = "regular", lineHeight = 16, color = "status-danger", wrap = true }),
-        }),
-        ui.divider(),
-    })
+    return alertRow("browser-download-error", words)
 end
 
 -- A tab's pane.
@@ -428,9 +449,9 @@ function panel.render(env: Env, view: View, props: PanelProps): ui.Node
     if engine ~= "unsupported" then
         table.insert(items, bar(env, view, tab, state))
     end
-    local failure = download(env, tab)
-    if failure then
-        table.insert(items, failure)
+    local alert = refusal(env, tab) or download(env, tab)
+    if alert then
+        table.insert(items, alert)
     end
     local url = tab:Url()
     local blank = (url == "" or url == "about:blank") and not tab:Loading() and not state.navigating

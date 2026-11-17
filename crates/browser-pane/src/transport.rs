@@ -38,6 +38,8 @@ const ANSWER_DEADLINE: Duration = Duration::from_secs(5);
 /// What the app shares with the threads that talk to its engine.
 #[derive(Clone)]
 pub(crate) struct Link {
+    pub generation: u64,
+    pub conn_gen: Arc<std::sync::atomic::AtomicU64>,
     pub status: Arc<Mutex<EngineStatus>>,
     pub outbox: Arc<Mutex<Option<Sender<HostMsg>>>>,
     pub inbox_tx: Sender<EngineMsg>,
@@ -57,7 +59,14 @@ pub(crate) struct Link {
 }
 
 impl Link {
+    pub(crate) fn current(&self) -> bool {
+        self.conn_gen.load(std::sync::atomic::Ordering::Relaxed) == self.generation
+    }
+
     pub(crate) fn set(&self, status: EngineStatus) {
+        if !self.current() {
+            return;
+        }
         *self.status.lock().unwrap() = status;
         self.wake();
     }
@@ -331,6 +340,9 @@ mod proc {
 /// pane says so, and Retry starts it again. The socket's end usually comes first, without the
 /// process's exit code; the process's end then names the cause when it was a lack of memory.
 fn lost(link: &Link, code: Option<u32>) {
+    if !link.current() {
+        return;
+    }
     if let Some(code) = code {
         eprintln!("browser engine: ended with exit code {code:#010x}");
     }
@@ -495,7 +507,7 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
             let mut line = String::new();
             loop {
                 line.clear();
-                if !matches!(reader.read_line(&mut line), Ok(1..)) { break; }
+                if !matches!(reader.read_line(&mut line), Ok(1..)) || !link.current() { break; }
                 // The sidecar writes the type tag first. Borrow the large base64 field directly
                 // from the reusable line buffer. Other layouts still go through the wire enum.
                 if line.starts_with("{\"type\":\"cpu_frame\",")
