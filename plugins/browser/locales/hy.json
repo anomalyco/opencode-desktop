@@ -12,5 +12,6 @@
   "action.reload": "Վերբեռնել կրկին",
   "download.failed.tooLarge": "{{name}}-ը չհաջողվեց պահել․ այն 5 MiB-ից մեծ է, որը բրաուզերի ներբեռնումների սահմանն է։",
   "download.failed.canceled": "{{name}}-ի ներբեռնումը չեղարկվեց։",
-  "download.failed.other": "Չհաջողվեց ներբեռնել {{name}}-ը ({{reason}})։"
+  "download.failed.other": "Չհաջողվեց ներբեռնել {{name}}-ը ({{reason}})։",
+  "download.failed.tooMany": "{{name}}-ը չհաջողվեց պահել․ այս ներդիրն արդեն ունի 64 ներբեռնում։ Փակեք ներդիրը՝ դրանք մաքրելու համար։"
 }

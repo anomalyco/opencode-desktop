@@ -12,5 +12,6 @@
   "action.reload": "Znova naloži",
   "download.failed.tooLarge": "{{name}} ni bilo mogoče obdržati: večja je od 5 MiB, omejitve brskalnika za prenose.",
   "download.failed.canceled": "Prenos datoteke {{name}} je bil preklican.",
-  "download.failed.other": "{{name}} ni bilo mogoče prenesti ({{reason}})."
+  "download.failed.other": "{{name}} ni bilo mogoče prenesti ({{reason}}).",
+  "download.failed.tooMany": "{{name}} ni bilo mogoče obdržati: ta zavihek že ima 64 prenosov. Zaprite zavihek, da jih počistite."
 }

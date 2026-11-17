@@ -49,6 +49,13 @@ impl BrowserTab {
     }
 }
 
+/// The engine profile's downloads folder (the engine's `downloads::DIR_NAME`).
+#[cfg(feature = "engine")]
+const DOWNLOADS_DIR: &str = "opencode-page-downloads";
+
+/// A tab's downloads at most (the engine's `downloads::MAX_TAB_FILES`).
+pub const MAX_TAB_FILES: usize = 64;
+
 pub struct BrowserHost {
     pub(crate) tabs: Vec<BrowserTab>,
     focused_tab: Option<u64>,
@@ -66,6 +73,8 @@ pub struct BrowserHost {
     pub(crate) socket_override: Option<PathBuf>,
     #[cfg_attr(not(feature = "engine"), allow(dead_code))]
     pub(crate) profile_dir: Option<PathBuf>,
+    /// The running engine keeps a page's downloads (its `Ready` said so).
+    engine_downloads: bool,
     next_tab_id: u64,
     next_req_id: u64,
     pending_opens: Vec<(u64, String)>,
@@ -121,6 +130,7 @@ impl BrowserHost {
             shell_shortcut: None,
             socket_override: None,
             profile_dir: None,
+            engine_downloads: false,
             next_tab_id: 1,
             next_req_id: 1,
             pending_opens: Vec::new(),
@@ -167,6 +177,35 @@ impl BrowserHost {
 
     /// Keeps the engine's cookies and sign-ins in `dir` instead of this app's own profile
     /// (`OPENCODE_BROWSER_PROFILE` in the environment still wins). Takes effect at the next spawn.
+    /// The engine that runs (or last ran) keeps a page's downloads, for the agent's tools.
+    pub fn engine_downloads(&self) -> bool {
+        self.engine_downloads
+    }
+
+    /// Where tab `tab_id`'s download `file` is, when it's where the engine keeps it: the engine
+    /// profile's `opencode-page-downloads\<tab>\<file id>\` (or a throwaway profile's beside it).
+    /// None for any other path the engine named: the app opens no file another process points at.
+    pub fn download_path(&self, tab_id: u64, file: &DownloadFile) -> Option<PathBuf> {
+        #[cfg(feature = "engine")]
+        {
+            let profile = std::fs::canonicalize(crate::profile::for_spawn(self.profile_dir.as_deref())?).ok()?;
+            let path = std::fs::canonicalize(&file.path).ok()?;
+            let folder = path.parent()?;
+            let tab = folder.parent()?;
+            let dir = tab.parent()?;
+            let root = dir.parent()?;
+            let named = folder.file_name()? == file.id.as_str() && tab.file_name()? == tab_id.to_string().as_str() && dir.file_name()? == DOWNLOADS_DIR;
+            let throwaway = profile.file_name().map(|n| format!("{}-throwaway", n.to_string_lossy()));
+            let ours = root == profile || (root.parent().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()) == throwaway && root.parent()?.parent() == profile.parent());
+            (named && ours && path.is_file()).then_some(path)
+        }
+        #[cfg(not(feature = "engine"))]
+        {
+            let _ = (tab_id, file);
+            None
+        }
+    }
+
     pub fn set_profile_dir(&mut self, dir: PathBuf) {
         self.profile_dir = Some(dir);
     }
@@ -536,7 +575,8 @@ impl BrowserHost {
         mail.extend(std::iter::from_fn(|| self.inbox_rx.try_recv().ok()));
         for msg in mail {
             match msg {
-                EngineMsg::Ready { .. } => {
+                EngineMsg::Ready { downloads, .. } => {
+                    self.engine_downloads = downloads;
                     rune::marks::mark("browser.engine.ready");
                     *self.status.lock().unwrap() = EngineStatus::Ready;
                     // Before any page loads, so the first draws in the app's scheme.
@@ -593,9 +633,16 @@ impl BrowserHost {
                 }
                 EngineMsg::Download { tab_id, file } => {
                     if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
-                        match t.files.iter_mut().find(|f| f.id == file.id) {
-                            Some(known) => *known = file,
-                            None => t.files.push(file),
+                        match t.files.iter().position(|f| f.id == file.id) {
+                            Some(known) => t.files[known] = file,
+                            // The engine keeps at most MAX_TAB_FILES a tab; the list holds those and
+                            // one more place for the latest it refused, which the pane names.
+                            None if t.files.len() <= MAX_TAB_FILES => t.files.push(file),
+                            None => {
+                                if let Some(last) = t.files.last_mut() {
+                                    *last = file;
+                                }
+                            }
                         }
                         changed = true;
                     }

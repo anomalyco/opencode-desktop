@@ -12,5 +12,6 @@
   "action.reload": "Επαναφόρτωση",
   "download.failed.tooLarge": "Δεν ήταν δυνατή η διατήρηση του {{name}}: ξεπερνά τα 5 MiB, το όριο λήψεων του προγράμματος περιήγησης.",
   "download.failed.canceled": "Η λήψη του {{name}} ακυρώθηκε.",
-  "download.failed.other": "Δεν ήταν δυνατή η λήψη του {{name}} ({{reason}})."
+  "download.failed.other": "Δεν ήταν δυνατή η λήψη του {{name}} ({{reason}}).",
+  "download.failed.tooMany": "Δεν ήταν δυνατή η διατήρηση του {{name}}: αυτή η καρτέλα έχει ήδη 64 λήψεις. Κλείστε την καρτέλα για να διαγραφούν."
 }

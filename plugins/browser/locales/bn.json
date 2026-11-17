@@ -12,5 +12,6 @@
   "action.reload": "পুনরায় লোড করুন",
   "download.failed.tooLarge": "{{name}} রাখা যায়নি: এটি 5 MiB-এর বেশি, যা ব্রাউজারের ডাউনলোডের সীমা।",
   "download.failed.canceled": "{{name}}-এর ডাউনলোড বাতিল হয়েছে।",
-  "download.failed.other": "{{name}} ডাউনলোড করা যায়নি ({{reason}})।"
+  "download.failed.other": "{{name}} ডাউনলোড করা যায়নি ({{reason}})।",
+  "download.failed.tooMany": "{{name}} রাখা যায়নি: এই ট্যাবে ইতিমধ্যে 64টি ডাউনলোড আছে। সেগুলো মুছতে ট্যাবটি বন্ধ করুন।"
 }

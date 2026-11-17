@@ -12,5 +12,6 @@
   "action.reload": "නැවත පූරණය කරන්න",
   "download.failed.tooLarge": "{{name}} තබා ගත නොහැකි විය: එය බ්‍රවුසරයේ බාගැනීම් සීමාව වන 5 MiB ට වඩා විශාලය.",
   "download.failed.canceled": "{{name}} බාගැනීම අවලංගු කරන ලදී.",
-  "download.failed.other": "{{name}} බාගත නොහැකි විය ({{reason}})."
+  "download.failed.other": "{{name}} බාගත නොහැකි විය ({{reason}}).",
+  "download.failed.tooMany": "{{name}} තබා ගත නොහැකි විය: මෙම ටැබයේ දැනටමත් බාගැනීම් 64ක් ඇත. ඒවා ඉවත් කිරීමට ටැබය වසන්න."
 }

@@ -12,5 +12,6 @@
   "action.reload": "Ringarko",
   "download.failed.tooLarge": "{{name}} nuk u mbajt dot: është më i madh se 5 MiB, kufiri i shfletuesit për shkarkimet.",
   "download.failed.canceled": "Shkarkimi i {{name}} u anulua.",
-  "download.failed.other": "{{name}} nuk u shkarkua dot ({{reason}})."
+  "download.failed.other": "{{name}} nuk u shkarkua dot ({{reason}}).",
+  "download.failed.tooMany": "{{name}} nuk u mbajt dot: kjo skedë ka tashmë 64 shkarkime. Mbyll skedën për t'i pastruar."
 }

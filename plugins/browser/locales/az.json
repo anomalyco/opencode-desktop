@@ -12,5 +12,6 @@
   "action.reload": "Yenidən yüklə",
   "download.failed.tooLarge": "{{name}} saxlanıla bilmədi: 5 MiB-dan böyükdür, bu brauzerin endirmə limitidir.",
   "download.failed.canceled": "{{name}} endirməsi ləğv edildi.",
-  "download.failed.other": "{{name}} endirilə bilmədi ({{reason}})."
+  "download.failed.other": "{{name}} endirilə bilmədi ({{reason}}).",
+  "download.failed.tooMany": "{{name}} saxlanıla bilmədi: bu tabda artıq 64 endirmə var. Onları təmizləmək üçün tabı bağlayın."
 }

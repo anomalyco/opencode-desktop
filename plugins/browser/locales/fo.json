@@ -12,5 +12,6 @@
   "action.reload": "Les inn aftur",
   "download.failed.tooLarge": "{{name}} kundi ikki goymast: fílan er størri enn 5 MiB, markið hjá kaganum fyri niðurtøkur.",
   "download.failed.canceled": "Niðurtøkan av {{name}} varð avlýst.",
-  "download.failed.other": "{{name}} kundi ikki takast niður ({{reason}})."
+  "download.failed.other": "{{name}} kundi ikki takast niður ({{reason}}).",
+  "download.failed.tooMany": "{{name}} kundi ikki goymast: hesin teigurin hevur longu 64 niðurtøkur. Lat teigin aftur fyri at strika tær."
 }

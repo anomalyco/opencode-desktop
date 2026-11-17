@@ -179,9 +179,9 @@ fn main() {
     }
 
     #[cfg(windows)]
-    let mut manager = EngineManager::new(out_tx, _cef.downloads_dir(), gpu.join().ok().flatten());
+    let mut manager = EngineManager::new(out_tx, _cef.profile_root(), gpu.join().ok().flatten());
     #[cfg(not(windows))]
-    let mut manager = EngineManager::new(out_tx, _cef.downloads_dir());
+    let mut manager = EngineManager::new(out_tx, _cef.profile_root());
     step("manager");
     let mut first_message = true;
     let start = Instant::now();

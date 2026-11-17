@@ -12,5 +12,6 @@
   "action.reload": "Презареждане",
   "download.failed.tooLarge": "{{name}} не може да се запази: над 5 MiB е, ограничението на браузъра за изтегляния.",
   "download.failed.canceled": "Изтеглянето на {{name}} беше отменено.",
-  "download.failed.other": "{{name}} не може да се изтегли ({{reason}})."
+  "download.failed.other": "{{name}} не може да се изтегли ({{reason}}).",
+  "download.failed.tooMany": "{{name}} не може да се запази: този раздел вече съдържа 64 изтегляния. Затворете раздела, за да ги изчистите."
 }

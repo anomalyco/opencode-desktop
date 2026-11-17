@@ -285,7 +285,15 @@ function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutServ
         return { text = `\{"tabID":{id(tab)},"url":{quote(meta.url)},"title":{quote(meta.title)},"format":"{format}"\}`, image = data, mimeType = `image/{format}` }
     end)
 
-    tool("browser_files", "List the files a browser tab in OpenCode (Rune) downloaded (a click on a download link keeps the file for these tools; over 5 MiB is cancelled), with each file's id, name, MIME type, size and state.", {
+    -- The file tools exist only while an engine that keeps downloads runs (its Ready says so):
+    -- an engine from before downloads would answer an empty list for ever.
+    local filesAdded = false
+    local function addFileTools()
+        if filesAdded or not Browser:Engine().downloads then
+            return
+        end
+        filesAdded = true
+    tool("browser_files", "List the files a browser tab in OpenCode (Rune) downloaded (a click on a download link keeps the file for these tools until the tab closes; over 5 MiB is cancelled, at most 64 a tab), with each file's id, name, MIME type, size and state.", {
         tabID = tabSchema(DEFAULT_TAB),
     }, nil, function(args, sid)
         local tab = target(args, sid)
@@ -303,6 +311,9 @@ function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutServ
         end
         return { name = file.name, mime = file.mime, bytes = file.bytes, base64 = file.base64 }
     end)
+    end
+    addFileTools()
+    Browser.Changed:Connect(addFileTools)
     tool("browser_cdp", "Send a raw Chrome DevTools Protocol command to a browser tab in OpenCode (Rune).", {
         method = { type = "string", description = "CDP method name, e.g. 'Input.dispatchMouseEvent' or 'DOM.getDocument'." },
         params = { type = "object", description = "CDP method parameters." },

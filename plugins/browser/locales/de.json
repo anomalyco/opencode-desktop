@@ -12,5 +12,6 @@
   "action.reload": "Neu laden",
   "download.failed.tooLarge": "{{name}} konnte nicht behalten werden: Die Datei ist größer als 5 MiB, das Download-Limit des Browsers.",
   "download.failed.canceled": "Der Download von {{name}} wurde abgebrochen.",
-  "download.failed.other": "{{name}} konnte nicht heruntergeladen werden ({{reason}})."
+  "download.failed.other": "{{name}} konnte nicht heruntergeladen werden ({{reason}}).",
+  "download.failed.tooMany": "{{name}} konnte nicht behalten werden: Dieser Tab hat bereits 64 Downloads. Schließen Sie den Tab, um sie zu entfernen."
 }

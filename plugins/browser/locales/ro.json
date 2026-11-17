@@ -12,5 +12,6 @@
   "action.reload": "Reîncarcă",
   "download.failed.tooLarge": "{{name}} nu a putut fi păstrat: depășește 5 MiB, limita browserului pentru descărcări.",
   "download.failed.canceled": "Descărcarea {{name}} a fost anulată.",
-  "download.failed.other": "{{name}} nu a putut fi descărcat ({{reason}})."
+  "download.failed.other": "{{name}} nu a putut fi descărcat ({{reason}}).",
+  "download.failed.tooMany": "{{name}} nu a putut fi păstrat: această filă are deja 64 de descărcări. Închide fila pentru a le șterge."
 }

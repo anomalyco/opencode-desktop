@@ -12,5 +12,6 @@
   "action.reload": "Wczytaj ponownie",
   "download.failed.tooLarge": "Nie można zachować pliku {{name}}: ma ponad 5 MiB, czyli limit pobierania przeglądarki.",
   "download.failed.canceled": "Pobieranie pliku {{name}} zostało anulowane.",
-  "download.failed.other": "Nie udało się pobrać pliku {{name}} ({{reason}})."
+  "download.failed.other": "Nie udało się pobrać pliku {{name}} ({{reason}}).",
+  "download.failed.tooMany": "Nie można zachować pliku {{name}}: ta karta ma już 64 pobrane pliki. Zamknij kartę, aby je usunąć."
 }

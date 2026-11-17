@@ -12,5 +12,6 @@
   "action.reload": "Muat ulang",
   "download.failed.tooLarge": "Tidak dapat menyimpan {{name}}: ukurannya lebih dari 5 MiB, batas unduhan peramban.",
   "download.failed.canceled": "Unduhan {{name}} dibatalkan.",
-  "download.failed.other": "Tidak dapat mengunduh {{name}} ({{reason}})."
+  "download.failed.other": "Tidak dapat mengunduh {{name}} ({{reason}}).",
+  "download.failed.tooMany": "Tidak dapat menyimpan {{name}}: tab ini sudah menyimpan 64 unduhan. Tutup tab untuk menghapusnya."
 }

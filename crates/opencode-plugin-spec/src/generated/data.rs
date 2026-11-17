@@ -853,8 +853,10 @@ pub struct BrowserEngine {
     pub state: BrowserEngineState,
     /// Why it failed, for `failed`.
     pub message: Option<String>,
+    /// The engine that runs (or last ran) keeps a page's downloads for `BrowserTab:Files`; false before one has run, and for an engine from before downloads.
+    pub downloads: bool,
 }
-impl_record!(BrowserEngine, ["state", "message"], [], []);
+impl_record!(BrowserEngine, ["state", "message", "downloads"], [], []);
 
 /// An element the user picked in a page with the element picker.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

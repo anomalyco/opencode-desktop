@@ -12,5 +12,6 @@
   "action.reload": "Lataa uudelleen",
   "download.failed.tooLarge": "Tiedostoa {{name}} ei voitu säilyttää: se on yli 5 MiB, selaimen latausraja.",
   "download.failed.canceled": "Tiedoston {{name}} lataus peruutettiin.",
-  "download.failed.other": "Tiedostoa {{name}} ei voitu ladata ({{reason}})."
+  "download.failed.other": "Tiedostoa {{name}} ei voitu ladata ({{reason}}).",
+  "download.failed.tooMany": "Tiedostoa {{name}} ei voitu säilyttää: tässä välilehdessä on jo 64 latausta. Sulje välilehti tyhjentääksesi ne."
 }

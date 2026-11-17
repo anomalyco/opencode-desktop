@@ -12,5 +12,6 @@
   "action.reload": "Läs in igen",
   "download.failed.tooLarge": "Det gick inte att behålla {{name}}: filen är över 5 MiB, webbläsarens gräns för nedladdningar.",
   "download.failed.canceled": "Nedladdningen av {{name}} avbröts.",
-  "download.failed.other": "Det gick inte att ladda ned {{name}} ({{reason}})."
+  "download.failed.other": "Det gick inte att ladda ned {{name}} ({{reason}}).",
+  "download.failed.tooMany": "Det gick inte att behålla {{name}}: fliken har redan 64 nedladdningar. Stäng fliken för att rensa dem."
 }

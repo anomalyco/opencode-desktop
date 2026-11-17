@@ -12,5 +12,6 @@
   "action.reload": "إعادة التحميل",
   "download.failed.tooLarge": "تعذّر الاحتفاظ بـ ⁨{{name}}⁩: حجمه أكبر من 5 MiB، وهو حد التنزيلات في المتصفح.",
   "download.failed.canceled": "أُلغي تنزيل ⁨{{name}}⁩.",
-  "download.failed.other": "تعذّر تنزيل ⁨{{name}}⁩ (⁨{{reason}}⁩)."
+  "download.failed.other": "تعذّر تنزيل ⁨{{name}}⁩ (⁨{{reason}}⁩).",
+  "download.failed.tooMany": "تعذّر الاحتفاظ بـ ⁨{{name}}⁩: تحتوي علامة التبويب هذه على 64 تنزيلًا بالفعل. أغلق علامة التبويب لمسحها."
 }

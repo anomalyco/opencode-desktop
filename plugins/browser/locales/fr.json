@@ -12,5 +12,6 @@
   "action.reload": "Recharger",
   "download.failed.tooLarge": "Impossible de conserver {{name}} : il dépasse 5 Mio, la limite du navigateur pour les téléchargements.",
   "download.failed.canceled": "Le téléchargement de {{name}} a été annulé.",
-  "download.failed.other": "Impossible de télécharger {{name}} ({{reason}})."
+  "download.failed.other": "Impossible de télécharger {{name}} ({{reason}}).",
+  "download.failed.tooMany": "Impossible de conserver {{name}} : cet onglet contient déjà 64 téléchargements. Fermez l’onglet pour les effacer."
 }

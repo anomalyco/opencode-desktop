@@ -12,5 +12,6 @@
   "action.reload": "Аз нав бор кардан",
   "download.failed.tooLarge": "{{name}}-ро нигоҳ доштан нашуд: он аз 5 MiB калон аст, ки ҳадди боргирии браузер аст.",
   "download.failed.canceled": "Боргирии {{name}} бекор карда шуд.",
-  "download.failed.other": "{{name}}-ро боргирӣ кардан нашуд ({{reason}})."
+  "download.failed.other": "{{name}}-ро боргирӣ кардан нашуд ({{reason}}).",
+  "download.failed.tooMany": "{{name}}-ро нигоҳ доштан нашуд: ин варақа аллакай 64 боргирӣ дорад. Барои тоза кардани онҳо варақаро пӯшед."
 }

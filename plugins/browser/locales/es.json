@@ -12,5 +12,6 @@
   "action.reload": "Volver a cargar",
   "download.failed.tooLarge": "No se pudo conservar {{name}}: supera los 5 MiB, el límite del navegador para descargas.",
   "download.failed.canceled": "Se canceló la descarga de {{name}}.",
-  "download.failed.other": "No se pudo descargar {{name}} ({{reason}})."
+  "download.failed.other": "No se pudo descargar {{name}} ({{reason}}).",
+  "download.failed.tooMany": "No se pudo conservar {{name}}: esta pestaña ya tiene 64 descargas. Cierra la pestaña para borrarlas."
 }

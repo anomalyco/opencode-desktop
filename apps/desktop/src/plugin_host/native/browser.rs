@@ -102,7 +102,7 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
         cx::read(Dep::Browser);
         let app = app_now("Browser:Engine")?;
         let (state, message) = engine(app);
-        mlua::IntoLua::into_lua(map([("state", Data::String(state.into())), ("message", message.map_or(Data::Nil, Data::String))]), lua)
+        mlua::IntoLua::into_lua(map([("state", Data::String(state.into())), ("message", message.map_or(Data::Nil, Data::String)), ("downloads", Data::Bool(app.browser.host.engine_downloads()))]), lua)
     })?;
     method(lua, t, "Prepare", |_, seconds: Option<f64>| {
         let hold = Duration::from_secs_f64(seconds.unwrap_or(PREPARE_HOLD_S).clamp(1.0, PREPARE_HOLD_MAX_S));
@@ -162,6 +162,7 @@ fn read_file(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
     app_now("BrowserTab:ReadFileAsync")?.later(Box::new(move |s: &mut App, _: &mut Tx| {
         let failed = |message: String| map([("error", Data::String(message))]);
         let tab = id.parse::<u64>().ok().and_then(|id| s.browser.host.tab(id));
+        let tab_id = id.parse::<u64>().unwrap_or_default();
         let Some(file) = tab.and_then(|t| t.files.iter().find(|f| f.id == file_id)).cloned() else {
             return done.complete(failed(format!("No downloaded file {file_id} in browser tab {id}: list them with browser_files")));
         };
@@ -170,11 +171,15 @@ fn read_file(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
             browser_pane::DownloadState::Failed => return done.complete(failed(format!("{} didn't download ({})", file.name, file.error.as_deref().unwrap_or("failed")))),
             browser_pane::DownloadState::Completed => {}
         }
+        // Opened only where the engine keeps downloads, never at a path the engine merely named.
+        let Some(path) = s.browser.host.download_path(tab_id, &file) else {
+            return done.complete(failed(format!("Couldn't read {}: it isn't in the browser's downloads folder", file.name)));
+        };
         rune_luau::spawn_blocking(move || {
             use base64::Engine as _;
             use std::io::Read as _;
             let mut bytes = Vec::new();
-            let read = std::fs::File::open(&file.path).and_then(|f| f.take(MAX + 1).read_to_end(&mut bytes));
+            let read = std::fs::File::open(&path).and_then(|f| f.take(MAX + 1).read_to_end(&mut bytes));
             if let Err(e) = read {
                 return done.complete(failed(format!("Couldn't read {}: {e}", file.name)));
             }
@@ -420,6 +425,7 @@ fn tab_methods(lua: &Lua) -> mlua::Result<Table> {
 pub fn version(app: &App) -> u64 {
     let mut h = std::hash::DefaultHasher::new();
     format!("{:?}", app.browser.host.status()).hash(&mut h);
+    app.browser.host.engine_downloads().hash(&mut h);
     for t in app.browser.host.tabs() {
         (t.id, &t.url, &t.title, t.loading, t.can_go_back, t.can_go_forward, t.zoom.to_bits(), t.inspecting, &t.load_error).hash(&mut h);
         // A download's step or end: `BrowserTab:Files` reads them.

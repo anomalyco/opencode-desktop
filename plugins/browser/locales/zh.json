@@ -12,5 +12,6 @@
   "action.reload": "重新加载",
   "download.failed.tooLarge": "无法保留 {{name}}：它超过 5 MiB，即浏览器的下载上限。",
   "download.failed.canceled": "{{name}} 的下载已取消。",
-  "download.failed.other": "无法下载 {{name}}（{{reason}}）。"
+  "download.failed.other": "无法下载 {{name}}（{{reason}}）。",
+  "download.failed.tooMany": "无法保留 {{name}}：此标签页已有 64 个下载。关闭标签页即可清除。"
 }

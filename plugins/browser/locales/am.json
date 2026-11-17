@@ -12,5 +12,6 @@
   "action.reload": "ዳግም ጫን",
   "download.failed.tooLarge": "{{name}}ን ማቆየት አልተቻለም፦ ከ5 MiB በላይ ነው፣ ይህም የአሳሹ የማውረድ ገደብ ነው።",
   "download.failed.canceled": "የ{{name}} ማውረድ ተሰርዟል።",
-  "download.failed.other": "{{name}}ን ማውረድ አልተቻለም ({{reason}})።"
+  "download.failed.other": "{{name}}ን ማውረድ አልተቻለም ({{reason}})።",
+  "download.failed.tooMany": "{{name}}ን ማቆየት አልተቻለም፦ ይህ ትር 64 የወረዱ ፋይሎችን ይዟል። ለማጽዳት ትሩን ይዝጉ።"
 }

@@ -12,5 +12,6 @@
   "action.reload": "بارگیری مجدد",
   "download.failed.tooLarge": "نگه داشتن ⁨{{name}}⁩ ممکن نشد: بیشتر از 5 MiB است، که حد دانلود مرورگر است.",
   "download.failed.canceled": "دانلود ⁨{{name}}⁩ لغو شد.",
-  "download.failed.other": "دانلود ⁨{{name}}⁩ ممکن نشد (⁨{{reason}}⁩)."
+  "download.failed.other": "دانلود ⁨{{name}}⁩ ممکن نشد (⁨{{reason}}⁩).",
+  "download.failed.tooMany": "نگه داشتن ⁨{{name}}⁩ ممکن نشد: این زبانه از قبل 64 دانلود دارد. برای پاک کردن آن‌ها زبانه را ببندید."
 }

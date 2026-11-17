@@ -12,5 +12,6 @@
   "action.reload": "ໂຫຼດຄືນໃໝ່",
   "download.failed.tooLarge": "ບໍ່ສາມາດເກັບ {{name}} ໄວ້ໄດ້: ມັນໃຫຍ່ກວ່າ 5 MiB ເຊິ່ງເປັນຂີດຈຳກັດການດາວໂຫຼດຂອງບຣາວເຊີ.",
   "download.failed.canceled": "ການດາວໂຫຼດ {{name}} ຖືກຍົກເລີກແລ້ວ.",
-  "download.failed.other": "ບໍ່ສາມາດດາວໂຫຼດ {{name}} ໄດ້ ({{reason}})."
+  "download.failed.other": "ບໍ່ສາມາດດາວໂຫຼດ {{name}} ໄດ້ ({{reason}}).",
+  "download.failed.tooMany": "ບໍ່ສາມາດເກັບ {{name}} ໄວ້ໄດ້: ແຖບນີ້ມີການດາວໂຫຼດ 64 ລາຍການແລ້ວ. ປິດແຖບເພື່ອລຶບພວກມັນ."
 }

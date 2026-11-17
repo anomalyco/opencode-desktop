@@ -12,5 +12,6 @@
   "action.reload": "Yeniden yükle",
   "download.failed.tooLarge": "{{name}} saklanamadı: tarayıcının indirme sınırı olan 5 MiB'tan büyük.",
   "download.failed.canceled": "{{name}} indirmesi iptal edildi.",
-  "download.failed.other": "{{name}} indirilemedi ({{reason}})."
+  "download.failed.other": "{{name}} indirilemedi ({{reason}}).",
+  "download.failed.tooMany": "{{name}} saklanamadı: bu sekmede zaten 64 indirme var. Temizlemek için sekmeyi kapatın."
 }

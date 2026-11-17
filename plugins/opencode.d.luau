@@ -3912,6 +3912,8 @@ export type BrowserEngine = {
     state: BrowserEngineState,
     --- Why it failed, for `failed`.
     message: string?,
+    --- The engine that runs (or last ran) keeps a page's downloads for `BrowserTab:Files`; false before one has run, and for an engine from before downloads.
+    downloads: boolean,
 }
 
 --- An element the user picked in a page with the element picker.
@@ -3944,7 +3946,7 @@ export type BrowserTab = {
     Zoom: (self: BrowserTab) -> number,
     --- The element picker waits for a click in the page.
     Inspecting: (self: BrowserTab) -> boolean,
-    --- What the page downloaded, oldest first. Each file is kept in the engine's private downloads folder, with no dialog, until the engine next starts; one over 5 MiB is cancelled.
+    --- What the page downloaded, oldest first: each file in the engine's private downloads folder, with no dialog, until its tab closes or the engine ends; one over 5 MiB is cancelled, and a tab keeps at most 64. Empty with an engine that doesn't keep downloads (`Browser:Engine().downloads`).
     Files: (self: BrowserTab) -> { BrowserFile },
     --- Why the page shows no document: the engine's error for a load that failed (`net::ERR_CONNECTION_REFUSED`), or `page_crashed` when its renderer went away; nil while it shows one. A reload or another address loads it again.
     LoadError: (self: BrowserTab) -> string?,

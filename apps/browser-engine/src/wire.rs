@@ -92,7 +92,8 @@ pub enum HostMsg {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum EngineMsg {
-    Ready { chromium_major: u32, pid: u32 },
+    /// `downloads`: this engine keeps a page's downloads (`EngineMsg::Download`).
+    Ready { chromium_major: u32, pid: u32, downloads: bool },
     TabList { tabs: Vec<TabSnapshot> },
     TabUpdate { tab: TabSnapshot },
     TabClosed { tab_id: u64 },

@@ -12,5 +12,6 @@
   "action.reload": "Načíst znovu",
   "download.failed.tooLarge": "{{name}} nelze ponechat: má přes 5 MiB, což je limit prohlížeče pro stahování.",
   "download.failed.canceled": "Stahování {{name}} bylo zrušeno.",
-  "download.failed.other": "{{name}} se nepodařilo stáhnout ({{reason}})."
+  "download.failed.other": "{{name}} se nepodařilo stáhnout ({{reason}}).",
+  "download.failed.tooMany": "{{name}} nelze ponechat: tato karta už má 64 stažených souborů. Zavřete kartu a vymažete je."
 }

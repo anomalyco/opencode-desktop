@@ -12,5 +12,6 @@
   "action.reload": "Перезагрузить",
   "download.failed.tooLarge": "Не удалось сохранить {{name}}: файл больше 5 МиБ, ограничения браузера на загрузки.",
   "download.failed.canceled": "Скачивание {{name}} отменено.",
-  "download.failed.other": "Не удалось скачать {{name}} ({{reason}})."
+  "download.failed.other": "Не удалось скачать {{name}} ({{reason}}).",
+  "download.failed.tooMany": "Не удалось сохранить {{name}}: в этой вкладке уже 64 загрузки. Закройте вкладку, чтобы удалить их."
 }

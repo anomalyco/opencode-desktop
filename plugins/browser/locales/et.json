@@ -12,5 +12,6 @@
   "action.reload": "Laadi uuesti",
   "download.failed.tooLarge": "Faili {{name}} ei saanud alles hoida: see on üle 5 MiB, mis on brauseri allalaadimiste piir.",
   "download.failed.canceled": "Faili {{name}} allalaadimine tühistati.",
-  "download.failed.other": "Faili {{name}} ei saanud alla laadida ({{reason}})."
+  "download.failed.other": "Faili {{name}} ei saanud alla laadida ({{reason}}).",
+  "download.failed.tooMany": "Faili {{name}} ei saanud alles hoida: sellel vahekaardil on juba 64 allalaadimist. Sulge vahekaart, et need kustutada."
 }

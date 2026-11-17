@@ -12,5 +12,6 @@
   "action.reload": "دوبارہ لوڈ کریں",
   "download.failed.tooLarge": "⁨{{name}}⁩ رکھا نہیں جا سکا: یہ 5 MiB سے بڑا ہے، جو براؤزر کی ڈاؤن لوڈ کی حد ہے۔",
   "download.failed.canceled": "⁨{{name}}⁩ کا ڈاؤن لوڈ منسوخ کر دیا گیا۔",
-  "download.failed.other": "⁨{{name}}⁩ ڈاؤن لوڈ نہیں ہو سکا (⁨{{reason}}⁩)۔"
+  "download.failed.other": "⁨{{name}}⁩ ڈاؤن لوڈ نہیں ہو سکا (⁨{{reason}}⁩)۔",
+  "download.failed.tooMany": "⁨{{name}}⁩ رکھا نہیں جا سکا: اس ٹیب میں پہلے ہی 64 ڈاؤن لوڈ ہیں۔ انہیں صاف کرنے کے لیے ٹیب بند کریں۔"
 }

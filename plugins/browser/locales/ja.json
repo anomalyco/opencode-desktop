@@ -12,5 +12,6 @@
   "action.reload": "再読み込み",
   "download.failed.tooLarge": "{{name}} を保持できませんでした。ブラウザーのダウンロード上限である 5 MiB を超えています。",
   "download.failed.canceled": "{{name}} のダウンロードはキャンセルされました。",
-  "download.failed.other": "{{name}} をダウンロードできませんでした ({{reason}})。"
+  "download.failed.other": "{{name}} をダウンロードできませんでした ({{reason}})。",
+  "download.failed.tooMany": "{{name}} を保持できませんでした。このタブにはすでに 64 件のダウンロードがあります。タブを閉じると消去されます。"
 }

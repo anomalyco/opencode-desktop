@@ -12,5 +12,6 @@
   "action.reload": "Įkelti iš naujo",
   "download.failed.tooLarge": "Nepavyko išsaugoti {{name}}: failas didesnis nei 5 MiB, naršyklės atsisiuntimų riba.",
   "download.failed.canceled": "{{name}} atsisiuntimas atšauktas.",
-  "download.failed.other": "Nepavyko atsisiųsti {{name}} ({{reason}})."
+  "download.failed.other": "Nepavyko atsisiųsti {{name}} ({{reason}}).",
+  "download.failed.tooMany": "Nepavyko išsaugoti {{name}}: šiame skirtuke jau yra 64 atsisiuntimai. Uždarykite skirtuką, kad juos išvalytumėte."
 }

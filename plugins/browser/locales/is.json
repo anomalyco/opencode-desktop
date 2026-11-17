@@ -12,5 +12,6 @@
   "action.reload": "Endurhlaða",
   "download.failed.tooLarge": "Ekki tókst að halda {{name}}: skráin er stærri en 5 MiB, sem er hámark vafrans fyrir niðurhal.",
   "download.failed.canceled": "Hætt var við niðurhal á {{name}}.",
-  "download.failed.other": "Ekki tókst að sækja {{name}} ({{reason}})."
+  "download.failed.other": "Ekki tókst að sækja {{name}} ({{reason}}).",
+  "download.failed.tooMany": "Ekki tókst að halda {{name}}: þessi flipi geymir þegar 64 niðurhöl. Lokaðu flipanum til að hreinsa þau."
 }

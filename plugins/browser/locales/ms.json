@@ -12,5 +12,6 @@
   "action.reload": "Muat semula",
   "download.failed.tooLarge": "Tidak dapat menyimpan {{name}}: saiznya melebihi 5 MiB, had muat turun pelayar.",
   "download.failed.canceled": "Muat turun {{name}} telah dibatalkan.",
-  "download.failed.other": "Tidak dapat memuat turun {{name}} ({{reason}})."
+  "download.failed.other": "Tidak dapat memuat turun {{name}} ({{reason}}).",
+  "download.failed.tooMany": "Tidak dapat menyimpan {{name}}: tab ini sudah mempunyai 64 muat turun. Tutup tab untuk mengosongkannya."
 }

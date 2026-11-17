@@ -230,6 +230,9 @@ pub enum EngineMsg {
     Ready {
         chromium_major: u32,
         pid: u32,
+        /// The engine keeps a page's downloads (`Download`); an engine from before it says nothing.
+        #[serde(default)]
+        downloads: bool,
     },
     TabList {
         tabs: Vec<TabSnapshot>,

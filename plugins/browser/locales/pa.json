@@ -12,5 +12,6 @@
   "action.reload": "دوبارہ لوڈ کرو",
   "download.failed.tooLarge": "⁨{{name}}⁩ رکھیا نہیں جا سکیا: ایہ 5 MiB توں وڈا اے، جو براؤزر دی ڈاؤن لوڈ حد اے۔",
   "download.failed.canceled": "⁨{{name}}⁩ دا ڈاؤن لوڈ منسوخ ہو گیا۔",
-  "download.failed.other": "⁨{{name}}⁩ ڈاؤن لوڈ نہیں ہو سکیا (⁨{{reason}}⁩)۔"
+  "download.failed.other": "⁨{{name}}⁩ ڈاؤن لوڈ نہیں ہو سکیا (⁨{{reason}}⁩)۔",
+  "download.failed.tooMany": "⁨{{name}}⁩ رکھیا نہیں جا سکیا: ایس ٹیب وچ پہلاں ای 64 ڈاؤن لوڈ نیں۔ اوہناں نوں صاف کرن لئی ٹیب بند کرو۔"
 }

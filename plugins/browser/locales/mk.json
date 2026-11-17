@@ -12,5 +12,6 @@
   "action.reload": "Превчитај",
   "download.failed.tooLarge": "{{name}} не може да се задржи: поголем е од 5 MiB, ограничувањето на прелистувачот за преземања.",
   "download.failed.canceled": "Преземањето на {{name}} е откажано.",
-  "download.failed.other": "{{name}} не може да се преземе ({{reason}})."
+  "download.failed.other": "{{name}} не може да се преземе ({{reason}}).",
+  "download.failed.tooMany": "{{name}} не може да се задржи: оваа картичка веќе има 64 преземања. Затвори ја картичката за да ги исчистиш."
 }

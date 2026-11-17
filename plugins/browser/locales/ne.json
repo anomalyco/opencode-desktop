@@ -12,5 +12,6 @@
   "action.reload": "पुनः लोड गर्नुहोस्",
   "download.failed.tooLarge": "{{name}} राख्न सकिएन: यो 5 MiB भन्दा ठूलो छ, जुन ब्राउजरको डाउनलोड सीमा हो।",
   "download.failed.canceled": "{{name}} को डाउनलोड रद्द गरियो।",
-  "download.failed.other": "{{name}} डाउनलोड गर्न सकिएन ({{reason}})।"
+  "download.failed.other": "{{name}} डाउनलोड गर्न सकिएन ({{reason}})।",
+  "download.failed.tooMany": "{{name}} राख्न सकिएन: यो ट्याबमा पहिले नै 64 डाउनलोड छन्। तिनलाई हटाउन ट्याब बन्द गर्नुहोस्।"
 }

@@ -12,5 +12,6 @@
   "action.reload": "Tải lại",
   "download.failed.tooLarge": "Không thể giữ {{name}}: tệp lớn hơn 5 MiB, giới hạn tải xuống của trình duyệt.",
   "download.failed.canceled": "Đã hủy tải xuống {{name}}.",
-  "download.failed.other": "Không thể tải xuống {{name}} ({{reason}})."
+  "download.failed.other": "Không thể tải xuống {{name}} ({{reason}}).",
+  "download.failed.tooMany": "Không thể giữ {{name}}: thẻ này đã có 64 tệp tải xuống. Đóng thẻ để xóa chúng."
 }

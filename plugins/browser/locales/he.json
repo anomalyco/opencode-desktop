@@ -12,5 +12,6 @@
   "action.reload": "טען מחדש",
   "download.failed.tooLarge": "לא ניתן לשמור את ⁨{{name}}⁩: הוא גדול מ־5 MiB, מגבלת ההורדות של הדפדפן.",
   "download.failed.canceled": "ההורדה של ⁨{{name}}⁩ בוטלה.",
-  "download.failed.other": "לא ניתן להוריד את ⁨{{name}}⁩ (⁨{{reason}}⁩)."
+  "download.failed.other": "לא ניתן להוריד את ⁨{{name}}⁩ (⁨{{reason}}⁩).",
+  "download.failed.tooMany": "לא ניתן לשמור את ⁨{{name}}⁩: הכרטיסייה הזו כבר מחזיקה 64 הורדות. סגרו אותה כדי לנקות אותן."
 }

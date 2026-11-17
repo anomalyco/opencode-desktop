@@ -12,5 +12,6 @@
   "action.reload": "Ponovo učitaj",
   "download.failed.tooLarge": "{{name}} nije moguće zadržati: veći je od 5 MiB, ograničenja preglednika za preuzimanja.",
   "download.failed.canceled": "Preuzimanje datoteke {{name}} je otkazano.",
-  "download.failed.other": "{{name}} nije moguće preuzeti ({{reason}})."
+  "download.failed.other": "{{name}} nije moguće preuzeti ({{reason}}).",
+  "download.failed.tooMany": "{{name}} nije moguće zadržati: ova kartica već ima 64 preuzimanja. Zatvori karticu da ih obrišeš."
 }

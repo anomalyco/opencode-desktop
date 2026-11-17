@@ -12,5 +12,6 @@
   "action.reload": "Ielādēt atkārtoti",
   "download.failed.tooLarge": "{{name}} nevarēja paturēt: tas pārsniedz 5 MiB, pārlūkprogrammas lejupielāžu ierobežojumu.",
   "download.failed.canceled": "Faila {{name}} lejupielāde tika atcelta.",
-  "download.failed.other": "{{name}} nevarēja lejupielādēt ({{reason}})."
+  "download.failed.other": "{{name}} nevarēja lejupielādēt ({{reason}}).",
+  "download.failed.tooMany": "{{name}} nevarēja paturēt: šajā cilnē jau ir 64 lejupielādes. Aizveriet cilni, lai tās notīrītu."
 }

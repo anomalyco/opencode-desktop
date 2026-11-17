@@ -12,5 +12,6 @@
   "action.reload": "पुनः लोड करें",
   "download.failed.tooLarge": "{{name}} रखा नहीं जा सका: यह 5 MiB से बड़ा है, जो ब्राउज़र की डाउनलोड सीमा है।",
   "download.failed.canceled": "{{name}} का डाउनलोड रद्द कर दिया गया।",
-  "download.failed.other": "{{name}} डाउनलोड नहीं हो सका ({{reason}})।"
+  "download.failed.other": "{{name}} डाउनलोड नहीं हो सका ({{reason}})।",
+  "download.failed.tooMany": "{{name}} रखा नहीं जा सका: इस टैब में पहले से 64 डाउनलोड हैं। उन्हें हटाने के लिए टैब बंद करें।"
 }

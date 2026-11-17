@@ -12,5 +12,6 @@
   "action.reload": "Last inn på nytt",
   "download.failed.tooLarge": "Kunne ikke beholde {{name}}: filen er over 5 MiB, nettleserens grense for nedlastinger.",
   "download.failed.canceled": "Nedlastingen av {{name}} ble avbrutt.",
-  "download.failed.other": "Kunne ikke laste ned {{name}} ({{reason}})."
+  "download.failed.other": "Kunne ikke laste ned {{name}} ({{reason}}).",
+  "download.failed.tooMany": "Kunne ikke beholde {{name}}: denne fanen har allerede 64 nedlastinger. Lukk fanen for å fjerne dem."
 }

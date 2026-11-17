@@ -12,5 +12,6 @@
   "action.reload": "다시 로드",
   "download.failed.tooLarge": "{{name}}을(를) 보관할 수 없습니다. 브라우저의 다운로드 한도인 5MiB를 넘습니다.",
   "download.failed.canceled": "{{name}} 다운로드가 취소되었습니다.",
-  "download.failed.other": "{{name}}을(를) 다운로드할 수 없습니다({{reason}})."
+  "download.failed.other": "{{name}}을(를) 다운로드할 수 없습니다({{reason}}).",
+  "download.failed.tooMany": "{{name}}을(를) 보관할 수 없습니다. 이 탭에 이미 다운로드 64개가 있습니다. 탭을 닫으면 지워집니다."
 }

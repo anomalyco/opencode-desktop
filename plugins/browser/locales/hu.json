@@ -12,5 +12,6 @@
   "action.reload": "Újratöltés",
   "download.failed.tooLarge": "A(z) {{name}} nem tartható meg: nagyobb 5 MiB-nál, ami a böngésző letöltési korlátja.",
   "download.failed.canceled": "A(z) {{name}} letöltése megszakadt.",
-  "download.failed.other": "A(z) {{name}} nem tölthető le ({{reason}})."
+  "download.failed.other": "A(z) {{name}} nem tölthető le ({{reason}}).",
+  "download.failed.tooMany": "A(z) {{name}} nem tartható meg: ezen a lapon már 64 letöltés van. Zárja be a lapot a törlésükhöz."
 }

@@ -12,5 +12,6 @@
   "action.reload": "Täzeden ýükle",
   "download.failed.tooLarge": "{{name}} saklanyp bilinmedi: ol 5 MiB-dan uly, bu brauzeriň ýükleme çägi.",
   "download.failed.canceled": "{{name}} ýüklemesi ýatyryldy.",
-  "download.failed.other": "{{name}} ýüklenip bilinmedi ({{reason}})."
+  "download.failed.other": "{{name}} ýüklenip bilinmedi ({{reason}}).",
+  "download.failed.tooMany": "{{name}} saklanyp bilinmedi: bu tabda eýýäm 64 ýükleme bar. Olary arassalamak üçin taby ýapyň."
 }

@@ -12,5 +12,6 @@
   "action.reload": "Znova načítať",
   "download.failed.tooLarge": "{{name}} nemožno ponechať: má viac ako 5 MiB, čo je limit prehliadača pre sťahovanie.",
   "download.failed.canceled": "Sťahovanie {{name}} bolo zrušené.",
-  "download.failed.other": "{{name}} sa nepodarilo stiahnuť ({{reason}})."
+  "download.failed.other": "{{name}} sa nepodarilo stiahnuť ({{reason}}).",
+  "download.failed.tooMany": "{{name}} nemožno ponechať: táto karta už má 64 stiahnutých súborov. Zatvorte kartu a vymažú sa."
 }

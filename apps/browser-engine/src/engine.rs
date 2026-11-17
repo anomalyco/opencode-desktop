@@ -124,9 +124,9 @@ impl CefRuntime {
 }
 
 impl CefRuntime {
-    /// Where the pages' downloads go (the profile's, so a throwaway profile's go with it).
-    pub fn downloads_dir(&self) -> std::path::PathBuf {
-        self.profile.root.join("Downloads")
+    /// The profile the pages' downloads go in (`downloads::DIR_NAME`), so a throwaway profile's go with it.
+    pub fn profile_root(&self) -> std::path::PathBuf {
+        self.profile.root.clone()
     }
 }
 
@@ -134,7 +134,7 @@ impl Drop for CefRuntime {
     fn drop(&mut self) {
         cef::shutdown();
         // The pages' downloads end with the engine, as Desktop's go with its pages.
-        let _ = std::fs::remove_dir_all(self.downloads_dir());
+        crate::downloads::remove_owned(&self.profile.root);
         if self.profile.temporary {
             let _ = std::fs::remove_dir_all(&self.profile.root);
         }
@@ -214,7 +214,7 @@ pub struct EngineManager {
     next_eref: u64,
     /// The app's scheme, once it said (`HostMsg::SetColorScheme`).
     dark: Option<bool>,
-    /// The pages' downloads, in the profile's `Downloads` folder.
+    /// The pages' downloads, in the profile's `opencode-page-downloads` folder.
     downloads: Arc<crate::downloads::Downloads>,
     /// Windows: the D3D11 device frames are copied on; None renders on the CPU instead.
     #[cfg(windows)]
@@ -231,7 +231,7 @@ impl EngineManager {
             next_cdp_id: AtomicI32::new(100),
             next_eref: 1,
             dark: None,
-            downloads: crate::downloads::Downloads::open(downloads),
+            downloads: crate::downloads::Downloads::open(&downloads),
             #[cfg(windows)]
             gpu,
         }
@@ -324,6 +324,7 @@ impl EngineManager {
                 let _ = self.out_tx.send(EngineMsg::Ready {
                     chromium_major: sys::CHROME_VERSION_MAJOR as u32,
                     pid: std::process::id(),
+                    downloads: true,
                 });
                 if !self.tabs.is_empty() {
                     let list: Vec<TabSnapshot> = self

@@ -12,5 +12,6 @@
   "action.reload": "Дахин ачаалах",
   "download.failed.tooLarge": "{{name}}-г хадгалж чадсангүй: 5 MiB-ээс том байна, энэ нь хөтчийн татах хязгаар.",
   "download.failed.canceled": "{{name}}-г татахыг цуцалсан.",
-  "download.failed.other": "{{name}}-г татаж чадсангүй ({{reason}})."
+  "download.failed.other": "{{name}}-г татаж чадсангүй ({{reason}}).",
+  "download.failed.tooMany": "{{name}}-г хадгалж чадсангүй: энэ таб аль хэдийн 64 татсан файлтай. Тэдгээрийг цэвэрлэхийн тулд табыг хаана уу."
 }

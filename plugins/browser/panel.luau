@@ -405,6 +405,7 @@ local function download(env: Env, tab: BrowserTab): ui.Node?
     local words = if last.error == "too_large"
         then env.I18n:T("download.failed.tooLarge", { name = last.name })
         elseif last.error == "canceled" then env.I18n:T("download.failed.canceled", { name = last.name })
+        elseif last.error == "too_many" then env.I18n:T("download.failed.tooMany", { name = last.name })
         else env.I18n:T("download.failed.other", { name = last.name, reason = last.error or "failed" })
     return ui.col({ key = "browser-download-error", role = "alert", w = "full" }, {
         ui.col({ dir = "auto", w = "full", px = 12, py = 6 }, {

@@ -12,5 +12,6 @@
   "action.reload": "Ricarica",
   "download.failed.tooLarge": "Impossibile conservare {{name}}: supera 5 MiB, il limite del browser per i download.",
   "download.failed.canceled": "Il download di {{name}} è stato annullato.",
-  "download.failed.other": "Impossibile scaricare {{name}} ({{reason}})."
+  "download.failed.other": "Impossibile scaricare {{name}} ({{reason}}).",
+  "download.failed.tooMany": "Impossibile conservare {{name}}: questa scheda contiene già 64 download. Chiudi la scheda per eliminarli."
 }

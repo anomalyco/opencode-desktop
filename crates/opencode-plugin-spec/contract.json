@@ -1163,7 +1163,8 @@
     ] },
     { "name": "BrowserEngine", "kind": "record", "rust": true, "doc": "Where the browser engine stands.", "fields": [
       { "name": "state", "type": "BrowserEngineState", "doc": "Its state." },
-      { "name": "message", "type": "string?", "doc": "Why it failed, for `failed`." }
+      { "name": "message", "type": "string?", "doc": "Why it failed, for `failed`." },
+      { "name": "downloads", "type": "boolean", "doc": "The engine that runs (or last ran) keeps a page's downloads for `BrowserTab:Files`; false before one has run, and for an engine from before downloads." }
     ] },
     { "name": "BrowserPick", "kind": "record", "rust": true, "doc": "An element the user picked in a page with the element picker.", "fields": [
       { "name": "tabId", "type": "string", "doc": "The page." },
@@ -1180,7 +1181,7 @@
       { "name": "CanGoForward", "kind": "method", "sig": "() -> boolean", "doc": "History has a later page." },
       { "name": "Zoom", "kind": "method", "sig": "() -> number", "doc": "The page's zoom: 1 at 100%." },
       { "name": "Inspecting", "kind": "method", "sig": "() -> boolean", "doc": "The element picker waits for a click in the page." },
-      { "name": "Files", "kind": "method", "sig": "() -> { BrowserFile }", "doc": "What the page downloaded, oldest first. Each file is kept in the engine's private downloads folder, with no dialog, until the engine next starts; one over 5 MiB is cancelled." },
+      { "name": "Files", "kind": "method", "sig": "() -> { BrowserFile }", "doc": "What the page downloaded, oldest first: each file in the engine's private downloads folder, with no dialog, until its tab closes or the engine ends; one over 5 MiB is cancelled, and a tab keeps at most 64. Empty with an engine that doesn't keep downloads (`Browser:Engine().downloads`)." },
       { "name": "LoadError", "kind": "method", "sig": "() -> string?", "doc": "Why the page shows no document: the engine's error for a load that failed (`net::ERR_CONNECTION_REFUSED`), or `page_crashed` when its renderer went away; nil while it shows one. A reload or another address loads it again." },
       { "name": "Navigate", "kind": "method", "sig": "(url: string) -> ()", "doc": "Loads a URL, or a local `:port`." },
       { "name": "Back", "kind": "method", "sig": "() -> ()", "doc": "Goes back." },

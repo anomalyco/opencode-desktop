@@ -12,5 +12,6 @@
   "action.reload": "Recarregar",
   "download.failed.tooLarge": "Não foi possível manter {{name}}: tem mais de 5 MiB, o limite do navegador para downloads.",
   "download.failed.canceled": "O download de {{name}} foi cancelado.",
-  "download.failed.other": "Não foi possível baixar {{name}} ({{reason}})."
+  "download.failed.other": "Não foi possível baixar {{name}} ({{reason}}).",
+  "download.failed.tooMany": "Não foi possível manter {{name}}: esta aba já tem 64 downloads. Feche a aba para limpá-los."
 }

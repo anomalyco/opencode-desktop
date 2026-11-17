@@ -12,5 +12,6 @@
   "action.reload": "ផ្ទុកឡើងវិញ",
   "download.failed.tooLarge": "មិនអាចរក្សាទុក {{name}} បានទេ៖ វាធំជាង 5 MiB ដែលជាដែនកំណត់ទាញយករបស់កម្មវិធីរុករក។",
   "download.failed.canceled": "ការទាញយក {{name}} ត្រូវបានបោះបង់។",
-  "download.failed.other": "មិនអាចទាញយក {{name}} បានទេ ({{reason}})។"
+  "download.failed.other": "មិនអាចទាញយក {{name}} បានទេ ({{reason}})។",
+  "download.failed.tooMany": "មិនអាចរក្សាទុក {{name}} បានទេ៖ ផ្ទាំងនេះមានការទាញយក 64 រួចហើយ។ បិទផ្ទាំងដើម្បីសម្អាតវា។"
 }

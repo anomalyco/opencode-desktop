@@ -63,5 +63,6 @@
   "history.clear": "Clear history",
   "download.failed.tooLarge": "Couldn't keep {{name}}: it's over 5 MiB, the browser's limit for downloads.",
   "download.failed.canceled": "The download of {{name}} was cancelled.",
-  "download.failed.other": "Couldn't download {{name}} ({{reason}})."
+  "download.failed.other": "Couldn't download {{name}} ({{reason}}).",
+  "download.failed.tooMany": "Couldn't keep {{name}}: this tab already holds 64 downloads. Close the tab to clear them."
 }

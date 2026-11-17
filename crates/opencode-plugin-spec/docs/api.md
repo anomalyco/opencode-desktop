@@ -2636,6 +2636,7 @@ Where the browser engine stands.
 |---|---|---|
 | `state` | `BrowserEngineState` | Its state. |
 | `message` | `string?` | Why it failed, for `failed`. |
+| `downloads` | `boolean` | The engine that runs (or last ran) keeps a page's downloads for `BrowserTab:Files`; false before one has run, and for an engine from before downloads. |
 
 ### BrowserPick
 
@@ -2662,7 +2663,7 @@ A page in the app's browser, for `ui.browserSurface`.
 | `:CanGoForward` | `() -> boolean` | History has a later page. |
 | `:Zoom` | `() -> number` | The page's zoom: 1 at 100%. |
 | `:Inspecting` | `() -> boolean` | The element picker waits for a click in the page. |
-| `:Files` | `() -> { BrowserFile }` | What the page downloaded, oldest first. Each file is kept in the engine's private downloads folder, with no dialog, until the engine next starts; one over 5 MiB is cancelled. |
+| `:Files` | `() -> { BrowserFile }` | What the page downloaded, oldest first: each file in the engine's private downloads folder, with no dialog, until its tab closes or the engine ends; one over 5 MiB is cancelled, and a tab keeps at most 64. Empty with an engine that doesn't keep downloads (`Browser:Engine().downloads`). |
 | `:LoadError` | `() -> string?` | Why the page shows no document: the engine's error for a load that failed (`net::ERR_CONNECTION_REFUSED`), or `page_crashed` when its renderer went away; nil while it shows one. A reload or another address loads it again. |
 | `:Navigate` | `(url: string) -> ()` | Loads a URL, or a local `:port`. |
 | `:Back` | `() -> ()` | Goes back. |

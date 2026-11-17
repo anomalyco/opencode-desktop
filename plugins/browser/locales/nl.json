@@ -12,5 +12,6 @@
   "action.reload": "Opnieuw laden",
   "download.failed.tooLarge": "{{name}} kon niet worden bewaard: het is groter dan 5 MiB, de downloadlimiet van de browser.",
   "download.failed.canceled": "De download van {{name}} is geannuleerd.",
-  "download.failed.other": "{{name}} kon niet worden gedownload ({{reason}})."
+  "download.failed.other": "{{name}} kon niet worden gedownload ({{reason}}).",
+  "download.failed.tooMany": "{{name}} kon niet worden bewaard: dit tabblad bevat al 64 downloads. Sluit het tabblad om ze te wissen."
 }
