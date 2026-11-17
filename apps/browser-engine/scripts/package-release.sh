@@ -10,9 +10,14 @@
 #   package-release.sh --sign-zip <unsigned.zip> <out-dir> sign, notarize, staple & package release zip
 set -euo pipefail
 
-ENGINE_VERSION="156.0.14.1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENGINE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# The engine's version: the CEF build cef-dll-sys names in Cargo.lock, then the engine revision the
+# app accepts (ENGINE_REVISION), as package-windows.ps1 has it.
+CEF_BUILD="$(grep -A1 '^name = "cef-dll-sys"$' "$ENGINE_DIR/Cargo.lock" | sed -n 's/^version = ".*+\(.*\)"$/\1/p')"
+ENGINE_REVISION="$(sed -n 's/^pub const ENGINE_REVISION: u32 = \([0-9]*\);$/\1/p' "$ENGINE_DIR/../../crates/browser-pane/src/installer.rs")"
+[[ -n "$CEF_BUILD" && -n "$ENGINE_REVISION" ]] || { echo "CEF build or ENGINE_REVISION not found" >&2; exit 1; }
+ENGINE_VERSION="$CEF_BUILD.$ENGINE_REVISION"
 MANIFEST="$ENGINE_DIR/Cargo.toml"
 ENTITLEMENTS="$ENGINE_DIR/entitlements.plist"
 
