@@ -24,9 +24,6 @@ impl session_view::TimelineHost for App {
     fn timeline_detail(&self) -> session_view::detail::Detail {
         self.settings.timeline_detail
     }
-    fn copy_always_visible(&self) -> bool {
-        matches!(crate::updater::build_channel(), "local" | "dev")
-    }
     fn code_block_lang(&self, language: &str) -> bool {
         plugin_host::surfaces::code_block_lang(self, language)
     }

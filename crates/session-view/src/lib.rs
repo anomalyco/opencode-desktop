@@ -114,12 +114,6 @@ pub trait TimelineHost: Sized + 'static {
     fn smooth_timeline(&self) -> bool {
         false
     }
-    /// Whether a finished reply's Copy button stays visible at rest (`data-copy-always-visible`,
-    /// `session-ui-provider.tsx:49-50,263`: local and dev builds) rather than waiting for hover or
-    /// keyboard focus as the metadata does.
-    fn copy_always_visible(&self) -> bool {
-        false
-    }
 
     fn active_session_id(&self) -> Option<&str>;
     fn transcript(&self, _session: &str) -> Option<&Transcript> {
