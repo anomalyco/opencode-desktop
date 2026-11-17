@@ -46,14 +46,17 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
             }
         }
         Request::ClosePanel { panel, .. } => app.close_side_tab(&tab_key(plugin, &panel, None), tx),
-        Request::OpenPopover { id, anchor, side, align, gap, data, toggle } => {
+        Request::OpenPopover { id, anchor, trigger, side, align, gap, data, toggle } => {
             if toggle && app.plugins.overlay.popover_open(plugin, &id) {
                 close_popover(app, tx);
                 return;
             }
             tx.instant();
+            // Where focus goes back as it closes: its trigger, as Kobalte's popover returns it
+            // even when a shortcut opened it, else what had focus.
+            let back = trigger.or_else(|| tx.focused().map(str::to_owned));
             tx.focus(format!("plugin-popover-{plugin}.{id}"), tx.focus_visible());
-            app.plugins.overlay = Overlay::Popover { plugin: plugin.clone(), id, anchor, side, align, gap, data, flyout: super::Flyout::default() };
+            app.plugins.overlay = Overlay::Popover { plugin: plugin.clone(), id, anchor, side, align, gap, data, flyout: super::Flyout::default(), back };
             crate::popover::motion::opening(&app.knobs, tx);
         }
         Request::ClosePopover => close_popover(app, tx),
@@ -222,8 +225,14 @@ pub fn dismiss_dialog(app: &mut App, tx: &mut Tx) {
 }
 
 pub fn close_popover(app: &mut App, tx: &mut Tx) {
-    if std::mem::take(&mut app.plugins.overlay).is_open() {
+    let closed = std::mem::take(&mut app.plugins.overlay);
+    if closed.is_open() {
         tx.instant();
         crate::popover::motion::closing(&app.knobs, tx);
+    }
+    // Focus inside it goes back where it came from (`Tx::return_focus`: a press elsewhere that
+    // focused something keeps it).
+    if let Overlay::Popover { back: Some(back), .. } = closed {
+        tx.return_focus(back, tx.focus_visible());
     }
 }

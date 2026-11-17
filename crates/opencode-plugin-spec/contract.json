@@ -991,6 +991,7 @@
     { "name": "PopoverOpenSpec", "kind": "record", "rust": true, "doc": "Where to open one of this plugin's popovers.", "fields": [
       { "name": "id", "type": "string", "doc": "The popover's id, from `ctx:AddPopover`." },
       { "name": "anchorKey", "type": "string", "doc": "The `key` of the element it opens beside." },
+      { "name": "triggerKey", "type": "string?", "doc": "The `key` of the button that opens it, which takes focus back when it closes (Kobalte's `onCloseAutoFocus`), however it was opened. Defaults to what had focus when it opened." },
       { "name": "side", "type": "Side?", "doc": "The anchor's side. Defaults to below." },
       { "name": "align", "type": "Align?", "doc": "Alignment along that side. Defaults to start." },
       { "name": "gap", "type": "number?", "doc": "Points between the anchor and the popover." },

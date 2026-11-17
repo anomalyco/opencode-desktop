@@ -144,7 +144,7 @@ impl Plugin {
 pub enum Overlay {
     #[default]
     Closed,
-    Popover { plugin: Rc<str>, id: String, anchor: String, side: rune::Side, align: rune::Align, gap: f32, data: Data, flyout: Flyout },
+    Popover { plugin: Rc<str>, id: String, anchor: String, side: rune::Side, align: rune::Align, gap: f32, data: Data, flyout: Flyout, back: Option<String> },
     PillMenu { plugin: Rc<str>, id: String, anchor: String, data: Data },
 }
 

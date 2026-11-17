@@ -59,7 +59,7 @@ pub enum Request {
     OpenPanel { panel: String, instance: Option<String>, instant: bool },
     TogglePanel { panel: String, session: Option<String>, instant: bool },
     ClosePanel { panel: String },
-    OpenPopover { id: String, anchor: String, side: rune::Side, align: rune::Align, gap: f32, data: rune_luau::Data, toggle: bool },
+    OpenPopover { id: String, anchor: String, trigger: Option<String>, side: rune::Side, align: rune::Align, gap: f32, data: rune_luau::Data, toggle: bool },
     ClosePopover,
     /// A step of the open popover's row list (`ui.flyoutRow`).
     Flyout(super::FlyoutEvent),

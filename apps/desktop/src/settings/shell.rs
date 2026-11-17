@@ -159,7 +159,7 @@ fn back_button(p: &Pal, project: bool) -> El {
             if project {
                 s.open_settings_page(Page::Projects, tx);
             } else {
-                s.close_settings();
+                s.back_to_app(tx);
             }
         })
         .child(icon(&ic::ARROW_LEFT, 14.0).mirror_in_rtl().color(p.muted).group_color(p.text))

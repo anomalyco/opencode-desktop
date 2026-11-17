@@ -112,7 +112,7 @@ return plugin.defineWindow(function(ctx)
                 end
             end
         end
-        Popover:Toggle({ id = "main", anchorKey = ANCHOR, side = "bottom", align = "end", gap = 8 })
+        Popover:Toggle({ id = "main", anchorKey = ANCHOR, triggerKey = "details-trigger", side = "bottom", align = "end", gap = 8 })
     end
 
     -- The card's heading: Extensions, or the server's name when the app lists more than one.

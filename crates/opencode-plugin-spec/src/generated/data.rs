@@ -517,6 +517,8 @@ pub struct PopoverOpenSpec {
     pub id: String,
     /// The `key` of the element it opens beside.
     pub anchor_key: String,
+    /// The `key` of the button that opens it, which takes focus back when it closes (Kobalte's `onCloseAutoFocus`), however it was opened. Defaults to what had focus when it opened.
+    pub trigger_key: Option<String>,
     /// The anchor's side. Defaults to below.
     pub side: Option<Side>,
     /// Alignment along that side. Defaults to start.
@@ -528,7 +530,7 @@ pub struct PopoverOpenSpec {
     /// How it appears.
     pub transition: Option<Transition>,
 }
-impl_record!(PopoverOpenSpec, ["id", "anchorKey", "side", "align", "gap", "data", "transition"], [], []);
+impl_record!(PopoverOpenSpec, ["id", "anchorKey", "triggerKey", "side", "align", "gap", "data", "transition"], [], []);
 
 /// One entry of a menu.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

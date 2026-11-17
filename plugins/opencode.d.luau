@@ -3566,6 +3566,8 @@ export type PopoverOpenSpec = {
     id: string,
     --- The `key` of the element it opens beside.
     anchorKey: string,
+    --- The `key` of the button that opens it, which takes focus back when it closes (Kobalte's `onCloseAutoFocus`), however it was opened. Defaults to what had focus when it opened.
+    triggerKey: string?,
     --- The anchor's side. Defaults to below.
     side: Side?,
     --- Alignment along that side. Defaults to start.

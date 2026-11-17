@@ -2338,6 +2338,7 @@ Where to open one of this plugin's popovers.
 |---|---|---|
 | `id` | `string` | The popover's id, from `ctx:AddPopover`. |
 | `anchorKey` | `string` | The `key` of the element it opens beside. |
+| `triggerKey` | `string?` | The `key` of the button that opens it, which takes focus back when it closes (Kobalte's `onCloseAutoFocus`), however it was opened. Defaults to what had focus when it opened. |
 | `side` | `Side?` | The anchor's side. Defaults to below. |
 | `align` | `Align?` | Alignment along that side. Defaults to start. |
 | `gap` | `number?` | Points between the anchor and the popover. |

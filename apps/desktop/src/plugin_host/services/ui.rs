@@ -39,7 +39,7 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, name: &str, t: &Table) -> mlua::Result<()
                         _ => rune::Align::Start,
                     };
                     let data = s.data.map_or(Data::Nil, |d| super::json_to_data(&serde_json::Value::Object(d.into_iter().collect())));
-                    cx::ask(&p, Request::OpenPopover { id: s.id, anchor: s.anchor_key, side, align, gap: s.gap.unwrap_or(4.0) as f32, data, toggle });
+                    cx::ask(&p, Request::OpenPopover { id: s.id, anchor: s.anchor_key, trigger: s.trigger_key, side, align, gap: s.gap.unwrap_or(4.0) as f32, data, toggle });
                     Ok(())
                 })?;
             }

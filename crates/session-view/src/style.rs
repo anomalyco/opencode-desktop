@@ -220,7 +220,13 @@ pub fn reasoning<S: TimelineHost>(s: &S, p: &Pal, key: &str, body: &str, secs: O
     let trigger = row()
         .key("trigger")
         .role("button")
-        .label(if streaming { opencode_i18n::t!("ui.sessionTurn.status.thinking") } else { opencode_i18n::t!("ui.message.thought") })
+        // Its words as official's trigger names itself from them, "Thought 4s": the texts below
+        // are then nothing new for a reader, and the tree leaves them out.
+        .label(match (streaming, &subtitle) {
+            (true, _) => opencode_i18n::t!("ui.sessionTurn.status.thinking").to_string(),
+            (false, Some(took)) => format!("{} {took}", opencode_i18n::t!("ui.message.thought")),
+            (false, None) => opencode_i18n::t!("ui.message.thought").to_string(),
+        })
         .expanded(open)
         .busy(streaming)
         .h(28.0)

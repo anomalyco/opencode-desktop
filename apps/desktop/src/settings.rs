@@ -389,18 +389,23 @@ impl App {
                 self.open_settings_page(pages::Page::Projects, tx);
                 return true;
             }
-            self.close_settings();
-            // Desktop leaves nothing focused once Escape leaves Settings for Home (`esc-settings`),
-            // where the removed rail's focus would otherwise fall to the titlebar's New session;
-            // over a session its prompt takes the keys back (`fn-key-settings.open`).
-            if self.has_composer() {
-                self.composer.focused = true;
-            } else {
-                tx.blur();
-            }
+            self.back_to_app(tx);
             return true;
         }
         false
+    }
+
+    /// Escape or Back to app leaves Settings. Desktop leaves nothing focused once it's back on
+    /// Home (`esc-settings`), where the removed rail's focus would otherwise fall to the
+    /// titlebar's New session; over a session its prompt takes the keys back
+    /// (`fn-key-settings.open`).
+    pub(crate) fn back_to_app(&mut self, tx: &mut Tx) {
+        self.close_settings();
+        if self.has_composer() {
+            self.composer.focused = true;
+        } else {
+            tx.blur();
+        }
     }
 
     pub fn toggle_settings(&mut self, tx: &mut Tx) {
