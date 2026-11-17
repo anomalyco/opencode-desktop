@@ -180,13 +180,14 @@ fn code(s: &App, p: &Pal) -> El {
         .child(entry_form(s, p, opencode_i18n::t!("provider.connect.oauth.code.label", method = method), opencode_i18n::t!("provider.connect.oauth.code.placeholder"), entry_error(c, true), conn::submitting(c), false))
 }
 
-/// The code to check against the browser: the URL's `user_code`, or the instructions' last part.
+/// The code to check against the browser: the URL's `user_code`, or the device code after a colon
+/// (`providers/connect/dialog.tsx:518-525`: prose instructions without `:` are not a code).
 fn confirmation_code(c: &Conn) -> Option<String> {
     let auth = conn::authorization(c)?;
     let user = auth.url.split(['?', '&']).find_map(|kv| kv.strip_prefix("user_code=")).map(|v| v.replace("%2D", "-").replace('+', " "));
     user.or_else(|| {
         let i = auth.instructions.as_str();
-        if i.is_empty() { None } else if i.contains(':') { i.rsplit(':').next().map(|t| t.trim().to_owned()) } else { Some(i.to_owned()) }
+        i.contains(':').then(|| i.rsplit(':').next().unwrap_or_default().trim().to_owned()).filter(|s| !s.is_empty())
     })
 }
 
