@@ -269,6 +269,28 @@ fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket), gate: &Gate) -> (St
         journal::decided();
         return (Storage::memory(), report);
     }
+    // Nor before it holds the profile's lease (`lease`): on macOS the claim admits every launch.
+    // Without it, this run shows what it read and keeps its changes in memory.
+    if let Err(e) = super::lease::acquire(&config.path) {
+        report.error = Some(e.to_string());
+        report.total_ns = ns(t0);
+        journal::decided();
+        let mut cache = crate::cache::Cache { complete: true, outbox: OutboxCache::Loaded(BTreeMap::new()), ..Default::default() };
+        match packet.as_ref() {
+            Some(p) => p.fill_cache(&mut cache),
+            None => {
+                let p = owe.packet.take().or(held.take()).map(|mut p| {
+                    p.source = BootSource::Checkpoint;
+                    p
+                });
+                let p = p.unwrap_or_else(BootPacket::held_empty);
+                p.fill_cache(&mut cache);
+                send(p);
+            }
+        }
+        eprintln!("opencode-storage: {e}; this run keeps its changes in memory");
+        return (Storage::from_parts(super::shared(cache), Backend::memory()), report);
+    }
     // The record names the journal's place: mapped here, so the windows get their packet without
     // SQLite in the way (another process may hold its lock). A place that doesn't hold it any
     // more: the packet goes as it is, and stage B reserves the journal again.

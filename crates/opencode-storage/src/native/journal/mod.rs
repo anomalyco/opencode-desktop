@@ -304,7 +304,8 @@ pub(crate) fn attach(db: &Path, loc: &Location, fresh: bool, now_us: u64) -> Res
         return Err("the file is shorter than the journal".into());
     }
     // SAFETY: the pages are the journal row's overflow pages, which nothing else in this process
-    // writes; other processes don't write them either (single instance).
+    // writes; other processes don't write them either (only the profile's lease holder maps them:
+    // `lease`).
     #[allow(unsafe_code)]
     let mut map = unsafe { memmap2::MmapOptions::new().offset(from).len(len).map_mut(file) }.map_err(|e| e.to_string())?;
     let base = map.as_mut_ptr();
