@@ -44,19 +44,34 @@ impl SessionReview {
     }
 
     pub(super) fn add_folder_nodes(&mut self) {
-        for path in self.folders.keys() {
-            if self.tree.get(path).is_some() { continue; }
-            let mut parent = None;
-            for end in path.match_indices('/').map(|(i, _)| i).chain(std::iter::once(path.len())) {
-                let id = &path[..end];
-                let name = id.rsplit('/').next().unwrap_or(id);
-                self.tree.insert(parent, id, FileNode { dir: true, path: id.to_owned(), name: name.to_owned(), data: None });
-                parent = Some(id);
-            }
+        insert_folder_nodes(&mut self.tree, self.folders.keys().map(String::as_str));
+    }
+}
+
+pub(super) fn insert_folder_nodes<'a, T>(
+    tree: &mut rune_kit::TreeModel<FileNode<T>>,
+    folders: impl IntoIterator<Item = &'a str>,
+) {
+    let mut any = false;
+    for path in folders {
+        any = true;
+        if tree.get(path).is_some() {
+            continue;
         }
-        if !self.folders.is_empty() {
-            self.tree.sort_by(|a, b| b.dir.cmp(&a.dir).then_with(|| rune::text::compare_names(&a.name, &b.name)));
+        let mut parent = None;
+        for end in path.match_indices('/').map(|(i, _)| i).chain(std::iter::once(path.len())) {
+            let id = &path[..end];
+            let name = id.rsplit('/').next().unwrap_or(id);
+            tree.insert(
+                parent,
+                id,
+                FileNode { dir: true, path: id.to_owned(), name: name.to_owned(), data: None },
+            );
+            parent = Some(id);
         }
+    }
+    if any {
+        tree.sort_by(|a, b| b.dir.cmp(&a.dir).then_with(|| rune::text::compare_names(&a.name, &b.name)));
     }
 }
 

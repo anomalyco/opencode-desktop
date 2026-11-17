@@ -421,7 +421,7 @@ impl App {
         crate::plugin_host::server_event(self, ty, data);
         let mut changed = self.note_agent(ty, data, &sid);
         changed |= done.status | self.status_landed(ty, data, &sid);
-        changed |= self.note_review_event(ty);
+        changed |= self.note_review_event(ty, data);
         if ty == "filesystem.changed" {
             crate::files::watch::changed(self, data);
         }

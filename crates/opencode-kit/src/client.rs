@@ -745,7 +745,7 @@ fn event_line(line: &str) -> Option<Incoming> {
     if ty.starts_with("session.execution.") || matches!(ty.as_str(), "permission.asked" | "form.created" | "session.archived") {
         data["eventCreated"] = v["created"].clone();
     }
-    if ty == "vcs.branch.updated" {
+    if matches!(ty.as_str(), "vcs.branch.updated" | "filesystem.changed") {
         data["eventLocation"] = v["location"].clone();
     }
     Some(Incoming::Event { ty, data })

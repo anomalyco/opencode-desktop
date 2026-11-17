@@ -57,10 +57,43 @@ impl NarrowReview {
     /// Takes the session's newly loaded diffs: open files keep open with their new lines, gone
     /// ones shut.
     pub fn refresh(&mut self, files: &[FileDiff]) {
-        self.open = std::mem::take(&mut self.open)
-            .into_iter()
-            .filter_map(|(path, _)| files.iter().find(|f| f.path() == path).map(|f| (path, DiffDocState::inline(f.clone()))))
+        let paths = self.open_paths();
+        *self = Self::from_paths(&paths, files);
+    }
+
+    pub fn from_paths(paths: &[String], files: &[FileDiff]) -> Self {
+        let open = paths
+            .iter()
+            .filter_map(|path| {
+                files
+                    .iter()
+                    .find(|f| f.path() == path)
+                    .map(|f| (path.clone(), DiffDocState::inline(f.clone())))
+            })
             .collect();
+        Self { open }
+    }
+
+    pub fn prepare_paths(paths: &[String], files: &[FileDiff]) -> Vec<(String, crate::code_view::diff_state::PreparedDiffDoc)> {
+        paths
+            .iter()
+            .filter_map(|path| {
+                files
+                    .iter()
+                    .find(|f| f.path() == path)
+                    .map(|f| (path.clone(), DiffDocState::inline_prepared(f.clone())))
+            })
+            .collect()
+    }
+
+    pub fn from_prepared(open: Vec<(String, crate::code_view::diff_state::PreparedDiffDoc)>) -> Self {
+        Self {
+            open: open.into_iter().map(|(p, d)| (p, d.into_state())).collect(),
+        }
+    }
+
+    pub fn into_prepared(self) -> Vec<(String, crate::code_view::diff_state::PreparedDiffDoc)> {
+        self.open.into_iter().map(|(p, d)| (p, d.into_prepared())).collect()
     }
 
     /// Settings › Wrap lines: the open diffs wrap long lines or scroll them.

@@ -11,14 +11,16 @@ pub mod mobile;
 mod stories;
 
 use std::collections::HashMap;
+use std::time::Duration;
 
+use rune::time::Instant;
 use rune::{Latest, Tx, Waker};
 use rune_kit::diff::DiffMode;
 use rune_kit::{FileNode, TreeModel};
 
 use crate::code_view::{DiffDocState, ExpandMode, FoldEvent};
 use crate::{App, Route, Source};
-use data::{FetchedDiffs, ReviewFileMeta, build_change_tree, collapsed_folders, fetch_live_diffs, fetch_live_file_text, load_fixture_diffs};
+use data::{FetchedDiffs, ReviewFetchSpec, ReviewFileMeta, build_change_tree, collapsed_folders, fetch_live_diffs, fetch_live_file_text, load_fixture_diffs};
 
 /// The review panel's one tab (Desktop's `review:changes`).
 pub const REVIEW_KEY: &str = "review:changes";
@@ -205,12 +207,75 @@ impl SessionReview {
     }
 }
 
+/// Trailing-edge 100 ms debounce on `filesystem.changed`, matching Desktop's
+/// `debounce(..., 100)` (`packages/gui-plugins/src/review/model.ts:403-420`), so a burst of
+/// agent writes runs one diff read once it settles. Opening the panel, switching source,
+/// pressing Retry or ending a turn step asks at once (`Due`).
+const FILESYSTEM_DEBOUNCE: Duration = Duration::from_millis(100);
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Refresh {
+    #[default]
+    Idle,
+    Due,
+    Waiting(Instant),
+}
+
+pub enum RefreshEvent {
+    Debounced(Instant),
+    Immediate,
+    Poll(Instant),
+    Clear,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RefreshEffect {
+    None,
+    WakeNow,
+    WakeAfter(Duration),
+    Run,
+}
+
+impl Refresh {
+    pub fn step(&mut self, event: RefreshEvent) -> RefreshEffect {
+        match event {
+            RefreshEvent::Clear => {
+                *self = Self::Idle;
+                RefreshEffect::None
+            }
+            RefreshEvent::Immediate => {
+                *self = Self::Due;
+                RefreshEffect::WakeNow
+            }
+            RefreshEvent::Debounced(now) => {
+                let was_idle = matches!(self, Self::Idle);
+                if !matches!(self, Self::Due) {
+                    *self = Self::Waiting(now + FILESYSTEM_DEBOUNCE);
+                }
+                if was_idle { RefreshEffect::WakeNow } else { RefreshEffect::None }
+            }
+            RefreshEvent::Poll(now) => match *self {
+                Self::Idle => RefreshEffect::None,
+                Self::Due => {
+                    *self = Self::Idle;
+                    RefreshEffect::Run
+                }
+                Self::Waiting(due) if now < due => RefreshEffect::WakeAfter(due - now),
+                Self::Waiting(_) => {
+                    *self = Self::Idle;
+                    RefreshEffect::Run
+                }
+            },
+        }
+    }
+}
+
 pub struct ReviewPane {
     pub sessions: HashMap<String, SessionReview>,
     pub empty_diffs: DiffDocState,
     pub diff_mode: DiffMode,
     pub expand_mode: ExpandMode,
-    pub dirty: bool,
+    pub refresh: Refresh,
     pub revision: u64,
     diff_fetch: Latest<FetchedDiffs>,
     file_fetch: Latest<(String, String, Option<String>)>,
@@ -225,10 +290,10 @@ impl Default for ReviewPane {
             // Desktop's `review.diffStyle` starts split.
             diff_mode: DiffMode::Split,
             expand_mode: ExpandMode::Collapse,
-            dirty: false,
+            refresh: Refresh::Idle,
             revision: 1,
-            // No debounce: opening the panel asks at once, as Desktop does, and a burst of file
-            // events only supersedes the request in flight (`Latest` keeps the newest answer).
+            // Opening the panel asks at once, while `filesystem.changed` waits out
+            // `FILESYSTEM_DEBOUNCE` in `Refresh` (`packages/gui-plugins/src/review/model.ts:403`).
             diff_fetch: Latest::default(),
             file_fetch: Latest::default(),
             asked: None,
@@ -275,14 +340,20 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
         sr.stamp += 1;
         changed = true;
     }
-    if s.review.dirty {
-        s.review.dirty = false;
-        if let Some(sid) = s.active_session_id().map(str::to_owned)
-            && (s.review_shown() || s.stage.is_some())
-        {
-            s.ensure_session_review(&sid);
-            changed = true;
+    match s.review.refresh.step(RefreshEvent::Poll(Instant::now())) {
+        RefreshEffect::WakeAfter(delay) => tx.wake_after(delay),
+        RefreshEffect::Run => {
+            if let Some(sid) = s.active_session_id().map(str::to_owned)
+                && (s.review_shown() || s.stage.is_some())
+            {
+                let live = matches!(*s.source, Source::Live { .. });
+                s.ensure_session_review(&sid);
+                if !live {
+                    changed = true;
+                }
+            }
         }
+        RefreshEffect::None | RefreshEffect::WakeNow => {}
     }
     changed
 }
@@ -310,18 +381,36 @@ impl App {
         self.resolve_side_region().and_then(|r| r.active.clone()).as_deref() == Some(REVIEW_KEY)
     }
 
-    pub fn note_review_event(&mut self, ty: &str) -> bool {
-        if matches!(ty, "filesystem.changed" | "session.execution.succeeded" | "session.step.ended" | "session.revert.committed") {
-            self.review.revision += 1;
-            if self.review_shown() {
-                self.review.dirty = true;
-                return true;
-            }
+    pub fn note_review_event(&mut self, ty: &str, data: &serde_json::Value) -> bool {
+        if !matches!(
+            ty,
+            "filesystem.changed"
+                | "session.execution.succeeded"
+                | "session.step.ended"
+                | "session.revert.committed"
+        ) {
+            return false;
         }
-        false
+        self.review.revision += 1;
+        if !self.review_shown() {
+            return false;
+        }
+        if ty == "filesystem.changed" && matches!(*self.source, Source::Live { .. }) {
+            if let Some(event_dir) = data["eventLocation"]["directory"].as_str()
+                && let Some(cur_dir) = self.active_session_id().and_then(|sid| self.session(sid)).map(|s| s.directory.as_str())
+                && !cur_dir.is_empty()
+                && !same_directory(event_dir, cur_dir)
+            {
+                return false;
+            }
+            self.review.refresh.step(RefreshEvent::Debounced(Instant::now()));
+            return false;
+        }
+        self.review.refresh.step(RefreshEvent::Immediate) == RefreshEffect::WakeNow
     }
 
     pub fn ensure_session_review(&mut self, session_id: &str) {
+        self.review.refresh.step(RefreshEvent::Clear);
         let diff_mode = self.review.diff_mode;
         let expand_mode = self.review.expand_mode;
         let rev = self.review.revision;
@@ -355,19 +444,45 @@ impl App {
                     return;
                 }
                 self.review.asked = Some(ask);
+                let (collapsed, active_path, find_query, narrow_open) = self
+                    .review
+                    .sessions
+                    .get(session_id)
+                    .map(|sr| {
+                        (
+                            collapsed_folders(&sr.tree),
+                            sr.active_path.clone(),
+                            sr.diffs.find_query(),
+                            sr.narrow.open_paths(),
+                        )
+                    })
+                    .unwrap_or_default();
+                let spec = ReviewFetchSpec {
+                    session_id: session_id.to_owned(),
+                    directory,
+                    mode,
+                    revision: rev,
+                    diff_mode,
+                    expand_mode,
+                    collapsed,
+                    active_path,
+                    find_query,
+                    narrow_open,
+                };
                 let srv = server.clone();
-                let sid = session_id.to_owned();
-                self.review.diff_fetch.request((sid, directory, mode, rev), move |(sid, dir, mode, rev)| fetch_live_diffs(&srv, sid, dir, mode, rev));
+                crate::files::trace::review_asked(session_id, rev);
+                self.review.diff_fetch.request(spec, move |spec| fetch_live_diffs(&srv, spec));
             }
         }
     }
 
     /// Lands a read; returns the change a step asked to show once it did.
     fn apply_fetched_diffs(&mut self, fetched: FetchedDiffs) -> Option<(String, Option<crate::tool_open::Anchor>)> {
+        let swap = Instant::now();
         let diff_mode = self.review.diff_mode;
         let expand_mode = self.review.expand_mode;
-        let changes = match fetched.changes {
-            Ok(changes) => data::ChangeList::read(changes),
+        let prepared = match fetched.changes {
+            Ok(prepared) => prepared,
             Err(e) => {
                 let what = opencode_i18n::t!("rune.review.readFailed").to_owned();
                 let server = crate::servers::runtime::label(crate::servers::runtime::active(self));
@@ -383,20 +498,42 @@ impl App {
         };
         let sr = self.review.sessions.entry(fetched.session_id.clone()).or_default();
         if sr.mode != fetched.mode {
+            let _ = rune::task::spawn("review-drop", move || drop(prepared));
             return None;
         }
         sr.branch_current = fetched.branch_current;
         sr.branch_default = fetched.branch_default;
-        let reopen: Vec<_> = changes.folders.iter().filter(|p| sr.tree.is_expanded(p)).cloned().collect();
+        let reopen: Vec<_> = prepared.folders.iter().filter(|p| sr.tree.is_expanded(p)).cloned().collect();
         sr.generation += 1;
-        sr.folders = changes.folders.into_iter().map(|p| (p, folders::Listing::default())).collect();
-        sr.root_count = changes.count;
-        let mut by_server: Vec<_> = changes.meta.iter().collect();
-        by_server.sort_unstable_by_key(|m| m.listed);
-        let listed = by_server.into_iter().map(|m| m.path.clone()).collect();
-        sr.land(changes.files, changes.meta, listed, diff_mode, expand_mode);
+        let mut next_diffs = prepared.diffs.into_state();
+        next_diffs.set_viewport([0.0, 0.0, sr.diffs.view_width(), 0.0]);
+        next_diffs.carry_find_from(&sr.diffs);
+        next_diffs.set_mode(diff_mode);
+        next_diffs.set_expand_mode(expand_mode);
+        next_diffs.keep_keys_rev(&sr.diffs);
+        let old_folders = std::mem::replace(
+            &mut sr.folders,
+            prepared.folders.into_iter().map(|p| (p, folders::Listing::default())).collect(),
+        );
+        sr.root_count = prepared.count;
+        let old_meta = std::mem::replace(&mut sr.meta, prepared.meta);
+        let old_listed = std::mem::replace(&mut sr.listed, prepared.listed);
+        let old_tree = std::mem::replace(&mut sr.tree, prepared.tree);
+        let old_diffs = std::mem::replace(&mut sr.diffs, next_diffs);
+        let old_narrow = std::mem::replace(&mut sr.narrow, mobile::NarrowReview::from_prepared(prepared.narrow));
+        sr.active_path = prepared.active_path;
+        sr.stamp += 1;
+        let file_count = sr.diffs.files().len();
+        if !old_diffs.files().is_empty() || !old_meta.is_empty() {
+            let old_diffs = old_diffs.into_prepared();
+            let old_narrow = old_narrow.into_prepared();
+            let _ = rune::task::spawn("review-drop", move || {
+                drop((old_diffs, old_meta, old_listed, old_tree, old_folders, old_narrow));
+            });
+        }
         let focus = sr.load.landed(fetched.mode, fetched.revision, fetched.no_git);
         for folder in reopen { self.expand_review_dir(&fetched.session_id, &folder, true); }
+        crate::files::trace::review_landed(&fetched.session_id, fetched.revision, swap, file_count);
         focus
     }
 
@@ -533,4 +670,8 @@ impl SessionReview {
         }
         self.stamp += 1;
     }
+}
+
+fn same_directory(a: &str, b: &str) -> bool {
+    opencode_kit::path::contains(a, b) && opencode_kit::path::contains(b, a)
 }

@@ -3,11 +3,12 @@
 
 use std::collections::{HashMap, HashSet};
 
-use rune_kit::diff::{FileDiff, FileStatus, parse};
+use rune_kit::diff::{DiffMode, FileDiff, FileStatus, parse};
 use rune_kit::{FileNode, FileTree, TreeModel};
 use serde_json::Value;
 
 use super::ChangeMode;
+use crate::code_view::{DiffDocState, ExpandMode};
 use opencode_kit::client::Server;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -21,12 +22,36 @@ pub struct ReviewFileMeta {
     pub listed: usize,
 }
 
+pub struct ReviewFetchSpec {
+    pub session_id: String,
+    pub directory: String,
+    pub mode: ChangeMode,
+    pub revision: u64,
+    pub diff_mode: DiffMode,
+    pub expand_mode: ExpandMode,
+    pub collapsed: HashSet<String>,
+    pub active_path: Option<String>,
+    pub find_query: Option<String>,
+    pub narrow_open: Vec<String>,
+}
+
+pub struct PreparedReview {
+    pub diffs: crate::code_view::diff_state::PreparedDiffDoc,
+    pub meta: Vec<ReviewFileMeta>,
+    pub listed: Vec<String>,
+    pub tree: TreeModel<FileNode<ReviewFileMeta>>,
+    pub folders: Vec<String>,
+    pub count: usize,
+    pub active_path: Option<String>,
+    pub narrow: Vec<(String, crate::code_view::diff_state::PreparedDiffDoc)>,
+}
+
 pub struct FetchedDiffs {
     pub session_id: String,
     pub mode: ChangeMode,
     pub revision: u64,
-    /// The server's diff, or why it couldn't be read (in the client's words).
-    pub changes: Result<Value, opencode_kit::wire_error::WireError>,
+    /// The prepared diff state, or why it couldn't be read.
+    pub changes: Result<PreparedReview, opencode_kit::wire_error::WireError>,
     pub branch_current: Option<String>,
     pub branch_default: Option<String>,
     pub no_git: bool,
@@ -296,14 +321,8 @@ pub fn collapsed_folders<T>(tree: &TreeModel<T>) -> HashSet<String> {
     out
 }
 
-pub fn fetch_live_diffs(
-    server: &Server,
-    session_id: String,
-    directory: String,
-    mode: ChangeMode,
-    revision: u64,
-) -> FetchedDiffs {
-    let loc = format!("location%5Bdirectory%5D={}", crate::switcher::encode(&directory));
+pub fn fetch_live_diffs(server: &Server, spec: ReviewFetchSpec) -> FetchedDiffs {
+    let loc = format!("location%5Bdirectory%5D={}", crate::switcher::encode(&spec.directory));
     let vcs_val = server.get(&format!("/api/vcs?{loc}")).ok();
     let branch_current = vcs_val
         .as_ref()
@@ -318,8 +337,8 @@ pub fn fetch_live_diffs(
         .and_then(|v| v["data"]["provider"].as_str().or_else(|| v["provider"].as_str()));
     let lacks_provider = vcs_val.is_some() && provider.is_none() && branch_current.is_none();
 
-    let raw_diff = match mode {
-        ChangeMode::Turn => server.get(&format!("/api/session/{}/diff", crate::switcher::encode(&session_id))),
+    let raw_diff = match spec.mode {
+        ChangeMode::Turn => server.get(&format!("/api/session/{}/diff", crate::switcher::encode(&spec.session_id))),
         ChangeMode::Branch => server.get(&format!("/api/vcs/diff?{loc}&mode=branch&untracked=folders")),
         ChangeMode::Git => server.get(&format!("/api/vcs/diff?{loc}&mode=working&untracked=folders")),
     };
@@ -330,11 +349,45 @@ pub fn fetch_live_diffs(
         v["data"].as_array().or_else(|| v.as_array()).is_some_and(Vec::is_empty)
     });
 
+    let changes = raw_diff.map(|v| {
+        let parsed = ChangeList::read(v);
+        let mut by_server: Vec<_> = parsed.meta.iter().collect();
+        by_server.sort_unstable_by_key(|m| m.listed);
+        let listed: Vec<String> = by_server.into_iter().map(|m| m.path.clone()).collect();
+        let mut tree = build_change_tree(&parsed.meta, &spec.collapsed);
+        super::folders::insert_folder_nodes(&mut tree, parsed.folders.iter().map(String::as_str));
+        let active_path = spec
+            .active_path
+            .filter(|p| tree.get(p).is_some_and(|n| !n.dir))
+            .or_else(|| listed.first().cloned());
+        if let Some(p) = &active_path {
+            tree.select(p);
+        }
+        let narrow = super::mobile::NarrowReview::prepare_paths(&spec.narrow_open, &parsed.files);
+        let diffs = DiffDocState::prepared(
+            parsed.files,
+            spec.diff_mode,
+            spec.expand_mode,
+            active_path.as_deref(),
+            spec.find_query,
+        );
+        PreparedReview {
+            diffs,
+            meta: parsed.meta,
+            listed,
+            tree,
+            folders: parsed.folders,
+            count: parsed.count,
+            active_path,
+            narrow,
+        }
+    });
+
     FetchedDiffs {
-        session_id,
-        mode,
-        revision,
-        changes: raw_diff,
+        session_id: spec.session_id,
+        mode: spec.mode,
+        revision: spec.revision,
+        changes,
         branch_current,
         branch_default,
         no_git,

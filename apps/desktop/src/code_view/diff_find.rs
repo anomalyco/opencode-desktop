@@ -32,6 +32,32 @@ impl DiffDocState {
         matches!(self.find.state, DocFind::Open { .. })
     }
 
+    pub fn find_query(&self) -> Option<String> {
+        self.find_open().then(|| self.find.input.text.clone())
+    }
+
+    pub(super) fn seed_find(&mut self, query: String) {
+        self.find.state.step(DocFindEvent::Open);
+        self.find.state.step(DocFindEvent::Query(&query));
+        self.find.input = TextEdit::new(&query);
+    }
+
+    /// Carries the live Find bar state (`focused`, caret, or edits made during a background
+    /// refresh) from `prev` onto `self`.
+    pub fn carry_find_from(&mut self, prev: &Self) {
+        if !prev.find_open() {
+            if self.find_open() {
+                self.set_find_open(false);
+            }
+            return;
+        }
+        if !self.find_open() {
+            self.find.state.step(DocFindEvent::Open);
+        }
+        self.find.input = prev.find.input.clone();
+        self.sync_find_query();
+    }
+
     pub fn set_find_open(&mut self, open: bool) {
         let event = if open { DocFindEvent::Open } else { DocFindEvent::Close };
         if self.find.state.step(event) {

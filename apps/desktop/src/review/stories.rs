@@ -139,7 +139,7 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [("re
     if let Some(sr) = s.review.sessions.get_mut(&sid) {
         sr.tree.toggle("src/net");
     }
-    s.note_review_event("filesystem.changed");
+    s.note_review_event("filesystem.changed", &serde_json::Value::Null);
     s.ensure_session_review(&sid);
 })]);
 

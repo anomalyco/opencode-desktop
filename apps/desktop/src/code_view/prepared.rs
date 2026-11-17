@@ -267,3 +267,149 @@ fn build_band_keys(
     }
     vec.into()
 }
+
+/// `Send` representation of [`rune_kit::diff::FileDiff`] after [`DiffDocState`](super::DiffDocState)
+/// has extracted `full_texts`, so a [`PreparedDiffDoc`] built on a worker crosses to the UI
+/// thread without copying hunks.
+pub(super) struct SentFileDiff {
+    old_path: Option<String>,
+    new_path: Option<String>,
+    status: rune_kit::diff::FileStatus,
+    similarity: Option<u8>,
+    old_mode: Option<String>,
+    new_mode: Option<String>,
+    binary: bool,
+    hunks: Vec<rune_kit::diff::Hunk>,
+    sole: Option<rune_kit::diff::Side>,
+}
+
+impl SentFileDiff {
+    fn from_diff(mut f: rune_kit::diff::FileDiff) -> Self {
+        let sole = f.sole_side();
+        Self {
+            old_path: f.old_path.take(),
+            new_path: f.new_path.take(),
+            status: f.status,
+            similarity: f.similarity,
+            old_mode: f.old_mode.take(),
+            new_mode: f.new_mode.take(),
+            binary: f.binary,
+            hunks: std::mem::take(&mut f.hunks),
+            sole,
+        }
+    }
+
+    fn into_diff(self) -> (rune_kit::diff::FileDiff, Option<rune_kit::diff::Side>) {
+        let mut f = rune_kit::diff::FileDiff::between(self.old_path, self.new_path, "", "");
+        f.status = self.status;
+        f.similarity = self.similarity;
+        f.old_mode = self.old_mode;
+        f.new_mode = self.new_mode;
+        f.binary = self.binary;
+        f.hunks = self.hunks;
+        (f, self.sole)
+    }
+}
+
+/// A [`DiffDocState`](super::DiffDocState) built off the UI thread (`Send`), ready to install in
+/// O(files).
+pub struct PreparedDiffDoc {
+    files: Vec<SentFileDiff>,
+    full_texts: HashMap<String, SourceLines>,
+    ui: Vec<super::diff_state::FileUi>,
+    mode: rune_kit::diff::DiffMode,
+    expand_mode: super::ExpandMode,
+    wrap: bool,
+    hide_file_headers: bool,
+    only: Option<usize>,
+    chunks: super::ChunkMap<(u32, rune_kit::diff::Side, u32)>,
+    side_lines: Vec<Vec<[Vec<u32>; 2]>>,
+    gaps: Vec<Vec<super::diff_state::GapSpan>>,
+    digits: Vec<u32>,
+    columns: u32,
+    rows: Vec<super::diff_state::DiffRow>,
+    keys: Vec<String>,
+    row_of: HashMap<(u32, rune_kit::diff::Side, u32), u32>,
+    file_rows: Vec<u32>,
+    hunk_rows: Vec<u32>,
+    rev: u64,
+    keys_rev: u64,
+    visible: usize,
+    find: super::diff_find::DiffFind,
+}
+
+impl PreparedDiffDoc {
+    pub(super) fn from_state(mut s: super::DiffDocState) -> Self {
+        let files = std::mem::take(&mut s.files)
+            .into_iter()
+            .map(SentFileDiff::from_diff)
+            .collect();
+        Self {
+            files,
+            full_texts: s.full_texts,
+            ui: s.ui,
+            mode: s.mode,
+            expand_mode: s.expand_mode,
+            wrap: s.wrap,
+            hide_file_headers: s.hide_file_headers,
+            only: s.only,
+            chunks: s.chunks.into_inner(),
+            side_lines: s.side_lines,
+            gaps: s.gaps,
+            digits: s.digits,
+            columns: s.columns,
+            rows: s.rows,
+            keys: s.keys,
+            row_of: s.row_of,
+            file_rows: s.file_rows,
+            hunk_rows: s.hunk_rows,
+            rev: s.rev,
+            keys_rev: s.keys_rev,
+            visible: s.visible,
+            find: s.find,
+        }
+    }
+
+    pub fn into_state(self) -> super::DiffDocState {
+        let mut files = Vec::with_capacity(self.files.len());
+        let mut sole_sides = Vec::with_capacity(self.files.len());
+        for sf in self.files {
+            let (f, sole) = sf.into_diff();
+            files.push(f);
+            sole_sides.push(sole);
+        }
+        super::DiffDocState {
+            files,
+            sole_sides,
+            full_texts: self.full_texts,
+            ui: self.ui,
+            mode: self.mode,
+            expand_mode: self.expand_mode,
+            wrap: self.wrap,
+            hide_file_headers: self.hide_file_headers,
+            only: self.only,
+            lines: rune_kit::line_selection::LineSelection::default(),
+            copy_side: rune_kit::diff::Side::New,
+            chunks: std::cell::RefCell::new(self.chunks),
+            side_lines: self.side_lines,
+            gaps: self.gaps,
+            digits: self.digits,
+            columns: self.columns,
+            rows: self.rows,
+            keys: self.keys,
+            row_of: self.row_of,
+            file_rows: self.file_rows,
+            hunk_rows: self.hunk_rows,
+            rev: self.rev,
+            keys_rev: self.keys_rev,
+            visible_rows: 0..0,
+            view_w: std::cell::Cell::new(0.0),
+            heights: super::RowHeights::default(),
+            visible: self.visible,
+            reported: None,
+            nav: None,
+            cursor: None,
+            find: self.find,
+        }
+    }
+}

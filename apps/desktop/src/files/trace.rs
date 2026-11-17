@@ -142,6 +142,28 @@ pub(crate) fn kept(sid: &str, path: &str, attempt: u64, why: &str) {
     let _ = sender.send(json!({ "path": path, "attempt": attempt, "kept": why, "at_us": us(*origin, Instant::now()) }).to_string());
 }
 
+/// Review dispatched a diff read for `sid` at `revision`.
+pub(crate) fn review_asked(sid: &str, revision: u64) {
+    let Some((sender, origin)) = out() else { return };
+    let _ = sender.send(json!({ "review": "asked", "sid": sid, "revision": revision, "at_us": us(*origin, Instant::now()) }).to_string());
+}
+
+/// Review landed a diff read for `sid` at `revision`, swapping on the UI thread since `swap`.
+pub(crate) fn review_landed(sid: &str, revision: u64, swap: Instant, files: usize) {
+    let Some((_, origin)) = out() else { return };
+    let end = Instant::now();
+    let line = json!({
+        "review": "landed",
+        "sid": sid,
+        "revision": revision,
+        "files": files,
+        "swap_start_us": us(*origin, swap),
+        "swap_end_us": us(*origin, end),
+        "swap_us": end.saturating_duration_since(swap).as_micros() as u64,
+    });
+    PENDING.with(|p| p.borrow_mut().push(Pending { line, from: swap, key: String::new() }));
+}
+
 /// Each frame a window ran (`on_frame_encoded`): the first drawn one after a swap completes its
 /// line.
 pub(crate) fn frame(f: &rune::FrameEncoded) {

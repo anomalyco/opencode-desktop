@@ -28,7 +28,7 @@ pub(crate) fn prepare_route(app: &mut App, sid: &str) {
     if !app.review_shown() { return; }
     if !app.plugins.running().any(|(_, p)| p.tier == super::super::Tier::Bundled && p.manifest.id == "review") {
         // Other providers keep their own choice of source and their existing refresh timing.
-        if app.side_open() { app.review.dirty = true; }
+        if app.side_open() { app.review.refresh.step(crate::review::RefreshEvent::Immediate); }
         return;
     }
     let mode = if let Some(sr) = app.review.sessions.get(sid) {

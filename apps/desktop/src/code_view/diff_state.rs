@@ -46,10 +46,10 @@ pub(crate) struct GapSpan {
 }
 
 #[derive(Clone, Debug, Default)]
-struct FileUi {
-    collapsed: bool,
+pub(super) struct FileUi {
+    pub(super) collapsed: bool,
     /// Each unchanged range's fold, by range (before each hunk, then after the last).
-    folds: Vec<Fold>,
+    pub(super) folds: Vec<Fold>,
 }
 
 fn hunk_first(h: &Hunk, side: Side) -> u32 {
@@ -81,25 +81,28 @@ fn compute_gaps(file: &FileDiff, full: Option<&SourceLines>) -> Vec<GapSpan> {
     out
 }
 
+pub use super::prepared::PreparedDiffDoc;
+
 /// Reusable diff state for both the Review panel and inline tool-step diffs.
 pub struct DiffDocState {
     pub(super) files: Vec<FileDiff>,
-    full_texts: HashMap<String, SourceLines>,
-    ui: Vec<FileUi>,
-    mode: DiffMode,
-    expand_mode: ExpandMode,
-    wrap: bool,
+    pub(super) sole_sides: Vec<Option<Side>>,
+    pub(super) full_texts: HashMap<String, SourceLines>,
+    pub(super) ui: Vec<FileUi>,
+    pub(super) mode: DiffMode,
+    pub(super) expand_mode: ExpandMode,
+    pub(super) wrap: bool,
     pub(super) hide_file_headers: bool,
     /// Draws only this file's rows: Review's single-file preview.
-    only: Option<usize>,
+    pub(super) only: Option<usize>,
     /// The selected lines and the gesture on the line numbers making them (rune-kit's shared machine).
     pub(super) lines: LineSelection<DiffLine>,
     pub(super) copy_side: Side,
-    chunks: RefCell<ChunkMap<(u32, Side, u32)>>,
-    side_lines: Vec<Vec<[Vec<u32>; 2]>>,
+    pub(super) chunks: RefCell<ChunkMap<(u32, Side, u32)>>,
+    pub(super) side_lines: Vec<Vec<[Vec<u32>; 2]>>,
     pub(super) gaps: Vec<Vec<GapSpan>>,
-    digits: Vec<u32>,
-    columns: u32,
+    pub(super) digits: Vec<u32>,
+    pub(super) columns: u32,
     pub(crate) rows: Vec<DiffRow>,
     pub(crate) keys: Vec<String>,
     pub(super) row_of: HashMap<(u32, Side, u32), u32>,
@@ -108,11 +111,11 @@ pub struct DiffDocState {
     pub(crate) rev: u64,
     pub(crate) keys_rev: u64,
     pub(super) visible_rows: Range<usize>,
-    view_w: Cell<f32>,
+    pub(super) view_w: Cell<f32>,
     /// The rows' laid-out heights by key: a drag down the numbers walks them.
     pub(crate) heights: super::RowHeights,
     pub(super) visible: usize,
-    reported: Option<usize>,
+    pub(super) reported: Option<usize>,
     pub(super) nav: Option<u32>,
     /// The line row the keyboard's line cursor is on: the diff's one Tab stop, which Up and Down
     /// move (a roving tab index). None: the first line row.
@@ -141,6 +144,7 @@ impl DiffDocState {
     pub fn new(files: Vec<FileDiff>) -> Self {
         let mut s = Self {
             files: Vec::new(),
+            sole_sides: Vec::new(),
             full_texts: HashMap::new(),
             ui: Vec::new(),
             mode: DiffMode::Unified,
@@ -185,6 +189,65 @@ impl DiffDocState {
         s
     }
 
+    pub fn inline_prepared(file: FileDiff) -> PreparedDiffDoc {
+        Self::inline(file).into_prepared()
+    }
+
+    /// Builds a review [`PreparedDiffDoc`] off the UI thread: sets `mode`, `expand_mode` and the
+    /// previewed `active_path` before building rows once, searches `find_query` when Find is
+    /// open, and colours the chunks visible at the top of the preview.
+    pub fn prepared(
+        files: Vec<FileDiff>,
+        mode: DiffMode,
+        expand_mode: ExpandMode,
+        active_path: Option<&str>,
+        find_query: Option<String>,
+    ) -> PreparedDiffDoc {
+        let mut s = Self {
+            files: Vec::new(),
+            sole_sides: Vec::new(),
+            full_texts: HashMap::new(),
+            ui: Vec::new(),
+            mode,
+            expand_mode,
+            wrap: true,
+            hide_file_headers: false,
+            only: None,
+            lines: LineSelection::default(),
+            copy_side: Side::New,
+            chunks: RefCell::new(HashMap::new()),
+            side_lines: Vec::new(),
+            gaps: Vec::new(),
+            digits: Vec::new(),
+            columns: 0,
+            rows: Vec::new(),
+            keys: Vec::new(),
+            row_of: HashMap::new(),
+            file_rows: Vec::new(),
+            hunk_rows: Vec::new(),
+            rev: 0,
+            keys_rev: 0,
+            visible_rows: 0..0,
+            view_w: Cell::new(0.0),
+            heights: super::RowHeights::default(),
+            visible: 0,
+            reported: None,
+            nav: None,
+            cursor: None,
+            find: Default::default(),
+        };
+        if let Some(q) = find_query {
+            s.seed_find(q);
+        }
+        s.install_files(files, active_path);
+        s.prewarm_visible_chunks();
+        s.into_prepared()
+    }
+
+    pub fn into_prepared(self) -> PreparedDiffDoc {
+        PreparedDiffDoc::from_state(self)
+    }
+
     /// Draws only file `file`'s rows (`None`: every file's, one under another).
     pub fn show_only(&mut self, file: Option<usize>) {
         let file = file.filter(|&f| f < self.files.len());
@@ -215,6 +278,10 @@ impl DiffDocState {
     pub(crate) fn take_files(&mut self) -> Vec<FileDiff> { std::mem::take(&mut self.files) }
 
     pub fn set_files(&mut self, files: Vec<FileDiff>) {
+        self.install_files(files, None);
+    }
+
+    fn install_files(&mut self, files: Vec<FileDiff>, active_path: Option<&str>) {
         self.ui = files
             .iter()
             .map(|f| FileUi { collapsed: false, folds: vec![Fold::Folded { top: 0, bottom: 0 }; f.hunks.len() + 1] })
@@ -242,8 +309,9 @@ impl DiffDocState {
                 self.full_texts.insert(f.path().to_owned(), SourceLines::new(text));
             }
         }
+        self.sole_sides = files.iter().map(FileDiff::sole_side).collect();
         self.files = files;
-        self.only = None;
+        self.only = active_path.and_then(|p| self.file_index(p));
         self.recompute_metrics();
         for f in 0..self.files.len() {
             for gap in 0..self.gaps[f].len() {
@@ -256,10 +324,37 @@ impl DiffDocState {
         self.set_selection(None);
         self.chunks.borrow_mut().clear();
         self.heights.clear();
-        self.visible = 0;
+        self.visible = self.only.unwrap_or(0);
         self.reported = None;
         self.visible_rows = 0..0;
         self.rebuild();
+    }
+
+    fn prewarm_visible_chunks(&mut self) {
+        let mut seen = Vec::new();
+        for &r in self.rows.iter().take(96) {
+            let f = r.file();
+            let Some(lang) = lang_for_path(self.files[f].path()) else {
+                continue;
+            };
+            for side in [Side::Old, Side::New] {
+                let Some(n) = self.row_line(r, side) else {
+                    continue;
+                };
+                let c = n.saturating_sub(1) / CHUNK_LINES;
+                let key = (f as u32, side, c);
+                if seen.contains(&key) {
+                    continue;
+                }
+                seen.push(key);
+                let first_n = c * CHUNK_LINES + 1;
+                let last_n = (c + 1) * CHUNK_LINES;
+                let built = HighlightChunk::lines_worker(Some(lang), first_n, last_n, |m| {
+                    self.side_line(f, side, m).unwrap_or("")
+                });
+                self.chunks.borrow_mut().insert(key, built);
+            }
+        }
     }
 
     fn recompute_metrics(&mut self) {
@@ -409,7 +504,7 @@ impl DiffDocState {
         if self.mode != DiffMode::Split {
             return None;
         }
-        self.files.get(file)?.sole_side()
+        self.sole_sides.get(file).copied().flatten().or_else(|| self.files.get(file)?.sole_side())
     }
 
     pub fn collapsed(&self, file: usize) -> bool {
@@ -541,25 +636,38 @@ impl DiffDocState {
         full.line(g.new.saturating_add(off))
     }
 
-    pub(crate) fn highlights(&self, f: usize, side: Side, n: u32) -> Vec<(Range<usize>, Paint)> {
-        let Some(lang) = lang_for_path(self.files[f].path()) else {
-            return Vec::new();
-        };
+    fn chunk_of(&self, f: usize, side: Side, n: u32) -> Option<std::sync::Arc<HighlightChunk>> {
+        let lang = lang_for_path(self.files[f].path())?;
         let c = n.saturating_sub(1) / CHUNK_LINES;
         let key = (f as u32, side, c);
-        let cached = self.chunks.borrow().get(&key).cloned();
-        let chunk = cached.unwrap_or_else(|| {
-            let first_n = c * CHUNK_LINES + 1;
-            let last_n = (c + 1) * CHUNK_LINES;
-            let built = HighlightChunk::lines(Some(lang), first_n, last_n, |m| self.side_line(f, side, m).unwrap_or(""));
-            let mut cache = self.chunks.borrow_mut();
-            if cache.len() > 512 {
-                cache.clear();
-            }
-            cache.insert(key, built.clone());
-            built
-        });
-        chunk.line_highlights((n.saturating_sub(1) % CHUNK_LINES) as usize)
+        if let Some(cached) = self.chunks.borrow().get(&key).cloned() {
+            return Some(cached);
+        }
+        let first_n = c * CHUNK_LINES + 1;
+        let last_n = (c + 1) * CHUNK_LINES;
+        let built = HighlightChunk::lines(Some(lang), first_n, last_n, |m| self.side_line(f, side, m).unwrap_or(""));
+        let mut cache = self.chunks.borrow_mut();
+        if cache.len() > 512 {
+            cache.clear();
+        }
+        cache.insert(key, built.clone());
+        Some(built)
+    }
+
+    pub(crate) fn highlight_hash(&self, f: usize, side: Side, n: u32) -> u64 {
+        self.chunk_of(f, side, n)
+            .map_or(0, |chunk| chunk.line_hash((n.saturating_sub(1) % CHUNK_LINES) as usize))
+    }
+
+    pub(crate) fn highlights(&self, f: usize, side: Side, n: u32) -> Vec<(Range<usize>, Paint)> {
+        self.chunk_of(f, side, n)
+            .map_or_else(Vec::new, |chunk| chunk.line_highlights((n.saturating_sub(1) % CHUNK_LINES) as usize))
+    }
+
+    pub(crate) fn keep_keys_rev(&mut self, prev: &Self) {
+        if self.keys == prev.keys {
+            self.keys_rev = prev.keys_rev;
+        }
     }
 
     pub(crate) fn row_line(&self, r: DiffRow, side: Side) -> Option<u32> {

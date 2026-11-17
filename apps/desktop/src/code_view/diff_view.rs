@@ -272,16 +272,41 @@ impl<S: 'static> Inner<S> {
         let key = st.keys[i].as_str();
         match r {
             DiffRow::File(f) => self.file_header(s, st, f as usize, false),
-            DiffRow::Note(f) => memo(
-                key,
-                (self.look.version, st.rev, st.view_width().to_bits()),
-                || self.note_row(st, f as usize),
-            ),
-            DiffRow::Gap { f, gap } => memo(
-                key,
-                (self.look.version, st.rev, st.view_width().to_bits()),
-                || self.gap_row(st, f as usize, gap as usize),
-            ),
+            DiffRow::Note(f) => {
+                let fu = f as usize;
+                let file = &st.files()[fu];
+                memo(
+                    key,
+                    (
+                        self.look.version,
+                        file.path(),
+                        st.digits(fu),
+                        file.binary,
+                        file.status,
+                        &file.old_mode,
+                        &file.new_mode,
+                        self.view_w(st).map(f32::to_bits),
+                    ),
+                    || self.note_row(st, fu),
+                )
+            }
+            DiffRow::Gap { f, gap } => {
+                let (fu, gu) = (f as usize, gap as usize);
+                memo(
+                    key,
+                    (
+                        self.look.version,
+                        st.files()[fu].path(),
+                        st.digits(fu),
+                        st.hidden(fu, gu),
+                        gu == 0,
+                        gu == st.files()[fu].hunks.len(),
+                        st.has_full_text(fu) || self.d.on_fetch_text.is_some(),
+                        self.view_w(st).map(f32::to_bits),
+                    ),
+                    || self.gap_row(st, fu, gu),
+                )
+            }
             _ => {
                 let notes = self.d.notes.as_ref().map(|n| {
                     let path = st.files()[r.file()].path();
@@ -289,26 +314,61 @@ impl<S: 'static> Inner<S> {
                     let commented = lines.map(|l| l.is_some_and(|(side, line)| n.commented(s, path, side, line)));
                     (n.version(s, path), commented)
                 });
+                let quiet = self.d.notes.as_ref().is_some_and(|n| n.plus_quiet(s));
                 let version = (
                     self.look.version,
-                    st.rev,
+                    self.row_content_hash(st, r),
                     st.row_selected(i),
                     st.copy_side(),
                     st.selection().map(|sel| sel.start.side),
                     notes,
+                    quiet,
                 );
                 let commented = notes.map_or([false; 2], |(_, c)| c);
-                let quiet = self.d.notes.as_ref().is_some_and(|n| n.plus_quiet(s));
                 let get_mut = self.d.get_mut.clone();
                 let cursor = st.cursor_row() == Some(i);
-                let row = memo(key, (version, cursor), || {
+                let height_key = key.to_owned();
+                memo(key, (version, cursor), || {
                     let line = self.line_row(st, i, commented, quiet);
-                    self.line_stop(st, i, cursor, self.with_annotations(s, st, i, line))
-                });
-                let key = key.to_owned();
-                super::report_height(row, move |s: &mut S, h| get_mut(s).heights.record(&key, h))
+                    let row = self.line_stop(st, i, cursor, self.with_annotations(s, st, i, line));
+                    super::report_height(row, move |s: &mut S, h| get_mut(s).heights.record(&height_key, h))
+                })
             }
         }
+    }
+
+    fn row_content_hash(&self, st: &DiffDocState, r: DiffRow) -> u64 {
+        use std::hash::{DefaultHasher, Hash, Hasher};
+        let mut h = DefaultHasher::new();
+        let f = r.file();
+        (st.files()[f].path(), st.digits(f), st.mode(), st.wraps(), st.single_column(f)).hash(&mut h);
+        let (a, b) = self.cells(st, r);
+        for c in [a, b] {
+            match c {
+                None => 0u8.hash(&mut h),
+                Some(c) => {
+                    let (src_side, n) = c.source();
+                    let text = if c.kind == LineKind::Context && st.mode() == DiffMode::Split {
+                        st.side_line(f, src_side, n).unwrap_or(c.text)
+                    } else {
+                        c.text
+                    };
+                    (
+                        1u8,
+                        c.kind,
+                        c.old,
+                        c.new,
+                        text,
+                        c.no_newline,
+                        c.changes,
+                        st.highlight_hash(f, src_side, n),
+                        st.find_line(f, src_side, n),
+                    )
+                        .hash(&mut h);
+                }
+            }
+        }
+        h.finish()
     }
 
     /// Line row `i` as the keyboard and a screen reader meet it: one Tab stop for the whole diff
