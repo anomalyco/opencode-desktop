@@ -169,7 +169,7 @@ fn back_button(p: &Pal, project: bool) -> El {
                 s.back_to_app(tx);
             }
         })
-        .child(icon(&ic::ARROW_LEFT, 14.0).mirror_in_rtl().color(p.muted).group_color(p.text))
+        .child(icon(&ic::ARROW_LEFT, 16.0).mirror_in_rtl().color(p.muted).group_color(p.text))
         // Its words leave letter-spacing normal, unlike the tabs under it.
         .child(text(words).font(BACK).color(p.muted).group_color(p.text))
 }

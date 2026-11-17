@@ -522,7 +522,7 @@ pub fn field(s: &App, p: &Pal, narrow: bool) -> El {
     // (`text-input.css:17-18, 62-65`).
     let field = if q.focused { field.border(1.0, p.v2.border_focus) } else { field };
     field
-        .child(el().pl(8.0).child(icon(&ic::MAGNIFYING_GLASS, 14.0).color(p.icon_muted)))
+        .child(el().pl(8.0).child(icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted)))
         .child(session_view::style::field(q, if narrow { NARROW_INPUT } else { ROW }).key("settings-search-input").single_line().grow(1.0).shrink().min_w(0.0)
             .color(p.text).placeholder(t!("settings.search.placeholder"), p.faint)
             // A touch screen's `input::placeholder` is 13 under the 16 the field types (`base.css`).
