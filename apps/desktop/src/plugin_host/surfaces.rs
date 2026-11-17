@@ -310,7 +310,10 @@ pub fn popover_view(app: &App, p: &Pal) -> Vec<El> {
     };
     let Some((i, _)) = app.plugins.running().find(|(_, pl)| pl.half.id == *plugin) else { return Vec::new() };
     let half = &app.plugins.list[i].half;
-    let scrim = crate::popover::scrim::<App>("plugin-popover-scrim", super::requests::close_popover);
+    let scrim = crate::popover::scrim::<App>("plugin-popover-scrim", super::requests::close_popover)
+        .press_focuses_below()
+        .on_secondary_press(|s: &mut App, _: rune::PointerPress, tx: &mut Tx| super::requests::close_popover(s, tx));
+    let scrim = if crate::popup::PRESS_ON_DOWN { scrim.press_on_down() } else { scrim };
     if let super::Overlay::PillMenu { anchor, .. } = &app.plugins.overlay {
         let pill = half.contribs.borrow().composer_pills.iter().find(|c| c.spec.id == *id).map(|c| (c.key, c.f("renderMenu").cloned(), c.f("show").cloned()));
         let Some((key, Some(menu), show)) = pill else { return Vec::new() };
@@ -338,7 +341,7 @@ pub fn popover_view(app: &App, p: &Pal) -> Vec<El> {
     let found = half.contribs.borrow().popovers.iter().find(|c| c.spec.id == *id).map(|c| (c.key, c.f("render").cloned()));
     let Some((key, Some(f))) = found else { return Vec::new() };
     let content = render(app, p, i, &format!("popover:{id}"), &f, map([("data", data.clone())]));
-    let content = col().key(format!("plugin-popover-{key}")).child(content);
+    let content = col().key(format!("plugin-popover-{key}")).on_press(|_: &mut App| {}).child(content);
     let mut out = vec![scrim, crate::popover::place(&app.knobs, content, anchor, *side, *align, *gap)];
     out.extend(flyout_view(app, p, i, flyout));
     out
