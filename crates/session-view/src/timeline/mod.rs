@@ -105,6 +105,9 @@ impl RowSpec {
     /// grow by many lines in one build.
     fn wrap_paced<S: TimelineHost>(&self, s: &S, heading: Option<El>, el: El, paced: bool) -> El {
         let row = col().w_full().max_w(crate::style::content_w()).children(heading).child(el);
+        let row = if matches!(self.content, RowContent::User { .. } | RowContent::Pending { .. }) && s.smooth_timeline() {
+            row.joined_row_face("bubble")
+        } else { row };
         let k = s.knobs();
         if self.streaming && (paced || crate::line_reveal::reveal(k) == crate::line_reveal::Reveal::HeldRoom) {
             row.streaming(true)
