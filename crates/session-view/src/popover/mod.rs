@@ -53,10 +53,10 @@ pub struct Look {
 /// the label and the check at the end.
 pub const MENU: Look = Look { inset: 2.0, row_radius: 4.0, row_h: 28.0, row_gap: 0.0, pad_l: 12.0, pad_r: 6.0, gap: 8.0, head: 16.0 };
 
-/// Desktop's model dialog (`select-dialog.css:104-187`): a 6 pt inset, 28 pt rows 4 pt apart
-/// with 6 pt corners, 6 pt before a row's check slot and 3 after its end, and a group's title
+/// Desktop's model dialog (`select-dialog.css`, #64216): a 6 pt inset, 32 pt rows 2 pt apart
+/// with 6 pt corners, 8 pt before a row's check slot and 3 after its end, and a group's title
 /// 16 pt below what's above it.
-pub const LIST: Look = Look { inset: 6.0, row_radius: 6.0, row_h: 28.0, row_gap: 4.0, pad_l: 6.0, pad_r: 3.0, gap: 6.0, head: 16.0 };
+pub const LIST: Look = Look { inset: 6.0, row_radius: 6.0, row_h: 32.0, row_gap: 2.0, pad_l: 8.0, pad_r: 3.0, gap: 6.0, head: 16.0 };
 
 /// The search row's height: the field keeps Desktop's 28 pt.
 pub const SEARCH_H: f32 = 28.0;
@@ -415,4 +415,3 @@ impl List {
         }
     }
 }
-

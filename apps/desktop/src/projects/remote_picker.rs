@@ -650,7 +650,7 @@ pub mod view {
     /// takes its room, as a CSS border does), 6 pt corners on bg-base; the root's folders as a
     /// tree, or Loading, or why it can't be read.
     fn browser(o: &Open, p: &Pal) -> El {
-        let frame = col().key("directory-picker-browser").w_full().grow(1.0).min_h(0.0).padding(6.0).radius(6.0).fill(p.bg_base).border(0.5, p.border).border_layout();
+        let frame = col().key("directory-picker-browser").w_full().h(280.0).shrink().min_h(0.0).padding(6.0).radius(6.0).fill(p.bg_base).border(0.5, p.border).border_layout();
         let state = |words: &str| frame.clone().center().child(text(words.to_owned()).font(UI).color(p.muted));
         let Tree::Browsing { root, nodes, expanded, selected } = &o.tree else {
             return if o.tree == Tree::Failed { state(t!("dialog.directory.readError")) } else { state(t!("common.loading")) };
