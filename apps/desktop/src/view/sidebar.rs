@@ -103,7 +103,8 @@ pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
     // Away past the window's start edge: its left, or its right in a right-to-left window (an
     // offset is physical, so it turns with the direction here).
     let rtl = opencode_i18n::direction() == opencode_i18n::Direction::Rtl;
-    let x = if away && !(reduced && peek.shown()) { if rtl { w } else { -w } } else { 0.0 };
+    let surface = surface_width(s);
+    let x = if away && !(reduced && peek.shown()) { if rtl { surface } else { -surface } } else { 0.0 };
     let slide = match peek {
         SidebarPeekState::Leaving { .. } => Spring::new(k.get(&PEEK_OUT), 0.0),
         _ if peek.shown() => Spring::new(k.get(&PEEK_IN), 0.0),
@@ -152,6 +153,12 @@ pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
 /// How far the aside reaches past the sidebar into the gap before the panel (`--shell-inline-inset`).
 const GAP_ROOM: f32 = 8.0;
 
+/// A floating mount covers the panel gutter as additional end padding
+/// (`shell/shell.tsx`, `sidebar-peek.css`, 9b57cc05cb). Rows stay docked in place.
+fn surface_width(s: &App) -> f32 {
+    *s.sidebar_w + if s.layout.peek.shown() { GAP_ROOM } else { 0.0 }
+}
+
 /// What the sidebar holds, `w` wide from `top` down: the header line where the traffic lights
 /// share it, Home, Search sessions and New session, then the tabs (or the inbox).
 fn contents(s: &App, p: &Pal, top: f32) -> El {
@@ -162,10 +169,10 @@ fn contents(s: &App, p: &Pal, top: f32) -> El {
         .on_press_tx(|s: &mut App, tx: &mut Tx| s.new_session(tx))
         .on_secondary_press(|s: &mut App, press, tx| crate::recently_closed::open(s, press, tx));
     col()
-        .w(*s.sidebar_w)
+        .w(surface_width(s))
         .pt(top)
         .pl(INSET_START)
-        .pr(INSET_END)
+        .pr(if s.layout.peek.shown() { INSET_END + GAP_ROOM } else { INSET_END })
         .pb(10.0)
         // Shares the session header's 48px centre line with the traffic lights; drags the window.
         // A titlebar row above holds the toggle instead (`titlebar.tsx` on Windows).
@@ -256,7 +263,7 @@ pub(crate) fn peek(s: &App) -> Vec<El> {
     let corridor = el()
         .key("peek-corridor")
         .pin(Some(0.0), Some(chrome.row_h), None, Some(0.0))
-        .w(*s.sidebar_w + CORRIDOR)
+        .w(surface_width(s) + CORRIDOR)
         .on_hover_change(|s: &mut App, inside, tx: &mut Tx| {
             tx.live_only();
             s.queue_peek(PeekEvent::Corridor { inside, held: held(s) }, tx);
