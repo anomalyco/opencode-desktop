@@ -17,7 +17,7 @@ use std::sync::Arc;
 use rune::{Align, Anim, Cursor, El, PointerPress, Latest, Tx, Waker, el, icon, row};
 use rune_kit::Loader;
 
-use crate::popup::{self, Item, Menu};
+use crate::popup::{self, Item, Menu, MenuButton as _};
 use rune_theme_opencode::icons as ic;
 
 use crate::App;
@@ -468,6 +468,7 @@ pub fn button(s: &App, p: &Pal, key: &'static str, rel: &str) -> Option<El> {
         })
         .child(mark);
     let open = s.popup.open_at(&chevron_key);
+    let menu_anchor = chevron_key.clone();
     let chev = el()
         .key(chevron_key)
         .size(20.0, 28.0)
@@ -481,7 +482,7 @@ pub fn button(s: &App, p: &Pal, key: &'static str, rel: &str) -> Option<El> {
         .label_static(opencode_i18n::t!("plugin.file.open.menu"))
         .help(opencode_i18n::t!("plugin.file.open.menu"))
         .layer_opacity(if busy { 0.5 } else { 1.0 })
-        .on_press_tx(move |s: &mut App, tx: &mut Tx| {
+        .menu_button(menu_anchor, move |s: &mut App, tx: &mut Tx| {
             if s.open_in.busy() {
                 return;
             }

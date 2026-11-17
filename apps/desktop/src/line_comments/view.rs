@@ -229,13 +229,16 @@ fn menu_button(p: &Pal, spot: &Spot, c: &LineComment, v1: bool) -> El {
     } else {
         el().key(anchor.clone()).size(20.0, 20.0).padding(2.0).radius(4.0).center().child(icon(&OVERFLOW, 16.0).color(p.icon_muted))
     };
-    b.role("button")
-        .label(label)
-        .cursor(rune::Cursor::Pointer)
-        .hover(p.hover)
-        .press(p.pressed)
-        .hover_motion(crate::view::INSTANT, crate::view::INSTANT)
-        .on_press_tx(move |s: &mut App, tx: &mut Tx| {
+    let menu_anchor = anchor.clone();
+    crate::popup::MenuButton::menu_button(
+        b.role("button")
+            .label(label)
+            .cursor(rune::Cursor::Pointer)
+            .hover(p.hover)
+            .press(p.pressed)
+            .hover_motion(crate::view::INSTANT, crate::view::INSTANT),
+        menu_anchor,
+        move |s: &mut App, tx: &mut Tx| {
             tx.instant();
             use crate::popup::{Item, Menu};
             // `menu-v2` at its 160 floor, its end under the trigger's.
@@ -246,7 +249,8 @@ fn menu_button(p: &Pal, spot: &Spot, c: &LineComment, v1: bool) -> El {
                 Some("delete") => s.line_comment(&spot, Event::CommentDeleted { id }, tx),
                 _ => {}
             });
-        })
+        },
+    )
 }
 
 /// `--surface-raised-stronger-non-alpha` and `--border-weak-base`, the inline boxes' face and

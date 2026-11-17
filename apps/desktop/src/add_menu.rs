@@ -377,6 +377,9 @@ pub fn trigger(s: &App, p: &Pal) -> El {
             if s.add.open() { s.close_add_menu(Close::Outside, tx) } else { s.open_add_menu(tx) }
             crate::popover::motion::toggled(&s.knobs, tx, s.add.open());
         });
+    if crate::popup::PRESS_ON_DOWN {
+        b = b.press_on_down();
+    }
     if open {
         b = b.fill(p.pressed);
     }
@@ -475,17 +478,16 @@ pub fn menu(s: &App, p: &Pal) -> Option<El> {
                 .child(row().key("shortcut").min_w(20.0).center().child(text(item.shortcut()).font(SHORTCUT).color(p.faint))),
         );
     }
-    Some(
-        el().key("add-dismiss")
-            .transition(rune::Transition::none())
-            .absolute(0.0, 0.0)
-            .w_full()
-            .h_full()
-            .on_background_press_tx(|s: &mut App, tx: &mut Tx| {
-                tx.instant();
-                s.close_add_menu(Close::Outside, tx);
-            })
-            .child(menu),
-    )
+    let scrim = el().key("add-dismiss")
+        .transition(rune::Transition::none())
+        .absolute(0.0, 0.0)
+        .w_full()
+        .h_full()
+        .on_background_press_tx(|s: &mut App, tx: &mut Tx| {
+            tx.instant();
+            s.close_add_menu(Close::Outside, tx);
+        });
+    let scrim = if crate::popup::PRESS_ON_DOWN { scrim.press_on_down() } else { scrim };
+    Some(scrim.child(menu))
 }
 
