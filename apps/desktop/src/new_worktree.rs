@@ -94,6 +94,18 @@ const TRIGGER: &str = "location-branch";
 // NUL is not valid in a git ref, so the checkout row has its own stable typeahead key.
 const CHECKOUT: &str = "\0checkout";
 
+rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
+    ("worktree-draft", |s| {
+        let Some(project) = opencode_kit::model::parse_project(&serde_json::json!({
+            "id":"rune", "name":"Rune", "canonical":"/workspace/rune", "vcs":"git"
+        })) else { return };
+        s.projects.push(project.clone());
+        s.open_draft_tab();
+        s.choose_new_worktree(&project.id, project.directory);
+        s.set_draft_base(Some("release/desktop".into()));
+    }),
+]);
+
 impl App {
     /// The open draft starts its session in a new worktree.
     pub fn draft_creates(&self) -> bool {

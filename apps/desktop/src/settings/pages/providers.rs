@@ -44,6 +44,16 @@ pub enum Removal {
     Account { credential: String, provider: String, label: String, last: bool },
 }
 
+rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
+    ("provider-disconnect", |s| {
+        s.open_settings_at(super::Page::Providers);
+        s.step_accounts(Event::Ask(Removal::Provider {
+            id: "anthropic".into(), name: "Anthropic".into(),
+            description: t!("settings.providers.disconnect.description").into(),
+        }), &mut Tx::default());
+    }),
+]);
+
 pub enum Event {
     /// A row's account trigger or options button: opens its menu, or closes it when already open.
     Toggle { provider: String, menu: Menu },

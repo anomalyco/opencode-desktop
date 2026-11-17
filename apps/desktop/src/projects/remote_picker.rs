@@ -366,6 +366,7 @@ pub fn close(s: &mut App, tx: &mut Tx) {
 /// Each poll: a picker whose server left the list closes (`picker.tsx:61-63`).
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     let Picker::Open(o) = &*s.remote_picker else { return false };
+    if !s.live() { return false; }
     let key = o.server.clone();
     if crate::servers::runtime::listed().iter().any(|l| l.key == key) {
         return false;
@@ -373,6 +374,23 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     close(s, tx);
     true
 }
+
+rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
+    ("remote-folders", |s| {
+        let root = "/workspace".to_owned();
+        let recent: Vec<_> = ["desktop", "docs", "runtime", "tools", "website"].iter().filter_map(|name| {
+            opencode_kit::model::parse_project(&serde_json::json!({"id": name, "canonical": format!("{root}/{name}")}))
+        }).collect();
+        let dirs = recent.iter().map(|p| Dir { name: p.name.clone(), absolute: p.directory.clone() }).collect();
+        let tree = Tree::Browsing { root: root.clone(), nodes: BTreeMap::from([(root.clone(), Node::Loaded(dirs))]), expanded: BTreeSet::new(), selected: None };
+        let mut open = Open { server: crate::servers::runtime::active(s).clone(), conn: opencode_kit::client::Server::anonymous("http://localhost"),
+            title: opencode_i18n::t!("command.project.open").into(), subtitle: "Development server".into(), home: root.clone(),
+            tree, recent, input: TextEdit::new(""), suggest: Suggest::Closed, git: BTreeSet::new(), seq: Seq::default(),
+            on_pick: Rc::new(|s, dir, _| s.set_draft_dir(dir)) };
+        open.sync_input(&root);
+        *s.remote_picker = Picker::Open(Box::new(open));
+    }),
+]);
 
 impl Open {
     fn sync_input(&mut self, dir: &str) {
