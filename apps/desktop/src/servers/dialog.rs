@@ -127,7 +127,13 @@ fn run(s: &mut App, effect: Effect) {
         }
         Effect::TimerStop => {}
         // Settings' per-server pages follow the server saved (`onServerChange` selects it).
-        Effect::Save(Save::Add(server)) => {
+        Effect::Save(Save::Add(mut server)) => {
+            // Re-pairing an address already in the registry keeps its display name (#64139).
+            if let Some(state) = &s.settings_pages.servers.dialog.state
+                && state.target == Target::Add && state.draft.name.trim().is_empty()
+                && let Some(existing) = super::list().into_iter().find(|e| e.url == server.http.url).and_then(|e| e.name) {
+                server.name = Some(existing);
+            }
             follow(s, &server.http.url);
             super::add(s, server);
         }
