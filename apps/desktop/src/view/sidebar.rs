@@ -156,6 +156,10 @@ const GAP_ROOM: f32 = 8.0;
 fn contents(s: &App, p: &Pal, top: f32) -> El {
     let chrome = chrome();
     let home = s.route == Route::Home && !s.settings.open;
+    let new = || action_row(p, "new", &ic::EDIT, t!("command.session.new"), &crate::keymap::Bind::TabNew.label(), false)
+        .matched(super::titlebar::NAV_NEW).matched_crop().motion(GLIDE)
+        .on_press_tx(|s: &mut App, tx: &mut Tx| s.new_session(tx))
+        .on_secondary_press(|s: &mut App, press, tx| crate::recently_closed::open(s, press, tx));
     col()
         .w(*s.sidebar_w)
         .pt(top)
@@ -185,11 +189,11 @@ fn contents(s: &App, p: &Pal, top: f32) -> El {
                 .w_full()
                 .gap(3.0)
                 .child(
-                    action_row(p, "home", &ic::GRID_PLUS, t!("home.title"), &crate::keymap::Bind::Home.label(), home)
+                    if s.project_navigation() { new() } else { action_row(p, "home", &ic::GRID_PLUS, t!("home.title"), &crate::keymap::Bind::Home.label(), home)
                         .matched(super::titlebar::NAV_HOME).matched_crop().motion(GLIDE)
                         .on_press_tx(|s: &mut App, tx: &mut Tx| {
                             s.toggle_home(tx);
-                        }),
+                        }) },
                 )
                 .child(
                     action_row(p, "search", &ic::MAGNIFYING_GLASS, t!("command.session.search"), &crate::keymap::Bind::SessionSearch.label(), false)
@@ -200,11 +204,10 @@ fn contents(s: &App, p: &Pal, top: f32) -> El {
                         }),
                 )
                 .child(
-                    action_row(p, "new", &ic::EDIT, t!("command.session.new"), &crate::keymap::Bind::TabNew.label(), false)
-                        .matched(super::titlebar::NAV_NEW).matched_crop().motion(GLIDE)
-                        .on_press_tx(|s: &mut App, tx: &mut Tx| s.new_session(tx))
-                        // Right-click: "Recently closed" (`RecentlyClosedTabsMenu`).
-                        .on_secondary_press(|s: &mut App, press: rune::PointerPress, tx: &mut Tx| crate::recently_closed::open(s, press, tx)),
+                    if s.project_navigation() {
+                        action_row(p, "sidebar-settings", &ic::SETTINGS_GEAR, t!("sidebar.settings"), &crate::keymap::Bind::Settings.label(), s.settings.open)
+                            .on_press_tx(|s: &mut App, tx| s.toggle_settings(tx))
+                    } else { new() },
                 ),
         )
         .child(el().key("tabs-gap").w_full().h(16.0))

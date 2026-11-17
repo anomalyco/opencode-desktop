@@ -20,7 +20,7 @@ mod draft;
 pub(crate) mod draft_location;
 mod header;
 mod header_fit;
-mod home;
+pub(crate) mod home;
 pub(crate) mod location;
 pub(crate) mod location_card;
 pub(crate) mod move_recovery;
@@ -149,6 +149,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     inner = inner.children(crate::slash::commands_view(s, p, cx));
     inner = inner.children(crate::suggestions::history::view(s, p, cx));
     inner = inner.children(crate::add_menu::menu(s, p));
+    inner = inner.children(home::browse::view(s, p, cx));
     inner = inner.children(crate::new_worktree::picker(s, p).into_iter().flatten());
     if let Some(pop) = home::home_projects_popover(s, p) {
         inner = inner.children(pop);

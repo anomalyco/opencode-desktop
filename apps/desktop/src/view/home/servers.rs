@@ -241,7 +241,7 @@ fn authenticate(s: &mut App, key: &ServerKey, tx: &mut Tx) -> bool {
 
 /// Add project on `key`: this computer's folder dialog for the app's own server, the server's
 /// own folders for another (`useDirectoryPicker`); the folders picked become its projects.
-fn choose_project(s: &mut App, key: &ServerKey, tx: &mut Tx) {
+pub(super) fn choose_project(s: &mut App, key: &ServerKey, tx: &mut Tx) {
     s.project_state.home_menu_open = false;
     if authenticate(s, key, tx) {
         return;

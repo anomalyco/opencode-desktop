@@ -171,6 +171,9 @@ fn show(s: &mut App, info: &opencode_kit::model::SessionInfo, tx: &mut Tx) {
     popup::open_drawn(s, menu, TRIGGER, tx, move |s, picked, tx| match picked {
         Some("project") => {
             let server = crate::servers::runtime::active(s).clone();
+            if s.project_navigation() && let Some(proj) = project.as_ref() {
+                return super::home::browse::history(s, &server, proj, tx);
+            }
             crate::projects::home::show(s, &server, root.as_deref());
             s.go_home(tx);
         }

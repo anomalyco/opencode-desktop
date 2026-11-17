@@ -400,6 +400,7 @@ impl App {
     /// titlebar's New session; over a session its prompt takes the keys back
     /// (`fn-key-settings.open`).
     pub(crate) fn back_to_app(&mut self, tx: &mut Tx) {
+        if self.project_navigation() && self.navigate(false, tx) { return; }
         self.close_settings();
         if self.has_composer() && crate::auto_focus_composer(tx) {
             self.composer.focused = true;

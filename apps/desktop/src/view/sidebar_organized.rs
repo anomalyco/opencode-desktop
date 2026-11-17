@@ -30,7 +30,7 @@ pub(super) fn organized(s: &App, p: &Pal) -> El {
     let st = &s.project_state;
     let mut section = col().key("organize-projects").w_full().gap(8.0).child(header(p, st.organize_collapsed));
     if !st.organize_collapsed {
-        section = section.child(projects(s, p));
+        section = section.child(if s.project_navigation() && s.home_state.servers.len() > 1 { server_groups(s, p) } else { projects(s, p) });
     }
     // The projects, the divider and the side tabs scroll together (`flex flex-col gap-3` in one
     // `ScrollView`, `sidebar-organized.tsx:118-158`).
@@ -59,6 +59,43 @@ pub(super) fn organized(s: &App, p: &Pal) -> El {
 /// How far past the list's end edge the thumb's track ends: the sidebar's end inset and the
 /// shell's inline inset (`--sidebar-inset-end`, `--shell-inline-inset`).
 const TRACK_PAST_END: f32 = 3.0 + 8.0;
+
+/// Only label the server groups when more than one is visible (`sidebar-organized.tsx`, #64220).
+fn server_groups(s: &App, p: &Pal) -> El {
+    use crate::servers::runtime;
+    let mut groups = col().w_full().gap(4.0);
+    for server in &s.home_state.servers {
+        let key = server.key.clone();
+        let collapsed = crate::projects::home::collapsed(&key);
+        let mut group = col().role("group").label(server.label.clone()).w_full().gap(4.0)
+            .child(small_button(p, &format!("server-{key}"), &server.label).expanded(!collapsed)
+                .on_press_tx(move |_: &mut App, tx| crate::projects::home::toggle_collapsed(&key, tx)));
+        if !collapsed && server.key == *runtime::active(s) { group = group.child(projects(s, p)); }
+        if !collapsed && server.key != *runtime::active(s) {
+            for proj in &server.projects {
+                let key = format!("{}:{}", server.key, proj.id);
+                let open = s.project_state.organize_expanded.contains(&key);
+                let (on, id, anchor) = (server.key.clone(), proj.id.clone(), key.clone());
+                group = group.child(small_button(p, &key, &proj.name).expanded(open).on_press_tx(move |s: &mut App, tx| {
+                    tx.instant();
+                    if !s.project_state.organize_expanded.remove(&key) { s.project_state.organize_expanded.insert(key.clone()); }
+                }).on_secondary_press(move |s: &mut App, _, tx| {
+                    runtime::with_server(s, &on, |s| home::projects::open_project_menu(s, &id, anchor.clone(), tx));
+                }));
+                if open && let Some(rows) = server.sessions.get(&proj.id) {
+                    for (id, title) in rows.iter().take(SESSIONS) {
+                        let (server, id) = (server.key.clone(), id.clone());
+                        group = group.child(small_button(p, &format!("so-{server}-{id}"), title).pl(32.0).on_press_tx(move |s: &mut App, tx| {
+                            runtime::switch(s, &server); s.open(&id, tx);
+                        }));
+                    }
+                }
+            }
+        }
+        groups = groups.child(group);
+    }
+    groups
+}
 
 /// The Projects toggle: its label and a triangle that turns shut.
 fn header(p: &Pal, collapsed: bool) -> El {
@@ -294,11 +331,10 @@ fn target(s: &App, drag: &ProjectDrag, shown: usize) -> usize {
 
 /// A project's latest root sessions, five more per Show more, or a line when it has none.
 fn sessions(s: &App, p: &Pal, proj: &model::Project) -> Vec<El> {
-    let dir = crate::projects::clean_dir(&proj.directory);
     let mut all: Vec<&SessionInfo> = s
         .sessions
         .iter()
-        .filter(|i| i.parent.is_none() && i.archived.is_none() && !crate::view::is_automation(&i.title) && crate::projects::clean_dir(&i.directory) == dir)
+        .filter(|i| i.parent.is_none() && i.archived.is_none() && !crate::view::is_automation(&i.title) && s.project_for_session(i).is_some_and(|p| p.id == proj.id))
         .collect();
     all.sort_by_key(|i| std::cmp::Reverse(s.recent_page.active_ms(i)));
     if all.is_empty() {

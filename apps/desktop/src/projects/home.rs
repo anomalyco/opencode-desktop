@@ -35,6 +35,8 @@ pub struct ServerView {
     pub health: Option<Health>,
     /// Its used projects, most recently active first.
     pub projects: Vec<Project>,
+    /// Visible remote project rows, read on their own checkout.
+    pub sessions: BTreeMap<String, Vec<(String, String)>>,
     /// Its first reads landed.
     pub loaded: bool,
 }
@@ -87,6 +89,9 @@ enum Adding {
 /// A window's Home.
 #[derive(Default)]
 pub struct Home {
+    pub(crate) last_project: Option<(ServerKey, String)>,
+    pub(crate) browser: crate::view::home::browse::Browser,
+    landing: Landing,
     machine: machine::State,
     load: home_load::State,
     timers: [Armed; 3],
@@ -190,6 +195,10 @@ pub fn selection(s: &App) -> Selection {
 
 /// The server Home shows: the selection's, else the app's own.
 pub fn server(s: &App) -> ServerKey {
+    if s.project_navigation() && let Some((key, _)) = &s.home_state.last_project
+        && s.home_state.servers.iter().any(|v| v.key == *key) {
+        return key.clone();
+    }
     selection(s).server.unwrap_or_else(ServerKey::sidecar)
 }
 
@@ -267,9 +276,19 @@ fn sync(s: &mut App) {
     let mut servers = Vec::with_capacity(entries.len());
     for e in entries {
         let key = e.key();
-        let read = |s: &mut App| (s.used_projects().into_iter().cloned().collect::<Vec<_>>(), loaded(s, &key));
-        let (projects, loaded) = crate::servers::runtime::with_server(s, &key, read).unwrap_or_default();
-        servers.push(ServerView { label: crate::servers::registry::label(&e.conn), health: crate::servers::health::get(&key), key, conn: e.conn, projects, loaded });
+        let read = |s: &mut App| {
+            let mut sessions = BTreeMap::new();
+            let projects: Vec<_> = s.organized_projects().into_iter().cloned().collect();
+            for p in &projects {
+                if !s.project_state.organize_expanded.contains(&format!("{key}:{}", p.id)) { continue; }
+                let mut rows: Vec<_> = s.sessions.iter().filter(|i| i.parent.is_none() && i.archived.is_none() && s.project_for_session(i).is_some_and(|proj| proj.id == p.id)).collect();
+                rows.sort_by_key(|i| std::cmp::Reverse(s.recent_page.active_ms(i)));
+                sessions.insert(p.id.clone(), rows.into_iter().map(|i| (i.id.clone(), i.title.clone())).collect());
+            }
+            (s.used_projects().into_iter().cloned().collect::<Vec<_>>(), sessions, loaded(s, &key))
+        };
+        let (projects, sessions, loaded) = crate::servers::runtime::with_server(s, &key, read).unwrap_or_default();
+        servers.push(ServerView { label: crate::servers::registry::label(&e.conn), health: crate::servers::health::get(&key), key, conn: e.conn, projects, sessions, loaded });
     }
     let (stored, version) = STORE.with_borrow(|st| (st.selection.clone(), st.version));
     let env = machine::Env {
@@ -339,6 +358,7 @@ fn added(s: &mut App) {
 /// phase follows the focused server. True when what Home shows changed.
 /// `fresh`: the app's state may have moved since the last poll, so Home's servers are read again.
 pub fn poll(s: &mut App, fresh: bool, tx: &mut Tx) -> bool {
+    let landed = landing(s, tx);
     let before = (selection(s), s.home_state.servers.iter().map(|v| (v.key.clone(), v.health.clone(), v.projects.len(), v.loaded)).collect::<Vec<_>>(), list_view(s));
     let closed = super::remote_picker::poll(s, tx);
     if fresh || closed {
@@ -377,7 +397,42 @@ pub fn poll(s: &mut App, fresh: bool, tx: &mut Tx) -> bool {
         }
     }
     let after = (selection(s), s.home_state.servers.iter().map(|v| (v.key.clone(), v.health.clone(), v.projects.len(), v.loaded)).collect::<Vec<_>>(), list_view(s));
-    closed || before != after
+    landed || closed || before != after
+}
+
+/// `home/projects/landing.tsx` restores once per visit. A slow or failed session open
+/// must not enqueue the same navigation on every poll.
+#[derive(Default, PartialEq)]
+enum Landing { #[default] Away, Visited }
+
+enum Visit { Left, Arrived(Option<String>) }
+
+fn landing_step(state: &mut Landing, event: Visit) -> Option<String> {
+    match event {
+        Visit::Left => *state = Landing::Away,
+        Visit::Arrived(tab) if *state == Landing::Away => { *state = Landing::Visited; return tab; }
+        Visit::Arrived(_) => {}
+    }
+    None
+}
+
+fn landing(s: &mut App, tx: &mut Tx) -> bool {
+    let project_nav = s.project_navigation();
+    if project_nav && !s.settings.open && let Some(tab) = s.current_tab().and_then(|uid| s.tab(&uid)) {
+        let directory = s.session(&tab.id).and_then(|ses| s.project_for_session(ses)).map_or(&tab.directory, |p| &p.directory);
+        let target = (tab.server.clone(), directory.clone());
+        if s.home_state.last_project.as_ref() != Some(&target) { s.home_state.last_project = Some(target); }
+    }
+    let visit = if project_nav && s.route == Route::Home && !s.settings.open {
+        if s.home_state.landing == Landing::Visited { return false; }
+        Visit::Arrived(s.restore_project_tab().map(crate::tabs::Tab::uid))
+    } else {
+        if s.home_state.landing == Landing::Away { return false; }
+        Visit::Left
+    };
+    let Some(uid) = landing_step(&mut s.home_state.landing, visit) else { return false };
+    s.select_tab(&uid, tx);
+    true
 }
 
 /// The focused server as the list sees it (`HomeSessionsTarget`).

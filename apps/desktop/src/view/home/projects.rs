@@ -202,6 +202,7 @@ pub(crate) fn open_project_menu(s: &mut App, id: &str, anchor: String, tx: &mut 
     if local {
         menu = menu.item(Item::new("reveal", super::super::location_card::reveal_label()));
     }
+    if s.project_navigation() { menu = menu.item(Item::new("history", t!("project.browse.history"))); }
     menu = menu.item(Item::new("clear", t!("sidebar.project.clearNotifications")).enabled(unread)).separator().item(Item::new("close", t!("common.close")));
     tx.instant();
     popup::open_drawn(s, menu, anchor, tx, move |s: &mut App, picked, tx| {
@@ -213,6 +214,7 @@ pub(crate) fn open_project_menu(s: &mut App, id: &str, anchor: String, tx: &mut 
             Some("new-session") => s.new_session_in(&proj.directory, tx),
             Some("import") => s.import_session(&proj.directory, tx),
             Some("edit") => s.edit_project(&proj.directory, tx),
+            Some("history") => super::browse::history(s, &server, &proj, tx),
             Some("reveal") => {
                 if let Err(e) = super::super::location_card::reveal(&proj.directory) {
                     if !std::path::Path::new(&proj.directory).exists() {
