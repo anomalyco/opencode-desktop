@@ -26,6 +26,8 @@ mod intl;
 pub mod names;
 #[cfg(target_arch = "wasm32")]
 mod web;
+#[cfg(target_arch = "wasm32")]
+pub use web::on_loaded;
 
 use std::borrow::Cow;
 
@@ -115,7 +117,9 @@ pub fn locales() -> &'static [LocaleInfo] {
 pub fn set_locale(id: &str) -> bool {
     let Some(index) = I18N.find_locale(id) else { return false };
     #[cfg(target_arch = "wasm32")]
-    web::load(index, id);
+    if !web::load_or_spawn(index, id) {
+        return false;
+    }
     I18N.set_locale(index)
 }
 

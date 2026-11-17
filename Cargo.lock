@@ -3463,8 +3463,10 @@ dependencies = [
 name = "opencode-i18n"
 version = "0.0.1"
 dependencies = [
+ "js-sys",
  "rune-i18n",
  "wasm-bindgen",
+ "wasm-bindgen-futures",
  "web-sys",
 ]
 

@@ -23,10 +23,9 @@ pub fn apply(s: &mut App) {
         None => opencode_i18n::detect(),
     };
     opencode_i18n::set_locale(id);
-    text_language();
+    s.language.0 = Some(opencode_i18n::I18N.locale());
     rune::set_labels(label);
-    rune::labels::set_locale(opencode_i18n::t!("intl.names.locale"));
-    rune::labels::set_direction(crate::view::ui_direction());
+    sync_runtime_locale();
 }
 
 /// Settings' Language row: saves `id` and switches to it, the macOS menu bar included.
@@ -35,13 +34,18 @@ pub fn set(s: &mut App, id: &str) {
         return;
     }
     let id = id.to_owned();
-    opencode_i18n::set_locale(&id);
+    if opencode_i18n::set_locale(&id) {
+        sync_runtime_locale();
+        crate::menubar::refresh();
+    }
+    s.change_settings(|x| x.language = Some(id));
+}
+
+fn sync_runtime_locale() {
     text_language();
     rune::labels::set_locale(opencode_i18n::t!("intl.names.locale"));
     // Rune's native menus (text fields', Windows' window menu, macOS's) read the language's way.
     rune::labels::set_direction(crate::view::ui_direction());
-    crate::menubar::refresh();
-    s.change_settings(|x| x.language = Some(id));
 }
 
 /// How searches fold in the interface's language: Turkish and Azerbaijani fold `I` to `ı`.
@@ -97,6 +101,8 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     if first {
         return false;
     }
+    sync_runtime_locale();
+    crate::menubar::refresh();
     tx.invalidate_memos_by_prefix("");
     crate::plugin_host::services::locale_changed(s);
     crate::plugin_host::dormant::locale_changed(s);

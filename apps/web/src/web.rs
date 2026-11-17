@@ -37,6 +37,8 @@ pub fn start(password: Option<String>) {
     let app = crate::LATE_FONTS.iter().fold(rune_app(app_spec).args(args), |app, url| app.font_url_later(url));
     let handle = app.handle();
     let wake = launch::inbox_waker(handle.clone());
+    let i18n_wake = wake.clone();
+    opencode_i18n::on_loaded(move || i18n_wake());
     browser_history::listen(handle.clone());
     flush_on_pagehide();
     app.init(move || {
