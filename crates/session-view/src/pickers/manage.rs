@@ -91,7 +91,7 @@ pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
             .child(field));
     let hairline = el().key("manage-models-rule").w_full().h(0.5).mt(6.0).fill(p.border_muted);
 
-    let mut body = col().key("manage-models-list").w_full().px(8.0).pt(8.0).pb(8.0);
+    let mut body = col().key("manage-models-list").w_full().padding(8.0).gap(8.0);
     if groups.is_empty() {
         let mut status = row().key("manage-models-empty").w_full().min_h(120.0).gap(4.0).center()
             .child(text(opencode_i18n::t!("dialog.model.empty")).font(UI).color(p.muted));
@@ -100,13 +100,10 @@ pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
         }
         body = body.child(status);
     }
-    for (at, (provider, models)) in groups.iter().enumerate() {
+    for (provider, models) in &groups {
         let open = searching || !m.collapsed.contains(provider);
-        // `.settings-section + .settings-section`: a 0.5 pt rule above each after the first.
-        if at > 0 {
-            body = body.child(el().key(format!("manage-rule-{provider}")).w_full().h(0.5).fill(p.border));
-        }
-        let mut section = col().key(format!("manage-provider-{provider}")).w_full().py(8.0).gap(4.0);
+        let mut section = col().key(format!("manage-provider-{provider}")).w_full().radius(8.0)
+            .fill(p.layer1).border(0.5, p.border).border_layout().clip_soft(0.0);
         section = section.child(header::<S>(s, p, provider, models, open, searching));
         if open {
             section = section.child(rows::<S>(s, p, models));
@@ -155,7 +152,7 @@ fn header<S: PickerHost>(s: &S, p: &Pal, provider: &str, models: &[&Model], open
     let name = models.first().map_or(provider.to_owned(), |m| m.group.clone());
     let first = models.first().map_or(String::new(), |m| m.key.clone());
     let fold = provider.to_owned();
-    let mut trigger = row().key("trigger").role("button").label(format!("{name} models")).h(28.0)
+    let mut trigger = row().key("trigger").role("button").expanded(open).label(format!("{name} models")).h(28.0)
         .pt(4.0).pr(8.0).pb(4.0).pl(4.0).gap(4.0).center_y().radius(4.0)
         .child(row().key("chevron").size(20.0, 20.0).center()
             .child(icon(&ic::CHEVRON_DOWN, 14.0).color(p.icon_muted).rotate(if open { 0.0 } else { -std::f32::consts::FRAC_PI_2 }).mirror_in_rtl()))
@@ -173,7 +170,7 @@ fn header<S: PickerHost>(s: &S, p: &Pal, provider: &str, models: &[&Model], open
     }
     let keys: Vec<String> = models.iter().map(|m| m.key.clone()).collect();
     let flip = switch::<S>(p, &format!("switch-{provider}"), all, move |s: &mut S| s.pickers_mut().set_shown(keys.clone(), !all));
-    row().key("header").w_full().h(28.0).center_y().child(trigger).child(spacer()).child(flip.mr(24.0))
+    row().key("header").w_full().padding(4.0).center_y().child(trigger.grow(1.0)).child(flip.mr(4.0))
 }
 
 /// A provider's models (`manage.tsx:74-99`, `manage.css:81-113`): 36 pt rows 1 pt apart, a
@@ -181,7 +178,7 @@ fn header<S: PickerHost>(s: &S, p: &Pal, provider: &str, models: &[&Model], open
 fn rows<S: PickerHost>(s: &S, p: &Pal, models: &[&Model]) -> El {
     let pk = s.pickers();
     let mut list = col().key("rows").w_full();
-    for (at, m) in models.iter().enumerate() {
+    for m in models {
         let shown = pk.visible(m);
         let key = m.key.clone();
         let press = key.clone();
@@ -194,10 +191,6 @@ fn rows<S: PickerHost>(s: &S, p: &Pal, models: &[&Model]) -> El {
             .child(text(m.name.clone()).font(UI_MED).color(p.text).grow(1.0).shrink().min_w(0.0).truncate())
             .child(switch::<S>(p, "switch", shown, move |s: &mut S| s.pickers_mut().set_shown(vec![key.clone()], !shown)));
         list = list.child(r);
-        // The 1 pt gap, its hairline across the middle and 8 pt in from each end.
-        if at + 1 < models.len() {
-            list = list.child(col().key(format!("rule-{at}")).w_full().h(1.0).px(8.0).pt(0.25).child(el().w_full().h(0.5).fill(p.border)));
-        }
     }
     list
 }
