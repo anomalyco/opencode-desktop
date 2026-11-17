@@ -169,8 +169,9 @@ pub fn popup(
         let h = (search + count as f32 * ROW_H + 2.0 * PAD).min(max_height(spec.boundary.unwrap_or(2.0 * MAX_H), searching, false));
         session_view::scroller::scroller(scroll).hidden(col().w_full().h(h).scroll_margin(PAD), list)
     };
-    // `rounded-xl bg-v2-background-bg-base p-1.5 shadow-[var(--v2-elevation-raised)]`: 10 pt
-    // corners and the raised ring and drops, no border of its own.
+    // `rounded-xl bg-v2-background-bg-base p-1.5 shadow-[var(--v2-elevation-raised)]`, raised to
+    // `--v2-background-bg-layer-01` in dark mode (`editor.css:84-92`): 10 pt corners and the
+    // raised ring and drops, no border of its own.
     col()
         .elevate(p.raised)
         .key(spec.key)
@@ -179,7 +180,7 @@ pub fn popup(
         .above("composer", 8.0)
         .w(spec.width)
         .radius(10.0)
-        .fill(p.bg_base)
+        .fill(session_view::composer::composer_fill(p))
         .clip_soft(0.0)
         .transition(rune::Transition::none())
         // A press anywhere on it leaves the composer focused: a blur would close the popover

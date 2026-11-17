@@ -74,7 +74,7 @@ pub fn view(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
             .w(width)
             .padding(PAD)
             .radius(10.0)
-            .fill(p.bg_base)
+            .fill(session_view::composer::composer_fill(p))
             .clip_soft(0.0)
             .transition(rune::Transition::none())
             .preserve_focus_on_press(true)
