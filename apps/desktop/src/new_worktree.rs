@@ -525,8 +525,10 @@ pub fn picker(s: &App, p: &Pal) -> Option<[El; 2]> {
                     }
                 })
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| s.choose_branch(pick.clone(), tx))
-                .child(text(title.to_owned()).font(UI).color(p.text))
-                .children(checkout.then(|| text(s.sidebar_inbox.branches.get(s.draft_dir()).unwrap_or("").to_owned()).font(UI).color(p.muted)))
+                .child(if checkout { text(title.to_owned()).font(UI).color(p.text).truncate() }
+                    else { text(title.to_owned()).font(UI).color(p.text).shrink().min_w(0.0).truncate() })
+                .children(checkout.then(|| text(s.sidebar_inbox.branches.get(s.draft_dir()).unwrap_or("").to_owned())
+                    .font(UI).color(p.muted).shrink().min_w(0.0).truncate()))
                 .child(rune::spacer())
                 .children((selected.as_deref() == Some(b.as_str())).then(|| icon(&ic::CHECK, 14.0).color(p.icon_muted))),
         );
