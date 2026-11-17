@@ -504,11 +504,12 @@ fn fit_socket(path: PathBuf) -> Result<PathBuf, &'static str> {
 #[allow(unsafe_code)]
 fn short_socket_dir() -> PathBuf {
     use std::os::unix::ffi::OsStrExt;
-    // The longest socket name in it: `/opencode-browser/s-<16 hex>.sock`.
-    const NAME: usize = 40;
+    // `/s-<16 hex>.sock` inside `opencode-browser`.
+    const LEAF: usize = 24;
     let tmp = std::env::temp_dir();
-    if tmp.as_os_str().len() + NAME <= SOCKET_PATH_MAX {
-        return tmp.join("opencode-browser");
+    let candidate = tmp.join("opencode-browser");
+    if candidate.as_os_str().len() + LEAF <= SOCKET_PATH_MAX {
+        return candidate;
     }
     let mut buf = [0u8; 1024];
     // SAFETY: confstr writes at most `buf.len()` bytes, NUL included, and returns the length the
