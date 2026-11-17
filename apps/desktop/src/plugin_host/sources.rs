@@ -126,11 +126,17 @@ pub fn contributions(id: &str) -> &'static [&'static str] {
 /// it, or (a debug build, which runs them from the repository) of the files as read. None for a
 /// plugin that isn't built in: those start as they always have.
 pub fn files_hash(id: &str, origin: &Origin, tier: Tier) -> Option<String> {
-    match origin {
+    let base = match origin {
         Origin::Embedded(..) => embedded::HASHES.iter().find(|(p, _)| *p == id).map(|(_, h)| (*h).to_owned()),
         Origin::Dir { files, .. } if tier == Tier::Bundled => Some(content_hash(files)),
         Origin::Dir { .. } => None,
+    }?;
+    // The browser plugin registers its MCP tools only on builds with an engine, so an update that
+    // adds or removes the engine source invalidates its dormant contribution record.
+    if id == "browser" && !browser_pane::BrowserHost::engine_configured() {
+        return Some(format!("{base}:no-engine"));
     }
+    Some(base)
 }
 
 /// The ids of the built-ins this binary carries.

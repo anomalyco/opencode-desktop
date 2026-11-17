@@ -17,9 +17,14 @@ use crate::transport::{Link, UnixStream, spawn_and_attach, wire_stream};
 static NEXT_RECEIVER_TAG: AtomicU64 = AtomicU64::new(1);
 
 impl BrowserHost {
-    /// Nothing is looked for until a page needs the engine (`EngineStatus::Unchecked`).
+    /// Nothing is looked for until a page needs the engine (`EngineStatus::Unchecked`), unless
+    /// this build has no engine source, trust rule or binary override at all (`Fault::NotPublished`).
     pub(crate) fn initial_status() -> EngineStatus {
-        EngineStatus::Unchecked
+        if Self::engine_configured() {
+            EngineStatus::Unchecked
+        } else {
+            EngineStatus::Failed(Fault::NotPublished.into())
+        }
     }
 
     /// Starts (or retries) the engine: connects to this app's running one, starts the installed
@@ -148,7 +153,6 @@ impl BrowserHost {
                 return link.set(EngineStatus::Failed(Fault::Dirs(installer::NO_DIRS).into()));
             };
             let Some(engine) = installer::installed() else {
-                *link.status.lock().unwrap() = EngineStatus::NotInstalled;
                 if start == Start::Only {
                     return link.set(EngineStatus::NotInstalled);
                 }

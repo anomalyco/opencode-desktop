@@ -52,6 +52,13 @@ end
 local DEFAULT_TAB = "Browser tab ID (defaults to this session's active browser tab)."
 
 function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutService)
+    -- Builds with no engine at all (Linux arm64, web, or a release build with no engine source or
+    -- trust rule such as Linux x64 and Windows today) offer none of the browser tools.
+    local initial = Browser:Engine().state
+    if initial == "unsupported" or initial == "failed" then
+        return
+    end
+
     -- Each page's `@eN` references from its last snapshot, and the next number to hand out.
     local refs: { [string]: { [string]: number } } = {}
     local nextRef = 1
@@ -91,6 +98,58 @@ function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutServ
         end
     end)
 
+    local function checkEngine()
+        if not Browser:Available() then
+            error(UNSUPPORTED, 0)
+        end
+        local eng = Browser:Engine()
+        if eng.state == "unsupported" then
+            error(UNSUPPORTED, 0)
+        end
+        if eng.state == "failed" then
+            error(eng.message or "Browser engine failed to start", 0)
+        end
+    end
+
+    local function waitEngine(created: BrowserTab?)
+        for _ = 1, 600 do
+            if Browser:Engine().state ~= "starting" then
+                break
+            end
+            task.wait(0.05)
+        end
+        local eng = Browser:Engine()
+        if eng.state == "ready" then
+            return
+        end
+        if created ~= nil then
+            created:Close()
+        end
+        if eng.state == "unsupported" then
+            error(UNSUPPORTED, 0)
+        end
+        if eng.state == "failed" then
+            error(eng.message or "Browser engine failed to start", 0)
+        end
+        if eng.state == "starting" then
+            error("Browser engine is still starting; try again in a moment", 0)
+        end
+        error("Browser engine isn't installed yet in OpenCode (Rune)", 0)
+    end
+
+    -- Answer once the page says where it went (it changed address and stopped loading, or failed),
+    -- as Desktop's navigate answers after the load; at most 10 s.
+    local function waitLoad(tab: BrowserTab, before: string)
+        local loaded = tab:Loading()
+        for _ = 1, 100 do
+            if tab:LoadError() ~= nil or ((loaded or tab:Url() ~= before) and not tab:Loading()) then
+                break
+            end
+            task.wait(0.1)
+            loaded = loaded or tab:Loading()
+        end
+    end
+
     local function tool(name: string, description: string, properties: { [string]: any }, required: { string }?, call: (args: { [string]: any }, sid: string) -> any)
         ctx:AddMcpTool({
             name = name,
@@ -116,13 +175,12 @@ function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutServ
     tool("browser_open", "Open a URL or local ':port' in a new browser tab in the OpenCode (Rune) side panel.", {
         url = { type = "string", description = "URL or ':port' address to open (defaults to 'about:blank')." },
     }, nil, function(args, sid)
-        if not Browser:Available() then
-            error(UNSUPPORTED, 0)
-        end
+        checkEngine()
         local tab = Browser:OpenAsync({ url = if type(args.url) == "string" then args.url else "about:blank", sessionId = sid, background = true })
         if tab == nil then
             error(UNSUPPORTED, 0)
         end
+        waitEngine(tab)
         return { tabID = id(tab), url = tab:Url() }
     end)
 
@@ -134,9 +192,7 @@ function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutServ
         if string.match(url, "^%s*$") then
             error("Missing 'url'", 0)
         end
-        if not Browser:Available() then
-            error(UNSUPPORTED, 0)
-        end
+        checkEngine()
         if args.tabID ~= nil and Browser:Get(tostring(args.tabID)) == nil then
             error(`No browser tab with tabID {args.tabID}`, 0)
         end
@@ -146,21 +202,15 @@ function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutServ
             if opened == nil then
                 error(UNSUPPORTED, 0)
             end
+            waitEngine(opened)
+            waitLoad(opened, "")
             return { tabID = id(opened), url = opened:Url() }
         end
         local before = tab:Url()
         tab:Navigate(url)
         tab:Show({ sessionId = sid, background = true })
-        -- Answer once the page says where it went (it changed address and stopped loading, or
-        -- failed), as Desktop's navigate answers after the load; at most 10 s.
-        local loaded = false
-        for _ = 1, 100 do
-            task.wait(0.1)
-            loaded = loaded or tab:Loading()
-            if tab:LoadError() ~= nil or ((loaded or tab:Url() ~= before) and not tab:Loading()) then
-                break
-            end
-        end
+        waitEngine(nil)
+        waitLoad(tab, before)
         return { tabID = id(tab), url = tab:Url() }
     end)
 

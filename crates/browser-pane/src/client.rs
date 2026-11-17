@@ -221,9 +221,32 @@ impl BrowserHost {
         self.shell_shortcut = Some(check);
     }
 
+    /// Whether this build has any way to run an engine: a download source, a trust rule for an
+    /// installed version, or an explicit engine/socket override in the environment.
+    pub fn engine_configured() -> bool {
+        #[cfg(feature = "engine")]
+        {
+            let set = |k| std::env::var_os(k).is_some_and(|v| !v.is_empty());
+            crate::source::configured()
+                || crate::source::has_trust()
+                || set("OPENCODE_BROWSER_ENGINE_BIN")
+                || set("OPENCODE_BROWSER_ENGINE_APP")
+                || set("OPENCODE_BROWSER_SOCKET")
+        }
+        #[cfg(not(feature = "engine"))]
+        {
+            false
+        }
+    }
+
     pub fn with_socket(socket: PathBuf) -> Self {
         let mut h = Self::new();
         h.socket_override = Some(socket);
+        #[cfg(feature = "engine")]
+        {
+            h.last_polled_status = EngineStatus::Unchecked;
+            *h.status.lock().unwrap() = EngineStatus::Unchecked;
+        }
         h
     }
 

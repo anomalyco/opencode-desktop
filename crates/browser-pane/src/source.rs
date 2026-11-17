@@ -106,6 +106,11 @@ pub(crate) fn configured() -> bool {
     !inputs().0.trim().is_empty()
 }
 
+/// Whether this build has a valid trust rule for an installed engine.
+pub(crate) fn has_trust() -> bool {
+    parse_trust(&inputs().1).is_some()
+}
+
 /// Reads the index and picks this platform's release: one the build accepts (its engine
 /// revision) from a source its trust rule allows.
 pub(crate) fn latest() -> Result<Release, Fault> {
