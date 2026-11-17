@@ -546,10 +546,11 @@ static CLOSE: Icon = Icon {
 };
 
 /// The stack (Sonner's `ol`): 32 in from the window's right and 48 up from its bottom
-/// (`toast.tsx` offset), at 600 pt or narrower 16 in from its left and bottom and 64 short of
-/// its width (`toast.css:226`, Sonner's mobile offsets). Each toast stands at its bottom where
-/// [`ToastStack::place`] puts it, newest over the rest. The pointer anywhere over it, the gaps
-/// between spread toasts included (Sonner's `::after`), spreads it.
+/// (`packages/ui/src/feedback/toast/toast.tsx:48-51`), at 600 pt or narrower 16 in from both
+/// sides (`max-width: calc(100vw - 32px)`, `toast.css:226-233`, `mobileOffset={16}`). Official's
+/// `<Toast.Region />` (`packages/app/src/shell/notifications/toast.tsx:26`) stays at `bottom: 16`
+/// on narrow screens and covers the composer; here [`toast_bottom`] lifts the stack 8 pt above
+/// `"dock"` / `"composer"` whenever the two overlap horizontally (deliberate difference).
 pub fn view(s: &App, p: &Pal) -> Option<El> {
     let entries = s.toast.stack.entries();
     if entries.is_empty() {
@@ -562,7 +563,7 @@ pub fn view(s: &App, p: &Pal) -> Option<El> {
     let height = |id: u64| entries.iter().find(|e| e.id == id).and_then(|e| rune::memo::layout_size(&key_of(e))).map_or(0.0, |[_, h]| h);
     let width = s.layout.narrow.width();
     let narrow = width > 0.0 && width <= 600.0;
-    let w = if narrow { width - 64.0 } else { 320.0 };
+    let w = if narrow { (width - 32.0).max(0.0) } else { 320.0 };
     let mut reach = 0.0f32;
     // Focusable outside the Tab order, so the hotkey can focus it and Escape there reaches it;
     // a press on a toast focuses it as one on a toast's `li` does.
@@ -591,6 +592,7 @@ pub fn view(s: &App, p: &Pal) -> Option<El> {
                 .opacity_motion(FADE),
         );
     }
+    let bottom = toast_bottom(s, narrow, w, reach);
     let stack = stack.h(reach.max(1.0)).on_hover_change(|s: &mut App, inside, tx: &mut Tx| {
         let now = *s.clock;
         let event = if inside { ToastEvent::PointerOver { now: now } } else { ToastEvent::PointerLeft { now: now } };
@@ -601,7 +603,54 @@ pub fn view(s: &App, p: &Pal) -> Option<El> {
             tx.motion_curve(MOVE);
         }
     });
-    Some(if narrow { stack.pin(Some(16.0), None, None, Some(16.0)).raise() } else { stack.pin(None, None, Some(32.0), Some(48.0)).raise() })
+    Some(if narrow { stack.pin(Some(16.0), None, None, Some(bottom)).raise() } else { stack.pin(None, None, Some(32.0), Some(bottom)).raise() })
+}
+
+fn rect_identity(r: [f32; 4]) -> [f32; 4] {
+    r
+}
+
+fn rect_top(r: [f32; 4]) -> f32 {
+    r[1]
+}
+
+fn toast_bottom(s: &App, narrow: bool, w: f32, reach: f32) -> f32 {
+    let base = if narrow { 16.0 } else { 48.0 };
+    let on_session = !s.settings.open
+        && matches!(*s.route, crate::Route::Session { .. })
+        && (!s.narrow() || s.narrow_view() == crate::narrow::machine::CONVERSATION);
+    let on_draft = !s.settings.open && matches!(*s.route, crate::Route::Draft(_));
+    if !on_session && !on_draft {
+        return base;
+    }
+    let Some([wx, wy, ww, wh]) = rune::memo::layout_with("window", rect_identity) else {
+        return base;
+    };
+    let Some([cx, cy, cw, ch]) = rune::memo::layout_with("composer", rect_identity) else {
+        return base;
+    };
+    let (tx0, tx1) = if narrow {
+        (wx + 16.0, wx + 16.0 + w)
+    } else if crate::view::ui_direction() == rune::Direction::Rtl {
+        (wx + 32.0, wx + 32.0 + w)
+    } else {
+        (wx + ww - 32.0 - w, wx + ww - 32.0)
+    };
+    if !(tx0 < cx + cw && tx1 > cx) {
+        return base;
+    }
+    let top_y = if on_session {
+        rune::memo::layout_with("dock", rect_top).map_or(cy, |dy| cy.min(dy))
+    } else {
+        cy
+    };
+    if on_draft {
+        let toast_h = reach.max(64.0);
+        if !((wy + wh - base) > top_y && (wy + wh - base - toast_h) < cy + ch) {
+            return base;
+        }
+    }
+    base.max(wy + wh - top_y + 8.0)
 }
 
 /// The card (`.toast-v2`): 12 in, its icon's, content's and close button's columns 12 apart,
