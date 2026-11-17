@@ -290,13 +290,18 @@ pub fn flush() {
     if pending().0.is_empty() {
         return;
     }
-    let (done, wait) = std::sync::mpsc::sync_channel(1);
-    let spawned = rune::task::spawn("terminal-saves", move || {
-        write_pending();
-        let _ = done.send(());
-    });
-    if spawned.is_ok() {
-        let _ = wait.recv_timeout(Duration::from_secs(1));
+    #[cfg(target_arch = "wasm32")]
+    write_pending();
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let (done, wait) = std::sync::mpsc::sync_channel(1);
+        let spawned = rune::task::spawn("terminal-saves", move || {
+            write_pending();
+            let _ = done.send(());
+        });
+        if spawned.is_ok() {
+            let _ = wait.recv_timeout(Duration::from_secs(1));
+        }
     }
 }
 

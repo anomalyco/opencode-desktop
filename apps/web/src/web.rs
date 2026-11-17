@@ -3,7 +3,7 @@
 //! app's `--flag [value]` (`?debug`, `?zoom=1.25`, `?theme=dark`). The page (index.html) takes a
 //! password out of its address before it loads this, and hands it to [`start`].
 
-use wasm_bindgen::prelude::wasm_bindgen;
+use wasm_bindgen::{JsCast, closure::Closure, prelude::wasm_bindgen};
 
 use crate::{App, appearance, launch, rune_app, spec, storage};
 
@@ -37,6 +37,7 @@ pub fn start(password: Option<String>) {
     let handle = app.handle();
     let wake = launch::inbox_waker(handle.clone());
     browser_history::listen(handle.clone());
+    flush_on_pagehide();
     app.init(move || {
         let mut s = App::new();
         s.launch.inbox_wake = Some(wake);
@@ -53,6 +54,19 @@ fn poll(s: &mut App, now: f64, tx: &mut rune::Tx) -> bool {
     let changed = crate::poll(s, now, tx);
     browser_history::sync(s);
     changed
+}
+
+/// Closing or reloading a browser tab never runs winit's `on_close`: land any queued terminal
+/// snapshot and write-behind state rows synchronously on `pagehide` so nothing in the 1 s / 250 ms
+/// buffers is lost.
+fn flush_on_pagehide() {
+    let Some(window) = web_sys::window() else { return };
+    let on_hide = Closure::<dyn FnMut()>::new(|| {
+        crate::terminal::persist::flush();
+        storage::flush(opencode_storage::FlushReason::Close, false);
+    });
+    let _ = window.add_event_listener_with_callback("pagehide", on_hide.as_ref().unchecked_ref());
+    on_hide.forget();
 }
 
 /// The query as the app's arguments: `?a=1&b` is `--a 1 --b`.
