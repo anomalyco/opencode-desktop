@@ -467,6 +467,7 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
         // so their text wraps once, and glide from where the first in view was
         // (`virtualizer.tsx:254-268`, `panel-motion.ts` `holdLandingWidth`).
         .hold_landing_width()
+        .whole_rows()
         .growth(GrowthSpec { spring: crate::knobs::growth(s.knobs()), edge: e });
     let eager = EAGER_ROWS.get();
     // Where it's drawn, for its place when it shows again (`recall`).
