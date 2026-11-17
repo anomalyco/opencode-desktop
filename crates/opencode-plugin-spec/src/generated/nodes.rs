@@ -181,6 +181,7 @@ pub static UI_BOX_PROPS: PropsSpec = PropsSpec::new("UiBoxProps", Some(&UI_LAYOU
     PropSpec::new("focusable", PropType::Bool, false),
     PropSpec::new("disabled", PropType::Bool, false),
     PropSpec::new("onPress", PropType::Handler, false),
+    PropSpec::new("menuTrigger", PropType::Bool, false),
     PropSpec::new("onMiddlePress", PropType::Handler, false),
     PropSpec::new("onHover", PropType::Handler, false),
     PropSpec::new("hoverTransition", PropType::Enum("HoverTransition"), false),
@@ -206,6 +207,7 @@ pub static UI_BUTTON_PROPS: PropsSpec = PropsSpec::new("UiButtonProps", Some(&UI
     PropSpec::new("loading", PropType::Bool, false),
     PropSpec::new("pressed", PropType::Bool, false),
     PropSpec::new("onPress", PropType::Handler, false),
+    PropSpec::new("menuTrigger", PropType::Bool, false),
 ]);
 
 /// `UiCodeViewProps`.
@@ -296,6 +298,7 @@ pub static UI_ICON_BUTTON_PROPS: PropsSpec = PropsSpec::new("UiIconButtonProps",
     PropSpec::new("color", PropType::Color, false),
     PropSpec::new("keybind", PropType::String, false),
     PropSpec::new("onPress", PropType::Handler, false),
+    PropSpec::new("menuTrigger", PropType::Bool, false),
 ]);
 
 /// `UiIconProps`.
