@@ -84,11 +84,12 @@ pub fn side_region(s: &App, p: &Pal, zoomed_w: f32, bottom_reserve: f32, main: [
         s.side.laid_w.set(zoomed_w);
     }
     let laid_w = s.side.laid_w.get();
-    let inputs = ((p.theme, p.generation, p.dark), format!("{:?}", crate::view::chrome()), laid_w.to_bits(), bottom_reserve.to_bits(), crate::plugin_host::surfaces_version(s), s.composer.focused, main.map(f32::to_bits));
-    rune::region_with("side-region", inputs, || side_region_in(s, p, laid_w, bottom_reserve, cx).paint_contained(main))
+    let scale = cx.env().scale;
+    let inputs = ((p.theme, p.generation, p.dark), format!("{:?}", crate::view::chrome()), laid_w.to_bits(), bottom_reserve.to_bits(), crate::plugin_host::surfaces_version(s), s.composer.focused, main.map(f32::to_bits), scale.to_bits());
+    rune::region_with("side-region", inputs, || side_region_in(s, p, laid_w, bottom_reserve, main, scale, cx).paint_contained(main))
 }
 
-fn side_region_in(s: &App, p: &Pal, laid_w: f32, bottom_reserve: f32, cx: &mut Cx<App>) -> El {
+fn side_region_in(s: &App, p: &Pal, laid_w: f32, bottom_reserve: f32, main: [f32; 2], scale: f32, cx: &mut Cx<App>) -> El {
     let on_session = matches!(*s.route, Route::Session { .. }) && !s.settings.open;
     let w = s.side_width(laid_w);
 
@@ -114,8 +115,13 @@ fn side_region_in(s: &App, p: &Pal, laid_w: f32, bottom_reserve: f32, cx: &mut C
 
     // The column's opacity track exists before the first open. Its heavy body mounts only if
     // this session has shown it; another session's pane never pays for it here.
-    let col_bottom = if col_open { 8.0 + bottom_reserve } else { 8.0 };
-    let mut column = col().key("side-column").pin(Some(bleed), Some(crate::view::chrome().top()), None, Some(col_bottom)).w(w)
+    // `session-side-panel-content` (`screen.tsx:521`, `will-change-[opacity]`) opens its own
+    // composited layer inside `<main>`, so its origin snaps inside `<main>`'s snapped origin.
+    let col_bottom = (if col_open { 8.0 + bottom_reserve } else { 8.0 }) + crate::view::chrome().foot();
+    let top = crate::view::chrome().top();
+    let layer_top = if scale > 0.0 { ((main[1] * scale + 0.5).floor() + ((top - main[1]) * scale + 0.5).floor()) / scale } else { top };
+    let mut column = col().key("side-column").pin(Some(bleed), Some(layer_top), None, Some(col_bottom - (layer_top - top))).w(w)
+        .paint_contained([main[0], layer_top])
         .opacity(if col_open { 1.0 } else { 0.0 }).opacity_motion(if col_open { OPEN_FADE } else { CLOSE_FADE });
     if on_session {
         // Mount the card's frame with the column: its border follows the same track even on the
