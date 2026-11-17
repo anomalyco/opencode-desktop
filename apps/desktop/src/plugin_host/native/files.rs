@@ -142,7 +142,8 @@ pub fn version(app: &App, session: &str) -> u64 {
         let mut images: Vec<_> = w.images.iter().collect();
         images.sort_by(|a, b| a.0.cmp(b.0));
         for (path, img) in images {
-            (path, img.image.is_ready(), img.image.size(), img.shows(), format!("{:?}", img.zoom)).hash(&mut h);
+            let shown = img.shown();
+            (path, shown.id(), shown.is_ready(), shown.size(), img.shows(), format!("{:?}", img.zoom)).hash(&mut h);
         }
         // A video's state and controls, and its time at Chromium's `timeupdate` step (0.25 s).
         let mut videos: Vec<_> = w.videos.iter().collect();

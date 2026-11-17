@@ -453,8 +453,8 @@ fn land_read(s: &mut App, landed: content::Landed, tx: &mut Tx) -> bool {
         s.start_read(&sid, &path, attempt);
     }
     let body = landed.body;
-    let shows_text = s.files.sessions.get(&sid).and_then(|w| w.docs.get(&path)).is_some_and(|d| d.ready() && d.failure().is_none() && !d.missing() && !d.binary());
-    if !body.content() && (again.is_some() || (shows_text && matches!(body, content::Body::Failed(_)))) {
+    let shows_content = s.files.sessions.get(&sid).and_then(|w| w.docs.get(&path)).is_some_and(|d| d.ready() && d.failure().is_none() && !d.missing());
+    if !body.content() && (again.is_some() || (shows_content && matches!(body, content::Body::Failed(_)))) {
         if again.is_none() {
             s.files.reads.outdate(&sid, &path);
         }
@@ -472,9 +472,9 @@ fn land_read(s: &mut App, landed: content::Landed, tx: &mut Tx) -> bool {
     };
     let ws = s.files.sessions.entry(sid.clone()).or_default();
     match picture {
-        // A picture read again keeps its zoom.
+        // A picture read again keeps its zoom and its decoded pixels while the new ones decode.
         Some(mut p) => {
-            if let Some(old) = ws.images.remove(&path) { p.zoom = old.zoom; }
+            if let Some(old) = ws.images.remove(&path) { p.carry_from(old); }
             ws.images.insert(path.clone(), p);
         }
         None => { ws.images.remove(&path); }
