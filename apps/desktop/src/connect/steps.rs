@@ -487,7 +487,7 @@ fn no_models(p: &Pal, pending: bool, refreshing: bool) -> El {
     let mut actions = row().gap(8.0);
     if !pending {
         actions = actions.child(button(opencode_i18n::t!("provider.connect.console.openAgain"), ButtonVariant::Neutral).on_press_tx(|_: &mut App, tx: &mut Tx| {
-            let _ = tx.open_url("https://opencode.ai/console");
+            crate::open_in::open_external(tx, "https://opencode.ai/console");
         }).build(kit(p)));
     }
     actions = actions.child(button(opencode_i18n::t!("provider.connect.console.refresh"), ButtonVariant::Neutral).disabled(refreshing)
@@ -522,7 +522,7 @@ fn claude(s: &App, p: &Pal, checking: bool, can_check: bool, timed_out: bool) ->
             }).build(kit(p)).key("connect-submit"))
         .child(button(opencode_i18n::t!("provider.connect.claudeAgent.install"), ButtonVariant::Neutral).icon(&ic::ARROW_UP_RIGHT)
             .on_press_tx(move |_: &mut App, tx: &mut Tx| {
-                let _ = tx.open_url(&url);
+                crate::open_in::open_external(tx, &url);
             }).build(kit(p))))
 }
 
@@ -653,7 +653,7 @@ fn choose_account(s: &mut App, a: &opencode_kit::integration::Connection, tx: &m
     tx.instant();
     match &a.status {
         Some(st) if st.url.is_some() => {
-            let _ = tx.open_url(st.url.as_deref().unwrap_or_default());
+            crate::open_in::open_external(tx, st.url.as_deref().unwrap_or_default());
         }
         Some(_) => s.connect_event(Event::AccountAdd, tx),
         None => s.connect_event(Event::ActivateRequested(a.id.clone()), tx),

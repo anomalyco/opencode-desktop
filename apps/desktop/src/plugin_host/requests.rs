@@ -174,7 +174,7 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
         Request::OpenLink { href } => app.open_reply_link(&href, tx),
         Request::OpenExternal(url) => {
             if app.live() {
-                tx.open_url(&url).ok();
+                crate::open_in::open_external(tx, &url);
             }
         }
         Request::Reveal(path) => crate::plugin_host::reveal(&path),

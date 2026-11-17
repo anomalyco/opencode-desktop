@@ -256,7 +256,17 @@ pub fn options_with(s: &App, p: &Pal, x: &Project, key: &str, size: f32, row_men
                 }
                 Some("reveal") => {
                     if let Err(e) = crate::view::location_card::reveal(&dir) {
-                        crate::status_toast::say(s, t!("rune.status.openFolderFailed"), &e);
+                        if !std::path::Path::new(&dir).exists() {
+                            let proj = s.projects.iter().find(|p| p.id == id);
+                            let name = crate::view::project_or_dir(proj, &dir);
+                            crate::status_toast::fail(
+                                s,
+                                t!("home.project.missing.title"),
+                                t!("home.project.missing.description", name = name),
+                            );
+                        } else {
+                            crate::status_toast::fail(s, t!("common.requestFailed"), e);
+                        }
                     }
                 }
                 Some("clear") => {

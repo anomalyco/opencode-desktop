@@ -276,7 +276,7 @@ pub(crate) fn run(s: &mut App, act: Act, tx: &mut Tx) {
         Act::Maximize => tx.toggle_maximized(),
         Act::ExportLogs => s.export_logs(),
         Act::Open(url) => {
-            let _ = tx.open_url(url);
+            crate::open_in::open_external(tx, url);
         }
     }
 }

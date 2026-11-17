@@ -304,6 +304,29 @@ impl OpenIn {
 }
 
 
+/// Opens `url` in the system browser, or appends it to `HARNESS_OPEN_EXTERNAL_LOG` when a
+/// hidden-desktop capture is driving the app (matching `harness/electron-open-external-stub.cjs`).
+pub fn open_external(tx: &mut Tx, url: &str) -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(log) = std::env::var_os("HARNESS_OPEN_EXTERNAL_LOG").filter(|v| !v.is_empty()) {
+        use std::io::Write as _;
+        let path = std::path::Path::new(&log);
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+            let entry = serde_json::json!({
+                "pid": std::process::id(),
+                "kind": "openExternal",
+                "url": url,
+            });
+            let _ = writeln!(f, "{entry}");
+        }
+        return true;
+    }
+    tx.open_url(url).is_ok()
+}
+
 impl App {
     /// Opening only works where the server shares this machine's files.
     pub fn can_open_in(&self) -> bool {

@@ -140,11 +140,11 @@ impl App {
                 );
             }
             SignIn::OpenBrowser { attempt_id, url } => {
-                let opened = !crate::headless() && tx.open_url(&url).is_ok();
+                let opened = !crate::headless() && crate::open_in::open_external(tx, &url);
                 self.later(reply(Answer::BrowserOpened { attempt_id, opened }, None));
             }
             SignIn::FormOpenBrowser { attempt, browser, url } => {
-                let opened = !crate::headless() && tx.open_url(&url).is_ok();
+                let opened = !crate::headless() && crate::open_in::open_external(tx, &url);
                 self.later(reply(Answer::FormBrowserOpened { attempt, browser, opened }, None));
             }
             SignIn::Poll { attempt, signin, delay } => {

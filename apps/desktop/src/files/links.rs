@@ -249,7 +249,7 @@ impl App {
 
     fn open_web(&self, url: &str, tx: &mut Tx) {
         if self.live() {
-            let _ = tx.open_url(url);
+            crate::open_in::open_external(tx, url);
         }
     }
 

@@ -64,7 +64,7 @@ pub(super) fn utility(p: &Pal, stacked: bool) -> El {
         }
     });
     let help = nav_row(p, "home-help", &ic::HELP, t!("sidebar.help")).on_press_tx(|_: &mut App, tx: &mut Tx| {
-        let _ = tx.open_url("https://opencode.ai/desktop-feedback");
+        crate::open_in::open_external(tx, "https://opencode.ai/desktop-feedback");
     });
     if stacked {
         return col().key("home-utility").w_full().pr(12.0).gap(4.0).child(settings.w_full()).child(help.w_full());
@@ -215,7 +215,16 @@ pub(crate) fn open_project_menu(s: &mut App, id: &str, anchor: String, tx: &mut 
             Some("edit") => s.edit_project(&proj.directory, tx),
             Some("reveal") => {
                 if let Err(e) = super::super::location_card::reveal(&proj.directory) {
-                    crate::status_toast::fail(s, opencode_i18n::t!("common.requestFailed"), e);
+                    if !std::path::Path::new(&proj.directory).exists() {
+                        let name = super::super::project_or_dir(Some(&proj), &proj.directory);
+                        crate::status_toast::fail(
+                            s,
+                            opencode_i18n::t!("home.project.missing.title"),
+                            opencode_i18n::t!("home.project.missing.description", name = name),
+                        );
+                    } else {
+                        crate::status_toast::fail(s, opencode_i18n::t!("common.requestFailed"), e);
+                    }
                 }
             }
             Some("clear") => s.clear_project_notifications(&proj, tx),
