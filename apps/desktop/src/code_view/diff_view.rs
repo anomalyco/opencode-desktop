@@ -133,6 +133,10 @@ impl<S: 'static> DiffViewer<S> {
         let inner = Rc::new(Inner { look, pal: *p, d: self });
         let count = st.rows.len();
         let list = col().key("rows").w_full().selection_group(true).role("list").label_static(opencode_i18n::t!("rune.diff.label"));
+        let list = if let Some(notes) = inner.d.notes.clone() {
+            let get = inner.d.get.clone();
+            super::notes::observe(list, root_key.clone(), notes, move |s, f| Some(get(s).files().get(f)?.path()))
+        } else { list };
         if whole {
             let root = col().key(root_key).w_full().fill(p.bg_base).child(list.children((0..count).map(|i| inner.row(s, i))));
             return match inner.d.notes.clone() {
@@ -718,6 +722,7 @@ impl<S: 'static> Inner<S> {
         t = if st.wraps() { t.w_full().wrap_anywhere() } else { t.single_line() };
         if copy {
             t = t.selectable(true).selection_color(l.selection);
+            if let Some(at) = at { t = t.key(super::notes::text_key(f, Some(side), at.line)); }
         }
         let get_mut = self.d.get_mut.clone();
         // `[data-line] { padding-inline: 1ch }`.
@@ -739,13 +744,10 @@ impl<S: 'static> Inner<S> {
         if c.no_newline {
             code = code.child(text(opencode_i18n::t!("rune.diff.noNewline")).font(l.mono).color(l.plain).opacity(0.6).key("eof"));
         }
-        // With line comments, a click on a line's code selects it, or clears it when it was the
-        // selection (`selection-machine.ts`, the `text` column).
         if let (Some(notes), Some(at)) = (self.d.notes.clone(), at) {
             let get_mut = self.d.get_mut.clone();
-            // The pointer's click, not a control: the keyboard selects and comments by the line's row.
-            code = code.on_background_press_tx(move |s: &mut S, tx: &mut Tx| {
-                tx.instant();
+            code = code.on_background_press_tx(move |s: &mut S, tx| {
+                if !tx.touch_tap() { return; }
                 let st = get_mut(s);
                 let before = st.selection();
                 st.click_code(f, at);

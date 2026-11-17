@@ -76,6 +76,8 @@ end
 -- Desktop's `IconButton variant="ghost-muted" size="small"`: 20 square with 4 corners.
 -- An open popover's trigger (`[data-expanded]`) keeps the pressed overlay and icon-base.
 local function small(view: View, key: string, icon: string, tip: string, enabled: boolean, press: () -> (), expanded: boolean?): ui.Node
+    local pageAction = expanded == nil
+    local glyph = ui.icon(icon :: any, { size = 16, color = if expanded then "icon-base" else "icon-weak" })
     return ui.row({
         fill = if expanded then "surface-press" else nil,
         key = key,
@@ -83,18 +85,26 @@ local function small(view: View, key: string, icon: string, tip: string, enabled
         label = tip,
         help = tip,
         helpSide = "top",
-        w = 20,
-        h = 20,
+        -- bar.css at fd95bf0d21: only page actions cover the gap and field edges.
+        w = if pageAction then 26 else 20,
+        h = if pageAction then 28 else 20,
+        ml = if pageAction then -3 else nil,
+        mr = if pageAction then -3 else nil,
         radius = 4,
         center = true,
-        hover = if enabled then "surface-hover" else nil,
-        press = if enabled then "surface-press" else nil,
+        hover = if enabled and not pageAction then "surface-hover" else nil,
+        press = if enabled and not pageAction then "surface-press" else nil,
+        hoverGroup = pageAction and enabled,
         hoverTransition = "instant",
         opacity = if enabled then nil else 0.5,
         onPress = if enabled then view:Handler(function()
             press()
         end) else nil,
-    }, { ui.icon(icon :: any, { size = 16, color = if expanded then "icon-base" else "icon-weak" }) })
+    }, if pageAction and enabled then {
+        ui.row({ w = 20, h = 20, center = true, radius = 4, revealOnHover = true,
+            fill = "surface-hover", press = "surface-press", pin = { left = 3, top = 4 } }, {}),
+        glyph,
+    } else { glyph })
 end
 
 -- The URL at rest: the whole address on one line, its host at full strength and the scheme and

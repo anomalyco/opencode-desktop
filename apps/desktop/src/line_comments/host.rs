@@ -31,6 +31,14 @@ impl Notes {
 }
 
 impl LineNotes<App> for Notes {
+    fn text_selection(&self, s: &mut App, viewer: &str, dragging: bool, selected: Option<(&str, Range, bool)>, tx: &mut Tx) {
+        use super::selection::{Event, Offer, dispatch};
+        let event = if dragging { Event::Press } else if let Some((path, range, backward)) = selected {
+            Event::Release(Offer { spot: self.spot(path), range, viewer: viewer.to_owned(), backward }, tx.clock())
+        } else { Event::Clear };
+        dispatch(s, event, tx);
+    }
+
     fn version(&self, s: &App, path: &str) -> u64 {
         let mut h = std::hash::DefaultHasher::new();
         if let Some(session) = s.line_comments.session(&self.session) {

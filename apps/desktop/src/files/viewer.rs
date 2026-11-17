@@ -187,16 +187,13 @@ pub(crate) fn code_area(s: &App, p: &Pal, session_id: &str, ws: &SessionFiles, p
     let mut out = col().key("files-code-area").grow(1.0).min_w(0.0).min_h(0.0).w_full();
     // A plugin's file viewer (`FileViewer`) shows the kinds of file it takes.
     let plugin_view = crate::plugin_host::file_viewer(s, p, session_id, &s.link_directory(session_id), path);
-    // `SessionFileView`: a text file's code starts 12 below the strip (`mt-3`), under no toolbar;
-    // an artifact (Markdown, SVG, a picture, another binary file, a kind a plugin views) has its
-    // `ArtifactToolbar`.
-    let toolbar = artifact && (previewable || picture.is_some() || clip.is_some() || plugin_view.is_some() || doc.is_some_and(|d| d.binary()));
-    if artifact && !toolbar {
-        out = out.pt(12.0);
-    }
+    // `artifact-view-machine.ts` at 9ca3daec38: ordinary text has fixed source mode.
+    // It shares the artifact toolbar's content actions with switchable previews.
+    let loaded = doc.is_some_and(|d| d.ready() && !d.missing());
+    let toolbar = artifact && (loaded || picture.is_some() || clip.is_some() || plugin_view.is_some());
     if toolbar {
-        let text = doc.filter(|_| previewable).map(|d| d.text().to_owned());
-        out = out.child(artifact_toolbar(s, p, session_id, path, rendered, text, picture.filter(|_| s.files.stage_size.get()[0] > META_MIN_W).map(|img| img.meta())));
+        let source = previewable || (loaded && picture.is_none() && clip.is_none() && plugin_view.is_none() && doc.is_some_and(|d| !d.binary()));
+        out = out.child(artifact_toolbar(s, p, session_id, path, rendered, previewable, source, picture.filter(|_| s.files.stage_size.get()[0] > META_MIN_W).map(|img| img.meta())));
     }
     // Pierre's bar floats over the view it searches, rendered or source.
     let bar = doc.filter(|d| d.find_open()).map(|d| {
@@ -279,18 +276,20 @@ fn file_find_input<'a>(s: &'a mut App, at: &str) -> &'a mut TextEdit {
 /// actions 8 apart: for a previewable file (`text`) its source / preview toggle and Copy
 /// content, then the `...` menu (Download, the toggle, Reveal in the file manager, Copy path and
 /// Open in).
-fn artifact_toolbar(s: &App, p: &Pal, session_id: &str, path: &str, rendered: bool, text_body: Option<String>, meta: Option<Vec<String>>) -> El {
+fn artifact_toolbar(s: &App, p: &Pal, session_id: &str, path: &str, rendered: bool, previewable: bool, source: bool, meta: Option<Vec<String>>) -> El {
     const NAME: TextStyle = TextStyle::new(13.0, 530.0).lh(16.0);
     let name = opencode_kit::path::basename(path).to_owned();
-    let previewable = text_body.is_some();
     let mode_label = if rendered { opencode_i18n::t!("plugin.file.view.viewSource") } else { opencode_i18n::t!("plugin.file.view.viewPreview") };
     let mut actions = row().key("files-artifact-actions").gap(8.0).center_y();
     if previewable {
         let (sid, at) = (session_id.to_owned(), path.to_owned());
         actions = actions.child(action(p, "files-render-btn", if rendered { &ic::OUTLINE_CODE_BRACKETS } else { &ic::OUTLINE_EYE }, mode_label, move |s: &mut App, tx: &mut Tx| s.toggle_rendered(&sid, &at, tx)));
-        let body = text_body.clone().unwrap_or_default();
+    }
+    if source {
+        let (sid, at) = (session_id.to_owned(), path.to_owned());
         actions = actions.child(action(p, "files-copy-content", &ic::OUTLINE_COPY, opencode_i18n::t!("plugin.file.view.copyContent"), move |s: &mut App, tx: &mut Tx| {
-            tx.copy(body.clone());
+            let Some(doc) = s.files.sessions.get(&sid).and_then(|w| w.docs.get(&at)) else { return };
+            tx.copy(doc.text().to_owned());
             crate::status_toast::succeed(s, opencode_i18n::t!("common.copied"), "");
         }));
     }
@@ -299,12 +298,13 @@ fn artifact_toolbar(s: &App, p: &Pal, session_id: &str, path: &str, rendered: bo
     actions = actions.child(
         menu_action(p, "files-artifact-menu", &ic::OUTLINE_DOTS, opencode_i18n::t!("plugin.file.view.actions"), move |s: &mut App, tx: &mut Tx| {
             tx.instant();
-            let (sid, at, body, name) = (sid.clone(), at.clone(), text_body.clone(), menu_name.clone());
-            crate::popup::open(s, artifact_menu(s, previewable, rendered), "files-artifact-menu".to_owned(), tx, move |s: &mut App, picked, tx| {
+            let (sid, at, name) = (sid.clone(), at.clone(), menu_name.clone());
+            crate::popup::open(s, artifact_menu(s, source, previewable, rendered), "files-artifact-menu".to_owned(), tx, move |s: &mut App, picked, tx| {
                 tx.instant();
                 match picked {
                     Some("download") => {
-                        if let Err(e) = opencode_kit::client::save_download(&name, body.as_deref().unwrap_or_default()) {
+                        let Some(doc) = s.files.sessions.get(&sid).and_then(|w| w.docs.get(&at)) else { return };
+                        if let Err(e) = opencode_kit::client::save_download(&name, doc.text()) {
                             crate::status_toast::fail(s, opencode_i18n::t!("common.requestFailed"), crate::status_toast::plain(&e));
                         }
                     }
@@ -344,11 +344,13 @@ fn artifact_toolbar(s: &App, p: &Pal, session_id: &str, path: &str, rendered: bo
 }
 
 /// The `...` menu's rows.
-fn artifact_menu(s: &App, previewable: bool, rendered: bool) -> crate::popup::Menu {
+fn artifact_menu(s: &App, source: bool, previewable: bool, rendered: bool) -> crate::popup::Menu {
     use crate::popup::{Item, Menu};
     let mut menu = Menu::new(opencode_i18n::t!("plugin.file.view.actions")).min_width(160.0).align(rune::Align::End);
-    if previewable {
+    if source {
         menu = menu.item(Item::new("download", opencode_i18n::t!("plugin.file.view.download")));
+    }
+    if previewable {
         let label = if rendered { opencode_i18n::t!("plugin.file.view.viewSource") } else { opencode_i18n::t!("plugin.file.view.viewPreview") };
         menu = menu.item(Item::new("mode", label));
     }
