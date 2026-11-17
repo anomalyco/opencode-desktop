@@ -222,6 +222,14 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
         .child(crate::knobs::layer(s))
 }
 
+/// The window's tree for `prepare`'s layout ahead: `app`'s frame around the shell, at the zoom
+/// and in the direction the window draws.
+pub(crate) fn prepared_root(s: &App, cx: &mut Cx<App>) -> El {
+    cx.zoom(*s.zoom);
+    let inner = shell(s, cx);
+    el().key("zoom").dir(ui_direction()).w_full().h_full().center().child(el().key("zoomed").w_full().h_full().child(inner))
+}
+
 fn shell(s: &App, cx: &mut Cx<App>) -> El {
     let p = pal(s.dark(cx));
     cx.time_scale(crate::knobs::time_scale(s));
@@ -307,7 +315,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         .on_drop_files(crate::dropzone::drop)
         .accepts_files(|path| !session_view::images::drag::is_own(path))
         .on_drop_hover(crate::dropzone::hover)
-        .child(if s.settings.open { crate::settings::page(s, p, settings_sz) } else { match &*s.route {
+        .child(if s.settings.open { crate::settings::page(s, p, settings_sz) } else if let Some(id) = crate::prepare::preparing(s) { session_page(s, p, id) } else { match &*s.route {
             Route::Home => home(s, p, [panel_sz.0, panel_sz.1], cx.layout_size("zoom").map_or([0.0, 0.0], |[w, h]| [w, h])),
             Route::Session { id, .. } => session_page(s, p, id),
             Route::Draft(_) => draft_page(s, p, panel_sz.0),

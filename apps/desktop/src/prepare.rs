@@ -1,12 +1,14 @@
-//! A session's first screen made ready before its tab is pressed: its projection built (and,
-//! through TEXT-2's entry point, its text shaped and broken) in idle time, so the press's frame
-//! does what a return's does. Prepared when the pointer has rested on a tab that isn't shown for
-//! [`REST`], or after a switch for the tab beside the one shown. One session at a time, dropped
-//! at the next rest, on Home, or when another is prepared; nothing for a session whose messages
-//! aren't in memory, and never on a frame with input waiting.
+//! A session's first screen made ready before its tab is pressed: the window laid out ahead with
+//! it in the open session's place (`Tx::prepare_text`), so its projection is kept and its text
+//! shaped and broken at the widths the press will ask, and the press's frame does what a return's
+//! does. Prepared when the pointer has rested on a tab that isn't shown for [`REST`], or after a
+//! switch for the tab beside the one shown. One session at a time, dropped at the next rest, on
+//! Home, or when another is prepared; nothing for a session whose messages aren't in memory, and
+//! never on a frame with input waiting.
 //!
 //! An explicit machine (`step`): the pointer resting on a tab is one wake, then one burst, then
-//! nothing; an idle window that nobody points at wakes no more.
+//! nothing; an idle window that nobody points at wakes no more. A pointer crossing a tab without
+//! resting leaves one empty wake at its due time.
 
 use rune::Tx;
 
@@ -95,7 +97,7 @@ impl App {
         for effect in step(&mut self.prepare, event) {
             match effect {
                 Effect::WakeAt(due) => tx.wake_at(due),
-                Effect::Prepare(session) => self.prepare_session(&session),
+                Effect::Prepare(session) => self.prepare_session(&session, tx),
                 Effect::Drop(session) => {
                     if !self.shows(&session) {
                         session_view::timeline::projection_forget(&session);
@@ -148,10 +150,44 @@ impl App {
         matches!(&*self.route, Route::Session { id, .. } if id == session)
     }
 
-    /// Session `session`'s first screen: its projection (kept beside the shown session's, the
-    /// projection's own bound of four), when its messages are in memory.
-    fn prepare_session(&self, session: &str) {
-        let Some(t) = self.transcripts.get(session) else { return };
-        let _ = session_view::timeline::rows(self, t);
+    /// Session `session`'s first screen, laid out by Rune in the window's next idle turn
+    /// (`Tx::prepare_text`) from the window's own root with it in the open session's place
+    /// ([`view`]): its projection kept beside the shown session's (the projection's own bound of
+    /// four) and its text shaped and broken at the widths the press will ask. Nothing for a session
+    /// whose messages aren't in memory: the trigger goes back to idle and fetches nothing.
+    fn prepare_session(&mut self, session: &str, tx: &mut Tx) {
+        if !self.transcripts.contains_key(session) {
+            self.prepare = State::Idle;
+            return;
+        }
+        tx.prepare_text(view, None);
     }
+}
+
+thread_local! {
+    /// Whether [`view`] is running: the page shows the prepared session (`preparing`).
+    static PREPARING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// The session the page shows in place of the route's while Rune lays the window out ahead.
+pub(crate) fn preparing(s: &App) -> Option<&str> {
+    match &s.prepare {
+        State::Ready { session } if PREPARING.get() => Some(session),
+        _ => None,
+    }
+}
+
+/// The window's tree as the next frame will lay it out, the prepared session in the open
+/// session's place: `view::app`'s frame around `view::shell`, without `app`'s window-wide
+/// settings (chrome, narrowness, titlebar), which hold from the last frame.
+fn view(s: &App, cx: &mut rune::Cx<App>) -> rune::El {
+    struct Done;
+    impl Drop for Done {
+        fn drop(&mut self) {
+            PREPARING.set(false);
+        }
+    }
+    PREPARING.set(true);
+    let _done = Done;
+    crate::view::prepared_root(s, cx)
 }
