@@ -65,7 +65,7 @@ return plugin.defineWindow(function(ctx)
     local env: any = {
         I18n = I18n,
         Menu = Menu,
-        menuTrigger = App.Platform ~= "macos",
+        menuTrigger = true,
         target = target,
         name = name,
         response = response,

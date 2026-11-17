@@ -26,8 +26,7 @@ return plugin.defineWindow(function(ctx)
         Layout = Layout,
         Menu = ctx:GetService("Menu"),
         Theme = ctx:GetService("Theme"),
-        -- Where menus are native (macOS), menu buttons stay on the click until the Mac run.
-        menuTrigger = App.Platform ~= "macos",
+        menuTrigger = true,
         docs = {},
         filter = ctx:CreateEditor(""),
         -- Desktop's `layout` review style (split) and `review-panel-v2` expand mode (collapse).

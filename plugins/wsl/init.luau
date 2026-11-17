@@ -34,7 +34,7 @@ return plugin.defineWindow(function(ctx)
         Toast = Toast,
         Dialog = Dialog,
         Menu = Menu,
-        menuTrigger = App.Platform ~= "macos",
+        menuTrigger = true,
         api = api,
         search = search,
         changed = function()

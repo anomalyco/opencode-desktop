@@ -14,6 +14,7 @@ use crate::popover::{self, MENU, Opt};
 
 pub mod context;
 mod keys;
+mod native;
 mod restore;
 mod trigger;
 pub use trigger::MenuButton;
@@ -28,9 +29,8 @@ use search::{SEARCH_H, search_field};
 /// Native menus where Kit chose them.
 const NATIVE: bool = cfg!(target_os = "macos");
 
-/// Menu buttons and scrims act as the mouse button goes down where that path has been driven
-/// (`!cfg!(target_os = "macos")` until the Mac run).
-pub(crate) const PRESS_ON_DOWN: bool = !cfg!(target_os = "macos");
+/// Menu buttons and scrims act as the mouse button goes down on every desktop and web platform.
+pub(crate) const PRESS_ON_DOWN: bool = true;
 
 /// The tallest a drawn menu gets before its rows scroll: eleven rows and most of the twelfth.
 const MAX_H: f32 = 2.0 * MENU.inset + 11.5 * MENU.row_h;
@@ -404,6 +404,9 @@ pub struct Popup {
     remembered: Option<String>,
     /// A menu button's mouse press in progress ([`MenuButton`]).
     press: trigger::Press,
+    /// State of a native AppKit pop-up menu, so a second press on its trigger closes rather than
+    /// reopening it.
+    native: native::State,
     /// The offered rows of this window's drawn menu, deepest level last, with their window rects
     /// as its view last built: a layout read only works while the view builds, and [`pick_at`]
     /// runs from an input handler.
@@ -450,11 +453,33 @@ fn focus_lit(s: &App, level: usize, ring: bool, tx: &mut Tx) {
     }
 }
 
+/// Settles [`Popup::native`] once its repost window elapses.
+pub fn poll(s: &mut App) {
+    let _ = native::step(&mut s.popup.native, native::Event::Tick { now: *s.clock });
+}
+
 /// Opens `menu` at `anchor`, an element's key or a point in window points. `pick` runs once it
 /// closes, with the picked item's id or `None`.
 pub fn open(s: &mut App, menu: Menu, anchor: impl Into<PopupAnchor>, tx: &mut Tx, pick: impl FnOnce(&mut App, Option<&str>, &mut Tx) + 'static) {
     if NATIVE {
-        tx.popup_menu(menu.native(), anchor, pick);
+        let anchor = anchor.into();
+        let keyed = match &anchor {
+            PopupAnchor::Key(k) => Some(k.as_str()),
+            PopupAnchor::Point(..) => None,
+        };
+        match native::step(&mut s.popup.native, native::Event::OpenRequested { anchor: keyed, by_keys: tx.by_keys() }) {
+            native::Effect::SwallowReposted => {
+                pick(s, None, tx);
+            }
+            native::Effect::Show | native::Effect::WakeAfter(_) | native::Effect::None => {
+                tx.popup_menu(menu.native(), anchor, move |s: &mut App, picked: Option<&str>, tx: &mut Tx| {
+                    if let native::Effect::WakeAfter(d) = native::step(&mut s.popup.native, native::Event::MenuClosed { picked: picked.is_some(), now: *s.clock }) {
+                        tx.wake_after(d);
+                    }
+                    pick(s, picked, tx);
+                });
+            }
+        }
         return;
     }
     open_drawn(s, menu, anchor, tx, pick);
