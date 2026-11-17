@@ -27,9 +27,10 @@ pub enum State {
     Idle,
     /// Nothing waits; a wake asked for before is still to come at `wake`.
     Armed { wake: f64 },
-    /// The pointer rests on session `session`'s tab, or a switch named it: prepared at `due`. The
-    /// wake asked for comes at `wake`, at or before `due`.
-    Waiting { session: String, due: f64, wake: f64 },
+    /// Session `session` is prepared at `due`, the wake asked for coming at `wake`, at or before
+    /// `due`. `rest`: the resting pointer asked (its leaving the tab takes it back); otherwise a
+    /// switch named the tab beside it, which a pointer crossing that tab doesn't change.
+    Waiting { session: String, due: f64, wake: f64, rest: bool },
     /// `session`'s first screen is ready.
     Ready { session: String },
 }
@@ -63,16 +64,22 @@ pub fn step(state: &mut State, event: Event) -> Vec<Effect> {
             *state = State::Ready { session };
             vec![]
         }
-        // A resting pointer waits `REST`, on the wake already coming if there is one.
-        (State::Armed { wake } | State::Waiting { wake, .. }, Event::Hover { session, inside: true, now }) => {
-            *state = State::Waiting { session, due: now + REST, wake };
+        // The pointer reaching the tab that already waits doesn't put it off.
+        (State::Waiting { session, due, wake, rest }, Event::Hover { session: s, inside: true, .. }) if s == session => {
+            *state = State::Waiting { session, due, wake, rest };
             vec![]
         }
-        (old, Event::Hover { session, inside: true, now }) => wait(state, old, session, now + REST),
+        // A resting pointer waits `REST`, on the wake already coming if there is one.
+        (State::Armed { wake } | State::Waiting { wake, .. }, Event::Hover { session, inside: true, now }) => {
+            *state = State::Waiting { session, due: now + REST, wake, rest: true };
+            vec![]
+        }
+        (old, Event::Hover { session, inside: true, now }) => wait(state, old, session, now + REST, true),
         // A switch's neighbour goes on the next frame, after the switch's own.
-        (old, Event::Switched { beside: Some(session), now }) => wait(state, old, session, now),
-        // The pointer left the tab before it was prepared: nothing waits; the wake still comes.
-        (State::Waiting { session, wake, .. }, Event::Hover { session: s, inside: false, .. }) if s == session => {
+        (old, Event::Switched { beside: Some(session), now }) => wait(state, old, session, now, false),
+        // The resting pointer left the tab before it was prepared: nothing waits; the wake still
+        // comes.
+        (State::Waiting { session, wake, rest: true, .. }, Event::Hover { session: s, inside: false, .. }) if s == session => {
             *state = State::Armed { wake };
             vec![]
         }
@@ -80,10 +87,10 @@ pub fn step(state: &mut State, event: Event) -> Vec<Effect> {
             *state = old;
             vec![]
         }
-        (State::Waiting { session, due, .. }, Event::Clock { now, input }) if reached(now, due) => {
+        (State::Waiting { session, due, rest, .. }, Event::Clock { now, input }) if reached(now, due) => {
             if input {
                 // The user's frame first; the next frame prepares.
-                *state = State::Waiting { session, due: now, wake: now };
+                *state = State::Waiting { session, due: now, wake: now, rest };
                 vec![WakeAt(now)]
             } else {
                 *state = State::Ready { session: session.clone() };
@@ -91,8 +98,8 @@ pub fn step(state: &mut State, event: Event) -> Vec<Effect> {
             }
         }
         // The wake came for a tab the pointer since crossed: once more, for the one it's on.
-        (State::Waiting { session, due, wake }, Event::Clock { now, .. }) if reached(now, wake) => {
-            *state = State::Waiting { session, due, wake: due };
+        (State::Waiting { session, due, wake, rest }, Event::Clock { now, .. }) if reached(now, wake) => {
+            *state = State::Waiting { session, due, wake: due, rest };
             vec![WakeAt(due)]
         }
         (State::Armed { wake }, Event::Clock { now, .. }) if reached(now, wake) => vec![],
@@ -105,12 +112,12 @@ pub fn step(state: &mut State, event: Event) -> Vec<Effect> {
 
 /// Session `session` waits until `due` on a wake of its own; a different one prepared before is
 /// dropped.
-fn wait(state: &mut State, old: State, session: String, due: f64) -> Vec<Effect> {
+fn wait(state: &mut State, old: State, session: String, due: f64, rest: bool) -> Vec<Effect> {
     let drop = match old {
         State::Ready { session: r } if r != session => vec![Effect::Drop(r)],
         _ => vec![],
     };
-    *state = State::Waiting { session, due, wake: due };
+    *state = State::Waiting { session, due, wake: due, rest };
     drop.into_iter().chain([Effect::WakeAt(due)]).collect()
 }
 
