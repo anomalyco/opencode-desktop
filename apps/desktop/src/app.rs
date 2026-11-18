@@ -629,15 +629,10 @@ impl App {
         // their pixels.
         if s.tabs.is_empty() && !matches!(&*s.route, Route::Session { .. }) {
             s.attach.store.rest_pixels();
-            // The built-ins a session started sleep again, as at launch (`plugin_host::dormant`).
-            if matches!(&*s.route, Route::Home) { plugin_host::dormant::sleep_unused(s); }
         }
         if has_rest_hooks {
             scheduler.run_rest(s, &|id| kept_ids.contains(id));
         }
-        plugin_host::memory::collect_garbage(s);
-        #[cfg(feature = "alloc-sites")]
-        plugin_host::memory::publish_vms(s);
         // What all that freed: mimalloc purges freed pages only when some thread next allocates,
         // and an app at rest doesn't. Forced, it gives them back now.
         #[cfg(not(target_arch = "wasm32"))]

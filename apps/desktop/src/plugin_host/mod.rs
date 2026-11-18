@@ -496,3 +496,51 @@ pub fn dialog_key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     requests::dismiss_dialog(app, tx);
     true
 }
+
+/// Kernel feature registration for the Luau plugin host's overlays and idle memory/dormancy rest hook.
+pub struct PluginHostFeature;
+
+impl opencode_kernel::Feature<App> for PluginHostFeature {
+    fn id(&self) -> &'static str {
+        "feature.plugin-host"
+    }
+
+    fn register(&self, builder: &mut opencode_kernel::KernelBuilder<App>) {
+        builder.register_overlay(
+            opencode_kernel::OverlayRegistration::<App>::new("plugin.popover")
+                .with_z(600)
+                .with_key_priority(50)
+                .with_render(|s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    popover_view(s, p)
+                })
+                .with_key(popover_key),
+        );
+        builder.register_overlay(
+            opencode_kernel::OverlayRegistration::<App>::new("plugin.dialog")
+                .with_z(480)
+                .with_key_priority(60)
+                .with_render(|s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    dialog_view(s, p, cx)
+                })
+                .with_key(dialog_key),
+        );
+        builder.register_overlay(
+            opencode_kernel::OverlayRegistration::<App>::new("plugin.trust")
+                .with_z(610)
+                .with_render(|s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    trust_dialog(s, p, cx)
+                }),
+        );
+        builder.add_rest("plugin_host.rest", |s, _| {
+            if s.tabs.is_empty() && matches!(&*s.route, crate::Route::Home) {
+                dormant::sleep_unused(s);
+            }
+            memory::collect_garbage(s);
+            #[cfg(feature = "alloc-sites")]
+            memory::publish_vms(s);
+        });
+    }
+}
