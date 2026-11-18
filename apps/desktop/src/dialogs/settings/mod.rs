@@ -6,7 +6,7 @@ mod stories;
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use opencode_kernel::{Feature, KernelBuilder, Phase};
+use opencode_kernel::{Feature, KernelBuilder, OverlayRegistration, Phase};
 use opencode_kit::integration::{Integration, McpServer};
 use opencode_kit::model::{Project, SessionInfo};
 use opencode_kit::servers::health::Health;
@@ -700,21 +700,46 @@ impl Feature<App> for SettingsFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
-        builder.register_overlay_dismiss(OVERLAY_ID, |s, tx| back_to_app(s, tx));
-        builder.register_overlay_dismiss(PROVIDER_REMOVAL_OVERLAY_ID, |s, tx| {
-            pages::providers::step_accounts(s, pages::providers::Event::Cancel, tx);
-        });
-        builder.register_overlay_dismiss(WORKTREE_DELETE_OVERLAY_ID, |s, tx| {
-            let attempt = match &s.settings_pages.worktrees.delete.phase {
-                pages::worktrees::Phase::ConfirmingOne { attempt, .. }
-                | pages::worktrees::Phase::ConfirmingMany { attempt, .. } => Some(*attempt),
-                _ => None,
-            };
-            if let Some(attempt) = attempt {
-                tx.instant();
-                pages::worktrees::dispatch(s, pages::worktrees::Event::ConfirmCancelled { attempt });
-            }
-        });
+        builder.register_overlay(
+            OverlayRegistration::<App>::new(WORKTREE_DELETE_OVERLAY_ID)
+                .with_z(230)
+                .with_render(|s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    pages::worktrees::dialog(s, p, cx)
+                })
+                .with_dismiss(|s, tx| {
+                    let attempt = match &s.settings_pages.worktrees.delete.phase {
+                        pages::worktrees::Phase::ConfirmingOne { attempt, .. }
+                        | pages::worktrees::Phase::ConfirmingMany { attempt, .. } => Some(*attempt),
+                        _ => None,
+                    };
+                    if let Some(attempt) = attempt {
+                        tx.instant();
+                        pages::worktrees::dispatch(s, pages::worktrees::Event::ConfirmCancelled { attempt });
+                    }
+                }),
+        );
+        builder.register_overlay(
+            OverlayRegistration::<App>::new(OVERLAY_ID)
+                .with_key_priority(320)
+                .with_key(|s, ev, tx| s.settings_key(ev, tx))
+                .with_dismiss(|s, tx| back_to_app(s, tx)),
+        );
+        builder.register_overlay(
+            OverlayRegistration::<App>::new(PROVIDER_REMOVAL_OVERLAY_ID)
+                .with_z(500)
+                .with_render(|s, cx| {
+                    if s.settings.open {
+                        let p = crate::palette::pal(s.dark(cx));
+                        pages::providers::confirmation(s, p, cx)
+                    } else {
+                        Vec::new()
+                    }
+                })
+                .with_dismiss(|s, tx| {
+                    pages::providers::step_accounts(s, pages::providers::Event::Cancel, tx);
+                }),
+        );
         builder.add_system(Phase::Derive, "settings.poll", |s, now, tx| poll(s, now, tx));
     }
 }

@@ -155,40 +155,21 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     if let Some(pop) = home::home_projects_popover(s, p) {
         inner = inner.children(pop);
     }
-    if s.switcher.open {
-        inner = inner.children(crate::switcher::view(s, p, cx));
-    }
-    if s.project_switcher.open {
-        inner = inner.children(crate::project_switcher::view(s, p, cx));
-    }
+    inner = inner.children(s.kernel.overlay_dispatcher.render_band(s, cx, 100, 199));
     inner = inner.children(crate::attachments::viewer(s, p, cx));
     inner = inner.children(crate::diagram::view(s, p, cx));
     inner = inner.children(session_view::tools::details_overlay(s, p, cx));
-    inner = inner.children(crate::session_menu_view::confirm(s, p, cx));
-    inner = inner.children(crate::session_menu::rename_dialog::view(s, p, cx));
-    inner = inner.children(crate::terminal::paste::dialog(s, p, cx));
-    inner = inner.children(crate::settings::pages::worktrees::dialog(s, p, cx));
+    inner = inner.children(s.kernel.overlay_dispatcher.render_band(s, cx, 200, 299));
     inner = inner.children(crate::quote::editor::view(s, p, cx));
     inner = inner.children(crate::quote::toolbar(s, p, cx));
     inner = inner.children(crate::line_comments::selection::toolbar(s, p, cx));
     inner = inner.children(crate::panels::view::context_menus(s, p));
     inner = inner.children(crate::panels::drag::layer(s, p));
-    if s.fork.open {
-        inner = inner.children(crate::fork::view(s, p, cx));
-    }
-    if s.jump.open() {
-        inner = inner.children(crate::message_nav::jump::view(s, p, cx));
-    }
-    inner = inner.children(crate::connect::view::layer(s, p, cx));
-    inner = inner.children(crate::connect::welcome::layer(s, p, cx));
-    inner = inner.children(crate::mcp::view::layer(s, p, cx));
-    inner = inner.children(crate::mcp::sign_in::layer(s, p, cx));
-    inner = inner.children(crate::usage::layer(s, p, cx));
+    inner = inner.children(s.kernel.overlay_dispatcher.render_band(s, cx, 300, 499));
     inner = inner.children(move_recovery::view(s, p, cx));
     inner = inner.children(crate::plugin_host::dialog_view(s, p, cx));
     inner = inner.children(crate::servers::dialog::view(s, p, cx));
-    if s.settings.open { inner = inner.children(crate::settings::pages::providers::confirmation(s, p, cx)); }
-    inner = inner.children(crate::projects::remote_picker::view::view(s, p, cx));
+    inner = inner.children(s.kernel.overlay_dispatcher.render_band(s, cx, 500, 599));
     inner = inner.children(tab_preview::view(s, &p));
     inner = inner.children(crate::popup::view(s, p));
     inner = inner.children(crate::plugin_host::popover_view(s, p));

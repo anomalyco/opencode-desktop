@@ -210,26 +210,96 @@ pub fn step(stack: &mut OverlayStack, event: OverlayEvent) -> Vec<OverlayEffect>
 /// Host callback invoked when an overlay is dismissed through [`OverlayDispatcher`].
 pub type OverlayDismissFn<S> = fn(&mut S, &mut rune::Tx);
 
-struct DismissEntry<S> {
-    id: &'static str,
-    on_dismiss: OverlayDismissFn<S>,
+/// Host callback invoked to handle a key event for a registered overlay.
+pub type OverlayKeyFn<S> = fn(&mut S, &rune::KeyEvent, &mut rune::Tx) -> bool;
+
+/// Host callback invoked to render a registered overlay's elements into the window layer tree.
+pub type OverlayRenderFn<S> = fn(&S, &mut rune::Cx<S>) -> Vec<rune::El>;
+
+/// Default z-order band for standard modal dialogs registered via [`OverlayRegistration::dialog`].
+pub const DEFAULT_DIALOG_Z: u16 = 450;
+
+/// Full registration descriptor for a kernel-managed overlay (render, key dispatch, and Escape dismiss).
+pub struct OverlayRegistration<S> {
+    pub id: &'static str,
+    pub z_order: u16,
+    pub key_priority: u16,
+    pub on_dismiss: Option<OverlayDismissFn<S>>,
+    pub on_key: Option<OverlayKeyFn<S>>,
+    pub render: Option<OverlayRenderFn<S>>,
 }
 
-impl<S> Clone for DismissEntry<S> {
+impl<S> Clone for OverlayRegistration<S> {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<S> Copy for DismissEntry<S> {}
+impl<S> Copy for OverlayRegistration<S> {}
 
-/// Registry mapping overlay IDs to host dismiss callbacks.
+impl<S> OverlayRegistration<S> {
+    /// Creates an empty registration for `id` at [`DEFAULT_DIALOG_Z`].
+    pub const fn new(id: &'static str) -> Self {
+        Self {
+            id,
+            z_order: DEFAULT_DIALOG_Z,
+            key_priority: DEFAULT_DIALOG_Z,
+            on_dismiss: None,
+            on_key: None,
+            render: None,
+        }
+    }
+
+    /// Creates a dialog registration with render, key, and dismiss callbacks at [`DEFAULT_DIALOG_Z`].
+    pub const fn dialog(
+        id: &'static str,
+        render: OverlayRenderFn<S>,
+        on_key: Option<OverlayKeyFn<S>>,
+        on_dismiss: Option<OverlayDismissFn<S>>,
+    ) -> Self {
+        Self {
+            id,
+            z_order: DEFAULT_DIALOG_Z,
+            key_priority: DEFAULT_DIALOG_Z,
+            on_dismiss,
+            on_key,
+            render: Some(render),
+        }
+    }
+
+    pub const fn with_z(mut self, z_order: u16) -> Self {
+        self.z_order = z_order;
+        self
+    }
+
+    pub const fn with_key_priority(mut self, key_priority: u16) -> Self {
+        self.key_priority = key_priority;
+        self
+    }
+
+    pub const fn with_dismiss(mut self, on_dismiss: OverlayDismissFn<S>) -> Self {
+        self.on_dismiss = Some(on_dismiss);
+        self
+    }
+
+    pub const fn with_key(mut self, on_key: OverlayKeyFn<S>) -> Self {
+        self.on_key = Some(on_key);
+        self
+    }
+
+    pub const fn with_render(mut self, render: OverlayRenderFn<S>) -> Self {
+        self.render = Some(render);
+        self
+    }
+}
+
+/// Registry mapping overlay IDs to host dismiss, key-dispatch, and render callbacks.
 ///
 /// Cloning is O(1) (shared immutable handler list once built), allowing a host that embeds
 /// [`crate::Kernel<S>`] inside `S` to clone the dispatcher handle before passing `&mut S` into a
-/// registered dismiss callback without borrow conflicts.
+/// registered callback without borrow conflicts.
 pub struct OverlayDispatcher<S> {
-    inner: Option<Arc<Vec<DismissEntry<S>>>>,
+    inner: Option<Arc<Vec<OverlayRegistration<S>>>>,
 }
 
 impl<S> Clone for OverlayDispatcher<S> {
@@ -250,43 +320,53 @@ impl<S> OverlayDispatcher<S> {
         Self { inner: None }
     }
 
-    fn entries_mut(&mut self) -> &mut Vec<DismissEntry<S>> {
+    fn entries_mut(&mut self) -> &mut Vec<OverlayRegistration<S>> {
         Arc::make_mut(self.inner.get_or_insert_with(|| Arc::new(Vec::new())))
     }
 
-    /// Registers a dismiss callback for overlay `id`, replacing any existing callback for `id`.
+    /// Registers a full overlay descriptor (render, key, dismiss, z-order), replacing any prior entry for `reg.id`.
+    pub fn register_overlay(&mut self, reg: OverlayRegistration<S>) {
+        let entries = self.entries_mut();
+        if let Some(existing) = entries.iter_mut().find(|entry| entry.id == reg.id) {
+            *existing = reg;
+            return;
+        }
+        entries.push(reg);
+    }
+
+    /// Registers a dismiss callback for overlay `id`, preserving any existing render/key handlers for `id`.
     pub fn register(&mut self, id: &'static str, on_dismiss: OverlayDismissFn<S>) {
         let entries = self.entries_mut();
         if let Some(existing) = entries.iter_mut().find(|entry| entry.id == id) {
-            existing.on_dismiss = on_dismiss;
+            existing.on_dismiss = Some(on_dismiss);
             return;
         }
-        entries.push(DismissEntry { id, on_dismiss });
+        entries.push(OverlayRegistration::new(id).with_dismiss(on_dismiss));
     }
 
-    /// Removes the dismiss callback registered for `id`, returning it if present.
+    /// Removes the registration for `id`, returning its dismiss callback if present.
     pub fn unregister(&mut self, id: &str) -> Option<OverlayDismissFn<S>> {
         let entries = self.inner.as_mut().map(Arc::make_mut)?;
         let index = entries.iter().position(|entry| entry.id == id)?;
-        Some(entries.remove(index).on_dismiss)
+        entries.remove(index).on_dismiss
     }
 
     /// Looks up the dismiss callback registered for `id`.
     pub fn get(&self, id: &str) -> Option<OverlayDismissFn<S>> {
-        self.inner.as_deref()?.iter().find(|entry| entry.id == id).map(|entry| entry.on_dismiss)
+        self.inner.as_deref()?.iter().find(|entry| entry.id == id).and_then(|entry| entry.on_dismiss)
     }
 
-    /// Returns `true` if a dismiss callback is registered for `id`.
+    /// Returns `true` if a registration exists for `id`.
     pub fn contains(&self, id: &str) -> bool {
-        self.get(id).is_some()
+        self.inner.as_deref().is_some_and(|list| list.iter().any(|entry| entry.id == id))
     }
 
-    /// Number of registered dismiss callbacks.
+    /// Number of registered overlays.
     pub fn len(&self) -> usize {
         self.inner.as_deref().map_or(0, Vec::len)
     }
 
-    /// Returns `true` when no dismiss callbacks are registered.
+    /// Returns `true` when no overlays are registered.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -303,6 +383,55 @@ impl<S> OverlayDispatcher<S> {
         };
         on_dismiss(state, tx);
         true
+    }
+
+    /// Dispatches a key event across registered overlay key handlers whose `key_priority` falls in
+    /// `min_prio..=max_prio`, sorted ascending by `key_priority`. Returns `true` if any overlay consumed it.
+    pub fn handle_key_band(
+        &self,
+        state: &mut S,
+        ev: &rune::KeyEvent,
+        tx: &mut rune::Tx,
+        min_prio: u16,
+        max_prio: u16,
+    ) -> bool {
+        let Some(entries) = self.inner.as_deref() else {
+            return false;
+        };
+        let mut matched: Vec<(u16, OverlayKeyFn<S>)> = entries
+            .iter()
+            .filter_map(|e| {
+                let f = e.on_key?;
+                (e.key_priority >= min_prio && e.key_priority <= max_prio).then_some((e.key_priority, f))
+            })
+            .collect();
+        matched.sort_by_key(|(prio, _)| *prio);
+        for (_, on_key) in matched {
+            if on_key(state, ev, tx) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Renders all registered overlays whose `z_order` falls in `min_z..=max_z`, sorted ascending by `z_order`.
+    pub fn render_band(&self, state: &S, cx: &mut rune::Cx<S>, min_z: u16, max_z: u16) -> Vec<rune::El> {
+        let Some(entries) = self.inner.as_deref() else {
+            return Vec::new();
+        };
+        let mut matched: Vec<(u16, OverlayRenderFn<S>)> = entries
+            .iter()
+            .filter_map(|e| {
+                let f = e.render?;
+                (e.z_order >= min_z && e.z_order <= max_z).then_some((e.z_order, f))
+            })
+            .collect();
+        matched.sort_by_key(|(z, _)| *z);
+        let mut out = Vec::new();
+        for (_, render) in matched {
+            out.extend(render(state, cx));
+        }
+        out
     }
 
     /// Applies overlay dismissal effects to `state` and `tx`: restores recorded focus via

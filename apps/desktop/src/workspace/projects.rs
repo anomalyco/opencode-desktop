@@ -2,7 +2,7 @@
 
 pub use opencode_feature_projects::*;
 
-use opencode_kernel::{Feature, KernelBuilder};
+use opencode_kernel::{Feature, KernelBuilder, OverlayRegistration};
 use opencode_kit::client::{Request, Server, Write};
 use opencode_kit::model::{LocationInfo, Project, SessionInfo, Transcript};
 use opencode_kit::servers::health::Health;
@@ -453,7 +453,15 @@ impl Feature<App> for ProjectsFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
-        builder.register_overlay_dismiss(REMOTE_PICKER_OVERLAY_ID, |s, tx| remote_picker::close(s, tx));
+        builder.register_overlay(
+            OverlayRegistration::<App>::new(REMOTE_PICKER_OVERLAY_ID)
+                .with_z(510)
+                .with_render(|s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    remote_picker::view::view(s, p, cx)
+                })
+                .with_dismiss(|s, tx| remote_picker::close(s, tx)),
+        );
     }
 }
 

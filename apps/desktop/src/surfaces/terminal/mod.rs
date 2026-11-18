@@ -6,7 +6,7 @@ pub mod story;
 
 use std::path::PathBuf;
 
-use opencode_kernel::{Feature, KernelBuilder, SurfaceDescriptor, SurfaceKind};
+use opencode_kernel::{Feature, KernelBuilder, OverlayRegistration, SurfaceDescriptor, SurfaceKind};
 use opencode_kit::client::Server;
 use opencode_kit::persistent_pty::PersistentPtyInfo;
 use rune::{Drag, KeyEvent, PointerPress, Tx, Waker};
@@ -421,6 +421,15 @@ impl Feature<App> for TerminalSurfaceFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder.register_overlay(
+            OverlayRegistration::<App>::new("dialog.terminal.paste")
+                .with_z(220)
+                .with_render(|s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    paste::dialog(s, p, cx)
+                })
+                .with_dismiss(|s, tx| paste::answer_paste(s, false, tx)),
+        );
         builder.add_surface(
             SurfaceDescriptor::new("terminal", SurfaceKind::Terminal, "Terminal")
                 .with_multi_instance(true),

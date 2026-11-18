@@ -2,7 +2,7 @@
 
 pub use opencode_feature_session_menu::*;
 
-use opencode_kernel::{Feature, KernelBuilder, Phase};
+use opencode_kernel::{Feature, KernelBuilder, OverlayRegistration, Phase};
 use opencode_kit::client::{Server, Write};
 use opencode_kit::model::{SessionInfo, Transcript};
 use opencode_kit::servers::ServerKey;
@@ -304,8 +304,26 @@ impl Feature<App> for SessionMenuFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
-        builder.register_overlay_dismiss(RENAME_OVERLAY_ID, |s, tx| close_rename_dialog(s, tx));
-        builder.register_overlay_dismiss(DELETE_OVERLAY_ID, |s, tx| cancel_delete(s, tx));
+        builder.register_overlay(
+            OverlayRegistration::<App>::new(DELETE_OVERLAY_ID)
+                .with_z(200)
+                .with_key_priority(220)
+                .with_render(|s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    view::confirm(s, p, cx)
+                })
+                .with_key(|s, ev, tx| key(s, ev, tx))
+                .with_dismiss(|s, tx| cancel_delete(s, tx)),
+        );
+        builder.register_overlay(
+            OverlayRegistration::<App>::new(RENAME_OVERLAY_ID)
+                .with_z(210)
+                .with_render(|s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    rename_dialog::view(s, p, cx)
+                })
+                .with_dismiss(|s, tx| close_rename_dialog(s, tx)),
+        );
         builder.add_system(Phase::Ingest, "session_menu.unread", |s, _, _| unread::poll(s));
         builder.add_system(Phase::Ingest, "session_menu.preferences", |s, _, _| preferences::poll(s));
         builder.add_system(Phase::Derive, "session_menu.poll_rename", |s, now, tx| poll_rename(s, now, tx));

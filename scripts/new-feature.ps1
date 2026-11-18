@@ -316,6 +316,8 @@ impl<S: __PASCAL__Host> Feature<S> for __PASCAL__Feature {
     fn register(&self, builder: &mut KernelBuilder<S>) {
         builder.insert_slot(__PASCAL__State::default());
         builder.add_system(Phase::Ingest, "__ID__.poll", |host, _, tx| poll(host, tx));
+        // Modal dialogs can self-register without editing shell view/keys/escape:
+        // builder.register_overlay(opencode_kernel::OverlayRegistration::dialog(ID, render, Some(on_key), Some(on_dismiss)));
     }
 }
 '@

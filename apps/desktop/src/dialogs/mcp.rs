@@ -2,7 +2,7 @@
 
 pub use opencode_feature_mcp::*;
 
-use opencode_kernel::{Feature, KernelBuilder};
+use opencode_kernel::{Feature, KernelBuilder, OverlayRegistration};
 use opencode_kit::integration::McpServer;
 use rune::machine::Attempt;
 use rune::{KeyEvent, Tx};
@@ -125,8 +125,26 @@ impl Feature<App> for McpFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
-        builder.register_overlay_dismiss(OVERLAY_ID, |s, tx| close_dialog(s, tx));
-        builder.register_overlay_dismiss(SIGN_IN_OVERLAY_ID, |s, tx| sign_in::close(s, tx));
+        builder.register_overlay(
+            OverlayRegistration::<App>::new(OVERLAY_ID)
+                .with_z(420)
+                .with_key_priority(110)
+                .with_render(|s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    view::layer(s, p, cx)
+                })
+                .with_key(|s, ev, tx| key(s, ev, tx))
+                .with_dismiss(|s, tx| close_dialog(s, tx)),
+        );
+        builder.register_overlay(
+            OverlayRegistration::<App>::new(SIGN_IN_OVERLAY_ID)
+                .with_z(430)
+                .with_render(|s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    sign_in::layer(s, p, cx)
+                })
+                .with_dismiss(|s, tx| sign_in::close(s, tx)),
+        );
     }
 }
 

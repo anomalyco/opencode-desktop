@@ -4,7 +4,7 @@ pub use opencode_feature_switcher::*;
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-use opencode_kernel::{Feature, KernelBuilder};
+use opencode_kernel::{Feature, KernelBuilder, OverlayRegistration};
 use opencode_kit::client::Server;
 use opencode_kit::model::{Project, SessionInfo};
 use opencode_kit::servers::ServerKey;
@@ -383,14 +383,42 @@ impl Feature<App> for SwitcherFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
-        builder.register_overlay_dismiss(OVERLAY_ID, |s, tx| {
-            tx.instant();
-            close(s, true);
-        });
-        builder.register_overlay_dismiss(PROJECT_OVERLAY_ID, |s, tx| {
-            tx.instant();
-            project::close(s, true);
-        });
+        builder.register_overlay(
+            OverlayRegistration::<App>::new(OVERLAY_ID)
+                .with_z(100)
+                .with_key_priority(300)
+                .with_render(|s, cx| {
+                    if s.switcher.open {
+                        let p = crate::palette::pal(s.dark(cx));
+                        view(s, p, cx).into()
+                    } else {
+                        Vec::new()
+                    }
+                })
+                .with_key(|s, ev, tx| s.switcher_key(ev, tx))
+                .with_dismiss(|s, tx| {
+                    tx.instant();
+                    close(s, true);
+                }),
+        );
+        builder.register_overlay(
+            OverlayRegistration::<App>::new(PROJECT_OVERLAY_ID)
+                .with_z(110)
+                .with_key_priority(310)
+                .with_render(|s, cx| {
+                    if s.project_switcher.open {
+                        let p = crate::palette::pal(s.dark(cx));
+                        project::view(s, p, cx).into()
+                    } else {
+                        Vec::new()
+                    }
+                })
+                .with_key(|s, ev, tx| s.project_switcher_key(ev, tx))
+                .with_dismiss(|s, tx| {
+                    tx.instant();
+                    project::close(s, true);
+                }),
+        );
         builder.add_setup("switcher.waker", |s, w| {
             s.switcher.set_waker(w.clone());
             s.session_search.set_waker(w);

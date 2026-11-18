@@ -25,7 +25,11 @@ pub use commands::{CommandEntry, CommandRegistry, CommandTitle};
 pub use events::EventBus;
 pub use feature::{Feature, SurfaceDescriptor, SurfaceKind, SurfaceRegistry};
 pub use host::{AppEnv, AppFeedback, AppOverlays};
-pub use overlay::{OverlayDismissFn, OverlayDispatcher, OverlayEffect, OverlayEntry, OverlayEvent, OverlayKind, OverlayStack, OverlayState};
+pub use overlay::{
+    DEFAULT_DIALOG_Z, OverlayDismissFn, OverlayDispatcher, OverlayEffect, OverlayEntry,
+    OverlayEvent, OverlayKeyFn, OverlayKind, OverlayRegistration, OverlayRenderFn, OverlayStack,
+    OverlayState,
+};
 pub use scheduler::{CloseFn, LifecycleScheduler, Phase, RestFn, SetupFn, SystemFn, VisibilityFn};
 pub use slots::StateSlots;
 
@@ -183,6 +187,12 @@ impl<S> KernelBuilder<S> {
     /// Registers a native surface provider descriptor.
     pub fn add_surface(&mut self, descriptor: SurfaceDescriptor) -> &mut Self {
         self.kernel.surfaces.register(descriptor);
+        self
+    }
+
+    /// Registers a full overlay descriptor (render, key dispatch, Escape dismiss, z-order).
+    pub fn register_overlay(&mut self, reg: OverlayRegistration<S>) -> &mut Self {
+        self.kernel.overlay_dispatcher.register_overlay(reg);
         self
     }
 
