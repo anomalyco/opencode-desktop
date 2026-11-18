@@ -21,7 +21,7 @@ use crate::{
     open_in, open_story, panels, permission, pickers, pinch, plugin_host, popup, project_switcher,
     projects, prompt_history, question, queue, quote, recent_page, reconnect, restore, review,
     rewind, rune_mcp, send_failed, served, servers, session_catalog, session_menu, session_pages,
-    session_state, session_status, settings, shortcuts, slash, speech, status_toast, stop,
+    session_state, session_status, settings, shortcuts, slash, status_toast, stop,
     stories, subagents, submit, suggestions, switcher, tabs, telemetry, terminal, text_rendering,
     tips, todos, tool_open, turn_diffs, undo, updater, usage, view, wall_ms, windows, working,
 };
@@ -45,6 +45,10 @@ pub enum Source {
     Fixture,
 }
 
+/// Kernel state slot for background tool-output save error notifications.
+#[derive(Default)]
+pub(crate) struct OutputErrors(pub(crate) Option<(Sender<String>, Receiver<String>)>);
+
 #[derive(Default)]
 pub struct App {
     /// Decoupled shell kernel registries (lifecycle scheduler, typed feature slots, overlays,
@@ -55,8 +59,6 @@ pub struct App {
     /// The live server events taken, for the motion log (`motion_log.rs`).
     pub(crate) motion_events: rune::Tracked<motion_log::Events>,
     pub(crate) pages: rune::Tracked<session_pages::State>,
-    // Created by the first Save, never before Frame 1. A failed write wakes the window once.
-    pub(crate) output_errors: Option<(Sender<String>, Receiver<String>)>,
     pub(crate) opening: rune::Tracked<Option<session_pages::Opening>>,
     pub(crate) open_demo: rune::Tracked<Option<open_story::Demo>>,
     /// The server's projects and sessions. This and the other server data (transcripts, running,
@@ -197,8 +199,6 @@ pub struct App {
     pub(crate) jobs: rune::Tracked<jobs::Jobs>,
     /// System notifications for finished runs, permission requests and errors.
     pub notify: rune::Tracked<notifications::Notifier>,
-    /// What a screen reader hears of the agent's work (`speech.rs`).
-    pub speech: speech::Speech,
     /// Links the system handed the app, until they open (`deep_links`).
     pub deep_links: rune::Tracked<deep_links::DeepLinks>,
     /// Every server's link: live, in doubt or down (`reconnect`).

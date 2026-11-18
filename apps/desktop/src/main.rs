@@ -79,6 +79,7 @@ pub(crate) use opencode_platform::{askpass, telemetry, wall, wall_ms, web_fetch}
 
 mod app;
 mod dialogs;
+mod exports;
 mod kernel;
 mod plugin_host;
 mod session;
@@ -91,102 +92,12 @@ mod workspace;
 pub use app::{App, Source, TabStatus};
 pub(crate) use app::{FIXTURE, arg, attended, auto_focus_composer, flag, harness_writes, headless};
 pub use shell::nav::route::Route;
-pub(crate) use stories::scenes::open_scene;
-pub(crate) use tick::{poll, setup, visibility};
-
-// Domain submodule re-exports at crate root so internal `crate::<module>::*` paths resolve cleanly.
 pub use shell::panels;
 pub use surfaces::code_view;
-
+pub(crate) use stories::scenes::open_scene;
+pub(crate) use tick::{poll, setup, visibility};
 #[allow(unused_imports)]
-pub(crate) use shell::{
-    appearance,
-    appearance::{background, knobs, language, text_rendering},
-    chrome::{compositor, forms, glyph_masks, icons, scrollbar, status_toast, wheel, widgets},
-    commands,
-    commands::type_to_compose,
-    diag::{diagnostics, motion_log},
-    input::{escape, keymap, keys, shortcuts},
-    menus::{add_menu, app_menu, menubar, popover, popup},
-    narrow,
-    nav::{history, layout_state, pinch, route},
-    tabs,
-    tabs::{actions as tab_actions, badges as tab_badges, recently_closed},
-    view,
-};
-
-#[allow(unused_imports)]
-pub(crate) use session::{
-    composer::{
-        add_selection, attachments, dictation, dropzone, line_comments, mentions, pickers,
-        prompt_history, quote, quote::cards as quote_cards, slash, suggestions, undo,
-    },
-    events,
-    events::{incoming, stream::pace as stream_pace},
-    inbox::{
-        model as inbox_model, order as inbox_order, queue, send, send_failed, stop, submit,
-    },
-    menu as session_menu,
-    menu::view as session_menu_view,
-    meta::{
-        catalog as session_catalog, context_window, cost as session_cost, open as session_open,
-        state as session_state, status as session_status, title_change, turn_diffs,
-    },
-    pages as session_pages,
-    timeline::{
-        agent_rows, auto_accept, diagram, find, fork, genui, message_nav, permission, question,
-        rewind, shell_fold, short_group, subagents, todos, tool_open,
-    },
-};
-
-#[allow(unused_imports)]
-pub(crate) use workspace::{
-    lifecycle::{
-        idle, jobs, launch, new_session, new_worktree, page_sign_in, reconnect, restore, rune_mcp,
-        served, storage, tips,
-    },
-    projects,
-    search::{fulltext, home_search, project_switcher, recent_page, switcher, transcript_index},
-    servers,
-    system::{
-        crash_notice, deep_links, dirs, errors, export_logs, jump_list, notifications, open_in,
-        sounds, speech,
-    },
-    windows,
-};
-#[cfg(windows)]
-pub(crate) use workspace::system::install;
-
-#[allow(unused_imports)]
-pub(crate) use surfaces::{browser, egg, files, glitch, review, terminal, updater};
-#[cfg(feature = "office")]
-pub(crate) use surfaces::office;
-
-#[allow(unused_imports)]
-pub(crate) use dialogs::{connect, mcp, model_picker, model_prefs, settings, usage};
-
-#[allow(unused_imports)]
-pub(crate) use stories::{demo, demo_script, fixture_ids, open as open_story, scenes};
-
-// Crate-root type imports kept for internal modules using `use crate::*;`.
-#[allow(unused_imports)]
-pub(crate) use std::collections::{HashMap, HashSet, VecDeque};
-#[allow(unused_imports)]
-pub(crate) use std::sync::mpsc::{Receiver, Sender};
-#[allow(unused_imports)]
-pub(crate) use rune::{AppSpec, Key, KeyEvent, TextEdit, Tx, Waker};
-#[allow(unused_imports)]
-pub(crate) use serde_json::Value;
-#[allow(unused_imports)]
-pub(crate) use opencode_kit::client::{DEFAULT_SERVER, Incoming, Prompt, Request, Server, Write};
-#[allow(unused_imports)]
-pub(crate) use opencode_kit::servers::ServerKey;
-#[allow(unused_imports)]
-pub(crate) use opencode_kit::model::{Delivery, Inbox, Message, Pending, Project, SessionInfo, Transcript};
-#[allow(unused_imports)]
-pub(crate) use tabs::Tab;
-#[allow(unused_imports)]
-pub(crate) use pickers::PickerHost;
+pub(crate) use exports::*;
 
 /// Configures extracted feature crates once per process (native and wasm32).
 pub(crate) fn init_features() {

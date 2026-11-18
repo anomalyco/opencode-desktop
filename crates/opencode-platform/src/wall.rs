@@ -18,6 +18,7 @@ pub fn wall_ms() -> i64 {
     if let Some((from, ms)) = fixed {
         return ms + from.elapsed().as_millis() as i64;
     }
+    #[allow(clippy::disallowed_methods)]
     rune::time::SystemTime::now()
         .duration_since(rune::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as i64)

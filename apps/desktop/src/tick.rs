@@ -77,7 +77,7 @@ pub(crate) fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= deep_links::drain(s, tx);
     changed |= turn_errors::poll(s, tx);
     changed |= s.poll_pages(tx);
-    while let Some(why) = s.output_errors.as_ref().and_then(|(_, rx)| rx.try_recv().ok()) {
+    while let Some(why) = s.kernel.slots.get::<crate::app::OutputErrors>().and_then(|e| e.0.as_ref()).and_then(|(_, rx)| rx.try_recv().ok()) {
         status_toast::fail(s, opencode_i18n::t!("common.requestFailed"), why);
         changed = true;
     }

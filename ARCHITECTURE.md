@@ -65,17 +65,20 @@ rune-desktop/
 │   ├── win-install/            #   Windows install/update identity & resources
 │   └── authenticode/           #   Windows Authenticode verification
 └── apps/                       # Tier 4: Thin Entrypoints & Host Shells
-    ├── desktop/                #   OpenCode (Rune) desktop host organized by domain:
+    ├── desktop/                #   OpenCode (Rune) desktop host organized by domain (~57.6k LOC):
     │   └── src/
-    │       ├── main.rs         #     Bootstrap, App state, kernel wiring
+    │       ├── main.rs         #     Process bootstrap, allocator, fonts, window hooks
+    │       ├── app.rs          #     App state & lifecycle (fields ratcheted <= 142)
+    │       ├── tick.rs         #     4-phase tick scheduler & setup/visibility hooks
     │       ├── kernel.rs       #     Feature & lifecycle registration into opencode-kernel
+    │       ├── exports.rs      #     Domain module compatibility re-export index
     │       ├── shell/          #     Window chrome, layout, tabs, input, popups, overlays
     │       ├── session/        #     Session lifecycle, composer, inbox, queue, stream events
     │       ├── workspace/      #     Servers, multi-window peers, projects, storage, launch
-    │       ├── surfaces/       #     Host adapters for code-view, files, review, terminal, browser, office, egg
-    │       ├── dialogs/        #     Settings, connect, MCP, usage, pickers
+    │       ├── surfaces/       #     Thin host adapters for code-view, files, review, terminal, browser, office, egg
+    │       ├── dialogs/        #     Thin host adapters for settings, connect, MCP, usage, pickers
     │       ├── plugin_host/    #     Luau runtime & service bindings
-    │       └── stories/        #     Visual storybook scenes & demo playback
+    │       └── stories/        #     Visual storybook scenes & demo playback (gated by `stories` feature)
     ├── web/                    #   WASM / WebGPU browser target
     ├── installer/              #   Windows setup bootstrapper
     └── browser-engine/         #   Out-of-process CEF sidecar bundle
@@ -108,8 +111,9 @@ apps/*  ──▶  features/*  ──▶  crates/opencode-kernel, crates/opencod
   └──────────────────────────────┘
 ```
 
-- **No upward dependencies:** `crates/*` never depend on `features/*` or `apps/*`. `features/*` never depend on `apps/*`.
-- **No cross-feature dependencies:** Feature crates under `features/*` must not depend on one another. Communicate through `opencode-kernel` (`EventBus`, `CommandRegistry`, `SurfaceRegistry`) or Luau `Contracts`.
-- **Non-generic boundaries where possible:** Keep crate boundaries concrete or `dyn` so downstream crates (`apps/desktop`) do not re-monomorphize leaf crate codegen (see [docs/fast-builds.md](docs/fast-builds.md)).
-- **Zero tests:** Per `AGENTS.md`, application code is truth; `scripts/arch-check.sh` guards against `#[test]` / `#[cfg(test)]` regressions.
-- **File size & folder shape:** Every `.rs` file stays under 800 lines (1,500 hard cap, `scripts/file-size.sh`) and folders stay organized without prefix clutter (`scripts/folder-shape.sh`).
+- **No upward or cyclic dependencies (Rules 1–2):** `crates/*` never depend on `features/*` or `apps/*`; `features/*` never depend on `apps/*` or on sibling `features/*`; full workspace DFS confirms zero cycles across all 51 crates.
+- **Core purity & `#![forbid(unsafe_code)]` (Rules 3 & 9):** `opencode-kernel`, `opencode-runtime`, `opencode-ui`, `opencode-search`, and all 25 pure feature crates forbid `unsafe_code` (only the 4 FFI/GPU features `egg`, `office`, `open-in`, `updater` are allowlisted).
+- **Non-generic boundaries:** Keep crate boundaries concrete or `&mut dyn *Host` so downstream crates (`apps/desktop`) do not re-monomorphize leaf crate codegen (see [docs/fast-builds.md](docs/fast-builds.md)).
+- **`struct App` ratchet & root cleanliness (Rules 4–5):** `apps/desktop/src/` stays at `<= 10` root files and `struct App` is ratcheted at `<= 142` fields (new feature state belongs in `opencode_kernel::StateSlots` or a Luau plugin).
+- **Web parity & zero tests (Rules 6–7):** `apps/web/Cargo.toml` stays synced with shared desktop workspace dependencies, and `#[test]` / `#[cfg(test)]` are rejected per `AGENTS.md`.
+- **Hard file-size ceiling & zero folder-shape exceptions (Rule 8):** Every tracked `.rs` file in `apps/desktop/` and `features/` is hard-capped at `<= 800` lines, and `scripts/folder-shape.sh` runs with zero exceptions.

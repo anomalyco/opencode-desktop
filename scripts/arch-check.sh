@@ -8,6 +8,8 @@
 #   5. struct App field-count ratchet (ceilings only go down; new features use opencode-kernel StateSlots or Luau)
 #   6. apps/web/Cargo.toml stays in sync with shared workspace path dependencies in apps/desktop/Cargo.toml
 #   7. No #[test] or #[cfg(test)] in tracked workspace sources (AGENTS.md)
+#   8. Hard <= 800 non-test line cap on every tracked .rs file in apps/desktop/ and features/
+#   9. Pure feature crates under features/*/src/lib.rs forbid unsafe_code (outside explicit FFI/GPU allowlist)
 # Usage: scripts/arch-check.sh
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
@@ -18,8 +20,10 @@ from collections import defaultdict
 
 # Ratchet ceiling for fields on `pub struct App` in apps/desktop/src/app.rs.
 # Only lower this number; new features must use opencode-kernel StateSlots or Luau plugins.
-APP_FIELD_CEILING = 144
+APP_FIELD_CEILING = 142
 DESKTOP_ROOT_MAX_FILES = 10
+HARD_LINE_CAP = 800
+FEATURE_UNSAFE_ALLOWLIST = {"egg", "office", "open-in", "updater"}
 
 errors = []
 
@@ -182,6 +186,23 @@ for f in files:
     if os.path.exists(f) and test_attr.search(read_text(f)):
         errors.append(f"{f}: contains #[test] or #[cfg(test)] (forbidden by AGENTS.md)")
 
+# Rule 8: Hard <= 800 line ceiling on every tracked .rs file in apps/desktop/ and features/
+for f in files:
+    if not (f.startswith("apps/desktop/") or f.startswith("features/")):
+        continue
+    if os.path.exists(f):
+        line_count = len(read_text(f).splitlines())
+        if line_count > HARD_LINE_CAP:
+            errors.append(f"{f}: {line_count} lines exceeds hard ceiling of {HARD_LINE_CAP} in apps/desktop/ and features/")
+
+# Rule 9: Pure feature crates under features/*/src/lib.rs forbid unsafe_code
+for lib in sorted(glob.glob("features/*/src/lib.rs")):
+    feat = os.path.basename(os.path.dirname(os.path.dirname(lib)))
+    if feat in FEATURE_UNSAFE_ALLOWLIST:
+        continue
+    if "#![forbid(unsafe_code)]" not in read_text(lib):
+        errors.append(f"{lib}: pure feature crate must declare #![forbid(unsafe_code)]")
+
 if errors:
     for e in errors:
         print(f"  ERROR  {e}")
@@ -192,6 +213,6 @@ print(
     f"arch check: ok "
     f"({sum(1 for _, t, _ in manifests if t == 'feature')} features, "
     f"{sum(1 for _, t, _ in manifests if t == 'crate')} crates, "
-    f"{len(desktop_root_rs)} apps/desktop/src root files, 0 cycles)"
+    f"{len(desktop_root_rs)} apps/desktop/src root files, 0 cycles, 0 files >{HARD_LINE_CAP} in desktop/features)"
 )
 PY

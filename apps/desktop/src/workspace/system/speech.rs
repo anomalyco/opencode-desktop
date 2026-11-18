@@ -152,9 +152,9 @@ pub fn step(turn: Turn, heard: Heard) -> (Turn, Option<Say>) {
 pub fn event(app: &mut App, ty: &str, data: &Value, sid: &str) {
     if matches!(ty, "permission.asked" | "form.created") && open_root(app).is_some_and(|r| r == app.root_of(sid)) {
         let key = if ty == "permission.asked" { session_view::dock::permission::PERMISSION_FOCUS } else { "q-opt-0" };
-        app.speech.focus_dock = Some(key);
+        app.kernel.slots.slot::<Speech>().focus_dock = Some(key);
     }
-    if !app.speech.listening {
+    if !listening(app) {
         return;
     }
     if crate::flag("--log-speech") && (ty.starts_with("session.") || ty.ends_with(".asked") || ty.starts_with("form.")) {
@@ -163,60 +163,62 @@ pub fn event(app: &mut App, ty: &str, data: &Value, sid: &str) {
     if ty == "session.tool.input.started"
         && let (Some(id), Some(name)) = (data["id"].as_str(), data["name"].as_str())
     {
-        app.speech.tools.push((id.to_owned(), name.to_owned()));
+        app.kernel.slots.slot::<Speech>().tools.push((id.to_owned(), name.to_owned()));
     }
     let Some(heard) = hear(app, ty, data, sid) else { return };
+    let sp = app.kernel.slots.slot::<Speech>();
     if matches!(heard, Heard::Started { .. } | Heard::Succeeded { .. } | Heard::Failed { .. } | Heard::Interrupted { .. }) {
-        app.speech.tools.clear();
+        sp.tools.clear();
     }
-    let (turn, say) = step(std::mem::take(&mut app.speech.turn), heard);
-    app.speech.turn = turn;
-    app.speech.queued.extend(say);
+    let (turn, say) = step(std::mem::take(&mut sp.turn), heard);
+    sp.turn = turn;
+    sp.queued.extend(say);
 }
 
 /// Says what waits, and announces and focuses a request the open page's dock started showing
 /// (from `poll`). A poll in one frame says everything queued in it as one announcement, so a
 /// reader hears it all rather than only the last.
 pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
-    let was = app.speech.listening;
+    let was = listening(app);
     poll_inner(app, tx);
-    app.speech.listening != was
+    listening(app) != was
 }
 
 /// Whether an assistive client read the window at the last poll.
 pub fn listening(app: &App) -> bool {
-    app.speech.listening
+    app.kernel.slots.get::<Speech>().is_some_and(|sp| sp.listening)
 }
 
 fn poll_inner(app: &mut App, tx: &mut Tx) {
     // The dock is built with the next commit, or once a covered window builds again; focus
     // waits for its card however long that or its motion takes, and goes to it only from the
     // prompt it replaces or from nowhere.
-    if let Some(key) = app.speech.focus_dock.take()
+    if let Some(key) = app.kernel.slots.slot::<Speech>().focus_dock.take()
         && matches!(tx.focused(), None | Some("prompt"))
     {
         tx.focus_when_shown(key, tx.focus_visible());
     }
-    let listening = tx.assistive_technology();
-    if !listening {
-        if app.speech.listening {
-            app.speech = Speech::default();
+    let is_listening = tx.assistive_technology();
+    if !is_listening {
+        if listening(app) {
+            *app.kernel.slots.slot::<Speech>() = Speech::default();
         }
         return;
     }
-    app.speech.listening = true;
+    app.kernel.slots.slot::<Speech>().listening = true;
     let shown = dock_request(app);
-    if shown.as_ref().map(|(id, _, _)| id) != app.speech.dock.as_ref() {
+    let sp = app.kernel.slots.slot::<Speech>();
+    if shown.as_ref().map(|(id, _, _)| id) != sp.dock.as_ref() {
         if let Some((_, words, focus)) = &shown {
-            app.speech.queued.push(Say { words: words.clone(), how: LiveRegion::Assertive });
-            if app.speech.in_prompt {
+            sp.queued.push(Say { words: words.clone(), how: LiveRegion::Assertive });
+            if sp.in_prompt {
                 tx.focus(*focus, tx.focus_visible());
             }
         }
-        app.speech.dock = shown.map(|(id, _, _)| id);
+        sp.dock = shown.map(|(id, _, _)| id);
     }
     terminal_output(app, tx);
-    let queued = std::mem::take(&mut app.speech.queued);
+    let queued = std::mem::take(&mut app.kernel.slots.slot::<Speech>().queued);
     if !queued.is_empty() {
         let how = if queued.iter().any(|s| s.how == LiveRegion::Assertive) { LiveRegion::Assertive } else { LiveRegion::Polite };
         let words = queued.into_iter().map(|s| s.words).filter(|w| !w.trim().is_empty()).collect::<Vec<_>>().join(". ");
@@ -225,7 +227,7 @@ fn poll_inner(app: &mut App, tx: &mut Tx) {
         }
         tx.announce(words, how);
     }
-    app.speech.in_prompt = tx.focused().is_none_or(|k| k == "prompt");
+    app.kernel.slots.slot::<Speech>().in_prompt = tx.focused().is_none_or(|k| k == "prompt");
 }
 
 /// New output in the terminal that has focus, by the rule replies follow: not every byte, not
@@ -236,12 +238,12 @@ fn poll_inner(app: &mut App, tx: &mut Tx) {
 fn terminal_output(app: &mut App, tx: &mut Tx) {
     let focused = tx.focused() == Some(crate::terminal::grid::SCREEN_KEY);
     let Some((wk, id)) = app.terminal_focus().filter(|_| focused) else {
-        app.speech.terminal = Output::default();
+        app.kernel.slots.slot::<Speech>().terminal = Output::default();
         return;
     };
     let Some(snap) = app.terminal.workspaces.get(&wk).and_then(|ws| ws.tabs.iter().find(|t| t.id == id)).map(|t| t.session.snapshot()) else { return };
     let now = *app.clock;
-    let out = &mut app.speech.terminal;
+    let out = &mut app.kernel.slots.slot::<Speech>().terminal;
     let here = Some((wk, id));
     if out.terminal != here {
         // A terminal newly focused: what it shows now is read by moving through it, not said.
@@ -274,17 +276,17 @@ fn terminal_output(app: &mut App, tx: &mut Tx) {
     } else {
         opencode_i18n::t!("rune.a11y.terminal.output", count = lines.len(), last = lines.last().map_or("", String::as_str))
     };
-    app.speech.queued.push(Say { words, how: LiveRegion::Polite });
+    app.kernel.slots.slot::<Speech>().queued.push(Say { words, how: LiveRegion::Polite });
 }
 
 /// A key went to the focused terminal (from `terminal::key_terminal`): the row the cursor is on
 /// is the user's command, and output from here on is said.
 pub fn terminal_key(app: &mut App, wk: &str, id: &str) {
-    if !app.speech.listening {
+    if !listening(app) {
         return;
     }
     let Some(snap) = app.terminal.workspaces.get(wk).and_then(|ws| ws.tabs.iter().find(|t| t.id == id)).map(|t| t.session.snapshot()) else { return };
-    let out = &mut app.speech.terminal;
+    let out = &mut app.kernel.slots.slot::<Speech>().terminal;
     out.typed = true;
     if let Some(row) = snap.screen_rows.get(usize::from(snap.cursor.row))
         && !out.input.contains(&row.id)
@@ -328,7 +330,7 @@ fn hear(app: &App, ty: &str, data: &Value, sid: &str) -> Option<Heard> {
         "session.execution.started" if open => Heard::Started { session },
         "session.tool.called" if open => {
             let id = data["id"].as_str().unwrap_or("");
-            let name = data["name"].as_str().or_else(|| app.speech.tools.iter().find(|(c, _)| c == id).map(|(_, n)| n.as_str()))?;
+            let name = data["name"].as_str().or_else(|| app.kernel.slots.get::<Speech>().and_then(|sp| sp.tools.iter().find(|(c, _)| c == id).map(|(_, n)| n.as_str())))?;
             Heard::Tool { session, step: crate::agent_rows::step_of(name, &data["input"]), now: *app.clock }
         }
         "session.execution.succeeded" if open => Heard::Succeeded { session, reply: first_sentence(app, sid) },
