@@ -24,8 +24,7 @@ impl NotificationsHost for App {
     }
 
     fn notification_prefs(&self) -> Kinds {
-        let n = self.settings.notify;
-        Kinds { agent: n.agent, permissions: n.permissions, questions: n.questions, errors: n.errors }
+        self.settings.notify
     }
 
     fn is_live(&self) -> bool {

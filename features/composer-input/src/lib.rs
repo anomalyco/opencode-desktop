@@ -20,6 +20,6 @@ pub mod suggestions;
 
 pub use attachments::{Attach, AttachMut, AttachRef, AttachmentsHost, ContextFile, Copied, Failed};
 pub use dropzone::{AttachmentInput, Dropzone, DropzoneHost, Due};
-pub use prompt_history::{DocLookup, Entry, PROMPT_HISTORY_DOCUMENT, PromptHistory, StorageOps};
+pub use prompt_history::{DocLookup, Entry, PROMPT_HISTORY_DOCUMENT, PromptHistory};
 pub use slash::{BuiltinSlashCommand, Command as SlashCommand, Item as SlashItem, Slash, SlashHost};
 pub use suggestions::{Suggest, SuggestionsHost};

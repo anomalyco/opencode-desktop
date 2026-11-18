@@ -9,19 +9,10 @@ use session_view::palette::Pal;
 
 use crate::{App, Route};
 
-fn map_tab_status(st: crate::TabStatus) -> NarrowTabStatus {
-    match st {
-        crate::TabStatus::Busy => NarrowTabStatus::Busy,
-        crate::TabStatus::Attention => NarrowTabStatus::Attention,
-        crate::TabStatus::Unread => NarrowTabStatus::Unread,
-        crate::TabStatus::Failed => NarrowTabStatus::Failed,
-    }
-}
-
 fn make_narrow_tab(s: &App, t: &crate::tabs::Tab) -> NarrowTab {
     let title = crate::view::tab_strip::face(s, t).title;
     let mark = if t.is_draft() { s.tab_status(&t.id) } else { s.tab_status_of(t) };
-    NarrowTab { uid: t.uid(), title, is_draft: t.is_draft(), status: mark.map(map_tab_status) }
+    NarrowTab { uid: t.uid(), title, is_draft: t.is_draft(), status: mark }
 }
 
 impl NarrowHost for App {

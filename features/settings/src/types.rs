@@ -3,7 +3,8 @@
 //! zoom levels, and Windows shell prompt-mark targets.
 
 use rune::{FontSmoothing, SmoothingSupport};
-use serde_json::{Value, json};
+
+pub use opencode_runtime::{DockPlacement, NotifyKind, NotifyKinds};
 
 /// Desktop's colour scheme preference (`appearance`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -77,113 +78,6 @@ impl TabLayout {
     /// Side tabs and Inbox have a sidebar; top tabs have none, so ⇧⌘B does nothing there.
     pub fn has_sidebar(self) -> bool {
         matches!(self, Self::Vertical | Self::Inbox)
-    }
-}
-
-/// The pane a new terminal opens in beside no other (`terminalPlacement`).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum DockPlacement {
-    #[default]
-    Side,
-    Bottom,
-}
-
-impl DockPlacement {
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::Side => "side",
-            Self::Bottom => "bottom",
-        }
-    }
-
-    pub fn parse(s: Option<&str>) -> Self {
-        match s {
-            Some("bottom") => Self::Bottom,
-            _ => Self::Side,
-        }
-    }
-}
-
-/// What a notification is about, as Settings › Notifications groups them.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum NotifyKind {
-    /// The agent finished (`session.execution.succeeded`).
-    Agent,
-    /// A permission is asked (`permission.asked`, or a web search provider's form).
-    Permission,
-    /// The agent asks a question, or an MCP server asks for input (`form.created`).
-    Question,
-    /// A run failed (`session.execution.failed`).
-    Error,
-}
-
-impl NotifyKind {
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Agent => "agent",
-            Self::Permission => "permissions",
-            Self::Question => "questions",
-            Self::Error => "errors",
-        }
-    }
-
-    /// Desktop's titles (`notification.session.responseReady.title` and friends).
-    pub fn title(self) -> &'static str {
-        match self {
-            Self::Agent => opencode_i18n::t!("notification.session.responseReady.title"),
-            Self::Permission => opencode_i18n::t!("notification.permission.title"),
-            Self::Question => opencode_i18n::t!("notification.question.title"),
-            Self::Error => opencode_i18n::t!("notification.session.error.title"),
-        }
-    }
-}
-
-/// Which kinds notify: Settings › Notifications, saved as Desktop's `notifications` object.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct NotifyKinds {
-    pub agent: bool,
-    pub permissions: bool,
-    pub questions: bool,
-    pub errors: bool,
-}
-
-impl Default for NotifyKinds {
-    fn default() -> Self {
-        Self { agent: false, permissions: true, questions: true, errors: false }
-    }
-}
-
-impl NotifyKinds {
-    pub fn get(&self, kind: NotifyKind) -> bool {
-        match kind {
-            NotifyKind::Agent => self.agent,
-            NotifyKind::Permission => self.permissions,
-            NotifyKind::Question => self.questions,
-            NotifyKind::Error => self.errors,
-        }
-    }
-
-    pub fn set(&mut self, kind: NotifyKind, on: bool) {
-        match kind {
-            NotifyKind::Agent => self.agent = on,
-            NotifyKind::Permission => self.permissions = on,
-            NotifyKind::Question => self.questions = on,
-            NotifyKind::Error => self.errors = on,
-        }
-    }
-
-    pub fn to_json(&self) -> Value {
-        json!({ "agent": self.agent, "permissions": self.permissions, "questions": self.questions, "errors": self.errors })
-    }
-
-    pub fn from_json(v: &Value) -> Self {
-        let d = Self::default();
-        Self {
-            agent: v["agent"].as_bool().unwrap_or(d.agent),
-            permissions: v["permissions"].as_bool().unwrap_or(d.permissions),
-            questions: v["questions"].as_bool().unwrap_or(d.questions),
-            errors: v["errors"].as_bool().unwrap_or(d.errors),
-        }
     }
 }
 

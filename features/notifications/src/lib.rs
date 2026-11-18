@@ -20,98 +20,16 @@ use std::sync::Mutex;
 
 use opencode_kit::servers::ServerKey;
 use rune::{Tx, Waker};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 pub use actions::{Ask, Choice, Outcome};
 pub use host::{NotificationReply, NotificationsHost};
+pub use opencode_runtime::{NotifyKind, NotifyKind as Kind, NotifyKinds, NotifyKinds as Kinds};
 
 /// Desktop's `MAX_ACTIVE_NOTIFICATIONS`.
 pub const CAP: usize = 40;
 /// Permission requests already posted, so a repeated `permission.asked` doesn't post twice.
 const ASKED: usize = 500;
-
-/// What a notification is about, as Settings › Notifications groups them.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Kind {
-    /// The agent finished (`session.execution.succeeded`).
-    Agent,
-    /// A permission is asked (`permission.asked`, or a web search provider's form).
-    Permission,
-    /// The agent asks a question, or an MCP server asks for input (`form.created`).
-    Question,
-    /// A run failed (`session.execution.failed`).
-    Error,
-}
-
-impl Kind {
-    pub fn name(self) -> &'static str {
-        match self {
-            Kind::Agent => "agent",
-            Kind::Permission => "permissions",
-            Kind::Question => "questions",
-            Kind::Error => "errors",
-        }
-    }
-
-    /// Desktop's titles (`notification.session.responseReady.title` and friends).
-    pub fn title(self) -> &'static str {
-        match self {
-            Kind::Agent => opencode_i18n::t!("notification.session.responseReady.title"),
-            Kind::Permission => opencode_i18n::t!("notification.permission.title"),
-            Kind::Question => opencode_i18n::t!("notification.question.title"),
-            Kind::Error => opencode_i18n::t!("notification.session.error.title"),
-        }
-    }
-}
-
-/// Which kinds notify: Settings › Notifications, saved as Desktop's `notifications` object.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Kinds {
-    pub agent: bool,
-    pub permissions: bool,
-    pub questions: bool,
-    pub errors: bool,
-}
-
-impl Default for Kinds {
-    fn default() -> Self {
-        Kinds { agent: false, permissions: true, questions: true, errors: false }
-    }
-}
-
-impl Kinds {
-    pub fn get(&self, kind: Kind) -> bool {
-        match kind {
-            Kind::Agent => self.agent,
-            Kind::Permission => self.permissions,
-            Kind::Question => self.questions,
-            Kind::Error => self.errors,
-        }
-    }
-
-    pub fn set(&mut self, kind: Kind, on: bool) {
-        match kind {
-            Kind::Agent => self.agent = on,
-            Kind::Permission => self.permissions = on,
-            Kind::Question => self.questions = on,
-            Kind::Error => self.errors = on,
-        }
-    }
-
-    pub fn to_json(&self) -> Value {
-        json!({ "agent": self.agent, "permissions": self.permissions, "questions": self.questions, "errors": self.errors })
-    }
-
-    pub fn from_json(v: &Value) -> Kinds {
-        let d = Kinds::default();
-        Kinds {
-            agent: v["agent"].as_bool().unwrap_or(d.agent),
-            permissions: v["permissions"].as_bool().unwrap_or(d.permissions),
-            questions: v["questions"].as_bool().unwrap_or(d.questions),
-            errors: v["errors"].as_bool().unwrap_or(d.errors),
-        }
-    }
-}
 
 /// One notification to post: what it says and the session a click opens.
 #[derive(Clone, Debug, PartialEq)]

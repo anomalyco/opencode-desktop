@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use rune::{Key, KeyEvent, Tx};
 
-pub use host::{NarrowChrome, NarrowHost, NarrowTab, NarrowTabStatus};
+pub use host::{NarrowChrome, NarrowHost, NarrowTab, NarrowTabStatus, TabStatus};
 pub use machine::{
     BREAKPOINT, CONVERSATION, Mode, ModeEffect, ModeEvent, MoreDrawer, MoreEvent, Nested, PENDING_TTL, Presence,
     PresenceEffect, PresenceEvent, SLIDE_OUT, TABS_CLOSE_TIMEOUT, TabsDrawer, TabsEffect, TabsEvent, View, ViewEffect,

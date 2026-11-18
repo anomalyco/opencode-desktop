@@ -29,7 +29,7 @@ use serde_json::{Value, json};
 use session_view::palette::{Pal, kit};
 
 pub use host::{
-    AboutInfo, CommandItem, HttpServer, PluginPageMeta, PluginSearchItem, PluginServerInfo, ProviderRow, ServerEntry, ServerKind, SettingsConfig, SettingsHost, StorageOps, build_channel,
+    AboutInfo, CommandItem, HttpServer, PluginPageMeta, PluginSearchItem, PluginServerInfo, ProviderRow, ServerEntry, ServerKind, SettingsConfig, SettingsHost, build_channel,
     build_version, configure,
 };
 pub use jobs::{SettingsJob, SettingsReply, SettingsRequest, apply_reply, execute_request};

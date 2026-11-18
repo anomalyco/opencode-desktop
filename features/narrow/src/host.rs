@@ -21,15 +21,10 @@ impl Default for NarrowChrome {
     }
 }
 
+pub use opencode_runtime::TabStatus;
+
 /// Status badge for a tab shown in the narrow titlebar trigger and tabs drawer.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum NarrowTabStatus {
-    Busy,
-    Attention,
-    Unread,
-    /// Unread, and its run failed.
-    Failed,
-}
+pub type NarrowTabStatus = opencode_runtime::TabStatus;
 
 /// Pure-data summary of one tab for the narrow titlebar trigger and tabs drawer.
 #[derive(Clone, Debug)]

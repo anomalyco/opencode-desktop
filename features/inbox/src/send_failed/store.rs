@@ -9,50 +9,15 @@
 //! saved, a writer that was gone) waits in the server's mailbox for the next window that polls
 //! that server.
 
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::sync::{Mutex, OnceLock};
 
 use opencode_kit::client::Write;
+use opencode_platform::storage::{self, StorageOp};
 use opencode_storage::Storage;
 use rune::Waker;
 
 use super::{Log, Sent, row};
-
-/// A storage-thread operation built by the outbox for the host's persistence runner.
-pub type StorageOp = Box<dyn FnOnce(&Storage) + Send>;
-
-/// Process-wide persistence callbacks for the durable prompt outbox (`opencode_storage::OutboxStore`).
-#[derive(Clone, Copy)]
-pub struct StorageOps {
-    /// Runs `f` with the process's [`Storage`] (now when ready, else once opened).
-    pub with_storage: fn(StorageOp),
-    /// Hands off a composer draft document to an outbox row without writing a draft journal
-    /// record, returning the journal revision settled by `OutboxPut::clear_documents`.
-    pub hand_off_doc: fn(key: &str) -> u64,
-}
-
-static STORAGE: OnceLock<StorageOps> = OnceLock::new();
-
-/// Registers the host's process-wide outbox persistence callbacks. Call once during startup so
-/// both host-driven entrypoints and standalone [`Log`] transitions (`Log::release`, `Log::take`)
-/// reach durable storage.
-pub fn configure(ops: StorageOps) {
-    STORAGE.set(ops).ok();
-}
-
-pub(super) fn is_configured() -> bool {
-    STORAGE.get().is_some()
-}
-
-pub(super) fn with_storage_boxed(op: StorageOp) {
-    if let Some(ops) = STORAGE.get() {
-        (ops.with_storage)(op);
-    }
-}
-
-pub(super) fn hand_off_doc(key: &str) -> u64 {
-    STORAGE.get().map_or(0, |ops| (ops.hand_off_doc)(key))
-}
 
 /// Where the outbox's prompts are kept.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -267,7 +232,7 @@ impl Log {
     /// Lands prompt `id` using the configured process-wide storage runner.
     pub(super) fn persist(&mut self, id: &str, forward: Option<Forward>) {
         if let Some(op) = self.persist_op(id, forward) {
-            with_storage_boxed(op);
+            storage::with_storage(op);
         }
     }
 
@@ -284,7 +249,7 @@ impl Log {
     /// Prompt `s` left the outbox (sent elsewhere, edited back, deleted): its row goes.
     pub(super) fn forget(&mut self, s: &mut Sent) {
         if let Some(op) = self.forget_op(s) {
-            with_storage_boxed(op);
+            storage::with_storage(op);
         }
     }
 }

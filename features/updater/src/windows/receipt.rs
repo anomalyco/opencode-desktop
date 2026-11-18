@@ -33,12 +33,12 @@ pub(super) fn staged() -> Option<Release> {
 }
 
 fn read(key: &str) -> Option<Release> {
-    serde_json::from_value(crate::storage_json(NAMESPACE, key)?).ok()
+    serde_json::from_value(opencode_platform::storage::read_json(NAMESPACE, key)?).ok()
 }
 
 pub(super) fn stage(path: &Path, version: &str, sha256: &str) -> Result<(), String> {
     let bundle = bundle::identify(path).map_err(|e| format!("could not identify staged bundle: {e}"))?;
-    crate::storage_set_json(NAMESPACE, STAGE, &serde_json::json!(Release { version: version.into(), sha256: sha256.into(), bundle }));
+    opencode_platform::storage::write_json(NAMESPACE, STAGE, &serde_json::json!(Release { version: version.into(), sha256: sha256.into(), bundle }));
     Ok(())
 }
 
@@ -51,9 +51,9 @@ pub(super) fn at(root: &Path) -> Option<Release> {
         // Refresh `file_id` at `root` so even on filesystems (FAT32/exFAT) whose synthetic IDs
         // move across a directory rename, later launches match `file_id` without re-hashing.
         r.bundle.file_id = bundle::current_file_id(root);
-        crate::storage_set_json(NAMESPACE, INSTALL, &serde_json::json!(r));
+        opencode_platform::storage::write_json(NAMESPACE, INSTALL, &serde_json::json!(r));
         super::super::engine::record_installed(&r.version, &r.sha256);
-        crate::storage_delete(NAMESPACE, STAGE);
+        opencode_platform::storage::delete(NAMESPACE, STAGE);
         return Some(r);
     }
     read(INSTALL).filter(|r| bundle::matches_id(root, &r.bundle))

@@ -13,14 +13,6 @@ use crate::{App, Route, Source};
 
 rune_register::register!(crate::knobs::GROUP_LIST: rune_knobs::Group = [place::GROUP]);
 
-pub(crate) fn map_send_result(r: crate::send_failed::SendResult) -> SendResult {
-    match r {
-        crate::send_failed::SendResult::Accepted => SendResult::Accepted,
-        crate::send_failed::SendResult::Failed => SendResult::Failed,
-        crate::send_failed::SendResult::Queued => SendResult::Queued,
-    }
-}
-
 impl QuoteHost for App {
     fn quotes(&self) -> &Quotes {
         &self.quote
@@ -58,7 +50,7 @@ impl QuoteHost for App {
     }
 
     fn quote_send_result(&self, id: &str) -> Option<SendResult> {
-        self.send_result(id).map(map_send_result)
+        self.send_result(id)
     }
 
     fn delete_failed_quote_prompt(&mut self, id: &str) {

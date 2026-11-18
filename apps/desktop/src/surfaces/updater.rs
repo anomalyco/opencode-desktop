@@ -5,7 +5,7 @@
 //! verification reads the desktop crate's own build environment.
 
 pub use opencode_feature_updater::{
-    BuildInfo, StorageOps, Updater, UpdaterConfig, UpdaterHost, check_async, finish_quit,
+    BuildInfo, Updater, UpdaterConfig, UpdaterHost, check_async, finish_quit,
     install_async, installs_on_quit, poll, poll_owed, start_if_packaged, state_data,
 };
 
@@ -42,7 +42,7 @@ pub fn build_commit() -> Option<&'static str> {
     option_env!("OPENCODE_RUNE_COMMIT").filter(|c| !c.is_empty())
 }
 
-/// Configures the extracted updater crate with desktop's provenance, storage, and updates path.
+/// Configures the extracted updater crate with desktop's provenance and updates path.
 pub fn init() {
     opencode_feature_updater::configure(UpdaterConfig {
         build: BuildInfo {
@@ -52,11 +52,6 @@ pub fn init() {
             product_name: crate::launch::window_title(),
         },
         updates_dir: crate::dirs::updates,
-        storage: StorageOps {
-            read_json: crate::storage::json,
-            write_json: crate::storage::set_json,
-            delete: crate::storage::delete,
-        },
         plain_error: crate::status_toast::plain,
     });
 }

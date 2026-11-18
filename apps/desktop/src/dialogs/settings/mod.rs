@@ -21,16 +21,11 @@ use crate::App;
 use crate::jobs::Apply;
 use crate::pickers::PickerHost as _;
 
-/// Configures the extracted settings crate with desktop's build metadata and storage callbacks.
+/// Configures the extracted settings crate with desktop's build metadata.
 pub fn init() {
     opencode_feature_settings::configure(SettingsConfig {
         build_channel: crate::updater::build_channel(),
         build_version: crate::updater::build_version(),
-        storage: StorageOps {
-            read_json: crate::storage::json,
-            write_json: crate::storage::set_json,
-            delete: crate::storage::delete,
-        },
     });
 }
 

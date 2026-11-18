@@ -3521,6 +3521,7 @@ dependencies = [
  "opencode-code-view",
  "opencode-i18n",
  "opencode-kit",
+ "opencode-runtime",
  "opencode-search",
  "opencode-ui",
  "rune",
@@ -3538,12 +3539,13 @@ dependencies = [
  "image",
  "opencode-i18n",
  "opencode-kit",
+ "opencode-platform",
+ "opencode-runtime",
  "opencode-search",
  "opencode-ui",
  "rune",
  "rune-kit",
  "rune-theme-opencode",
- "serde",
  "serde_json",
  "session-view",
 ]
@@ -3684,6 +3686,7 @@ name = "opencode-feature-narrow"
 version = "0.0.1"
 dependencies = [
  "opencode-i18n",
+ "opencode-runtime",
  "opencode-ui",
  "rune",
  "rune-kit",
@@ -3698,6 +3701,7 @@ version = "0.0.1"
 dependencies = [
  "opencode-i18n",
  "opencode-kit",
+ "opencode-runtime",
  "rune",
  "rune-notify",
  "serde_json",
@@ -3736,6 +3740,7 @@ name = "opencode-feature-panels"
 version = "0.0.1"
 dependencies = [
  "opencode-i18n",
+ "opencode-runtime",
  "opencode-ui",
  "rune",
  "rune-knobs",
@@ -3750,6 +3755,8 @@ version = "0.0.1"
 dependencies = [
  "opencode-i18n",
  "opencode-kit",
+ "opencode-platform",
+ "opencode-runtime",
  "opencode-search",
  "opencode-ui",
  "rune",
@@ -3796,6 +3803,7 @@ version = "0.0.1"
 dependencies = [
  "opencode-i18n",
  "opencode-kit",
+ "opencode-runtime",
  "opencode-ui",
  "rune",
  "rune-kit",
@@ -3809,6 +3817,8 @@ version = "0.0.1"
 dependencies = [
  "opencode-i18n",
  "opencode-kit",
+ "opencode-platform",
+ "opencode-runtime",
  "opencode-search",
  "opencode-ui",
  "rune",
@@ -3893,6 +3903,7 @@ version = "0.0.1"
 dependencies = [
  "authenticode",
  "opencode-i18n",
+ "opencode-platform",
  "opencode-storage",
  "rune",
  "rune-luau",
@@ -3976,6 +3987,7 @@ name = "opencode-platform"
 version = "0.0.1"
 dependencies = [
  "opencode-kit",
+ "opencode-storage",
  "otlp-lite",
  "rune",
  "serde",
@@ -4026,6 +4038,7 @@ name = "opencode-runtime"
 version = "0.0.1"
 dependencies = [
  "http",
+ "opencode-i18n",
  "opencode-kit",
  "rune",
  "serde",

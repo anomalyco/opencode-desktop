@@ -13,8 +13,12 @@ pub mod machines;
 pub mod pairing;
 pub mod server_machine;
 pub mod server_pool;
+pub mod types;
 pub mod window;
 
 pub use catalog::Catalog;
 pub use draft::{Entry, SavedDraft};
 pub use server_pool::ServerPool;
+pub use types::{
+    ContextFile, DockPlacement, NotifyKind, NotifyKinds, SendResult, TabStatus, TabSummary,
+};

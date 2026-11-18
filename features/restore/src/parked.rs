@@ -16,13 +16,7 @@ use rune::{Mark, MarkRange, TextEdit};
 
 use crate::RestoreHost;
 
-/// A file's lines waiting in the composer, 1-based and in order.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub struct ContextFile {
-    pub path: String,
-    pub start: u32,
-    pub end: u32,
-}
+pub use opencode_runtime::ContextFile;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Parked {

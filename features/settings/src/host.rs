@@ -17,7 +17,6 @@ use opencode_kit::wire_error::WireError;
 use opencode_ui::keymap::Section as KeymapSection;
 use rune::{Chord, El, Icon, Tx, el, icon};
 use rune_theme_opencode::icons as ic;
-use serde_json::Value;
 use session_view::palette::Pal;
 use session_view::pickers::Model;
 
@@ -26,47 +25,22 @@ use crate::jobs::SettingsJob;
 use crate::pages;
 use crate::types::{ReduceMotion, TabLayout, TextRenderer};
 
-/// Host persistence callbacks for Settings' global storage (`settings.v3`, `language`,
-/// `rune.settings`, and `settings-v2.models.providers`).
-#[derive(Clone, Copy)]
-pub struct StorageOps {
-    pub read_json: fn(namespace: &str, key: &str) -> Option<Value>,
-    pub write_json: fn(namespace: &str, key: &str, value: &Value),
-    pub delete: fn(namespace: &str, key: &str),
-}
-
-fn noop_read(_: &str, _: &str) -> Option<Value> {
-    None
-}
-
-fn noop_write(_: &str, _: &str, _: &Value) {}
-
-fn noop_delete(_: &str, _: &str) {}
-
-const DEFAULT_STORAGE: StorageOps = StorageOps {
-    read_json: noop_read,
-    write_json: noop_write,
-    delete: noop_delete,
-};
-
 /// Process-wide configuration registered once at startup by the host binary.
 #[derive(Clone, Copy)]
 pub struct SettingsConfig {
     pub build_channel: &'static str,
     pub build_version: &'static str,
-    pub storage: StorageOps,
 }
 
 const DEFAULT_CONFIG: SettingsConfig = SettingsConfig {
     build_channel: "local",
     build_version: "0.0.0",
-    storage: DEFAULT_STORAGE,
 };
 
 static CONFIG: OnceLock<SettingsConfig> = OnceLock::new();
 
-/// Registers the host's build channel, version fallback, and storage callbacks.
-/// Call once at startup before reading or saving preferences.
+/// Registers the host's build channel and version fallback.
+/// Call once at startup before reading build metadata.
 pub fn configure(config: SettingsConfig) {
     CONFIG.set(config).ok();
 }
@@ -77,10 +51,6 @@ pub fn build_channel() -> &'static str {
 
 pub fn build_version() -> &'static str {
     CONFIG.get().map_or(DEFAULT_CONFIG.build_version, |c| c.build_version)
-}
-
-pub(crate) fn storage_ops() -> StorageOps {
-    CONFIG.get().map_or(DEFAULT_STORAGE, |c| c.storage)
 }
 
 /// One connected or available provider row in Settings › Providers.

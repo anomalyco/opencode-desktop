@@ -260,8 +260,8 @@ impl UpdaterService {
             // A blocking platform call can't be stopped; its stale result is fenced by its attempt.
             Effect::Cancel(_) => {}
             // The staged version (`ready`), in the app's state: memory now, the storage behind.
-            Effect::PersistSet(version) => crate::storage_set_json(super::engine::NAMESPACE, "ready", &serde_json::json!(version)),
-            Effect::PersistClear => crate::storage_delete(super::engine::NAMESPACE, "ready"),
+            Effect::PersistSet(version) => opencode_platform::storage::write_json(super::engine::NAMESPACE, "ready", &serde_json::json!(version)),
+            Effect::PersistClear => opencode_platform::storage::delete(super::engine::NAMESPACE, "ready"),
             Effect::ResolveChecks(tickets, view) => self.answer(tickets, |_| Answer::Checked(view.clone())),
             Effect::ResolveInstalls(tickets) => {
                 self.answer(tickets, |_| Answer::Installed(Ok(())));
@@ -309,7 +309,7 @@ impl Worker {
             self.send(Message::Event(Event::Unavailable));
             return;
         };
-        let persisted = crate::storage_json(super::engine::NAMESPACE, "ready").and_then(|v| v.as_str().map(str::to_owned)).filter(|v| !v.is_empty());
+        let persisted = opencode_platform::storage::read_json(super::engine::NAMESPACE, "ready").and_then(|v| v.as_str().map(str::to_owned)).filter(|v| !v.is_empty());
         let last_error = platform.take_last_error();
         eprintln!("updater: up in {} µs, off the UI thread", started.elapsed().as_micros());
         self.send(Message::Started(platform.clone(), Event::Started { current: platform.version().to_owned(), persisted, external: platform.external() }));

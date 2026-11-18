@@ -164,7 +164,7 @@ pub const NAMESPACE: &str = "plugin.updater";
 
 #[allow(clippy::disallowed_methods)]
 fn load_or_create_rollout_bucket() -> u8 {
-    if let Some(bucket) = crate::storage_json(NAMESPACE, "rune.rolloutBucket").and_then(|v| v.as_u64()).and_then(|b| u8::try_from(b).ok()).filter(|b| *b < 100) {
+    if let Some(bucket) = opencode_platform::storage::read_json(NAMESPACE, "rune.rolloutBucket").and_then(|v| v.as_u64()).and_then(|b| u8::try_from(b).ok()).filter(|b| *b < 100) {
         return bucket;
     }
     let nanos = rune::time::SystemTime::now().duration_since(rune::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
@@ -172,19 +172,19 @@ fn load_or_create_rollout_bucket() -> u8 {
     hasher.update(nanos.to_le_bytes());
     hasher.update(std::process::id().to_le_bytes());
     let bucket = hasher.finalize()[0] % 100;
-    crate::storage_set_json(NAMESPACE, "rune.rolloutBucket", &serde_json::json!(bucket));
+    opencode_platform::storage::write_json(NAMESPACE, "rune.rolloutBucket", &serde_json::json!(bucket));
     bucket
 }
 
 /// The SHA-256 of the archive the running build was installed from, when an update installed it:
 /// the release last staged, if that's the version running now.
 pub fn read_installed_sha(running_version: &str) -> Option<String> {
-    let raw = crate::storage_json(NAMESPACE, "rune.installedRelease")?;
+    let raw = opencode_platform::storage::read_json(NAMESPACE, "rune.installedRelease")?;
     let (ver, sha) = raw.as_str()?.split_once(' ')?;
     (ver == running_version && sha.len() == 64).then(|| sha.to_owned())
 }
 
 /// Records the verified archive only after its bundle has reached the install path.
 pub fn record_installed(version: &str, sha256: &str) {
-    crate::storage_set_json(NAMESPACE, "rune.installedRelease", &serde_json::json!(format!("{version} {sha256}")));
+    opencode_platform::storage::write_json(NAMESPACE, "rune.installedRelease", &serde_json::json!(format!("{version} {sha256}")));
 }

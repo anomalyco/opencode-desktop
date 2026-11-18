@@ -29,14 +29,7 @@ use crate::{
 // A static, not a const: a const's bytes are copied into every codegen unit that names it.
 pub(crate) static FIXTURE: &str = include_str!("../assets/fixture.json");
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum TabStatus {
-    Busy,
-    Attention,
-    Unread,
-    /// Unread, and its run failed.
-    Failed,
-}
+pub use opencode_runtime::TabStatus;
 
 #[derive(Default)]
 pub enum Source {

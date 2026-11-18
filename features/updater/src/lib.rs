@@ -58,20 +58,11 @@ pub struct BuildInfo {
     pub product_name: &'static str,
 }
 
-/// Host persistence callbacks for the updater's storage namespace (`plugin.updater`).
-#[derive(Clone, Copy)]
-pub struct StorageOps {
-    pub read_json: fn(namespace: &str, key: &str) -> Option<serde_json::Value>,
-    pub write_json: fn(namespace: &str, key: &str, value: &serde_json::Value),
-    pub delete: fn(namespace: &str, key: &str),
-}
-
 /// Process-wide configuration registered once at startup by the host app.
 #[derive(Clone, Copy)]
 pub struct UpdaterConfig {
     pub build: BuildInfo,
     pub updates_dir: fn() -> Option<PathBuf>,
-    pub storage: StorageOps,
     /// Formats a raw OS/helper error string for user-facing failure toasts.
     pub plain_error: fn(&str) -> String,
 }
@@ -93,7 +84,7 @@ const DEFAULT_BUILD: BuildInfo = BuildInfo {
     product_name: "OpenCode (Rune)",
 };
 
-/// Registers the host build identity, updates directory, persistence hooks and error formatter.
+/// Registers the host build identity, updates directory and error formatter.
 /// Call once during startup before starting the updater service.
 pub fn configure(config: UpdaterConfig) {
     CONFIG.get_or_init(|| config);
@@ -123,22 +114,6 @@ pub fn default_plain_error(e: &str) -> String {
         _ => e,
     };
     e.to_owned()
-}
-
-pub(crate) fn storage_json(namespace: &str, key: &str) -> Option<serde_json::Value> {
-    (CONFIG.get()?.storage.read_json)(namespace, key)
-}
-
-pub(crate) fn storage_set_json(namespace: &str, key: &str, value: &serde_json::Value) {
-    if let Some(cfg) = CONFIG.get() {
-        (cfg.storage.write_json)(namespace, key, value);
-    }
-}
-
-pub(crate) fn storage_delete(namespace: &str, key: &str) {
-    if let Some(cfg) = CONFIG.get() {
-        (cfg.storage.delete)(namespace, key);
-    }
 }
 
 pub(crate) fn updates_dir() -> Option<PathBuf> {

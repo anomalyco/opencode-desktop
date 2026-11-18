@@ -15,14 +15,6 @@ use session_view::composer::history::Entry;
 
 use crate::{App, Route, Source};
 
-/// Configures process-wide SQLite/IndexedDB outbox persistence callbacks once at startup.
-pub fn init() {
-    configure(StorageOps {
-        with_storage: |f| crate::storage::with_storage(f),
-        hand_off_doc: crate::storage::hand_off_doc,
-    });
-}
-
 impl SendFailedHost for App {
     fn unsent(&self) -> &Log {
         &self.unsent
@@ -72,16 +64,8 @@ impl SendFailedHost for App {
         App::persists(self)
     }
 
-    fn with_storage(&self, op: StorageOp) {
-        crate::storage::with_storage(op);
-    }
-
     fn active_draft_document(&self) -> Option<String> {
         crate::restore::draft_key(&self.route).and_then(|k| self.draft_document_of(&k))
-    }
-
-    fn hand_off_draft_doc(&mut self, key: &str) -> u64 {
-        crate::storage::hand_off_doc(key)
     }
 
     fn is_fixture(&self) -> bool {
@@ -188,7 +172,7 @@ impl SendFailedHost for App {
     }
 
     fn on_send_result(&mut self, id: &str, result: SendResult) {
-        crate::quote::send_result(self, id, crate::quote::map_send_result(result));
+        crate::quote::send_result(self, id, result);
     }
 
     fn toast_say(&mut self, title: &str, description: &str) {

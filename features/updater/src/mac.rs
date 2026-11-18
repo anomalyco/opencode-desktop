@@ -330,7 +330,7 @@ fn sync_installed_receipt(updates: &Path, running_exe: &Path, installed_exe: &Pa
     } else if file_id(installed_exe) != Some((r.dev, r.ino)) {
         std::fs::remove_file(updates.join(INSTALLED_RECEIPT)).ok();
         if engine::read_installed_sha(&r.version).as_deref() == Some(r.sha256.as_str()) {
-            crate::storage_set_json(engine::NAMESPACE, "rune.installedRelease", &serde_json::Value::Null);
+            opencode_platform::storage::write_json(engine::NAMESPACE, "rune.installedRelease", &serde_json::Value::Null);
         }
     }
 }

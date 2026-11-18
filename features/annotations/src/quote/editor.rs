@@ -35,14 +35,7 @@ static CHECK: Icon = Icon {
     body: r#"<path d="M2.44444 8.22222L6 12.6667L13.5556 3.33333" stroke-linecap="square" stroke="currentColor"/>"#,
 };
 
-/// How a send ended, for whoever waits on it (the quote comment editor's send): the server has
-/// it, it failed for good, or the outbox keeps it to send when it can.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SendResult {
-    Accepted,
-    Failed,
-    Queued,
-}
+pub use opencode_runtime::SendResult;
 
 /// Follow-up delivery preference while a session works (`Settings > Follow-up`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

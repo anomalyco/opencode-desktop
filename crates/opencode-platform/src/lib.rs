@@ -7,14 +7,17 @@
 //! - [`askpass`]: `SSH_ASKPASS` loopback helper entrypoint.
 //! - [`web_fetch`]: cached unauthenticated web GET for images and favicons (native + wasm32).
 //! - [`host`]: [`PlatformPaths`] and [`PlatformInfo`] value descriptors.
+//! - [`storage`]: process-wide [`StoragePort`] persistence callbacks.
 
 #![forbid(unsafe_code)]
 
 pub mod askpass;
 pub mod host;
+pub mod storage;
 pub mod telemetry;
 pub mod wall;
 pub mod web_fetch;
 
 pub use host::{PlatformInfo, PlatformPaths};
+pub use storage::{DocLookup, StorageOp, StoragePort};
 pub use wall::wall_ms;
