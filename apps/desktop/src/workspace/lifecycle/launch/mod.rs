@@ -1,229 +1,33 @@
 //! Launch order. A window's first frame draws while the window is created, so a windowed live
 //! run reads only local files before it (saved tabs, zoom, route and drafts). `on_ready` then
 //! starts the first server reads; when they land, the event stream, the open session's page and
-//! the prefetch start (`connect`). Headless runs and hot builds have no `on_ready`: they read the
-//! server before the first frame, as a snapshot needs, and connect from `setup`.
+//! the prefetch start (`boot::connect`). Headless runs and hot builds have no `on_ready`: they
+//! read the server before the first frame, as a snapshot needs, and connect from `setup`.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+mod boot;
+#[cfg(target_os = "windows")]
+pub mod io_trace;
+pub mod last_exit;
+mod network;
+pub mod trace;
+
+#[cfg(target_arch = "wasm32")]
+pub use boot::start_first_reads;
+pub use boot::{
+    Accepted, FIRST_PATIENCE, First, GRACE, Ready, apply_app_icon, attach_console, defer, deferred,
+    initial_server, instance_id, print_version_if_asked, product, window_title, write_profile,
+};
+
 use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::Duration;
+
+use opencode_kit::client::Server;
+use rune::Tx;
+use rune::machine::Effects;
 use rune::time::Instant;
 
-use opencode_kit::client::{Request, Server};
-use opencode_kit::model::Transcript;
-use rune::Tx;
-use serde_json::Value;
-
 use crate::reconnect::ServerId;
-use crate::{App, Route, Source, arg, headless, session_pages};
-use rune::machine::Effects;
-
-static DEFERRED: AtomicBool = AtomicBool::new(false);
-
-/// Windows: a release build is a windowed program (see `build.rs`), which Windows starts without
-/// a console. Started from a terminal, it writes to that terminal's console (`--version`, logs);
-/// output redirected to a file or a pipe already has somewhere to go.
-#[cfg(target_os = "windows")]
-#[allow(unsafe_code)]
-pub fn attach_console() {
-    use windows_sys::Win32::System::Console::{ATTACH_PARENT_PROCESS, AttachConsole, GetStdHandle, STD_ERROR_HANDLE};
-    // SAFETY: reads this process's standard error handle, and attaches to its parent's console
-    // when it has none; both fail harmlessly.
-    unsafe {
-        if GetStdHandle(STD_ERROR_HANDLE).is_null() {
-            AttachConsole(ATTACH_PARENT_PROCESS);
-        }
-    }
-}
-
-#[cfg(not(target_os = "windows"))]
-pub fn attach_console() {}
-
-/// In a build that records the profile-guided optimisation profile (`scripts/pgo.ps1`), the counts:
-/// LLVM's runtime writes them when the process ends normally, and the fast exit ends it with
-/// `TerminateProcess`, which runs no exit handler.
-pub fn write_profile() {
-    #[cfg(pgo_generate)]
-    #[allow(unsafe_code)]
-    {
-        unsafe extern "C" {
-            fn __llvm_profile_write_file() -> i32;
-        }
-        // SAFETY: LLVM's profiler runtime, linked into every `-Cprofile-generate` build; it only
-        // writes the counters out.
-        unsafe { __llvm_profile_write_file() };
-    }
-}
-
-
-/// `opencode-desktop --version`: the version and the release channel it was built for.
-pub fn print_version_if_asked() {
-    if std::env::args().nth(1).as_deref() == Some("--version") {
-        // A reader that went away (a GUI-subsystem exe captured by a shell that stopped waiting) is
-        // no reason to panic.
-        let _ = std::io::Write::write_fmt(&mut std::io::stdout(), format_args!("opencode-rune {} ({})\n", crate::updater::build_version(), crate::updater::build_channel()));
-        std::process::exit(0);
-    }
-}
-
-/// Window title (`"OpenCode (Rune)"` on `main`, `"OpenCode (Rune) · <branch>"` on PR builds).
-pub fn window_title() -> &'static str {
-    option_env!("OPENCODE_RUNE_WINDOW_TITLE").unwrap_or("OpenCode (Rune)")
-}
-
-/// The build's identity: its name, its app id (the Windows AppUserModelID, the uninstall
-/// entry's key and the single-instance pipe's name) and its own URL scheme, from the same
-/// environment the release workflows give every artifact of a build (the setup too).
-pub fn product() -> win_install::Product {
-    let product = win_install::Product::from_build(
-        option_env!("OPENCODE_RUNE_WINDOW_TITLE"),
-        option_env!("OPENCODE_RUNE_BUNDLE_ID"),
-        option_env!("OPENCODE_RUNE_BUILD_CHANNEL"),
-        option_env!("OPENCODE_RUNE_URL_SCHEME"),
-        crate::updater::build_version(),
-    );
-    // `--app-id=<id>`, honoured only when `RUNE_DIRS_ROOT` moves every folder the app writes: a
-    // harness run's own AppUserModelID, so its taskbar button, jump list and toasts are its own.
-    match crate::dirs::rooted().then(|| rune::extra_args().iter().find_map(|a| a.strip_prefix("--app-id=").map(str::to_owned))).flatten() {
-        Some(id) => product.with_id(id),
-        None => product,
-    }
-}
-
-/// What `rune::single_instance` keeps one process of: the data folder, as Desktop's
-/// single-instance lock is its `userData` folder's. Every build (installed, another channel, a
-/// release build from a checkout) shares that folder and its database, which the running process
-/// holds locked, so a second one hands its links over rather than start without its state.
-/// Debug builds have a folder of their own, and runs with their own `RUNE_DIRS_ROOT` their root.
-pub fn instance_id() -> String {
-    use sha2::{Digest, Sha256};
-    let data = crate::dirs::data().unwrap_or_default();
-    let digest = Sha256::digest(data.display().to_string().to_lowercase().as_bytes());
-    let tag: String = digest[..8].iter().map(|b| format!("{b:02x}")).collect();
-    format!("{}-{tag}", product().family())
-}
-
-/// Windows: the windows' title bar, taskbar and Alt+Tab icon, from the exe's own icon resource
-/// (`build.rs`), so nothing is decoded or resized at launch.
-#[cfg(target_os = "windows")]
-pub fn apply_app_icon() {
-    rune::set_app_icon_resource(1);
-}
-
-/// Sets the Dock icon from the enclosing `.app`'s `Contents/Resources/icon.icns` (preserving PR
-/// icon badges) when bundled, or the embedded default icon during `cargo run`.
-#[cfg(not(target_os = "windows"))]
-pub fn apply_app_icon() {
-    let bundled = std::env::current_exe()
-        .ok()
-        .and_then(|exe| std::fs::read(exe.parent()?.parent()?.join("Resources/icon.icns")).ok());
-    match bundled {
-        Some(bytes) => {
-            let _ = rune::set_app_icon(bytes.as_slice());
-        }
-        None => {
-            let _ = rune::set_app_icon(include_bytes!("../../../../assets/icon.icns").as_slice());
-        }
-    }
-}
-
-/// Initial server target: `--server` if passed, otherwise `:4096` (plus `service.json` discovery
-/// immediately when `on_ready` won't run, such as `--live --snap` or `hot` builds).
-pub fn initial_server() -> Server {
-    let explicit = crate::arg("--server");
-    // This connection is also cloned by restore, prefetch and reconnect. Negotiating media
-    // references can initialize a server location and count it as a project visit. A shared
-    // reader must therefore take ordinary message payloads, including for the initial page.
-    let server = Server::new(&explicit.clone().unwrap_or_else(opencode_kit::client::default_server));
-    if explicit.is_none() && !deferred() {
-        opencode_kit::local_service::discover_local_server(&server)
-    } else {
-        server
-    }
-}
-
-/// `main`, for runs that call `on_ready`: the server reads wait for it.
-#[cfg_attr(feature = "hot", allow(dead_code))]
-pub fn defer() {
-    DEFERRED.store(true, Ordering::Relaxed);
-}
-
-/// Whether `App::load` leaves the server reads to `on_ready`.
-pub fn deferred() -> bool {
-    DEFERRED.load(Ordering::Relaxed)
-}
-
-/// What [`First::fetch`] reads, the projects first.
-const FIRST_READS: [&str; 7] =
-    ["/api/project", "/api/session?limit=120", "/api/model", "/api/agent", "/api/provider", "/api/session/active", "/api/config"];
-
-/// The page, as it starts: the browser asks for the first reads while the module starts and
-/// draws its first frame, and `on_ready`'s reads take up the answers.
-#[cfg(target_arch = "wasm32")]
-pub fn start_first_reads() {
-    initial_server().start_gets(&FIRST_READS);
-}
-
-/// The first reads: projects, sessions, models and agents, providers, and what's running.
-pub struct First {
-    projects: Value,
-    sessions: Option<Value>,
-    models: Option<Value>,
-    agents: Option<Value>,
-    providers: Option<Value>,
-    active: Option<Value>,
-    /// The config's documents, for the model it names (`configured.ts`).
-    config: Option<Value>,
-}
-
-impl First {
-    pub fn fetch(server: &Server) -> Result<First, String> {
-        let get = |path: &'static str| {
-            let start = rune::time::Instant::now();
-            let r = server.get(path);
-            crate::telemetry::launch_read(path, start);
-            r
-        };
-        // A page started them with itself (`start_first_reads`); a retry starts them here.
-        #[cfg(target_arch = "wasm32")]
-        server.start_gets(&FIRST_READS);
-        let [projects, paths @ ..] = FIRST_READS;
-        let projects = get(projects).inspect_err(|_| {
-            #[cfg(target_arch = "wasm32")]
-            server.forget_gets();
-        })?;
-        // A page has no threads: its fiber takes up the answers one after another, but the
-        // browser asked for them all at once.
-        #[cfg(target_arch = "wasm32")]
-        let [sessions, models, agents, providers, active, config] = paths.map(|path| get(path).ok());
-        // Once the project probe succeeds these reads are independent. A slow catalog
-        // mustn't add its whole round trip to each successive startup read.
-        #[cfg(not(target_arch = "wasm32"))]
-        let [sessions, models, agents, providers, active, config] =
-            std::thread::scope(|scope| paths.map(|path| scope.spawn(move || get(path).ok())).map(|task| task.join().unwrap()));
-        Ok(First { projects, sessions, models, agents, providers, active, config })
-    }
-}
-
-/// What `on_ready`'s background startup worker brings back: Desktop Beta's tabs (when no
-/// `tabs.json` exists yet) and the first server reads, or `first: None` when the server wasn't
-/// reachable and the window should fall back to the fixture.
-pub struct Ready {
-    pub server: Option<Server>,
-    pub beta_tabs: Option<Vec<crate::tabs::Tab>>,
-    pub first: Option<Result<First, String>>,
-    /// Nothing accepted a connection at the address, and the reach watcher tries it from now on
-    /// (`Server::watch_reach`): the launch waits for it rather than trying on a timer.
-    pub refused: bool,
-}
-
-/// When the probe's thread found the server taking connections, set once from that thread.
-pub type Accepted = std::sync::Arc<std::sync::OnceLock<Instant>>;
-
-/// How long the launch's first reads may wait on a server that took their connection before the
-/// window says it's slow (`Link::Slow`): a server that accepts and holds every request would
-/// otherwise say nothing until the reads time out (about 10 s).
-pub const FIRST_PATIENCE: Duration = Duration::from_millis(1500);
+use crate::{App, Route, Source};
 
 /// A server that didn't answer, trying it again.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -325,7 +129,9 @@ impl Phase {
                 *self = Phase::Offline { retries: retries.saturating_add(1), retry_at };
                 let wake = (!refused).then_some(WakeAt(retry_at));
                 // A try the app made on its own that misses again changes nothing on screen.
-                if again.is_some_and(|a| a.quiet) { return wake.map_or_else(Effects::none, Effects::one); }
+                if again.is_some_and(|a| a.quiet) {
+                    return wake.map_or_else(Effects::none, Effects::one);
+                }
                 let mut effects = Effects::two(Repaint, Unreachable);
                 effects.extend(wake);
                 effects
@@ -338,12 +144,19 @@ impl Phase {
     }
 
     /// No server answered: Home shows the card, a session the unavailable panel.
-    pub fn offline(&self) -> bool { matches!(self, Phase::Offline { .. } | Phase::Probing { again: Some(_), .. }) }
-    /// The card's button says Checking: a probe the person asked for is on its way.
-    pub fn checking(&self) -> bool { matches!(self, Phase::Probing { again: None | Some(Again { quiet: false, .. }), .. }) }
-    /// The first reads haven't landed.
-    pub fn waiting(&self) -> bool { matches!(self, Phase::Waiting { .. } | Phase::Probing { again: None, .. }) }
+    pub fn offline(&self) -> bool {
+        matches!(self, Phase::Offline { .. } | Phase::Probing { again: Some(_), .. })
+    }
 
+    /// The card's button says Checking: a probe the person asked for is on its way.
+    pub fn checking(&self) -> bool {
+        matches!(self, Phase::Probing { again: None | Some(Again { quiet: false, .. }), .. })
+    }
+
+    /// The first reads haven't landed.
+    pub fn waiting(&self) -> bool {
+        matches!(self, Phase::Waiting { .. } | Phase::Probing { again: None, .. })
+    }
 }
 
 #[derive(Default)]
@@ -369,9 +182,17 @@ pub struct Launch {
 }
 
 impl Launch {
-    pub fn phase(&self, server: &str) -> Option<&Phase> { self.phases.get(server) }
-    pub fn set_phase(&mut self, server: &str, phase: Phase) { self.phases.insert(server.to_owned(), phase); }
-    pub fn forget(&mut self, server: &str) { self.phases.remove(server); }
+    pub fn phase(&self, server: &str) -> Option<&Phase> {
+        self.phases.get(server)
+    }
+
+    pub fn set_phase(&mut self, server: &str, phase: Phase) {
+        self.phases.insert(server.to_owned(), phase);
+    }
+
+    pub fn forget(&mut self, server: &str) {
+        self.phases.remove(server);
+    }
 }
 
 /// A story's window whose server didn't answer; `checking` while a Retry the person pressed is
@@ -389,54 +210,21 @@ pub(crate) fn story_offline(s: &mut App, checking: bool) {
     s.launch.set_phase(&server, phase);
 }
 
-/// How long a launch keeps trying a server it hasn't reached before Home shows the setup card:
-/// a server that is just starting comes up in this time. Only the local default address waits:
-/// another (a remote server, a tunnel) that refuses is unreachable at once, as Desktop's health
-/// check settles on its first answer.
-pub const GRACE: Duration = Duration::from_secs(5);
 /// How often the setup card tries again on its own.
-fn retry_delay(attempt: u32) -> f64 { (0.25 * 2_f64.powi(attempt.min(4) as i32)).min(3.0) }
-mod network;
-#[cfg(target_os = "windows")]
-pub mod io_trace;
-pub mod last_exit;
-pub mod trace;
-pub(crate) fn network_available(s:&mut App,tx:&mut Tx) {
-    if !s.live() { return; }
+fn retry_delay(attempt: u32) -> f64 {
+    (0.25 * 2_f64.powi(attempt.min(4) as i32)).min(3.0)
+}
+
+pub(crate) fn network_available(s: &mut App, tx: &mut Tx) {
+    if !s.live() {
+        return;
+    }
     Server::wake_reconnects();
     if let Some(server) = window_server(s) {
         crate::reconnect::step_link(s, &server, opencode_kit::servers::link::Event::NetworkChanged, tx);
     }
     step(s, LaunchEvent::NetworkUp, tx);
     s.pump_outbox();
-}
-
-/// The server `server` stands for (`service.json` when `discover`), probed until it answers or
-/// `grace` runs out; true when it answered.
-pub(crate) fn probe(server: &Server, discover: bool, grace: Duration) -> (Server, bool) {
-    let start = Instant::now();
-    let mut pause = Duration::from_millis(250);
-    loop {
-        let actual = if discover { opencode_kit::local_service::discover_local_server(server) } else { server.clone() };
-        let tried = Instant::now();
-        if actual.reachable() {
-            return (actual, true);
-        }
-        let left = grace.saturating_sub(start.elapsed());
-        if left.is_zero() {
-            return (actual, false);
-        }
-        // A try that ran out its 250 ms (`Server::reachable`) waited with a SYN in flight, unanswered:
-        // Windows answers a refused loopback SYN with silence, resending it, not a reset. Try
-        // again at once, so a SYN is always out and a server that starts listening during the
-        // grace is found within 250 ms, not after a back-off of up to a second more. A refusal at
-        // once (a reset, as elsewhere) backs off. This only runs for the launch's 5 s grace.
-        if tried.elapsed() >= Duration::from_millis(200) {
-            continue;
-        }
-        std::thread::sleep(pause.min(left));
-        pause = (pause * 2).min(Duration::from_secs(1));
-    }
 }
 
 /// `setup`: connects now unless `on_ready` will start the reads (or a synchronous live probe found no server).
@@ -461,22 +249,37 @@ pub(crate) fn window_server(s: &App) -> Option<ServerId> {
     Some(crate::servers::runtime::active(s).as_str().to_owned())
 }
 
-fn window_phase(s: &App) -> Option<&Phase> { s.launch.phase(crate::servers::runtime::active(s).as_str()) }
+fn window_phase(s: &App) -> Option<&Phase> {
+    s.launch.phase(crate::servers::runtime::active(s).as_str())
+}
 
 /// The window's server didn't answer: Home shows the card, a session the unavailable panel.
-pub fn offline(s: &App) -> bool { window_phase(s).is_some_and(Phase::offline) }
+pub fn offline(s: &App) -> bool {
+    window_phase(s).is_some_and(Phase::offline)
+}
+
 /// The window's first reads haven't landed.
-pub fn waiting(s: &App) -> bool { window_phase(s).is_some_and(Phase::waiting) }
+pub fn waiting(s: &App) -> bool {
+    window_phase(s).is_some_and(Phase::waiting)
+}
+
 /// The card's Retry says Checking.
-pub fn checking(s: &App) -> bool { window_phase(s).is_some_and(Phase::checking) }
+pub fn checking(s: &App) -> bool {
+    window_phase(s).is_some_and(Phase::checking)
+}
 
 /// Coalesce a burst into one quiet poll. An ordinary window wake requests a drawable even
 /// when the batch only updated a background session; a timer lets Rune skip that present.
 pub fn inbox_waker(handle: rune::AppHandle<App>) -> rune::Waker {
-    use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
     let pending = Arc::new(AtomicBool::new(false));
     Arc::new(move || {
-        if pending.swap(true, Ordering::AcqRel) { return; }
+        if pending.swap(true, Ordering::AcqRel) {
+            return;
+        }
         let pending = pending.clone();
         handle.update_if(move |_, tx| {
             pending.store(false, Ordering::Release);
@@ -489,7 +292,9 @@ pub fn inbox_waker(handle: rune::AppHandle<App>) -> rune::Waker {
 /// `on_ready`, after the first frame: starts the probe, Beta tab read and first server reads once.
 #[cfg_attr(feature = "hot", allow(dead_code))]
 pub fn ready(s: &mut App, tx: &mut Tx) -> bool {
-    if s.live() { s.launch.network_change = (*s.waker).clone().and_then(network::subscribe); }
+    if s.live() {
+        s.launch.network_change = (*s.waker).clone().and_then(network::subscribe);
+    }
     // The dormant built-ins' app menu rows and keys, before the menu bar lists them.
     crate::plugin_host::doze_owed(s);
     // The menu bar was built before the saved shortcuts loaded.
@@ -529,7 +334,7 @@ pub fn retry(s: &mut App, tx: &mut Tx) {
 }
 
 pub(crate) fn start(s: &mut App, tx: &mut Tx) {
-    let Some(server) = window_server(s) else { return connect(s, tx) };
+    let Some(server) = window_server(s) else { return boot::connect(s, tx) };
     // A run that read the server before its first frame has connected.
     if s.launch.phase(&server).is_none() {
         s.launch.set_phase(&server, Phase::Connected);
@@ -541,7 +346,11 @@ pub(crate) fn start(s: &mut App, tx: &mut Tx) {
 fn step(s: &mut App, event: LaunchEvent, tx: &mut Tx) -> bool {
     let Some(server) = window_server(s) else { return false };
     // Only the local default address may be a server still starting (see `GRACE`).
-    let grace = if server == opencode_kit::client::DEFAULT_SERVER || s.launch.grace.is_some() { s.launch.grace.unwrap_or(GRACE) } else { Duration::ZERO };
+    let grace = if server == opencode_kit::client::DEFAULT_SERVER || s.launch.grace.is_some() {
+        s.launch.grace.unwrap_or(GRACE)
+    } else {
+        Duration::ZERO
+    };
     let Some(mut phase) = s.launch.phases.remove(&server) else { return false };
     let effects = phase.step(event, grace);
     s.launch.set_phase(&server, phase);
@@ -549,10 +358,10 @@ fn step(s: &mut App, event: LaunchEvent, tx: &mut Tx) -> bool {
     for effect in effects {
         match effect {
             LaunchEffect::Probe { beta_tabs, again, grace } => {
-                let (rx, accepted) = spawn_probe(s, beta_tabs, grace);
+                let (rx, accepted) = boot::spawn_probe(s, beta_tabs, grace);
                 s.launch.set_phase(&server, Phase::Probing { rx, again, accepted });
             }
-            LaunchEffect::Connect => connect(s, tx),
+            LaunchEffect::Connect => boot::connect(s, tx),
             LaunchEffect::Unreachable => {
                 let now = *s.clock;
                 changed |= crate::reconnect::step_link(s, &server, opencode_kit::servers::link::Event::Unreachable { now }, tx);
@@ -568,73 +377,13 @@ fn step(s: &mut App, event: LaunchEvent, tx: &mut Tx) -> bool {
     changed
 }
 
-/// The probe, Desktop Beta's tabs and the first reads, on a thread; the window wakes for them.
-fn spawn_probe(s: &App, beta_tabs: bool, grace: Duration) -> (Receiver<Ready>, Accepted) {
-    let (out, rx) = std::sync::mpsc::channel();
-    let accepted = Accepted::default();
-    let Source::Live { server, .. } = &*s.source else { return (rx, accepted) };
-    let took = accepted.clone();
-    let (server, wake) = (server.clone(), s.launch.inbox_wake.clone().or_else(|| (*s.waker).clone()));
-    // Only the app's own server may stand down for the fixture, or move to the port
-    // `service.json` names.
-    let own = crate::servers::runtime::active(s).is_sidecar();
-    let fallback = s.launch.fallback_fixture && own;
-    let discover_local = own && crate::arg("--server").is_none();
-    let server = if discover_local {
-        crate::servers::runtime::own_server().unwrap_or(server)
-    } else {
-        server
-    };
-    // A page whose first reads are all in (index.html asked as it started) takes them now, so the
-    // next frame, the first one usually, is Home with its sessions: as task work it'd wait for the
-    // page's next turn, after that frame.
-    #[cfg(target_arch = "wasm32")]
-    let now = server.gets_in(&FIRST_READS);
-    #[cfg(not(target_arch = "wasm32"))]
-    let now = false;
-    let work = move || {
-        let (actual, reached) = probe(&server, discover_local, grace);
-        let ready = if !reached {
-            if fallback {
-                Ready { server: None, beta_tabs: None, first: None, refused: false }
-            } else {
-                let msg = format!("No OpenCode server responded at {}", actual.base);
-                // `service.json` may name another port next time, so a discovered server keeps
-                // its timer.
-                let refused = !discover_local;
-                if refused {
-                    actual.watch_reach(wake.clone());
-                }
-                Ready { server: Some(actual), beta_tabs: None, first: Some(Err(msg)), refused }
-            }
-        } else {
-            // The window counts its patience from here (`poll`).
-            let _ = took.set(Instant::now());
-            if let Some(w) = &wake {
-                w();
-            }
-            let beta_tabs = beta_tabs.then(crate::tabs::from_beta).flatten();
-            let first = First::fetch(&actual);
-            Ready { server: Some(actual), beta_tabs, first: Some(first), refused: false }
-        };
-        let _ = out.send(ready);
-        if let Some(w) = wake {
-            w();
-        }
-    };
-    if now {
-        work();
-    } else {
-        rune::task::spawn("opencode-first", work).expect("spawn first reads");
-    }
-    (rx, accepted)
-}
-
 /// `--harness-network-change <secs>`: the OS's network change or wake, stood in for once (`network::simulate`).
 fn harness_network_change(s: &App, tx: &mut Tx) {
     static AT: std::sync::OnceLock<Option<f64>> = std::sync::OnceLock::new();
     static DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    let Some(at) = *AT.get_or_init(|| crate::arg("--harness-network-change").and_then(|v| v.parse().ok())) else { return };
+    let Some(at) = *AT.get_or_init(|| crate::arg("--harness-network-change").and_then(|v| v.parse().ok())) else {
+        return;
+    };
     if DONE.load(std::sync::atomic::Ordering::Relaxed) {
         return;
     }
@@ -673,16 +422,23 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     // The first reads landed (or stopped): the built-ins `ready` held back start now.
     if s.launch.plugins_after_reads && !matches!(window_phase(s), Some(Phase::Probing { .. })) {
         s.launch.plugins_after_reads = false;
-        if crate::plugin_host::first_frame(s) { tx.instant(); }
+        if crate::plugin_host::first_frame(s) {
+            tx.instant();
+        }
     }
-    if s.launch.network_change.as_ref().is_some_and(|n| n.take()) { network_available(s,tx); }
+    if s.launch.network_change.as_ref().is_some_and(|n| n.take()) {
+        network_available(s, tx);
+    }
     harness_network_change(s, tx);
     last_exit::poll_debug_drill();
     let now = *s.clock;
     if s.live() && crate::attended() {
         step(s, LaunchEvent::Tick { now }, tx);
         if window_phase(s).is_some_and(|p| matches!(p, Phase::Offline { retry_at, .. } if retry_at.is_infinite()))
-            && matches!(crate::servers::health::get(crate::servers::runtime::active(s)), Some(opencode_kit::servers::health::Health::Probe(opencode_kit::servers::health::ProbeResult::Healthy { .. })))
+            && matches!(
+                crate::servers::health::get(crate::servers::runtime::active(s)),
+                Some(opencode_kit::servers::health::Health::Probe(opencode_kit::servers::health::ProbeResult::Healthy { .. }))
+            )
         {
             step(s, LaunchEvent::Answering, tx);
         }
@@ -739,152 +495,10 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
         // hasn't answered the unavailable panel (`view::session_state`).
         Err(e) => {
             let shown = step(s, LaunchEvent::Landed { reached, refused, now }, tx);
-            if shown { s.status = e.into(); }
+            if shown {
+                s.status = e.into();
+            }
             shown
-        }
-    }
-}
-impl App {
-    /// Home shows server `key` (a server picked in Settings' switcher, a plugin's `Servers:Connect`):
-    /// every server stays connected, and the window's tabs stay, as Desktop never switches a
-    /// window to a server (`notes/multi-server.md` §5.1).
-    pub(crate) fn focus_server(&mut self, key: &opencode_kit::servers::ServerKey, tx: &mut Tx) {
-        if !self.live() {
-            return;
-        }
-        tx.instant();
-        crate::projects::home::focus(self, key);
-        *self.opening = None;
-        *self.route = Route::Home;
-        crate::servers::runtime::switch(self, key);
-    }
-
-    /// Attachments and markdown images read through the server, so a window that opens with
-    /// a transcript (a torn-out tab's) shows its images before it connects.
-    pub(crate) fn set_media_fetch(&mut self) {
-        let Source::Live { server, .. } = &*self.source else { return };
-        let media = server.clone();
-        self.attach.set_fetch(std::sync::Arc::new(move |hash: &str| media.media(hash).map_err(|e| e.to_string())));
-        // Markdown images read through the server as Desktop's `readLocalImage` does; web
-        // images and link favicons come from the web, as the browser fetches them for Desktop.
-        let files = server.clone();
-        self.attach.markdown.set_fetch(
-            std::sync::Arc::new(move |directory: &str, path: &str| {
-                let encoded = crate::review::data::encode_fs_path(path);
-                files.get_bytes(&format!("/api/fs/read/{encoded}?location%5Bdirectory%5D={}", crate::switcher::encode(directory))).map_err(|e| e.kind.to_string())
-            }),
-            std::sync::Arc::new(crate::web_fetch::get),
-        );
-    }
-
-    pub(crate) fn apply_first(&mut self, f: First) {
-        // A window that started in its opener's copy (a torn-out tab's) reads only what it
-        // lacks: the copy is live, and newer than these reads.
-        let joined = crate::windows::peer::joined(self);
-        if !joined || self.projects.is_empty() {
-            *self.projects = opencode_kit::model::parse_projects(&f.projects);
-        }
-        if let Some(sessions) = &f.sessions {
-            self.refresh_recent();
-            self.sessions_listed(opencode_kit::model::parse_sessions(sessions));
-        }
-        crate::connect::picker_reads::first(self, [f.providers, f.config, f.models, f.agents]);
-        if let Some(a) = f.active.as_ref().filter(|_| !joined) {
-            let map = a.get("data").unwrap_or(a);
-            *self.running = map.as_object().into_iter().flatten().map(|(k, _)| k.clone()).filter(|id| !self.stops.pending(id)).collect();
-        }
-        crate::windows::peer::touch(self);
-        // A fresh profile has used no projects yet: Home lists none, as Desktop's
-        // `usedProjectIDs` starts empty.
-        let saved_projects = match &*self.source {
-            Source::Live { server, .. } => Some(crate::tabs::load_projects(&server.base).unwrap_or_default()),
-            Source::Fixture => None,
-        };
-        self.init_used_projects(saved_projects);
-        if let Route::Session { id, server } = &*self.route
-            && server == crate::servers::runtime::active(self)
-            && !self.tabs.iter().any(|t| t.id == *id)
-            && !self.sessions.iter().any(|s| s.id == *id)
-        {
-            self.launch.cold_transcript = None;
-            *self.route = Route::Home;
-        }
-        self.sort_projects();
-    }
-}
-
-/// With the data in: the event stream, info for tabs past the listed page, the open session,
-/// `--session`, and the newest pages.
-fn connect(s: &mut App, tx: &mut Tx) {
-    // Running sessions (subagents) whose family isn't loaded yet.
-    let mut missing: Vec<String> = s.running.iter().filter_map(|id| s.missing_ancestor(id)).collect();
-    missing.sort();
-    missing.dedup();
-    s.set_media_fetch();
-    if let (Source::Live { server, requests, writes, .. }, Some(waker)) = (&mut *s.source, (*s.waker).clone()) {
-        s.pages.set(session_pages::Pages::live(server.clone(), waker.clone()));
-        let inbox_wake = s.launch.inbox_wake.clone().unwrap_or(waker);
-        let (r, w, inbox) = crate::windows::connect(server, inbox_wake.clone());
-        *writes = Some(w);
-        // Tabs for sessions past the listed page: their info, so marks and avatars resolve.
-        for t in s.tabs.iter().filter(|t| !t.is_draft() && !s.sessions.iter().any(|x| x.id == t.id)) {
-            let _ = r.send(Request::Info(t.id.clone()));
-        }
-        for id in missing {
-            let _ = r.send(Request::Info(id));
-        }
-        *requests = Some(r);
-        *s.inbox = Some(inbox);
-        crate::windows::peer::join(s, Some(inbox_wake.clone()));
-        // A window that started in its opener's copy was woken plainly until now.
-        crate::windows::peer::set_waker(s, inbox_wake);
-        s.list_unlisted_worktrees();
-        // The session open at last quit (see `restore`) subscribes like a click on its tab.
-        if let Route::Session { id, server } = (*s.route).clone()
-            && server == *crate::servers::runtime::active(s)
-        {
-            // The open session's own server has answered: with tabs on several servers it can be
-            // later than `server.answered`, which is the first of them.
-            rune::marks::mark("session.server.answered");
-            crate::telemetry::open_restored(&id, s.transcripts.get(&id).map_or(0, |t| t.messages.len()));
-            s.open(&id, tx);
-        }
-    }
-    // `--session <id or title words>` opens a session of the app's own server at start; in a
-    // browser, of the page's server (`?session=`, the address a session's page has).
-    if let Some(raw) = arg("--session").filter(|_| cfg!(target_arch = "wasm32") || crate::servers::runtime::active(s).is_sidecar()) {
-        let q = raw.to_lowercase();
-        let found = s.sessions.iter().find(|x| x.id == raw).or_else(|| s.sessions.iter().find(|x| x.title.to_lowercase().contains(&q))).map(|x| x.id.clone());
-        if let Some(id) = found {
-            s.open(&id, tx);
-        }
-    }
-    // Small newest pages, on the speculative lane after foreground startup work is queued.
-    let mut recent: Vec<_> = s.sessions.iter().filter(|s| s.parent.is_none()).collect();
-    recent.sort_by_key(|s| std::cmp::Reverse(s.updated));
-    for session in recent.into_iter().take(session_pages::WARM) {
-        s.prefetch_page(&session.id);
-    }
-    // Deterministic headless snapshots have no wall-clock event loop to await the worker.
-    if headless()
-        && let (Route::Session { id, server: on }, Source::Live { server, .. }) = (&*s.route, &*s.source)
-        && on == crate::servers::runtime::active(s)
-        && !s.transcripts.contains_key(id)
-        && let Ok(v) = server.read(&format!("/api/session/{id}/message?limit={}&order=desc", session_pages::LATEST))
-    {
-        s.transcripts.insert(id.clone(), Transcript { session: id.clone(), messages: opencode_kit::model::parse_messages(&v) });
-    }
-    // And what waits in its inbox: steers, and shells and subagents that came back.
-    if headless()
-        && let (Route::Session { id, server: on }, Source::Live { server, .. }) = (&*s.route, &*s.source)
-        && on == crate::servers::runtime::active(s)
-        && let Ok(v) = server.read(&format!("/api/session/{id}/inbox"))
-    {
-        let id = id.clone();
-        let items = v["data"].as_array().or_else(|| v.as_array()).cloned().unwrap_or_default();
-        s.inbox_listed(&id, &items);
-        if let Some(dir) = s.session(&id).map(|i| i.directory.clone()) {
-            crate::subagents::shells::list(s, &dir);
         }
     }
 }

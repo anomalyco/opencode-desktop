@@ -56,6 +56,8 @@ opencode-feature-dictation = { path = "../../features/dictation" }
 opencode-feature-egg = { path = "../../features/egg" }
 opencode-feature-files = { path = "../../features/files" }
 opencode-feature-find = { path = "../../features/find" }
+opencode-feature-history = { path = "../../features/history" }
+opencode-feature-inbox = { path = "../../features/inbox" }
 opencode-feature-mcp = { path = "../../features/mcp" }
 opencode-feature-mentions = { path = "../../features/mentions" }
 opencode-feature-narrow = { path = "../../features/narrow" }
@@ -63,6 +65,7 @@ opencode-feature-notifications = { path = "../../features/notifications" }
 opencode-feature-open-in = { path = "../../features/open-in" }
 opencode-feature-panels = { path = "../../features/panels" }
 opencode-feature-review = { path = "../../features/review" }
+opencode-feature-session-menu = { path = "../../features/session-menu" }
 opencode-feature-settings = { path = "../../features/settings" }
 opencode-feature-subagents = { path = "../../features/subagents" }
 opencode-feature-switcher = { path = "../../features/switcher" }

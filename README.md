@@ -54,6 +54,8 @@ Organized by progressive disclosure (see [ARCHITECTURE.md](ARCHITECTURE.md)):
 | `features/egg` | `opencode-feature-egg` | New-session GPU wordmark & Brick Breaker Easter egg |
 | `features/files` | `opencode-feature-files` | Workspace file tree, file viewer, Markdown/HTML/table/Mermaid/image/video previews, link resolution, and file watcher engine |
 | `features/find` | `opencode-feature-find` | Session timeline Find (`Cmd/Ctrl+F`) state machine, incremental transcript search index, match highlighting, and find bar |
+| `features/history` | `opencode-feature-history` | Session timeline message navigation, Jump to message dialog, Rewind (`/undo`, `/redo`), and Fork from message dialog |
+| `features/inbox` | `opencode-feature-inbox` | Session prompt queue strip, drag/edit/rewrite state machines, durable prompt outbox, and delivery receipt checks |
 | `features/mcp` | `opencode-feature-mcp` | MCP server toggle machine, MCPs dialog, and browser OAuth sign-in dialog |
 | `features/mentions` | `opencode-feature-mentions` | Composer `@` mentions popover, search state machine, badges, session chips, and wire encoding |
 | `features/narrow` | `opencode-feature-narrow` | Narrow-window (<768 px) layout mode, view switcher, tabs/More drawers, and draggable sheets |
@@ -62,6 +64,7 @@ Organized by progressive disclosure (see [ARCHITECTURE.md](ARCHITECTURE.md)):
 | `features/open-in` | `opencode-feature-open-in` | External editor/terminal detection, launching, preferred app persistence, and URL opening |
 | `features/panels` | `opencode-feature-panels` | Session side, split, and bottom panel strip, drag/resize/closing state machines, launchers, menus, and persistence |
 | `features/review` | `opencode-feature-review` | Review changes engine, untracked folder loader, narrow Changes view, and focus anchoring |
+| `features/session-menu` | `opencode-feature-session-menu` | Session right-click context menus, inline and dialog rename, undoable delete, export, and read/mute/hide preferences |
 | `features/settings` | `opencode-feature-settings` | Settings two-pane shell, preferences persistence, search index, and all built-in settings pages |
 | `features/subagents` | `opencode-feature-subagents` | Running-work activity capsule, background shells state machine & output followers, and subagent reply bar |
 | `features/switcher` | `opencode-feature-switcher` | Command/file/session palette switcher, shared session search index, and project/worktree/branch switcher |

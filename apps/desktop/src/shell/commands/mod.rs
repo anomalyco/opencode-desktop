@@ -280,7 +280,7 @@ fn export(s: &mut App, _: &mut Tx) {
 fn rename(s: &mut App, tx: &mut Tx) {
     let Some(id) = s.open_root() else { return };
     tx.instant();
-    s.begin_rename(&crate::session_menu::Target::new(&id, crate::session_menu::Spot::Header));
+    s.begin_rename(&crate::session_menu::Target::active(s, &id, crate::session_menu::Spot::Header));
 }
 
 fn toggle_sidebar(s: &mut App, tx: &mut Tx) {

@@ -21,6 +21,8 @@ pub fn build() -> Kernel<App> {
     b.with_feature(&crate::dictation::DictationFeature);
     b.with_feature(&crate::files::FilesFeature);
     b.with_feature(&crate::find::FindFeature);
+    b.with_feature(&crate::message_nav::HistoryFeature);
+    b.with_feature(&crate::queue::InboxFeature);
     b.with_feature(&crate::mcp::McpFeature);
     b.with_feature(&crate::mentions::MentionsFeature);
     b.with_feature(&crate::narrow::NarrowFeature);
@@ -28,6 +30,7 @@ pub fn build() -> Kernel<App> {
     b.with_feature(&crate::open_in::OpenInFeature);
     b.with_feature(&crate::panels::PanelsFeature);
     b.with_feature(&crate::review::ReviewFeature);
+    b.with_feature(&crate::session_menu::SessionMenuFeature);
     b.with_feature(&crate::settings::SettingsFeature);
     b.with_feature(&crate::subagents::SubagentsFeature);
     b.with_feature(&crate::switcher::SwitcherFeature);

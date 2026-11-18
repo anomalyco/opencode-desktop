@@ -39,7 +39,7 @@ fn first(s: &App) -> String {
 }
 
 fn target(s: &App) -> Target {
-    Target::new(&first(s), spot(*s.variant))
+    Target::active(s, &first(s), spot(*s.variant))
 }
 
 fn open(s: &mut App, _: &mut Play<App>) {
@@ -57,7 +57,7 @@ fn open(s: &mut App, _: &mut Play<App>) {
 
 /// Starts the rename; `retitle` types a new title first, as a person would.
 fn start(s: &mut App, retitle: bool) {
-    let t = Target::new(&first(s), spot(*s.variant));
+    let t = Target::active(s, &first(s), spot(*s.variant));
     s.begin_rename(&t);
     if retitle {
         s.menus.edit.replace_text("Reconnect jitter, with a fake clock");
@@ -89,7 +89,7 @@ fn next(s: &mut App, _: &mut Tx) {
 
 pub fn view(s: &App, p: &Pal) -> El {
     let t = target(s);
-    let menu = (*s.variant <= 2).then(|| preview(p, "menu", &session_menu::lines(s, &t), s.menus.hot.as_deref()));
+    let menu = (*s.variant <= 2).then(|| preview(s, p, "menu", &session_menu::lines(s, &t), s.menus.hot.as_deref()));
     let stage = match t.spot {
         Spot::Tab => tabs(s, p, menu),
         Spot::Row => rows(s, p, menu),

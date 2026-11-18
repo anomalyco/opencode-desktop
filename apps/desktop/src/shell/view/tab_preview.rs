@@ -175,7 +175,7 @@ impl App {
 
     /// Whether a menu or rename target is tab `id` (`Tab::uid`).
     fn names(&self, target: &crate::session_menu::Target, id: &str) -> bool {
-        target.tab(self).is_some_and(|t| t.uid() == id)
+        target.tab(self).is_some_and(|t| t.uid == id)
     }
 
     /// Whether tab `id`'s card shows once it has it (`open() && !previewBlocked()`): a narrow
