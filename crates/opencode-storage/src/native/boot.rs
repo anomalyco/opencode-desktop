@@ -228,7 +228,8 @@ fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket), gate: &Gate) -> (St
                     // may be newer than the record, and the first frame shows the newer. One that
                     // names none (the first launch after the update) has nothing to wait for: the
                     // journal is reserved beside the first frame, before the first key.
-                    if owe.hint.is_some() {
+                    // A relaunch's read waits too: its old copy may still save (`profile::hold`).
+                    if owe.hint.is_some() || profile::relaunch() {
                         owe.packet = Some(p);
                     } else {
                         packet = Some(p.clone());
