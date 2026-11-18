@@ -5,7 +5,7 @@
 
 mod boot;
 mod dbfile;
-mod lease;
+pub(crate) mod lease;
 pub mod boot_record;
 pub mod import;
 pub mod journal;

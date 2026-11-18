@@ -393,6 +393,9 @@ mod imp {
         if SKIPPED_HASH.load(Ordering::Acquire) == want {
             return true;
         }
+        if opencode_storage::holds_profile() == Some(false) {
+            return false;
+        }
         let Some(paths) = PATHS.get() else { return false };
         if !paths.skip.exists() {
             return false;
@@ -411,6 +414,19 @@ mod imp {
         matched
     }
 
+    /// Whether this process holds the profile, once the storage has decided (at most 60 s: then
+    /// as if it does, as before the lease).
+    fn holds_profile_wait() -> bool {
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        loop {
+            match opencode_storage::holds_profile() {
+                Some(holds) => return holds,
+                None if std::time::Instant::now() >= until => return true,
+                None => std::thread::sleep(std::time::Duration::from_millis(20)),
+            }
+        }
+    }
+
     pub fn presented() {
         static STARTED: std::sync::Once = std::sync::Once::new();
         if crate::headless() {
@@ -424,6 +440,13 @@ mod imp {
 
     fn open_once() {
         let Some(paths) = PATHS.get() else { return };
+        // Only the copy that holds the profile keeps its crash record: a second copy (macOS: `open -n`,
+        // a shell) would write over the first's, or take its previous close as its own. This runs off
+        // the UI thread after the first frame; the storage decides within its lock wait.
+        if !holds_profile_wait() {
+            *STATE.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = State::Closed { seq: 0 };
+            return;
+        }
         if let Some(parent) = Path::new(&paths.record).parent() {
             let _ = std::fs::create_dir_all(parent);
         }
@@ -515,6 +538,10 @@ mod imp {
             return;
         }
 
+        // A second copy's fault isn't the profile's record (`open_once`).
+        if opencode_storage::holds_profile() == Some(false) {
+            return;
+        }
         let mut fd = RECORD_FD.load(Ordering::Acquire);
         let mut prev_tag = PREV_TAG.load(Ordering::Acquire);
         let mut prev_hash = PREV_HASH.load(Ordering::Acquire);

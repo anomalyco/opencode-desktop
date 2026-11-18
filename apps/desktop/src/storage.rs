@@ -57,6 +57,8 @@ enum Opened {
     Saving { drafts_replayed: bool },
     /// It couldn't (why): this run keeps its changes in memory.
     Memory(String),
+    /// Another copy of the app has the profile: this run keeps its changes in memory.
+    InUse,
     /// It was damaged: moved aside (here) and a new one made.
     Fresh(std::path::PathBuf),
 }
@@ -64,6 +66,7 @@ enum Opened {
 impl Opened {
     fn of(report: opencode_storage::BootReport) -> Opened {
         match (report.error, report.damaged) {
+            (Some(why), _) if why == opencode_storage::IN_USE => Opened::InUse,
             (Some(why), _) => Opened::Memory(why),
             (None, Some(kept)) => Opened::Fresh(kept),
             (None, None) => Opened::Saving {
@@ -101,6 +104,8 @@ static READY: Condvar = Condvar::new();
 pub enum Notice {
     /// The database couldn't open (why): this run keeps its changes in memory.
     Memory(String),
+    /// Another copy of OpenCode has this profile open: this run keeps its changes in memory.
+    InUse,
     /// The saved state was damaged: it's kept at this path, and the app started a new one.
     Damaged(String),
     /// Another process holds the file: the windows show its last checkpoint, and nothing is saved.
@@ -234,6 +239,8 @@ fn send(event: Event) {
                 // The first frame's notice already says nothing is saved.
                 (Opened::Memory(_), true) => t.owed.take(),
                 (Opened::Memory(why), false) => Some(Notice::Memory(why)),
+                // In its own words, over a held frame's notice that blames another program.
+                (Opened::InUse, _) => Some(Notice::InUse),
                 (Opened::Fresh(kept), _) => Some(Notice::Damaged(kept.display().to_string())),
                 (Opened::Saving { .. }, true) => Some(Notice::Saving),
                 (Opened::Saving { .. }, false) => None,
