@@ -80,27 +80,19 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
             }
         }
         Request::DismissToast(handle) => {
-            let shown = app.toast.stack.entries().iter().find_map(|e| match &e.options {
-                crate::status_toast::Shown::Status(entry) if entry.handle == Some(handle) => Some(e.id),
-                _ => None,
-            });
-            if let Some(id) = shown {
+            if let Some(id) = app.toast.id_for_handle(handle) {
                 tx.instant();
                 crate::status_toast::dismiss_id(app, id);
             }
         }
         Request::UpdateToast { handle, variant, title, description, reveal, persistent, buttons } => {
-            let entry = app.toast.stack.entries_mut().iter_mut().find_map(|e| match &mut e.options {
-                crate::status_toast::Shown::Status(entry) if entry.handle == Some(handle) => Some(entry),
-                _ => None,
-            });
-            let Some(entry) = entry else { return };
+            let Some(entry) = app.toast.by_handle_mut(handle) else { return };
             entry.title = title;
             entry.description = Some(description.trim().to_owned()).filter(|d| !d.is_empty());
             entry.icon = (variant == "success").then_some(&rune_theme_opencode::icons::CIRCLE_CHECK);
             entry.persistent = persistent || variant == "error";
             entry.action = reveal.map(|(label, path)| crate::status_toast::ToastAction::Reveal(label, path.into()));
-            entry.buttons = buttons;
+            entry.buttons = crate::status_toast::plugin_buttons(buttons);
             tx.instant();
         }
         Request::OpenIn { app: id, path } => app.open_in_at(&id, &path),
@@ -121,7 +113,7 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
                 if let Some((label, path)) = reveal {
                     e.action = Some(crate::status_toast::ToastAction::Reveal(label, path.into()));
                 }
-                e.buttons = buttons;
+                e.buttons = crate::status_toast::plugin_buttons(buttons);
                 e.handle = Some(handle);
             }
         }

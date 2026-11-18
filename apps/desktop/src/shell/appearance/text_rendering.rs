@@ -11,117 +11,7 @@ use rune::{FontSmoothing, SmoothingSupport, Tx};
 
 use crate::App;
 
-/// A Text rendering choice, as saved (`textRenderer`).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum TextRenderer {
-    /// Rune's default here: Windfoil with Chromium's weight; on a Mac (and in a Mac's browser)
-    /// CoreText's text without font smoothing, as official draws it ([`default_mode`]).
-    #[default]
-    Default,
-    WindfoilMac,
-    WindfoilChromium,
-    Slug,
-    WindfoilRgb,
-    /// DirectWrite grayscale with Skia's gamma on Windows, hinted grayscale elsewhere.
-    ChromiumLike,
-    ClearType,
-    RetinaLike,
-    HintedGpu,
-    /// For measuring launch and frame cost only, by `--text-renderer first`, and never listed:
-    /// the renderer Rune first drew Windows text with (`FontSmoothing::Off`, the CPU's outline
-    /// fill with the exponent gamma of #187).
-    First,
-}
-
-impl TextRenderer {
-    pub const ALL: [TextRenderer; 9] = [
-        TextRenderer::Default,
-        TextRenderer::WindfoilMac,
-        TextRenderer::WindfoilChromium,
-        TextRenderer::Slug,
-        TextRenderer::WindfoilRgb,
-        TextRenderer::ChromiumLike,
-        TextRenderer::ClearType,
-        TextRenderer::RetinaLike,
-        TextRenderer::HintedGpu,
-    ];
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Default => "default",
-            Self::WindfoilMac => "windfoil",
-            Self::WindfoilChromium => "windfoil-chromium",
-            Self::Slug => "slug",
-            Self::WindfoilRgb => "windfoil-rgb",
-            Self::ChromiumLike => "chromium",
-            Self::ClearType => "cleartype",
-            Self::RetinaLike => "retina",
-            Self::HintedGpu => "hinted-gpu",
-            Self::First => "first",
-        }
-    }
-
-    /// A saved name; `classic`, the first build's Off position, is the system's own text.
-    pub fn parse(s: Option<&str>) -> TextRenderer {
-        match s {
-            Some("classic") if cfg!(target_os = "macos") => Self::RetinaLike,
-            Some("classic") => Self::ChromiumLike,
-            Some("first") => Self::First,
-            _ => Self::ALL.into_iter().find(|r| Some(r.name()) == s).unwrap_or_default(),
-        }
-    }
-
-    pub fn label(self) -> &'static str {
-        use opencode_i18n::t;
-        match self {
-            Self::Default if mac_default() => t!("rune.textRendering.default.mac"),
-            Self::Default => t!("rune.textRendering.default"),
-            Self::WindfoilMac => t!("rune.textRendering.windfoil"),
-            Self::WindfoilChromium => t!("rune.textRendering.windfoilChromium"),
-            Self::Slug => t!("rune.textRendering.slug"),
-            Self::WindfoilRgb => t!("rune.textRendering.windfoilRgb"),
-            Self::ChromiumLike if cfg!(target_os = "windows") => t!("rune.textRendering.chromium.windows"),
-            Self::ChromiumLike => t!("rune.textRendering.chromium"),
-            Self::ClearType => t!("rune.textRendering.cleartype"),
-            Self::RetinaLike => t!("rune.textRendering.retina"),
-            Self::HintedGpu => t!("rune.textRendering.hintedGpu"),
-            Self::First => t!("rune.textRendering.first"),
-        }
-    }
-
-    /// The mode it draws with, when Rune has one for it.
-    fn mode(self) -> Option<FontSmoothing> {
-        Some(match self {
-            Self::Default => default_mode(),
-            Self::WindfoilMac => FontSmoothing::Windfoil,
-            Self::WindfoilChromium => FontSmoothing::WindfoilChromium,
-            Self::Slug => FontSmoothing::Slug,
-            Self::ChromiumLike if cfg!(target_os = "windows") => FontSmoothing::DirectWrite,
-            Self::ChromiumLike => FontSmoothing::Hinted,
-            Self::RetinaLike => FontSmoothing::On,
-            Self::HintedGpu => FontSmoothing::HintedGpu,
-            Self::WindfoilRgb => FontSmoothing::WindfoilRgb,
-            Self::ClearType => FontSmoothing::ClearType,
-            Self::First => FontSmoothing::Off,
-        })
-    }
-
-    /// Whether this machine draws it as named, and why not in a line.
-    pub fn support(self) -> SmoothingSupport {
-        match self.mode() {
-            Some(FontSmoothing::ClearType) if !cfg!(target_os = "windows") => SmoothingSupport::No(opencode_i18n::t!("rune.textRendering.reason.windowsOnly")),
-            Some(mode) => mode.support(),
-            None => SmoothingSupport::No(""),
-        }
-    }
-
-    /// The next choice after this one that draws here, for the palette.
-    pub fn cycle(self) -> TextRenderer {
-        let at = Self::ALL.iter().position(|r| *r == self).unwrap_or(0);
-        (1..Self::ALL.len()).map(|i| Self::ALL[(at + i) % Self::ALL.len()])
-            .find(|r| !matches!(r.support(), SmoothingSupport::No(_))).unwrap_or(self)
-    }
-}
+pub use opencode_feature_settings::TextRenderer;
 
 /// Which mode the windows draw for the saved choice.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -154,7 +44,7 @@ pub enum RenderingEffect {
 impl Rendering {
     pub fn mode(self) -> FontSmoothing {
         match self {
-            Rendering::Unapplied => default_mode(),
+            Rendering::Unapplied => TextRenderer::default_mode(),
             Rendering::Applied { mode, .. } | Rendering::FellBack { mode, .. } => mode,
         }
     }
@@ -182,26 +72,12 @@ impl Rendering {
     }
 }
 
-/// What Default draws. Where Rune's own default is font smoothing (`On`: macOS, and a Mac's
-/// browser), it's CoreText's text with smoothing off, which is what official draws there: its
-/// `<body>` is `antialiased` (`-webkit-font-smoothing: antialiased`), and smoothing's dilation
-/// drew Rune's text 12-30% heavier than official's (TEXT-2, `proof\text-gpu\weight\mac\`).
-/// Everywhere else it's Rune's default, unchanged. Retina-like still draws `On`.
-fn default_mode() -> FontSmoothing {
-    if mac_default() { FontSmoothing::Off } else { FontSmoothing::default() }
-}
-
-/// Whether Rune's own default here is font smoothing: on macOS and in a Mac's browser.
-fn mac_default() -> bool {
-    FontSmoothing::default() == FontSmoothing::On
-}
-
 fn resolve(choice: TextRenderer) -> Rendering {
     match (choice.mode(), choice.support()) {
         (Some(mode), SmoothingSupport::Yes) => Rendering::Applied { choice, mode },
         (Some(mode), SmoothingSupport::Fallback(reason)) => Rendering::FellBack { choice, mode, reason },
-        (_, SmoothingSupport::No(reason) | SmoothingSupport::Fallback(reason)) => Rendering::FellBack { choice, mode: default_mode(), reason },
-        (_, _) => Rendering::FellBack { choice, mode: default_mode(), reason: "" },
+        (_, SmoothingSupport::No(reason) | SmoothingSupport::Fallback(reason)) => Rendering::FellBack { choice, mode: TextRenderer::default_mode(), reason },
+        (_, _) => Rendering::FellBack { choice, mode: TextRenderer::default_mode(), reason: "" },
     }
 }
 

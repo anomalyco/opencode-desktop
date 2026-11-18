@@ -194,6 +194,7 @@ pub(crate) fn init_features() {
     INIT.call_once(|| {
         keymap::init();
         updater::init();
+        settings::init();
         #[cfg(feature = "office")]
         office::init();
     });

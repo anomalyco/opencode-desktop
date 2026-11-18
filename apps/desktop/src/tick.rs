@@ -11,8 +11,8 @@ use crate::{
     App, Route, agent_rows, appearance, background, copied, crash_notice, deep_links, demo,
     diagram, disclosure, dropzone, fork, glitch, headless, inbox_model,
     incoming, jump_list, language, launch, layout_state, line_comments, line_reveal, message_nav,
-    model_picker, narrow, notifications, plugin_host, popup, project_switcher, projects,
-    reconnect, rune_mcp, servers, session_menu, session_state, session_status, settings, speech,
+    model_picker, plugin_host, popup, project_switcher, projects,
+    reconnect, rune_mcp, servers, session_menu, session_state, session_status, speech,
     status_toast, stop, storage, submit, telemetry, text_rendering, todos,
     turn_errors, view, wall_ms, windows, working,
 };
@@ -65,9 +65,6 @@ pub(crate) fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= appearance::poll(s);
     text_rendering::poll(s, tx);
     changed |= language::poll(s, tx);
-    changed |= settings::search::poll(s, tx);
-    settings::pages::servers::unavailable::poll(s, tx);
-    changed |= notifications::poll(s, tx);
     changed |= speech::poll(s, tx);
     // A shortcut from the composer that moved the keyboard into the side region (its command
     // may run a frame later) leaves the selected tab's label muted (`SideState::quiet`).
@@ -138,7 +135,7 @@ pub(crate) fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     // Recompute derived views, indices, and projections from ingested state.
     changed |= scheduler.run_phase(Phase::Derive, s, now, tx);
     changed |= working::sync(s);
-    changed |= todos::sync(s, now, tx) | settings::pages::worktrees::poll(s, tx);
+    changed |= todos::sync(s, now, tx);
     if s.dock_face() != asked {
         s.morph(tx);
     }
@@ -175,14 +172,10 @@ pub(crate) fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= s.poll_panels(viewed || changed, tx);
     changed |= rune_mcp::poll(s, tx);
     changed |= s.poll_turn_diffs();
-    changed |= settings::pages::project::poll(s, tx);
-    changed |= settings::pages::about::poll(s, now, tx);
-    changed |= settings::pages::projects::poll(s);
     changed |= reconnect::poll(s, tx);
     changed |= session_state::poll(s, tx);
     changed |= status_toast::poll(s, now, tx);
     changed |= layout_state::poll(s, now, tx);
-    changed |= narrow::poll(s, now, tx);
     changed |= inbox_model::poll(s, now, tx);
     changed |= view::tab_preview::poll(s, now, tx);
     changed |= session_status::poll(s, now, tx);

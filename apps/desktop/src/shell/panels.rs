@@ -63,7 +63,10 @@ impl PanelsHost for App {
     }
 
     fn dock_placement(&self) -> DockPlacement {
-        self.settings.terminal_placement
+        match self.settings.terminal_placement {
+            crate::settings::DockPlacement::Side => DockPlacement::Side,
+            crate::settings::DockPlacement::Bottom => DockPlacement::Bottom,
+        }
     }
 
     fn panel_chrome(&self) -> PanelChrome {
@@ -268,7 +271,7 @@ impl App {
     }
 
     pub fn dock_placement(&self) -> DockPlacement {
-        self.settings.terminal_placement
+        PanelsHost::dock_placement(self)
     }
 
     pub fn bottom_open(&self) -> bool {

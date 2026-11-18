@@ -1,0 +1,18 @@
+[package]
+name = "opencode-feature-notifications"
+version = "0.0.1"
+description = "System notifications, actionable permission/question toasts, coordinator, and activation helpers for OpenCode (Rune)"
+edition = "2024"
+license.workspace = true
+publish = false
+
+[dependencies]
+opencode-i18n = { path = "../../crates/opencode-i18n" }
+opencode-kit = { path = "../../crates/opencode-kit" }
+rune.workspace = true
+rune-notify.workspace = true
+serde_json.workspace = true
+win-install = { path = "../../crates/win-install" }
+
+[lints]
+workspace = true

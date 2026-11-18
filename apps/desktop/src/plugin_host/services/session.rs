@@ -493,7 +493,7 @@ fn servers(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
             .map(|x| {
                 use crate::settings::pages::servers::inventory::Kind;
                 let state = match &x.kind {
-                    Kind::Plugin(rec) => ["stopped", "starting", "auth", "ready", "failed", "incompatible"].get(rec.state as usize).copied().unwrap_or("stopped"),
+                    Kind::Plugin(rec) => rec.state_name,
                     _ => "ready",
                 };
                 let label = match &x.kind {

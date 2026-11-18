@@ -18,10 +18,13 @@ rune-desktop/
 │   ├── find/                   #   opencode-feature-find (session timeline Find state machine, incremental transcript search index, match highlighting & find bar)
 │   ├── mcp/                    #   opencode-feature-mcp (MCP toggle machine, MCPs & OAuth sign-in dialogs)
 │   ├── mentions/               #   opencode-feature-mentions (composer @ mentions popover, search machine, badges, session chips, wire encoding)
+│   ├── narrow/                 #   opencode-feature-narrow (narrow-window <768px layout mode, view switcher, tabs/More drawers & draggable sheets)
+│   ├── notifications/          #   opencode-feature-notifications (system notifications, actionable permission/question toasts, coordinator & activation)
 │   ├── office/                 #   opencode-feature-office (Word/Excel/PPT Vello preview engine)
 │   ├── open-in/                #   opencode-feature-open-in (external editor/terminal detection & launch)
 │   ├── panels/                 #   opencode-feature-panels (session side/split/bottom panel strip, drag/resize/closing machines, launchers, menus & persistence)
 │   ├── review/                 #   opencode-feature-review (review changes engine, untracked folders, narrow Changes view, focus anchoring)
+│   ├── settings/               #   opencode-feature-settings (Settings two-pane shell, preferences persistence, search & all built-in settings pages)
 │   ├── subagents/              #   opencode-feature-subagents (activity capsule, background shells machine & followers, subagent reply bar)
 │   ├── switcher/               #   opencode-feature-switcher (command/file/session palette, shared session search index, project/worktree/branch switcher)
 │   ├── terminal-surface/       #   opencode-feature-terminal-surface (Ghostty-VT terminal pane, workspace tabs, persistence, shell integration, find, links & paste guard)
@@ -34,7 +37,7 @@ rune-desktop/
 │   │                           #   CommandRegistry, EventBus, Feature/Surface traits)
 │   ├── opencode-runtime/       #   Headless runtime primitives & explicit state machines (catalog, idle,
 │   │                           #   pairing, server pool/form, window life/placement, fork/rewind/pages/queue/send)
-│   ├── opencode-ui/            #   Shared UI primitives (`widgets`, dialog sizing), `keymap`, `panel_chrome`, and `popup` menu engine
+│   ├── opencode-ui/            #   Shared UI primitives (`widgets`, dialog sizing), `keymap`, `panel_chrome`, `popup` menus & `toast` notifications
 │   ├── opencode-platform/      #   OS & WASM platform helpers (wall clock, OTLP telemetry, askpass, fetch)
 │   ├── session-view/           #   Embeddable timeline (TimelineHost + focused capability sub-traits)
 │   ├── opencode-kit/           #   Protocol client, SSE/WS streams, transcript model

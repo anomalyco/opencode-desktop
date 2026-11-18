@@ -23,9 +23,12 @@ pub fn build() -> Kernel<App> {
     b.with_feature(&crate::find::FindFeature);
     b.with_feature(&crate::mcp::McpFeature);
     b.with_feature(&crate::mentions::MentionsFeature);
+    b.with_feature(&crate::narrow::NarrowFeature);
+    b.with_feature(&crate::notifications::NotificationsFeature);
     b.with_feature(&crate::open_in::OpenInFeature);
     b.with_feature(&crate::panels::PanelsFeature);
     b.with_feature(&crate::review::ReviewFeature);
+    b.with_feature(&crate::settings::SettingsFeature);
     b.with_feature(&crate::subagents::SubagentsFeature);
     b.with_feature(&crate::switcher::SwitcherFeature);
     b.with_feature(&crate::surfaces::terminal::TerminalSurfaceFeature);

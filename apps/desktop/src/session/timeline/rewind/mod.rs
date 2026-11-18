@@ -349,7 +349,7 @@ impl App {
             }
             Effect::DismissToast => {
                 if let Some(e) = self.toast.current()
-                    && matches!(&e.action, Some(crate::status_toast::ToastAction::UndoRewind(u)) if u.session == session)
+                    && matches!(&e.action, Some(crate::status_toast::ToastAction::Custom(crate::status_toast::DesktopToastAction::UndoRewind(u))) if u.session == session)
                 {
                     crate::status_toast::dismiss(self);
                 }
@@ -402,7 +402,7 @@ impl App {
             t.messages.truncate(keep);
         }
         if let Some(e) = self.toast.current()
-            && matches!(&e.action, Some(crate::status_toast::ToastAction::UndoRewind(u)) if u.session == session)
+            && matches!(&e.action, Some(crate::status_toast::ToastAction::Custom(crate::status_toast::DesktopToastAction::UndoRewind(u))) if u.session == session)
         {
             crate::status_toast::dismiss(self);
         }

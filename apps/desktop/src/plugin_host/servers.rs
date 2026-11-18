@@ -333,7 +333,7 @@ pub fn dialog_shows(app: &App) -> bool {
         || app.menus.confirming().is_some()
         || app.connect.open.is_some()
         || app.mcp.open.is_some()
-        || app.settings_pages.servers.dialog.state.is_some()
+        || crate::servers::dialog::is_open(app)
         || matches!(*app.remote_picker, crate::projects::remote_picker::Picker::Open(_))
 }
 
@@ -353,7 +353,13 @@ pub fn cover(app: &App, p: &crate::palette::Pal) -> Option<rune::El> {
 /// Contributed server `c`'s connection row in Settings › Servers, as its plugin draws it.
 pub fn row(app: &App, p: &crate::palette::Pal, c: &Contributed) -> Option<rune::El> {
     if c.by_address() {
-        return crate::servers::list().into_iter().find(|s| s.url == c.key).map(|s| crate::settings::pages::servers::http_row(p, &s));
+        return crate::servers::list().into_iter().find(|s| s.url == c.key).map(|s| {
+            let key = opencode_kit::servers::ServerConn::http_server(&s.url)
+                .map_or_else(|| opencode_kit::servers::ServerKey::new(&s.url), |conn| conn.key());
+            let health = crate::servers::health::get(&key);
+            let http = crate::settings::HttpServer { url: s.url, password: s.password, name: s.name };
+            crate::settings::pages::servers::http_row::<App>(p, &http, health.as_ref())
+        });
     }
     super::surfaces::server_row(app, p, &c.key, &c.rec)
 }
