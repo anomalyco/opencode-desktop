@@ -37,24 +37,36 @@ fn shadow_md(dark: bool) -> [Shadow; 4] {
     ]
 }
 
-/// The bar, pinned in the view it searches: `count` matches with `index` lit.
-pub fn find_bar<S: 'static>(p: &Pal, input: &TextEdit, count: usize, index: usize, spellcheck: bool, bar: FindBar<S>) -> El {
-    let FindBar { key, top, edit, changed, step, close, target } = bar;
-    let button = |key: &'static str, label: &'static str, glyph: El, enabled: bool, press: Box<dyn Fn(&mut S, &mut Tx)>| {
-        // `size-6 grid place-items-center rounded`, `disabled:opacity-40`.
-        let b = row().key(key).size(24.0, 24.0).center().radius(4.0).role("button").label_static(label).child(glyph);
-        if enabled {
-            b.hover(p.hover).hover_motion(INSTANT, INSTANT).on_press_tx(move |s: &mut S, tx: &mut Tx| press(s, tx))
-        } else {
-            b.opacity(0.4).disabled(true)
-        }
-    };
-    let chevron = |up: bool| {
-        let i = icon(&ic::CHEVRON_DOWN, 14.0).color(p.icon_muted);
-        if up { i.rotate(std::f32::consts::PI) } else { i }
-    };
-    let (t_edit, t_prev, t_next, t_close, t_submit, t_changed) = (target.clone(), target.clone(), target.clone(), target.clone(), target.clone(), target);
-    let t_key = t_close.clone();
+fn find_button_shell(p: &Pal, key: &'static str, label: &'static str, glyph: El, enabled: bool) -> El {
+    // `size-6 grid place-items-center rounded`, `disabled:opacity-40`.
+    let b = row().key(key).size(24.0, 24.0).center().radius(4.0).role("button").label_static(label).child(glyph);
+    if enabled {
+        b.hover(p.hover).hover_motion(INSTANT, INSTANT)
+    } else {
+        b.opacity(0.4).disabled(true)
+    }
+}
+
+fn find_chevron(p: &Pal, up: bool) -> El {
+    let i = icon(&ic::CHEVRON_DOWN, 14.0).color(p.icon_muted);
+    if up { i.rotate(std::f32::consts::PI) } else { i }
+}
+
+fn find_input_base(p: &Pal, input: &TextEdit, spellcheck: bool) -> El {
+    session_view::style::field(input, FIELD)
+        .key("find-input")
+        .single_line()
+        .spellcheck(spellcheck)
+        .w(160.0)
+        .color(p.text)
+        .placeholder(opencode_i18n::t!("ui.fileSearch.placeholder"), p.faint)
+        .caret(p.text, p.selection)
+        .selection_style(p.field_selection)
+        .label(opencode_i18n::t!("ui.fileSearch.placeholder"))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn find_bar_chrome(p: &Pal, key: &'static str, top: f32, count: usize, index: usize, field: El, prev: El, next: El, close: El) -> El {
     let shown = if count > 0 { format!("{}/{count}", index + 1) } else { "0/0".to_owned() };
     row()
         .key(key)
@@ -71,43 +83,47 @@ pub fn find_bar<S: 'static>(p: &Pal, input: &TextEdit, count: usize, index: usiz
         .elevate(shadow_md(p.dark))
         .transition(Transition::none())
         .child(icon(&ic::MAGNIFYING_GLASS, 14.0).color(p.icon_muted))
-        .child(
-            session_view::style::field(input, FIELD)
-                .key("find-input")
-                .single_line()
-                .spellcheck(spellcheck)
-                .w(160.0)
-                .color(p.text)
-                .placeholder(opencode_i18n::t!("ui.fileSearch.placeholder"), p.faint)
-                .caret(p.text, p.selection)
-                .selection_style(p.field_selection)
-                .label(opencode_i18n::t!("ui.fileSearch.placeholder"))
-                .on_edit(move |s: &mut S| edit(s, &t_edit))
-                .on_input_change(move |s: &mut S, tx: &mut Tx| changed(s, &t_changed, tx))
-                // The editor receives Escape before a pane shortcut. Unless an IME is using
-                // it, dismiss the owning bar instead of merely blurring its inner field.
-                .on_input_key(move |s: &mut S, ev, tx| {
-                    if !matches!(ev.key, rune::Key::Enter | rune::Key::Escape) || edit(s, &t_key).is_composing() {
-                        return false;
-                    }
-                    if ev.key == rune::Key::Escape {
-                        close(s, &t_key, tx);
-                    } else {
-                        step(s, &t_key, !ev.mods.shift, tx);
-                    }
-                    true
-                })
-                .on_submit(move |s: &mut S, tx: &mut Tx| step(s, &t_submit, true, tx)),
-        )
+        .child(field)
         // `width: 10ch`, right-aligned.
         .child(row().key("find-count").w(82.77).justify_end().child(text(shown).font(COUNT).color(p.faint)))
-        .child(
-            row()
-                .key("find-steps")
-                .child(button("find-prev", opencode_i18n::t!("ui.fileSearch.previousMatch"), chevron(true), count > 0, Box::new(move |s, tx| step(s, &t_prev, false, tx))))
-                .child(button("find-next", opencode_i18n::t!("ui.fileSearch.nextMatch"), chevron(false), count > 0, Box::new(move |s, tx| step(s, &t_next, true, tx)))),
-        )
-        .child(button("find-close", opencode_i18n::t!("ui.fileSearch.close"), icon(&ic::XMARK_SMALL, 14.0).color(p.icon_muted), true, Box::new(move |s, tx| close(s, &t_close, tx))))
+        .child(row().key("find-steps").child(prev).child(next))
+        .child(close)
+}
+
+/// The bar, pinned in the view it searches: `count` matches with `index` lit.
+pub fn find_bar<S: 'static>(p: &Pal, input: &TextEdit, count: usize, index: usize, spellcheck: bool, bar: FindBar<S>) -> El {
+    let FindBar { key, top, edit, changed, step, close, target } = bar;
+    let button = |key: &'static str, label: &'static str, glyph: El, enabled: bool, press: Box<dyn Fn(&mut S, &mut Tx)>| {
+        let b = find_button_shell(p, key, label, glyph, enabled);
+        if enabled {
+            b.on_press_tx(move |s: &mut S, tx: &mut Tx| press(s, tx))
+        } else {
+            b
+        }
+    };
+    let (t_edit, t_prev, t_next, t_close, t_submit, t_changed) = (target.clone(), target.clone(), target.clone(), target.clone(), target.clone(), target);
+    let t_key = t_close.clone();
+    let field = find_input_base(p, input, spellcheck)
+        .on_edit(move |s: &mut S| edit(s, &t_edit))
+        .on_input_change(move |s: &mut S, tx: &mut Tx| changed(s, &t_changed, tx))
+        // The editor receives Escape before a pane shortcut. Unless an IME is using
+        // it, dismiss the owning bar instead of merely blurring its inner field.
+        .on_input_key(move |s: &mut S, ev, tx| {
+            if !matches!(ev.key, rune::Key::Enter | rune::Key::Escape) || edit(s, &t_key).is_composing() {
+                return false;
+            }
+            if ev.key == rune::Key::Escape {
+                close(s, &t_key, tx);
+            } else {
+                step(s, &t_key, !ev.mods.shift, tx);
+            }
+            true
+        })
+        .on_submit(move |s: &mut S, tx: &mut Tx| step(s, &t_submit, true, tx));
+    let prev = button("find-prev", opencode_i18n::t!("ui.fileSearch.previousMatch"), find_chevron(p, true), count > 0, Box::new(move |s, tx| step(s, &t_prev, false, tx)));
+    let next = button("find-next", opencode_i18n::t!("ui.fileSearch.nextMatch"), find_chevron(p, false), count > 0, Box::new(move |s, tx| step(s, &t_next, true, tx)));
+    let close_btn = button("find-close", opencode_i18n::t!("ui.fileSearch.close"), icon(&ic::XMARK_SMALL, 14.0).color(p.icon_muted), true, Box::new(move |s, tx| close(s, &t_close, tx)));
+    find_bar_chrome(p, key, top, count, index, field, prev, next, close_btn)
 }
 
 /// `content` with the find bar over its top right.

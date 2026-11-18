@@ -108,8 +108,12 @@ impl std::fmt::Debug for CodeDocState {
 
 impl CodeDocState {
     pub fn new(path: impl Into<String>, content: &str) -> Self {
+        Self::from_path(path.into(), content)
+    }
+
+    fn from_path(path: String, content: &str) -> Self {
         let mut s = Self {
-            path: path.into(),
+            path,
             source: SourceLines::default(),
             content: Content::Loading,
             wrap: false,
@@ -606,7 +610,7 @@ impl CodeDocState {
             .map_or_else(Vec::new, |chunk| chunk.line_highlights((line.saturating_sub(1) % CHUNK_LINES) as usize))
     }
 
-    pub fn handle_key(&mut self, scroll_key: &str, ev: &KeyEvent, tx: &mut Tx, keys: &impl KeyMatch) -> bool {
+    pub fn handle_key(&mut self, scroll_key: &str, ev: &KeyEvent, tx: &mut Tx, keys: &dyn KeyMatch) -> bool {
         if keys.is_find(ev, tx) {
             tx.instant();
             self.set_find_open(true);

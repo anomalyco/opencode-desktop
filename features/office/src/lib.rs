@@ -22,7 +22,7 @@ pub use compositor::OfficeCompositor;
 pub use worker::{Scene, SheetFrame};
 
 /// Host hooks the Office viewer needs from its embedding Rune app.
-pub trait OfficeHost: Sized + 'static {
+pub trait OfficeHost {
     /// Whether external URLs (hyperlink clicks in spreadsheets) may open outside the app.
     fn is_live(&self) -> bool {
         true
@@ -93,7 +93,7 @@ pub(crate) fn map(fields: impl IntoIterator<Item = (&'static str, Data)>) -> Dat
 
 /// Takes the file threads' and the font fetch's news, and does what a sheet's grid asked of the
 /// window (a copy, a toast, a scroll); true when a view should draw again.
-pub fn poll<H: OfficeHost>(app: &mut H, tx: &mut rune::Tx) -> bool {
+pub fn poll(app: &mut dyn OfficeHost, tx: &mut rune::Tx) -> bool {
     let changed = registry::poll() | cjk::poll();
     for effect in registry::take_ui() {
         sheet::run(app, effect, tx);

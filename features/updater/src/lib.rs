@@ -77,7 +77,7 @@ pub struct UpdaterConfig {
 }
 
 /// Host window hooks the updater drives on the UI thread.
-pub trait UpdaterHost: Sized + 'static {
+pub trait UpdaterHost {
     fn updater(&self) -> &Updater;
     fn updater_mut(&mut self) -> &mut Updater;
     fn waker(&self) -> Option<rune::Waker>;
@@ -236,7 +236,7 @@ pub fn finish_quit() {
 }
 
 /// A start that waited for the storage's decision (`start_if_packaged`).
-pub fn poll_owed<H: UpdaterHost>(s: &mut H) {
+pub fn poll_owed(s: &mut dyn UpdaterHost) {
     if s.updater().owed
         && let Some(holds) = opencode_storage::holds_profile()
     {
@@ -250,7 +250,7 @@ pub fn poll_owed<H: UpdaterHost>(s: &mut H) {
 /// Starts the update service, or joins this window to the one the first window started. Called
 /// after the first frame; the service's worker finds out whether this build updates
 /// (`platform::make`) off the UI thread, so this only creates channels and starts the thread.
-pub fn start_if_packaged<H: UpdaterHost>(s: &mut H) {
+pub fn start_if_packaged(s: &mut dyn UpdaterHost) {
     if rune::is_headless() || s.updater().service.is_some() {
         return;
     }
@@ -302,7 +302,7 @@ fn make_platform() -> Option<std::sync::Arc<dyn platform::Platform>> {
 /// checks and installs that settled; zero allocations when idle. An install that handed off
 /// quits the app, which saves every window first (`App::on_quit`), so the update opens each of
 /// them again.
-pub fn poll<H: UpdaterHost>(s: &mut H, tx: &mut Tx) -> bool {
+pub fn poll(s: &mut dyn UpdaterHost, tx: &mut Tx) -> bool {
     let Some(service) = s.updater().service.clone() else { return false };
     let seen = s.updater().seen;
     let (quit, relaunch, revision, version) = {
@@ -357,7 +357,7 @@ const NO_UPDATER: &str = "No updater runs in this build";
 
 /// Where the updater stands, as the `UpdaterState` record; nil when no updater runs, or while
 /// the service is still finding out.
-pub fn state_data<H: UpdaterHost>(s: &H) -> Data {
+pub fn state_data(s: &dyn UpdaterHost) -> Data {
     let Some(service) = &s.updater().service else { return Data::Nil };
     let service = service.borrow();
     match service.snapshot().state {
@@ -389,7 +389,7 @@ fn view_data(view: &View, snapshot: &Snapshot) -> Data {
 }
 
 /// `Updater:CheckAsync()`: checks now and answers with what the check found.
-pub fn check_async<H: UpdaterHost>(s: &H, done: Completer) {
+pub fn check_async(s: &dyn UpdaterHost, done: Completer) {
     let Some(service) = &s.updater().service else {
         done.complete(map([("phase", Data::String("error".into())), ("error", Data::String(NO_UPDATER.into()))]));
         return;
@@ -401,7 +401,7 @@ pub fn check_async<H: UpdaterHost>(s: &H, done: Completer) {
 
 /// `Updater:InstallAsync()`: restarts into the ready version, or opens a required download;
 /// answers nil once it handed off.
-pub fn install_async<H: UpdaterHost>(s: &H, done: Completer) {
+pub fn install_async(s: &dyn UpdaterHost, done: Completer) {
     let Some(service) = s.updater().service.as_ref().filter(|s| s.borrow().snapshot().state != View::Disabled) else {
         done.complete(Data::String(NO_UPDATER.into()));
         return;

@@ -9,10 +9,10 @@ use session_view::palette::Pal;
 use session_view::style::{INSTANT, UI};
 
 use super::state::DiffDocState;
-use super::view::{CellData, Inner};
+use super::view::{CellData, Inner, gutter_w, tints, view_w};
 use crate::fold::{FoldEffect, Reveal};
 use crate::notes::hand_off;
-use crate::{BAR_W, GAP_H, HEADER_H, LINE_H, NOTE_H, expand_tabs};
+use crate::{BAR_W, CodeLook, GAP_H, HEADER_H, LINE_H, NOTE_H, expand_tabs};
 
 // Pierre's separator glyphs (`diffs-icon-expand`, `diffs-icon-expand-all`). Its "up" button
 // shows the chevron as drawn, pointing down into the lines it opens; its "down" button flips it
@@ -84,13 +84,222 @@ pub fn default_file_header(p: &Pal, path: &str, status: FileStatus, adds: usize,
         .child(counts)
 }
 
-impl<S: 'static> Inner<S> {
-    /// A changed line's bar over its number cell's left edge, the row's full height.
-    fn bar(&self, kind: LineKind) -> Option<El> {
-        let t = self.tints(kind)?;
-        Some(el().key("bar").absolute(0.0, 0.0).w(BAR_W).h_full().fill(t.bar))
-    }
+/// A changed line's bar over its number cell's left edge, the row's full height.
+fn bar(look: &CodeLook, kind: LineKind) -> Option<El> {
+    let t = tints(look, kind)?;
+    Some(el().key("bar").absolute(0.0, 0.0).w(BAR_W).h_full().fill(t.bar))
+}
 
+#[allow(clippy::too_many_arguments)]
+fn number_cell_base(
+    l: &CodeLook,
+    st: &DiffDocState,
+    i: usize,
+    n: Option<u32>,
+    side: Side,
+    kind: LineKind,
+    selected: bool,
+    digits: u32,
+) -> (El, Option<LineRef>) {
+    let unified = st.mode() == DiffMode::Unified;
+    // Pierre's `[data-column-number]`: 2ch in, the number right-aligned, 1ch after it; a
+    // wrapped line's number on its first row.
+    let mut c = row()
+        .w(l.number_w(digits))
+        .min_h(LINE_H)
+        .self_stretch()
+        .pr(l.adv)
+        .justify_end()
+        .items_start()
+        .children(bar(l, kind));
+    if let Some(n) = n {
+        let color = if selected {
+            l.selected_number
+        } else {
+            tints(l, kind).map_or(l.faint, |t| t.number)
+        };
+        c = c.child(text(n.to_string()).font(l.mono).color(color));
+    }
+    let at = n.map(|num| LineRef::new(side, num)).or_else(|| {
+        let other = if side == Side::Old { Side::New } else { Side::Old };
+        unified
+            .then(|| st.row_line(st.rows[i], other).map(|num| LineRef::new(other, num)))
+            .flatten()
+    });
+    (c, at)
+}
+
+fn code_cell_base(
+    l: &CodeLook,
+    st: &DiffDocState,
+    f: usize,
+    c: &CellData<'_>,
+    copy: bool,
+    side: Side,
+    at: Option<LineRef>,
+) -> El {
+    let (src_side, n) = c.source();
+    let line_tints = tints(l, c.kind);
+    let mut word_bgs: Vec<(Range<usize>, Color)> = match line_tints {
+        Some(t) => c.changes.iter().cloned().map(|r| (r, t.word)).collect(),
+        None => Vec::new(),
+    };
+    word_bgs.extend(
+        st.find_line(f, src_side, n)
+            .iter()
+            .map(|(r, active)| (r.clone(), if *active { l.active_match_bg } else { l.match_bg })),
+    );
+    let spans = l.spans(c.text.len(), &st.highlights(f, src_side, n), &word_bgs, line_tints.map(|t| (t.word, t.word_text)));
+    let (shown, spans) = expand_tabs(c.text, spans);
+    let ink = l.plain;
+    // Pierre's `[data-diff-span] { border-radius: 3px }` (`@pierre/diffs` `dist/style.js`).
+    let mut t = rich(shown, spans).font(l.mono).color(ink).span_radius(3.0).key("text");
+    // Pierre's `[data-overflow='wrap'] [data-line] { white-space: pre-wrap; word-break:
+    // break-word }`: at spaces, inside a word only when it alone overflows.
+    t = if st.wraps() { t.w_full().wrap_anywhere() } else { t.single_line() };
+    if copy {
+        t = t.selectable(true).selection_color(l.selection);
+        if let Some(at) = at {
+            t = t.key(crate::notes::text_key(f, Some(side), at.line));
+        }
+    }
+    // `[data-line] { padding-inline: 1ch }`.
+    let mut code = col().grow(1.0).min_w(0.0).px(l.adv).child(t);
+    // Pierre's `[data-no-newline]` row under the line, in its colour: the code's face and
+    // `--diffs-fg` at 60% (`[data-no-newline] span { opacity: .6 }`).
+    if c.no_newline {
+        code = code.child(text(opencode_i18n::t!("rune.diff.noNewline")).font(l.mono).color(l.plain).opacity(0.6).key("eof"));
+    }
+    code
+}
+
+fn gap_steps(hidden: u32, first: bool, last: bool) -> Vec<(Expand, &'static Icon, String)> {
+    match (first, last) {
+        (true, _) => vec![(Expand::Up, &EXPAND_DOWN, opencode_i18n::t!("rune.diff.showAbove", count = hidden.min(EXPAND_STEP)))],
+        (_, true) => vec![(Expand::Down, &EXPAND_UP, opencode_i18n::t!("rune.diff.showBelow", count = hidden.min(EXPAND_STEP)))],
+        _ if hidden <= EXPAND_STEP => vec![(Expand::All, &EXPAND_ALL, opencode_i18n::t!("rune.diff.showHidden", count = hidden))],
+        _ => vec![
+            (Expand::Down, &EXPAND_UP, opencode_i18n::t!("rune.diff.showBelow", count = EXPAND_STEP)),
+            (Expand::Up, &EXPAND_DOWN, opencode_i18n::t!("rune.diff.showAbove", count = EXPAND_STEP)),
+        ],
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn gap_step_button_base(p: &Pal, look: &CodeLook, how: Expand, glyph: &'static Icon, label: String, w: f32, h: f32, fill: Color) -> El {
+    row()
+        .key(format!("{how:?}"))
+        .w(w)
+        .h(h)
+        .fill(fill)
+        .hover_group()
+        .hover_motion(INSTANT, INSTANT)
+        .cursor(Cursor::Pointer)
+        .role("button")
+        .label(label)
+        .child(icon(glyph, 16.0).color(p.faint).group_color(look.plain).absolute((w - 16.0) / 2.0, (h - 16.0) / 2.0))
+}
+
+fn gap_words_base(p: &Pal, count: &str) -> El {
+    col()
+        .key("words")
+        .role("button")
+        .label(count.to_owned())
+        .cursor(Cursor::Pointer)
+        .child(text(count.to_owned()).key("count").font(SEPARATOR_TEXT).color(p.faint).group_opacity(1.0, 0.0))
+        .child(
+            rich(count.to_owned(), vec![Span::new(0, count.len()).underline(p.faint)])
+                .key("underlined")
+                .font(SEPARATOR_TEXT)
+                .color(p.faint)
+                .group_opacity(0.0, 1.0)
+                .absolute(0.0, 0.0),
+        )
+}
+
+fn gap_row_expandable(look: &CodeLook, st: &DiffDocState, fill: Color, count: String, w: f32, buttons: Vec<El>, words: El) -> El {
+    // The diff's background shows 2 px right of the buttons and between two of them.
+    let inner = row()
+        .key("inner")
+        .h(GAP_H)
+        .min_w(0.0)
+        .child(col().key("expand").w(w + SEPARATOR_GAP).h(GAP_H).gap(SEPARATOR_GAP).fill(look.bg).children(buttons))
+        // Hovering anywhere over the count underlines it; only the words open the range.
+        .child(
+            row()
+                .key("content")
+                .h(GAP_H)
+                .px(look.adv)
+                .center_y()
+                .hover_group()
+                .hover_motion(INSTANT, INSTANT)
+                .cursor(Cursor::Pointer)
+                .child(words),
+        );
+    gap_row_finish(st, fill, count, inner)
+}
+
+fn gap_row_static(p: &Pal, st: &DiffDocState, fill: Color, count: String) -> El {
+    // With no way to open the range, the count starts 1ch into the gutter.
+    let ch = rune::text::measure("0", &[], SEPARATOR_TEXT, None).0;
+    let inner = row()
+        .key("inner")
+        .h(GAP_H)
+        .min_w(0.0)
+        .child(row().key("content").h(GAP_H).px(ch).center_y().child(text(count.clone()).key("count").font(SEPARATOR_TEXT).color(p.faint)));
+    gap_row_finish(st, fill, count, inner)
+}
+
+fn gap_row_finish(st: &DiffDocState, fill: Color, count: String, mut inner: El) -> El {
+    if let Some(w) = view_w(st) {
+        inner = inner.max_w(w).sticky_left(0.0);
+    }
+    row().w_full().h(GAP_H).fill(fill).role("group").label(count).child(inner)
+}
+
+pub(super) fn note_row(l: &CodeLook, st: &DiffDocState, f: usize) -> El {
+    let file = &st.files()[f];
+    let msg = if file.binary {
+        opencode_i18n::t!("rune.diff.binary")
+    } else if matches!(file.status, FileStatus::Renamed | FileStatus::Copied) {
+        opencode_i18n::t!("rune.diff.moved")
+    } else if file.old_mode != file.new_mode {
+        opencode_i18n::t!("rune.diff.modeChanged")
+    } else if matches!(file.status, FileStatus::Added | FileStatus::Deleted) {
+        opencode_i18n::t!("rune.diff.empty")
+    } else {
+        opencode_i18n::t!("plugin.review.noChanges")
+    };
+    let mut inner = row()
+        .key("inner")
+        .h(NOTE_H)
+        .center_y()
+        .pl(gutter_w(l, st, f) + l.adv)
+        .child(text(msg).font(l.mono_small).color(l.muted));
+    if let Some(w) = view_w(st) {
+        inner = inner.max_w(w).sticky_left(0.0);
+    }
+    row().w_full().h(NOTE_H).fill(l.bg).role("note").label(msg).child(inner)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn file_header_wrap(pal: &Pal, st: &DiffDocState, f: usize, sticky: bool, full_path: &str, adds: usize, dels: usize, inner: El) -> El {
+    let mut h = col()
+        .w_full()
+        .h(HEADER_H)
+        .role("heading")
+        .label(format!("{full_path}, {adds} added, {dels} removed"));
+    if let (false, Some(w)) = (sticky, view_w(st)) {
+        h = h.w(w).sticky_left(0.0);
+    }
+    // Stacked under the file before it, a rule as its own bottom one parts them.
+    if f > 0 && !sticky {
+        h = h.child(el().key("top-rule").w_full().h(1.0).fill(pal.border));
+    }
+    h.child(inner)
+}
+
+impl<S: 'static> Inner<S> {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn number_cell(
         &self,
@@ -103,33 +312,9 @@ impl<S: 'static> Inner<S> {
         selected: bool,
         digits: u32,
     ) -> El {
-        let l = &self.look;
-        let unified = st.mode() == DiffMode::Unified;
-        // Pierre's `[data-column-number]`: 2ch in, the number right-aligned, 1ch after it; a
-        // wrapped line's number on its first row.
-        let mut c = row()
-            .w(l.number_w(digits))
-            .min_h(LINE_H)
-            .self_stretch()
-            .pr(l.adv)
-            .justify_end()
-            .items_start()
-            .children(self.bar(kind));
-        if let Some(n) = n {
-            let color = if selected {
-                l.selected_number
-            } else {
-                self.tints(kind).map_or(l.faint, |t| t.number)
-            };
-            c = c.child(text(n.to_string()).font(l.mono).color(color));
-        }
-        let at = n.map(|num| LineRef::new(side, num)).or_else(|| {
-            let other = if side == Side::Old { Side::New } else { Side::Old };
-            unified
-                .then(|| st.row_line(st.rows[i], other).map(|num| LineRef::new(other, num)))
-                .flatten()
-        });
+        let (c, at) = number_cell_base(&self.look, st, i, n, side, kind, selected, digits);
         let Some(at) = at else { return c };
+        let unified = st.mode() == DiffMode::Unified;
         let get_mut = self.d.get_mut.clone();
         let notes = self.d.notes.clone();
         let row_at = i as u32;
@@ -179,7 +364,7 @@ impl<S: 'static> Inner<S> {
     pub(super) fn plus(&self, st: &DiffDocState, f: usize, n: Option<u32>, side: Side, quiet: bool, row: El) -> El {
         let (Some(notes), Some(n), false) = (self.d.notes.clone(), n, quiet) else { return row };
         let path = st.files()[f].path().to_owned();
-        let cell_w = self.gutter_w(st, f);
+        let cell_w = gutter_w(&self.look, st, f);
         row.hover_group().child(crate::notes::plus_button(
             &self.pal,
             cell_w,
@@ -199,52 +384,15 @@ impl<S: 'static> Inner<S> {
         side: Side,
         at: Option<LineRef>,
     ) -> El {
-        let l = &self.look;
-        let (src_side, n) = c.source();
-        let tints = self.tints(c.kind);
-        let mut word_bgs: Vec<(Range<usize>, Color)> = match tints {
-            Some(t) => c.changes.iter().cloned().map(|r| (r, t.word)).collect(),
-            None => Vec::new(),
-        };
-        word_bgs.extend(
-            st.find_line(f, src_side, n)
-                .iter()
-                .map(|(r, active)| (r.clone(), if *active { l.active_match_bg } else { l.match_bg })),
-        );
-        let spans = l.spans(c.text.len(), &st.highlights(f, src_side, n), &word_bgs, tints.map(|t| (t.word, t.word_text)));
-        let (shown, spans) = expand_tabs(c.text, spans);
-        let ink = l.plain;
-        // Pierre's `[data-diff-span] { border-radius: 3px }` (`@pierre/diffs` `dist/style.js`).
-        let mut t = rich(shown, spans).font(l.mono).color(ink).span_radius(3.0).key("text");
-        // Pierre's `[data-overflow='wrap'] [data-line] { white-space: pre-wrap; word-break:
-        // break-word }`: at spaces, inside a word only when it alone overflows.
-        t = if st.wraps() { t.w_full().wrap_anywhere() } else { t.single_line() };
-        if copy {
-            t = t.selectable(true).selection_color(l.selection);
-            if let Some(at) = at {
-                t = t.key(crate::notes::text_key(f, Some(side), at.line));
-            }
-        }
         let get_mut = self.d.get_mut.clone();
-        // `[data-line] { padding-inline: 1ch }`.
-        let mut code = col()
-            .grow(1.0)
-            .min_w(0.0)
-            .px(l.adv)
-            .child(t)
-            .on_hover_change(move |s: &mut S, inside, tx| {
-                let st = get_mut(s);
-                if inside && st.copy_side() != side {
-                    st.set_copy_side(side);
-                } else {
-                    tx.live_only();
-                }
-            });
-        // Pierre's `[data-no-newline]` row under the line, in its colour: the code's face and
-        // `--diffs-fg` at 60% (`[data-no-newline] span { opacity: .6 }`).
-        if c.no_newline {
-            code = code.child(text(opencode_i18n::t!("rune.diff.noNewline")).font(l.mono).color(l.plain).opacity(0.6).key("eof"));
-        }
+        let mut code = code_cell_base(&self.look, st, f, c, copy, side, at).on_hover_change(move |s: &mut S, inside, tx| {
+            let st = get_mut(s);
+            if inside && st.copy_side() != side {
+                st.set_copy_side(side);
+            } else {
+                tx.live_only();
+            }
+        });
         if let (Some(notes), Some(at)) = (self.d.notes.clone(), at) {
             let get_mut = self.d.get_mut.clone();
             code = code.on_background_press_tx(move |s: &mut S, tx| {
@@ -275,6 +423,11 @@ impl<S: 'static> Inner<S> {
         let (first, last) = (gap == 0, gap == st.files()[f].hunks.len());
         let can_expand = hidden > 0 && (st.has_full_text(f) || self.d.on_fetch_text.is_some());
         let fill = p.diff.separator;
+        // Pierre's text, which Desktop's review shows untranslated.
+        let count = if hidden == 1 { "1 unmodified line".to_owned() } else { format!("{hidden} unmodified lines") };
+        if !can_expand {
+            return gap_row_static(p, st, fill, count);
+        }
         let open = {
             let (get_mut, fetch) = (self.d.get_mut.clone(), self.d.on_fetch_text.clone());
             Rc::new(move |s: &mut S, how: Reveal| {
@@ -285,106 +438,24 @@ impl<S: 'static> Inner<S> {
                 }
             })
         };
-        // Pierre's text, which Desktop's review shows untranslated.
-        let count = if hidden == 1 { "1 unmodified line".to_owned() } else { format!("{hidden} unmodified lines") };
-        let mut inner = row().key("inner").h(GAP_H).min_w(0.0);
-        if can_expand {
-            let steps: Vec<(Expand, &'static Icon, String)> = match (first, last) {
-                (true, _) => vec![(Expand::Up, &EXPAND_DOWN, opencode_i18n::t!("rune.diff.showAbove", count = hidden.min(EXPAND_STEP)))],
-                (_, true) => vec![(Expand::Down, &EXPAND_UP, opencode_i18n::t!("rune.diff.showBelow", count = hidden.min(EXPAND_STEP)))],
-                _ if hidden <= EXPAND_STEP => vec![(Expand::All, &EXPAND_ALL, opencode_i18n::t!("rune.diff.showHidden", count = hidden))],
-                _ => vec![
-                    (Expand::Down, &EXPAND_UP, opencode_i18n::t!("rune.diff.showBelow", count = EXPAND_STEP)),
-                    (Expand::Up, &EXPAND_DOWN, opencode_i18n::t!("rune.diff.showAbove", count = EXPAND_STEP)),
-                ],
-            };
-            let w = self.gutter_w(st, f) - SEPARATOR_GAP;
-            let h = if steps.len() == 2 { (GAP_H - SEPARATOR_GAP) / 2.0 } else { GAP_H };
-            let buttons = steps.into_iter().map(|(how, glyph, label)| {
+        let steps = gap_steps(hidden, first, last);
+        let w = gutter_w(&self.look, st, f) - SEPARATOR_GAP;
+        let h = if steps.len() == 2 { (GAP_H - SEPARATOR_GAP) / 2.0 } else { GAP_H };
+        let buttons = steps
+            .into_iter()
+            .map(|(how, glyph, label)| {
                 let open = open.clone();
-                row()
-                    .key(format!("{how:?}"))
-                    .w(w)
-                    .h(h)
-                    .fill(fill)
-                    .hover_group()
-                    .hover_motion(INSTANT, INSTANT)
-                    .cursor(Cursor::Pointer)
-                    .role("button")
-                    .label(label)
-                    .child(icon(glyph, 16.0).color(p.faint).group_color(self.look.plain).absolute((w - 16.0) / 2.0, (h - 16.0) / 2.0))
-                    .on_press_tx(move |s: &mut S, tx: &mut Tx| {
-                        tx.instant();
-                        open(s, Reveal::Step(if tx.mods().shift { Expand::All } else { how }));
-                    })
-            });
-            // The diff's background shows 2 px right of the buttons and between two of them.
-            inner = inner.child(col().key("expand").w(w + SEPARATOR_GAP).h(GAP_H).gap(SEPARATOR_GAP).fill(self.look.bg).children(buttons));
-            // Hovering anywhere over the count underlines it; only the words open the range.
-            let words = col()
-                .key("words")
-                .role("button")
-                .label(count.clone())
-                .cursor(Cursor::Pointer)
-                .on_press_tx(move |s: &mut S, tx: &mut Tx| {
+                gap_step_button_base(p, &self.look, how, glyph, label, w, h, fill).on_press_tx(move |s: &mut S, tx: &mut Tx| {
                     tx.instant();
-                    open(s, Reveal::Around);
+                    open(s, Reveal::Step(if tx.mods().shift { Expand::All } else { how }));
                 })
-                .child(text(count.clone()).key("count").font(SEPARATOR_TEXT).color(p.faint).group_opacity(1.0, 0.0))
-                .child(
-                    rich(count.clone(), vec![Span::new(0, count.len()).underline(p.faint)])
-                        .key("underlined")
-                        .font(SEPARATOR_TEXT)
-                        .color(p.faint)
-                        .group_opacity(0.0, 1.0)
-                        .absolute(0.0, 0.0),
-                );
-            inner = inner.child(
-                row()
-                    .key("content")
-                    .h(GAP_H)
-                    .px(self.look.adv)
-                    .center_y()
-                    .hover_group()
-                    .hover_motion(INSTANT, INSTANT)
-                    .cursor(Cursor::Pointer)
-                    .child(words),
-            );
-        } else {
-            // With no way to open the range, the count starts 1ch into the gutter.
-            let ch = rune::text::measure("0", &[], SEPARATOR_TEXT, None).0;
-            inner = inner.child(row().key("content").h(GAP_H).px(ch).center_y().child(text(count.clone()).key("count").font(SEPARATOR_TEXT).color(p.faint)));
-        }
-        if let Some(w) = self.view_w(st) {
-            inner = inner.max_w(w).sticky_left(0.0);
-        }
-        row().w_full().h(GAP_H).fill(fill).role("group").label(count).child(inner)
-    }
-
-    pub(super) fn note_row(&self, st: &DiffDocState, f: usize) -> El {
-        let l = &self.look;
-        let file = &st.files()[f];
-        let msg = if file.binary {
-            opencode_i18n::t!("rune.diff.binary")
-        } else if matches!(file.status, FileStatus::Renamed | FileStatus::Copied) {
-            opencode_i18n::t!("rune.diff.moved")
-        } else if file.old_mode != file.new_mode {
-            opencode_i18n::t!("rune.diff.modeChanged")
-        } else if matches!(file.status, FileStatus::Added | FileStatus::Deleted) {
-            opencode_i18n::t!("rune.diff.empty")
-        } else {
-            opencode_i18n::t!("plugin.review.noChanges")
-        };
-        let mut inner = row()
-            .key("inner")
-            .h(NOTE_H)
-            .center_y()
-            .pl(self.gutter_w(st, f) + l.adv)
-            .child(text(msg).font(l.mono_small).color(l.muted));
-        if let Some(w) = self.view_w(st) {
-            inner = inner.max_w(w).sticky_left(0.0);
-        }
-        row().w_full().h(NOTE_H).fill(l.bg).role("note").label(msg).child(inner)
+            })
+            .collect();
+        let words = gap_words_base(p, &count).on_press_tx(move |s: &mut S, tx: &mut Tx| {
+            tx.instant();
+            open(s, Reveal::Around);
+        });
+        gap_row_expandable(&self.look, st, fill, count, w, buttons, words)
     }
 
     /// A file's header (custom via [`DiffViewer::file_header`] or [`default_file_header`]);
@@ -419,19 +490,7 @@ impl<S: 'static> Inner<S> {
         // The header drags the file's changes out as a `.patch` (a chat, an issue, `git apply`).
         let get = self.d.get.clone();
         inner = inner.drag_out(move |s: &S| get(s).files().get(f).and_then(patch_drag));
-        let mut h = col()
-            .w_full()
-            .h(HEADER_H)
-            .role("heading")
-            .label(format!("{full_path}, {adds} added, {dels} removed"));
-        if let (false, Some(w)) = (sticky, self.view_w(st)) {
-            h = h.w(w).sticky_left(0.0);
-        }
-        // Stacked under the file before it, a rule as its own bottom one parts them.
-        if f > 0 && !sticky {
-            h = h.child(el().key("top-rule").w_full().h(1.0).fill(self.pal.border));
-        }
-        h.child(inner)
+        file_header_wrap(&self.pal, st, f, sticky, full_path, adds, dels, inner)
     }
 }
 

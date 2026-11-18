@@ -37,8 +37,8 @@ impl opencode_feature_egg::EggHost for App {
 }
 
 rune_register::register!(crate::commands::COMMANDS: crate::commands::Cmd = [
-    crate::commands::Cmd::new("egg.play", opencode_i18n::key!("rune.egg.play"), run_play_command)
-        .when(can_play_command),
+    crate::commands::Cmd::new("egg.play", opencode_i18n::key!("rune.egg.play"), |s, tx| run_play_command(s, tx))
+        .when(|s| can_play_command(s)),
 ]);
 
 /// Kernel feature registration for the new-session Easter egg.

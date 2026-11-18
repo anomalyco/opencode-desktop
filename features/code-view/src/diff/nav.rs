@@ -228,7 +228,7 @@ impl DiffDocState {
         true
     }
 
-    pub fn handle_key(&mut self, ev: &KeyEvent, tx: &mut Tx, keys: &impl KeyMatch) -> bool {
+    pub fn handle_key(&mut self, ev: &KeyEvent, tx: &mut Tx, keys: &dyn KeyMatch) -> bool {
         if self.find_key(ev, tx, keys) {
             return true;
         }

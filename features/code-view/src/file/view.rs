@@ -33,10 +33,14 @@ impl<S: 'static> CodeViewer<S> {
         get: impl Fn(&S) -> &CodeDocState + 'static,
         get_mut: impl Fn(&mut S) -> &mut CodeDocState + 'static,
     ) -> Self {
+        Self::from_parts(key.into(), Rc::new(get), Rc::new(get_mut))
+    }
+
+    fn from_parts(key: String, get: Get<S>, get_mut: GetMut<S>) -> Self {
         Self {
-            key: key.into(),
-            get: Rc::new(get),
-            get_mut: Rc::new(get_mut),
+            key,
+            get,
+            get_mut,
             notes: None,
             trace: None,
         }
@@ -64,54 +68,8 @@ impl<S: 'static> CodeViewer<S> {
             (t.view)();
         }
 
-        if !st.ready() {
-            return col()
-                .key(root_key)
-                .w_full()
-                .grow(1.0)
-                .min_h(0.0)
-                .fill(p.bg_base)
-                .center()
-                .child(text(opencode_i18n::t!("rune.file.loading")).font(look.label).color(look.muted));
-        }
-        // A read that failed says so, and why, rather than "not found" (`files::FilePayload::Failed`).
-        if let Some((what, why)) = st.failure() {
-            return col()
-                .key(root_key)
-                .w_full()
-                .grow(1.0)
-                .min_h(0.0)
-                .fill(p.bg_base)
-                .center()
-                .gap(4.0)
-                .px(24.0)
-                .child(text(what.clone()).key("file-read-failed").font(look.label).color(p.text))
-                .child(text(why.clone()).font(look.label).color(look.muted).wrap().max_w(448.0).align(rune::Align::Center));
-        }
-        if st.missing() {
-            let name = opencode_kit::path::basename(st.path());
-            return col()
-                .key(root_key)
-                .w_full()
-                .grow(1.0)
-                .min_h(0.0)
-                .fill(p.bg_base)
-                .center()
-                .child(text(opencode_i18n::t!("plugin.file.tab.notFound", name = name)).font(look.label).color(look.muted));
-        }
-        if st.binary() {
-            return col()
-                .key(root_key)
-                .w_full()
-                .grow(1.0)
-                .min_h(0.0)
-                .fill(p.bg_base)
-                .center()
-                .child(
-                    text(opencode_i18n::t!("rune.file.binary", size = st.size_bytes()))
-                        .font(look.label)
-                        .color(look.muted),
-                );
+        if let Some(view) = non_text_view(st, &look, p, &root_key) {
+            return view;
         }
 
         let wrap = st.wrap();
@@ -138,7 +96,7 @@ impl<S: 'static> CodeViewer<S> {
             .role("list")
             .label_static(opencode_i18n::t!("rune.file.contents"));
         if !wrap {
-            list = list.min_w(inner.content_width(st).max(st.view_width()));
+            list = list.min_w(content_width(&inner.look, st).max(st.view_width()));
         }
         if let Some(notes) = inner.v.notes.clone() {
             let get = inner.v.get.clone();
@@ -155,21 +113,137 @@ impl<S: 'static> CodeViewer<S> {
             )
             .virtual_rows_version(0u32);
 
-        let scroll = col()
-            .key(scroll_key)
-            .w_full()
-            .grow(1.0)
-            .min_h(0.0)
-            .scroll(ScrollSpec { stick_bottom: false });
-        let scroll = if wrap { scroll } else { scroll.scroll_xy().scroll_edge_fade(EDGE_FADE) }.child(list).scroll_bar_styled(bar);
-
-        // The rows on `background-stronger`, the panel's own background under them.
-        let root = col().key(root_key).w_full().grow(1.0).min_h(0.0).fill(p.bg_base).child(scroll);
+        let root = wrap_scroll(root_key, scroll_key, wrap, p, bar, list);
         match inner.v.notes.clone() {
             Some(notes) => root.on_pointer_move_local(move |s: &mut S, _, tx: &mut Tx| notes.pointer_moved(s, tx)),
             None => root,
         }
     }
+}
+
+fn non_text_view(st: &CodeDocState, look: &CodeLook, p: &Pal, root_key: &str) -> Option<El> {
+    if !st.ready() {
+        return Some(
+            col()
+                .key(root_key.to_owned())
+                .w_full()
+                .grow(1.0)
+                .min_h(0.0)
+                .fill(p.bg_base)
+                .center()
+                .child(text(opencode_i18n::t!("rune.file.loading")).font(look.label).color(look.muted)),
+        );
+    }
+    // A read that failed says so, and why, rather than "not found" (`files::FilePayload::Failed`).
+    if let Some((what, why)) = st.failure() {
+        return Some(
+            col()
+                .key(root_key.to_owned())
+                .w_full()
+                .grow(1.0)
+                .min_h(0.0)
+                .fill(p.bg_base)
+                .center()
+                .gap(4.0)
+                .px(24.0)
+                .child(text(what.clone()).key("file-read-failed").font(look.label).color(p.text))
+                .child(text(why.clone()).font(look.label).color(look.muted).wrap().max_w(448.0).align(rune::Align::Center)),
+        );
+    }
+    if st.missing() {
+        let name = opencode_kit::path::basename(st.path());
+        return Some(
+            col()
+                .key(root_key.to_owned())
+                .w_full()
+                .grow(1.0)
+                .min_h(0.0)
+                .fill(p.bg_base)
+                .center()
+                .child(text(opencode_i18n::t!("plugin.file.tab.notFound", name = name)).font(look.label).color(look.muted)),
+        );
+    }
+    if st.binary() {
+        return Some(
+            col()
+                .key(root_key.to_owned())
+                .w_full()
+                .grow(1.0)
+                .min_h(0.0)
+                .fill(p.bg_base)
+                .center()
+                .child(
+                    text(opencode_i18n::t!("rune.file.binary", size = st.size_bytes()))
+                        .font(look.label)
+                        .color(look.muted),
+                ),
+        );
+    }
+    None
+}
+
+fn content_width(look: &CodeLook, st: &CodeDocState) -> f32 {
+    look.number_w(st.digits()) + (st.columns() + 2) as f32 * look.adv
+}
+
+fn wrap_scroll(root_key: String, scroll_key: String, wrap: bool, p: &Pal, bar: rune_kit::ScrollBarStyle, list: El) -> El {
+    let scroll = col()
+        .key(scroll_key)
+        .w_full()
+        .grow(1.0)
+        .min_h(0.0)
+        .scroll(ScrollSpec { stick_bottom: false });
+    let scroll = if wrap { scroll } else { scroll.scroll_xy().scroll_edge_fade(EDGE_FADE) }.child(list).scroll_bar_styled(bar);
+    // The rows on `background-stronger`, the panel's own background under them.
+    col().key(root_key).w_full().grow(1.0).min_h(0.0).fill(p.bg_base).child(scroll)
+}
+
+fn row_matches_hash(st: &CodeDocState, n: u32) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::hash::DefaultHasher::new();
+    st.line_matches(n).hash(&mut h);
+    h.finish()
+}
+
+fn gutter_base(l: &CodeLook, st: &CodeDocState, n: u32, fill: Color, num_color: Color) -> El {
+    // Pierre's number cell, as a diff's: 2ch in, at least 3ch, 1ch after
+    // (`--opencode-diffs-number-inset`, session-ui `pierre/index.ts:270-272`).
+    let mut gutter = row()
+        .key("gutter")
+        .w(l.number_w(st.digits()))
+        .min_h(LINE_H)
+        .self_stretch()
+        .pr(l.adv)
+        .justify_end()
+        .items_start()
+        .cursor(Cursor::Pointer)
+        .child(text(n.to_string()).font(l.mono).color(num_color));
+    // Unwrapped, the numbers hold to the left edge over the code scrolling under them.
+    if !st.wrap() {
+        gutter = gutter.fill(fill).sticky_left(0.0);
+    }
+    gutter
+}
+
+fn code_col_base(l: &CodeLook, st: &CodeDocState, n: u32) -> El {
+    let raw = st.line(n).unwrap_or("");
+    let match_bgs: Vec<(Range<usize>, Color)> = st
+        .line_matches(n)
+        .iter()
+        .map(|(r, active)| {
+            (r.clone(), if *active { l.active_match_bg } else { l.match_bg })
+        })
+        .collect();
+    let spans = l.spans(raw.len(), &st.highlights(n), &match_bgs, None);
+    let (shown, spans) = expand_tabs(raw, spans);
+    let mut code_txt = rich(shown, spans)
+        .font(l.mono)
+        .color(l.plain)
+        .selectable(true)
+        .selection_color(l.selection)
+        .key(crate::notes::text_key(0, None, n));
+    code_txt = if st.wrap() { code_txt.w_full().wrap_anywhere() } else { code_txt.single_line() };
+    col().grow(1.0).min_w(0.0).px(l.adv).child(code_txt)
 }
 
 struct Inner<S> {
@@ -204,10 +278,6 @@ impl<S: 'static> Inner<S> {
             })
     }
 
-    fn content_width(&self, st: &CodeDocState) -> f32 {
-        self.look.number_w(st.digits()) + (st.columns() + 2) as f32 * self.look.adv
-    }
-
     fn band(&self, s: &S, b: usize) -> El {
         let st = (self.v.get)(s);
         let first = b * crate::prepared::BAND_LINES as usize;
@@ -236,12 +306,7 @@ impl<S: 'static> Inner<S> {
         let selected = st.selection().is_some_and(|sel| sel.contains(n)) || commented;
         let quiet = self.v.notes.as_ref().is_some_and(|notes| notes.plus_quiet(s));
         // Find lights rows by what each holds, so a key rebuilds only rows whose matches moved.
-        let matches = {
-            use std::hash::{Hash, Hasher};
-            let mut h = std::hash::DefaultHasher::new();
-            st.line_matches(n).hash(&mut h);
-            h.finish()
-        };
+        let matches = row_matches_hash(st, n);
         let lid = st.line_id(n);
         let hl_hash = st.highlight_hash(n);
         let row_memo_key = format!("cr{lid}");
@@ -293,84 +358,50 @@ impl<S: 'static> Inner<S> {
         let num_color = if selected { l.selected_number } else { l.faint };
         let get_mut = self.v.get_mut.clone();
         let notes = self.v.notes.clone();
-        // Pierre's number cell, as a diff's: 2ch in, at least 3ch, 1ch after
-        // (`--opencode-diffs-number-inset`, session-ui `pierre/index.ts:270-272`).
-        let mut gutter = row()
-            .key("gutter")
-            .w(l.number_w(st.digits()))
-            .min_h(LINE_H)
-            .self_stretch()
-            .pr(l.adv)
-            .justify_end()
-            .items_start()
-            .cursor(Cursor::Pointer)
-            .on_drag(move |s: &mut S, d: &mut Drag, tx: &mut Tx| {
-                tx.instant();
-                let st = get_mut(s);
-                let before = st.selection();
-                let unselect = st.unselecting();
-                let path = st.path().to_owned();
-                let ended = match d.phase {
-                    Phase::Down => {
-                        st.press_line(n, tx.mods().shift);
-                        false
-                    }
-                    Phase::Move => {
-                        st.drag_to_offset(n, d.y);
-                        false
-                    }
-                    Phase::Up if d.cancelled() => {
-                        st.cancel_line();
-                        false
-                    }
-                    Phase::Up => {
-                        st.release_line();
-                        true
-                    }
-                };
-                let after = st.selection().map(file_range);
-                let Some(notes) = &notes else { return };
-                if let (true, Some(line)) = (ended, unselect) {
-                    return notes.handoff(s, &path, Handoff::Unselected(file_range(line)), tx);
+        let gutter = gutter_base(l, st, n, fill, num_color).on_drag(move |s: &mut S, d: &mut Drag, tx: &mut Tx| {
+            tx.instant();
+            let st = get_mut(s);
+            let before = st.selection();
+            let unselect = st.unselecting();
+            let path = st.path().to_owned();
+            let ended = match d.phase {
+                Phase::Down => {
+                    st.press_line(n, tx.mods().shift);
+                    false
                 }
-                if before.map(file_range) != after {
-                    notes.handoff(s, &path, Handoff::Selected(after), tx);
+                Phase::Move => {
+                    st.drag_to_offset(n, d.y);
+                    false
                 }
-                if ended {
-                    notes.handoff(s, &path, Handoff::Ended(after), tx);
+                Phase::Up if d.cancelled() => {
+                    st.cancel_line();
+                    false
                 }
-            })
-            .child(text(n.to_string()).font(l.mono).color(num_color));
-        // Unwrapped, the numbers hold to the left edge over the code scrolling under them.
-        if !st.wrap() {
-            gutter = gutter.fill(fill).sticky_left(0.0);
-        }
+                Phase::Up => {
+                    st.release_line();
+                    true
+                }
+            };
+            let after = st.selection().map(file_range);
+            let Some(notes) = &notes else { return };
+            if let (true, Some(line)) = (ended, unselect) {
+                return notes.handoff(s, &path, Handoff::Unselected(file_range(line)), tx);
+            }
+            if before.map(file_range) != after {
+                notes.handoff(s, &path, Handoff::Selected(after), tx);
+            }
+            if ended {
+                notes.handoff(s, &path, Handoff::Ended(after), tx);
+            }
+        });
 
         let code_col = memo(
             "code",
             (l.version, st.wrap(), n, hl_hash, matches),
             || {
-                let raw = st.line(n).unwrap_or("");
-                let match_bgs: Vec<(Range<usize>, Color)> = st
-                    .line_matches(n)
-                    .iter()
-                    .map(|(r, active)| {
-                        (r.clone(), if *active { l.active_match_bg } else { l.match_bg })
-                    })
-                    .collect();
-                let spans = l.spans(raw.len(), &st.highlights(n), &match_bgs, None);
-                let (shown, spans) = expand_tabs(raw, spans);
-                let mut code_txt = rich(shown, spans)
-                    .font(l.mono)
-                    .color(l.plain)
-                    .selectable(true)
-                    .selection_color(l.selection)
-                    .key(crate::notes::text_key(0, None, n));
-                code_txt = if st.wrap() { code_txt.w_full().wrap_anywhere() } else { code_txt.single_line() };
-                let code = col().grow(1.0).min_w(0.0).px(l.adv).child(code_txt);
                 let notes = self.v.notes.clone();
                 let get_mut = self.v.get_mut.clone();
-                code.on_background_press_tx(move |s: &mut S, tx| {
+                code_col_base(l, st, n).on_background_press_tx(move |s: &mut S, tx| {
                     if !tx.touch_tap() {
                         return;
                     }

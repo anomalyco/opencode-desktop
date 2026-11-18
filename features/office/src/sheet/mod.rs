@@ -50,7 +50,13 @@ pub fn scroll_key(id: u64) -> String {
     format!("office-sheet-{id}")
 }
 
-pub fn view<H: OfficeHost>(id: u64, labels: Labels, focus: Color) -> El {
+pub fn view<H: OfficeHost + 'static>(id: u64, labels: Labels, focus: Color) -> El {
+    let key = scroll_key(id);
+    let grid = build_grid(id, &labels, focus, &key);
+    input::keys::<H>(input::pointer::<H>(grid, id, &key), id, labels)
+}
+
+fn build_grid(id: u64, labels: &Labels, focus: Color, key: &str) -> El {
     let snap = registry::snapshot(id).unwrap_or_default();
     let layout = snap.layout.clone().unwrap_or_default();
     let header_w = row_header_width(&snap);
@@ -76,9 +82,8 @@ pub fn view<H: OfficeHost>(id: u64, labels: Labels, focus: Color) -> El {
     content = content
         .child(memo(format!("office-sheet-columns-{id}"), (frame_key, header_w.to_bits(), content_w.to_bits(), range[1], range[3]), || column_headers(&snap, header_w, content_w, range)))
         .child(memo(format!("office-sheet-rows-{id}"), (frame_key, header_w.to_bits(), content_h.to_bits(), range[0], range[2]), || row_headers(&snap, header_w, content_h, range)));
-    let key = scroll_key(id);
     let mut grid = col()
-        .key(key.clone())
+        .key(key.to_owned())
         .role("grid")
         .label(labels.name.clone())
         .read_only(true)
@@ -93,7 +98,7 @@ pub fn view<H: OfficeHost>(id: u64, labels: Labels, focus: Color) -> El {
     if let Some(cell) = active_cell(&snap) {
         grid = grid.active_descendant(cell);
     }
-    input::keys::<H>(input::pointer::<H>(grid, id, &key), id, labels).child(content).child(reader(&snap, range)).child(ring(v.size, header_w + content_w.max(1.0), focus))
+    grid.child(content).child(reader(&snap, range)).child(ring(v.size, header_w + content_w.max(1.0), focus))
 }
 
 /// The keyboard's ring, over the cells and headers as Desktop's overlay lies over its canvas

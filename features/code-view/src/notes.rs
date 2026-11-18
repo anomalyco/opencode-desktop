@@ -193,10 +193,7 @@ static PLUS: Icon = Icon {
     body: r#"<path d="M6 2V10M2 6H10" stroke="currentColor" stroke-width="1.5"/>"#,
 };
 
-/// The gutter's `+` for a line's number cell `cell_w` wide: 20 square, its left edge 10 past
-/// the cell's right one, on `--icon-interactive-base` with `--shadow-xs`, shown while the cell's
-/// row is under the pointer.
-pub fn plus_button<S: 'static>(p: &Pal, cell_w: f32, label: &str, on: impl Fn(&mut S, &mut Tx) + 'static) -> El {
+fn plus_button_shell(p: &Pal, cell_w: f32, label: &str) -> El {
     // Out of the Tab order: the keyboard comments from the line itself (Return or C).
     let button = el()
         .key("comment-plus")
@@ -213,11 +210,17 @@ pub fn plus_button<S: 'static>(p: &Pal, cell_w: f32, label: &str, on: impl Fn(&m
         .rev()
         .fold(button, El::box_shadow)
         .group_opacity(0.0, 1.0)
-        .on_press_tx(move |s: &mut S, tx: &mut Tx| {
-            tx.instant();
-            on(s, tx);
-        })
         .child(icon(&PLUS, 12.0).color(rune::Color::WHITE))
+}
+
+/// The gutter's `+` for a line's number cell `cell_w` wide: 20 square, its left edge 10 past
+/// the cell's right one, on `--icon-interactive-base` with `--shadow-xs`, shown while the cell's
+/// row is under the pointer.
+pub fn plus_button<S: 'static>(p: &Pal, cell_w: f32, label: &str, on: impl Fn(&mut S, &mut Tx) + 'static) -> El {
+    plus_button_shell(p, cell_w, label).on_press_tx(move |s: &mut S, tx: &mut Tx| {
+        tx.instant();
+        on(s, tx);
+    })
 }
 
 /// `--shadow-xs` (`light-dark` alphas), in CSS order.

@@ -242,6 +242,10 @@ fn reuse_line_ids(
 /// Sends a large old buffer to a single background drop thread (`rune::task::serve`), so the UI
 /// thread neither frees proportional-size state nor calls `CreateThread` during a swap.
 pub fn drop_off_ui<T: Send + 'static>(value: T) {
+    drop_boxed_off_ui(Box::new(value));
+}
+
+fn drop_boxed_off_ui(value: Box<dyn Send>) {
     static DROP_TX: OnceLock<Option<std::sync::mpsc::Sender<Box<dyn Send>>>> = OnceLock::new();
     let tx = DROP_TX.get_or_init(|| {
         let (tx, rx) = std::sync::mpsc::channel::<Box<dyn Send>>();
@@ -253,7 +257,7 @@ pub fn drop_off_ui<T: Send + 'static>(value: T) {
         Some(tx)
     });
     if let Some(tx) = tx {
-        let _ = tx.send(Box::new(value));
+        let _ = tx.send(value);
     }
 }
 

@@ -33,7 +33,7 @@ use pins::draw::{Colors, Quads, Scratch};
 use wordmark::{Event, State};
 
 /// Host state and callbacks required by the new-session Easter egg.
-pub trait EggHost: Sized + 'static {
+pub trait EggHost {
     fn egg(&self) -> &Egg;
     fn egg_mut(&mut self) -> &mut Egg;
     fn is_draft_route(&self) -> bool;
@@ -64,7 +64,7 @@ pub struct Egg {
 /// The window went off screen or came back (`App::on_visibility`). Back, the egg carries on from
 /// where its clock is, as Desktop's loops do: timed moves land where they'd be, physics takes one
 /// clamped step.
-pub fn visibility<H: EggHost>(s: &mut H, shown: bool, tx: &mut Tx) {
+pub fn visibility(s: &mut dyn EggHost, shown: bool, tx: &mut Tx) {
     let egg = s.egg_mut();
     egg.off_screen = !shown;
     if shown && egg.live.is_some() {
@@ -282,7 +282,7 @@ fn colors(dark: bool) -> Colors {
 
 /// The egg's frames: the lodger, the pin board and the game, each stepping on the frame's time,
 /// and the sounds they ask for. True when the view must run again.
-pub fn poll<H: EggHost>(s: &mut H, now: f64, tx: &mut Tx) -> bool {
+pub fn poll(s: &mut dyn EggHost, now: f64, tx: &mut Tx) -> bool {
     let started = tracing().then(rune::time::Instant::now);
     // Only a window with a person at it plays (as the app's other sounds), unless a capture asks.
     // Desktop's sounds also wait while the page is hidden (`audio()`: `document.hidden`).
@@ -507,7 +507,7 @@ fn start_game(live: &mut Live, now: f64, tx: &mut Tx) {
 
 /// The pointer moved over the "e"'s reach or the grip, the egg not necessarily out yet: it wakes
 /// once the eyes would show.
-pub fn pointer_move_at<H: EggHost>(s: &mut H, geo: Geo, x: f64, y: f64, tx: &mut Tx) {
+pub fn pointer_move_at(s: &mut dyn EggHost, geo: Geo, x: f64, y: f64, tx: &mut Tx) {
     if s.egg().live.is_none() {
         if !gpu::on_gpu() {
             return;
@@ -527,7 +527,7 @@ pub fn pointer_move_at<H: EggHost>(s: &mut H, geo: Geo, x: f64, y: f64, tx: &mut
 }
 
 /// The pointer moved over the panel.
-pub fn pointer_move<H: EggHost>(s: &mut H, x: f64, y: f64, tx: &mut Tx) {
+pub fn pointer_move(s: &mut dyn EggHost, x: f64, y: f64, tx: &mut Tx) {
     let now = tx.clock();
     let Some(live) = s.egg_mut().live.as_deref_mut() else { return };
     let state = live.state;
@@ -546,7 +546,7 @@ pub fn pointer_move<H: EggHost>(s: &mut H, x: f64, y: f64, tx: &mut Tx) {
 
 /// The pointer came into the panel: the board takes its first point as where it was too, so
 /// the entry adds no speed (`onEnter`); the next move gives it.
-pub fn pointer_entered<H: EggHost>(s: &mut H, tx: &mut Tx) {
+pub fn pointer_entered(s: &mut dyn EggHost, tx: &mut Tx) {
     let Some(live) = s.egg_mut().live.as_deref_mut() else { return };
     if let Some(b) = live.board.as_deref_mut() {
         b.pins.pointer_entered();
@@ -557,7 +557,7 @@ pub fn pointer_entered<H: EggHost>(s: &mut H, tx: &mut Tx) {
 }
 
 /// The pointer left the panel.
-pub fn pointer_leave<H: EggHost>(s: &mut H, tx: &mut Tx) {
+pub fn pointer_leave(s: &mut dyn EggHost, tx: &mut Tx) {
     let now = tx.clock();
     let Some(live) = s.egg_mut().live.as_deref_mut() else { return };
     let state = live.state;
@@ -571,7 +571,7 @@ pub fn pointer_leave<H: EggHost>(s: &mut H, tx: &mut Tx) {
 }
 
 /// A press on the grip: the lodger is grabbed.
-pub fn grab_at<H: EggHost>(s: &mut H, geo: Geo, x: f64, y: f64, tx: &mut Tx) {
+pub fn grab_at(s: &mut dyn EggHost, geo: Geo, x: f64, y: f64, tx: &mut Tx) {
     let now = tx.clock();
     if s.egg().live.is_none() {
         if !gpu::on_gpu() {
@@ -589,7 +589,7 @@ pub fn grab_at<H: EggHost>(s: &mut H, geo: Geo, x: f64, y: f64, tx: &mut Tx) {
 }
 
 /// The grip was let go (or the press was taken away).
-pub fn release<H: EggHost>(s: &mut H, tx: &mut Tx) {
+pub fn release(s: &mut dyn EggHost, tx: &mut Tx) {
     let now = tx.clock();
     let Some(live) = s.egg_mut().live.as_deref_mut() else { return };
     live.with_lodger(now, |l, sn| l.release(now, sn));
@@ -598,7 +598,7 @@ pub fn release<H: EggHost>(s: &mut H, tx: &mut Tx) {
 }
 
 /// A press on the panel off its controls: the board knocks pins out, or the game serves.
-pub fn panel_press<H: EggHost>(s: &mut H, x: f64, y: f64, tx: &mut Tx) {
+pub fn panel_press(s: &mut dyn EggHost, x: f64, y: f64, tx: &mut Tx) {
     let now = tx.clock();
     let Some(live) = s.egg_mut().live.as_deref_mut() else { return };
     if let (Some(g), Some(b)) = (live.game.as_deref_mut(), live.board.as_deref_mut()) {
@@ -616,7 +616,7 @@ pub fn panel_press<H: EggHost>(s: &mut H, x: f64, y: f64, tx: &mut Tx) {
     }
 }
 
-pub fn panel_release<H: EggHost>(s: &mut H) {
+pub fn panel_release(s: &mut dyn EggHost) {
     if let Some(b) = s.egg_mut().live.as_deref_mut().and_then(|l| l.board.as_deref_mut()) {
         b.pins.pointer_up();
     }
@@ -624,7 +624,7 @@ pub fn panel_release<H: EggHost>(s: &mut H) {
 
 /// A key going down or up while Brick Breaker plays, as Desktop reads `KeyboardEvent.key`:
 /// the arrows, `a` and `d`, Space, Escape. True when the game took it.
-pub fn game_key<H: EggHost>(s: &mut H, ev: &rune::KeyEvent, down: bool, tx: &mut Tx) -> bool {
+pub fn game_key(s: &mut dyn EggHost, ev: &rune::KeyEvent, down: bool, tx: &mut Tx) -> bool {
     use brick::GameKey;
     let key = match &ev.key {
         rune::Key::Escape => GameKey::Escape,
@@ -639,7 +639,7 @@ pub fn game_key<H: EggHost>(s: &mut H, ev: &rune::KeyEvent, down: bool, tx: &mut
     key_to_game(s, key, down, tx)
 }
 
-fn key_to_game<H: EggHost>(s: &mut H, key: brick::GameKey, down: bool, tx: &mut Tx) -> bool {
+fn key_to_game(s: &mut dyn EggHost, key: brick::GameKey, down: bool, tx: &mut Tx) -> bool {
     let now = tx.clock();
     let Some(live) = s.egg_mut().live.as_deref_mut() else { return false };
     let (Some(g), Some(b)) = (live.game.as_deref_mut(), live.board.as_deref_mut()) else { return false };
@@ -651,7 +651,7 @@ fn key_to_game<H: EggHost>(s: &mut H, key: brick::GameKey, down: bool, tx: &mut 
 }
 
 /// The window lost focus: the game lets held keys go, the board ends a drag.
-pub fn blur<H: EggHost>(s: &mut H) {
+pub fn blur(s: &mut dyn EggHost) {
     let Some(live) = s.egg_mut().live.as_deref_mut() else { return };
     if let Some(g) = live.game.as_deref_mut() {
         g.blur();
@@ -667,7 +667,7 @@ pub fn blur<H: EggHost>(s: &mut H) {
 /// The draft page shows, the lodger is in the "e" or perched with no game yet, and the egg has
 /// been found in this run: an Easter egg the palette lists isn't hidden. Under Reduce Motion there's
 /// no game to play (`wordmark-machine.ts:209`).
-pub fn can_play_command<H: EggHost>(s: &H) -> bool {
+pub fn can_play_command(s: &dyn EggHost) -> bool {
     let egg = s.egg();
     egg.found
         && !s.reduced_motion()
@@ -677,7 +677,7 @@ pub fn can_play_command<H: EggHost>(s: &H) -> bool {
 
 /// Runs the palette's "Play Brick Breaker" command: pulls the lodger out and carries it onto the
 /// composer as a hand would.
-pub fn run_play_command<H: EggHost>(s: &mut H, tx: &mut Tx) {
+pub fn run_play_command(s: &mut dyn EggHost, tx: &mut Tx) {
     if !gpu::on_gpu() {
         return;
     }
@@ -695,7 +695,7 @@ pub fn run_play_command<H: EggHost>(s: &mut H, tx: &mut Tx) {
 }
 
 /// Enter or Space on the "e" (or the perched lodger): the palette's play.
-pub fn grip_key<H: EggHost>(s: &mut H, ev: &rune::KeyEvent, tx: &mut Tx) -> bool {
+pub fn grip_key(s: &mut dyn EggHost, ev: &rune::KeyEvent, tx: &mut Tx) -> bool {
     let press = matches!(&ev.key, rune::Key::Enter) || matches!(&ev.key, rune::Key::Text(t) if t == " ");
     if !press {
         return false;
@@ -705,7 +705,7 @@ pub fn grip_key<H: EggHost>(s: &mut H, ev: &rune::KeyEvent, tx: &mut Tx) -> bool
 }
 
 /// One step of the palette's play: the pointer's press, move or release for this frame.
-fn drive<H: EggHost>(s: &mut H, tx: &mut Tx) {
+fn drive(s: &mut dyn EggHost, tx: &mut Tx) {
     let Some(live) = s.egg().live.as_deref() else { return };
     let (auto, state, geo, still) = (live.auto, live.state, live.geo.get(), live.lodger.still);
     let grip = live.lodger.to_panel(lodger::HOLE[0], lodger::HOLE[1]);
