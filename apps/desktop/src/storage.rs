@@ -242,6 +242,9 @@ fn send(event: Event) {
             let was_opened = std::mem::replace(opened, Opened::Saving { drafts_replayed: false });
             t.drafts_replayed = matches!((&was_opened, t.held), (Opened::Saving { drafts_replayed: true }, false));
             t.owed = match (was_opened, t.held) {
+                // Held for another copy finishing a save ("OpenCode is finishing a save"), and the file
+                // changed under it: now it says this window won't save.
+                (Opened::Memory(_), true) if opencode_storage::held_by_another_copy() => Some(Notice::InUse),
                 // The first frame's notice already says nothing is saved.
                 (Opened::Memory(_), true) => t.owed.take(),
                 (Opened::Memory(why), false) => Some(Notice::Memory(why)),
