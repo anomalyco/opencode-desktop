@@ -538,8 +538,9 @@ mod imp {
             return;
         }
 
-        // A second copy's fault isn't the profile's record (`open_once`).
-        if opencode_storage::holds_profile() == Some(false) {
+        // A second copy's fault isn't the profile's record (`open_once`); nor one before the
+        // storage has decided whose the profile is.
+        if opencode_storage::holds_profile() != Some(true) {
             return;
         }
         let mut fd = RECORD_FD.load(Ordering::Acquire);

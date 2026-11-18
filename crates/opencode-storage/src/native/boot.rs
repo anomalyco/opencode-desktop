@@ -271,7 +271,7 @@ fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket), gate: &Gate) -> (St
         return (Storage::memory(), report);
     }
     // Nor before it holds the profile's lease (`profile`): on macOS the claim admits every launch.
-    match profile::hold(&config, &mut report, t0, send, &mut owe, gate, &mut packet, &mut held) {
+    match profile::hold(&config, &mut report, t0, send, &mut owe, &mut packet, &mut held) {
         profile::Hold::Go => {}
         profile::Hold::Memory(why) => return profile::in_memory(&mut report, t0, send, &mut owe, packet, held, why),
     }
