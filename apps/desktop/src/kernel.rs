@@ -16,8 +16,11 @@ pub fn build() -> Kernel<App> {
     b.with_feature(&crate::surfaces::office::OfficeFeature);
     b.with_feature(&crate::surfaces::updater::UpdaterFeature);
     b.with_feature(&crate::surfaces::code_view::CodeViewFeature);
+    b.with_feature(&crate::line_comments::AnnotationsFeature);
     b.with_feature(&crate::connect::ConnectFeature);
     b.with_feature(&crate::dictation::DictationFeature);
+    b.with_feature(&crate::files::FilesFeature);
+    b.with_feature(&crate::find::FindFeature);
     b.with_feature(&crate::mcp::McpFeature);
     b.with_feature(&crate::mentions::MentionsFeature);
     b.with_feature(&crate::open_in::OpenInFeature);

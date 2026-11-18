@@ -523,7 +523,7 @@ impl App {
         *self.layout = layout_state::Shell::at_rest(self.settings.tab_layout);
         self.load_open_in();
         if self.persists() {
-            self.files.wrap = files::markdown::WrapPrefs::load();
+            self.files.wrap = files::markdown::WrapPrefs::load(self);
             *self.panel_sidebar = plugin_host::native::sidebar::PanelSidebar::load();
         }
         *self.prompts = prompt_history::PromptHistory::load(attended());

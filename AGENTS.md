@@ -8,9 +8,12 @@ Start at the top and go deeper only when a feature needs lower-level control (se
 
 - **`plugins/`** (Tier 1 — default for ~80% of features): Luau plugins compiled against `opencode-plugin-spec`, hot-reloaded in place with zero Rust edits.
 - **`features/`** (Tier 2 — decoupled Rust feature crates):
+  - `features/annotations` (`opencode-feature-annotations`): timeline/terminal quote toolbar, composer comment cards, floating quote-comment editor, and code/diff line comments.
   - `features/connect` (`opencode-feature-connect`): provider connect dialog, catalog sync, picker reads, and ChatGPT plan welcome.
   - `features/dictation` (`opencode-feature-dictation`): Hex voice dictation state machine & polling.
   - `features/egg` (`opencode-feature-egg`): new-session GPU wordmark & Brick Breaker Easter egg.
+  - `features/files` (`opencode-feature-files`): workspace file tree, file viewer, Markdown/HTML/table/Mermaid/image/video previews, link resolution, and file watcher engine.
+  - `features/find` (`opencode-feature-find`): session timeline Find state machine, incremental transcript search index, match highlighting, and find bar.
   - `features/mcp` (`opencode-feature-mcp`): MCP server toggle machine, MCPs dialog, and browser OAuth sign-in dialog.
   - `features/mentions` (`opencode-feature-mentions`): composer `@` mentions popover, search state machine, badges, session chips, and wire encoding.
   - `features/office` (`opencode-feature-office`): Word, Excel, and PowerPoint Vello preview engine.

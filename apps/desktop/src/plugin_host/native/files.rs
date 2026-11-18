@@ -223,7 +223,9 @@ pub fn view(a: &mut NodeArgs) -> Result<El, String> {
     cx::read(Dep::FilesDoc(sid.clone(), path.clone()));
     let empty = crate::files::SessionFiles::default();
     let ws = app.files.sessions.get(&sid).unwrap_or(&empty);
-    Ok(col().w_full().grow(1.0).min_h(0.0).child(crate::files::viewer::code_area(app, &pal, &sid, ws, &path, true)))
+    let notes: std::rc::Rc<dyn crate::code_view::notes::LineNotes<App>> =
+        crate::line_comments::host::Notes::new(&sid, crate::line_comments::Surface::Files);
+    Ok(col().w_full().grow(1.0).min_h(0.0).child(crate::files::viewer::code_area(app, &pal, &sid, ws, &path, true, Some(notes))))
 }
 
 /// Lands what the file engine read.

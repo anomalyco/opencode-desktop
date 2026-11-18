@@ -136,7 +136,9 @@ fn workspace(app: &App, p: &Pal, a: &NodeArgs, sid: &str, kinds: Rc<HashMap<Stri
     if a.flag("narrow") {
         cx::read(Dep::Files(sid.to_owned()));
         let project = app.session(sid).map(|s| s.project.clone()).unwrap_or_default();
-        return crate::files::narrow::view(app, p, sid, &project, a.number("width").unwrap_or(0.0) as f32);
+        let notes: Rc<dyn crate::code_view::notes::LineNotes<App>> =
+            crate::line_comments::host::Notes::new(sid, crate::line_comments::Surface::Files);
+        return crate::files::narrow::view(app, p, sid, &project, a.number("width").unwrap_or(0.0) as f32, Some(notes));
     }
     cx::read(Dep::FilesTree(sid.to_owned()));
     let empty = crate::files::SessionFiles::default();
@@ -172,7 +174,7 @@ fn workspace(app: &App, p: &Pal, a: &NodeArgs, sid: &str, kinds: Rc<HashMap<Stri
         return rune::memo(
             "files-workspace-tree",
             (p.theme, p.generation, p.dark, sid, selected.as_deref(), tree_hash),
-            || crate::files::view::workspace_tree_view(p, sid, ws, selected.as_deref(), Some(kinds)),
+            || crate::files::view::workspace_tree_view::<App>(p, sid, ws, selected.as_deref(), Some(kinds)),
         );
     }
     if ws.search.asked() != Some(filter) {
@@ -249,7 +251,7 @@ fn change_tree(app: &App, p: &Pal, sid: &str, kinds: Rc<HashMap<String, String>>
         );
     // Desktop's Pierre tree scrolls itself, with its own bar (`session-review-v2.css:213-220`;
     // `--trees-fg` muted on `bg-base`, `gui-plugins/src/file/pierre-tree.tsx:36-38`).
-    crate::files::view::tree_scroll(p, "review-tree", list)
+    crate::files::view::tree_scroll::<App>(p, "review-tree", list)
 }
 
 /// The change tree's Right and Left, as the Files tree's (`files::view::tree_key`).
@@ -322,7 +324,7 @@ fn filtered(app: &App, p: &Pal, sid: &str, query: &str, _kinds: Rc<HashMap<Strin
         },
     );
     // The filter's rows in the same Pierre tree as the folders, with its bar.
-    crate::files::view::tree_scroll(p, "review-filter-scroll", list)
+    crate::files::view::tree_scroll::<App>(p, "review-filter-scroll", list)
 }
 
 fn counts(p: &Pal, adds: u32, dels: u32) -> El {

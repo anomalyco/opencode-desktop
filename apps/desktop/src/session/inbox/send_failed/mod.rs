@@ -280,7 +280,7 @@ impl App {
             self.send_effect(id, effect);
         }
         if let Some(result) = after.filter(|r| before != Some(*r)) {
-            crate::quote::send_result(self, id, result);
+            crate::quote::send_result(self, id, crate::quote::map_send_result(result));
         }
         changed
     }
