@@ -63,6 +63,8 @@ Organized by progressive disclosure (see [ARCHITECTURE.md](ARCHITECTURE.md)):
 | `features/office` | `opencode-feature-office` | Word, Excel, and PowerPoint Vello preview engine |
 | `features/open-in` | `opencode-feature-open-in` | External editor/terminal detection, launching, preferred app persistence, and URL opening |
 | `features/panels` | `opencode-feature-panels` | Session side, split, and bottom panel strip, drag/resize/closing state machines, launchers, menus, and persistence |
+| `features/projects` | `opencode-feature-projects` | Project tracking, Home across servers, session JSON import, sidebar organize/customize/recent state, and remote directory picker dialog |
+| `features/restore` | `opencode-feature-restore` | Window state restoration, composer drafts, blob attachments, timeline places, boot previews, offline transcript copies, and draft undo persistence |
 | `features/review` | `opencode-feature-review` | Review changes engine, untracked folder loader, narrow Changes view, and focus anchoring |
 | `features/session-menu` | `opencode-feature-session-menu` | Session right-click context menus, inline and dialog rename, undoable delete, export, and read/mute/hide preferences |
 | `features/settings` | `opencode-feature-settings` | Settings two-pane shell, preferences persistence, search index, and all built-in settings pages |
@@ -78,6 +80,7 @@ Organized by progressive disclosure (see [ARCHITECTURE.md](ARCHITECTURE.md)):
 | `crates/opencode-search` | `opencode-search` | Headless full-text, fuzzysort, path index, file ranking, and URL query primitives (`#![forbid(unsafe_code)]`) |
 | `crates/opencode-ui` | `opencode-ui` | Shared OpenCode UI primitives (`widgets`, dialog sizing helpers), shortcut keymap (`keymap`), file/review panel chrome (`panel_chrome`), popup/context menu engine (`popup`), and toast notification stack (`toast`) |
 | `crates/opencode-platform` | `opencode-platform` | Cross-platform OS/WASM utilities (wall clock, OTLP telemetry, askpass, HTTP fetch) |
+| `crates/opencode-plugin-runtime` | `opencode-plugin-runtime` | Reusable App-independent Luau plugin runtime primitives (catalogs, console, flyout, hot reload, icons, images, machines, power, processes, QR, redraw, reveal, sources, tasks) |
 | `crates/session-view` | `session-view` | Embeddable virtualized OpenCode session timeline view (Markdown, `ui` outlines, Mermaid, tool groups, subagent cards, images, scroll bar) |
 | `crates/opencode-kit` | `opencode-kit` | OpenCode HTTP/SSE/WebSocket client, local `service.json` discovery, and session/transcript model |
 | `crates/rune-parts` | `rune-parts` | Generative UI (```` ```ui ````) outline parser, catalog, checker, HTML renderer, and optional Rune element view (`features = ["view"]`) |

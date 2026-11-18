@@ -5,7 +5,6 @@
 use super::grouping::{Grouping, Ordering, Status, groupings};
 use super::*;
 use crate::popup::{self, Item, Menu};
-use crate::settings::Choice;
 use opencode_i18n::t;
 
 /// The trigger's key, which the menu opens under.

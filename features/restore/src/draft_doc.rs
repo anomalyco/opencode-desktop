@@ -17,9 +17,7 @@ use opencode_kit::client::PathAttachment;
 use opencode_kit::model::{Attachment, PromptComment};
 use serde_json::{Value, json};
 
-use super::Parked;
-use crate::App;
-use crate::add_selection::ContextFile;
+use crate::{ContextFile, Parked, RestoreHost};
 
 /// Which blob holds which attachment's bytes, as far as this run knows.
 #[derive(Default)]
@@ -46,16 +44,26 @@ fn address(bytes: &Arc<[u8]>) -> usize {
 }
 
 impl Blobs {
-    fn id(&self, bytes: &Arc<[u8]>) -> Option<&str> {
+    pub fn id(&self, bytes: &Arc<[u8]>) -> Option<&str> {
         let (weak, id) = self.ids.get(&address(bytes))?;
         weak.upgrade().is_some_and(|b| Arc::ptr_eq(&b, bytes)).then_some(id.as_str())
+    }
+
+    /// Draft `key`'s files still on their way from the database, as stored.
+    pub fn pending_for(&self, key: &str) -> Option<&Vec<Value>> {
+        self.pending.get(key)
+    }
+
+    /// Draft keys whose files are still on their way.
+    pub fn pending_keys(&self) -> impl Iterator<Item = &String> + '_ {
+        self.pending.keys()
     }
 }
 
 /// A draft's pieces besides its words, borrowed where they live (the composer's own for the
-/// shown draft, `Parked` for the rest): a keystroke builds no copy of them.
+/// shown draft, [`Parked`] for the rest): a keystroke builds no copy of them.
 #[derive(Default)]
-pub(super) struct Parts<'a> {
+pub struct Parts<'a> {
     pub pills: Vec<(usize, usize, &'a str)>,
     pub caret: Option<usize>,
     pub files: &'a [Attachment],
@@ -77,8 +85,12 @@ impl<'a> Parts<'a> {
     }
 
     /// Anything to keep beside `text`: pills and a caret only mean something with words.
-    fn any(&self, text: &str) -> bool {
-        !self.files.is_empty() || !self.paths.is_empty() || !self.context.is_empty() || !self.quotes.is_empty() || (!text.trim().is_empty() && (!self.pills.is_empty() || self.caret.is_some_and(|c| c != text.len())))
+    pub fn any(&self, text: &str) -> bool {
+        !self.files.is_empty()
+            || !self.paths.is_empty()
+            || !self.context.is_empty()
+            || !self.quotes.is_empty()
+            || (!text.trim().is_empty() && (!self.pills.is_empty() || self.caret.is_some_and(|c| c != text.len())))
     }
 }
 
@@ -103,7 +115,7 @@ struct Doc<'a> {
 }
 
 /// The document for a draft: `None` when there's nothing to keep.
-pub(super) fn encode(text: &str, shell: bool, parts: Option<Parts<'_>>, blobs: &Blobs, pending: Option<&Vec<Value>>) -> Option<String> {
+pub fn encode(text: &str, shell: bool, parts: Option<Parts<'_>>, blobs: &Blobs, pending: Option<&Vec<Value>>) -> Option<String> {
     let rich = parts.filter(|p| p.any(text));
     if rich.is_none() && pending.is_none_or(Vec::is_empty) {
         return match (shell, text.trim().is_empty()) {
@@ -137,15 +149,16 @@ pub(super) fn encode(text: &str, shell: bool, parts: Option<Parts<'_>>, blobs: &
     };
     serde_json::to_string(&doc).ok()
 }
+
 /// A stored draft: its words, shell mode, the rest, and its files whose bytes are in `blob`.
-pub(super) struct Decoded {
+pub struct Decoded {
     pub text: String,
     pub shell: bool,
     pub parked: Parked,
     pub stored: Vec<Value>,
 }
 
-pub(super) fn decode(d: &Value) -> Decoded {
+pub fn decode(d: &Value) -> Decoded {
     let text = d.as_str().or(d["text"].as_str()).unwrap_or_default().to_owned();
     let pills = d["pills"]
         .as_array()
@@ -176,95 +189,110 @@ pub(super) fn decode(d: &Value) -> Decoded {
     Decoded { text, shell: d["mode"].as_str() == Some("shell"), parked, stored }
 }
 
-impl App {
-    /// Draft `key`'s restored files whose bytes are in `blob`: read on the storage thread, they
-    /// join the draft at a later poll.
-    pub(super) fn read_draft_files(&mut self, key: &str, stored: Vec<Value>) {
-        if stored.is_empty() {
-            return;
-        }
-        self.restore.blobs.pending.insert(key.to_owned(), stored.clone());
-        let (arrived, wake) = (self.restore.blobs.arrived.clone(), (*self.waker).clone());
-        let key = key.to_owned();
-        crate::storage::with_storage(move |s| {
-            for entry in stored {
-                let (arrived, wake, draft) = (arrived.clone(), wake.clone(), key.clone());
-                let id = entry["blob"]["id"].as_str().unwrap_or_default().to_owned();
-                s.documents().get_blob(&id, Box::new(move |bytes| {
-                    let file = bytes.and_then(|b| Some(Attachment { mime: entry["mime"].as_str()?.to_owned(), name: entry["name"].as_str()?.to_owned(), bytes: Arc::from(b), media: None }));
-                    arrived.lock().unwrap_or_else(|e| e.into_inner()).push(Arrival::Read { draft, entry, file });
+/// Draft `key`'s restored files whose bytes are in `blob`: read on the storage thread, they
+/// join the draft at a later poll.
+pub(crate) fn read_draft_files(host: &mut dyn RestoreHost, key: &str, stored: Vec<Value>) {
+    if stored.is_empty() {
+        return;
+    }
+    let arrived = {
+        let blobs = &mut host.restore_mut().blobs;
+        blobs.pending.insert(key.to_owned(), stored.clone());
+        blobs.arrived.clone()
+    };
+    let wake = host.waker();
+    let key = key.to_owned();
+    host.with_storage(Box::new(move |s| {
+        for entry in stored {
+            let (arrived, wake, draft) = (arrived.clone(), wake.clone(), key.clone());
+            let id = entry["blob"]["id"].as_str().unwrap_or_default().to_owned();
+            s.documents().get_blob(
+                &id,
+                Box::new(move |bytes| {
+                    let file = bytes.and_then(|b| {
+                        Some(Attachment {
+                            mime: entry["mime"].as_str()?.to_owned(),
+                            name: entry["name"].as_str()?.to_owned(),
+                            bytes: Arc::from(b),
+                            media: None,
+                        })
+                    });
+                    arrived.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(Arrival::Read { draft, entry, file });
                     if let Some(w) = wake {
                         w();
                     }
-                }));
-            }
-        });
-    }
+                }),
+            );
+        }
+    }));
+}
 
-    /// Every poll: drafts' new files go to be stored (and hashed) off the UI thread, and what the
-    /// storage thread answered lands. True when a draft on screen changed.
-    pub(crate) fn poll_draft_files(&mut self) -> bool {
-        let fresh: Vec<Arc<[u8]>> = self
-            .attach
-            .files
+/// Every poll: drafts' new files go to be stored (and hashed) off the UI thread, and what the
+/// storage thread answered lands. True when a draft on screen changed.
+pub fn poll_draft_files(host: &mut dyn RestoreHost) -> bool {
+    let fresh: Vec<Arc<[u8]>> = {
+        let r = host.restore();
+        host.attach_files()
             .iter()
-            .chain(self.restore.parked.values().flat_map(|p| &p.files))
+            .chain(r.parked.values().flat_map(|p| &p.files))
             .filter(|f| f.media.is_none() && !f.bytes.is_empty())
             .map(|f| f.bytes.clone())
-            .filter(|b| self.restore.blobs.id(b).is_none() && !self.restore.blobs.asked.contains(&address(b)))
-            .collect();
+            .filter(|b| r.blobs.id(b).is_none() && !r.blobs.asked.contains(&address(b)))
+            .collect()
+    };
+    if !fresh.is_empty() {
+        let wake = host.waker();
         for bytes in fresh {
-            self.restore.blobs.asked.insert(address(&bytes));
-            let (arrived, wake) = (self.restore.blobs.arrived.clone(), (*self.waker).clone());
-            crate::storage::with_storage(move |s| {
+            let arrived = {
+                let blobs = &mut host.restore_mut().blobs;
+                blobs.asked.insert(address(&bytes));
+                blobs.arrived.clone()
+            };
+            let wake = wake.clone();
+            host.with_storage(Box::new(move |s| {
                 let (at, weak) = (address(&bytes), Arc::downgrade(&bytes));
                 let id = s.documents().put_blob(bytes);
-                arrived.lock().unwrap_or_else(|e| e.into_inner()).push(Arrival::Stored { at, bytes: weak, id });
+                arrived.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(Arrival::Stored { at, bytes: weak, id });
                 if let Some(w) = wake {
                     w();
                 }
-            });
+            }));
         }
-        let arrived = std::mem::take(&mut *self.restore.blobs.arrived.lock().unwrap_or_else(|e| e.into_inner()));
-        let mut shown = false;
-        for a in arrived {
-            self.restore.blobs.revision += 1;
-            match a {
-                Arrival::Stored { at, bytes, id } => {
-                    self.restore.blobs.asked.remove(&at);
-                    self.restore.blobs.ids.insert(at, (bytes, id));
-                }
-                Arrival::Read { draft, entry, file } => {
-                    if let Some(list) = self.restore.blobs.pending.get_mut(&draft) {
+    }
+    let arrived = std::mem::take(&mut *host.restore().blobs.arrived.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+    if arrived.is_empty() {
+        return false;
+    }
+    let mut shown = false;
+    for a in arrived {
+        host.restore_mut().blobs.revision += 1;
+        match a {
+            Arrival::Stored { at, bytes, id } => {
+                let blobs = &mut host.restore_mut().blobs;
+                blobs.asked.remove(&at);
+                blobs.ids.insert(at, (bytes, id));
+            }
+            Arrival::Read { draft, entry, file } => {
+                {
+                    let blobs = &mut host.restore_mut().blobs;
+                    if let Some(list) = blobs.pending.get_mut(&draft) {
                         list.retain(|e| *e != entry);
                         if list.is_empty() {
-                            self.restore.blobs.pending.remove(&draft);
+                            blobs.pending.remove(&draft);
                         }
                     }
-                    let Some(file) = file else { continue };
-                    let id = entry["blob"]["id"].as_str().unwrap_or_default().to_owned();
-                    self.restore.blobs.ids.insert(address(&file.bytes), (Arc::downgrade(&file.bytes), id));
-                    if self.composer_holds(&draft) {
-                        self.attach.files.push(file);
-                        shown = true;
-                    } else {
-                        self.restore.parked.entry(draft).or_default().files.push(file);
-                    }
+                }
+                let Some(file) = file else { continue };
+                let id = entry["blob"]["id"].as_str().unwrap_or_default().to_owned();
+                host.restore_mut().blobs.ids.insert(address(&file.bytes), (Arc::downgrade(&file.bytes), id));
+                if crate::parked::composer_holds(host, &draft) {
+                    host.push_attach_file(file);
+                    shown = true;
+                } else {
+                    host.restore_mut().parked.entry(draft).or_default().files.push(file);
                 }
             }
         }
-        shown
     }
-
-    /// Draft `key`'s files still on their way from the database, as stored.
-    pub(super) fn pending_files(&self, key: &str) -> Option<&Vec<Value>> {
-        self.restore.blobs.pending.get(key)
-    }
-}
-
-impl super::Restore {
-    /// The drafts whose files are still on their way.
-    pub(super) fn blobs_pending(&self) -> impl Iterator<Item = &String> + '_ {
-        self.blobs.pending.keys()
-    }
+    shown
 }

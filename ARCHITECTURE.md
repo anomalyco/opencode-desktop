@@ -25,6 +25,8 @@ rune-desktop/
 │   ├── office/                 #   opencode-feature-office (Word/Excel/PPT Vello preview engine)
 │   ├── open-in/                #   opencode-feature-open-in (external editor/terminal detection & launch)
 │   ├── panels/                 #   opencode-feature-panels (session side/split/bottom panel strip, drag/resize/closing machines, launchers, menus & persistence)
+│   ├── projects/               #   opencode-feature-projects (project tracking, Home across servers, session import & remote directory picker dialog)
+│   ├── restore/                #   opencode-feature-restore (window state restoration, composer drafts, blob attachments, timeline places, boot previews, offline copies & draft undo)
 │   ├── review/                 #   opencode-feature-review (review changes engine, untracked folders, narrow Changes view, focus anchoring)
 │   ├── session-menu/           #   opencode-feature-session-menu (session context menus, inline & dialog rename, undoable delete, export & read/mute/hide preferences)
 │   ├── settings/               #   opencode-feature-settings (Settings two-pane shell, preferences persistence, search & all built-in settings pages)
@@ -44,6 +46,7 @@ rune-desktop/
 │   ├── opencode-platform/      #   OS & WASM platform helpers (wall clock, OTLP telemetry, askpass, fetch)
 │   ├── session-view/           #   Embeddable timeline (TimelineHost + focused capability sub-traits)
 │   ├── opencode-kit/           #   Protocol client, SSE/WS streams, transcript model
+│   ├── opencode-plugin-runtime/#   App-independent Luau plugin runtime primitives (catalogs, icons, images, flyout, machines, processes, power, QR, hot reload, sources, tasks)
 │   ├── opencode-plugin-spec/   #   Single-source-of-truth contract.json + Luau/Rust codegen
 │   ├── opencode-storage/       #   SQLite/web storage engine
 │   ├── opencode-search/        #   Headless full-text, fuzzysort, path index, file ranking & URL query primitives (#![forbid(unsafe_code)])

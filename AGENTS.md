@@ -23,6 +23,8 @@ Start at the top and go deeper only when a feature needs lower-level control (se
   - `features/office` (`opencode-feature-office`): Word, Excel, and PowerPoint Vello preview engine.
   - `features/open-in` (`opencode-feature-open-in`): external editor/terminal detection & launch.
   - `features/panels` (`opencode-feature-panels`): session side, split, and bottom panel strip, drag/resize/closing state machines, launchers, menus, and persistence.
+  - `features/projects` (`opencode-feature-projects`): project tracking, Home across servers, session JSON import, sidebar organize/customize/recent state, and remote directory picker dialog.
+  - `features/restore` (`opencode-feature-restore`): window state restoration, composer drafts, blob attachments, timeline places, boot previews, offline transcript copies, and draft undo persistence.
   - `features/review` (`opencode-feature-review`): review changes engine, untracked folder loader, narrow Changes view, and focus anchoring.
   - `features/session-menu` (`opencode-feature-session-menu`): session right-click context menus, inline and dialog rename, undoable delete, export, and read/mute/hide preferences.
   - `features/settings` (`opencode-feature-settings`): Settings two-pane shell, preferences persistence, search index, and all built-in settings pages.
@@ -38,6 +40,7 @@ Start at the top and go deeper only when a feature needs lower-level control (se
   - `crates/opencode-search`: headless full-text, fuzzysort, path index, file ranking, and URL query primitives (`#![forbid(unsafe_code)]`).
   - `crates/opencode-ui`: shared OpenCode UI primitives (`widgets`, dialog sizing), shortcut `keymap`, file/review `panel_chrome`, `popup` menu engine, and `toast` notifications (`#![forbid(unsafe_code)]`).
   - `crates/opencode-platform`: OS and WASM platform helpers (wall clock, OTLP telemetry, askpass, HTTP fetch).
+  - `crates/opencode-plugin-runtime`: reusable App-independent Luau plugin runtime primitives (catalogs, console, flyout, hot reload, icons, images, machines, power, processes, QR, redraw, reveal, sources, tasks).
   - `crates/session-view`: embeddable OpenCode session timeline (`TimelineHost` + focused capability sub-traits in `traits.rs`, `ViewState`, `examples/read_only.rs`). Keep it free of `opencode-desktop`-only window/tab/sidebar assumptions so Seer and other Rune apps can embed it directly.
   - `crates/opencode-kit`: reusable OpenCode HTTP/SSE/WS client and session/transcript model. Keep it free of app-specific concepts.
   - `crates/rune-parts`: ```` ```ui ```` outline catalog, parser, checker, and optional Rune `view` feature (`skills/rune-ui/SKILL.md`).

@@ -5,10 +5,10 @@
 
 pub mod load;
 
-use std::collections::HashMap;
-use rune::task::Queue;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
+use rune::task::Queue;
 use rune::{Image, ImageCache};
 
 use load::{Load, LoadEffect, LoadEvent, Source};
@@ -17,7 +17,7 @@ use load::{Load, LoadEffect, LoadEvent, Source};
 pub struct Images {
     cache: Option<Arc<ImageCache>>,
     waker: Option<rune::Waker>,
-    /// Id  the plugin it belongs to and where it stands.
+    /// Id → the plugin it belongs to and where it stands.
     map: HashMap<u32, Entry>,
     /// A plugin's loads by source key, so the same source is the same image.
     by_source: HashMap<(String, String), u32>,
@@ -29,7 +29,7 @@ pub struct Images {
     /// The videos plugins show (`ui.video`), by plugin and URL: one player each.
     players: HashMap<(String, String), rune::Player>,
     /// Players seen failed: a new failure redraws the surfaces that show it (`video_failed`).
-    failed: std::collections::HashSet<(String, String)>,
+    failed: HashSet<(String, String)>,
 }
 
 /// An image's id and what a reader read for it: its picture, decoding, and its bytes.
@@ -102,14 +102,15 @@ impl Images {
         let fetched = self.fetched.clone();
         let jobs = rune::task::queue("plugin-images", move |(id, source): (u32, Source)| {
             let (fetched, waker, cache) = (fetched.clone(), waker.clone(), cache.clone());
-            let _ = rune::task::spawn("plugin-images-read", move || {
+            rune::task::spawn("plugin-images-read", move || {
                 let read = source.read().map(|bytes| {
                     let bytes: Arc<[u8]> = bytes.into();
                     (cache.load(bytes.clone()), bytes)
                 });
                 fetched.lock().unwrap_or_else(|e| e.into_inner()).push((id, read));
                 waker();
-            });
+            })
+            .ok();
             std::ops::ControlFlow::Continue(())
         });
         self.jobs = Some(jobs.clone());
@@ -124,7 +125,12 @@ impl Images {
         for (id, read) in fetched {
             changed |= self.step(id, LoadEvent::Fetched(read));
         }
-        let settled: Vec<u32> = self.map.iter().filter(|(_, e)| matches!(&e.load, Load::Decoding { image, .. } if image.is_ready())).map(|(id, _)| *id).collect();
+        let settled: Vec<u32> = self
+            .map
+            .iter()
+            .filter(|(_, e)| matches!(&e.load, Load::Decoding { image, .. } if image.is_ready()))
+            .map(|(id, _)| *id)
+            .collect();
         for id in settled {
             changed |= self.step(id, LoadEvent::Decoded);
         }
@@ -186,7 +192,9 @@ impl Images {
 
     /// Whether plugin `plugin`'s video at `url` can't play.
     pub fn video_failed(&self, plugin: &str, url: &str) -> bool {
-        self.players.get(&(plugin.to_owned(), url.to_owned())).is_some_and(|p| matches!(p.state(), rune::PlayerState::Failed(_)))
+        self.players
+            .get(&(plugin.to_owned(), url.to_owned()))
+            .is_some_and(|p| matches!(p.state(), rune::PlayerState::Failed(_)))
     }
 }
 

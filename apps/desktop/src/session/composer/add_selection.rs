@@ -10,13 +10,7 @@ use crate::attachments::remove_button;
 use crate::keymap::Bind;
 use crate::palette::Pal;
 
-/// A file's lines waiting in the composer, 1-based and in order.
-#[derive(Clone, Debug, PartialEq)]
-pub struct ContextFile {
-    pub path: String,
-    pub start: u32,
-    pub end: u32,
-}
+pub use opencode_feature_restore::ContextFile;
 
 impl App {
     /// The side panel's open file, its tab's session, and the lines selected in it (`activeFile`,

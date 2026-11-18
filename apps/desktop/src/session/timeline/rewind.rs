@@ -186,7 +186,14 @@ impl App {
         if self.composer_holds(session) {
             return self.write_composer_draft(draft);
         }
-        let parked = crate::restore::Parked::of(&draft);
+        let parked = crate::restore::Parked::from_parts(
+            draft.entry.pills,
+            Some(draft.caret),
+            draft.files,
+            draft.paths,
+            Vec::new(),
+            draft.quotes,
+        );
         self.park_draft(session.to_owned(), draft.entry.text, parked);
     }
 

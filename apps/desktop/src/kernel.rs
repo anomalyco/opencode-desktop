@@ -29,6 +29,8 @@ pub fn build() -> Kernel<App> {
     b.with_feature(&crate::notifications::NotificationsFeature);
     b.with_feature(&crate::open_in::OpenInFeature);
     b.with_feature(&crate::panels::PanelsFeature);
+    b.with_feature(&crate::projects::ProjectsFeature);
+    b.with_feature(&crate::restore::RestoreFeature);
     b.with_feature(&crate::review::ReviewFeature);
     b.with_feature(&crate::session_menu::SessionMenuFeature);
     b.with_feature(&crate::settings::SettingsFeature);

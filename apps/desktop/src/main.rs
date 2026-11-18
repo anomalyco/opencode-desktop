@@ -193,6 +193,7 @@ pub(crate) fn init_features() {
     static INIT: std::sync::Once = std::sync::Once::new();
     INIT.call_once(|| {
         keymap::init();
+        projects::init();
         updater::init();
         settings::init();
         send_failed::init();

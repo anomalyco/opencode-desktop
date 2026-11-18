@@ -13,7 +13,6 @@ pub mod recently_closed;
 
 use opencode_kit::servers::tabs as doc;
 use opencode_kit::servers::{ServerKey, TabKey};
-use serde_json::Value;
 
 use crate::Route;
 
@@ -290,16 +289,6 @@ pub fn load_projects(server: &str) -> Option<Vec<String>> {
     let v = crate::storage::json(GLOBAL, "server")?;
     let list = v["usedProjectIDs"].get(scope(server))?.as_array()?;
     Some(list.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect())
-}
-
-pub fn save_projects(server: &str, ids: &[String]) {
-    let scope = scope(server);
-    crate::storage::update(GLOBAL, "server", |m| {
-        let used = m.entry("usedProjectIDs").or_insert_with(|| Value::Object(Default::default()));
-        if let Some(used) = used.as_object_mut() {
-            used.insert(scope, serde_json::json!(ids));
-        }
-    });
 }
 
 /// The scope Desktop keys a server's projects by (`ServerKey::scope`): the app's own server's

@@ -92,7 +92,7 @@ impl Source {
     /// Reads the bytes (on the store's worker).
     pub fn read(self) -> Result<Vec<u8>, String> {
         match self {
-            Source::Web(url) => crate::web_fetch::get(&url),
+            Source::Web(url) => opencode_platform::web_fetch::get(&url),
             Source::Server { server, path } => server.get_bytes(&path).map_err(|e| e.to_string()),
             Source::Data(url) => data_url(&url),
             Source::File(path) => std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display())),
@@ -106,7 +106,10 @@ fn data_url(url: &str) -> Result<Vec<u8>, String> {
     use base64::Engine as _;
     use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
     // As browsers read them: padding optional, whitespace ignored.
-    const LENIENT: GeneralPurpose = GeneralPurpose::new(&base64::alphabet::STANDARD, GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent));
+    const LENIENT: GeneralPurpose = GeneralPurpose::new(
+        &base64::alphabet::STANDARD,
+        GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent),
+    );
     let rest = url.get(..5).filter(|s| s.eq_ignore_ascii_case("data:")).map(|_| &url[5..]).ok_or("not a data URL")?;
     let (meta, payload) = rest.split_once(',').ok_or("a data URL needs a comma")?;
     if meta.rsplit(';').next().is_some_and(|p| p.trim().eq_ignore_ascii_case("base64")) {

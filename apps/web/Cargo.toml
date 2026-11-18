@@ -64,6 +64,8 @@ opencode-feature-narrow = { path = "../../features/narrow" }
 opencode-feature-notifications = { path = "../../features/notifications" }
 opencode-feature-open-in = { path = "../../features/open-in" }
 opencode-feature-panels = { path = "../../features/panels" }
+opencode-feature-projects = { path = "../../features/projects" }
+opencode-feature-restore = { path = "../../features/restore" }
 opencode-feature-review = { path = "../../features/review" }
 opencode-feature-session-menu = { path = "../../features/session-menu" }
 opencode-feature-settings = { path = "../../features/settings" }
@@ -81,9 +83,9 @@ opencode-runtime = { path = "../../crates/opencode-runtime" }
 opencode-search = { path = "../../crates/opencode-search" }
 opencode-storage = { path = "../../crates/opencode-storage" }
 opencode-ui = { path = "../../crates/opencode-ui" }
+opencode-plugin-runtime = { path = "../../crates/opencode-plugin-runtime" }
 opencode-plugin-spec = { path = "../../crates/opencode-plugin-spec" }
 project-icon = { path = "../../crates/project-icon" }
-qrcode = { version = "0.14", default-features = false }
 # The web keeps Rune's bundled Inter and IBM Plex Mono (first faces, full faces after the first frame).
 rune = { workspace = true, features = ["avif", "embedded-fonts"] }
 rune-kit = { workspace = true, features = ["markdown", "mermaid"] }
