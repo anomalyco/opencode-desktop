@@ -6,11 +6,13 @@ edition.workspace = true
 license.workspace = true
 
 [features]
-default = ["knobs", "office"]
+default = ["knobs", "office", "stories"]
 # Word, Excel and PowerPoint previews (`office`): BetterOffice's engines and Vello, which draws
 # their display lists on the GPU. About 6 MB of font packs and the engines; a build without it
 # shows Office files as binary.
 office = ["dep:office-preview", "dep:opencode-feature-office"]
+# Standalone storybook modules under `stories/{composer,shell,timeline}/`.
+stories = []
 # The embedded browser's engine. Enabled on macOS, Windows and Linux x86_64 below.
 browser = ["browser-pane/engine"]
 # Harness builds: the browser engine install's injected faults (OPENCODE_BROWSER_FAULT_DISK_FULL).
@@ -33,13 +35,14 @@ bytemuck = { version = "1", features = ["derive"] }
 # The new-session Easter egg's pipelines (`egg/gpu.rs`): Rune's own wgpu, named for its types.
 wgpu = { version = "30", default-features = false }
 office-preview = { path = "../../crates/office-preview", optional = true }
-opencode-feature-code-view = { path = "../../features/code-view" }
+opencode-code-view = { path = "../../crates/opencode-code-view" }
 opencode-feature-connect = { path = "../../features/connect" }
 opencode-feature-dictation = { path = "../../features/dictation" }
 opencode-feature-egg = { path = "../../features/egg" }
 opencode-feature-mcp = { path = "../../features/mcp" }
 opencode-feature-office = { path = "../../features/office", optional = true }
 opencode-feature-open-in = { path = "../../features/open-in" }
+opencode-feature-subagents = { path = "../../features/subagents" }
 opencode-feature-tips = { path = "../../features/tips" }
 opencode-feature-updater = { path = "../../features/updater" }
 opencode-feature-usage = { path = "../../features/usage" }
@@ -50,9 +53,6 @@ crc32fast = "1"
 flate2 = "1"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 hex-client = { path = "../../crates/hex-client" }
-# fuzzysort's accent folding (`mentions::fuzzysort`): NFD and the Latin script, already in the tree.
-icu_normalizer = { version = "2", default-features = false, features = ["compiled_data"] }
-icu_properties = "2"
 notify = "8"
 rune-mac.workspace = true
 rune-notify.workspace = true

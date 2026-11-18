@@ -11,10 +11,8 @@ pub use session_view::dock::knobs::{ARRIVE, ARRIVE_SLIDE, FACE_IN, FACE_RISE, FA
 #[allow(unused_imports)]
 pub use session_view::knobs::*;
 
-/// The subagent capsule's fill: 1 is Desktop's (the composer's surface), 0 a bare hairline.
-pub const CAPSULE_FILL: Knob = Knob::new("Capsule fill", 0.0, 1.0, 1.0).about("How solid the subagent capsule fill is");
-/// Its hairline: 1 is Desktop's raised ring (the composer's), 0 the faint muted border.
-pub const CAPSULE_RING: Knob = Knob::new("Capsule ring", 0.0, 1.0, 1.0).about("Strength of the subagent capsule hairline");
+#[allow(unused_imports)]
+pub use opencode_feature_subagents::{CAPSULE_FILL, CAPSULE_RING};
 
 /// The window's animation clock (Desktop's `motionGlobals.speed`): below 1 every animation runs
 /// slower. The debug bar's SPEED cell steps it through 0.5x and 0.25x.

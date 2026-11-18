@@ -15,7 +15,7 @@ opencode-desktop --live --plugin-hot
 
 ## 2. Fast Rust dev loop
 
-Skip Vello, BetterOffice, and ~6 MB of Office font packs (`--no-default-features --features knobs`), skip DWARF/PDB emission (`--profile dev-fast`), and keep Luau hot reload on:
+Skip Vello, BetterOffice, ~6 MB of Office font packs (`office`), and the 30 standalone storybook modules under `apps/desktop/src/stories/{composer,shell,timeline}/` (`stories`) via `--no-default-features --features knobs`, skip DWARF/PDB emission (`--profile dev-fast`), and keep Luau hot reload on (default/release/harness builds keep `default = ["knobs", "office", "stories"]`):
 
 ```sh
 # macOS / Linux

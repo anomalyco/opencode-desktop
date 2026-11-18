@@ -1,0 +1,20 @@
+[package]
+name = "opencode-code-view"
+version = "0.0.1"
+description = "Shared virtualized code and diff rendering primitives and data models for OpenCode (Rune)"
+edition = "2024"
+license.workspace = true
+publish = false
+
+[dependencies]
+opencode-i18n = { path = "../opencode-i18n" }
+opencode-kit = { path = "../opencode-kit" }
+opencode-search = { path = "../opencode-search" }
+rune.workspace = true
+rune-kit.workspace = true
+rune-theme-opencode.workspace = true
+serde_json.workspace = true
+session-view = { path = "../session-view" }
+
+[lints]
+workspace = true

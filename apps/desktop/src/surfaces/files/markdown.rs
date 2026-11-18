@@ -19,7 +19,7 @@ pub const READ_W: f32 = 720.0;
 /// Bigger Markdown files open as source. Rune lays a Markdown document out whole, with no
 /// virtualized rows: in a release build a 9,700-line, 835 KB file took 137 ms to open and
 /// 1.5 ms a scrolled frame, so the cap sits just past what was measured.
-pub const RENDER_LIMIT: usize = 1024 * 1024;
+pub use opencode_code_view::data::RENDER_LIMIT;
 
 pub static READ_ICON: Icon = Icon {
     name: "files-read-rendered",

@@ -16,7 +16,7 @@ use crate::quote::comment::Field;
 
 /// Lines a selection or comment covers (Pierre's `SelectedLineRange`): from `start` to `end`,
 /// either way round; in a diff, the side each end is on (`end_side` only when it differs).
-pub type Range = opencode_feature_code_view::notes::LineRange;
+pub type Range = opencode_code_view::notes::LineRange;
 
 /// A comment being written: its text and the field's own state.
 #[derive(Clone, Debug)]

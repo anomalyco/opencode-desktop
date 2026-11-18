@@ -13,7 +13,7 @@ use crate::{
     incoming, jump_list, language, launch, layout_state, line_comments, line_reveal, message_nav,
     model_picker, narrow, notifications, plugin_host, popup, project_switcher, projects, quote,
     reconnect, rune_mcp, servers, session_menu, session_state, session_status, settings, speech,
-    status_toast, stop, storage, subagents, submit, telemetry, text_rendering, todos,
+    status_toast, stop, storage, submit, telemetry, text_rendering, todos,
     turn_errors, view, wall_ms, windows, working,
 };
 
@@ -141,7 +141,7 @@ pub(crate) fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     // Recompute derived views, indices, and projections from ingested state.
     changed |= scheduler.run_phase(Phase::Derive, s, now, tx);
     changed |= working::sync(s);
-    changed |= subagents::shells::poll(s, tx) | todos::sync(s, now, tx) | settings::pages::worktrees::poll(s, tx);
+    changed |= todos::sync(s, now, tx) | settings::pages::worktrees::poll(s, tx);
     if s.dock_face() != asked {
         s.morph(tx);
     }

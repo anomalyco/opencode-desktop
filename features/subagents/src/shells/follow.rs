@@ -1,12 +1,12 @@
 //! The timeline's shell consoles following their shells, as Desktop's shell tool does
 //! (`tool-renderer.tsx` `Output`, `shell-output.ts`): while a shell call's console shows and its
 //! result doesn't carry the shell's final output (`tools::shell_follow`), its output is read from
-//! the server, each second while the shell runs and once more when it stops (`shell_tail`).
+//! the server, each second while the shell runs and once more when it stops (`tail`).
 //! What was read stays for the last 32 shells, so a console shown again carries on from its
 //! cursor, and a shell the server no longer knows is never asked for again. Each showing is a
 //! generation of its own, so a read the previous one started lands nowhere.
 
-use super::shell_tail::{self, Page, Tail, TailEffect, TailEvent, Text};
+use super::tail::{self, Page, Tail, TailEffect, TailEvent, Text};
 
 /// Shells whose read output stays once their console is gone (`remember(outputs, …, 32)`).
 const KEPT: usize = 32;
@@ -54,13 +54,13 @@ impl Followers {
         })
     }
 
-    /// The consoles showing now, each `(shell, directory, running)`: new ones start following,
-    /// gone ones stop, and a shell that started or stopped running tells its follower.
     /// Whether any shell's output is followed: with none and none to show, `sync` does nothing.
     pub fn shows_any(&self) -> bool {
         self.entries.iter().any(|(_, e)| matches!(e, Entry::Shown { .. }))
     }
 
+    /// The consoles showing now, each `(shell, directory, running)`: new ones start following,
+    /// gone ones stop, and a shell that started or stopped running tells its follower.
     pub fn sync(&mut self, shown: &[(String, String, bool)]) -> Vec<Effect> {
         let mut out = Vec::new();
         for (id, entry) in &mut self.entries {
@@ -79,7 +79,7 @@ impl Followers {
             let entry = at.map(|i| self.entries.remove(i).1);
             let (entry, effects) = match entry {
                 Some(Entry::Shown { generation, directory, tail }) => {
-                    let (tail, effects) = shell_tail::step(tail, TailEvent::Running(*running));
+                    let (tail, effects) = tail::step(tail, TailEvent::Running(*running));
                     (Entry::Shown { generation, directory, tail }, effects.into_iter().map(|e| (generation, e)).collect())
                 }
                 Some(Entry::Missing { text }) => (Entry::Missing { text }, Vec::new()),
@@ -87,8 +87,8 @@ impl Followers {
                     self.issued += 1;
                     self.version += 1;
                     let (tail, effects) = match kept {
-                        Some(Entry::Kept { text, complete }) => shell_tail::resume(text, complete, *running),
-                        _ => shell_tail::start(*running),
+                        Some(Entry::Kept { text, complete }) => tail::resume(text, complete, *running),
+                        _ => tail::start(*running),
                     };
                     (Entry::Shown { generation: self.issued, directory: directory.clone(), tail }, effects.into_iter().map(|e| (self.issued, e)).collect())
                 }
@@ -126,7 +126,7 @@ impl Followers {
             return Vec::new();
         }
         let before = tail.text().cursor;
-        let (next, effects) = shell_tail::step(std::mem::replace(tail, Tail::Complete { text: Text::default() }), event);
+        let (next, effects) = tail::step(std::mem::replace(tail, Tail::Complete { text: Text::default() }), event);
         if next.text().cursor != before {
             self.version += 1;
         }

@@ -1,5 +1,7 @@
 //! Ids in `assets/fixture.json` that stories, gates and tests name.
 
+#![cfg_attr(not(feature = "stories"), allow(dead_code))]
+
 pub const MAIN: &str = "ses_fx0001aaaaaaaaaaaaaaaaaa";
 pub const CHILD: &str = "ses_fx0002aaaaaaaaaaaaaaaaaa";
 pub const THIRD: &str = "ses_fx0003aaaaaaaaaaaaaaaaaa";

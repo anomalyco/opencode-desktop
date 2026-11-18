@@ -215,8 +215,8 @@ impl DiffDocState {
             Key::Up => (0..at).rev().find(|&r| self.is_line(r)),
             Key::Home => (0..self.rows.len()).find(|&r| self.is_line(r)),
             Key::End => (0..self.rows.len()).rev().find(|&r| self.is_line(r)),
-            Key::PageDown => lines(Box::new(at + 1..self.rows.len())).into_iter().take(20).last(),
-            Key::PageUp => lines(Box::new((0..at).rev())).into_iter().take(20).last(),
+            Key::PageDown => lines(Box::new(at + 1..self.rows.len())).into_iter().take(20).next_back(),
+            Key::PageUp => lines(Box::new((0..at).rev())).into_iter().take(20).next_back(),
             _ => return false,
         };
         if let Some(to) = to {

@@ -9,40 +9,10 @@ use serde_json::Value;
 use crate::review::data::{encode_fs_path, normalize_path};
 use opencode_kit::client::Server;
 
-pub const OPEN_TAB_ID: &str = "open";
-pub const OPEN_TAB_KEY: &str = "file:open";
-
-pub fn file_tab_id(path: &str) -> String {
-    format!("//{}", normalize_path(path))
-}
-
-pub fn file_tab_key(path: &str) -> String {
-    format!("file:{}", file_tab_id(path))
-}
-
-pub fn file_tab_path(tab_id: &str) -> Option<String> {
-    let rest = tab_id.strip_prefix("//")?;
-    let norm = normalize_path(rest);
-    (!norm.is_empty()).then_some(norm)
-}
-
-/// Splits `"src/net/stream.ts:24"` or `"src/net/stream.ts#L24"` into `("src/net/stream.ts", Some(24))`.
-pub fn parse_path_and_line(raw: &str) -> (String, Option<u32>) {
-    let trimmed = raw.trim();
-    if let Some((base, frag)) = trimmed.rsplit_once("#L") {
-        let digits: String = frag.chars().take_while(char::is_ascii_digit).collect();
-        if let Ok(line) = digits.parse::<u32>() {
-            return (base.trim().to_owned(), Some(line.max(1)));
-        }
-    }
-    if let Some((base, tail)) = trimmed.rsplit_once(':')
-        && !base.is_empty()
-        && let Ok(line) = tail.split(':').next().unwrap_or("").parse::<u32>()
-    {
-        return (base.trim().to_owned(), Some(line.max(1)));
-    }
-    (trimmed.to_owned(), None)
-}
+#[allow(unused_imports)]
+pub use opencode_search::file_rank::{
+    OPEN_TAB_ID, OPEN_TAB_KEY, file_tab_id, file_tab_key, file_tab_path, parse_path_and_line,
+};
 
 #[derive(Clone, Debug)]
 pub enum FilePayload {
@@ -176,40 +146,7 @@ pub fn build_workspace_tree(
 
 /// Case-insensitive fuzzy/substring scorer for `⌘P` and sidebar file search.
 pub fn rank_file_query(paths: &[String], query: &str) -> Vec<String> {
-    let (clean, _) = parse_path_and_line(query);
-    let needle = clean.trim().to_lowercase();
-    if needle.is_empty() {
-        return paths.to_vec();
-    }
-    let mut scored: Vec<(i32, &String)> = paths
-        .iter()
-        .filter_map(|p| score_path(p, &needle).map(|sc| (sc, p)))
-        .collect();
-    scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| rune::text::compare_names(a.1, b.1)));
-    scored.into_iter().map(|(_, p)| p.clone()).collect()
-}
-
-fn score_path(path: &str, needle_lower: &str) -> Option<i32> {
-    let hay = path.to_lowercase();
-    let base = opencode_kit::path::basename(&hay);
-    if base == needle_lower {
-        return Some(1000 - path.len() as i32);
-    }
-    if base.starts_with(needle_lower) {
-        return Some(850 - path.len() as i32);
-    }
-    if base.contains(needle_lower) {
-        return Some(700 - path.len() as i32);
-    }
-    if hay.contains(needle_lower) {
-        return Some(500 - path.len() as i32);
-    }
-    // Ordered subsequence match across path characters.
-    let mut chars = hay.chars();
-    for nc in needle_lower.chars() {
-        chars.find(|&hc| hc == nc)?;
-    }
-    Some(200 - path.len() as i32)
+    opencode_search::file_rank::rank_file_query_with(paths, query, rune::text::compare_names)
 }
 
 pub fn load_fixture_workspace(fixture: &Value) -> (BTreeSet<String>, HashMap<String, String>) {

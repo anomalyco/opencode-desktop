@@ -52,6 +52,19 @@ impl Diagram {
     }
 }
 
+impl super::label_find::LabelDoc for Diagram {
+    type Key = usize;
+    fn scan(&self, query: &str) -> Vec<SlabMatch> {
+        self.matches(query)
+    }
+    fn index(&self, key: usize) -> Option<usize> {
+        (key < self.label_count()).then_some(key)
+    }
+    fn reveal_hit(&self, sid: &str, path: &str, hit: &SlabMatch, tx: &mut Tx) {
+        self.reveal(sid, path, hit, tx);
+    }
+}
+
 fn scroll_key(sid: &str, path: &str) -> String { format!("file-diagram-{sid}-{path}-scroll") }
 
 /// One prepared diagram per session, only for the pane last drawn. Do not retain an index for

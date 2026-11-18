@@ -5,7 +5,7 @@
 //! The web build compiles this file too, so its parser (`scraper`) is a dependency of both
 //! `apps/desktop` and `apps/web`.
 
-use super::label_find::Document;
+use super::label_find::LabelDoc;
 use opencode_search::{SlabFind, SlabMatch};
 use rune::{Color, El, Family, ScrollSpec, Span, TextHighlight, TextStyle, Tx, col, text};
 use scraper::{ElementRef, Html, Selector};
@@ -241,11 +241,8 @@ fn scope(sid: &str, path: &str) -> String {
 fn key(n: usize) -> String {
     format!("html-run-{n}")
 }
-impl Document for Arc<Page> {
+impl LabelDoc for Page {
     type Key = usize;
-    fn same(&self, other: &Self) -> bool {
-        Arc::ptr_eq(self, other)
-    }
     fn scan(&self, query: &str) -> Vec<SlabMatch> {
         let mut hits = Vec::new();
         self.slab.find(query, |hit| hits.push(hit));

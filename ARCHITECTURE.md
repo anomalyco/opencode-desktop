@@ -10,17 +10,18 @@ Start at the top and go deeper only when a feature genuinely needs lower-level c
 rune-desktop/
 ├── plugins/                    # Tier 1 (Start here): Luau plugins (~80% of features, 0 Rust)
 ├── features/                   # Tier 2: Decoupled Rust feature crates (parallel, shallow DAG)
-│   ├── code-view/              #   opencode-feature-code-view (virtualized code & diff viewers)
 │   ├── connect/                #   opencode-feature-connect (provider connect dialog, catalog sync, picker reads, ChatGPT welcome)
 │   ├── dictation/              #   opencode-feature-dictation (Hex voice dictation state machine & polling)
 │   ├── egg/                    #   opencode-feature-egg (new-session GPU wordmark & brick breaker)
 │   ├── mcp/                    #   opencode-feature-mcp (MCP toggle machine, MCPs & OAuth sign-in dialogs)
 │   ├── office/                 #   opencode-feature-office (Word/Excel/PPT Vello preview engine)
 │   ├── open-in/                #   opencode-feature-open-in (external editor/terminal detection & launch)
+│   ├── subagents/              #   opencode-feature-subagents (activity capsule, background shells machine & followers, subagent reply bar)
 │   ├── tips/                   #   opencode-feature-tips (paced one-time onboarding tip scheduler)
 │   ├── updater/                #   opencode-feature-updater (feed, verification, platform apply)
 │   └── usage/                  #   opencode-feature-usage (usage limits parser, dialog, picker warnings)
 ├── crates/                     # Tier 3: Kernel, Runtime, Platform & Embeddable Libraries
+│   ├── opencode-code-view/     #   Shared virtualized syntax-highlighted code & diff viewers, review/delimited/label-find data models
 │   ├── opencode-kernel/        #   Shell kernel registries (StateSlots, OverlayStack, Scheduler,
 │   │                           #   CommandRegistry, EventBus, Feature/Surface traits)
 │   ├── opencode-runtime/       #   Headless runtime primitives & explicit state machines (catalog, idle,
@@ -31,7 +32,7 @@ rune-desktop/
 │   ├── opencode-kit/           #   Protocol client, SSE/WS streams, transcript model
 │   ├── opencode-plugin-spec/   #   Single-source-of-truth contract.json + Luau/Rust codegen
 │   ├── opencode-storage/       #   SQLite/web storage engine
-│   ├── opencode-search/        #   Full-text & fuzzy search indices
+│   ├── opencode-search/        #   Headless full-text, fuzzysort, path index, file ranking & URL query primitives (#![forbid(unsafe_code)])
 │   ├── opencode-i18n/          #   Localization catalogs & pluralization
 │   ├── browser-pane/           #   Embedded Chromium sidecar surface
 │   ├── terminal/               #   Ghostty-VT PTY surface

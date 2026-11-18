@@ -92,8 +92,9 @@ fn find_bar_chrome(p: &Pal, key: &'static str, top: f32, count: usize, index: us
 
 /// The bar, pinned in the view it searches: `count` matches with `index` lit.
 pub fn find_bar<S: 'static>(p: &Pal, input: &TextEdit, count: usize, index: usize, spellcheck: bool, bar: FindBar<S>) -> El {
+    type PressFn<S> = Box<dyn Fn(&mut S, &mut Tx)>;
     let FindBar { key, top, edit, changed, step, close, target } = bar;
-    let button = |key: &'static str, label: &'static str, glyph: El, enabled: bool, press: Box<dyn Fn(&mut S, &mut Tx)>| {
+    let button = |key: &'static str, label: &'static str, glyph: El, enabled: bool, press: PressFn<S>| {
         let b = find_button_shell(p, key, label, glyph, enabled);
         if enabled {
             b.on_press_tx(move |s: &mut S, tx: &mut Tx| press(s, tx))

@@ -8,12 +8,20 @@ Start at the top and go deeper only when a feature needs lower-level control (se
 
 - **`plugins/`** (Tier 1 — default for ~80% of features): Luau plugins compiled against `opencode-plugin-spec`, hot-reloaded in place with zero Rust edits.
 - **`features/`** (Tier 2 — decoupled Rust feature crates):
-  - `features/code-view` (`opencode-feature-code-view`): virtualized syntax-highlighted code and diff viewers.
+  - `features/connect` (`opencode-feature-connect`): provider connect dialog, catalog sync, picker reads, and ChatGPT plan welcome.
+  - `features/dictation` (`opencode-feature-dictation`): Hex voice dictation state machine & polling.
   - `features/egg` (`opencode-feature-egg`): new-session GPU wordmark & Brick Breaker Easter egg.
+  - `features/mcp` (`opencode-feature-mcp`): MCP server toggle machine, MCPs dialog, and browser OAuth sign-in dialog.
   - `features/office` (`opencode-feature-office`): Word, Excel, and PowerPoint Vello preview engine.
+  - `features/open-in` (`opencode-feature-open-in`): external editor/terminal detection & launch.
+  - `features/subagents` (`opencode-feature-subagents`): running-work activity capsule, background shells state machine & output followers, and subagent reply bar.
+  - `features/tips` (`opencode-feature-tips`): paced one-time onboarding tip scheduler.
   - `features/updater` (`opencode-feature-updater`): release feed, verification, and platform update engine.
+  - `features/usage` (`opencode-feature-usage`): usage limits parser, Usage dialog, and picker warnings.
 - **`crates/`** (Tier 3 — kernel, platform, and embeddable libraries):
+  - `crates/opencode-code-view`: shared virtualized syntax-highlighted code & diff viewers plus review, delimited table, and label-find data models.
   - `crates/opencode-kernel`: shell kernel registries (`StateSlots`, `OverlayStack`, `LifecycleScheduler`, `CommandRegistry`, `EventBus`, `Feature` / `SurfaceProvider`).
+  - `crates/opencode-search`: headless full-text, fuzzysort, path index, file ranking, and URL query primitives (`#![forbid(unsafe_code)]`).
   - `crates/opencode-platform`: OS and WASM platform helpers (wall clock, OTLP telemetry, askpass, HTTP fetch).
   - `crates/session-view`: embeddable OpenCode session timeline (`TimelineHost` + focused capability sub-traits in `traits.rs`, `ViewState`, `examples/read_only.rs`). Keep it free of `opencode-desktop`-only window/tab/sidebar assumptions so Seer and other Rune apps can embed it directly.
   - `crates/opencode-kit`: reusable OpenCode HTTP/SSE/WS client and session/transcript model. Keep it free of app-specific concepts.

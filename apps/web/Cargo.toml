@@ -24,6 +24,7 @@ office = []
 browser = []
 hot = []
 knobs = []
+stories = []
 
 # The desktop app's dependencies that build for the web (keep them in step with apps/desktop's;
 # the web CI job fails when one is missing), and the page's own.
@@ -44,20 +45,19 @@ crc32fast = "1"
 flate2 = "1"
 hex-client = { path = "../../crates/hex-client" }
 getrandom = { version = "0.3", features = ["wasm_js"] }
-icu_normalizer = { version = "2", default-features = false, features = ["compiled_data"] }
-icu_properties = "2"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 js-sys = "0.3"
 memchr = "2"
 # HTML5 tree construction for the inert HTML preview, as in apps/desktop (Find searches its painted text).
 scraper = { version = "0.24", default-features = false }
 mlua = { git = "https://github.com/mlua-rs/mlua", rev = "a0ad4535fc72ba89967a931c5be57b162b5f0f3f", features = ["luau"] }
-opencode-feature-code-view = { path = "../../features/code-view" }
+opencode-code-view = { path = "../../crates/opencode-code-view" }
 opencode-feature-connect = { path = "../../features/connect" }
 opencode-feature-dictation = { path = "../../features/dictation" }
 opencode-feature-egg = { path = "../../features/egg" }
 opencode-feature-mcp = { path = "../../features/mcp" }
 opencode-feature-open-in = { path = "../../features/open-in" }
+opencode-feature-subagents = { path = "../../features/subagents" }
 opencode-feature-tips = { path = "../../features/tips" }
 opencode-feature-updater = { path = "../../features/updater" }
 opencode-feature-usage = { path = "../../features/usage" }

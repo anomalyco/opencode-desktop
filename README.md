@@ -11,7 +11,7 @@ Native macOS desktop client for OpenCode built on [Rune](https://github.com/anom
    ```
    OpenCode (Rune) discovers `http://127.0.0.1:4096` or `~/.config/opencode/service.json` automatically (`--server <url>` or `OPENCODE_SERVER_URL` overrides it) and never starts a server on its own.
 
-For the fastest local/mesh edit-compile-run loop (`dev-fast` profile, no Office/Vello, Luau hot reload), run `scripts/dev-fast.sh` (macOS/Linux) or `pwsh scripts/dev-fast.ps1` (Windows). See [docs/fast-builds.md](docs/fast-builds.md) for the profile matrix, `sccache`, and fast linkers.
+For the fastest local/mesh edit-compile-run loop (`dev-fast` profile, skipping Office/Vello and standalone story modules, Luau hot reload), run `scripts/dev-fast.sh` (macOS/Linux) or `pwsh scripts/dev-fast.ps1` (Windows). See [docs/fast-builds.md](docs/fast-builds.md) for the profile matrix, `sccache`, and fast linkers.
 
 To scaffold a new feature in the right lane (or `pwsh scripts/new-feature.ps1` on Windows):
 
@@ -48,18 +48,20 @@ Organized by progressive disclosure (see [ARCHITECTURE.md](ARCHITECTURE.md)):
 | Path | Crate / Scope | Purpose |
 | --- | --- | --- |
 | `plugins/*` | Built-in Luau plugins | Default home for ~80% of UI features (panels, dialogs, commands, server sources); hot reloads without touching Rust |
-| `features/code-view` | `opencode-feature-code-view` | Virtualized syntax-highlighted code and diff viewers |
 | `features/connect` | `opencode-feature-connect` | Provider and integration connect dialog, catalog sync, picker catalog reads, and ChatGPT plan welcome |
 | `features/dictation` | `opencode-feature-dictation` | Hex voice dictation state machine, availability polling, and composer insertion |
 | `features/egg` | `opencode-feature-egg` | New-session GPU wordmark & Brick Breaker Easter egg |
 | `features/mcp` | `opencode-feature-mcp` | MCP server toggle machine, MCPs dialog, and browser OAuth sign-in dialog |
 | `features/office` | `opencode-feature-office` | Word, Excel, and PowerPoint Vello preview engine |
 | `features/open-in` | `opencode-feature-open-in` | External editor/terminal detection, launching, preferred app persistence, and URL opening |
+| `features/subagents` | `opencode-feature-subagents` | Running-work activity capsule, background shells state machine & output followers, and subagent reply bar |
 | `features/tips` | `opencode-feature-tips` | Paced one-time onboarding tip state machine and persistence |
 | `features/updater` | `opencode-feature-updater` | Release feed, verification, and platform update engine |
 | `features/usage` | `opencode-feature-usage` | Usage limits parser, Usage dialog, and model-picker budget warnings |
+| `crates/opencode-code-view` | `opencode-code-view` | Shared virtualized syntax-highlighted code and diff viewers plus review, delimited table, and label-find data models |
 | `crates/opencode-kernel` | `opencode-kernel` | Shell kernel registries (`StateSlots`, `OverlayStack`, `LifecycleScheduler`, `CommandRegistry`, `EventBus`) |
 | `crates/opencode-runtime` | `opencode-runtime` | Headless runtime primitives and explicit state machines (catalog, idle, pairing, server pool/form, window life/placement, fork/rewind/pages/queue/send) |
+| `crates/opencode-search` | `opencode-search` | Headless full-text, fuzzysort, path index, file ranking, and URL query primitives (`#![forbid(unsafe_code)]`) |
 | `crates/opencode-ui` | `opencode-ui` | Shared OpenCode UI primitives (`widgets`, dialog sizing helpers) and shortcut keymap (`keymap`) |
 | `crates/opencode-platform` | `opencode-platform` | Cross-platform OS/WASM utilities (wall clock, OTLP telemetry, askpass, HTTP fetch) |
 | `crates/session-view` | `session-view` | Embeddable virtualized OpenCode session timeline view (Markdown, `ui` outlines, Mermaid, tool groups, subagent cards, images, scroll bar) |
