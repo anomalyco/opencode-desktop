@@ -7,7 +7,6 @@ use rune::{El, Tx, el, icon};
 
 use crate::App;
 use crate::attachments::remove_button;
-use crate::keymap::Bind;
 use crate::palette::Pal;
 
 pub use opencode_runtime::ContextFile;
@@ -61,10 +60,3 @@ pub fn take(s: &mut App) -> Vec<opencode_kit::client::FileInput> {
     let directory = s.composer_directory();
     std::mem::take(&mut s.attach.context).iter().map(|f| crate::mentions::context_input(&directory, &f.path, f.start, f.end)).collect()
 }
-
-rune_register::register!(crate::commands::COMMANDS: crate::commands::Cmd = [
-    crate::commands::Cmd::new("context.addSelection", opencode_i18n::key!("command.context.addSelection"), |s, tx| s.add_selection(tx))
-        .describe(opencode_i18n::key!("command.context.addSelection.description"))
-        .keys(Bind::AddSelection)
-        .when(App::can_add_selection),
-]);

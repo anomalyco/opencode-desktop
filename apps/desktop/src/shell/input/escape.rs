@@ -4,79 +4,15 @@
 //! (`ui/src/context/dialog-machine.ts`). With no layer open Escape does nothing: it never
 //! leaves a session or takes focus out of the composer.
 //!
-//! Menus, pickers, the palette and Rune modals take Escape in their own keys first; this stack
-//! holds the layers the page opens over the session. [`stack`] reads it from the app, bottom
-//! first, [`step`] picks what Escape does, and [`apply`] carries it out.
+//! Menus, pickers, the palette and Rune modals take Escape in their own keys first; dismissible
+//! page layers register themselves into `opencode_kernel::OverlayDispatcher` with explicit
+//! priorities from each feature's `Feature::register` (and `kernel.rs` for core shell layers).
 
 use rune::{KeyEvent, Tx};
 
-use crate::{App, Route};
+use crate::App;
 
-/// A layer Escape can close, from the bottom of the stack up.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Layer {
-    /// A subagent's page with nothing typed: Escape goes back to the session that started it
-    /// (`session/composer/region.tsx` `openParent`).
-    ChildSession,
-    /// A tool step opened in the side region.
-    ToolStep,
-    /// A toast that stays until dismissed.
-    Toast,
-    Find,
-    Todo,
-    Activity,
-    HomeMenu,
-    /// The open session's run, while the composer has focus: Escape stops it.
-    Run,
-    /// A session still opening.
-    Opening,
-    /// The "Add to chat" offer over a selection.
-    Quote,
-    CommentSelection,
-    /// The sidebar peeking over the page.
-    Peek,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Event {
-    Pressed,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Effect {
-    Dismiss(Layer),
-}
-
-/// Escape dismisses the top layer only.
-pub(crate) fn step(stack: &[Layer], event: Event) -> Option<Effect> {
-    match event {
-        Event::Pressed => stack.last().copied().map(Effect::Dismiss),
-    }
-}
-
-/// The open layers, bottom first.
-pub(crate) fn stack(s: &App) -> Vec<Layer> {
-    let session = matches!(*s.route, Route::Session { .. });
-    [
-        (Layer::ChildSession, crate::subagents::reply::composer_empty(s) && s.has_parent()),
-        (Layer::ToolStep, s.tool_view_open()),
-        (Layer::Toast, s.toast.current().is_some_and(|t| t.persistent)),
-        (Layer::Find, s.find.is_open() && session),
-        (Layer::Todo, *s.todo_open),
-        (Layer::Activity, s.shells.activity.is_open()),
-        (Layer::HomeMenu, s.project_state.home_menu_open),
-        (Layer::Run, crate::stop::escape_stops(s)),
-        (Layer::Opening, s.opening.is_some()),
-        (Layer::Quote, s.quote.offered()),
-        (Layer::CommentSelection, matches!(s.line_comments.selection, crate::line_comments::selection::State::Settling { .. } | crate::line_comments::selection::State::Shown(_))),
-        (Layer::Peek, !*s.sidebar_open && s.layout.peek.shown()),
-    ]
-    .into_iter()
-    .filter_map(|(layer, open)| open.then_some(layer))
-    .collect()
-}
-
-/// Escape in the window: true when a layer took it.
+/// Escape in the window: true when an overlay or registered page layer took it.
 pub(crate) fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if s.kernel.overlays.top().is_some_and(|top| top.dismiss_on_escape) {
         let effects = s.kernel.step_overlay(opencode_kernel::OverlayEvent::Escape);
@@ -86,50 +22,6 @@ pub(crate) fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
             return true;
         }
     }
-    let Some(effect) = step(&stack(s), Event::Pressed) else { return false };
-    apply(s, effect, ev, tx);
-    true
-}
-
-fn apply(s: &mut App, effect: Effect, ev: &KeyEvent, tx: &mut Tx) {
-    let Effect::Dismiss(layer) = effect;
-    match layer {
-        Layer::CommentSelection => {
-            use crate::line_comments::selection::{Event, dispatch};
-            dispatch(s, Event::Clear, tx);
-        }
-        Layer::Peek => s.queue_peek(crate::layout_state::PeekEvent::Escape, tx),
-        Layer::Quote => {
-            tx.instant();
-            crate::quote::dismiss(s, tx);
-        }
-        Layer::Opening => s.cancel_open(tx),
-        Layer::Run => {
-            crate::stop::key(s, ev, tx);
-        }
-        Layer::HomeMenu => {
-            tx.instant();
-            s.project_state.home_menu_open = false;
-        }
-        Layer::Activity => {
-            tx.instant();
-            crate::subagents::shells::set_open(s, false);
-        }
-        Layer::Todo => {
-            tx.instant();
-            *s.todo_open = false;
-        }
-        Layer::Find => {
-            crate::find::dismiss_key(s, ev, tx);
-        }
-        Layer::Toast => {
-            crate::status_toast::key(s, ev, tx);
-        }
-        Layer::ToolStep => {
-            s.dismiss_tool_step(tx);
-        }
-        Layer::ChildSession => {
-            s.open_parent(tx);
-        }
-    }
+    let dispatcher = s.kernel.overlay_dispatcher.clone();
+    dispatcher.handle_escape(s, ev, tx)
 }

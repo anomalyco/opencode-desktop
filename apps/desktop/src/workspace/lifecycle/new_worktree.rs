@@ -3,12 +3,13 @@
 
 pub use opencode_feature_workspace_tools::new_worktree::*;
 
-use opencode_kernel::{Feature, KernelBuilder, Phase};
+use opencode_kernel::{CommandEntry, Feature, KernelBuilder, Phase};
 use opencode_kit::client::{Prompt, Request, Write};
 use opencode_kit::model::Project;
 use rune::{El, KeyEvent, Tx};
 use session_view::palette::Pal;
 
+use crate::keymap::Bind;
 use crate::{App, Route, Source};
 
 impl NewWorktreeHost for App {
@@ -215,6 +216,10 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
     }),
 ]);
 
+fn git_draft(s: &App) -> bool {
+    matches!(*s.route, Route::Draft(_)) && s.draft_project().is_some_and(|p| opencode_kit::model::project_git(&p.id))
+}
+
 /// Kernel feature registration for new-worktree branch picker, client MCP, and Home session search.
 pub struct WorkspaceToolsFeature;
 
@@ -224,6 +229,18 @@ impl Feature<App> for WorkspaceToolsFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder.add_command(
+            CommandEntry::<App>::from_key("session.location.select", opencode_i18n::key!("session.location.worktree"), |s, tx| s.open_git_location(false, tx))
+                .bind_id(Bind::LocationSelect.id())
+                .order(100)
+                .when(git_draft),
+        );
+        builder.add_command(
+            CommandEntry::<App>::from_key("session.branch.choose", opencode_i18n::key!("command.session.branch.choose"), |s, tx| s.open_git_location(true, tx))
+                .bind_id(Bind::BranchChoose.id())
+                .order(110)
+                .when(git_draft),
+        );
         builder.add_setup("workspace_tools.home_search_waker", |s, waker| s.home_search.set_waker(waker));
         builder.add_setup("workspace_tools.rune_mcp", |s, waker| {
             s.setup_rune_mcp(waker);

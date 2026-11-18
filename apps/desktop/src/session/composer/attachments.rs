@@ -5,11 +5,12 @@ pub use opencode_feature_composer_input::attachments::*;
 
 use std::path::Path;
 
-use opencode_kernel::{Feature, KernelBuilder, OverlayRegistration, Phase};
+use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration, Phase};
 use opencode_kit::client::{PathAttachment, Server};
 use rune::{El, Tx};
 use session_view::palette::Pal;
 
+use crate::keymap::Bind;
 use crate::{App, Source};
 
 /// `App`-specialized upload toast wrapper.
@@ -112,6 +113,38 @@ impl Feature<App> for ComposerInputFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        // The composer's modes (`composer/model.ts:579-599`).
+        builder.add_command(
+            CommandEntry::<App>::from_key("prompt.mode.toggle", opencode_i18n::key!("command.prompt.mode.toggle"), |s, tx| {
+                tx.animated();
+                if s.add.shell() { s.exit_shell() } else { s.enter_shell(tx) }
+            })
+            .bind_id(Bind::PromptModeToggle.id())
+            .order(470)
+            .when(App::has_composer),
+        );
+        builder.add_command(
+            CommandEntry::<App>::from_key("prompt.mode.shell", opencode_i18n::key!("command.prompt.mode.shell"), |s, tx| {
+                tx.instant();
+                s.enter_shell(tx);
+            })
+            .order(480)
+            .when(|s| s.has_composer() && !s.add.shell()),
+        );
+        builder.add_command(
+            CommandEntry::<App>::from_key("prompt.mode.normal", opencode_i18n::key!("command.prompt.mode.normal"), |s, tx| {
+                tx.instant();
+                s.exit_shell();
+            })
+            .order(490)
+            .when(|s| s.has_composer() && s.add.shell()),
+        );
+        builder.add_command(
+            CommandEntry::<App>::from_key("context.addSelection", opencode_i18n::key!("command.context.addSelection"), |s, tx| s.add_selection(tx))
+                .describe(opencode_i18n::key!("command.context.addSelection.description"))
+                .bind_id(Bind::AddSelection.id())
+                .when(App::can_add_selection),
+        );
         builder.register_overlay(
             OverlayRegistration::<App>::new("overlay.attachments.viewer")
                 .with_z(160)

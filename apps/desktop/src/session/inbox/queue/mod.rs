@@ -7,7 +7,7 @@ mod story;
 use std::collections::HashMap;
 
 use opencode_feature_inbox::send_failed::SendFailedHost;
-use opencode_kernel::{Feature, KernelBuilder};
+use opencode_kernel::{EscapeLayer, Feature, KernelBuilder};
 use opencode_kit::client::{PathAttachment, Prompt, Write};
 use opencode_kit::model::{Attachment, Delivery, Inbox, InboxItem, PromptComment, Transcript};
 use opencode_kit::wire_error::WireError;
@@ -312,7 +312,15 @@ impl Feature<App> for InboxFeature {
         "feature.inbox"
     }
 
-    fn register(&self, _builder: &mut KernelBuilder<App>) {
+    fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder.register_escape_layer(EscapeLayer::new(
+            "escape.run",
+            80,
+            |s| crate::stop::escape_stops(s),
+            |s, ev, tx| {
+                crate::stop::key(s, ev, tx);
+            },
+        ));
         // `poll_sends`, `tick_outbox`, and `queue_timers` stay ordered around `incoming::poll` in
         // `tick.rs`, and `listen_outbox` runs immediately after `storage::on_ready` in `tick::setup`.
     }

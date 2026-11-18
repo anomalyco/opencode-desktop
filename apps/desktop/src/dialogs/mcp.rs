@@ -2,7 +2,7 @@
 
 pub use opencode_feature_mcp::*;
 
-use opencode_kernel::{Feature, KernelBuilder, OverlayRegistration};
+use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration};
 use opencode_kit::integration::McpServer;
 use rune::machine::Attempt;
 use rune::{KeyEvent, Tx};
@@ -125,6 +125,12 @@ impl Feature<App> for McpFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder.add_command(
+            CommandEntry::<App>::from_key("mcp.toggle", opencode_i18n::key!("command.mcp.toggle"), |s, tx| s.toggle_mcp_dialog(tx))
+                .describe(opencode_i18n::key!("command.mcp.toggle.description"))
+                .slash("mcp")
+                .bind_id(Bind::McpToggle.id()),
+        );
         builder.register_overlay(
             OverlayRegistration::<App>::new(OVERLAY_ID)
                 .with_z(420)
@@ -147,13 +153,6 @@ impl Feature<App> for McpFeature {
         );
     }
 }
-
-rune_register::register!(crate::commands::COMMANDS: crate::commands::Cmd = [
-    crate::commands::Cmd::new("mcp.toggle", opencode_i18n::key!("command.mcp.toggle"), |s, tx| s.toggle_mcp_dialog(tx))
-        .describe(opencode_i18n::key!("command.mcp.toggle.description"))
-        .slash("mcp")
-        .keys(Bind::McpToggle),
-]);
 
 // `--scene mcp-sign-in-long`: a sign-in that failed with an error longer than the dialog, which
 // scrolls in it.

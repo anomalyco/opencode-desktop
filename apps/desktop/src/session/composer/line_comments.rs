@@ -4,7 +4,7 @@ pub use opencode_feature_annotations::line_comments::*;
 
 use std::rc::Rc;
 
-use opencode_kernel::{Feature, KernelBuilder, Phase};
+use opencode_kernel::{EscapeLayer, Feature, KernelBuilder, Phase};
 use opencode_kit::model::CommentOrigin;
 use opencode_ui::popup::Menu;
 use rune::{El, Tx};
@@ -233,6 +233,23 @@ impl Feature<App> for AnnotationsFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder.register_escape_layer(EscapeLayer::new(
+            "escape.quote",
+            100,
+            |s| s.quote.offered(),
+            |s, _, tx| {
+                tx.instant();
+                crate::quote::dismiss(s, tx);
+            },
+        ));
+        builder.register_escape_layer(EscapeLayer::new(
+            "escape.comment_selection",
+            110,
+            |s| matches!(s.line_comments.selection, selection::State::Settling { .. } | selection::State::Shown(_)),
+            |s, _, tx| {
+                selection::dispatch(s, selection::Event::Clear, tx);
+            },
+        ));
         builder.add_setup("annotations.waker", |s, w| {
             crate::quote::setup(s, w.clone());
             setup(s, w);

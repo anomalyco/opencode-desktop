@@ -4,13 +4,14 @@ pub use opencode_feature_subagents::*;
 
 use std::collections::HashSet;
 
-use opencode_kernel::{Feature, KernelBuilder, Phase};
+use opencode_kernel::{CommandEntry, EscapeLayer, Feature, KernelBuilder, Phase};
 use opencode_kit::client::{Prompt, Write};
 use opencode_kit::model::{SessionInfo, Transcript};
 use rune::Tx;
 use rune_knobs::Knobs;
 
 use crate::jobs::Apply;
+use crate::keymap::Bind;
 use crate::{App, Source};
 
 impl SubagentsHost for App {
@@ -166,6 +167,32 @@ impl Feature<App> for SubagentsFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        // Neither has a `/name` in Desktop (`use-session-commands.tsx:476-482`, `session-identity-header.tsx`).
+        builder.add_command(
+            CommandEntry::<App>::from_key("background", opencode_i18n::key!("command.session.background"), |s, tx| {
+                s.move_to_background(tx);
+            })
+            .bind_id(Bind::Background.id())
+            .order(190)
+            .when(|s| s.active_session_id().is_some_and(|id| !crate::background::blocking(s, id).is_empty())),
+        );
+        builder.register_escape_layer(EscapeLayer::new(
+            "escape.child_session",
+            10,
+            |s| reply::composer_empty(s) && s.has_parent(),
+            |s, _, tx| {
+                s.open_parent(tx);
+            },
+        ));
+        builder.register_escape_layer(EscapeLayer::new(
+            "escape.activity",
+            60,
+            |s| s.shells.activity.is_open(),
+            |s, _, tx| {
+                tx.instant();
+                shells::set_open(s, false);
+            },
+        ));
         builder.add_system(Phase::Derive, "subagents.shells", |s, _, tx| shells::poll(s, tx));
     }
 }

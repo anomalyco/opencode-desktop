@@ -347,6 +347,16 @@ impl Bind {
         &TABLE[self as usize]
     }
 
+    /// This binding's canonical command id in the keymap table (for example `"settings.open"`).
+    pub fn id(self) -> &'static str {
+        self.binding().id
+    }
+
+    /// Looks up a keymap table entry by its canonical command id.
+    pub fn by_id(id: &str) -> Option<Bind> {
+        all().iter().find(|b| b.id == id).map(|b| b.bind)
+    }
+
     /// The chords bound here: Settings › Shortcuts' when changed there, else the default.
     pub fn keybind(self) -> &'static Keybind {
         overrides::get(self).unwrap_or(&self.binding().keybind)

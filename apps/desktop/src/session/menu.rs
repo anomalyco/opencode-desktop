@@ -2,7 +2,7 @@
 
 pub use opencode_feature_session_menu::*;
 
-use opencode_kernel::{Feature, KernelBuilder, OverlayRegistration, Phase};
+use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration, Phase};
 use opencode_kit::client::{Server, Write};
 use opencode_kit::model::{SessionInfo, Transcript};
 use opencode_kit::servers::ServerKey;
@@ -12,6 +12,7 @@ use rune::{El, FileDialogOptions, Tx};
 use serde_json::Value;
 use session_view::palette::Pal;
 
+use crate::keymap::Bind;
 use crate::{App, Route, Source};
 
 /// A right-click on `e` opens `t`'s menu (specialized to [`App`]).
@@ -304,6 +305,37 @@ impl Feature<App> for SessionMenuFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder.add_command(
+            CommandEntry::<App>::from_key("rename", opencode_i18n::key!("command.session.rename"), |s, tx| {
+                let Some(id) = s.open_root_session() else { return };
+                tx.instant();
+                s.begin_rename(&Target::active(s, &id, Spot::Header));
+            })
+            .bind_id(Bind::Rename.id())
+            .order(200)
+            .when(App::in_root_session),
+        );
+        builder.add_command(
+            CommandEntry::<App>::from_key("export", opencode_i18n::key!("command.session.export"), |s, _| {
+                let Some(id) = s.open_root_session() else { return };
+                s.export_session_on(&crate::servers::runtime::current(), &id);
+            })
+            .describe(opencode_i18n::key!("command.session.export.description"))
+            .slash("export")
+            .section("session")
+            .order(210)
+            .when(|s| s.open_root_session().is_some_and(|id| !s.exporting(crate::servers::runtime::active(s), &id))),
+        );
+        // Delete session (`message-timeline.tsx:268-277`): the open root session's confirmation.
+        builder.add_command(
+            CommandEntry::<App>::from_key("session.delete", opencode_i18n::key!("command.session.delete"), |s, tx| {
+                let Some(id) = s.open_root_session() else { return };
+                tx.instant();
+                s.ask_delete(&id);
+            })
+            .order(240)
+            .when(App::in_root_session),
+        );
         builder.register_overlay(
             OverlayRegistration::<App>::new(DELETE_OVERLAY_ID)
                 .with_z(200)

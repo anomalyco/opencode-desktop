@@ -81,11 +81,6 @@ fn resolve(choice: TextRenderer) -> Rendering {
     }
 }
 
-// Flips Text rendering from the palette, to compare renderers on the same screen.
-rune_register::register!(crate::commands::COMMANDS: crate::commands::Cmd = [
-    crate::commands::Cmd::new("text-rendering.cycle", opencode_i18n::key!("rune.textRendering.cycle"), |s, _| s.set_text_renderer(s.settings.text_renderer.cycle())),
-]);
-
 /// Draws this window's text as Appearance › Text rendering says; Rune redraws only when the
 /// mode changes.
 pub fn poll(s: &mut App, tx: &mut Tx) {

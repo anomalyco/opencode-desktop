@@ -216,6 +216,41 @@ pub type OverlayKeyFn<S> = fn(&mut S, &rune::KeyEvent, &mut rune::Tx) -> bool;
 /// Host callback invoked to render a registered overlay's elements into the window layer tree.
 pub type OverlayRenderFn<S> = fn(&S, &mut rune::Cx<S>) -> Vec<rune::El>;
 
+/// Host predicate reporting whether a dismissible page layer is currently open.
+pub type EscapePredicateFn<S> = fn(&S) -> bool;
+
+/// Host callback invoked when Escape dismisses a registered page layer.
+pub type EscapeActionFn<S> = fn(&mut S, &rune::KeyEvent, &mut rune::Tx);
+
+/// Registration descriptor for a dismissible page layer handled on Escape.
+pub struct EscapeLayer<S> {
+    pub id: &'static str,
+    /// Higher priority dismisses first (topmost layer wins).
+    pub priority: u16,
+    pub is_open: EscapePredicateFn<S>,
+    pub on_escape: EscapeActionFn<S>,
+}
+
+impl<S> Clone for EscapeLayer<S> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<S> Copy for EscapeLayer<S> {}
+
+impl<S> EscapeLayer<S> {
+    /// Creates an Escape layer descriptor where higher `priority` dismisses first.
+    pub const fn new(
+        id: &'static str,
+        priority: u16,
+        is_open: EscapePredicateFn<S>,
+        on_escape: EscapeActionFn<S>,
+    ) -> Self {
+        Self { id, priority, is_open, on_escape }
+    }
+}
+
 /// Default z-order band for standard modal dialogs registered via [`OverlayRegistration::dialog`].
 pub const DEFAULT_DIALOG_Z: u16 = 450;
 
@@ -293,18 +328,20 @@ impl<S> OverlayRegistration<S> {
     }
 }
 
-/// Registry mapping overlay IDs to host dismiss, key-dispatch, and render callbacks.
+/// Registry mapping overlay IDs to host dismiss, key-dispatch, and render callbacks, plus
+/// priority-ordered dismissible page Escape layers.
 ///
-/// Cloning is O(1) (shared immutable handler list once built), allowing a host that embeds
+/// Cloning is O(1) (shared immutable handler lists once built), allowing a host that embeds
 /// [`crate::Kernel<S>`] inside `S` to clone the dispatcher handle before passing `&mut S` into a
 /// registered callback without borrow conflicts.
 pub struct OverlayDispatcher<S> {
     inner: Option<Arc<Vec<OverlayRegistration<S>>>>,
+    escape_layers: Option<Arc<Vec<EscapeLayer<S>>>>,
 }
 
 impl<S> Clone for OverlayDispatcher<S> {
     fn clone(&self) -> Self {
-        Self { inner: self.inner.clone() }
+        Self { inner: self.inner.clone(), escape_layers: self.escape_layers.clone() }
     }
 }
 
@@ -317,11 +354,60 @@ impl<S> Default for OverlayDispatcher<S> {
 impl<S> OverlayDispatcher<S> {
     /// Creates an empty overlay dispatcher with no registered handlers.
     pub const fn new() -> Self {
-        Self { inner: None }
+        Self { inner: None, escape_layers: None }
     }
 
     fn entries_mut(&mut self) -> &mut Vec<OverlayRegistration<S>> {
         Arc::make_mut(self.inner.get_or_insert_with(|| Arc::new(Vec::new())))
+    }
+
+    fn escape_layers_mut(&mut self) -> &mut Vec<EscapeLayer<S>> {
+        Arc::make_mut(self.escape_layers.get_or_insert_with(|| Arc::new(Vec::new())))
+    }
+
+    /// Registers a dismissible page Escape layer, replacing any prior layer with the same `id`,
+    /// keeping layers ordered descending by `priority` (highest priority dismisses first).
+    pub fn register_escape_layer(&mut self, layer: EscapeLayer<S>) {
+        let layers = self.escape_layers_mut();
+        if let Some(existing) = layers.iter_mut().find(|entry| entry.id == layer.id) {
+            *existing = layer;
+        } else {
+            layers.push(layer);
+        }
+        layers.sort_by_key(|layer| std::cmp::Reverse(layer.priority));
+    }
+
+    /// Removes a registered Escape layer by `id`, returning `true` if one was removed.
+    pub fn unregister_escape_layer(&mut self, id: &str) -> bool {
+        let Some(layers) = self.escape_layers.as_mut().map(Arc::make_mut) else {
+            return false;
+        };
+        let Some(index) = layers.iter().position(|entry| entry.id == id) else {
+            return false;
+        };
+        layers.remove(index);
+        true
+    }
+
+    /// Registered Escape layers in descending priority order (topmost layer first).
+    pub fn escape_layers(&self) -> &[EscapeLayer<S>] {
+        self.escape_layers.as_deref().map_or(&[], Vec::as_slice)
+    }
+
+    /// Dismisses the highest-priority registered Escape layer whose `is_open` predicate returns
+    /// `true`, invoking its `on_escape` callback and returning `true`. Returns `false` when no
+    /// registered layer is open.
+    pub fn handle_escape(&self, state: &mut S, ev: &rune::KeyEvent, tx: &mut rune::Tx) -> bool {
+        let Some(layers) = self.escape_layers.as_deref() else {
+            return false;
+        };
+        for layer in layers {
+            if (layer.is_open)(state) {
+                (layer.on_escape)(state, ev, tx);
+                return true;
+            }
+        }
+        false
     }
 
     /// Registers a full overlay descriptor (render, key, dismiss, z-order), replacing any prior entry for `reg.id`.
@@ -454,6 +540,9 @@ impl<S> OverlayDispatcher<S> {
 
 impl<S> fmt::Debug for OverlayDispatcher<S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("OverlayDispatcher").field("len", &self.len()).finish()
+        f.debug_struct("OverlayDispatcher")
+            .field("len", &self.len())
+            .field("escape_layers", &self.escape_layers().len())
+            .finish()
     }
 }
