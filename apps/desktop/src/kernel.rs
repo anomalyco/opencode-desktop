@@ -21,15 +21,13 @@ pub fn build() -> Kernel<App> {
     b.with_feature(&crate::mcp::McpFeature);
     b.with_feature(&crate::mentions::MentionsFeature);
     b.with_feature(&crate::open_in::OpenInFeature);
+    b.with_feature(&crate::panels::PanelsFeature);
     b.with_feature(&crate::review::ReviewFeature);
     b.with_feature(&crate::subagents::SubagentsFeature);
     b.with_feature(&crate::switcher::SwitcherFeature);
+    b.with_feature(&crate::surfaces::terminal::TerminalSurfaceFeature);
     b.with_feature(&crate::tips::TipsFeature);
     b.with_feature(&crate::usage::UsageFeature);
-    b.add_surface(
-        SurfaceDescriptor::new("terminal", SurfaceKind::Terminal, "Terminal")
-            .with_multi_instance(true),
-    );
     b.add_surface(
         SurfaceDescriptor::new("browser", SurfaceKind::Browser, "Browser")
             .with_multi_instance(true),

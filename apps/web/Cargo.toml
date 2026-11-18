@@ -58,9 +58,11 @@ opencode-feature-egg = { path = "../../features/egg" }
 opencode-feature-mcp = { path = "../../features/mcp" }
 opencode-feature-mentions = { path = "../../features/mentions" }
 opencode-feature-open-in = { path = "../../features/open-in" }
+opencode-feature-panels = { path = "../../features/panels" }
 opencode-feature-review = { path = "../../features/review" }
 opencode-feature-subagents = { path = "../../features/subagents" }
 opencode-feature-switcher = { path = "../../features/switcher" }
+opencode-feature-terminal-surface = { path = "../../features/terminal-surface" }
 opencode-feature-tips = { path = "../../features/tips" }
 opencode-feature-updater = { path = "../../features/updater" }
 opencode-feature-usage = { path = "../../features/usage" }

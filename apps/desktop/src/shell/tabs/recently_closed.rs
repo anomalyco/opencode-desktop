@@ -20,16 +20,22 @@ const WIDTH: f32 = 224.0;
 /// Opens the menu at `at`, drawn on every platform for its search field, as Desktop draws it.
 pub fn open(s: &mut App, at: impl Into<PopupAnchor>, tx: &mut Tx) {
     tx.instant();
-    let menu = menu(s, "").search(opencode_i18n::t!("session.tabs.closed.search"), menu);
-    popup::open_drawn(s, menu, at, tx, |s: &mut App, picked, tx| {
-        tx.instant();
-        let Some(picked) = picked else { return };
-        if let Some(id) = picked.strip_prefix("closed:") {
-            s.reopen_closed(Some(id), true, tx);
-        } else if let Some(id) = picked.strip_prefix("recent:") {
-            s.open(id, tx);
-        }
-    });
+    popup::open_searchable(
+        s,
+        opencode_i18n::t!("session.tabs.closed.search"),
+        menu,
+        at,
+        tx,
+        |s: &mut App, picked, tx| {
+            tx.instant();
+            let Some(picked) = picked else { return };
+            if let Some(id) = picked.strip_prefix("closed:") {
+                s.reopen_closed(Some(id), true, tx);
+            } else if let Some(id) = picked.strip_prefix("recent:") {
+                s.open(id, tx);
+            }
+        },
+    );
 }
 
 /// The rows whose titles hold `query`, ignoring case.
