@@ -129,33 +129,64 @@ end
 "#;
 
 /// Runs an MCP tool's `call` and answers the call with what it returns or raises, whenever
-/// that is.
+/// that is, recording the coroutine's `sessionId` in the VM registry while it runs.
 const TOOL: &str = r#"
-local finish = ...
+local finish, sessions = ...
 return function(f, id, args, context)
+    local th = coroutine.running()
+    sessions[th] = if type(context) == "table" and type(context.sessionId) == "string" then context.sessionId else false
     local ok, value = pcall(f, args, context)
+    sessions[th] = nil
     finish(id, ok, value)
 end
 "#;
+
+/// Session scope for the running Luau coroutine: `(Some(sid), _)` inside an MCP tool call, else
+/// `(None, in_flight)` with any in-flight MCP tool session IDs in this VM.
+pub fn current_tool_scope(lua: &mlua::Lua) -> (Option<Option<String>>, Vec<String>) {
+    let Ok(Some(sessions)) = lua.named_registry_value::<Option<mlua::Table>>("opencode.tool.sessions") else {
+        return (None, Vec::new());
+    };
+    let current = match sessions.raw_get::<mlua::Value>(lua.current_thread()) {
+        Ok(mlua::Value::String(s)) => Some(Some(s.to_string_lossy())),
+        Ok(mlua::Value::Boolean(false)) => Some(None),
+        _ => None,
+    };
+    let in_flight = sessions
+        .pairs::<mlua::Value, mlua::Value>()
+        .flatten()
+        .filter_map(|(_, v)| match v {
+            mlua::Value::String(s) => Some(s.to_string_lossy()),
+            _ => None,
+        })
+        .collect();
+    (current, in_flight)
+}
 
 /// The VM's `source` wrapper, made once and kept under `name` in its registry.
 fn wrapper(lua: &mlua::Lua, name: &str, source: &str) -> mlua::Result<Function> {
     if let Some(f) = lua.named_registry_value::<Option<Function>>(name)? {
         return Ok(f);
     }
-    let host = if source == COMMAND {
-        lua.create_function(|_, ()| {
+    let f: Function = if source == COMMAND {
+        let host = lua.create_function(|_, ()| {
             DECLINED.set(true);
             Ok(())
-        })?
+        })?;
+        lua.load(source).set_name(format!("={name}")).call(host)?
     } else {
-        lua.create_function(|lua, (id, ok, value): (u64, bool, mlua::Value)| {
+        let host = lua.create_function(|lua, (id, ok, value): (u64, bool, mlua::Value)| {
             let Some((call, _)) = CALLS.with_borrow_mut(|c| c.remove(&id)) else { return Ok(()) };
             call.respond(tool_result(lua, ok, value));
             Ok(())
-        })?
+        })?;
+        let sessions = lua.create_table()?;
+        let meta = lua.create_table()?;
+        meta.raw_set("__mode", "k")?;
+        sessions.set_metatable(Some(meta))?;
+        lua.set_named_registry_value("opencode.tool.sessions", &sessions)?;
+        lua.load(source).set_name(format!("={name}")).call((host, sessions))?
     };
-    let f: Function = lua.load(source).set_name(format!("={name}")).call(host)?;
     lua.set_named_registry_value(name, &f)?;
     Ok(f)
 }

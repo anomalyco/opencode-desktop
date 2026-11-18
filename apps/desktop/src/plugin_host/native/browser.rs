@@ -283,11 +283,28 @@ fn site_cookies(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
 
 fn clear_site(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
     let (id,): (String,) = mlua::FromLuaMulti::from_lua_multi(a, lua)?;
+    let is_builtin_browser = lua
+        .app_data_ref::<std::rc::Rc<Vmx>>()
+        .is_some_and(|vmx| &*vmx.half.id == "browser");
+    let (tool_sid, in_flight) = super::super::commands::current_tool_scope(lua);
     app_now("BrowserTab:ClearSiteAsync")?.later(Box::new(move |s: &mut App, _: &mut Tx| {
         let failed = |message: String| map([("error", Data::String(message))]);
         let Some(id) = id.parse::<u64>().ok().filter(|&id| s.browser.host.tab(id).is_some()) else {
             return done.complete(failed(format!("No browser tab with tabID {id}")));
         };
+        let Some(owner) = s.browser_tab_session(id) else {
+            return done.complete(failed(format!("Browser tab {id} does not belong to an open session.")));
+        };
+        let allowed = match &tool_sid {
+            Some(caller) => caller.as_deref() == Some(owner),
+            None => {
+                s.active_session_id() == Some(owner)
+                    && (is_builtin_browser || in_flight.iter().all(|sid| sid == owner))
+            }
+        };
+        if !allowed {
+            return done.complete(failed(format!("Browser tab {id} belongs to another session.")));
+        }
         if !s.browser.host.has_live_sidecar() {
             return done.complete(failed(not_running(&s.browser.host.status())));
         }
