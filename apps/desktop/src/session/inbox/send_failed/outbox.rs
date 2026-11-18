@@ -9,36 +9,7 @@ use crate::pickers::PickerHost as _;
 use opencode_kit::client::Write;
 use std::time::Duration;
 
-#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
-pub(super) enum Operation {
-    #[default]
-    Send,
-    /// A reply to a subagent whose folder may be gone (`subagents/reply.rs`).
-    MovingHome,
-    Start(String),
-    Worktree {
-        project: String,
-        from: String,
-        branch: Option<String>,
-    },
-    Revert,
-}
-impl Operation {
-    pub(super) fn creates(&self) -> bool {
-        matches!(self, Self::Start(_) | Self::Worktree { .. })
-    }
-    fn write(&self, session: String, prompt: Prompt) -> Write {
-        match self {
-            Self::Send => Write::Send { session, prompt },
-            Self::MovingHome => Write::SendMovingHome { session, prompt },
-            Self::Start(directory) => Write::StartAs { session, directory: directory.clone(), prompt },
-            Self::Worktree { project, from, branch } => {
-                Write::StartInNewWorktree { session, project: project.clone(), from: from.clone(), branch: branch.clone(), prompt }
-            }
-            Self::Revert => Write::SendFromRevert { session, prompt },
-        }
-    }
-}
+pub(super) use super::machine::Operation;
 
 impl Log {
     /// Another window's outbox of the same server, joining this one (`windows::peer`): prompts

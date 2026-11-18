@@ -11,12 +11,19 @@ rune-desktop/
 ├── plugins/                    # Tier 1 (Start here): Luau plugins (~80% of features, 0 Rust)
 ├── features/                   # Tier 2: Decoupled Rust feature crates (parallel, shallow DAG)
 │   ├── code-view/              #   opencode-feature-code-view (virtualized code & diff viewers)
+│   ├── dictation/              #   opencode-feature-dictation (Hex voice dictation state machine & polling)
 │   ├── egg/                    #   opencode-feature-egg (new-session GPU wordmark & brick breaker)
+│   ├── mcp/                    #   opencode-feature-mcp (MCP toggle machine, MCPs & OAuth sign-in dialogs)
 │   ├── office/                 #   opencode-feature-office (Word/Excel/PPT Vello preview engine)
-│   └── updater/                #   opencode-feature-updater (feed, verification, platform apply)
-├── crates/                     # Tier 3: Kernel, Platform & Embeddable Libraries
+│   ├── open-in/                #   opencode-feature-open-in (external editor/terminal detection & launch)
+│   ├── tips/                   #   opencode-feature-tips (paced one-time onboarding tip scheduler)
+│   ├── updater/                #   opencode-feature-updater (feed, verification, platform apply)
+│   └── usage/                  #   opencode-feature-usage (usage limits parser, dialog, picker warnings)
+├── crates/                     # Tier 3: Kernel, Runtime, Platform & Embeddable Libraries
 │   ├── opencode-kernel/        #   Shell kernel registries (StateSlots, OverlayStack, Scheduler,
 │   │                           #   CommandRegistry, EventBus, Feature/Surface traits)
+│   ├── opencode-runtime/       #   Headless runtime primitives & explicit state machines (catalog, idle,
+│   │                           #   pairing, server pool/form, window life/placement, fork/rewind/pages/queue/send)
 │   ├── opencode-platform/      #   OS & WASM platform helpers (wall clock, OTLP telemetry, askpass, fetch)
 │   ├── session-view/           #   Embeddable timeline (TimelineHost + focused capability sub-traits)
 │   ├── opencode-kit/           #   Protocol client, SSE/WS streams, transcript model

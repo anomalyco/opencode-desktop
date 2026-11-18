@@ -1,0 +1,20 @@
+[package]
+name = "opencode-feature-open-in"
+version = "0.0.1"
+description = "External editor and terminal detection, launching, preferred app persistence, and URL opening for OpenCode (Rune)"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+opencode-i18n = { path = "../../crates/opencode-i18n" }
+opencode-kit = { path = "../../crates/opencode-kit" }
+rune.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_UI_Shell", "Win32_UI_Shell_Common"] }
+
+[lints]
+workspace = true

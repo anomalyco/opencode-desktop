@@ -3446,7 +3446,9 @@ dependencies = [
  "opencode-feature-code-view",
  "opencode-feature-dictation",
  "opencode-feature-egg",
+ "opencode-feature-mcp",
  "opencode-feature-office",
+ "opencode-feature-open-in",
  "opencode-feature-tips",
  "opencode-feature-updater",
  "opencode-feature-usage",
@@ -3455,6 +3457,7 @@ dependencies = [
  "opencode-kit",
  "opencode-platform",
  "opencode-plugin-spec",
+ "opencode-runtime",
  "opencode-search",
  "opencode-storage",
  "otlp-lite",
@@ -3526,6 +3529,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "opencode-feature-mcp"
+version = "0.0.1"
+dependencies = [
+ "opencode-i18n",
+ "opencode-kit",
+ "rune",
+ "rune-kit",
+ "rune-theme-opencode",
+ "serde",
+ "serde_json",
+ "session-view",
+]
+
+[[package]]
 name = "opencode-feature-office"
 version = "0.0.1"
 dependencies = [
@@ -3538,6 +3555,18 @@ dependencies = [
  "ureq",
  "ureq-web",
  "vello",
+]
+
+[[package]]
+name = "opencode-feature-open-in"
+version = "0.0.1"
+dependencies = [
+ "opencode-i18n",
+ "opencode-kit",
+ "rune",
+ "serde",
+ "serde_json",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3652,6 +3681,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "opencode-runtime"
+version = "0.0.1"
+dependencies = [
+ "http",
+ "opencode-kit",
+ "rune",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "opencode-search"
 version = "0.0.1"
 dependencies = [
@@ -3704,6 +3744,8 @@ dependencies = [
  "opencode-feature-code-view",
  "opencode-feature-dictation",
  "opencode-feature-egg",
+ "opencode-feature-mcp",
+ "opencode-feature-open-in",
  "opencode-feature-tips",
  "opencode-feature-updater",
  "opencode-feature-usage",
@@ -3712,6 +3754,7 @@ dependencies = [
  "opencode-kit",
  "opencode-platform",
  "opencode-plugin-spec",
+ "opencode-runtime",
  "opencode-search",
  "opencode-storage",
  "otlp-lite",

@@ -1,0 +1,17 @@
+[package]
+name = "opencode-runtime"
+version = "0.0.1"
+description = "Headless runtime primitives and explicit state machines for OpenCode Rune hosts"
+edition = "2024"
+license.workspace = true
+publish = false
+
+[dependencies]
+http = "1"
+opencode-kit = { path = "../opencode-kit" }
+rune.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+
+[lints]
+workspace = true

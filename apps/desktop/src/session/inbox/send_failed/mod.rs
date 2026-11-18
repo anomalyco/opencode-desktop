@@ -16,7 +16,7 @@ mod row;
 mod store;
 mod view;
 pub(crate) mod stories;
-pub use machine::Phase;
+pub use machine::{AfterCheck, Phase};
 pub use view::footer;
 
 use machine::{Effect, Event, Found, Verdict};
@@ -36,9 +36,6 @@ pub enum State {
     Accepted,
     Waiting,
 }
-
-#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq, Hash)]
-pub enum AfterCheck { Edit, Delete }
 
 /// How a send ended, for whoever waits on it (the quote comment editor's send): the server has
 /// it, it failed for good, or the outbox keeps it to send when it can (waiting for the link, or

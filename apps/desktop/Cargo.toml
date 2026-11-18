@@ -36,7 +36,9 @@ office-preview = { path = "../../crates/office-preview", optional = true }
 opencode-feature-code-view = { path = "../../features/code-view" }
 opencode-feature-dictation = { path = "../../features/dictation" }
 opencode-feature-egg = { path = "../../features/egg" }
+opencode-feature-mcp = { path = "../../features/mcp" }
 opencode-feature-office = { path = "../../features/office", optional = true }
+opencode-feature-open-in = { path = "../../features/open-in" }
 opencode-feature-tips = { path = "../../features/tips" }
 opencode-feature-updater = { path = "../../features/updater" }
 opencode-feature-usage = { path = "../../features/usage" }
@@ -55,6 +57,7 @@ rune-mac.workspace = true
 rune-notify.workspace = true
 opencode-i18n = { path = "../../crates/opencode-i18n" }
 opencode-kit = { path = "../../crates/opencode-kit" }
+opencode-runtime = { path = "../../crates/opencode-runtime" }
 opencode-search = { path = "../../crates/opencode-search" }
 opencode-storage = { path = "../../crates/opencode-storage" }
 opencode-plugin-spec = { path = "../../crates/opencode-plugin-spec" }
