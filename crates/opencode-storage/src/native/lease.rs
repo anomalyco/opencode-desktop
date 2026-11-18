@@ -24,7 +24,7 @@ use std::fs::{File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 static HELD: Mutex<Option<File>> = Mutex::new(None);
 
@@ -173,6 +173,19 @@ pub(super) fn release() {
 /// volume has none), or another copy does.
 pub(super) fn decide(holds: bool) {
     HOLDS.store(if holds { HOLDS_IT } else { NOT_HELD }, Ordering::Release);
+}
+
+/// What the windows were shown was held because another copy of the app had the file (its
+/// lease, or a build without one holding SQLite's lock): it's finishing a save.
+static BY_COPY: AtomicBool = AtomicBool::new(false);
+
+pub(super) fn note_held_by_copy() {
+    BY_COPY.store(true, Ordering::Release);
+}
+
+/// Whether a held first frame was held for another copy of the app (not another program).
+pub fn held_by_copy() -> bool {
+    BY_COPY.load(Ordering::Acquire)
 }
 
 /// Whether this process holds the profile: none until the storage's open has decided.

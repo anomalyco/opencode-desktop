@@ -4,19 +4,22 @@
 //! - **Held at once:** the open goes on as before. A copy of a build from before the lease (the
 //!   first update into this one) never takes it, but holds SQLite's lock for its whole life: when
 //!   it does (macOS), what the record showed is held, as for any other process holding the file.
-//! - **Busy** (another copy, or one still closing its storage, as a relaunch's old copy): the held
-//!   path. What was read is what the windows get once they ask (marked held), the lease is tried
-//!   again for as long as the open waits for SQLite's lock, and once it's taken the open goes on;
-//!   what the windows were shown is kept only if the file still shows it (`shows_the_same`). Still
-//!   held after that: memory, saying another copy has the profile open. A relaunch's first frame
-//!   waits for the lease instead of showing what was read: its old copy is still saving.
+//! - **Busy** (another copy, or one still closing its storage: a relaunch's old copy, a launch
+//!   while the app quits): the first frame waits for the lease a few seconds (`SHOW`; a relaunch,
+//!   which Rune already held up to 10 s for its old copy, `SHOW_RELAUNCH`), since a copy that's
+//!   quitting writes its last state and a frame from before that is one the file no longer shows.
+//!   Then the held path: what was read is shown, held (with "OpenCode is finishing a save"), the
+//!   lease is tried again for as long as the open waits for SQLite's lock, and once it's taken the
+//!   open goes on; what the windows were shown is kept only if the file still shows it
+//!   (`shows_the_same`), else the run keeps its changes in memory. Still held after `WAIT`: memory,
+//!   saying another copy is running.
 //! - **Locking unsupported** (a network home): the open goes on without a lease, as before it.
 //! - **The file can't be made** (a read-only volume, a full disk): memory, saying why.
 
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
-use super::{BootReport, Gate, HELD_GRACE, Owe, ns};
+use super::{BootReport, Owe, ns};
 use crate::cache::OutboxCache;
 use crate::native::boot_record::{BootPacket, BootSource};
 use crate::native::{Backend, StorageConfig, journal, lease};
@@ -25,6 +28,10 @@ use crate::Storage;
 /// How long a launch waits for another copy to let go of the profile: as long as the open waits
 /// for SQLite's lock (`BUSY_TRIES` tries of `busy_timeout`).
 const WAIT: Duration = Duration::from_secs(30);
+/// How long a busy launch's first frame waits for the lease before it shows what was read, held.
+const SHOW: Duration = Duration::from_secs(5);
+/// The same for a relaunch (Restart, an update's), which Rune held up to 10 s for its old copy.
+const SHOW_RELAUNCH: Duration = Duration::from_secs(2);
 
 /// Why this run keeps its changes in memory, when it does.
 pub(super) enum Hold {
@@ -33,11 +40,11 @@ pub(super) enum Hold {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn hold(config: &StorageConfig, report: &mut BootReport, t0: Instant, send: &dyn Fn(BootPacket), owe: &mut Owe, gate: &Gate, packet: &mut Option<BootPacket>, held: &mut Option<BootPacket>) -> Hold {
-    let mut waited = false;
+pub(super) fn hold(config: &StorageConfig, report: &mut BootReport, t0: Instant, send: &dyn Fn(BootPacket), owe: &mut Owe, packet: &mut Option<BootPacket>, held: &mut Option<BootPacket>) -> Hold {
+    let mut waited: Option<Instant> = None;
     let until = Instant::now() + WAIT;
     // Rune's relaunch names the copy it replaces (`RUNE_RELAUNCH_AFTER`), and waits for it at most 10 s.
-    let relaunch = std::env::var_os("RUNE_RELAUNCH_AFTER").is_some();
+    let show = if std::env::var_os("RUNE_RELAUNCH_AFTER").is_some() { SHOW_RELAUNCH } else { SHOW };
     loop {
         match lease::try_take(&config.path) {
             lease::Outcome::Held => break,
@@ -54,16 +61,13 @@ pub(super) fn hold(config: &StorageConfig, report: &mut BootReport, t0: Instant,
                 return Hold::Memory(lease::IN_USE.into());
             }
             lease::Outcome::Busy => {
-                if !waited {
-                    waited = true;
+                let since = *waited.get_or_insert_with(|| {
                     rune::marks::mark("storage.lease.busy");
                     hold_what_was_read(owe, packet, held);
-                }
-                // The windows ask for their first frame: what was read, held, until the lease comes.
-                // Not in a relaunch (Restart, an update's): its old copy is still saving, and a
-                // held frame from before that would be one the file no longer shows, so the whole
-                // session would run in memory. Its first frame waits for the lease instead.
-                if packet.is_none() && !relaunch && (gate.wanted() || t0.elapsed() > HELD_GRACE) {
+                    Instant::now()
+                });
+                // The first frame waits `show` for the lease, then gets what was read, held.
+                if packet.is_none() && since.elapsed() >= show {
                     let p = held.take().unwrap_or_else(BootPacket::held_empty);
                     show_held(report, t0, owe, packet, send, p);
                 }
@@ -72,7 +76,7 @@ pub(super) fn hold(config: &StorageConfig, report: &mut BootReport, t0: Instant,
         }
     }
     lease::decide(true);
-    if waited {
+    if waited.is_some() {
         rune::marks::mark("storage.lease.held");
     } else if lease::sqlite_held_elsewhere(&config.path) {
         // A copy of a build without the lease still has the file: what was read is held.
@@ -86,6 +90,7 @@ pub(super) fn hold(config: &StorageConfig, report: &mut BootReport, t0: Instant,
 /// fallback, one already sent is compared before anything is kept, and the journal is mapped only
 /// through SQLite (stage B checks its row there).
 fn hold_what_was_read(owe: &mut Owe, packet: &mut Option<BootPacket>, held: &mut Option<BootPacket>) {
+    lease::note_held_by_copy();
     owe.hint = None;
     if let Some(p) = packet.as_mut() {
         p.source = BootSource::Checkpoint;

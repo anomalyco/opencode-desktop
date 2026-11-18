@@ -83,6 +83,15 @@ pub fn holds_profile() -> Option<bool> {
     Some(true)
 }
 
+/// Whether a held first frame (`BootSource::held`) was held for another copy of the app finishing
+/// a save, not for another program holding the file.
+pub fn held_by_another_copy() -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    return native::lease::held_by_copy();
+    #[cfg(target_arch = "wasm32")]
+    false
+}
+
 /// What an open refused for another copy says (`BootReport::error`): the app says it in its own words.
 #[cfg(not(target_arch = "wasm32"))]
 pub use native::lease::IN_USE;
