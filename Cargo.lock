@@ -3444,9 +3444,12 @@ dependencies = [
  "notify",
  "office-preview",
  "opencode-feature-code-view",
+ "opencode-feature-dictation",
  "opencode-feature-egg",
  "opencode-feature-office",
+ "opencode-feature-tips",
  "opencode-feature-updater",
+ "opencode-feature-usage",
  "opencode-i18n",
  "opencode-kernel",
  "opencode-kit",
@@ -3496,6 +3499,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "opencode-feature-dictation"
+version = "0.0.1"
+dependencies = [
+ "hex-client",
+ "notify",
+ "opencode-i18n",
+ "rune",
+ "session-view",
+]
+
+[[package]]
 name = "opencode-feature-egg"
 version = "0.0.1"
 dependencies = [
@@ -3527,6 +3541,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "opencode-feature-tips"
+version = "0.0.1"
+dependencies = [
+ "hex-client",
+ "opencode-i18n",
+ "opencode-platform",
+ "rune",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "opencode-feature-updater"
 version = "0.0.1"
 dependencies = [
@@ -3542,6 +3568,19 @@ dependencies = [
  "ureq-web",
  "win-install",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "opencode-feature-usage"
+version = "0.0.1"
+dependencies = [
+ "opencode-i18n",
+ "opencode-kit",
+ "rune",
+ "rune-kit",
+ "rune-theme-opencode",
+ "serde_json",
+ "session-view",
 ]
 
 [[package]]
@@ -3663,8 +3702,11 @@ dependencies = [
  "mlua",
  "notify",
  "opencode-feature-code-view",
+ "opencode-feature-dictation",
  "opencode-feature-egg",
+ "opencode-feature-tips",
  "opencode-feature-updater",
+ "opencode-feature-usage",
  "opencode-i18n",
  "opencode-kernel",
  "opencode-kit",

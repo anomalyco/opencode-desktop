@@ -23,7 +23,7 @@ use std::fmt;
 pub use commands::{CommandEntry, CommandRegistry, CommandTitle};
 pub use events::EventBus;
 pub use feature::{Feature, SurfaceDescriptor, SurfaceKind, SurfaceRegistry};
-pub use overlay::{OverlayEffect, OverlayEntry, OverlayEvent, OverlayKind, OverlayStack, OverlayState};
+pub use overlay::{OverlayDismissFn, OverlayDispatcher, OverlayEffect, OverlayEntry, OverlayEvent, OverlayKind, OverlayStack, OverlayState};
 pub use scheduler::{CloseFn, LifecycleScheduler, Phase, RestFn, SetupFn, SystemFn, VisibilityFn};
 pub use slots::StateSlots;
 
@@ -31,6 +31,7 @@ pub use slots::StateSlots;
 pub struct Kernel<S> {
     pub slots: StateSlots,
     pub overlays: OverlayStack,
+    pub overlay_dispatcher: OverlayDispatcher<S>,
     pub scheduler: LifecycleScheduler<S>,
     pub commands: CommandRegistry<S>,
     pub events: EventBus,
@@ -50,6 +51,7 @@ impl<S> Kernel<S> {
         Self {
             slots: StateSlots::new(),
             overlays: OverlayStack::new(),
+            overlay_dispatcher: OverlayDispatcher::new(),
             scheduler: LifecycleScheduler::new(),
             commands: CommandRegistry::new(),
             events: EventBus::new(),
@@ -77,6 +79,24 @@ impl<S> Kernel<S> {
     pub fn step_overlay(&mut self, event: OverlayEvent) -> Vec<OverlayEffect> {
         overlay::step(&mut self.overlays, event)
     }
+
+    /// Registers a dismiss callback invoked when overlay `id` is dismissed through the kernel.
+    pub fn register_overlay_dismiss(&mut self, id: &'static str, on_dismiss: OverlayDismissFn<S>) {
+        self.overlay_dispatcher.register(id, on_dismiss);
+    }
+
+    /// Steps the topmost overlay with [`OverlayEvent::Escape`], restores focus if recorded, and
+    /// invokes any registered dismiss callback. Returns `true` when an overlay was dismissed.
+    ///
+    /// Hosts that embed [`Kernel<S>`] inside `S` can step [`Self::overlays`] and clone
+    /// [`Self::overlay_dispatcher`] (O(1)) before calling [`OverlayDispatcher::apply_effects`].
+    pub fn dismiss_top_overlay(&mut self, state: &mut S, tx: &mut rune::Tx) -> bool {
+        let effects = self.step_overlay(OverlayEvent::Escape);
+        if effects.is_empty() {
+            return false;
+        }
+        self.overlay_dispatcher.apply_effects(&effects, state, tx)
+    }
 }
 
 impl<S> fmt::Debug for Kernel<S> {
@@ -85,6 +105,7 @@ impl<S> fmt::Debug for Kernel<S> {
             .field("features", &self.features)
             .field("slots", &self.slots)
             .field("overlays", &self.overlays)
+            .field("overlay_dispatcher", &self.overlay_dispatcher)
             .field("scheduler", &self.scheduler)
             .field("commands", &self.commands)
             .field("events", &self.events)
@@ -160,6 +181,12 @@ impl<S> KernelBuilder<S> {
     /// Registers a native surface provider descriptor.
     pub fn add_surface(&mut self, descriptor: SurfaceDescriptor) -> &mut Self {
         self.kernel.surfaces.register(descriptor);
+        self
+    }
+
+    /// Registers a dismiss callback invoked when overlay `id` is dismissed through the kernel.
+    pub fn register_overlay_dismiss(&mut self, id: &'static str, on_dismiss: OverlayDismissFn<S>) -> &mut Self {
+        self.kernel.register_overlay_dismiss(id, on_dismiss);
         self
     }
 

@@ -54,8 +54,6 @@ pub struct App {
     pub(crate) inbox: rune::Tracked<Option<Receiver<Incoming>>>,
     /// The live server events taken, for the motion log (`motion_log.rs`).
     pub(crate) motion_events: rune::Tracked<motion_log::Events>,
-    // Window-local, consumed once per poll; never a view dependency.
-    pub(crate) tail_change: events::TailChange,
     pub(crate) pages: rune::Tracked<session_pages::State>,
     // Created by the first Save, never before Frame 1. A failed write wakes the window once.
     pub(crate) output_errors: Option<(Sender<String>, Receiver<String>)>,
@@ -253,18 +251,9 @@ pub struct App {
     pub now_ms: rune::Tracked<i64>,
     pub(crate) base_ms: rune::Tracked<i64>,
     pub(crate) clock: rune::Tracked<f64>,
-    /// When the jump list was last looked at (`jump_list`).
-    pub(crate) jump_list_at: f64,
-    /// How many times the view has run, and the count the last poll saw: state that a poll
-    /// derives from other state (panel tabs, plugins' watched signals) can only have moved when
-    /// the view ran since, or when an earlier poll this frame changed something.
+    /// How many times the view has run; compared against `PolledRuns` in `kernel.slots` so a poll
+    /// knows whether derived state (panel tabs, plugins' watched signals) may have moved.
     pub view_runs: std::cell::Cell<u64>,
-    pub(crate) polled_runs: u64,
-    /// The window's timeline places and opened rows as last written (`restore::places`).
-    pub(crate) timeline_kept: restore::places::Kept,
-    /// Each session's assistant steps that were open when its event stream dropped: their text
-    /// grows again only from whole text (`Transcript::apply_caught`, the catching-up barrier).
-    pub(crate) stream_gaps: HashMap<String, std::collections::HashSet<String>>,
     pub(crate) fixture: rune::Tracked<Value>,
     pub(crate) playback: rune::Tracked<VecDeque<(f64, String, Value)>>,
     /// What the fixture's server stored from the replies it streamed (`served.rs`).

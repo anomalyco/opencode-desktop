@@ -1,7 +1,7 @@
 //! The tips' pacing (`packages/app/src/tips/queue.ts` `selectTip`) and the machine that shows
 //! them (`tips/model.ts` `createTipToasts`, with the coordinator's `tip` from
 //! `shell/notifications/coordinator.ts`): nothing for [`STARTUP_DELAY`] after the window opens,
-//! the first tip [`FIRST_TIP_DELAY`] after the app was first seen, then at most one a day, each
+//! the first tip [`FIRST_TIP_DELAY_MS`] after the app was first seen, then at most one a day, each
 //! one until it's closed or its button is pressed, shown by one focused window at a time. Checked
 //! when the person next acts (input, focus, a route change), never on an idle timer.
 
@@ -250,7 +250,9 @@ fn polled(state: &mut State, poll: Poll) -> Vec<Effect> {
             let check_hex = poll.hex_installed.is_none();
             *state = State::Awake { sync: Sync::Offline, phase: Phase::Checking };
             let mut effects = polled(state, poll);
-            if check_hex { effects.push(Effect::CheckHex); }
+            if check_hex {
+                effects.push(Effect::CheckHex);
+            }
             effects
         }
         State::Awake { sync, phase } => {

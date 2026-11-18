@@ -78,6 +78,14 @@ pub(crate) fn stack(s: &App) -> Vec<Layer> {
 
 /// Escape in the window: true when a layer took it.
 pub(crate) fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    if s.kernel.overlays.top().is_some_and(|top| top.dismiss_on_escape) {
+        let effects = s.kernel.step_overlay(opencode_kernel::OverlayEvent::Escape);
+        if !effects.is_empty() {
+            let dispatcher = s.kernel.overlay_dispatcher.clone();
+            dispatcher.apply_effects(&effects, s, tx);
+            return true;
+        }
+    }
     let Some(effect) = step(&stack(s), Event::Pressed) else { return false };
     apply(s, effect, ev, tx);
     true

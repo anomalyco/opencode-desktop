@@ -61,6 +61,13 @@ Pick the first lane that fits your feature. Do not add fields to `struct App` or
 | **Lane B (~15%)** | `features/<id>/` | GPU shaders, frame recorders, heavy local indexing, OS-specific engines, or sub-ms hot paths | Leaf crate only |
 | **Lane C (~5%)** | `crates/<id>/` | Reusable libraries or embeddable surfaces shared with `anomalyco/seer` or other Rune apps | Leaf crate only |
 
+Scaffold a new feature into its lane (`scripts/new-feature.sh` on macOS/Linux, `pwsh scripts/new-feature.ps1` on Windows):
+
+```sh
+scripts/new-feature.sh plugin <id>    # Lane A (default): Luau plugin ready for --plugin-hot
+scripts/new-feature.sh feature <id>   # Lane B: decoupled Rust feature crate + kernel wiring
+```
+
 ## 3. Dependency Rules (Enforced by `scripts/arch-check.sh`)
 
 Dependencies flow strictly downward so the workspace stays **wide and shallow** for parallel Rust compilation:

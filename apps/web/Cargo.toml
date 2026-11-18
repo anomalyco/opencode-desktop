@@ -53,8 +53,11 @@ memchr = "2"
 scraper = { version = "0.24", default-features = false }
 mlua = { git = "https://github.com/mlua-rs/mlua", rev = "a0ad4535fc72ba89967a931c5be57b162b5f0f3f", features = ["luau"] }
 opencode-feature-code-view = { path = "../../features/code-view" }
+opencode-feature-dictation = { path = "../../features/dictation" }
 opencode-feature-egg = { path = "../../features/egg" }
+opencode-feature-tips = { path = "../../features/tips" }
 opencode-feature-updater = { path = "../../features/updater" }
+opencode-feature-usage = { path = "../../features/usage" }
 opencode-i18n = { path = "../../crates/opencode-i18n" }
 opencode-kernel = { path = "../../crates/opencode-kernel" }
 opencode-kit = { path = "../../crates/opencode-kit" }

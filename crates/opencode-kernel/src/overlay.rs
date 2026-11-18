@@ -5,6 +5,9 @@
 //! `ui/src/context/dialog-machine.ts`): Escape dismisses only the topmost layer, and never reaches
 //! past a non-escape-dismissible top layer.
 
+use std::fmt;
+use std::sync::Arc;
+
 /// Visual and interaction category of an overlay entry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum OverlayKind {
@@ -201,5 +204,127 @@ pub fn step(stack: &mut OverlayStack, event: OverlayEvent) -> Vec<OverlayEffect>
             }
             effects
         }
+    }
+}
+
+/// Host callback invoked when an overlay is dismissed through [`OverlayDispatcher`].
+pub type OverlayDismissFn<S> = fn(&mut S, &mut rune::Tx);
+
+struct DismissEntry<S> {
+    id: &'static str,
+    on_dismiss: OverlayDismissFn<S>,
+}
+
+impl<S> Clone for DismissEntry<S> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<S> Copy for DismissEntry<S> {}
+
+/// Registry mapping overlay IDs to host dismiss callbacks.
+///
+/// Cloning is O(1) (shared immutable handler list once built), allowing a host that embeds
+/// [`crate::Kernel<S>`] inside `S` to clone the dispatcher handle before passing `&mut S` into a
+/// registered dismiss callback without borrow conflicts.
+pub struct OverlayDispatcher<S> {
+    inner: Option<Arc<Vec<DismissEntry<S>>>>,
+}
+
+impl<S> Clone for OverlayDispatcher<S> {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone() }
+    }
+}
+
+impl<S> Default for OverlayDispatcher<S> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<S> OverlayDispatcher<S> {
+    /// Creates an empty overlay dispatcher with no registered handlers.
+    pub const fn new() -> Self {
+        Self { inner: None }
+    }
+
+    fn entries_mut(&mut self) -> &mut Vec<DismissEntry<S>> {
+        Arc::make_mut(self.inner.get_or_insert_with(|| Arc::new(Vec::new())))
+    }
+
+    /// Registers a dismiss callback for overlay `id`, replacing any existing callback for `id`.
+    pub fn register(&mut self, id: &'static str, on_dismiss: OverlayDismissFn<S>) {
+        let entries = self.entries_mut();
+        if let Some(existing) = entries.iter_mut().find(|entry| entry.id == id) {
+            existing.on_dismiss = on_dismiss;
+            return;
+        }
+        entries.push(DismissEntry { id, on_dismiss });
+    }
+
+    /// Removes the dismiss callback registered for `id`, returning it if present.
+    pub fn unregister(&mut self, id: &str) -> Option<OverlayDismissFn<S>> {
+        let entries = self.inner.as_mut().map(Arc::make_mut)?;
+        let index = entries.iter().position(|entry| entry.id == id)?;
+        Some(entries.remove(index).on_dismiss)
+    }
+
+    /// Looks up the dismiss callback registered for `id`.
+    pub fn get(&self, id: &str) -> Option<OverlayDismissFn<S>> {
+        self.inner.as_deref()?.iter().find(|entry| entry.id == id).map(|entry| entry.on_dismiss)
+    }
+
+    /// Returns `true` if a dismiss callback is registered for `id`.
+    pub fn contains(&self, id: &str) -> bool {
+        self.get(id).is_some()
+    }
+
+    /// Number of registered dismiss callbacks.
+    pub fn len(&self) -> usize {
+        self.inner.as_deref().map_or(0, Vec::len)
+    }
+
+    /// Returns `true` when no dismiss callbacks are registered.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Iterates registered overlay IDs in registration order.
+    pub fn ids(&self) -> impl Iterator<Item = &'static str> + '_ {
+        self.inner.as_deref().into_iter().flat_map(|entries| entries.iter().map(|entry| entry.id))
+    }
+
+    /// Invokes the dismiss callback registered for `id`, returning `true` if one was found.
+    pub fn dispatch(&self, id: &str, state: &mut S, tx: &mut rune::Tx) -> bool {
+        let Some(on_dismiss) = self.get(id) else {
+            return false;
+        };
+        on_dismiss(state, tx);
+        true
+    }
+
+    /// Applies overlay dismissal effects to `state` and `tx`: restores recorded focus via
+    /// `tx.focus(...)` and invokes any registered dismiss callback. Returns `true` if any
+    /// dismissal effect was processed.
+    pub fn apply_effects(&self, effects: &[OverlayEffect], state: &mut S, tx: &mut rune::Tx) -> bool {
+        let mut dismissed = false;
+        for effect in effects {
+            if let OverlayEffect::Dismissed { id, restore_focus } = effect {
+                dismissed = true;
+                if let Some(focus) = restore_focus {
+                    tx.focus(focus.clone(), tx.focus_visible());
+                }
+                self.dispatch(id, state, tx);
+            }
+        }
+        dismissed
+    }
+}
+
+impl<S> fmt::Debug for OverlayDispatcher<S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OverlayDispatcher").field("len", &self.len()).finish()
     }
 }
