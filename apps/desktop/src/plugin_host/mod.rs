@@ -4,63 +4,36 @@
 //! - **Two hosts.** A window's [`PluginHost`] (`WindowPluginHost`) runs every plugin's window
 //!   half, `init.luau`; the process's `AppPluginHost` ([`app_half`]) runs each `app.luau` once,
 //!   polled once per tick whatever the number of windows.
-//! - **Loading** ([`boot`], [`sources`]): the built-ins are compiled into the binary (a debug
-//!   build runs them from the repository, so saving one reloads it); `--plugin-dir`, overrides
-//!   and installed plugins come from their folders, and one from outside the app waits for a
-//!   one-time OK ([`trust`]) keyed by its files' SHA-256.
-//! - **Lifecycle** ([`lifecycle`]): `drive`, `reload`, `poll`, `toggle`, and `step_trust`.
+//! - **Loading** ([`runtime::boot`], [`sources`]): the built-ins are compiled into the binary (a
+//!   debug build runs them from the repository, so saving one reloads it); `--plugin-dir`,
+//!   overrides and installed plugins come from their folders, and one from outside the app waits
+//!   for a one-time OK ([`trust`]) keyed by its files' SHA-256.
+//! - **Lifecycle** ([`runtime::lifecycle`]): `drive`, `reload`, `poll`, `toggle`, and `step_trust`.
 //! - **Contributions** reach the app's surfaces ([`surfaces`], [`contrib`], [`panels`],
-//!   [`commands`], [`view`]).
+//!   [`commands`], [`ui::view`]).
 //! - **Rendering** ([`surfaces`]): each contribution's render is memoized on the script's
 //!   version, its props, the theme and a stamp of what it read last time ([`cx::Dep`]); an
 //!   unchanged frame enters no VM.
-//! - **Host-kept state** ([`shared`]): each plugin's stores, what the app knows that plugins ask
-//!   about, and their images; processes ([`process`]) and background work ([`tasks`]) off the
-//!   app's thread; icons and strings interned for Rune's `&'static` data ([`icons`]).
+//! - **Host-kept state** ([`bridge::shared`]): each plugin's stores, what the app knows that
+//!   plugins ask about, and their images; processes ([`process`]) and background work ([`tasks`])
+//!   off the app's thread; icons and strings interned for Rune's `&'static` data ([`icons`]).
 
-pub mod app_half;
-mod boot;
-mod catalogs;
-pub mod commands;
-pub mod console;
-mod contrib;
-mod ctx;
-pub mod cx;
-pub(crate) mod dormant;
-pub(crate) mod editors;
-mod first_screen;
-pub mod flyout;
-mod hot;
-pub(crate) mod icons;
-mod images;
-mod lifecycle;
-pub mod machines;
-pub(crate) mod memory;
+pub(crate) mod bridge;
 pub mod native;
-mod nodes;
-#[cfg(feature = "office")]
-mod office_nodes;
-pub mod panels;
-mod plugin;
-pub(crate) mod process;
-pub mod project_request;
-mod redraw;
-pub mod requests;
-mod reveal;
-pub mod server_sources;
-pub mod servers;
+pub(crate) mod runtime;
 pub mod services;
-mod shared;
-pub mod sources;
-pub mod stores;
-pub mod surfaces;
-pub(crate) mod tasks;
-pub mod trust;
+pub(crate) mod ui;
+
+pub use opencode_plugin_runtime::{catalogs, flyout, icons, images, machines, process, reveal, tasks};
+
+pub use bridge::{commands, console, cx, project_request, requests, server_sources, servers, stores};
+pub(crate) use bridge::contrib;
+pub use runtime::{app_half, sources, trust};
 #[cfg(not(target_arch = "wasm32"))]
-pub mod types;
-mod view;
-mod vm;
-mod widgets;
+pub use runtime::types;
+pub(crate) use runtime::{dormant, memory, plugin, vm};
+pub use ui::{panels, surfaces};
+pub(crate) use ui::editors;
 
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -70,8 +43,6 @@ use opencode_plugin_spec::Manifest;
 use rune::{KeyEvent, Tx};
 use rune_luau::{Data, Script};
 
-use boot::{adopt_later_launchers, background};
-pub use boot::{doze_owed, first_frame, setup};
 pub use catalogs::Catalogs;
 pub use commands::{commands, key, run_command, run_slash, slash_commands};
 pub use contrib::{
@@ -79,11 +50,11 @@ pub use contrib::{
     run_menubar, server_menu_items, settings_search,
 };
 pub use flyout::{Flyout, FlyoutEvent};
-use lifecycle::start_app_half;
-pub use lifecycle::{drive, fire_named, poll, reload, step_trust, toggle};
 pub use machines::{Hot, HotEffect, Life, LifeEffect, LifeEvent, Trust, TrustEffect, TrustEvent};
 pub use plugin::Half;
 pub use reveal::reveal;
+pub use runtime::boot::{doze_owed, first_frame, setup};
+pub use runtime::lifecycle::{drive, fire_named, poll, reload, step_trust, toggle};
 pub use servers::{
     ServerRec, all as contributed_servers, authenticating as server_authenticating, changed as servers_changed,
     connect as connect_server, cover as server_cover, row as server_row, stage as servers_stage,
@@ -95,7 +66,7 @@ pub use surfaces::{
     titlebar_items,
 };
 pub use trust::dialog as trust_dialog;
-pub use view::settings_section;
+pub use ui::view::settings_section;
 
 use crate::App;
 
@@ -246,13 +217,13 @@ pub struct PluginHost {
     disabled: BTreeSet<String>,
     /// Plugins from outside the app the user OKed: plugin id → the SHA-256 of their files.
     trusted: BTreeMap<String, String>,
-    shared: shared::Shared,
+    shared: bridge::shared::Shared,
     /// Contributed servers whose health check is on its way.
     checking: HashSet<String>,
     /// The window's page visits, for server covers' one sign-in offer per visit.
     pub cover_visit: servers::CoverVisit,
     /// Where reading the plugin folders stands.
-    folders: boot::Folders,
+    folders: runtime::boot::Folders,
     /// Built-ins this launch's first screen doesn't show, started after its first frame.
     later: Vec<sources::Found>,
     /// The boot record knows the built-ins' records, and those of `later` that have one haven't
@@ -279,7 +250,7 @@ pub struct PluginHost {
     pub asked: Cell<bool>,
     /// Server events plugins listen for, waiting for the next poll.
     events: RefCell<Vec<(String, serde_json::Value)>>,
-    watcher: Option<hot::Watcher>,
+    watcher: Option<runtime::hot::Watcher>,
     /// Surface renders that ran a script, and those a memo answered, for the metrics.
     pub renders: Cell<u64>,
     pub hits: Cell<u64>,
