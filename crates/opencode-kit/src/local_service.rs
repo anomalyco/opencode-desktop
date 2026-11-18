@@ -123,39 +123,72 @@ fn page_password(base: &str) -> Option<String> {
     PAGE_PASSWORDS.lock().unwrap_or_else(|e| e.into_inner()).iter().find(|(b, _)| b == base).map(|(_, p)| p.clone())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn probe_usable(server: &Server) -> bool {
     if !server.reachable() {
         return false;
     }
-    server.get_json("/api/project", None, std::time::Duration::from_millis(500)).is_ok()
+    server.get_json("/api/info", None, std::time::Duration::from_millis(500)).is_ok()
 }
 
-fn discover_with_service(default: &Server, default_base: &str, svc: Option<LocalService>) -> Server {
-    if default.base != default_base {
-        return default.clone();
-    }
-    let Some(svc) = svc.filter(|s| s.base != default_base) else {
-        return default.clone();
-    };
-    if probe_usable(default) {
-        return default.clone();
-    }
-    let mut candidate = Server::new(&svc.base);
+#[cfg(not(target_arch = "wasm32"))]
+fn candidate_for_service(svc: &LocalService, media_refs: bool) -> Server {
+    let mut candidate = Server::anonymous(&svc.base);
     if let Some(pw) = &svc.password {
         candidate = candidate.with_password(pw);
     }
-    if default.media_refs {
+    if media_refs {
         candidate = candidate.with_media_refs();
     }
-    if candidate.reachable() {
-        return candidate;
-    }
-    default.clone()
+    candidate
 }
 
-/// Returns `default` when usable; otherwise, when `default` is `http://127.0.0.1:4096`, checks
-/// whether a local OpenCode Desktop sidecar in `service.json` is listening on another port.
+#[cfg(not(target_arch = "wasm32"))]
+fn discover_with_service(default: &Server, explicit_env_url: bool, svc: Option<LocalService>) -> Server {
+    if explicit_env_url {
+        return default.clone();
+    }
+    // Official Desktop resolves its own server from `<state>/opencode/service.json`
+    // (`packages/desktop/src/main/service/background-service.ts:48-86,130-153`,
+    // `packages/client/src/service-probe.ts:39-90`), never preferring an unauthenticated or 401
+    // server on `:4096` ahead of a registered service that answers with its credentials.
+    let reg = svc.as_ref().map(|s| candidate_for_service(s, default.media_refs));
+    if let Some(candidate) = &reg
+        && probe_usable(candidate)
+    {
+        return candidate.clone();
+    }
+    let mut fallback = Server::new(DEFAULT_SERVER);
+    if default.media_refs {
+        fallback = fallback.with_media_refs();
+    }
+    if probe_usable(&fallback) {
+        return fallback;
+    }
+    if let Some(candidate) = &reg
+        && candidate.reachable()
+    {
+        return candidate.clone();
+    }
+    if fallback.reachable() {
+        return fallback;
+    }
+    reg.unwrap_or(fallback)
+}
+
+/// Resolves the app's own local OpenCode server when `--server` was not passed: prefers a
+/// registered background service in `service.json` when it answers `/api/info`, falls back to
+/// `http://127.0.0.1:4096` (with `OPENCODE_SERVER_PASSWORD` if set) only when no registration
+/// answers, and re-reads `service.json` even if an earlier probe moved to another port.
 pub fn discover_local_server(default: &Server) -> Server {
-    discover_with_service(default, DEFAULT_SERVER, read_local_service())
+    #[cfg(target_arch = "wasm32")]
+    {
+        return default.clone();
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let explicit_env_url = std::env::var("OPENCODE_SERVER_URL").ok().is_some_and(|v| !v.trim().is_empty());
+        discover_with_service(default, explicit_env_url, read_local_service())
+    }
 }
 

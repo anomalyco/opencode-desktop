@@ -189,6 +189,11 @@ impl Server {
         self
     }
 
+    /// The `Authorization` header value this connection sends, if any.
+    pub fn auth_header(&self) -> Option<&str> {
+        self.auth.as_deref()
+    }
+
     /// Marks its files as another machine's though it answers on a loopback address.
     pub fn with_remote_files(mut self) -> Server {
         self.remote_files = true;

@@ -443,9 +443,9 @@ fn target(s: &App) -> Target {
     let offline = s.live() && crate::launch::offline(s);
     let cached = view.is_some_and(|v| v.loaded) && !offline;
     let connection = match health {
-        _ if offline => Connection::Unavailable(Unavailable::Offline),
         Some(Health::Probe(ProbeResult::Unauthorized) | Health::Auth) => Connection::Unavailable(Unavailable::Auth),
         Some(Health::Incompatible) => Connection::Unavailable(Unavailable::Incompatible),
+        _ if offline => Connection::Unavailable(Unavailable::Offline),
         Some(Health::Probe(ProbeResult::Unreachable)) if !cached => Connection::Unavailable(Unavailable::Offline),
         _ if cached => Connection::Connected,
         _ => Connection::Connecting,
@@ -494,6 +494,14 @@ pub fn list_view(s: &App) -> home_load::ListView {
 
 /// The list's Retry: probe the servers, and read the list again.
 pub fn retry(s: &mut App, tx: &mut Tx) {
+    if server(s).is_sidecar() && matches!(s.home_state.load, home_load::State::Unavailable { reason: Unavailable::Auth, .. }) {
+        crate::servers::health::retry(s, tx);
+        if crate::launch::offline(s) {
+            crate::launch::retry(s, tx);
+        }
+        tx.instant();
+        return;
+    }
     let fx = home_load::step(&mut s.home_state.load, home_load::Event::Retry);
     run_load(s, fx, tx);
     tx.instant();

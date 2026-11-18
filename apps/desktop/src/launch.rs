@@ -580,6 +580,11 @@ fn spawn_probe(s: &App, beta_tabs: bool, grace: Duration) -> (Receiver<Ready>, A
     let own = crate::servers::runtime::active(s).is_sidecar();
     let fallback = s.launch.fallback_fixture && own;
     let discover_local = own && crate::arg("--server").is_none();
+    let server = if discover_local {
+        crate::servers::runtime::own_server().unwrap_or(server)
+    } else {
+        server
+    };
     // A page whose first reads are all in (index.html asked as it started) takes them now, so the
     // next frame, the first one usually, is Home with its sessions: as task work it'd wait for the
     // page's next turn, after that frame.

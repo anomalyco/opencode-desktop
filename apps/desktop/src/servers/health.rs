@@ -30,7 +30,7 @@ enum Timer {
 }
 
 enum Answer {
-    Probe { key: ServerKey, attempt: Attempt, result: ProbeResult },
+    Probe { key: ServerKey, attempt: Attempt, result: ProbeResult, discovered: Option<opencode_kit::client::Server> },
     /// Its home folder, asked for once it answers (`sync.data.path.home`), after the probe's
     /// answer: a server that just started takes seconds over it.
     Home { key: ServerKey, home: String },
@@ -80,6 +80,11 @@ pub fn get(key: &ServerKey) -> Option<Health> {
 /// The status mark a row shows for server `key` (`selectServerIndicator`).
 pub fn indicator(key: &ServerKey) -> Indicator {
     health::indicator(get(key).as_ref())
+}
+
+/// Whether server `key`'s latest health probe answered HTTP 401 (`isServerUnauthorized`).
+pub fn is_unauthorized(key: &ServerKey) -> bool {
+    health::is_unauthorized(get(key).as_ref())
 }
 
 /// The hostname server `key` last reported.
@@ -172,7 +177,7 @@ pub fn poll(s: &App, tx: &mut Tx) -> bool {
     }
     let answers: Vec<Answer> = HEALTH.with_borrow(|h| h.answers.1.try_iter().collect());
     for a in answers {
-        let (key, attempt, result) = match a {
+        let (key, attempt, result, discovered) = match a {
             Answer::Home { key, home } => {
                 HEALTH.with_borrow_mut(|h| {
                     h.homes.insert(key, home);
@@ -180,8 +185,24 @@ pub fn poll(s: &App, tx: &mut Tx) -> bool {
                 });
                 continue;
             }
-            Answer::Probe { key, attempt, result } => (key, attempt, result),
+            Answer::Probe { key, attempt, result, discovered } => (key, attempt, result, discovered),
         };
+        if let Some(actual) = discovered
+            && crate::servers::runtime::own_server()
+                .as_ref()
+                .is_none_or(|o| o.base != actual.base || o.auth_header() != actual.auth_header())
+        {
+            crate::servers::runtime::set_sidecar(&actual);
+            let entries = super::registry::list(s);
+            let inputs: Vec<Input> = entries.iter().map(|e| Input::of(&e.conn)).collect();
+            let fx = HEALTH.with_borrow_mut(|h| {
+                h.conns = entries.into_iter().map(|e| (e.key(), e.conn)).collect();
+                h.inputs = inputs.clone();
+                health::step(&mut h.state, Event::ServersSynced(inputs))
+            });
+            run(s, fx, tx);
+            continue;
+        }
         let fx = HEALTH.with_borrow_mut(|h| health::step(&mut h.state, Event::ProbeSettled { key, attempt, result }));
         run(s, fx, tx);
     }
@@ -262,11 +283,12 @@ fn shown(h: &Runtime) -> Vec<(Health, Option<String>)> {
 /// poll would): the answer, for the caller to settle.
 fn probe(s: &App, key: &ServerKey, attempt: Attempt) -> Option<ProbeResult> {
     let server = HEALTH.with_borrow(|h| h.conns.get(key).cloned()).and_then(|c| super::registry::server_for(&c))?;
+    let discover_sidecar = key.is_sidecar() && crate::arg("--server").is_none();
     // The windows' quiet poll: answers landing together wake the window once, and draw only if
     // something changed.
     let wake = s.launch.inbox_wake.clone().or_else(|| (*s.waker).clone());
     let patient = HEALTH.with_borrow_mut(|h| h.patient.remove(key));
-    if !patient && server.refusing() {
+    if !patient && !discover_sidecar && server.refusing() {
         server.watch_reach(wake);
         return Some(ProbeResult::Unreachable);
     }
@@ -275,8 +297,13 @@ fn probe(s: &App, key: &ServerKey, attempt: Attempt) -> Option<ProbeResult> {
     let key = key.clone();
     crate::plugin_host::tasks::run(move || {
         let started = rune::time::Instant::now();
-        let result = loop {
-            let result = match server.get("/api/info") {
+        let (server, result) = loop {
+            let current = if discover_sidecar {
+                opencode_kit::local_service::discover_local_server(&server)
+            } else {
+                server.clone()
+            };
+            let result = match current.get("/api/info") {
                 Ok(v) => {
                     let text = |k: &str| v[k].as_str().filter(|t| !t.is_empty()).map(str::to_owned);
                     ProbeResult::Healthy { version: text("version"), hostname: text("hostname") }
@@ -285,15 +312,16 @@ fn probe(s: &App, key: &ServerKey, attempt: Attempt) -> Option<ProbeResult> {
                 Err(_) => ProbeResult::Unreachable,
             };
             if !patient || result != ProbeResult::Unreachable || started.elapsed() >= PATIENCE {
-                break result;
+                break (current, result);
             }
             rune::task::sleep(std::time::Duration::from_millis(250));
         };
-        if result == ProbeResult::Unreachable {
+        if result == ProbeResult::Unreachable && !discover_sidecar {
             server.watch_reach(wake.clone());
         }
         let healthy = matches!(result, ProbeResult::Healthy { .. });
-        let _ = send.send(Answer::Probe { key: key.clone(), attempt, result });
+        let discovered = discover_sidecar.then(|| server.clone());
+        let _ = send.send(Answer::Probe { key: key.clone(), attempt, result, discovered });
         if let Some(w) = &wake {
             w();
         }

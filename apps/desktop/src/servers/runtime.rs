@@ -83,7 +83,8 @@ fn set_current(key: &ServerKey) {
 /// The app's own server, as the first window's launch found it.
 pub fn set_sidecar(server: &Server) {
     RUNTIME.with_borrow_mut(|r| {
-        if r.sidecar.as_ref().map(|s| &s.base) != Some(&server.base) {
+        let changed = r.sidecar.as_ref().is_none_or(|s| s.base != server.base || s.auth_header() != server.auth_header());
+        if changed {
             r.sidecar = Some(server.clone());
         }
     });
@@ -478,6 +479,7 @@ fn new_half(s: &mut App, key: &ServerKey, adopt: bool) -> (Meta, Half) {
     let allow_send = matches!(*s.source, Source::Live { allow_send: true, .. });
     let (meta, server) = match &listed {
         Some(l) => (Meta { listing: Listing::Listed(l.attempt), base: l.server.base.clone() }, l.server.clone()),
+        None if key.is_sidecar() => (Meta::default(), own_server().unwrap_or_else(|| Server::new(opencode_kit::client::DEFAULT_SERVER))),
         None => (Meta::default(), Server::new(&format!("http://{}.invalid", key.as_str().replace([':', '/'], "-"))).with_remote_files()),
     };
     let phase = if listed.is_some() { crate::launch::Phase::Waiting { beta_tabs: false } } else { crate::launch::Phase::Offline { retries: 0, retry_at: f64::INFINITY } };
@@ -580,7 +582,8 @@ fn refit(s: &mut App) {
         s.server_links.forget(key.as_str());
     }
     let key = s.checkout.active.clone();
-    if stale(&key, &s.checkout.meta) {
+    let probing_own = key.is_sidecar() && matches!(s.launch.phase(key.as_str()), Some(crate::launch::Phase::Probing { .. }));
+    if !probing_own && stale(&key, &s.checkout.meta) {
         // The same server under a new listing (it signed us out, moved, or took us back): what the
         // window read of it stays on screen in the new half, rather than blanking until it reloads.
         let kept = peer::reading(s);

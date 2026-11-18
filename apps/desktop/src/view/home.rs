@@ -68,8 +68,10 @@ const SESSIONS_MAX: f32 = 720.0;
 /// Home in the panel `panel` big, in a window `window` big (zeros when unknown: a story).
 pub(crate) fn home(s: &App, p: &Pal, [panel_w, panel_h]: [f32; 2], window: [f32; 2]) -> El {
     if s.project_navigation() { return browse::landing(s, p); }
-    // One server that didn't answer shows the setup card; with several, Home lists them.
-    if crate::launch::offline(s) && !servers::grouped(s) {
+    // One server that didn't answer shows the setup card, unless it answered HTTP 401 (`Signed out`);
+    // with several servers, Home lists them.
+    let sidecar_auth = crate::servers::health::is_unauthorized(&opencode_kit::servers::ServerKey::sidecar());
+    if crate::launch::offline(s) && !servers::grouped(s) && !sidecar_auth {
         return no_server_home(s, p);
     }
     let selected = s.home_selected();
@@ -216,7 +218,9 @@ fn sessions_column(s: &App, p: &Pal, selected: Option<&model::Project>, tier: Ti
                 Unavailable::Auth => t!("session.error.signedOut"),
                 Unavailable::Incompatible => t!("session.error.incompatible"),
             };
-            col().key("groups").w_full().child(unavailable(p, title, None, reason == Unavailable::Offline))
+            let can_retry = reason == Unavailable::Offline
+                || (reason == Unavailable::Auth && crate::projects::home::server(s).is_sidecar());
+            col().key("groups").w_full().child(unavailable(p, title, None, can_retry))
         }
         ListView::Error(failure) => {
             let why = match failure {

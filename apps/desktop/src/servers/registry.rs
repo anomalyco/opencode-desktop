@@ -30,7 +30,11 @@ impl Entry {
 pub fn list(s: &App) -> Vec<Entry> {
     let own = crate::servers::runtime::own_server();
     let own_base = own.as_ref().map(|o| o.base.clone()).unwrap_or_else(|| s.server_base().to_owned());
-    let mut out = vec![Entry { conn: ServerConn::Sidecar { http: HttpBase::new(&own_base), display_name: None, label: None }, name: String::new() }];
+    let mut own_http = HttpBase::new(&own_base);
+    if let Some(auth) = own.as_ref().and_then(|o| o.auth_header()) {
+        own_http = own_http.with_password(auth);
+    }
+    let mut out = vec![Entry { conn: ServerConn::Sidecar { http: own_http, display_name: None, label: None }, name: String::new() }];
     if own.is_none() {
         return out;
     }
