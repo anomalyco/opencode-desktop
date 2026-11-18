@@ -1,653 +1,404 @@
-//! Native Ghostty terminal pane (a side panel, `⌃\``), workspace tabs, persistence,
-//! theme sync, and knobs (`apps/desktop/src/terminal/`).
+//! Desktop host adapter for `opencode-feature-terminal-surface` (`features/terminal-surface`).
 
-mod draw;
-mod find;
-pub mod grid;
-pub mod integration;
-pub mod input;
-mod links;
-mod menu;
-pub mod paste;
-pub mod narrow;
-pub mod persist;
-mod rename;
-mod side_ops;
+pub use opencode_feature_terminal_surface::*;
+
 pub mod story;
-pub mod mount;
-pub mod streams;
 
-use std::cell::Cell;
-use std::collections::{BTreeSet, HashMap};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::path::PathBuf;
 
-use opencode_kit::persistent_pty::{PersistentPtyInfo, TerminalCreate};
-use rune::{Tx, Waker};
-use rune_knobs::{Group, Knob};
-use terminal::{
-    RestoreState, SessionStatus, StreamHandle, TerminalConfig, TerminalSession, TerminalTheme,
-    VtEvent,
-};
+use opencode_kernel::{Feature, KernelBuilder, SurfaceDescriptor, SurfaceKind};
+use opencode_kit::client::Server;
+use opencode_kit::persistent_pty::PersistentPtyInfo;
+use rune::{Drag, KeyEvent, PointerPress, Tx, Waker};
+use rune_knobs::Knobs;
+use serde_json::Value;
+use terminal::{RestoreState, TerminalConfig, TerminalTheme};
 
-use crate::palette::{Pal, pal};
-pub use grid::set_custom_font;
-use crate::{App, Route, Source};
-use persist::StoredWorkspace;
+use crate::jobs::Apply;
+use crate::panels::{DockPlacement, SessionPane};
+use crate::{App, Source};
 
-pub const MAX_TERMINAL_WORKSPACES: usize = 20;
+rune_register::register!(crate::knobs::GROUP_LIST: rune_knobs::Group = [TERMINAL_GROUP]);
 
-pub const TERM_FONT: Knob = Knob::choice(
-    "Terminal font",
-    &["Commit Mono", "IBM Plex Mono", "SF Mono", "JetBrains Mono"],
-    3,
-)
-.about("Monospace font family in the terminal")
-.hints(&[
-    "Kit's Ghostty Commit Mono face",
-    "OpenCode bundled IBM Plex Mono",
-    "macOS SF Mono system face",
-    "Desktop's JetBrainsMono Nerd Font Mono",
-]);
-
-pub const TERM_SIZE: Knob = Knob::new("Font size", 11.0, 18.0, 14.0)
-    .step(0.5)
-    .about("Terminal font size in points");
-
-pub const TERMINAL_KNOBS: &[Knob] = &[TERM_FONT, TERM_SIZE];
-
-rune_register::register!(crate::knobs::GROUP_LIST: Group = [
-    Group::new("Terminal", "terminal", TERMINAL_KNOBS),
-]);
-
-pub(crate) use rename::stamp as rename_stamp;
-pub(crate) use side_ops::{PLUGIN, ime_terminal, key_terminal, poll_panel, surface, tab_label};
-
-impl App {
-    /// Makes terminal `id` session `sid`'s active one; with `focus` it takes the keyboard (a tab
-    /// the user selected, not one a restore did).
-    pub(crate) fn select_session_terminal(&mut self, sid: &str, id: &str, focus: bool) {
-        side_ops::on_focus(self, sid, id, !focus);
+fn to_session_pane(pane: PaneTarget) -> SessionPane {
+    match pane {
+        PaneTarget::Side => SessionPane::Side,
+        PaneTarget::Split => SessionPane::Split,
+        PaneTarget::Bottom => SessionPane::Bottom,
     }
 }
 
-pub struct TerminalTab {
-    pub id: String,
-    pub title: String,
-    pub title_number: usize,
-    pub custom_title: bool,
-    pub session: TerminalSession,
-    pub stream: Option<StreamHandle>,
-    pub fixture_shell: bool,
-    pub scroll_px_accum: f32,
-    pub drag: mount::TextDrag,
-    /// Whether it has an attachment (`surface-machine.ts`).
-    pub mount: mount::Mount,
-    pub(crate) fit: Cell<mount::Fit>,
-    /// What the input method composes at the cursor, while it composes.
-    pub preedit: Option<input::Preedit>,
-    /// The folder the shell started in (the server's `cwd`), for links before it reports one.
-    pub cwd: String,
-    /// The find bar's field, while it's open.
-    pub find: Option<rune::TextEdit>,
-    /// Whether it had the keyboard at the last poll, for focus reports (`?1004`).
-    pub(crate) focused: Cell<bool>,
-    /// The cell under the pointer and whether the follow modifier (Ctrl, ⌘ on macOS) was held:
-    /// the link there (`links::span`) is underlined, and followable with the modifier.
-    pub(crate) hover: Option<(u16, u16, bool)>,
-}
-
-impl TerminalTab {
-    pub fn display_title(&self) -> String {
-        if !self.title.trim().is_empty() {
-            self.title.clone()
-        } else {
-            opencode_i18n::t!("plugin.terminal.title.numbered", number = self.title_number.max(1))
-        }
-    }
-
-    /// Asks the session for the pane's grid when it changed (the worker debounces it).
-    pub fn ensure_fit(&self, cols: u16, rows: u16, cw_px: u32, ch_px: u32) {
-        let next = mount::Fit::Fitted { cols, rows, cell_px: (cw_px, ch_px) };
-        if self.fit.get() != next {
-            self.fit.set(next);
-            self.session.resize(cols, rows, cw_px, ch_px);
-        }
+fn from_session_pane(pane: SessionPane) -> PaneTarget {
+    match pane {
+        SessionPane::Side => PaneTarget::Side,
+        SessionPane::Split => PaneTarget::Split,
+        SessionPane::Bottom => PaneTarget::Bottom,
     }
 }
 
-/// One session's terminals (Desktop keeps them per session, on the server).
-#[derive(Default)]
-pub struct TerminalWorkspace {
-    /// Where the session's shells start.
-    pub directory: String,
-    pub active: Option<String>,
-    pub tabs: Vec<TerminalTab>,
-    /// Why the server's terminals couldn't be listed or started; shown instead of a shell.
-    pub failure: Option<String>,
-}
-
-impl TerminalWorkspace {
-    pub fn next_title_number(&self) -> usize {
-        let used: BTreeSet<usize> = self
-            .tabs
-            .iter()
-            .filter_map(|t| {
-                if t.title_number > 0 {
-                    Some(t.title_number)
-                } else {
-                    persist::number_from_title(&t.title)
-                }
-            })
-            .collect();
-        (1..=used.len() + 1).find(|n| !used.contains(n)).unwrap_or(1)
-    }
-}
-
-pub struct TerminalPane {
-    pub workspaces: HashMap<String, TerminalWorkspace>,
-    pub stored: HashMap<String, StoredWorkspace>,
-    /// Whether the saved workspaces were taken in.
-    pub saved: persist::Saved,
-    pub lru_order: Vec<String>,
-    pub blink_epoch: f64,
-    pub bell_until: f64,
-    pub last_blink_lit: bool,
-    /// The appearance and theme (`Pal::theme`) the open terminals were last painted in.
-    pub last_dark: Option<(bool, usize, u64)>,
-    /// The appearance the window last drew in, resolved from the System setting; state
-    /// updates have no `Cx` to ask.
-    pub painted_dark: Cell<Option<bool>>,
-    pub dirty_flag: Arc<AtomicBool>,
-    pub story_focused: bool,
-    pub story_built_variant: Option<usize>,
-    /// The tab whose title is a field (`TerminalTabLabel`'s inline rename).
-    pub renaming: rename::Renames,
-    /// The server's connections so far: each reconnect starts the next (`machine.ts` `connections`).
-    pub connections: u32,
-    /// Takes an edit that lands after its find bar closed: a field's `on_edit` needs somewhere to write.
-    pub spare_field: rune::TextEdit,
-    /// The terminal took the keyboard (opened, toggled, clicked): keyboard focus goes to its
-    /// viewport on the next poll, so Tab and F6 there are the viewport's and never trapped.
-    pub claim_focus: bool,
-    /// A paste waiting for the user to say it may run (`paste.rs`).
-    pub pending_paste: Option<paste::Pending>,
-    /// Each server's own shell (by its address), once a terminal with marks needed it
-    /// (`App::terminal_launch`); `None` when it couldn't be told.
-    pub server_shells: std::cell::RefCell<HashMap<String, Option<String>>>,
-}
-
-impl Default for TerminalPane {
-    fn default() -> Self {
-        Self {
-            workspaces: HashMap::new(),
-            stored: HashMap::new(),
-            saved: persist::Saved::default(),
-            lru_order: Vec::new(),
-            blink_epoch: 0.0,
-            bell_until: 0.0,
-            last_blink_lit: true,
-            last_dark: None,
-            painted_dark: Cell::new(None),
-            dirty_flag: Arc::new(AtomicBool::new(false)),
-            story_focused: true,
-            story_built_variant: None,
-            renaming: rename::Renames::default(),
-            connections: 0,
-            spare_field: rune::TextEdit::default(),
-            claim_focus: false,
-            pending_paste: None,
-            server_shells: Default::default(),
-        }
-    }
-}
-
-impl TerminalPane {
-    pub fn cursor_lit(&self, clock: f64) -> bool {
-        let dt = (clock - self.blink_epoch).max(0.0);
-        (dt % 1.0) < 0.5
-    }
-
-    pub fn reset_blink(&mut self, clock: f64) {
-        self.blink_epoch = clock;
-        self.last_blink_lit = true;
-    }
-
-    pub(crate) fn touch_lru(&mut self, key: &str) {
-        self.lru_order.retain(|k| k != key);
-        self.lru_order.push(key.to_owned());
-        while self.lru_order.len() > MAX_TERMINAL_WORKSPACES {
-            let oldest = self.lru_order.remove(0);
-            self.workspaces.remove(&oldest);
-            self.stored.remove(&oldest);
-        }
-    }
-}
-
-pub fn theme_from_pal(p: &Pal) -> TerminalTheme {
-    let base = if p.dark {
-        TerminalTheme::opencode_dark()
-    } else {
-        TerminalTheme::opencode_light()
-    };
-    let fg = terminal::Rgb::from_rune(p.term_fg);
-    let bg = terminal::Rgb::from_rune(p.bg_base);
-    TerminalTheme {
-        dark: p.dark,
-        fg,
-        bg,
-        cursor: fg,
-        selection_alpha: if p.dark { 0.25 } else { 0.20 },
-        ansi_base: base.ansi_base,
-    }
-}
-
-/// A session's terminals, keyed by server and session (`TerminalModel.load(session)`).
-pub fn workspace_key(server_base: &str, session_id: &str) -> String {
-    format!("{server_base}\0{session_id}")
-}
-
-/// The last path segment of a Windows or POSIX directory.
-pub(crate) fn dir_name(directory: &str) -> &str {
-    Some(opencode_kit::path::basename(directory)).filter(|d| !d.is_empty()).unwrap_or("workspace")
-}
-
-impl App {
-    pub(crate) fn server_id_str(&self) -> &str {
-        match &*self.source {
-            Source::Live { server, .. } => server.base.as_str(),
-            Source::Fixture => "fixture",
-        }
-    }
-
-    /// The server whose session terminals this window shows, and whether it may only watch
-    /// them: `--read-only` and headless runs never start a shell or type into one.
-    pub(crate) fn live_terminals(&self) -> Option<(opencode_kit::client::Server, bool)> {
-        if self.stage.is_some() {
-            return None;
-        }
-        match &*self.source {
-            Source::Live { server, allow_send, .. } => Some((server.clone(), !allow_send)),
-            Source::Fixture => None,
-        }
-    }
-
-    /// The appearance the terminals paint in: the one the window last drew, else the setting.
-    pub(crate) fn terminal_dark(&self) -> bool {
-        self.terminal
-            .painted_dark
-            .get()
-            .unwrap_or(self.settings.scheme == crate::settings::Scheme::Dark)
-    }
-
-    /// The session a terminal workspace belongs to, and the directory its shells start in.
-    fn terminal_session_dir(&self, ws_key: &str) -> (String, String) {
-        let sid = ws_key.split_once('\0').map_or("", |(_, s)| s).to_owned();
-        let dir = self.session(&sid).map_or_else(|| self.draft_dir().to_owned(), |s| s.directory.clone());
-        (sid, dir)
-    }
-
-    pub fn terminal_waker(&self) -> Waker {
-        let dirty = self.terminal.dirty_flag.clone();
-        let app_waker = (*self.waker).clone();
-        Arc::new(move || {
-            dirty.store(true, Ordering::Release);
-            if let Some(w) = &app_waker {
-                w();
+fn write_terminal_storage_batch(
+    namespace: &'static str,
+    prefix: String,
+    rows: Vec<(String, Option<String>)>,
+) {
+    crate::storage::with_storage(move |s| {
+        // Evicted workspaces (past the 20 kept) leave with the save that dropped them.
+        for (key, _) in s.state().items(namespace).unwrap_or_default() {
+            if key.starts_with(&prefix) && !rows.iter().any(|(k, _)| *k == key) {
+                s.state().delete(namespace, &key);
             }
-        })
-    }
-
-    pub fn terminal_workspace_key_for_session(&self, session_id: &str) -> String {
-        workspace_key(self.server_id_str(), session_id)
-    }
-
-    pub fn active_terminal_workspace_key(&self) -> Option<String> {
-        if self.stage.is_some() {
-            return Some("story\0/workspace/seer".into());
         }
-        let Route::Session { id: sid, .. } = &*self.route else {
-            return None;
-        };
-        Some(self.terminal_workspace_key_for_session(sid))
-    }
-
-    /// Loads a session's terminals and, when it has none, starts one, as opening Desktop's
-    /// terminal panel does. A read-only window only shows the ones the server already has.
-    pub fn ensure_workspace_ready(&mut self, ws_key: &str) {
-        self.ensure_terminal_workspace_hydrated(ws_key);
-        let empty = self
-            .terminal
-            .workspaces
-            .get(ws_key)
-            .is_none_or(|ws| ws.tabs.is_empty() && ws.failure.is_none());
-        let watch_only = self.live_terminals().is_some_and(|(_, observer)| observer);
-        if empty && !watch_only {
-            self.new_terminal_in(ws_key);
+        for (key, value) in rows {
+            match value {
+                Some(v) => s.state().set(namespace, &key, v),
+                None => s.state().delete(namespace, &key),
+            };
         }
+    });
+}
+
+impl TerminalSurfaceHost for App {
+    fn terminal(&self) -> &TerminalPane {
+        &self.terminal
     }
 
-    /// Opens session `sid`'s terminal tab (a new terminal when `new_tab` or it has none), leaving
-    /// the keyboard where it was.
-    pub fn open_terminal_for_session(&mut self, sid: &str, new_tab: bool) -> Option<String> {
-        self.keeping_keyboard(|s| {
-            let ws_key = s.terminal_workspace_key_for_session(sid);
-            if new_tab {
-                s.ensure_terminal_workspace_hydrated(&ws_key);
-                s.new_terminal_in(&ws_key);
-            } else {
-                s.ensure_workspace_ready(&ws_key);
-            }
-            let id = s.terminal.workspaces.get(&ws_key).and_then(|ws| ws.active.clone())?;
-            s.show_side_tab(sid, &crate::panels::panel_key(side_ops::PLUGIN, &id), None);
-            Some(id)
-        })
+    fn terminal_mut(&mut self) -> &mut TerminalPane {
+        &mut self.terminal
     }
 
-    /// The keyboard goes to the routed session's active terminal, in the pane showing its tab.
-    pub fn focus_terminal_surface(&mut self) {
-        self.composer.focused = false;
-        self.side.focused = true;
-        if let Some(sid) = self.active_session_id().map(str::to_owned)
-            && let Some(id) = self.terminal.workspaces.get(&self.terminal_workspace_key_for_session(&sid)).and_then(|ws| ws.active.clone())
+    fn active_session_id(&self) -> Option<&str> {
+        App::active_session_id(self)
+    }
+
+    fn session_directory(&self, sid: &str) -> Option<&str> {
+        self.session(sid).map(|s| s.directory.as_str())
+    }
+
+    fn draft_directory(&self) -> &str {
+        self.draft_dir()
+    }
+
+    fn is_story_stage(&self) -> bool {
+        self.stage.is_some()
+    }
+
+    fn poll_story_variant(&mut self) -> bool {
+        if self.stage.is_some()
+            && self.terminal.story_built_variant.is_some_and(|v| v != *self.variant)
         {
-            let key = crate::panels::panel_key(side_ops::PLUGIN, &id);
-            self.side.active_pane_focus = crate::panels::tabs::session_tab_pane(&self.session_side_mut(&sid).tab_state.tabs, &key);
-        }
-        self.terminal.story_focused = true;
-        self.terminal.claim_focus = true;
-        self.terminal.reset_blink(*self.clock);
-    }
-
-    pub fn terminal_tab_mut(&mut self, ws_key: &str, tab_id: &str) -> Option<&mut TerminalTab> {
-        self.terminal
-            .workspaces
-            .get_mut(ws_key)?
-            .tabs
-            .iter_mut()
-            .find(|t| t.id == tab_id)
-    }
-
-    pub fn select_terminal_tab(&mut self, ws_key: &str, tab_id: &str) {
-        let mut changed = false;
-        if let Some(ws) = self.terminal.workspaces.get_mut(ws_key)
-            && ws.tabs.iter().any(|t| t.id == tab_id)
-            && ws.active.as_deref() != Some(tab_id)
-        {
-            ws.active = Some(tab_id.to_owned());
-            changed = true;
-        }
-        self.focus_terminal_surface();
-        if changed {
-            self.queue_terminal_save();
-        }
-    }
-
-    pub fn select_adjacent_terminal_tab(&mut self, ws_key: &str, offset: i32, tx: &mut Tx) -> bool {
-        let next = self.terminal.workspaces.get(ws_key).and_then(|ws| {
-            if ws.tabs.len() <= 1 {
-                return None;
-            }
-            let keys: Vec<&str> = ws.tabs.iter().map(|t| t.id.as_str()).collect();
-            crate::shortcuts::adjacent(&keys, ws.active.as_deref(), offset, |_| true)
-        });
-        if let Some(id) = next {
-            tx.instant();
-            self.select_terminal_tab(ws_key, &id);
+            story::init_story(self);
             return true;
         }
         false
     }
 
-    /// Removes terminal `tab_id` and ends its shell; its tab has left, or leaves, the strip.
-    pub fn close_terminal_tab(&mut self, ws_key: &str, tab_id: &str, tx: &mut Tx) {
-        if let Some(ws) = self.terminal.workspaces.get_mut(ws_key) {
-            if let Some(idx) = ws.tabs.iter().position(|t| t.id == tab_id) {
-                ws.tabs.remove(idx);
-                if ws.active.as_deref() == Some(tab_id) {
-                    ws.active = if idx > 0 {
-                        ws.tabs.get(idx - 1).map(|t| t.id.clone())
-                    } else {
-                        ws.tabs.first().map(|t| t.id.clone())
-                    };
-                }
-            }
+    fn live_server(&self) -> Option<&Server> {
+        match &*self.source {
+            Source::Live { server, .. } => Some(server),
+            Source::Fixture => None,
         }
-
-        // Closing a tab ends its shell on the server, as Desktop's close does.
-        if let Some((srv, false)) = self.live_terminals()
-            && tab_id.starts_with("pty_")
-        {
-            let id = tab_id.to_owned();
-            let _ = rune::task::spawn("terminal-remove", move || {
-                let _ = srv.terminal_remove(&id);
-            });
-        }
-
-        tx.instant();
-        self.queue_terminal_save();
     }
 
-    /// Starts a terminal: on a live server, a session shell (`persistentPty.create`) named
-    /// after the lowest free "Terminal N"; in a fixture scene, a recorded prompt.
-    pub fn new_terminal_in(&mut self, ws_key: &str) -> Option<String> {
-        let theme = theme_from_pal(pal(self.terminal_dark()));
-        let (session_id, directory) = self.terminal_session_dir(ws_key);
-        self.terminal.touch_lru(ws_key);
-        let num = self
-            .terminal
-            .workspaces
-            .entry(ws_key.to_owned())
-            .or_insert_with(|| TerminalWorkspace { directory: directory.clone(), ..TerminalWorkspace::default() })
-            .next_title_number();
-        let title = format!("Terminal {num}");
-        let (init_cols, init_rows) = self.estimated_terminal_grid();
+    fn is_live(&self) -> bool {
+        self.live()
+    }
 
-        if let Some((srv, observer)) = self.live_terminals() {
-            if observer {
-                return None;
-            }
-            // Reuse the shown terminal's cwd report, or its own server-side launch folder
-            // (e.g. WSL reports /home/me). Only the first tab needs the session folder.
-            let shown = self.terminal.workspaces.get(ws_key).and_then(|ws| ws.active.as_deref().and_then(|id| ws.tabs.iter().find(|t| t.id == id)));
-            let directory = shown.map_or_else(|| directory.clone(), |t| {
-                links::shell_folder(&t.session.peek(), if t.cwd.is_empty() { &directory } else { &t.cwd })
-            });
-            let create = self.terminal_launch(&srv, TerminalCreate::new(title).cwd(Some(directory)).size(Some((init_cols, init_rows))), None, Vec::new());
-            let created = srv.terminal_create(&session_id, &create);
-            // A terminal started as the server's own: its program is that server's shell (which the
-            // marks then start, `server_shell`), whatever was guessed before.
-            if create.program().is_none()
-                && let Ok(info) = &created
-                && !info.command.is_empty()
-            {
-                self.terminal.server_shells.borrow_mut().insert(srv.base.clone(), Some(info.command.clone()));
-            }
-            let tab = created.map_err(|e| e.to_string()).and_then(|info| self.persistent_tab(srv, info));
-            let ws = self.terminal.workspaces.get_mut(ws_key)?;
-            return match tab {
-                Ok(tab) => {
-                    let id = tab.id.clone();
-                    ws.failure = None;
-                    ws.tabs.push(tab);
-                    ws.active = Some(id.clone());
-                    self.focus_terminal_surface();
-                    self.queue_terminal_save();
-                    Some(id)
+    fn allows_terminal_input(&self) -> bool {
+        match &*self.source {
+            Source::Live { allow_send, .. } => *allow_send,
+            Source::Fixture => true,
+        }
+    }
+
+    fn persists(&self) -> bool {
+        App::persists(self)
+    }
+
+    fn is_headless(&self) -> bool {
+        crate::headless()
+    }
+
+    fn waker(&self) -> Option<Waker> {
+        (*self.waker).clone()
+    }
+
+    fn clock(&self) -> f64 {
+        *self.clock
+    }
+
+    fn zoom(&self) -> f32 {
+        *self.zoom
+    }
+
+    fn spellcheck(&self) -> bool {
+        self.settings.spellcheck
+    }
+
+    fn is_window_blurred(&self) -> bool {
+        self.plugins.window_blurred.get()
+    }
+
+    fn is_composer_focused(&self) -> bool {
+        self.composer.focused
+    }
+
+    fn narrow_width(&self) -> f32 {
+        self.layout.narrow.width()
+    }
+
+    fn knobs(&self) -> &Knobs {
+        &self.knobs
+    }
+
+    fn terminal_font(&self) -> (usize, &str) {
+        (self.settings.terminal_font, &self.settings.terminal_font_name)
+    }
+
+    fn terminal_dark_default(&self) -> bool {
+        self.settings.scheme == crate::settings::Scheme::Dark
+    }
+
+    fn terminal_theme(&self, dark: bool) -> TerminalTheme {
+        theme_from_pal(crate::palette::pal(dark))
+    }
+
+    fn terminal_option_meta(&self) -> bool {
+        self.settings.terminal_option_meta
+    }
+
+    fn terminal_marks(&self) -> &[String] {
+        &self.settings.terminal_marks
+    }
+
+    fn shell_integration_dir(&self) -> Option<PathBuf> {
+        crate::dirs::data().map(|d| d.join("shell-integration"))
+    }
+
+    fn fetch_terminal_fonts_if_wasm(&self) {
+        #[cfg(target_arch = "wasm32")]
+        for url in crate::TERMINAL_FONTS {
+            rune::web::font_url_now(url);
+        }
+    }
+
+    fn read_json(&self, ns: &str, key: &str) -> Option<Value> {
+        crate::storage::json(ns, key)
+    }
+
+    fn write_json(&self, ns: &str, key: &str, value: &Value) {
+        crate::storage::set_json(ns, key, value);
+    }
+
+    fn load_storage_namespace(&self, ns: &str) {
+        let ns = ns.to_owned();
+        crate::storage::with_storage(move |s| s.state().load(&[ns.as_str()], None));
+    }
+
+    fn storage_items(&self, ns: &str) -> Option<Vec<(String, String)>> {
+        crate::storage::items(ns)
+            .map(|rows| rows.into_iter().map(|(k, v)| (k, (*v).to_owned())).collect())
+    }
+
+    fn terminal_storage_writer(&self) -> Option<persist::StorageBatchWriter> {
+        Some(write_terminal_storage_batch)
+    }
+
+    fn toast_fail(&mut self, title: String, description: String) {
+        crate::status_toast::fail(self, title, description);
+    }
+
+    fn toast_say(&mut self, title: String, description: String) {
+        crate::status_toast::say(self, title, description);
+    }
+
+    fn open_link(&mut self, sid: &str, href: &str, tx: &mut Tx) {
+        App::open_link(self, sid, None, href, tx);
+    }
+
+    fn open_context_menu(
+        &mut self,
+        spec: ContextMenuSpec,
+        press: PointerPress,
+        tx: &mut Tx,
+        on_pick: ContextMenuPick,
+    ) {
+        let mut menu = crate::popup::Menu::new(spec.label);
+        for entry in spec.entries {
+            menu = match entry {
+                ContextMenuEntry::Item { id, label, enabled } => {
+                    menu.item(crate::popup::Item::new(id, label).enabled(enabled))
                 }
-                Err(_) if !ws.tabs.is_empty() => None,
-                Err(e) => {
-                    ws.failure = Some(e);
-                    None
-                }
+                ContextMenuEntry::Separator => menu.separator(),
             };
         }
+        crate::popup::open(self, menu, press, tx, move |app: &mut App, picked: Option<&str>, tx: &mut Tx| {
+            on_pick(app, picked, tx);
+        });
+    }
 
-        let short_dir = dir_name(&directory);
-        let prompt = format!(
-            "\x1b[1;34m~/{short_dir}\x1b[0m \x1b[38;5;245mgit:(\x1b[1;36mmain\x1b[0;38;5;245m)\x1b[0m \x1b[1;32m\u{276f}\x1b[0m "
-        );
-        let banner = if num == 1 {
-            format!(
-                "{prompt}cargo test --quiet\r\n\x1b[1;32m   Finished\x1b[0m `test` profile in 0.42s\r\n\
-                 \x1b[1;32mtest result: ok.\x1b[0m 14 passed; 0 failed\r\n\r\n{prompt}"
-            )
+    fn read_clipboard_for_paste(&mut self, ws_key: String, tab_id: String, tx: &mut Tx) {
+        input::read_clipboard_into_terminal::<App>(ws_key, tab_id, tx);
+    }
+
+    fn can_quote_terminal_selection(&self, selected: &str) -> bool {
+        crate::quote::can_quote(self, selected)
+    }
+
+    fn quote_terminal_selection(&mut self, selected: &str, tx: &mut Tx) {
+        crate::quote::quote_selected(self, selected, tx);
+    }
+
+    fn speech_terminal_key(&mut self, ws_key: &str, tab_id: &str) {
+        crate::speech::terminal_key(self, ws_key, tab_id);
+    }
+
+    fn plugin_takes_chord(&self, ev: &KeyEvent, tx: &Tx) -> bool {
+        crate::plugin_host::commands::takes_chord(self, ev, tx)
+    }
+
+    fn is_side_focused(&self) -> bool {
+        self.side.focused
+    }
+
+    fn focused_pane_shown_tab(&self) -> Option<String> {
+        let pane = self.side.active_pane_focus;
+        let visible = if pane == SessionPane::Bottom { self.bottom_open() } else { self.side_open() };
+        visible.then(|| self.pane_shown_tab(pane)).flatten()
+    }
+
+    fn side_tab_visible(&self, key: &str) -> bool {
+        App::side_tab_visible(self, key)
+    }
+
+    fn session_has_terminal_tabs(&self, sid: &str) -> bool {
+        self.side
+            .sessions
+            .get(sid)
+            .is_some_and(|st| st.tab_state.tabs.all.iter().any(|k| k.starts_with("terminal:")))
+    }
+
+    fn terminal_pane_estimate(&self) -> (f32, f32) {
+        let w = self.side_width(self.side.laid_w.get());
+        let h = if self.dock_placement() == DockPlacement::Bottom {
+            self.bottom_height()
         } else {
-            prompt
+            744.0 / *self.zoom
         };
-        let id = self.insert_stream_terminal(
-            ws_key,
-            &format!("term_{num}"),
-            &title,
-            num,
-            TerminalConfig { cols: init_cols, rows: init_rows, theme, ..TerminalConfig::default() },
-            Some(RestoreState {
-                buffer: banner.into_bytes(),
-                cols: Some(init_cols),
-                rows: Some(init_rows),
-                scroll_y: None,
-                cursor: None,
-            }),
-            b"",
-        )?;
-        if let Some(tab) = self.terminal_tab_mut(ws_key, &id) {
-            tab.fixture_shell = true;
-        }
-        self.focus_terminal_surface();
-        self.queue_terminal_save();
-        Some(id)
+        (w, h)
     }
 
-    /// `Terminal:Create`: starts a terminal of session `sid` on the server the window works
-    /// against, as [`App::new_terminal_in`] does (on this thread), running `command` with `args`
-    /// in `cwd` instead of the user's shell when given; named `title`, else the lowest free
-    /// "Terminal N". [`App::adopt_terminal`] then adds it to the session's terminals.
-    pub(crate) fn start_terminal(&self, sid: &str, title: Option<String>, cwd: Option<String>, command: Option<String>, args: Vec<String>) -> Result<PersistentPtyInfo, String> {
-        let Some((srv, false)) = self.live_terminals() else { return Err("This window can't start terminals".into()) };
-        let wk = self.terminal_workspace_key_for_session(sid);
-        let title = title.filter(|t| !t.is_empty()).unwrap_or_else(|| format!("Terminal {}", self.terminal.workspaces.get(&wk).map_or(1, TerminalWorkspace::next_title_number)));
-        let cwd = cwd.filter(|c| !c.is_empty()).or_else(|| self.session(sid).map(|s| s.directory.clone()));
-        srv.terminal_create(sid, &self.terminal_launch(&srv, TerminalCreate::new(title).cwd(cwd).size(Some(self.estimated_terminal_grid())), command, args)).map_err(|e| e.to_string())
+    fn focus_side_pane(&mut self, tab: Option<(&str, &str)>) {
+        self.composer.focused = false;
+        self.side.focused = true;
+        if let Some((sid, key)) = tab {
+            self.side.active_pane_focus =
+                crate::panels::tabs::session_tab_pane(&self.session_side_mut(sid).tab_state.tabs, key);
+        }
     }
 
-    /// What a new terminal on `srv` runs: `command` with `args`, or the server's own shell, with
-    /// that shell's marks when the user turned them on (`integration.rs`; bash's only from a
-    /// server on this computer, which can read the script's file); and on this Windows computer
-    /// `WSLENV` carrying `COLORTERM` into WSL.
-    fn terminal_launch(&self, srv: &opencode_kit::client::Server, create: TerminalCreate, command: Option<String>, args: Vec<String>) -> TerminalCreate {
-        let local = srv.is_local();
-        let create = if local && cfg!(windows) { create.env("WSLENV", integration::wslenv(&std::env::var("WSLENV").unwrap_or_default())) } else { create };
-        if self.settings.terminal_marks.is_empty() {
-            return create.command(command, args);
-        }
-        let program = match &command {
-            Some(c) if !c.is_empty() => args.is_empty().then(|| c.clone()),
-            _ => self.server_shell(srv),
-        };
-        let marked = program.as_deref().and_then(|p| {
-            let shell = integration::Shell::of(p).filter(|sh| self.settings.terminal_marks.iter().any(|m| m == sh.id()))?;
-            if shell.reads_a_file() && !local {
-                return None;
-            }
-            integration::launch(shell, p, crate::dirs::data().map(|d| d.join("shell-integration")).as_deref())
+    fn keeping_keyboard(&mut self, f: &mut dyn FnMut(&mut dyn TerminalSurfaceHost)) {
+        App::keeping_keyboard(self, |s| f(s));
+    }
+
+    fn show_side_tab(&mut self, sid: &str, key: &str, target: Option<PaneTarget>) {
+        App::show_side_tab(self, sid, key, target.map(to_session_pane));
+    }
+
+    fn show_pane_tab(&mut self, sid: &str, key: &str, target: Option<PaneTarget>, tx: &mut Tx) {
+        let pane = target.map(to_session_pane);
+        App::show_pane_tab(self, tx, |s| s.show_side_tab(sid, key, pane));
+    }
+
+    fn hide_side_tab(&mut self, key: &str, tx: &mut Tx) {
+        App::hide_side_tab(self, key, tx);
+    }
+
+    fn close_side_tab(&mut self, key: &str, tx: &mut Tx) {
+        App::close_side_tab(self, key, tx);
+    }
+
+    fn side_tab_gesture(&mut self, key: &str, title: &str, draggable: bool, shown: bool, drag: &Drag, tx: &mut Tx) {
+        App::side_tab_gesture(self, key, title, draggable, shown, drag, tx);
+    }
+
+    fn spawn_job(&mut self, job: TerminalJob) {
+        self.job(move |srv| {
+            let reply = execute_job(srv, job);
+            Box::new(move |s: &mut App, tx: &mut Tx| apply_reply(s, reply, tx)) as Apply
         });
-        match marked {
-            Some((command, args)) => create.command(Some(command), args),
-            None => create.command(command, args),
-        }
+    }
+}
+
+impl App {
+    pub(crate) fn select_session_terminal(&mut self, sid: &str, id: &str, focus: bool) {
+        select_session_terminal(self, sid, id, focus);
     }
 
-    /// The shell `srv` starts a terminal in: the one it last started for a plain new terminal, else
-    /// as its `ShellSelect.environment` picks it on Windows:
-    /// `SHELL` when it names one (known only for a server on this computer, which shares this
-    /// process's environment), else the first of its shells (`GET /api/config/shell`: PowerShell 7,
-    /// Windows PowerShell, Git Bash, cmd). Asked once per server.
-    fn server_shell(&self, srv: &opencode_kit::client::Server) -> Option<String> {
-        if let Some(known) = self.terminal.server_shells.borrow().get(&srv.base) {
-            return known.clone();
-        }
-        let listed = srv.get("/api/config/shell").ok().map(|v| {
-            let items = v["data"].as_array().or_else(|| v.as_array()).cloned().unwrap_or_default();
-            items.iter().filter_map(|i| Some((i["name"].as_str()?.to_owned(), i["path"].as_str()?.to_owned()))).collect::<Vec<_>>()
-        });
-        let listed: Vec<(String, String)> = listed.unwrap_or_default().into_iter().filter(|(_, path)| path.as_bytes().get(1) == Some(&b':')).collect();
-        let from_env = std::env::var("SHELL").ok().filter(|s| srv.is_local() && cfg!(windows) && !s.is_empty()).and_then(|s| {
-            let path = std::path::Path::new(&s);
-            if path.is_absolute() {
-                return path.is_file().then_some(s);
-            }
-            let name = path.file_stem()?.to_string_lossy().to_ascii_lowercase();
-            listed.iter().find(|(n, _)| *n == name).map(|(_, p)| p.clone())
-        });
-        let shell = from_env.or_else(|| listed.first().map(|(_, p)| p.clone()));
-        self.terminal.server_shells.borrow_mut().insert(srv.base.clone(), shell.clone());
-        shell
+    pub(crate) fn live_terminals(&self) -> Option<(Server, bool)> {
+        live_terminals(self)
     }
 
-    /// A terminal [`App::start_terminal`] started joins session `sid`'s terminals and becomes
-    /// its active one, unless the server's event already brought it.
-    pub(crate) fn adopt_terminal(&mut self, sid: &str, info: PersistentPtyInfo) {
-        let wk = self.terminal_workspace_key_for_session(sid);
-        self.ensure_terminal_workspace_hydrated(&wk);
-        let Some((srv, _)) = self.live_terminals() else { return };
-        let directory = self.session(sid).map(|s| s.directory.clone()).unwrap_or_default();
-        let ws = self.terminal.workspaces.entry(wk.clone()).or_insert_with(|| TerminalWorkspace { directory, ..TerminalWorkspace::default() });
-        let id = info.id.clone();
-        if !ws.tabs.iter().any(|t| t.id == id) {
-            let Ok(tab) = self.persistent_tab(srv, info) else { return };
-            let Some(ws) = self.terminal.workspaces.get_mut(&wk) else { return };
-            ws.failure = None;
-            ws.tabs.push(tab);
-        }
-        self.select_terminal_tab(&wk, &id);
-        self.queue_terminal_save();
+    pub(crate) fn terminal_dark(&self) -> bool {
+        terminal_dark(self)
     }
 
-    /// The grid a new terminal starts at, before the pane first measures itself.
-    fn estimated_terminal_grid(&self) -> (u16, u16) {
-        let (font_choice, style) = grid::terminal_font_style(&self.knobs);
-        let (cell_w, cell_h) = grid::cell_metrics(font_choice, style);
-        let est_w = (self.side_width(self.side.laid_w.get()) - grid::PAD_X * 2.0 - 8.0).max(cell_w * 10.0);
-        let est_bar = grid::BAR_H;
-        let est_pane_h = if self.dock_placement() == crate::panels::DockPlacement::Bottom { self.bottom_height() } else { 744.0 / *self.zoom };
-        let est_h = (est_pane_h - est_bar - grid::PAD_Y * 2.0).max(cell_h * 2.0);
-        (((est_w / cell_w).floor() as u16).clamp(10, 500), ((est_h / cell_h).floor() as u16).clamp(2, 240))
+    pub fn terminal_waker(&self) -> Waker {
+        terminal_waker(self)
     }
 
-    /// A tab attached to one of the server's session terminals.
-    pub(crate) fn persistent_tab(
+    pub fn terminal_workspace_key_for_session(&self, session_id: &str) -> String {
+        terminal_workspace_key_for_session(self, session_id)
+    }
+
+    pub fn active_terminal_workspace_key(&self) -> Option<String> {
+        active_terminal_workspace_key(self)
+    }
+
+    pub fn ensure_workspace_ready(&mut self, ws_key: &str) {
+        ensure_workspace_ready(self, ws_key);
+    }
+
+    pub fn open_terminal_for_session(&mut self, sid: &str, new_tab: bool) -> Option<String> {
+        open_terminal_for_session(self, sid, new_tab)
+    }
+
+    pub fn focus_terminal_surface(&mut self) {
+        focus_terminal_surface(self);
+    }
+
+    pub fn terminal_tab_mut(&mut self, ws_key: &str, tab_id: &str) -> Option<&mut TerminalTab> {
+        terminal_tab_mut(self, ws_key, tab_id)
+    }
+
+    pub fn select_terminal_tab(&mut self, ws_key: &str, tab_id: &str) {
+        select_terminal_tab(self, ws_key, tab_id);
+    }
+
+    pub fn select_adjacent_terminal_tab(&mut self, ws_key: &str, offset: i32, tx: &mut Tx) -> bool {
+        select_adjacent_terminal_tab(self, ws_key, offset, tx)
+    }
+
+    pub fn close_terminal_tab(&mut self, ws_key: &str, tab_id: &str, tx: &mut Tx) {
+        close_terminal_tab(self, ws_key, tab_id, tx);
+    }
+
+    pub fn new_terminal_in(&mut self, ws_key: &str) -> Option<String> {
+        new_terminal_in(self, ws_key)
+    }
+
+    pub(crate) fn start_terminal(
         &self,
-        srv: opencode_kit::client::Server,
-        info: PersistentPtyInfo,
-    ) -> Result<TerminalTab, String> {
-        let observer = self.live_terminals().is_none_or(|(_, observer)| observer);
-        let config = TerminalConfig {
-            cols: info.size.0,
-            rows: info.size.1,
-            theme: theme_from_pal(pal(self.terminal_dark())),
-            ..TerminalConfig::default()
-        };
-        fetch_terminal_font();
-        let session = TerminalSession::spawn_persistent_pty(srv, info.id.clone(), config, observer, self.terminal_waker())?;
-        Ok(TerminalTab {
-            title_number: persist::number_from_title(&info.title).unwrap_or(0),
-            custom_title: info.user_title.is_some(),
-            id: info.id,
-            title: info.title,
-            session,
-            stream: None,
-            fixture_shell: false,
-            scroll_px_accum: 0.0,
-            drag: mount::TextDrag::Idle,
-            mount: mount::Mount::Live { connection: self.terminal.connections },
-            fit: Cell::new(mount::Fit::Unmeasured),
-            preedit: None,
-            cwd: info.cwd.clone(),
-            find: None,
-            focused: Cell::new(false),
-            hover: None,
-        })
+        sid: &str,
+        title: Option<String>,
+        cwd: Option<String>,
+        command: Option<String>,
+        args: Vec<String>,
+    ) -> Result<PersistentPtyInfo, String> {
+        start_terminal(self, sid, title, cwd, command, args)
+    }
+
+    pub(crate) fn adopt_terminal(&mut self, sid: &str, info: PersistentPtyInfo) {
+        adopt_terminal(self, sid, info);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -661,241 +412,58 @@ impl App {
         restore: Option<RestoreState>,
         initial_bytes: &[u8],
     ) -> Option<String> {
-        let (_, directory) = self.terminal_session_dir(ws_key);
-        let connection = self.terminal.connections;
-        self.terminal.touch_lru(ws_key);
-        let (session, handle) =
-            TerminalSession::spawn_stream(config, restore, self.terminal_waker()).ok()?;
-        if !initial_bytes.is_empty() {
-            handle.feed(initial_bytes);
-        }
-        let ws = self
-            .terminal
-            .workspaces
-            .entry(ws_key.to_owned())
-            .or_insert_with(|| TerminalWorkspace { directory: directory.clone(), ..TerminalWorkspace::default() });
-        ws.tabs.push(TerminalTab {
-            id: id.to_owned(),
-            title: title.to_owned(),
-            title_number,
-            custom_title: false,
-            session,
-            stream: Some(handle),
-            fixture_shell: false,
-            scroll_px_accum: 0.0,
-            drag: mount::TextDrag::Idle,
-            mount: mount::Mount::Live { connection },
-            fit: Cell::new(mount::Fit::Unmeasured),
-            preedit: None,
-            cwd: directory,
-            find: None,
-            focused: Cell::new(false),
-            hover: None,
-        });
-        ws.active = Some(id.to_owned());
-        Some(id.to_owned())
+        insert_stream_terminal(self, ws_key, id, title, title_number, config, restore, initial_bytes)
     }
 
-    /// Steps each session terminal's [`mount::Mount`]: a failed one leaves once it doesn't show,
-    /// and showing it again, or the server reconnecting, attaches it anew. Quiet (and free of
-    /// allocations) while every terminal is live.
-    fn sync_terminal_mounts(&mut self) -> bool {
-        let Some((srv, observer)) = self.live_terminals() else { return false };
-        let failed = |t: &TerminalTab| matches!(t.session.status(), SessionStatus::Failed(_));
-        let quiet = self.terminal.workspaces.values().flat_map(|ws| &ws.tabs).all(|t| matches!(t.mount, mount::Mount::Live { .. }) && !failed(t));
-        if quiet {
-            return false;
-        }
-        let routed = self.active_terminal_workspace_key();
-        let connection = self.terminal.connections;
-        let mut attach = Vec::new();
-        let mut changed = false;
-        let ids: Vec<(String, String)> = self.terminal.workspaces.iter().flat_map(|(wk, ws)| ws.tabs.iter().map(|t| (wk.clone(), t.id.clone()))).collect();
-        for (wk, id) in ids {
-            let shown = routed.as_deref() == Some(wk.as_str()) && self.side_tab_visible(&crate::panels::panel_key(side_ops::PLUGIN, &id));
-            let Some(tab) = self.terminal_tab_mut(&wk, &id) else { continue };
-            let event = if matches!(tab.mount, mount::Mount::Live { .. }) && failed(tab) {
-                mount::MountEvent::Failed { shown, connection }
-            } else {
-                mount::MountEvent::Sync { shown, connection }
-            };
-            let before = tab.mount;
-            for effect in tab.mount.step(event) {
-                match effect {
-                    mount::MountEffect::Mount => attach.push((wk.clone(), id.clone())),
-                }
-            }
-            changed |= tab.mount != before;
-        }
-        for (wk, id) in attach {
-            self.attach_terminal(srv.clone(), &wk, &id, observer);
-        }
-        changed
-    }
-
-    /// A new attachment for terminal `id`, at the size its screen had.
-    fn attach_terminal(&mut self, srv: opencode_kit::client::Server, wk: &str, id: &str, observer: bool) {
-        let theme = theme_from_pal(pal(self.terminal_dark()));
-        let waker = self.terminal_waker();
-        let Some(tab) = self.terminal_tab_mut(wk, id) else { return };
-        let snap = tab.session.snapshot();
-        let config = TerminalConfig { cols: snap.cols.max(1), rows: snap.rows.max(1), theme, ..TerminalConfig::default() };
-        fetch_terminal_font();
-        if let Ok(session) = TerminalSession::spawn_persistent_pty(srv, id.to_owned(), config, observer, waker) {
-            tab.session = session;
-            tab.fit.set(mount::Fit::Unmeasured);
-            tab.drag = mount::TextDrag::Idle;
-        }
-    }
-
-    /// Drains worker updates, visual bell flashes, exited/recovered PTYs, and phase-locked cursor blink edges.
-    /// Zero heap allocations and `false` return on idle frames so `idle_poll` stays silent.
     pub fn poll_terminal(&mut self, tx: &mut Tx) -> bool {
-        if std::mem::take(&mut self.terminal.claim_focus) && tx.focused() != Some(grid::SCREEN_KEY) {
-            tx.focus(grid::SCREEN_KEY, tx.focus_visible());
-        }
-        if self.stage.is_some()
-            && self.terminal.story_built_variant.is_some_and(|v| v != *self.variant)
-        {
-            story::init_story(self);
-            return true;
-        }
+        poll_terminal(self, tx)
+    }
 
-        // A session whose strip holds terminal tabs loads its terminals, so the tabs can show.
-        let stored_tabs = self.stage.is_none()
-            && self
-                .active_session_id()
-                .and_then(|id| self.side.sessions.get(id))
-                .is_some_and(|st| st.tab_state.tabs.all.iter().any(|k| k.starts_with("terminal:")));
-        if stored_tabs
-            && let Some(wk) = self.active_terminal_workspace_key()
-            && !self.terminal.workspaces.contains_key(&wk)
-        {
-            self.ensure_terminal_workspace_hydrated(&wk);
-            return true;
-        }
+    pub(crate) fn terminal_focus(&self) -> Option<(String, String)> {
+        terminal_focus(self)
+    }
 
-        if !self.terminal.workspaces.is_empty() {
-            let dark = self.terminal_dark();
-            let painted = Some((dark, crate::themes::active(), crate::themes::generation()));
-            if self.terminal.last_dark != painted {
-                self.terminal.last_dark = painted;
-                let theme = theme_from_pal(pal(dark));
-                for ws in self.terminal.workspaces.values() {
-                    for tab in &ws.tabs {
-                        tab.session.set_theme(theme.clone());
-                    }
-                }
-            }
-        }
+    pub(crate) fn create_terminal_tab(&mut self, pane: Option<SessionPane>, tx: &mut Tx) {
+        create_terminal_tab(self, pane.map(from_session_pane), tx);
+    }
 
-        let mut changed = self.terminal.dirty_flag.swap(false, Ordering::AcqRel);
+    pub(crate) fn toggle_terminal(&mut self, tx: &mut Tx) {
+        toggle_terminal(self, tx);
+    }
 
-        if changed {
-            let now = *self.clock;
-            let mut bell = false;
-            let mut title_changed = false;
-            let mut to_remove: Vec<String> = Vec::new();
+    pub fn apply_pty_event(&mut self, ty: &str, data: &Value) -> bool {
+        apply_pty_event(self, ty, data)
+    }
 
-            for ws in self.terminal.workspaces.values_mut() {
-                for tab in &mut ws.tabs {
-                    for ev in tab.session.drain_events() {
-                        match ev {
-                            VtEvent::Bell => bell = true,
-                            VtEvent::TitleChanged(new_title)
-                                if !tab.custom_title && !new_title.is_empty() =>
-                            {
-                                if tab.title != new_title {
-                                    tab.title = new_title;
-                                    title_changed = true;
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                    if matches!(tab.session.status(), SessionStatus::Exited { .. }) && self.stage.is_none() {
-                        to_remove.push(tab.id.clone());
-                    }
-                }
-            }
+    pub fn load_persisted_terminals(&mut self, server_base: &str) {
+        load_persisted_terminals(self, server_base);
+    }
 
-            for tid in to_remove {
-                let _ = self.remove_exited_pty(&tid);
-            }
-            if title_changed {
-                self.queue_terminal_save();
-            }
-            if bell {
-                self.terminal.bell_until = now + 0.14;
-                tx.wake_after(Duration::from_millis(145));
-            }
-        }
+    pub fn queue_terminal_save(&mut self) {
+        queue_terminal_save(self);
+    }
 
-        changed |= self.sync_terminal_mounts();
+    pub fn ensure_terminal_workspace_hydrated(&mut self, ws_key: &str) -> bool {
+        ensure_terminal_workspace_hydrated(self, ws_key)
+    }
 
-        // Focus reports (`?1004`): the program hears its terminal gain and lose the keyboard, the
-        // window's included (vim's FocusGained reloads a file the agent changed).
-        if !self.terminal.workspaces.is_empty() {
-            let focus = if self.plugins.window_blurred.get() { None } else { self.terminal_focus() };
-            for (wk, ws) in &self.terminal.workspaces {
-                for tab in &ws.tabs {
-                    let has = focus.as_ref().is_some_and(|(fw, fid)| fw == wk && *fid == tab.id);
-                    if tab.focused.replace(has) != has && tab.session.peek().focus_reporting {
-                        tab.session.write_bytes(if has { b"\x1b[I".to_vec() } else { b"\x1b[O".to_vec() });
-                    }
-                }
-            }
-        }
-
-        if self.terminal.bell_until > 0.0 && *self.clock >= self.terminal.bell_until {
-            self.terminal.bell_until = 0.0;
-            changed = true;
-        }
-
-        let visible_and_focused = if self.terminal.workspaces.is_empty() {
-            false
-        } else if self.stage.is_some() {
-            self.terminal.story_focused
-        } else {
-            self.terminal_focus().is_some()
-        };
-
-        if visible_and_focused {
-            let blinks = self
-                .active_terminal_workspace_key()
-                .and_then(|k| {
-                    let ws = self.terminal.workspaces.get(&k)?;
-                    let tab = ws
-                        .active
-                        .as_deref()
-                        .and_then(|id| ws.tabs.iter().find(|t| t.id == id))
-                        .or_else(|| ws.tabs.first())?;
-                    let c = tab.session.snapshot().cursor;
-                    Some(c.visible && c.in_viewport && c.blinking)
-                })
-                .unwrap_or(false);
-
-            if blinks {
-                let lit = self.terminal.cursor_lit(*self.clock);
-                if lit != self.terminal.last_blink_lit {
-                    self.terminal.last_blink_lit = lit;
-                    changed = true;
-                }
-                let dt = (*self.clock - self.terminal.blink_epoch).max(0.0);
-                let rem = (0.5 - (dt % 0.5)).clamp(0.01, 0.5);
-                tx.wake_after(Duration::from_secs_f64(rem));
-            }
-        }
-
-        changed
+    pub(crate) fn paste_into_terminal(&mut self, ws: &str, tab: &str, text: String, tx: &mut Tx) {
+        paste_into_terminal(self, ws, tab, text, tx);
     }
 }
 
-/// A page fetches the terminal's face (`TERMINAL_FONTS`) when its first terminal attaches, not
-/// with every page; natively it's built in. Each loads once.
-fn fetch_terminal_font() {
-    #[cfg(target_arch = "wasm32")]
-    for url in crate::TERMINAL_FONTS {
-        rune::web::font_url_now(url);
+/// Kernel feature registration for the Ghostty-VT terminal surface.
+pub struct TerminalSurfaceFeature;
+
+impl Feature<App> for TerminalSurfaceFeature {
+    fn id(&self) -> &'static str {
+        "feature.terminal-surface"
+    }
+
+    fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder.add_surface(
+            SurfaceDescriptor::new("terminal", SurfaceKind::Terminal, "Terminal")
+                .with_multi_instance(true),
+        );
     }
 }

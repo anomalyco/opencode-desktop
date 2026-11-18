@@ -254,7 +254,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     // The bottom pane's reserve and the pane itself read the side region's tabs, which ask every
     // panel's plugin: once per view.
     let side_reg = (!s.settings.open && s.bottom_has_candidate()).then(|| s.resolve_side_region()).flatten();
-    let bottom_reserve = crate::panels::view::bottom_reserve_height(s, side_reg.as_deref(), cx);
+    let bottom_reserve = crate::panels::view::bottom_reserve_height(s, side_reg.as_deref());
     let dock = crate::panels::view::bottom_dock(s, side_reg.as_deref(), p, cx);
     // On a phone the shell's surfaces run under the side and bottom insets to the screen's edge
     // and keep their content clear of them, as the window's colour does under the status bar.

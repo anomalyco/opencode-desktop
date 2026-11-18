@@ -1,15 +1,17 @@
 [package]
 name = "opencode-ui"
 version = "0.0.1"
-description = "Shared OpenCode UI primitives, dialog sizing helpers, and shortcut keymap for Rune apps"
+description = "Shared OpenCode UI primitives, panel chrome, popup menus, dialog sizing helpers, and shortcut keymap for Rune apps"
 edition = "2024"
 license.workspace = true
 publish = false
 
 [dependencies]
 opencode-i18n = { path = "../opencode-i18n" }
+opencode-kit = { path = "../opencode-kit" }
 rune.workspace = true
 rune-kit.workspace = true
+rune-knobs.workspace = true
 rune-theme-opencode.workspace = true
 session-view = { path = "../session-view" }
 
