@@ -114,8 +114,9 @@ fn panel(s: &App, p: &Pal, selected: Option<&model::Project>, width: f32, window
                 let found = s.fulltext_row(crate::fulltext::Surface::Home, &ses.id).filter(|_| !fold.fold(&ses.title).contains(&fold.fold(q)));
                 let r = result_row(s, p, ses, active.as_deref() == Some(ses.id.as_str()), show_project, labels_w, narrow);
                 let Some((rows, at)) = found else { return r };
+                let hit = &rows[at];
                 // A reader hears what matched with the row; the line itself is a picture of it.
-                let r = r.description(rows[at].snippet.text.clone());
+                let r = r.description(hit.snippet.text.clone());
                 let id = ses.id.clone();
                 let line = row()
                     .key("srf-line")
@@ -125,7 +126,7 @@ fn panel(s: &App, p: &Pal, selected: Option<&model::Project>, width: f32, window
                     .pb(6.0)
                     .a11y_hidden()
                     .on_press_tx(move |s: &mut App, tx: &mut Tx| s.open_home_result(&id, tx))
-                    .child(crate::switcher::view::snippet_line(p, &rows[at]));
+                    .child(crate::switcher::snippet_line_parts(p, hit.kind, &hit.snippet, hit.more));
                 col().key(format!("srf-{}", ses.id)).w_full().child(r).child(line)
             }));
         col()

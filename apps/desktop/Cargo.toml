@@ -40,9 +40,12 @@ opencode-feature-connect = { path = "../../features/connect" }
 opencode-feature-dictation = { path = "../../features/dictation" }
 opencode-feature-egg = { path = "../../features/egg" }
 opencode-feature-mcp = { path = "../../features/mcp" }
+opencode-feature-mentions = { path = "../../features/mentions" }
 opencode-feature-office = { path = "../../features/office", optional = true }
 opencode-feature-open-in = { path = "../../features/open-in" }
+opencode-feature-review = { path = "../../features/review" }
 opencode-feature-subagents = { path = "../../features/subagents" }
+opencode-feature-switcher = { path = "../../features/switcher" }
 opencode-feature-tips = { path = "../../features/tips" }
 opencode-feature-updater = { path = "../../features/updater" }
 opencode-feature-usage = { path = "../../features/usage" }

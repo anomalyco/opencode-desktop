@@ -113,17 +113,6 @@ pub struct Command {
     pub run: Run,
 }
 
-/// The palette's opening rows over a session, in this order (`palette.ts:57-60,160-165`): New
-/// session, Previous and Next session, then every `featured` command (the terminal plugin's
-/// Toggle terminal, `gui-plugins/src/terminal/renderer.tsx:89`), then Toggle review. Desktop's
-/// `workspace.new` has no command here yet.
-pub const COMMON: [&str; 3] = ["new", "previous-tab", "next-tab"];
-pub const COMMON_VIEW: [&str; 1] = ["side"];
-
-/// The opening rows on Home (`HomeCommandPalette`: the first five commands Desktop registers
-/// there, `settings/command.tsx` then `shell/titlebar/tab-strip.tsx`).
-pub const HOME_COMMON: [&str; 5] = ["settings", "previous-tab", "next-tab", "previous-unread", "next-unread"];
-
 /// Search commands' own entry: the commands-only palette doesn't list itself.
 pub const SEARCH: &str = "commands";
 

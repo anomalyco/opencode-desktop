@@ -285,7 +285,9 @@ pub fn view(a: &mut NodeArgs) -> Result<El, String> {
         // Its rows are built here, not as they lay out: what they show is read here.
         cx::read(Dep::NarrowReview(sid.clone()));
         let title = if a.children.is_empty() { rune::el() } else { a.children.remove(0) };
-        return Ok(crate::review::mobile::view(app, &pal, &sid, title));
+        let notes = crate::line_comments::host::Notes::new(&sid, crate::line_comments::Surface::Narrow)
+            as Rc<dyn crate::code_view::notes::LineNotes<App>>;
+        return Ok(crate::review::mobile::view(app, &pal, &sid, title, Some(notes)));
     }
     cx::read(Dep::Diff(sid.clone()));
     let sr = app.review.sessions.get(&sid);
