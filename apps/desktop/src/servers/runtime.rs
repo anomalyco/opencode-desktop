@@ -288,7 +288,7 @@ impl Half {
         swap(&mut self.pages, &mut s.pages);
         swap(&mut self.opening, &mut s.opening);
         swap(&mut self.store, &mut s.store);
-        swap(&mut self.jobs, &mut s.jobs);
+        self.jobs.swap_server(&mut s.jobs);
         swap(&mut self.request_reads, &mut s.request_reads);
         swap(&mut self.used, &mut s.project_state.used);
         swap(&mut self.branches, &mut s.sidebar_inbox.branches);
@@ -547,7 +547,7 @@ fn background(s: &mut App, tx: &mut Tx) -> bool {
     s.poll_pages(tx);
     s.poll_sends();
     s.tick_outbox(tx);
-    s.poll_jobs(tx);
+    s.poll_server_jobs(tx);
     crate::incoming::poll(s, tx);
     crate::stop::poll(s, *s.clock, tx);
     crate::session_state::poll(s, tx);

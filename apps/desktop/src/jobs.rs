@@ -20,12 +20,27 @@ pub struct Jobs {
     pub(crate) picker_reads: rune::machine::Seq,
     tx: Sender<Apply>,
     rx: Receiver<Apply>,
+    /// Window-scoped deferred work (`later`, `deliverer`: plugin stores, server probes, dialogs),
+    /// kept on the window rather than swapped or dropped with a server `Half`.
+    window_tx: Sender<Apply>,
+    window_rx: Receiver<Apply>,
 }
 
 impl Default for Jobs {
     fn default() -> Self {
         let (tx, rx) = channel();
-        Jobs { tx, rx, picker_reads: Default::default() }
+        let (window_tx, window_rx) = channel();
+        Jobs { tx, rx, window_tx, window_rx, picker_reads: Default::default() }
+    }
+}
+
+impl Jobs {
+    /// Trades only the server-scoped half (`picker_reads` and `job` replies), keeping `window_*` on
+    /// the window across server checkouts and `401` `refit` drops.
+    pub(crate) fn swap_server(&mut self, other: &mut Self) {
+        std::mem::swap(&mut self.picker_reads, &mut other.picker_reads);
+        std::mem::swap(&mut self.tx, &mut other.tx);
+        std::mem::swap(&mut self.rx, &mut other.rx);
     }
 }
 
@@ -58,7 +73,7 @@ impl App {
     /// Applies `apply` on the next poll rather than now, so an answer known at once still lands
     /// after the transition that asked for it.
     pub(crate) fn later(&self, apply: Apply) {
-        let _ = self.jobs.tx.send(apply);
+        let _ = self.jobs.window_tx.send(apply);
         if let Some(w) = &*self.waker {
             w();
         }
@@ -66,7 +81,7 @@ impl App {
 
     /// Hands what a worker thread finished back to the app's thread: the next poll applies it.
     pub(crate) fn deliverer(&self) -> impl Fn(Apply) + Send + 'static {
-        let (out, wake) = (self.jobs.tx.clone(), (*self.waker).clone());
+        let (out, wake) = (self.jobs.window_tx.clone(), (*self.waker).clone());
         move |apply| {
             let _ = out.send(apply);
             if let Some(w) = &wake {
@@ -80,13 +95,24 @@ impl App {
         matches!(*self.source, Source::Live { allow_send: true, .. }) && self.stage.is_none()
     }
 
-    /// Lands every finished job.
-    pub(crate) fn poll_jobs(&mut self, tx: &mut Tx) -> bool {
+    /// Lands finished server jobs on the checked-out server half (`servers::runtime::background`).
+    pub(crate) fn poll_server_jobs(&mut self, tx: &mut Tx) -> bool {
         let done: Vec<Apply> = self.jobs.rx.try_iter().collect();
         let any = !done.is_empty();
         for apply in done {
             apply(self, tx);
         }
+        any
+    }
+
+    /// Lands every finished window and active-server job.
+    pub(crate) fn poll_jobs(&mut self, tx: &mut Tx) -> bool {
+        let win_done: Vec<Apply> = self.jobs.window_rx.try_iter().collect();
+        let mut any = !win_done.is_empty();
+        for apply in win_done {
+            apply(self, tx);
+        }
+        any |= self.poll_server_jobs(tx);
         any
     }
 }
