@@ -470,6 +470,9 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
         // so their text wraps once, and glide from where the first in view was
         // (`virtualizer.tsx:254-268`, `panel-motion.ts` `holdLandingWidth`).
         .hold_landing_width()
+        // Rows stack on whole points, as Desktop's virtualizer rounds each row's measured
+        // height and places it at the running total (`virtualizer.tsx:362,370,1081`).
+        .whole_rows()
         .growth(GrowthSpec { spring: crate::knobs::growth(s.knobs()), edge: e });
     let eager = EAGER_ROWS.get();
     // Where it's drawn, for its place when it shows again (`recall`).
