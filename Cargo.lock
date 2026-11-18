@@ -3443,8 +3443,14 @@ dependencies = [
  "mlua",
  "notify",
  "office-preview",
+ "opencode-feature-code-view",
+ "opencode-feature-egg",
+ "opencode-feature-office",
+ "opencode-feature-updater",
  "opencode-i18n",
+ "opencode-kernel",
  "opencode-kit",
+ "opencode-platform",
  "opencode-plugin-spec",
  "opencode-search",
  "opencode-storage",
@@ -3470,10 +3476,71 @@ dependencies = [
  "terminal",
  "toml_edit",
  "ureq",
- "vello",
  "wgpu",
  "win-install",
  "windows",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "opencode-feature-code-view"
+version = "0.0.1"
+dependencies = [
+ "opencode-i18n",
+ "opencode-kit",
+ "opencode-search",
+ "rune",
+ "rune-kit",
+ "rune-theme-opencode",
+ "session-view",
+]
+
+[[package]]
+name = "opencode-feature-egg"
+version = "0.0.1"
+dependencies = [
+ "bytemuck",
+ "js-sys",
+ "opencode-i18n",
+ "procwatch",
+ "rune",
+ "session-view",
+ "wasm-bindgen",
+ "web-sys",
+ "wgpu",
+ "windows",
+]
+
+[[package]]
+name = "opencode-feature-office"
+version = "0.0.1"
+dependencies = [
+ "bytemuck",
+ "office-preview",
+ "rune",
+ "rune-luau",
+ "rune-theme-opencode",
+ "session-view",
+ "ureq",
+ "ureq-web",
+ "vello",
+]
+
+[[package]]
+name = "opencode-feature-updater"
+version = "0.0.1"
+dependencies = [
+ "authenticode",
+ "opencode-i18n",
+ "opencode-storage",
+ "rune",
+ "rune-luau",
+ "serde",
+ "serde_json",
+ "sha2",
+ "ureq",
+ "ureq-web",
+ "win-install",
  "windows-sys 0.61.2",
 ]
 
@@ -3486,6 +3553,14 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+]
+
+[[package]]
+name = "opencode-kernel"
+version = "0.0.1"
+dependencies = [
+ "opencode-i18n",
+ "rune",
 ]
 
 [[package]]
@@ -3506,6 +3581,19 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "opencode-platform"
+version = "0.0.1"
+dependencies = [
+ "opencode-kit",
+ "otlp-lite",
+ "rune",
+ "serde",
+ "serde_json",
+ "ureq",
+ "ureq-web",
 ]
 
 [[package]]
@@ -3574,8 +3662,13 @@ dependencies = [
  "memchr",
  "mlua",
  "notify",
+ "opencode-feature-code-view",
+ "opencode-feature-egg",
+ "opencode-feature-updater",
  "opencode-i18n",
+ "opencode-kernel",
  "opencode-kit",
+ "opencode-platform",
  "opencode-plugin-spec",
  "opencode-search",
  "opencode-storage",

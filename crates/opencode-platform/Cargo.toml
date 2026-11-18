@@ -1,0 +1,22 @@
+[package]
+name = "opencode-platform"
+version = "0.0.1"
+description = "Shared host platform primitives for Rune apps: wall clock, OpenTelemetry tracing, SSH askpass helper, cached web fetches, and host path descriptors"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+opencode-kit = { path = "../opencode-kit" }
+otlp-lite = { path = "../otlp-lite" }
+rune.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ureq = { workspace = true, features = ["rustls"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+ureq-web = { path = "../ureq-web" }
+
+[lints]
+workspace = true

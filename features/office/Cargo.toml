@@ -1,0 +1,25 @@
+[package]
+name = "opencode-feature-office"
+version = "0.0.1"
+description = "Word, Excel and PowerPoint previews for Rune apps: worker threads, Vello GPU compositor, page viewer and interactive spreadsheet grid"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+bytemuck = { version = "1", features = ["derive"] }
+office-preview = { path = "../../crates/office-preview" }
+rune.workspace = true
+rune-luau.workspace = true
+rune-theme-opencode.workspace = true
+session-view = { path = "../../crates/session-view" }
+vello = { version = "0.11", default-features = false, features = ["wgpu"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ureq = { workspace = true, features = ["rustls"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+ureq-web = { path = "../../crates/ureq-web" }
+
+[lints]
+workspace = true

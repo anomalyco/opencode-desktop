@@ -1,0 +1,48 @@
+[package]
+name = "opencode-feature-egg"
+version = "0.0.1"
+description = "New-session wordmark Easter egg: lodger, 3D pin board, Brick Breaker, and synthesised sounds"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+bytemuck = { version = "1", features = ["derive"] }
+opencode-i18n = { path = "../../crates/opencode-i18n" }
+procwatch.workspace = true
+rune.workspace = true
+session-view = { path = "../../crates/session-view" }
+wgpu = { version = "30", default-features = false }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+# The egg's sound stream (`sound/wasapi.rs`): the same build of `windows` Rune's video sound uses.
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Media_Audio", "Win32_System_Com", "Win32_System_Threading"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3"
+wasm-bindgen = "0.2"
+# The egg's sounds (`sound/web.rs`): Desktop's Web Audio graph.
+web-sys = { version = "0.3", features = [
+    "AudioBuffer",
+    "AudioBufferSourceNode",
+    "AudioContext",
+    "AudioContextState",
+    "AudioDestinationNode",
+    "AudioNode",
+    "AudioParam",
+    "AudioScheduledSourceNode",
+    "BaseAudioContext",
+    "BiquadFilterNode",
+    "BiquadFilterType",
+    "ConvolverNode",
+    "Document",
+    "DynamicsCompressorNode",
+    "GainNode",
+    "Navigator",
+    "OscillatorNode",
+    "StereoPannerNode",
+    "Window",
+] }
+
+[lints]
+workspace = true

@@ -25,6 +25,7 @@ mod downloads;
 mod http;
 mod hub;
 mod ids;
+pub mod mcp;
 mod mentions;
 mod output_head;
 #[cfg(not(target_arch = "wasm32"))]
