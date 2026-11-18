@@ -3,6 +3,7 @@
 
 use std::cell::RefCell;
 
+use opencode_kernel::AppFeedback;
 use rune::Tx;
 use rune_luau::Data;
 
@@ -99,12 +100,12 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
         Request::Toast { variant, title, description, reveal, persistent, buttons, handle } => {
             match variant.as_str() {
                 // A persistent toast stays until dismissed, as an error does.
-                "error" => crate::status_toast::fail(app, title, description),
-                v if persistent && v != "loading" => crate::status_toast::fail(app, title, description),
+                "error" => app.toast_fail(title, description),
+                v if persistent && v != "loading" => app.toast_fail(title, description),
                 "loading" => {
                     crate::status_toast::waiting(app, &title);
                 }
-                _ => crate::status_toast::say(app, title, description),
+                _ => app.toast_say(title, description),
             }
             if let Some(e) = app.toast.current_mut() {
                 if variant == "success" {
@@ -173,7 +174,7 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
         Request::CopyText(text) => tx.copy(text),
         // A muted session, or one under a muted root, shows nothing (`host-apis.tsx`'s notify).
         Request::Notify { session: Some(id), .. } if crate::session_menu::preferences::silenced(app, crate::servers::runtime::active(app), &id) => {}
-        Request::Notify { title, body, .. } => crate::status_toast::say(app, title, body),
+        Request::Notify { title, body, .. } => app.toast_say(title, body),
         Request::Menu { anchor, menu, done } => {
             let done = RefCell::new(Some(done));
             crate::popup::open(app, menu, anchor, tx, move |_: &mut App, picked: Option<&str>, _: &mut Tx| {

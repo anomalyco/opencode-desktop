@@ -6,7 +6,7 @@
 
 use opencode_kernel::{
     AppEnv, AppFeedback, AppOverlays, Kernel, KernelBuilder, OverlayEntry, OverlayEvent,
-    OverlayKind, SurfaceDescriptor, SurfaceKind,
+    OverlayKind, OverlayRegistration, SurfaceDescriptor, SurfaceKind,
 };
 
 use crate::{App, Route};
@@ -118,6 +118,35 @@ pub fn build() -> Kernel<App> {
     b.with_feature(&crate::tips::TipsFeature);
     b.with_feature(&crate::usage::UsageFeature);
     b.with_feature(&crate::new_worktree::WorkspaceToolsFeature);
+    b.with_feature(&crate::plugin_host::PluginHostFeature);
+    b.register_overlay(
+        OverlayRegistration::<App>::new("overlay.diagram")
+            .with_z(170)
+            .with_key_priority(195)
+            .with_render(|s, cx| {
+                let p = crate::palette::pal(s.dark(cx));
+                crate::diagram::view(s, p, cx)
+            })
+            .with_key(crate::diagram::key),
+    );
+    b.register_overlay(
+        OverlayRegistration::<App>::new("dialog.move_recovery")
+            .with_z(470)
+            .with_key_priority(150)
+            .with_render(|s, cx| {
+                let p = crate::palette::pal(s.dark(cx));
+                crate::view::move_recovery::view(s, p, cx)
+            })
+            .with_key(crate::view::move_recovery::key),
+    );
+    b.register_overlay(
+        OverlayRegistration::<App>::new("dialog.servers")
+            .with_z(490)
+            .with_render(|s, cx| {
+                let p = crate::palette::pal(s.dark(cx));
+                crate::servers::dialog::view(s, p, cx)
+            }),
+    );
     b.add_surface(
         SurfaceDescriptor::new("browser", SurfaceKind::Browser, "Browser")
             .with_multi_instance(true),

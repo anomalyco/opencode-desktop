@@ -342,6 +342,7 @@ fn placeholder_rows(p: &Pal, tier: Tier, show_project: bool) -> El {
 /// end while it works. It opens on a click and has Desktop's right-click menu; while it's being
 /// renamed the title is the field.
 /// [`list_row`] as a wide Home draws it, for the storybook.
+#[cfg(feature = "stories")]
 pub(crate) fn session_row(s: &App, p: &Pal, ses: &SessionInfo, nav_ids: &std::rc::Rc<Vec<String>>, index: usize) -> El {
     list_row(s, p, ses, nav_ids, index, true, SESSIONS_MAX - 46.0, Tier::Wide)
 }

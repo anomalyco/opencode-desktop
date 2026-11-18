@@ -3,15 +3,10 @@
 //! unreachable, faint while unknown), a 12-point lock while it waits for a sign-in, a 12-point
 //! spinner while it connects, the warning when it's incompatible.
 
-use opencode_kit::servers::health::{Health, Indicator};
+use opencode_kit::servers::health::Indicator;
 use rune::{El, el, icon, row};
 
 use crate::palette::Pal;
-
-/// The mark for `health`.
-pub fn view(p: &Pal, health: Option<&Health>) -> El {
-    mark(p, opencode_kit::servers::health::indicator(health))
-}
 
 /// The mark itself, 6 wide and 14 tall but for the warning's 16.
 pub fn mark(p: &Pal, indicator: Indicator) -> El {

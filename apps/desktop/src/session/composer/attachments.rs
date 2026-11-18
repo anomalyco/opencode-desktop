@@ -5,7 +5,7 @@ pub use opencode_feature_composer_input::attachments::*;
 
 use std::path::Path;
 
-use opencode_kernel::{Feature, KernelBuilder, Phase};
+use opencode_kernel::{Feature, KernelBuilder, OverlayRegistration, Phase};
 use opencode_kit::client::{PathAttachment, Server};
 use rune::{El, Tx};
 use session_view::palette::Pal;
@@ -112,6 +112,14 @@ impl Feature<App> for ComposerInputFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder.register_overlay(
+            OverlayRegistration::<App>::new("overlay.attachments.viewer")
+                .with_z(160)
+                .with_render(|s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    viewer(s, p, cx)
+                }),
+        );
         builder.add_setup("composer_input.attach_waker", |s, waker| s.attach.set_waker(waker));
         builder.add_setup("composer_input.slash_waker", |s, waker| s.add.slash.set_waker(waker));
         builder.add_system(Phase::Derive, "composer_input.dropzone", |s, _, tx| crate::dropzone::poll(s, tx));
