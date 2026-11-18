@@ -1151,6 +1151,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= session_status::poll(s, now, tx);
     // Each draft keeps its own composer in any window, saved or not (`restore::show_draft`).
     changed |= s.show_draft();
+    updater::poll_owed(s);
     if s.persists() {
         changed |= s.tell_storage_notice();
         changed |= s.hydrate_restore();

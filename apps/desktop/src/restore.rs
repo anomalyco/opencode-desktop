@@ -270,6 +270,7 @@ impl App {
         use opencode_i18n::t;
         match crate::storage::take_notice() {
             Some(Notice::Memory(why)) => crate::status_toast::fail(self, t!("rune.storage.memoryOnly.title"), t!("rune.storage.memoryOnly.description", why = crate::status_toast::plain(&why))),
+            Some(Notice::InUse) => crate::status_toast::fail(self, t!("rune.storage.inUse.title"), t!("rune.storage.inUse.description")),
             Some(Notice::Damaged(kept)) => crate::status_toast::fail(self, t!("rune.storage.damaged.title"), t!("rune.storage.damaged.description", path = crate::status_toast::plain(&kept))),
             Some(Notice::Checkpoint) => crate::status_toast::fail(self, t!("rune.storage.memoryOnly.title"), t!("rune.storage.checkpoint.description")),
             Some(Notice::FirstRun) => crate::status_toast::fail(self, t!("rune.storage.memoryOnly.title"), t!("rune.storage.firstRun.description")),

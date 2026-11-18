@@ -3522,6 +3522,7 @@ dependencies = [
  "base64 0.22.1",
  "indexmap",
  "js-sys",
+ "libc",
  "memmap2",
  "opencode-kit",
  "opencode-search",

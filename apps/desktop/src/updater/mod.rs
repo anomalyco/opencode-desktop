@@ -56,6 +56,8 @@ pub struct Updater {
     service: Option<Rc<RefCell<UpdaterService>>>,
     /// The service's revision this window last showed.
     seen: u64,
+    /// Its start waits for the storage to say whether this copy holds the profile.
+    owed: bool,
 }
 
 /// A check or install a plugin waits on, answered by the service's ticket.
@@ -148,9 +150,30 @@ pub fn build_commit() -> Option<&'static str> {
 /// Starts the update service, or joins this window to the one the first window started. Called
 /// after the first frame; the service's worker finds out whether this build updates
 /// (`platform::make`) off the UI thread, so this only creates channels and starts the thread.
+/// A start that waited for the storage's decision (`start_if_packaged`).
+pub fn poll_owed(s: &mut App) {
+    if s.updater.owed && let Some(holds) = opencode_storage::holds_profile() {
+        s.updater.owed = false;
+        if holds {
+            start_if_packaged(s);
+        }
+    }
+}
+
 pub fn start_if_packaged(s: &mut App) {
     if crate::headless() || s.updater.service.is_some() {
         return;
+    }
+    // Only the copy that holds the profile checks, downloads and stages: a second copy of the app
+    // (macOS: `open -n`, a shell) would stage into the same folders. Undecided yet (a relaunch
+    // waiting for its old copy): once it is (`poll_owed`).
+    match opencode_storage::holds_profile() {
+        Some(true) => {}
+        Some(false) => return,
+        None => {
+            s.updater.owed = true;
+            return;
+        }
     }
     let shared = SHARED.with(|shared| shared.borrow().clone());
     let service = match shared {
