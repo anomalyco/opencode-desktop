@@ -184,6 +184,9 @@ fn build_from_source(
         let global_cache = cache_root.join("zig-pkg-cache");
         fs::create_dir_all(&global_cache)
             .map_err(|e| format!("terminal build: mkdir zig-pkg-cache failed ({e})"))?;
+        if std::env::var_os("GHOSTTY_ZIG_SYSTEM_DIR").filter(|s| !s.is_empty()).is_none() {
+            prefetch_arocc(&zig, &global_cache);
+        }
 
         let mut cmd = Command::new(&zig);
         cmd.arg("build")
@@ -238,6 +241,43 @@ fn build_from_source(
     })();
     let _ = fs::remove_dir_all(&scratch);
     result
+}
+
+// A second source, not a replacement, for the one package Ghostty's build fetches from codeberg.org: `arocc`, named
+// by `translate_c`'s build.zig.zon. On 18 Nov codeberg.org left DNS (registrar hold) and every cold build failed.
+// `zig fetch` stores the GitHub copy at the same commit under the hash zig computes from its contents; `zig build`
+// takes it only if that is the pinned hash, so a changed copy is never used and zig tries Codeberg as before.
+// Remove once Ghostty's build no longer names Codeberg, or once every package comes through GHOSTTY_ZIG_SYSTEM_DIR.
+const AROCC_GITHUB: &str = "git+https://github.com/Vexu/arocc#d0c8c4d9c55daa7ef6e40cf0f630a5b5e900989b";
+const AROCC_HASH: &str = "aro-0.0.0-JSD1QtuBNwCASyBtNF3pqTl_W3oAJQGEVyFAtrBSE_Pa";
+
+fn prefetch_arocc(zig: &Path, global_cache: &Path) {
+    let packages = global_cache.join("p");
+    if packages.join(AROCC_HASH).exists() || packages.join(format!("{AROCC_HASH}.tar.gz")).exists() {
+        return;
+    }
+    let note = match Command::new(zig)
+        .arg("fetch")
+        .arg(AROCC_GITHUB)
+        .env("ZIG_GLOBAL_CACHE_DIR", global_cache)
+        .current_dir(global_cache)
+        .output()
+    {
+        Err(e) => format!("could not start `zig fetch` ({e})"),
+        Ok(out) if !out.status.success() => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            let last = stderr.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").trim().to_string();
+            format!("`zig fetch` failed ({}): {last}", out.status)
+        }
+        Ok(out) => {
+            let hash = String::from_utf8_lossy(&out.stdout).lines().last().unwrap_or("").trim().to_string();
+            if hash == AROCC_HASH {
+                return;
+            }
+            format!("its hash is `{hash}`, not the pinned `{AROCC_HASH}`")
+        }
+    };
+    println!("cargo:warning=terminal build: arocc from GitHub ({AROCC_GITHUB}): {note}; zig build fetches it from codeberg.org as before");
 }
 
 fn publish_atomic(built: &Path, dest: &Path) -> Result<(), String> {
