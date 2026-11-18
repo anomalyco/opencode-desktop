@@ -48,9 +48,12 @@ Organized by progressive disclosure (see [ARCHITECTURE.md](ARCHITECTURE.md)):
 | Path | Crate / Scope | Purpose |
 | --- | --- | --- |
 | `plugins/*` | Built-in Luau plugins | Default home for ~80% of UI features (panels, dialogs, commands, server sources); hot reloads without touching Rust |
+| `features/annotations` | `opencode-feature-annotations` | Timeline/terminal quote toolbar, composer comment cards, floating quote-comment editor, and code/diff line comments |
 | `features/connect` | `opencode-feature-connect` | Provider and integration connect dialog, catalog sync, picker catalog reads, and ChatGPT plan welcome |
 | `features/dictation` | `opencode-feature-dictation` | Hex voice dictation state machine, availability polling, and composer insertion |
 | `features/egg` | `opencode-feature-egg` | New-session GPU wordmark & Brick Breaker Easter egg |
+| `features/files` | `opencode-feature-files` | Workspace file tree, file viewer, Markdown/HTML/table/Mermaid/image/video previews, link resolution, and file watcher engine |
+| `features/find` | `opencode-feature-find` | Session timeline Find (`Cmd/Ctrl+F`) state machine, incremental transcript search index, match highlighting, and find bar |
 | `features/mcp` | `opencode-feature-mcp` | MCP server toggle machine, MCPs dialog, and browser OAuth sign-in dialog |
 | `features/mentions` | `opencode-feature-mentions` | Composer `@` mentions popover, search state machine, badges, session chips, and wire encoding |
 | `features/office` | `opencode-feature-office` | Word, Excel, and PowerPoint Vello preview engine |

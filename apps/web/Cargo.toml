@@ -48,13 +48,14 @@ getrandom = { version = "0.3", features = ["wasm_js"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 js-sys = "0.3"
 memchr = "2"
-# HTML5 tree construction for the inert HTML preview, as in apps/desktop (Find searches its painted text).
-scraper = { version = "0.24", default-features = false }
 mlua = { git = "https://github.com/mlua-rs/mlua", rev = "a0ad4535fc72ba89967a931c5be57b162b5f0f3f", features = ["luau"] }
 opencode-code-view = { path = "../../crates/opencode-code-view" }
+opencode-feature-annotations = { path = "../../features/annotations" }
 opencode-feature-connect = { path = "../../features/connect" }
 opencode-feature-dictation = { path = "../../features/dictation" }
 opencode-feature-egg = { path = "../../features/egg" }
+opencode-feature-files = { path = "../../features/files" }
+opencode-feature-find = { path = "../../features/find" }
 opencode-feature-mcp = { path = "../../features/mcp" }
 opencode-feature-mentions = { path = "../../features/mentions" }
 opencode-feature-open-in = { path = "../../features/open-in" }

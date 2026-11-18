@@ -3456,9 +3456,12 @@ dependencies = [
  "notify",
  "office-preview",
  "opencode-code-view",
+ "opencode-feature-annotations",
  "opencode-feature-connect",
  "opencode-feature-dictation",
  "opencode-feature-egg",
+ "opencode-feature-files",
+ "opencode-feature-find",
  "opencode-feature-mcp",
  "opencode-feature-mentions",
  "opencode-feature-office",
@@ -3494,7 +3497,6 @@ dependencies = [
  "rune-perf",
  "rune-register",
  "rune-theme-opencode",
- "scraper",
  "serde",
  "serde_json",
  "session-view",
@@ -3506,6 +3508,23 @@ dependencies = [
  "win-install",
  "windows",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "opencode-feature-annotations"
+version = "0.0.1"
+dependencies = [
+ "opencode-code-view",
+ "opencode-i18n",
+ "opencode-kit",
+ "opencode-search",
+ "opencode-ui",
+ "rune",
+ "rune-kit",
+ "rune-knobs",
+ "rune-theme-opencode",
+ "serde_json",
+ "session-view",
 ]
 
 [[package]]
@@ -3546,6 +3565,38 @@ dependencies = [
  "web-sys",
  "wgpu",
  "windows",
+]
+
+[[package]]
+name = "opencode-feature-files"
+version = "0.0.1"
+dependencies = [
+ "opencode-code-view",
+ "opencode-i18n",
+ "opencode-kit",
+ "opencode-search",
+ "opencode-ui",
+ "rune",
+ "rune-kit",
+ "rune-theme-opencode",
+ "scraper",
+ "serde_json",
+ "session-view",
+]
+
+[[package]]
+name = "opencode-feature-find"
+version = "0.0.1"
+dependencies = [
+ "memchr",
+ "opencode-i18n",
+ "opencode-kit",
+ "opencode-search",
+ "opencode-ui",
+ "rune",
+ "rune-kit",
+ "rune-theme-opencode",
+ "session-view",
 ]
 
 [[package]]
@@ -3861,9 +3912,12 @@ dependencies = [
  "mlua",
  "notify",
  "opencode-code-view",
+ "opencode-feature-annotations",
  "opencode-feature-connect",
  "opencode-feature-dictation",
  "opencode-feature-egg",
+ "opencode-feature-files",
+ "opencode-feature-find",
  "opencode-feature-mcp",
  "opencode-feature-mentions",
  "opencode-feature-open-in",
@@ -3898,7 +3952,6 @@ dependencies = [
  "rune-perf",
  "rune-register",
  "rune-theme-opencode",
- "scraper",
  "serde",
  "serde_json",
  "session-view",

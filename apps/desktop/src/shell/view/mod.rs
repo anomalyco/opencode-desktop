@@ -48,7 +48,7 @@ pub(crate) use session::*;
 pub use sidebar::*;
 
 pub(crate) use session_view::composer::PROMPT;
-pub(crate) use session_view::style::{BUBBLE, CODE, DOCK_SIDE, H2, INSTANT, UI, UI_MED, UI_SMALL};
+pub(crate) use session_view::style::{CODE, DOCK_SIDE, H2, INSTANT, UI, UI_MED, UI_SMALL};
 
 /// What a layout switch flies its tabs and controls on (`layouts-design.md`'s GLIDE).
 pub(crate) const GLIDE: Spring = rune::tok::motion::GLIDE;

@@ -9,9 +9,9 @@ use rune::{Tx, Waker};
 
 use crate::{
     App, Route, agent_rows, appearance, background, copied, crash_notice, deep_links, demo,
-    diagram, disclosure, dropzone, files, find, fork, glitch, headless, inbox_model,
+    diagram, disclosure, dropzone, fork, glitch, headless, inbox_model,
     incoming, jump_list, language, launch, layout_state, line_comments, line_reveal, message_nav,
-    model_picker, narrow, notifications, plugin_host, popup, project_switcher, projects, quote,
+    model_picker, narrow, notifications, plugin_host, popup, project_switcher, projects,
     reconnect, rune_mcp, servers, session_menu, session_state, session_status, settings, speech,
     status_toast, stop, storage, submit, telemetry, text_rendering, todos,
     turn_errors, view, wall_ms, windows, working,
@@ -80,8 +80,6 @@ pub(crate) fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         (s.side.was_composing, s.side.pressed) = (composing, false);
     }
     changed |= deep_links::drain(s, tx);
-    changed |= quote::poll(s, now, tx);
-    changed |= line_comments::poll(s, tx);
     changed |= message_nav::poll(s, tx);
     changed |= turn_errors::poll(s, tx);
     changed |= dropzone::poll(s, tx);
@@ -94,7 +92,6 @@ pub(crate) fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= s.poll_sends();
     changed |= s.tick_outbox(tx);
     changed |= s.poll_jobs(tx);
-    changed |= files::poll_reply_links(s, tx);
     let asked = s.dock_face();
     changed |= incoming::poll(s, tx);
     if s.playback.front().is_some_and(|e| e.0 <= now + 1e-9) {
@@ -154,7 +151,6 @@ pub(crate) fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= model_picker::hover::poll(s, now, tx);
     changed |= agent_rows::poll(s, tx);
     changed |= background::poll(s, tx);
-    changed |= find::poll(s, tx);
     changed |= s.poll_home_search(tx);
     // Ingest local answers before settling the list: its rows, highlight and empty state must
     // all see the same sources. Previously a full-text landing changed the rows after this poll.
@@ -204,7 +200,7 @@ pub(crate) fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         s.poll_restore();
         s.poll_preview(false);
         changed |= s.poll_copies(tx);
-        changed |= s.poll_line_comments();
+        changed |= line_comments::poll_saved(s);
         windows::reopen::poll(s);
         windows::reopen::poll_asked(s);
         s.prompts.hydrate((*s.waker).clone());
@@ -229,11 +225,8 @@ pub(crate) fn setup(s: &mut App, waker: Waker) {
     windows::peer::set_waker(s, waker.clone());
     s.attach.set_waker(waker.clone());
     s.icons.set_waker(waker.clone());
-    s.quote.mention_fetch.set_waker(waker.clone());
     s.home_search.set_waker(waker.clone());
-    s.find.set_waker(waker.clone());
     s.add.slash.set_waker(waker.clone());
-    s.files.set_waker(waker.clone());
     s.turn_diffs.set_waker(waker.clone());
     s.icons.set_sync(headless());
     s.setup_browser(waker.clone());

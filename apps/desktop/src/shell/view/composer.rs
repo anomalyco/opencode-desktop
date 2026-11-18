@@ -1,7 +1,7 @@
 use opencode_kit::client::PathAttachment;
 use opencode_kit::model::Attachment;
 use rune::{KeyEvent, TextEdit, Transition};
-pub use session_view::composer::{ComposerHost, composer_fill, shows_whole_prompt};
+pub use session_view::composer::{ComposerHost, shows_whole_prompt};
 
 use super::narrow::{self, Agent};
 use super::*;

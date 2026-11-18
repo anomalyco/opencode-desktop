@@ -28,17 +28,18 @@ knobs = ["rune-knobs/panel"]
 
 [dependencies]
 memchr = "2"
-# HTML5 tree construction and entity decoding for the inert document preview.
-scraper = { version = "0.24", default-features = false }
 base64 = "0.22"
 bytemuck = { version = "1", features = ["derive"] }
 # The new-session Easter egg's pipelines (`egg/gpu.rs`): Rune's own wgpu, named for its types.
 wgpu = { version = "30", default-features = false }
 office-preview = { path = "../../crates/office-preview", optional = true }
 opencode-code-view = { path = "../../crates/opencode-code-view" }
+opencode-feature-annotations = { path = "../../features/annotations" }
 opencode-feature-connect = { path = "../../features/connect" }
 opencode-feature-dictation = { path = "../../features/dictation" }
 opencode-feature-egg = { path = "../../features/egg" }
+opencode-feature-files = { path = "../../features/files" }
+opencode-feature-find = { path = "../../features/find" }
 opencode-feature-mcp = { path = "../../features/mcp" }
 opencode-feature-mentions = { path = "../../features/mentions" }
 opencode-feature-office = { path = "../../features/office", optional = true }

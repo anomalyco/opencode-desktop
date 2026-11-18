@@ -1,0 +1,23 @@
+[package]
+name = "opencode-feature-annotations"
+version = "0.0.1"
+description = "Timeline and terminal quote toolbar, composer comment cards, floating quote-comment editor, and code/diff line comments for OpenCode (Rune)"
+edition = "2024"
+license.workspace = true
+publish = false
+
+[dependencies]
+opencode-code-view = { path = "../../crates/opencode-code-view" }
+opencode-i18n = { path = "../../crates/opencode-i18n" }
+opencode-kit = { path = "../../crates/opencode-kit" }
+opencode-search = { path = "../../crates/opencode-search" }
+opencode-ui = { path = "../../crates/opencode-ui" }
+rune.workspace = true
+rune-kit.workspace = true
+rune-knobs.workspace = true
+rune-theme-opencode.workspace = true
+serde_json.workspace = true
+session-view = { path = "../../crates/session-view" }
+
+[lints]
+workspace = true

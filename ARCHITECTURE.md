@@ -10,9 +10,12 @@ Start at the top and go deeper only when a feature genuinely needs lower-level c
 rune-desktop/
 ├── plugins/                    # Tier 1 (Start here): Luau plugins (~80% of features, 0 Rust)
 ├── features/                   # Tier 2: Decoupled Rust feature crates (parallel, shallow DAG)
+│   ├── annotations/            #   opencode-feature-annotations (timeline/terminal quote toolbar, composer comment cards, quote-comment editor & code/diff line comments)
 │   ├── connect/                #   opencode-feature-connect (provider connect dialog, catalog sync, picker reads, ChatGPT welcome)
 │   ├── dictation/              #   opencode-feature-dictation (Hex voice dictation state machine & polling)
 │   ├── egg/                    #   opencode-feature-egg (new-session GPU wordmark & brick breaker)
+│   ├── files/                  #   opencode-feature-files (workspace file tree, file viewer, Markdown/HTML/table/Mermaid/image/video previews, link resolution & file watcher)
+│   ├── find/                   #   opencode-feature-find (session timeline Find state machine, incremental transcript search index, match highlighting & find bar)
 │   ├── mcp/                    #   opencode-feature-mcp (MCP toggle machine, MCPs & OAuth sign-in dialogs)
 │   ├── mentions/               #   opencode-feature-mentions (composer @ mentions popover, search machine, badges, session chips, wire encoding)
 │   ├── office/                 #   opencode-feature-office (Word/Excel/PPT Vello preview engine)

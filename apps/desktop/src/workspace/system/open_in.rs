@@ -107,15 +107,6 @@ fn menu(s: &App, with_current: bool) -> Menu {
         .item(Item::new("copy", opencode_i18n::t!("plugin.file.open.copyPath")).weak_icon(&ic::COPY))
 }
 
-/// The apps alone (`OpenInAppMenuItemsV2` with `copyPath={false}`), the current one checked:
-/// an artifact toolbar's Open in submenu, its rows `app:<id>`.
-pub fn apps_menu(s: &App) -> Menu {
-    let apps = menu_options(s, true)
-        .into_iter()
-        .map(|opt| Item::new(opt.item_id, opt.label).app_icon(opt.icon).checked(opt.checked));
-    Menu::new(opencode_i18n::t!("plugin.file.open.in")).min_width(160.0).items(apps)
-}
-
 /// Right-click on a tree row: the apps (the file manager revealing the row), and Copy path. A
 /// file of this computer's drags out of the row too, to Explorer, a browser or a chat app, or
 /// back into the composer (`rune::DragItem::within_app`).
