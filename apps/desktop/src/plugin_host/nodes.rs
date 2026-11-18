@@ -393,6 +393,9 @@ fn filter_field(a: &NodeArgs, edit: &rune::TextEdit, plugin: String, index: usiz
         // Desktop's filter (`session-review-v2.tsx`, a `type="search"` input) marks no spelling.
         false,
         move |app: &mut App, ev: &rune::KeyEvent, tx: &mut Tx| {
+            // A key in the field is a key inside the side region: its tab's label wakes
+            // (`SideState::quiet`).
+            app.side.quiet = false;
             // The panel's tab keys from its filter (`file.tab.prev`/`next` act while the side
             // region has focus), not the field's Tab traversal.
             use crate::keymap::Bind;

@@ -12,9 +12,12 @@ Start at the top and go deeper only when a feature needs lower-level control (se
   - `features/dictation` (`opencode-feature-dictation`): Hex voice dictation state machine & polling.
   - `features/egg` (`opencode-feature-egg`): new-session GPU wordmark & Brick Breaker Easter egg.
   - `features/mcp` (`opencode-feature-mcp`): MCP server toggle machine, MCPs dialog, and browser OAuth sign-in dialog.
+  - `features/mentions` (`opencode-feature-mentions`): composer `@` mentions popover, search state machine, badges, session chips, and wire encoding.
   - `features/office` (`opencode-feature-office`): Word, Excel, and PowerPoint Vello preview engine.
   - `features/open-in` (`opencode-feature-open-in`): external editor/terminal detection & launch.
+  - `features/review` (`opencode-feature-review`): review changes engine, untracked folder loader, narrow Changes view, focus anchoring, and shared file-panel chrome.
   - `features/subagents` (`opencode-feature-subagents`): running-work activity capsule, background shells state machine & output followers, and subagent reply bar.
+  - `features/switcher` (`opencode-feature-switcher`): command/file/session palette switcher, shared session search index, and project/worktree/branch switcher.
   - `features/tips` (`opencode-feature-tips`): paced one-time onboarding tip scheduler.
   - `features/updater` (`opencode-feature-updater`): release feed, verification, and platform update engine.
   - `features/usage` (`opencode-feature-usage`): usage limits parser, Usage dialog, and picker warnings.

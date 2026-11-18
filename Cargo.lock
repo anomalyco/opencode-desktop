@@ -3460,9 +3460,12 @@ dependencies = [
  "opencode-feature-dictation",
  "opencode-feature-egg",
  "opencode-feature-mcp",
+ "opencode-feature-mentions",
  "opencode-feature-office",
  "opencode-feature-open-in",
+ "opencode-feature-review",
  "opencode-feature-subagents",
+ "opencode-feature-switcher",
  "opencode-feature-tips",
  "opencode-feature-updater",
  "opencode-feature-usage",
@@ -3558,6 +3561,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "opencode-feature-mentions"
+version = "0.0.1"
+dependencies = [
+ "opencode-i18n",
+ "opencode-kit",
+ "opencode-search",
+ "rune",
+ "rune-theme-opencode",
+ "serde_json",
+ "session-view",
+]
+
+[[package]]
 name = "opencode-feature-office"
 version = "0.0.1"
 dependencies = [
@@ -3585,6 +3601,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "opencode-feature-review"
+version = "0.0.1"
+dependencies = [
+ "opencode-code-view",
+ "opencode-i18n",
+ "opencode-kit",
+ "opencode-search",
+ "opencode-ui",
+ "rune",
+ "rune-kit",
+ "rune-theme-opencode",
+ "serde_json",
+ "session-view",
+]
+
+[[package]]
 name = "opencode-feature-subagents"
 version = "0.0.1"
 dependencies = [
@@ -3593,6 +3625,21 @@ dependencies = [
  "rune",
  "rune-kit",
  "rune-knobs",
+ "rune-theme-opencode",
+ "serde_json",
+ "session-view",
+]
+
+[[package]]
+name = "opencode-feature-switcher"
+version = "0.0.1"
+dependencies = [
+ "opencode-i18n",
+ "opencode-kit",
+ "opencode-search",
+ "opencode-ui",
+ "rune",
+ "rune-kit",
  "rune-theme-opencode",
  "serde_json",
  "session-view",
@@ -3785,8 +3832,11 @@ dependencies = [
  "opencode-feature-dictation",
  "opencode-feature-egg",
  "opencode-feature-mcp",
+ "opencode-feature-mentions",
  "opencode-feature-open-in",
+ "opencode-feature-review",
  "opencode-feature-subagents",
+ "opencode-feature-switcher",
  "opencode-feature-tips",
  "opencode-feature-updater",
  "opencode-feature-usage",

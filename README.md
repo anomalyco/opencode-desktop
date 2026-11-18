@@ -52,9 +52,12 @@ Organized by progressive disclosure (see [ARCHITECTURE.md](ARCHITECTURE.md)):
 | `features/dictation` | `opencode-feature-dictation` | Hex voice dictation state machine, availability polling, and composer insertion |
 | `features/egg` | `opencode-feature-egg` | New-session GPU wordmark & Brick Breaker Easter egg |
 | `features/mcp` | `opencode-feature-mcp` | MCP server toggle machine, MCPs dialog, and browser OAuth sign-in dialog |
+| `features/mentions` | `opencode-feature-mentions` | Composer `@` mentions popover, search state machine, badges, session chips, and wire encoding |
 | `features/office` | `opencode-feature-office` | Word, Excel, and PowerPoint Vello preview engine |
 | `features/open-in` | `opencode-feature-open-in` | External editor/terminal detection, launching, preferred app persistence, and URL opening |
+| `features/review` | `opencode-feature-review` | Review changes engine, untracked folder loader, narrow Changes view, focus anchoring, and shared file-panel chrome |
 | `features/subagents` | `opencode-feature-subagents` | Running-work activity capsule, background shells state machine & output followers, and subagent reply bar |
+| `features/switcher` | `opencode-feature-switcher` | Command/file/session palette switcher, shared session search index, and project/worktree/branch switcher |
 | `features/tips` | `opencode-feature-tips` | Paced one-time onboarding tip state machine and persistence |
 | `features/updater` | `opencode-feature-updater` | Release feed, verification, and platform update engine |
 | `features/usage` | `opencode-feature-usage` | Usage limits parser, Usage dialog, and model-picker budget warnings |

@@ -59,6 +59,7 @@ pub(super) fn files_sidebar(
         // The panel's tab keys from its filter (`file.tab.prev`/`next` act while the side region
         // has focus), not the field's Tab traversal.
         |s: &mut App, ev: &rune::KeyEvent, tx: &mut Tx| {
+            s.side.quiet = false;
             use crate::keymap::Bind;
             [Bind::TabPrev, Bind::TabNext, Bind::PaneTabPrev, Bind::PaneTabNext].iter().any(|b| b.matches_tx(ev, tx)) && s.panels_key(ev, tx)
         },

@@ -229,14 +229,10 @@ pub(crate) fn setup(s: &mut App, waker: Waker) {
     windows::peer::set_waker(s, waker.clone());
     s.attach.set_waker(waker.clone());
     s.icons.set_waker(waker.clone());
-    s.mentions.set_waker(waker.clone());
     s.quote.mention_fetch.set_waker(waker.clone());
-    s.switcher.set_waker(waker.clone());
     s.home_search.set_waker(waker.clone());
-    s.session_search.set_waker(waker.clone());
     s.find.set_waker(waker.clone());
     s.add.slash.set_waker(waker.clone());
-    s.review.set_waker(waker.clone());
     s.files.set_waker(waker.clone());
     s.turn_diffs.set_waker(waker.clone());
     s.icons.set_sync(headless());
