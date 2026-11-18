@@ -33,6 +33,11 @@ const SHOW: Duration = Duration::from_secs(5);
 /// The same for a relaunch (Restart, an update's), which Rune held up to 10 s for its old copy.
 const SHOW_RELAUNCH: Duration = Duration::from_secs(2);
 
+/// A relaunch (Restart, an update's): Rune names the copy it replaces and waits for it at most 10 s.
+pub(super) fn relaunch() -> bool {
+    std::env::var_os("RUNE_RELAUNCH_AFTER").is_some()
+}
+
 /// Why this run keeps its changes in memory, when it does.
 pub(super) enum Hold {
     Go,
@@ -43,8 +48,7 @@ pub(super) enum Hold {
 pub(super) fn hold(config: &StorageConfig, report: &mut BootReport, t0: Instant, send: &dyn Fn(BootPacket), owe: &mut Owe, packet: &mut Option<BootPacket>, held: &mut Option<BootPacket>) -> Hold {
     let mut waited: Option<Instant> = None;
     let until = Instant::now() + WAIT;
-    // Rune's relaunch names the copy it replaces (`RUNE_RELAUNCH_AFTER`), and waits for it at most 10 s.
-    let show = if std::env::var_os("RUNE_RELAUNCH_AFTER").is_some() { SHOW_RELAUNCH } else { SHOW };
+    let show = if relaunch() { SHOW_RELAUNCH } else { SHOW };
     loop {
         match lease::try_take(&config.path) {
             lease::Outcome::Held => break,
@@ -76,6 +80,14 @@ pub(super) fn hold(config: &StorageConfig, report: &mut BootReport, t0: Instant,
         }
     }
     lease::decide(true);
+    // A relaunch read the record before Rune waited for its old copy, which may have saved since:
+    // what nothing was shown from yet is read again, through SQLite now that the file is this
+    // process's (the journal's place is still checked there).
+    if relaunch() && packet.is_none() {
+        owe.packet = None;
+        *held = None;
+        report.raw_miss = Some("a relaunch reads the record once its old copy has let go");
+    }
     if waited.is_some() {
         rune::marks::mark("storage.lease.held");
     } else if lease::sqlite_held_elsewhere(&config.path) {
