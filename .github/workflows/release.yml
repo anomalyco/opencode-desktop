@@ -565,7 +565,7 @@ jobs:
           ref: ${{ github.sha }}
           sparse-checkout: |
             /.github/release/
-            /apps/desktop/src/updater/windows.rs
+            /features/updater/src/windows.rs
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - uses: ./.github/release/download
@@ -576,8 +576,8 @@ jobs:
         shell: pwsh
         run: |
           $in = "$env:RUNNER_TEMP/in/sign-opencode-rune-windows"
-          $publisher = [regex]::Match((Get-Content -Raw apps/desktop/src/updater/windows.rs), 'pub const EXPECTED_PUBLISHER: &str = "([^"]+)";').Groups[1].Value
-          if (-not $publisher) { throw 'Could not read EXPECTED_PUBLISHER from apps/desktop/src/updater/windows.rs.' }
+          $publisher = [regex]::Match((Get-Content -Raw features/updater/src/windows.rs), 'pub const EXPECTED_PUBLISHER: &str = "([^"]+)";').Groups[1].Value
+          if (-not $publisher) { throw 'Could not read EXPECTED_PUBLISHER from features/updater/src/windows.rs.' }
           foreach ($arch in $env:ARCHES -split ' ') {
             foreach ($name in "OpenCode-Rune-$env:OPENCODE_RUNE_VERSION-windows-$arch.zip", "OpenCode-Rune-$env:OPENCODE_RUNE_VERSION-windows-$arch-setup.exe") {
               if (-not (Test-Path -LiteralPath "$in/$name")) { throw "The signed artifact has no $name." }
