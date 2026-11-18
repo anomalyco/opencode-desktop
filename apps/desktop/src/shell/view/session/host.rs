@@ -284,18 +284,7 @@ impl session_view::TimelineHost for App {
         send_failed::footer(self, p, id)
     }
     fn user_status_version(&self, id: &str) -> u64 {
-        if let Some(s) = self.unsent.durable(id) {
-            use std::hash::{DefaultHasher, Hash, Hasher};
-            let mut version = DefaultHasher::new();
-            // Past `SLOW_SEND` the footer says why the wait goes on: a new version.
-            (s.state(), s.then(), s.why(), self.unsent.slow(id)).hash(&mut version);
-            return version.finish() | 8;
-        }
-        match self.unsent.state(id) {
-            Some(send_failed::State::Unconfirmed) => 1,
-            Some(send_failed::State::Failed) => if self.composer.text.is_empty() && !self.attach.any() { 2 } else { 3 },
-            _ => 0,
-        }
+        send_failed::footer_version(self, id)
     }
     fn inbox_for(&self, session: &str) -> Option<&Inbox> {
         App::inbox_for(self, session)

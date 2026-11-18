@@ -9,10 +9,10 @@ use rune::{Tx, Waker};
 
 use crate::{
     App, Route, agent_rows, appearance, background, copied, crash_notice, deep_links, demo,
-    diagram, disclosure, dropzone, fork, glitch, headless, inbox_model,
-    incoming, jump_list, language, launch, layout_state, line_comments, line_reveal, message_nav,
+    diagram, disclosure, dropzone, glitch, headless, inbox_model,
+    incoming, jump_list, language, launch, layout_state, line_comments, line_reveal,
     model_picker, plugin_host, popup, project_switcher, projects,
-    reconnect, rune_mcp, servers, session_menu, session_state, session_status, speech,
+    reconnect, rune_mcp, servers, session_state, session_status, speech,
     status_toast, stop, storage, submit, telemetry, text_rendering, todos,
     turn_errors, view, wall_ms, windows, working,
 };
@@ -42,8 +42,6 @@ pub(crate) fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     // (`office::poll`, `updater::poll`, `dictation::poll`, `open_in::poll`).
     // Another window changed the session data this one shows.
     let mut changed = windows::peer::behind(s);
-    changed |= session_menu::unread::poll(s);
-    changed |= session_menu::preferences::poll(s);
     changed |= s.poll_places(now, tx);
     s.poll_undo(now, tx);
     reconnect::audit(s);
@@ -77,7 +75,6 @@ pub(crate) fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         (s.side.was_composing, s.side.pressed) = (composing, false);
     }
     changed |= deep_links::drain(s, tx);
-    changed |= message_nav::poll(s, tx);
     changed |= turn_errors::poll(s, tx);
     changed |= dropzone::poll(s, tx);
     changed |= s.poll_pages(tx);
@@ -124,9 +121,6 @@ pub(crate) fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     // playback thread's wake arrives, which may be a frame later), as a timer asks.
     if let Some(&(at, _, _)) = s.playback.front() { tx.wake_at(at); }
     changed |= stop::poll(s, now, tx);
-    changed |= s.revert_timeouts(tx);
-    changed |= fork::poll(s, tx);
-    changed |= message_nav::jump::poll(s, tx);
     s.queue_timers(tx);
     s.start_timers(tx);
     changed |= submit::poll(s, tx);
@@ -161,9 +155,7 @@ pub(crate) fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     // Trigger follow-up actions, animations, focus shifts, UI reactions, and registered React
     // systems (`egg::poll`).
     changed |= scheduler.run_phase(Phase::React, s, now, tx);
-    changed |= s.poll_rename(now, tx);
     changed |= s.poll_branch_picker(now, tx);
-    changed |= s.poll_delete(now, tx);
     changed |= s.poll_uploads(tx);
     if s.attach.poll() {
         rune::Tracked::touch(&s.attach);

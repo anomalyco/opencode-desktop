@@ -381,17 +381,6 @@ impl App {
             Why::TimedOut { title } => crate::status_toast::fail(self, title, opencode_i18n::t!("session.new.timedOut")),
         }
     }
-
-    /// Puts a prompt that never went back in the composer, when that's empty.
-    pub(crate) fn restore_draft(&mut self, sent: Sent) {
-        self.attach.echoes.retain(|e| e.1 != sent.id);
-        if self.composer.text.is_empty() && !self.attach.any() && !self.quote.any() {
-            sent.draft.put(&mut self.composer, sent.draft.text.len());
-            for f in sent.files { self.attach.add(f); }
-            for p in sent.paths { self.attach.add_path(p); }
-            if let Some(prompt)=sent.prompt { for quote in prompt.comments { self.quote.push(quote); } }
-        }
-    }
 }
 
 mod stories;

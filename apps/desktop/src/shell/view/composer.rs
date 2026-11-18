@@ -330,7 +330,7 @@ fn toolbar_items(s: &App, p: &Pal, scope: &str, queues: bool) -> Vec<El> {
         (queues || editing)
             .then(|| {
                 let room = rune::memo::layout_size("room").map_or(f32::INFINITY, |[w, _]| w);
-                crate::queue::alternate_hint(p, room, s.layout.narrow.sm(), steer)
+                crate::queue::alternate_hint::<App>(p, room, s.layout.narrow.sm(), steer)
             })
             .flatten()
     };
