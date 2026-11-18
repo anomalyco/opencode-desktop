@@ -8,7 +8,7 @@ use std::collections::HashSet;
 
 use opencode_kit::integration::MethodKind;
 
-use super::machine::{self as conn, Effect as ConnEffect, Event as ConnEvent, Screen, State as Conn};
+use crate::machine::{self as conn, Effect as ConnEffect, Event as ConnEvent, Screen, State as Conn};
 
 /// The OpenCode Console account is the `opencode` integration.
 pub const CONSOLE: &str = "opencode";
@@ -145,7 +145,7 @@ pub struct Snapshot {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Effect {
-    Connect { session: u32, provider: String, effect: ConnEffect },
+    Connect { session: u32, provider: String, effect: Box<ConnEffect> },
     AccountActivate { session: u32, attempt: u32, provider: String, account: String },
     AccountRemove { session: u32, attempt: u32, provider: String, account: String },
     ClaudeReplace(Vec<String>),
@@ -163,7 +163,11 @@ pub enum Effect {
 pub type Transition = (Dialog, Vec<Effect>);
 
 fn wrap(session: u32, provider: &str, effects: Vec<ConnEffect>) -> Vec<Effect> {
-    effects.into_iter().filter(|e| !matches!(e, ConnEffect::Complete { .. })).map(|effect| Effect::Connect { session, provider: provider.to_owned(), effect }).collect()
+    effects
+        .into_iter()
+        .filter(|e| !matches!(e, ConnEffect::Complete { .. }))
+        .map(|effect| Effect::Connect { session, provider: provider.to_owned(), effect: Box::new(effect) })
+        .collect()
 }
 
 pub fn transition(d: &Dialog, event: Event) -> Transition {
@@ -223,7 +227,9 @@ pub fn transition(d: &Dialog, event: Event) -> Transition {
             Step::Claude { back, phase, connect } => claude(d, p, *back, phase, connect, e),
             Step::Models { selected, collapsed } => models(d, p, selected, collapsed, e),
             Step::Connect { back, connect, .. } => match e {
-                Event::LinkCopied { session, attempt_id, copied } if session == d.session && conn::authorization(connect).is_some_and(|a| a.attempt == attempt_id) => {
+                Event::LinkCopied { session, attempt_id, copied }
+                    if session == d.session && conn::authorization(connect).is_some_and(|a| a.attempt == attempt_id) =>
+                {
                     let step = Step::Connect { back: *back, copied: Some((attempt_id, copied)), connect: connect.clone() };
                     (with_step(d, p, step), vec![])
                 }
@@ -273,7 +279,13 @@ pub fn back_target(d: &Dialog) -> Option<BackTarget> {
         Step::Models { .. } => None,
         Step::Accounts { .. } => picker,
         Step::NoModels { .. } => Some(BackTarget::Methods),
-        Step::Claude { back, .. } => if *back == ReturnTo::Accounts && p.accounts.count > 0 { Some(BackTarget::Accounts) } else { picker },
+        Step::Claude { back, .. } => {
+            if *back == ReturnTo::Accounts && p.accounts.count > 0 {
+                Some(BackTarget::Accounts)
+            } else {
+                picker
+            }
+        }
         Step::Connect { back, connect, .. } => {
             let methods = conn::catalog(connect).map_or(0, |c| c.methods.len());
             if *back == ReturnTo::Accounts && p.accounts.count > 0 && (methods == 1 || matches!(connect, Conn::Choosing { .. })) {
@@ -297,7 +309,11 @@ fn back(d: &Dialog, p: &Provider) -> Transition {
     let effects = wrap(d.session, &p.id, effects);
     let step = match target {
         BackTarget::Accounts => Step::Accounts { action: AccountAction::Idle, connect: next },
-        _ => Step::Connect { back: if matches!(p.step, Step::Accounts { .. }) { ReturnTo::Picker } else { p.step.back() }, copied: None, connect: next },
+        _ => Step::Connect {
+            back: if matches!(p.step, Step::Accounts { .. }) { ReturnTo::Picker } else { p.step.back() },
+            copied: None,
+            connect: next,
+        },
     };
     (with_step(d, p, step), effects)
 }
@@ -424,7 +440,9 @@ fn claude(d: &Dialog, p: &Provider, back: ReturnTo, phase: &ClaudePhase, connect
             }
             _ => same,
         },
-        Event::ClaudeTimedOut { session, check } if session == d.session && *phase == (ClaudePhase::Checking { check }) => set(ClaudePhase::TimedOut { check }, vec![]),
+        Event::ClaudeTimedOut { session, check } if session == d.session && *phase == (ClaudePhase::Checking { check }) => {
+            set(ClaudePhase::TimedOut { check }, vec![])
+        }
         Event::ClaudeConfirmed { session, check, problem, first } if session == d.session && *phase == (ClaudePhase::Confirming { check }) => {
             if problem {
                 return set(ClaudePhase::Idle, vec![]);
@@ -445,7 +463,11 @@ fn models(d: &Dialog, p: &Provider, selected: &str, collapsed: &HashSet<String>,
         Event::ModelSelected(key) => (with_step(d, p, Step::Models { selected: key, collapsed: collapsed.clone() }), vec![]),
         Event::GroupCollapsed { provider, collapsed: shut } => {
             let mut c = collapsed.clone();
-            if shut { c.insert(provider); } else { c.remove(&provider); }
+            if shut {
+                c.insert(provider);
+            } else {
+                c.remove(&provider);
+            }
             (with_step(d, p, Step::Models { selected: selected.to_owned(), collapsed: c }), vec![])
         }
         Event::ModelConfirmed(key) => {
@@ -557,7 +579,10 @@ pub fn body(d: &Dialog) -> Body {
         Step::Connect { copied, connect, .. } => {
             let screen = conn::screen(connect);
             if p.id == CONSOLE && screen == Screen::Browser {
-                let copied = copied.as_ref().filter(|(a, _)| conn::authorization(connect).is_some_and(|auth| auth.attempt == *a)).map(|(_, c)| *c);
+                let copied = copied
+                    .as_ref()
+                    .filter(|(a, _)| conn::authorization(connect).is_some_and(|auth| auth.attempt == *a))
+                    .map(|(_, c)| *c);
                 return Body::ConsoleSignIn { copied };
             }
             Body::Screen(screen)

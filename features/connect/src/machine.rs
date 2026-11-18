@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use opencode_kit::integration::{Authorization, Integration, Method, MethodKind};
 
-use super::form::{self, Answer};
+use crate::form::{self, Answer};
 
 /// What the server describes for the integration.
 #[derive(Clone, Debug, PartialEq)]
@@ -49,7 +49,7 @@ pub enum EntryError {
     Rejected(String),
 }
 
-/// `ProviderPaste` (providers/connect/machine.ts). The editor owns the transient URL; queued
+/// `ProviderPaste` (`providers/connect/machine.ts`). The editor owns the transient URL; queued
 /// status polls need the attempt ID but must not retain a copy of the URL the user pasted.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Paste {
@@ -249,7 +249,9 @@ fn selected(state: &State, event: Event, catalog: Rc<Catalog>, at: u32) -> Trans
         Event::BrowserOpened { attempt_id, opened } => {
             let mut next = state.clone();
             if let State::Waiting(_, si) | State::Refreshing(_, si) | State::Connected(_, si) = &mut next
-                && let Signin::Browser { auth, failed, .. } = si && auth.attempt == attempt_id {
+                && let Signin::Browser { auth, failed, .. } = si
+                && auth.attempt == attempt_id
+            {
                 *failed = !opened;
             }
             return (next, vec![]);
@@ -398,7 +400,7 @@ fn select(catalog: Rc<Catalog>, index: usize, attempt: u32, answer: Option<Answe
     // An answered form already holds its hidden fields' defaults; one with nothing to ask answers itself.
     let created = if answer.is_some() || method.kind == MethodKind::Command { None } else { Some(form::create(&method.form)) };
     let resolved = match (answer, created) {
-        (_, Some(form::State::Active(f))) => return (State::Form(Sel { attempt, catalog, method: index, answer: None }, f), vec![]),
+        (_, Some(form::State::Active(f))) => return (State::Form(Sel { attempt, catalog, method: index, answer: None }, *f), vec![]),
         (Some(a), _) => a,
         (None, Some(form::State::Completed(a))) => a,
         (None, None) => Answer::new(),
@@ -418,7 +420,7 @@ fn form_step(s: &Sel, f: &form::Form, input: form::Input) -> Transition {
         Some(form::State::Completed(answer)) => select(s.catalog.clone(), s.method, s.attempt + 1, Some(answer)),
         Some(form::State::Active(next)) => {
             let effects = open.into_iter().map(|o| Effect::FormOpenBrowser { attempt: s.attempt, browser: o.attempt, url: o.url }).collect();
-            (State::Form(s.clone(), next), effects)
+            (State::Form(s.clone(), *next), effects)
         }
     }
 }
@@ -444,23 +446,28 @@ fn started(s: &Sel, event: Event) -> Transition {
 }
 
 fn polled(s: &Sel, signin: &Signin, event: Event) -> Transition {
-    if let Signin::Browser { .. } = signin && !matches!(event, Event::Polled { .. }) {
+    if let Signin::Browser { .. } = signin
+        && !matches!(event, Event::Polled { .. })
+    {
         let mut next = signin.clone();
-        let Signin::Browser { auth, paste, .. } = &mut next else { unreachable!() };
         let mut effects = vec![];
-        match (&mut *paste, event) {
-            (Paste::Editing { open, .. }, Event::PasteToggle(value)) => *open = Some(value),
-            (Paste::Editing { error, .. }, Event::PasteEdited) => *error = None,
-            (Paste::Editing { .. }, Event::PasteSubmit(value)) if !value.trim().is_empty() => {
-                *paste = Paste::Sending;
-                effects.push(Effect::Paste { attempt: s.attempt, attempt_id: auth.attempt.clone(), value: value.trim().to_owned() });
+        if let Signin::Browser { auth, paste, .. } = &mut next {
+            match (&mut *paste, event) {
+                (Paste::Editing { open, .. }, Event::PasteToggle(value)) => *open = Some(value),
+                (Paste::Editing { error, .. }, Event::PasteEdited) => *error = None,
+                (Paste::Editing { .. }, Event::PasteSubmit(value)) if !value.trim().is_empty() => {
+                    *paste = Paste::Sending;
+                    effects.push(Effect::Paste { attempt: s.attempt, attempt_id: auth.attempt.clone(), value: value.trim().to_owned() });
+                }
+                (Paste::Editing { .. }, Event::PasteSubmit(_)) => *paste = Paste::Editing { open: Some(true), error: Some(EntryError::Required) },
+                (Paste::Sending, Event::PasteResult { result, .. }) => {
+                    *paste = match result {
+                        Ok(()) => Paste::Accepted,
+                        Err(message) => Paste::Editing { open: Some(true), error: Some(EntryError::Rejected(message)) },
+                    }
+                }
+                _ => {}
             }
-            (Paste::Editing { .. }, Event::PasteSubmit(_)) => *paste = Paste::Editing { open: Some(true), error: Some(EntryError::Required) },
-            (Paste::Sending, Event::PasteResult { result, .. }) => *paste = match result {
-                Ok(()) => Paste::Accepted,
-                Err(message) => Paste::Editing { open: Some(true), error: Some(EntryError::Rejected(message)) },
-            },
-            _ => {}
         }
         return (State::Waiting(s.clone(), next), effects);
     }

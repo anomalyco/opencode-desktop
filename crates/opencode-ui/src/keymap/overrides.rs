@@ -17,6 +17,8 @@ static TABLE: RwLock<Vec<Option<&'static Keybind>>> = RwLock::new(Vec::new());
 static COMMANDS: RwLock<Vec<(String, &'static Keybind)>> = RwLock::new(Vec::new());
 /// Each keybind spec parsed once and kept for the app's life, as the table's are.
 static PARSED: Mutex<Option<HashMap<String, &'static Keybind>>> = Mutex::new(None);
+/// Optional host callback invoked after [`apply`] installs new overrides (e.g. menu bar refresh).
+static ON_CHANGED: RwLock<Option<fn()>> = RwLock::new(None);
 
 fn parse(spec: &str) -> Option<&'static Keybind> {
     let mut cache = PARSED.lock().unwrap_or_else(|e| e.into_inner());
@@ -49,7 +51,19 @@ fn view_bind(b: Bind) -> Option<session_view::keymap::Bind> {
     })
 }
 
-/// Installs `map` (command id to keybind) over the defaults.
+/// Registers a host hook invoked after [`apply`] updates overrides (for example, to refresh a
+/// native menu bar's key equivalents). Replaces any previously registered hook.
+pub fn set_on_changed(hook: fn()) {
+    *ON_CHANGED.write().unwrap_or_else(|e| e.into_inner()) = Some(hook);
+}
+
+/// Clears any hook registered with [`set_on_changed`].
+pub fn clear_on_changed() {
+    *ON_CHANGED.write().unwrap_or_else(|e| e.into_inner()) = None;
+}
+
+/// Installs `map` (command id to keybind) over the defaults and notifies any registered
+/// [`set_on_changed`] host hook.
 pub fn apply(map: &BTreeMap<String, String>) {
     let rows = all();
     let table: Vec<Option<&'static Keybind>> = rows.iter().map(|b| map.get(b.id).and_then(|spec| parse(spec))).collect();
@@ -61,7 +75,10 @@ pub fn apply(map: &BTreeMap<String, String>) {
     let commands = map.iter().filter(|(id, _)| !rows.iter().any(|b| b.id == id.as_str())).filter_map(|(id, spec)| Some((id.clone(), parse(spec)?))).collect();
     *TABLE.write().unwrap_or_else(|e| e.into_inner()) = table;
     *COMMANDS.write().unwrap_or_else(|e| e.into_inner()) = commands;
-    crate::menubar::refresh();
+    let hook = *ON_CHANGED.read().unwrap_or_else(|e| e.into_inner());
+    if let Some(on_changed) = hook {
+        on_changed();
+    }
 }
 
 /// The keybind Settings gave table row `b`, if it changed it.

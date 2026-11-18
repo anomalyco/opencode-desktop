@@ -9,14 +9,27 @@
 
 use std::sync::LazyLock;
 
-use rune::{Chord, Key, KeyEvent, KeyPlatform, Keybind, Mods, Tx};
+use rune::{Key, KeyEvent, KeyPlatform, Keybind, Mods, Tx};
 
 pub mod overrides;
-pub(crate) mod view;
-pub use view::{chips, keycaps};
-pub(crate) use view::LABEL;
+pub mod view;
+
+pub use rune::Chord;
+pub use session_view::keymap::{caps, label, sentence};
+pub use view::{LABEL, chips, keycaps};
 
 use KeyPlatform::{Linux, Mac, Windows};
+
+/// Host command catalog hook for resolving default chords of commands outside the static
+/// [`Bind`] table (such as registered shell or plugin commands).
+///
+/// Object-safe so callers can pass `&dyn KeymapHost` (or `&App` once `App: KeymapHost`)
+/// without monomorphizing keymap helpers per host crate.
+pub trait KeymapHost {
+    /// The default chord for published command `id` when no user override is installed
+    /// (for example, a registered command's [`Bind::chord`] or a plugin-declared chord).
+    fn default_command_chord(&self, id: &str) -> Option<Chord>;
+}
 
 /// One bound command.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -385,8 +398,6 @@ impl Bind {
     }
 }
 
-pub use session_view::keymap::{caps, label};
-
 /// A built-in plugin's command that the shell's own menus and key routing name: its id and the
 /// chord its plugin binds it to, which Settings › Shortcuts can change.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -433,11 +444,12 @@ impl PluginBind {
     }
 }
 
-/// The chord published command `id` answers to here: the user's own, else its default.
-pub fn command_chord(app: &crate::App, id: &str) -> Option<Chord> {
+/// The chord published command `id` answers to here: the user's own override, else the host's
+/// default from [`KeymapHost::default_command_chord`].
+pub fn command_chord(host: &dyn KeymapHost, id: &str) -> Option<Chord> {
     overrides::command(id)
         .and_then(|k| k.chords().first().copied())
-        .or_else(|| app.catalog().into_iter().find(|c| c.id == id).and_then(|c| c.keys.and_then(Bind::chord).or(c.chord)))
+        .or_else(|| host.default_command_chord(id))
 }
 
 /// A Ctrl-letter that arrives as its control character (⌃R as U+0012), as the letter.

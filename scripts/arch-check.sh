@@ -3,7 +3,7 @@
 # Enforces progressive disclosure, acyclic wide-shallow crate graph, and App field ratchet:
 #   1. Strict downward crate dependency layers: apps/* -> features/* -> crates/* (zero cycles)
 #   2. Zero cross-feature crate dependencies under features/* (communicate via opencode-kernel / Luau Contracts)
-#   3. crates/opencode-kernel and crates/opencode-runtime forbid unsafe_code
+#   3. crates/opencode-kernel, crates/opencode-runtime, and crates/opencode-ui forbid unsafe_code
 #   4. apps/desktop/src/ root stays clean (<= 10 top-level .rs files; domains live in subfolders)
 #   5. struct App field-count ratchet (ceilings only go down; new features use opencode-kernel StateSlots or Luau)
 #   6. apps/web/Cargo.toml stays in sync with shared workspace path dependencies in apps/desktop/Cargo.toml
@@ -73,7 +73,7 @@ for toml, tier, rank in manifests:
         if tier == "feature" and dst_tier == "feature" and dst_dir != src_dir:
             errors.append(f"{toml}: cross-feature dependency {src_name} -> {dst_name}; decouple via opencode-kernel")
 
-        # Rule 2b: opencode-kernel and opencode-runtime must stay headless and minimal
+        # Rule 2b: opencode-kernel, opencode-runtime, and opencode-ui must stay minimal
         if src_name == "opencode-kernel" and dst_name in {"session-view", "terminal", "browser-pane", "office-preview", "opencode-storage"}:
             errors.append(f"{toml}: opencode-kernel must stay minimal and not depend on {dst_name}")
         if src_name == "opencode-runtime" and (
@@ -81,6 +81,11 @@ for toml, tier, rank in manifests:
             or dst_name in {"session-view", "terminal", "browser-pane", "office-preview", "opencode-storage"}
         ):
             errors.append(f"{toml}: opencode-runtime must stay headless and not depend on {dst_name}")
+        if src_name == "opencode-ui" and (
+            dst_tier in {"feature", "app"}
+            or dst_name in {"opencode-storage", "terminal", "browser-pane", "office-preview", "opencode-runtime"}
+        ):
+            errors.append(f"{toml}: opencode-ui must stay pure UI and not depend on {dst_name}")
 
 # Rule 1b: Full workspace DFS cycle check
 WHITE, GRAY, BLACK = 0, 1, 2
@@ -103,8 +108,12 @@ for node in sorted(dir_to_meta):
     if color[node] == WHITE:
         dfs(node)
 
-# Rule 3: opencode-kernel and opencode-runtime forbid unsafe_code
-for core_lib in ("crates/opencode-kernel/src/lib.rs", "crates/opencode-runtime/src/lib.rs"):
+# Rule 3: opencode-kernel, opencode-runtime, and opencode-ui forbid unsafe_code
+for core_lib in (
+    "crates/opencode-kernel/src/lib.rs",
+    "crates/opencode-runtime/src/lib.rs",
+    "crates/opencode-ui/src/lib.rs",
+):
     if os.path.exists(core_lib):
         if "#![forbid(unsafe_code)]" not in read_text(core_lib):
             errors.append(f"{core_lib}: must declare #![forbid(unsafe_code)]")

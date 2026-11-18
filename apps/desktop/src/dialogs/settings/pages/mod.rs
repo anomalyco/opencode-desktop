@@ -230,7 +230,7 @@ impl App {
             crate::servers::runtime::switch(self, &key);
         }
         match &page {
-            Page::Providers | Page::Models => self.sync_catalogs(None, |_, _, _| {}),
+            Page::Providers | Page::Models => self.sync_catalogs(None),
             Page::Extensions => {
                 self.sync_mcp("");
                 extensions::load(self);

@@ -63,7 +63,7 @@ pub struct Form {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum State {
-    Active(Form),
+    Active(Box<Form>),
     Completed(Answer),
 }
 
@@ -96,7 +96,7 @@ pub fn create(fields: &[Field]) -> State {
 /// The next state (none when the input changed nothing) and the browser open it asks for.
 pub fn transition(form: &Form, input: Input) -> (Option<State>, Option<OpenBrowser>) {
     let step = &form.step;
-    let set = |kind: Kind| Some(State::Active(Form { step: Step { kind, ..step.clone() }, ..form.clone() }));
+    let set = |kind: Kind| Some(State::Active(Box::new(Form { step: Step { kind, ..step.clone() }, ..form.clone() })));
     match (&step.kind, input) {
         (Kind::External { url, browser }, Input::ExternalOpen) => {
             if matches!(browser, Browser::Opening { .. }) {
@@ -106,7 +106,7 @@ pub fn transition(form: &Form, input: Input) -> (Option<State>, Option<OpenBrows
             let unlocked = matches!(browser, Browser::Opened | Browser::Failed);
             let kind = Kind::External { url: url.clone(), browser: Browser::Opening { attempt, unlocked } };
             let next = Form { issued: attempt, step: Step { kind, ..step.clone() }, ..form.clone() };
-            (Some(State::Active(next)), Some(OpenBrowser { attempt, url: url.clone() }))
+            (Some(State::Active(Box::new(next))), Some(OpenBrowser { attempt, url: url.clone() }))
         }
         (Kind::External { url, browser }, Input::ExternalOpened { attempt, opened }) => match browser {
             Browser::Opening { attempt: a, .. } if *a == attempt => {
@@ -235,7 +235,10 @@ impl Form {
     pub fn options(&self) -> Vec<(String, String, Option<String>)> {
         let f = &self.step.field;
         if f.kind == FieldKind::Boolean {
-            let rows = vec![("true".to_owned(), opencode_i18n::t!("provider.connect.form.yes").to_owned(), None), ("false".to_owned(), opencode_i18n::t!("provider.connect.form.no").to_owned(), None)];
+            let rows = vec![
+                ("true".to_owned(), opencode_i18n::t!("provider.connect.form.yes").to_owned(), None),
+                ("false".to_owned(), opencode_i18n::t!("provider.connect.form.no").to_owned(), None),
+            ];
             return if f.default == Some(Value::Bool(false)) { rows.into_iter().rev().collect() } else { rows };
         }
         f.options.iter().map(|o| (o.value.clone(), o.label.clone(), o.description.clone())).collect()
@@ -290,7 +293,7 @@ fn advance(fields: &[Field], index: usize, mut answer: Answer, issued: u32) -> S
         }
         return advance(fields, index + 1, answer, issued);
     }
-    State::Active(Form { fields: fields.to_vec(), answer, issued, step: Step { index, field: field.clone(), kind: initial(field) } })
+    State::Active(Box::new(Form { fields: fields.to_vec(), answer, issued, step: Step { index, field: field.clone(), kind: initial(field) } }))
 }
 
 /// Prefills a step from its field's default; the value enters the answer only once confirmed.

@@ -34,6 +34,7 @@ bytemuck = { version = "1", features = ["derive"] }
 wgpu = { version = "30", default-features = false }
 office-preview = { path = "../../crates/office-preview", optional = true }
 opencode-feature-code-view = { path = "../../features/code-view" }
+opencode-feature-connect = { path = "../../features/connect" }
 opencode-feature-dictation = { path = "../../features/dictation" }
 opencode-feature-egg = { path = "../../features/egg" }
 opencode-feature-mcp = { path = "../../features/mcp" }
@@ -60,6 +61,7 @@ opencode-kit = { path = "../../crates/opencode-kit" }
 opencode-runtime = { path = "../../crates/opencode-runtime" }
 opencode-search = { path = "../../crates/opencode-search" }
 opencode-storage = { path = "../../crates/opencode-storage" }
+opencode-ui = { path = "../../crates/opencode-ui" }
 opencode-plugin-spec = { path = "../../crates/opencode-plugin-spec" }
 otlp-lite = { path = "../../crates/otlp-lite" }
 project-icon = { path = "../../crates/project-icon" }

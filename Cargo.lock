@@ -3444,6 +3444,7 @@ dependencies = [
  "notify",
  "office-preview",
  "opencode-feature-code-view",
+ "opencode-feature-connect",
  "opencode-feature-dictation",
  "opencode-feature-egg",
  "opencode-feature-mcp",
@@ -3460,6 +3461,7 @@ dependencies = [
  "opencode-runtime",
  "opencode-search",
  "opencode-storage",
+ "opencode-ui",
  "otlp-lite",
  "procwatch",
  "project-icon",
@@ -3498,6 +3500,19 @@ dependencies = [
  "rune",
  "rune-kit",
  "rune-theme-opencode",
+ "session-view",
+]
+
+[[package]]
+name = "opencode-feature-connect"
+version = "0.0.1"
+dependencies = [
+ "opencode-i18n",
+ "opencode-kit",
+ "rune",
+ "rune-kit",
+ "rune-theme-opencode",
+ "serde_json",
  "session-view",
 ]
 
@@ -3724,6 +3739,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "opencode-ui"
+version = "0.0.1"
+dependencies = [
+ "opencode-i18n",
+ "rune",
+ "rune-kit",
+ "rune-theme-opencode",
+ "session-view",
+]
+
+[[package]]
 name = "opencode-web"
 version = "0.0.1"
 dependencies = [
@@ -3742,6 +3768,7 @@ dependencies = [
  "mlua",
  "notify",
  "opencode-feature-code-view",
+ "opencode-feature-connect",
  "opencode-feature-dictation",
  "opencode-feature-egg",
  "opencode-feature-mcp",
@@ -3757,6 +3784,7 @@ dependencies = [
  "opencode-runtime",
  "opencode-search",
  "opencode-storage",
+ "opencode-ui",
  "otlp-lite",
  "procwatch",
  "project-icon",
