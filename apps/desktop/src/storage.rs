@@ -166,9 +166,12 @@ fn step(phase: Phase, event: Event) -> (Phase, Option<Effect>) {
             Some((storage, report)) => (Phase::Ready(storage.clone()), Some(Effect::Adopt(storage, queued, Opened::of(report), Frame::Presented))),
             None => (Phase::Joining { boot, queued }, Some(Effect::Join(opening))),
         },
-        // Another process holds the file and the windows show its stand-in: nothing this run
-        // changed is saved, so the quit doesn't wait for the open (it may wait out the lock).
-        (Phase::Booted { boot, .. } | Phase::Joining { boot, .. }, Event::Quit) if boot.source.held() => (Phase::Memory(Storage::memory()), None),
+        // Another program holds the file and the windows show its stand-in: nothing this run
+        // changed is saved, so the quit doesn't wait for the open (it may wait out the lock). Held
+        // for another copy of the app finishing a save, the quit waits for the open instead, its
+        // windows gone (at most the lease's wait): what was typed is saved once the file is this
+        // process's and still shows what the windows were shown, else the run ends in memory.
+        (Phase::Booted { boot, .. } | Phase::Joining { boot, .. }, Event::Quit) if boot.source.held() && !opencode_storage::held_by_another_copy() => (Phase::Memory(Storage::memory()), None),
         (Phase::Booted { boot, opening, queued }, Event::Quit) => (Phase::Joining { boot, queued }, Some(Effect::JoinNow(opening))),
         (Phase::Booted { boot, mut opening, queued }, Event::Need) => match opening.try_storage() {
             Some((storage, report)) => (Phase::Early { storage: storage.clone(), boot }, Some(Effect::Adopt(storage, queued, Opened::of(report), Frame::Pending))),
