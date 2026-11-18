@@ -1,0 +1,34 @@
+[package]
+name = "opencode-plugin-runtime"
+version = "0.0.1"
+description = "Reusable App-independent Luau plugin runtime primitives shared across OpenCode Rune hosts"
+edition = "2024"
+license.workspace = true
+publish = false
+
+[dependencies]
+base64 = "0.22"
+mlua = { git = "https://github.com/mlua-rs/mlua", rev = "a0ad4535fc72ba89967a931c5be57b162b5f0f3f", features = ["luau"] }
+opencode-kit = { path = "../opencode-kit" }
+opencode-platform = { path = "../opencode-platform" }
+opencode-plugin-spec = { path = "../opencode-plugin-spec" }
+# The pairing QR code's encoder (Qr service), without its image or SVG renderers.
+qrcode = { version = "0.14", default-features = false }
+rune.workspace = true
+rune-luau = { workspace = true, features = ["serde"] }
+rune-theme-opencode.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
+toml_edit = { version = "0.25", default-features = false, features = ["parse", "serde"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+notify = "8"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Power", "Win32_System_Threading"] }
+
+[lints]
+workspace = true

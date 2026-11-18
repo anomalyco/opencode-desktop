@@ -116,8 +116,3 @@ impl App {
         any
     }
 }
-
-/// What a write says in a window that can't write.
-pub fn read_only() -> &'static str {
-    opencode_i18n::t!("rune.jobs.readOnly")
-}

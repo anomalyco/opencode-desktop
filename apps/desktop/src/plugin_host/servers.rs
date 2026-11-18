@@ -334,7 +334,7 @@ pub fn dialog_shows(app: &App) -> bool {
         || app.connect.open.is_some()
         || app.mcp.open.is_some()
         || crate::servers::dialog::is_open(app)
-        || matches!(*app.remote_picker, crate::projects::remote_picker::Picker::Open(_))
+        || app.remote_picker.is_open()
 }
 
 /// The plugin cover over the routed session or draft tab (`PluginServerCover`): drawn by the

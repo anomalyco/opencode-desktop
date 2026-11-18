@@ -212,13 +212,14 @@ impl ProjectSwitcherHost for App {
 
     fn pick_remote_project_folder(&mut self, server: &ServerKey, title: String, tx: &mut Tx) {
         let key = server.clone();
-        crate::projects::remote_picker::pick(self, server, title, tx, move |s: &mut App, dir: String, tx: &mut Tx| {
-            if matches!(*s.route, Route::Draft(_)) {
-                crate::servers::runtime::with_server(s, &key, |s| s.open_project_dir(&dir, false, tx));
-                ProjectSwitcherHost::select_server_location(s, &key, dir, tx);
+        crate::projects::remote_picker::pick_with(self, server, title, tx, move |h, dir, tx| {
+            if matches!(h.current_route(), opencode_kit::servers::Route::Draft(_)) {
+                let _ = crate::projects::on_server(h, &key, |h| crate::projects::open_project_dir(h, &dir, false, tx));
+                h.open_draft_in(&key, &dir, tx);
                 return;
             }
-            ProjectSwitcherHost::select_server_location(s, &key, dir, tx);
+            h.switch_server(&key);
+            crate::projects::open_project_dir(h, &dir, true, tx);
         });
     }
 

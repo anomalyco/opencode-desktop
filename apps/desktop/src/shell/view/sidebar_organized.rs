@@ -236,40 +236,28 @@ fn project(s: &App, p: &Pal, proj: &model::Project, index: usize) -> El {
     match &s.project_state.organize_drag {
         // It follows the pointer over the rows, which make room for it as it passes them.
         Some(d) if d.from == index => r.raise().offset(0.0, d.dy).offset_motion(rune::Anim::INSTANT),
-        Some(d) => r.offset(0.0, d.shift(s, index)),
+        Some(d) => r.offset(0.0, drag_shift(d, s, index)),
         None => r,
     }
 }
 
-/// A project row's drag (`DragDropProvider` with `RestrictToVerticalAxis`): it starts 4 pt from
-/// the press, the project's block follows the pointer up and down, the blocks it passes step
-/// aside by its height, and a drop puts it there at once (`dropAnimation: null`).
-#[derive(Clone, Debug, PartialEq)]
-pub struct ProjectDrag {
-    from: usize,
-    to: usize,
-    dy: f32,
-    /// The listed projects' ids, in order, as the drag started.
-    ids: Vec<String>,
-}
+pub use crate::projects::sidebar::ProjectDrag;
 
 /// Points the pointer travels before a press on a row becomes a drag (`Distance({ value: 4 })`).
 const DRAG_SLOP: f32 = 4.0;
 /// The list's gap between project blocks (`gap-1`).
 const BLOCK_GAP: f32 = 4.0;
 
-impl ProjectDrag {
-    /// How far block `index` sits from its place while another is dragged: a step toward the
-    /// dragged block's place when it's between that and where the block would land.
-    fn shift(&self, s: &App, index: usize) -> f32 {
-        let pitch = height(s, &self.ids[self.from]) + BLOCK_GAP;
-        if self.from < index && index <= self.to {
-            -pitch
-        } else if self.to <= index && index < self.from {
-            pitch
-        } else {
-            0.0
-        }
+/// How far block `index` sits from its place while another is dragged: a step toward the
+/// dragged block's place when it's between that and where the block would land.
+fn drag_shift(drag: &ProjectDrag, s: &App, index: usize) -> f32 {
+    let pitch = height(s, &drag.ids[drag.from]) + BLOCK_GAP;
+    if drag.from < index && index <= drag.to {
+        -pitch
+    } else if drag.to <= index && index < drag.from {
+        pitch
+    } else {
+        0.0
     }
 }
 

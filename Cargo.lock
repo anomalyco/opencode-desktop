@@ -3471,6 +3471,8 @@ dependencies = [
  "opencode-feature-office",
  "opencode-feature-open-in",
  "opencode-feature-panels",
+ "opencode-feature-projects",
+ "opencode-feature-restore",
  "opencode-feature-review",
  "opencode-feature-session-menu",
  "opencode-feature-settings",
@@ -3484,6 +3486,7 @@ dependencies = [
  "opencode-kernel",
  "opencode-kit",
  "opencode-platform",
+ "opencode-plugin-runtime",
  "opencode-plugin-spec",
  "opencode-runtime",
  "opencode-search",
@@ -3492,7 +3495,6 @@ dependencies = [
  "otlp-lite",
  "procwatch",
  "project-icon",
- "qrcode",
  "rune",
  "rune-kit",
  "rune-knobs",
@@ -3730,6 +3732,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "opencode-feature-projects"
+version = "0.0.1"
+dependencies = [
+ "opencode-i18n",
+ "opencode-kit",
+ "opencode-search",
+ "opencode-ui",
+ "rune",
+ "rune-kit",
+ "rune-theme-opencode",
+ "serde_json",
+ "session-view",
+]
+
+[[package]]
+name = "opencode-feature-restore"
+version = "0.0.1"
+dependencies = [
+ "opencode-i18n",
+ "opencode-kit",
+ "opencode-runtime",
+ "opencode-storage",
+ "opencode-ui",
+ "rune",
+ "serde",
+ "serde_json",
+ "session-view",
+]
+
+[[package]]
 name = "opencode-feature-review"
 version = "0.0.1"
 dependencies = [
@@ -3914,6 +3946,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "opencode-plugin-runtime"
+version = "0.0.1"
+dependencies = [
+ "base64 0.22.1",
+ "libc",
+ "mlua",
+ "notify",
+ "opencode-kit",
+ "opencode-platform",
+ "opencode-plugin-spec",
+ "qrcode",
+ "rune",
+ "rune-luau",
+ "rune-theme-opencode",
+ "serde_json",
+ "sha2",
+ "toml_edit",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "opencode-plugin-spec"
 version = "1.0.0"
 dependencies = [
@@ -4017,6 +4070,8 @@ dependencies = [
  "opencode-feature-notifications",
  "opencode-feature-open-in",
  "opencode-feature-panels",
+ "opencode-feature-projects",
+ "opencode-feature-restore",
  "opencode-feature-review",
  "opencode-feature-session-menu",
  "opencode-feature-settings",
@@ -4030,6 +4085,7 @@ dependencies = [
  "opencode-kernel",
  "opencode-kit",
  "opencode-platform",
+ "opencode-plugin-runtime",
  "opencode-plugin-spec",
  "opencode-runtime",
  "opencode-search",
@@ -4038,7 +4094,6 @@ dependencies = [
  "otlp-lite",
  "procwatch",
  "project-icon",
- "qrcode",
  "rune",
  "rune-kit",
  "rune-knobs",

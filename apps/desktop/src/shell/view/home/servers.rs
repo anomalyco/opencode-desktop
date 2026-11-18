@@ -250,8 +250,8 @@ pub(super) fn choose_project(s: &mut App, key: &ServerKey, tx: &mut Tx) {
         return;
     }
     let server = key.clone();
-    crate::projects::remote_picker::pick(s, key, t!("command.project.open").to_owned(), tx, move |s: &mut App, dir: String, tx: &mut Tx| {
-        home_state::add(s, &server, vec![dir], tx);
+    crate::projects::remote_picker::pick_with(s, key, t!("command.project.open").to_owned(), tx, move |h, dir, tx| {
+        home_state::add(h, &server, vec![dir], tx);
     });
 }
 

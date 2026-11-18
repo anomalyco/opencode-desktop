@@ -91,6 +91,11 @@ for toml, tier, rank in manifests:
             or dst_name in {"session-view", "opencode-ui", "opencode-code-view", "opencode-storage", "terminal", "browser-pane", "office-preview", "opencode-runtime"}
         ):
             errors.append(f"{toml}: opencode-search must stay strictly headless and not depend on {dst_name}")
+        if src_name == "opencode-plugin-runtime" and (
+            dst_tier in {"feature", "app"}
+            or dst_name in {"session-view", "opencode-storage", "terminal", "browser-pane", "office-preview"}
+        ):
+            errors.append(f"{toml}: opencode-plugin-runtime must stay App-independent and not depend on {dst_name}")
 
     if src_name == "opencode-search" and re.search(r'(?m)^\s*rune(?:-[a-z0-9_-]+)?\s*=', read_text(toml)):
         errors.append(f"{toml}: opencode-search must stay strictly free of rune/UI dependencies")

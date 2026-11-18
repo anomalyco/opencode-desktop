@@ -140,13 +140,12 @@ fn run(app: &mut App, effects: Vec<Effect>, tx: &mut Tx) {
 fn open_picker(app: &mut App, key: &opencode_kit::servers::ServerKey, title: String, tx: &mut Tx) {
     let title = if title.is_empty() { opencode_i18n::t!("command.project.open").to_owned() } else { title };
     let server = key.clone();
-    crate::projects::remote_picker::pick(app, key, title, tx, move |s: &mut App, dir: String, tx: &mut Tx| {
+    crate::projects::remote_picker::pick_with(app, key, title, tx, move |h, dir, tx| {
         tx.instant();
-        s.close_settings();
-        crate::servers::runtime::switch(s, &server);
-        s.open_project_dir(&dir, false, tx);
-        *s.default_dir = crate::projects::clean_dir(&dir);
-        s.open_draft_tab();
+        h.close_settings();
+        h.switch_server(&server);
+        crate::projects::open_project_dir(h, &dir, false, tx);
+        h.open_draft_in(&server, &dir, tx);
         tx.settle();
     });
 }

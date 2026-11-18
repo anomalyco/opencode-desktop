@@ -3,77 +3,15 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use crate::settings::Choice;
+pub use crate::projects::sidebar::{Filters, Grouping, Ordering, Show, Status, groupings};
 
-crate::settings::prefs::choice! {
-    /// Group by (`SidebarGrouping`).
-    Grouping { None => "none", "sidebar.view.grouping.none", Project => "project", "sidebar.view.grouping.project", ServerProject => "server-project", "sidebar.view.grouping.server-project", Server => "server", "sidebar.view.grouping.server" } default Project
-}
-
-crate::settings::prefs::choice! {
-    /// Sort by (`SidebarOrdering`).
-    Ordering { Manual => "manual", "sidebar.view.ordering.manual", Updated => "updated", "sidebar.view.ordering.updated", Created => "created", "sidebar.view.ordering.created", Attention => "attention", "sidebar.view.ordering.attention" } default Manual
-}
-
-crate::settings::prefs::choice! {
-    /// A row's status, in the Status filter's order (`SIDEBAR_STATUSES`).
-    Status { Running => "running", "sidebar.view.status.running", Input => "input", "sidebar.view.status.input", Unread => "unread", "sidebar.view.status.unread", Failed => "failed", "sidebar.view.status.failed", Idle => "idle", "sidebar.view.status.idle" } default Idle
-}
-
-impl Grouping {
-    pub fn by_server(self) -> bool {
-        matches!(self, Grouping::Server | Grouping::ServerProject)
-    }
-}
-
-impl Status {
-    /// Attention order (`ATTENTION`): needs input, failed, unread, running, idle.
-    fn attention(self) -> u8 {
-        match self {
-            Status::Input => 0,
-            Status::Failed => 1,
-            Status::Unread => 2,
-            Status::Running => 3,
-            Status::Idle => 4,
-        }
-    }
-
-    pub fn of(mark: Option<crate::TabStatus>) -> Status {
-        match mark {
-            Some(crate::TabStatus::Busy) => Status::Running,
-            Some(crate::TabStatus::Attention) => Status::Input,
-            Some(crate::TabStatus::Unread) => Status::Unread,
-            Some(crate::TabStatus::Failed) => Status::Failed,
-            None => Status::Idle,
-        }
-    }
-}
-
-/// Show (`SidebarShow`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct Show {
-    pub recent: bool,
-    pub subagents: bool,
-    pub server_labels: bool,
-}
-
-impl Default for Show {
-    fn default() -> Self {
-        Show { recent: true, subagents: false, server_labels: true }
-    }
-}
-
-/// Filters (`SidebarFilters`): a project of "none" matches rows without one.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
-pub struct Filters {
-    pub status: Vec<Status>,
-    pub server: Vec<String>,
-    pub project: Vec<String>,
-}
-
-impl Filters {
-    pub fn count(&self) -> usize {
-        self.status.len() + self.server.len() + self.project.len()
+pub fn status_of(mark: Option<crate::TabStatus>) -> Status {
+    match mark {
+        Some(crate::TabStatus::Busy) => Status::Running,
+        Some(crate::TabStatus::Attention) => Status::Input,
+        Some(crate::TabStatus::Unread) => Status::Unread,
+        Some(crate::TabStatus::Failed) => Status::Failed,
+        None => Status::Idle,
     }
 }
 
@@ -277,9 +215,4 @@ fn leaf(rows: &[Row], b: Bucket, with_children: &dyn Fn(usize) -> Vec<usize>, co
     let list: Vec<usize> = b.rows.iter().flat_map(|&i| with_children(i)).collect();
     let spans_servers = b.kind == Kind::Project && list.iter().map(|&i| rows[i].server.as_str()).collect::<HashSet<_>>().len() > 1;
     Group { collapsed: collapsed.get(&b.key).copied().unwrap_or(false), open, rows: list, spans_servers, children: None, key: b.key, kind: b.kind, id: b.id, server: b.server }
-}
-
-/// Every grouping the menu offers: the server ones only once a second server is listed.
-pub fn groupings(multi_server: bool) -> impl Iterator<Item = Grouping> {
-    Grouping::ALL.iter().copied().filter(move |g| multi_server || !g.by_server())
 }

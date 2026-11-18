@@ -5,13 +5,7 @@ use opencode_kit::servers::ServerKey;
 use rune::TextEdit;
 use rune_kit::{ButtonVariant, TextInput};
 
-#[derive(Default)]
-pub(crate) enum Browser {
-    #[default]
-    Closed,
-    Projects(TextEdit),
-    History { search: TextEdit, server: ServerKey, project: model::Project, sessions: Vec<(String, String)> },
-}
+pub(crate) use crate::projects::home::Browser;
 
 enum Event {
     Browse,

@@ -1,0 +1,21 @@
+[package]
+name = "opencode-feature-restore"
+version = "0.0.1"
+description = "Window state restoration, composer drafts, blob attachments, timeline places, boot previews, offline transcript copies, and draft undo persistence for OpenCode (Rune)"
+edition = "2024"
+license.workspace = true
+publish = false
+
+[dependencies]
+opencode-i18n = { path = "../../crates/opencode-i18n" }
+opencode-kit = { path = "../../crates/opencode-kit" }
+opencode-runtime = { path = "../../crates/opencode-runtime" }
+opencode-storage = { path = "../../crates/opencode-storage" }
+opencode-ui = { path = "../../crates/opencode-ui" }
+rune.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+session-view = { path = "../../crates/session-view" }
+
+[lints]
+workspace = true

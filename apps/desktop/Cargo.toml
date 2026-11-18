@@ -49,6 +49,8 @@ opencode-feature-notifications = { path = "../../features/notifications" }
 opencode-feature-office = { path = "../../features/office", optional = true }
 opencode-feature-open-in = { path = "../../features/open-in" }
 opencode-feature-panels = { path = "../../features/panels" }
+opencode-feature-projects = { path = "../../features/projects" }
+opencode-feature-restore = { path = "../../features/restore" }
 opencode-feature-review = { path = "../../features/review" }
 opencode-feature-session-menu = { path = "../../features/session-menu" }
 opencode-feature-settings = { path = "../../features/settings" }
@@ -74,12 +76,11 @@ opencode-runtime = { path = "../../crates/opencode-runtime" }
 opencode-search = { path = "../../crates/opencode-search" }
 opencode-storage = { path = "../../crates/opencode-storage" }
 opencode-ui = { path = "../../crates/opencode-ui" }
+opencode-plugin-runtime = { path = "../../crates/opencode-plugin-runtime" }
 opencode-plugin-spec = { path = "../../crates/opencode-plugin-spec" }
 otlp-lite = { path = "../../crates/otlp-lite" }
 project-icon = { path = "../../crates/project-icon" }
 procwatch.workspace = true
-# The pairing QR code's encoder (Qr service), without its image or SVG renderers.
-qrcode = { version = "0.14", default-features = false }
 # Random ids and passwords for plugins (System:RandomId, the askpass token).
 getrandom = "0.3"
 rune-knobs.workspace = true
