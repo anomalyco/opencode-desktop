@@ -219,6 +219,8 @@
   "rune.storage.diskFull.description": "Changes aren't being saved. What you change stays while OpenCode runs, and is saved as soon as there's space. Free some space on this disk.",
   "rune.storage.diskFull.title": "The disk is full",
   "rune.storage.firstRun.description": "Another program is holding OpenCode's saved state, so this is a fresh start. Your saved state is untouched. What you change now is lost when OpenCode quits.",
+  "rune.storage.inUse.description": "This profile is already open in another OpenCode window. What you change here won't be saved. Keep working in the other window.",
+  "rune.storage.inUse.title": "OpenCode is already open",
   "rune.storage.memoryOnly.description": "OpenCode couldn't open its saved state ({{why}}). What you change now is lost when it quits.",
   "rune.storage.memoryOnly.title": "Changes won't be saved",
   "rune.storage.notSaving.title": "Changes aren't being saved",
