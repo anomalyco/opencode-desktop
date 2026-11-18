@@ -49,6 +49,7 @@ Organized by progressive disclosure (see [ARCHITECTURE.md](ARCHITECTURE.md)):
 | --- | --- | --- |
 | `plugins/*` | Built-in Luau plugins | Default home for ~80% of UI features (panels, dialogs, commands, server sources); hot reloads without touching Rust |
 | `features/annotations` | `opencode-feature-annotations` | Timeline/terminal quote toolbar, composer comment cards, floating quote-comment editor, and code/diff line comments |
+| `features/composer-input` | `opencode-feature-composer-input` | Composer attachments, remote upload runner/toast, file dropzone overlay, suggestions state machine, history popover, slash commands, and prompt history |
 | `features/connect` | `opencode-feature-connect` | Provider and integration connect dialog, catalog sync, picker catalog reads, and ChatGPT plan welcome |
 | `features/dictation` | `opencode-feature-dictation` | Hex voice dictation state machine, availability polling, and composer insertion |
 | `features/egg` | `opencode-feature-egg` | New-session GPU wordmark & Brick Breaker Easter egg |
@@ -71,9 +72,11 @@ Organized by progressive disclosure (see [ARCHITECTURE.md](ARCHITECTURE.md)):
 | `features/subagents` | `opencode-feature-subagents` | Running-work activity capsule, background shells state machine & output followers, and subagent reply bar |
 | `features/switcher` | `opencode-feature-switcher` | Command/file/session palette switcher, shared session search index, and project/worktree/branch switcher |
 | `features/terminal-surface` | `opencode-feature-terminal-surface` | Ghostty-VT terminal pane, workspace tabs, persistence, shell integration, inline rename, find, links, and paste guard |
+| `features/timeline-extras` | `opencode-feature-timeline-extras` | Agent todo pill and list, permission/question reply state machines, live subagent step rows, permission auto-accept, and timeline capture fixtures |
 | `features/tips` | `opencode-feature-tips` | Paced one-time onboarding tip state machine and persistence |
 | `features/updater` | `opencode-feature-updater` | Release feed, verification, and platform update engine |
 | `features/usage` | `opencode-feature-usage` | Usage limits parser, Usage dialog, and model-picker budget warnings |
+| `features/workspace-tools` | `opencode-feature-workspace-tools` | New-worktree branch picker, per-folder `rune` client MCP hub, Home session search, and local full-text message search |
 | `crates/opencode-code-view` | `opencode-code-view` | Shared virtualized syntax-highlighted code and diff viewers plus review, delimited table, and label-find data models |
 | `crates/opencode-kernel` | `opencode-kernel` | Shell kernel registries (`StateSlots`, `OverlayStack`, `LifecycleScheduler`, `CommandRegistry`, `EventBus`) |
 | `crates/opencode-runtime` | `opencode-runtime` | Headless runtime primitives and explicit state machines (catalog, idle, pairing, server pool/form, window life/placement, fork/rewind/pages/queue/send) |

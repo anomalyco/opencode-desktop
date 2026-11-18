@@ -20,10 +20,10 @@ use opencode_kit::client_mcp::{
     ClientMcp, ClientMcpOptions, McpCall, McpResult, RECONNECT_MAX, RECONNECT_MIN,
     UNSUPPORTED_RETRY,
 };
+use opencode_kit::model::{Project, SessionInfo};
+use opencode_kit::path;
+use opencode_kit::servers::ServerKey;
 use rune::{Tx, Waker};
-
-use crate::projects::clean_dir;
-use crate::{App, Route, Source, flag};
 
 pub const MCP_NAME: &str = "rune";
 pub const SESSION_NOT_OPEN_ERROR: &str = "This session isn't open in OpenCode (Rune)";
@@ -34,11 +34,64 @@ pub const MCP_INSTRUCTIONS: &str = "OpenCode (Rune) UI tools for sessions open i
 static NEXT_WINDOW_ID: AtomicU64 = AtomicU64::new(1);
 static GLOBAL_HUB: OnceLock<Arc<RuneMcpHub>> = OnceLock::new();
 
-type ServerKey = (String, u64);
-type FolderKey = (ServerKey, String);
+type EndpointKey = (String, u64);
+type FolderKey = (EndpointKey, String);
 
 fn global_hub() -> Arc<RuneMcpHub> {
     GLOBAL_HUB.get_or_init(RuneMcpHub::new).clone()
+}
+
+fn clean_dir(raw: &str) -> String {
+    path::trim(raw.trim()).to_owned()
+}
+
+/// Borrowed view of the active window route for MCP folder attachment and routing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum McpRoute<'a> {
+    Home,
+    Draft(&'a str),
+    Session { server: &'a ServerKey, id: &'a str },
+}
+
+/// Borrowed view of one open tab for zero-allocation MCP sync fingerprinting and folder discovery.
+#[derive(Clone, Copy, Debug)]
+pub struct McpTab<'a> {
+    pub id: &'a str,
+    pub directory: &'a str,
+    pub server: &'a ServerKey,
+}
+
+/// Object-safe host boundary for per-window `rune` client MCP registration, polling, and tool dispatch.
+pub trait RuneMcpHost {
+    fn rune_mcp(&self) -> &WindowMcp;
+    fn rune_mcp_mut(&mut self) -> &mut WindowMcp;
+
+    fn is_launch_waiting(&self) -> bool { false }
+    fn is_stage(&self) -> bool { false }
+    fn is_headless(&self) -> bool { rune::is_headless() }
+    /// Whether `--client-mcp` was passed (headless mode only attaches against non-default servers).
+    fn client_mcp_flag(&self) -> bool { false }
+    /// Active live server and whether write/send operations are allowed (`allow_send`).
+    fn live_server(&self) -> Option<(&Server, bool)>;
+
+    fn route(&self) -> McpRoute<'_>;
+    fn draft_dir(&self) -> &str;
+    fn used_project_ids(&self) -> &[String];
+    fn projects(&self) -> &[Project];
+    fn used_projects(&self) -> Vec<&Project>;
+    fn tab_count(&self) -> usize;
+    fn tab_at(&self, index: usize) -> Option<McpTab<'_>>;
+    fn sessions(&self) -> &[SessionInfo];
+    fn session(&self, id: &str) -> Option<&SessionInfo>;
+    fn sessions_version(&self) -> (u32, u64);
+    fn root_of<'a>(&'a self, id: &'a str) -> &'a str { id }
+    fn active_server(&self) -> &ServerKey;
+
+    /// Dispatches an incoming `tools/call` to the plugin owning it; returns `Some(call)` when no
+    /// plugin handles the tool so `tools::execute` responds with `"Unknown tool: ..."`.
+    fn dispatch_mcp_call(&mut self, _session_id: &str, call: McpCall, _tx: &mut Tx) -> Option<McpCall> { Some(call) }
+    /// Expires timed-out in-flight plugin MCP calls; returns `true` when state changed.
+    fn expire_plugin_calls(&mut self, _tx: &mut Tx) -> bool { false }
 }
 
 pub struct RoutedCall {
@@ -50,7 +103,7 @@ pub struct RoutedCall {
 /// one it shows routes calls, the others keep their folders' connections open (`update_window`).
 struct WindowEntry {
     /// The server as the window's runtime names it (its tabs' `server`).
-    runtime: opencode_kit::servers::ServerKey,
+    runtime: ServerKey,
     server: Option<Server>,
     folders: BTreeSet<String>,
     routed_exact: Option<String>,
@@ -63,10 +116,10 @@ struct WindowEntry {
 
 struct HubInner {
     /// Per window, per server it has tabs on.
-    windows: HashMap<(u64, ServerKey), WindowEntry>,
+    windows: HashMap<(u64, EndpointKey), WindowEntry>,
     connections: HashMap<FolderKey, ClientMcp>,
-    routers: HashMap<ServerKey, Sender<McpCall>>,
-    /// The plugin tools generation the open connections listed (`plugin_host::mcp_tools_generation`).
+    routers: HashMap<EndpointKey, Sender<McpCall>>,
+    /// The plugin tools generation the open connections listed (`tools::generation`).
     tools_generation: u64,
     reconnect_min: Duration,
     reconnect_max: Duration,
@@ -89,7 +142,7 @@ impl RuneMcpHub {
                 windows: HashMap::new(),
                 connections: HashMap::new(),
                 routers: HashMap::new(),
-                tools_generation: crate::plugin_host::mcp_tools_generation(),
+                tools_generation: tools::generation(),
                 reconnect_min,
                 reconnect_max,
                 unsupported_retry,
@@ -101,7 +154,7 @@ impl RuneMcpHub {
     /// (`keep`) stay, routing nothing, so a tab switch between servers keeps every server's
     /// connections open (Desktop's TUI holds its one connection until what it serves changes); an
     /// entry for a server the window no longer has tabs on goes, and its connections with it.
-    fn update_window(self: &Arc<Self>, window_id: u64, entry: WindowEntry, keep: &HashSet<opencode_kit::servers::ServerKey>) {
+    fn update_window(self: &Arc<Self>, window_id: u64, entry: WindowEntry, keep: &HashSet<ServerKey>) {
         let to_drop = {
             let mut inner = lock(&self.inner);
             let Some(key) = entry.server.as_ref().map(Server::endpoint_key) else { return };
@@ -143,7 +196,7 @@ impl RuneMcpHub {
         }
 
         let mut removed = Vec::new();
-        let generation = crate::plugin_host::mcp_tools_generation();
+        let generation = tools::generation();
         let retool = std::mem::replace(&mut inner.tools_generation, generation) != generation;
         let tool_defs = tools::catalog();
         // OpenCode's attached MCP client refreshes on `notifications/tools/list_changed`
@@ -152,9 +205,8 @@ impl RuneMcpHub {
         let stale: Vec<FolderKey> = inner
             .connections
             .iter()
-            .filter_map(|(k, conn)| {
-                (!wanted.contains_key(k) || (retool && !conn.set_tools(tool_defs.clone()))).then(|| k.clone())
-            })
+            .filter(|&(k, conn)| !wanted.contains_key(k) || (retool && !conn.set_tools(tool_defs.clone())))
+            .map(|(k, _)| k.clone())
             .collect();
         for k in stale {
             if let Some(conn) = inner.connections.remove(&k) {
@@ -179,7 +231,7 @@ impl RuneMcpHub {
                     let router_srv = srv.clone();
                     // A thread natively; drained between a page's events in a browser (`rune::task::serve`).
                     let mut parent_cache = HashMap::new();
-                    let _ = rune::task::serve("desktop-rune-mcp-router", rx, move |call| route(&weak, &router_srv, &mut parent_cache, call));
+                    drop(rune::task::serve("desktop-rune-mcp-router", rx, move |call| route(&weak, &router_srv, &mut parent_cache, call)));
                     inner.routers.insert(srv_key, tx.clone());
                     tx
                 }
@@ -378,7 +430,7 @@ fn fetch_parent_chain(server: &Server, sid: &str, cache: &mut HashMap<(String, S
     }
 }
 
-/// Per-window client MCP state stored on [`App`].
+/// Per-window client MCP state stored on the window host.
 pub struct WindowMcp {
     window_id: u64,
     hub: Arc<RuneMcpHub>,
@@ -387,6 +439,16 @@ pub struct WindowMcp {
     rx: Receiver<RoutedCall>,
     registration: Registration,
     force_enabled: bool,
+}
+
+impl WindowMcp {
+    pub fn force_enabled(&self) -> bool {
+        self.force_enabled
+    }
+
+    pub fn set_force_enabled(&mut self, enabled: bool) {
+        self.force_enabled = enabled;
+    }
 }
 
 impl Default for WindowMcp {
@@ -426,129 +488,131 @@ impl Registration {
     }
 }
 
-impl App {
-    pub fn setup_rune_mcp(&mut self, waker: Waker) {
-        self.rune_mcp.waker = waker;
-        self.close_rune_mcp();
-        sync_window(self);
-    }
-
-    pub fn close_rune_mcp(&mut self) {
-        self.rune_mcp.hub.remove_window(self.rune_mcp.window_id);
-        self.rune_mcp.registration = Registration::Absent;
-    }
-
+pub fn setup_rune_mcp(host: &mut dyn RuneMcpHost, waker: Waker) {
+    host.rune_mcp_mut().waker = waker;
+    close_rune_mcp(host);
+    sync_window(host);
 }
 
-pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
-    sync_window(s);
+pub fn close_rune_mcp(host: &mut dyn RuneMcpHost) {
+    let mcp = host.rune_mcp_mut();
+    mcp.hub.remove_window(mcp.window_id);
+    mcp.registration = Registration::Absent;
+}
+
+pub fn poll(host: &mut dyn RuneMcpHost, tx: &mut Tx) -> bool {
+    sync_window(host);
     let mut changed = false;
-    while let Ok(routed) = s.rune_mcp.rx.try_recv() {
-        tools::execute(s, &routed.target_session, routed.call, tx);
+    loop {
+        let Ok(routed) = host.rune_mcp().rx.try_recv() else { break };
+        tools::execute(host, &routed.target_session, routed.call, tx);
         changed = true;
     }
-    if crate::plugin_host::commands::expire_calls(tx) {
+    if host.expire_plugin_calls(tx) {
         changed = true;
     }
     changed
 }
 
-fn mcp_active(s: &App) -> Option<&Server> {
-    if crate::launch::waiting(s) || s.stage.is_some() {
+fn mcp_active(host: &dyn RuneMcpHost) -> Option<&Server> {
+    if host.is_launch_waiting() || host.is_stage() {
         return None;
     }
-    let Source::Live { server, allow_send, .. } = &*s.source else { return None };
-    if s.rune_mcp.force_enabled {
+    let (server, allow_send) = host.live_server()?;
+    if host.rune_mcp().force_enabled {
         return Some(server);
     }
     // Headless `--client-mcp` is strictly for local mock servers, never the default `:4096` server.
-    if crate::headless() {
-        return (flag("--client-mcp") && server.base != DEFAULT_SERVER).then_some(server);
+    if host.is_headless() {
+        return (host.client_mcp_flag() && server.base != DEFAULT_SERVER).then_some(server);
     }
-    (*allow_send).then_some(server)
+    allow_send.then_some(server)
 }
 
-fn sync_stamp(s: &App, server: &Server) -> u64 {
+fn sync_stamp(host: &dyn RuneMcpHost, server: &Server) -> u64 {
     let mut h = DefaultHasher::new();
     server.endpoint_key().hash(&mut h);
-    crate::plugin_host::mcp_tools_generation().hash(&mut h);
-    s.route.hash(&mut h);
-    s.draft_dir().hash(&mut h);
-    s.project_state.used.hash(&mut h);
-    s.projects.len().hash(&mut h);
-    for p in &s.projects {
+    tools::generation().hash(&mut h);
+    host.route().hash(&mut h);
+    host.draft_dir().hash(&mut h);
+    host.used_project_ids().hash(&mut h);
+    let projects = host.projects();
+    projects.len().hash(&mut h);
+    for p in projects {
         p.id.hash(&mut h);
         p.directory.hash(&mut h);
     }
-    s.tabs.len().hash(&mut h);
-    for t in &s.tabs {
-        t.id.hash(&mut h);
-        t.directory.hash(&mut h);
+    let tab_count = host.tab_count();
+    tab_count.hash(&mut h);
+    for i in 0..tab_count {
+        if let Some(t) = host.tab_at(i) {
+            t.id.hash(&mut h);
+            t.directory.hash(&mut h);
+        }
     }
-    (rune::Tracked::id(&s.sessions), rune::Tracked::version(&s.sessions)).hash(&mut h);
+    host.sessions_version().hash(&mut h);
     h.finish()
 }
 
-fn sync_window(s: &mut App) {
-    let active_srv = mcp_active(s).cloned();
-    let stamp = active_srv.as_ref().map(|server| sync_stamp(s, server));
-    match s.rune_mcp.registration.step(stamp) {
+fn sync_window(host: &mut dyn RuneMcpHost) {
+    let active_srv = mcp_active(host).cloned();
+    let stamp = active_srv.as_ref().map(|server| sync_stamp(host, server));
+    match host.rune_mcp_mut().registration.step(stamp) {
         Publish::Keep => return,
-        Publish::Remove => { s.rune_mcp.hub.remove_window(s.rune_mcp.window_id); return; }
+        Publish::Remove => {
+            let mcp = host.rune_mcp();
+            mcp.hub.remove_window(mcp.window_id);
+            return;
+        }
         Publish::Update => (),
     }
     let Some(server) = active_srv else { return };
 
     let mut folders = BTreeSet::new();
-    for p in s.used_projects() {
-        let d = clean_dir(&p.directory);
-        if !d.is_empty() {
-            folders.insert(d);
-        }
-    }
-    for t in &s.tabs {
-        let raw = s.session(&t.id).map_or(t.directory.as_str(), |i| i.directory.as_str());
+    let mut add = |raw: &str| {
         let d = clean_dir(raw);
         if !d.is_empty() {
             folders.insert(d);
         }
+    };
+    for p in host.used_projects() {
+        add(&p.directory);
     }
-    match &*s.route {
-        Route::Session { id: sid, .. } => {
-            if let Some(info) = s.session(sid) {
-                let d = clean_dir(&info.directory);
-                if !d.is_empty() {
-                    folders.insert(d);
-                }
+    let tab_count = host.tab_count();
+    for i in 0..tab_count {
+        if let Some(t) = host.tab_at(i) {
+            add(host.session(t.id).map_or(t.directory, |info| info.directory.as_str()));
+        }
+    }
+    match host.route() {
+        McpRoute::Session { id: sid, .. } => {
+            if let Some(info) = host.session(sid) {
+                add(&info.directory);
             }
         }
-        Route::Draft(_) => {
-            let d = clean_dir(s.draft_dir());
-            if !d.is_empty() {
-                folders.insert(d);
-            }
-        }
-        Route::Home => {}
+        McpRoute::Draft(_) => add(host.draft_dir()),
+        McpRoute::Home => {}
     }
 
-    let mut open_roots: HashSet<String> = s.tabs.iter().map(|t| t.id.clone()).collect();
-    let (routed_exact, routed_root) = match &*s.route {
-        Route::Session { id: sid, .. } => {
-            let root = s.root_of(sid).to_owned();
-            open_roots.insert(sid.clone());
+    let mut open_roots: HashSet<String> = (0..tab_count).filter_map(|i| host.tab_at(i).map(|t| t.id.to_owned())).collect();
+    let (routed_exact, routed_root) = match host.route() {
+        McpRoute::Session { id: sid, .. } => {
+            let root = host.root_of(sid).to_owned();
+            open_roots.insert(sid.to_owned());
             open_roots.insert(root.clone());
-            (Some(sid.clone()), Some(root))
+            (Some(sid.to_owned()), Some(root))
         }
         _ => (None, None),
     };
 
     let known_parents: HashMap<String, Option<String>> =
-        s.sessions.iter().map(|i| (i.id.clone(), i.parent.clone())).collect();
+        host.sessions().iter().map(|i| (i.id.clone(), i.parent.clone())).collect();
 
-    let active = crate::servers::runtime::active(s).clone();
+    let active = host.active_server().clone();
     // The servers the window has tabs on keep their entries (and connections) while it shows another.
-    let mut keep: HashSet<opencode_kit::servers::ServerKey> = s.tabs.iter().map(|t| t.server.clone()).collect();
+    let mut keep: HashSet<ServerKey> = (0..tab_count).filter_map(|i| host.tab_at(i).map(|t| t.server.clone())).collect();
     keep.insert(active.clone());
+    let mcp = host.rune_mcp();
     let entry = WindowEntry {
         runtime: active,
         server: Some(server),
@@ -557,10 +621,10 @@ fn sync_window(s: &mut App) {
         routed_root,
         open_roots,
         known_parents,
-        tx: s.rune_mcp.tx.clone(),
-        waker: s.rune_mcp.waker.clone(),
+        tx: mcp.tx.clone(),
+        waker: mcp.waker.clone(),
     };
-    s.rune_mcp.hub.update_window(s.rune_mcp.window_id, entry, &keep);
+    mcp.hub.update_window(mcp.window_id, entry, &keep);
 }
 
 /// Closes connections a window no longer wants on a thread of their own: a close joins the
@@ -570,7 +634,10 @@ fn close_later(conns: Vec<ClientMcp>) {
     if conns.is_empty() {
         return;
     }
-    let _ = std::thread::Builder::new().name("desktop-rune-mcp-close".into()).spawn(move || drop(conns));
+    #[cfg(not(target_arch = "wasm32"))]
+    drop(std::thread::Builder::new().name("desktop-rune-mcp-close".into()).spawn(move || drop(conns)));
+    #[cfg(target_arch = "wasm32")]
+    drop(conns);
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {

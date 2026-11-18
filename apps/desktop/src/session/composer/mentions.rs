@@ -13,38 +13,6 @@ use session_view::session_chips::SessionRef;
 
 use crate::{App, Route, Source};
 
-/// `App`-specialized popover list helpers so composer callers (`slash`, `suggestions::history`)
-/// keep concise closure and search-field callsites without turbofish annotations.
-pub mod list {
-    pub use opencode_feature_mentions::list::{
-        Highlight, Row, Spec, cycle, data_list, max_height,
-    };
-
-    use rune::{Cx, El, TextEdit, Tx};
-    use session_view::palette::Pal;
-
-    use crate::App;
-
-    pub fn boundary(cx: &Cx<App>) -> Option<f32> {
-        opencode_feature_mentions::list::boundary(cx)
-    }
-
-    pub fn suggest_search(p: &Pal, edit: &TextEdit, label: &str, placeholder: &str) -> El {
-        opencode_feature_mentions::list::suggest_search::<App>(p, edit, label, placeholder)
-    }
-
-    pub fn popup(
-        p: &Pal,
-        spec: Spec,
-        rows: Vec<Row>,
-        active: Option<&str>,
-        hover: impl Fn(&mut App, &str, &mut Tx) + 'static,
-        pick: impl Fn(&mut App, &str, &mut Tx) + 'static,
-    ) -> El {
-        opencode_feature_mentions::list::popup::<App>(p, spec, rows, active, hover, pick)
-    }
-}
-
 impl MentionsHost for App {
     fn mentions(&self) -> &Mentions {
         &self.mentions

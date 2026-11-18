@@ -4,11 +4,11 @@
 //! under a draft that is `/` and a word, or as a menu with its own search over a written
 //! draft), the Shift+↑ history search, or plain ↑/↓ browsing of sent prompts, which shows no
 //! list. [`step`] returns what the composer does next; the caller carries it out
-//! (`super::apply`).
+//! (`super::apply_suggestion`).
 //!
-//! The draft's shell mode belongs to the shell machine (`add_menu`); this one only hears that
-//! it changed ([`Event::ModeSynced`]). Its `drag` half is the dropzone (`crate::dropzone`), and
-//! its `focus` half is the composer's real focus, which Rune keeps.
+//! The draft's shell mode belongs to the shell machine (`session_view::composer::mode`); this one
+//! only hears that it changed ([`Event::ModeSynced`]). Its `drag` half is the dropzone
+//! ([`crate::dropzone`]), and its `focus` half is the composer's real focus, which Rune keeps.
 
 use rune::machine::Effects;
 use session_view::composer::history::Entry;
@@ -283,7 +283,11 @@ fn commands_open(state: &mut Popover, populated: bool, bare: bool) -> Step {
     if let Popover::CommandInline(_) | Popover::CommandMenu(_) = state {
         let typed = matches!(state, Popover::CommandInline(_)) && bare;
         *state = Popover::Closed;
-        return did(if typed { Effects::two(Effect::SetText(String::new()), Effect::FocusEditor) } else { Effects::one(Effect::FocusEditor) });
+        return did(if typed {
+            Effects::two(Effect::SetText(String::new()), Effect::FocusEditor)
+        } else {
+            Effects::one(Effect::FocusEditor)
+        });
     }
     if !populated {
         *state = Popover::CommandInline(List::default());
@@ -298,7 +302,11 @@ fn context_open(state: &mut Popover) -> Step {
     if let Popover::Context(list) = state {
         let typed = list.query.is_empty();
         *state = Popover::Closed;
-        return did(if typed { Effects::two(Effect::RemoveTextBefore("@"), Effect::FocusEditor) } else { Effects::one(Effect::FocusEditor) });
+        return did(if typed {
+            Effects::two(Effect::RemoveTextBefore("@"), Effect::FocusEditor)
+        } else {
+            Effects::one(Effect::FocusEditor)
+        });
     }
     *state = Popover::Context(List::default());
     did(Effects::two(Effect::AddText("@"), Effect::FocusEditor))
@@ -345,7 +353,7 @@ fn history_step(state: &mut Popover, up: bool, len: usize, caret: usize, entries
         let Popover::Browsing { saved, .. } = std::mem::take(state) else { unreachable!("browsing above") };
         return took(Effects::one(Effect::Restore { saved, focus: true }));
     }
-    if index - 1 >= entries {
+    if index > entries {
         return Step::default();
     }
     if let Popover::Browsing { index: at, .. } = state {
@@ -444,7 +452,11 @@ fn key_down(state: &mut Popover, key: Key, ids: &[String], composing: bool) -> S
     if let Some(list) = state.list_mut() {
         list.active = Active::Chosen(id.clone());
     }
-    took(if history { Effects::two(Effect::Preview(id.clone()), Effect::Reveal(id)) } else { Effects::one(Effect::Reveal(id)) })
+    took(if history {
+        Effects::two(Effect::Preview(id.clone()), Effect::Reveal(id))
+    } else {
+        Effects::one(Effect::Reveal(id))
+    })
 }
 
 fn mode_synced(state: &mut Popover, shell: bool) -> Step {

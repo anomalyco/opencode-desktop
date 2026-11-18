@@ -12,7 +12,7 @@ use opencode_kit::model::{Project, SessionInfo};
 use opencode_i18n::t;
 use rune::Tx;
 
-use crate::{App, Route};
+use crate::App;
 
 /// Title prefixes of sessions an automation creates, with the name its fold shows.
 const AUTOMATIONS: &[(&str, &str)] = &[("flow:", "Flow")];
@@ -55,27 +55,7 @@ impl Group<'_> {
     }
 }
 
-/// The list's order against the pointer (Kit's design; Desktop's list reorders under it).
-#[derive(Default)]
-pub(crate) enum Hold {
-    /// The rows sit in their own order.
-    #[default]
-    Free,
-    /// The pointer is on the list: `at` is each row's place and day as it came on.
-    Holding { at: HashMap<String, (usize, usize)> },
-    /// The pointer has left: the next poll lets the order go.
-    Leaving { at: HashMap<String, (usize, usize)> },
-}
-
-impl Hold {
-    /// Each row's held place and day, while the order holds.
-    fn at(&self) -> Option<&HashMap<String, (usize, usize)>> {
-        match self {
-            Hold::Free => None,
-            Hold::Holding { at } | Hold::Leaving { at } => Some(at),
-        }
-    }
-}
+pub(crate) use crate::home_search::HomeHold as Hold;
 
 impl App {
     /// Home's day groups for `selected` project (`groupSessions`).
@@ -183,18 +163,5 @@ impl App {
     /// Home's folds open or shut, all together.
     pub(crate) fn toggle_home_automations(&mut self) {
         self.restore.inbox.home_automations = !self.restore.inbox.home_automations;
-    }
-
-    /// Off Home nothing holds the list, and once the pointer has left it the rows glide to their
-    /// places on the layout spring. True when they move.
-    pub(crate) fn release_home_hold(&mut self, tx: &mut Tx) -> bool {
-        let off = self.route != Route::Home || self.settings.open;
-        let leaving = matches!(self.home_search.hold, Hold::Leaving { .. });
-        if matches!(self.home_search.hold, Hold::Free) || !(off || leaving) {
-            return false;
-        }
-        self.home_search.hold = Hold::Free;
-        tx.animated();
-        !off
     }
 }

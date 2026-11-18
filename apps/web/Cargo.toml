@@ -51,6 +51,7 @@ memchr = "2"
 mlua = { git = "https://github.com/mlua-rs/mlua", rev = "a0ad4535fc72ba89967a931c5be57b162b5f0f3f", features = ["luau"] }
 opencode-code-view = { path = "../../crates/opencode-code-view" }
 opencode-feature-annotations = { path = "../../features/annotations" }
+opencode-feature-composer-input = { path = "../../features/composer-input" }
 opencode-feature-connect = { path = "../../features/connect" }
 opencode-feature-dictation = { path = "../../features/dictation" }
 opencode-feature-egg = { path = "../../features/egg" }
@@ -72,9 +73,11 @@ opencode-feature-settings = { path = "../../features/settings" }
 opencode-feature-subagents = { path = "../../features/subagents" }
 opencode-feature-switcher = { path = "../../features/switcher" }
 opencode-feature-terminal-surface = { path = "../../features/terminal-surface" }
+opencode-feature-timeline-extras = { path = "../../features/timeline-extras" }
 opencode-feature-tips = { path = "../../features/tips" }
 opencode-feature-updater = { path = "../../features/updater" }
 opencode-feature-usage = { path = "../../features/usage" }
+opencode-feature-workspace-tools = { path = "../../features/workspace-tools" }
 opencode-i18n = { path = "../../crates/opencode-i18n" }
 opencode-kernel = { path = "../../crates/opencode-kernel" }
 opencode-kit = { path = "../../crates/opencode-kit" }

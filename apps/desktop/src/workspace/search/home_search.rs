@@ -1,423 +1,170 @@
-//! Session search from Home (`home/sessions/search.ts`, `home/sessions/view.tsx`):
-//! - ⌘F on Home (and ⌘B opening Home from a session) focuses Home's session search.
-//! - Typing filters Home's sessions by title and project name, and looks up a pasted `ses_…` id
-//!   on the focused server (`GET /api/session/:id`), which heads the results while it's found.
-//! - ↑ / ↓ step through matching rows, ↩ opens the highlighted session, Esc clears and blurs; a
-//!   press outside the search clears it too, while Tab only moves focus on.
+//! Desktop host adapter for `opencode-feature-workspace-tools::home_search`
+//! (`features/workspace-tools`).
+
+pub use opencode_feature_workspace_tools::home_search::*;
+
+use opencode_kit::client::Server;
+use opencode_kit::model::{Project, SessionInfo};
+use rune::{El, Key, KeyEvent, Play, TextEdit, Tx, col};
+use session_view::palette::Pal;
 
 use crate::pickers::PickerHost as _;
-
-use opencode_kit::model::{self, Project, SessionInfo};
-use rune::machine::{Attempt, Effects, Seq};
-use rune::{El, Key, KeyEvent, Latest, Play, TextEdit, Tx, Waker, col};
-
-use crate::mentions::list::{Highlight, cycle};
-use crate::palette::Pal;
 use crate::stories::{Story, Trigger, replay, stage};
 use crate::{App, Route, Source};
 
-/// Home lists at most this many sessions (`HOME_SESSION_LIMIT`, `home/sessions/index.ts`).
-pub(crate) const HOME_SESSION_LIMIT: usize = 64;
+impl HomeSearchHost for App {
+    fn home_search(&self) -> &HomeSearch {
+        &self.home_search
+    }
 
-/// `HOME_SESSION_LOOKUP_TIMEOUT_MS`.
-const LOOKUP_TIMEOUT: f64 = 10.0;
+    fn home_search_mut(&mut self) -> &mut HomeSearch {
+        &mut self.home_search
+    }
 
-/// Home's session search: Desktop's `HomeSessionSearchState` (`home/sessions/search-machine.ts:
-/// 6-24`). Its value is the field's text (`App::search`), its highlight SM-7's [`Highlight`].
-#[derive(Clone, Debug, Default)]
-pub struct Search {
-    /// The server and project the results belong to: an exact match from another is never shown.
-    scope: String,
-    connected: bool,
-    /// The field, or anything else in the search, has focus.
-    focused: bool,
-    /// The trimmed text the status was settled for.
-    query: String,
-    seq: Seq,
-    pub status: Status,
-}
+    fn search_input(&self) -> &TextEdit {
+        &self.search
+    }
 
-#[derive(Clone, Debug, Default)]
-pub enum Status {
-    #[default]
-    Idle,
-    /// A typed session id is being looked up on the focused server, until `due` on the app clock.
-    LookingUp { attempt: Attempt, id: String, due: f64 },
-    /// The lookup found it: it heads the results until the text, server or project changes.
-    Found(SessionInfo),
-}
+    fn search_input_mut(&mut self) -> &mut TextEdit {
+        &mut self.search
+    }
 
-#[derive(Clone, Debug)]
-pub enum Event<'a> {
-    /// `focused`.
-    Focused,
-    /// `blurred`: focus left the search by the keys.
-    Blurred,
-    /// `closed`: Escape, a press outside it, or a result opening.
-    Closed,
-    /// `input.changed` and `scope.changed`: what the field holds, and where it searches.
-    Synced { query: &'a str, scope: &'a str, connected: bool, now: f64 },
-    /// `lookup.resolved` (and `lookup.failed`, as `None`).
-    Resolved { attempt: Attempt, session: Option<SessionInfo> },
-    /// `lookup.timed-out` once the clock reaches `now`.
-    Tick { now: f64 },
-}
+    fn is_home(&self) -> bool {
+        *self.route == Route::Home
+    }
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum Effect {
-    /// `lookup.start`.
-    Lookup { attempt: Attempt, id: String },
-    /// `lookup.abort`.
-    Abort,
-    /// The field empties and nothing is highlighted.
-    Clear,
-    /// The highlight goes back to the first result.
-    Unhighlight,
-}
+    fn settings_open(&self) -> bool {
+        self.settings.open
+    }
 
-impl Search {
-    /// `transitionHomeSessionSearch`.
-    pub fn step(&mut self, event: Event) -> Effects<Effect> {
-        match event {
-            Event::Focused => {
-                self.focused = true;
-                Effects::none()
-            }
-            Event::Blurred => {
-                self.focused = false;
-                Effects::none()
-            }
-            Event::Closed => {
-                self.focused = false;
-                self.query.clear();
-                let mut effects = self.settle(0.0);
-                effects.push(Effect::Clear);
-                effects
-            }
-            Event::Synced { query, scope, connected, now } => {
-                if query == self.query && scope == self.scope && connected == self.connected {
-                    return Effects::none();
-                }
-                let rescoped = scope != self.scope;
-                let retyped = query != self.query;
-                let reconnected = connected && !self.connected;
-                (self.query, self.scope, self.connected) = (query.to_owned(), scope.to_owned(), connected);
-                if retyped || rescoped || (reconnected && matches!(self.status, Status::Idle)) {
-                    let mut effects = self.settle(now);
-                    if retyped || rescoped {
-                        effects.push(Effect::Unhighlight);
-                    }
-                    return effects;
-                }
-                if !connected && matches!(self.status, Status::LookingUp { .. }) {
-                    self.status = Status::Idle;
-                    return Effects::one(Effect::Abort);
-                }
-                Effects::none()
-            }
-            Event::Resolved { attempt, session } => {
-                if !matches!(&self.status, Status::LookingUp { attempt: a, .. } if *a == attempt) {
-                    return Effects::none();
-                }
-                self.status = session.map_or(Status::Idle, Status::Found);
-                Effects::none()
-            }
-            Event::Tick { now } => {
-                if !matches!(&self.status, Status::LookingUp { due, .. } if now + 1e-9 >= *due) {
-                    return Effects::none();
-                }
-                self.status = Status::Idle;
-                Effects::one(Effect::Abort)
-            }
+    fn clock(&self) -> f64 {
+        *self.clock
+    }
+
+    fn live_server(&self) -> Option<Server> {
+        match &*self.source {
+            Source::Live { server, .. } => Some(server.clone()),
+            Source::Fixture => None,
         }
     }
 
-    /// `settle`: a pending lookup goes, and a query that looks like a session id is looked up
-    /// while the server is connected.
-    fn settle(&mut self, now: f64) -> Effects<Effect> {
-        let mut effects = Effects::none();
-        if matches!(self.status, Status::LookingUp { .. }) {
-            effects.push(Effect::Abort);
-        }
-        if !looks_like_session_id(&self.query) || !self.connected {
-            self.status = Status::Idle;
-            return effects;
-        }
-        let attempt = self.seq.next();
-        self.status = Status::LookingUp { attempt, id: self.query.clone(), due: now + LOOKUP_TIMEOUT };
-        effects.push(Effect::Lookup { attempt, id: self.query.clone() });
-        effects
+    fn home_search_scope(&self) -> (String, bool) {
+        let selection = crate::projects::home::selection(self);
+        let scope = format!(
+            "{}\0{}",
+            selection.server.as_ref().map_or("", |k| k.as_str()),
+            selection.directory.as_deref().unwrap_or(""),
+        );
+        let key = crate::projects::home::server(self);
+        let connected = matches!(*self.source, Source::Live { .. })
+            && self.home_state.servers.iter().any(|v| v.key == key && v.healthy());
+        (scope, connected)
     }
 
-    /// `selectSearchOpen`.
-    pub fn open(&self) -> bool {
-        self.focused && !self.query.is_empty()
+    fn home_selected(&self) -> Option<&Project> {
+        App::home_selected(self)
     }
 
-    /// `selectSearchExact`.
-    pub fn exact(&self) -> Option<&SessionInfo> {
-        match &self.status {
-            Status::Found(session) => Some(session),
-            _ => None,
-        }
+    fn session(&self, id: &str) -> Option<&SessionInfo> {
+        App::session(self, id)
     }
 
-    /// What tells one status from another.
-    fn mark(&self) -> (u8, Option<Attempt>, Option<String>) {
-        match &self.status {
-            Status::Idle => (0, None, None),
-            Status::LookingUp { attempt, .. } => (1, Some(*attempt), None),
-            Status::Found(session) => (2, None, Some(session.id.clone())),
-        }
+    fn push_session(&mut self, session: SessionInfo) {
+        self.sessions.push(session);
     }
 
-    /// When a pending lookup times out.
-    fn due(&self) -> Option<f64> {
-        match self.status {
-            Status::LookingUp { due, .. } => Some(due),
-            _ => None,
-        }
-    }
-}
-
-pub struct HomeSearch {
-    pub search: Search,
-    active: Highlight,
-    /// The Home row under the pointer: it shows its worktree and branch (`HomeSessionLocation`).
-    pub(crate) hovered: Option<String>,
-    /// Alt is held: every row shows its worktree and branch (`alt-hold.ts`, Desktop only).
-    pub(crate) alt_held: bool,
-    /// The list's order while the pointer is on it (`view::home::list`).
-    pub(crate) hold: crate::view::HomeHold,
-    /// The exact match, as a list: what [`Search::exact`] holds, for readers that look sessions up.
-    pub(crate) loaded: Vec<SessionInfo>,
-    /// The id lookup on its worker: its attempt and what it found.
-    lookup: Latest<(Attempt, Option<SessionInfo>)>,
-}
-
-impl Default for HomeSearch {
-    fn default() -> Self {
-        HomeSearch { search: Search::default(), active: Highlight::default(), hovered: None, alt_held: false, hold: crate::view::HomeHold::Free, loaded: Vec::new(), lookup: Latest::default() }
-    }
-}
-
-impl HomeSearch {
-    pub fn set_waker(&mut self, waker: Waker) {
-        self.lookup = Latest::new(waker);
+    fn search_session(&self, id: &str) -> Option<&SessionInfo> {
+        App::search_session(self, id)
     }
 
-    pub fn activate(&mut self, id: String) {
-        self.active.set(id);
+    fn project_for_session(&self, session: &SessionInfo) -> Option<&Project> {
+        App::project_for_session(self, session)
     }
 
-    /// The query changed: the first result lights (search-machine.ts:87).
-    pub fn query_changed(&mut self) {
-        self.active.clear();
+    fn merged_roots(&self) -> Vec<&SessionInfo> {
+        App::merged_roots(self, &[])
     }
-}
 
-/// Desktop's `looksLikeSessionID`: `value.length > 20 && value.startsWith("ses_")`.
-pub fn looks_like_session_id(s: &str) -> bool {
-    s.len() > 20 && s.starts_with("ses_")
+    fn find_home_sessions(&self, project_id: Option<&str>, query: &str, limit: usize) -> Vec<(i32, i64, Box<str>)> {
+        let scope = crate::switcher::search_index::Scope::Home {
+            project: project_id.map(str::to_owned),
+        };
+        self.find_sessions(scope, query, limit)
+    }
+
+    fn session_search_building(&self) -> bool {
+        App::session_search_building(self)
+    }
+
+    fn fulltext_home_rows(&self) -> &[crate::fulltext::Row] {
+        self.fulltext_rows(crate::fulltext::Surface::Home)
+    }
+
+    fn before_focus_home_search(&mut self) {
+        self.close_picker(false);
+        self.project_state.home_menu_open = false;
+    }
+
+    fn prefetch_session(&self, id: &str) {
+        App::prefetch_session(self, id);
+    }
+
+    fn open_session(&mut self, id: &str, tx: &mut Tx) {
+        self.open(id, tx);
+    }
+
+    fn open_find_at(&mut self, query: &str, message: &str, tx: &mut Tx) {
+        App::open_find_at(self, query, message, tx);
+    }
+
+    fn handle_fallback_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
+        self.switcher_key(ev, tx) || self.shortcut(ev, tx)
+    }
 }
 
 impl App {
     pub fn focus_home_search(&mut self, tx: &mut Tx) {
-        self.close_picker(false);
-        self.project_state.home_menu_open = false;
-        self.search.focused = true;
-        let len = self.search.text.len();
-        self.search.set_selection(0, len);
-        self.home_search_step(Event::Focused, tx);
-        tx.instant();
+        opencode_feature_workspace_tools::home_search::focus_home_search(self, tx);
     }
 
     pub fn clear_home_search(&mut self, keep_focus: bool, tx: &mut Tx) {
-        self.home_search_step(Event::Closed, tx);
-        self.search.focused = keep_focus;
-        if keep_focus {
-            self.home_search_step(Event::Focused, tx);
-        }
-        tx.instant();
+        opencode_feature_workspace_tools::home_search::clear_home_search(self, keep_focus, tx);
     }
 
-    /// Steps the search's machine and carries out what it asks.
-    fn home_search_step(&mut self, event: Event, tx: &mut Tx) {
-        for effect in self.home_search.search.step(event) {
-            match effect {
-                Effect::Lookup { attempt, id } => {
-                    let Source::Live { server, .. } = &*self.source else { continue };
-                    let server = server.clone();
-                    self.home_search.lookup.request(id, move |id| {
-                        let found = server.get(&format!("/api/session/{id}")).ok().map(|v| model::parse_session(v.get("data").unwrap_or(&v)));
-                        // An archived session isn't one Home finds (`lookup`).
-                        (attempt, found.filter(|s| s.archived.is_none()))
-                    });
-                }
-                Effect::Abort => self.home_search.lookup.cancel(),
-                Effect::Clear => {
-                    self.search.clear();
-                    self.search.cancel_composition();
-                    self.search.focused = false;
-                    self.home_search.active.clear();
-                }
-                Effect::Unhighlight => self.home_search.active.clear(),
-            }
-        }
-        self.home_search.loaded = self.home_search.search.exact().cloned().into_iter().collect();
-        if let Some(due) = self.home_search.search.due() {
-            tx.wake_at(due);
-        }
-    }
-
-    /// A person's root sessions Home lists for `selected` project, newest first: at most
-    /// `HOME_SESSION_LIMIT` (64, `home/sessions/index.ts`). An automation's sessions
-    /// fold away (`view::home::list`). Search never narrows them; it shows its matches in its own panel.
     pub fn home_sessions<'a>(&'a self, selected: Option<&Project>) -> Vec<&'a SessionInfo> {
-        self.home_roots(selected).filter(|s| !crate::view::is_automation(&s.title)).take(HOME_SESSION_LIMIT).collect()
+        opencode_feature_workspace_tools::home_search::home_sessions(self, selected)
     }
 
-    /// The search panel's results (`search.ts`): sessions whose `"{title} {project}"` holds the
-    /// trimmed query, after the session a typed id found when it isn't one of them.
     pub fn home_search_results<'a>(&'a self, selected: Option<&Project>) -> Vec<&'a SessionInfo> {
-        let q = self.search.text.trim();
-        if q.is_empty() {
-            return vec![];
-        }
-        let scope = crate::switcher::search_index::Scope::Home { project: selected.map(|p| p.id.clone()) };
-        let mut records: Vec<&SessionInfo> = self.find_sessions(scope, q, 50).into_iter().filter(|(score, _, _)| *score >= opencode_search::SUBSTRING).filter_map(|(_, _, id)| self.search_session(&id)).filter(|s| s.archived.is_none()).collect();
-        // Then the sessions only their messages match (full text), each with its line of context.
-        for r in self.fulltext_rows(crate::fulltext::Surface::Home) {
-            if !records.iter().any(|s| s.id == r.session)
-                && let Some(s) = self.search_session(&r.session).or(r.fallback.as_ref())
-            {
-                records.push(s);
-            }
-        }
-        match self.home_search.search.exact().filter(|exact| !records.iter().any(|r| r.id == exact.id)) {
-            Some(exact) => std::iter::once(exact).chain(records).collect(),
-            None => records,
-        }
+        opencode_feature_workspace_tools::home_search::home_search_results(self, selected)
     }
 
     pub(crate) fn home_roots<'a>(&'a self, selected: Option<&Project>) -> impl Iterator<Item = &'a SessionInfo> {
-        let selected = selected.map(|p| p.id.clone());
-        self.merged_roots(&[])
-            .into_iter()
-            .filter(move |ses| selected.as_ref().is_none_or(|id| self.project_for_session(ses).is_some_and(|p| &p.id == id)))
+        opencode_feature_workspace_tools::home_search::home_roots(self, selected)
     }
 
-    /// Opens result `id`, closing the search; a session only its messages matched opens with Find
-    /// on the query at what matched.
     pub fn open_home_result(&mut self, id: &str, tx: &mut Tx) {
-        let q = self.search.text.trim().to_owned();
-        let found = self.found_message(crate::fulltext::Surface::Home, id, &q);
-        self.clear_home_search(false, tx);
-        self.open(id, tx);
-        if let Some(message) = found {
-            self.open_find_at(&q, &message, tx);
-        }
+        opencode_feature_workspace_tools::home_search::open_home_result(self, id, tx);
     }
 
-    /// Whether the results panel shows: while the search has focus and text (`selectSearchOpen`).
     pub fn home_search_open(&self) -> bool {
-        self.home_search.search.open() && !self.search.text.trim().is_empty()
+        opencode_feature_workspace_tools::home_search::home_search_open(self)
     }
 
-    /// Whether a typed id is being looked up, or a large list's index is still building, which
-    /// shows the panel's loader (`searchLoading`).
     pub fn home_search_loading(&self) -> bool {
-        matches!(self.home_search.search.status, Status::LookingUp { .. }) || (!self.search.text.trim().is_empty() && self.session_search_building())
+        opencode_feature_workspace_tools::home_search::home_search_loading(self)
     }
 
-    /// The highlighted result while the panel shows: the one last pointed or stepped to, else
-    /// the first (`search.ts`'s `active`).
     pub fn home_search_active(&self, ids: &[String]) -> Option<String> {
-        if !self.home_search_open() || ids.is_empty() {
-            return None;
-        }
-        self.home_search.active.resolve(ids.iter().map(String::as_str))
+        opencode_feature_workspace_tools::home_search::home_search_active(self, ids)
     }
 
     pub fn home_search_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
-        if self.search.is_composing() {
-            return false;
-        }
-        if ev.key == Key::Escape {
-            self.clear_home_search(false, tx);
-            return true;
-        }
-        let m = ev.mods;
-        if !m.alt && !m.cmd && !m.ctrl && self.home_search_open() {
-            let selected = self.home_selected().cloned();
-            let ids: Vec<String> = self.home_search_results(selected.as_ref()).into_iter().map(|s| s.id.clone()).collect();
-            match ev.key {
-                Key::Down | Key::Up if !m.shift && !ids.is_empty() => {
-                    let active = self.home_search_active(&ids);
-                    let from = ids.iter().position(|id| Some(id) == active.as_ref());
-                    let next = cycle(ids.len(), from, if ev.key == Key::Down { 1 } else { -1 });
-                    let picked = ids[next].clone();
-                    self.home_search.activate(picked.clone());
-                    self.prefetch_session(&picked);
-                    tx.instant();
-                    tx.scroll_into_view_in("home-search-list", format!("sr-{picked}"));
-                    return true;
-                }
-                Key::Enter if !m.shift => {
-                    if let Some(id) = self.home_search_active(&ids) {
-                        if self.session(&id).is_none()
-                            && let Some(ses) = self.home_search.search.exact().filter(|s| s.id == id).cloned()
-                        {
-                            self.sessions.push(ses);
-                        }
-                        self.open_home_result(&id, tx);
-                    }
-                    return true;
-                }
-                _ => {}
-            }
-        }
-        self.switcher_key(ev, tx) || self.shortcut(ev, tx)
+        opencode_feature_workspace_tools::home_search::home_search_key(self, ev, tx)
     }
 
-    /// Keeps the search up with its field, focus, scope and lookup.
     pub fn poll_home_search(&mut self, tx: &mut Tx) -> bool {
-        let mut changed = self.release_home_hold(tx);
-        if let Some((attempt, session)) = self.home_search.lookup.take() {
-            self.home_search_step(Event::Resolved { attempt, session }, tx);
-            tx.instant();
-            changed = true;
-        }
-        // The search goes with Home (`disposed`): back on Home, it starts empty.
-        if self.route != Route::Home {
-            if self.home_search.search.focused || !self.home_search.search.query.is_empty() || !self.search.text.is_empty() {
-                self.home_search_step(Event::Closed, tx);
-                self.home_search.search = Search::default();
-            }
-            return changed;
-        }
-        if self.settings.open {
-            return changed;
-        }
-        // Focus anywhere in the search keeps it open; leaving it by the keys keeps its text, a
-        // press anywhere else clears it (`blur`, and the document `pointerdown` that closes it).
-        let within = self.search.focused || tx.focused() == Some("search-clear");
-        if within != self.home_search.search.focused {
-            let event = if within { Event::Focused } else if tx.focus_visible() { Event::Blurred } else { Event::Closed };
-            self.home_search_step(event, tx);
-            tx.instant();
-            changed = true;
-        }
-        let selection = crate::projects::home::selection(self);
-        let scope = format!("{}\0{}", selection.server.as_ref().map_or("", |k| k.as_str()), selection.directory.as_deref().unwrap_or(""));
-        let key = crate::projects::home::server(self);
-        let connected = matches!(*self.source, Source::Live { .. }) && self.home_state.servers.iter().any(|v| v.key == key && v.healthy());
-        let query = self.search.text.trim().to_owned();
-        let now = *self.clock;
-        let before = self.home_search.search.mark();
-        self.home_search_step(Event::Synced { query: &query, scope: &scope, connected, now: now }, tx);
-        self.home_search_step(Event::Tick { now: now }, tx);
-        changed | (self.home_search.search.mark() != before)
+        opencode_feature_workspace_tools::home_search::poll_home_search(self, tx)
     }
 }
 
@@ -439,7 +186,13 @@ fn home_story_view(s: &App, p: &Pal) -> El {
 
 const STORY_KEYS: &[Trigger] = &[
     replay(story_open),
-    Trigger { key: 'n', label: "Next result", run: |s, tx| { let _ = s.home_search_key(&KeyEvent { key: Key::Down, mods: Default::default() }, tx); } },
+    Trigger {
+        key: 'n',
+        label: "Next result",
+        run: |s, tx| {
+            let _ = s.home_search_key(&KeyEvent { key: Key::Down, mods: Default::default() }, tx);
+        },
+    },
     Trigger { key: 'c', label: "Clear or fill query", run: story_toggle },
 ];
 

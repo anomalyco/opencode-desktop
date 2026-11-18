@@ -9,6 +9,7 @@ Start at the top and go deeper only when a feature needs lower-level control (se
 - **`plugins/`** (Tier 1 — default for ~80% of features): Luau plugins compiled against `opencode-plugin-spec`, hot-reloaded in place with zero Rust edits.
 - **`features/`** (Tier 2 — decoupled Rust feature crates):
   - `features/annotations` (`opencode-feature-annotations`): timeline/terminal quote toolbar, composer comment cards, floating quote-comment editor, and code/diff line comments.
+  - `features/composer-input` (`opencode-feature-composer-input`): composer attachments, remote upload runner/toast, file dropzone overlay, suggestions state machine, history popover, slash commands, and prompt history.
   - `features/connect` (`opencode-feature-connect`): provider connect dialog, catalog sync, picker reads, and ChatGPT plan welcome.
   - `features/dictation` (`opencode-feature-dictation`): Hex voice dictation state machine & polling.
   - `features/egg` (`opencode-feature-egg`): new-session GPU wordmark & Brick Breaker Easter egg.
@@ -31,9 +32,11 @@ Start at the top and go deeper only when a feature needs lower-level control (se
   - `features/subagents` (`opencode-feature-subagents`): running-work activity capsule, background shells state machine & output followers, and subagent reply bar.
   - `features/switcher` (`opencode-feature-switcher`): command/file/session palette switcher, shared session search index, and project/worktree/branch switcher.
   - `features/terminal-surface` (`opencode-feature-terminal-surface`): Ghostty-VT terminal pane, workspace tabs, persistence, shell integration, inline rename, find, links, and paste guard.
+  - `features/timeline-extras` (`opencode-feature-timeline-extras`): agent todo pill and list, permission/question reply state machines, live subagent step rows, permission auto-accept, and timeline capture fixtures.
   - `features/tips` (`opencode-feature-tips`): paced one-time onboarding tip scheduler.
   - `features/updater` (`opencode-feature-updater`): release feed, verification, and platform update engine.
   - `features/usage` (`opencode-feature-usage`): usage limits parser, Usage dialog, and picker warnings.
+  - `features/workspace-tools` (`opencode-feature-workspace-tools`): new-worktree branch picker, per-folder `rune` client MCP hub, Home session search, and local full-text message search.
 - **`crates/`** (Tier 3 — kernel, platform, and embeddable libraries):
   - `crates/opencode-code-view`: shared virtualized syntax-highlighted code & diff viewers plus review, delimited table, and label-find data models.
   - `crates/opencode-kernel`: shell kernel registries (`StateSlots`, `OverlayStack`, `LifecycleScheduler`, `CommandRegistry`, `EventBus`, `Feature` / `SurfaceProvider`).

@@ -35,6 +35,7 @@ wgpu = { version = "30", default-features = false }
 office-preview = { path = "../../crates/office-preview", optional = true }
 opencode-code-view = { path = "../../crates/opencode-code-view" }
 opencode-feature-annotations = { path = "../../features/annotations" }
+opencode-feature-composer-input = { path = "../../features/composer-input" }
 opencode-feature-connect = { path = "../../features/connect" }
 opencode-feature-dictation = { path = "../../features/dictation" }
 opencode-feature-egg = { path = "../../features/egg" }
@@ -57,9 +58,11 @@ opencode-feature-settings = { path = "../../features/settings" }
 opencode-feature-subagents = { path = "../../features/subagents" }
 opencode-feature-switcher = { path = "../../features/switcher" }
 opencode-feature-terminal-surface = { path = "../../features/terminal-surface" }
+opencode-feature-timeline-extras = { path = "../../features/timeline-extras" }
 opencode-feature-tips = { path = "../../features/tips" }
 opencode-feature-updater = { path = "../../features/updater" }
 opencode-feature-usage = { path = "../../features/usage" }
+opencode-feature-workspace-tools = { path = "../../features/workspace-tools" }
 opencode-kernel = { path = "../../crates/opencode-kernel" }
 opencode-platform = { path = "../../crates/opencode-platform" }
 browser-pane = { path = "../../crates/browser-pane" }
