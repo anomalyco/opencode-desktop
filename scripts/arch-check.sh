@@ -6,7 +6,7 @@
 #   3. crates/opencode-kernel, crates/opencode-runtime, crates/opencode-ui, and crates/opencode-search forbid unsafe_code
 #   4. apps/desktop/src/ root stays clean (<= 10 top-level .rs files; domains live in subfolders)
 #   5. struct App field-count ratchet (ceilings only go down; new features use opencode-kernel StateSlots or Luau)
-#   6. apps/web/Cargo.toml stays in sync with shared workspace path dependencies in apps/desktop/Cargo.toml
+#   6. apps/web/Cargo.toml depends on opencode-desktop (path = "../desktop") and never duplicates features/* deps
 #   7. No #[test] or #[cfg(test)] in tracked workspace sources (AGENTS.md)
 #   8. Hard <= 800 non-test line cap on every tracked .rs file in apps/desktop/ and features/
 #   9. Pure feature crates under features/*/src/lib.rs forbid unsafe_code (outside explicit FFI/GPU allowlist)
@@ -165,16 +165,20 @@ if os.path.exists(app_rs):
 else:
     errors.append(f"{app_rs}: missing App definition for field-count ratchet")
 
-# Rule 6: apps/web Cargo.toml stays in sync with shared desktop workspace path deps
-desktop_only_crates = {"office-preview", "opencode-feature-office"}
-desktop_toml = "apps/desktop/Cargo.toml"
+# Rule 6: apps/web depends on opencode-desktop's library target and never duplicates features/* deps
 web_toml = "apps/web/Cargo.toml"
-if os.path.exists(desktop_toml) and os.path.exists(web_toml):
-    desk_deps = {dir_to_meta[d][0] for _, d in parse_path_deps(desktop_toml) if d in dir_to_meta}
-    web_deps = {dir_to_meta[d][0] for _, d in parse_path_deps(web_toml) if d in dir_to_meta}
-    missing_in_web = sorted(desk_deps - web_deps - desktop_only_crates)
-    if missing_in_web:
-        errors.append(f"{web_toml}: missing shared workspace deps present in {desktop_toml}: {', '.join(missing_in_web)}")
+if os.path.exists(web_toml):
+    web_path_deps = [d for _, d in parse_path_deps(web_toml) if d in dir_to_meta]
+    if "apps/desktop" not in web_path_deps:
+        errors.append(f'{web_toml}: must depend on opencode-desktop via path = "../desktop"')
+    dup_features = sorted(
+        dir_to_meta[d][0] for d in web_path_deps if dir_to_meta[d][1] == "feature"
+    )
+    if dup_features:
+        errors.append(
+            f"{web_toml}: duplicates features/* dependencies ({', '.join(dup_features)}); "
+            "depend on opencode-desktop instead"
+        )
 
 # Rule 7: Zero #[test] or #[cfg(test)] in tracked Rust sources
 files = [

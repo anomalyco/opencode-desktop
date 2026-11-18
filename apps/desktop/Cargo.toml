@@ -5,6 +5,17 @@ description = "OpenCode (Rune), the native Rune desktop client for OpenCode"
 edition.workspace = true
 license.workspace = true
 
+[lib]
+name = "opencode_desktop"
+path = "src/lib.rs"
+test = false
+doctest = false
+
+[[bin]]
+name = "opencode-desktop"
+path = "src/main.rs"
+test = false
+
 [features]
 default = ["knobs", "office", "stories"]
 # Word, Excel and PowerPoint previews (`office`): BetterOffice's engines and Vello, which draws
@@ -78,17 +89,14 @@ opencode-plugin-runtime = { path = "../../crates/opencode-plugin-runtime" }
 opencode-plugin-spec = { path = "../../crates/opencode-plugin-spec" }
 project-icon = { path = "../../crates/project-icon" }
 procwatch.workspace = true
-# Random ids and passwords for plugins (System:RandomId, the askpass token).
-getrandom = "0.3"
 rune-knobs.workspace = true
 rune-parts = { path = "../../crates/rune-parts", features = ["view"] }
 # The plugins (`plugin_host`), run on Luau. mlua is rune-luau's own, named here for the bindings.
 rune-luau = { workspace = true, features = ["serde"] }
-mimalloc = { version = "0.1", default-features = false }
 mlua = { git = "https://github.com/mlua-rs/mlua", rev = "a0ad4535fc72ba89967a931c5be57b162b5f0f3f", features = ["luau"] }
 rune-perf.workspace = true
 rune-register.workspace = true
-rune = { workspace = true, features = ["native-file-dialog", "metal-backend", "avif"] }
+rune = { workspace = true, features = ["avif"] }
 rune-kit = { workspace = true, features = ["markdown", "mermaid"] }
 rune-theme-opencode.workspace = true
 serde_json.workspace = true
@@ -96,15 +104,30 @@ serde = { version = "1", features = ["derive"] }
 sha2 = "0.10"
 session-view = { path = "../../crates/session-view" }
 terminal = { path = "../../crates/terminal" }
-ureq = { workspace = true, features = ["rustls"] }
 # The build's identity everywhere; its install, uninstall and update registration on Windows.
 win-install = { path = "../../crates/win-install" }
 
-# Rune's agent tooling (`--snap`, `--tree`, `--script`, `--html`, ...) in release builds too, as before Rune #834:
-# the harnesses run release builds; `keys-overlay` keeps `--pointer` and `--keys` there (Rune #857). Not in a
-# page, where it would only add to the module.
+# Native desktop dependencies and Rune's agent tooling (`--snap`, `--tree`, `--script`, `--html`, ...) in
+# release builds too, as before Rune #834: the harnesses run release builds; `keys-overlay` keeps `--pointer`
+# and `--keys` there (Rune #857). Not in a page, where they would only add to the module.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-rune = { workspace = true, features = ["tooling", "keys-overlay"] }
+# Random ids and passwords for plugins (System:RandomId, the askpass token).
+getrandom = "0.3"
+mimalloc = { version = "0.1", default-features = false }
+rune = { workspace = true, features = ["native-file-dialog", "metal-backend", "tooling", "keys-overlay"] }
+ureq = { workspace = true, features = ["rustls"] }
+
+# Browser (`wasm32`) equivalents used by desktop's own cross-target modules (embedded fonts, ureq-web,
+# audio playback, page sign-out, and wasm_js getrandom).
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.3", features = ["wasm_js"] }
+js-sys = "0.3"
+# The web keeps Rune's bundled Inter and IBM Plex Mono (first faces, full faces after the first frame).
+rune = { workspace = true, features = ["embedded-fonts"] }
+ureq-web = { path = "../../crates/ureq-web" }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["HtmlAudioElement", "HtmlMediaElement", "Performance", "Window"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 browser-pane = { path = "../../crates/browser-pane", features = ["engine"] }

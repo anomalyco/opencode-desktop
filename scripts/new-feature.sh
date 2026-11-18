@@ -291,7 +291,7 @@ Created Lane B Rust feature crate:
 Next steps (wire into the workspace):
   1. Cargo.toml ([workspace] members):
        "features/${ID}",
-  2. apps/desktop/Cargo.toml and apps/web/Cargo.toml (dependencies):
+  2. apps/desktop/Cargo.toml (dependencies):
        opencode-feature-${ID} = { path = "../../features/${ID}" }
   3. apps/desktop/src/kernel.rs (inside build(), after implementing ${PASCAL}Host for App in apps/desktop/src/surfaces/${SNAKE}.rs):
        b.with_feature(&opencode_feature_${SNAKE}::${PASCAL}Feature);

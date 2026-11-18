@@ -130,7 +130,7 @@ pub struct Half {
     /// What each watched signal saw last (`services::watch`).
     pub seen: RefCell<HashMap<String, u64>>,
     /// What `Sessions.Changed` read when it last compared the sessions' versions.
-    pub sessions_read: Cell<Option<super::services::SessionInputs>>,
+    pub(crate) sessions_read: Cell<Option<super::services::SessionInputs>>,
     /// Shell slots whose render failed in the running VM: they draw nothing until a reload.
     pub failed: RefCell<std::collections::HashSet<String>>,
 }

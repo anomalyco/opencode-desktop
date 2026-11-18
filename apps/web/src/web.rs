@@ -4,12 +4,10 @@
 //! shared link never traps the module. The page (index.html) takes a password out of its address
 //! before it loads this, and hands it to [`start`].
 
+use opencode_desktop::{App, web_api};
 use wasm_bindgen::{JsCast, closure::Closure, prelude::wasm_bindgen};
 
-use crate::{App, appearance, launch, rune_app, spec, storage, windows};
-
-#[path = "browser_history.rs"]
-mod browser_history;
+use crate::browser_history;
 
 #[wasm_bindgen(inline_js = "export function initialPointer() {\n  const hoverNone = matchMedia('(hover: none)').matches;\n  const coarse = matchMedia('(pointer: coarse)').matches;\n  return (hoverNone ? 1 : 0) | (hoverNone && coarse ? 2 : 0);\n}\nexport function initialCpuCanvasOnly() {\n  return !(globalThis.navigator && 'gpu' in globalThis.navigator) || globalThis.RUNE_CPU_FIRST === 'only';\n}\nexport function watchPermanentCpuCanvas(onPermanent) {\n  if (typeof PerformanceObserver === 'undefined') return;\n  const marks = new Set(['web.gpu.failed', 'web.handover.failed', 'web.gpu.lost']);\n  const obs = new PerformanceObserver(list => {\n    for (const entry of list.getEntries()) {\n      if (marks.has(entry.name)) {\n        obs.disconnect();\n        onPermanent();\n        return;\n      }\n    }\n  });\n  try { obs.observe({ type: 'mark', buffered: true }); } catch {}\n}\nexport function watchKeyboardDismiss(onDismiss) {\n  let touchDown = 0;\n  window.addEventListener('touchstart', () => { touchDown++; }, { passive: true, capture: true });\n  const end = () => { touchDown = Math.max(0, touchDown - 1); };\n  window.addEventListener('touchend', end, { passive: true, capture: true });\n  window.addEventListener('touchcancel', end, { passive: true, capture: true });\n  window.addEventListener('focusout', ev => {\n    const tag = ev.target?.tagName;\n    if (tag !== 'TEXTAREA' && tag !== 'INPUT') return;\n    queueMicrotask(() => {\n      if (touchDown > 0) return;\n      const a = document.activeElement?.tagName;\n      if (a === 'TEXTAREA' || a === 'INPUT') return;\n      onDismiss();\n    });\n  });\n}\n")]
 extern "C" {
@@ -41,19 +39,19 @@ pub fn start(password: Option<String>) {
     let args = page_args();
     rune::tooling::Args::parse_from(args.clone());
     if let Some(password) = password.filter(|p| !p.is_empty()) {
-        let server = crate::arg("--server").unwrap_or_else(|| opencode_kit::client::DEFAULT_SERVER.to_owned());
+        let server = web_api::arg("--server").unwrap_or_else(|| opencode_kit::client::DEFAULT_SERVER.to_owned());
         opencode_kit::local_service::remember_page_password(&server, &password);
     }
     // The app's state: the browser's storage, as the database is natively.
-    crate::init_features();
-    storage::start();
+    web_api::init_features();
+    web_api::storage_start();
     // Start the reads before the first view. If they are already in, setup can connect here.
-    launch::defer();
-    launch::start_first_reads();
-    let app_spec = rune::AppSpec { families: appearance::launch_families(), poll: Some(poll), ..spec(App::new) };
-    let app = crate::LATE_FONTS.iter().fold(rune_app(app_spec).args(args), |app, url| app.font_url_later(url));
+    web_api::launch_defer();
+    web_api::launch_start_first_reads();
+    let app_spec = rune::AppSpec { families: web_api::launch_families(), poll: Some(poll), ..web_api::spec(web_api::new_app) };
+    let app = web_api::LATE_FONTS.iter().fold(web_api::rune_app(app_spec).args(args), |app, url| app.font_url_later(url));
     let handle = app.handle();
-    let wake = launch::inbox_waker(handle.clone());
+    let wake = web_api::launch_inbox_waker(handle.clone());
     let i18n_wake = wake.clone();
     opencode_i18n::on_loaded(move || i18n_wake());
     browser_history::listen(handle.clone());
@@ -63,16 +61,16 @@ pub fn start(password: Option<String>) {
     }
     flush_on_pagehide();
     app.init(move || {
-        let mut s = App::new();
+        let mut s = web_api::new_app();
         if let Some(dpr) = web_sys::window().map(|w| w.device_pixel_ratio() as f32).filter(|&v| v > 0.0) {
-            s.window.scale = dpr;
-            session_view::scroller::set_device_scale(windows::view_scale(&s));
+            web_api::set_window_scale(&mut s, dpr);
+            session_view::scroller::set_device_scale(web_api::view_scale(&s));
         }
-        s.launch.inbox_wake = Some(wake);
+        web_api::set_inbox_wake(&mut s, wake);
         s
     }).on_ready(move |_| {
-        storage::presented();
-        handle.update_if(launch::ready);
+        web_api::storage_presented();
+        handle.update_if(web_api::launch_ready);
     })
     .run();
 }
@@ -80,9 +78,9 @@ pub fn start(password: Option<String>) {
 /// The app's poll, then the browser's history catching up with where it went.
 fn poll(s: &mut App, now: f64, tx: &mut rune::Tx) -> bool {
     if let Some(dpr) = web_sys::window().map(|w| w.device_pixel_ratio() as f32).filter(|&v| v > 0.0) {
-        s.window.scale = dpr;
+        web_api::set_window_scale(s, dpr);
     }
-    let changed = crate::poll(s, now, tx);
+    let changed = web_api::poll(s, now, tx);
     browser_history::sync(s);
     changed
 }
@@ -96,10 +94,7 @@ fn sync_keyboard_dismiss(handle: rune::AppHandle<App>) {
             if !session_view::style::touch_controls() {
                 return false;
             }
-            let changed = s.composer.focused || s.suggest.search.focused;
-            s.composer.focused = false;
-            s.suggest.search.focused = false;
-            changed
+            web_api::dismiss_touch_keyboard(s)
         });
     });
     watch_keyboard_dismiss(on_dismiss.as_ref().unchecked_ref());
@@ -128,8 +123,8 @@ fn sync_permanent_cpu_canvas(handle: rune::AppHandle<App>) {
 fn flush_on_pagehide() {
     let Some(window) = web_sys::window() else { return };
     let on_hide = Closure::<dyn FnMut()>::new(|| {
-        crate::terminal::persist::flush();
-        storage::flush(opencode_storage::FlushReason::Close, false);
+        web_api::terminal_flush();
+        web_api::storage_flush(opencode_storage::FlushReason::Close, false);
     });
     let _ = window.add_event_listener_with_callback("pagehide", on_hide.as_ref().unchecked_ref());
     on_hide.forget();

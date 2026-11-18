@@ -1,111 +1,29 @@
 [package]
 name = "opencode-web"
 version = "0.0.1"
-description = "OpenCode (Rune) in a browser: the desktop app's own code, built for wasm32 with WebGPU"
+description = "OpenCode (Rune) in a browser: thin wasm32/WebGPU entry over opencode-desktop"
 edition.workspace = true
 license.workspace = true
 publish = false
 
-# The desktop app's crate, compiled again as a library for the browser: no file moves under
-# apps/desktop, and the native binary stays exactly what it was. Web-only code lives in
-# apps/web/src and main.rs reaches it through `#[path]`. Built for any other target the library
-# is empty (build.rs sets `opencode_web_host`), so a native `cargo check --workspace` pays nothing.
 [lib]
 name = "opencode_web"
-path = "../desktop/src/main.rs"
+path = "src/lib.rs"
 crate-type = ["cdylib", "rlib"]
 test = false
 doctest = false
 
-[features]
-default = []
-# Named as the desktop app's are, so its `cfg(feature = ...)` lines read the same here; all off.
-office = []
-browser = []
-hot = []
-knobs = []
-stories = []
-
-# The desktop app's dependencies that build for the web (keep them in step with apps/desktop's;
-# the web CI job fails when one is missing), and the page's own.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-base64 = "0.22"
-browser-pane = { path = "../../crates/browser-pane" }
-procwatch.workspace = true
-rune-mac.workspace = true
-rune-notify.workspace = true
-rune-perf.workspace = true
-rune-register.workspace = true
-win-install = { path = "../../crates/win-install" }
-crc32fast = "1"
-flate2 = "1"
-hex-client = { path = "../../crates/hex-client" }
-getrandom = { version = "0.3", features = ["wasm_js"] }
-image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 js-sys = "0.3"
-mlua = { git = "https://github.com/mlua-rs/mlua", rev = "a0ad4535fc72ba89967a931c5be57b162b5f0f3f", features = ["luau"] }
-opencode-code-view = { path = "../../crates/opencode-code-view" }
-opencode-feature-annotations = { path = "../../features/annotations" }
-opencode-feature-composer-input = { path = "../../features/composer-input" }
-opencode-feature-connect = { path = "../../features/connect" }
-opencode-feature-dictation = { path = "../../features/dictation" }
-opencode-feature-egg = { path = "../../features/egg" }
-opencode-feature-files = { path = "../../features/files" }
-opencode-feature-find = { path = "../../features/find" }
-opencode-feature-history = { path = "../../features/history" }
-opencode-feature-inbox = { path = "../../features/inbox" }
-opencode-feature-mcp = { path = "../../features/mcp" }
-opencode-feature-mentions = { path = "../../features/mentions" }
-opencode-feature-narrow = { path = "../../features/narrow" }
-opencode-feature-notifications = { path = "../../features/notifications" }
-opencode-feature-open-in = { path = "../../features/open-in" }
-opencode-feature-panels = { path = "../../features/panels" }
-opencode-feature-projects = { path = "../../features/projects" }
-opencode-feature-restore = { path = "../../features/restore" }
-opencode-feature-review = { path = "../../features/review" }
-opencode-feature-session-menu = { path = "../../features/session-menu" }
-opencode-feature-settings = { path = "../../features/settings" }
-opencode-feature-subagents = { path = "../../features/subagents" }
-opencode-feature-switcher = { path = "../../features/switcher" }
-opencode-feature-terminal-surface = { path = "../../features/terminal-surface" }
-opencode-feature-timeline-extras = { path = "../../features/timeline-extras" }
-opencode-feature-tips = { path = "../../features/tips" }
-opencode-feature-updater = { path = "../../features/updater" }
-opencode-feature-usage = { path = "../../features/usage" }
-opencode-feature-workspace-tools = { path = "../../features/workspace-tools" }
+opencode-desktop = { path = "../desktop", default-features = false }
 opencode-i18n = { path = "../../crates/opencode-i18n" }
-opencode-kernel = { path = "../../crates/opencode-kernel" }
 opencode-kit = { path = "../../crates/opencode-kit" }
-opencode-platform = { path = "../../crates/opencode-platform" }
-opencode-runtime = { path = "../../crates/opencode-runtime" }
-opencode-search = { path = "../../crates/opencode-search" }
 opencode-storage = { path = "../../crates/opencode-storage" }
-opencode-ui = { path = "../../crates/opencode-ui" }
-opencode-plugin-runtime = { path = "../../crates/opencode-plugin-runtime" }
-opencode-plugin-spec = { path = "../../crates/opencode-plugin-spec" }
-project-icon = { path = "../../crates/project-icon" }
-# The web keeps Rune's bundled Inter and IBM Plex Mono (first faces, full faces after the first frame).
 rune = { workspace = true, features = ["avif", "embedded-fonts"] }
-rune-kit = { workspace = true, features = ["markdown", "mermaid"] }
-rune-knobs.workspace = true
-rune-luau = { workspace = true, features = ["serde"] }
-rune-parts = { path = "../../crates/rune-parts", features = ["view"] }
-rune-theme-opencode.workspace = true
-serde = { version = "1", features = ["derive"] }
-serde_json.workspace = true
 session-view = { path = "../../crates/session-view" }
-sha2 = "0.10"
-ureq-web = { path = "../../crates/ureq-web" }
-terminal = { path = "../../crates/terminal" }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-web-sys = { version = "0.3", features = ["Document", "History", "HtmlAudioElement", "HtmlMediaElement", "Location", "Navigator", "Performance", "PopStateEvent", "UrlSearchParams", "Window"] }
-
-# The desktop app's build script's (apps/web runs it): keep them in step with apps/desktop's.
-[build-dependencies]
-win-install = { path = "../../crates/win-install", features = ["resources"] }
-mlua = { git = "https://github.com/mlua-rs/mlua", rev = "a0ad4535fc72ba89967a931c5be57b162b5f0f3f", features = ["luau"] }
-serde_json.workspace = true
+web-sys = { version = "0.3", features = ["Document", "History", "Location", "Navigator", "PopStateEvent", "UrlSearchParams", "Window"] }
 
 [lints]
 workspace = true

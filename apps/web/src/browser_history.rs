@@ -4,9 +4,8 @@
 
 use std::cell::RefCell;
 
+use opencode_desktop::{App, web_api};
 use wasm_bindgen::{JsCast, prelude::*};
-
-use crate::{App, Route};
 
 thread_local! {
     /// The app's history index, the place it showed (session, Settings open) and the address of
@@ -25,13 +24,11 @@ struct Seen {
 /// entry; Back and Forward from the app's own keys move the browser's entry with them. A poll
 /// that finds the app where it was reads nothing of the page.
 pub(crate) fn sync(s: &App) {
-    let index = s.nav.index();
-    let session = match &*s.route {
-        Route::Session { id, .. } => Some(id.as_str()),
-        _ => None,
-    };
+    let index = web_api::nav_index(s);
+    let session = web_api::active_session_id(s);
+    let settings = web_api::settings_open(s);
     SEEN.with_borrow_mut(|seen| {
-        if seen.as_ref().is_some_and(|v| v.index == index && v.session.as_deref() == session && v.settings == s.settings.open) {
+        if seen.as_ref().is_some_and(|v| v.index == index && v.session.as_deref() == session && v.settings == settings) {
             return;
         }
         let url = address(s);
@@ -43,7 +40,7 @@ pub(crate) fn sync(s: &App) {
             Some(v) if v.index != index => drop(history.go_with_delta(index as i32 - v.index as i32)),
             _ => drop(history.replace_state_with_url(&state, "", Some(&url))),
         }
-        *seen = Some(Seen { index, session: session.map(str::to_owned), settings: s.settings.open, url });
+        *seen = Some(Seen { index, session: session.map(str::to_owned), settings, url });
     });
 }
 
@@ -53,16 +50,17 @@ pub(crate) fn listen(handle: rune::AppHandle<App>) {
     let on_pop = Closure::<dyn FnMut(web_sys::PopStateEvent)>::new(move |event: web_sys::PopStateEvent| {
         let Some(target) = event.state().as_f64().map(|i| i as usize) else { return };
         handle.update_if(move |s, tx| {
-            let start = s.nav.index();
-            while s.nav.index() != target && s.navigate(target > s.nav.index(), tx) {}
+            let start = web_api::nav_index(s);
+            while web_api::nav_index(s) != target && web_api::navigate(s, target > web_api::nav_index(s), tx) {}
             // The browser is on that entry already.
-            let session = match &*s.route {
-                Route::Session { id, .. } => Some(id.clone()),
-                _ => None,
+            let seen = Seen {
+                index: web_api::nav_index(s),
+                session: web_api::active_session_id(s).map(str::to_owned),
+                settings: web_api::settings_open(s),
+                url: address(s),
             };
-            let seen = Seen { index: s.nav.index(), session, settings: s.settings.open, url: address(s) };
             SEEN.with_borrow_mut(|v| *v = Some(seen));
-            s.nav.index() != start
+            web_api::nav_index(s) != start
         });
     });
     let _ = window.add_event_listener_with_callback("popstate", on_pop.as_ref().unchecked_ref());
@@ -76,10 +74,10 @@ fn address(s: &App) -> String {
     let Ok(params) = web_sys::UrlSearchParams::new_with_str(&location.search().unwrap_or_default()) else { return String::new() };
     params.delete("session");
     params.delete("settings");
-    if let Route::Session { id, .. } = &*s.route {
+    if let Some(id) = web_api::active_session_id(s) {
         params.set("session", id);
     }
-    if s.settings.open {
+    if web_api::settings_open(s) {
         params.set("settings", "");
     }
     format!("{}?{}", location.pathname().unwrap_or_default(), String::from(params.to_string()))
