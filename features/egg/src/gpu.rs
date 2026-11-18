@@ -12,7 +12,44 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use rune::compose::{DeviceKey, Frame};
 use rune::render::{EffectSite, Instance, KIND_EFFECT};
 
-use super::{EggHost, draw};
+use super::{Egg, EggHost, draw};
+
+/// Object-safe view of `rune::compose::Frame<'_, H>` so all WGPU shader pipeline setup,
+/// buffer uploads, and instancing codegen stay non-generic inside `opencode-feature-egg`.
+trait EggFrame {
+    fn egg(&self) -> &Egg;
+    fn instances(&self) -> &[Instance];
+    fn device(&self) -> &wgpu::Device;
+    fn device_key(&self) -> DeviceKey;
+    fn encoder(&mut self) -> &mut wgpu::CommandEncoder;
+    fn write_buffer(&mut self, buffer: &wgpu::Buffer, offset: u64, data: &[u8]);
+}
+
+impl<H: EggHost + 'static> EggFrame for Frame<'_, H> {
+    fn egg(&self) -> &Egg {
+        self.rt.state.egg()
+    }
+
+    fn instances(&self) -> &[Instance] {
+        &self.rt.instances
+    }
+
+    fn device(&self) -> &wgpu::Device {
+        self.device
+    }
+
+    fn device_key(&self) -> DeviceKey {
+        Frame::device_key(self)
+    }
+
+    fn encoder(&mut self) -> &mut wgpu::CommandEncoder {
+        self.encoder
+    }
+
+    fn write_buffer(&mut self, buffer: &wgpu::Buffer, offset: u64, data: &[u8]) {
+        Frame::write_buffer(self, buffer, offset, data);
+    }
+}
 
 const TAG: u32 = 0x4547 << 16;
 pub const BACK: u32 = TAG | 1;
@@ -133,14 +170,14 @@ impl Buffer {
         Buffer { buf: None, cap: 0, count: 0 }
     }
 
-    fn upload<H: EggHost>(&mut self, f: &mut Frame<'_, H>, bytes: &[u8], count: u32, label: &'static str) {
+    fn upload(&mut self, f: &mut dyn EggFrame, bytes: &[u8], count: u32, label: &'static str) {
         self.count = count;
         if bytes.is_empty() {
             return;
         }
         let need = (bytes.len() as u64).next_power_of_two().max(1024);
         if self.cap < bytes.len() as u64 || self.buf.is_none() {
-            self.buf = Some(f.device.create_buffer(&wgpu::BufferDescriptor { label: Some(label), size: need, usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false }));
+            self.buf = Some(f.device().create_buffer(&wgpu::BufferDescriptor { label: Some(label), size: need, usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false }));
             self.cap = need;
         }
         if let Some(buf) = &self.buf {
@@ -169,7 +206,11 @@ impl EggGpu {
 
     /// Builds and renders the egg's layers for this frame (and notes that frames draw on the GPU). False when no egg slot is on screen:
     /// everything the egg held on the GPU is let go.
-    pub fn prepare<H: EggHost>(&mut self, f: &mut Frame<'_, H>) -> bool {
+    pub fn prepare<H: EggHost + 'static>(&mut self, f: &mut Frame<'_, H>) -> bool {
+        self.prepare_inner(f)
+    }
+
+    fn prepare_inner(&mut self, f: &mut dyn EggFrame) -> bool {
         if !ON_GPU.load(Ordering::Relaxed) {
             ON_GPU.store(true, Ordering::Relaxed);
         }
@@ -181,13 +222,13 @@ impl EggGpu {
         drew
     }
 
-    fn prepare_frame<H: EggHost>(&mut self, f: &mut Frame<'_, H>) -> bool {
+    fn prepare_frame(&mut self, f: &mut dyn EggFrame) -> bool {
         // With no egg out, the app's frames pay one check here and nothing is held.
-        let Some(live) = f.rt.state.egg().live.as_deref() else {
+        let Some(live) = f.egg().live.as_deref() else {
             self.release();
             return false;
         };
-        let slots: Vec<(u32, [f32; 4], f32)> = f.rt.instances.iter().filter(|i| i.params[1] == KIND_EFFECT).map(|i| (mark(i), i.rect, i.params[3])).filter(|(m, ..)| is_mark(*m)).collect();
+        let slots: Vec<(u32, [f32; 4], f32)> = f.instances().iter().filter(|i| i.params[1] == KIND_EFFECT).map(|i| (mark(i), i.rect, i.params[3])).filter(|(m, ..)| is_mark(*m)).collect();
         if slots.is_empty() {
             self.release();
             return false;
@@ -196,7 +237,7 @@ impl EggGpu {
         draw::scene(&mut self.scene, live, pal, &slots, live.clock);
         let key = f.device_key();
         if self.gpu.as_ref().is_none_or(|g| g.key != key) {
-            self.gpu = Some(Gpu::new(f.device, key));
+            self.gpu = Some(Gpu::new(f.device(), key));
         }
         let Some(gpu) = self.gpu.as_mut() else { return false };
         for (n, at) in [self.scene.back, self.scene.front].into_iter().enumerate() {
@@ -206,10 +247,10 @@ impl EggGpu {
             gpu.render_layer(f, n, at, quads, *shadows);
         }
         for (mark, shapes) in [(BACK, &self.scene.paddle), (MID, &self.scene.mid)] {
-            let res = gpu.slot(f.device, mark);
+            let res = gpu.slot(f.device(), mark);
             res.shapes.upload(f, bytemuck::cast_slice(shapes), shapes.len() as u32, "egg shapes");
         }
-        gpu.slot(f.device, FRONT);
+        gpu.slot(f.device(), FRONT);
         true
     }
 
@@ -312,19 +353,19 @@ impl Gpu {
         })
     }
 
-    fn render_layer<H: EggHost>(&mut self, f: &mut Frame<'_, H>, n: usize, at: draw::LayerAt, quads: &[super::pins::draw::Quad], shadows: usize) {
+    fn render_layer(&mut self, f: &mut dyn EggFrame, n: usize, at: draw::LayerAt, quads: &[super::pins::draw::Quad], shadows: usize) {
         let size = [at.pixels[0].max(1), at.pixels[1].max(1)];
         if self.layers[n].as_ref().is_none_or(|l| l.cap[0] < size[0] || l.cap[1] < size[1]) {
             let old = self.layers[n].as_ref().map_or([0, 0], |l| l.cap);
             let cap = [size[0].max(old[0]).next_multiple_of(256), size[1].max(old[1]).next_multiple_of(256)];
-            self.layers[n] = Some(self.layer(f.device, cap));
+            self.layers[n] = Some(self.layer(f.device(), cap));
         }
         let Some(l) = self.layers[n].as_mut() else { return };
         l.size = size;
         let u = LayerUniform { view: [at.region[0] as f32, at.region[1] as f32, size[0] as f32, size[1] as f32], scale: [at.scale, 0.0, 0.0, 0.0] };
         f.write_buffer(&l.uniform, 0, bytemuck::bytes_of(&u));
         l.quads.upload(f, bytemuck::cast_slice(quads), quads.len() as u32, "egg pins");
-        let mut pass = f.encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        let mut pass = f.encoder().begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("egg pins"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: &l.view, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store } })],
             depth_stencil_attachment: None,

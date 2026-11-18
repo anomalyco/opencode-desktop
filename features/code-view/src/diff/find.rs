@@ -104,7 +104,7 @@ impl DiffDocState {
 
     /// Find's keys while its field has the keyboard: Enter steps (Shift+Enter back), Escape
     /// closes; an input method's own Enter and Escape come first.
-    pub(super) fn find_key(&mut self, ev: &KeyEvent, tx: &mut Tx, keys: &impl KeyMatch) -> bool {
+    pub(super) fn find_key(&mut self, ev: &KeyEvent, tx: &mut Tx, keys: &dyn KeyMatch) -> bool {
         if keys.is_find(ev, tx) {
             tx.instant();
             self.set_find_open(true);

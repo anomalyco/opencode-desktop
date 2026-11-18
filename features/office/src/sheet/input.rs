@@ -13,62 +13,66 @@ use crate::{OfficeHost, registry};
 /// press selects a cell, a row, a column or everything (Shift extends), a drag moves the far
 /// corner and scrolls the sheet toward a pointer past the cells' edge, and the press takes the
 /// keyboard.
-pub fn pointer<H: OfficeHost>(grid: El, id: u64, key: &str) -> El {
+pub fn pointer<H: OfficeHost + 'static>(grid: El, id: u64, key: &str) -> El {
     let key = key.to_owned();
-    grid.on_drag(move |s: &mut H, d: &mut Drag, tx: &mut Tx| {
-        let (changed, effect) = match d.phase {
-            Phase::Down => {
-                tx.focus(key.clone(), false);
-                let hit = locate(id, d.x, d.y, false).map(|(cell, spot)| hit(cell, spot));
-                // Ctrl or Cmd changes nothing: a click follows a link either way (`press`).
-                registry::pointer(id, PointerEvent::Down { shift: tx.mods().shift, hit })
-            }
-            Phase::Move => {
-                chase(id, d.x, d.y, tx);
-                let focus = registry::hit_target(id).map_or([0, 0], |(_, _, s)| s.focus);
-                registry::pointer(id, PointerEvent::Moved { cell: locate(id, d.x, d.y, true).map(|(c, _)| c), focus })
-            }
-            Phase::Up if d.cancelled() => registry::pointer(id, PointerEvent::Cancelled),
-            Phase::Up => registry::pointer(id, PointerEvent::Up { cell: locate(id, d.x, d.y, false).map(|(c, _)| c) }),
-        };
-        if changed {
-            tx.instant();
+    grid.on_drag(move |s: &mut H, d: &mut Drag, tx: &mut Tx| handle_drag(s, id, &key, d, tx))
+}
+
+fn handle_drag(s: &mut dyn OfficeHost, id: u64, key: &str, d: &mut Drag, tx: &mut Tx) {
+    let (changed, effect) = match d.phase {
+        Phase::Down => {
+            tx.focus(key.to_owned(), false);
+            let hit = locate(id, d.x, d.y, false).map(|(cell, spot)| hit(cell, spot));
+            // Ctrl or Cmd changes nothing: a click follows a link either way (`press`).
+            registry::pointer(id, PointerEvent::Down { shift: tx.mods().shift, hit })
         }
-        if let Some(effect) = effect {
-            run(s, effect, tx);
+        Phase::Move => {
+            chase(id, d.x, d.y, tx);
+            let focus = registry::hit_target(id).map_or([0, 0], |(_, _, s)| s.focus);
+            registry::pointer(id, PointerEvent::Moved { cell: locate(id, d.x, d.y, true).map(|(c, _)| c), focus })
         }
-    })
+        Phase::Up if d.cancelled() => registry::pointer(id, PointerEvent::Cancelled),
+        Phase::Up => registry::pointer(id, PointerEvent::Up { cell: locate(id, d.x, d.y, false).map(|(c, _)| c) }),
+    };
+    if changed {
+        tx.instant();
+    }
+    if let Some(effect) = effect {
+        run(s, effect, tx);
+    }
 }
 
 /// The grid's keys: Ctrl+C copies, Excel's keys move the selection.
-pub fn keys<H: OfficeHost>(grid: El, id: u64, labels: Labels) -> El {
-    grid.on_key(move |s: &mut H, k: &KeyEvent, tx: &mut Tx| {
-        if matches!(k.key, rune::Key::Command(c) if c.eq_ignore_ascii_case(&'c')) && !k.mods.alt {
-            if let Some(effect) = registry::copy(id, &labels.too_large, &labels.failed) {
-                run(s, effect, tx);
-            }
-            tx.focus(super::scroll_key(id), true);
-            return true;
-        }
-        let (taken, effect) = registry::key(id, &k.key, k.mods);
-        if let Some(effect) = effect {
+pub fn keys<H: OfficeHost + 'static>(grid: El, id: u64, labels: Labels) -> El {
+    grid.on_key(move |s: &mut H, k: &KeyEvent, tx: &mut Tx| handle_key(s, id, &labels, k, tx))
+}
+
+fn handle_key(s: &mut dyn OfficeHost, id: u64, labels: &Labels, k: &KeyEvent, tx: &mut Tx) -> bool {
+    if matches!(k.key, rune::Key::Command(c) if c.eq_ignore_ascii_case(&'c')) && !k.mods.alt {
+        if let Some(effect) = registry::copy(id, &labels.too_large, &labels.failed) {
             run(s, effect, tx);
         }
-        // Any key on the grid, Shift held for a Shift-click too, shows its keyboard ring, as
-        // Chromium's `:focus-visible` turns on once a key is pressed in an element the pointer
-        // focused. Tab leaves the grid, so it doesn't.
-        if !matches!(k.key, rune::Key::Tab) {
-            tx.focus(super::scroll_key(id), true);
-        }
-        if taken {
-            tx.instant();
-        }
-        taken
-    })
+        tx.focus(super::scroll_key(id), true);
+        return true;
+    }
+    let (taken, effect) = registry::key(id, &k.key, k.mods);
+    if let Some(effect) = effect {
+        run(s, effect, tx);
+    }
+    // Any key on the grid, Shift held for a Shift-click too, shows its keyboard ring, as
+    // Chromium's `:focus-visible` turns on once a key is pressed in an element the pointer
+    // focused. Tab leaves the grid, so it doesn't.
+    if !matches!(k.key, rune::Key::Tab) {
+        tx.focus(super::scroll_key(id), true);
+    }
+    if taken {
+        tx.instant();
+    }
+    taken
 }
 
 /// Does what a grid asked of the window.
-pub fn run<H: OfficeHost>(app: &mut H, effect: UiEffect, tx: &mut Tx) {
+pub fn run(app: &mut dyn OfficeHost, effect: UiEffect, tx: &mut Tx) {
     match effect {
         UiEffect::Copy { text, html } => tx.copy_rich(rune::ClipboardContent::new(text).with_html(html)),
         UiEffect::Open(url) => {

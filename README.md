@@ -11,6 +11,8 @@ Native macOS desktop client for OpenCode built on [Rune](https://github.com/anom
    ```
    OpenCode (Rune) discovers `http://127.0.0.1:4096` or `~/.config/opencode/service.json` automatically (`--server <url>` or `OPENCODE_SERVER_URL` overrides it) and never starts a server on its own.
 
+For the fastest local/mesh edit-compile-run loop (`dev-fast` profile, no Office/Vello, Luau hot reload), run `scripts/dev-fast.sh` (macOS/Linux) or `pwsh scripts/dev-fast.ps1` (Windows). See [docs/fast-builds.md](docs/fast-builds.md) for the profile matrix, `sccache`, and fast linkers.
+
 To run the standalone embeddable timeline viewer and its interactive playground without a server:
 
 ```sh

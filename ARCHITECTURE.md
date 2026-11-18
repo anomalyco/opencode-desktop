@@ -73,6 +73,6 @@ apps/*  ──▶  features/*  ──▶  crates/opencode-kernel, crates/opencod
 
 - **No upward dependencies:** `crates/*` never depend on `features/*` or `apps/*`. `features/*` never depend on `apps/*`.
 - **No cross-feature dependencies:** Feature crates under `features/*` must not depend on one another. Communicate through `opencode-kernel` (`EventBus`, `CommandRegistry`, `SurfaceRegistry`) or Luau `Contracts`.
-- **Non-generic boundaries where possible:** Keep crate boundaries concrete or `dyn` so downstream crates (`apps/desktop`) do not re-monomorphize leaf crate codegen.
+- **Non-generic boundaries where possible:** Keep crate boundaries concrete or `dyn` so downstream crates (`apps/desktop`) do not re-monomorphize leaf crate codegen (see [docs/fast-builds.md](docs/fast-builds.md)).
 - **Zero tests:** Per `AGENTS.md`, application code is truth; `scripts/arch-check.sh` guards against `#[test]` / `#[cfg(test)]` regressions.
 - **File size & folder shape:** Every `.rs` file stays under 800 lines (1,500 hard cap, `scripts/file-size.sh`) and folders stay organized without prefix clutter (`scripts/folder-shape.sh`).

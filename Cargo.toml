@@ -82,12 +82,28 @@ accesskit_macos = { git = "https://github.com/anomalyco/rune", rev = "1505f92103
 parley_engine = { git = "https://github.com/anomalyco/rune", rev = "1505f9210322e9bc75bf0f67c4134dde950fa9d2" }
 yrs = { git = "https://github.com/openooxml/y-crdt.git", rev = "e785c00611ebce79ece115defa25295982cac165" }
 
+# Keep dependencies lean in dev (opt-level = 1 cuts cold build time, RAM, and target/ size
+# across Windows/macOS/Linux), while keeping full -O3 on the small set of CPU-hot crates
+# that draw glyphs, shade icons, or decode images/streams every frame.
 [profile.dev.package."*"]
 debug = false
-opt-level = 3
+opt-level = 1
 
-# Procedural icons shade every pixel on the CPU.
 [profile.dev.package.project-icon]
+opt-level = 3
+[profile.dev.package.rune]
+opt-level = 3
+[profile.dev.package.parley_engine]
+opt-level = 3
+[profile.dev.package.image]
+opt-level = 3
+[profile.dev.package.flate2]
+opt-level = 3
+[profile.dev.package.crc32fast]
+opt-level = 3
+[profile.dev.package.opencode-search]
+opt-level = 3
+[profile.dev.package.memchr]
 opt-level = 3
 
 # What ships, and what timing measures (build it with apps/desktop/scripts/release.ps1, which adds the
@@ -105,6 +121,18 @@ incremental = false
 [profile.release-quick]
 inherits = "release"
 lto = false
+codegen-units = 16
+
+# Fastest edit-compile-run loop for local & mesh dev: skips DWARF/PDB emission and maximizes parallel codegen.
+[profile.dev-fast]
+inherits = "dev"
+debug = 0
+codegen-units = 64
+
+# Near-release runtime speed at a fraction of fat-LTO's ~10 GB RAM and 25-60 min build time.
+[profile.release-thin]
+inherits = "release"
+lto = "thin"
 codegen-units = 16
 
 [profile.rune-hot]

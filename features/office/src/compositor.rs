@@ -72,20 +72,24 @@ impl OfficeCompositor {
     /// Renders the pages on screen into their targets before the frame records. False when no
     /// page is on screen.
     pub fn prepare<S>(&mut self, f: &mut Frame<'_, S>) -> bool {
-        let slots: Vec<(u32, [f32; 4])> = f.rt.instances.iter().filter(|i| i.params[1] == KIND_EFFECT).filter(|i| registry::is_mark(mark(i))).map(|i| (mark(i), i.rect)).collect();
+        let key = f.device_key();
+        self.prepare_inner(&f.rt.instances, f.device, f.queue, key)
+    }
+
+    fn prepare_inner(&mut self, instances: &[Instance], device: &wgpu::Device, queue: &wgpu::Queue, key: DeviceKey) -> bool {
+        let slots: Vec<(u32, [f32; 4])> = instances.iter().filter(|i| i.params[1] == KIND_EFFECT).filter(|i| registry::is_mark(mark(i))).map(|i| (mark(i), i.rect)).collect();
         if slots.is_empty() {
             self.gpu = None;
             return false;
         }
         let marks: Vec<u32> = slots.iter().map(|(m, _)| *m).collect();
-        let key = f.device_key();
         let same = match &self.gpu {
             Some(Ok(g)) => g.key == key,
             Some(Err((k, _))) => *k == key,
             None => false,
         };
         if !same {
-            self.gpu = Some(Gpu::new(f.device, key).map_err(|e| (key, e)));
+            self.gpu = Some(Gpu::new(device, key).map_err(|e| (key, e)));
         }
         let gpu = match self.gpu.as_mut() {
             Some(Ok(gpu)) => gpu,
@@ -104,7 +108,7 @@ impl OfficeCompositor {
                 return false;
             }
             Vello::Ready(renderer) => {
-                let max = f64::from(f.device.limits().max_texture_dimension_2d);
+                let max = f64::from(device.limits().max_texture_dimension_2d);
                 let blit = &gpu.blit;
                 for (mark, rect) in &slots {
                     let Some(draw) = registry::scene(*mark) else { continue };
@@ -118,13 +122,13 @@ impl OfficeCompositor {
                     }
                     let existing = gpu.targets.remove(mark).filter(|t| t.size == size);
                     let rendered = catch(|| {
-                        let target = existing.unwrap_or_else(|| Target::new(f.device, blit, size));
+                        let target = existing.unwrap_or_else(|| Target::new(device, blit, size));
                         let page = draw.scene();
                         let mut scene = vello::Scene::new();
                         let transform = vello::kurbo::Affine::scale_non_uniform(f64::from(size[0]) / page.width, f64::from(size[1]) / page.height);
                         scene.append(&page.scene, Some(transform));
                         let params = vello::RenderParams { base_color: vello::peniko::Color::TRANSPARENT, width: size[0], height: size[1], antialiasing_method: vello::AaConfig::Area };
-                        renderer.render_to_texture(f.device, f.queue, &scene, &target.view, &params).map_err(|e| e.to_string())?;
+                        renderer.render_to_texture(device, queue, &scene, &target.view, &params).map_err(|e| e.to_string())?;
                         Ok(target)
                     });
                     match rendered {
