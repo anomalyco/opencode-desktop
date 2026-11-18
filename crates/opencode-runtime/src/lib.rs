@@ -21,4 +21,5 @@ pub use draft::{Entry, SavedDraft};
 pub use server_pool::ServerPool;
 pub use types::{
     ContextFile, DockPlacement, NotifyKind, NotifyKinds, SendResult, TabStatus, TabSummary,
+    ZOOM_LEVELS, ZOOM_MAX, ZOOM_MIN, step_zoom,
 };

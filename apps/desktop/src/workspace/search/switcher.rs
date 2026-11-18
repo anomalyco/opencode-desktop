@@ -161,7 +161,7 @@ impl SwitcherHost for App {
                 title: c.title.into(),
                 description: c.description.into(),
                 hint: c.keys,
-                chord: c.chord,
+                chord: c.keys.is_none().then(|| c.effective_chord()).flatten(),
                 featured: c.featured,
             })
             .collect()

@@ -46,13 +46,13 @@ impl SlashHost for App {
             .filter_map(|c| {
                 let name = c.slash?;
                 // Desktop's `/new` is `session.new`, which has no keys of its own (`use-session-commands.tsx:446-451`).
-                let keys = c.keys.filter(|_| name != "new");
+                let chord = (name != "new").then(|| c.effective_chord()).flatten();
                 Some(BuiltinSlashCommand {
                     id: c.id,
                     name: name.into(),
                     title: c.title.into(),
                     description: c.description.into(),
-                    chord: keys.and_then(|b| b.chord()),
+                    chord,
                     args: false,
                 })
             })

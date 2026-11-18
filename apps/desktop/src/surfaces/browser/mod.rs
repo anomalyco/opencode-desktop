@@ -36,10 +36,7 @@ pub fn claims_app_shortcut(ev: &KeyEvent) -> bool {
     if PAGE_KEYS.iter().any(|c| c.matches(ev)) {
         return false;
     }
-    if matches!(
-        crate::shortcuts::action(ev),
-        Some(a) if !matches!(a, crate::shortcuts::Action::ZoomIn | crate::shortcuts::Action::ZoomOut | crate::shortcuts::Action::ZoomReset)
-    ) {
+    if crate::shortcuts::claims_from_browser(ev) {
         return true;
     }
     if [Bind::Rename, Bind::Background].iter().any(|b| b.matches(ev)) || crate::keymap::TERMINAL_TOGGLE.matches(ev) {

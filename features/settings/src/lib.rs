@@ -36,7 +36,7 @@ pub use jobs::{SettingsJob, SettingsReply, SettingsRequest, apply_reply, execute
 pub use prefs::{BackgroundActivity, Choice, Destination, FollowUp, Organize, SOUNDS, Sounds, TimelineWidth, TitlebarPosition};
 pub use types::{
     CODE_FONTS, DockPlacement, Font, NotifyKind, NotifyKinds, ReduceMotion, Scheme, TERMINAL_FONTS, TabLayout, TerminalMarkShell, TextRenderer, UI_FONTS, ZOOM_LEVELS, ZOOM_MAX, ZOOM_MIN,
-    css_family, custom_name, font_index,
+    css_family, custom_name, font_index, step_zoom,
 };
 
 /// Overlay stack identifier for the Settings screen (`opencode_kernel::OverlayStack`).

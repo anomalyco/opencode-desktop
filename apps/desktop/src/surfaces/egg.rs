@@ -2,7 +2,7 @@
 
 pub use opencode_feature_egg::*;
 
-use opencode_kernel::{Feature, KernelBuilder, Phase, SurfaceDescriptor, SurfaceKind};
+use opencode_kernel::{CommandEntry, Feature, KernelBuilder, Phase, SurfaceDescriptor, SurfaceKind};
 
 use crate::{App, Route};
 
@@ -28,11 +28,6 @@ impl opencode_feature_egg::EggHost for App {
     }
 }
 
-rune_register::register!(crate::commands::COMMANDS: crate::commands::Cmd = [
-    crate::commands::Cmd::new("egg.play", opencode_i18n::key!("rune.egg.play"), |s, tx| run_play_command(s, tx))
-        .when(|s| can_play_command(s)),
-]);
-
 /// Kernel feature registration for the new-session Easter egg.
 pub struct EggFeature;
 
@@ -42,6 +37,10 @@ impl Feature<App> for EggFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder.add_command(
+            CommandEntry::from_key("egg.play", opencode_i18n::key!("rune.egg.play"), |s, tx| run_play_command(s, tx))
+                .when(|s| can_play_command(s)),
+        );
         builder.add_system(Phase::React, "egg.poll", |s, now, tx| poll(s, now, tx));
         builder.add_visibility("egg.visibility", |s, shown, tx| visibility(s, shown, tx));
         builder.add_surface(SurfaceDescriptor::new("egg", SurfaceKind::Custom("egg"), "Wordmark Egg"));

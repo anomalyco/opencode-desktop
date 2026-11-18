@@ -40,6 +40,7 @@ pub struct CommandEntry<S> {
     pub title: CommandTitle,
     pub description: Option<CommandTitle>,
     pub slash: Option<&'static str>,
+    pub keybind: Option<&'static str>,
     pub section: Option<&'static str>,
     pub hidden: bool,
     pub enabled: fn(&S) -> bool,
@@ -60,6 +61,7 @@ impl<S> fmt::Debug for CommandEntry<S> {
             .field("id", &self.id)
             .field("title", &self.title)
             .field("slash", &self.slash)
+            .field("keybind", &self.keybind)
             .field("section", &self.section)
             .field("hidden", &self.hidden)
             .finish()
@@ -78,6 +80,7 @@ impl<S> CommandEntry<S> {
             title: title.into(),
             description: None,
             slash: None,
+            keybind: None,
             section: None,
             hidden: false,
             enabled: always_enabled,
@@ -92,6 +95,7 @@ impl<S> CommandEntry<S> {
             title: CommandTitle::Key(title),
             description: None,
             slash: None,
+            keybind: None,
             section: None,
             hidden: false,
             enabled: always_enabled,
@@ -106,6 +110,7 @@ impl<S> CommandEntry<S> {
             title: CommandTitle::Static(title),
             description: None,
             slash: None,
+            keybind: None,
             section: None,
             hidden: false,
             enabled: always_enabled,
@@ -122,6 +127,12 @@ impl<S> CommandEntry<S> {
     /// Attaches a composer `/slash` trigger name (without a leading `/`).
     pub const fn slash(mut self, name: &'static str) -> Self {
         self.slash = Some(name);
+        self
+    }
+
+    /// Attaches a default shortcut spec (for example `"mod+shift+k"`), overridable by command id.
+    pub const fn keybind(mut self, spec: &'static str) -> Self {
+        self.keybind = Some(spec);
         self
     }
 
@@ -153,6 +164,18 @@ impl<S> CommandEntry<S> {
         self.description.map(CommandTitle::resolve)
     }
 
+    /// Parses the default [`Self::keybind`] spec into a non-empty [`rune::Keybind`], if set.
+    pub fn parsed_keybind(&self) -> Option<rune::Keybind> {
+        self.keybind
+            .and_then(|spec| spec.parse::<rune::Keybind>().ok())
+            .filter(|kb| !kb.chords().is_empty())
+    }
+
+    /// First default [`rune::Chord`] parsed from [`Self::keybind`], if any.
+    pub fn chord(&self) -> Option<rune::Chord> {
+        self.parsed_keybind().and_then(|kb| kb.chords().first().copied())
+    }
+
     /// Evaluates whether this command is currently enabled for `state`.
     pub fn is_enabled(&self, state: &S) -> bool {
         (self.enabled)(state)
@@ -162,6 +185,7 @@ impl<S> CommandEntry<S> {
 /// Ordered registry of [`CommandEntry`] definitions indexed by id and slash trigger.
 pub struct CommandRegistry<S> {
     entries: Vec<CommandEntry<S>>,
+    keybinds: Vec<Option<rune::Keybind>>,
     by_id: HashMap<&'static str, usize>,
     by_slash: HashMap<&'static str, usize>,
 }
@@ -177,6 +201,7 @@ impl<S> CommandRegistry<S> {
     pub fn new() -> Self {
         Self {
             entries: Vec::new(),
+            keybinds: Vec::new(),
             by_id: HashMap::new(),
             by_slash: HashMap::new(),
         }
@@ -184,6 +209,7 @@ impl<S> CommandRegistry<S> {
 
     /// Registers a command, replacing any existing entry with the same `id` in place.
     pub fn register(&mut self, entry: CommandEntry<S>) {
+        let parsed = entry.parsed_keybind();
         if let Some(&idx) = self.by_id.get(entry.id) {
             if let Some(old_slash) = self.entries[idx].slash {
                 self.by_slash.remove(old_slash);
@@ -192,6 +218,7 @@ impl<S> CommandRegistry<S> {
                 self.by_slash.insert(slash, idx);
             }
             self.entries[idx] = entry;
+            self.keybinds[idx] = parsed;
             return;
         }
         let idx = self.entries.len();
@@ -200,12 +227,14 @@ impl<S> CommandRegistry<S> {
             self.by_slash.insert(slash, idx);
         }
         self.entries.push(entry);
+        self.keybinds.push(parsed);
     }
 
     /// Removes a command by id, returning it if it was registered.
     pub fn unregister(&mut self, id: &str) -> Option<CommandEntry<S>> {
         let idx = self.by_id.remove(id)?;
         let removed = self.entries.remove(idx);
+        self.keybinds.remove(idx);
         self.rebuild_indices();
         Some(removed)
     }
@@ -250,6 +279,48 @@ impl<S> CommandRegistry<S> {
     /// Iterates all registered commands in registration order.
     pub fn iter(&self) -> std::slice::Iter<'_, CommandEntry<S>> {
         self.entries.iter()
+    }
+
+    /// Iterates registered commands together with their cached default first chord.
+    pub fn iter_with_chords(&self) -> impl Iterator<Item = (&CommandEntry<S>, Option<rune::Chord>)> {
+        self.entries
+            .iter()
+            .zip(self.keybinds.iter())
+            .map(|(entry, kb)| (entry, kb.as_ref().and_then(|k| k.chords().first().copied())))
+    }
+
+    /// Finds the first enabled command matching `ev` against its default keybind.
+    pub fn find_key(&self, state: &S, ev: &rune::KeyEvent, tx: &rune::Tx) -> Option<CommandEntry<S>> {
+        self.find_key_with(state, ev, tx, |_| None)
+    }
+
+    /// Finds the first enabled command matching `ev`, letting the host supply keybind overrides
+    /// (returning `Some(override_kb)` to replace or unbind the command's default keybind).
+    pub fn find_key_with<'a>(
+        &'a self,
+        state: &S,
+        ev: &rune::KeyEvent,
+        tx: &rune::Tx,
+        override_for: impl Fn(&str) -> Option<&'a rune::Keybind>,
+    ) -> Option<CommandEntry<S>> {
+        let plain = !(ev.mods.cmd || ev.mods.ctrl || ev.mods.alt || ev.mods.logo);
+        if plain && tx.focused().is_some() {
+            return None;
+        }
+        self.entries
+            .iter()
+            .zip(self.keybinds.iter())
+            .find(|(entry, default_kb)| {
+                if !entry.is_enabled(state) {
+                    return false;
+                }
+                let kb = match override_for(entry.id) {
+                    Some(over) => Some(over),
+                    None => default_kb.as_ref(),
+                };
+                kb.is_some_and(|kb| kb.matches_tx(ev, tx))
+            })
+            .map(|(entry, _)| *entry)
     }
 
     /// Iterates registered commands currently enabled for `state`.

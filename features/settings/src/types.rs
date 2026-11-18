@@ -4,7 +4,7 @@
 
 use rune::{FontSmoothing, SmoothingSupport};
 
-pub use opencode_runtime::{DockPlacement, NotifyKind, NotifyKinds};
+pub use opencode_runtime::{DockPlacement, NotifyKind, NotifyKinds, ZOOM_LEVELS, ZOOM_MAX, ZOOM_MIN, step_zoom};
 
 /// Desktop's colour scheme preference (`appearance`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -286,11 +286,6 @@ pub fn css_family(name: &str) -> String {
     }
     format!("\"{}\"", name.replace('\\', "\\\\").replace('"', "\\\""))
 }
-
-/// Desktop's zoom bounds and preset levels (50% to 200%).
-pub const ZOOM_MIN: f32 = 0.5;
-pub const ZOOM_MAX: f32 = 3.0;
-pub const ZOOM_LEVELS: [f32; 11] = [0.5, 0.67, 0.75, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0];
 
 /// A Windows shell the user can turn OSC 133 prompt marks on for (Settings › Preferences).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
