@@ -79,19 +79,39 @@ pub(super) fn try_take(db: &Path) -> Outcome {
     }
 }
 
+#[cfg(not(windows))]
 fn open(path: &Path) -> io::Result<File> {
     let mut opt = OpenOptions::new();
     opt.read(true).write(true).create(true).truncate(false);
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::OpenOptionsExt;
-        use windows_sys::Win32::Storage::FileSystem::{FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE};
-        opt.share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE);
+    with_folder(path, || opt.open(path))
+}
+
+/// Windows: made if missing, then opened for reading only, sharing everything: a program that
+/// opened it sharing only reading (a backup agent, a viewer) refuses writers, not readers, and
+/// `LockFileEx` needs no more than read access.
+#[cfg(windows)]
+fn open(path: &Path) -> io::Result<File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use windows_sys::Win32::Storage::FileSystem::{FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE};
+    let all = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
+    if !path.exists() {
+        let mut make = OpenOptions::new();
+        make.write(true).create(true).truncate(false).share_mode(all);
+        match with_folder(path, || make.open(path)) {
+            Ok(_) => {}
+            // Another program has it open sharing only reading: it exists, so it's readable.
+            Err(e) if e.raw_os_error() == Some(32) => {}
+            Err(e) => return Err(e),
+        }
     }
-    match opt.open(path) {
+    OpenOptions::new().read(true).share_mode(all).open(path)
+}
+
+fn with_folder(path: &Path, open: impl Fn() -> io::Result<File>) -> io::Result<File> {
+    match open() {
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
             std::fs::create_dir_all(path.parent().ok_or(io::ErrorKind::NotFound)?)?;
-            opt.open(path)
+            open()
         }
         other => other,
     }
