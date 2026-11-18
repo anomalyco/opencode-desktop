@@ -489,7 +489,7 @@ fn tab_methods(lua: &Lua) -> mlua::Result<Table> {
         None => return Err(mlua::Error::runtime("the plugin host isn't set up")),
     };
     let call: Function = lua
-        .load("local raw = ... return function(self) local r = raw(self.Id) if r and r.error then error(r.error, 0) end local res = if r then r.result else nil if type(res) == 'table' then if type(res.cookies) == 'number' then return res.cookies end if type(res.cookies) == 'table' then return #res.cookies end end return 0 end")
+        .load("local raw = ... return function(self) local r = raw(self.Id) if r and r.error then error(r.error, 0) end local res = if r then r.result else nil return if type(res) == 'table' and type(res.cookies) == 'number' then res.cookies else 0 end")
         .set_name("=BrowserTab:SiteCookiesAsync")
         .call(raw)?;
     m.raw_set("SiteCookiesAsync", call)?;

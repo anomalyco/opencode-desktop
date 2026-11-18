@@ -613,22 +613,11 @@ impl BrowserHost {
             .ok_or_else(|| format!("No browser tab with tabID {tab_id}"))?;
         let request_id = self.next_req_id;
         self.next_req_id += 1;
-        if crate::policy::destination_origin(&url).is_none() {
+        if !self.engine_policy || crate::policy::destination_origin(&url).is_none() {
             self.cdp_responses.insert(request_id, Ok(serde_json::json!({ "cookies": 0 })));
             return Ok(request_id);
         }
-        if self.engine_policy {
-            self.send(HostMsg::SiteCookies { tab_id, request_id });
-        } else {
-            // Older engine fallback: request in Rust; `native/browser.rs` returns only the integer count.
-            self.send(HostMsg::CdpCall {
-                tab_id,
-                request_id,
-                method: "Network.getCookies".into(),
-                params: serde_json::json!({ "urls": [url] }),
-                session_id: None,
-            });
-        }
+        self.send(HostMsg::SiteCookies { tab_id, request_id });
         Ok(request_id)
     }
 
