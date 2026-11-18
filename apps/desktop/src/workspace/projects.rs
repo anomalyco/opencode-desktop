@@ -15,17 +15,6 @@ use session_view::palette::Pal;
 use crate::pickers::PickerHost as _;
 use crate::{App, Route, Source};
 
-/// Configures process-wide storage callbacks for Home's shared global state.
-pub fn init() {
-    opencode_feature_projects::configure(ProjectsConfig {
-        storage: StorageOps {
-            read_json: crate::storage::json,
-            write_json: crate::storage::set_json,
-            attended: crate::attended,
-        },
-    });
-}
-
 impl ProjectsHost for App {
     fn project_state(&self) -> &ProjectsState {
         &self.project_state
@@ -103,28 +92,12 @@ impl ProjectsHost for App {
     }
 
     fn tabs(&self) -> Vec<TabSummary> {
-        self.tabs
-            .iter()
-            .map(|t| TabSummary {
-                uid: t.uid(),
-                id: t.id.clone(),
-                directory: t.directory.clone(),
-                server: t.server.clone(),
-                is_draft: t.is_draft(),
-            })
-            .collect()
+        self.tab_summaries()
     }
 
     fn current_tab(&self) -> Option<TabSummary> {
         let uid = App::current_tab(self)?;
-        let t = self.tab(&uid)?;
-        Some(TabSummary {
-            uid: t.uid(),
-            id: t.id.clone(),
-            directory: t.directory.clone(),
-            server: t.server.clone(),
-            is_draft: t.is_draft(),
-        })
+        self.tab(&uid).map(crate::tabs::Tab::summary)
     }
 
     fn restore_project_tab_uid(&self) -> Option<String> {

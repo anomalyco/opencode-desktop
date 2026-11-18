@@ -17,6 +17,7 @@ use opencode_kit::model::Attachment;
 use rune::Tx;
 use rune::machine::{Attempt, Effects, Seq};
 
+pub use opencode_runtime::ContextFile;
 pub use reply_image::add_reply_image;
 pub use session_view::composer::attachments::{
     MAX_BYTES, from_path, head, inputs, mime_for, name_of, native_mime, path_lines, push_unique,
@@ -25,14 +26,6 @@ pub use session_view::composer::attachments::{
 pub use session_view::images::{
     MediaStore, PreparedImage, identity, inline_images, prepare_images, view_image, viewer,
 };
-
-/// A file's lines waiting in the composer, 1-based and in order.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub struct ContextFile {
-    pub path: String,
-    pub start: u32,
-    pub end: u32,
-}
 
 /// Running remote upload tasks and channel bridge owned by [`Attach`].
 pub(crate) struct UploadRunner {
@@ -58,8 +51,8 @@ impl Default for UploadRunner {
 /// Composer attachment queue, remote upload runner, file dropzone state, optimistic prompt echoes,
 /// and shared [`MediaStore`].
 ///
-/// Parameterized by the host's context-file item type `C` (defaulting to [`ContextFile`]) so hosts
-/// whose restoration layer defines its own `ContextFile` can share the slice without conversions.
+/// Defaults `C` to the canonical [`ContextFile`] (`opencode_runtime::ContextFile`) shared with
+/// `opencode-feature-restore`.
 pub struct Attach<C = ContextFile> {
     /// Waiting in the composer for the next send, inline.
     pub files: Vec<Attachment>,

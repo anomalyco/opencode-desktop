@@ -12,9 +12,6 @@ use session_view::palette::Pal;
 
 use crate::{App, Source};
 
-/// Host-parameterized attachment queue sharing desktop's [`crate::add_selection::ContextFile`].
-pub type Attach = opencode_feature_composer_input::attachments::Attach<crate::add_selection::ContextFile>;
-
 /// `App`-specialized upload toast wrapper.
 pub mod toast {
     use rune::El;

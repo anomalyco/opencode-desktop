@@ -6,10 +6,10 @@
 //! translates it. Fields of `settings.v3` the app doesn't know (`general.releaseNotes`,
 //! `sessionSummary`, …) are kept as they are.
 
+use opencode_platform::storage;
 use serde_json::{Map, Value, json};
 
 use crate::Settings;
-use crate::host::storage_ops;
 use crate::types::{CODE_FONTS, UI_FONTS};
 
 pub(crate) const GLOBAL: &str = "opencode.global.dat";
@@ -43,35 +43,12 @@ const SHARED: [(&str, &str, &str); 22] = [
     ("permissions.projects", "permissions", "autoApproveProjects"),
 ];
 
-pub(crate) fn read_json(namespace: &str, key: &str) -> Option<Value> {
-    (storage_ops().read_json)(namespace, key)
-}
-
-pub(crate) fn write_json(namespace: &str, key: &str, value: &Value) {
-    (storage_ops().write_json)(namespace, key, value);
-}
-
-pub(crate) fn delete_key(namespace: &str, key: &str) {
-    (storage_ops().delete)(namespace, key);
-}
-
-pub(crate) fn update_json(namespace: &str, key: &str, f: impl FnOnce(&mut Map<String, Value>)) {
-    let before = read_json(namespace, key).filter(Value::is_object).unwrap_or_else(|| Value::Object(Map::new()));
-    let mut after = before.clone();
-    if let Some(map) = after.as_object_mut() {
-        f(map);
-    }
-    if after != before {
-        write_json(namespace, key, &after);
-    }
-}
-
 /// The preferences, from memory (the boot packet before the first frame). A profile from before
 /// the split keeps everything under `rune.settings`: it's split on this read, once.
 pub fn load() -> Settings {
-    let rune = read_json(GLOBAL, RUNE).filter(Value::is_object);
-    let v3 = read_json(GLOBAL, V3).filter(Value::is_object);
-    let language = read_json(GLOBAL, LANGUAGE);
+    let rune = storage::read_json(GLOBAL, RUNE).filter(Value::is_object);
+    let v3 = storage::read_json(GLOBAL, V3).filter(Value::is_object);
+    let language = storage::read_json(GLOBAL, LANGUAGE);
     let before_split = rune.as_ref().is_some_and(|r| r.get("showAgentPicker").is_some());
     let flat = match (before_split, rune, v3) {
         (true, Some(rune), _) => rune,
@@ -88,7 +65,7 @@ pub fn load() -> Settings {
 pub fn save(settings: &Settings) {
     let all = settings.to_json();
     let mut rune = all.as_object().cloned().unwrap_or_default();
-    update_json(GLOBAL, V3, |v3| {
+    storage::update_json(GLOBAL, V3, |v3| {
         for (flat, section, key) in SHARED {
             let value = take(&mut rune, flat);
             let Some(value) = value.map(|v| shared_value(flat, v)) else { continue };
@@ -104,10 +81,10 @@ pub fn save(settings: &Settings) {
         rune.remove("permissions");
     }
     match rune.remove("language") {
-        Some(Value::String(locale)) => write_json(GLOBAL, LANGUAGE, &json!({ "locale": locale })),
-        _ => delete_key(GLOBAL, LANGUAGE),
+        Some(Value::String(locale)) => storage::write_json(GLOBAL, LANGUAGE, &json!({ "locale": locale })),
+        _ => storage::delete(GLOBAL, LANGUAGE),
     }
-    write_json(GLOBAL, RUNE, &Value::Object(rune));
+    storage::write_json(GLOBAL, RUNE, &Value::Object(rune));
 }
 
 /// The flat form from the split rows.

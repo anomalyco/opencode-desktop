@@ -50,7 +50,7 @@ impl Folds {
         }
         if let Some(server) = server(s) {
             let collapsed: serde_json::Map<String, Value> = shut.iter().map(|p| (p.clone(), Value::Bool(true))).collect();
-            stored::update_json(stored::GLOBAL, KEY, |all| {
+            opencode_platform::storage::update_json(stored::GLOBAL, KEY, |all| {
                 all.insert(server, json!({ "collapsed": collapsed }));
             });
         }
@@ -61,7 +61,7 @@ impl Folds {
 const KEY: &str = "settings-v2.models.providers";
 
 fn read() -> Value {
-    stored::read_json(stored::GLOBAL, KEY).unwrap_or_else(|| json!({}))
+    opencode_platform::storage::read_json(stored::GLOBAL, KEY).unwrap_or_else(|| json!({}))
 }
 
 /// The server the folds are kept for; none while nothing persists (headless, a fixture).

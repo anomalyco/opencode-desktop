@@ -1,5 +1,4 @@
-//! Object-safe host boundary, process-wide storage configuration, and pure-data DTOs for
-//! `opencode-feature-projects`.
+//! Object-safe host boundary and pure-data DTOs for `opencode-feature-projects`.
 //!
 //! Every state machine, project resolver, Home synchronizer, import driver, job executor, and key
 //! handler in this crate operates on `&dyn ProjectsHost` / `&mut dyn ProjectsHost`. Thin generic
@@ -7,7 +6,6 @@
 //! in one line to non-generic functions.
 
 use std::path::PathBuf;
-use std::sync::OnceLock;
 
 use opencode_kit::client::{Server, Write};
 use opencode_kit::model::{ModelRef, Project, SessionInfo};
@@ -18,72 +16,12 @@ use rune::{El, FileDialogOptions, Tx, Waker};
 use serde_json::{Map, Value};
 use session_view::palette::Pal;
 
+pub use opencode_runtime::TabSummary;
+
 use crate::ProjectsState;
 use crate::home::Home;
 use crate::jobs::ProjectsJob;
 use crate::remote_picker::Picker;
-
-/// Host persistence callbacks for Home's process-wide shared store (`opencode.global.dat`:
-/// `layout.home.selection`, `home.servers.collapsed`, and `server.hidden`).
-#[derive(Clone, Copy)]
-pub struct StorageOps {
-    pub read_json: fn(namespace: &str, key: &str) -> Option<Value>,
-    pub write_json: fn(namespace: &str, key: &str, value: &Value),
-    pub attended: fn() -> bool,
-}
-
-fn noop_read(_: &str, _: &str) -> Option<Value> {
-    None
-}
-
-fn noop_write(_: &str, _: &str, _: &Value) {}
-
-fn default_attended() -> bool {
-    !rune::is_headless()
-}
-
-const DEFAULT_STORAGE: StorageOps = StorageOps {
-    read_json: noop_read,
-    write_json: noop_write,
-    attended: default_attended,
-};
-
-/// Process-wide configuration registered once at startup by the host binary.
-#[derive(Clone, Copy)]
-pub struct ProjectsConfig {
-    pub storage: StorageOps,
-}
-
-static CONFIG: OnceLock<ProjectsConfig> = OnceLock::new();
-
-/// Registers the host's storage callbacks for Home's global shared state.
-/// Call once at startup before reading or mutating Home's hidden/collapsed server lists.
-pub fn configure(config: ProjectsConfig) {
-    CONFIG.set(config).ok();
-}
-
-pub(crate) fn is_configured() -> bool {
-    CONFIG.get().is_some()
-}
-
-pub(crate) fn storage_ops() -> StorageOps {
-    CONFIG.get().map_or(DEFAULT_STORAGE, |c| c.storage)
-}
-
-/// Pure-data descriptor of one open window tab relevant to project tracking and Home landing.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TabSummary {
-    /// Unique tab identifier in the window (`Tab::uid`).
-    pub uid: String,
-    /// Session ID or draft ID.
-    pub id: String,
-    /// Working directory recorded on the tab.
-    pub directory: String,
-    /// Server the tab's session lives on, or where a draft's session will start.
-    pub server: ServerKey,
-    /// `true` for a "New session" draft tab.
-    pub is_draft: bool,
-}
 
 /// One server entry in the host's server registry (`servers::registry::Entry`).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -502,24 +440,5 @@ pub(crate) fn storage_update_host(
     }
     if after != before {
         host.storage_write_json(namespace, key, &after);
-    }
-}
-
-/// Same as [`storage_update_host`] using process-wide configured [`StorageOps`].
-pub(crate) fn storage_update_ops(
-    ops: StorageOps,
-    namespace: &str,
-    key: &str,
-    f: impl FnOnce(&mut Map<String, Value>),
-) {
-    let before = (ops.read_json)(namespace, key)
-        .filter(Value::is_object)
-        .unwrap_or_else(|| Value::Object(Map::new()));
-    let mut after = before.clone();
-    if let Some(map) = after.as_object_mut() {
-        f(map);
-    }
-    if after != before {
-        (ops.write_json)(namespace, key, &after);
     }
 }

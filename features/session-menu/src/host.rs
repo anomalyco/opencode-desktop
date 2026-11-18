@@ -29,18 +29,7 @@ pub struct SessionMarks {
     pub unread: bool,
 }
 
-/// Pure-data descriptor of one open window tab relevant to session context menus.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TabSummary {
-    /// Unique tab identifier in the window (`Tab::uid`).
-    pub uid: String,
-    /// Session ID or draft ID.
-    pub id: String,
-    /// Server the session lives on, or where a draft's session will start.
-    pub server: ServerKey,
-    /// `true` for a "New session" draft tab.
-    pub is_draft: bool,
-}
+pub use opencode_runtime::TabSummary;
 
 /// Callback invoked when a session context menu closes with the picked item ID (or `None`).
 pub type MenuPick = Box<dyn FnOnce(&mut dyn SessionMenuHost, Option<&str>, &mut Tx)>;

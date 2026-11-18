@@ -29,6 +29,7 @@ use session_view::palette::Pal;
 
 pub use host::{PanelChrome, PanelsHost};
 pub use keys::{closing_side_entry, panels_ime, panels_key, poll_panels, select_adjacent_side_tab};
+pub use opencode_runtime::DockPlacement;
 pub use state::{
     EmptySpan, NewTabEntry, ResolvedEntry, ResolvedRegion, SavedKeyboardFocus, SessionSideState, SideState, StripScroll,
     Visibility, all_panels, bottom_open, bottom_stored_open, close_side_tab, dismiss_side_new_tab, find_panel,
@@ -48,30 +49,6 @@ pub static TERMINAL_ICON: Icon = Icon {
     view: 20.0,
     body: r#"<path d="M6.5 8L8.64286 10L6.5 12M10.9286 12H13.5M2 18H18V2H2V18Z" stroke="currentColor" stroke-linecap="square" fill="none"/>"#,
 };
-
-/// The pane a new terminal opens in beside no other (`terminalPlacement` in Desktop).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum DockPlacement {
-    #[default]
-    Side,
-    Bottom,
-}
-
-impl DockPlacement {
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::Side => "side",
-            Self::Bottom => "bottom",
-        }
-    }
-
-    pub fn parse(s: Option<&str>) -> Self {
-        match s {
-            Some("bottom") => Self::Bottom,
-            _ => Self::Side,
-        }
-    }
-}
 
 /// Physical pane inside a session where a tab currently lives (`session-tabs.ts`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]

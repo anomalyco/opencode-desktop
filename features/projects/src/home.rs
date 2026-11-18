@@ -19,11 +19,12 @@ use opencode_kit::servers::health::{self as server_health, Health, ProbeResult};
 use opencode_kit::servers::home::{self as machine, Selection};
 use opencode_kit::servers::home_load::{self, Connection, Target, Timer, Unavailable};
 use opencode_kit::servers::{ServerConn, ServerKey};
+use opencode_platform::storage;
 use rune::machine::{Attempt, Effects};
 use rune::{TextEdit, Tx};
 use serde_json::{Map, Value, json};
 
-use crate::host::{self, ListedServer, ProjectsHost, on_server, storage_update_host, storage_update_ops};
+use crate::host::{ListedServer, ProjectsHost, on_server, storage_update_host};
 use crate::{open_project_dir, organized_projects, project_for_session, remote_picker, used_projects};
 
 /// One server as Home's projects column shows it.
@@ -171,11 +172,10 @@ fn parse_store(read: impl Fn(&str, &str) -> Option<Value>) -> Store {
 }
 
 fn ensure_hydrated_ops() {
-    if !host::is_configured() || STORE.with_borrow(|st| st.hydrated) {
+    if !storage::is_configured() || STORE.with_borrow(|st| st.hydrated) {
         return;
     }
-    let ops = host::storage_ops();
-    let loaded = parse_store(ops.read_json);
+    let loaded = parse_store(storage::read_json);
     STORE.with_borrow_mut(|st| {
         if !st.hydrated {
             *st = loaded;
@@ -187,8 +187,8 @@ fn ensure_hydrated_host(host: &dyn ProjectsHost) {
     if STORE.with_borrow(|st| st.hydrated) {
         return;
     }
-    let loaded = if host::is_configured() {
-        parse_store(host::storage_ops().read_json)
+    let loaded = if storage::is_configured() {
+        parse_store(storage::read_json)
     } else {
         parse_store(|ns, k| host.storage_read_json(ns, k))
     };
@@ -218,20 +218,19 @@ fn serialize_parts(store: &Store) -> SerializedStore {
 
 /// Each part goes to its own key; a part that didn't change writes nothing.
 fn save_ops((selection, collapsed, hidden): SerializedStore) {
-    let ops = host::storage_ops();
-    if !(ops.attended)() {
+    if !storage::attended() {
         return;
     }
-    storage_update_ops(ops, GLOBAL, "layout", |m| {
+    storage::update_json(GLOBAL, "layout", |m| {
         let home = m.entry("home").or_insert_with(|| json!({}));
         if let Some(home) = home.as_object_mut() {
             home.insert("selection".into(), selection);
         }
     });
-    storage_update_ops(ops, GLOBAL, "home.servers", |m| {
+    storage::update_json(GLOBAL, "home.servers", |m| {
         m.insert("collapsed".into(), Value::Object(collapsed));
     });
-    storage_update_ops(ops, GLOBAL, "server", |m| {
+    storage::update_json(GLOBAL, "server", |m| {
         m.insert("hidden".into(), Value::Object(hidden));
     });
 }
@@ -290,8 +289,8 @@ pub fn set_hidden(key: &ServerKey, hide: bool) {
     });
 }
 
-/// Same as [`set_hidden`], persisting through `host` directly even when [`crate::configure`] was
-/// not called.
+/// Same as [`set_hidden`], persisting through `host` directly even when
+/// [`opencode_platform::storage::configure`] was not called.
 pub fn set_hidden_on(host: &mut dyn ProjectsHost, key: &ServerKey, hide: bool) {
     write_host(host, |s| {
         if hide {

@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 http = "1"
+opencode-i18n = { path = "../opencode-i18n" }
 opencode-kit = { path = "../opencode-kit" }
 rune.workspace = true
 serde = { version = "1", features = ["derive"] }

@@ -103,13 +103,22 @@ pub(crate) use exports::*;
 pub(crate) fn init_features() {
     static INIT: std::sync::Once = std::sync::Once::new();
     INIT.call_once(|| {
+        opencode_platform::storage::configure(opencode_platform::StoragePort {
+            is_ready: storage::is_ready,
+            attended,
+            read_json: storage::json,
+            write_json: storage::set_json,
+            delete: storage::delete,
+            doc: storage::doc,
+            load_docs: storage::load_docs,
+            set_doc: storage::set_doc,
+            hand_off_doc: storage::hand_off_doc,
+            with_storage: storage::with_storage,
+        });
         keymap::init();
-        prompt_history::init();
-        projects::init();
         rune_mcp::init();
         updater::init();
         settings::init();
-        send_failed::init();
         #[cfg(feature = "office")]
         office::init();
     });

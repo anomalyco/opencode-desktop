@@ -63,10 +63,7 @@ impl PanelsHost for App {
     }
 
     fn dock_placement(&self) -> DockPlacement {
-        match self.settings.terminal_placement {
-            crate::settings::DockPlacement::Side => DockPlacement::Side,
-            crate::settings::DockPlacement::Bottom => DockPlacement::Bottom,
-        }
+        self.settings.terminal_placement
     }
 
     fn panel_chrome(&self) -> PanelChrome {

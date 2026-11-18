@@ -319,6 +319,11 @@ impl App {
         self.nav.forget(|p| matches!(&p.route, Route::Draft(id) if id == draft));
     }
 
+    /// Open window tabs in strip order as canonical pure-data descriptors.
+    pub(crate) fn tab_summaries(&self) -> Vec<opencode_runtime::TabSummary> {
+        self.tabs.iter().map(Tab::summary).collect()
+    }
+
     /// The tab the open page belongs to, if any (its `Tab::uid`): a draft's, or the root
     /// session's on the page's server.
     pub(crate) fn current_tab(&self) -> Option<String> {

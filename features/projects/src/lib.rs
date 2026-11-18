@@ -26,8 +26,7 @@ use rune::{FileDialogOptions, Tx};
 use serde_json::{Map, Value, json};
 
 pub use host::{
-    DefaultSelection, FileDialogDone, FolderDialogDone, ListedServer, ProjectsConfig, ProjectsHost, StorageOps, TabSummary,
-    configure, on_server,
+    DefaultSelection, FileDialogDone, FolderDialogDone, ListedServer, ProjectsHost, TabSummary, on_server,
 };
 pub use jobs::{ProjectsJob, ProjectsReply, RemoteRequest, apply_reply, execute_import, execute_job, execute_remote};
 

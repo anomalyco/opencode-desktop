@@ -89,6 +89,17 @@ impl Tab {
         }
     }
 
+    /// Pure-data descriptor shared with feature crates (`projects`, `session-menu`).
+    pub fn summary(&self) -> opencode_runtime::TabSummary {
+        opencode_runtime::TabSummary {
+            uid: self.uid(),
+            id: self.id.clone(),
+            directory: self.directory.clone(),
+            server: self.server.clone(),
+            is_draft: self.is_draft(),
+        }
+    }
+
     /// The tab as the window's file keeps it, with what `tabs.info` saves of it.
     pub fn to_doc(&self) -> (doc::Tab, doc::TabInfo) {
         let text = |s: &str| (!s.is_empty()).then(|| s.to_owned());

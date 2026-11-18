@@ -63,10 +63,7 @@ impl SessionMenuHost for App {
     }
 
     fn tabs(&self) -> Vec<TabSummary> {
-        self.tabs
-            .iter()
-            .map(|t| TabSummary { uid: t.uid(), id: t.id.clone(), server: t.server.clone(), is_draft: t.is_draft() })
-            .collect()
+        self.tab_summaries()
     }
 
     fn layout_has_sidebar(&self) -> bool {

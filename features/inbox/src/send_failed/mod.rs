@@ -22,10 +22,11 @@ pub mod store;
 pub mod view;
 
 pub use machine::{AfterCheck, Phase};
+pub use opencode_platform::storage::StorageOp;
+pub use opencode_runtime::SendResult;
 pub use outbox::{
     enqueue_prepared, enqueue_prompt, listen_outbox, open_outbox, outbox_action, pump_outbox, release_prepared, restore_draft, retry_restored, show_outbox, tick_outbox,
 };
-pub use store::{StorageOp, StorageOps, configure};
 pub use view::{footer, footer_version};
 
 use machine::{Effect, Event, Found, Verdict};
@@ -75,11 +76,11 @@ pub trait SendFailedHost {
     }
     /// Whether durable persistence is enabled for this run.
     fn persists(&self) -> bool {
-        store::is_configured()
+        opencode_platform::storage::is_configured()
     }
-    /// Runs a storage-thread outbox operation (defaults to [`configure`]d process storage).
+    /// Runs a storage-thread outbox operation (defaults to [`opencode_platform::storage`] process storage).
     fn with_storage(&self, op: StorageOp) {
-        store::with_storage_boxed(op);
+        opencode_platform::storage::with_storage(op);
     }
     /// Active route's draft document key, cleared in the same transaction as the first outbox row.
     fn active_draft_document(&self) -> Option<String> {
@@ -87,7 +88,7 @@ pub trait SendFailedHost {
     }
     /// Hands off a draft document to an outbox row and returns the settled draft journal revision.
     fn hand_off_draft_doc(&mut self, key: &str) -> u64 {
-        store::hand_off_doc(key)
+        opencode_platform::storage::hand_off_doc(key)
     }
 
     /// Whether the app is running against an offline fixture.
@@ -182,16 +183,6 @@ pub enum State {
     Failed,
     Accepted,
     Waiting,
-}
-
-/// How a send ended, for whoever waits on it (the quote comment editor's send): the server has
-/// it, it failed for good, or the outbox keeps it to send when it can (waiting for the link, or
-/// for a receipt).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SendResult {
-    Accepted,
-    Failed,
-    Queued,
 }
 
 /// One prompt in the outbox: what was typed, what went out, and where it is (`phase`).
