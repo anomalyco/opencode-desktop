@@ -77,7 +77,7 @@ pub fn poll(host: &mut dyn SwitcherHost, tx: &mut Tx, local_answers: bool) -> bo
         files_step(host, event, tx);
         changed |= current;
     }
-    if !host.switcher().open {
+    if !host.switcher().is_open() {
         return changed;
     }
     let restoring = match &host.switcher().restore {

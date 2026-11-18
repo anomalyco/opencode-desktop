@@ -61,10 +61,10 @@ impl App {
     pub(crate) fn takes_stray_keys(&self) -> bool {
         self.has_composer()
             && !self.settings.open
-            && !self.side.focused
-            && !self.switcher.open
+            && !self.side.focus.is_focused()
+            && !self.switcher.is_open()
             && !self.project_switcher.open
-            && !self.fork.open
+            && !self.fork.is_open()
             && !self.jump.open()
             && !self.find.input.focused
             && !self.search.focused

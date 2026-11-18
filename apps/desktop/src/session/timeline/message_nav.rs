@@ -89,7 +89,7 @@ impl MessageNavHost for App {
     }
 
     fn before_jump_open(&mut self) -> bool {
-        let restore = self.composer.focused || (!self.switcher.open && self.switcher.restore_composer());
+        let restore = self.composer.focused || self.switcher.restore_composer();
         self.close_fork_dialog(false);
         self.close_picker(false);
         self.close_switcher(false);
@@ -140,7 +140,7 @@ impl Feature<App> for HistoryFeature {
                 .with_z(300)
                 .with_key_priority(200)
                 .with_render(|s, cx| {
-                    if s.fork.open {
+                    if s.fork.is_open() {
                         let p = crate::palette::pal(s.dark(cx));
                         crate::fork::view(s, p, cx).into()
                     } else {

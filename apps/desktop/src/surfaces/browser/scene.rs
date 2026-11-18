@@ -12,7 +12,7 @@ fn scene(s: &mut App) {
         let id = s.browser.host.insert_mock_tab(url, title, EngineStatus::Ready);
         s.register_existing_browser_tab(id);
     }
-    s.side.focused = false;
+    s.side.focus.blur();
     s.composer.focused = true;
 }
 

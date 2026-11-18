@@ -257,17 +257,32 @@ pub(crate) struct Reply<T> {
     pub items: Result<Vec<T>, ()>,
 }
 
+/// Command/file/session palette modal lifecycle (`open` + `restore_composer` + `pointer`).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum SwitcherPhase {
+    #[default]
+    Closed,
+    Open {
+        restore_composer: bool,
+        /// The pointer's last point on a row: only a pointer that moved takes a row
+        /// (`onMouseMove`'s movement check).
+        pointer: Option<[f32; 2]>,
+    },
+    /// Closed while synchronously dispatching a picked command (`Action::Command`), carrying
+    /// whether the composer had focus before the palette opened so dialogs launched by that
+    /// command (Fork, Jump, Open project, Project switcher) hand focus back on dismiss.
+    Dispatching {
+        restore_composer: bool,
+    },
+}
+
 pub struct Switcher {
-    pub open: bool,
+    pub phase: SwitcherPhase,
     pub mode: SwitcherMode,
     pub search: TextEdit,
     /// The lit row: the first until the keys or the pointer choose one, and the first again
     /// for each new query (`SearchList`).
     pub(crate) active: Highlight,
-    /// The pointer's last point on a row: only a pointer that moved takes a row (`onMouseMove`'s
-    /// movement check).
-    pointer: Option<[f32; 2]>,
-    restore_composer: bool,
     /// Sessions the server found while this was open, kept for later keystrokes
     /// (`SessionSourceState.loaded`).
     pub loaded: Vec<SessionInfo>,
@@ -293,12 +308,10 @@ pub struct Switcher {
 impl Default for Switcher {
     fn default() -> Self {
         Switcher {
-            open: false,
+            phase: SwitcherPhase::Closed,
             mode: SwitcherMode::All,
             search: TextEdit::new(""),
             active: Highlight::default(),
-            pointer: None,
-            restore_composer: false,
             loaded: Vec::new(),
             band: Default::default(),
             order: Default::default(),
@@ -316,6 +329,10 @@ impl Default for Switcher {
 }
 
 impl Switcher {
+    pub fn is_open(&self) -> bool {
+        matches!(self.phase, SwitcherPhase::Open { .. })
+    }
+
     pub fn set_waker(&mut self, waker: Waker) {
         self.fetch = Latest::new(waker.clone());
         self.files_fetch = Latest::new(waker);
@@ -330,7 +347,10 @@ impl Switcher {
     /// only a moving pointer takes the row, so rows the keys, the wheel or late results carry
     /// under a still one leave the highlight alone. True when the highlight changed.
     pub fn point(&mut self, key: &str, at: [f32; 2]) -> bool {
-        if self.pointer.replace(at) == Some(at) || self.active.pointed(key) {
+        let SwitcherPhase::Open { pointer, .. } = &mut self.phase else {
+            return false;
+        };
+        if pointer.replace(at) == Some(at) || self.active.pointed(key) {
             return false;
         }
         self.active.step(HighlightEvent::Pointer(key.to_owned()));
@@ -347,7 +367,10 @@ impl Switcher {
     }
 
     pub fn restore_composer(&self) -> bool {
-        self.restore_composer
+        match self.phase {
+            SwitcherPhase::Open { restore_composer, .. } | SwitcherPhase::Dispatching { restore_composer } => restore_composer,
+            SwitcherPhase::Closed => false,
+        }
     }
 
     pub fn loaded(&self) -> &[SessionInfo] {
@@ -398,24 +421,27 @@ pub fn open_archived_search(host: &mut dyn SwitcherHost, tx: &mut Tx) {
 
 /// Opens or switches the palette to `mode`, notifying `OverlayStack` when opening from closed.
 pub fn open_mode(host: &mut dyn SwitcherHost, mode: SwitcherMode, return_focus: Option<String>) {
-    let was_open = host.switcher().open;
-    if was_open && host.switcher().mode == mode {
-        return;
-    }
-    let prev_restore = host.switcher().restore_composer;
+    let (was_open, carried_restore) = match host.switcher().phase {
+        SwitcherPhase::Open { restore_composer, .. } => {
+            if host.switcher().mode == mode {
+                return;
+            }
+            (true, Some(restore_composer))
+        }
+        SwitcherPhase::Dispatching { restore_composer } => (false, Some(restore_composer)),
+        SwitcherPhase::Closed => (false, None),
+    };
     let shell_restore = host.before_switcher_open();
-    let restore = if was_open { prev_restore } else { shell_restore };
+    let restore_composer = carried_restore.unwrap_or(shell_restore);
     let now = host.clock();
     {
         let sw = host.switcher_mut();
-        sw.restore_composer = restore;
-        sw.open = true;
+        sw.phase = SwitcherPhase::Open { restore_composer, pointer: None };
         sw.mode = mode;
         *sw.order.get_mut() = Default::default();
         sw.search = TextEdit::new("");
         sw.search.focused = true;
         sw.active.clear();
-        sw.pointer = None;
         sw.loaded.clear();
         sw.fetch.cancel();
         sw.files_fetch.cancel();
@@ -437,12 +463,13 @@ pub fn open_mode(host: &mut dyn SwitcherHost, mode: SwitcherMode, return_focus: 
 
 /// Closes the switcher; `restore` gives the composer back its focus if it had it.
 pub fn close(host: &mut dyn SwitcherHost, restore: bool) {
-    if !host.switcher().open {
-        return;
-    }
-    let should_restore = {
+    let restore_composer = match host.switcher().phase {
+        SwitcherPhase::Open { restore_composer, .. } => restore_composer,
+        SwitcherPhase::Closed | SwitcherPhase::Dispatching { .. } => return,
+    };
+    {
         let sw = host.switcher_mut();
-        sw.open = false;
+        sw.phase = SwitcherPhase::Closed;
         sw.search.focused = false;
         sw.search.cancel_composition();
         sw.fetch.cancel();
@@ -452,17 +479,17 @@ pub fn close(host: &mut dyn SwitcherHost, restore: bool) {
         sw.files = search::Source::default();
         sw.restore = Restore::Idle;
         sw.remotes.clear();
-        restore && sw.restore_composer
-    };
-    host.after_switcher_close(should_restore);
+    }
+    host.after_switcher_close(restore && restore_composer);
     host.on_overlay_closed(OVERLAY_ID);
 }
 
 /// Executes a selected palette entry action.
 pub fn run_action(host: &mut dyn SwitcherHost, action: Action, tx: &mut Tx) {
-    if !host.switcher().open {
-        return;
-    }
+    let back = match host.switcher().phase {
+        SwitcherPhase::Open { restore_composer, .. } => restore_composer,
+        SwitcherPhase::Closed | SwitcherPhase::Dispatching { .. } => return,
+    };
     // One pick at a time: Enter or a click while a session restores does nothing.
     if matches!(host.switcher().restore, Restore::Restoring { .. }) {
         return;
@@ -498,7 +525,6 @@ pub fn run_action(host: &mut dyn SwitcherHost, action: Action, tx: &mut Tx) {
         Action::Session(id) => found_message(host, id, &q),
         _ => None,
     };
-    let back = host.switcher().restore_composer;
     close(host, false);
     if let Action::Session(id) = &action
         && !restore
@@ -514,7 +540,11 @@ pub fn run_action(host: &mut dyn SwitcherHost, action: Action, tx: &mut Tx) {
         }
         Action::RemoteSession { .. } => {}
         Action::Command(id) => {
+            host.switcher_mut().phase = SwitcherPhase::Dispatching { restore_composer: back };
             host.run_command(id, tx);
+            if matches!(host.switcher().phase, SwitcherPhase::Dispatching { .. }) {
+                host.switcher_mut().phase = SwitcherPhase::Closed;
+            }
             // A command that moves focus itself keeps it (`Tx::return_focus` yields to it);
             // otherwise the keyboard goes back to the prompt it came from, rather than to
             // nothing (in a browser, focus said nothing after Toggle review).
@@ -565,7 +595,7 @@ pub fn restore_replied(host: &mut dyn SwitcherHost, id: String, ok: bool, why: &
 /// over a session, "Search everything" again; while open, the list's keys.
 pub fn key(host: &mut dyn SwitcherHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if Bind::CommandSearch.matches_tx(ev, tx) {
-        if host.switcher().open && host.switcher().mode == SwitcherMode::Commands {
+        if host.switcher().is_open() && host.switcher().mode == SwitcherMode::Commands {
             close(host, true);
         } else {
             open_command_search(host, tx);
@@ -573,7 +603,7 @@ pub fn key(host: &mut dyn SwitcherHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
         return true;
     }
     if Bind::FileOpen.matches_tx(ev, tx) && host.active_session_id().is_some() && !host.settings_open() {
-        if host.switcher().open && host.switcher().mode == SwitcherMode::All {
+        if host.switcher().is_open() && host.switcher().mode == SwitcherMode::All {
             tx.instant();
             close(host, true);
         } else {
@@ -585,7 +615,7 @@ pub fn key(host: &mut dyn SwitcherHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
         if !bind.matches_tx(ev, tx) {
             continue;
         }
-        if host.switcher().open && host.switcher().mode == mode {
+        if host.switcher().is_open() && host.switcher().mode == mode {
             close(host, true);
         } else if mode == SwitcherMode::All {
             open_file_search(host, tx);
@@ -595,7 +625,7 @@ pub fn key(host: &mut dyn SwitcherHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
         }
         return true;
     }
-    host.switcher().open && nav(host, ev, tx)
+    host.switcher().is_open() && nav(host, ev, tx)
 }
 
 /// The search field's keys: moves, Enter picks, Escape closes.

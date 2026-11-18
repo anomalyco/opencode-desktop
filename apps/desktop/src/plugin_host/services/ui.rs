@@ -247,7 +247,7 @@ fn layout(lua: &Lua, p: &Rc<str>, t: &Table) -> mlua::Result<()> {
     })?;
     method(lua, t, "RegionFocused", |_, ()| {
         let app = app_now("Layout:RegionFocused")?;
-        Ok(app.side.focused && !app.composer.focused && !app.popup.holds_focus())
+        Ok(app.side.focus.is_focused() && !app.composer.focused && !app.popup.holds_focus())
     })?;
     method(lua, t, "TogglePanelSidebar", |_, ()| {
         app_now("Layout:TogglePanelSidebar")?.later(Box::new(|s: &mut App, tx: &mut rune::Tx| {

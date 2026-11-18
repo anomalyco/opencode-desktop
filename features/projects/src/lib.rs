@@ -35,6 +35,16 @@ use host::storage_update_host;
 /// Overlay stack identifier for the remote directory picker dialog (`opencode_kernel::OverlayStack`).
 pub const REMOTE_PICKER_OVERLAY_ID: &str = "dialog.remote_picker";
 
+/// Organized-sidebar project row drag lifecycle (`organize_drag` + `organize_dropped`).
+#[derive(Clone, Debug, Default)]
+pub enum OrganizeDrag {
+    #[default]
+    Idle,
+    Dragging(sidebar::ProjectDrag),
+    /// A drag just ended on a project row; the trailing release skips toggling it.
+    JustDropped,
+}
+
 #[derive(Default)]
 pub struct ProjectsState {
     /// Projects this client has opened or used, most recent first.
@@ -60,11 +70,9 @@ pub struct ProjectsState {
     /// The organized list's project order per server (`sidebar.organize`'s `order`): frozen once
     /// the list shows, then newly used projects join at its end and drags move them.
     pub organize_order: BTreeMap<String, Vec<String>>,
-    /// A project row being dragged to a new place, and each project block's height for it.
-    pub organize_drag: Option<sidebar::ProjectDrag>,
+    /// Organized-sidebar project row drag lifecycle, and each project block's height for it.
+    pub organize_drag: OrganizeDrag,
     pub organize_heights: HashMap<String, f32>,
-    /// A drag just ended on a project row, whose release then doesn't toggle it.
-    pub organize_dropped: bool,
     /// The Customize sidebar's view, filters and Show more counts (`sidebar-customized.tsx`).
     pub customize: sidebar::Customize,
     /// The Recent sidebar's pins and Show more count (`recent-sessions.tsx`).

@@ -130,6 +130,191 @@ impl EmptySpan {
     }
 }
 
+/// Context menu open over the side/bottom tab strip (`tab_menu` and `add_menu` are mutually exclusive).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum SideMenu {
+    #[default]
+    Closed,
+    /// Right-click context menu on a side tab.
+    Tab { key: String, x: f32, y: f32 },
+    /// `+` launcher dropdown menu anchor.
+    Add { pane: SessionPane, x: f32, y: f32 },
+}
+
+impl SideMenu {
+    pub fn is_open(&self) -> bool {
+        !matches!(self, Self::Closed)
+    }
+
+    pub fn close(&mut self) {
+        *self = Self::Closed;
+    }
+}
+
+/// Keyboard focus mode of the side/bottom panel region.
+///
+/// `Quiet` cannot exist while unfocused: a shortcut pressed in the composer moved the keyboard
+/// here (Open file, New tab, Reopen closed tab), so the selected tab's label rests muted until
+/// the next key or press inside (`closed-tabs.ts:146-153`). A terminal is the exception there
+/// too: its focus comes later.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum FocusMode {
+    #[default]
+    Unfocused,
+    Active,
+    Quiet,
+}
+
+impl FocusMode {
+    pub fn is_focused(self) -> bool {
+        match self {
+            Self::Unfocused => false,
+            Self::Active | Self::Quiet => true,
+        }
+    }
+
+    pub fn is_quiet(self) -> bool {
+        match self {
+            Self::Quiet => true,
+            Self::Unfocused | Self::Active => false,
+        }
+    }
+}
+
+/// Whether the composer held keyboard focus at the last poll without a pointer press landing in
+/// the side region since: the keyboard leaving the composer for here with no press is a
+/// shortcut's doing.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+enum ComposerHandoff {
+    #[default]
+    Idle,
+    Armed,
+}
+
+/// Events driving [`SideFocus`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SideFocusEvent {
+    /// Focus moved into the side region programmatically (tab open, select, or toggle).
+    Focus,
+    /// A pointer press landed inside the side region (focuses, wakes from quiet, disarms shortcut handoff).
+    Press,
+    /// Focus left the side region.
+    Blur,
+    /// A key or edit inside the side region wakes a quiet tab label to active.
+    Wake,
+    /// Restores a previously saved [`FocusMode`].
+    Restore(FocusMode),
+    /// Per-frame composer focus sync (`tick.rs`).
+    SyncComposer { composing: bool, in_terminal: bool },
+}
+
+/// Explicit state machine for side/bottom region keyboard focus.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct SideFocus {
+    mode: FocusMode,
+    handoff: ComposerHandoff,
+}
+
+impl SideFocus {
+    pub fn mode(self) -> FocusMode {
+        self.mode
+    }
+
+    pub fn is_focused(self) -> bool {
+        self.mode.is_focused()
+    }
+
+    pub fn is_quiet(self) -> bool {
+        self.mode.is_quiet()
+    }
+
+    /// Whether the composer was focused at the last poll without an intervening press inside the region.
+    pub fn is_armed(self) -> bool {
+        matches!(self.handoff, ComposerHandoff::Armed)
+    }
+
+    /// Pure transition: computes the next state for `event` without mutating `self`.
+    pub fn next(self, event: SideFocusEvent) -> Self {
+        match event {
+            SideFocusEvent::Focus => Self {
+                mode: match self.mode {
+                    FocusMode::Unfocused => FocusMode::Active,
+                    FocusMode::Active => FocusMode::Active,
+                    FocusMode::Quiet => FocusMode::Quiet,
+                },
+                handoff: self.handoff,
+            },
+            SideFocusEvent::Press => Self {
+                mode: FocusMode::Active,
+                handoff: ComposerHandoff::Idle,
+            },
+            SideFocusEvent::Blur => Self {
+                mode: FocusMode::Unfocused,
+                handoff: self.handoff,
+            },
+            SideFocusEvent::Wake => Self {
+                mode: match self.mode {
+                    FocusMode::Unfocused => FocusMode::Unfocused,
+                    FocusMode::Active | FocusMode::Quiet => FocusMode::Active,
+                },
+                handoff: self.handoff,
+            },
+            SideFocusEvent::Restore(mode) => Self { mode, handoff: self.handoff },
+            SideFocusEvent::SyncComposer { composing, in_terminal } => {
+                let mode = match (self.handoff, composing, self.mode, in_terminal) {
+                    (ComposerHandoff::Armed, false, FocusMode::Active, false) => FocusMode::Quiet,
+                    _ => self.mode,
+                };
+                let handoff = if composing { ComposerHandoff::Armed } else { ComposerHandoff::Idle };
+                Self { mode, handoff }
+            }
+        }
+    }
+
+    /// Whether `event` would change the state (lets polls avoid dirtying `Tracked<SideState>`).
+    pub fn would_change(self, event: SideFocusEvent) -> bool {
+        self.next(event) != self
+    }
+
+    /// Steps the state machine; returns `true` when the state changed.
+    pub fn step(&mut self, event: SideFocusEvent) -> bool {
+        let next = self.next(event);
+        if next == *self {
+            return false;
+        }
+        *self = next;
+        true
+    }
+
+    pub fn focus(&mut self) {
+        self.step(SideFocusEvent::Focus);
+    }
+
+    pub fn press(&mut self) {
+        self.step(SideFocusEvent::Press);
+    }
+
+    pub fn blur(&mut self) {
+        self.step(SideFocusEvent::Blur);
+    }
+
+    pub fn wake(&mut self) {
+        self.step(SideFocusEvent::Wake);
+    }
+
+    pub fn restore(&mut self, mode: FocusMode) {
+        self.step(SideFocusEvent::Restore(mode));
+    }
+
+    pub fn sync_composer(&mut self, composing: bool, in_terminal: bool) -> bool {
+        self.step(SideFocusEvent::SyncComposer { composing, in_terminal })
+    }
+
+    pub fn wake_on_key(&mut self) -> bool {
+        self.step(SideFocusEvent::Wake)
+    }
+}
+
 pub(crate) type ResolvedCache = (u64, rune::Reads, Option<Rc<ResolvedRegion>>);
 
 pub struct SideState {
@@ -148,17 +333,8 @@ pub struct SideState {
     pub edge_flight: Option<f64>,
     /// A tab dragged between panes.
     pub pane_drag: PaneDrag,
-    /// Keyboard focus belongs to the side/bottom region rather than the session chat.
-    pub focused: bool,
-    /// A shortcut pressed in the composer moved the keyboard here (Open file, New tab, Reopen
-    /// closed tab): the selected tab's label rests muted until the next key or press inside, as
-    /// Desktop's side focus reads the shortcut's own key, whose target was the composer
-    /// (`closed-tabs.ts:146-153`). A terminal is the exception there too: its focus comes later.
-    pub quiet: bool,
-    /// The composer had the keyboard at the last poll, and whether a press landed in the region
-    /// since: the keyboard leaving the composer for here with no press is a shortcut's doing.
-    pub was_composing: bool,
-    pub pressed: bool,
+    /// Side/bottom region keyboard focus and composer-shortcut quiet state machine.
+    pub focus: SideFocus,
     pub active_pane_focus: SessionPane,
     /// A tab is opening for someone other than the user ([`keeping_keyboard`]).
     pub background_open: bool,
@@ -166,10 +342,8 @@ pub struct SideState {
     pub emptied_guard: bool,
     /// The side region's last tab, still drawn while closing it slides the region shut.
     pub closing: closing::State,
-    /// Right-click context menu on a side tab: `(tab_key, x, y)`.
-    pub tab_menu: Option<(String, f32, f32)>,
-    /// `+` launcher dropdown menu anchor `(pane, x, y)`.
-    pub add_menu: Option<(SessionPane, f32, f32)>,
+    /// Active strip context menu (tab right-click menu or `+` launcher dropdown).
+    pub menu: SideMenu,
     /// Each pane's tab strip scroll (by `SessionPane as usize`): what its handlers read, which a
     /// build never does.
     pub strips: Rc<[StripScroll; 3]>,
@@ -192,16 +366,12 @@ impl Default for SideState {
             laid_w: Cell::new(1280.0),
             edge_flight: None,
             pane_drag: Default::default(),
-            focused: false,
-            quiet: false,
-            was_composing: false,
-            pressed: false,
+            focus: SideFocus::default(),
             active_pane_focus: SessionPane::Side,
             background_open: false,
             emptied_guard: false,
             closing: Default::default(),
-            tab_menu: None,
-            add_menu: None,
+            menu: SideMenu::Closed,
             strips: Rc::default(),
             resolved: Default::default(),
             sessions: HashMap::new(),

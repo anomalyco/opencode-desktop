@@ -168,7 +168,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             let tab_after = s.tab_status(&root);
             let shown_here = matches!(&*s.route, crate::Route::Home)
                 || s.tab_layout() == crate::layout_state::TabLayout::Inbox
-                || s.switcher.open
+                || s.switcher.is_open()
                 || matches!(&*s.route, crate::Route::Session { id, .. } if s.root_of(id) == root);
             return recent_changed || visible_meta || tab_before != tab_after || (changed && shown_here);
         }

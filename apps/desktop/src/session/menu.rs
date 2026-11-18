@@ -71,7 +71,7 @@ impl SessionMenuHost for App {
     }
 
     fn side_focused(&self) -> bool {
-        self.side.focused
+        self.side.focus.is_focused()
     }
 
     fn stage_active(&self) -> bool {

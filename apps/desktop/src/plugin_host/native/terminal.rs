@@ -175,7 +175,7 @@ pub fn screen_version(app: &App, session: &str) -> u64 {
         });
     }
     let now = *app.clock;
-    (now < app.terminal.bell_until, app.terminal.cursor_lit(now), app.composer.focused, app.side.focused, format!("{:?}", app.side.active_pane_focus)).hash(&mut h);
+    (now < app.terminal.bell_until, app.terminal.cursor_lit(now), app.composer.focused, app.side.focus.is_focused(), format!("{:?}", app.side.active_pane_focus)).hash(&mut h);
     crate::terminal::rename_stamp(app, &mut h);
     h.finish()
 }

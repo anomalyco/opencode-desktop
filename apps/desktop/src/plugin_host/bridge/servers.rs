@@ -326,9 +326,9 @@ impl CoverVisit {
 /// A dialog shows over the window (`plugin.dialogs.active()`): a cover offers no sign-in then.
 pub fn dialog_shows(app: &App) -> bool {
     app.plugins.dialog_open()
-        || app.switcher.open
+        || app.switcher.is_open()
         || app.project_switcher.open
-        || app.fork.open
+        || app.fork.is_open()
         || app.jump.open()
         || app.menus.confirming().is_some()
         || app.connect.open.is_some()

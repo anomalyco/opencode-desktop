@@ -65,14 +65,13 @@ pub(crate) fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= language::poll(s, tx);
     changed |= speech::poll(s, tx);
     // A shortcut from the composer that moved the keyboard into the side region (its command
-    // may run a frame later) leaves the selected tab's label muted (`SideState::quiet`).
+    // may run a frame later) leaves the selected tab's label muted (`FocusMode::Quiet`).
     let composing = s.composer.focused;
-    if s.side.was_composing && !composing && s.side.focused && !s.side.pressed && s.terminal_focus().is_none() {
-        s.side.quiet = true;
-    }
+    let in_terminal = !composing && s.side.focus.is_armed() && s.side.focus.is_focused() && s.terminal_focus().is_some();
+    let sync = crate::panels::SideFocusEvent::SyncComposer { composing, in_terminal };
     // Written only when it changes: a write to the side state rebuilds every region reading it.
-    if (s.side.was_composing, s.side.pressed) != (composing, false) {
-        (s.side.was_composing, s.side.pressed) = (composing, false);
+    if s.side.focus.would_change(sync) {
+        s.side.focus.sync_composer(composing, in_terminal);
     }
     changed |= deep_links::drain(s, tx);
     changed |= turn_errors::poll(s, tx);

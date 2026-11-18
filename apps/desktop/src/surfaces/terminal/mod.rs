@@ -217,7 +217,7 @@ impl TerminalSurfaceHost for App {
     }
 
     fn is_side_focused(&self) -> bool {
-        self.side.focused
+        self.side.focus.is_focused()
     }
 
     fn focused_pane_shown_tab(&self) -> Option<String> {
@@ -249,7 +249,7 @@ impl TerminalSurfaceHost for App {
 
     fn focus_side_pane(&mut self, tab: Option<(&str, &str)>) {
         self.composer.focused = false;
-        self.side.focused = true;
+        self.side.focus.focus();
         if let Some((sid, key)) = tab {
             self.side.active_pane_focus =
                 crate::panels::tabs::session_tab_pane(&self.session_side_mut(sid).tab_state.tabs, key);

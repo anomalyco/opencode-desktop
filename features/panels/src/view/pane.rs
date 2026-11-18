@@ -183,7 +183,7 @@ fn render_selected_panel(
         env_scale,
         tab: &selected.tab,
         visible,
-        focused: side.focused && side.active_pane_focus == pane,
+        focused: side.focus.is_focused() && side.active_pane_focus == pane,
         mobile: false,
     };
     let panel_el = selected.provider.render(host, p, &vctx);
@@ -237,9 +237,7 @@ fn empty_pane_view(p: &Pal) -> El {
 fn focus_pane_background(host: &mut dyn PanelsHost, pane: SessionPane) {
     {
         let side = host.side_mut();
-        side.focused = true;
-        side.quiet = false;
-        side.pressed = true;
+        side.focus.press();
         side.active_pane_focus = pane;
     }
     host.set_composer_focused(false);

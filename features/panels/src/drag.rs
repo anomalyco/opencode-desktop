@@ -217,9 +217,7 @@ pub fn choose_side_new_tab(host: &mut dyn PanelsHost, pane: SessionPane, id: &st
     tx.instant();
     let side = host.side_mut();
     side.chosen_new_tab.insert(pane, id.to_owned());
-    side.focused = true;
-    side.quiet = false;
-    side.pressed = true;
+    side.focus.press();
     side.active_pane_focus = pane;
 }
 

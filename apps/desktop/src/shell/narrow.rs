@@ -137,7 +137,7 @@ impl NarrowHost for App {
             env_scale: 1.0,
             tab,
             visible: true,
-            focused: self.side.focused,
+            focused: self.side.focus.is_focused(),
             mobile: true,
         };
         provider.render(self, p, &ctx)

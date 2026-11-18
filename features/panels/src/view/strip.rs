@@ -11,8 +11,8 @@ use opencode_ui::style::{UI, UI_SMALL};
 use crate::drag::{choose_side_new_tab, side_new_tab_gesture, side_tab_gesture};
 use crate::host::PanelsHost;
 use crate::state::{
-    NewTabEntry, ResolvedEntry, StripScroll, close_side_tab, dismiss_side_new_tab, open_side_new_tab,
-    promote_preview_tab, select_side_tab, toggle_bottom_region,
+    FocusMode, NewTabEntry, ResolvedEntry, SideMenu, StripScroll, close_side_tab, dismiss_side_new_tab,
+    open_side_new_tab, promote_preview_tab, select_side_tab, toggle_bottom_region,
 };
 use crate::{CloseButtonMode, SessionPane, TERMINAL_PLUGIN};
 
@@ -55,10 +55,11 @@ pub(super) fn is_pane_focused(
     // region on every keystroke in it.
     let composing = host.composer_focused_untracked();
     let side = host.side();
-    ((side.focused && side.active_pane_focus == pane) || field_in_tab)
-        && !composing
-        && !host.popup_holds_focus()
-        && !side.quiet
+    match side.focus.mode() {
+        FocusMode::Quiet => false,
+        FocusMode::Active => (side.active_pane_focus == pane || field_in_tab) && !composing && !host.popup_holds_focus(),
+        FocusMode::Unfocused => field_in_tab && !composing && !host.popup_holds_focus(),
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -481,7 +482,7 @@ fn on_open_new_tab(host: &mut dyn PanelsHost, pane: SessionPane, tx: &mut Tx) {
 fn on_open_add_menu(host: &mut dyn PanelsHost, pane: SessionPane, ev: PointerPress, tx: &mut Tx) {
     tx.instant();
     host.wake_panel_launchers();
-    host.side_mut().add_menu = Some((pane, ev.x, ev.y));
+    host.side_mut().menu = SideMenu::Add { pane, x: ev.x, y: ev.y };
 }
 
 fn on_tab_press(host: &mut dyn PanelsHost, key: &str, tx: &mut Tx) {
@@ -495,5 +496,5 @@ fn on_tab_press(host: &mut dyn PanelsHost, key: &str, tx: &mut Tx) {
 
 fn on_open_tab_menu(host: &mut dyn PanelsHost, key: &str, ev: PointerPress, tx: &mut Tx) {
     tx.instant();
-    host.side_mut().tab_menu = Some((key.to_owned(), ev.x, ev.y));
+    host.side_mut().menu = SideMenu::Tab { key: key.to_owned(), x: ev.x, y: ev.y };
 }

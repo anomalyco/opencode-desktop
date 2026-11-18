@@ -14,8 +14,7 @@ use serde_json::{Value, json};
 use terminal::{RestoreState, SessionPersistHandle, TerminalConfig, TerminalSession};
 
 use crate::{
-    MAX_TERMINAL_WORKSPACES, TerminalSurfaceHost, TerminalTab, TerminalWorkspace, mount, ops,
-    workspace_key,
+    HoverLink, MAX_TERMINAL_WORKSPACES, TerminalSurfaceHost, TerminalTab, TerminalWorkspace, mount, ops, workspace_key,
 };
 
 /// The storage namespace the workspaces live in (Desktop's terminal plugin's), one row each.
@@ -505,7 +504,7 @@ pub fn ensure_terminal_workspace_hydrated(host: &mut dyn TerminalSurfaceHost, ws
                 cwd: directory.clone(),
                 find: None,
                 focused: Cell::new(false),
-                hover: None,
+                hover: HoverLink::None,
             })
         })
         .collect();

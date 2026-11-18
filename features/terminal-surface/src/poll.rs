@@ -9,7 +9,7 @@ use opencode_kit::client::Server;
 use rune::Tx;
 use terminal::{SessionStatus, TerminalConfig, TerminalSession, VtEvent};
 
-use crate::{TerminalSurfaceHost, TerminalTab, grid, mount, ops, panel_key, persist, side_ops};
+use crate::{PaintedTheme, TerminalSurfaceHost, TerminalTab, grid, mount, ops, panel_key, persist, side_ops};
 
 /// Steps each session terminal's [`mount::Mount`]: a failed one leaves once it doesn't show,
 /// and showing it again, or the server reconnecting, attaches it anew. Quiet (and free of
@@ -107,11 +107,15 @@ pub fn poll_terminal(host: &mut dyn TerminalSurfaceHost, tx: &mut Tx) -> bool {
 
     if !host.terminal().workspaces.is_empty() {
         let dark = ops::terminal_dark(host);
-        let painted = Some((dark, opencode_ui::themes::active(), opencode_ui::themes::generation()));
-        if host.terminal().last_dark != painted {
+        let painted = Some(PaintedTheme {
+            dark,
+            theme: opencode_ui::themes::active(),
+            generation: opencode_ui::themes::generation(),
+        });
+        if host.terminal().last_theme != painted {
             let theme = host.terminal_theme(dark);
             let pane = host.terminal_mut();
-            pane.last_dark = painted;
+            pane.last_theme = painted;
             for ws in pane.workspaces.values() {
                 for tab in &ws.tabs {
                     tab.session.set_theme(theme.clone());

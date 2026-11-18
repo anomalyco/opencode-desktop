@@ -154,7 +154,7 @@ impl FilesHost for App {
     }
 
     fn is_side_focused(&self) -> bool {
-        self.side.focused
+        self.side.focus.is_focused()
     }
 
     fn active_file_tab(&self) -> Option<(String, Option<String>)> {
@@ -212,7 +212,7 @@ impl FilesHost for App {
         remove_open_tab: bool,
         tx: &mut Tx,
     ) {
-        let saved_focus = (self.composer.focused, self.side.focused);
+        let saved_focus = (self.composer.focused, self.side.focus.mode());
         if remove_open_tab && let Some(st) = self.side.sessions.get_mut(sid) {
             st.tab_state.tabs.all.retain(|k| k != data::OPEN_TAB_KEY);
         }
@@ -220,7 +220,8 @@ impl FilesHost for App {
             s.open_side_tab_for_session(sid, tab_key, Some(SessionPane::Side), preview, false);
         });
         if !steal_focus {
-            (self.composer.focused, self.side.focused) = saved_focus;
+            self.composer.focused = saved_focus.0;
+            self.side.focus.restore(saved_focus.1);
         }
     }
 
@@ -229,7 +230,9 @@ impl FilesHost for App {
     }
 
     fn side_quiet_clear(&mut self) {
-        self.side.quiet = false;
+        if self.side.focus.is_quiet() {
+            self.side.focus.wake();
+        }
     }
 
     fn handle_panels_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {

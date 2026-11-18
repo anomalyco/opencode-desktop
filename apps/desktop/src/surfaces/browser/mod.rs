@@ -153,7 +153,7 @@ impl App {
         let key = panel_key(PLUGIN, &self.active_browser_tab_id()?.to_string());
         let st = self.side.sessions.get(sid)?;
         let pane = crate::panels::tabs::session_tab_pane(&st.tab_state.tabs, &key);
-        let in_pane = self.side.focused && self.side.active_pane_focus == pane;
+        let in_pane = self.side.focus.is_focused() && self.side.active_pane_focus == pane;
         (field || in_pane).then_some(pane)
     }
 
@@ -164,7 +164,7 @@ impl App {
         let key = panel_key(PLUGIN, &id.to_string());
         let Some(st) = self.side.sessions.get(&sid) else { return };
         self.side.active_pane_focus = crate::panels::tabs::session_tab_pane(&st.tab_state.tabs, &key);
-        self.side.focused = true;
+        self.side.focus.focus();
         self.composer.focused = false;
     }
 
@@ -272,7 +272,7 @@ impl App {
     }
 
     pub fn close_browser_tab_for_session(&mut self, sid: &str, id: u64, tx: &mut Tx) {
-        let (composer, side) = (self.composer.focused, self.side.focused);
+        let (composer, side) = (self.composer.focused, self.side.focus.mode());
         let key = panel_key(PLUGIN, &id.to_string());
         let routed = self.active_session_id() == Some(sid);
         if routed {
@@ -289,11 +289,11 @@ impl App {
         // leaves with the panel, and the next ⌘W is held as after the strip's last tab closes,
         // so one press too many doesn't close the session.
         self.composer.focused = composer;
-        if routed && side && !self.side_open() {
-            self.side.focused = false;
+        if routed && side.is_focused() && !self.side_open() {
+            self.side.focus.blur();
             self.side.emptied_guard = true;
         } else {
-            self.side.focused = side;
+            self.side.focus.restore(side);
         }
     }
 

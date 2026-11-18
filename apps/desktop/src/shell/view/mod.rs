@@ -278,9 +278,8 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         .key("panel")
         .role("main")
         .on_background_press(|s: &mut App| {
-            s.side.focused = false;
-            s.side.tab_menu = None;
-            s.side.add_menu = None;
+            s.side.focus.blur();
+            s.side.menu.close();
         })
         // Files dropped anywhere on the page attach, as in Desktop; a timeline image
         // dragged out of the page attaches only on the composer.

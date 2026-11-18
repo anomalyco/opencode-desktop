@@ -196,8 +196,12 @@ fn project(s: &App, p: &Pal, proj: &model::Project, index: usize) -> El {
             tx.instant();
             let st = &mut *s.project_state;
             // A release that ends a drag isn't a press on the row it dropped.
-            if std::mem::take(&mut st.organize_dropped) {
-                return;
+            match st.organize_drag {
+                OrganizeDrag::JustDropped => {
+                    st.organize_drag = OrganizeDrag::Idle;
+                    return;
+                }
+                OrganizeDrag::Idle | OrganizeDrag::Dragging(_) => {}
             }
             // Closing it pages its sessions back to the first five (`onToggle`).
             if !st.organize_expanded.remove(&id) {
@@ -209,7 +213,10 @@ fn project(s: &App, p: &Pal, proj: &model::Project, index: usize) -> El {
         .child(el().size(16.0, 16.0).center().child(crate::icons::badge(s, p, Some(proj), &proj.name)))
         .child(text(proj.name.clone()).key("label").font(UI).color(p.muted).group_color(p.text).grow(1.0).shrink().truncate());
     // The dragged row takes no hover: its wash and its buttons stay off while it follows the pointer.
-    let lifted = s.project_state.organize_drag.as_ref().is_some_and(|d| d.from == index);
+    let lifted = match &s.project_state.organize_drag {
+        OrganizeDrag::Dragging(d) => d.from == index,
+        OrganizeDrag::Idle | OrganizeDrag::JustDropped => false,
+    };
     let head = row()
         .key("head")
         .w_full()
@@ -235,12 +242,13 @@ fn project(s: &App, p: &Pal, proj: &model::Project, index: usize) -> El {
     }
     match &s.project_state.organize_drag {
         // It follows the pointer over the rows, which make room for it as it passes them.
-        Some(d) if d.from == index => r.raise().offset(0.0, d.dy).offset_motion(rune::Anim::INSTANT),
-        Some(d) => r.offset(0.0, drag_shift(d, s, index)),
-        None => r,
+        OrganizeDrag::Dragging(d) if d.from == index => r.raise().offset(0.0, d.dy).offset_motion(rune::Anim::INSTANT),
+        OrganizeDrag::Dragging(d) => r.offset(0.0, drag_shift(d, s, index)),
+        OrganizeDrag::Idle | OrganizeDrag::JustDropped => r,
     }
 }
 
+pub use crate::projects::OrganizeDrag;
 pub use crate::projects::sidebar::ProjectDrag;
 
 /// Points the pointer travels before a press on a row becomes a drag (`Distance({ value: 4 })`).
@@ -267,28 +275,41 @@ fn height(s: &App, id: &str) -> f32 {
 
 fn drag(s: &mut App, id: &str, index: usize, d: &mut rune::Drag, tx: &mut Tx) {
     match d.phase {
-        rune::Phase::Down => s.project_state.organize_dropped = false,
+        rune::Phase::Down => match s.project_state.organize_drag {
+            OrganizeDrag::JustDropped => s.project_state.organize_drag = OrganizeDrag::Idle,
+            OrganizeDrag::Idle | OrganizeDrag::Dragging(_) => {}
+        },
         rune::Phase::Move => {
-            if s.project_state.organize_drag.is_none() {
-                if d.dx.hypot(d.dy) < DRAG_SLOP {
-                    return;
+            let mut drag = match &s.project_state.organize_drag {
+                OrganizeDrag::Dragging(_) => match std::mem::take(&mut s.project_state.organize_drag) {
+                    OrganizeDrag::Dragging(drag) => drag,
+                    OrganizeDrag::Idle | OrganizeDrag::JustDropped => return,
+                },
+                OrganizeDrag::Idle | OrganizeDrag::JustDropped => {
+                    if d.dx.hypot(d.dy) < DRAG_SLOP {
+                        return;
+                    }
+                    let ids: Vec<String> = s.organized_projects().iter().map(|p| p.id.clone()).collect();
+                    if ids.get(index).map(String::as_str) != Some(id) {
+                        return;
+                    }
+                    ProjectDrag { from: index, to: index, dy: 0.0, ids }
                 }
-                let ids: Vec<String> = s.organized_projects().iter().map(|p| p.id.clone()).collect();
-                if ids.get(index).map(String::as_str) != Some(id) {
-                    return;
-                }
-                s.project_state.organize_drag = Some(ProjectDrag { from: index, to: index, dy: 0.0, ids });
-            }
+            };
             tx.animated();
             let shown = if s.project_state.organize_all { usize::MAX } else { PROJECTS };
-            let Some(mut drag) = s.project_state.organize_drag.take() else { return };
             drag.dy = d.dy;
             drag.to = target(s, &drag, shown);
-            s.project_state.organize_drag = Some(drag);
+            s.project_state.organize_drag = OrganizeDrag::Dragging(drag);
         }
         rune::Phase::Up => {
-            let Some(drag) = s.project_state.organize_drag.take() else { return };
-            s.project_state.organize_dropped = true;
+            let drag = match &s.project_state.organize_drag {
+                OrganizeDrag::Dragging(_) => match std::mem::replace(&mut s.project_state.organize_drag, OrganizeDrag::JustDropped) {
+                    OrganizeDrag::Dragging(drag) => drag,
+                    OrganizeDrag::Idle | OrganizeDrag::JustDropped => return,
+                },
+                OrganizeDrag::Idle | OrganizeDrag::JustDropped => return,
+            };
             tx.instant();
             if d.cancelled() || drag.from == drag.to {
                 return;
