@@ -73,6 +73,20 @@ pub fn write_trouble() -> Option<WriteTrouble> {
     TROUBLE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
 }
 
+/// Whether this process holds the profile (its lease), so may write what else lives beside the
+/// database (the crash record, the updater's staging): `None` until the storage's open decides.
+/// The browser build has one profile per page: always.
+pub fn holds_profile() -> Option<bool> {
+    #[cfg(not(target_arch = "wasm32"))]
+    return native::lease::holds();
+    #[cfg(target_arch = "wasm32")]
+    Some(true)
+}
+
+/// What an open refused for another copy gives as its reason (`BootReport::error`): the app says
+/// it in its own words. The browser build never refuses one.
+pub const IN_USE: &str = "another copy of OpenCode has this profile open";
+
 /// A write's outcome, for [`write_trouble`]: `error` is the failure's words, `full` when it says
 /// the disk is full.
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
