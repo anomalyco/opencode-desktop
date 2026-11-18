@@ -751,7 +751,7 @@ impl Slab {
         let (tx, rx) = std::sync::mpsc::channel();
         let source = source.clone();
         let spawned = std::thread::Builder::new().name("file-find-fold".into()).spawn(move || {
-            let _ = tx.send(Slab::build(&source));
+            drop(tx.send(Slab::build(&source)));
         });
         match spawned {
             Ok(_) => Slab::Folding(rx),

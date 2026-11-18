@@ -6,13 +6,38 @@
 
 use std::collections::BTreeMap;
 
-use super::shell_tail::{self, Tail, TailEffect, TailEvent};
-use super::shells::Shell;
+use crate::shells::tail::{self, Tail, TailEffect, TailEvent};
+use crate::shells::Shell;
 
 /// A Stop that hasn't settled by then counts as failed (`SHELL_STOP_TIMEOUT_MS`).
 pub const STOP_TIMEOUT_MS: i64 = 10_000;
 /// How long a shown shell that left the list waits to hear how it ended (`SHELL_END_TIMEOUT_MS`).
 pub const END_TIMEOUT_MS: i64 = 5_000;
+
+/// Localized parts of the activity capsule's label ("2 subagents · 1 shell").
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Summary {
+    pub subagents: String,
+    pub shells: String,
+    pub between: String,
+    pub label: String,
+}
+
+/// Formats the localized subagent and shell counts, the separator between them, and the combined
+/// accessible label (`session.activity.summary`).
+pub fn summary(subs: usize, sh: usize) -> Summary {
+    let subagents = opencode_i18n::plural!("session.activity.subagents", subs);
+    let shells = opencode_i18n::plural!("session.activity.shells", sh);
+    // The summary's words between its two counts, in the language's order.
+    let template = opencode_i18n::t!("session.activity.summary", subagents = "\u{1}", shells = "\u{2}");
+    let between = template.split(['\u{1}', '\u{2}']).nth(1).unwrap_or("").trim().to_owned();
+    let label = match (subs, sh) {
+        (0, _) => shells.clone(),
+        (_, 0) => subagents.clone(),
+        _ => opencode_i18n::t!("session.activity.summary", subagents = subagents.clone(), shells = shells.clone()).to_string(),
+    };
+    Summary { subagents, shells, between, label }
+}
 
 /// How a shell ended (`ShellEnd`): `completed` freezes its run time.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -111,7 +136,7 @@ impl Activity {
     }
 
     /// The shown shell, its phase, and the output read so far.
-    pub fn shown(&self) -> Option<(&Shell, Phase, &shell_tail::Text, bool)> {
+    pub fn shown(&self) -> Option<(&Shell, Phase, &tail::Text, bool)> {
         match &self.panel {
             Panel::Shell { shell, phase, tail, back_lit } => Some((shell, *phase, tail.text(), *back_lit)),
             _ => None,
@@ -135,7 +160,7 @@ pub fn step(state: Activity, event: Event, work: &Work) -> (Activity, Vec<Effect
         && after.is_some()
         && let Panel::Shell { tail, .. } = &mut next.panel
     {
-        let (t, e) = shell_tail::step(std::mem::replace(tail, Tail::Complete { text: Default::default() }), TailEvent::Running(after == Some(true)));
+        let (t, e) = tail::step(std::mem::replace(tail, Tail::Complete { text: Default::default() }), TailEvent::Running(after == Some(true)));
         *tail = t;
         effects.extend(e.into_iter().map(Effect::Tail));
     }
@@ -156,7 +181,7 @@ fn transition(state: Activity, event: Event, work: &Work) -> (Activity, Vec<Effe
             let issued = state.issued + 1;
             let mut effects = leave(&state);
             let running = state.stopping.contains_key(&shell.id) || work.shells.contains(&shell.id);
-            let (tail, reads) = shell_tail::start(running);
+            let (tail, reads) = tail::start(running);
             effects.extend(reads.into_iter().map(Effect::Tail));
             // A shell whose Stop is in flight keeps its panel running until the Stop settles.
             let phase = if running { Phase::Running } else { Phase::Ending { attempt: issued } };
@@ -181,7 +206,7 @@ fn transition(state: Activity, event: Event, work: &Work) -> (Activity, Vec<Effe
         },
         Event::Tail(e) => match state.panel {
             Panel::Shell { shell, phase, back_lit, tail } => {
-                let (tail, effects) = shell_tail::step(tail, e);
+                let (tail, effects) = tail::step(tail, e);
                 (Activity { panel: Panel::Shell { shell, phase, back_lit, tail }, ..state }, effects.into_iter().map(Effect::Tail).collect())
             }
             _ => (state, Vec::new()),

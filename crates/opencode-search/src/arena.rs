@@ -39,7 +39,7 @@ impl SearchArena {
     pub fn push(&mut self, text: &str) -> usize {
         self.first_letters = None;
         let id = self.ends.len();
-        if id % 64 == 0 {
+        if id.is_multiple_of(64) {
             self.masks.push([0; 64]);
         }
         let start = self.data.len();

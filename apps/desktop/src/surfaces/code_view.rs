@@ -1,10 +1,10 @@
-//! Desktop host adapter for `opencode-feature-code-view` (`features/code-view`).
+//! Desktop host adapter for `opencode-code-view` (`crates/opencode-code-view`).
 
-pub use opencode_feature_code_view::*;
-pub use opencode_feature_code_view::diff::{
+pub use opencode_code_view::*;
+pub use opencode_code_view::diff::{
     find as diff_find, nav as diff_nav, state as diff_state, view as diff_view,
 };
-pub use opencode_feature_code_view::file::{state as file_state, view as file_view};
+pub use opencode_code_view::file::{state as file_state, view as file_view};
 
 use opencode_kernel::{Feature, KernelBuilder, SurfaceDescriptor, SurfaceKind};
 use rune::{KeyEvent, Tx};
@@ -12,7 +12,7 @@ use rune::{KeyEvent, Tx};
 use crate::App;
 use crate::keymap::Bind;
 
-/// Desktop keybinding adapter for `opencode_feature_code_view::KeyMatch`.
+/// Desktop keybinding adapter for `opencode_code_view::KeyMatch`.
 #[derive(Clone, Copy, Default)]
 pub struct DesktopKeys;
 

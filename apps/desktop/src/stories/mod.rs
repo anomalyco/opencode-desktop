@@ -5,13 +5,16 @@
 //! beside the playground untouched and comes back on Esc or ⌘⇧D, with the knobs as the stories
 //! left them. Answers and sends in a story go nowhere.
 
+#[cfg(feature = "stories")]
 pub mod composer;
 pub mod demo;
 pub mod demo_script;
 pub mod fixture_ids;
 pub mod open;
 pub mod scenes;
+#[cfg(feature = "stories")]
 pub mod shell;
+#[cfg(feature = "stories")]
 pub mod timeline;
 
 use self::fixture_ids::CHILD;
@@ -444,6 +447,7 @@ pub(crate) fn header_view(s: &App, p: &Pal) -> El {
 }
 
 /// The header over the timeline, for numbers that tick in both.
+#[cfg(feature = "stories")]
 pub(crate) fn ticking_view(s: &App, p: &Pal) -> El {
     frame(p, "story-ticking").h_full().max_h(680.0).child(view::story_header(s, p)).child(view::story_session(s, p))
 }
@@ -460,6 +464,7 @@ pub(crate) fn opening_view(s: &App, p: &Pal) -> El {
 }
 
 /// The history strip over the page it is on.
+#[cfg(feature = "stories")]
 pub(crate) fn history_view(s: &App, p: &Pal) -> El {
     frame(p, "story-history").h_full().max_h(680.0).child(self::shell::history::view(s, p))
 }

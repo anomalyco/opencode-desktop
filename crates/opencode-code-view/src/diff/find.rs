@@ -15,6 +15,7 @@ use crate::file::state::{DocFind, DocFindEvent};
 
 /// A shown line: its file, side and number.
 type LineId = (u32, Side, u32);
+type FindSlab = (u64, Vec<(u32, LineId)>, opencode_search::SlabFind);
 
 #[derive(Default)]
 pub struct DiffFind {
@@ -22,7 +23,7 @@ pub struct DiffFind {
     state: DocFind,
     /// The shown lines in row order and their folded text, made when a query first needs them
     /// for the rows as built (`keys_rev`) and dropped when Find closes.
-    slab: Option<(u64, Vec<(u32, LineId)>, opencode_search::SlabFind)>,
+    slab: Option<FindSlab>,
     /// `(row, line, byte range)` in row order.
     hits: Vec<(u32, LineId, Range<usize>)>,
     by_line: HashMap<LineId, Vec<(Range<usize>, bool)>>,

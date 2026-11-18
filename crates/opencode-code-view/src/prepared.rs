@@ -191,7 +191,7 @@ fn chunk_kept(c: u32, new_content: u32, prefix_content: u32, same_content_len: b
     end <= prefix_content || (same_content_len && new_content <= prefix_content && c * CHUNK_LINES < new_content)
 }
 
-fn logical_line<'a>(source: &'a SourceLines, trailing: bool, n: u32) -> Option<&'a str> {
+fn logical_line(source: &SourceLines, trailing: bool, n: u32) -> Option<&str> {
     source
         .line(n)
         .or_else(|| (trailing && n == source.len() + 1).then_some(""))
@@ -257,7 +257,7 @@ fn drop_boxed_off_ui(value: Box<dyn Send>) {
         Some(tx)
     });
     if let Some(tx) = tx {
-        let _ = tx.send(value);
+        drop(tx.send(value));
     }
 }
 
@@ -286,9 +286,9 @@ fn build_band_keys(
         return shared;
     }
     let mut vec: Vec<Box<str>> = shared[..bands].to_vec();
-    for b in first_new..end_new {
+    for (b, slot) in vec.iter_mut().enumerate().take(end_new).skip(first_new) {
         let lid = line_ids.get(b * BAND_LINES as usize).copied().unwrap_or(0);
-        vec[b] = format!("cbn{lid}").into_boxed_str();
+        *slot = format!("cbn{lid}").into_boxed_str();
     }
     vec.into()
 }

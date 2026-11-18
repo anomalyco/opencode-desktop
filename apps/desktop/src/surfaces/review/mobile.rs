@@ -75,15 +75,7 @@ impl NarrowReview {
     }
 
     pub fn prepare_paths(paths: &[String], files: &[FileDiff]) -> Vec<(String, crate::code_view::diff_state::PreparedDiffDoc)> {
-        paths
-            .iter()
-            .filter_map(|path| {
-                files
-                    .iter()
-                    .find(|f| f.path() == path)
-                    .map(|f| (path.clone(), DiffDocState::inline_prepared(f.clone())))
-            })
-            .collect()
+        opencode_code_view::data::review::prepare_narrow_paths(paths, files)
     }
 
     pub fn from_prepared(open: Vec<(String, crate::code_view::diff_state::PreparedDiffDoc)>) -> Self {

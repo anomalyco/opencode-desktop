@@ -546,6 +546,7 @@ impl<S: 'static> Inner<S> {
         hover(&self.look, line, c.kind, selected, quiet)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn split_line<'a>(
         &self,
         st: &'a DiffDocState,

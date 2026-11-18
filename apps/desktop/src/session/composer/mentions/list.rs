@@ -68,13 +68,7 @@ pub fn data_list(v: &Value) -> impl Iterator<Item = &Value> {
 
 /// Merges `incoming` sessions into `into` in place, replacing matching ids.
 pub fn upsert_sessions(into: &mut Vec<SessionInfo>, incoming: Vec<SessionInfo>) {
-    for s in incoming {
-        match into.iter_mut().find(|x| x.id == s.id) {
-            Some(old) if s.updated >= old.updated => *old = s,
-            Some(_) => {}
-            None => into.push(s),
-        }
-    }
+    opencode_search::query::upsert_latest(into, incoming, |a, b| a.id == b.id, |s| s.updated);
 }
 
 pub use crate::popover::{Highlight, cycle};

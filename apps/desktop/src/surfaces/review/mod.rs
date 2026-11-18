@@ -25,49 +25,7 @@ use data::{FetchedDiffs, ReviewFetchSpec, ReviewFileMeta, build_change_tree, col
 /// The review panel's one tab (Desktop's `review:changes`).
 pub const REVIEW_KEY: &str = "review:changes";
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum ChangeMode {
-    #[default]
-    Git,
-    Branch,
-    Turn,
-}
-
-impl ChangeMode {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Git => opencode_i18n::t!("ui.sessionReview.title.git"),
-            Self::Branch => opencode_i18n::t!("ui.sessionReview.title.branch"),
-            Self::Turn => opencode_i18n::t!("ui.sessionReview.title.lastTurn"),
-        }
-    }
-
-    pub fn empty_label(self) -> &'static str {
-        match self {
-            Self::Git => opencode_i18n::t!("plugin.review.empty.git"),
-            Self::Branch => opencode_i18n::t!("plugin.review.empty.branch"),
-            Self::Turn => opencode_i18n::t!("plugin.review.noChanges"),
-        }
-    }
-
-    /// The contract's name for it (`DiffSource`).
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Git => "git",
-            Self::Branch => "branch",
-            Self::Turn => "turn",
-        }
-    }
-
-    pub fn parse(s: &str) -> Option<Self> {
-        match s {
-            "git" => Some(Self::Git),
-            "branch" => Some(Self::Branch),
-            "turn" => Some(Self::Turn),
-            _ => None,
-        }
-    }
-}
+pub use opencode_code_view::data::review::ChangeMode;
 
 /// Where a session's changes stand, as Desktop's `gui-plugins/src/review/machine.ts`
 /// (`ReviewDiffState`) shows them (`ReviewDiffView`): loading, or landed for a mode and file
