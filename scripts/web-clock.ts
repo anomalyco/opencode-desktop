@@ -138,8 +138,7 @@ function cfg(src: string): boolean {
       if (name === "target_vendor") return value === "unknown"
       return true
     }
-    // A bare name: debug builds' own, or one a build script sets, which the web build doesn't
-    // (`opencode_web_host` empties the app for a native host).
+    // A bare name: debug builds' own, or a custom build-script cfg (off in web builds).
     return name === "debug_assertions"
   }
   return pred()

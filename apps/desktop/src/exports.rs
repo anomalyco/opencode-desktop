@@ -2,7 +2,7 @@
 //!
 //! Physical code lives in seven progressive-disclosure domain directories (`shell`, `session`,
 //! `workspace`, `surfaces`, `dialogs`, `stories`, `plugin_host`). Re-exporting them here keeps
-//! internal `crate::<module>::*` paths concise while `main.rs` stays focused on process bootstrap.
+//! internal `crate::<module>::*` paths concise while `lib.rs` stays focused on crate bootstrap.
 
 #[allow(unused_imports)]
 pub(crate) use crate::shell::{
