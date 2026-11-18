@@ -5,8 +5,8 @@
 use opencode_i18n::t;
 use rune::{El, PointerPress, TextStyle, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
-use session_view::palette::{Pal, kit};
-use session_view::style::{INSTANT, activity_ring, tab_busy_glyph};
+use opencode_ui::palette::{Pal, kit};
+use opencode_ui::style::{INSTANT, activity_ring, tab_busy_glyph};
 
 use crate::host::{NarrowHost, NarrowTab, NarrowTabStatus};
 use crate::machine::TabsEvent;
@@ -142,7 +142,7 @@ pub fn drawer<H: NarrowHost + 'static>(s: &H, p: &Pal) -> El {
         .gap(8.0)
         .min_h(0.0)
         // The drawer's vertical tab strip: no bar, as Desktop hides it (`no-scrollbar`, `tab-strip.tsx:629`).
-        .child(session_view::scroller::scroller("narrow-tabs-scroll").hidden(col().w_full().shrink().min_h(0.0), tabs))
+        .child(opencode_ui::scroller::scroller("narrow-tabs-scroll").hidden(col().w_full().shrink().min_h(0.0), tabs))
         .child(new.w_full())
         .child(
             col()

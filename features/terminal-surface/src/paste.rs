@@ -14,7 +14,7 @@ use opencode_i18n::t;
 use opencode_ui::widgets::{BODY, DialogSize, Fit, button, dialog_window, sized};
 use rune::{Cx, El, Family, TextStyle, Tx, col, el, row, spacer, text};
 use rune_kit::ButtonVariant;
-use session_view::palette::{Elevate as _, Pal, kit};
+use opencode_ui::palette::{Elevate as _, Pal, kit};
 
 use crate::{TerminalSurfaceHost, ops};
 

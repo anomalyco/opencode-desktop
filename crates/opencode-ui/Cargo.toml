@@ -10,10 +10,10 @@ publish = false
 opencode-i18n = { path = "../opencode-i18n" }
 opencode-kit = { path = "../opencode-kit" }
 rune.workspace = true
-rune-kit.workspace = true
+rune-kit = { workspace = true, features = ["markdown", "mermaid"] }
 rune-knobs.workspace = true
 rune-theme-opencode.workspace = true
-session-view = { path = "../session-view" }
+serde_json.workspace = true
 
 [lints]
 workspace = true

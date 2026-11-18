@@ -30,9 +30,9 @@ extern "C" {
 pub fn start(password: Option<String>) {
     rune::task::start_runners();
     let pointer = initial_pointer();
-    session_view::style::set_pointer(pointer & 1 != 0, pointer & 2 != 0);
+    opencode_ui::style::set_pointer(pointer & 1 != 0, pointer & 2 != 0);
     let cpu_only = initial_cpu_canvas_only();
-    session_view::style::set_permanent_cpu_canvas(cpu_only);
+    opencode_ui::style::set_permanent_cpu_canvas(cpu_only);
     // The dictionaries beside the page (`spell/`, scripts/web.ps1).
     rune::spell::set_web_dictionaries(&["en-US"]);
     // The page's arguments first: the storage and the app's spec read them.
@@ -64,7 +64,7 @@ pub fn start(password: Option<String>) {
         let mut s = web_api::new_app();
         if let Some(dpr) = web_sys::window().map(|w| w.device_pixel_ratio() as f32).filter(|&v| v > 0.0) {
             web_api::set_window_scale(&mut s, dpr);
-            session_view::scroller::set_device_scale(web_api::view_scale(&s));
+            opencode_ui::scroller::set_device_scale(web_api::view_scale(&s));
         }
         web_api::set_inbox_wake(&mut s, wake);
         s
@@ -91,7 +91,7 @@ fn poll(s: &mut App, now: f64, tx: &mut rune::Tx) -> bool {
 fn sync_keyboard_dismiss(handle: rune::AppHandle<App>) {
     let on_dismiss = Closure::<dyn FnMut()>::new(move || {
         handle.update_if(|s, _| {
-            if !session_view::style::touch_controls() {
+            if !opencode_ui::style::touch_controls() {
                 return false;
             }
             web_api::dismiss_touch_keyboard(s)
@@ -106,10 +106,10 @@ fn sync_keyboard_dismiss(handle: rune::AppHandle<App>) {
 fn sync_permanent_cpu_canvas(handle: rune::AppHandle<App>) {
     let on_permanent = Closure::<dyn FnMut()>::new(move || {
         handle.update_if(|_, _| {
-            if session_view::style::permanent_cpu_canvas() {
+            if opencode_ui::style::permanent_cpu_canvas() {
                 return false;
             }
-            session_view::style::set_permanent_cpu_canvas(true);
+            opencode_ui::style::set_permanent_cpu_canvas(true);
             true
         });
     });

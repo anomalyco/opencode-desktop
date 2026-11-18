@@ -9,8 +9,8 @@ use opencode_i18n::t;
 use opencode_ui::popup::PopupHost;
 use rune::{Color, El, TextStyle, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
-use session_view::palette::Pal;
-use session_view::style::INSTANT;
+use opencode_ui::palette::Pal;
+use opencode_ui::style::INSTANT;
 
 use crate::data::{file_tab_key, file_tab_path};
 use crate::{FilesHost, SessionFiles, ops, view, viewer};

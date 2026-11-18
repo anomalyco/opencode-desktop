@@ -14,7 +14,7 @@ use opencode_kit::servers::{Route, ServerConn, ServerKey};
 use opencode_kit::wire_error::WireError;
 use rune::{El, FileDialogOptions, Tx};
 use serde_json::{Map, Value};
-use session_view::palette::Pal;
+use opencode_ui::palette::Pal;
 
 pub use opencode_runtime::TabSummary;
 

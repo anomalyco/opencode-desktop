@@ -6,8 +6,8 @@ use opencode_ui::popup::{self, PopupHost};
 use opencode_ui::widgets::{BODY, DialogSize, Fit, button, dialog_window, sized};
 use rune::{Color, Cx, Direction, El, TextStyle, Tx, col, el, row, spacer, text};
 use rune_kit::ButtonVariant;
-use session_view::dock::flat;
-use session_view::palette::{Elevate as _, Pal, kit};
+use opencode_ui::palette::flat;
+use opencode_ui::palette::{Elevate as _, Pal, kit};
 
 use crate::host::SessionMenuHost;
 use crate::{Line, Spot, Target};
@@ -22,7 +22,7 @@ fn field_shell(host: &dyn SessionMenuHost, p: &Pal, target: &Target, style: Text
     if !host.menus().renames(target) {
         return None;
     }
-    let input = session_view::style::field(&host.menus().edit, style)
+    let input = opencode_ui::style::field(&host.menus().edit, style)
         .key("rename")
         .spellcheck(host.spellcheck())
         .single_line()

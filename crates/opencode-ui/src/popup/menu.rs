@@ -3,7 +3,7 @@
 
 use opencode_kit::servers::health::Indicator;
 use rune::{Align, Icon, PopupItem, PopupMenu, Side, TextStyle};
-use session_view::popover::{self, MENU};
+use crate::popover::{self, MENU};
 
 use super::{GROUP, MAX_H, MIN_W};
 
@@ -212,7 +212,7 @@ pub(super) struct Sub {
 /// How a drawn menu looks.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum Look {
-    /// `menu-v2`'s own: [`session_view::popover::MENU`].
+    /// `menu-v2`'s own: [`crate::popover::MENU`].
     #[default]
     Menu,
     /// `menu-v2`'s `appearance="standard"`, which Desktop's app menu takes.

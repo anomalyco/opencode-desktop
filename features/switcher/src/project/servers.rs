@@ -11,7 +11,7 @@ use opencode_kit::model::{Project, project_git};
 use opencode_kit::servers::ServerKey;
 use rune::{El, Icon, TextStyle, icon, row, text};
 use rune_theme_opencode::icons as ic;
-use session_view::palette::Pal;
+use opencode_ui::palette::Pal;
 
 use super::{ProjectSwitcherHost, RowKind, StepMode, SwitcherRow, matches_query};
 use crate::folder_name;

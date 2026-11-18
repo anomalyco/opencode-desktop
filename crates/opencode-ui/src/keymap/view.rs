@@ -1,7 +1,7 @@
 //! The table drawn: keycap chips for a command.
 
 use rune::{El, TextStyle, row, text};
-use session_view::palette::Pal;
+use crate::palette::Pal;
 
 use super::Bind;
 

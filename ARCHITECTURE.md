@@ -51,9 +51,9 @@ rune-desktop/
 │   │                           #   CommandRegistry, EventBus, Feature/Surface traits)
 │   ├── opencode-runtime/       #   Headless runtime primitives & explicit state machines (catalog, idle,
 │   │                           #   pairing, server pool/form, window life/placement, fork/rewind/pages/queue/send)
-│   ├── opencode-ui/            #   Shared UI primitives (`widgets`, dialog sizing), `keymap`, `panel_chrome`, `popup` menus & `toast` notifications
+│   ├── opencode-ui/            #   Bottom-layer UI design-system foundation (#![forbid(unsafe_code)], zero session-view dep): `palette`, `themes`, `style`, `dialog`, `scroller`, `odometer`, `sheet`, `popover`, `provider_mark`, `keymap`, `widgets`, `panel_chrome`, `popup` & `toast`
 │   ├── opencode-platform/      #   OS & WASM platform helpers (wall clock, OTLP telemetry, askpass, fetch)
-│   ├── session-view/           #   Embeddable timeline (TimelineHost + focused capability sub-traits)
+│   ├── session-view/           #   Embeddable timeline built on `opencode-ui` (TimelineHost + focused capability sub-traits, re-exporting foundation modules for Seer compatibility)
 │   ├── opencode-kit/           #   Protocol client, SSE/WS streams, transcript model
 │   ├── opencode-plugin-runtime/#   App-independent Luau plugin runtime primitives (catalogs, icons, images, flyout, machines, processes, power, QR, hot reload, sources, tasks)
 │   ├── opencode-plugin-spec/   #   Single-source-of-truth contract.json + Luau/Rust codegen
@@ -119,7 +119,7 @@ apps/*  ──▶  features/*  ──▶  crates/opencode-kernel, crates/opencod
 ```
 
 - **No upward or cyclic dependencies (Rules 1–2):** `crates/*` never depend on `features/*` or `apps/*`; `features/*` never depend on `apps/*` or on sibling `features/*`; full workspace DFS confirms zero cycles across all 54 workspace members (29 features, 22 core crates, 3 apps).
-- **Core purity & `#![forbid(unsafe_code)]` (Rules 3 & 9):** `opencode-kernel`, `opencode-runtime`, `opencode-ui`, `opencode-search`, and all 25 pure feature crates forbid `unsafe_code` (only the 4 FFI/GPU features `egg`, `office`, `open-in`, `updater` are allowlisted).
+- **Core purity & `#![forbid(unsafe_code)]` (Rules 3 & 9):** `opencode-kernel`, `opencode-runtime`, `opencode-ui` (pure UI foundation below `session-view` and `opencode-code-view`), `opencode-search`, and all 25 pure feature crates forbid `unsafe_code` (only the 4 FFI/GPU features `egg`, `office`, `open-in`, `updater` are allowlisted). Non-timeline crates (`opencode-code-view`, `apps/web`, and 14 feature crates) depend directly on `opencode-ui` with zero `session-view` dependency.
 - **Non-generic boundaries:** Keep crate boundaries concrete or `&mut dyn *Host` so downstream crates (`apps/desktop`) do not re-monomorphize leaf crate codegen (see [docs/fast-builds.md](docs/fast-builds.md)).
 - **`struct App` ratchet & root cleanliness (Rules 4–5):** `apps/desktop/src/` stays at `<= 10` root files and `struct App` is ratcheted at `<= 142` fields (new feature state belongs in `opencode_kernel::StateSlots` or a Luau plugin).
 - **Unified web library & zero tests (Rules 6–7):** `apps/web/Cargo.toml` depends directly on `opencode-desktop`'s library target with zero duplicated `features/*` dependencies (and no `opencode_web_host` cfg hack), and `#[test]` / `#[cfg(test)]` are rejected per `AGENTS.md`.

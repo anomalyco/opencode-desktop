@@ -6,7 +6,7 @@ mod strip;
 
 use opencode_ui::keymap::Bind;
 use rune::{Anim, AnimExt, Curve, Cursor, Cx, Drag, Easing, El, Icon, Phase, Spring, Tx, col, el, icon};
-use session_view::palette::{Elevate as _, Pal};
+use opencode_ui::palette::{Elevate as _, Pal};
 
 use crate::SessionPane;
 use crate::drag::note_zones;

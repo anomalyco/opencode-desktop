@@ -31,9 +31,9 @@ fn parse(spec: &str) -> Option<&'static Keybind> {
     Some(k)
 }
 
-/// The session view's command a table row stands for, if any.
-fn view_bind(b: Bind) -> Option<session_view::keymap::Bind> {
-    use session_view::keymap::Bind as V;
+/// The shared view shortcut a table row stands for, if any.
+fn view_bind(b: Bind) -> Option<super::base::Bind> {
+    use super::base::Bind as V;
     Some(match b {
         Bind::OpenProject => V::OpenProject,
         Bind::ZoomIn => V::ZoomIn,
@@ -69,7 +69,7 @@ pub fn apply(map: &BTreeMap<String, String>) {
     let table: Vec<Option<&'static Keybind>> = rows.iter().map(|b| map.get(b.id).and_then(|spec| parse(spec))).collect();
     for b in rows {
         if let Some(v) = view_bind(b.bind) {
-            session_view::keymap::set_override(v, table[b.bind as usize]);
+            super::base::set_override(v, table[b.bind as usize]);
         }
     }
     let commands = map.iter().filter(|(id, _)| !rows.iter().any(|b| b.id == id.as_str())).filter_map(|(id, spec)| Some((id.clone(), parse(spec)?))).collect();

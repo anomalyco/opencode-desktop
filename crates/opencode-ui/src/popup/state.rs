@@ -4,7 +4,7 @@
 use std::rc::Rc;
 
 use rune::{PopupAnchor, TextEdit, Tx};
-use session_view::popover;
+use crate::popover;
 
 use super::menu::{Entry, Look, Menu, key_at, row_key};
 use super::{NATIVE, PopupHost, SURFACE, Search, Shown, SubOpen, focus, native};

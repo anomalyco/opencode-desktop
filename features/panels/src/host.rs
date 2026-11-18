@@ -3,7 +3,7 @@
 use opencode_ui::keymap::Chord;
 use rune::{El, Ime, KeyEvent, Tx};
 use rune_knobs::Knobs;
-use session_view::palette::Pal;
+use opencode_ui::palette::Pal;
 
 use crate::state::{SideState, Visibility};
 use crate::{ClosedTabInfo, DockPlacement, PanelLauncherDesc, PanelRegistration, PanelSessionCtx, PanelTabDesc, PanelViewCtx, SessionPane};

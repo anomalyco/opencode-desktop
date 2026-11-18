@@ -18,7 +18,6 @@ rune-kit = { workspace = true, features = ["markdown", "mermaid"] }
 rune-theme-opencode.workspace = true
 scraper = { version = "0.24", default-features = false }
 serde_json.workspace = true
-session-view = { path = "../../crates/session-view" }
 
 [lints]
 workspace = true

@@ -74,7 +74,7 @@ impl Highlight {
 
 /// Up, Down, and on macOS Ctrl-N and Ctrl-P, as a step of ±1. `ctrl_alt` lets Ctrl-N/P through with Alt held.
 pub fn nav_step(ev: &KeyEvent, ctrl_alt: bool) -> Option<i64> {
-    use crate::keymap::Bind;
+    use crate::keymap::base::Bind;
     let hit = |b: Bind, alt: Bind| b.matches(ev) || (ctrl_alt && alt.matches(ev));
     let plain = !ev.mods.alt && !ev.mods.cmd && !ev.mods.shift;
     match &ev.key {

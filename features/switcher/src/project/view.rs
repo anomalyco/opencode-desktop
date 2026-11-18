@@ -6,8 +6,8 @@ use opencode_ui::keymap::{Bind, keycaps};
 use opencode_ui::widgets::DialogSize;
 use rune::{Color, Cx, Direction, El, PointerEvent, Span, Spring, TextStyle, Transition, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
-use session_view::palette::{Elevate as _, Pal};
-use session_view::style::{UI, field};
+use opencode_ui::palette::{Elevate as _, Pal};
+use opencode_ui::style::{UI, field};
 
 use super::{ProjectSwitcherHost, RowKind, StepMode, SwitcherRow, active, branches, rows, servers};
 use crate::search_fold;
@@ -86,8 +86,8 @@ pub fn view<H: ProjectSwitcherHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> [El
     let head_h = 6.0 + 28.0 + 17.0;
     let scroll_h = content_h.min(max_h - head_h).max(0.0);
     // `MenuScroll` (`new-session/location/dialog.tsx:335`): its thumb shows while the list scrolls.
-    let scroll = session_view::scroller::scroller("project-switcher-scroll")
-        .bar(session_view::scroller::Bar::MenuScroll)
+    let scroll = opencode_ui::scroller::scroller("project-switcher-scroll")
+        .bar(opencode_ui::scroller::Bar::MenuScroll)
         .build::<H>(p, col().role("listbox").w_full().h(scroll_h), list);
     let dialog = build_dialog_card(p, placeholder, w, head_h + scroll_h, search, scroll).modal(true, |s: &mut H| super::close(s, true));
     let y = size.top(win_h);

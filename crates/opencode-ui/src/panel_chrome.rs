@@ -6,8 +6,8 @@ use rune::{Anim, Color, Cursor, El, Icon, KeyEvent, TextEdit, TextStyle, Tx, col
 use rune_kit::diff::FileStatus;
 use rune_theme_opencode::icons as ic;
 use rune_theme_opencode::tree_icons::TreeIcon;
-use session_view::palette::{Pal, kit};
-use session_view::style::UI;
+use crate::palette::{Pal, kit};
+use crate::style::UI;
 
 const INSTANT: Anim = Anim::INSTANT;
 /// The header and toolbar height, and where their content starts past the toggle
@@ -94,7 +94,7 @@ pub fn sidebar_header(key: &'static str, title: El, end: Option<El>) -> El {
 }
 
 fn filter_field_input(p: &Pal, key: &str, edit: &TextEdit, placeholder: &str, spellcheck: bool) -> El {
-    session_view::style::field(edit, UI)
+    crate::style::field(edit, UI)
         .key(key.to_owned())
         // Named by its placeholder, which goes once a letter is typed.
         .label(placeholder.to_owned())

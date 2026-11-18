@@ -13,8 +13,8 @@ use opencode_ui::panel_chrome::{BAR_H, TOGGLE_INSET};
 use opencode_ui::popup::PopupHost;
 use rune::{Anim, El, Icon, TextEdit, TextStyle, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
-use session_view::palette::Pal;
-use session_view::style::{UI, UI_MED, UI_SMALL};
+use opencode_ui::palette::Pal;
+use opencode_ui::style::{UI, UI_MED, UI_SMALL};
 
 use crate::markdown::{self, READ_ICON};
 use crate::{FilesHost, FilesPane, SessionFiles, html, image, label_find, links, table_view, trace, video};

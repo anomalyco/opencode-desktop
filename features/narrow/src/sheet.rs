@@ -1,8 +1,8 @@
-//! The narrow window's two drawers (`session_view::sheet`): the titlebar's tabs and the
+//! The narrow window's two drawers (`opencode_ui::sheet`): the titlebar's tabs and the
 //! session's More, each on screen while its [`Presence`] says so.
 
 use rune::{Cx, Drag, El, Phase, Tx};
-use session_view::palette::Pal;
+use opencode_ui::palette::Pal;
 
 use crate::host::NarrowHost;
 use crate::machine::{MoreEvent, Presence, TabsEvent};
@@ -101,13 +101,13 @@ pub fn layer<H: NarrowHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> Vec<El> {
             Pull::Held { key: owner, dy, .. } if owner == key => Some(dy),
             _ => None,
         };
-        let mut handle = session_view::sheet::handle(p);
+        let mut handle = opencode_ui::sheet::handle(p);
         if cx.touch_controls() {
             handle = handle.on_drag(move |s: &mut H, d: &mut Drag, tx: &mut Tx| {
                 drag_sheet(s, key, d, travel, dismiss_dyn, tx);
             });
         }
-        out.extend(session_view::sheet::draggable_sheet(p, key, leaving, travel, win_h, content(s, p), dismiss_h, dy, handle));
+        out.extend(opencode_ui::sheet::draggable_sheet(p, key, leaving, travel, win_h, content(s, p), dismiss_h, dy, handle));
     }
     out
 }

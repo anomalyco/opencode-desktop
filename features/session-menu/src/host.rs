@@ -14,7 +14,7 @@ use opencode_kit::wire_error::WireError;
 use opencode_ui::popup::{Menu, PopupAnchor};
 use rune::{El, FileDialogOptions, Tx};
 use serde_json::Value;
-use session_view::palette::Pal;
+use opencode_ui::palette::Pal;
 
 use crate::Menus;
 

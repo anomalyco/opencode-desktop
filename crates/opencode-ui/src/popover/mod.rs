@@ -24,7 +24,6 @@ use rune_kit::ScrollBar as _;
 use rune_knobs::Knobs;
 use rune_theme_opencode::icons as ic;
 
-use crate::TimelineHost;
 use crate::palette::{Elevate as _, Pal};
 use crate::style::UI;
 
@@ -114,14 +113,36 @@ pub fn place(k: &Knobs, surface: El, anchor: &str, side: Side, align: Align, gap
 
 /// A window-sized layer under the popover (mount it just before): a press outside closes it
 /// (`close`), in the same frame unless the popover has an exit to play.
-pub fn scrim<S: TimelineHost>(key: impl Into<String>, close: impl Fn(&mut S, &mut Tx) + 'static) -> El {
+pub fn scrim<S: 'static>(k: &Knobs, key: impl Into<String>, close: impl Fn(&mut S, &mut Tx) + 'static) -> El {
+    let closes = motion::closes(k);
     el().key(key)
         .absolute(0.0, 0.0)
         .w_full()
         .h_full()
         .focusable(false)
         .on_press_tx(move |s: &mut S, tx: &mut Tx| {
-            motion::closing(s.knobs(), tx);
+            if closes {
+                tx.color_motion(rune::Spring::NONE);
+            } else {
+                tx.instant();
+            }
+            close(s, tx);
+        })
+}
+
+/// [`scrim`] reading the popover's knobs from host state `S` on press.
+pub fn scrim_with<S: 'static>(
+    key: impl Into<String>,
+    knobs: impl Fn(&S) -> &Knobs + 'static,
+    close: impl Fn(&mut S, &mut Tx) + 'static,
+) -> El {
+    el().key(key)
+        .absolute(0.0, 0.0)
+        .w_full()
+        .h_full()
+        .focusable(false)
+        .on_press_tx(move |s: &mut S, tx: &mut Tx| {
+            motion::closing(knobs(s), tx);
             close(s, tx);
         })
 }

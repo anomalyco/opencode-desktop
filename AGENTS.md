@@ -41,10 +41,10 @@ Start at the top and go deeper only when a feature needs lower-level control (se
   - `crates/opencode-code-view`: shared virtualized syntax-highlighted code & diff viewers plus review, delimited table, and label-find data models.
   - `crates/opencode-kernel`: shell kernel registries (`StateSlots`, `OverlayStack`, `LifecycleScheduler`, `CommandRegistry`, `EventBus`, `Feature` / `SurfaceProvider`).
   - `crates/opencode-search`: headless full-text, fuzzysort, path index, file ranking, and URL query primitives (`#![forbid(unsafe_code)]`).
-  - `crates/opencode-ui`: shared OpenCode UI primitives (`widgets`, dialog sizing), shortcut `keymap`, file/review `panel_chrome`, `popup` menu engine, and `toast` notifications (`#![forbid(unsafe_code)]`).
+  - `crates/opencode-ui`: bottom-layer OpenCode UI design-system foundation (`palette`, `themes`, `style`, `dialog`, `scroller`, `odometer`, `sheet`, `popover`, `provider_mark`, `keymap`, `widgets`, `panel_chrome`, `popup`, `toast`; `#![forbid(unsafe_code)]`, zero dependency on `session-view`).
   - `crates/opencode-platform`: OS and WASM platform helpers (wall clock, OTLP telemetry, askpass, HTTP fetch).
   - `crates/opencode-plugin-runtime`: reusable App-independent Luau plugin runtime primitives (catalogs, console, flyout, hot reload, icons, images, machines, power, processes, QR, redraw, reveal, sources, tasks).
-  - `crates/session-view`: embeddable OpenCode session timeline (`TimelineHost` + focused capability sub-traits in `traits.rs`, `ViewState`, `examples/read_only.rs`). Keep it free of `opencode-desktop`-only window/tab/sidebar assumptions so Seer and other Rune apps can embed it directly.
+  - `crates/session-view`: embeddable OpenCode session timeline built on `opencode-ui` (`TimelineHost` + focused capability sub-traits in `traits.rs`, `ViewState`, `examples/read_only.rs`). Keep it free of `opencode-desktop`-only window/tab/sidebar assumptions so Seer and other Rune apps can embed it directly.
   - `crates/opencode-kit`: reusable OpenCode HTTP/SSE/WS client and session/transcript model. Keep it free of app-specific concepts.
   - `crates/rune-parts`: ```` ```ui ```` outline catalog, parser, checker, and optional Rune `view` feature (`skills/rune-ui/SKILL.md`).
   - `crates/browser-pane` + `apps/browser-engine` (excluded from workspace): embedded Chromium browser pane and its CEF sidecar.
@@ -71,7 +71,7 @@ Application code only. This repo has no automated tests of any kind, and none ge
 
 - Keep `session-view`'s standalone example building: `cargo check -p session-view --examples`.
 - File size, folder shape & architecture guardrails: keep Rust files under 800 lines (1,500 hard cap, `scripts/file-size.sh`); keep prefix families in subfolders (`scripts/folder-shape.sh`); keep crate dependency direction and root breadth clean (`scripts/arch-check.sh`).
-- Dialog sizes: every dialog takes a `session_view::dialog::DialogSize` preset (normal 480, large 720 × 600, x-large 880 × 680; `widgets::sized` / `sized_modal` in the app), never its own width or height (`scripts/dialog-size.sh`).
+- Dialog sizes: every dialog takes an `opencode_ui::dialog::DialogSize` preset (re-exported as `session_view::dialog::DialogSize`; normal 480, large 720 × 600, x-large 880 × 680; `widgets::sized` / `sized_modal` in the app), never its own width or height (`scripts/dialog-size.sh`).
 - Hot reload & local install: `apps/desktop/scripts/dev.sh` (`apps/desktop/scripts/bundle.sh` / `scripts/mac-app`) and `apps/desktop/scripts/hot.sh` (`scripts/rune-hot`).
 - Keep personal paths (`/Users/<real-name>`), tailnet hostnames (`*.ts.net`, except `*.example.ts.net`), real session IDs, and credentials out of code, scripts, and commits.
 

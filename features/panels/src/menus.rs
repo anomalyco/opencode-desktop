@@ -2,9 +2,9 @@
 
 use opencode_ui::keymap::{self, Bind};
 use rune::{Align, Anim, El, Icon, PointerPress, ScrollSpec, Side, Tx, col, el, icon, row, text};
-use session_view::palette::Pal;
-use session_view::popover::{self, MENU, Opt};
-use session_view::style::{UI, UI_SMALL};
+use opencode_ui::palette::Pal;
+use opencode_ui::popover::{self, MENU, Opt};
+use opencode_ui::style::{UI, UI_SMALL};
 
 use crate::host::PanelsHost;
 use crate::state::{ResolvedRegion, close_side_tab, reopen_closed_side_tab, resolve_side_region};

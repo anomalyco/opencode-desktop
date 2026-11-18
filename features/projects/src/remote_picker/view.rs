@@ -10,8 +10,8 @@ use opencode_ui::widgets::{DialogSize, Fit, button, dialog_window, sized_modal};
 use rune::{Color, Cx, Direction, El, TextStyle, Tx, col, el, icon, row, text};
 use rune_kit::{ButtonVariant, TextInput};
 use rune_theme_opencode::icons as ic;
-use session_view::palette::{Elevate as _, Pal, kit};
-use session_view::style::{UI, UI_MED};
+use opencode_ui::palette::{Elevate as _, Pal, kit};
+use opencode_ui::style::{UI, UI_MED};
 
 use super::{Dir, Node, Open, Suggest, Tree};
 use crate::host::ProjectsHost;
@@ -320,8 +320,8 @@ fn browser<H: ProjectsHost + 'static>(o: &Open, p: &Pal) -> El {
         .collect();
     // Desktop's Pierre tree scrolls itself with its own bar (`workspaces/selection/dialog.tsx:533`),
     // its `--trees-fg` left at the tree's default, text-base on bg-base.
-    let bar = session_view::scroller::Bar::Tree { fg: p.text, bg: p.bg_base };
-    frame.child(session_view::scroller::scroller("directory-picker-tree").bar(bar).build::<H>(
+    let bar = opencode_ui::scroller::Bar::Tree { fg: p.text, bg: p.bg_base };
+    frame.child(opencode_ui::scroller::scroller("directory-picker-tree").bar(bar).build::<H>(
         p,
         col().role("tree").w_full().grow(1.0).min_h(0.0),
         col().w_full().children(rows),

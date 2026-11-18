@@ -10,11 +10,11 @@ publish = false
 opencode-i18n = { path = "../opencode-i18n" }
 opencode-kit = { path = "../opencode-kit" }
 opencode-search = { path = "../opencode-search" }
+opencode-ui = { path = "../opencode-ui" }
 rune.workspace = true
 rune-kit.workspace = true
 rune-theme-opencode.workspace = true
 serde_json.workspace = true
-session-view = { path = "../session-view" }
 
 [lints]
 workspace = true

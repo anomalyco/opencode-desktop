@@ -5,9 +5,9 @@
 use rune::{Color, El, Icon, TextStyle, Transition, col, el, icon, row, text};
 use rune_kit::{Badge, Button, ButtonVariant, Loader};
 use rune_theme_opencode::provider_icons;
-use session_view::palette::{Elevate as _, Pal, kit};
+use crate::palette::{Elevate as _, Pal, kit};
 
-pub use session_view::dialog::DialogSize;
+pub use crate::dialog::DialogSize;
 
 /// Desktop's body copy in its views: 13 on 20 at 440, tracking -0.04.
 pub const BODY: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0).tracking(-0.04);
@@ -69,7 +69,7 @@ pub fn provider_mark(id: &str, color: Color) -> El {
     let mark = [id, bare].into_iter().filter(|i| *i != "synthetic").find_map(provider_icons::named);
     match mark {
         Some(m) => icon(m, 16.0).color(color),
-        None => icon(&session_view::pickers::mark::CUSTOM, 16.0),
+        None => icon(&crate::provider_mark::CUSTOM, 16.0),
     }
 }
 

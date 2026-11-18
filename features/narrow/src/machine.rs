@@ -22,7 +22,7 @@ pub const PENDING_TTL: f64 = 5.0;
 pub const TABS_CLOSE_TIMEOUT: f64 = 0.5;
 
 /// A drawer's slide out (`mobile-drawer.css`: `[data-closing] { transition-duration: 200ms }`).
-pub const SLIDE_OUT: f64 = session_view::sheet::SLIDE_OUT as f64;
+pub const SLIDE_OUT: f64 = opencode_ui::sheet::SLIDE_OUT as f64;
 
 // ---------------------------------------------------------------------------------------------
 // Mode

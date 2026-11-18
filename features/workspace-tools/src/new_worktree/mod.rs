@@ -15,8 +15,8 @@ use opencode_search::query::{Highlight, HighlightEvent};
 use opencode_ui::keymap::Bind;
 use rune::{Align, Color, El, Key, KeyEvent, Side, TextEdit, Transition, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
-use session_view::palette::{Elevate as _, Pal};
-use session_view::style::UI;
+use opencode_ui::palette::{Elevate as _, Pal};
+use opencode_ui::style::UI;
 
 /// Where Settings › Default environment says a new draft starts (`workspaces.defaultDestination`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -520,7 +520,7 @@ pub fn trigger<H: NewWorktreeHost + 'static>(s: &H, p: &Pal, current: &str) -> E
 }
 
 fn picker_input_shell(edit: &TextEdit, p: &Pal) -> El {
-    session_view::style::field(edit, UI)
+    opencode_ui::style::field(edit, UI)
         .key("branch-picker-input").single_line().grow(1.0).shrink().min_w(0.0).color(p.text)
         .placeholder(opencode_i18n::t!("session.new.workspace.branch.search.placeholder"), p.faint)
         .caret(p.text, p.selection).selection_style(p.field_selection)
@@ -594,7 +594,7 @@ pub fn picker<H: NewWorktreeHost + 'static>(s: &H, p: &Pal) -> Option<[El; 2]> {
         .child(search)
         .child(el().key("branch-picker-divider").h(0.5).w_full().fill(p.border))
         // The location dialog's `MenuScroll` (`new-session/location/dialog.tsx:335`).
-        .child(session_view::scroller::scroller("branch-picker-scroll").bar(session_view::scroller::Bar::MenuScroll).build::<H>(p, col().w_full().h(list_h.min(224.0)), list));
+        .child(opencode_ui::scroller::scroller("branch-picker-scroll").bar(opencode_ui::scroller::Bar::MenuScroll).build::<H>(p, col().w_full().h(list_h.min(224.0)), list));
     let scrim = el()
         .key("branch-picker-scrim").absolute(0.0, 0.0).w_full().h_full().transition(Transition::none())
         .on_background_press_tx(|s: &mut H, tx: &mut Tx| close_branch_picker_outside(s, tx));

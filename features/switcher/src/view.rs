@@ -12,8 +12,8 @@ use opencode_ui::keymap::{LABEL as KEYMAP_LABEL, caps as keymap_caps, chips as k
 use opencode_ui::widgets::DialogSize;
 use rune::{Color, Cx, Direction, El, PointerEvent, Span, Spring, TextStyle, Transition, Tx, col, el, icon, row, text};
 use rune_theme_opencode::{file_icons, icons as ic};
-use session_view::palette::{Elevate as _, Pal};
-use session_view::style::{UI, UI_MED, UI_SMALL, activity_ring, field, touch_controls};
+use opencode_ui::palette::{Elevate as _, Pal};
+use opencode_ui::style::{UI, UI_MED, UI_SMALL, activity_ring, field, touch_controls};
 
 use crate::entries::{Action, Entry, active, empty, entries};
 use crate::shown::Empty;
@@ -166,8 +166,8 @@ pub fn dialog<H: SwitcherHost + 'static>(s: &H, p: &Pal, w: f32, max_h: f32) -> 
     let header = HEAD_H + entry_height(false) - ROW_H;
     let scroll_h = content_h.min(max_h - header).max(0.0);
     // `MenuScroll`: the thumb shows while the list scrolls (`search-list.tsx:311`).
-    let scroll = session_view::scroller::scroller("switcher-scroll")
-        .bar(session_view::scroller::Bar::MenuScroll)
+    let scroll = opencode_ui::scroller::scroller("switcher-scroll")
+        .bar(opencode_ui::scroller::Bar::MenuScroll)
         .build::<H>(p, scroll_box(host, scroll_h), results);
     build_dialog_card(p, placeholder, w, header + scroll_h, search, scroll).modal(true, |s: &mut H| crate::close(s, true))
 }
@@ -555,7 +555,7 @@ fn session_parts(s: &dyn SwitcherHost, p: &Pal, e: &Entry, id: &str, project: Op
         let ago = relative_time(s.now_ms(), at);
         let w = width_in(&ago, &[], META, ui_direction());
         // The full date shows on hover (`Tooltip` over `command-palette-meta`).
-        let full = opencode_i18n::date::format(opencode_i18n::date::Style::MonthDayYearTime, session_view::turn_errors::moment(rune::LocalTime::at(at)));
+        let full = opencode_i18n::date::format(opencode_i18n::date::Style::MonthDayYearTime, opencode_ui::style::moment(rune::LocalTime::at(at)));
         (text(ago).key("meta").font(META).color(p.muted).help(full), w)
     });
     (Some(avatar), meta)
@@ -576,7 +576,7 @@ pub fn relative_time(now: i64, then: i64) -> String {
         _ => {
             let (at, today) = (rune::LocalTime::at(then), rune::LocalTime::at(now));
             let style = if at.year == today.year { opencode_i18n::date::Style::MonthDay } else { opencode_i18n::date::Style::MonthDayYear };
-            opencode_i18n::date::format(style, session_view::turn_errors::moment(at))
+            opencode_i18n::date::format(style, opencode_ui::style::moment(at))
         }
     }
 }

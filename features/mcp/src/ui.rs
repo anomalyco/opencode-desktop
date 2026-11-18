@@ -2,8 +2,8 @@
 
 use rune::{Color, Cx, El, Icon, TextStyle, Transition, col, el, row, text};
 use rune_kit::{Button, ButtonVariant, Loader};
-use session_view::dialog::DialogSize;
-use session_view::palette::{Elevate as _, Pal, kit};
+use opencode_ui::dialog::DialogSize;
+use opencode_ui::palette::{Elevate as _, Pal, kit};
 
 use crate::McpHost;
 

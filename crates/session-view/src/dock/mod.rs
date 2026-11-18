@@ -74,16 +74,7 @@ pub fn bare<S: DockHost>(s: &S) -> bool {
     }
 }
 
-/// `top` over the opaque `bottom`, blended in sRGB as a browser does, as one opaque colour.
-pub fn flat(top: Color, bottom: Color) -> Color {
-    let srgb = |c: Color| {
-        let h = c.hex();
-        [1, 3, 5].map(|i| u8::from_str_radix(&h[i..i + 2], 16).unwrap_or(0) as f32)
-    };
-    let (t, b) = (srgb(top), srgb(bottom));
-    let m = |i: usize| (t[i] * top.a + b[i] * (1.0 - top.a)).round() as u8;
-    rune::color::hex(&format!("#{:02x}{:02x}{:02x}", m(0), m(1), m(2))).unwrap_or(bottom)
-}
+pub use opencode_ui::palette::flat;
 
 /// What stands in the composer's place, by id: the question's form, else a permission.
 pub fn shown<S: DockHost>(s: &S) -> Option<String> {

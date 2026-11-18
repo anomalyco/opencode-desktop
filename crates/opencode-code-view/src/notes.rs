@@ -10,7 +10,7 @@
 
 use rune::{El, Icon, Tx, col, el, icon, row};
 use rune_kit::diff::Side;
-use session_view::palette::Pal;
+use opencode_ui::palette::Pal;
 
 /// Lines a selection or comment covers (Pierre's `SelectedLineRange`): from `start` to `end`,
 /// either way round; in a diff, the side each end is on (`end_side` only when it differs).
@@ -162,7 +162,7 @@ fn decode(key: &str) -> Option<(usize, Option<Side>, u32)> {
 /// `--diffs-comment-bg`: `background-bg-accent` at 6% over the code's background, laid as CSS
 /// lays it.
 pub fn comment_bg(p: &Pal) -> rune::Color {
-    session_view::palette::over(p.code_bg, p.bg_accent, 0.06)
+    opencode_ui::palette::over(p.code_bg, p.bg_accent, 0.06)
 }
 
 /// A line's annotation row: the number column's width of comment background, then the

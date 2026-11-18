@@ -12,8 +12,8 @@ use rune::{
     row, spacer, text,
 };
 use rune_knobs::Knobs;
-use session_view::palette::Pal;
-use session_view::style::{UI, UI_SMALL};
+use opencode_ui::palette::Pal;
+use opencode_ui::style::{UI, UI_SMALL};
 use terminal::{CursorShape, TerminalSnapshot};
 
 use self::pointer::{ViewportInput, attach_viewport_handlers, render_quote_bar, render_scrollbar};

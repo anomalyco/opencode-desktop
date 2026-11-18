@@ -3,7 +3,7 @@
 
 use rune::{Anim, Color, El, Icon, Shadow, Spring, TextStyle, Transition, Tx, col, el, icon, row, spacer, text};
 use rune_kit::{ToastEntry, ToastEvent};
-use session_view::palette::{Elevate as _, Pal};
+use crate::palette::{Elevate as _, Pal};
 
 use super::state::{dismiss_id, stack_key, step};
 use super::{CONTENT_FADE, ComposerClearance, Entry, FADE, MOVE, STACK, Shown, ToastAction, ToastButton, ToastHost};

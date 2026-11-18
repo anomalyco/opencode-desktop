@@ -6,7 +6,7 @@ use std::{rc::Rc, sync::Arc};
 
 use opencode_search::SlabMatch;
 use rune::{TextHighlight, Tx};
-use session_view::palette::Pal;
+use opencode_ui::palette::Pal;
 
 use super::delimited::{self, Table};
 use crate::file::state::{DocFind, DocFindEvent};
@@ -147,7 +147,7 @@ impl<D: Document + 'static> LabelFind<D> {
                 .iter()
                 .take_while(|hit| hit.row == id)
                 .enumerate()
-                .map(|(n, hit)| session_view::style::text_mark(&pal, hit.bytes.clone(), first + n, first + n == *active))
+                .map(|(n, hit)| opencode_ui::style::text_mark(&pal, hit.bytes.clone(), first + n, first + n == *active))
                 .collect()
         }
     }

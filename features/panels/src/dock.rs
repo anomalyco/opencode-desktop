@@ -1,7 +1,7 @@
 //! The bottom pane across the session screen (`SessionPane::Bottom`), and the inset it reserves.
 
 use rune::{Cursor, Cx, Drag, El, Phase, Tx, col};
-use session_view::palette::{Elevate as _, Pal};
+use opencode_ui::palette::{Elevate as _, Pal};
 
 use crate::SessionPane;
 use crate::host::PanelsHost;

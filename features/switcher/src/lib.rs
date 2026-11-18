@@ -31,7 +31,7 @@ use opencode_search::query::{Highlight, HighlightEvent};
 use opencode_ui::keymap::Bind;
 use rune::machine::Seq;
 use rune::{Chord, Direction, El, Key, KeyEvent, Latest, Phase, PointerEvent, TextEdit, Tx, Waker};
-use session_view::palette::Pal;
+use opencode_ui::palette::Pal;
 
 pub use entries::{
     Action, COMMAND_SEARCH_ID, COMMON, COMMON_VIEW, Entry, HOME_COMMON, MATCHES, Move, RECENT, RECENT_SESSIONS, active, entries, matches, merged_roots, merged_roots_for, move_for, project_label,

@@ -10,9 +10,9 @@ publish = false
 bytemuck = { version = "1", features = ["derive"] }
 opencode-i18n = { path = "../../crates/opencode-i18n" }
 opencode-kernel = { path = "../../crates/opencode-kernel" }
+opencode-ui = { path = "../../crates/opencode-ui" }
 procwatch.workspace = true
 rune.workspace = true
-session-view = { path = "../../crates/session-view" }
 wgpu = { version = "30", default-features = false }
 
 [target.'cfg(target_os = "windows")'.dependencies]

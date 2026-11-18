@@ -5,8 +5,8 @@
 
 use hex_client::Fix;
 use rune::{El, Icon, MotionIntent, Spring, Tx, el, icon, row, text};
-use session_view::palette::Pal;
-use session_view::style::{UI_SMALL, activity_ring_sized};
+use opencode_ui::palette::Pal;
+use opencode_ui::style::{UI_SMALL, activity_ring_sized};
 
 use crate::machine::{Phase, Words};
 use crate::{DictationHost, apply_fix, resolve_backend, toggle};

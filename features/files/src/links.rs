@@ -222,7 +222,7 @@ pub fn open_reply_link(host: &mut dyn FilesHost, href: &str, tx: &mut Tx) {
         return open_middle_link(host, href, tx);
     }
     // Inline code naming a file (`code_paths`).
-    if let Some(code) = href.strip_prefix(session_view::style::CODE_LINK) {
+    if let Some(code) = href.strip_prefix(opencode_ui::style::CODE_LINK) {
         return code_paths::open_code_path(host, code, tx);
     }
     // A plugin's link handler (`LinkHandler`) takes the links it matches first.

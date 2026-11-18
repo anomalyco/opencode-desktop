@@ -15,7 +15,6 @@ opencode-storage = { path = "../../crates/opencode-storage" }
 opencode-ui = { path = "../../crates/opencode-ui" }
 rune.workspace = true
 rune-theme-opencode.workspace = true
-session-view = { path = "../../crates/session-view" }
 
 [lints]
 workspace = true

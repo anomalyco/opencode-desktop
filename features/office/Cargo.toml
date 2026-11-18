@@ -10,10 +10,10 @@ publish = false
 bytemuck = { version = "1", features = ["derive"] }
 office-preview = { path = "../../crates/office-preview" }
 opencode-kernel = { path = "../../crates/opencode-kernel" }
+opencode-ui = { path = "../../crates/opencode-ui" }
 rune.workspace = true
 rune-luau.workspace = true
 rune-theme-opencode.workspace = true
-session-view = { path = "../../crates/session-view" }
 vello = { version = "0.11", default-features = false, features = ["wgpu"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

@@ -5,7 +5,7 @@
 //! end, and one-pixel rules 4 pt above and below.
 
 use rune::{El, Icon, Shadow, TextStyle, Tx, col, el, icon, row, text};
-use session_view::palette::Pal;
+use crate::palette::Pal;
 
 use super::keys::key;
 use super::menu::{Entry, Menu, row_key};

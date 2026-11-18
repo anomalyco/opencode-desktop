@@ -4,8 +4,8 @@
 use opencode_kit::servers::health::Indicator;
 use rune::{El, Icon, TextStyle, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
-use session_view::palette::{Pal, kit};
-use session_view::popover::MENU;
+use crate::palette::{Pal, kit};
+use crate::popover::MENU;
 
 /// `menu-v2-item-chevron`: a submenu row's end.
 pub(super) static CHEVRON: Icon = Icon {

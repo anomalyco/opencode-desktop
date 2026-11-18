@@ -7,6 +7,9 @@
 //! reveal, Working/Copy/Interrupted tail), linear bottom fade, two-layer live overlay scroll bar,
 //! and "Jump to latest", with no OpenCode (Rune)-only shell or side-panel assumptions inside.
 
+pub use opencode_ui::keymap::base as keymap;
+pub use opencode_ui::{dialog, odometer, palette, scroller, sheet, themes};
+
 pub mod activity;
 pub mod agent_start;
 pub mod arrivals;
@@ -14,7 +17,6 @@ pub mod compaction;
 pub mod composer;
 pub mod copied;
 pub mod detail;
-pub mod dialog;
 pub mod diagram;
 pub mod disclosure;
 pub mod dock;
@@ -24,24 +26,18 @@ pub mod follow;
 pub mod genui;
 pub mod images;
 pub mod jump;
-pub mod keymap;
 pub mod knobs;
 pub mod line_reveal;
-pub mod odometer;
-pub mod palette;
 pub mod pickers;
 pub mod popover;
 pub mod question_row;
 pub mod recall;
 pub mod returning;
-pub mod scroller;
 pub mod session_chips;
-pub mod sheet;
 pub mod sources_chip;
 pub mod story;
 pub mod style;
 pub mod subagent_card;
-pub mod themes;
 pub mod timeline;
 pub mod title;
 pub mod tools;

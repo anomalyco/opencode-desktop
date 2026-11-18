@@ -5,8 +5,8 @@ use std::rc::Rc;
 use opencode_ui::keymap::Bind;
 use rune::{Anim, Color, Drag, El, Icon, PointerPress, ScrollFade, TextStyle, Tx, WheelEvent, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
-use session_view::palette::Pal;
-use session_view::style::{UI, UI_SMALL};
+use opencode_ui::palette::Pal;
+use opencode_ui::style::{UI, UI_SMALL};
 
 use crate::drag::{choose_side_new_tab, side_new_tab_gesture, side_tab_gesture};
 use crate::host::PanelsHost;
