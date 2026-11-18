@@ -1096,6 +1096,9 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
             changed = true;
         }
     }
+    // The next playback event is due by the clock: the window frames then too (not only when the
+    // playback thread's wake arrives, which may be a frame later), as a timer asks.
+    if let Some(&(at, _, _)) = s.playback.front() { tx.wake_at(at); }
     changed |= stop::poll(s, now, tx);
     changed |= s.revert_timeouts(tx);
     changed |= fork::poll(s, tx);
