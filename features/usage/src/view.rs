@@ -1,18 +1,16 @@
 //! The Usage dialog as Desktop draws it (`usage/dialog.tsx`, `usage/dialog.css`): a `<Dialog fit>`
-//! 512 wide with Usage in its header, OpenCode Go's windows and the Console budgets in panels
+//! with Usage in its header, OpenCode Go's windows and the Console budgets in panels
 //! with their spend and a track each, the callout over them when paid models are paused, and
 //! the footer's reset time beside View details.
 
-use rune::{Color, Cx, El, TextStyle, Transition, Tx, col, el, icon, row, spacer, text};
-use rune_kit::{ButtonVariant, Loader};
+use opencode_i18n::{plural, t};
+use rune::{Color, Cx, El, Icon, TextStyle, Transition, Tx, col, el, icon, row, spacer, text};
+use rune_kit::{Button, ButtonVariant, Loader};
+use session_view::dialog::DialogSize;
+use session_view::palette::{Elevate as _, Pal, kit};
 
 use super::limits::{self, Action, Callout, Footer, Label, Note, Row, Sharing};
-use super::Load;
-use crate::App;
-use crate::palette::{Elevate as _, Pal, kit};
-use crate::pickers::PickerHost as _;
-use crate::widgets;
-use opencode_i18n::{plural, t};
+use super::{Load, UsageHost};
 
 /// `dialog-title`: 15 on 20 at 530.
 const TITLE: TextStyle = TextStyle::new(15.0, 530.0).lh(20.0).tracking(-0.13);
@@ -21,32 +19,132 @@ const LINE: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
 const LINE_MED: TextStyle = TextStyle::new(13.0, 530.0).lh(16.0).tracking(-0.04);
 /// The callout's and the action's bodies: 13 on 20.
 const BODY: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0).tracking(-0.04);
+/// 13 on 20 at 530 (`button-v2` ghost label).
+const BODY_MED: TextStyle = TextStyle::new(13.0, 530.0).lh(20.0).tracking(-0.04);
 /// The section's workspace badge: 11 on 12 at 530.
 const BADGE: TextStyle = TextStyle::new(11.0, 530.0).lh(12.0).tracking(0.05);
 
+/// The dialog's own close cross (`overlays/dialog/dialog.tsx`): a 1 pt stroke corner to corner.
+static DIALOG_CLOSE: Icon = Icon {
+    name: "dialog-close",
+    view: 16.0,
+    body: r#"<path d="M12.4446 3.55469L3.55566 12.4436M3.55566 3.55469L12.4446 12.4436" stroke="currentColor" stroke-linejoin="round"/>"#,
+};
+
 /// The dialog over its scrim, centred as Desktop's dialogs are.
-pub fn layer(s: &App, p: &Pal, cx: &Cx<App>) -> Vec<El> {
+pub fn layer<H: UsageHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> Vec<El> {
     // Closed, it reads nothing: a read of the window's width would run the view on every resize.
-    if s.usage.open.is_none() {
+    if s.usage().open.is_none() {
         return Vec::new();
     }
+    let zoom = s.zoom().max(0.5);
+    let win = cx.layout_size("zoom").unwrap_or([1280.0 / zoom, 820.0 / zoom]);
     // Escape and a press outside close it (`modal`).
-    dialog(s, p, widgets::dialog_window(cx, *s.zoom)).map_or_else(Vec::new, |d| widgets::modal("usage", p, d.modal(true, |s: &mut App| s.close_usage()), None))
+    let Some(card) = dialog(s, p, win) else {
+        return Vec::new();
+    };
+    modal_layer(p, card.modal(true, |s: &mut H| super::close(s)))
+}
+
+struct Buttons {
+    close: El,
+    retry: Option<El>,
+    switch: Option<El>,
+    details: Option<El>,
 }
 
 /// The dialog in a window `win`, while open.
-pub(super) fn dialog(s: &App, p: &Pal, win: [f32; 2]) -> Option<El> {
-    let open = s.usage.open.as_ref()?;
-    let (body, footer) = match &open.load {
+pub fn dialog<H: UsageHost + 'static>(s: &H, p: &Pal, win: [f32; 2]) -> Option<El> {
+    let open = s.usage().open.as_ref()?;
+    let close = close_button_shell(p).on_press_tx(|s: &mut H, tx: &mut Tx| {
+        tx.instant();
+        super::close(s);
+    });
+    let (retry, switch, details) = match &open.load {
+        Load::Ready(info) | Load::Refreshing { info, .. } => {
+            let url = info.workspace.usage_url.clone();
+            let details = details_button_shell(p).on_press_tx(move |s: &mut H, tx: &mut Tx| {
+                super::open_details(s, &url, tx);
+            });
+            let switch = neutral_button(t!("usage.action.switch"))
+                .on_press_tx(|s: &mut H, tx: &mut Tx| super::switch_model(s, tx))
+                .build(kit(p))
+                .key("usage-switch");
+            (None, Some(switch), Some(details))
+        }
+        Load::Failed => {
+            let retry = neutral_button(t!("usage.retry"))
+                .on_press_tx(|s: &mut H, tx: &mut Tx| super::retry(s, tx))
+                .build(kit(p))
+                .key("usage-retry");
+            (Some(retry), None, None)
+        }
+        Load::Loading { .. } | Load::SignedOut => (None, None, None),
+    };
+    build_dialog(s, p, win, Buttons { close, retry, switch, details })
+}
+
+fn modal_layer(p: &Pal, card: El) -> Vec<El> {
+    let scrim = el().key("usage-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.scrim).transition(Transition::none());
+    let layer = col().key("usage-modal").absolute(0.0, 0.0).w_full().h_full().items_center().center().transition(Transition::none());
+    vec![scrim, layer.child(card).raise()]
+}
+
+#[allow(deprecated)]
+fn neutral_button(label: &str) -> Button {
+    let label = label.to_owned();
+    Button::new(label.clone())
+        .variant(ButtonVariant::Neutral)
+        .size(rune_kit::ButtonSize::Normal)
+        .label_with(move |font, ink| text(label).key("label").font(font.features("\"tnum\"")).color(ink))
+}
+
+fn close_button_shell(p: &Pal) -> El {
+    el().key("usage-close")
+        .role("button")
+        .label_static(t!("ui.common.close"))
+        .size(20.0, 20.0)
+        .mt(-2.0)
+        .mr(-2.0)
+        .radius(4.0)
+        .center()
+        .hover(p.hover)
+        .press(p.pressed)
+        .child(icon(&DIALOG_CLOSE, 16.0).color(p.icon_muted))
+}
+
+fn details_button_shell(p: &Pal) -> El {
+    // A ghost `button-v2` at size normal in the muted ink (`class="text-v2-text-text-muted!"`).
+    row()
+        .key("usage-details")
+        .role("button")
+        .label_static(t!("usage.footer.details"))
+        .h(28.0)
+        .px(11.0)
+        .radius(6.0)
+        .center()
+        .hover(p.hover)
+        .press(p.pressed)
+        .child(text(t!("usage.footer.details")).font(BODY_MED).color(p.muted))
+}
+
+fn build_dialog(s: &dyn UsageHost, p: &Pal, win: [f32; 2], buttons: Buttons) -> Option<El> {
+    let open = s.usage().open.as_ref()?;
+    let (body, foot) = match &open.load {
         Load::Ready(info) | Load::Refreshing { info, .. } => {
             let v = limits::view(info, open.model.as_ref(), open.credits);
-            (content(s, p, &v), Some(footer(p, &v, &info.workspace.usage_url)))
+            (content(s, p, &v, buttons.switch), buttons.details.map(|btn| footer(p, &v, btn)))
         }
-        load => (fallback(p, load), None),
+        load => (fallback(p, load, buttons.retry), None),
     };
     // `<Dialog fit>` (`usage/dialog.tsx`): the normal size, as tall as its content up to the
     // window less 32; past that its content scrolls with the bar hidden (`dialog-content`).
-    let content = col().w_full().child(header(p)).child(col().key("usage-body").w_full().gap(16.0).child(body)).children(footer);
+    let body_col = col()
+        .w_full()
+        .child(header(p, buttons.close))
+        .child(col().key("usage-body").w_full().gap(16.0).child(body))
+        .children(foot);
+    let size = DialogSize::Normal;
     let card = col()
         .key("usage-dialog")
         .role("dialog")
@@ -56,90 +154,94 @@ pub(super) fn dialog(s: &App, p: &Pal, win: [f32; 2]) -> Option<El> {
         .elevate(p.overlay)
         .clip_soft(0.0)
         .transition(Transition::none())
-        .child(session_view::scroller::scroller("usage-content").hidden(col().w_full().shrink().min_h(0.0), content));
-    Some(widgets::sized(card, widgets::DialogSize::Normal, widgets::Fit::Content, win))
+        .child(session_view::scroller::scroller("usage-content").hidden(col().w_full().shrink().min_h(0.0), body_col));
+    Some(card.w(size.width(win[0])).max_h(size.max_height(win[1], false)))
 }
 
 /// `DialogHeader` with its close button and the title group.
-fn header(p: &Pal) -> El {
-    let close = el().key("usage-close").role("button").label_static(t!("ui.common.close")).size(20.0, 20.0).mt(-2.0).mr(-2.0).radius(4.0).center()
-        .hover(p.hover)
-        .press(p.pressed)
-        .on_press_tx(|s: &mut App, tx: &mut Tx| {
-            tx.instant();
-            s.close_usage();
-        })
-        .child(icon(&widgets::DIALOG_CLOSE, 16.0).color(p.icon_muted));
-    row().key("usage-header").w_full().padding(16.0).items_start()
+fn header(p: &Pal, close_btn: El) -> El {
+    row()
+        .key("usage-header")
+        .w_full()
+        .padding(16.0)
+        .items_start()
         .child(col().grow(1.0).shrink().min_w(0.0).gap(4.0).child(text(t!("usage.title")).font(TITLE).color(p.text)))
-        .child(close)
+        .child(close_btn)
 }
 
 /// Loading, a failed read with Try again, or signed out (`dialog.tsx:128-158`): centred in a row
 /// at least 120 tall, 16 in at the sides and foot. Signed out, the panel stretches to the row's
 /// height and keeps its lines' width, so a long line runs it past the row's insets, centred, as
 /// Chromium lays out the flex item.
-fn fallback(p: &Pal, load: &Load) -> El {
+fn fallback(p: &Pal, load: &Load, retry_btn: Option<El>) -> El {
     if let Load::SignedOut = load {
         let (title, body) = (t!("usage.signedOut.title"), t!("usage.signedOut.body"));
         return col().key("usage-state").w_full().px(12.0).pb(12.0).child(message(p, title, body));
     }
     let inner = match load {
-        Load::Failed => col().gap(12.0).items_center()
+        Load::Failed => col()
+            .gap(12.0)
+            .items_center()
             .child(text(t!("usage.error")).font(LINE).color(p.muted))
-            .child(widgets::button(t!("usage.retry"), ButtonVariant::Neutral).on_press_tx(|s: &mut App, tx: &mut Tx| {
-                tx.instant();
-                s.retry_usage();
-            }).build(kit(p)).key("usage-retry")),
+            .children(retry_btn),
         _ => col().child(Loader::new().build(kit(p))),
     };
     row().key("usage-state").w_full().min_h(120.0).px(16.0).pb(16.0).center().child(inner)
 }
 
 fn message(p: &Pal, title: &str, body: &str) -> El {
-    panel(p, 8.0).child(col().w_full().px(16.0).gap(4.0)
-        .child(line(title, LINE_MED, p.text)).child(text(body.to_owned()).font(LINE.lh(20.0)).color(p.muted)))
+    panel(p, 8.0).child(
+        col()
+            .w_full()
+            .px(16.0)
+            .gap(4.0)
+            .child(line(title, LINE_MED, p.text))
+            .child(text(body.to_owned()).font(LINE.lh(20.0)).color(p.muted)),
+    )
 }
 
-fn content(s: &App, p: &Pal, v: &limits::View) -> El {
+fn content(s: &dyn UsageHost, p: &Pal, v: &limits::View, switch_btn: Option<El>) -> El {
     let workspace = v.workspace.clone().unwrap_or_else(|| t!("usage.workspace.fallback").to_owned());
     let mut out = col().key("usage-content").w_full().gap(16.0);
     if let Some(c) = v.callout {
         out = out.child(callout(p, c, &workspace));
     }
     if let Some(go) = &v.go {
-        let mut panel = panel(p, 16.0);
+        let now_ms = s.now_ms();
+        let mut go_panel = panel(p, 16.0);
         for (k, g) in go.iter().enumerate() {
             if k > 0 {
-                panel = panel.child(divider(p));
+                go_panel = go_panel.child(divider(p));
             }
             let status = t!("usage.go.used", percent = g.meter.percent.round() as i64);
-            let resets = t!("usage.go.resetsIn", duration = duration(g.meter.resets_at, *s.now_ms));
+            let resets = t!("usage.go.resetsIn", duration = duration(g.meter.resets_at, now_ms));
             let title = match g.window {
                 "rolling" => t!("usage.go.rolling"),
                 "weekly" => t!("usage.go.weekly"),
                 _ => t!("usage.go.monthly"),
             };
-            panel = panel.child(item()
-                .child(row().w_full().center_y().child(line(title, LINE_MED, p.text).grow(1.0)).child(spend(p, &status, &resets, g.meter.limited)))
-                .child(track(p, g.meter.percent / 100.0, g.meter.limited)));
+            go_panel = go_panel.child(
+                item()
+                    .child(row().w_full().center_y().child(line(title, LINE_MED, p.text).grow(1.0)).child(spend(p, &status, &resets, g.meter.limited)))
+                    .child(track(p, g.meter.percent / 100.0, g.meter.limited)),
+            );
         }
-        out = out.child(section(p, t!("usage.section.go"), None, false, panel));
+        out = out.child(section(p, t!("usage.section.go"), None, false, go_panel));
     }
     let budgets = if v.budgets.is_empty() {
         message(p, t!("usage.empty.title"), &t!("usage.empty.body", workspace = workspace))
     } else {
-        let mut panel = panel(p, 16.0);
+        let mut budget_panel = panel(p, 16.0);
         for (k, r) in v.budgets.iter().enumerate() {
             if k > 0 {
-                panel = panel.child(divider(p));
+                budget_panel = budget_panel.child(divider(p));
             }
-            panel = panel.child(budget(p, r, &workspace));
+            budget_panel = budget_panel.child(budget(p, r, &workspace));
         }
         if let Some(a) = &v.action {
-            panel = panel.child(action(p, a));
+            budget_panel = budget_panel.child(action(p, a, switch_btn));
         }
-        panel
+        budget_panel
     };
     out.child(section(p, t!("usage.section.console"), v.workspace.as_deref(), v.dimmed, budgets))
 }
@@ -151,11 +253,21 @@ fn budget(p: &Pal, r: &Row, workspace: &str) -> El {
         (t!("usage.budget.left", amount = money(r.left, false)), t!("usage.budget.of", limit = money(r.limit, true)))
     };
     item()
-        .child(row().w_full().items_start()
-            .child(col().grow(1.0).shrink().min_w(0.0).gap(2.0)
-                .child(line(&label(&r.label), LINE_MED, p.text))
-                .child(text(scope(r, workspace)).font(LINE).color(p.muted).wrap().w_full()))
-            .child(spend(p, &status, &detail, r.reached)))
+        .child(
+            row()
+                .w_full()
+                .items_start()
+                .child(
+                    col()
+                        .grow(1.0)
+                        .shrink()
+                        .min_w(0.0)
+                        .gap(2.0)
+                        .child(line(&label(&r.label), LINE_MED, p.text))
+                        .child(text(scope(r, workspace)).font(LINE).color(p.muted).wrap().w_full()),
+                )
+                .child(spend(p, &status, &detail, r.reached)),
+        )
         .child(track(p, r.fill, r.reached))
 }
 
@@ -166,15 +278,27 @@ fn label(l: &Label) -> String {
         Label::Each => t!("usage.budget.each").to_owned(),
         Label::Vendors { vendors, each, price: Some(price) } => {
             let (vendors, price) = (opencode_i18n::list(vendors), money(*price, true));
-            if *each { t!("usage.budget.vendorsPriceEach", vendors = vendors, price = price) } else { t!("usage.budget.vendorsPrice", vendors = vendors, price = price) }
+            if *each {
+                t!("usage.budget.vendorsPriceEach", vendors = vendors, price = price)
+            } else {
+                t!("usage.budget.vendorsPrice", vendors = vendors, price = price)
+            }
         }
         Label::Vendors { vendors, each, price: None } => {
             let vendors = opencode_i18n::list(vendors);
-            if *each { t!("usage.budget.vendorsEach", vendors = vendors) } else { t!("usage.budget.vendors", vendors = vendors) }
+            if *each {
+                t!("usage.budget.vendorsEach", vendors = vendors)
+            } else {
+                t!("usage.budget.vendors", vendors = vendors)
+            }
         }
         Label::Price { price, each } => {
             let price = money(*price, true);
-            if *each { t!("usage.budget.priceEach", price = price) } else { t!("usage.budget.price", price = price) }
+            if *each {
+                t!("usage.budget.priceEach", price = price)
+            } else {
+                t!("usage.budget.price", price = price)
+            }
         }
         Label::Models { names, each } => {
             let models = if names.len() > 2 {
@@ -216,26 +340,53 @@ fn note(n: &Note, r: &Row) -> String {
 fn callout(p: &Pal, c: Callout, workspace: &str) -> El {
     let (title, body) = match c {
         Callout::Credits => (t!("usage.callout.credits.title", workspace = workspace), t!("usage.callout.credits.body").to_owned()),
-        Callout::Workspace { resets_at } => (t!("usage.callout.workspace.title").to_owned(), t!("usage.callout.workspace.body", workspace = workspace, time = time(resets_at))),
-        Callout::Personal { resets_at } => (t!("usage.callout.personal.title").to_owned(), t!("usage.callout.personal.body", workspace = workspace, time = time(resets_at))),
+        Callout::Workspace { resets_at } => (
+            t!("usage.callout.workspace.title").to_owned(),
+            t!("usage.callout.workspace.body", workspace = workspace, time = time(resets_at)),
+        ),
+        Callout::Personal { resets_at } => (
+            t!("usage.callout.personal.title").to_owned(),
+            t!("usage.callout.personal.body", workspace = workspace, time = time(resets_at)),
+        ),
     };
     let ink = reached(p);
-    row().key("usage-callout").w_full().px(16.0).gap(2.0)
+    row()
+        .key("usage-callout")
+        .w_full()
+        .px(16.0)
+        .gap(2.0)
         .child(el().w(2.0).self_stretch().fill(p.v2.danger.fg))
-        .child(col().grow(1.0).shrink().min_w(0.0).gap(6.0).padding(12.0).corners([0.0, 6.0, 6.0, 0.0]).fill(p.v2.danger.bg)
-            .child(line(&title, LINE_MED, ink))
-            .child(text(body).font(BODY).color(ink).wrap().w_full()))
+        .child(
+            col()
+                .grow(1.0)
+                .shrink()
+                .min_w(0.0)
+                .gap(6.0)
+                .padding(12.0)
+                .corners([0.0, 6.0, 6.0, 0.0])
+                .fill(p.v2.danger.bg)
+                .child(line(&title, LINE_MED, ink))
+                .child(text(body).font(BODY).color(ink).wrap().w_full()),
+        )
 }
 
-fn action(p: &Pal, a: &Action) -> El {
+fn action(p: &Pal, a: &Action, switch_btn: Option<El>) -> El {
     let (title, body) = match a {
         Action::OtherModels { vendors } => (
             t!("usage.action.otherModels.title").to_owned(),
-            if vendors.is_empty() { t!("usage.action.otherModels.body").to_owned() } else { t!("usage.action.otherModels.vendors", vendors = opencode_i18n::list(vendors)) },
+            if vendors.is_empty() {
+                t!("usage.action.otherModels.body").to_owned()
+            } else {
+                t!("usage.action.otherModels.vendors", vendors = opencode_i18n::list(vendors))
+            },
         ),
         Action::OtherModelsEach { vendors, limit, suggestion } => {
             let limit = money(*limit, true);
-            let title = if vendors.is_empty() { t!("usage.action.each.title").to_owned() } else { t!("usage.action.each.titleVendors", vendors = opencode_i18n::list(vendors)) };
+            let title = if vendors.is_empty() {
+                t!("usage.action.each.title").to_owned()
+            } else {
+                t!("usage.action.each.titleVendors", vendors = opencode_i18n::list(vendors))
+            };
             let body = match suggestion {
                 Some((model, left)) => t!("usage.action.each.suggestion", limit = limit, model = model, left = money(*left, false)),
                 None => t!("usage.action.each.body", limit = limit),
@@ -243,39 +394,52 @@ fn action(p: &Pal, a: &Action) -> El {
             (title, body)
         }
     };
-    row().key("usage-action").w_full().px(16.0).gap(16.0).center_y()
-        .child(col().grow(1.0).shrink().min_w(0.0).gap(4.0).child(line(&title, LINE_MED, p.text)).child(text(body).font(BODY).color(p.muted).wrap().w_full()))
-        .child(widgets::button(t!("usage.action.switch"), ButtonVariant::Neutral).on_press_tx(|s: &mut App, tx: &mut Tx| {
-            tx.instant();
-            s.close_usage();
-            s.open_picker(crate::pickers::Kind::Model);
-        }).build(kit(p)).key("usage-switch"))
+    row()
+        .key("usage-action")
+        .w_full()
+        .px(16.0)
+        .gap(16.0)
+        .center_y()
+        .child(
+            col()
+                .grow(1.0)
+                .shrink()
+                .min_w(0.0)
+                .gap(4.0)
+                .child(line(&title, LINE_MED, p.text))
+                .child(text(body).font(BODY).color(p.muted).wrap().w_full()),
+        )
+        .children(switch_btn)
 }
 
 /// The footer: when the budgets reset, and View details (`platform.openExternal(usageURL)`).
-fn footer(p: &Pal, v: &limits::View, url: &str) -> El {
+fn footer(p: &Pal, v: &limits::View, details_btn: El) -> El {
     let words = match v.footer {
-        Footer::CreditsOnly => t!("usage.footer.creditsOnly", workspace = v.workspace.clone().unwrap_or_else(|| t!("usage.workspace.fallback").to_owned())),
+        Footer::CreditsOnly => t!(
+            "usage.footer.creditsOnly",
+            workspace = v.workspace.clone().unwrap_or_else(|| t!("usage.workspace.fallback").to_owned())
+        ),
         Footer::BudgetsReset(at) => t!("usage.footer.budgetsReset", time = time(at)),
         Footer::Resets(at) => t!("usage.footer.resets", time = time(at)),
     };
-    let url = url.to_owned();
-    // A ghost `button-v2` at size normal in the muted ink (`class="text-v2-text-text-muted!"`).
-    let details = row().key("usage-details").role("button").label_static(t!("usage.footer.details")).h(28.0).px(11.0).radius(6.0).center()
-        .hover(p.hover)
-        .press(p.pressed)
-        .on_press_tx(move |_: &mut App, tx: &mut Tx| {
-            let _ = tx.open_url(&url);
-        })
-        .child(text(t!("usage.footer.details")).font(widgets::BODY_MED).color(p.muted));
-    row().key("usage-footer").w_full().padding(16.0).gap(8.0).center_y()
+    row()
+        .key("usage-footer")
+        .w_full()
+        .padding(16.0)
+        .gap(8.0)
+        .center_y()
         .child(row().grow(1.0).shrink().min_w(0.0).h(28.0).center_y().child(line(&words, LINE, p.faint)))
-        .child(details)
+        .child(details_btn)
 }
 
 /// `Section`: its muted label (and the workspace's badge) over its panel, 12 apart.
 fn section(p: &Pal, label: &str, badge: Option<&str>, dimmed: bool, body: El) -> El {
-    let head = row().w_full().gap(8.0).pl(16.0).pr(20.0).center_y()
+    let head = row()
+        .w_full()
+        .gap(8.0)
+        .pl(16.0)
+        .pr(20.0)
+        .center_y()
         .child(line(label, LINE, p.muted))
         .children(badge.map(|b| row().h(16.0).px(4.0).radius(2.0).center_y().fill(p.layer3).child(text(b.to_owned()).font(BADGE).color(p.muted))));
     let s = col().w_full().gap(12.0).child(head).child(col().w_full().px(12.0).child(body));
@@ -301,7 +465,9 @@ fn line(words: &str, font: TextStyle, color: Color) -> El {
 
 /// `Spend`: the status, a 1.125 pt dot, then the detail.
 fn spend(p: &Pal, status: &str, detail: &str, reached_: bool) -> El {
-    row().gap(6.0).center_y()
+    row()
+        .gap(6.0)
+        .center_y()
         .child(line(status, LINE_MED.features("\"tnum\""), if reached_ { reached(p) } else { p.text }))
         .child(el().size(3.0, 3.0).center().child(el().size(1.125, 1.125).radius(0.5625).fill(p.icon_muted)))
         .child(line(detail, LINE, p.muted))
@@ -310,7 +476,12 @@ fn spend(p: &Pal, status: &str, detail: &str, reached_: bool) -> El {
 /// `Track`: an 8 pt bar on `layer-03`, filled to `fill` in `bg-inverse`, or the reached red.
 fn track(p: &Pal, fill: f64, reached_: bool) -> El {
     let f = fill.clamp(0.0, 1.0) as f32;
-    row().w_full().h(8.0).radius(2.0).fill(p.layer3).clip_soft(0.0)
+    row()
+        .w_full()
+        .h(8.0)
+        .radius(2.0)
+        .fill(p.layer3)
+        .clip_soft(0.0)
         .child(el().h(8.0).grow(f).fill(if reached_ { reached(p) } else { p.v2.bg_inverse }))
         .child(spacer().grow(1.0 - f))
 }
@@ -322,14 +493,17 @@ fn reached(p: &Pal) -> Color {
 
 /// `format.money`: US dollars in the locale's currency pattern (`$1,234.50`, `1.234,50 $`,
 /// `1 234,50 $US`), cents always or (`auto`) only off a whole amount.
-pub(super) fn money(value: f64, auto: bool) -> String {
+pub fn money(value: f64, auto: bool) -> String {
     opencode_i18n::usd(value, if auto && value.fract() == 0.0 { 0 } else { 2 })
 }
 
 /// `format.time`: `Nov 1 at 12:00 AM (GMT-7)`.
 fn time(at: i64) -> String {
     let m = session_view::turn_errors::moment(rune::LocalTime::at(at));
-    let (date, clock) = (opencode_i18n::date::format(opencode_i18n::date::Style::MonthDay, m), opencode_i18n::date::format(opencode_i18n::date::Style::Time, m));
+    let (date, clock) = (
+        opencode_i18n::date::format(opencode_i18n::date::Style::MonthDay, m),
+        opencode_i18n::date::format(opencode_i18n::date::Style::Time, m),
+    );
     t!("usage.time", date = date, time = clock, zone = opencode_i18n::date::zone(m.offset))
 }
 

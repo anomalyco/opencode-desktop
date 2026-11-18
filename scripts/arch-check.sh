@@ -18,7 +18,7 @@ from collections import defaultdict
 
 # Ratchet ceiling for fields on `pub struct App` in apps/desktop/src/app.rs.
 # Only lower this number; new features must use opencode-kernel StateSlots or Luau plugins.
-APP_FIELD_CEILING = 149
+APP_FIELD_CEILING = 144
 DESKTOP_ROOT_MAX_FILES = 10
 
 errors = []

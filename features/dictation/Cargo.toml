@@ -1,0 +1,17 @@
+[package]
+name = "opencode-feature-dictation"
+version = "0.0.1"
+description = "Hex voice dictation state machine, presence watcher, and composer toolbar controls for OpenCode (Rune)"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+hex-client = { path = "../../crates/hex-client" }
+notify = "8"
+opencode-i18n = { path = "../../crates/opencode-i18n" }
+rune.workspace = true
+session-view = { path = "../../crates/session-view" }
+
+[lints]
+workspace = true

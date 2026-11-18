@@ -9,13 +9,16 @@ use rune::{Tx, Waker};
 
 use crate::{
     App, Route, agent_rows, appearance, background, copied, crash_notice, deep_links, demo,
-    diagram, dictation, disclosure, dropzone, files, find, fork, glitch, headless, inbox_model,
+    diagram, disclosure, dropzone, files, find, fork, glitch, headless, inbox_model,
     incoming, jump_list, language, launch, layout_state, line_comments, line_reveal, message_nav,
     model_picker, narrow, notifications, plugin_host, popup, project_switcher, projects, quote,
     reconnect, rune_mcp, servers, session_menu, session_state, session_status, settings, speech,
-    status_toast, stop, storage, subagents, submit, telemetry, text_rendering, tips, todos,
+    status_toast, stop, storage, subagents, submit, telemetry, text_rendering, todos,
     turn_errors, view, wall_ms, windows, working,
 };
+
+#[derive(Default)]
+struct PolledRuns(u64);
 
 pub(crate) fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     session_view::scroller::set_device_scale(windows::view_scale(s));
@@ -28,13 +31,15 @@ pub(crate) fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         s.composer.focused = false;
     }
     // The view ran since the last poll: state the polls below derive from other state may have moved.
-    let viewed = s.view_runs.get() != s.polled_runs;
-    s.polled_runs = s.view_runs.get();
+    let runs = s.view_runs.get();
+    let polled = s.kernel.slots.slot::<PolledRuns>();
+    let viewed = runs != polled.0;
+    polled.0 = runs;
     let scheduler = s.kernel.scheduler.clone();
 
     // ── Phase 1: Ingest ──────────────────────────────────────────────────────────────────────────
     // Pull external inputs, worker results, network events, timers, and registered Ingest systems
-    // (`office::poll`, `updater::poll`).
+    // (`office::poll`, `updater::poll`, `dictation::poll`).
     // Another window changed the session data this one shows.
     let mut changed = windows::peer::behind(s);
     changed |= session_menu::unread::poll(s);
@@ -53,7 +58,6 @@ pub(crate) fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         rune::Tracked::touch(&s.icons);
         changed = true;
     }
-    changed |= dictation::poll(s, now, tx);
     changed |= launch::poll(s, tx);
     launch::trace::poll(tx);
     changed |= scheduler.run_phase(Phase::Ingest, s, now, tx);
@@ -181,7 +185,6 @@ pub(crate) fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= settings::pages::projects::poll(s);
     changed |= reconnect::poll(s, tx);
     changed |= session_state::poll(s, tx);
-    changed |= tips::poll(s, tx);
     changed |= status_toast::poll(s, now, tx);
     changed |= layout_state::poll(s, now, tx);
     changed |= narrow::poll(s, now, tx);

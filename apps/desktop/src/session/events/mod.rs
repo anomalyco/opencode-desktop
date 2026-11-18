@@ -123,6 +123,12 @@ pub(crate) enum TailChange {
     Page,
 }
 
+/// Each session's assistant steps that were open when its event stream dropped: their text grows
+/// again only from whole text (`Transcript::apply_caught`, the catching-up barrier). Stored in
+/// `App::kernel.slots`.
+#[derive(Default)]
+pub(crate) struct StreamGaps(pub(crate) HashMap<String, HashSet<String>>);
+
 pub struct StreamEvent {
     pub ty: String,
     pub data: Value,
@@ -210,7 +216,7 @@ impl App {
 
     pub(crate) fn react_live(&mut self, e: &StreamEvent) -> bool {
         let ty = e.ty.as_str();
-        if !matches!(self.tail_change, TailChange::Page)
+        if !matches!(self.kernel.slots.get::<TailChange>(), Some(TailChange::Page))
             && let Some(id) = e.data["sessionID"].as_str()
             && self.showing_here(id)
         {
@@ -224,8 +230,10 @@ impl App {
                 && (ty.starts_with("session.text.") || ty.starts_with("session.reasoning.") || ty.starts_with("session.tool.")
                     || matches!(ty, "session.synthetic" | "session.user.message" | "session.prompted" | "session.inbox.delivered")
                     || (ty == "session.inbox.enqueued" && self.waiting_finish(id, &e.data)));
-            if from.is_some() || (live && matches!(self.tail_change, TailChange::None)) {
-                self.tail_change = TailChange::Live { route: (*self.route).clone(), from };
+            let is_none = !matches!(self.kernel.slots.get::<TailChange>(), Some(TailChange::Live { .. } | TailChange::Page));
+            if from.is_some() || (live && is_none) {
+                let route = (*self.route).clone();
+                *self.kernel.slots.slot::<TailChange>() = TailChange::Live { route, from };
             }
         }
         self.react(e)
@@ -245,13 +253,14 @@ impl App {
     }
 
     pub(crate) fn tail_page(&mut self, sid: &str) {
-        if self.showing_here(sid) { self.tail_change = TailChange::Page; }
+        if self.showing_here(sid) { *self.kernel.slots.slot::<TailChange>() = TailChange::Page; }
     }
 
     pub(crate) fn finish_tail_change(&mut self, tx: &mut Tx) {
-        let TailChange::Live { route, from } = std::mem::take(&mut self.tail_change) else { return };
+        let Some(TailChange::Live { route, from }) = self.kernel.slots.get_mut::<TailChange>().map(std::mem::take) else { return };
         let Route::Session { id, .. } = &route else { return };
-        if *self.route != route || !self.ends.at_end(id) || self.ends.due(id) || self.stream_gaps.contains_key(id) { return; }
+        let has_gap = self.kernel.slots.get::<StreamGaps>().is_some_and(|g| g.0.contains_key(id));
+        if *self.route != route || !self.ends.at_end(id) || self.ends.due(id) || has_gap { return; }
         let stack = format!("scroll-{id}/timeline");
         if !session_view::TimelineHost::smooth_timeline(self) {
             // The shipped live-row growth and reordering stay on in either presentation.
@@ -281,19 +290,21 @@ impl App {
         }
         let len = self.transcripts.get(&sid).map_or(0, |t| t.messages.len());
         if let Some(t) = self.transcript_edits.get_mut(&mut self.transcripts, &sid) {
-            done.transcript = match self.stream_gaps.get_mut(&sid) {
-                Some(gapped) => {
-                    let (changed, reread) = t.apply_caught(ty, data, now, gapped);
-                    if gapped.is_empty() {
-                        self.stream_gaps.remove(&sid);
-                    }
-                    if reread {
-                        self.reload_session(&sid);
-                    }
-                    changed
+            let (changed, reread) = if let Some(gaps) = self.kernel.slots.get_mut::<StreamGaps>()
+                && let Some(gapped) = gaps.0.get_mut(&sid)
+            {
+                let res = t.apply_caught(ty, data, now, gapped);
+                if gapped.is_empty() {
+                    gaps.0.remove(&sid);
                 }
-                None => t.apply(ty, data, now),
+                res
+            } else {
+                (t.apply(ty, data, now), false)
             };
+            done.transcript = changed;
+            if reread {
+                self.reload_session(&sid);
+            }
         }
         if done.transcript {
             let at = self.transcripts.get(&sid).map_or(0, |t| touched_at(t, ty, data, len));

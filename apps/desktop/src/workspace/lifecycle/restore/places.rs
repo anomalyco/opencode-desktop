@@ -47,14 +47,14 @@ impl App {
             .filter_map(|(session, p)| Some(Place { session: session.clone(), row: p[0].as_str()?.to_owned(), at: p[1].as_f64()? as f32, far: p[2].as_bool().unwrap_or(false) }))
             .collect();
         let touched: Vec<(String, bool)> = v["opened"].as_array().into_iter().flatten().filter_map(|d| Some((d[0].as_str()?.to_owned(), d[1].as_bool()?))).collect();
-        self.timeline_kept.order = touched.iter().map(|(k, _)| k.clone()).collect();
+        self.kernel.slots.slot::<Kept>().order = touched.iter().map(|(k, _)| k.clone()).collect();
         self.expanded.restore(touched);
         self.ends.restore(places);
         if let Route::Session { id, .. } = &*self.route {
             let id = id.clone();
             self.ends.reopen(&id);
         }
-        self.timeline_kept.written = Some(v);
+        self.kernel.slots.slot::<Kept>().written = Some(v);
     }
 
     /// Puts session `id`'s place back in this commit if its transcript has the place's row
@@ -104,26 +104,31 @@ impl App {
         }
         let value = self.timeline_json();
         // A window with nothing kept writes nothing until it has something.
-        if self.timeline_kept.written.is_none() && value["places"].as_object().is_some_and(Map::is_empty) && value["opened"].as_array().is_some_and(Vec::is_empty) {
-            self.timeline_kept.written = Some(value);
+        let kept = self.kernel.slots.slot::<Kept>();
+        if kept.written.is_none() && value["places"].as_object().is_some_and(Map::is_empty) && value["opened"].as_array().is_some_and(Vec::is_empty) {
+            kept.written = Some(value);
             return;
         }
-        if self.timeline_kept.written.as_ref() == Some(&value) {
-            self.timeline_kept.candidate = None;
+        if kept.written.as_ref() == Some(&value) {
+            kept.candidate = None;
             return;
         }
-        match &self.timeline_kept.candidate {
-            Some((v, at)) if *v == value && now - at + 1e-9 >= SETTLE => {
+        let settle_at = match &kept.candidate {
+            Some((v, at)) if *v == value => Some(*at),
+            _ => None,
+        };
+        match settle_at {
+            Some(at) if now - at + 1e-9 >= SETTLE => {
                 crate::windows::store::save(&self.window, KEY, &value);
-                self.timeline_kept.written = Some(value);
-                self.timeline_kept.candidate = None;
+                kept.written = Some(value);
+                kept.candidate = None;
                 // The boot preview follows the place to its turn, so a launch after a crash
                 // draws it in its first frame too.
                 self.preview_place();
             }
-            Some((v, at)) if *v == value => tx.wake_at(at + SETTLE),
-            _ => {
-                self.timeline_kept.candidate = Some((value, now));
+            Some(at) => tx.wake_at(at + SETTLE),
+            None => {
+                kept.candidate = Some((value, now));
                 tx.wake_at(now + SETTLE);
             }
         }
@@ -138,7 +143,7 @@ impl App {
         };
         let sessions = self.tabs.iter().filter(|t| !t.is_draft()).map(|t| t.id.as_str()).chain(shown);
         let places: Map<String, Value> = self.ends.places(sessions).into_iter().map(|p| (p.session, json!([p.row, p.at, p.far]))).collect();
-        let order = &mut self.timeline_kept.order;
+        let order = &mut self.kernel.slots.slot::<Kept>().order;
         let touched: std::collections::HashMap<&String, bool> = self.expanded.touched().collect();
         order.retain(|k| touched.contains_key(k));
         let mut fresh: Vec<&String> = touched.keys().filter(|k| !order.contains(k)).copied().collect();

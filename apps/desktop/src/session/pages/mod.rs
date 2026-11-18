@@ -577,7 +577,7 @@ impl crate::App {
                 }
             }
         } else {
-            match self.stream_gaps.get_mut(id.as_str()) {
+            match self.kernel.slots.get_mut::<crate::events::StreamGaps>().and_then(|g| g.0.get_mut(id.as_str())) {
                 Some(gapped) => t.merge_caught(messages, gapped),
                 None => t.merge(messages),
             }

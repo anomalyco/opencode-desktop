@@ -68,46 +68,75 @@ pub struct Budget {
 impl Info {
     /// `modelUsage` (anomalyco/opencode#64409): the tightest applicable budget wins.
     pub fn model_left(&self, provider: &str, model: &str, served: bool) -> Option<f64> {
-        self.budgets.iter().filter_map(|budget| {
-            let spent = if budget.covers_all {
-                if !served { return None; }
-                budget.spent
-            } else {
-                let entry = budget.models.iter().find(|m| m.provider == provider && m.model == model)?;
-                if budget.per_model { entry.spent.unwrap_or(0.0) } else { budget.spent }
-            };
-            Some((budget.limit - spent).max(0.0))
-        }).min_by(f64::total_cmp)
+        self.budgets
+            .iter()
+            .filter_map(|budget| {
+                let spent = if budget.covers_all {
+                    if !served {
+                        return None;
+                    }
+                    budget.spent
+                } else {
+                    let entry = budget.models.iter().find(|m| m.provider == provider && m.model == model)?;
+                    if budget.per_model { entry.spent.unwrap_or(0.0) } else { budget.spent }
+                };
+                Some((budget.limit - spent).max(0.0))
+            })
+            .min_by(f64::total_cmp)
     }
+
     /// The `data` of the server's answer; `None` for anything else (`null` is signed out).
     pub fn parse(v: &Value) -> Option<Info> {
         let w = v.get("workspace")?;
-        let meter = |m: &Value| Some(Meter { percent: m["percent"].as_f64()?, limited: m["limited"].as_bool()?, resets_at: m["resetsAt"].as_f64()? as i64 });
-        let go = v.get("go").filter(|g| !g.is_null()).and_then(|g| Some(Go { rolling: meter(&g["rolling"])?, weekly: meter(&g["weekly"])?, monthly: meter(&g["monthly"])? }));
-        let strings = |v: &Value| v.as_array().into_iter().flatten().filter_map(|s| s.as_str().map(str::to_owned)).collect();
-        let budgets = v["budgets"].as_array()?.iter().filter_map(|b| {
-            Some(Budget {
-                id: b["id"].as_str()?.to_owned(),
-                limit: b["limit"].as_f64()?,
-                spent: b["spent"].as_f64()?,
-                each_member: b["scope"] == "each",
-                per_model: b["per"] == "model",
-                covers_all: b["coverage"] == "all",
-                models: b["models"].as_array().into_iter().flatten().filter_map(|m| Some(BudgetModel {
-                    provider: m["providerID"].as_str()?.to_owned(),
-                    model: m["modelID"].as_str()?.to_owned(),
-                    name: m["name"].as_str()?.to_owned(),
-                    spent: m["spent"].as_f64(),
-                })).collect(),
-                vendors: strings(&b["vendors"]),
-                input_price_at_least: b["inputPriceAtLeast"].as_f64(),
-                picked: b["picked"].as_bool().unwrap_or(false),
-                shared: b["shared"].as_bool().unwrap_or(false),
-                resets_at: b["resetsAt"].as_f64()? as i64,
+        let meter = |m: &Value| {
+            Some(Meter {
+                percent: m["percent"].as_f64()?,
+                limited: m["limited"].as_bool()?,
+                resets_at: m["resetsAt"].as_f64()? as i64,
             })
-        }).collect();
+        };
+        let go = v
+            .get("go")
+            .filter(|g| !g.is_null())
+            .and_then(|g| Some(Go { rolling: meter(&g["rolling"])?, weekly: meter(&g["weekly"])?, monthly: meter(&g["monthly"])? }));
+        let strings = |v: &Value| v.as_array().into_iter().flatten().filter_map(|s| s.as_str().map(str::to_owned)).collect();
+        let budgets = v["budgets"]
+            .as_array()?
+            .iter()
+            .filter_map(|b| {
+                Some(Budget {
+                    id: b["id"].as_str()?.to_owned(),
+                    limit: b["limit"].as_f64()?,
+                    spent: b["spent"].as_f64()?,
+                    each_member: b["scope"] == "each",
+                    per_model: b["per"] == "model",
+                    covers_all: b["coverage"] == "all",
+                    models: b["models"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|m| {
+                            Some(BudgetModel {
+                                provider: m["providerID"].as_str()?.to_owned(),
+                                model: m["modelID"].as_str()?.to_owned(),
+                                name: m["name"].as_str()?.to_owned(),
+                                spent: m["spent"].as_f64(),
+                            })
+                        })
+                        .collect(),
+                    vendors: strings(&b["vendors"]),
+                    input_price_at_least: b["inputPriceAtLeast"].as_f64(),
+                    picked: b["picked"].as_bool().unwrap_or(false),
+                    shared: b["shared"].as_bool().unwrap_or(false),
+                    resets_at: b["resetsAt"].as_f64()? as i64,
+                })
+            })
+            .collect();
         Some(Info {
-            workspace: Workspace { name: w["name"].as_str().map(str::to_owned), usage_url: w["usageURL"].as_str()?.to_owned() },
+            workspace: Workspace {
+                name: w["name"].as_str().map(str::to_owned),
+                usage_url: w["usageURL"].as_str()?.to_owned(),
+            },
             go,
             budgets,
         })
@@ -243,7 +272,13 @@ pub fn view(info: &Info, model: Option<&CurrentModel>, credits: bool) -> View {
                 label: label(b),
                 limit: b.limit,
                 per_model: b.per_model,
-                sharing: if b.each_member { Sharing::You } else if b.shared { Sharing::Everyone } else { Sharing::Group },
+                sharing: if b.each_member {
+                    Sharing::You
+                } else if b.shared {
+                    Sharing::Everyone
+                } else {
+                    Sharing::Group
+                },
                 notes,
                 reached: s.reached,
                 spent: s.spent,
@@ -277,9 +312,16 @@ struct Spend {
 /// The spend a budget's cap compares against: a per-model budget's counter for the model in
 /// use, when it covers it.
 fn spend(b: &Budget, model: Option<&CurrentModel>) -> Spend {
-    let current = model.filter(|_| b.per_model).and_then(|m| b.models.iter().find(|e| e.provider == m.provider && e.model == m.model).map(|e| (m, e)));
+    let current = model
+        .filter(|_| b.per_model)
+        .and_then(|m| b.models.iter().find(|e| e.provider == m.provider && e.model == m.model).map(|e| (m, e)));
     let spent = current.and_then(|(_, e)| e.spent).unwrap_or(b.spent);
-    Spend { current: current.map(|(m, _)| m.name.clone()), spent, reached: spent >= b.limit, left: (b.limit - spent).max(0.0) }
+    Spend {
+        current: current.map(|(m, _)| m.name.clone()),
+        spent,
+        reached: spent >= b.limit,
+        left: (b.limit - spent).max(0.0),
+    }
 }
 
 fn label(b: &Budget) -> Label {
@@ -305,7 +347,12 @@ fn action(b: &Budget) -> Action {
     if !b.per_model {
         return Action::OtherModels { vendors: b.vendors.clone() };
     }
-    let mut room: Vec<(String, f64)> = b.models.iter().map(|m| (m.name.clone(), (b.limit - m.spent.unwrap_or(0.0)).max(0.0))).filter(|(_, left)| *left > 0.0).collect();
+    let mut room: Vec<(String, f64)> = b
+        .models
+        .iter()
+        .map(|m| (m.name.clone(), (b.limit - m.spent.unwrap_or(0.0)).max(0.0)))
+        .filter(|(_, left)| *left > 0.0)
+        .collect();
     room.sort_by(|a, b| b.1.total_cmp(&a.1));
     Action::OtherModelsEach { vendors: b.vendors.clone(), limit: b.limit, suggestion: room.into_iter().next() }
 }

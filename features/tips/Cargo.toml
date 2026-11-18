@@ -1,0 +1,18 @@
+[package]
+name = "opencode-feature-tips"
+version = "0.0.1"
+description = "Paced one-time onboarding tips and queue state machine for OpenCode (Rune)"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+hex-client = { path = "../../crates/hex-client" }
+opencode-i18n = { path = "../../crates/opencode-i18n" }
+opencode-platform = { path = "../../crates/opencode-platform" }
+rune.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+
+[lints]
+workspace = true
