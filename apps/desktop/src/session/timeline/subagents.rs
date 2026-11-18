@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use opencode_kernel::{Feature, KernelBuilder, Phase};
 use opencode_kit::client::{Prompt, Write};
 use opencode_kit::model::{SessionInfo, Transcript};
-use rune::{Tx, Waker};
+use rune::Tx;
 use rune_knobs::Knobs;
 
 use crate::jobs::Apply;
@@ -20,10 +20,6 @@ impl SubagentsHost for App {
 
     fn shells_mut(&mut self) -> &mut Shells {
         &mut self.shells
-    }
-
-    fn active_session_id(&self) -> Option<&str> {
-        App::active_session_id(self)
     }
 
     fn session_info(&self, id: &str) -> Option<&SessionInfo> {
@@ -54,14 +50,6 @@ impl SubagentsHost for App {
         self.settings.background_activity != crate::settings::BackgroundActivity::Off
     }
 
-    fn is_live(&self) -> bool {
-        self.live()
-    }
-
-    fn is_headless(&self) -> bool {
-        crate::headless()
-    }
-
     fn composer_is_empty(&self) -> bool {
         self.composer.text.trim().is_empty() && !self.attach.any() && !self.quote.any()
     }
@@ -76,22 +64,6 @@ impl SubagentsHost for App {
 
     fn knobs(&self) -> &Knobs {
         &self.knobs
-    }
-
-    fn clock(&self) -> f64 {
-        *self.clock
-    }
-
-    fn now_ms(&self) -> i64 {
-        *self.now_ms
-    }
-
-    fn waker(&self) -> Option<Waker> {
-        (*self.waker).clone()
-    }
-
-    fn toast_fail(&mut self, title: String, description: String) {
-        crate::status_toast::fail(self, title, description);
     }
 
     fn prefetch_session(&self, id: &str) {

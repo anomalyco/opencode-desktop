@@ -6,7 +6,7 @@ use std::borrow::Cow;
 
 use opencode_kernel::{Feature, KernelBuilder, Phase};
 use opencode_kit::model::Transcript;
-use rune::{KeyEvent, Tx, Waker};
+use rune::{KeyEvent, Tx};
 use session_view::disclosure::Disclosures;
 
 use crate::pickers::PickerHost;
@@ -19,10 +19,6 @@ impl FindHost for App {
 
     fn find_mut(&mut self) -> &mut Find {
         &mut self.find
-    }
-
-    fn active_session_id(&self) -> Option<&str> {
-        App::active_session_id(self)
     }
 
     fn is_home(&self) -> bool {
@@ -111,18 +107,6 @@ impl FindHost for App {
 
     fn handle_input_fallback_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
         self.switcher_key(ev, tx) || self.shortcut(ev, tx)
-    }
-
-    fn spellcheck(&self) -> bool {
-        self.settings.spellcheck
-    }
-
-    fn zoom(&self) -> f32 {
-        *self.zoom
-    }
-
-    fn waker(&self) -> Option<Waker> {
-        (*self.waker).clone()
     }
 }
 

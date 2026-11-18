@@ -56,14 +56,6 @@ impl QueueHost for App {
         &mut self.queue_runs
     }
 
-    fn clock(&self) -> f64 {
-        *self.clock
-    }
-
-    fn active_session_id(&self) -> Option<&str> {
-        App::active_session_id(self)
-    }
-
     fn is_fixture(&self) -> bool {
         matches!(*self.source, Source::Fixture)
     }
@@ -188,14 +180,6 @@ impl QueueHost for App {
 
     fn toast_failed_wire(&mut self, title: &str, error: &WireError) {
         crate::status_toast::failed_wire(self, title, error);
-    }
-
-    fn toast_fail(&mut self, title: &str, description: &str) {
-        crate::status_toast::fail(self, title, description);
-    }
-
-    fn toast_say(&mut self, title: &str, description: &str) {
-        crate::status_toast::say(self, title, description);
     }
 
     fn spawn_queue_job(&mut self, job: QueueJob) {

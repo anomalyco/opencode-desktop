@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 bytemuck = { version = "1", features = ["derive"] }
 office-preview = { path = "../../crates/office-preview" }
+opencode-kernel = { path = "../../crates/opencode-kernel" }
 rune.workspace = true
 rune-luau.workspace = true
 rune-theme-opencode.workspace = true

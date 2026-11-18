@@ -33,13 +33,11 @@ use pins::draw::{Colors, Quads, Scratch};
 use wordmark::{Event, State};
 
 /// Host state and callbacks required by the new-session Easter egg.
-pub trait EggHost {
+pub trait EggHost: opencode_kernel::AppEnv {
     fn egg(&self) -> &Egg;
     fn egg_mut(&mut self) -> &mut Egg;
     fn is_draft_route(&self) -> bool;
-    fn reduced_motion(&self) -> bool;
     fn interface_sounds(&self) -> bool;
-    fn persists(&self) -> bool;
     fn focus_composer(&mut self);
 }
 

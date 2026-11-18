@@ -3520,6 +3520,7 @@ version = "0.0.1"
 dependencies = [
  "opencode-code-view",
  "opencode-i18n",
+ "opencode-kernel",
  "opencode-kit",
  "opencode-runtime",
  "opencode-search",
@@ -3538,6 +3539,7 @@ version = "0.0.1"
 dependencies = [
  "image",
  "opencode-i18n",
+ "opencode-kernel",
  "opencode-kit",
  "opencode-platform",
  "opencode-runtime",
@@ -3555,6 +3557,7 @@ name = "opencode-feature-connect"
 version = "0.0.1"
 dependencies = [
  "opencode-i18n",
+ "opencode-kernel",
  "opencode-kit",
  "rune",
  "rune-kit",
@@ -3570,6 +3573,7 @@ dependencies = [
  "hex-client",
  "notify",
  "opencode-i18n",
+ "opencode-kernel",
  "rune",
  "session-view",
 ]
@@ -3581,6 +3585,7 @@ dependencies = [
  "bytemuck",
  "js-sys",
  "opencode-i18n",
+ "opencode-kernel",
  "procwatch",
  "rune",
  "session-view",
@@ -3596,6 +3601,7 @@ version = "0.0.1"
 dependencies = [
  "opencode-code-view",
  "opencode-i18n",
+ "opencode-kernel",
  "opencode-kit",
  "opencode-search",
  "opencode-ui",
@@ -3613,6 +3619,7 @@ version = "0.0.1"
 dependencies = [
  "memchr",
  "opencode-i18n",
+ "opencode-kernel",
  "opencode-kit",
  "opencode-search",
  "opencode-ui",
@@ -3627,6 +3634,7 @@ name = "opencode-feature-history"
 version = "0.0.1"
 dependencies = [
  "opencode-i18n",
+ "opencode-kernel",
  "opencode-kit",
  "opencode-runtime",
  "opencode-search",
@@ -3643,6 +3651,7 @@ name = "opencode-feature-inbox"
 version = "0.0.1"
 dependencies = [
  "opencode-i18n",
+ "opencode-kernel",
  "opencode-kit",
  "opencode-platform",
  "opencode-runtime",
@@ -3659,6 +3668,7 @@ name = "opencode-feature-mcp"
 version = "0.0.1"
 dependencies = [
  "opencode-i18n",
+ "opencode-kernel",
  "opencode-kit",
  "rune",
  "rune-kit",
@@ -3673,6 +3683,7 @@ name = "opencode-feature-mentions"
 version = "0.0.1"
 dependencies = [
  "opencode-i18n",
+ "opencode-kernel",
  "opencode-kit",
  "opencode-search",
  "rune",
@@ -3686,6 +3697,7 @@ name = "opencode-feature-narrow"
 version = "0.0.1"
 dependencies = [
  "opencode-i18n",
+ "opencode-kernel",
  "opencode-runtime",
  "opencode-ui",
  "rune",
@@ -3700,6 +3712,7 @@ name = "opencode-feature-notifications"
 version = "0.0.1"
 dependencies = [
  "opencode-i18n",
+ "opencode-kernel",
  "opencode-kit",
  "opencode-runtime",
  "rune",
@@ -3714,6 +3727,7 @@ version = "0.0.1"
 dependencies = [
  "bytemuck",
  "office-preview",
+ "opencode-kernel",
  "rune",
  "rune-luau",
  "rune-theme-opencode",
@@ -3728,6 +3742,7 @@ name = "opencode-feature-open-in"
 version = "0.0.1"
 dependencies = [
  "opencode-i18n",
+ "opencode-kernel",
  "opencode-kit",
  "rune",
  "serde",
@@ -3740,6 +3755,7 @@ name = "opencode-feature-panels"
 version = "0.0.1"
 dependencies = [
  "opencode-i18n",
+ "opencode-kernel",
  "opencode-runtime",
  "opencode-ui",
  "rune",
@@ -3754,6 +3770,7 @@ name = "opencode-feature-projects"
 version = "0.0.1"
 dependencies = [
  "opencode-i18n",
+ "opencode-kernel",
  "opencode-kit",
  "opencode-platform",
  "opencode-runtime",
@@ -3771,6 +3788,7 @@ name = "opencode-feature-restore"
 version = "0.0.1"
 dependencies = [
  "opencode-i18n",
+ "opencode-kernel",
  "opencode-kit",
  "opencode-runtime",
  "opencode-storage",
@@ -3787,6 +3805,7 @@ version = "0.0.1"
 dependencies = [
  "opencode-code-view",
  "opencode-i18n",
+ "opencode-kernel",
  "opencode-kit",
  "opencode-search",
  "opencode-ui",
@@ -3802,6 +3821,7 @@ name = "opencode-feature-session-menu"
 version = "0.0.1"
 dependencies = [
  "opencode-i18n",
+ "opencode-kernel",
  "opencode-kit",
  "opencode-runtime",
  "opencode-ui",
@@ -3816,6 +3836,7 @@ name = "opencode-feature-settings"
 version = "0.0.1"
 dependencies = [
  "opencode-i18n",
+ "opencode-kernel",
  "opencode-kit",
  "opencode-platform",
  "opencode-runtime",
@@ -3833,6 +3854,7 @@ name = "opencode-feature-subagents"
 version = "0.0.1"
 dependencies = [
  "opencode-i18n",
+ "opencode-kernel",
  "opencode-kit",
  "rune",
  "rune-kit",
@@ -3847,6 +3869,7 @@ name = "opencode-feature-switcher"
 version = "0.0.1"
 dependencies = [
  "opencode-i18n",
+ "opencode-kernel",
  "opencode-kit",
  "opencode-search",
  "opencode-ui",
@@ -3862,6 +3885,7 @@ name = "opencode-feature-terminal-surface"
 version = "0.0.1"
 dependencies = [
  "opencode-i18n",
+ "opencode-kernel",
  "opencode-kit",
  "opencode-ui",
  "rune",
@@ -3878,6 +3902,7 @@ name = "opencode-feature-timeline-extras"
 version = "0.0.1"
 dependencies = [
  "opencode-i18n",
+ "opencode-kernel",
  "opencode-kit",
  "rune",
  "rune-knobs",
@@ -3891,6 +3916,7 @@ version = "0.0.1"
 dependencies = [
  "hex-client",
  "opencode-i18n",
+ "opencode-kernel",
  "opencode-platform",
  "rune",
  "serde",
@@ -3903,6 +3929,7 @@ version = "0.0.1"
 dependencies = [
  "authenticode",
  "opencode-i18n",
+ "opencode-kernel",
  "opencode-platform",
  "opencode-storage",
  "rune",
@@ -3921,6 +3948,7 @@ name = "opencode-feature-usage"
 version = "0.0.1"
 dependencies = [
  "opencode-i18n",
+ "opencode-kernel",
  "opencode-kit",
  "rune",
  "rune-kit",
@@ -3934,6 +3962,7 @@ name = "opencode-feature-workspace-tools"
 version = "0.0.1"
 dependencies = [
  "opencode-i18n",
+ "opencode-kernel",
  "opencode-kit",
  "opencode-search",
  "opencode-storage",

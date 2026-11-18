@@ -2,13 +2,13 @@
 
 pub use opencode_feature_projects::*;
 
-use opencode_kernel::{Feature, KernelBuilder, OverlayEntry, OverlayEvent, OverlayKind};
+use opencode_kernel::{Feature, KernelBuilder};
 use opencode_kit::client::{Request, Server, Write};
 use opencode_kit::model::{LocationInfo, Project, SessionInfo, Transcript};
 use opencode_kit::servers::health::Health;
 use opencode_kit::servers::{Route as KitRoute, ServerConn, ServerKey};
 use opencode_kit::wire_error::WireError;
-use rune::{El, FileDialogOptions, Tx, Waker};
+use rune::{El, FileDialogOptions, Tx};
 use serde_json::Value;
 use session_view::palette::Pal;
 
@@ -203,10 +203,6 @@ impl ProjectsHost for App {
         crate::plugin_host::server_sources::pending_sources().is_empty()
     }
 
-    fn is_live(&self) -> bool {
-        self.live()
-    }
-
     fn can_write(&self) -> bool {
         App::can_write(self)
     }
@@ -244,36 +240,8 @@ impl ProjectsHost for App {
         }
     }
 
-    fn persists(&self) -> bool {
-        App::persists(self)
-    }
-
     fn attended(&self) -> bool {
         crate::attended()
-    }
-
-    fn zoom(&self) -> f32 {
-        *self.zoom
-    }
-
-    fn spellcheck(&self) -> bool {
-        self.settings.spellcheck
-    }
-
-    fn clock(&self) -> f64 {
-        *self.clock
-    }
-
-    fn now_ms(&self) -> i64 {
-        *self.now_ms
-    }
-
-    fn reduced_motion(&self) -> bool {
-        *self.reduced_motion
-    }
-
-    fn waker(&self) -> Option<Waker> {
-        (*self.waker).clone()
     }
 
     fn storage_read_json(&self, namespace: &str, key: &str) -> Option<Value> {
@@ -388,18 +356,6 @@ impl ProjectsHost for App {
                 });
             }
         }
-    }
-
-    fn on_overlay_opened(&mut self, id: &'static str, return_focus: Option<String>) {
-        let mut entry = OverlayEntry::new(id, OverlayKind::Dialog);
-        if let Some(focus) = return_focus {
-            entry = entry.with_return_focus(focus);
-        }
-        self.kernel.step_overlay(OverlayEvent::Push(entry));
-    }
-
-    fn on_overlay_closed(&mut self, id: &'static str) {
-        self.kernel.step_overlay(OverlayEvent::Close(id));
     }
 }
 

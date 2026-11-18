@@ -10,7 +10,7 @@ use std::sync::mpsc::Sender;
 use opencode_kit::client::{PathAttachment, Prompt, Server, Write};
 use opencode_kit::model::{Attachment, Delivery, Inbox, InboxItem, Message, ModelRef, PromptComment, Transcript};
 use opencode_kit::wire_error::WireError;
-use rune::{TextEdit, Waker};
+use rune::TextEdit;
 use session_view::composer::history::Entry;
 
 pub mod machine;
@@ -42,7 +42,7 @@ pub const SLOW_SEND: f64 = 5.0;
 /// Every transition, poll, outbox action, and receipt check operates on `&dyn SendFailedHost` /
 /// `&mut dyn SendFailedHost`. Generic `H: SendFailedHost + 'static` bounds appear strictly on
 /// `rune::El` view wrappers in [`view`].
-pub trait SendFailedHost {
+pub trait SendFailedHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
     /// Durable outbox log (tracked read).
     fn unsent(&self) -> &Log;
     /// Durable outbox log without subscribing view regions to writes (used by `tick_outbox`).
@@ -62,10 +62,6 @@ pub trait SendFailedHost {
     /// Mutable session transcripts.
     fn transcripts_mut(&mut self) -> &mut HashMap<String, Transcript>;
 
-    /// Monotonic frame clock in seconds.
-    fn clock(&self) -> f64;
-    /// Window waker used to wake the UI thread when receipts or storage mail arrive.
-    fn waker(&self) -> Option<Waker>;
     /// Stable window identifier used to adopt legacy per-window outbox rows on open.
     fn window_id(&self) -> &str {
         ""
@@ -73,10 +69,6 @@ pub trait SendFailedHost {
     /// Window peer token identifying which window's writer sent an in-flight prompt.
     fn peer_token(&self) -> u64 {
         0
-    }
-    /// Whether durable persistence is enabled for this run.
-    fn persists(&self) -> bool {
-        opencode_platform::storage::is_configured()
     }
     /// Runs a storage-thread outbox operation (defaults to [`opencode_platform::storage`] process storage).
     fn with_storage(&self, op: StorageOp) {
@@ -168,10 +160,6 @@ pub trait SendFailedHost {
     fn on_send_result(&mut self, id: &str, result: SendResult) {
         let _ = (id, result);
     }
-    /// Shows an informational toast.
-    fn toast_say(&mut self, title: &str, description: &str);
-    /// Shows a failure toast.
-    fn toast_fail(&mut self, title: &str, description: &str);
 }
 
 /// A prompt's phase without its data, as the timeline asks about it.
@@ -498,7 +486,10 @@ fn send_effect(host: &mut dyn SendFailedHost, id: &str, effect: Effect) {
                 host.unsent_mut().retry = Retry::Ready;
             }
             if late {
-                host.toast_say("Message already sent", "The server received it before your change.");
+                host.toast_say(
+                    "Message already sent".into(),
+                    "The server received it before your change.".into(),
+                );
             }
         }
     }
@@ -655,7 +646,7 @@ fn fail_send(host: &mut dyn SendFailedHost, id: &str) {
     }
     host.retain_echoes_without(id);
     if !sent.journaled {
-        host.toast_fail(opencode_i18n::t!("prompt.toast.promptSendFailed.title"), sent.why());
+        host.toast_fail(opencode_i18n::t!("prompt.toast.promptSendFailed.title").into(), sent.why().into());
     }
 }
 

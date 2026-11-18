@@ -15,7 +15,6 @@ use opencode_kit::model::{Project, SessionInfo};
 use opencode_search::SearchFold;
 use opencode_search::fulltext::{self, Kind, Snippet};
 use opencode_storage::Storage;
-use rune::Waker;
 
 /// The fewest characters a question has: one letter matches nearly every message.
 const MIN_CHARS: usize = 2;
@@ -25,7 +24,7 @@ const SNIPPET: usize = 90;
 pub const ROWS: usize = 20;
 
 /// Object-safe host boundary for local full-text message search across the palette and Home surfaces.
-pub trait FulltextHost {
+pub trait FulltextHost: opencode_kernel::AppEnv {
     fn fulltext(&self) -> &Surfaces;
     fn fulltext_mut(&mut self) -> &mut Surfaces;
 
@@ -41,10 +40,6 @@ pub trait FulltextHost {
     fn home_selected_id(&self) -> Option<String> {
         None
     }
-    /// Currently open session id when on a session route, if any.
-    fn active_session_id(&self) -> Option<&str> {
-        None
-    }
 
     fn root_of<'a>(&'a self, id: &'a str) -> &'a str {
         id
@@ -58,12 +53,6 @@ pub trait FulltextHost {
         None
     }
 
-    fn now_ms(&self) -> i64 {
-        0
-    }
-    fn waker(&self) -> Option<Waker> {
-        None
-    }
     /// Runs `op` against the process's [`Storage`] instance (immediately if open, else queued).
     fn with_storage(&self, op: Box<dyn FnOnce(&Storage) + Send>);
 }

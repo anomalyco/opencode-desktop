@@ -2,7 +2,7 @@
 
 use opencode_kit::client::Server;
 use opencode_kit::servers::ServerKey;
-use rune::{Tx, Waker};
+use rune::Tx;
 use serde_json::Value;
 
 use crate::{Kinds, Notifier};
@@ -20,7 +20,7 @@ pub enum NotificationReply<'a> {
 ///
 /// Every entrypoint in `opencode-feature-notifications` operates on non-generic
 /// `&dyn NotificationsHost` / `&mut dyn NotificationsHost`.
-pub trait NotificationsHost {
+pub trait NotificationsHost: opencode_kernel::AppEnv {
     /// Per-window notifier state (read).
     fn notifier(&self) -> &Notifier;
     /// Per-window notifier state (write — callers only invoke when mutating).
@@ -30,22 +30,9 @@ pub trait NotificationsHost {
     fn notification_prefs(&self) -> Kinds {
         Kinds::default()
     }
-    /// Whether the window is connected to a live server (as opposed to an offline fixture).
-    fn is_live(&self) -> bool {
-        false
-    }
-    /// Whether the app is running headless/unattended (never posts system notifications).
-    fn is_headless(&self) -> bool {
-        false
-    }
     /// Live server connection, when on a live source.
     fn live_server(&self) -> Option<&Server> {
         None
-    }
-    /// Whether this window persists user-facing state and should connect to system notifications
-    /// (by default: live and not headless, matching `App::persists`).
-    fn persists(&self) -> bool {
-        self.is_live() && !self.is_headless()
     }
 
     /// Whether the app window is currently focused (defaults to `rune_notify::app_focused()`).
@@ -61,10 +48,6 @@ pub trait NotificationsHost {
         let _ = window_id;
         false
     }
-    /// Waker invoked from any thread when a notification click arrives.
-    fn waker(&self) -> Option<Waker> {
-        None
-    }
 
     /// Server key the window is currently checked out on.
     fn active_server_key(&self) -> ServerKey {
@@ -75,10 +58,6 @@ pub trait NotificationsHost {
         None
     }
 
-    /// Currently routed session ID, if on a session route.
-    fn active_session_id(&self) -> Option<&str> {
-        None
-    }
     /// Title of session `session_id`, if loaded.
     fn session_title(&self, session_id: &str) -> Option<String> {
         let _ = session_id;

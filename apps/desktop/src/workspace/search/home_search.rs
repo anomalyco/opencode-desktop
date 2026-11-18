@@ -37,10 +37,6 @@ impl HomeSearchHost for App {
         self.settings.open
     }
 
-    fn clock(&self) -> f64 {
-        *self.clock
-    }
-
     fn live_server(&self) -> Option<Server> {
         match &*self.source {
             Source::Live { server, .. } => Some(server.clone()),

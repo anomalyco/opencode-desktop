@@ -60,13 +60,11 @@ const FAKE_SLOW_START: f64 = 1.2;
 pub const FAKE_WORDS: &str = "keep the retry budget as it is and add a test for the reconnect";
 
 /// Host state and callbacks required by Hex voice dictation in the composer.
-pub trait DictationHost {
+pub trait DictationHost: opencode_kernel::AppEnv {
     fn dictation(&self) -> &Dictation;
     fn dictation_mut(&mut self) -> &mut Dictation;
     /// Mutable access to the composer text editor for inserting dictated words at the caret.
     fn composer_mut(&mut self) -> &mut TextEdit;
-    /// Current app clock in seconds.
-    fn clock(&self) -> f64;
     /// Whether `ev` matches the host's configured Dictate shortcut (default ⇧⌘M).
     fn is_dictate_bind(&self, ev: &KeyEvent) -> bool;
     /// Keycap labels for the Dictate shortcut tooltip (e.g. `["⇧", "⌘", "M"]`).
@@ -75,12 +73,8 @@ pub trait DictationHost {
     }
     /// Hex's application support folder where `local-api.json` lives (`None` if unavailable).
     fn hex_support_dir(&self) -> Option<PathBuf>;
-    /// Whether this run is headless (uses the in-process fake Hex unless `SEER_HEX` is set).
-    fn is_headless(&self) -> bool {
-        rune::is_headless()
-    }
     /// Window waker used by the Hex presence watcher and dictation thread.
-    fn waker(&self) -> Option<Waker>;
+    fn dictation_waker(&self) -> Option<Waker>;
     /// Submits the composer prompt after dictation finishes when Send or Return ended recording.
     fn submit_prompt(&mut self, alternate: bool, tx: &mut Tx);
 }
@@ -285,7 +279,7 @@ fn run(host: &mut dyn DictationHost, event: Event, tx: Option<&mut Tx>) -> bool 
     let (took, effect) = step(host.dictation_mut(), event);
     match effect {
         Some(Effect::Start(attempt)) => {
-            let wake = host.waker();
+            let wake = host.dictation_waker();
             let d = host.dictation_mut();
             if let Some(Backend::Hex { file, support }) = d.backend.get() {
                 let (cmd, rx) = mpsc::channel();

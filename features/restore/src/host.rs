@@ -12,7 +12,7 @@ use opencode_kit::model::{Attachment, PromptComment, Transcript};
 use opencode_kit::servers::tabs::ClosedTab;
 use opencode_kit::servers::{ServerKey, TabKey};
 use opencode_storage::{FlushReason, Lookup, Storage};
-use rune::{TextEdit, Tx, Waker};
+use rune::{TextEdit, Tx};
 use serde_json::{Map, Value};
 use session_view::composer::mode::Mode;
 use session_view::disclosure::Disclosures;
@@ -22,7 +22,7 @@ use crate::{ContextFile, OrganizeState, Restore, RestoreRoute, RestoreTab, Stora
 
 /// Object-safe host boundary for window restoration, composer draft parking and blob persistence,
 /// timeline places, boot previews, offline transcript copies, and draft undo history.
-pub trait RestoreHost {
+pub trait RestoreHost: opencode_kernel::AppEnv {
     // ── Feature state ───────────────────────────────────────────────────────────────────────────
 
     /// Per-window restoration state (tracked read).
@@ -39,18 +39,8 @@ pub trait RestoreHost {
 
     /// Window identifier (`""` for ephemeral or single-window browser runs).
     fn window_id(&self) -> &str { "" }
-    /// Whether this window persists user-facing state across launches (live and attended).
-    fn persists(&self) -> bool { false }
-    /// Whether the app is running headless / unattended.
-    fn is_headless(&self) -> bool { rune::is_headless() }
     /// Whether a Storybook stage is currently mounted over the window.
     fn stage_active(&self) -> bool { false }
-    /// Optional window waker invoked from storage/worker threads when async work completes.
-    fn waker(&self) -> Option<Waker> { None }
-    /// Wall-clock timestamp in milliseconds since the epoch.
-    fn now_ms(&self) -> i64 { 0 }
-    /// Monotonic frame clock in seconds.
-    fn clock(&self) -> f64 { 0.0 }
     /// Runs off-thread background work (such as serializing large undo histories).
     fn run_background(&self, job: Box<dyn FnOnce() + Send>) {
         if let Err(e) = rune::task::spawn("restore-worker", job) {

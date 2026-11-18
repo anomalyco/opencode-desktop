@@ -8,7 +8,7 @@ use opencode_kernel::{Feature, KernelBuilder};
 use opencode_kit::client::{Request, Server};
 use opencode_kit::mention::UserMention;
 use opencode_kit::model::SessionInfo;
-use rune::{KeyEvent, PointerPress, TextEdit, Tx, Waker};
+use rune::{KeyEvent, PointerPress, TextEdit, Tx};
 use session_view::session_chips::SessionRef;
 
 use crate::{App, Route, Source};
@@ -36,10 +36,6 @@ impl MentionsHost for App {
 
     fn composer_mut(&mut self) -> &mut TextEdit {
         &mut self.composer
-    }
-
-    fn active_session_id(&self) -> Option<&str> {
-        App::active_session_id(self)
     }
 
     fn active_directory(&self) -> String {
@@ -84,19 +80,11 @@ impl MentionsHost for App {
         Some((region.strip.iter().map(|e| e.key.clone()).collect(), region.active.clone()))
     }
 
-    fn is_live(&self) -> bool {
-        self.live()
-    }
-
     fn live_server(&self) -> Option<Server> {
         match &*self.source {
             Source::Live { server, .. } => Some(server.clone()),
             Source::Fixture => None,
         }
-    }
-
-    fn waker(&self) -> Option<Waker> {
-        (*self.waker).clone()
     }
 
     fn send_request(&self, req: Request) {

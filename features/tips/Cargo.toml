@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 hex-client = { path = "../../crates/hex-client" }
 opencode-i18n = { path = "../../crates/opencode-i18n" }
+opencode-kernel = { path = "../../crates/opencode-kernel" }
 opencode-platform = { path = "../../crates/opencode-platform" }
 rune.workspace = true
 serde = { version = "1", features = ["derive"] }

@@ -25,12 +25,11 @@ pub const OVERLAY_ID: &str = "dialog.usage";
 pub const TIMEOUT_S: f64 = 15.0;
 
 /// Object-safe host boundary for the Usage feature.
-pub trait UsageHost {
+pub trait UsageHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlays {
     fn usage(&self) -> &Usage;
     fn usage_mut(&mut self) -> &mut Usage;
     fn composer_directory(&self) -> String;
     fn selected_model(&self) -> Option<CurrentModel>;
-    fn is_live(&self) -> bool;
     fn fixture_usage_limits(&self) -> Option<&Value>;
     fn fetch_usage_limits(&mut self, directory: String, seq: u32);
     fn fetch_picker_usage_limits(&mut self, directory: String) {
@@ -39,20 +38,12 @@ pub trait UsageHost {
     fn out_of_credits(&self) -> bool {
         false
     }
-    fn now_ms(&self) -> i64 {
-        0
-    }
-    fn zoom(&self) -> f32 {
-        1.0
-    }
     fn open_external(&mut self, url: &str, tx: &mut Tx) {
         drop(tx.open_url(url));
     }
     fn open_model_picker(&mut self, tx: &mut Tx) {
         let _ = tx;
     }
-    fn on_overlay_opened(&mut self, id: &'static str, return_focus: Option<String>);
-    fn on_overlay_closed(&mut self, id: &'static str);
 }
 
 /// The dialog, when open, and the limits each location answered last.

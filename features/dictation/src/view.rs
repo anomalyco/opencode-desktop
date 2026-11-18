@@ -24,7 +24,7 @@ fn toolbar_button(host: &dyn DictationHost, p: &Pal) -> Option<(El, bool)> {
     // Its waker comes with the window's first frame (`on_ready`).
     if !hex_client::MIC_WITHOUT_HEX
         && !d.watching.get()
-        && let Some(wake) = host.waker()
+        && let Some(wake) = host.dictation_waker()
     {
         backend.watch(Some(&wake));
         d.watching.set(true);

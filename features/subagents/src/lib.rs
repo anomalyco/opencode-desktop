@@ -14,7 +14,7 @@ pub mod shells;
 use std::collections::HashSet;
 
 use opencode_kit::model::{self, Message, Part, SessionInfo, Transcript};
-use rune::{El, Tx, Waker, col, row, text};
+use rune::{El, Tx, col, row, text};
 use rune_knobs::{Knob, Knobs};
 use session_view::odometer::odometer;
 use session_view::palette::{Elevate as _, Pal};
@@ -46,14 +46,12 @@ pub struct Running {
 
 /// Object-safe host boundary for the subagents activity capsule, background shells, shell output
 /// followers, and subagent reply bar.
-pub trait SubagentsHost {
+pub trait SubagentsHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
     /// Background shells state (tracked read).
     fn shells(&self) -> &Shells;
     /// Background shells state (tracked write — callers only invoke when mutating).
     fn shells_mut(&mut self) -> &mut Shells;
 
-    /// Currently active session ID, when on a session route.
-    fn active_session_id(&self) -> Option<&str>;
     /// Metadata for session `id`, if loaded.
     fn session_info(&self, id: &str) -> Option<&SessionInfo>;
     /// All loaded session metadata (used by [`child_of`] to resolve unnamed subagent calls).
@@ -80,12 +78,6 @@ pub trait SubagentsHost {
     fn background_activity_enabled(&self) -> bool {
         true
     }
-    /// Whether the window talks to a live OpenCode server (as opposed to a fixture).
-    fn is_live(&self) -> bool;
-    /// Whether the window runs headless (e.g. snapshot/harness).
-    fn is_headless(&self) -> bool {
-        rune::is_headless()
-    }
     /// Whether the composer has no text, attachments, or quotes (used for Esc-to-parent on a
     /// subagent's page).
     fn composer_is_empty(&self) -> bool {
@@ -105,21 +97,7 @@ pub trait SubagentsHost {
 
     /// Live look-and-feel knobs (capsule fill/ring/radius, popover motion).
     fn knobs(&self) -> &Knobs;
-    /// Monotonic frame clock in seconds.
-    fn clock(&self) -> f64 {
-        0.0
-    }
-    /// Wall-clock timestamp in epoch milliseconds (fixture: fixed synthetic clock).
-    fn now_ms(&self) -> i64 {
-        0
-    }
-    /// Optional window waker for background tasks.
-    fn waker(&self) -> Option<Waker> {
-        None
-    }
 
-    /// Shows a failure toast (e.g. when a shell or subagent Stop request fails).
-    fn toast_fail(&mut self, title: String, description: String);
     /// Prefetches session `id` in the background (on row layout/hover in the activity list).
     fn prefetch_session(&self, id: &str) {
         let _ = id;

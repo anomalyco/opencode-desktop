@@ -9,16 +9,9 @@ use rune::{El, Tx};
 use rune_knobs::Knobs;
 use session_view::palette::Pal;
 
-use crate::{App, Route};
+use crate::App;
 
 impl TodosHost for App {
-    fn active_session_id(&self) -> Option<&str> {
-        match &*self.route {
-            Route::Session { id, .. } => Some(id.as_str()),
-            _ => None,
-        }
-    }
-
     fn is_session_running(&self, id: &str) -> bool {
         self.running.contains(id)
     }
@@ -37,10 +30,6 @@ impl TodosHost for App {
 
     fn knobs(&self) -> &Knobs {
         &self.knobs
-    }
-
-    fn reduced_motion(&self) -> bool {
-        *self.reduced_motion
     }
 
     fn todo_open(&self) -> bool {

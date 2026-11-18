@@ -36,10 +36,6 @@ impl RuneMcpHost for App {
         self.stage.is_some()
     }
 
-    fn is_headless(&self) -> bool {
-        crate::headless()
-    }
-
     fn client_mcp_flag(&self) -> bool {
         crate::flag("--client-mcp")
     }

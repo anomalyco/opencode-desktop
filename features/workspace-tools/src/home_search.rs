@@ -47,7 +47,7 @@ impl HomeHold {
 }
 
 /// Object-safe host boundary for Home's session search state machine, lookup worker, and key navigation.
-pub trait HomeSearchHost {
+pub trait HomeSearchHost: opencode_kernel::AppEnv {
     fn home_search(&self) -> &HomeSearch;
     fn home_search_mut(&mut self) -> &mut HomeSearch;
 
@@ -58,7 +58,6 @@ pub trait HomeSearchHost {
     fn settings_open(&self) -> bool {
         false
     }
-    fn clock(&self) -> f64;
     fn live_server(&self) -> Option<Server>;
 
     /// Current Home search scope key (`"<server>\0<directory>"`) and whether the focused server is

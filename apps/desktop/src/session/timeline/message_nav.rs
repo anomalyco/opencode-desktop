@@ -5,7 +5,7 @@ pub use opencode_feature_history::message_nav::*;
 
 use std::rc::Rc;
 
-use opencode_kernel::{Feature, KernelBuilder, OverlayEntry, OverlayEvent, OverlayKind, Phase};
+use opencode_kernel::{Feature, KernelBuilder, Phase};
 use opencode_kit::model::Transcript;
 use rune::{KeyEvent, LiveRegion, Tx};
 use session_view::timeline::Projection;
@@ -28,10 +28,6 @@ impl MessageNavHost for App {
 
     fn jump_mut(&mut self) -> &mut JumpState {
         &mut self.jump
-    }
-
-    fn active_session_id(&self) -> Option<&str> {
-        App::active_session_id(self)
     }
 
     fn displayed_session_id(&self) -> Option<&str> {
@@ -71,10 +67,6 @@ impl MessageNavHost for App {
         App::read_toward_place(self, session, tx);
     }
 
-    fn is_live(&self) -> bool {
-        self.live()
-    }
-
     fn spawn_history_load(&mut self, request: jump::HistoryRequest) -> bool {
         let Source::Live { server, .. } = &*self.source else { return false };
         let server = server.clone();
@@ -96,22 +88,6 @@ impl MessageNavHost for App {
         self.narrow()
     }
 
-    fn zoom(&self) -> f32 {
-        *self.zoom
-    }
-
-    fn spellcheck(&self) -> bool {
-        self.settings.spellcheck
-    }
-
-    fn clock(&self) -> f64 {
-        *self.clock
-    }
-
-    fn now_ms(&self) -> i64 {
-        *self.now_ms
-    }
-
     fn before_jump_open(&mut self) -> bool {
         let restore = self.composer.focused || (!self.switcher.open && self.switcher.restore_composer());
         self.close_fork_dialog(false);
@@ -129,18 +105,6 @@ impl MessageNavHost for App {
 
     fn handle_shortcut(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
         self.shortcut(ev, tx)
-    }
-
-    fn on_overlay_opened(&mut self, id: &'static str, return_focus: Option<String>) {
-        let mut entry = OverlayEntry::new(id, OverlayKind::Dialog);
-        if let Some(focus) = return_focus {
-            entry = entry.with_return_focus(focus);
-        }
-        self.kernel.step_overlay(OverlayEvent::Push(entry));
-    }
-
-    fn on_overlay_closed(&mut self, id: &'static str) {
-        self.kernel.step_overlay(OverlayEvent::Close(id));
     }
 }
 

@@ -2,7 +2,7 @@
 
 pub use opencode_feature_usage::*;
 
-use opencode_kernel::{Feature, KernelBuilder, OverlayEntry, OverlayEvent, OverlayKind};
+use opencode_kernel::{Feature, KernelBuilder};
 use rune::Tx;
 use serde_json::Value;
 
@@ -33,10 +33,6 @@ impl UsageHost for App {
                 model: m.id.clone(),
                 name: m.name.clone(),
             })
-    }
-
-    fn is_live(&self) -> bool {
-        self.live()
     }
 
     fn fixture_usage_limits(&self) -> Option<&Value> {
@@ -73,32 +69,12 @@ impl UsageHost for App {
             .is_some_and(transcript_out_of_credits)
     }
 
-    fn now_ms(&self) -> i64 {
-        *self.now_ms
-    }
-
-    fn zoom(&self) -> f32 {
-        *self.zoom
-    }
-
     fn open_external(&mut self, url: &str, tx: &mut Tx) {
         crate::open_in::open_external(tx, url);
     }
 
     fn open_model_picker(&mut self, _tx: &mut Tx) {
         self.open_picker(crate::pickers::Kind::Model);
-    }
-
-    fn on_overlay_opened(&mut self, id: &'static str, return_focus: Option<String>) {
-        let mut entry = OverlayEntry::new(id, OverlayKind::Dialog);
-        if let Some(focus) = return_focus {
-            entry = entry.with_return_focus(focus);
-        }
-        self.kernel.step_overlay(OverlayEvent::Push(entry));
-    }
-
-    fn on_overlay_closed(&mut self, id: &'static str) {
-        self.kernel.step_overlay(OverlayEvent::Close(id));
     }
 }
 

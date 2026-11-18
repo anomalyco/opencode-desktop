@@ -12,7 +12,7 @@ use opencode_kit::model::{Attachment, PromptComment, Transcript};
 use opencode_kit::servers::tabs::{ClosedTab, WindowDoc};
 use opencode_kit::servers::{ServerKey, TabKey};
 use opencode_storage::{FlushReason, Lookup, Storage};
-use rune::{TextEdit, Tx, Waker};
+use rune::{TextEdit, Tx};
 use serde_json::{Map, Value};
 use session_view::composer::mode::Mode;
 use session_view::disclosure::Disclosures;
@@ -67,28 +67,8 @@ impl RestoreHost for App {
         &self.window.id
     }
 
-    fn persists(&self) -> bool {
-        App::persists(self)
-    }
-
-    fn is_headless(&self) -> bool {
-        crate::headless()
-    }
-
     fn stage_active(&self) -> bool {
         self.stage.is_some()
-    }
-
-    fn waker(&self) -> Option<Waker> {
-        (*self.waker).clone()
-    }
-
-    fn now_ms(&self) -> i64 {
-        *self.now_ms
-    }
-
-    fn clock(&self) -> f64 {
-        *self.clock
     }
 
     fn run_background(&self, job: Box<dyn FnOnce() + Send>) {

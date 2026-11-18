@@ -2,7 +2,6 @@
 
 pub use opencode_feature_switcher::project::*;
 
-use opencode_kernel::{OverlayEntry, OverlayEvent, OverlayKind};
 use opencode_kit::model::Project;
 use opencode_kit::servers::{ServerConn, ServerKey};
 use rune::machine::Attempt;
@@ -242,28 +241,8 @@ impl ProjectSwitcherHost for App {
         }
     }
 
-    fn on_overlay_opened(&mut self, id: &'static str, return_focus: Option<String>) {
-        let mut entry = OverlayEntry::new(id, OverlayKind::Dialog);
-        if let Some(focus) = return_focus {
-            entry = entry.with_return_focus(focus);
-        }
-        self.kernel.step_overlay(OverlayEvent::Push(entry));
-    }
-
-    fn on_overlay_closed(&mut self, id: &'static str) {
-        self.kernel.step_overlay(OverlayEvent::Close(id));
-    }
-
     fn project_badge(&self, p: &Pal, project: Option<&Project>, name: &str) -> El {
         crate::icons::badge(self, p, project, name)
-    }
-
-    fn zoom(&self) -> f32 {
-        *self.zoom
-    }
-
-    fn spellcheck(&self) -> bool {
-        self.settings.spellcheck
     }
 
     fn handle_shortcut(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {

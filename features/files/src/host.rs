@@ -5,7 +5,7 @@ use opencode_kit::client::Server;
 use opencode_kit::wire_error::WireError;
 use opencode_ui::keymap::Bind;
 use opencode_ui::popup::Menu;
-use rune::{DragItem, El, KeyEvent, PopupAnchor, Tx, Waker};
+use rune::{DragItem, El, KeyEvent, PopupAnchor, Tx};
 use rune_kit::diff::FileStatus;
 use serde_json::Value;
 use session_view::palette::Pal;
@@ -100,7 +100,7 @@ pub enum FilesReply {
 /// Every state transition, watcher, loader, link resolver, key handler, and poll entrypoint in
 /// `opencode-feature-files` operates on `&dyn FilesHost` / `&mut dyn FilesHost`. Generic
 /// `H: FilesHost + 'static` bounds appear only at `rune::El` view/callback boundaries.
-pub trait FilesHost {
+pub trait FilesHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
     /// Files pane state (tracked read).
     fn files(&self) -> &FilesPane;
     /// Files pane state without subscribing the caller's tracked region (used by view-time
@@ -113,8 +113,6 @@ pub trait FilesHost {
     /// Marks files pane state dirty when interior-mutable state (reply link answers) changed.
     fn touch_files(&self) {}
 
-    /// Currently routed session ID, when on a session route.
-    fn active_session_id(&self) -> Option<&str>;
     /// Working directory of session `sid`, if loaded.
     fn session_directory(&self, sid: &str) -> Option<&str>;
     /// Project root directory for session `sid` (defaults to [`Self::session_directory`]).
@@ -137,34 +135,9 @@ pub trait FilesHost {
 
     /// Live OpenCode server handle when connected, or `None` in fixture mode.
     fn live_server(&self) -> Option<&Server>;
-    /// Whether the host talks to a live server (defaults to `self.live_server().is_some()`).
-    fn is_live(&self) -> bool {
-        self.live_server().is_some()
-    }
     /// Fixture JSON root used when [`Self::live_server`] is `None`.
     fn fixture_root(&self) -> Option<&Value> {
         None
-    }
-    /// Whether user preferences (such as per-kind line wrap) persist across launches.
-    fn persists(&self) -> bool {
-        false
-    }
-
-    /// Window waker, if installed.
-    fn waker(&self) -> Option<Waker> {
-        None
-    }
-    /// Monotonic frame clock in seconds.
-    fn clock(&self) -> f64 {
-        0.0
-    }
-    /// Active UI zoom factor.
-    fn zoom(&self) -> f32 {
-        1.0
-    }
-    /// Whether text fields (such as the in-file Find bar) enable spellcheck.
-    fn spellcheck(&self) -> bool {
-        false
     }
 
     /// Human-readable label of the active server for error descriptions.
@@ -189,19 +162,6 @@ pub trait FilesHost {
     /// Writes a JSON preference to host persistence.
     fn write_json(&self, ns: &str, key: &str, value: &Value) {
         let _ = (ns, key, value);
-    }
-
-    /// Shows a failure status toast.
-    fn toast_fail(&mut self, title: String, description: String) {
-        let _ = (title, description);
-    }
-    /// Shows an informational status toast.
-    fn toast_say(&mut self, title: String, description: String) {
-        let _ = (title, description);
-    }
-    /// Shows a success status toast.
-    fn toast_succeed(&mut self, title: String, description: String) {
-        let _ = (title, description);
     }
 
     /// Opens an external web or app URL (`https:`, `mailto:`, etc.).

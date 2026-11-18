@@ -45,29 +45,11 @@ pub type SavedCommentsLoaded = Box<dyn FnOnce(Vec<(String, String)>) + Send>;
 ///
 /// Extends [`QuoteHost`] because line comments share the composer's pending comment cards
 /// ([`crate::quote::Quotes`]), composer focus, spellcheck setting, and `@` file path search.
-pub trait LineCommentsHost: QuoteHost {
+pub trait LineCommentsHost: QuoteHost + opencode_kernel::AppEnv {
     /// Line-comments state (tracked read).
     fn line_comments(&self) -> &LineComments;
     /// Line-comments state (tracked write — callers only invoke when mutating).
     fn line_comments_mut(&mut self) -> &mut LineComments;
-
-    /// Currently active session ID, when on a session route.
-    fn active_session_id(&self) -> Option<&str>;
-
-    /// Current wall-clock timestamp in epoch milliseconds (used for comment ids and ordering).
-    fn now_ms(&self) -> i64 {
-        0
-    }
-
-    /// Active UI zoom factor (scales vertical drag deltas on the narrow editor's resize grip).
-    fn zoom(&self) -> f32 {
-        1.0
-    }
-
-    /// Optional window waker for background saved-comment loads and `@` mention searches.
-    fn waker(&self) -> Option<Waker> {
-        None
-    }
 
     /// The lines currently highlighted in the code or diff viewer at `spot`.
     fn view_selection(&self, spot: &Spot) -> Option<Range> {

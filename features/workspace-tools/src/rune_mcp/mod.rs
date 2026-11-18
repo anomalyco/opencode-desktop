@@ -62,13 +62,12 @@ pub struct McpTab<'a> {
 }
 
 /// Object-safe host boundary for per-window `rune` client MCP registration, polling, and tool dispatch.
-pub trait RuneMcpHost {
+pub trait RuneMcpHost: opencode_kernel::AppEnv {
     fn rune_mcp(&self) -> &WindowMcp;
     fn rune_mcp_mut(&mut self) -> &mut WindowMcp;
 
     fn is_launch_waiting(&self) -> bool { false }
     fn is_stage(&self) -> bool { false }
-    fn is_headless(&self) -> bool { rune::is_headless() }
     /// Whether `--client-mcp` was passed (headless mode only attaches against non-default servers).
     fn client_mcp_flag(&self) -> bool { false }
     /// Active live server and whether write/send operations are allowed (`allow_send`).

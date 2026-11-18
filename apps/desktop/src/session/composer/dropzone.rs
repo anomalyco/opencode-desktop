@@ -27,10 +27,6 @@ impl DropzoneHost for App {
     fn attach_path(&mut self, path: &Path) {
         App::attach_path(self, path);
     }
-
-    fn reduced_motion(&self) -> bool {
-        *self.reduced_motion
-    }
 }
 
 pub fn hover(s: &mut App, over: bool, tx: &mut Tx) {

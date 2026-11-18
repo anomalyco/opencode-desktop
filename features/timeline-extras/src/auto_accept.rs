@@ -8,7 +8,7 @@ use rune::Tx;
 
 /// Object-safe host boundary for permission auto-accept settings, toggle commands, and
 /// immediate permission answering.
-pub trait AutoAcceptHost {
+pub trait AutoAcceptHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
     /// Global default auto-accept preference.
     fn auto_accept_default(&self) -> bool;
     /// Project-specific auto-accept override for `project_id`, if set.
@@ -18,8 +18,6 @@ pub trait AutoAcceptHost {
     /// Persists a project-specific auto-accept override (`None` resets to the global default).
     fn set_project_auto_accept_override(&mut self, project_id: &str, on: Option<bool>);
 
-    /// Currently active session ID on the open route, if any.
-    fn active_session_id(&self) -> Option<&str>;
     /// Project ID owning `session_id`, if resolved.
     fn project_id_for_session(&self, session_id: &str) -> Option<&str>;
 
@@ -27,8 +25,6 @@ pub trait AutoAcceptHost {
     fn pending(&self) -> &[Pending];
     /// Answers permission request `id` with `decision` (e.g. `"once"`).
     fn reply_permission(&mut self, id: &str, decision: &str);
-    /// Displays an informational status toast.
-    fn toast_say(&mut self, title: String, description: String);
 }
 
 /// Sets the global default auto-accept preference and answers newly covered pending permissions.

@@ -66,10 +66,6 @@ impl TerminalSurfaceHost for App {
         &mut self.terminal
     }
 
-    fn active_session_id(&self) -> Option<&str> {
-        App::active_session_id(self)
-    }
-
     fn session_directory(&self, sid: &str) -> Option<&str> {
         self.session(sid).map(|s| s.directory.as_str())
     }
@@ -99,39 +95,11 @@ impl TerminalSurfaceHost for App {
         }
     }
 
-    fn is_live(&self) -> bool {
-        self.live()
-    }
-
     fn allows_terminal_input(&self) -> bool {
         match &*self.source {
             Source::Live { allow_send, .. } => *allow_send,
             Source::Fixture => true,
         }
-    }
-
-    fn persists(&self) -> bool {
-        App::persists(self)
-    }
-
-    fn is_headless(&self) -> bool {
-        crate::headless()
-    }
-
-    fn waker(&self) -> Option<Waker> {
-        (*self.waker).clone()
-    }
-
-    fn clock(&self) -> f64 {
-        *self.clock
-    }
-
-    fn zoom(&self) -> f32 {
-        *self.zoom
-    }
-
-    fn spellcheck(&self) -> bool {
-        self.settings.spellcheck
     }
 
     fn is_window_blurred(&self) -> bool {
@@ -201,14 +169,6 @@ impl TerminalSurfaceHost for App {
 
     fn terminal_storage_writer(&self) -> Option<persist::StorageBatchWriter> {
         Some(write_terminal_storage_batch)
-    }
-
-    fn toast_fail(&mut self, title: String, description: String) {
-        crate::status_toast::fail(self, title, description);
-    }
-
-    fn toast_say(&mut self, title: String, description: String) {
-        crate::status_toast::say(self, title, description);
     }
 
     fn open_link(&mut self, sid: &str, href: &str, tx: &mut Tx) {

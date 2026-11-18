@@ -30,7 +30,7 @@ use std::sync::atomic::AtomicBool;
 use opencode_kit::client::Server;
 use opencode_kit::persistent_pty::PersistentPtyInfo;
 use rune::machine::Attempt;
-use rune::{Drag, KeyEvent, PointerPress, TextEdit, TextStyle, Tx, Waker};
+use rune::{Drag, KeyEvent, PointerPress, TextEdit, TextStyle, Tx};
 use rune_knobs::{Group, Knob, Knobs};
 use serde_json::Value;
 use session_view::palette::Pal;
@@ -309,14 +309,12 @@ impl TerminalPane {
 
 /// Object-safe host boundary for the terminal surface, workspace tabs, persistence,
 /// inline tab rename, hyperlinks, context menus, paste guard, and narrow mobile view.
-pub trait TerminalSurfaceHost {
+pub trait TerminalSurfaceHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
     /// Terminal pane state (tracked read).
     fn terminal(&self) -> &TerminalPane;
     /// Terminal pane state (tracked write — callers only invoke when mutating).
     fn terminal_mut(&mut self) -> &mut TerminalPane;
 
-    /// Currently routed session ID, when on a session route.
-    fn active_session_id(&self) -> Option<&str>;
     /// Working directory of session `sid`, if loaded.
     fn session_directory(&self, sid: &str) -> Option<&str>;
     /// Working directory of the active draft when no session directory is available.
@@ -338,39 +336,11 @@ pub trait TerminalSurfaceHost {
 
     /// Live OpenCode server handle when connected, or `None` in fixture mode.
     fn live_server(&self) -> Option<&Server>;
-    /// Whether the host talks to a live server (defaults to `self.live_server().is_some()`).
-    fn is_live(&self) -> bool {
-        self.live_server().is_some()
-    }
     /// Whether this window may create, control, or close PTYs (`false` in `--read-only` / observer mode).
     fn allows_terminal_input(&self) -> bool {
         true
     }
-    /// Whether this run persists workspace state to storage.
-    fn persists(&self) -> bool {
-        false
-    }
-    /// Whether the window runs headless.
-    fn is_headless(&self) -> bool {
-        rune::is_headless()
-    }
 
-    /// Window waker, if installed.
-    fn waker(&self) -> Option<Waker> {
-        None
-    }
-    /// Monotonic frame clock in seconds.
-    fn clock(&self) -> f64 {
-        0.0
-    }
-    /// Current window zoom factor.
-    fn zoom(&self) -> f32 {
-        1.0
-    }
-    /// Whether inline text inputs (such as tab rename) enable spellcheck.
-    fn spellcheck(&self) -> bool {
-        false
-    }
     /// Whether the host window has lost OS focus (for `?1004` focus-out reports).
     fn is_window_blurred(&self) -> bool {
         false
@@ -449,14 +419,6 @@ pub trait TerminalSurfaceHost {
         None
     }
 
-    /// Shows a failure status toast.
-    fn toast_fail(&mut self, title: String, description: String) {
-        let _ = (title, description);
-    }
-    /// Shows an informational status toast.
-    fn toast_say(&mut self, title: String, description: String) {
-        let _ = (title, description);
-    }
     /// Opens a file or `file://` link clicked in terminal output for session `sid`.
     fn open_link(&mut self, sid: &str, href: &str, tx: &mut Tx) {
         let _ = (sid, href, tx);

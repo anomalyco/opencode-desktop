@@ -42,7 +42,7 @@ pub struct EditWire {
 /// Every state transition, timer poll, key handler, and inbox event handler operates on
 /// `&dyn QueueHost` / `&mut dyn QueueHost`. Generic `H: QueueHost + 'static` bounds appear
 /// strictly on `rune::El` view wrappers in [`view`].
-pub trait QueueHost {
+pub trait QueueHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
     /// Per-session server inbox items and waiting notices.
     fn inboxes(&self) -> &HashMap<String, Inbox>;
     /// Mutable per-session inbox map.
@@ -67,12 +67,6 @@ pub trait QueueHost {
     fn queue_runs(&self) -> &run::Runs;
     /// Mutable in-flight rewrite registry.
     fn queue_runs_mut(&mut self) -> &mut run::Runs;
-
-    /// Monotonic frame clock in seconds.
-    fn clock(&self) -> f64;
-
-    /// Currently routed session ID, when on a session route.
-    fn active_session_id(&self) -> Option<&str>;
 
     /// Whether the app is running against an offline fixture (mutates locally without a server).
     fn is_fixture(&self) -> bool {
@@ -157,10 +151,6 @@ pub trait QueueHost {
     }
     /// Shows a wire-error failure toast.
     fn toast_failed_wire(&mut self, title: &str, error: &WireError);
-    /// Shows a plain failure toast.
-    fn toast_fail(&mut self, title: &str, description: &str);
-    /// Shows an informational toast.
-    fn toast_say(&mut self, title: &str, description: &str);
     /// Schedules an off-thread rewrite job or next-poll deferred failure reply.
     fn spawn_queue_job(&mut self, job: QueueJob);
     /// Submits the composer with alternate delivery (triggered by [`alternate_hint`]).
@@ -299,9 +289,12 @@ pub fn step_queue(host: &mut dyn QueueHost, session: &str, event: Event) {
             Effect::Abort { attempt } => host.queue_runs().abort(session, attempt),
             Effect::Failed(Some(e)) => host.toast_failed_wire(opencode_i18n::t!("rune.queue.changeFailed"), &e),
             // Never sent: this window has no connection to write through.
-            Effect::Failed(None) => host.toast_fail(opencode_i18n::t!("rune.queue.changeFailed"), opencode_i18n::t!("rune.send.disconnected")),
-            Effect::Reverted => host.toast_say(opencode_i18n::t!("session.queue.reverted"), ""),
-            Effect::UndoShell => host.toast_say(opencode_i18n::t!("session.queue.undoShell"), ""),
+            Effect::Failed(None) => host.toast_fail(
+                opencode_i18n::t!("rune.queue.changeFailed").into(),
+                opencode_i18n::t!("rune.send.disconnected").into(),
+            ),
+            Effect::Reverted => host.toast_say(opencode_i18n::t!("session.queue.reverted").into(), String::new()),
+            Effect::UndoShell => host.toast_say(opencode_i18n::t!("session.queue.undoShell").into(), String::new()),
             Effect::Load(_) | Effect::Restore { .. } | Effect::Merge { .. } => {}
         }
     }

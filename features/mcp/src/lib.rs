@@ -99,24 +99,14 @@ pub enum McpReply {
 }
 
 /// Object-safe host boundary for the MCP servers dialog, toggles, and browser OAuth sign-in.
-pub trait McpHost {
+pub trait McpHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback + opencode_kernel::AppOverlays {
     fn mcp(&self) -> &Mcp;
     fn mcp_mut(&mut self) -> &mut Mcp;
     /// Folder opened when toggling the MCPs dialog (the active session's or draft's directory).
     fn active_directory(&self) -> String;
-    /// Whether the window talks to a live OpenCode server (as opposed to a fixture).
-    fn is_live(&self) -> bool;
-    /// Whether this window may mutate server state (defaults to [`Self::is_live`]).
+    /// Whether this window may mutate server state (defaults to [`opencode_kernel::AppEnv::is_live`]).
     fn can_write(&self) -> bool {
         self.is_live()
-    }
-    /// Whether the window runs headless (suppresses automatic external browser launches).
-    fn is_headless(&self) -> bool {
-        rune::is_headless()
-    }
-    /// Current window zoom factor used to size modal dialogs.
-    fn zoom(&self) -> f32 {
-        1.0
     }
     /// Whether `ev` matches the host's configured MCP toggle shortcut (default `mod+;`).
     fn is_toggle_bind(&self, ev: &KeyEvent, tx: &Tx) -> bool {
@@ -137,22 +127,12 @@ pub trait McpHost {
     fn open_external(&mut self, url: &str, tx: &mut Tx) {
         drop(tx.open_url(url));
     }
-    /// Shows a failure toast.
-    fn toast_fail(&mut self, title: String, description: String);
-    /// Shows an informational toast.
-    fn toast_say(&mut self, title: String, description: String) {
-        let _ = (title, description);
-    }
     /// Schedules an off-thread server request, timer, or next-poll deferred reply.
     fn spawn_job(&mut self, job: McpJob);
     /// Notified when an active MCP toggle for `dir` settles or times out (for new-session startup).
     fn on_toggle_settled(&mut self, dir: &str, attempt: Attempt, ok: bool, tx: &mut Tx) {
         let _ = (dir, attempt, ok, tx);
     }
-    /// Registers an opened dialog overlay (`OVERLAY_ID` or `SIGN_IN_OVERLAY_ID`) with `OverlayStack`.
-    fn on_overlay_opened(&mut self, id: &'static str, return_focus: Option<String>);
-    /// Removes a closed dialog overlay from `OverlayStack`.
-    fn on_overlay_closed(&mut self, id: &'static str);
 }
 
 /// The MCP servers and their machine (Desktop's `McpState`, `mcp-machine.ts`): the toggles in

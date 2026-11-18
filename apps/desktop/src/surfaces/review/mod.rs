@@ -9,7 +9,7 @@ use opencode_kernel::{Feature, KernelBuilder};
 use opencode_kit::client::Server;
 use opencode_kit::wire_error::WireError;
 use rune::time::Instant;
-use rune::{Tx, Waker};
+use rune::Tx;
 use rune_kit::diff::DiffMode;
 use serde_json::Value;
 
@@ -23,10 +23,6 @@ impl ReviewHost for App {
 
     fn review_mut(&mut self) -> &mut ReviewPane {
         &mut self.review
-    }
-
-    fn active_session_id(&self) -> Option<&str> {
-        App::active_session_id(self)
     }
 
     fn session_directory(&self, sid: &str) -> Option<&str> {
@@ -43,10 +39,6 @@ impl ReviewHost for App {
             Source::Live { server, .. } => Some(server),
             Source::Fixture => None,
         }
-    }
-
-    fn is_live(&self) -> bool {
-        self.live()
     }
 
     fn fixture_root(&self) -> Option<&Value> {
@@ -72,10 +64,6 @@ impl ReviewHost for App {
     fn format_wire_error(&self, what: &str, error: &WireError) -> String {
         let server = self.server_label();
         crate::errors::UserError::from_wire(what, &server, error).description()
-    }
-
-    fn waker(&self) -> Option<Waker> {
-        (*self.waker).clone()
     }
 
     fn show_review_tab(&mut self, sid: &str, focus_panel: bool, tx: &mut Tx) {

@@ -10,7 +10,7 @@ pub use opencode_feature_notifications::{
 use opencode_kernel::{Feature, KernelBuilder, Phase};
 use opencode_kit::client::Server;
 use opencode_kit::servers::ServerKey;
-use rune::{Tx, Waker};
+use rune::Tx;
 
 use crate::App;
 
@@ -27,23 +27,11 @@ impl NotificationsHost for App {
         self.settings.notify
     }
 
-    fn is_live(&self) -> bool {
-        self.live()
-    }
-
-    fn is_headless(&self) -> bool {
-        crate::headless()
-    }
-
     fn live_server(&self) -> Option<&Server> {
         match &*self.source {
             crate::Source::Live { server, .. } => Some(server),
             crate::Source::Fixture => None,
         }
-    }
-
-    fn persists(&self) -> bool {
-        App::persists(self)
     }
 
     fn window_id(&self) -> &str {
@@ -54,20 +42,12 @@ impl NotificationsHost for App {
         crate::windows::handle(window_id).is_some()
     }
 
-    fn waker(&self) -> Option<Waker> {
-        (*self.waker).clone()
-    }
-
     fn active_server_key(&self) -> ServerKey {
         crate::servers::runtime::active(self).clone()
     }
 
     fn own_server_base(&self) -> Option<String> {
         crate::servers::runtime::own_server().map(|s| s.base)
-    }
-
-    fn active_session_id(&self) -> Option<&str> {
-        App::active_session_id(self)
     }
 
     fn session_title(&self, session_id: &str) -> Option<String> {

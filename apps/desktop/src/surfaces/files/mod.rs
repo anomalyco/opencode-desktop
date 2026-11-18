@@ -13,7 +13,7 @@ use opencode_kernel::{Feature, KernelBuilder, Phase};
 use opencode_kit::client::Server;
 use opencode_kit::wire_error::WireError;
 use opencode_ui::popup::Menu;
-use rune::{DragItem, El, KeyEvent, PopupAnchor, Tx, Waker};
+use rune::{DragItem, El, KeyEvent, PopupAnchor, Tx};
 use rune_kit::diff::FileStatus;
 use serde_json::Value;
 use session_view::palette::Pal;
@@ -37,10 +37,6 @@ impl FilesHost for App {
 
     fn touch_files(&self) {
         rune::Tracked::touch(&self.files);
-    }
-
-    fn active_session_id(&self) -> Option<&str> {
-        App::active_session_id(self)
     }
 
     fn session_directory(&self, sid: &str) -> Option<&str> {
@@ -72,32 +68,8 @@ impl FilesHost for App {
         }
     }
 
-    fn is_live(&self) -> bool {
-        self.live()
-    }
-
     fn fixture_root(&self) -> Option<&Value> {
         Some(&self.fixture)
-    }
-
-    fn persists(&self) -> bool {
-        App::persists(self)
-    }
-
-    fn waker(&self) -> Option<Waker> {
-        (*self.waker).clone()
-    }
-
-    fn clock(&self) -> f64 {
-        *self.clock
-    }
-
-    fn zoom(&self) -> f32 {
-        *self.zoom
-    }
-
-    fn spellcheck(&self) -> bool {
-        self.settings.spellcheck
     }
 
     fn server_label(&self) -> String {
@@ -115,18 +87,6 @@ impl FilesHost for App {
 
     fn write_json(&self, ns: &str, key: &str, value: &Value) {
         crate::storage::set_json(ns, key, value);
-    }
-
-    fn toast_fail(&mut self, title: String, description: String) {
-        crate::status_toast::fail(self, title, description);
-    }
-
-    fn toast_say(&mut self, title: String, description: String) {
-        crate::status_toast::say(self, title, description);
-    }
-
-    fn toast_succeed(&mut self, title: String, description: String) {
-        crate::status_toast::succeed(self, title, description);
     }
 
     fn open_external(&mut self, url: &str, tx: &mut Tx) {

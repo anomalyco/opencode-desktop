@@ -346,14 +346,12 @@ pub enum ReviewReply {
 
 /// Object-safe host boundary for the Review changes engine, untracked folder loader,
 /// and narrow Changes view.
-pub trait ReviewHost {
+pub trait ReviewHost: opencode_kernel::AppEnv {
     /// Review pane state (tracked read).
     fn review(&self) -> &ReviewPane;
     /// Review pane state (tracked write — callers only invoke when mutating).
     fn review_mut(&mut self) -> &mut ReviewPane;
 
-    /// Currently routed session ID, when on a session route.
-    fn active_session_id(&self) -> Option<&str>;
     /// Working directory of session `sid`, if loaded.
     fn session_directory(&self, sid: &str) -> Option<&str>;
     /// Project root directory for session `sid` used to resolve untracked folder paths.
@@ -364,10 +362,6 @@ pub trait ReviewHost {
 
     /// Live OpenCode server handle when connected, or `None` in fixture mode.
     fn live_server(&self) -> Option<&Server>;
-    /// Whether the host talks to a live server (defaults to `self.live_server().is_some()`).
-    fn is_live(&self) -> bool {
-        self.live_server().is_some()
-    }
     /// Fixture JSON root used when [`Self::live_server`] is `None`.
     fn fixture_root(&self) -> Option<&Value> {
         None
@@ -398,11 +392,6 @@ pub trait ReviewHost {
         } else {
             format!("{what} ({server}): {}", error.kind)
         }
-    }
-
-    /// Window waker, if installed.
-    fn waker(&self) -> Option<Waker> {
-        None
     }
 
     /// Opens the review side tab for session `sid`. When `focus_panel` is `true` ([`show`]),

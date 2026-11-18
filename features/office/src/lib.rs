@@ -22,15 +22,7 @@ pub use compositor::OfficeCompositor;
 pub use worker::{Scene, SheetFrame};
 
 /// Host hooks the Office viewer needs from its embedding Rune app.
-pub trait OfficeHost {
-    /// Whether external URLs (hyperlink clicks in spreadsheets) may open outside the app.
-    fn is_live(&self) -> bool {
-        true
-    }
-
-    /// Shows a brief status toast notification.
-    fn toast_say(&mut self, title: String, desc: String);
-}
+pub trait OfficeHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {}
 
 /// Process-wide configuration set by the host app at startup.
 #[derive(Clone, Copy)]

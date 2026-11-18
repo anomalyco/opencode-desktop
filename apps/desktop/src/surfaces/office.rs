@@ -6,15 +6,7 @@ use opencode_kernel::{Feature, KernelBuilder, Phase, SurfaceDescriptor, SurfaceK
 
 use crate::App;
 
-impl opencode_feature_office::OfficeHost for App {
-    fn is_live(&self) -> bool {
-        self.live()
-    }
-
-    fn toast_say(&mut self, title: String, desc: String) {
-        crate::status_toast::say(self, title, desc);
-    }
-}
+impl opencode_feature_office::OfficeHost for App {}
 
 /// Wires desktop's cache directory and wall clock into the Office feature crate once at startup.
 pub fn init() {

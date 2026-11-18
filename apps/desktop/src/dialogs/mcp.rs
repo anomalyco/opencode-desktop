@@ -2,7 +2,7 @@
 
 pub use opencode_feature_mcp::*;
 
-use opencode_kernel::{Feature, KernelBuilder, OverlayEntry, OverlayEvent, OverlayKind};
+use opencode_kernel::{Feature, KernelBuilder};
 use opencode_kit::integration::McpServer;
 use rune::machine::Attempt;
 use rune::{KeyEvent, Tx};
@@ -28,20 +28,8 @@ impl McpHost for App {
         }
     }
 
-    fn is_live(&self) -> bool {
-        self.live()
-    }
-
     fn can_write(&self) -> bool {
         App::can_write(self)
-    }
-
-    fn is_headless(&self) -> bool {
-        crate::headless()
-    }
-
-    fn zoom(&self) -> f32 {
-        *self.zoom
     }
 
     fn is_toggle_bind(&self, ev: &KeyEvent, tx: &Tx) -> bool {
@@ -67,14 +55,6 @@ impl McpHost for App {
         crate::open_in::open_external(tx, url);
     }
 
-    fn toast_fail(&mut self, title: String, description: String) {
-        crate::status_toast::fail(self, title, description);
-    }
-
-    fn toast_say(&mut self, title: String, description: String) {
-        crate::status_toast::say(self, title, description);
-    }
-
     fn spawn_job(&mut self, job: McpJob) {
         match job {
             McpJob::Server { delay, request } => {
@@ -96,18 +76,6 @@ impl McpHost for App {
 
     fn on_toggle_settled(&mut self, dir: &str, attempt: Attempt, ok: bool, tx: &mut Tx) {
         self.start_mcp_settled(dir, attempt, ok, tx);
-    }
-
-    fn on_overlay_opened(&mut self, id: &'static str, return_focus: Option<String>) {
-        let mut entry = OverlayEntry::new(id, OverlayKind::Dialog);
-        if let Some(focus) = return_focus {
-            entry = entry.with_return_focus(focus);
-        }
-        self.kernel.step_overlay(OverlayEvent::Push(entry));
-    }
-
-    fn on_overlay_closed(&mut self, id: &'static str) {
-        self.kernel.step_overlay(OverlayEvent::Close(id));
     }
 }
 

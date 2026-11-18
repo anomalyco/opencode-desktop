@@ -39,7 +39,7 @@ use machine::Ident;
 /// Every state transition, polling entrypoint, and action operates on `&dyn QuoteHost` /
 /// `&mut dyn QuoteHost`. Generic `H: QuoteHost + 'static` bounds appear only at `rune::El`
 /// view/callback boundaries, delegating 1-line to non-generic handlers.
-pub trait QuoteHost {
+pub trait QuoteHost: opencode_kernel::AppEnv {
     /// Quote state (tracked read).
     fn quotes(&self) -> &Quotes;
     /// Quote state (tracked write — callers only invoke when mutating).
@@ -89,11 +89,6 @@ pub trait QuoteHost {
 
     /// Whether the window is below Desktop's narrow (768 px) breakpoint.
     fn narrow(&self) -> bool {
-        false
-    }
-
-    /// Whether spellcheck is enabled for text inputs (`Settings > Spellcheck`).
-    fn spellcheck(&self) -> bool {
         false
     }
 

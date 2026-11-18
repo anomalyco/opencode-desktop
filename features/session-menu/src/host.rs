@@ -12,7 +12,7 @@ use opencode_kit::model::{SessionInfo, Transcript};
 use opencode_kit::servers::ServerKey;
 use opencode_kit::wire_error::WireError;
 use opencode_ui::popup::{Menu, PopupAnchor};
-use rune::{El, FileDialogOptions, Tx, Waker};
+use rune::{El, FileDialogOptions, Tx};
 use serde_json::Value;
 use session_view::palette::Pal;
 
@@ -45,7 +45,7 @@ pub type SaveFileDone = Box<dyn FnOnce(&mut dyn SessionMenuHost, Result<Option<P
 
 /// Object-safe host boundary for session context menus, inline/dialog rename, undoable delete,
 /// session export, manual unread marks, and per-session hide/mute preferences.
-pub trait SessionMenuHost {
+pub trait SessionMenuHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlays {
     /// Session menu state (tracked read).
     fn menus(&self) -> &Menus;
     /// Session menu state (tracked write — callers only invoke when mutating).
@@ -77,10 +77,6 @@ pub trait SessionMenuHost {
         let _ = root_id;
         SessionMarks::default()
     }
-    /// Currently routed session ID, when on a session route.
-    fn active_session_id(&self) -> Option<&str> {
-        None
-    }
 
     /// Open window tabs in strip order.
     fn tabs(&self) -> Vec<TabSummary> {
@@ -110,10 +106,6 @@ pub trait SessionMenuHost {
     /// Whether the server runtime boot phase has settled (`Boot::Ready`).
     fn boot_ready(&self) -> bool {
         true
-    }
-    /// Whether the window runs headless/unattended.
-    fn is_headless(&self) -> bool {
-        rune::is_headless()
     }
     /// Live server client on the currently checked-out server, or `None` for fixtures.
     fn live_server(&self) -> Option<&Server> {
@@ -245,32 +237,6 @@ pub trait SessionMenuHost {
     /// Opens a native save-file dialog and delivers the chosen path (or cancellation/error) to `on_done`.
     fn save_file(&mut self, options: FileDialogOptions, tx: &mut Tx, on_done: SaveFileDone) {
         drop((options, tx, on_done));
-    }
-
-    /// Active UI zoom factor used to size modal dialogs.
-    fn zoom(&self) -> f32 {
-        1.0
-    }
-    /// Whether spellcheck is enabled for inline rename fields.
-    fn spellcheck(&self) -> bool {
-        false
-    }
-    /// Monotonic frame clock in seconds.
-    fn clock(&self) -> f64 {
-        0.0
-    }
-    /// Optional window waker for background tasks.
-    fn waker(&self) -> Option<Waker> {
-        None
-    }
-
-    /// Registers an opened dialog overlay (`RENAME_OVERLAY_ID` or `DELETE_OVERLAY_ID`) with `OverlayStack`.
-    fn on_overlay_opened(&mut self, id: &'static str, return_focus: Option<String>) {
-        let _ = (id, return_focus);
-    }
-    /// Removes a closed dialog overlay from `OverlayStack`.
-    fn on_overlay_closed(&mut self, id: &'static str) {
-        let _ = id;
     }
 }
 
