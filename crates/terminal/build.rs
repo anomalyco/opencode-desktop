@@ -16,9 +16,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 include!("build_support.rs");
 
-fn fail_one_line(msg: &str) -> ! {
-    let single = msg.lines().next().unwrap_or(msg).trim();
-    eprintln!("{single}");
+/// Ends the build script with the whole message: a failure names its cause (zig's stderr), not one line of it.
+fn fail(msg: &str) -> ! {
+    eprintln!("{msg}");
     std::process::exit(1);
 }
 
@@ -39,7 +39,7 @@ fn main() {
     let host = std::env::var("HOST").expect("HOST");
 
     if let Some(raw) = std::env::var_os("GHOSTTY_VT_LIB").filter(|s| !s.is_empty()) {
-        let lib = resolve_lib_override(Path::new(&raw)).unwrap_or_else(|e| fail_one_line(&e));
+        let lib = resolve_lib_override(Path::new(&raw)).unwrap_or_else(|e| fail(&e));
         emit_link(&lib, &target);
         return;
     }
@@ -50,9 +50,9 @@ fn main() {
         let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
         let dest = out_dir.join("override-build").join(archive_name);
         let _lock = CacheLock::acquire(&cache_root.join(".build.lock"))
-            .unwrap_or_else(|e| fail_one_line(&e));
+            .unwrap_or_else(|e| fail(&e));
         build_from_source(Path::new(&src_dir), &cache_root, &host, &target, &dest)
-            .unwrap_or_else(|e| fail_one_line(&e));
+            .unwrap_or_else(|e| fail(&e));
         emit_link(&dest, &target);
         return;
     }
@@ -63,7 +63,7 @@ fn main() {
     let archive = ensure_cached_archive(&cache_root, &cached_archive, |dest| {
         build_cold(&cache_root, &host, &target, dest)
     })
-    .unwrap_or_else(|e| fail_one_line(&e));
+    .unwrap_or_else(|e| fail(&e));
 
     emit_link(&archive, &target);
 }
@@ -98,11 +98,11 @@ fn emit_link(archive: &Path, target: &str) {
     if target.contains("windows") {
         let dir = archive
             .parent()
-            .unwrap_or_else(|| fail_one_line("terminal build: archive path has no parent directory"));
+            .unwrap_or_else(|| fail("terminal build: archive path has no parent directory"));
         let name = archive
             .file_name()
             .and_then(|s| s.to_str())
-            .unwrap_or_else(|| fail_one_line("terminal build: invalid archive file name"));
+            .unwrap_or_else(|| fail("terminal build: invalid archive file name"));
         println!("cargo:rustc-link-search=native={}", dir.display());
         println!("cargo:rustc-link-lib=static:+verbatim={name}");
         return;
@@ -112,7 +112,7 @@ fn emit_link(archive: &Path, target: &str) {
     let link_dir = if let Some(stem) = name.strip_prefix("lib").and_then(|s| s.strip_suffix(".a")) {
         let dir = archive
             .parent()
-            .unwrap_or_else(|| fail_one_line("terminal build: archive path has no parent directory"));
+            .unwrap_or_else(|| fail("terminal build: archive path has no parent directory"));
         println!("cargo:rustc-link-search=native={}", dir.display());
         println!("cargo:rustc-link-lib=static={stem}");
         dir.to_path_buf()
@@ -121,7 +121,7 @@ fn emit_link(archive: &Path, target: &str) {
         let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
         let staged = out_dir.join("libghostty-vt.a");
         fs::copy(archive, &staged)
-            .unwrap_or_else(|e| fail_one_line(&format!("terminal build: copy override failed ({e})")));
+            .unwrap_or_else(|e| fail(&format!("terminal build: copy override failed ({e})")));
         println!("cargo:rustc-link-search=native={}", out_dir.display());
         println!("cargo:rustc-link-lib=static=ghostty-vt");
         out_dir
@@ -215,15 +215,15 @@ fn build_from_source(
             )
         })?;
         if !output.status.success() {
+            // zig's last lines, not its last one: on 18 Nov the last one was the caret under the error.
             let stderr = String::from_utf8_lossy(&output.stderr);
-            let detail = stderr
-                .lines()
-                .rev()
-                .find(|l| !l.trim().is_empty())
-                .unwrap_or("unknown zig build error");
+            let lines: Vec<&str> = stderr.lines().collect();
+            let tail = lines[lines.len().saturating_sub(60)..].join("\n");
             return Err(format!(
-                "terminal build: `zig build -Demit-lib-vt=true` failed ({}) — {detail}",
-                output.status
+                "terminal build: `zig build -Demit-lib-vt=true` failed ({}); zig's stderr, last {} of {} lines:\n{tail}",
+                output.status,
+                lines.len().min(60),
+                lines.len()
             ));
         }
 
