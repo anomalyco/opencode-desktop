@@ -191,7 +191,7 @@ pub struct Failed {
 
 /// Object-safe host boundary for attaching files from disk, running/polling/cancelling remote
 /// uploads, the upload progress toast, and the system file picker.
-pub trait AttachmentsHost {
+pub trait AttachmentsHost: opencode_kernel::AppFeedback {
     /// Read-only projection of the window's [`Attach`] state (must not dirty `Tracked` cells).
     fn attach_ref(&self) -> AttachRef<'_>;
     /// Mutable projection of the window's [`Attach`] state.
@@ -218,15 +218,6 @@ pub trait AttachmentsHost {
         self.attach_mut().add_path(attachment);
     }
 
-    /// Shows an informational/non-persistent status toast (`title`, `description`).
-    fn toast_say(&mut self, title: &str, description: String) {
-        let _ = (title, description);
-    }
-    /// Shows a failure status toast (`title`, `description`).
-    fn toast_fail(&mut self, title: &str, description: String) {
-        let _ = (title, description);
-    }
-
     /// Whether picking a file from the dialog should focus the composer.
     fn auto_focus_composer(&self, tx: &Tx) -> bool {
         !session_view::style::touch_controls() || tx.by_keys()
@@ -244,14 +235,14 @@ pub fn attach_path(host: &mut dyn AttachmentsHost, path: &Path) {
         Ok(m) if m.is_file() => m.len() as usize,
         Ok(_) => {
             host.toast_say(
-                opencode_i18n::t!("rune.attach.failed"),
+                opencode_i18n::t!("rune.attach.failed").into(),
                 opencode_i18n::t!("rune.attach.folder", name = name),
             );
             return;
         }
         Err(e) => {
             host.toast_fail(
-                opencode_i18n::t!("rune.attach.failed"),
+                opencode_i18n::t!("rune.attach.failed").into(),
                 format!("{name}: {}", opencode_ui::toast::plain(&e.to_string())),
             );
             return;
@@ -260,14 +251,14 @@ pub fn attach_path(host: &mut dyn AttachmentsHost, path: &Path) {
     if native_mime(path).is_some() && size <= MAX_BYTES {
         match from_path(path) {
             Ok(a) => host.attach_mut().add(a),
-            Err(e) => host.toast_fail(opencode_i18n::t!("rune.attach.failed"), opencode_ui::toast::plain(&e)),
+            Err(e) => host.toast_fail(opencode_i18n::t!("rune.attach.failed").into(), opencode_ui::toast::plain(&e)),
         }
         return;
     }
     let mime = match head(path) {
         Ok(h) => mime_for(path, &h).to_owned(),
         Err(e) => {
-            host.toast_fail(opencode_i18n::t!("rune.attach.failed"), opencode_ui::toast::plain(&e));
+            host.toast_fail(opencode_i18n::t!("rune.attach.failed").into(), opencode_ui::toast::plain(&e));
             return;
         }
     };
@@ -422,7 +413,7 @@ fn upload_effects(
                     _ => opencode_i18n::t!("common.requestFailed").to_owned(),
                 };
                 // Desktop's `onUploadError` toast: no action, gone after the region's 5 s.
-                host.toast_say(opencode_i18n::t!("prompt.toast.uploadFailed.title"), line);
+                host.toast_say(opencode_i18n::t!("prompt.toast.uploadFailed.title").into(), line);
             }
         }
     }
@@ -464,7 +455,7 @@ pub fn handle_picked_attachment(host: &mut dyn AttachmentsHost, result: Result<O
             }
         }
         Ok(None) => {}
-        Err(e) => host.toast_fail(opencode_i18n::t!("rune.status.filePickerFailed"), e),
+        Err(e) => host.toast_fail(opencode_i18n::t!("rune.status.filePickerFailed").into(), e),
     }
 }
 

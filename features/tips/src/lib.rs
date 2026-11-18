@@ -39,25 +39,19 @@ impl TipRoute {
 }
 
 /// Host state and callbacks required by paced one-time tips.
-pub trait TipsHost {
+pub trait TipsHost: opencode_kernel::AppEnv {
     fn tips(&self) -> &Tips;
     fn tips_mut(&mut self) -> &mut Tips;
-    /// Current app clock in seconds.
-    fn clock(&self) -> f64;
     /// Whether the server connection is up (replaces `!crate::reconnect::down(s)`).
     fn is_connected(&self) -> bool;
     /// Whether this window is focused and visible (eligible to display a tip toast).
     fn is_window_open(&self) -> bool;
     /// Opaque key for the currently shown route; changes count as user activity.
     fn route_key(&self) -> TipRoute;
-    /// Whether this run persists state (live window with a person at it).
-    fn persists(&self) -> bool;
     /// Whether the server's MCP list contains `browse`; `None` until the list has been fetched.
     fn browse_installed(&self) -> Option<bool>;
     /// Requests a refresh of the server's MCP list when the connection comes up.
     fn sync_mcp(&mut self);
-    /// Window waker for waking the UI thread when background Hex detection finishes.
-    fn waker(&self) -> Option<rune::Waker>;
     fn read_json(&self, ns: &str, key: &str) -> Option<serde_json::Value>;
     fn write_json(&self, ns: &str, key: &str, val: &serde_json::Value);
     fn show_tip_toast(&mut self, tip: Tip) -> u64;

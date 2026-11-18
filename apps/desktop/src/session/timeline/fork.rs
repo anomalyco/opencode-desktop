@@ -3,7 +3,6 @@
 pub use opencode_feature_history::fork::*;
 
 use opencode_feature_history::rewind::SavedDraft;
-use opencode_kernel::{OverlayEntry, OverlayEvent, OverlayKind};
 use opencode_kit::client::Write;
 use opencode_kit::model::{SessionInfo, Transcript};
 use opencode_kit::wire_error::WireError;
@@ -19,10 +18,6 @@ impl ForkHost for App {
 
     fn fork_mut(&mut self) -> &mut ForkState {
         &mut self.fork
-    }
-
-    fn active_session_id(&self) -> Option<&str> {
-        App::active_session_id(self)
     }
 
     fn is_session_open(&self, session: &str) -> bool {
@@ -80,10 +75,6 @@ impl ForkHost for App {
         crate::errors::said(self, "", err)
     }
 
-    fn toast_fail(&mut self, title: String, description: String) {
-        crate::status_toast::fail(self, title, description);
-    }
-
     fn before_fork_open(&mut self) -> bool {
         let restore = self.composer.focused || (!self.switcher.open && self.switcher.restore_composer());
         self.close_jump_dialog(false);
@@ -101,34 +92,6 @@ impl ForkHost for App {
 
     fn handle_shortcut(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
         self.shortcut(ev, tx)
-    }
-
-    fn on_overlay_opened(&mut self, id: &'static str, return_focus: Option<String>) {
-        let mut entry = OverlayEntry::new(id, OverlayKind::Dialog);
-        if let Some(focus) = return_focus {
-            entry = entry.with_return_focus(focus);
-        }
-        self.kernel.step_overlay(OverlayEvent::Push(entry));
-    }
-
-    fn on_overlay_closed(&mut self, id: &'static str) {
-        self.kernel.step_overlay(OverlayEvent::Close(id));
-    }
-
-    fn zoom(&self) -> f32 {
-        *self.zoom
-    }
-
-    fn spellcheck(&self) -> bool {
-        self.settings.spellcheck
-    }
-
-    fn clock(&self) -> f64 {
-        *self.clock
-    }
-
-    fn now_ms(&self) -> i64 {
-        *self.now_ms
     }
 }
 

@@ -27,7 +27,7 @@ use crate::entries::{move_for, target};
 use crate::{PROJECT_OVERLAY_ID, folder_name, search_fold};
 
 /// Object-safe host boundary for the project, worktree, server, and base-branch location switcher.
-pub trait ProjectSwitcherHost {
+pub trait ProjectSwitcherHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlays {
     fn project_switcher(&self) -> &ProjectSwitcher;
     fn project_switcher_mut(&mut self) -> &mut ProjectSwitcher;
 
@@ -100,17 +100,7 @@ pub trait ProjectSwitcherHost {
     }
     /// Restores composer focus after closing the project switcher when `restore_composer` is true.
     fn after_project_switcher_close(&mut self, _restore_composer: bool) {}
-    /// Registers an opened dialog overlay (`PROJECT_OVERLAY_ID`) with `OverlayStack`.
-    fn on_overlay_opened(&mut self, id: &'static str, return_focus: Option<String>);
-    /// Removes a closed dialog overlay from `OverlayStack`.
-    fn on_overlay_closed(&mut self, id: &'static str);
     fn project_badge(&self, p: &Pal, project: Option<&Project>, name: &str) -> El;
-    fn zoom(&self) -> f32 {
-        1.0
-    }
-    fn spellcheck(&self) -> bool {
-        false
-    }
     fn handle_shortcut(&mut self, _ev: &KeyEvent, _tx: &mut Tx) -> bool {
         false
     }

@@ -40,7 +40,7 @@ pub struct NarrowTab {
 /// Every state machine, event handler, and poll/key/settle entrypoint in `opencode-feature-narrow`
 /// operates on `&dyn NarrowHost` / `&mut dyn NarrowHost`. Generic `H: NarrowHost + 'static` bounds
 /// appear only at `rune::El` view/callback boundaries, delegating 1-line to non-generic handlers.
-pub trait NarrowHost {
+pub trait NarrowHost: opencode_kernel::AppEnv {
     /// Narrow layout state (tracked read).
     fn narrow_state(&self) -> &Narrow;
     /// Narrow layout state (tracked write — callers only invoke when mutating).
@@ -62,22 +62,10 @@ pub trait NarrowHost {
     fn is_home_route(&self) -> bool {
         false
     }
-    /// Currently routed session ID, when on a session route (regardless of Settings).
-    fn active_session_id(&self) -> Option<&str> {
-        None
-    }
 
     /// Window chrome insets/metrics needed by the narrow switcher, location bar, and drawers.
     fn chrome(&self) -> NarrowChrome {
         NarrowChrome::default()
-    }
-    /// Active UI zoom factor.
-    fn zoom(&self) -> f32 {
-        1.0
-    }
-    /// Monotonic frame clock in seconds.
-    fn clock(&self) -> f64 {
-        0.0
     }
 
     /// Currently active tab UID, if any.

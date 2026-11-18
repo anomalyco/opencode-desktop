@@ -34,8 +34,7 @@ impl Todo {
 }
 
 /// Object-safe host boundary for the todo pill and floating plan list over the composer.
-pub trait TodosHost {
-    fn active_session_id(&self) -> Option<&str>;
+pub trait TodosHost: opencode_kernel::AppEnv {
     fn is_session_running(&self, id: &str) -> bool;
     /// Transcript for session `id` (untracked read preferred to avoid unrelated rebuilds).
     fn transcript(&self, id: &str) -> Option<&Transcript>;
@@ -44,9 +43,6 @@ pub trait TodosHost {
     /// Active staged revert boundary for session `id`, if any.
     fn session_revert(&self, id: &str) -> Option<&str>;
     fn knobs(&self) -> &Knobs;
-    fn reduced_motion(&self) -> bool {
-        false
-    }
     fn todo_open(&self) -> bool;
     fn set_todo_open(&mut self, open: bool);
     fn todo_ticks(&self) -> &Ticks;

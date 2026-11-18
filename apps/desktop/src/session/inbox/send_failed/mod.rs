@@ -10,7 +10,7 @@ use std::sync::mpsc::Sender;
 use opencode_kit::client::{PathAttachment, Prompt, Server, Write};
 use opencode_kit::model::{Attachment, Inbox, Message, ModelRef, PromptComment, Transcript};
 use opencode_kit::wire_error::WireError;
-use rune::{TextEdit, Tx, Waker};
+use rune::{TextEdit, Tx};
 use session_view::composer::history::Entry;
 
 use crate::{App, Route, Source};
@@ -44,24 +44,12 @@ impl SendFailedHost for App {
         &mut self.transcripts
     }
 
-    fn clock(&self) -> f64 {
-        *self.clock
-    }
-
-    fn waker(&self) -> Option<Waker> {
-        (*self.waker).clone()
-    }
-
     fn window_id(&self) -> &str {
         &self.window.id
     }
 
     fn peer_token(&self) -> u64 {
         crate::windows::peer::token(self)
-    }
-
-    fn persists(&self) -> bool {
-        App::persists(self)
     }
 
     fn active_draft_document(&self) -> Option<String> {
@@ -173,14 +161,6 @@ impl SendFailedHost for App {
 
     fn on_send_result(&mut self, id: &str, result: SendResult) {
         crate::quote::send_result(self, id, result);
-    }
-
-    fn toast_say(&mut self, title: &str, description: &str) {
-        crate::status_toast::say(self, title, description);
-    }
-
-    fn toast_fail(&mut self, title: &str, description: &str) {
-        crate::status_toast::fail(self, title, description);
     }
 }
 

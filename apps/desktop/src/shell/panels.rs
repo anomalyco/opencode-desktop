@@ -23,10 +23,6 @@ impl PanelsHost for App {
         &mut self.side
     }
 
-    fn active_session_id(&self) -> Option<&str> {
-        App::active_session_id(self)
-    }
-
     fn session_directory(&self, sid: &str) -> Option<&str> {
         self.session(sid).map(|s| s.directory.as_str())
     }
@@ -81,18 +77,6 @@ impl PanelsHost for App {
         )
             .hash(&mut h);
         PanelChrome { top: c.top(), foot: c.foot(), stamp: h.finish() }
-    }
-
-    fn zoom(&self) -> f32 {
-        *self.zoom
-    }
-
-    fn clock(&self) -> f64 {
-        *self.clock
-    }
-
-    fn now_ms(&self) -> i64 {
-        *self.now_ms
     }
 
     fn knobs(&self) -> &Knobs {

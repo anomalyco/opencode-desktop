@@ -40,21 +40,9 @@ impl NarrowHost for App {
         self.route == Route::Home && !self.settings.open
     }
 
-    fn active_session_id(&self) -> Option<&str> {
-        App::active_session_id(self)
-    }
-
     fn chrome(&self) -> NarrowChrome {
         let c = crate::view::chrome();
         NarrowChrome { hairline: c.hairline, bottom: c.bottom }
-    }
-
-    fn zoom(&self) -> f32 {
-        *self.zoom
-    }
-
-    fn clock(&self) -> f64 {
-        *self.clock
     }
 
     fn current_tab_uid(&self) -> Option<String> {

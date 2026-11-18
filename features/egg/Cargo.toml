@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 bytemuck = { version = "1", features = ["derive"] }
 opencode-i18n = { path = "../../crates/opencode-i18n" }
+opencode-kernel = { path = "../../crates/opencode-kernel" }
 procwatch.workspace = true
 rune.workspace = true
 session-view = { path = "../../crates/session-view" }

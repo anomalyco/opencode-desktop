@@ -61,10 +61,6 @@ impl QuoteHost for App {
         App::narrow(self)
     }
 
-    fn spellcheck(&self) -> bool {
-        self.settings.spellcheck
-    }
-
     fn knobs(&self) -> &Knobs {
         &self.knobs
     }

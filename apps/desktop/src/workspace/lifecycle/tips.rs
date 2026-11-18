@@ -15,10 +15,6 @@ impl TipsHost for App {
         &mut self.tips
     }
 
-    fn clock(&self) -> f64 {
-        *self.clock
-    }
-
     fn is_connected(&self) -> bool {
         !crate::reconnect::down(self)
     }
@@ -31,20 +27,12 @@ impl TipsHost for App {
         TipRoute::from_hash(rune::Tracked::untracked(&self.route))
     }
 
-    fn persists(&self) -> bool {
-        App::persists(self)
-    }
-
     fn browse_installed(&self) -> Option<bool> {
         self.mcp_servers("").map(|list| list.iter().any(|m| m.name == "browse"))
     }
 
     fn sync_mcp(&mut self) {
         App::sync_mcp(self, "");
-    }
-
-    fn waker(&self) -> Option<rune::Waker> {
-        (*self.waker).clone()
     }
 
     fn read_json(&self, ns: &str, key: &str) -> Option<serde_json::Value> {

@@ -73,12 +73,10 @@ impl ForkState {
 }
 
 /// Object-safe host boundary for forking a session from a user message and the `"Fork from message"` dialog.
-pub trait ForkHost {
+pub trait ForkHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback + opencode_kernel::AppOverlays {
     fn fork(&self) -> &ForkState;
     fn fork_mut(&mut self) -> &mut ForkState;
 
-    /// Active session ID on the current route (`None` on Home/Draft).
-    fn active_session_id(&self) -> Option<&str>;
     /// Whether `session` is currently the active route (`Route::Session { id }` == `session`).
     fn is_session_open(&self, session: &str) -> bool {
         self.active_session_id() == Some(session)
@@ -122,8 +120,6 @@ pub trait ForkHost {
     fn format_wire_error(&self, err: &WireError) -> String {
         err.to_string()
     }
-    /// Shows a request-failure toast.
-    fn toast_fail(&mut self, title: String, description: String);
 
     /// Prepares the shell before opening the Fork dialog (closes conflicting dialogs/pickers/menus,
     /// blurs the composer) and returns whether composer focus should be restored on dismiss.
@@ -135,25 +131,6 @@ pub trait ForkHost {
     /// Fallback handler for unhandled keys inside the Fork dialog search field.
     fn handle_shortcut(&mut self, _ev: &KeyEvent, _tx: &mut Tx) -> bool {
         false
-    }
-    /// Registers an opened dialog overlay (`FORK_OVERLAY_ID`) with `OverlayStack`.
-    fn on_overlay_opened(&mut self, id: &'static str, return_focus: Option<String>);
-    /// Removes a closed dialog overlay (`FORK_OVERLAY_ID`) from `OverlayStack`.
-    fn on_overlay_closed(&mut self, id: &'static str);
-
-    /// Current UI zoom scale (used to size the Fork dialog).
-    fn zoom(&self) -> f32 {
-        1.0
-    }
-    /// Whether text inputs enable spellcheck.
-    fn spellcheck(&self) -> bool {
-        false
-    }
-    /// Monotonic frame clock in seconds.
-    fn clock(&self) -> f64;
-    /// Wall clock in Unix milliseconds (used for fixture fork metadata timestamps).
-    fn now_ms(&self) -> i64 {
-        0
     }
 }
 

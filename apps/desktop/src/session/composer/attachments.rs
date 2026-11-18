@@ -60,14 +60,6 @@ impl AttachmentsHost for App {
         App::land_upload(self, draft, attachment);
     }
 
-    fn toast_say(&mut self, title: &str, description: String) {
-        crate::status_toast::say(self, title, description);
-    }
-
-    fn toast_fail(&mut self, title: &str, description: String) {
-        crate::status_toast::fail(self, title, description);
-    }
-
     fn auto_focus_composer(&self, tx: &Tx) -> bool {
         crate::auto_focus_composer(tx)
     }

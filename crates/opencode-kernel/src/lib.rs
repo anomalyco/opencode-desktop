@@ -14,6 +14,7 @@
 pub mod commands;
 pub mod events;
 pub mod feature;
+pub mod host;
 pub mod overlay;
 pub mod scheduler;
 pub mod slots;
@@ -23,6 +24,7 @@ use std::fmt;
 pub use commands::{CommandEntry, CommandRegistry, CommandTitle};
 pub use events::EventBus;
 pub use feature::{Feature, SurfaceDescriptor, SurfaceKind, SurfaceRegistry};
+pub use host::{AppEnv, AppFeedback, AppOverlays};
 pub use overlay::{OverlayDismissFn, OverlayDispatcher, OverlayEffect, OverlayEntry, OverlayEvent, OverlayKind, OverlayStack, OverlayState};
 pub use scheduler::{CloseFn, LifecycleScheduler, Phase, RestFn, SetupFn, SystemFn, VisibilityFn};
 pub use slots::StateSlots;

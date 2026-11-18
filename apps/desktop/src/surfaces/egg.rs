@@ -19,16 +19,8 @@ impl opencode_feature_egg::EggHost for App {
         matches!(&*self.route, Route::Draft(_))
     }
 
-    fn reduced_motion(&self) -> bool {
-        *self.reduced_motion
-    }
-
     fn interface_sounds(&self) -> bool {
         self.settings.sounds.interface
-    }
-
-    fn persists(&self) -> bool {
-        self.persists()
     }
 
     fn focus_composer(&mut self) {

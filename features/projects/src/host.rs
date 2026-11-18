@@ -12,7 +12,7 @@ use opencode_kit::model::{ModelRef, Project, SessionInfo};
 use opencode_kit::servers::health::Health;
 use opencode_kit::servers::{Route, ServerConn, ServerKey};
 use opencode_kit::wire_error::WireError;
-use rune::{El, FileDialogOptions, Tx, Waker};
+use rune::{El, FileDialogOptions, Tx};
 use serde_json::{Map, Value};
 use session_view::palette::Pal;
 
@@ -51,7 +51,7 @@ pub type FileDialogDone = Box<dyn FnOnce(&mut dyn ProjectsHost, Result<Option<Pa
 
 /// Object-safe host boundary for project tracking, Home across servers, session import, and the
 /// remote folder picker dialog.
-pub trait ProjectsHost {
+pub trait ProjectsHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlays {
     // --- Feature state slots ---
 
     /// Project list, organize sidebar, and import state (tracked read).
@@ -231,10 +231,6 @@ pub trait ProjectsHost {
     fn server_sources_hydrated(&self) -> bool {
         true
     }
-    /// Whether the window is connected to a live server (as opposed to fixture mode).
-    fn is_live(&self) -> bool {
-        self.live_server().is_some()
-    }
     /// Whether this window may send mutating writes to the live server.
     fn can_write(&self) -> bool {
         self.is_live() && !self.is_stage()
@@ -271,37 +267,9 @@ pub trait ProjectsHost {
 
     // --- Persistence, environment & timing ---
 
-    /// Whether client-side per-server project state should persist to storage.
-    fn persists(&self) -> bool {
-        self.attended()
-    }
     /// Whether a user (or `--harness-writes`) attends this window and global state may be saved.
     fn attended(&self) -> bool {
         !rune::is_headless()
-    }
-    /// Current UI zoom factor used to size modal dialogs.
-    fn zoom(&self) -> f32 {
-        1.0
-    }
-    /// Whether spellcheck is enabled globally in user preferences.
-    fn spellcheck(&self) -> bool {
-        false
-    }
-    /// Monotonic frame clock in seconds.
-    fn clock(&self) -> f64 {
-        0.0
-    }
-    /// Wall-clock timestamp in milliseconds.
-    fn now_ms(&self) -> i64 {
-        0
-    }
-    /// Whether reduced motion is active for Home list reveal transitions.
-    fn reduced_motion(&self) -> bool {
-        false
-    }
-    /// Optional window waker for background tasks.
-    fn waker(&self) -> Option<Waker> {
-        None
     }
 
     // --- Storage ---
@@ -388,19 +356,11 @@ pub trait ProjectsHost {
         rune::el()
     }
 
-    // --- Jobs & OverlayStack ---
+    // --- Jobs ---
 
     /// Schedules an off-thread server request (session import upload or remote directory listing).
     fn spawn_job(&mut self, job: ProjectsJob) {
         let _ = job;
-    }
-    /// Registers an opened dialog overlay (`REMOTE_PICKER_OVERLAY_ID`) with `OverlayStack`.
-    fn on_overlay_opened(&mut self, id: &'static str, return_focus: Option<String>) {
-        let _ = (id, return_focus);
-    }
-    /// Removes a closed dialog overlay from `OverlayStack`.
-    fn on_overlay_closed(&mut self, id: &'static str) {
-        let _ = id;
     }
 }
 

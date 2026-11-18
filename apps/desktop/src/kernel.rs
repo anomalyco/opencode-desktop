@@ -4,9 +4,85 @@
 //! New Rust features register here via `Feature::register` instead of adding fields to `App` or
 //! editing central dispatch chains in `main.rs`, `tick.rs`, `keys.rs`, or `view.rs`.
 
-use opencode_kernel::{Kernel, KernelBuilder, SurfaceDescriptor, SurfaceKind};
+use opencode_kernel::{
+    AppEnv, AppFeedback, AppOverlays, Kernel, KernelBuilder, OverlayEntry, OverlayEvent,
+    OverlayKind, SurfaceDescriptor, SurfaceKind,
+};
 
-use crate::App;
+use crate::{App, Route};
+
+impl AppEnv for App {
+    fn clock(&self) -> f64 {
+        *self.clock
+    }
+
+    fn now_ms(&self) -> i64 {
+        *self.now_ms
+    }
+
+    fn zoom(&self) -> f32 {
+        *self.zoom
+    }
+
+    fn spellcheck(&self) -> bool {
+        self.settings.spellcheck
+    }
+
+    fn reduced_motion(&self) -> bool {
+        *self.reduced_motion
+    }
+
+    fn is_live(&self) -> bool {
+        self.live()
+    }
+
+    fn persists(&self) -> bool {
+        App::persists(self)
+    }
+
+    fn is_headless(&self) -> bool {
+        crate::headless()
+    }
+
+    fn waker(&self) -> Option<rune::Waker> {
+        (*self.waker).clone()
+    }
+
+    fn active_session_id(&self) -> Option<&str> {
+        match &*self.route {
+            Route::Session { id, .. } => Some(id.as_str()),
+            _ => None,
+        }
+    }
+}
+
+impl AppFeedback for App {
+    fn toast_say(&mut self, title: String, description: String) {
+        crate::status_toast::say(self, title, description);
+    }
+
+    fn toast_succeed(&mut self, title: String, description: String) {
+        crate::status_toast::succeed(self, title, description);
+    }
+
+    fn toast_fail(&mut self, title: String, description: String) {
+        crate::status_toast::fail(self, title, description);
+    }
+}
+
+impl AppOverlays for App {
+    fn on_overlay_opened(&mut self, id: &'static str, return_focus: Option<String>) {
+        let mut entry = OverlayEntry::new(id, OverlayKind::Dialog);
+        if let Some(focus) = return_focus {
+            entry = entry.with_return_focus(focus);
+        }
+        let _ = self.kernel.step_overlay(OverlayEvent::Push(entry));
+    }
+
+    fn on_overlay_closed(&mut self, id: &'static str) {
+        let _ = self.kernel.step_overlay(OverlayEvent::Close(id));
+    }
+}
 
 /// Builds a window's kernel with all decoupled features and core surfaces registered.
 pub fn build() -> Kernel<App> {

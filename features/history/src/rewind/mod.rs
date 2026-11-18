@@ -83,12 +83,10 @@ impl RewindState {
 
 /// Object-safe host boundary for session timeline Rewind (`/undo`, `/redo`, `"Reverted"` toast,
 /// staged revert commits, and user/assistant message actions menus).
-pub trait RewindHost {
+pub trait RewindHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
     fn rewind(&self) -> &RewindState;
     fn rewind_mut(&mut self) -> &mut RewindState;
 
-    /// Active session ID on the current route (`None` on Home/Draft).
-    fn active_session_id(&self) -> Option<&str>;
     /// Metadata for `session`, if known.
     fn session(&self, session: &str) -> Option<&SessionInfo>;
     /// Sets `SessionInfo::revert` for `session`.
@@ -152,8 +150,6 @@ pub trait RewindHost {
     fn toast_dismiss_id(&mut self, id: u64);
     /// Dismisses the current toast if it is an `UndoRewind` toast for `session`.
     fn dismiss_rewound_toast(&mut self, session: &str);
-    /// Shows a request-failure toast.
-    fn toast_fail(&mut self, title: String, description: String);
 
     /// Whether a popup menu is currently open at `anchor`.
     fn popup_open_at(&self, _anchor: &str) -> bool {
@@ -171,13 +167,6 @@ pub trait RewindHost {
     fn withdraw_pending(&mut self, _session: &str, _message_id: &str) {}
     /// Message action: forks `session` from delivered user message `message_id` (`"fork"`).
     fn fork_from_message(&mut self, _session: &str, _message_id: &str, _tx: &mut Tx) {}
-
-    /// Monotonic frame clock in seconds.
-    fn clock(&self) -> f64;
-    /// Wall clock in Unix milliseconds (used for `"Today, …"` / `"Yesterday, …"` menu timestamps).
-    fn now_ms(&self) -> i64 {
-        0
-    }
 }
 
 /// Whether `session` is a root session (subagent sessions hide rewind and fork).

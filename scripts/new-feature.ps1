@@ -285,7 +285,7 @@ pub struct __PASCAL__State {
 }
 
 /// Object-safe host boundary implemented by the shell (`apps/desktop` / `apps/web`).
-pub trait __PASCAL__Host {
+pub trait __PASCAL__Host: opencode_kernel::AppEnv + opencode_kernel::AppFeedback + opencode_kernel::AppOverlays {
     fn state(&self) -> Option<&__PASCAL__State>;
     fn state_mut(&mut self) -> &mut __PASCAL__State;
 }

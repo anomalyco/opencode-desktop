@@ -4,7 +4,7 @@ pub use opencode_feature_switcher::*;
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-use opencode_kernel::{Feature, KernelBuilder, OverlayEntry, OverlayEvent, OverlayKind};
+use opencode_kernel::{Feature, KernelBuilder};
 use opencode_kit::client::Server;
 use opencode_kit::model::{Project, SessionInfo};
 use opencode_kit::servers::ServerKey;
@@ -63,10 +63,6 @@ impl SwitcherHost for App {
         *self.route == Route::Home
     }
 
-    fn active_session_id(&self) -> Option<&str> {
-        App::active_session_id(self)
-    }
-
     fn is_session_open(&self, id: &str) -> bool {
         *self.route == Route::here(id.to_owned())
     }
@@ -94,32 +90,12 @@ impl SwitcherHost for App {
         self.view_runs.get()
     }
 
-    fn clock(&self) -> f64 {
-        *self.clock
-    }
-
-    fn now_ms(&self) -> i64 {
-        *self.now_ms
-    }
-
-    fn waker(&self) -> Option<Waker> {
-        (*self.waker).clone()
-    }
-
     fn peer_waker(&self) -> Option<Waker> {
         crate::windows::peer::waker(self)
     }
 
     fn narrow_width(&self) -> f32 {
         self.layout.narrow.width()
-    }
-
-    fn zoom(&self) -> f32 {
-        *self.zoom
-    }
-
-    fn spellcheck(&self) -> bool {
-        self.settings.spellcheck
     }
 
     fn live_server(&self) -> Option<Server> {
@@ -272,18 +248,6 @@ impl SwitcherHost for App {
         self.composer.focused = restore_composer;
     }
 
-    fn on_overlay_opened(&mut self, id: &'static str, return_focus: Option<String>) {
-        let mut entry = OverlayEntry::new(id, OverlayKind::Dialog);
-        if let Some(focus) = return_focus {
-            entry = entry.with_return_focus(focus);
-        }
-        self.kernel.step_overlay(OverlayEvent::Push(entry));
-    }
-
-    fn on_overlay_closed(&mut self, id: &'static str) {
-        self.kernel.step_overlay(OverlayEvent::Close(id));
-    }
-
     fn prefetch_session(&self, id: &str) {
         App::prefetch_session(self, id);
     }
@@ -302,10 +266,6 @@ impl SwitcherHost for App {
 
     fn open_inbox_session(&mut self, id: &str, tx: &mut Tx) {
         App::open_inbox_session(self, id, tx);
-    }
-
-    fn toast_fail(&mut self, title: String, description: String) {
-        crate::status_toast::fail(self, title, description);
     }
 
     fn handle_shortcut(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {

@@ -23,16 +23,14 @@ const LINE: f32 = 100.0;
 
 /// Object-safe host boundary for session timeline message navigation (Previous/Next message
 /// and the Jump to message dialog).
-pub trait MessageNavHost {
+pub trait MessageNavHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlays {
     fn message_nav(&self) -> &MessageNav;
     fn message_nav_mut(&mut self) -> &mut MessageNav;
     fn jump(&self) -> &JumpState;
     fn jump_mut(&mut self) -> &mut JumpState;
 
-    /// Active session ID on the current route (`None` on Home/Draft).
-    fn active_session_id(&self) -> Option<&str>;
     /// Session ID whose timeline is currently displayed (may differ while opening a target
-    /// session; defaults to [`Self::active_session_id`]).
+    /// session; defaults to [`opencode_kernel::AppEnv::active_session_id`]).
     fn displayed_session_id(&self) -> Option<&str> {
         self.active_session_id()
     }
@@ -65,10 +63,6 @@ pub trait MessageNavHost {
     /// Requests the next older page of messages for `session` toward a jump target.
     fn read_toward_place(&mut self, _session: &str, _tx: &mut Tx) {}
 
-    /// Whether the window talks to a live OpenCode server (as opposed to a fixture).
-    fn is_live(&self) -> bool {
-        false
-    }
     /// Spawns off-thread history loading (`jump::fetch_history`) and delivers the resulting
     /// [`jump::HistoryReply`] via [`jump::apply_history_reply`]. Returns `false` if spawning failed.
     fn spawn_history_load(&mut self, _request: jump::HistoryRequest) -> bool {
@@ -82,20 +76,6 @@ pub trait MessageNavHost {
     fn is_narrow(&self) -> bool {
         false
     }
-    /// Current UI zoom scale (used to size the Jump to message dialog).
-    fn zoom(&self) -> f32 {
-        1.0
-    }
-    /// Whether text inputs enable spellcheck.
-    fn spellcheck(&self) -> bool {
-        false
-    }
-    /// Monotonic frame clock in seconds.
-    fn clock(&self) -> f64;
-    /// Wall clock in Unix milliseconds (used for relative timestamps in Jump to message).
-    fn now_ms(&self) -> i64 {
-        0
-    }
 
     /// Prepares the shell before opening Jump to message (closes conflicting dialogs/pickers/menus,
     /// blurs the composer) and returns whether composer focus should be restored on dismiss.
@@ -108,10 +88,6 @@ pub trait MessageNavHost {
     fn handle_shortcut(&mut self, _ev: &KeyEvent, _tx: &mut Tx) -> bool {
         false
     }
-    /// Registers an opened dialog overlay (`JUMP_OVERLAY_ID`) with `OverlayStack`.
-    fn on_overlay_opened(&mut self, id: &'static str, return_focus: Option<String>);
-    /// Removes a closed dialog overlay (`JUMP_OVERLAY_ID`) from `OverlayStack`.
-    fn on_overlay_closed(&mut self, id: &'static str);
 }
 
 /// Where the session's timeline is, and the prompt a step chose.

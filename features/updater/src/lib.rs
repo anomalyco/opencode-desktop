@@ -68,11 +68,9 @@ pub struct UpdaterConfig {
 }
 
 /// Host window hooks the updater drives on the UI thread.
-pub trait UpdaterHost {
+pub trait UpdaterHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
     fn updater(&self) -> &Updater;
     fn updater_mut(&mut self) -> &mut Updater;
-    fn waker(&self) -> Option<rune::Waker>;
-    fn toast_fail(&mut self, title: String, description: String);
 }
 
 static CONFIG: OnceLock<UpdaterConfig> = OnceLock::new();

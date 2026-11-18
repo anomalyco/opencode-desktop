@@ -64,14 +64,6 @@ impl UpdaterHost for App {
     fn updater_mut(&mut self) -> &mut Updater {
         &mut self.updater
     }
-
-    fn waker(&self) -> Option<rune::Waker> {
-        (*self.waker).clone()
-    }
-
-    fn toast_fail(&mut self, title: String, description: String) {
-        crate::status_toast::fail(self, title, description);
-    }
 }
 
 /// Kernel feature registration for the self-updater.

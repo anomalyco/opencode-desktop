@@ -398,23 +398,17 @@ pub struct MenuOption {
 }
 
 /// Object-safe host boundary for the Open in feature.
-pub trait OpenInHost {
+pub trait OpenInHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
     fn open_in(&self) -> &OpenIn;
     fn open_in_mut(&mut self) -> &mut OpenIn;
     /// Whether the active server shares this machine's filesystem (local live server or fixture).
     fn is_local_server(&self) -> bool;
-    /// Whether user preferences (the remembered app) persist across launches.
-    fn persists(&self) -> bool;
     /// The active session's working directory, if a session is open.
     fn active_session_directory(&self) -> Option<&str>;
     /// Reads a JSON preference from host storage (`STORAGE_NS`, `STORAGE_KEY`).
     fn read_json(&self, ns: &str, key: &str) -> Option<Value>;
     /// Writes a JSON preference to host storage.
     fn write_json(&self, ns: &str, key: &str, val: &Value);
-    /// Shows a failure toast when launching an app fails.
-    fn toast_fail(&mut self, title: String, description: String);
-    /// Shows a success toast (for example after copying a resolved path).
-    fn toast_succeed(&mut self, title: String, description: String);
 }
 
 /// Opens `url` in the system browser, or appends it to `HARNESS_OPEN_EXTERNAL_LOG` when a

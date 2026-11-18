@@ -21,20 +21,16 @@ const ENDS: usize = 16;
 
 /// Object-safe host boundary for live subagent row tracking, steered-call windowing, and
 /// shared whole-second run-clock ticking.
-pub trait AgentRowsHost {
+pub trait AgentRowsHost: opencode_kernel::AppEnv {
     fn agent_rows(&self) -> &Live;
     fn agent_rows_mut(&mut self) -> &mut Live;
 
-    /// Currently active session ID on the open route, if any.
-    fn active_session_id(&self) -> Option<&str>;
     /// Metadata for session `id`, if loaded.
     fn session_info(&self, id: &str) -> Option<&SessionInfo>;
     /// Loaded transcript for session `id`, if any.
     fn transcript(&self, id: &str) -> Option<&Transcript>;
     /// Set of currently running session IDs.
     fn running_sessions(&self) -> &HashSet<String>;
-    /// Wall-clock timestamp in epoch milliseconds (fixture: fixed synthetic clock).
-    fn now_ms(&self) -> i64;
 }
 
 /// What the event stream says about subagents beyond running or not.

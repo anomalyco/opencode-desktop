@@ -89,7 +89,7 @@ type Catalog = (Attempt, Option<Vec<(String, String)>>, Option<Vec<Skill>>, Opti
 
 /// Object-safe host boundary for the `@` mentions popover, search polling, mention badges, and
 /// session chips.
-pub trait MentionsHost {
+pub trait MentionsHost: opencode_kernel::AppEnv {
     fn mentions(&self) -> &Mentions;
     fn mentions_mut(&mut self) -> &mut Mentions;
 
@@ -99,8 +99,6 @@ pub trait MentionsHost {
     fn composer(&self) -> &TextEdit;
     fn composer_mut(&mut self) -> &mut TextEdit;
 
-    /// Currently active session ID, when on a session route.
-    fn active_session_id(&self) -> Option<&str>;
     /// The composer's directory: the active session's, or where a new draft starts.
     fn active_directory(&self) -> String;
     /// Metadata for session `id`, if loaded.
@@ -136,17 +134,9 @@ pub trait MentionsHost {
         None
     }
 
-    /// Whether the window talks to a live OpenCode server (defaults to `live_server().is_some()`).
-    fn is_live(&self) -> bool {
-        self.live_server().is_some()
-    }
     /// Live OpenCode server connection for `/api/agent`, `/api/skill`, `/api/reference`,
     /// `/api/fs/find`, and `/api/session` searches.
     fn live_server(&self) -> Option<Server> {
-        None
-    }
-    /// Optional window waker for background fetches and path-index builds.
-    fn waker(&self) -> Option<Waker> {
         None
     }
     /// Sends a background read request (such as `Request::Lookup` or `Request::Info`).

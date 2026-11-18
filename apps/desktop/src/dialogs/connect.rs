@@ -2,7 +2,7 @@
 
 pub use opencode_feature_connect::*;
 
-use opencode_kernel::{Feature, KernelBuilder, OverlayEntry, OverlayEvent, OverlayKind};
+use opencode_kernel::{Feature, KernelBuilder};
 use opencode_kit::integration::Integration;
 use rune::Tx;
 use rune::machine::Attempt;
@@ -61,24 +61,8 @@ impl ConnectHost for App {
         &self.window.id
     }
 
-    fn is_live(&self) -> bool {
-        self.live()
-    }
-
     fn can_write(&self) -> bool {
         App::can_write(self)
-    }
-
-    fn is_headless(&self) -> bool {
-        crate::headless()
-    }
-
-    fn zoom(&self) -> f32 {
-        *self.zoom
-    }
-
-    fn spellcheck(&self) -> bool {
-        self.settings.spellcheck
     }
 
     fn chatgpt_welcome_seen(&self) -> bool {
@@ -150,14 +134,6 @@ impl ConnectHost for App {
         crate::open_in::open_external(tx, url)
     }
 
-    fn toast_succeed(&mut self, title: String, description: String) {
-        crate::status_toast::succeed(self, title, description);
-    }
-
-    fn toast_fail(&mut self, title: String, description: String) {
-        crate::status_toast::fail(self, title, description);
-    }
-
     fn spawn_job(&mut self, job: ConnectJob) {
         match job {
             ConnectJob::Server { delay, request } => {
@@ -175,18 +151,6 @@ impl ConnectHost for App {
                 self.later(Box::new(move |s: &mut App, tx: &mut Tx| apply_reply(s, reply, tx)) as Apply);
             }
         }
-    }
-
-    fn on_overlay_opened(&mut self, id: &'static str, return_focus: Option<String>) {
-        let mut entry = OverlayEntry::new(id, OverlayKind::Dialog);
-        if let Some(focus) = return_focus {
-            entry = entry.with_return_focus(focus);
-        }
-        self.kernel.step_overlay(OverlayEvent::Push(entry));
-    }
-
-    fn on_overlay_closed(&mut self, id: &'static str) {
-        self.kernel.step_overlay(OverlayEvent::Close(id));
     }
 }
 

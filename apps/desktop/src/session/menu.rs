@@ -2,13 +2,13 @@
 
 pub use opencode_feature_session_menu::*;
 
-use opencode_kernel::{Feature, KernelBuilder, OverlayEntry, OverlayEvent, OverlayKind, Phase};
+use opencode_kernel::{Feature, KernelBuilder, Phase};
 use opencode_kit::client::{Server, Write};
 use opencode_kit::model::{SessionInfo, Transcript};
 use opencode_kit::servers::ServerKey;
 use opencode_kit::wire_error::WireError;
 use opencode_ui::popup::{Menu, PopupAnchor};
-use rune::{El, FileDialogOptions, Tx, Waker};
+use rune::{El, FileDialogOptions, Tx};
 use serde_json::Value;
 use session_view::palette::Pal;
 
@@ -58,10 +58,6 @@ impl SessionMenuHost for App {
         SessionMarks { attention: m.attention, busy: m.busy, unread: m.unread }
     }
 
-    fn active_session_id(&self) -> Option<&str> {
-        App::active_session_id(self)
-    }
-
     fn tabs(&self) -> Vec<TabSummary> {
         self.tab_summaries()
     }
@@ -88,10 +84,6 @@ impl SessionMenuHost for App {
 
     fn boot_ready(&self) -> bool {
         self.checkout.boot == crate::servers::runtime::Boot::Ready
-    }
-
-    fn is_headless(&self) -> bool {
-        crate::headless()
     }
 
     fn live_server(&self) -> Option<&Server> {
@@ -234,34 +226,6 @@ impl SessionMenuHost for App {
         });
         #[cfg(target_arch = "wasm32")]
         let _ = (options, tx, on_done);
-    }
-
-    fn zoom(&self) -> f32 {
-        *self.zoom
-    }
-
-    fn spellcheck(&self) -> bool {
-        self.settings.spellcheck
-    }
-
-    fn clock(&self) -> f64 {
-        *self.clock
-    }
-
-    fn waker(&self) -> Option<Waker> {
-        (*self.waker).clone()
-    }
-
-    fn on_overlay_opened(&mut self, id: &'static str, return_focus: Option<String>) {
-        let mut entry = OverlayEntry::new(id, OverlayKind::Dialog);
-        if let Some(focus) = return_focus {
-            entry = entry.with_return_focus(focus);
-        }
-        self.kernel.step_overlay(OverlayEvent::Push(entry));
-    }
-
-    fn on_overlay_closed(&mut self, id: &'static str) {
-        self.kernel.step_overlay(OverlayEvent::Close(id));
     }
 }
 

@@ -9,7 +9,7 @@ use opencode_kit::model::{SessionInfo, ToolStatus, Transcript};
 use rune::Tx;
 use serde_json::Value;
 
-use crate::{App, Route};
+use crate::App;
 
 impl AgentRowsHost for App {
     fn agent_rows(&self) -> &Live {
@@ -18,13 +18,6 @@ impl AgentRowsHost for App {
 
     fn agent_rows_mut(&mut self) -> &mut Live {
         &mut self.agent_rows
-    }
-
-    fn active_session_id(&self) -> Option<&str> {
-        match &*self.route {
-            Route::Session { id, .. } => Some(id.as_str()),
-            _ => None,
-        }
     }
 
     fn session_info(&self, id: &str) -> Option<&SessionInfo> {
@@ -37,10 +30,6 @@ impl AgentRowsHost for App {
 
     fn running_sessions(&self) -> &HashSet<String> {
         &self.running
-    }
-
-    fn now_ms(&self) -> i64 {
-        *self.now_ms
     }
 }
 

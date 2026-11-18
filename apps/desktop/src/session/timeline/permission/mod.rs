@@ -58,10 +58,6 @@ impl PermissionHost for App {
         });
     }
 
-    fn toast_fail(&mut self, title: String, description: String) {
-        crate::status_toast::fail(self, title, description);
-    }
-
     fn on_permission_replied(&mut self, id: &str) {
         self.pending.retain(|p| p.id() != id);
         self.requests.retain(|(_, r)| r != id);

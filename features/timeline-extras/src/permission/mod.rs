@@ -79,7 +79,7 @@ impl Sent {
 }
 
 /// Object-safe host boundary for permission and question-form reply orchestration.
-pub trait PermissionHost {
+pub trait PermissionHost: opencode_kernel::AppFeedback {
     fn permission_sent(&self) -> &Sent;
     fn permission_sent_mut(&mut self) -> &mut Sent;
 
@@ -114,9 +114,6 @@ pub trait PermissionHost {
 
     /// Schedules a timeout callback after `delay` that invokes [`reply_timed_out`].
     fn schedule_reply_timeout(&mut self, kind: ReplyTimeoutKind, id: String, attempt: Attempt, delay: Duration);
-
-    /// Shows a request-failure toast.
-    fn toast_fail(&mut self, title: String, description: String);
 
     /// Removes an answered permission from pending lists and marks its notification answered,
     /// while keeping its `Replied` entry in [`Sent`] until `permission.replied` arrives.

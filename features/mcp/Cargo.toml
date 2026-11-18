@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 opencode-i18n = { path = "../../crates/opencode-i18n" }
+opencode-kernel = { path = "../../crates/opencode-kernel" }
 opencode-kit = { path = "../../crates/opencode-kit" }
 rune.workspace = true
 rune-kit.workspace = true

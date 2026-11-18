@@ -6,7 +6,7 @@ pub use opencode_feature_timeline_extras::auto_accept::*;
 use opencode_kit::model::Pending;
 use rune::Tx;
 
-use crate::{App, Route};
+use crate::App;
 
 impl AutoAcceptHost for App {
     fn auto_accept_default(&self) -> bool {
@@ -33,13 +33,6 @@ impl AutoAcceptHost for App {
         });
     }
 
-    fn active_session_id(&self) -> Option<&str> {
-        match &*self.route {
-            Route::Session { id, .. } => Some(id.as_str()),
-            _ => None,
-        }
-    }
-
     fn project_id_for_session(&self, session_id: &str) -> Option<&str> {
         self.session(session_id)
             .and_then(|i| self.project_for_session(i))
@@ -52,10 +45,6 @@ impl AutoAcceptHost for App {
 
     fn reply_permission(&mut self, id: &str, decision: &str) {
         App::reply_permission(self, id, decision);
-    }
-
-    fn toast_say(&mut self, title: String, description: String) {
-        crate::status_toast::say(self, title, description);
     }
 }
 

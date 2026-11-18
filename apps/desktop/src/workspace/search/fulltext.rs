@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 use opencode_kit::model::{Project, SessionInfo};
 use opencode_storage::Storage;
-use rune::Waker;
 
 use crate::App;
 
@@ -42,13 +41,6 @@ impl FulltextHost for App {
         App::home_selected_id(self)
     }
 
-    fn active_session_id(&self) -> Option<&str> {
-        match &*self.route {
-            crate::Route::Session { id, .. } => Some(id.as_str()),
-            _ => None,
-        }
-    }
-
     fn root_of<'a>(&'a self, id: &'a str) -> &'a str {
         App::root_of(self, id)
     }
@@ -70,14 +62,6 @@ impl FulltextHost for App {
             .iter()
             .find(|t| t.id == session_id && !t.title.is_empty())
             .map(|t| (t.title.as_str(), t.directory.as_str()))
-    }
-
-    fn now_ms(&self) -> i64 {
-        *self.now_ms
-    }
-
-    fn waker(&self) -> Option<Waker> {
-        (*self.waker).clone()
     }
 
     fn with_storage(&self, op: Box<dyn FnOnce(&Storage) + Send>) {

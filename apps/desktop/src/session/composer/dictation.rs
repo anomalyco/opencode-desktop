@@ -22,10 +22,6 @@ impl DictationHost for App {
         &mut self.composer
     }
 
-    fn clock(&self) -> f64 {
-        *self.clock
-    }
-
     fn is_dictate_bind(&self, ev: &KeyEvent) -> bool {
         crate::keymap::Bind::Dictate.matches(ev)
     }
@@ -38,11 +34,7 @@ impl DictationHost for App {
         crate::dirs::hex_support()
     }
 
-    fn is_headless(&self) -> bool {
-        crate::headless()
-    }
-
-    fn waker(&self) -> Option<Waker> {
+    fn dictation_waker(&self) -> Option<Waker> {
         self.launch.inbox_wake.clone()
     }
 

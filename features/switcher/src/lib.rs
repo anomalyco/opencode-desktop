@@ -109,7 +109,7 @@ pub struct SessionMarks {
 }
 
 /// Object-safe host boundary for the command/file/session palette and shared session search index.
-pub trait SwitcherHost {
+pub trait SwitcherHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback + opencode_kernel::AppOverlays {
     fn switcher(&self) -> &Switcher;
     fn switcher_mut(&mut self) -> &mut Switcher;
     fn session_search(&self) -> &SessionSearch;
@@ -128,7 +128,6 @@ pub trait SwitcherHost {
 
     // Active route, clock & layout
     fn is_home(&self) -> bool;
-    fn active_session_id(&self) -> Option<&str>;
     /// Whether `id` is the session currently displayed in the active route.
     fn is_session_open(&self, id: &str) -> bool;
     /// Whether `id` is open as a tab (`server == None` checks the active server).
@@ -145,25 +144,12 @@ pub trait SwitcherHost {
     fn view_runs(&self) -> u64 {
         2
     }
-    fn clock(&self) -> f64;
-    fn now_ms(&self) -> i64 {
-        0
-    }
-    fn waker(&self) -> Option<Waker> {
-        None
-    }
-    /// Shared peer waker for multi-window session index builds (defaults to [`Self::waker`]).
+    /// Shared peer waker for multi-window session index builds (defaults to [`opencode_kernel::AppEnv::waker`]).
     fn peer_waker(&self) -> Option<Waker> {
         self.waker()
     }
     fn narrow_width(&self) -> f32 {
         0.0
-    }
-    fn zoom(&self) -> f32 {
-        1.0
-    }
-    fn spellcheck(&self) -> bool {
-        false
     }
 
     // Live server & multi-server
@@ -231,10 +217,6 @@ pub trait SwitcherHost {
     }
     /// Restores (or clears) composer focus after closing the switcher.
     fn after_switcher_close(&mut self, _restore_composer: bool) {}
-    /// Registers an opened dialog overlay (`OVERLAY_ID`) with `OverlayStack`.
-    fn on_overlay_opened(&mut self, id: &'static str, return_focus: Option<String>);
-    /// Removes a closed dialog overlay from `OverlayStack`.
-    fn on_overlay_closed(&mut self, id: &'static str);
     fn prefetch_session(&self, _id: &str) {}
     /// Opens session `id`, optionally opening Find at `(query, message_id)`.
     fn open_session(&mut self, id: &str, find: Option<(&str, &str)>, tx: &mut Tx);
@@ -242,7 +224,6 @@ pub trait SwitcherHost {
     fn open_inbox_session(&mut self, id: &str, tx: &mut Tx) {
         self.open_session(id, None, tx);
     }
-    fn toast_fail(&mut self, title: String, description: String);
     fn handle_shortcut(&mut self, _ev: &KeyEvent, _tx: &mut Tx) -> bool {
         false
     }

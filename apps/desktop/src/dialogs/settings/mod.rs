@@ -6,7 +6,7 @@ mod stories;
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use opencode_kernel::{Feature, KernelBuilder, OverlayEntry, OverlayEvent, OverlayKind, Phase};
+use opencode_kernel::{Feature, KernelBuilder, Phase};
 use opencode_kit::integration::{Integration, McpServer};
 use opencode_kit::model::{Project, SessionInfo};
 use opencode_kit::servers::health::Health;
@@ -127,28 +127,8 @@ impl SettingsHost for App {
         &mut self.settings_pages
     }
 
-    fn persists(&self) -> bool {
-        App::persists(self)
-    }
-
     fn can_write(&self) -> bool {
         App::can_write(self)
-    }
-
-    fn clock(&self) -> f64 {
-        *self.clock
-    }
-
-    fn now_ms(&self) -> i64 {
-        *self.now_ms
-    }
-
-    fn reduced_motion(&self) -> bool {
-        *self.reduced_motion
-    }
-
-    fn zoom(&self) -> f32 {
-        *self.zoom
     }
 
     fn set_zoom_level(&mut self, level: f32) {
@@ -587,18 +567,6 @@ impl SettingsHost for App {
         let _ = tx.open_url(url);
     }
 
-    fn toast_say(&mut self, title: String, description: String) {
-        crate::status_toast::say(self, title, description);
-    }
-
-    fn toast_fail(&mut self, title: String, description: String) {
-        crate::status_toast::fail(self, title, description);
-    }
-
-    fn toast_succeed(&mut self, title: String, description: String) {
-        crate::status_toast::succeed(self, title, description);
-    }
-
     fn toast_failed_wire(&mut self, title: String, err: &WireError) {
         crate::status_toast::failed_wire(self, &title, err);
     }
@@ -620,18 +588,6 @@ impl SettingsHost for App {
                 });
             }
         }
-    }
-
-    fn on_overlay_opened(&mut self, id: &'static str, return_focus: Option<String>) {
-        let mut entry = OverlayEntry::new(id, OverlayKind::Dialog);
-        if let Some(focus) = return_focus {
-            entry = entry.with_return_focus(focus);
-        }
-        self.kernel.step_overlay(OverlayEvent::Push(entry));
-    }
-
-    fn on_overlay_closed(&mut self, id: &'static str) {
-        self.kernel.step_overlay(OverlayEvent::Close(id));
     }
 }
 

@@ -77,7 +77,7 @@ pub enum Effect {
 }
 
 /// Object-safe host boundary for file drag-and-drop overlay transitions and rendering.
-pub trait DropzoneHost {
+pub trait DropzoneHost: opencode_kernel::AppEnv {
     /// Current dropzone state (must not dirty `Tracked` cells).
     fn dropzone(&self) -> Dropzone;
     /// Mutable access to the dropzone state.
@@ -86,10 +86,6 @@ pub trait DropzoneHost {
     fn attachment_input(&self) -> AttachmentInput;
     /// Attaches one dropped file path to the composer.
     fn attach_path(&mut self, path: &Path);
-    /// Whether reduced motion is active.
-    fn reduced_motion(&self) -> bool {
-        false
-    }
 }
 
 /// `duration-200`.

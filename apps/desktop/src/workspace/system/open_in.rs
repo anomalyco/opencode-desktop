@@ -28,10 +28,6 @@ impl OpenInHost for App {
         }
     }
 
-    fn persists(&self) -> bool {
-        App::persists(self)
-    }
-
     fn active_session_directory(&self) -> Option<&str> {
         Some(self.session(self.active_session_id()?)?.directory.as_str())
     }
@@ -42,14 +38,6 @@ impl OpenInHost for App {
 
     fn write_json(&self, ns: &str, key: &str, val: &Value) {
         crate::storage::set_json(ns, key, val);
-    }
-
-    fn toast_fail(&mut self, title: String, description: String) {
-        crate::status_toast::fail(self, title, description);
-    }
-
-    fn toast_succeed(&mut self, title: String, description: String) {
-        crate::status_toast::succeed(self, title, description);
     }
 }
 

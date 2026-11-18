@@ -119,7 +119,7 @@ impl Connect {
 
 /// Object-safe host boundary for the Connect provider dialog, ChatGPT plan welcome, integration
 /// catalogs, and server-wide picker catalog reads.
-pub trait ConnectHost {
+pub trait ConnectHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback + opencode_kernel::AppOverlays {
     fn connect(&self) -> &Connect;
     fn connect_mut(&mut self) -> &mut Connect;
     fn catalogs(&self) -> &Catalogs;
@@ -140,23 +140,9 @@ pub trait ConnectHost {
         ""
     }
 
-    /// Whether the window talks to a live OpenCode server (as opposed to a fixture).
-    fn is_live(&self) -> bool;
-    /// Whether this window may mutate server state (defaults to [`Self::is_live`]).
+    /// Whether this window may mutate server state (defaults to [`opencode_kernel::AppEnv::is_live`]).
     fn can_write(&self) -> bool {
         self.is_live()
-    }
-    /// Whether the window runs headless (suppresses automatic external browser launches).
-    fn is_headless(&self) -> bool {
-        rune::is_headless()
-    }
-    /// Current window zoom factor used to size modal dialogs.
-    fn zoom(&self) -> f32 {
-        1.0
-    }
-    /// Whether text inputs in the dialog enable spellcheck.
-    fn spellcheck(&self) -> bool {
-        false
     }
 
     /// Whether the ChatGPT plan welcome card has already been shown.
@@ -202,17 +188,8 @@ pub trait ConnectHost {
     fn open_external(&mut self, url: &str, tx: &mut Tx) -> bool {
         tx.open_url(url).is_ok()
     }
-    /// Shows a success toast.
-    fn toast_succeed(&mut self, title: String, description: String);
-    /// Shows a failure toast.
-    fn toast_fail(&mut self, title: String, description: String);
     /// Schedules an off-thread server request, timer, or next-poll deferred reply.
     fn spawn_job(&mut self, job: ConnectJob);
-
-    /// Registers an opened dialog overlay (`OVERLAY_ID` or `WELCOME_OVERLAY_ID`) with `OverlayStack`.
-    fn on_overlay_opened(&mut self, id: &'static str, return_focus: Option<String>);
-    /// Removes a closed dialog overlay from `OverlayStack`.
-    fn on_overlay_closed(&mut self, id: &'static str);
 }
 
 fn focused(text: &str) -> TextEdit {

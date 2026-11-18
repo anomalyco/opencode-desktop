@@ -25,14 +25,12 @@ pub struct PanelChrome {
 /// `opencode-feature-panels` operates on `&dyn PanelsHost` / `&mut dyn PanelsHost`.
 /// Generic `H: PanelsHost + 'static` bounds appear only at `rune::El` view/callback
 /// boundaries, delegating 1-line to non-generic handlers.
-pub trait PanelsHost {
+pub trait PanelsHost: opencode_kernel::AppEnv {
     /// Side/split/bottom panel state (tracked read).
     fn side(&self) -> &SideState;
     /// Side/split/bottom panel state (tracked write — callers only invoke when mutating).
     fn side_mut(&mut self) -> &mut SideState;
 
-    /// Currently routed session ID, when on a session route.
-    fn active_session_id(&self) -> Option<&str>;
     /// Working directory of session `sid`, if loaded.
     fn session_directory(&self, sid: &str) -> Option<&str>;
     /// Project ID of session `sid` (empty if global or unknown).
@@ -70,18 +68,6 @@ pub trait PanelsHost {
     /// Window chrome metrics for positioning and caching the side region.
     fn panel_chrome(&self) -> PanelChrome {
         PanelChrome { top: 8.0, foot: 0.0, stamp: 0 }
-    }
-    /// Active UI zoom factor.
-    fn zoom(&self) -> f32 {
-        1.0
-    }
-    /// Monotonic frame clock in seconds.
-    fn clock(&self) -> f64 {
-        0.0
-    }
-    /// Wall-clock timestamp in epoch milliseconds.
-    fn now_ms(&self) -> i64 {
-        0
     }
     /// Live look-and-feel knobs (used for popover placement and motion).
     fn knobs(&self) -> &Knobs;

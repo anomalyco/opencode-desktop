@@ -177,33 +177,15 @@ impl Default for AboutInfo {
 }
 
 /// Object-safe host boundary for the Settings screen, preferences, search, and all built-in pages.
-pub trait SettingsHost {
+pub trait SettingsHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback + opencode_kernel::AppOverlays {
     fn settings(&self) -> &Settings;
     fn settings_mut(&mut self) -> &mut Settings;
     fn settings_pages(&self) -> &pages::State;
     fn settings_pages_mut(&mut self) -> &mut pages::State;
 
-    /// Whether this window persists preference and fold changes to storage.
-    fn persists(&self) -> bool {
-        false
-    }
     /// Whether this window may issue mutating requests to the server.
     fn can_write(&self) -> bool {
         false
-    }
-    /// Monotonic frame clock in seconds.
-    fn clock(&self) -> f64 {
-        0.0
-    }
-    /// Wall clock in Unix milliseconds.
-    fn now_ms(&self) -> i64 {
-        0
-    }
-    fn reduced_motion(&self) -> bool {
-        false
-    }
-    fn zoom(&self) -> f32 {
-        1.0
     }
     fn set_zoom_level(&mut self, level: f32) {
         let _ = level;
@@ -552,15 +534,6 @@ pub trait SettingsHost {
     fn open_external(&mut self, url: &str, tx: &mut Tx) {
         drop(tx.open_url(url));
     }
-    fn toast_say(&mut self, title: String, description: String) {
-        let _ = (title, description);
-    }
-    fn toast_fail(&mut self, title: String, description: String) {
-        let _ = (title, description);
-    }
-    fn toast_succeed(&mut self, title: String, description: String) {
-        let _ = (title, description);
-    }
     fn toast_failed_wire(&mut self, title: String, err: &WireError) {
         self.toast_fail(title, err.to_string());
     }
@@ -569,8 +542,4 @@ pub trait SettingsHost {
     fn spawn_job(&mut self, job: SettingsJob) {
         let _ = job;
     }
-    /// Registers an opened settings overlay (`OVERLAY_ID`, etc.) with `OverlayStack`.
-    fn on_overlay_opened(&mut self, id: &'static str, return_focus: Option<String>);
-    /// Removes a closed settings overlay from `OverlayStack`.
-    fn on_overlay_closed(&mut self, id: &'static str);
 }

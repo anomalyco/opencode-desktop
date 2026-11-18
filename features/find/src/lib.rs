@@ -33,12 +33,10 @@ pub use transcript_index::{Index, KEY_BUDGET, Kind, Results, RowHit, Source, Tra
 pub use view::{bar, menu_items};
 
 /// Object-safe host boundary for session timeline Find (`⌘F` / `Ctrl+F`).
-pub trait FindHost {
+pub trait FindHost: opencode_kernel::AppEnv {
     fn find(&self) -> &Find;
     fn find_mut(&mut self) -> &mut Find;
 
-    /// Active session ID when viewing a session timeline (`None` on Home/Draft).
-    fn active_session_id(&self) -> Option<&str>;
     /// Whether the window is currently on Home (where `⌘F` / Edit › Find focuses Home search).
     fn is_home(&self) -> bool {
         false
@@ -118,18 +116,6 @@ pub trait FindHost {
         false
     }
 
-    /// Whether spellcheck is enabled on text inputs.
-    fn spellcheck(&self) -> bool {
-        false
-    }
-    /// Current UI zoom scale.
-    fn zoom(&self) -> f32 {
-        1.0
-    }
-    /// Optional window waker for background index/match workers.
-    fn waker(&self) -> Option<Waker> {
-        None
-    }
     /// BCP-47 language tag used for locale-aware search folding (e.g. Turkish/Azerbaijani `I`).
     fn search_fold_language(&self) -> &str {
         opencode_i18n::locale().tag()

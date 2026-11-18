@@ -19,10 +19,6 @@ impl RewindHost for App {
         &mut self.rewind
     }
 
-    fn active_session_id(&self) -> Option<&str> {
-        App::active_session_id(self)
-    }
-
     fn session(&self, session: &str) -> Option<&SessionInfo> {
         App::session(self, session)
     }
@@ -124,10 +120,6 @@ impl RewindHost for App {
         }
     }
 
-    fn toast_fail(&mut self, title: String, description: String) {
-        crate::status_toast::fail(self, title, description);
-    }
-
     fn popup_open_at(&self, anchor: &str) -> bool {
         self.popup.open_at(anchor)
     }
@@ -152,14 +144,6 @@ impl RewindHost for App {
 
     fn fork_from_message(&mut self, session: &str, message_id: &str, tx: &mut Tx) {
         let _ = App::fork_from(self, session, message_id, tx);
-    }
-
-    fn clock(&self) -> f64 {
-        *self.clock
-    }
-
-    fn now_ms(&self) -> i64 {
-        *self.now_ms
     }
 }
 

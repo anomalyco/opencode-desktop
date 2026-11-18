@@ -7,7 +7,7 @@ use std::rc::Rc;
 use opencode_kernel::{Feature, KernelBuilder, Phase};
 use opencode_kit::model::CommentOrigin;
 use opencode_ui::popup::Menu;
-use rune::{El, Tx, Waker};
+use rune::{El, Tx};
 use serde_json::Value;
 
 use crate::App;
@@ -20,22 +20,6 @@ impl LineCommentsHost for App {
 
     fn line_comments_mut(&mut self) -> &mut LineComments {
         &mut self.line_comments
-    }
-
-    fn active_session_id(&self) -> Option<&str> {
-        App::active_session_id(self)
-    }
-
-    fn now_ms(&self) -> i64 {
-        *self.now_ms
-    }
-
-    fn zoom(&self) -> f32 {
-        *self.zoom
-    }
-
-    fn waker(&self) -> Option<Waker> {
-        (*self.waker).clone()
     }
 
     fn view_selection(&self, spot: &Spot) -> Option<Range> {
