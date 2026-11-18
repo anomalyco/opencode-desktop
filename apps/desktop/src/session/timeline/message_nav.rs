@@ -5,7 +5,7 @@ pub use opencode_feature_history::message_nav::*;
 
 use std::rc::Rc;
 
-use opencode_kernel::{Feature, KernelBuilder, Phase};
+use opencode_kernel::{Feature, KernelBuilder, OverlayRegistration, Phase};
 use opencode_kit::model::Transcript;
 use rune::{KeyEvent, LiveRegion, Tx};
 use session_view::timeline::Projection;
@@ -135,8 +135,36 @@ impl Feature<App> for HistoryFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
-        builder.register_overlay_dismiss(JUMP_OVERLAY_ID, |s, _| jump::close(s, true));
-        builder.register_overlay_dismiss(crate::fork::FORK_OVERLAY_ID, |s, _| crate::fork::close(s, true));
+        builder.register_overlay(
+            OverlayRegistration::<App>::new(crate::fork::FORK_OVERLAY_ID)
+                .with_z(300)
+                .with_key_priority(200)
+                .with_render(|s, cx| {
+                    if s.fork.open {
+                        let p = crate::palette::pal(s.dark(cx));
+                        crate::fork::view(s, p, cx).into()
+                    } else {
+                        Vec::new()
+                    }
+                })
+                .with_key(|s, ev, tx| s.fork_key(ev, tx))
+                .with_dismiss(|s, _| crate::fork::close(s, true)),
+        );
+        builder.register_overlay(
+            OverlayRegistration::<App>::new(JUMP_OVERLAY_ID)
+                .with_z(310)
+                .with_key_priority(210)
+                .with_render(|s, cx| {
+                    if s.jump.open() {
+                        let p = crate::palette::pal(s.dark(cx));
+                        jump::view(s, p, cx).into()
+                    } else {
+                        Vec::new()
+                    }
+                })
+                .with_key(|s, ev, tx| s.jump_key(ev, tx))
+                .with_dismiss(|s, _| jump::close(s, true)),
+        );
         builder.add_system(Phase::Derive, "history.message_nav", |s, _, tx| poll(s, tx));
         builder.add_system(Phase::Derive, "history.rewind", |s, _, tx| crate::rewind::revert_timeouts(s, tx));
         builder.add_system(Phase::Derive, "history.fork", |s, _, tx| crate::fork::poll(s, tx));

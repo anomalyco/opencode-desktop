@@ -2,7 +2,7 @@
 
 pub use opencode_feature_usage::*;
 
-use opencode_kernel::{Feature, KernelBuilder};
+use opencode_kernel::{Feature, KernelBuilder, OverlayRegistration};
 use rune::Tx;
 use serde_json::Value;
 
@@ -120,10 +120,18 @@ impl Feature<App> for UsageFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
-        builder.register_overlay_dismiss(OVERLAY_ID, |s, tx| {
-            tx.instant();
-            s.close_usage();
-        });
+        builder.register_overlay(
+            OverlayRegistration::<App>::new(OVERLAY_ID)
+                .with_z(440)
+                .with_render(|s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    layer(s, p, cx)
+                })
+                .with_dismiss(|s, tx| {
+                    tx.instant();
+                    s.close_usage();
+                }),
+        );
     }
 }
 

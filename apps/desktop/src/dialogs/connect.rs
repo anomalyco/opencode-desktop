@@ -2,7 +2,7 @@
 
 pub use opencode_feature_connect::*;
 
-use opencode_kernel::{Feature, KernelBuilder};
+use opencode_kernel::{Feature, KernelBuilder, OverlayRegistration};
 use opencode_kit::integration::Integration;
 use rune::Tx;
 use rune::machine::Attempt;
@@ -200,8 +200,26 @@ impl Feature<App> for ConnectFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
-        builder.register_overlay_dismiss(OVERLAY_ID, |s, tx| close(s, tx));
-        builder.register_overlay_dismiss(WELCOME_OVERLAY_ID, |s, tx| welcome::close(s, tx));
+        builder.register_overlay(
+            OverlayRegistration::<App>::new(OVERLAY_ID)
+                .with_z(400)
+                .with_key_priority(100)
+                .with_render(|s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    view::layer(s, p, cx)
+                })
+                .with_key(|s, ev, tx| key(s, ev, tx))
+                .with_dismiss(|s, tx| close(s, tx)),
+        );
+        builder.register_overlay(
+            OverlayRegistration::<App>::new(WELCOME_OVERLAY_ID)
+                .with_z(410)
+                .with_render(|s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    welcome::layer(s, p, cx)
+                })
+                .with_dismiss(|s, tx| welcome::close(s, tx)),
+        );
     }
 }
 
