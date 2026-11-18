@@ -105,6 +105,15 @@ fn last_usage<'a>(app: &'a App, id: &str) -> Option<(&'a opencode_kit::model::As
     session_view::usage::at(t, at?)
 }
 
+/// Session `info`'s project ID as Desktop's `MountedSession.project` resolves it
+/// (`mounted-session.ts:297-301`, `session/model.ts:129-137`): a listed project matching the
+/// session (`project_for_session`), else a non-`"global"` raw `projectID`.
+fn session_project_id<'a>(app: &'a App, info: &'a opencode_kit::model::SessionInfo) -> Option<&'a str> {
+    app.project_for_session(info)
+        .map(|p| p.id.as_str())
+        .or_else(|| (!info.project.is_empty() && info.project != "global").then_some(info.project.as_str()))
+}
+
 /// A session's version, as plugins see it: it moves when its title, cost, usage, message count
 /// or busy state does, and not while a reply streams within a step.
 /// `watch::SessionInputs` tracks the shared inputs. Only this session reads its transcript.
@@ -116,7 +125,7 @@ pub fn session_version(app: &App, id: &str) -> u64 {
     let messages = t.map(|t| t.messages.len());
     let usage = last.map(|(_, k)| (k.input, k.output, k.reasoning, k.cache_read, k.cache_write));
     let mut h = std::hash::DefaultHasher::new();
-    (&info.title, info.updated, cost.to_bits(), messages, app.subtree_running(&info.id), usage, last.map(|(a, _)| (&a.id, a.completed)), (&info.model.provider, &info.model.id, &info.model.variant, &info.agent, &info.project, app.held(id))).hash(&mut h);
+    (&info.title, info.updated, cost.to_bits(), messages, app.subtree_running(&info.id), usage, last.map(|(a, _)| (&a.id, a.completed)), (&info.model.provider, &info.model.id, &info.model.variant, &info.agent, session_project_id(app, info), app.held(id))).hash(&mut h);
     // The Context tab lists the inbox's waiting input too.
     messages_version(app, id).hash(&mut h);
     h.finish()
@@ -189,7 +198,7 @@ fn build_session(lua: &Lua, app: &App, id: &str) -> mlua::Result<Value> {
         s.str(c"directory", &info.directory);
         s.str(c"title", &info.title);
         s.opt_str(c"parentId", info.parent.as_deref());
-        s.opt_str(c"projectId", (!info.project.is_empty()).then_some(info.project.as_str()));
+        s.opt_str(c"projectId", session_project_id(app, info));
         s.opt_str(c"agent", (!info.agent.is_empty()).then_some(info.agent.as_str()));
         s.opt_str(c"variant", (!info.model.variant.is_empty() && info.model.variant != "default").then_some(info.model.variant.as_str()));
         s.bool(c"busy", busy);

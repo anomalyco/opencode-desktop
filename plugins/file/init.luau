@@ -117,7 +117,8 @@ return plugin.defineWindow(function(ctx)
         end,
     })
 
-    -- The + menu's and New tab's Open file row (order 30).
+    -- The + menu's and New tab's Open file row (order 30): offered for every session, with or
+    -- without a project (`packages/gui-plugins/src/file/renderer.tsx:513-527`).
     ctx:AddMenuItem({
         menu = "session.panel",
         id = "open",
@@ -126,8 +127,7 @@ return plugin.defineWindow(function(ctx)
         keybind = "file.browse",
         order = 30,
         when = function(sid: string): boolean
-            local session = Sessions:Get(sid)
-            return session ~= nil and session.projectId ~= nil
+            return Sessions:Get(sid) ~= nil
         end,
         run = function(sid: string?)
             browse(sid)

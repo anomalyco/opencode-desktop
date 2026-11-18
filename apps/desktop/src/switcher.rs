@@ -618,6 +618,13 @@ impl App {
             _ => None,
         };
         self.close_switcher(false);
+        if let Action::Session(id) = &action
+            && !restore
+            && self.session(id).is_none()
+            && let Some(s) = self.switcher.loaded.iter().find(|s| s.id == *id).cloned()
+        {
+            self.sessions.push(s);
+        }
         match action {
             Action::Session(_) if restore => {}
             Action::Session(id) if find.is_some() => {
@@ -626,12 +633,6 @@ impl App {
                 self.open_find_at(&q, find.as_deref().unwrap_or_default(), tx);
             }
             Action::Session(id) => {
-                // A session only the search knows joins the list, so its tab has a title.
-                if self.session(&id).is_none()
-                    && let Some(s) = self.switcher.loaded.iter().find(|s| s.id == id).cloned()
-                {
-                    self.sessions.push(s);
-                }
                 self.open(&id, tx);
                 // The palette is gone: show the chosen shell, not the previous transcript,
                 // while the existing page request finishes. Keep its retry/back state.

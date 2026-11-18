@@ -25,7 +25,7 @@ fn hash(v: impl Hash) -> u64 {
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct SessionInputs {
     server: opencode_kit::servers::ServerKey,
-    shared: [Stamp; 4],
+    shared: [Stamp; 5],
     transcript: Stamp,
 }
 
@@ -34,7 +34,7 @@ impl SessionInputs {
         Self {
             // Polling a parked server checks out and restores these cells within one turn.
             server: crate::servers::runtime::active(app).clone(),
-            shared: [Stamp::of(&app.sessions), Stamp::of(&app.running), Stamp::of(&app.inboxes), Stamp::of(&app.context_windows)],
+            shared: [Stamp::of(&app.sessions), Stamp::of(&app.projects), Stamp::of(&app.running), Stamp::of(&app.inboxes), Stamp::of(&app.context_windows)],
             transcript: Stamp::of(&app.transcripts),
         }
     }
