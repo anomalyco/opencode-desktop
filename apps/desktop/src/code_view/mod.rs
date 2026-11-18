@@ -54,11 +54,11 @@ pub const CHUNK_LINES: u32 = 128;
 /// is over the box (`:hover::-webkit-scrollbar-thumb`). The end padding the rows leave for it,
 /// from the viewport's and the rows' last laid-out heights.
 pub(crate) fn scroll_gutter(bar: &rune_kit::ScrollBarStyle, viewport: &str, rows: &str) -> f32 {
-    let view = rune::memo::layout_with(viewport, |r| r[3]);
-    let content = rune::memo::layout_with(rows, |r| r[3]);
-    match (view, content) {
-        (Some(view), Some(content)) if content > view + 0.5 => bar.strip(),
-        _ => 0.0,
+    let Some(view) = rune::memo::layout_with(viewport, |r| r[3]) else { return 0.0 };
+    if rune::memo::layout_with(rows, move |r| r[3] > view + 0.5) == Some(true) {
+        bar.strip()
+    } else {
+        0.0
     }
 }
 

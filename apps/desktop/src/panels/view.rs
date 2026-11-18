@@ -129,7 +129,7 @@ fn side_region_in(s: &App, p: &Pal, laid_w: f32, bottom_reserve: f32, main: [f32
         let mut card = card_frame(p, w).key("side-panel").role("region").label_static(opencode_i18n::t!("session.panel.reviewAndFiles"))
             // No ring, as `#review-panel` (`tabIndex={-1}`, `outline-none`, `side-region.tsx:105-109`).
             .focusable(col_open).tab_index(-1).no_focus_ring().grow(1.0).min_h(0.0);
-        if s.side_mounted() && let Some(reg) = s.resolve_side_region() {
+        if shown && s.side_mounted() && let Some(reg) = s.resolve_side_region() {
             let env_scale = cx.env().scale;
             let col_h = cx.layout_with("side-column", |r| r[3]).unwrap_or(720.0 / *s.zoom);
             card = card.child(region_body(s, p, &reg, w, col_h, env_scale));
