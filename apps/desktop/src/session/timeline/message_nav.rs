@@ -89,7 +89,7 @@ impl MessageNavHost for App {
     }
 
     fn announce(&mut self, words: String, region: LiveRegion) {
-        self.speech.say(words, region);
+        self.kernel.slots.slot::<crate::speech::Speech>().say(words, region);
     }
 
     fn is_narrow(&self) -> bool {

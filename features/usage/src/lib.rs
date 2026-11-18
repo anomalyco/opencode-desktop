@@ -3,6 +3,8 @@
 //! dialog opens. Limits read before show while the new read runs; a read that fails, or takes
 //! longer than 15 s, offers Try again; a server not signed in to Console says so.
 
+#![forbid(unsafe_code)]
+
 pub mod limits;
 pub mod view;
 

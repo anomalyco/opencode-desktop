@@ -58,10 +58,12 @@ pub struct Read {
     pub thread: String,
 }
 
+type FrameStamp = (Instant, Option<f64>, Option<f64>);
+
 thread_local! {
     static READ: RefCell<Option<(Instant, usize, Instant)>> = const { RefCell::new(None) };
     static OPEN: RefCell<Option<Open>> = const { RefCell::new(None) };
-    static FRAME: RefCell<Option<(Instant, Option<f64>, Option<f64>)>> = const { RefCell::new(None) };
+    static FRAME: RefCell<Option<FrameStamp>> = const { RefCell::new(None) };
     static PAINTED: RefCell<Option<(String, usize)>> = const { RefCell::new(None) };
 }
 
