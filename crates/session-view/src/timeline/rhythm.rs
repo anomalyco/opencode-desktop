@@ -66,26 +66,43 @@ const fn edges(who: Who, item: Item, inset: f32) -> Edges {
 
 /// A 28 pt trigger around a 16 pt line.
 const LINE_INSET: f32 = 6.0;
-/// Markdown's half-leading over and under its text at the reply's 14/22.4, as Desktop trims it
-/// (`timeline-next.css:449-451`, `text-box: trim-both text`): Inter's ascent (1984/2048 em) and
-/// descent (494/2048) rounded to device pixels, the leading floored above them and the rest
-/// below, as Blink splits it and Rune lays the line out. 2 and 3.4 at 1x; 2.67 and 3.2 at 1.875x.
-pub(crate) fn prose_insets() -> (f32, f32) {
+/// Half-leading over and under `md` in points, as Desktop trims it (`timeline-next.css:449-452`,
+/// `text-box: trim-both text`): Inter's ascent (1984/2048 em) and descent (494/2048) rounded to
+/// device pixels, the leading floored above them and the rest below, as Blink splits it and Rune
+/// lays the line out.
+fn line_insets(md: rune::TextStyle) -> (f32, f32) {
     let s = crate::scroller::device_scale();
-    let md = crate::style::MD;
     let line = (md.line_px() * s * 64.0).round() / 64.0;
     let text = (md.size * s * 1984.0 / 2048.0).round() + (md.size * s * 494.0 / 2048.0).round();
     let over = ((line - text) / 2.0).floor();
     (over / s, (line - text - over) / s)
 }
 
+/// Markdown's half-leading over and under its prose text at 14/22.4 (`line_insets(MD)`).
+/// 2 and 3.4 at 1x; 2.67 and 3.2 at 1.875x.
+pub(crate) fn prose_insets() -> (f32, f32) {
+    line_insets(crate::style::MD)
+}
+
+fn atx_heading(line: &str) -> Option<rune::TextStyle> {
+    let s = line.trim_start_matches(' ');
+    if line.len() - s.len() > 3 { return None; }
+    let n = s.bytes().take_while(|&b| b == b'#').count();
+    if !(1..=6).contains(&n) { return None; }
+    let rest = &s[n..];
+    if !rest.is_empty() && !rest.starts_with([' ', '\t']) { return None; }
+    Some(crate::style::MD_H[(n - 1).min(3)])
+}
+
 /// Words; `footer`, they end a turn a later prompt follows, under its footer. A fenced block at an
-/// edge is a card's edge there.
+/// edge is a card's edge there; an ATX heading trims at its own `MD_H` line-height (`markdown.css`).
 fn prose(body: &str, footer: bool) -> Edges {
-    let (over, under) = prose_insets();
     let footer = if footer { crate::working::COPY_AT.1 + crate::working::COPY } else { 0.0 };
-    let top = if body.trim_start().starts_with("```") { 0.0 } else { over };
-    let bottom = if body.trim_end().ends_with("```") { 0.0 } else { under };
+    let trimmed = body.trim();
+    let first = trimmed.lines().next().unwrap_or("");
+    let last = trimmed.lines().next_back().unwrap_or("");
+    let top = if first.starts_with("```") { 0.0 } else { line_insets(atx_heading(first).unwrap_or(crate::style::MD)).0 };
+    let bottom = if last.ends_with("```") { 0.0 } else { line_insets(atx_heading(last).unwrap_or(crate::style::MD)).1 };
     Edges { top, bottom, footer, ..edges(Who::Agent, Item::Prose, 0.0) }
 }
 

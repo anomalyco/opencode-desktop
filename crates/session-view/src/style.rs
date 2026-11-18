@@ -24,7 +24,7 @@ pub const H1: TextStyle = TextStyle::new(17.0, 600.0).lh(24.0);
 pub const H2: TextStyle = TextStyle::new(15.0, 600.0).lh(24.0);
 pub const H3: TextStyle = TextStyle::new(13.0, 600.0).lh(20.0);
 // Reply headings (`markdown.css`): line-height 150%; h4 to h6 share one, in the muted colour.
-const MD_H: [TextStyle; 4] = [
+pub(crate) const MD_H: [TextStyle; 4] = [
     TextStyle::new(17.0, 600.0).lh(25.5),
     TextStyle::new(15.0, 600.0).lh(22.5),
     TextStyle::new(14.0, 670.0).lh(21.0),
