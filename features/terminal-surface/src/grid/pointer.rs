@@ -16,7 +16,7 @@ use terminal::{
 
 use super::{PAD_X, PAD_Y, SCROLLBAR_W};
 use crate::mount::TextDrag;
-use crate::{TerminalSurfaceHost, links, menu, ops, side_ops};
+use crate::{HoverLink, TerminalSurfaceHost, links, menu, ops, side_ops};
 
 const INSTANT: Anim = Anim::INSTANT;
 const QUOTE_BUTTON: TextStyle = TextStyle::new(13.0, 530.0).lh(20.0).tracking(-0.04);
@@ -218,11 +218,16 @@ fn handle_pointer_move(host: &mut dyn TerminalSurfaceHost, input: &ViewportInput
         return;
     }
     let follow = if cfg!(target_os = "macos") { mods.cmd } else { mods.ctrl };
+    let next = HoverLink::at(col, row, follow);
     let snap = t.session.peek();
     let now = links::span(&snap, col, row);
-    let was = t.hover.map(|(c, r, _)| links::span(&snap, c, r)).unwrap_or_default();
-    let drawn_same = now == was && (now.is_empty() || t.hover.is_some_and(|h| h.2 == follow));
-    t.hover = Some((col, row, follow));
+    let (was, was_follow) = match t.hover {
+        HoverLink::None => (Vec::new(), None),
+        HoverLink::Plain { col: c, row: r } => (links::span(&snap, c, r), Some(false)),
+        HoverLink::Followable { col: c, row: r } => (links::span(&snap, c, r), Some(true)),
+    };
+    let drawn_same = now == was && (now.is_empty() || was_follow == Some(follow));
+    t.hover = next;
     if drawn_same {
         tx.live_only();
     }
@@ -230,7 +235,7 @@ fn handle_pointer_move(host: &mut dyn TerminalSurfaceHost, input: &ViewportInput
 
 fn handle_hover_change(host: &mut dyn TerminalSurfaceHost, ws_key: &str, tab_id: &str, inside: bool) {
     if !inside && let Some(t) = ops::terminal_tab_mut(host, ws_key, tab_id) {
-        t.hover = None;
+        t.hover = HoverLink::None;
     }
 }
 

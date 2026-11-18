@@ -288,7 +288,7 @@ fn session_version(host: &dyn SwitcherHost) -> Version {
 /// Home's search while it has focus or text.
 fn is_wanted(host: &dyn SwitcherHost) -> bool {
     let sw = host.switcher();
-    let palette = sw.open && sw.mode != SwitcherMode::Commands;
+    let palette = sw.is_open() && sw.mode != SwitcherMode::Commands;
     palette || host.home_search_active()
 }
 

@@ -267,7 +267,7 @@ impl App {
             }
         };
         // Focus stays in the timeline, as a link's click leaves it.
-        self.side.focused = false;
+        self.side.focus.blur();
         *self.tool_open = Some(Opened { session: sid, step: step.to_owned(), tab, before });
     }
 
@@ -310,11 +310,11 @@ impl App {
         match o.before {
             Some(tab) => {
                 self.select_side_tab(&tab, tx);
-                self.side.focused = false;
+                self.side.focus.blur();
             }
             None => {
                 self.session_side_mut(&o.session).visibility.step(false);
-                self.side.focused = false;
+                self.side.focus.blur();
             }
         }
         true

@@ -76,7 +76,7 @@ impl ForkHost for App {
     }
 
     fn before_fork_open(&mut self) -> bool {
-        let restore = self.composer.focused || (!self.switcher.open && self.switcher.restore_composer());
+        let restore = self.composer.focused || self.switcher.restore_composer();
         self.close_jump_dialog(false);
         self.close_picker(false);
         self.close_switcher(false);

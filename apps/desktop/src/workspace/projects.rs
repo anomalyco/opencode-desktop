@@ -278,7 +278,7 @@ impl ProjectsHost for App {
 
     fn before_open_project_dialog(&mut self) -> bool {
         let restore_composer = self.composer.focused
-            || (self.switcher.open && self.switcher.restore_composer())
+            || self.switcher.restore_composer()
             || self.pickers.open().is_some();
         self.close_picker(false);
         self.close_switcher(false);

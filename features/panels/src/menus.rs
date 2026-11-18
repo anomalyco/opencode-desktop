@@ -7,7 +7,7 @@ use opencode_ui::popover::{self, MENU, Opt};
 use opencode_ui::style::{UI, UI_SMALL};
 
 use crate::host::PanelsHost;
-use crate::state::{ResolvedRegion, close_side_tab, reopen_closed_side_tab, resolve_side_region};
+use crate::state::{ResolvedRegion, SideMenu, close_side_tab, reopen_closed_side_tab, resolve_side_region};
 use crate::tabs::{ClosedSideTab, split_panel_key};
 use crate::{Launch, PanelLauncherDesc, SessionPane, icon_by_name};
 
@@ -149,100 +149,101 @@ pub fn context_menus<H: PanelsHost + 'static>(host: &H, p: &Pal) -> Option<El> {
     // Desktop's strip menu (`side-region.tsx:375-401`): Close tab, Close other tabs and Close tabs
     // to the right, each disabled when there's nothing it closes; tabs move between panes by
     // dragging.
-    if let Some((ref target_key, x, y)) = host.side().tab_menu {
-        let tk = target_key.clone();
-        let meta = tab_menu_meta(host, target_key);
-        let has_others = !meta.others.is_empty();
-        let has_after = !meta.after.is_empty();
-        let others = meta.others;
-        let after = meta.after;
+    match &host.side().menu {
+        SideMenu::Closed => None,
+        SideMenu::Tab { key: target_key, x, y } => {
+            let (tk, x, y) = (target_key.clone(), *x, *y);
+            let meta = tab_menu_meta(host, target_key);
+            let has_others = !meta.others.is_empty();
+            let has_after = !meta.after.is_empty();
+            let others = meta.others;
+            let after = meta.after;
 
-        let mut rows = col().key("side-tab-menu-rows").w_full().padding(MENU.inset);
-        // A browser tab's page: open it in the default browser, or copy its address.
-        if let Some((id, url)) = meta.browser {
-            let copy = url.clone();
-            rows = rows
+            let mut rows = col().key("side-tab-menu-rows").w_full().padding(MENU.inset);
+            // A browser tab's page: open it in the default browser, or copy its address.
+            if let Some((id, url)) = meta.browser {
+                let copy = url.clone();
+                rows = rows
+                    .child(menu_row::<H>(
+                        p,
+                        "side-tab-menu-open-out",
+                        None,
+                        opencode_i18n::t!("plugin.browser.external.menu"),
+                        "",
+                        url.is_some(),
+                        move |s: &mut H, tx: &mut Tx| on_tab_menu_open_out(s, id, tx),
+                    ))
+                    .child(menu_row::<H>(
+                        p,
+                        "side-tab-menu-copy-url",
+                        None,
+                        opencode_i18n::t!("plugin.browser.link.copy"),
+                        "",
+                        copy.is_some(),
+                        move |s: &mut H, tx: &mut Tx| on_tab_menu_copy_url(s, copy.as_deref(), tx),
+                    ))
+                    .child(col().w_full().py(4.0).child(popover::divider(p, "side-tab-menu-divider")));
+            }
+            let rows = rows
                 .child(menu_row::<H>(
                     p,
-                    "side-tab-menu-open-out",
+                    "side-tab-menu-close",
                     None,
-                    opencode_i18n::t!("plugin.browser.external.menu"),
+                    opencode_i18n::t!("common.closeTab"),
                     "",
-                    url.is_some(),
-                    move |s: &mut H, tx: &mut Tx| on_tab_menu_open_out(s, id, tx),
+                    meta.can_close,
+                    move |s: &mut H, tx: &mut Tx| on_tab_menu_close(s, &tk, tx),
                 ))
                 .child(menu_row::<H>(
                     p,
-                    "side-tab-menu-copy-url",
+                    "side-tab-menu-close-others",
                     None,
-                    opencode_i18n::t!("plugin.browser.link.copy"),
+                    opencode_i18n::t!("session.tab.closeOthers"),
                     "",
-                    copy.is_some(),
-                    move |s: &mut H, tx: &mut Tx| on_tab_menu_copy_url(s, copy.as_deref(), tx),
+                    has_others,
+                    move |s: &mut H, tx: &mut Tx| on_tab_menu_close_list(s, &others, tx),
                 ))
-                .child(col().w_full().py(4.0).child(popover::divider(p, "side-tab-menu-divider")));
+                .child(menu_row::<H>(
+                    p,
+                    "side-tab-menu-close-after",
+                    None,
+                    meta.after_label,
+                    "",
+                    has_after,
+                    move |s: &mut H, tx: &mut Tx| on_tab_menu_close_list(s, &after, tx),
+                ));
+            let menu = popover::surface::<H>(p, MENU, "side-tab-menu", opencode_i18n::t!("common.key.tab"))
+                .min_w(160.0)
+                .child(rows);
+            Some(layer(host, (x, y), menu, clear_menu))
         }
-        let rows = rows
-            .child(menu_row::<H>(
-                p,
-                "side-tab-menu-close",
-                None,
-                opencode_i18n::t!("common.closeTab"),
-                "",
-                meta.can_close,
-                move |s: &mut H, tx: &mut Tx| on_tab_menu_close(s, &tk, tx),
-            ))
-            .child(menu_row::<H>(
-                p,
-                "side-tab-menu-close-others",
-                None,
-                opencode_i18n::t!("session.tab.closeOthers"),
-                "",
-                has_others,
-                move |s: &mut H, tx: &mut Tx| on_tab_menu_close_list(s, &others, tx),
-            ))
-            .child(menu_row::<H>(
-                p,
-                "side-tab-menu-close-after",
-                None,
-                meta.after_label,
-                "",
-                has_after,
-                move |s: &mut H, tx: &mut Tx| on_tab_menu_close_list(s, &after, tx),
-            ));
-        let menu = popover::surface::<H>(p, MENU, "side-tab-menu", opencode_i18n::t!("common.key.tab"))
-            .min_w(160.0)
-            .child(rows);
-        return Some(layer(host, (x, y), menu, clear_tab_menu));
-    }
-
-    if let Some((pane, x, y)) = host.side().add_menu {
-        let reg = resolve_side_region(host)?;
-        let mut rows = col().key("side-add-menu-rows").w_full().padding(MENU.inset);
-        for &(_pl, ref desc, launch) in &reg.launchers {
-            let key = format!("side-add-menu-{}", desc.id);
-            let id = desc.id;
-            let hint = launcher_hint(host, desc);
-            let row = menu_row::<H>(
-                p,
-                &key,
-                Some(desc.icon),
-                &desc.title,
-                &hint,
-                true,
-                move |s: &mut H, tx: &mut Tx| on_add_menu_pick(s, launch, id, pane, tx),
-            );
-            rows = rows.child(row.on_hover_change(move |s: &mut H, inside, tx: &mut Tx| {
-                on_launch_hover(s, launch, id, inside, tx);
-            }));
+        SideMenu::Add { pane, x, y } => {
+            let (pane, x, y) = (*pane, *x, *y);
+            let reg = resolve_side_region(host)?;
+            let mut rows = col().key("side-add-menu-rows").w_full().padding(MENU.inset);
+            for &(_pl, ref desc, launch) in &reg.launchers {
+                let key = format!("side-add-menu-{}", desc.id);
+                let id = desc.id;
+                let hint = launcher_hint(host, desc);
+                let row = menu_row::<H>(
+                    p,
+                    &key,
+                    Some(desc.icon),
+                    &desc.title,
+                    &hint,
+                    true,
+                    move |s: &mut H, tx: &mut Tx| on_add_menu_pick(s, launch, id, pane, tx),
+                );
+                rows = rows.child(row.on_hover_change(move |s: &mut H, inside, tx: &mut Tx| {
+                    on_launch_hover(s, launch, id, inside, tx);
+                }));
+            }
+            let menu = popover::surface::<H>(p, MENU, "side-add-menu", opencode_i18n::t!("session.tab.new"))
+                .w(220.0)
+                .child(rows);
+            Some(layer(host, (x, y), menu, clear_menu))
         }
-        let menu = popover::surface::<H>(p, MENU, "side-add-menu", opencode_i18n::t!("session.tab.new"))
-            .w(220.0)
-            .child(rows);
-        return Some(layer(host, (x, y), menu, clear_add_menu));
     }
-
-    None
 }
 
 struct TabMenuMeta {
@@ -350,26 +351,26 @@ fn on_reopen_closed(host: &mut dyn PanelsHost, key: &str, tx: &mut Tx) {
 
 fn on_tab_menu_open_out(host: &mut dyn PanelsHost, id: u64, tx: &mut Tx) {
     tx.instant();
-    host.side_mut().tab_menu = None;
+    host.side_mut().menu = SideMenu::Closed;
     host.open_browser_tab_externally(id, tx);
 }
 
 fn on_tab_menu_copy_url(host: &mut dyn PanelsHost, url: Option<&str>, tx: &mut Tx) {
     tx.instant();
-    host.side_mut().tab_menu = None;
+    host.side_mut().menu = SideMenu::Closed;
     if let Some(url) = url {
         tx.copy(url.to_owned());
     }
 }
 
 fn on_tab_menu_close(host: &mut dyn PanelsHost, key: &str, tx: &mut Tx) {
-    host.side_mut().tab_menu = None;
+    host.side_mut().menu = SideMenu::Closed;
     close_side_tab(host, key, tx);
 }
 
 fn on_tab_menu_close_list(host: &mut dyn PanelsHost, keys: &[String], tx: &mut Tx) {
     tx.instant();
-    host.side_mut().tab_menu = None;
+    host.side_mut().menu = SideMenu::Closed;
     for k in keys {
         close_side_tab(host, k, tx);
     }
@@ -377,7 +378,7 @@ fn on_tab_menu_close_list(host: &mut dyn PanelsHost, keys: &[String], tx: &mut T
 
 fn on_add_menu_pick(host: &mut dyn PanelsHost, launch: Launch, id: &str, pane: SessionPane, tx: &mut Tx) {
     tx.instant();
-    host.side_mut().add_menu = None;
+    host.side_mut().menu = SideMenu::Closed;
     launch.run(host, id, pane, tx);
 }
 
@@ -386,10 +387,6 @@ fn close_menu_layer(host: &mut dyn PanelsHost, close: fn(&mut dyn PanelsHost), t
     close(host);
 }
 
-fn clear_tab_menu(host: &mut dyn PanelsHost) {
-    host.side_mut().tab_menu = None;
-}
-
-fn clear_add_menu(host: &mut dyn PanelsHost) {
-    host.side_mut().add_menu = None;
+fn clear_menu(host: &mut dyn PanelsHost) {
+    host.side_mut().menu = SideMenu::Closed;
 }

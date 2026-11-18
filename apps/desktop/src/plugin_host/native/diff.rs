@@ -364,7 +364,7 @@ fn diff_find_input<'a>(s: &'a mut App, sid: &str) -> &'a mut rune::TextEdit {
 /// Keys for the routed session's review while its tab shows and has the keyboard: the diff's
 /// own (moving through hunks, copying the selection).
 pub fn key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if app.composer.focused || !app.side.focused || !app.is_review_active() {
+    if app.composer.focused || !app.side.focus.is_focused() || !app.is_review_active() {
         return false;
     }
     let Some(sid) = app.active_session_id().map(str::to_owned) else { return false };

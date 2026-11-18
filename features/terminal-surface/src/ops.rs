@@ -11,8 +11,8 @@ use rune::{Tx, Waker};
 use terminal::{RestoreState, TerminalConfig, TerminalSession};
 
 use crate::{
-    TerminalJob, TerminalReply, TerminalSurfaceHost, TerminalTab, TerminalWorkspace, dir_name,
-    grid, integration, links, mount, panel_key, persist, rename, side_ops, workspace_key,
+    HoverLink, TerminalJob, TerminalReply, TerminalSurfaceHost, TerminalTab, TerminalWorkspace, dir_name, grid,
+    integration, links, mount, panel_key, persist, rename, side_ops, workspace_key,
 };
 
 pub fn server_id_str(host: &dyn TerminalSurfaceHost) -> &str {
@@ -504,7 +504,7 @@ pub fn persistent_tab(
         cwd: info.cwd.clone(),
         find: None,
         focused: Cell::new(false),
-        hover: None,
+        hover: HoverLink::None,
     })
 }
 
@@ -548,7 +548,7 @@ pub fn insert_stream_terminal(
         cwd: directory,
         find: None,
         focused: Cell::new(false),
-        hover: None,
+        hover: HoverLink::None,
     });
     ws.active = Some(id.to_owned());
     Some(id.to_owned())

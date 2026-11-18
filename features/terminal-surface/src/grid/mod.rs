@@ -19,7 +19,7 @@ use terminal::{CursorShape, TerminalSnapshot};
 use self::pointer::{ViewportInput, attach_viewport_handlers, render_quote_bar, render_scrollbar};
 use self::rows::{build_rows, cell_fg_color};
 use crate::mount::TextDrag;
-use crate::{TERM_FONT, TERM_SIZE, TerminalSurfaceHost, TerminalTab, find, input, links};
+use crate::{HoverLink, TERM_FONT, TERM_SIZE, TerminalSurfaceHost, TerminalTab, find, input, links};
 
 /// The terminal's pane, which owns its keys while the screen in it has focus.
 pub const VIEWPORT_KEY: &str = "terminal-viewport";
@@ -306,8 +306,16 @@ fn render_viewport<H: TerminalSurfaceHost + 'static>(
     let clip_w = f32::from(fit_cols) * cell_w;
     let grid_h = (slot_rows as f32) * cell_h;
 
-    let hovered = if snap.mouse_tracking { Vec::new() } else { tab.hover.map(|(c, r, _)| links::span(snap, c, r)).unwrap_or_default() };
-    let follows = !hovered.is_empty() && tab.hover.is_some_and(|h| h.2);
+    let (hovered, follow_mod) = if snap.mouse_tracking {
+        (Vec::new(), false)
+    } else {
+        match tab.hover {
+            HoverLink::None => (Vec::new(), false),
+            HoverLink::Plain { col, row } => (links::span(snap, col, row), false),
+            HoverLink::Followable { col, row } => (links::span(snap, col, row), true),
+        }
+    };
+    let follows = !hovered.is_empty() && follow_mod;
 
     let cols = snap.screen_rows.first().map_or(fit_cols, |r| r.cells.len() as u16);
     let rows = build_rows(s.terminal(), &tab.id, snap, p, style, style_key, cell_w, cell_h, scale, slot_rows);

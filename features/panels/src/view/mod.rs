@@ -393,11 +393,8 @@ pub fn resize_handle<H: PanelsHost + 'static>(host: &H, p: &Pal, zoomed_w: f32) 
 fn focus_side_body(host: &mut dyn PanelsHost) {
     {
         let side = host.side_mut();
-        side.focused = true;
-        side.quiet = false;
-        side.pressed = true;
-        side.tab_menu = None;
-        side.add_menu = None;
+        side.focus.press();
+        side.menu.close();
     }
     host.set_composer_focused(false);
 }

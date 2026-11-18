@@ -108,15 +108,17 @@ pub fn text_in(app: &App, plugin: &str, index: usize) -> String {
 /// side pane shows, the side region has the keyboard, as Desktop's side focus follows a focus or
 /// click inside `#review-panel`.
 pub fn note_side_field(app: &mut App, plugin: &str) {
-    app.side.quiet = false;
-    if app.side.focused && !app.composer.focused {
+    if app.side.focus.is_quiet() {
+        app.side.focus.wake();
+    }
+    if app.side.focus.is_focused() && !app.composer.focused {
         return;
     }
     let shown = crate::panels::SESSION_PANES.into_iter().find(|&pane| {
         app.pane_shown_tab(pane).and_then(|key| app.resolve_side_region()?.entry(&key).map(|e| e.plugin == plugin)).unwrap_or(false)
     });
     if let Some(pane) = shown {
-        app.side.focused = true;
+        app.side.focus.focus();
         app.side.active_pane_focus = pane;
     }
 }

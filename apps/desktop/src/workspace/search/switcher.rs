@@ -388,7 +388,7 @@ impl Feature<App> for SwitcherFeature {
                 .with_z(100)
                 .with_key_priority(300)
                 .with_render(|s, cx| {
-                    if s.switcher.open {
+                    if s.switcher.is_open() {
                         let p = crate::palette::pal(s.dark(cx));
                         view(s, p, cx).into()
                     } else {

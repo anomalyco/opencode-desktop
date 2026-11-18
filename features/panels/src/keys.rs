@@ -9,9 +9,9 @@ use crate::SessionPane;
 use crate::closing::{Effect, Event};
 use crate::host::PanelsHost;
 use crate::state::{
-    ResolvedEntry, ResolvedRegion, all_panels, bottom_open, close_side_tab, dismiss_side_new_tab, open_side_new_tab,
-    reopen_closed_side_tab, resolve_side_region, select_side_tab, shown_new_tab, side_open, sync_empty_side,
-    toggle_bottom_region, toggle_side_region,
+    ResolvedEntry, ResolvedRegion, SideMenu, all_panels, bottom_open, close_side_tab, dismiss_side_new_tab,
+    open_side_new_tab, reopen_closed_side_tab, resolve_side_region, select_side_tab, shown_new_tab, side_open,
+    sync_empty_side, toggle_bottom_region, toggle_side_region,
 };
 use crate::tabs::{SessionTabs, panel_key};
 
@@ -159,11 +159,9 @@ pub fn panels_key(host: &mut dyn PanelsHost, ev: &KeyEvent, tx: &mut Tx) -> bool
         host.side_mut().emptied_guard = false;
     }
 
-    if ev.key == Key::Escape && (host.side().tab_menu.is_some() || host.side().add_menu.is_some()) {
+    if ev.key == Key::Escape && host.side().menu.is_open() {
         tx.instant();
-        let side = host.side_mut();
-        side.tab_menu = None;
-        side.add_menu = None;
+        host.side_mut().menu = SideMenu::Closed;
         return true;
     }
 
@@ -202,7 +200,7 @@ pub fn panels_key(host: &mut dyn PanelsHost, ev: &KeyEvent, tx: &mut Tx) -> bool
         return true;
     }
 
-    if !host.side().focused {
+    if !host.side().focus.is_focused() {
         return false;
     }
 

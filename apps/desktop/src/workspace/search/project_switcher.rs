@@ -224,7 +224,7 @@ impl ProjectSwitcherHost for App {
 
     fn before_project_switcher_open(&mut self) -> bool {
         let restore = self.composer.focused
-            || (self.switcher.open && self.switcher.restore_composer())
+            || self.switcher.restore_composer()
             || self.pickers.open().is_some();
         self.close_picker(false);
         self.close_switcher(false);

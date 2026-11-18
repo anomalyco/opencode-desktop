@@ -14,6 +14,6 @@ pub mod fork;
 pub mod message_nav;
 pub mod rewind;
 
-pub use fork::{FORK_OVERLAY_ID, ForkHost, ForkState, ForkableMessage};
+pub use fork::{FORK_OVERLAY_ID, ForkHost, ForkModal, ForkState, ForkableMessage};
 pub use message_nav::{JUMP_OVERLAY_ID, MessageNav, MessageNavHost};
 pub use rewind::{RewindHost, RewindState, SavedDraft, UndoRewind};

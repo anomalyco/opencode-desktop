@@ -140,6 +140,35 @@ pub enum TerminalReply {
     },
 }
 
+/// Link hover state on a terminal grid cell, replacing `Option<(u16, u16, bool)>`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum HoverLink {
+    #[default]
+    None,
+    /// Cell under the pointer without follow modifier.
+    Plain { col: u16, row: u16 },
+    /// Cell under the pointer with follow modifier (Ctrl / Cmd) held.
+    Followable { col: u16, row: u16 },
+}
+
+impl HoverLink {
+    pub const fn at(col: u16, row: u16, follow: bool) -> Self {
+        if follow {
+            Self::Followable { col, row }
+        } else {
+            Self::Plain { col, row }
+        }
+    }
+}
+
+/// The appearance and theme (`Pal::theme`, `themes::generation`) the open terminals were last painted in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PaintedTheme {
+    pub dark: bool,
+    pub theme: usize,
+    pub generation: u64,
+}
+
 pub struct TerminalTab {
     pub id: String,
     pub title: String,
@@ -163,7 +192,7 @@ pub struct TerminalTab {
     pub(crate) focused: Cell<bool>,
     /// The cell under the pointer and whether the follow modifier (Ctrl, ⌘ on macOS) was held:
     /// the link there (`links::span`) is underlined, and followable with the modifier.
-    pub hover: Option<(u16, u16, bool)>,
+    pub hover: HoverLink,
 }
 
 impl TerminalTab {
@@ -223,7 +252,7 @@ pub struct TerminalPane {
     pub bell_until: f64,
     pub last_blink_lit: bool,
     /// The appearance and theme (`Pal::theme`, `themes::generation`) the open terminals were last painted in.
-    pub last_dark: Option<(bool, usize, u64)>,
+    pub last_theme: Option<PaintedTheme>,
     /// The appearance the window last drew in, resolved from the System setting; state
     /// updates have no `Cx` to ask.
     pub painted_dark: Cell<Option<bool>>,
@@ -256,7 +285,7 @@ impl Default for TerminalPane {
             blink_epoch: 0.0,
             bell_until: 0.0,
             last_blink_lit: true,
-            last_dark: None,
+            last_theme: None,
             painted_dark: Cell::new(None),
             dirty_flag: Arc::new(AtomicBool::new(false)),
             story_focused: true,

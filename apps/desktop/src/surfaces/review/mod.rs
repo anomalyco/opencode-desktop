@@ -67,17 +67,18 @@ impl ReviewHost for App {
     }
 
     fn show_review_tab(&mut self, sid: &str, focus_panel: bool, tx: &mut Tx) {
-        let saved_focus = (self.composer.focused, self.side.focused);
+        let saved_focus = (self.composer.focused, self.side.focus.mode());
         self.show_pane_tab(tx, |s| s.show_side_tab(sid, REVIEW_KEY, None));
         if focus_panel {
-            self.side.focused = true;
+            self.side.focus.focus();
             self.side.active_pane_focus = crate::panels::tabs::session_tab_pane(
                 &self.session_side_mut(sid).tab_state.tabs,
                 REVIEW_KEY,
             );
             self.composer.focused = false;
         } else {
-            (self.composer.focused, self.side.focused) = saved_focus;
+            self.composer.focused = saved_focus.0;
+            self.side.focus.restore(saved_focus.1);
         }
     }
 

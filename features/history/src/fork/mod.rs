@@ -36,18 +36,28 @@ pub struct ForkableMessage {
     pub time: String,
 }
 
+/// `"Fork from message"` dialog lifecycle, replacing the parallel `open`, `active`,
+/// `restore_composer`, and `slow` fields so stale modal state can never survive across close/reopen.
+#[derive(Clone, Debug, Default)]
+pub enum ForkModal {
+    #[default]
+    Closed,
+    Open {
+        active: Option<String>,
+        restore_composer: bool,
+        /// The fork on its way has taken longer than [`SLOW`]: its row says so.
+        slow: bool,
+    },
+}
+
 #[derive(Default)]
 pub struct ForkState {
-    pub open: bool,
+    pub modal: ForkModal,
     pub search: TextEdit,
-    pub active: Option<String>,
-    restore_composer: bool,
     /// The fork on its way (`machine.rs`, `session/fork-machine.ts`).
     machine: machine::Fork,
     /// Fixture forks made so far, for their ids.
     made: u32,
-    /// The fork on its way has taken longer than [`SLOW`]: its row says so.
-    slow: bool,
 }
 
 /// How long a fork runs before its row says the server is still working on it.
@@ -60,15 +70,25 @@ impl ForkState {
     }
 
     pub fn is_open(&self) -> bool {
-        self.open
+        matches!(self.modal, ForkModal::Open { .. })
     }
 
     pub fn is_focused(&self) -> bool {
-        self.open && self.search.focused
+        self.is_open() && self.search.focused
     }
 
     pub fn restore_composer(&self) -> bool {
-        self.restore_composer
+        match self.modal {
+            ForkModal::Open { restore_composer, .. } => restore_composer,
+            ForkModal::Closed => false,
+        }
+    }
+
+    pub fn active(&self) -> Option<&str> {
+        match &self.modal {
+            ForkModal::Open { active, .. } => active.as_deref(),
+            ForkModal::Closed => None,
+        }
     }
 }
 
@@ -181,7 +201,10 @@ pub fn fork_from(host: &mut dyn ForkHost, session: &str, message_id: &str, tx: &
         let h: &dyn ForkHost = host;
         draft_from_message_with(message_id, &body, |sid| h.mention_title(sid), |val| h.resolve_skill_id(val).map(str::to_owned))
     };
-    let surface = if host.fork().open { Surface::Dialog } else { Surface::Inline };
+    let surface = match host.fork().modal {
+        ForkModal::Open { .. } => Surface::Dialog,
+        ForkModal::Closed => Surface::Inline,
+    };
     let now = host.clock();
     let event = Event::Requested { surface, session: session.to_owned(), message: message_id.to_owned(), draft, now };
     step_fork(host, event, tx)
@@ -277,20 +300,20 @@ pub fn open(host: &mut dyn ForkHost, tx: &mut Tx) -> bool {
         return false;
     }
     tx.instant();
-    let was_open = host.fork().open;
-    let prev_restore = host.fork().restore_composer;
+    let (was_open, prev_restore) = match host.fork().modal {
+        ForkModal::Open { restore_composer, .. } => (true, restore_composer),
+        ForkModal::Closed => (false, false),
+    };
     let shell_restore = host.before_fork_open();
-    let restore = if was_open { prev_restore } else { shell_restore };
+    let restore_composer = if was_open { prev_restore } else { shell_restore };
     let return_focus = tx.focused().map(str::to_owned);
+    let first = messages(host).first().map(|m| m.id.clone());
     {
         let f = host.fork_mut();
-        f.restore_composer = restore;
-        f.open = true;
+        f.modal = ForkModal::Open { active: first, restore_composer, slow: false };
         f.search = TextEdit::new("");
         f.search.focused = true;
     }
-    let first = messages(host).first().map(|m| m.id.clone());
-    host.fork_mut().active = first;
     if !was_open {
         host.on_overlay_opened(FORK_OVERLAY_ID, return_focus);
     }
@@ -299,20 +322,20 @@ pub fn open(host: &mut dyn ForkHost, tx: &mut Tx) -> bool {
 
 /// Closes the `"Fork from message"` dialog, notifying `OverlayStack` and restoring composer focus when asked.
 pub fn close(host: &mut dyn ForkHost, restore_focus: bool) {
-    if !host.fork().open {
-        return;
-    }
-    let restore = {
+    let restore = match host.fork().modal {
+        ForkModal::Open { restore_composer, .. } => restore_composer,
+        ForkModal::Closed => return,
+    };
+    {
         let f = host.fork_mut();
         // The picker's fork goes with it (`fork-machine.ts` `disposed`).
         if matches!(f.machine.state, machine::State::Forking { surface: Surface::Dialog, .. }) {
             drop(f.machine.step(Event::Left));
         }
-        f.open = false;
+        f.modal = ForkModal::Closed;
         f.search.focused = false;
         f.search.cancel_composition();
-        f.restore_composer
-    };
+    }
     host.on_overlay_closed(FORK_OVERLAY_ID);
     if restore_focus {
         host.restore_composer_focus(restore);
@@ -352,7 +375,11 @@ pub fn filtered(host: &dyn ForkHost) -> Vec<ForkableMessage> {
 
 /// Key handler while the Fork dialog is open: Escape closes, arrows cycle rows, Enter forks.
 pub fn key(host: &mut dyn ForkHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if !host.fork().open || host.fork().search.is_composing() {
+    match host.fork().modal {
+        ForkModal::Closed => return false,
+        ForkModal::Open { .. } => {}
+    }
+    if host.fork().search.is_composing() {
         return false;
     }
     let list = filtered(host);
@@ -367,7 +394,10 @@ pub fn key(host: &mut dyn ForkHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
         Key::Down | Key::Up if !ev.mods.shift && !ev.mods.ctrl && !ev.mods.cmd && !ev.mods.alt => {
             tx.instant();
             if !list.is_empty() {
-                let cur = host.fork().active.as_ref().and_then(|id| list.iter().position(|m| &m.id == id));
+                let cur = match &host.fork().modal {
+                    ForkModal::Open { active, .. } => active.as_ref().and_then(|id| list.iter().position(|m| &m.id == id)),
+                    ForkModal::Closed => None,
+                };
                 let next = cycle(list.len(), cur, if ev.key == Key::Down { 1 } else { -1 });
                 let id = list[next].id.clone();
                 if next == 0 {
@@ -375,20 +405,22 @@ pub fn key(host: &mut dyn ForkHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
                 } else {
                     tx.scroll_into_view_in("fork-scroll", format!("fork-row-{id}"));
                 }
-                host.fork_mut().active = Some(id);
+                match &mut host.fork_mut().modal {
+                    ForkModal::Open { active, .. } => *active = Some(id),
+                    ForkModal::Closed => {}
+                }
             }
             true
         }
         Key::Enter if !ev.mods.shift => {
             tx.instant();
             let Some(session) = host.active_session_id().map(str::to_owned) else { return true };
-            let chosen = host
-                .fork()
-                .active
-                .as_ref()
-                .and_then(|id| list.iter().find(|m| &m.id == id))
-                .or_else(|| list.first())
-                .map(|m| m.id.clone());
+            let chosen = match &host.fork().modal {
+                ForkModal::Open { active, .. } => active.as_ref().and_then(|id| list.iter().find(|m| &m.id == id)),
+                ForkModal::Closed => None,
+            }
+            .or_else(|| list.first())
+            .map(|m| m.id.clone());
             if let Some(mid) = chosen {
                 fork_from(host, &session, &mid, tx);
             }
@@ -419,7 +451,18 @@ pub fn settled(host: &mut dyn ForkHost, attempt: u32, result: Result<Option<Sess
 pub fn poll(host: &mut dyn ForkHost, tx: &mut Tx) -> bool {
     let (session, due) = match &host.fork().machine.state {
         machine::State::Forking { session, due, .. } => (session.clone(), *due),
-        machine::State::Idle => return std::mem::take(&mut host.fork_mut().slow),
+        machine::State::Idle => {
+            return match host.fork().modal {
+                ForkModal::Open { slow: true, .. } => {
+                    match &mut host.fork_mut().modal {
+                        ForkModal::Open { slow, .. } => *slow = false,
+                        ForkModal::Closed => {}
+                    }
+                    true
+                }
+                ForkModal::Open { slow: false, .. } | ForkModal::Closed => false,
+            };
+        }
     };
     if !host.is_session_open(&session) {
         return step_fork(host, Event::Left, tx);
@@ -429,9 +472,18 @@ pub fn poll(host: &mut dyn ForkHost, tx: &mut Tx) -> bool {
         return step_fork(host, Event::Due { now }, tx);
     }
     let slow_at = due - machine::TIMEOUT_SECS + SLOW;
-    let slow = now + 1e-9 >= slow_at;
-    let changed = slow != std::mem::replace(&mut host.fork_mut().slow, slow);
-    let wait = if slow { due - now } else { slow_at - now };
+    let next_slow = now + 1e-9 >= slow_at;
+    let changed = match host.fork().modal {
+        ForkModal::Open { slow, .. } if slow != next_slow => {
+            match &mut host.fork_mut().modal {
+                ForkModal::Open { slow, .. } => *slow = next_slow,
+                ForkModal::Closed => {}
+            }
+            true
+        }
+        ForkModal::Open { .. } | ForkModal::Closed => false,
+    };
+    let wait = if next_slow { due - now } else { slow_at - now };
     tx.wake_after(Duration::from_secs_f64(wait.max(0.0)));
     changed
 }
@@ -450,10 +502,17 @@ fn short_time(id: &str) -> String {
 
 // --- Thin non-generic callback helpers invoked by `view` ---
 
+fn set_modal_active(host: &mut dyn ForkHost, next: Option<String>) {
+    match &mut host.fork_mut().modal {
+        ForkModal::Open { active, .. } => *active = next,
+        ForkModal::Closed => {}
+    }
+}
+
 fn on_query_change(host: &mut dyn ForkHost, tx: &mut Tx) {
     tx.instant();
     let first = filtered(host).first().map(|m| m.id.clone());
-    host.fork_mut().active = first;
+    set_modal_active(host, first);
 }
 
 fn key_or_shortcut(host: &mut dyn ForkHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
@@ -468,7 +527,7 @@ fn clear_search(host: &mut dyn ForkHost, tx: &mut Tx) {
         f.search.focused = true;
     }
     let first = filtered(host).first().map(|m| m.id.clone());
-    host.fork_mut().active = first;
+    set_modal_active(host, first);
 }
 
 fn on_row_hover(host: &mut dyn ForkHost, id: &str, inside: bool, tx: &mut Tx) {
@@ -476,7 +535,7 @@ fn on_row_hover(host: &mut dyn ForkHost, id: &str, inside: bool, tx: &mut Tx) {
         return;
     }
     tx.instant();
-    host.fork_mut().active = inside.then(|| id.to_owned());
+    set_modal_active(host, inside.then(|| id.to_owned()));
 }
 
 fn on_row_press(host: &mut dyn ForkHost, sid: &str, mid: &str, tx: &mut Tx) {
@@ -587,7 +646,13 @@ pub fn view<H: ForkHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> [El; 2] {
     let max_h = size.height(win_h);
     let all = messages(host);
     let list_items = filtered(host);
-    let active = host.fork().active.as_ref().filter(|id| list_items.iter().any(|m| &m.id == *id));
+    let (active, slow) = match &host.fork().modal {
+        ForkModal::Open { active, slow, .. } => (
+            active.as_ref().filter(|id| list_items.iter().any(|m| &m.id == *id)),
+            *slow,
+        ),
+        ForkModal::Closed => (None, false),
+    };
     let session = host.active_session_id().unwrap_or_default().to_owned();
     let typed = !host.fork().search.text.is_empty();
 
@@ -619,7 +684,6 @@ pub fn view<H: ForkHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> [El; 2] {
         // While a fork runs the rows hold still, and its row shows a loader for its time
         // (`fork-dialog.tsx:164-189`, `Loader class="size-3"`).
         let pending = host.fork().pending();
-        let slow = host.fork().slow;
         let mut el = col().key("fork-results").w_full().px(6.0).pb(6.0).gap(ROW_GAP);
         for item in &list_items {
             let is_active = active == Some(&item.id);

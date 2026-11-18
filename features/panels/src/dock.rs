@@ -137,7 +137,7 @@ fn on_bottom_resize_drag(host: &mut dyn PanelsHost, h: f32, max_h: f32, d: &Drag
 fn focus_bottom_pane(host: &mut dyn PanelsHost) {
     {
         let side = host.side_mut();
-        side.focused = true;
+        side.focus.focus();
         side.active_pane_focus = SessionPane::Bottom;
     }
     host.set_composer_focused(false);

@@ -148,7 +148,7 @@ pub fn composer(lua: &Lua, t: &Table) -> mlua::Result<()> {
             s.composer.insert_pill(id, &label);
             s.composer.insert(" ");
             s.composer.focused = true;
-            s.side.focused = false;
+            s.side.focus.blur();
             super::super::blur_fields(s);
         }));
         Ok(())
@@ -549,7 +549,7 @@ pub fn version(app: &App) -> u64 {
     sessions.hash(&mut h);
     // Only the composer's focus: a region reading the composer would build again per keystroke.
     // The side region passes it in (`panels::view::side_region`).
-    (rune::Tracked::untracked(&app.composer).focused, app.side.focused, format!("{:?}", app.side.active_pane_focus), app.active_browser_tab_id()).hash(&mut h);
+    (rune::Tracked::untracked(&app.composer).focused, app.side.focus.is_focused(), format!("{:?}", app.side.active_pane_focus), app.active_browser_tab_id()).hash(&mut h);
     app.active_session_id().and_then(|sid| app.side.sessions.get(sid)).map(|st| st.visibility.open()).hash(&mut h);
     h.finish()
 }

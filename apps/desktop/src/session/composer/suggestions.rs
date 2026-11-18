@@ -50,7 +50,7 @@ impl SuggestionsHost for App {
     }
 
     fn history_key_blocked(&self) -> bool {
-        self.add.open() || self.pickers.open().is_some() || self.switcher.open || self.settings.open
+        self.add.open() || self.pickers.open().is_some() || self.switcher.is_open() || self.settings.open
     }
 
     fn composer_has_attachments_or_quotes(&self) -> bool {

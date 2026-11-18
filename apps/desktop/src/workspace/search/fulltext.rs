@@ -21,7 +21,7 @@ impl FulltextHost for App {
 
     fn surface_query(&self, which: Surface) -> &str {
         match which {
-            Surface::Palette if self.switcher.open && self.switcher.mode != crate::switcher::SwitcherMode::Commands => {
+            Surface::Palette if self.switcher.is_open() && self.switcher.mode != crate::switcher::SwitcherMode::Commands => {
                 self.switcher.query()
             }
             Surface::Home if self.home_search_open() => self.search.text.as_str(),

@@ -87,7 +87,7 @@ fn view_files_card(s: &App, p: &Pal) -> El {
 }
 
 fn view_palette_card(s: &App, p: &Pal) -> El {
-    if !s.switcher.open {
+    if !s.switcher.is_open() {
         return rune::col().w(480.0);
     }
     crate::switcher::dialog(s, p, 480.0, 480.0)
