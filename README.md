@@ -56,10 +56,13 @@ Organized by progressive disclosure (see [ARCHITECTURE.md](ARCHITECTURE.md)):
 | `features/find` | `opencode-feature-find` | Session timeline Find (`Cmd/Ctrl+F`) state machine, incremental transcript search index, match highlighting, and find bar |
 | `features/mcp` | `opencode-feature-mcp` | MCP server toggle machine, MCPs dialog, and browser OAuth sign-in dialog |
 | `features/mentions` | `opencode-feature-mentions` | Composer `@` mentions popover, search state machine, badges, session chips, and wire encoding |
+| `features/narrow` | `opencode-feature-narrow` | Narrow-window (<768 px) layout mode, view switcher, tabs/More drawers, and draggable sheets |
+| `features/notifications` | `opencode-feature-notifications` | System notifications, actionable permission/question toasts, coordinator, and activation helpers |
 | `features/office` | `opencode-feature-office` | Word, Excel, and PowerPoint Vello preview engine |
 | `features/open-in` | `opencode-feature-open-in` | External editor/terminal detection, launching, preferred app persistence, and URL opening |
 | `features/panels` | `opencode-feature-panels` | Session side, split, and bottom panel strip, drag/resize/closing state machines, launchers, menus, and persistence |
 | `features/review` | `opencode-feature-review` | Review changes engine, untracked folder loader, narrow Changes view, and focus anchoring |
+| `features/settings` | `opencode-feature-settings` | Settings two-pane shell, preferences persistence, search index, and all built-in settings pages |
 | `features/subagents` | `opencode-feature-subagents` | Running-work activity capsule, background shells state machine & output followers, and subagent reply bar |
 | `features/switcher` | `opencode-feature-switcher` | Command/file/session palette switcher, shared session search index, and project/worktree/branch switcher |
 | `features/terminal-surface` | `opencode-feature-terminal-surface` | Ghostty-VT terminal pane, workspace tabs, persistence, shell integration, inline rename, find, links, and paste guard |
@@ -70,7 +73,7 @@ Organized by progressive disclosure (see [ARCHITECTURE.md](ARCHITECTURE.md)):
 | `crates/opencode-kernel` | `opencode-kernel` | Shell kernel registries (`StateSlots`, `OverlayStack`, `LifecycleScheduler`, `CommandRegistry`, `EventBus`) |
 | `crates/opencode-runtime` | `opencode-runtime` | Headless runtime primitives and explicit state machines (catalog, idle, pairing, server pool/form, window life/placement, fork/rewind/pages/queue/send) |
 | `crates/opencode-search` | `opencode-search` | Headless full-text, fuzzysort, path index, file ranking, and URL query primitives (`#![forbid(unsafe_code)]`) |
-| `crates/opencode-ui` | `opencode-ui` | Shared OpenCode UI primitives (`widgets`, dialog sizing helpers), shortcut keymap (`keymap`), file/review panel chrome (`panel_chrome`), and popup/context menu engine (`popup`) |
+| `crates/opencode-ui` | `opencode-ui` | Shared OpenCode UI primitives (`widgets`, dialog sizing helpers), shortcut keymap (`keymap`), file/review panel chrome (`panel_chrome`), popup/context menu engine (`popup`), and toast notification stack (`toast`) |
 | `crates/opencode-platform` | `opencode-platform` | Cross-platform OS/WASM utilities (wall clock, OTLP telemetry, askpass, HTTP fetch) |
 | `crates/session-view` | `session-view` | Embeddable virtualized OpenCode session timeline view (Markdown, `ui` outlines, Mermaid, tool groups, subagent cards, images, scroll bar) |
 | `crates/opencode-kit` | `opencode-kit` | OpenCode HTTP/SSE/WebSocket client, local `service.json` discovery, and session/transcript model |

@@ -1,407 +1,580 @@
-//! Settings (⌘, or the palette's Open settings): Desktop's routed two-pane screen
-//! (`settings/shell.tsx`, `navigation.tsx`, `settings.css`): a 328 pt rail of grouped pages
-//! beside a 720 pt column with the open page, the whole screen scrolling under each page's
-//! sticky header. The preferences live in the app's database (`crate::storage`), in the shape
-//! of Desktop's `settings.v3` where they share a name.
+//! Desktop host adapter for `opencode-feature-settings` (`features/settings`).
 
-use crate::pickers::PickerHost as _;
-use std::collections::BTreeMap;
+pub use opencode_feature_settings::*;
 
-use rune::{El, Key, KeyEvent, TextStyle, Tx, col, row, rule, text};
-use rune_kit::Switch;
-use serde_json::{Value, json};
+mod stories;
+
+use std::sync::atomic::{AtomicU32, Ordering};
+
+use opencode_kernel::{Feature, KernelBuilder, OverlayEntry, OverlayEvent, OverlayKind, Phase};
+use opencode_kit::integration::{Integration, McpServer};
+use opencode_kit::model::{Project, SessionInfo};
+use opencode_kit::servers::health::Health;
+use opencode_kit::servers::plugin_server::{PluginStage, PluginStatus};
+use opencode_kit::servers::{ServerConn, ServerKey};
+use opencode_kit::wire_error::WireError;
+use rune::{El, KeyEvent, Tx};
+use session_view::palette::Pal;
+use session_view::pickers::Model;
 
 use crate::App;
-use crate::palette::{Pal, kit};
+use crate::jobs::Apply;
+use crate::pickers::PickerHost as _;
 
-pub use prefs::{BackgroundActivity, Choice, Destination, FollowUp, Organize, Sounds, TimelineWidth, TitlebarPosition};
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Scheme {
-    #[default]
-    System,
-    Light,
-    Dark,
+/// Configures the extracted settings crate with desktop's build metadata and storage callbacks.
+pub fn init() {
+    opencode_feature_settings::configure(SettingsConfig {
+        build_channel: crate::updater::build_channel(),
+        build_version: crate::updater::build_version(),
+        storage: StorageOps {
+            read_json: crate::storage::json,
+            write_json: crate::storage::set_json,
+            delete: crate::storage::delete,
+        },
+    });
 }
 
-impl Scheme {
-    pub const ALL: [Scheme; 3] = [Scheme::System, Scheme::Light, Scheme::Dark];
+fn plugin_state_name(state: opencode_plugin_spec::ServerState) -> &'static str {
+    ["stopped", "starting", "auth", "ready", "failed", "incompatible"]
+        .get(state as usize)
+        .copied()
+        .unwrap_or("stopped")
+}
 
-    pub fn name(self) -> &'static str {
-        match self { Self::System => "system", Self::Light => "light", Self::Dark => "dark" }
+fn make_server_entry(
+    key: ServerKey,
+    name: String,
+    kind: ServerKind,
+    connection: Option<ServerConn>,
+    source: Option<Option<PluginStage>>,
+) -> ServerEntry {
+    let health = crate::servers::health::get(&key);
+    let availability = opencode_kit::servers::settings::availability(opencode_kit::servers::settings::Input {
+        connection: connection.as_ref(),
+        source,
+        health: health.as_ref(),
+        signed_out: false,
+    });
+    // A plugin's server has its connection only while it's ready.
+    let connection = connection.filter(|c| !matches!(c, ServerConn::Plugin { status: PluginStatus::Stage(_), .. }));
+    let name = if name.is_empty() { key.as_str().to_owned() } else { name };
+    ServerEntry { key, name, kind, connection, health, availability }
+}
+
+static ABOUT_OTHERS: AtomicU32 = AtomicU32::new(0);
+static ABOUT_ASKED: std::sync::Once = std::sync::Once::new();
+
+/// The contributors past the 16 credited, as GitHub's contributor list's last page says.
+fn about_other_contributors(s: &App) -> u32 {
+    if !crate::headless() {
+        ABOUT_ASKED.call_once(|| {
+            let waker = (*s.waker).clone();
+            let _ = rune::task::spawn("about-contributors", move || {
+                let link = ureq::get("https://api.github.com/repos/anomalyco/opencode/contributors?anon=1&per_page=1")
+                    .header("Accept", "application/vnd.github+json")
+                    .header("X-GitHub-Api-Version", "2022-11-28")
+                    .call()
+                    .ok()
+                    .and_then(|r| r.headers().get("link").and_then(|v| v.to_str().ok()).map(str::to_owned));
+                let writers = pages::about::WRITERS_COUNT;
+                let total = link.as_deref().and_then(last_page).filter(|n| *n > writers);
+                ABOUT_OTHERS.store(total.map_or(pages::about::FALLBACK_OTHERS, |n| n - writers), Ordering::Relaxed);
+                if let Some(w) = waker {
+                    w();
+                }
+            });
+        });
+    }
+    match ABOUT_OTHERS.load(Ordering::Relaxed) {
+        0 => pages::about::FALLBACK_OTHERS,
+        n => n,
+    }
+}
+
+fn last_page(link: &str) -> Option<u32> {
+    let last = link.split(',').find(|l| l.contains("rel=\"last\""))?;
+    let at = last.find("page=")? + 5;
+    last[at..].chars().take_while(char::is_ascii_digit).collect::<String>().parse().ok()
+}
+
+/// `--about-trace <file>` (proof runs): records wordmark letters on each tick while moving.
+fn trace_about_wordmark(now: f64, letters: &str) {
+    use std::io::Write;
+    thread_local! {
+        static ON: bool = crate::arg("--about-trace").is_some();
+        static OUT: std::cell::RefCell<Option<std::fs::File>> =
+            std::cell::RefCell::new(crate::arg("--about-trace").and_then(|p| std::fs::File::create(p).ok()));
+    }
+    if !ON.with(|o| *o) {
+        return;
+    }
+    OUT.with_borrow_mut(|f| {
+        if let Some(f) = f {
+            let _ = writeln!(f, "{{\"t\":{now:.6},\"letters\":\"{letters}\"}}");
+        }
+    });
+}
+
+impl SettingsHost for App {
+    fn settings(&self) -> &Settings {
+        &self.settings
     }
 
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::System => opencode_i18n::t!("theme.scheme.system"),
-            Self::Light => opencode_i18n::t!("theme.scheme.light"),
-            Self::Dark => opencode_i18n::t!("theme.scheme.dark"),
+    fn settings_mut(&mut self) -> &mut Settings {
+        &mut self.settings
+    }
+
+    fn settings_pages(&self) -> &pages::State {
+        &self.settings_pages
+    }
+
+    fn settings_pages_mut(&mut self) -> &mut pages::State {
+        &mut self.settings_pages
+    }
+
+    fn persists(&self) -> bool {
+        App::persists(self)
+    }
+
+    fn can_write(&self) -> bool {
+        App::can_write(self)
+    }
+
+    fn clock(&self) -> f64 {
+        *self.clock
+    }
+
+    fn now_ms(&self) -> i64 {
+        *self.now_ms
+    }
+
+    fn reduced_motion(&self) -> bool {
+        *self.reduced_motion
+    }
+
+    fn zoom(&self) -> f32 {
+        *self.zoom
+    }
+
+    fn set_zoom_level(&mut self, level: f32) {
+        App::set_zoom_level(self, level);
+    }
+
+    fn tab_layout(&self) -> TabLayout {
+        App::tab_layout(self)
+    }
+
+    fn set_tab_layout(&mut self, layout: TabLayout, tx: &mut Tx) {
+        App::set_tab_layout(self, layout, tx);
+    }
+
+    fn narrow(&self) -> bool {
+        App::narrow(self)
+    }
+
+    fn narrow_sm(&self) -> bool {
+        self.layout.narrow.sm()
+    }
+
+    fn live_server_base(&self) -> Option<String> {
+        match &*self.source {
+            crate::Source::Live { server, .. } => Some(server.base.clone()),
+            crate::Source::Fixture => None,
         }
     }
 
-    /// `"system"`, `"light"` or `"dark"`; the system's otherwise.
-    pub fn parse(name: &str) -> Scheme {
-        Self::ALL.into_iter().find(|s| s.name() == name).unwrap_or_default()
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct Settings {
-    pub open: bool,
-    /// The composer's agent picker (`general.showCustomAgents`); the agent still applies when it's hidden.
-    pub show_agent: bool,
-    pub scheme: Scheme,
-    /// Fold prompts past 12 lines behind Read more (`fold.rs`); Experimental, off unless turned on.
-    pub fold_user: bool,
-    /// The pane a new terminal opens in: `"side"` (default) or `"bottom"`.
-    pub terminal_placement: crate::panels::DockPlacement,
-    /// Which events post a system notification (`notifications.rs`), with Desktop's defaults.
-    pub notify: crate::notifications::Kinds,
-    /// Answer every permission request "once" as it arrives (Desktop's `permissions.autoApprove`).
-    pub auto_accept: bool,
-    /// Projects whose own Auto-accept permissions overrides that default, by project id.
-    pub project_auto_accept: BTreeMap<String, bool>,
-    /// Desktop's colour theme id (`themes.rs`); `oc-2` is OpenCode's own.
-    pub theme: String,
-    pub reduce_motion: crate::appearance::ReduceMotion,
-    /// Appearance › Text rendering: how Rune rasterises text (`text_rendering::TextRenderer`).
-    pub text_renderer: crate::text_rendering::TextRenderer,
-    /// The terminal's font, an index into the Terminal font knob's choices.
-    pub terminal_font: usize,
-    /// Indexes into `appearance::UI_FONTS` and `CODE_FONTS`, saved by name.
-    pub ui_font: usize,
-    pub code_font: usize,
-    /// An installed family typed into a font field that none of its choices is (Desktop's font
-    /// rows take any name), which then stands before the default; empty for a choice.
-    pub ui_font_name: String,
-    pub code_font_name: String,
-    pub terminal_font_name: String,
-    /// Rune records the last minute of frames for ⌘⇧⌥R (`glitch`); on by default.
-    pub record_glitches: bool,
-    /// Desktop's Interface layout (`appearance.tabLayout`): top tabs unless changed.
-    pub tab_layout: crate::layout_state::TabLayout,
-    /// Questions take the keyboard-first dock instead of Classic (Desktop's `general.newQuestionUI`,
-    /// Settings › Experimental › New question UI). Off unless turned on, as there.
-    pub new_question_ui: bool,
-    /// Ease a live delivery into place: the Pending label, the tray's room and joined prompts.
-    pub smooth_timeline: bool,
-    /// macOS: Option in the terminal is Meta (Esc and the key, for a shell's word motions) instead
-    /// of typing the layout's character. Off by default, so Option+E types é as everywhere else
-    /// on the Mac; Desktop's terminal (ghostty-web) treats Option as Meta.
-    pub terminal_option_meta: bool,
-    /// The shells the terminal starts with prompt marks (`terminal::integration::Shell::id`),
-    /// each turned on by the user; none by default.
-    pub terminal_marks: Vec<String>,
-    /// The display language Settings picked (Desktop's `language` store), an `opencode_i18n`
-    /// locale id; `None` follows the system's languages (`language::apply`).
-    pub language: Option<String>,
-    /// Where a new session starts (`workspaces.defaultDestination`).
-    pub default_destination: Destination,
-    /// Where each project's last session started (`workspaces.lastUsed`): `"local"` or `"workspace"`.
-    pub last_used: BTreeMap<String, String>,
-    /// What Enter does while the agent works (`general.followUpBehavior`).
-    pub follow_up: FollowUp,
-    /// Ctrl-scroll and trackpad pinches zoom the window (Desktop's `pinchZoom`); off by default.
-    pub pinch_zoom: bool,
-    /// Underline misspelt words while typing (Desktop's `spellcheck`); on by default.
-    pub spellcheck: bool,
-    /// The dictionaries a text field's Spellcheck Languages menu chose (Desktop's
-    /// `spellcheckLanguages`); none follows the system languages.
-    pub spellcheck_languages: Vec<String>,
-    /// A narrow window's diffs wrap long lines rather than scroll (the review plugin's `mobileDiff.wrap`).
-    pub mobile_diff_wrap: bool,
-    /// Where a narrow window keeps its titlebar (`general.mobileTitlebarPosition`).
-    pub mobile_titlebar: TitlebarPosition,
-    /// The ChatGPT plan welcome has shown (Desktop's `chatgpt-plan-welcome.v1`).
-    pub chatgpt_welcome_seen: bool,
-    /// Experimental › Organize vertical sidebar (`general.sidebarOrganize`).
-    pub sidebar_organize: Organize,
-    /// Notifications › Sound effects (`sounds`).
-    pub sounds: Sounds,
-    /// Shortcuts the user changed (`keybinds`): command id to keybind, "none" for unbound.
-    pub keybinds: BTreeMap<String, String>,
-    /// Keep screen active as the app kept it before the Pairing plugin: read once to move it into
-    /// the plugin's store (plugin_host::setup).
-    pub keep_screen_active: bool,
-    /// Preferences › Timeline: what of a turn's work shows (`general.timelineDetail`), the
-    /// column (`timelineWidth`), where background work shows (`backgroundActivity`) and
-    /// whether a finished turn lists its changed files (`showTurnDiffs`).
-    pub timeline_detail: session_view::detail::Detail,
-    pub timeline_width: TimelineWidth,
-    pub background_activity: BackgroundActivity,
-    pub turn_diffs: bool,
-}
-
-impl Default for Settings {
-    fn default() -> Self {
-        Settings {
-            open: false,
-            // Desktop shows the composer's agent picker by default (`settings/model.tsx:308`,
-            // `showCustomAgents: true`).
-            show_agent: true,
-            scheme: Scheme::default(),
-            fold_user: false,
-            terminal_placement: crate::panels::DockPlacement::Side,
-            notify: Default::default(),
-            auto_accept: false,
-            project_auto_accept: BTreeMap::new(),
-            theme: crate::themes::DEFAULT.into(),
-            reduce_motion: Default::default(),
-            text_renderer: Default::default(),
-            terminal_font: 3,
-            ui_font: 0,
-            code_font: 0,
-            ui_font_name: String::new(),
-            code_font_name: String::new(),
-            terminal_font_name: String::new(),
-            record_glitches: true,
-            tab_layout: Default::default(),
-            new_question_ui: false,
-            smooth_timeline: false,
-            terminal_option_meta: false,
-            terminal_marks: Vec::new(),
-            language: None,
-            default_destination: Destination::default(),
-            last_used: BTreeMap::new(),
-            follow_up: FollowUp::default(),
-            pinch_zoom: false,
-            spellcheck: true,
-            spellcheck_languages: Vec::new(),
-            // The Review plugin's store starts wrapping (`gui-plugins/src/review/index.ts:46-48`).
-            mobile_diff_wrap: true,
-            mobile_titlebar: TitlebarPosition::default(),
-            chatgpt_welcome_seen: false,
-            sidebar_organize: Organize::default(),
-            sounds: Sounds::default(),
-            keybinds: BTreeMap::new(),
-            keep_screen_active: false,
-            timeline_detail: Default::default(),
-            timeline_width: TimelineWidth::default(),
-            background_activity: BackgroundActivity::default(),
-            turn_diffs: false,
-        }
-    }
-}
-
-impl Settings {
-    pub fn to_json(&self) -> Value {
-        json!({
-            "showAgentPicker": self.show_agent,
-            "appearance": self.scheme.name(),
-            "foldUserMessages": self.fold_user,
-            "terminalPlacement": self.terminal_placement.name(),
-            "notifications": self.notify.to_json(),
-            "permissions": { "autoApprove": self.auto_accept, "projects": self.project_auto_accept },
-            "theme": self.theme,
-            "reduceMotion": self.reduce_motion.name(),
-            "textRenderer": self.text_renderer.name(),
-            "terminalFont": self.terminal_font,
-            "uiFont": if self.ui_font_name.is_empty() { crate::appearance::UI_FONTS[self.ui_font.min(crate::appearance::UI_FONTS.len() - 1)].name } else { self.ui_font_name.as_str() },
-            "codeFont": if self.code_font_name.is_empty() { crate::appearance::CODE_FONTS[self.code_font.min(crate::appearance::CODE_FONTS.len() - 1)].name } else { self.code_font_name.as_str() },
-            "terminalFontName": self.terminal_font_name,
-            "developer": { "rewind": self.record_glitches },
-            "tabLayout": self.tab_layout.name(),
-            "newQuestionUI": self.new_question_ui,
-            "smoothTimeline": self.smooth_timeline,
-            "terminal": { "optionAsMeta": self.terminal_option_meta, "marks": self.terminal_marks },
-            "language": self.language,
-            "workspaces": { "defaultDestination": self.default_destination.name(), "lastUsed": self.last_used },
-            "followUpBehavior": self.follow_up.name(),
-            "pinchZoom": self.pinch_zoom,
-            "spellcheck": self.spellcheck,
-            "spellcheckLanguages": self.spellcheck_languages,
-            "mobileDiffWrap": self.mobile_diff_wrap,
-            "mobileTitlebarPosition": self.mobile_titlebar.name(),
-            "chatgptPlanWelcomeSeen": self.chatgpt_welcome_seen,
-            "sidebarOrganize": self.sidebar_organize.name(),
-            "sounds": self.sounds.to_json(),
-            "keybinds": self.keybinds,
-            "keepScreenActive": self.keep_screen_active,
-            "timelineDetail": self.timeline_detail.to_json(),
-            "timelineWidth": self.timeline_width.name(),
-            "backgroundActivity": self.background_activity.name(),
-            "showTurnDiffs": self.turn_diffs,
-        })
+    fn set_language(&mut self, id: &str) {
+        crate::language::set(self, id);
     }
 
-    pub fn from_json(v: &Value) -> Settings {
-        let d = Settings::default();
-        Settings {
-            open: false,
-            show_agent: v["showAgentPicker"].as_bool().unwrap_or(true),
-            scheme: Scheme::ALL.into_iter().find(|s| Some(s.name()) == v["appearance"].as_str()).unwrap_or_default(),
-            fold_user: v["foldUserMessages"].as_bool().unwrap_or(d.fold_user),
-            terminal_placement: crate::panels::DockPlacement::parse(v["terminalPlacement"].as_str()),
-            notify: crate::notifications::Kinds::from_json(&v["notifications"]),
-            auto_accept: v["permissions"]["autoApprove"].as_bool().unwrap_or(false),
-            project_auto_accept: v["permissions"]["projects"].as_object().map(|m| m.iter().filter_map(|(k, v)| Some((k.clone(), v.as_bool()?))).collect()).unwrap_or_default(),
-            theme: theme_id(v["theme"].as_str().unwrap_or_default()),
-            reduce_motion: crate::appearance::ReduceMotion::parse(v["reduceMotion"].as_str()),
-            text_renderer: crate::text_rendering::TextRenderer::parse(v["textRenderer"].as_str()),
-            terminal_font: v["terminalFont"].as_u64().map_or(3, |i| (i as usize).min(crate::appearance::TERMINAL_FONTS.len() - 1)),
-            ui_font: crate::appearance::font_index(&crate::appearance::UI_FONTS, v["uiFont"].as_str()),
-            code_font: crate::appearance::font_index(&crate::appearance::CODE_FONTS, v["codeFont"].as_str()),
-            ui_font_name: crate::appearance::custom_name(&crate::appearance::UI_FONTS, v["uiFont"].as_str()),
-            code_font_name: crate::appearance::custom_name(&crate::appearance::CODE_FONTS, v["codeFont"].as_str()),
-            terminal_font_name: v["terminalFontName"].as_str().map(str::trim).unwrap_or("").to_owned(),
-            record_glitches: v["developer"]["rewind"].as_bool().unwrap_or(true),
-            // Files from before the setting read as Desktop's default; Desktop nests it under
-            // `appearance`, which here is the colour scheme.
-            tab_layout: crate::layout_state::TabLayout::parse(v["tabLayout"].as_str().or_else(|| v["appearance"]["tabLayout"].as_str())),
-            new_question_ui: v["newQuestionUI"].as_bool().unwrap_or(false),
-            smooth_timeline: v["smoothTimeline"].as_bool().unwrap_or(false),
-            terminal_option_meta: v["terminal"]["optionAsMeta"].as_bool().unwrap_or(false),
-            terminal_marks: v["terminal"]["marks"].as_array().map(|a| a.iter().filter_map(|m| m.as_str().map(str::to_owned)).collect()).unwrap_or_default(),
-            language: v["language"].as_str().filter(|l| opencode_i18n::locales().iter().any(|locale| locale.id() == *l)).map(str::to_owned),
-            default_destination: Destination::parse(v["workspaces"]["defaultDestination"].as_str()),
-            last_used: v["workspaces"]["lastUsed"].as_object().map(|m| m.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str().filter(|v| matches!(*v, "local" | "workspace"))?.to_owned()))).collect()).unwrap_or_default(),
-            follow_up: FollowUp::parse(v["followUpBehavior"].as_str()),
-            pinch_zoom: v["pinchZoom"].as_bool().unwrap_or(d.pinch_zoom),
-            spellcheck: v["spellcheck"].as_bool().unwrap_or(d.spellcheck),
-            mobile_diff_wrap: v["mobileDiffWrap"].as_bool().unwrap_or(d.mobile_diff_wrap),
-            mobile_titlebar: TitlebarPosition::parse(v["mobileTitlebarPosition"].as_str()),
-            spellcheck_languages: v["spellcheckLanguages"].as_array().map(|a| a.iter().filter_map(|l| Some(l.as_str()?.to_owned())).collect()).unwrap_or_default(),
-            chatgpt_welcome_seen: v["chatgptPlanWelcomeSeen"].as_bool().unwrap_or(false),
-            sidebar_organize: Organize::parse(v["sidebarOrganize"].as_str()),
-            sounds: if v["sounds"].is_object() { Sounds::from_json(&v["sounds"]) } else { Sounds::default() },
-            keybinds: v["keybinds"].as_object().map(|m| m.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned()))).collect()).unwrap_or_default(),
-            keep_screen_active: v["keepScreenActive"].as_bool().unwrap_or(false),
-            timeline_detail: session_view::detail::Detail::from_json(&v["timelineDetail"]),
-            timeline_width: TimelineWidth::parse(v["timelineWidth"].as_str()),
-            background_activity: BackgroundActivity::parse(v["backgroundActivity"].as_str()),
-            turn_diffs: v["showTurnDiffs"].as_bool().unwrap_or(false),
-        }
+    fn set_auto_accept(&mut self, on: bool) {
+        App::set_auto_accept(self, on);
     }
-}
 
-/// A saved theme id: one of Desktop's, or a plugin's (`<plugin>:<id>`), kept as written since
-/// plugins register their themes after the settings load.
-fn theme_id(id: &str) -> String {
-    if id.contains(':') {
-        return id.to_owned();
+    fn set_project_auto_accept(&mut self, project_id: &str, value: Option<bool>) {
+        App::set_project_auto_accept(self, project_id, value);
     }
-    crate::themes::all()[crate::themes::index(id)].id.clone()
-}
 
-/// The preferences, from memory (the boot packet before the first frame): Desktop's
-/// `settings.v3` and `language`, and Rune's own `rune.settings` (`stored`).
-pub fn load() -> Settings {
-    stored::load()
-}
+    fn set_pinch_zoom(&mut self, on: bool, tx: &mut Tx) {
+        App::set_pinch_zoom(self, on, tx);
+    }
 
-/// Written behind; an unchanged set writes nothing.
-fn save(settings: &Settings) {
-    stored::save(settings);
-}
+    fn set_theme(&mut self, id: &str, tx: &mut Tx) {
+        App::set_theme(self, id, tx);
+    }
 
-impl App {
-    pub fn dark(&self, cx: &rune::Cx<App>) -> bool {
-        // A contrast theme says light or dark itself, by its window colour.
-        if let Some(c) = cx.system_contrast() {
-            return c.window.luminance() < 0.5;
-        }
-        match self.settings.scheme {
-            Scheme::System => cx.system_dark(),
-            Scheme::Light => false,
-            Scheme::Dark => true,
+    fn set_ui_font(&mut self, index: usize, custom_name: &str, tx: &mut Tx) {
+        self.set_ui_font_named(index, custom_name, tx);
+    }
+
+    fn set_code_font(&mut self, index: usize, custom_name: &str, tx: &mut Tx) {
+        self.set_code_font_named(index, custom_name, tx);
+    }
+
+    fn set_terminal_font(&mut self, index: usize, custom_name: &str, tx: &mut Tx) {
+        App::set_terminal_font(self, index, custom_name, tx);
+    }
+
+    fn set_reduce_motion(&mut self, mode: ReduceMotion) {
+        App::set_reduce_motion(self, mode);
+    }
+
+    fn set_text_renderer(&mut self, renderer: TextRenderer) {
+        App::set_text_renderer(self, renderer);
+    }
+
+    fn text_rendering_fallback_reason(&self) -> Option<&'static str> {
+        match *self.text_rendering {
+            crate::text_rendering::Rendering::FellBack { reason, .. } if !reason.is_empty() => Some(reason),
+            _ => None,
         }
     }
 
-    /// Opens Settings on its first page, Preferences.
-    pub fn open_settings(&mut self) {
-        self.open_settings_at(pages::Page::General);
+    fn play_sound(&mut self, id: &str) {
+        crate::sounds::play(id);
     }
 
-    /// Opens Settings on `page`, as Desktop's `layout.settings(tab)` does.
-    pub fn open_settings_at(&mut self, page: pages::Page) {
+    fn developer_section(&self, p: &Pal) -> Option<El> {
+        Some(crate::glitch::settings_section(self, p))
+    }
+
+    fn about_info(&self) -> AboutInfo {
+        let version = if self.updater.version.is_empty() {
+            crate::updater::build_version().to_owned()
+        } else {
+            self.updater.version.clone()
+        };
+        AboutInfo { version, other_contributors: about_other_contributors(self) }
+    }
+
+    fn on_wordmark_tick(&mut self, now: f64, letters: &str) {
+        trace_about_wordmark(now, letters);
+    }
+
+    fn is_copied(&self, key: &str) -> bool {
+        session_view::copied::is_copied(self, key)
+    }
+
+    fn mark_copied(&mut self, key: &str, tx: &mut Tx) {
+        session_view::copied::mark_copied(self, key, tx);
+    }
+
+    fn sync_catalogs(&mut self, dir: Option<&str>) {
+        App::sync_catalogs(self, dir.map(str::to_owned));
+    }
+
+    fn integrations(&self, dir: Option<&str>) -> Option<&[Integration]> {
+        App::integrations(self, dir)
+    }
+
+    fn provider_rows(&self, dir: Option<&str>) -> Vec<ProviderRow> {
+        self.provider_infos(dir)
+            .unwrap_or_default()
+            .iter()
+            .map(|pi| ProviderRow { id: pi.id.clone(), name: pi.name.clone(), integration: pi.integration.clone() })
+            .collect()
+    }
+
+    fn open_connect(&mut self, provider: Option<&str>, from_settings: bool, tx: &mut Tx) {
+        App::open_connect(self, provider, from_settings, tx);
+    }
+
+    fn models(&self) -> &[Model] {
+        &self.pickers.models
+    }
+
+    fn model_visible(&self, model: &Model) -> bool {
+        self.pickers.visible(model)
+    }
+
+    fn set_model_visibility(&mut self, key: &str, visible: bool) {
+        self.pickers.prefs.set_visibility([key], visible);
+    }
+
+    fn sync_mcp(&mut self, dir: &str) {
+        App::sync_mcp(self, dir);
+    }
+
+    fn mcp_servers(&self, dir: &str) -> Option<&[McpServer]> {
+        App::mcp_servers(self, dir)
+    }
+
+    fn mcp_row_trailing(&self, p: &Pal, dir: &str, server: &McpServer) -> El {
+        crate::mcp::view::trailing(self, p, dir, server)
+    }
+
+    fn wake_settings_plugins(&mut self) {
+        crate::plugin_host::dormant::wake_owners(self, |c| !c.settings.is_empty() || !c.settings_pages.is_empty());
+    }
+
+    fn plugin_pages(&self) -> Vec<PluginPageMeta> {
+        let pairing = crate::plugin_host::settings_page_key(self, "pairing");
+        crate::plugin_host::settings_page_ids(self)
+            .into_iter()
+            .map(|(id, in_about_group)| {
+                let title = crate::plugin_host::settings_page_title(self, &id).unwrap_or_else(|| id.clone());
+                let icon = crate::plugin_host::settings_page_icon(self, &id).unwrap_or(&rune_theme_opencode::icons::EXTENSIONS);
+                let in_server_group = !in_about_group && id == pairing;
+                PluginPageMeta { id, title, icon, in_about_group, in_server_group }
+            })
+            .collect()
+    }
+
+    fn plugin_page_view(&self, p: &Pal, id: &str) -> Option<(String, String, El, Option<El>)> {
+        let (title, description, body) = crate::plugin_host::settings_page(self, p, id)?;
+        let actions = crate::plugin_host::settings_page_actions(self, p, id);
+        Some((title, description, body, actions))
+    }
+
+    fn plugin_sections_for_page(&self, p: &Pal, page_id: &str) -> Vec<El> {
+        crate::plugin_host::settings_pages(self, p, page_id)
+    }
+
+    fn plugin_extensions_section(&self, p: &Pal) -> Option<El> {
+        crate::plugin_host::settings_section(self, p)
+    }
+
+    fn plugin_search_entries(&self) -> Vec<PluginSearchItem> {
+        crate::plugin_host::settings_search(self)
+            .into_iter()
+            .map(|e| PluginSearchItem {
+                owner: e.owner,
+                page: e.page,
+                id: e.id,
+                title: e.title,
+                description: e.description,
+                keywords: e.keywords,
+            })
+            .collect()
+    }
+
+    fn resolve_plugin_page(&self, page_id: &str) -> (String, Option<String>) {
+        (
+            crate::plugin_host::settings_page_key(self, page_id),
+            crate::plugin_host::settings_page_title(self, page_id),
+        )
+    }
+
+    fn commands_catalog(&self) -> Vec<CommandItem> {
+        self.catalog()
+            .into_iter()
+            .map(|c| CommandItem {
+                id: c.id,
+                title: c.title.to_owned(),
+                section: c.section,
+                chord: c.chord,
+                has_keys: c.keys.is_some(),
+            })
+            .collect()
+    }
+
+    fn has_command(&self, id: &str) -> bool {
+        self.commands().iter().any(|c| c.id == id)
+    }
+
+    fn run_command(&mut self, id: &str, tx: &mut Tx) {
+        App::run_command(self, id, tx);
+    }
+
+    fn projects(&self) -> &[Project] {
+        &self.projects
+    }
+
+    fn used_projects(&self) -> Vec<&Project> {
+        App::used_projects(self)
+    }
+
+    fn other_projects(&self) -> Vec<&Project> {
+        App::other_projects(self)
+    }
+
+    fn project_at(&self, dir: &str) -> Option<&Project> {
+        App::project_at(self, dir)
+    }
+
+    fn apply_project(&mut self, updated: Project) {
+        App::apply_project(self, updated);
+    }
+
+    fn touch_project(&mut self, id: &str) {
+        App::touch_project(self, id);
+    }
+
+    fn project_has_unread(&self, project: &Project) -> bool {
+        App::project_has_unread(self, project)
+    }
+
+    fn clear_project_notifications(&mut self, project: &Project, tx: &mut Tx) {
+        App::clear_project_notifications(self, project, tx);
+    }
+
+    fn open_project_dialog(&mut self, tx: &mut Tx) {
+        App::open_project_dialog(self, tx);
+    }
+
+    fn project_badge(&self, p: &Pal, project: Option<&Project>, label: &str) -> El {
+        crate::icons::badge(self, p, project, label)
+    }
+
+    fn project_avatar_image(&self, p: &Pal, project: &Project, size: f32) -> El {
+        self.icons.view(&crate::icons::palette(p), project, size)
+    }
+
+    fn reveal_label(&self) -> &'static str {
+        crate::view::location_card::reveal_label()
+    }
+
+    fn reveal_path(&self, dir: &str) -> Result<(), String> {
+        crate::view::location_card::reveal(dir)
+    }
+
+    fn list_worktrees(&mut self, project_id: &str) {
+        App::list_worktrees(self, project_id);
+    }
+
+    fn project_worktrees(&self, project_id: &str, directory: &str) -> Vec<String> {
+        App::project_worktrees(self, project_id, directory)
+    }
+
+    fn sessions(&self) -> &[SessionInfo] {
+        &self.sessions
+    }
+
+    fn active_session_directory(&self) -> Option<String> {
+        self.active_session_id().and_then(|id| self.session(id).map(|i| i.directory.clone()))
+    }
+
+    fn servers_inventory(&self) -> Vec<ServerEntry> {
+        let contributed = crate::plugin_host::contributed_servers(self);
+        let saved = crate::servers::list();
+        let own_address = crate::servers::runtime::own_server().map(|s| s.base).unwrap_or_default();
+        let mut out: Vec<ServerEntry> = crate::servers::registry::list(self)
+            .into_iter()
+            .filter_map(|e| {
+                let key = e.key();
+                let name = crate::servers::registry::label(&e.conn);
+                let kind = match &e.conn {
+                    ServerConn::Sidecar { .. } => ServerKind::Own { address: own_address.clone() },
+                    ServerConn::Http { .. } => {
+                        let x = saved
+                            .iter()
+                            .find(|x| ServerConn::http_server(&x.url).map(|c| c.key()) == Some(key.clone()))?;
+                        ServerKind::Http(HttpServer { url: x.url.clone(), password: x.password.clone(), name: x.name.clone() })
+                    }
+                    ServerConn::Plugin { .. } => {
+                        let c = contributed.iter().find(|c| c.key == key.as_str())?;
+                        ServerKind::Plugin(PluginServerInfo {
+                            key: c.key.clone(),
+                            name: c.rec.name.clone(),
+                            label: c.rec.label.clone(),
+                            listed: c.rec.listed,
+                            state_name: plugin_state_name(c.rec.state),
+                        })
+                    }
+                };
+                // A sign-in on its way shows as starting (`selectPluginStatus`).
+                let conn = match e.conn {
+                    ServerConn::Plugin { key: k, plugin, managed, display_name, label, .. }
+                        if crate::plugin_host::server_authenticating(k.as_str()) =>
+                    {
+                        ServerConn::Plugin { key: k, plugin, status: PluginStatus::Stage(PluginStage::Starting), managed, display_name, label }
+                    }
+                    conn => conn,
+                };
+                Some(make_server_entry(key, name, kind, Some(conn), None))
+            })
+            .collect();
+        for c in contributed.iter().filter(|c| !c.by_address() && !c.rec.listed) {
+            let key = ServerKey::new(&c.key);
+            let stage = (c.rec.state != opencode_plugin_spec::ServerState::Ready).then(|| crate::plugin_host::servers_stage(c.rec.state));
+            let info = PluginServerInfo {
+                key: c.key.clone(),
+                name: c.rec.name.clone(),
+                label: c.rec.label.clone(),
+                listed: c.rec.listed,
+                state_name: plugin_state_name(c.rec.state),
+            };
+            out.push(make_server_entry(key, c.rec.name.clone(), ServerKind::Plugin(info), None, Some(stage)));
+        }
+        out
+    }
+
+    fn server_health(&self, key: &ServerKey) -> Option<Health> {
+        crate::servers::health::get(key)
+    }
+
+    fn desired_server_key(&self) -> ServerKey {
+        crate::servers::runtime::desired(self)
+    }
+
+    fn active_server_key(&self) -> ServerKey {
+        crate::servers::runtime::active(self).clone()
+    }
+
+    fn is_server_listed(&self, key: &ServerKey) -> bool {
+        crate::servers::runtime::listed().iter().any(|l| l.key == *key)
+    }
+
+    fn switch_server(&mut self, key: &ServerKey) {
+        crate::servers::runtime::switch(self, key);
+    }
+
+    fn retry_server_health(&mut self, tx: &mut Tx) -> Option<u64> {
+        crate::servers::health::retry(self, tx)
+    }
+
+    fn server_health_retry_resolved(&self, waiter: u64) -> bool {
+        crate::servers::health::resolved(waiter)
+    }
+
+    fn open_server_dialog(&mut self, edit_url: Option<&str>, tx: &mut Tx) {
+        crate::servers::dialog::open(self, edit_url, tx);
+    }
+
+    fn remove_http_server(&mut self, url: &str, tx: &mut Tx) {
+        crate::servers::remove_offering(self, url);
+        crate::servers::dialog::sync(self, tx);
+    }
+
+    fn server_add_menu_items(&self) -> Vec<(String, String)> {
+        crate::plugin_host::server_menu_items(self, "server.add")
+            .into_iter()
+            .map(|(k, t)| (k.to_owned(), t))
+            .collect()
+    }
+
+    fn run_server_add_menu_item(&mut self, key: &str, tx: &mut Tx) {
+        crate::plugin_host::run_menu_item(self, key, "", tx);
+    }
+
+    fn plugin_server_row(&self, p: &Pal, key: &str) -> Option<El> {
+        let c = crate::plugin_host::contributed_servers(self).into_iter().find(|c| c.key == key)?;
+        crate::plugin_host::server_row(self, p, &c)
+    }
+
+    fn can_page_sign_out(&self) -> bool {
+        crate::page_sign_in::can_sign_out()
+    }
+
+    fn is_page_server(&self, url: &str) -> bool {
+        crate::page_sign_in::is_page_server(url)
+    }
+
+    fn page_sign_out(&mut self) {
+        crate::page_sign_in::sign_out();
+    }
+
+    fn before_settings_open(&mut self) {
         self.close_picker(false);
         self.close_switcher(false);
         self.composer.focused = false;
-        // Settings' per-server pages start on the server of the page it opens over
-        // (`SettingsSurface.server`'s `sourceServer`).
-        if !self.settings.open {
-            self.settings_pages.server.key = crate::servers::runtime::desired(self);
-        }
-        // What plugins show in Settings (their rows on Plugins, their own pages) draws from their VMs.
-        crate::plugin_host::dormant::wake_owners(self, |c| !c.settings.is_empty() || !c.settings_pages.is_empty());
-        self.settings.open = true;
-        self.show_settings_page(page);
     }
 
-    pub fn close_settings(&mut self) {
-        self.settings.open = false;
-        search::clear(self);
-        self.settings_pages.shortcuts.capture = None;
-        self.settings_pages.blur_fields();
+    fn try_navigate_back_from_settings(&mut self, tx: &mut Tx) -> bool {
+        self.project_navigation() && self.navigate(false, tx)
     }
 
-    /// Changes the preferences and saves what the change touched over what's saved, so a launch
-    /// argument that set one for this run only (`--color-theme`, `--tab-layout`, `--ui-font`)
-    /// stays out of the saved preferences when another one is changed.
-    pub(crate) fn change_settings(&mut self, f: impl FnOnce(&mut Settings)) {
-        let before = self.settings.to_json();
-        f(&mut self.settings);
-        if self.persists() {
-            let after = self.settings.to_json();
-            let mut saved = load().to_json();
-            if let (Some(after), Some(saved), Some(before)) = (after.as_object(), saved.as_object_mut(), before.as_object()) {
-                for (k, v) in after.iter().filter(|(k, v)| before.get(*k) != Some(*v)) {
-                    saved.insert(k.clone(), v.clone());
-                }
-            }
-            save(&Settings::from_json(&saved));
-        }
-    }
-
-    pub fn set_show_agent(&mut self, on: bool) {
-        self.change_settings(|s| s.show_agent = on);
-    }
-
-    pub fn set_fold_user(&mut self, on: bool) {
-        self.change_settings(|s| s.fold_user = on);
-    }
-
-    pub fn set_notify(&mut self, kind: crate::notifications::Kind, on: bool) {
-        self.change_settings(|s| s.notify.set(kind, on));
-    }
-
-    pub fn set_scheme(&mut self, scheme: Scheme) {
-        self.change_settings(|s| s.scheme = scheme);
-    }
-
-    pub fn set_terminal_placement(&mut self, placement: crate::panels::DockPlacement, tx: &mut Tx) {
-        tx.instant();
-        self.change_settings(|s| s.terminal_placement = placement);
-    }
-
-    /// Settings' keys: the shortcut being recorded takes every key; Escape steps back through
-    /// search and then leaves; mod+f focuses the search (`settings.search.focus`).
-    pub fn settings_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
-        if !self.settings.open {
-            return false;
-        }
-        if pages::shortcuts::key(self, ev, tx) || search::key(self, ev, tx) {
-            return true;
-        }
-        if ev.key == Key::Escape {
-            tx.instant();
-            if matches!(self.settings_pages.page, pages::Page::Project(..)) {
-                self.open_settings_page(pages::Page::Projects, tx);
-                return true;
-            }
-            self.back_to_app(tx);
-            return true;
-        }
-        false
-    }
-
-    /// Escape or Back to app leaves Settings. Desktop leaves nothing focused once it's back on
-    /// Home (`esc-settings`), where the removed rail's focus would otherwise fall to the
-    /// titlebar's New session; over a session its prompt takes the keys back
-    /// (`fn-key-settings.open`).
-    pub(crate) fn back_to_app(&mut self, tx: &mut Tx) {
-        if self.project_navigation() && self.navigate(false, tx) { return; }
-        self.close_settings();
+    fn restore_focus_after_settings_close(&mut self, tx: &mut Tx) {
         if self.has_composer() && crate::auto_focus_composer(tx) {
             self.composer.focused = true;
         } else {
@@ -409,137 +582,188 @@ impl App {
         }
     }
 
-    pub fn toggle_settings(&mut self, tx: &mut Tx) {
-        tx.instant();
-        if self.settings.open {
-            self.close_settings();
-        } else {
-            self.open_settings();
-            if matches!(*self.route, crate::Route::Session { .. }) { tx.focus("settings", tx.focus_visible()); }
+    fn on_toggle_settings_opened(&mut self, tx: &mut Tx) {
+        if matches!(*self.route, crate::Route::Session { .. }) {
+            tx.focus("settings", tx.focus_visible());
         }
+    }
+
+    fn open_external(&mut self, url: &str, tx: &mut Tx) {
+        let _ = tx.open_url(url);
+    }
+
+    fn toast_say(&mut self, title: String, description: String) {
+        crate::status_toast::say(self, title, description);
+    }
+
+    fn toast_fail(&mut self, title: String, description: String) {
+        crate::status_toast::fail(self, title, description);
+    }
+
+    fn toast_succeed(&mut self, title: String, description: String) {
+        crate::status_toast::succeed(self, title, description);
+    }
+
+    fn toast_failed_wire(&mut self, title: String, err: &WireError) {
+        crate::status_toast::failed_wire(self, &title, err);
+    }
+
+    fn spawn_job(&mut self, job: SettingsJob) {
+        match job {
+            SettingsJob::ActiveServer(request) => {
+                self.job(move |srv| {
+                    let reply = execute_request(srv, request);
+                    Box::new(move |s: &mut App, tx: &mut Tx| apply_reply(s, reply, tx)) as Apply
+                });
+            }
+            SettingsJob::ForServer { server, request } => {
+                crate::servers::runtime::with_server(self, &server, |s| {
+                    s.job(move |srv| {
+                        let reply = execute_request(srv, request);
+                        Box::new(move |s: &mut App, tx: &mut Tx| apply_reply(s, reply, tx)) as Apply
+                    });
+                });
+            }
+        }
+    }
+
+    fn on_overlay_opened(&mut self, id: &'static str, return_focus: Option<String>) {
+        let mut entry = OverlayEntry::new(id, OverlayKind::Dialog);
+        if let Some(focus) = return_focus {
+            entry = entry.with_return_focus(focus);
+        }
+        self.kernel.step_overlay(OverlayEvent::Push(entry));
+    }
+
+    fn on_overlay_closed(&mut self, id: &'static str) {
+        self.kernel.step_overlay(OverlayEvent::Close(id));
+    }
+}
+
+impl App {
+    pub fn dark(&self, cx: &rune::Cx<App>) -> bool {
+        self.settings.is_dark(cx.system_contrast().map(|c| c.window), cx.system_dark())
+    }
+
+    pub fn open_settings(&mut self) {
+        open_settings(self);
+    }
+
+    pub fn open_settings_at(&mut self, page: pages::Page) {
+        open_settings_at(self, page);
+    }
+
+    #[allow(dead_code)]
+    pub fn open_settings_tx(&mut self, page: pages::Page, tx: &mut Tx) {
+        open_settings_tx(self, page, tx);
+    }
+
+    pub fn close_settings(&mut self) {
+        close_settings(self);
+    }
+
+    pub(crate) fn change_settings(&mut self, f: impl FnOnce(&mut Settings)) {
+        change_settings(self, f);
+    }
+
+    pub fn set_show_agent(&mut self, on: bool) {
+        set_show_agent(self, on);
+    }
+
+    pub fn set_fold_user(&mut self, on: bool) {
+        set_fold_user(self, on);
+    }
+
+    #[allow(dead_code)]
+    pub fn set_notify(&mut self, kind: NotifyKind, on: bool) {
+        set_notify(self, kind, on);
+    }
+
+    pub fn set_scheme(&mut self, scheme: Scheme) {
+        set_scheme(self, scheme);
+    }
+
+    #[allow(dead_code)]
+    pub fn set_terminal_placement(&mut self, placement: DockPlacement, tx: &mut Tx) {
+        set_terminal_placement(self, placement, tx);
+    }
+
+    pub fn settings_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
+        settings_key(self, ev, tx)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn back_to_app(&mut self, tx: &mut Tx) {
+        back_to_app(self, tx);
+    }
+
+    pub fn toggle_settings(&mut self, tx: &mut Tx) {
+        toggle_settings(self, tx);
     }
 
     pub fn zoom_by(&mut self, dir: i32, tx: &mut Tx) {
         tx.instant();
         self.set_zoom(dir);
     }
-}
 
-/// `.settings-section-title`: 13 on 16 at 530.
-const SECTION: TextStyle = TextStyle::new(13.0, 530.0).lh(16.0);
-/// `settings-row-description`: 13 on 20 at 440.
-const BODY: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0);
-/// `settings-row-title`: 13 on 16 at 530, -0.04 tracking.
-const ROW_TITLE: TextStyle = TextStyle::new(13.0, 530.0).lh(16.0).tracking(-0.04);
-
-/// The Settings screen in a panel `size` points large (0 when not measured yet).
-pub fn page(s: &App, p: &Pal, size: (f32, f32)) -> El {
-    shell::view(s, p, size)
-}
-
-/// `.settings-section`: its title, 16 above its list.
-pub(crate) fn section(p: &Pal, title: &str, list: El) -> El {
-    col().w_full().gap(16.0).child(text(title.to_owned()).font(SECTION).color(p.text)).child(list)
-}
-
-pub(crate) fn settings_card<'a, K: AsRef<str>, D: AsRef<str>>(p: &Pal, key: &str, items: impl IntoIterator<Item = (K, &'a str, D, El)>) -> El {
-    list(p, key, items.into_iter().map(|(k, title, description, control)| setting(p, k.as_ref(), title, description.as_ref(), control)).collect())
-}
-
-/// `[data-component="settings-list"]`: a `layer-01` card with 8 pt corners, 20 pt in from each
-/// side and a 0.5 pt `border-muted` ring inside; its rows split by `settings-row`'s 0.5 px`n/// `border-base` bottom border, which takes a device pixel.
-pub(crate) fn list(p: &Pal, key: &str, rows: Vec<El>) -> El {
-    let n = rows.len();
-    rows.into_iter().enumerate().fold(col().key(key.to_owned()).w_full().px(20.0).radius(8.0).fill(p.layer1).box_shadow(Pal::ring_in(p.border_muted)), |l, (i, r)| {
-        l.child(r).children((i + 1 < n).then(|| rule(0.5, p.border)))
-    })
-}
-
-/// `SettingsRow`: its title and description beside its control, the control centred on them.
-pub(crate) fn setting(p: &Pal, key: &str, title: &str, description: &str, control: El) -> El {
-    setting_at(p, key, title, description, control, true)
-}
-
-/// A row; its control centred on the text, or at its top (`SettingsRow align="start"`). A row
-/// settings search can reveal carries its `data-action` as `setting-<key>`.
-pub(crate) fn setting_at(p: &Pal, key: &str, title: &str, description: &str, control: El, centred: bool) -> El {
-    let about = text(description.to_owned()).key(format!("setting-{key}-about")).font(BODY).color(p.muted).wrap();
-    setting_with(p, key, title, about, control, centred)
-}
-
-thread_local! {
-    /// The page is 520 pt or narrower (`@container settings-panel (max-width: 520px)`): each
-    /// row's control wraps under its words, at the row's end.
-    static ROWS_WRAP: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-    /// The screen is under 800 pt (`@container settings-screen (max-width: 799px)`).
-    static COMPACT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-}
-
-/// Notes the page's width (`.settings-panel`'s, 0 at full size) for the rows this frame builds,
-/// and whether the window is at least 640 wide: below it each row's control wraps under its
-/// words too (`settings-row` wraps and its control is 100% wide until `min-width: 640px`,
-/// `settings.css:810-831, 864-869`).
-pub(crate) fn note_panel_width(width: f32, sm: bool) {
-    ROWS_WRAP.set((width > 0.0 && width <= 520.0) || !sm);
-    COMPACT.set(width > 0.0);
-}
-
-/// The rows wrap their controls under their words (a page 520 wide or less, or a window under
-/// 640).
-pub(crate) fn rows_wrap() -> bool {
-    ROWS_WRAP.get()
-}
-
-/// The screen has the narrow layout: Back and the page menu over the page.
-pub(crate) fn compact() -> bool {
-    COMPACT.get()
-}
-
-/// A row whose description is built apart (a link after its words).
-pub(crate) fn setting_with(p: &Pal, key: &str, title: &str, about: El, control: El, centred: bool) -> El {
-    let copy = col()
-        .grow(1.0)
-        .shrink()
-        .min_w(0.0)
-        .gap(8.0)
-        .child(text(title.to_owned()).key("title").font(ROW_TITLE).color(p.text).wrap())
-        // `margin-block: -3.5px` keeps its 20 pt lines on the title's 16 pt rhythm.
-        .child(about.key("about").my(-3.5));
-    if ROWS_WRAP.get() {
-        return col().key(format!("setting-{key}")).w_full().gap(16.0).py(20.0).child(copy.w_full()).child(row().key("control").w_full().justify_end().child(control));
+    /// Sets the window's zoom to `level` (Appearance › Zoom), clamped as the zoom keys clamp it.
+    pub fn set_zoom_level(&mut self, level: f32) {
+        *self.zoom = level.clamp(crate::shortcuts::ZOOM_MIN, crate::shortcuts::ZOOM_MAX);
+        self.zoom_pinch.leveled();
+        if self.persists() {
+            crate::tabs::save_zoom(*self.zoom);
+        }
     }
-    let r = row().key(format!("setting-{key}")).w_full().gap(16.0).py(20.0);
-    // `data-align="start"` is `align-items: flex-start` (`settings.css:819`): the control keeps
-    // its own height beside a taller description rather than stretching to it.
-    let r = if centred { r.center_y() } else { r.items_start() };
-    r.child(copy).child(row().key("control").justify_end().child(control))
+
+    pub fn show_settings_page(&mut self, page: pages::Page) {
+        pages::show_page(self, page);
+    }
+
+    pub fn open_settings_page(&mut self, page: pages::Page, tx: &mut Tx) {
+        pages::open_page(self, page, tx);
+    }
+
+    pub fn edit_project(&mut self, dir: &str, tx: &mut Tx) {
+        pages::project::edit_project(self, dir, tx);
+    }
+
+    pub fn apply_project(&mut self, updated: Project) {
+        match self.projects.iter_mut().find(|p| p.id == updated.id) {
+            Some(p) => *p = updated,
+            None => self.projects.push(updated),
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn commit_project_rename(&mut self, tx: &mut Tx) {
+        pages::project::commit_project_rename(self, tx);
+    }
 }
 
-/// `settings-row-description` text, for a description built apart.
-pub(crate) fn about(p: &Pal, words: &str) -> El {
-    text(words.to_owned()).font(BODY).color(p.muted)
-}
+/// Kernel feature registration for the Settings screen, overlays, and per-frame poll.
+pub struct SettingsFeature;
 
-/// `a.settings-link`: accent, its hover ink under the pointer, opening `url`.
-pub(crate) fn link(p: &Pal, key: &str, words: &str, url: &'static str) -> El {
-    text(words.to_owned()).key(key.to_owned()).role("link").label(words.to_owned()).font(BODY).color(p.accent)
-        .on_press_tx(move |_: &mut App, tx: &mut Tx| {
-            let _ = tx.open_url(url);
-        })
-}
+impl Feature<App> for SettingsFeature {
+    fn id(&self) -> &'static str {
+        "feature.settings"
+    }
 
-/// Desktop's switch in a settings row (`switch.css`, compact, as the web draws it), with the 4 pt
-/// padding a row gives it. It flips in the press's frame.
-/// A setting row's switch, named by the row's title and described by its explanation
-/// (`setting_with`'s `title` and `about`), so a reader says which setting it turns.
-pub(crate) fn switch(p: &Pal, key: &str, on: bool) -> El {
-    Switch::new(on).web().build(kit(p)).key(key.to_owned()).padding(4.0).labelled_by("title").described_by("about")
+    fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder.register_overlay_dismiss(OVERLAY_ID, |s, tx| back_to_app(s, tx));
+        builder.register_overlay_dismiss(PROVIDER_REMOVAL_OVERLAY_ID, |s, tx| {
+            pages::providers::step_accounts(s, pages::providers::Event::Cancel, tx);
+        });
+        builder.register_overlay_dismiss(WORKTREE_DELETE_OVERLAY_ID, |s, tx| {
+            let attempt = match &s.settings_pages.worktrees.delete.phase {
+                pages::worktrees::Phase::ConfirmingOne { attempt, .. }
+                | pages::worktrees::Phase::ConfirmingMany { attempt, .. } => Some(*attempt),
+                _ => None,
+            };
+            if let Some(attempt) = attempt {
+                tx.instant();
+                pages::worktrees::dispatch(s, pages::worktrees::Event::ConfirmCancelled { attempt });
+            }
+        });
+        builder.add_system(Phase::Derive, "settings.poll", |s, now, tx| poll(s, now, tx));
+    }
 }
-
-mod interface_mode;
-pub mod pages;
-pub mod prefs;
-pub mod search;
-mod shell;
-mod stored;
-mod stories;

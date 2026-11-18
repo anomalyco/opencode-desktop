@@ -1,0 +1,19 @@
+[package]
+name = "opencode-feature-narrow"
+version = "0.0.1"
+description = "Narrow-window (<768px) layout mode, view switcher, tabs drawer, More drawer, and draggable sheets for OpenCode (Rune)"
+edition = "2024"
+license.workspace = true
+publish = false
+
+[dependencies]
+opencode-i18n = { path = "../../crates/opencode-i18n" }
+opencode-ui = { path = "../../crates/opencode-ui" }
+rune.workspace = true
+rune-kit.workspace = true
+rune-luau.workspace = true
+rune-theme-opencode.workspace = true
+session-view = { path = "../../crates/session-view" }
+
+[lints]
+workspace = true

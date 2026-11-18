@@ -16,33 +16,7 @@ use rune::Tx;
 use crate::App;
 use crate::popup::{self, Menu};
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum ReduceMotion {
-    #[default]
-    System,
-    On,
-    Off,
-}
-
-impl ReduceMotion {
-    const ALL: [ReduceMotion; 3] = [ReduceMotion::System, ReduceMotion::On, ReduceMotion::Off];
-
-    pub fn name(self) -> &'static str {
-        match self { Self::System => "system", Self::On => "on", Self::Off => "off" }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::System => opencode_i18n::t!("settings.appearance.row.reduceMotion.system"),
-            Self::On => opencode_i18n::t!("settings.appearance.row.reduceMotion.on"),
-            Self::Off => opencode_i18n::t!("settings.appearance.row.reduceMotion.off"),
-        }
-    }
-
-    pub fn parse(s: Option<&str>) -> ReduceMotion {
-        Self::ALL.into_iter().find(|m| Some(m.name()) == s).unwrap_or_default()
-    }
-}
+pub use opencode_feature_settings::{CODE_FONTS, ReduceMotion, UI_FONTS, families, font_index};
 
 /// Where `App::reduced_motion` comes from: `--reduced-motion`, the setting and macOS's
 /// Reduce motion, which only the view can read (`note_system`).
@@ -64,35 +38,6 @@ impl Motion {
     }
 }
 
-/// The Terminal font knob's choices (`terminal::TERM_FONT`), which the setting picks.
-pub const TERMINAL_FONTS: [&str; 4] = ["Commit Mono", "IBM Plex Mono", "SF Mono", "JetBrains Mono"];
-
-/// A font a row offers: its name, and the family list behind Rune's sans or mono slot.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Font {
-    pub name: &'static str,
-    pub family: &'static str,
-}
-
-const fn font(name: &'static str, family: &'static str) -> Font {
-    Font { name, family }
-}
-
-/// The UI font row's choices, Desktop's default (Inter) first.
-pub const UI_FONTS: [Font; 4] = [
-    font("Inter", "Inter"),
-    font("SF Pro", "System Font, Inter"),
-    font("IBM Plex Mono", "IBM Plex Mono, Inter"),
-    font("Commit Mono", "CommitMono, Inter"),
-];
-
-/// The code font row's choices, Desktop's default (IBM Plex Mono) first.
-pub const CODE_FONTS: [Font; 3] = [
-    font("IBM Plex Mono", "IBM Plex Mono"),
-    font("Commit Mono", "CommitMono, IBM Plex Mono"),
-    font("SF Mono", "ui-monospace, IBM Plex Mono"),
-];
-
 /// The weights the bundled mono faces answer, as Desktop's `@font-face` rules declare them
 /// (`packages/app/src/index.css:42-57`): Plex Mono's Text cut every weight below 600, its Bold cut
 /// the rest. Without them inline code, which Desktop sets at the medium weight 530
@@ -105,40 +50,10 @@ pub const FACE_WEIGHTS: &[rune::text::FaceWeights] = &[
     rune::text::FaceWeights { family: "CommitMono", weight: 700.0, range: (600.0, 900.0) },
 ];
 
-/// The index of the font named `name` in `fonts`, the default when there's none.
-pub fn font_index(fonts: &[Font], name: Option<&str>) -> usize {
-    fonts.iter().position(|f| Some(f.name) == name).unwrap_or(0)
-}
-
-/// The name typed for a font row when it isn't one of `fonts` (an installed family); empty
-/// for one of them or none.
-pub fn custom_name(fonts: &[Font], name: Option<&str>) -> String {
-    let name = name.map(str::trim).unwrap_or("");
-    if fonts.iter().any(|f| f.name == name) { String::new() } else { name.to_owned() }
-}
-
-/// `name` in a CSS family list (Desktop's settings `family`): bare when it is one word,
-/// quoted otherwise.
-pub fn css_family(name: &str) -> String {
-    if !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
-        return name.to_owned();
-    }
-    format!("\"{}\"", name.replace('\\', "\\\\").replace('"', "\\\""))
-}
-
-/// The sans and mono families `settings` picks, as `AppSpec::families` and
-/// `Tx::set_font_families` take them: a typed family before the default (`sansFontFamily`).
-pub fn families(settings: &crate::settings::Settings) -> (String, String) {
-    let pick = |custom: &str, chosen: &Font, base: &Font| if custom.is_empty() { chosen.family.to_owned() } else { format!("{}, {}", css_family(custom), base.family) };
-    (
-        pick(&settings.ui_font_name, &UI_FONTS[settings.ui_font.min(UI_FONTS.len() - 1)], &UI_FONTS[0]),
-        pick(&settings.code_font_name, &CODE_FONTS[settings.code_font.min(CODE_FONTS.len() - 1)], &CODE_FONTS[0]),
-    )
-}
-
 /// The families a window opens with: the saved settings (a fixture run's are the defaults),
 /// with `--ui-font` and `--code-font` applied as `apply_args` applies them.
 pub fn launch_families() -> (&'static str, &'static str) {
+    crate::init_features();
     let mut settings = if crate::arg("--fixture").is_some() { Default::default() } else { crate::settings::load() };
     apply_font_args(&mut settings);
     let (sans, mono) = families(&settings);

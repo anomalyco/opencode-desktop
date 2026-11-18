@@ -11,46 +11,7 @@ use rune::Tx;
 
 use crate::App;
 
-/// Where the tabs live (`settings.json`'s `"tabLayout"`).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum TabLayout {
-    /// "Top tabs": a strip in the titlebar. Desktop's default.
-    #[default]
-    Horizontal,
-    /// "Side tabs": a list in the sidebar.
-    Vertical,
-    /// "Inbox": the sidebar sorts sessions by what needs you.
-    Inbox,
-}
-
-impl TabLayout {
-    pub const ALL: [TabLayout; 3] = [TabLayout::Horizontal, TabLayout::Vertical, TabLayout::Inbox];
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Horizontal => "horizontal",
-            Self::Vertical => "vertical",
-            Self::Inbox => "inbox",
-        }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Horizontal => opencode_i18n::t!("settings.general.row.interfaceMode.top"),
-            Self::Vertical => opencode_i18n::t!("settings.general.row.interfaceMode.side"),
-            Self::Inbox => opencode_i18n::t!("settings.general.row.interfaceMode.inbox"),
-        }
-    }
-
-    pub fn parse(s: Option<&str>) -> TabLayout {
-        Self::ALL.into_iter().find(|l| Some(l.name()) == s).unwrap_or_default()
-    }
-
-    /// Side tabs and Inbox have a sidebar; top tabs have none, so ⇧⌘B does nothing there.
-    pub fn has_sidebar(self) -> bool {
-        matches!(self, Self::Vertical | Self::Inbox)
-    }
-}
+pub use opencode_feature_settings::TabLayout;
 
 /// How long a layout switch's flights run: the longest of them, `GLIDE`.
 pub const SWITCH_SECS: f64 = 0.32;

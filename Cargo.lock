@@ -3464,10 +3464,13 @@ dependencies = [
  "opencode-feature-find",
  "opencode-feature-mcp",
  "opencode-feature-mentions",
+ "opencode-feature-narrow",
+ "opencode-feature-notifications",
  "opencode-feature-office",
  "opencode-feature-open-in",
  "opencode-feature-panels",
  "opencode-feature-review",
+ "opencode-feature-settings",
  "opencode-feature-subagents",
  "opencode-feature-switcher",
  "opencode-feature-terminal-surface",
@@ -3627,6 +3630,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "opencode-feature-narrow"
+version = "0.0.1"
+dependencies = [
+ "opencode-i18n",
+ "opencode-ui",
+ "rune",
+ "rune-kit",
+ "rune-luau",
+ "rune-theme-opencode",
+ "session-view",
+]
+
+[[package]]
+name = "opencode-feature-notifications"
+version = "0.0.1"
+dependencies = [
+ "opencode-i18n",
+ "opencode-kit",
+ "rune",
+ "rune-notify",
+ "serde_json",
+ "win-install",
+]
+
+[[package]]
 name = "opencode-feature-office"
 version = "0.0.1"
 dependencies = [
@@ -3671,6 +3699,21 @@ name = "opencode-feature-review"
 version = "0.0.1"
 dependencies = [
  "opencode-code-view",
+ "opencode-i18n",
+ "opencode-kit",
+ "opencode-search",
+ "opencode-ui",
+ "rune",
+ "rune-kit",
+ "rune-theme-opencode",
+ "serde_json",
+ "session-view",
+]
+
+[[package]]
+name = "opencode-feature-settings"
+version = "0.0.1"
+dependencies = [
  "opencode-i18n",
  "opencode-kit",
  "opencode-search",
@@ -3920,9 +3963,12 @@ dependencies = [
  "opencode-feature-find",
  "opencode-feature-mcp",
  "opencode-feature-mentions",
+ "opencode-feature-narrow",
+ "opencode-feature-notifications",
  "opencode-feature-open-in",
  "opencode-feature-panels",
  "opencode-feature-review",
+ "opencode-feature-settings",
  "opencode-feature-subagents",
  "opencode-feature-switcher",
  "opencode-feature-terminal-surface",

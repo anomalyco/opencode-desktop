@@ -45,6 +45,7 @@ pub fn start(password: Option<String>) {
         opencode_kit::local_service::remember_page_password(&server, &password);
     }
     // The app's state: the browser's storage, as the database is natively.
+    crate::init_features();
     storage::start();
     // Start the reads before the first view. If they are already in, setup can connect here.
     launch::defer();

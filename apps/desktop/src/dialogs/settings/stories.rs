@@ -113,4 +113,17 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
         on(s, Page::Shortcuts);
         s.settings_pages.shortcuts.capture = Some("permissions.autoaccept".into());
     }),
+    // Providers disconnect confirmation dialog.
+    ("provider-disconnect", |s| {
+        s.open_settings_at(Page::Providers);
+        super::pages::providers::step_accounts(
+            s,
+            super::pages::providers::Event::Ask(super::pages::providers::Removal::Provider {
+                id: "anthropic".into(),
+                name: "Anthropic".into(),
+                description: opencode_i18n::t!("settings.providers.disconnect.description").into(),
+            }),
+            &mut rune::Tx::default(),
+        );
+    }),
 ]);
