@@ -166,7 +166,7 @@ else:
     errors.append(f"{app_rs}: missing App definition for field-count ratchet")
 
 # Rule 6: apps/web Cargo.toml stays in sync with shared desktop workspace path deps
-desktop_only_crates = {"office-preview", "opencode-feature-office", "authenticode"}
+desktop_only_crates = {"office-preview", "opencode-feature-office"}
 desktop_toml = "apps/desktop/Cargo.toml"
 web_toml = "apps/web/Cargo.toml"
 if os.path.exists(desktop_toml) and os.path.exists(web_toml):

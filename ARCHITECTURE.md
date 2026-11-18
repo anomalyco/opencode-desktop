@@ -2,6 +2,12 @@
 
 `rune-desktop` uses **progressive disclosure** in its folder layout so contributors and agents can ship features without navigating core internals.
 
+## Verified Architecture Snapshot
+
+- **51 library crates** (`29` non-generic `&mut dyn *Host` feature crates under `features/*` + `22` core/embeddable crates under `crates/*`) plus `3` host app targets (`apps/desktop`, `apps/web`, `apps/installer`), with **0 cycles**.
+- **`apps/desktop/src/` reduced from 137.7k → ~57.6k non-blank LOC** (`63.9k` total lines across `5` root files and `7` domain folders), with `struct App` ratcheted at `<= 142` fields.
+- **0 files > 800 lines** in `apps/desktop/` and `features/`, **0 folder-shape exceptions**, and **0 `#[test]` / `#[cfg(test)]`** blocks.
+
 ## 1. Progressive-Disclosure Layout
 
 Start at the top and go deeper only when a feature genuinely needs lower-level control:
@@ -65,7 +71,7 @@ rune-desktop/
 │   ├── win-install/            #   Windows install/update identity & resources
 │   └── authenticode/           #   Windows Authenticode verification
 └── apps/                       # Tier 4: Thin Entrypoints & Host Shells
-    ├── desktop/                #   OpenCode (Rune) desktop host organized by domain (~57.6k LOC):
+    ├── desktop/                #   OpenCode (Rune) desktop host organized by domain (~63.9k LOC / ~59.3k excl. stories):
     │   └── src/
     │       ├── main.rs         #     Process bootstrap, allocator, fonts, window hooks
     │       ├── app.rs          #     App state & lifecycle (fields ratcheted <= 142)
@@ -111,7 +117,7 @@ apps/*  ──▶  features/*  ──▶  crates/opencode-kernel, crates/opencod
   └──────────────────────────────┘
 ```
 
-- **No upward or cyclic dependencies (Rules 1–2):** `crates/*` never depend on `features/*` or `apps/*`; `features/*` never depend on `apps/*` or on sibling `features/*`; full workspace DFS confirms zero cycles across all 51 crates.
+- **No upward or cyclic dependencies (Rules 1–2):** `crates/*` never depend on `features/*` or `apps/*`; `features/*` never depend on `apps/*` or on sibling `features/*`; full workspace DFS confirms zero cycles across all 54 workspace members (29 features, 22 core crates, 3 apps).
 - **Core purity & `#![forbid(unsafe_code)]` (Rules 3 & 9):** `opencode-kernel`, `opencode-runtime`, `opencode-ui`, `opencode-search`, and all 25 pure feature crates forbid `unsafe_code` (only the 4 FFI/GPU features `egg`, `office`, `open-in`, `updater` are allowlisted).
 - **Non-generic boundaries:** Keep crate boundaries concrete or `&mut dyn *Host` so downstream crates (`apps/desktop`) do not re-monomorphize leaf crate codegen (see [docs/fast-builds.md](docs/fast-builds.md)).
 - **`struct App` ratchet & root cleanliness (Rules 4–5):** `apps/desktop/src/` stays at `<= 10` root files and `struct App` is ratcheted at `<= 142` fields (new feature state belongs in `opencode_kernel::StateSlots` or a Luau plugin).

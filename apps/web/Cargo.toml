@@ -31,7 +31,6 @@ stories = []
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 base64 = "0.22"
 browser-pane = { path = "../../crates/browser-pane" }
-notify = "8"
 procwatch.workspace = true
 rune-mac.workspace = true
 rune-notify.workspace = true

@@ -43,7 +43,7 @@ For prebuilt `dev` and side-by-side pull-request `.dmg` builds, see [docs/trying
 
 ## Workspace layout
 
-Organized by progressive disclosure (see [ARCHITECTURE.md](ARCHITECTURE.md)):
+Organized by progressive disclosure across `51` library crates (`29` decoupled feature crates + `22` core crates, `0` cycles, `0` folder-shape exceptions, `<= 800` lines hard cap across `apps/desktop/` and `features/`; see [ARCHITECTURE.md](ARCHITECTURE.md)):
 
 | Path | Crate / Scope | Purpose |
 | --- | --- | --- |
