@@ -12,18 +12,14 @@ use rune::Waker;
 use serde_json::Value;
 
 const STILL_TRYING: &str = "OpenCode isn't answering. Still trying.";
-pub const LATEST: usize = 12;
 const ENTRIES: usize = 12;
 const MEMORY_BYTES: usize = 64 << 20;
 pub const WARM: usize = 6;
-/// Older pages as you scroll up: Desktop's `messagePageLimit`, asked for once the timeline
-/// stands within its 200 px of the top (`history-machine.ts` `HISTORY_SCROLL_THRESHOLD`).
-const OLDER: usize = 20;
 const NEAR_TOP: f32 = 200.0;
 
 mod machines;
 
-pub use machines::{History, OpenEvent, Opening};
+pub use machines::{History, Key, LATEST, OpenEvent, Opening};
 use machines::{HOLD, Histories, HistoryEffect, HistoryEvent, Stall};
 
 /// Session-page prefetch pool, each session's history above its latest page, and older pages
@@ -116,8 +112,6 @@ impl State {
     }
 
 }
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Key { pub id: String, pub updated: i64 }
 
 #[derive(Clone)]
 pub struct Page {

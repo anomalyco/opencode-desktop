@@ -39,7 +39,7 @@ pub(crate) fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
 
     // ── Phase 1: Ingest ──────────────────────────────────────────────────────────────────────────
     // Pull external inputs, worker results, network events, timers, and registered Ingest systems
-    // (`office::poll`, `updater::poll`, `dictation::poll`).
+    // (`office::poll`, `updater::poll`, `dictation::poll`, `open_in::poll`).
     // Another window changed the session data this one shows.
     let mut changed = windows::peer::behind(s);
     changed |= session_menu::unread::poll(s);
@@ -93,7 +93,6 @@ pub(crate) fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= s.poll_context_window();
     changed |= s.poll_sends();
     changed |= s.tick_outbox(tx);
-    changed |= s.poll_open_in();
     changed |= s.poll_jobs(tx);
     changed |= files::poll_reply_links(s, tx);
     let asked = s.dock_face();
@@ -239,7 +238,6 @@ pub(crate) fn setup(s: &mut App, waker: Waker) {
     s.add.slash.set_waker(waker.clone());
     s.review.set_waker(waker.clone());
     s.files.set_waker(waker.clone());
-    s.open_in.set_waker(waker.clone());
     s.turn_diffs.set_waker(waker.clone());
     s.icons.set_sync(headless());
     s.setup_browser(waker.clone());

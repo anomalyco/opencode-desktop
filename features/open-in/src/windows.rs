@@ -13,7 +13,7 @@ use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use super::Launcher;
+use crate::Launcher;
 
 /// A console process (`where`, `cmd`) starts without a window of its own.
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -133,7 +133,13 @@ fn resolve(app: &str, var: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf>
         return Some(exe.clone());
     }
     for file in &found {
-        let shims = if ext(file, "cmd") || ext(file, "bat") { vec![file.clone()] } else if file.extension().is_none() { vec![file.with_extension("cmd"), file.with_extension("bat")] } else { vec![] };
+        let shims = if ext(file, "cmd") || ext(file, "bat") {
+            vec![file.clone()]
+        } else if file.extension().is_none() {
+            vec![file.with_extension("cmd"), file.with_extension("bat")]
+        } else {
+            vec![]
+        };
         if let Some(exe) = shims.iter().filter(|s| s.exists()).find_map(|s| from_shim(s)) {
             return Some(exe);
         }
@@ -150,7 +156,9 @@ fn resolve(app: &str, var: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf>
 /// asked once for the names starting `app.` rather than once per extension (14 apps x the
 /// `PATH`'s folders x 11 extensions opened 6,309 files, 184 ms off the UI thread).
 fn where_is(app: &str) -> Vec<PathBuf> {
-    let exts: Vec<String> = std::env::var_os("PATHEXT").map(|v| v.to_string_lossy().split(';').filter(|e| !e.is_empty()).map(str::to_lowercase).collect()).unwrap_or_else(|| [".com", ".exe", ".bat", ".cmd"].map(String::from).to_vec());
+    let exts: Vec<String> = std::env::var_os("PATHEXT")
+        .map(|v| v.to_string_lossy().split(';').filter(|e| !e.is_empty()).map(str::to_lowercase).collect())
+        .unwrap_or_else(|| [".com", ".exe", ".bat", ".cmd"].map(String::from).to_vec());
     let Some(path) = std::env::var_os("PATH") else { return vec![] };
     let named = Path::new(app).extension().is_some();
     let lower = app.to_lowercase();
@@ -167,7 +175,10 @@ fn where_is(app: &str) -> Vec<PathBuf> {
 #[allow(unsafe_code)]
 fn files_like(dir: &Path, app: &str) -> Vec<String> {
     use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::Storage::FileSystem::{FILE_ATTRIBUTE_DIRECTORY, FIND_FIRST_EX_LARGE_FETCH, FindClose, FindExInfoBasic, FindExSearchNameMatch, FindFirstFileExW, FindNextFileW, WIN32_FIND_DATAW};
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_ATTRIBUTE_DIRECTORY, FIND_FIRST_EX_LARGE_FETCH, FindClose, FindExInfoBasic, FindExSearchNameMatch, FindFirstFileExW, FindNextFileW,
+        WIN32_FIND_DATAW,
+    };
     let pattern: Vec<u16> = dir.join(format!("{app}*")).as_os_str().encode_wide().chain([0]).collect();
     let mut out = Vec::new();
     // SAFETY: a NUL-terminated pattern, a WIN32_FIND_DATAW this frame owns, and the find handle
@@ -200,9 +211,12 @@ fn from_shim(shim: &Path) -> Option<PathBuf> {
     text.split('"').map(str::trim).filter(|t| t.to_ascii_lowercase().contains(".exe")).find_map(|token| {
         let lower = token.to_ascii_lowercase();
         if let Some(at) = lower.find("%~dp0") {
-            let resolved = token[at + 5..].split(['\\', '/']).filter(|p| !p.is_empty() && *p != ".").fold(base.to_path_buf(), |dir, part| {
-                if part == ".." { dir.parent().map(Path::to_path_buf).unwrap_or(dir) } else { dir.join(part) }
-            });
+            let resolved = token[at + 5..]
+                .split(['\\', '/'])
+                .filter(|p| !p.is_empty() && *p != ".")
+                .fold(base.to_path_buf(), |dir, part| {
+                    if part == ".." { dir.parent().map(Path::to_path_buf).unwrap_or(dir) } else { dir.join(part) }
+                });
             if resolved.exists() {
                 return Some(resolved);
             }
@@ -221,10 +235,11 @@ fn named_like(app: &str, found: &[PathBuf]) -> Option<PathBuf> {
     }
     found.iter().flat_map(|f| f.ancestors().skip(1).take(3)).find_map(|dir| {
         std::fs::read_dir(dir).ok()?.flatten().map(|e| e.path()).find(|p| {
-            p.extension().is_some_and(|x| x.eq_ignore_ascii_case("exe")) && p.file_stem().is_some_and(|s| {
-                let name = squash(&s.to_string_lossy());
-                !name.is_empty() && (name.contains(&key) || key.contains(&name))
-            })
+            p.extension().is_some_and(|x| x.eq_ignore_ascii_case("exe"))
+                && p.file_stem().is_some_and(|s| {
+                    let name = squash(&s.to_string_lossy());
+                    !name.is_empty() && (name.contains(&key) || key.contains(&name))
+                })
         })
     })
 }

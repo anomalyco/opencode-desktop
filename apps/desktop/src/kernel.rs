@@ -17,6 +17,8 @@ pub fn build() -> Kernel<App> {
     b.with_feature(&crate::surfaces::updater::UpdaterFeature);
     b.with_feature(&crate::surfaces::code_view::CodeViewFeature);
     b.with_feature(&crate::dictation::DictationFeature);
+    b.with_feature(&crate::mcp::McpFeature);
+    b.with_feature(&crate::open_in::OpenInFeature);
     b.with_feature(&crate::tips::TipsFeature);
     b.with_feature(&crate::usage::UsageFeature);
     b.add_surface(
