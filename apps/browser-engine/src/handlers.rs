@@ -168,8 +168,17 @@ pub use mach_tx::lookup as lookup_mach_port;
 /// Windows: the tab's D3D11 frame ring; None when the engine has no D3D11 device (CPU frames).
 #[cfg(windows)]
 pub type FrameRing = Option<Arc<Mutex<crate::d3d_frames::TabFrames>>>;
-#[cfg(not(windows))]
+/// Linux: the tab's dmabufs; None when frames come as BGRA paints.
+#[cfg(target_os = "linux")]
+pub type FrameRing = Option<Arc<Mutex<crate::dmabuf_frames::TabFrames>>>;
+#[cfg(target_os = "macos")]
 pub type FrameRing = ();
+
+/// Linux: where a tab reports frames that can't come the way they do.
+#[cfg(target_os = "linux")]
+pub type Failures = std::sync::mpsc::Sender<crate::Event>;
+#[cfg(not(target_os = "linux"))]
+pub type Failures = ();
 
 /// The native cursor CEF hands `OnCursorChange` (unused: the app draws its own cursor).
 #[cfg(windows)]
@@ -194,6 +203,7 @@ wrap_render_handler! {
         out_tx: Output,
         frame_seq: Arc<AtomicU64>,
         frames: FrameRing,
+        failures: Failures,
     }
 
     impl RenderHandler {
@@ -265,8 +275,19 @@ wrap_render_handler! {
                     });
                 }
             }
-            #[cfg(not(any(target_os = "macos", windows)))]
-            let _ = (id, info, &self.frames, &self.mach_port);
+            #[cfg(target_os = "linux")]
+            if let Some(ring) = &self.frames {
+                let effects = ring.lock().unwrap().paint(info, id);
+                let host = _browser.and_then(|b| cef::ImplBrowser::host(b));
+                let failures = self.failures.clone();
+                crate::dmabuf_frames::run(effects, self.tab_id, &self.out_tx, host.as_ref(), &move |f| {
+                    let _ = failures.send(crate::Event::FramesFailed(f));
+                });
+            }
+            #[cfg(not(target_os = "linux"))]
+            let _ = &self.failures;
+            #[cfg(target_os = "linux")]
+            let _ = &self.mach_port;
         }
 
         fn on_paint(

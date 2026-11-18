@@ -236,6 +236,17 @@ pub enum HostMsg {
         tab_id: u64,
         request_id: u64,
     },
+    /// Linux: this app's GPU has finished reading `frame_id` (and every frame before it) of
+    /// buffer set `pool`.
+    FrameRead {
+        tab_id: u64,
+        pool: u64,
+        frame_id: u64,
+    },
+    /// Linux: this app can't import the engine's dmabufs; it paints BGRA from now on.
+    DmabufFailed {
+        reason: String,
+    },
     Shutdown,
 }
 
@@ -304,6 +315,25 @@ pub enum EngineMsg {
     Download {
         tab_id: u64,
         file: DownloadFile,
+    },
+    /// Linux: a tab's new linear ARGB8888 dmabufs, their descriptors sent with the line
+    /// (`SCM_RIGHTS`, `fd_lines.rs`), one per buffer.
+    DmabufPool {
+        tab_id: u64,
+        pool: u64,
+        buffers: u32,
+        width: u32,
+        height: u32,
+        stride: u32,
+        offset: u32,
+        modifier: u64,
+    },
+    /// Linux: a finished frame in buffer `slot` of `pool` (`dmabuf.rs`).
+    DmabufFrame {
+        tab_id: u64,
+        frame_id: u64,
+        pool: u64,
+        slot: u32,
     },
 }
 

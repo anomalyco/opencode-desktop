@@ -891,7 +891,7 @@ impl BrowserHost {
                 }
                 EngineMsg::CdpEvent { .. } => {}
                 // The socket reader delivers frames directly to the tab's retained Rune surface.
-                EngineMsg::SharedFrame { .. } | EngineMsg::CpuFrame { .. } => {}
+                EngineMsg::SharedFrame { .. } | EngineMsg::CpuFrame { .. } | EngineMsg::DmabufPool { .. } | EngineMsg::DmabufFrame { .. } => {}
             }
         }
         #[cfg(feature = "engine")]

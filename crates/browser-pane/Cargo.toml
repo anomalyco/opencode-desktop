@@ -11,7 +11,7 @@ default = []
 # Download, start and talk to the CEF engine over a Unix socket (AF_UNIX on Windows too). Without it,
 # the pane keeps its tab model and reports `EngineStatus::Unsupported`. The app turns it on for macOS
 # and Windows, and for Linux x86_64.
-engine = ["dep:authenticode", "dep:libc", "dep:sha2", "dep:ureq", "dep:uds_windows", "dep:windows", "dep:zstd"]
+engine = ["dep:authenticode", "dep:libc", "dep:memchr", "dep:sha2", "dep:ureq", "dep:uds_windows", "dep:windows", "dep:zstd"]
 # Harness builds: injected faults (`unpack.rs`), never in a release.
 faults = ["engine"]
 
@@ -30,6 +30,8 @@ zstd = { version = "0.13", default-features = false, optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = { version = "0.2", optional = true }
+# Line ends in the engine's megabyte-long paint lines (`fd_lines.rs`, Linux).
+memchr = { version = "2", optional = true }
 
 # The engine's socket: AF_UNIX, in Windows 10 1803 and later. `windows`: the background download's
 # thread priority and its pause checks (power line, connection cost); whether commit memory was short when the engine ended.

@@ -102,6 +102,11 @@ pub enum HostMsg {
     CdpCall { tab_id: u64, request_id: u64, method: String, params: Value, session_id: Option<String> },
     SiteCookies { tab_id: u64, request_id: u64 },
     ClearSite { tab_id: u64, request_id: u64 },
+    /// Linux: the app's GPU has finished reading `frame_id` (and every frame before it) of
+    /// buffer set `pool`; a read of a set the tab no longer has frees nothing.
+    FrameRead { tab_id: u64, pool: u64, frame_id: u64 },
+    /// Linux: the app can't import the engine's dmabufs; frames come as BGRA paints from now on.
+    DmabufFailed { reason: String },
     Shutdown,
 }
 
@@ -125,6 +130,12 @@ pub enum EngineMsg {
     SharedFrame { tab_id: u64, frame_id: u64, width: u32, height: u32, texture: String, release_fence: String },
     /// A download started, moved on or ended. An app from before it skips the message.
     Download { tab_id: u64, file: DownloadFile },
+    /// Linux: a tab's new linear ARGB8888 dmabufs, one file descriptor each, sent with this line
+    /// (`SCM_RIGHTS`). Frames name them by `pool` and index.
+    DmabufPool { tab_id: u64, pool: u64, buffers: u32, width: u32, height: u32, stride: u32, offset: u32, modifier: u64 },
+    /// Linux: a finished frame in buffer `slot` of `pool`. The app says when it has read it
+    /// (`HostMsg::FrameRead`), and the engine writes that buffer again only after.
+    DmabufFrame { tab_id: u64, frame_id: u64, pool: u64, slot: u32 },
 }
 
 /// A file a page downloaded, kept in the engine's private downloads folder for the agent's tools

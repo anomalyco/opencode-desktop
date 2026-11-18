@@ -14,9 +14,14 @@
 #[cfg(windows)]
 mod d3d_frames;
 mod downloads;
+#[cfg(target_os = "linux")]
+mod dmabuf_frames;
 mod engine;
 mod output;
 mod handlers;
+mod keys;
+#[cfg(target_os = "linux")]
+mod linux_gpu;
 #[cfg(target_os = "macos")]
 mod mac_app;
 mod policy;
@@ -60,7 +65,8 @@ const MAX_PUMP_DELAY: Duration = Duration::from_millis(4);
 const BUSY_PUMP_DELAY: Duration = MAX_PUMP_DELAY;
 #[cfg(target_os = "macos")]
 const BUSY_FOR: Duration = Duration::ZERO;
-/// While a tab waits for the app to free a frame texture, how often it looks.
+/// Windows: while a tab waits for the app to free a frame texture, how often it looks (Linux
+/// repaints when the app's read arrives).
 const FRAME_RETRY: Duration = Duration::from_millis(4);
 
 /// What wakes the main thread.
@@ -71,6 +77,9 @@ pub enum Event {
     Host(HostMsg),
     /// CEF wants `cef::do_message_loop_work` in this many milliseconds (now when 0 or less).
     Pump(i64),
+    /// Linux: a tab's frames can't come the way they do.
+    #[cfg(target_os = "linux")]
+    FramesFailed(dmabuf_frames::Failure),
 }
 
 /// Whether something the engine waits for is there, and since when it isn't.
@@ -155,6 +164,16 @@ fn main() {
     // Windows: the D3D11 device frames are copied on (tens of ms) is made beside CEF's start.
     #[cfg(windows)]
     let gpu = std::thread::Builder::new().name("engine-gpu".into()).spawn(move || d3d_frames::Gpu::new(adapter_luid)).expect("spawn engine-gpu");
+    // Linux: the app's render node when it imports dmabufs; the EGL context frames are copied
+    // with is made beside CEF's start too.
+    #[cfg(target_os = "linux")]
+    let gpu = {
+        let node = linux_gpu::plan(arg("--dmabuf-device").cloned());
+        std::thread::Builder::new()
+            .name("engine-gpu".into())
+            .spawn(move || node.map(|node| dmabuf_frames::Gpu::new(&node)))
+            .expect("spawn engine-gpu")
+    };
     let _cef = CefRuntime::initialize(adapter_luid, locale.as_deref(), events.clone());
     step("cef_initialized");
 
@@ -164,11 +183,19 @@ fn main() {
         std::thread::Builder::new()
             .name("engine-sock-tx".into())
             .spawn(move || {
-                for msg in out_rx {
+                for (msg, fds) in out_rx {
                     let Some((id, stream)) = writer_slot.lock().unwrap().clone() else { continue };
-                    let mut writer = std::io::BufWriter::new(stream.as_ref());
-                    if serde_json::to_writer(&mut writer, &msg).is_err()
-                        || writer.write_all(b"\n").is_err() || writer.flush().is_err() {
+                    let Ok(mut line) = serde_json::to_vec(&msg) else { continue };
+                    line.push(b'\n');
+                    #[cfg(unix)]
+                    let written = output::write_with_fds(&stream, &line, &fds);
+                    #[cfg(not(unix))]
+                    let written = {
+                        let _ = fds;
+                        let mut writer = stream.as_ref();
+                        writer.write_all(&line)
+                    };
+                    if written.is_err() {
                         let mut guard = writer_slot.lock().unwrap();
                         if guard.as_ref().is_some_and(|(current, _)| *current == id) {
                             *guard = None;
@@ -181,7 +208,9 @@ fn main() {
 
     #[cfg(windows)]
     let mut manager = EngineManager::new(out_tx, _cef.profile_root(), gpu.join().ok().flatten());
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    let mut manager = EngineManager::new(out_tx, _cef.profile_root(), linux_gpu::transport(gpu.join().ok().flatten()), events.clone());
+    #[cfg(target_os = "macos")]
     let mut manager = EngineManager::new(out_tx, _cef.profile_root());
     step("manager");
     let mut first_message = true;
@@ -214,6 +243,11 @@ fn main() {
                         step("first_message");
                     }
                     manager.handle(msg)
+                }
+                #[cfg(target_os = "linux")]
+                Event::FramesFailed(failure) => {
+                    manager.frames_failed(failure);
+                    true
                 }
                 Event::Pump(delay_ms) => {
                     let at = Instant::now() + Duration::from_millis(delay_ms.max(0) as u64);
