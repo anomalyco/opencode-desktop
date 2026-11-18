@@ -1,6 +1,6 @@
 //! Reusable popup/context menus and pickers for Rune apps: native AppKit menus on macOS
 //! (`Tx::popup_menu`) and themed, keyboard-accessible in-window menus (`menu-v2` and
-//! `appearance="standard"`) everywhere else, built on [`session_view::popover::MENU`].
+//! `appearance="standard"`) everywhere else, built on [`crate::popover::MENU`].
 //!
 //! Pure menu data ([`Menu`], [`Item`]) is non-generic so feature crates can construct menus without
 //! depending on host app state. Runtime state ([`Popup<S>`]), dispatch ([`open`], [`open_drawn`],
@@ -13,8 +13,8 @@ use std::rc::Rc;
 use opencode_kit::servers::health::Indicator;
 use rune::{El, TextEdit, TextStyle, Tx};
 use rune_knobs::Knobs;
-use session_view::palette::Pal;
-use session_view::popover::{self, MENU};
+use crate::palette::Pal;
+use crate::popover::{self, MENU};
 
 pub mod focus;
 mod keys;
@@ -101,9 +101,9 @@ pub trait PopupHost: Sized {
     }
 
     /// One device pixel in shell points for crisp 1 px rules in [`Menu::standard`] menus.
-    /// Defaults to deriving the hairline from [`session_view::scroller::device_scale`].
+    /// Defaults to deriving the hairline from [`crate::scroller::device_scale`].
     fn hairline(&self) -> f32 {
-        let scale = session_view::scroller::device_scale();
+        let scale = crate::scroller::device_scale();
         scale.floor().max(1.0) / scale
     }
 }

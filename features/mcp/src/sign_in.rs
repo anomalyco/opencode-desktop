@@ -11,8 +11,8 @@ use rune::machine::{Attempt, Seq};
 use rune::{Cx, El, Key, KeyEvent, Spring, TextEdit, TextStyle, Transition, Tx, col, el, icon, row, text};
 use rune_kit::{ButtonVariant, TextInput};
 use rune_theme_opencode::icons as ic;
-use session_view::dialog::DialogSize;
-use session_view::palette::{Pal, kit};
+use opencode_ui::dialog::DialogSize;
+use opencode_ui::palette::{Pal, kit};
 
 use crate::ui::{self, BODY, DIALOG_CLOSE, LABEL, TITLE, button, status_row};
 use crate::{McpHost, McpJob, McpReply, McpRequest, SIGN_IN_OVERLAY_ID};
@@ -574,5 +574,5 @@ fn build_card(x: &SignIn, p: &Pal, controls: Controls) -> El {
         .transition(Transition::none())
         .motion(Spring::NONE)
         // `dialog-content`: past the dialog's height its content scrolls, the bar hidden.
-        .child(session_view::scroller::scroller("mcp-sign-in-content").hidden(col().w_full().shrink().min_h(0.0), col().w_full().child(header).child(body)))
+        .child(opencode_ui::scroller::scroller("mcp-sign-in-content").hidden(col().w_full().shrink().min_h(0.0), col().w_full().child(header).child(body)))
 }

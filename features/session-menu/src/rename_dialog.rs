@@ -13,7 +13,7 @@ use opencode_ui::widgets::{DialogSize, Fit, button, dialog_window, sized_modal};
 use rune::machine::{Attempt, Effects, Seq};
 use rune::{Cx, El, TextEdit, Tx, col, row, spacer, text};
 use rune_kit::{ButtonVariant, TextInput};
-use session_view::palette::{Elevate as _, Pal, kit};
+use opencode_ui::palette::{Elevate as _, Pal, kit};
 
 use crate::host::{SessionMenuHost, on_server};
 use crate::{RENAME_OVERLAY_ID, Target};

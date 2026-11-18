@@ -2,7 +2,7 @@
 //! regions, the flat wordmark with its notch and shimmer, the lodger, and the paddle.
 
 use rune::Color;
-use session_view::palette::Pal;
+use opencode_ui::palette::Pal;
 
 use super::gpu::{BACK, FRONT, MID, Shape};
 use super::lodger::render::Affine;
@@ -179,7 +179,7 @@ fn paddle(out: &mut Vec<Shape>, g: &super::brick::Game, p: &Pal, origin: [f64; 2
         return;
     }
     let b = g.drawn;
-    let surface = enc(session_view::composer::composer_fill(p));
+    let surface = enc(opencode_ui::style::composer_fill(p));
     let muted = enc(p.icon_muted);
     let t = g.paint.value(now);
     let fill = [surface[0] + (muted[0] - surface[0]) * t, surface[1] + (muted[1] - surface[1]) * t, surface[2] + (muted[2] - surface[2]) * t];

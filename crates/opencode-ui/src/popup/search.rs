@@ -2,7 +2,7 @@
 
 use rune::{El, Key, TextEdit, TextStyle, Tx, el, row};
 use rune_theme_opencode::icons as ic;
-use session_view::palette::{Pal, kit};
+use crate::palette::{Pal, kit};
 
 use super::PopupHost;
 use super::keys::key;
@@ -17,7 +17,7 @@ pub(super) fn search_field<S: PopupHost + 'static>(s: &S, p: &Pal, placeholder: 
     let k = kit(p);
     let edit = &s.popup().query;
     let typed = !edit.text.is_empty();
-    let input = session_view::style::field(edit, INPUT)
+    let input = crate::style::field(edit, INPUT)
         .key("popup-search-input")
         .single_line()
         .grow(1.0)

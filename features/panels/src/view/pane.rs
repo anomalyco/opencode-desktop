@@ -4,7 +4,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use rune::{Color, El, col, el, text};
-use session_view::palette::Pal;
+use opencode_ui::palette::Pal;
 
 use crate::host::PanelsHost;
 use crate::keys::closing_side_entry;

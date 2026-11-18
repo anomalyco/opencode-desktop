@@ -267,7 +267,7 @@ impl Board {
 /// The pin board's theme colours (`readColors`): the panel's `bg-base` and the icon tokens.
 fn colors(dark: bool) -> Colors {
     let t = |name: &str, fallback: [f64; 3]| {
-        session_view::palette::token(dark, name).map_or(fallback, |c| [c.r, c.g, c.b].map(|v| (f64::from(rune::color::srgb_encode(v)) * 255.0).round()))
+        opencode_ui::palette::token(dark, name).map_or(fallback, |c| [c.r, c.g, c.b].map(|v| (f64::from(rune::color::srgb_encode(v)) * 255.0).round()))
     };
     Colors::new(
         t("background-bg-base", [22.0; 3]),

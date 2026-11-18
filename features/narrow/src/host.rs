@@ -1,7 +1,7 @@
 //! Object-safe host boundary for the narrow-window (<768 px) shell feature.
 
 use rune::{El, PointerPress, Tx};
-use session_view::palette::Pal;
+use opencode_ui::palette::Pal;
 
 use crate::Narrow;
 use crate::session::NarrowView;

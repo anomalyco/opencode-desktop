@@ -15,7 +15,7 @@ use rune::{
     SurfaceFit, TextStyle, Tx, el, icon, row, text,
 };
 use rune_theme_opencode::icons as ic;
-use session_view::palette::{Pal, kit};
+use opencode_ui::palette::{Pal, kit};
 
 use crate::FilesHost;
 

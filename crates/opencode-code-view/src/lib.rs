@@ -19,7 +19,7 @@ use std::sync::LazyLock;
 
 use rune::{Color, KeyEvent, Keybind, Span, TextStyle, Tx};
 use rune_kit::syntax::{Highlight, Paint, Syntax, SyntaxTheme, highlight};
-use session_view::palette::{Pal, kit};
+use opencode_ui::palette::{Pal, kit};
 
 pub use diff::{DiffDocState, DiffFind, DiffViewer, PreparedDiffDoc, default_file_header};
 pub use file::{CodeDocState, CodeViewer, Content, DocFind, DocFindEvent, FileLineSelection};

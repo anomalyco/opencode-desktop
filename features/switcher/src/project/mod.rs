@@ -17,7 +17,7 @@ use opencode_kit::servers::ServerKey;
 use opencode_search::query::{Highlight, HighlightEvent};
 use rune::machine::{Attempt, Seq};
 use rune::{El, Key, KeyEvent, PointerEvent, TextEdit, Tx};
-use session_view::palette::Pal;
+use opencode_ui::palette::Pal;
 
 pub use branches::{List as BranchList, apply_answer as apply_branch_answer, open_git_location};
 pub use servers::{Kind as ServerKind, Listed as ListedServer, poll};
@@ -288,7 +288,7 @@ pub fn toggle(host: &mut dyn ProjectSwitcherHost, tx: &mut Tx) {
     // draft's project (`titlebar.tsx:478-492`); the page's own command searches in place.
     if !host.is_draft_route() && !host.is_stage() {
         host.open_draft_tab();
-        if !session_view::style::touch_controls() {
+        if !opencode_ui::style::touch_controls() {
             host.set_composer_focused(true);
         }
     }

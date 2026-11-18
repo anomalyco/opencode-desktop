@@ -87,9 +87,14 @@ for toml, tier, rank in manifests:
             errors.append(f"{toml}: opencode-runtime must stay headless and not depend on {dst_name}")
         if src_name == "opencode-ui" and (
             dst_tier in {"feature", "app"}
-            or dst_name in {"opencode-storage", "terminal", "browser-pane", "office-preview", "opencode-runtime"}
+            or dst_name in {"session-view", "opencode-storage", "terminal", "browser-pane", "office-preview", "opencode-runtime"}
         ):
-            errors.append(f"{toml}: opencode-ui must stay pure UI and not depend on {dst_name}")
+            errors.append(f"{toml}: opencode-ui must stay pure UI foundation and not depend on {dst_name}")
+        if src_name == "opencode-code-view" and (
+            dst_tier in {"feature", "app"}
+            or dst_name in {"session-view", "opencode-storage", "terminal", "browser-pane", "office-preview", "opencode-runtime"}
+        ):
+            errors.append(f"{toml}: opencode-code-view must not depend on {dst_name}")
         if src_name == "opencode-search" and (
             dst_tier in {"feature", "app"}
             or dst_name in {"session-view", "opencode-ui", "opencode-code-view", "opencode-storage", "terminal", "browser-pane", "office-preview", "opencode-runtime"}

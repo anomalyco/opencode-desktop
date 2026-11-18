@@ -107,7 +107,7 @@ pub fn poll_terminal(host: &mut dyn TerminalSurfaceHost, tx: &mut Tx) -> bool {
 
     if !host.terminal().workspaces.is_empty() {
         let dark = ops::terminal_dark(host);
-        let painted = Some((dark, session_view::themes::active(), session_view::themes::generation()));
+        let painted = Some((dark, opencode_ui::themes::active(), opencode_ui::themes::generation()));
         if host.terminal().last_dark != painted {
             let theme = host.terminal_theme(dark);
             let pane = host.terminal_mut();

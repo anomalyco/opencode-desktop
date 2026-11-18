@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use rune::{Color, GridRow, LineCap, Shape, Span, TextStyle};
-use session_view::palette::Pal;
+use opencode_ui::palette::Pal;
 use terminal::{CellFlags, RenderedCell, TerminalRow, TerminalSnapshot, UnderlineKind};
 
 use crate::TerminalPane;

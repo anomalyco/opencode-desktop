@@ -7,8 +7,8 @@ use std::rc::Rc;
 use rune::{Color, El, GrowthSpec, ScrollSpec, Tx, col, el, memo, row};
 use rune_kit::ScrollBar;
 use rune_kit::diff::{DiffMode, FileStatus, LineKind, LineRef, Side};
-use session_view::palette::Pal;
-use session_view::style::INSTANT;
+use opencode_ui::palette::Pal;
+use opencode_ui::style::INSTANT;
 
 use super::state::{DiffDocState, DiffRow};
 use crate::notes::LineNotes;

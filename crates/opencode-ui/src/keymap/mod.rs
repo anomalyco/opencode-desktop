@@ -11,11 +11,12 @@ use std::sync::LazyLock;
 
 use rune::{Key, KeyEvent, KeyPlatform, Keybind, Mods, Tx};
 
+pub mod base;
 pub mod overrides;
 pub mod view;
 
+pub use base::{caps, label, sentence};
 pub use rune::Chord;
-pub use session_view::keymap::{caps, label, sentence};
 pub use view::{LABEL, chips, keycaps};
 
 use KeyPlatform::{Linux, Mac, Windows};
@@ -163,8 +164,8 @@ fn table() -> Vec<Binding> {
     use Section::{General, Models, Navigation, Prompt, Session, Terminal};
     use opencode_i18n::key;
     let on = |kb: &str| Keybind::new(kb);
-    // The session view's own (`session_view::keymap`), listed here so Settings shows them.
-    let view = |b: session_view::keymap::Bind| b.keybind().clone();
+    // The shared view shortcuts (`keymap::base`), listed here so Settings shows them.
+    let view = |b: base::Bind| b.keybind().clone();
     let rows = vec![
         // `DEFAULT_PALETTE_KEYBIND` (`command.tsx:22`): ⇧⌘P opens the palette too, and Search
         // commands has no chord of its own (`shell.tsx:196-203`).
@@ -177,12 +178,12 @@ fn table() -> Vec<Binding> {
         row(Sidebar, "sidebar.toggle", key!("command.sidebar.toggle"), General, on("mod+shift+b")),
         // ⌥⌘B is Ctrl+Alt+B off macOS, the Browser's launcher; there only `review.toggle`'s chord.
         row(SideToggle, "review.toggle", key!("command.review.toggle"), Session, on("mod+alt+b, mod+shift+r").on(Windows, "mod+shift+r").on(Linux, "mod+shift+r")),
-        row(OpenProject, "project.open", key!("command.project.open"), General, view(session_view::keymap::Bind::OpenProject)),
+        row(OpenProject, "project.open", key!("command.project.open"), General, view(base::Bind::OpenProject)),
         row(SelectProject, "project.select", key!("session.new.project.search"), General, on("mod+shift+o")),
         // The app menu's View items: Desktop's Settings has no row for them.
-        unlisted(ZoomIn, "view.zoomIn", key!("desktop.menu.zoomIn"), General, view(session_view::keymap::Bind::ZoomIn)),
-        unlisted(ZoomOut, "view.zoomOut", key!("desktop.menu.zoomOut"), General, view(session_view::keymap::Bind::ZoomOut)),
-        unlisted(ZoomReset, "view.resetZoom", key!("desktop.menu.actualSize"), General, view(session_view::keymap::Bind::ZoomReset)),
+        unlisted(ZoomIn, "view.zoomIn", key!("desktop.menu.zoomIn"), General, view(base::Bind::ZoomIn)),
+        unlisted(ZoomOut, "view.zoomOut", key!("desktop.menu.zoomOut"), General, view(base::Bind::ZoomOut)),
+        unlisted(ZoomReset, "view.resetZoom", key!("desktop.menu.actualSize"), General, view(base::Bind::ZoomReset)),
         // Desktop's title over a project's session, which its catalog keeps (`use-session-commands.tsx:666-677`).
         row(AutoAccept, "permissions.autoaccept", key!("command.permissions.autoaccept.project"), Session, on("mod+shift+a")),
         row(FocusInput, "input.focus", key!("command.input.focus"), General, on("ctrl+l")),
@@ -220,12 +221,12 @@ fn table() -> Vec<Binding> {
         unlisted(FindPrev, "session.find.previous", key!("ui.fileSearch.previousMatch"), Session, on("mod+shift+g")),
         scoped(Background, "session.background", key!("command.session.background"), Session, on("ctrl+b")),
         scoped(Rename, "session.rename", key!("command.session.rename"), Session, on("ctrl+r")),
-        row(Model, "model.choose", key!("command.model.choose"), Models, view(session_view::keymap::Bind::Model)),
-        row(Agent, "agent.cycle", key!("command.agent.cycle"), Models, view(session_view::keymap::Bind::Agent)),
-        row(AgentBack, "agent.cycle.reverse", key!("command.agent.cycle.reverse"), Models, view(session_view::keymap::Bind::AgentBack)),
-        row(Variant, "model.variant.cycle", key!("command.model.variant.cycle"), Models, view(session_view::keymap::Bind::Variant)),
+        row(Model, "model.choose", key!("command.model.choose"), Models, view(base::Bind::Model)),
+        row(Agent, "agent.cycle", key!("command.agent.cycle"), Models, view(base::Bind::Agent)),
+        row(AgentBack, "agent.cycle.reverse", key!("command.agent.cycle.reverse"), Models, view(base::Bind::AgentBack)),
+        row(Variant, "model.variant.cycle", key!("command.model.variant.cycle"), Models, view(base::Bind::Variant)),
         // The composer's `file.attach` (`composer/model.ts:570-578`).
-        row(Attach, "file.attach", key!("prompt.action.attachFile"), Navigation, view(session_view::keymap::Bind::Attach)),
+        row(Attach, "file.attach", key!("prompt.action.attachFile"), Navigation, view(base::Bind::Attach)),
         // Dictation through Hex is this app's own; Desktop has no such command.
         row(Dictate, "prompt.dictate", key!("rune.command.prompt.dictate"), Prompt, on("mod+shift+m")),
         // The composer's own keys, which Desktop's Settings doesn't list.
@@ -233,8 +234,8 @@ fn table() -> Vec<Binding> {
         // Chromium's paste as plain text, which Desktop's fields get from the browser; Rune leaves
         // Ctrl+Shift+V to the app. ⇧⌘V pasted here on macOS before, and still does.
         hidden(PastePlain, "edit.pastePlain", key!("rune.command.edit.pastePlain"), Prompt, on("mod+shift+v")),
-        unlisted(SubmitAnswer, "question.submit", key!("rune.command.question.submit"), Prompt, view(session_view::keymap::Bind::QuestionAdvance)),
-        unlisted(Stop, "session.stop", key!("rune.command.session.stop"), Prompt, view(session_view::keymap::Bind::Stop)),
+        unlisted(SubmitAnswer, "question.submit", key!("rune.command.question.submit"), Prompt, view(base::Bind::QuestionAdvance)),
+        unlisted(Stop, "session.stop", key!("rune.command.session.stop"), Prompt, view(base::Bind::Stop)),
         row(FileOpen, "file.open", key!("command.file.open"), Navigation, on("mod+p")),
         // The browser's commands (`browser.open` and its pane's) are the browser plugin's.
         // Desktop's `terminal.toggle` (Ctrl+`) and `terminal.new` are the terminal plugin's
@@ -268,7 +269,7 @@ fn table() -> Vec<Binding> {
         // The open file's selected lines to the composer (`use-session-commands.tsx:597-606`).
         row(AddSelection, "context.addSelection", key!("command.context.addSelection"), General, on("mod+shift+l")),
         // The question dock's previous question and Settings' search, each while it shows.
-        scoped(QuestionBack, "session.question.back", key!("ui.common.back"), Session, view(session_view::keymap::Bind::QuestionBack)),
+        scoped(QuestionBack, "session.question.back", key!("ui.common.back"), Session, view(base::Bind::QuestionBack)),
         scoped(SettingsSearch, "settings.search.focus", key!("settings.search.placeholder"), General, on("mod+f")),
         // The composer's shell mode (`composer/model.ts:579-585`).
         row(PromptModeToggle, "prompt.mode.toggle", key!("command.prompt.mode.toggle"), Prompt, on("mod+shift+x")),

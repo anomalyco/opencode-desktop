@@ -6,8 +6,8 @@ use opencode_i18n::t;
 use opencode_ui::keymap::TERMINAL_NEW;
 use rune::{Color, El, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
-use session_view::palette::Pal;
-use session_view::style::{INSTANT, UI};
+use opencode_ui::palette::Pal;
+use opencode_ui::style::{INSTANT, UI};
 
 use crate::{TerminalSurfaceHost, grid, ops, side_ops};
 

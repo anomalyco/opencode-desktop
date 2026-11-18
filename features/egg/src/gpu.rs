@@ -233,7 +233,7 @@ impl EggGpu {
             self.release();
             return false;
         }
-        let pal = session_view::palette::pal(live.geo.get().dark);
+        let pal = opencode_ui::palette::pal(live.geo.get().dark);
         draw::scene(&mut self.scene, live, pal, &slots, live.clock);
         let key = f.device_key();
         if self.gpu.as_ref().is_none_or(|g| g.key != key) {

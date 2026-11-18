@@ -12,8 +12,8 @@ use rune::{Color, Direction, El, Icon, ScrollSpec, Shadow, TextStyle, Tx, col, e
 use rune_kit::ScrollBar;
 use rune_kit::diff::{FileDiff, FileStatus};
 use rune_theme_opencode::icons as ic;
-use session_view::palette::{Elevate as _, Pal};
-use session_view::style::{HOVER_FADE, INSTANT, UI};
+use opencode_ui::palette::{Elevate as _, Pal};
+use opencode_ui::style::{HOVER_FADE, INSTANT, UI};
 
 use crate::data::{ReviewFileMeta, prepare_narrow_paths};
 use crate::{ReviewHost, SessionReview};

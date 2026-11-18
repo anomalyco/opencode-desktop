@@ -7,10 +7,10 @@ use opencode_kit::integration::{McpServer, McpStatus};
 use rune::{Color, Cx, El, Key, KeyEvent, Spring, TextStyle, Transition, Tx, col, el, icon, row, spacer, text};
 use rune_kit::{ButtonVariant, Switch};
 use rune_theme_opencode::icons as ic;
-use session_view::dialog::DialogSize;
-use session_view::palette::{Pal, kit};
-use session_view::scroller::{Bar, scroller};
-use session_view::style::{UI, field};
+use opencode_ui::dialog::DialogSize;
+use opencode_ui::palette::{Pal, kit};
+use opencode_ui::scroller::{Bar, scroller};
+use opencode_ui::style::{UI, field};
 
 use crate::ui::{self, BODY, DIALOG_CLOSE, LABEL, TITLE, button, status_dot};
 use crate::{Detail, Dialog, McpHost};

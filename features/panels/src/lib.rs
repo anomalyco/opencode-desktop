@@ -25,7 +25,7 @@ pub mod width;
 
 use opencode_ui::keymap::{Bind, caps as keymap_caps};
 use rune::{El, Icon, Tx};
-use session_view::palette::Pal;
+use opencode_ui::palette::Pal;
 
 pub use host::{PanelChrome, PanelsHost};
 pub use keys::{closing_side_entry, panels_ime, panels_key, poll_panels, select_adjacent_side_tab};

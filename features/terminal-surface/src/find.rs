@@ -6,8 +6,8 @@
 
 use rune::{El, Key, KeyEvent, TextEdit, TextStyle, Transition, Tx, icon, row, text};
 use rune_theme_opencode::icons as ic;
-use session_view::palette::Pal;
-use session_view::style::{INSTANT, UI};
+use opencode_ui::palette::Pal;
+use opencode_ui::style::{INSTANT, UI};
 use terminal::TerminalSnapshot;
 
 use crate::{TerminalSurfaceHost, TerminalTab, ops};
@@ -93,7 +93,7 @@ pub fn bar<H: TerminalSurfaceHost + 'static>(
 }
 
 fn field_shell(p: &Pal, field: &TextEdit) -> El {
-    session_view::style::field(field, UI)
+    opencode_ui::style::field(field, UI)
         .key("terminal-find-input")
         .single_line()
         .truncate_fade()

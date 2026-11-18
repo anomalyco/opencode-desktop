@@ -11,8 +11,8 @@ hex-client = { path = "../../crates/hex-client" }
 notify = "8"
 opencode-i18n = { path = "../../crates/opencode-i18n" }
 opencode-kernel = { path = "../../crates/opencode-kernel" }
+opencode-ui = { path = "../../crates/opencode-ui" }
 rune.workspace = true
-session-view = { path = "../../crates/session-view" }
 
 [lints]
 workspace = true

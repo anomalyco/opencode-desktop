@@ -9,8 +9,8 @@ use opencode_code_view::CodeDocState;
 use opencode_search::{SlabFind, SlabMatch};
 use rune::{El, TextHighlight, Tx, col};
 use rune_kit::mermaid::DrawingModel;
-use session_view::palette::Pal;
-use session_view::style::markdown_style;
+use opencode_ui::palette::Pal;
+use opencode_ui::style::markdown_style;
 
 use super::markdown;
 
@@ -65,7 +65,7 @@ impl Diagram {
         let d = self
             .model
             .draw(|key| self.ids.get(key).map_or_else(Vec::new, |id| paint(*id)));
-        session_view::scroller::scroller(scroll_key(sid, path)).build::<H>(
+        opencode_ui::scroller::scroller(scroll_key(sid, path)).build::<H>(
             p,
             col().w_full().grow(1.0).min_h(0.0).fill(p.bg_base),
             col()

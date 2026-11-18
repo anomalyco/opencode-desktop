@@ -8,7 +8,7 @@ use opencode_ui::popup::Menu;
 use rune::{DragItem, El, KeyEvent, PopupAnchor, Tx};
 use rune_kit::diff::FileStatus;
 use serde_json::Value;
-use session_view::palette::Pal;
+use opencode_ui::palette::Pal;
 
 use crate::FilesPane;
 

@@ -13,8 +13,8 @@ use rune::{Anim, Color, Cursor, El, GrowthSpec, KeyEvent, PointerPress, TextEdit
 use rune_kit::diff::FileStatus;
 use rune_theme_opencode::icons as ic;
 use rune_theme_opencode::tree_icons;
-use session_view::palette::Pal;
-use session_view::style::{UI_MED, UI_SMALL};
+use opencode_ui::palette::Pal;
+use opencode_ui::style::{UI_MED, UI_SMALL};
 
 use crate::{FilesHost, SessionFiles, ops};
 
@@ -376,8 +376,8 @@ pub fn filtered_files_view<H: FilesHost + 'static>(
 /// caller gives it: Desktop pads above the scroller (`[data-file-tree-virtualized-root]`'s
 /// `padding-block-start: 4px`), so the bar's track starts with the rows.
 pub fn tree_scroll<H: 'static>(p: &Pal, key: &str, rows: El) -> El {
-    let scroll = session_view::scroller::scroller(key)
-        .bar(session_view::scroller::Bar::Tree { fg: p.muted, bg: p.bg_base })
+    let scroll = opencode_ui::scroller::scroller(key)
+        .bar(opencode_ui::scroller::Bar::Tree { fg: p.muted, bg: p.bg_base })
         .build::<H>(p, col().w_full().grow(1.0).min_h(0.0), rows);
     col().w_full().grow(1.0).min_h(0.0).child(scroll)
 }

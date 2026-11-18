@@ -8,8 +8,8 @@ use std::sync::Arc;
 use rune::{El, GrowthSpec, ScrollSpec, TextHighlight, Tx, col, el, icon, row, text};
 use rune_kit::ScrollBar;
 use rune_theme_opencode::icons as ic;
-use session_view::palette::Pal;
-use session_view::style::{UI, UI_MED, UI_SMALL};
+use opencode_ui::palette::Pal;
+use opencode_ui::style::{UI, UI_MED, UI_SMALL};
 
 use super::delimited::{Table, cell_key, row_key, scroll_key};
 
@@ -124,5 +124,5 @@ pub(crate) fn view<H: 'static>(
         .scroll(ScrollSpec { stick_bottom: false })
         .scroll_xy()
         .child(rows)
-        .scroll_bar_styled(session_view::scroller::native_bar(p))
+        .scroll_bar_styled(opencode_ui::scroller::native_bar(p))
 }

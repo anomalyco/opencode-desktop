@@ -15,7 +15,7 @@ pub mod flyout;
 mod host;
 pub mod hover;
 pub mod manage;
-pub mod mark;
+pub use opencode_ui::provider_mark as mark;
 pub mod menu;
 pub mod prefs;
 pub mod search;

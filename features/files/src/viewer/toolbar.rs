@@ -4,7 +4,7 @@ use opencode_ui::popup::{Item, Menu, MenuButton as _, PopupHost};
 use rune::{Align, Anim, Color, Cursor, El, Icon, Shadow, TextStyle, Tx, el, icon, row, text};
 use rune_kit::Loader;
 use rune_theme_opencode::icons as ic;
-use session_view::palette::{Pal, kit};
+use opencode_ui::palette::{Pal, kit};
 
 use crate::{FilesHost, markdown, view};
 

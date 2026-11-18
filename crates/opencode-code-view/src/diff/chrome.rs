@@ -5,8 +5,8 @@ use std::rc::Rc;
 
 use rune::{Color, Cursor, Drag, El, Icon, Phase, Span, TextStyle, Tx, col, el, icon, rich, row, text};
 use rune_kit::diff::{DiffMode, EXPAND_STEP, Expand, FileStatus, LineKind, LineRef, Side};
-use session_view::palette::Pal;
-use session_view::style::{INSTANT, UI};
+use opencode_ui::palette::Pal;
+use opencode_ui::style::{INSTANT, UI};
 
 use super::state::DiffDocState;
 use super::view::{CellData, Inner, gutter_w, tints, view_w};

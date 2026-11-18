@@ -4,8 +4,8 @@
 
 use rune::{El, Shadow, TextEdit, TextStyle, Transition, Tx, col, icon, row, text};
 use rune_theme_opencode::icons as ic;
-use session_view::palette::{Elevate, Pal};
-use session_view::style::INSTANT;
+use opencode_ui::palette::{Elevate, Pal};
+use opencode_ui::style::INSTANT;
 
 /// `text-14-regular`.
 const FIELD: TextStyle = TextStyle::new(14.0, 440.0).lh(25.2);
@@ -53,7 +53,7 @@ fn find_chevron(p: &Pal, up: bool) -> El {
 }
 
 fn find_input_base(p: &Pal, input: &TextEdit, spellcheck: bool) -> El {
-    session_view::style::field(input, FIELD)
+    opencode_ui::style::field(input, FIELD)
         .key("find-input")
         .single_line()
         .spellcheck(spellcheck)

@@ -15,8 +15,8 @@ use opencode_i18n::t;
 use opencode_kit::persistent_pty::PersistentPtyInfo;
 use rune::machine::{Attempt, Effects, Seq};
 use rune::{El, Key, KeyEvent, PointerPress, TextEdit, Tx};
-use session_view::palette::Pal;
-use session_view::style::UI;
+use opencode_ui::palette::Pal;
+use opencode_ui::style::UI;
 
 use crate::{ContextMenuEntry, ContextMenuSpec, TerminalJob, TerminalSurfaceHost, ops, panel_key, persist};
 
@@ -217,7 +217,7 @@ pub fn field<H: TerminalSurfaceHost + 'static>(s: &H, p: &Pal, id: &str) -> Opti
 }
 
 fn field_shell(p: &Pal, edit: &TextEdit, spellcheck: bool) -> El {
-    session_view::style::field(edit, UI)
+    opencode_ui::style::field(edit, UI)
         .key("terminal-rename")
         .label_static(t!("common.rename"))
         .spellcheck(spellcheck)

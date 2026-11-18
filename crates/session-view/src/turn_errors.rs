@@ -85,10 +85,7 @@ fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
     era * 146_097 + yoe * 365 + yoe / 4 - yoe / 100 + doy - 719_468
 }
 
-/// `t` as the locale's date formats read it.
-pub fn moment(t: LocalTime) -> opencode_i18n::date::Moment {
-    opencode_i18n::date::Moment { year: t.year, month: t.month, day: t.day, hour: t.hour, minute: t.minute, offset: t.offset }
-}
+pub use opencode_ui::style::moment;
 
 /// `3:45 PM`, `15:45`: `Intl`'s `timeStyle: "short"` in the locale.
 pub fn short_time(t: LocalTime) -> String {

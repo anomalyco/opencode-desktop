@@ -27,6 +27,7 @@ pub fn handle(p: &Pal) -> El {
 
 /// A hand moving the handle owns the offset until release; the opening/closing transaction
 /// otherwise owns it. The panel's children (especially lists) retain their own touch gestures.
+#[allow(clippy::too_many_arguments)]
 pub fn draggable_sheet<S: 'static>(p: &Pal, key: &str, leaving: bool, travel: f32, win_h: f32, content: El, dismiss: fn(&mut S, &mut Tx), drag: Option<f32>, handle: El) -> Vec<El> {
     // On a phone the scrim covers the whole screen and the sheet runs under the side and bottom
     // insets to the screen's edge, its content clear of them (the layer sits inside the safe area).

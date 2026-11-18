@@ -67,7 +67,7 @@ pub fn menu_button<S: PopupHost + 'static>(el: El, anchor: impl Into<String>, op
             Phase::Down
                 if super::PRESS_ON_DOWN
                     && tx.button() == PointerButton::Primary
-                    && !session_view::style::touch_controls()
+                    && !crate::style::touch_controls()
                     && !s.popup().open_at(&pressed) =>
             {
                 Event::Down { anchor: &pressed }

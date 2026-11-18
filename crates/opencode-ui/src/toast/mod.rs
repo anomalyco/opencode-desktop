@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use rune::{Anim, Curve, Easing, El, Icon, LiveRegion, Tx};
 use rune_kit::ToastStack;
 use rune_kit::toast_stack::{CONTENT_FADE_SECS, FADE_SECS, MOVE_SECS};
-use session_view::palette::Pal;
+use crate::palette::Pal;
 
 mod state;
 mod view;

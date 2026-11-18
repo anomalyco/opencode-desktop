@@ -8,8 +8,8 @@ use rune::{El, Icon, Tx, col, memo};
 use rune_kit::Markdown;
 use rune_kit::markdown::Case;
 use serde_json::Value;
-use session_view::palette::{Elevate as _, Pal, kit};
-use session_view::style::{markdown_mark, markdown_style};
+use opencode_ui::palette::{Elevate as _, Pal, kit};
+use opencode_ui::style::{markdown_mark, markdown_style};
 
 use super::links::slug;
 use crate::{FilesHost, SessionFiles};
@@ -260,13 +260,13 @@ pub fn rendered<H: FilesHost + 'static>(
             .border(0.5, p.border)
             .child(body.w_full().max_w(768.0));
         // A plain `overflow-y-auto` box's bar, as the file view's (`gui-plugins/src/file/view.tsx:517`).
-        return session_view::scroller::scroller(key).build::<H>(
+        return opencode_ui::scroller::scroller(key).build::<H>(
             p,
             col().w_full().grow(1.0).min_h(0.0).fill(p.layer1),
             col().w_full().px(gutter).pt(1.0).pb(foot).child(sheet),
         );
     }
-    session_view::scroller::scroller(key).build::<H>(
+    opencode_ui::scroller::scroller(key).build::<H>(
         p,
         col().w_full().grow(1.0).min_h(0.0).fill(p.bg_base),
         col()

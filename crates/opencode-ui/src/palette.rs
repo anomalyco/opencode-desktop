@@ -579,6 +579,17 @@ pub fn over(bg: Color, c: Color, a: f32) -> Color {
     Color { r: m(bg.r, c.r), g: m(bg.g, c.g), b: m(bg.b, c.b), a: 1.0 }
 }
 
+/// `top` over the opaque `bottom`, blended in sRGB as a browser does, as one opaque colour.
+pub fn flat(top: Color, bottom: Color) -> Color {
+    let srgb = |c: Color| {
+        let h = c.hex();
+        [1, 3, 5].map(|i| u8::from_str_radix(&h[i..i + 2], 16).unwrap_or(0) as f32)
+    };
+    let (t, b) = (srgb(top), srgb(bottom));
+    let m = |i: usize| (t[i] * top.a + b[i] * (1.0 - top.a)).round() as u8;
+    rune::color::hex(&format!("#{:02x}{:02x}{:02x}", m(0), m(1), m(2))).unwrap_or(bottom)
+}
+
 /// `t` of the way from `a` to `b` in CIE Lab, as CSS `color-mix(in lab, a, b t)` mixes:
 /// session-ui's `--diffs-bg-separator-override`.
 pub(crate) fn mix_lab(a: Color, b: Color, t: f32) -> Color {
@@ -601,8 +612,9 @@ pub(crate) fn mix_lab(a: Color, b: Color, t: f32) -> Color {
 }
 /// The tokens for an appearance in this thread's theme (`themes::active`), built once each.
 pub fn pal(dark: bool) -> &'static Pal {
+    type PalKey = (usize, u64, bool, bool, bool);
     static PALS: [[[OnceLock<Pal>; 2]; 2]; 2] = [const { [const { [const { OnceLock::new() }; 2] }; 2] }; 2];
-    static THEMED: Mutex<Vec<((usize, u64, bool, bool, bool), &'static Pal)>> = Mutex::new(Vec::new());
+    static THEMED: Mutex<Vec<(PalKey, &'static Pal)>> = Mutex::new(Vec::new());
     let srgb = rune::theme::blends_srgb();
     let theme = crate::themes::active();
     let raised = crate::themes::raised_contrast();
@@ -622,7 +634,8 @@ pub fn pal(dark: bool) -> &'static Pal {
 /// The one rune-kit Kit, for markdown, code, diffs and the odometer: OpenCode's kit, its
 /// colours taken from `p` in a chosen theme so it follows the theme (the default keeps it as is). Built once per theme, appearance and blend.
 pub fn kit(p: &Pal) -> &'static Kit {
-    static KITS: Mutex<Vec<((usize, u64, bool, bool), &'static Kit)>> = Mutex::new(Vec::new());
+    type KitKey = (usize, u64, bool, bool);
+    static KITS: Mutex<Vec<(KitKey, &'static Kit)>> = Mutex::new(Vec::new());
     let key = (p.theme, p.generation, p.dark, rune::theme::blends_srgb());
     let mut kits = KITS.lock().unwrap_or_else(|e| e.into_inner());
     if let Some((_, k)) = kits.iter().find(|(k, _)| *k == key) {

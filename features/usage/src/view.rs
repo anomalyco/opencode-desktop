@@ -6,8 +6,8 @@
 use opencode_i18n::{plural, t};
 use rune::{Color, Cx, El, Icon, TextStyle, Transition, Tx, col, el, icon, row, spacer, text};
 use rune_kit::{Button, ButtonVariant, Loader};
-use session_view::dialog::DialogSize;
-use session_view::palette::{Elevate as _, Pal, kit};
+use opencode_ui::dialog::DialogSize;
+use opencode_ui::palette::{Elevate as _, Pal, kit};
 
 use super::limits::{self, Action, Callout, Footer, Label, Note, Row, Sharing};
 use super::{Load, UsageHost};
@@ -154,7 +154,7 @@ fn build_dialog(s: &dyn UsageHost, p: &Pal, win: [f32; 2], buttons: Buttons) -> 
         .elevate(p.overlay)
         .clip_soft(0.0)
         .transition(Transition::none())
-        .child(session_view::scroller::scroller("usage-content").hidden(col().w_full().shrink().min_h(0.0), body_col));
+        .child(opencode_ui::scroller::scroller("usage-content").hidden(col().w_full().shrink().min_h(0.0), body_col));
     Some(card.w(size.width(win[0])).max_h(size.max_height(win[1], false)))
 }
 
@@ -488,7 +488,7 @@ fn track(p: &Pal, fill: f64, reached_: bool) -> El {
 
 /// `--usage-reached`: the design's `red-900` in light, the danger ink in dark (`dialog.css`).
 fn reached(p: &Pal) -> Color {
-    if p.dark { p.v2.danger.fg } else { session_view::palette::token(false, "red-900").unwrap_or(p.v2.danger.fg) }
+    if p.dark { p.v2.danger.fg } else { opencode_ui::palette::token(false, "red-900").unwrap_or(p.v2.danger.fg) }
 }
 
 /// `format.money`: US dollars in the locale's currency pattern (`$1,234.50`, `1.234,50 $`,
@@ -499,7 +499,7 @@ pub fn money(value: f64, auto: bool) -> String {
 
 /// `format.time`: `Nov 1 at 12:00 AM (GMT-7)`.
 fn time(at: i64) -> String {
-    let m = session_view::turn_errors::moment(rune::LocalTime::at(at));
+    let m = opencode_ui::style::moment(rune::LocalTime::at(at));
     let (date, clock) = (
         opencode_i18n::date::format(opencode_i18n::date::Style::MonthDay, m),
         opencode_i18n::date::format(opencode_i18n::date::Style::Time, m),

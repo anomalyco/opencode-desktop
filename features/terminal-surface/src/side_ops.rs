@@ -7,7 +7,7 @@ use opencode_kit::persistent_pty::parse_persistent_pty_info;
 use opencode_ui::keymap::Bind;
 use rune::{Drag, El, Ime, KeyEvent, PointerPress, Tx, icon, row, text};
 use serde_json::Value;
-use session_view::palette::Pal;
+use opencode_ui::palette::Pal;
 
 use crate::{
     PaneTarget, TAB_UI, TerminalSurfaceHost, find, grid, input, ops, panel_key, persist, poll,

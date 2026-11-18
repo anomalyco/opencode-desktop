@@ -7,7 +7,7 @@
 use std::cell::RefCell;
 
 use rune::{Drag, El, Phase, Tx, el, text};
-use session_view::palette::{Elevate as _, Pal};
+use opencode_ui::palette::{Elevate as _, Pal};
 
 use crate::host::PanelsHost;
 use crate::state::{bottom_open, move_side_tab, resolve_side_region, select_side_tab, side_open};
@@ -228,7 +228,7 @@ pub fn choose_side_new_tab(host: &mut dyn PanelsHost, pane: SessionPane, id: &st
 pub fn side_new_tab_gesture(host: &mut dyn PanelsHost, pane: SessionPane, id: &str, shown: bool, d: &Drag, tx: &mut Tx) {
     match d.phase {
         Phase::Down => {
-            let selects = !session_view::style::touch_controls();
+            let selects = !opencode_ui::style::touch_controls();
             host.side_mut().pane_drag.suppress_click = selects;
             if selects && !shown {
                 return choose_side_new_tab(host, pane, id, tx);
@@ -260,7 +260,7 @@ pub fn side_tab_gesture(
     let session = host.active_session_id().unwrap_or_default().to_owned();
     let drawn = match d.phase {
         Phase::Down => {
-            let selects = !session_view::style::touch_controls();
+            let selects = !opencode_ui::style::touch_controls();
             host.side_mut().pane_drag.suppress_click = selects;
             let drawn = draggable
                 && dispatch_pane_drag(

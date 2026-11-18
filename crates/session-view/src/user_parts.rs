@@ -18,11 +18,7 @@ const PREVIEW: usize = 200;
 const TOOLTIP: usize = 600;
 const BOUNDED: usize = 5;
 
-pub static OUTLINE_QUOTE: Icon = Icon {
-    name: "outline-quote",
-    view: 16.0,
-    body: r#"<path d="M9.5 8.49927C10.8333 8.49927 12.1667 8.49927 13.5 8.49927C13.5 9.74927 13.5 11.2493 13.5 12.4993C12.1667 12.4993 10.8333 12.4993 9.5 12.4993V7C9.5 5 10.5 3.5 13 3.5001" stroke="currentColor"/><path d="M2.5 8.49927C3.83333 8.49927 5.16667 8.49927 6.5 8.49927C6.5 9.74927 6.5 11.2493 6.5 12.4993C5.16667 12.4993 3.83333 12.4993 2.5 12.4993V7C2.5 5 3.5 3.5 6 3.5001" stroke="currentColor"/>"#,
-};
+pub use opencode_ui::style::OUTLINE_QUOTE;
 
 pub static COMMENT: Icon = Icon {
     name: "comment",

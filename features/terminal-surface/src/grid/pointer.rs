@@ -6,9 +6,9 @@ use rune::{
     Anim, Cursor, Drag, El, KeyEvent, Phase, PointerButton, PointerEvent, Spring, TextStyle,
     Transition, Tx, WheelEvent, el, icon, row, text,
 };
-use session_view::composer::composer_fill;
-use session_view::palette::Pal;
-use session_view::user_parts::OUTLINE_QUOTE;
+use opencode_ui::style::composer_fill;
+use opencode_ui::palette::Pal;
+use opencode_ui::style::OUTLINE_QUOTE;
 use terminal::{
     GhosttyKey, GridPoint, KeyInput, MouseBtn, MouseInput, MouseKind, ScrollOp, ScrollbarSnapshot,
     SelectionOp,

@@ -53,7 +53,7 @@ pub fn land<S: TimelineHost>(s: &S, session: &str, local: &str, from: &str, tx: 
 
 /// The composer box's corner radius: Desktop's form is `rounded-xl`, 10 px (`editor.tsx:254`).
 /// The new-session Easter egg's paddle grows out of the composer from this radius.
-pub const RADIUS: f32 = 10.0;
+pub use opencode_ui::style::COMPOSER_RADIUS as RADIUS;
 
 /// Renders the shared composer in its bottom dock (`12pt` side and bottom inset, matching
 /// `jump-lane` so the timeline runs right down to its top edge).
@@ -67,9 +67,7 @@ pub fn dock<S: ComposerHost>(s: &S, p: &Pal) -> El {
         .child(composer(s, p))
 }
 
-pub fn composer_fill(p: &Pal) -> Color {
-    if p.dark { p.layer1 } else { p.bg_base }
-}
+pub use opencode_ui::style::composer_fill;
 
 /// The two glyphs of the submit button changing places: the leaving one shrinks away as the
 /// arriving one grows in, quickly and without bounce.

@@ -8,7 +8,7 @@ use rune::{
 };
 use rune_kit::ScrollBar;
 use rune_kit::diff::Side;
-use session_view::palette::Pal;
+use opencode_ui::palette::Pal;
 
 use super::state::{CodeDocState, FileLineSelection};
 use crate::notes::{Handoff, LineNotes, LineRange};

@@ -2,8 +2,8 @@
 //! preview surfaces.
 
 use rune::{Align, El, PopupAnchor, Side, TextStyle, Tx, col, el, icon, row, text};
-use session_view::palette::Pal;
-use session_view::popover::{self, MENU, Opt};
+use crate::palette::Pal;
+use crate::popover::{self, MENU, Opt};
 
 use super::keys::key;
 use super::menu::{Entry, Glyph, Look, Menu, hug_width, row_key};
@@ -134,7 +134,7 @@ fn build<S: PopupHost + 'static>(
                 let o = match i.glyph {
                     Some(Glyph::Ink(g)) if menu.card => o.lead(icon(g, 16.0).color(p.icon_muted)),
                     Some(Glyph::Ink(g)) => o.lead(icon(g, 14.0).color(ink)),
-                    Some(Glyph::Weak(g)) => o.lead(icon(g, 14.0).color(session_view::palette::token(p.dark, "icon-weak-base").unwrap_or(p.icon_faint))),
+                    Some(Glyph::Weak(g)) => o.lead(icon(g, 14.0).color(crate::palette::token(p.dark, "icon-weak-base").unwrap_or(p.icon_faint))),
                     Some(Glyph::App(id)) => match rune_theme_opencode::app_icons::named(id, p.dark) {
                         Some(g) => o.lead(icon(g, 16.0)),
                         None => o.lead(el().size(16.0, 16.0)),

@@ -33,7 +33,7 @@ use rune::machine::Attempt;
 use rune::{Drag, KeyEvent, PointerPress, TextEdit, TextStyle, Tx};
 use rune_knobs::{Group, Knob, Knobs};
 use serde_json::Value;
-use session_view::palette::Pal;
+use opencode_ui::palette::Pal;
 use terminal::{StreamHandle, TerminalSession, TerminalTheme};
 
 pub use grid::set_custom_font;
@@ -61,7 +61,7 @@ pub const MAX_TERMINAL_WORKSPACES: usize = 20;
 pub const STORY_WORKSPACE_KEY: &str = "story\0/workspace/seer";
 
 /// Tab title style matching Desktop's tabular panel strip (`tabs.css:313`).
-pub const TAB_UI: TextStyle = session_view::style::UI.features("tnum");
+pub const TAB_UI: TextStyle = opencode_ui::style::UI.features("tnum");
 
 pub const TERM_FONT: Knob = Knob::choice(
     "Terminal font",
@@ -366,7 +366,7 @@ pub trait TerminalSurfaceHost: opencode_kernel::AppEnv + opencode_kernel::AppFee
     }
     /// Resolves the [`TerminalTheme`] for `dark` appearance.
     fn terminal_theme(&self, dark: bool) -> TerminalTheme {
-        theme_from_pal(session_view::palette::pal(dark))
+        theme_from_pal(opencode_ui::palette::pal(dark))
     }
     /// macOS: treat Option as Meta (`Esc` + key) inside the terminal.
     fn terminal_option_meta(&self) -> bool {
