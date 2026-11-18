@@ -10,5 +10,12 @@ license.workspace = true
 rune = { workspace = true, default-features = false }
 serde_json.workspace = true
 
+# The machine's name for spans (`host.name`), asked of the system rather than of a `hostname` program.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_System_SystemInformation"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [lints]
 workspace = true

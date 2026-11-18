@@ -3653,8 +3653,10 @@ dependencies = [
 name = "otlp-lite"
 version = "0.0.1"
 dependencies = [
+ "libc",
  "rune",
  "serde_json",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

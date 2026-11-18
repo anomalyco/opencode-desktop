@@ -135,6 +135,45 @@ pub fn start(service: &'static str, version: &'static str, to: Option<SocketAddr
     CONFIG.get_or_init(|| Exporter { service, version, to });
 }
 
+/// This machine's name, from the system, trimmed; none if it has none. Never a program started to
+/// print it: `hostname`, a console program started from the app, opened a console window (on
+/// Windows Terminal's desktop, when it is the default terminal) on every launch that sent a span.
+fn host_name() -> Option<String> {
+    let host = system_host_name()?;
+    let host = host.trim();
+    (!host.is_empty()).then(|| host.to_owned())
+}
+
+#[cfg(windows)]
+#[allow(unsafe_code)]
+fn system_host_name() -> Option<String> {
+    use windows_sys::Win32::System::SystemInformation::{ComputerNameDnsHostname, GetComputerNameExW};
+    let mut len = 0u32;
+    // SAFETY: a null buffer asks for the length the name needs, in u16s with its NUL.
+    unsafe { GetComputerNameExW(ComputerNameDnsHostname, std::ptr::null_mut(), &mut len) };
+    let mut name = vec![0u16; len as usize];
+    // SAFETY: `name` holds `len` u16s; on success `len` becomes the name's length without its NUL.
+    let ok = unsafe { GetComputerNameExW(ComputerNameDnsHostname, name.as_mut_ptr(), &mut len) } != 0;
+    ok.then(|| String::from_utf16_lossy(&name[..len as usize]))
+}
+
+#[cfg(unix)]
+#[allow(unsafe_code)]
+fn system_host_name() -> Option<String> {
+    let mut name = [0u8; 256];
+    // SAFETY: `gethostname` writes at most `name.len()` bytes into `name`.
+    if unsafe { libc::gethostname(name.as_mut_ptr().cast(), name.len()) } != 0 {
+        return None;
+    }
+    let end = name.iter().position(|&b| b == 0).unwrap_or(name.len());
+    String::from_utf8(name[..end].to_vec()).ok()
+}
+
+#[cfg(not(any(windows, unix)))]
+fn system_host_name() -> Option<String> {
+    None
+}
+
 fn exporter() -> Option<&'static Sender<Value>> {
     static OUT: OnceLock<Option<Sender<Value>>> = OnceLock::new();
     OUT.get_or_init(|| {
@@ -143,10 +182,7 @@ fn exporter() -> Option<&'static Sender<Value>> {
         let (send, spans) = channel::<Value>();
         std::thread::Builder::new().name("otel-export".into()).spawn(move || {
             // Resolve once on the exporter, never in the UI's per-span path.
-            let host = std::process::Command::new("hostname").output().ok()
-                .filter(|out| out.status.success())
-                .and_then(|out| String::from_utf8(out.stdout).ok())
-                .map(|host| host.trim().to_owned()).filter(|host| !host.is_empty());
+            let host = host_name();
             let mut resource = vec![
                 json!({"key": "service.name", "value": {"stringValue": service}}),
                 json!({"key": "service.version", "value": {"stringValue": version}}),
