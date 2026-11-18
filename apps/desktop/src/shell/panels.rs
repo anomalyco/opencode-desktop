@@ -6,8 +6,8 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
-use opencode_kernel::{Feature, KernelBuilder};
-use opencode_ui::keymap::Chord;
+use opencode_kernel::{CommandEntry, Feature, KernelBuilder};
+use opencode_ui::keymap::{Bind, Chord};
 use rune::{Drag, El, Ime, KeyEvent, Tx};
 use rune_knobs::Knobs;
 use session_view::palette::Pal;
@@ -447,5 +447,13 @@ impl Feature<App> for PanelsFeature {
         "feature.panels"
     }
 
-    fn register(&self, _builder: &mut KernelBuilder<App>) {}
+    fn register(&self, builder: &mut KernelBuilder<App>) {
+        // After Copy project ID and before the message keys, as Desktop registers it (`use-session-commands.tsx:610`).
+        builder.add_command(
+            CommandEntry::<App>::from_key("side", opencode_i18n::key!("command.review.toggle"), |s, tx| s.toggle_side_region(tx))
+                .bind_id(Bind::SideToggle.id())
+                .order(260)
+                .when(App::in_root_session),
+        );
+    }
 }

@@ -4,13 +4,14 @@ pub use opencode_feature_switcher::*;
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-use opencode_kernel::{Feature, KernelBuilder, OverlayRegistration};
+use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration};
 use opencode_kit::client::Server;
 use opencode_kit::model::{Project, SessionInfo};
 use opencode_kit::servers::ServerKey;
 use rune::{El, KeyEvent, Tx, Waker};
 use session_view::palette::Pal;
 
+use crate::keymap::Bind;
 use crate::pickers::PickerHost as _;
 use crate::{App, Route, Source};
 
@@ -383,6 +384,30 @@ impl Feature<App> for SwitcherFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder.add_command(
+            CommandEntry::<App>::from_key("select-project", opencode_i18n::key!("session.new.project.search"), |s, tx| s.toggle_project_switcher(tx))
+                .bind_id(Bind::SelectProject.id())
+                .order(90),
+        );
+        builder.add_command(
+            CommandEntry::<App>::from_key("sessions", opencode_i18n::key!("command.session.search"), |s, tx| s.open_session_search(tx))
+                .bind_id(Bind::SessionSearch.id())
+                .order(120),
+        );
+        builder.add_command(
+            CommandEntry::<App>::from_key(crate::commands::SEARCH, opencode_i18n::key!("command.commands.search"), |s, tx| s.open_command_search(tx))
+                .bind_id(Bind::CommandSearch.id())
+                .order(130),
+        );
+        // Desktop's `file.open` (`use-session-commands.tsx:551-558`): Ctrl+P's search, as `/open`.
+        builder.add_command(
+            CommandEntry::<App>::from_key("file.open", opencode_i18n::key!("command.file.open"), |s, tx| s.open_file_search(tx))
+                .describe(opencode_i18n::key!("palette.search.placeholder"))
+                .bind_id(Bind::FileOpen.id())
+                .slash("open")
+                .order(220)
+                .when(App::in_root_session),
+        );
         builder.register_overlay(
             OverlayRegistration::<App>::new(OVERLAY_ID)
                 .with_z(100)

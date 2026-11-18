@@ -26,9 +26,9 @@ pub use events::EventBus;
 pub use feature::{Feature, SurfaceDescriptor, SurfaceKind, SurfaceRegistry};
 pub use host::{AppEnv, AppFeedback, AppOverlays};
 pub use overlay::{
-    DEFAULT_DIALOG_Z, OverlayDismissFn, OverlayDispatcher, OverlayEffect, OverlayEntry,
-    OverlayEvent, OverlayKeyFn, OverlayKind, OverlayRegistration, OverlayRenderFn, OverlayStack,
-    OverlayState,
+    DEFAULT_DIALOG_Z, EscapeActionFn, EscapeLayer, EscapePredicateFn, OverlayDismissFn,
+    OverlayDispatcher, OverlayEffect, OverlayEntry, OverlayEvent, OverlayKeyFn, OverlayKind,
+    OverlayRegistration, OverlayRenderFn, OverlayStack, OverlayState,
 };
 pub use scheduler::{CloseFn, LifecycleScheduler, Phase, RestFn, SetupFn, SystemFn, VisibilityFn};
 pub use slots::StateSlots;
@@ -193,6 +193,12 @@ impl<S> KernelBuilder<S> {
     /// Registers a full overlay descriptor (render, key dispatch, Escape dismiss, z-order).
     pub fn register_overlay(&mut self, reg: OverlayRegistration<S>) -> &mut Self {
         self.kernel.overlay_dispatcher.register_overlay(reg);
+        self
+    }
+
+    /// Registers a dismissible page Escape layer handled in descending priority order.
+    pub fn register_escape_layer(&mut self, layer: EscapeLayer<S>) -> &mut Self {
+        self.kernel.overlay_dispatcher.register_escape_layer(layer);
         self
     }
 

@@ -4,11 +4,12 @@ pub use opencode_feature_find::*;
 
 use std::borrow::Cow;
 
-use opencode_kernel::{Feature, KernelBuilder, Phase};
+use opencode_kernel::{CommandEntry, EscapeLayer, Feature, KernelBuilder, Phase};
 use opencode_kit::model::Transcript;
 use rune::{KeyEvent, Tx};
 use session_view::disclosure::Disclosures;
 
+use crate::keymap::Bind;
 use crate::pickers::PickerHost;
 use crate::{App, Route};
 
@@ -146,6 +147,20 @@ impl Feature<App> for FindFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder.add_command(
+            CommandEntry::<App>::from_key("find", opencode_i18n::key!("rune.command.session.find"), |s, tx| s.open_find(tx))
+                .bind_id(Bind::Find.id())
+                .order(340)
+                .when(|s| s.active_session_id().is_some()),
+        );
+        builder.register_escape_layer(EscapeLayer::new(
+            "escape.find",
+            40,
+            |s| s.find.is_open() && matches!(*s.route, Route::Session { .. }),
+            |s, ev, tx| {
+                dismiss_key(s, ev, tx);
+            },
+        ));
         builder.add_setup("find.waker", |s, w| setup(s, w));
         builder.add_system(Phase::Derive, "find.poll", |s, _, tx| poll(s, tx));
     }

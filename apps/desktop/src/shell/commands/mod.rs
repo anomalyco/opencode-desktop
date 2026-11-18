@@ -2,11 +2,10 @@
 //! `command.register` feeds its palette and slash popover (`shell/commands/command.tsx`,
 //! `session/commands/use-session-commands.tsx`, `composer/commands.tsx`).
 //!
-//! A feature adds its commands either in `Feature::register` via
-//! `builder.add_command(CommandEntry::...)` (`s.kernel.commands`) or statically via
-//! `rune_register::register!(crate::commands::COMMANDS: Cmd = [Cmd::new("id", key!("title.key"), run)…]);`
-//! Titles and descriptions are catalog keys, read in the current language as the list is made.
-//! Panels with a `.command(…)` join the list on their own (`App::commands`).
+//! A feature registers its commands in `Feature::register` via
+//! `builder.add_command(CommandEntry::...)` (`s.kernel.commands`); core shell/window commands live
+//! below in `COMMANDS`. Titles and descriptions are catalog keys, read in the current language as
+//! the list is made. Panels with a `.command(…)` join the list on their own (`App::commands`).
 
 pub mod type_to_compose;
 
@@ -16,12 +15,12 @@ use rune_register::{collect, slice};
 
 use crate::keymap::{Bind, Section};
 use crate::pickers::Kind;
-use crate::{App, Route};
+use crate::App;
 use opencode_kit::client::Write;
 
 slice!(pub COMMANDS: Cmd);
 
-/// One registered command (`CommandOption`).
+/// One registered core shell command (`CommandOption`).
 #[derive(Clone, Copy)]
 pub struct Cmd {
     pub id: &'static str,
@@ -38,8 +37,8 @@ pub struct Cmd {
     /// Kept out of the palette, as Desktop's `hidden` commands are (`command.tsx:148`), while its
     /// keys and Settings › Shortcuts still have it.
     pub hidden: bool,
-    /// Its title when it depends on the app (Desktop's `title` getters), over `title`.
-    pub titled: Option<fn(&App) -> opencode_i18n::Key>,
+    /// Ascending palette display order (shared with kernel feature commands).
+    pub order: u16,
     pub run: fn(&mut App, &mut Tx),
 }
 
@@ -49,7 +48,7 @@ fn always(_: &App) -> bool {
 
 impl Cmd {
     pub const fn new(id: &'static str, title: opencode_i18n::Key, run: fn(&mut App, &mut Tx)) -> Cmd {
-        Cmd { id, title, description: None, slash: None, keys: None, enabled: always, section: None, hidden: false, titled: None, run }
+        Cmd { id, title, description: None, slash: None, keys: None, enabled: always, section: None, hidden: false, order: u16::MAX, run }
     }
 
     pub const fn hidden(mut self) -> Cmd {
@@ -77,8 +76,8 @@ impl Cmd {
         self
     }
 
-    pub const fn titled(mut self, titled: fn(&App) -> opencode_i18n::Key) -> Cmd {
-        self.titled = Some(titled);
+    pub const fn order(mut self, order: u16) -> Cmd {
+        self.order = order;
         self
     }
 
@@ -158,36 +157,49 @@ impl App {
     }
 
     fn listing(&self, offered: bool) -> Vec<Command> {
-        let own = collect(&COMMANDS).into_iter().filter(|c| !offered || (c.enabled)(self)).map(|c| Command {
-            id: c.id,
-            title: opencode_i18n::I18N.text(c.titled.map_or(c.title, |f| f(self))),
-            description: c.description.map_or("", |d| opencode_i18n::I18N.text(d)),
-            slash: c.slash,
-            keys: c.keys,
-            chord: None,
-            section: c.section,
-            hidden: c.hidden,
-            featured: false,
-            run: Run::Fn(c.run),
+        let own = collect(&COMMANDS).into_iter().filter(|c| !offered || (c.enabled)(self)).map(|c| {
+            (
+                c.order,
+                Command {
+                    id: c.id,
+                    title: opencode_i18n::I18N.text(c.title),
+                    description: c.description.map_or("", |d| opencode_i18n::I18N.text(d)),
+                    slash: c.slash,
+                    keys: c.keys,
+                    chord: None,
+                    section: c.section,
+                    hidden: c.hidden,
+                    featured: false,
+                    run: Run::Fn(c.run),
+                },
+            )
         });
         let kernel = self
             .kernel
             .commands
             .iter_with_chords()
             .filter(|(c, _)| !offered || c.is_enabled(self))
-            .map(|(c, chord)| Command {
-                id: c.id,
-                title: c.title_text(),
-                description: c.description_text().unwrap_or(""),
-                slash: c.slash,
-                keys: None,
-                chord,
-                section: c.section.and_then(parse_section),
-                hidden: c.hidden,
-                featured: false,
-                run: Run::Fn(c.run),
+            .map(|(c, chord)| {
+                let keys = c.bind_id.and_then(Bind::by_id);
+                (
+                    c.order,
+                    Command {
+                        id: c.id,
+                        title: c.title_for(self),
+                        description: c.description_text().unwrap_or(""),
+                        slash: c.slash,
+                        keys,
+                        chord: if keys.is_some() { None } else { chord },
+                        section: c.section.and_then(parse_section),
+                        hidden: c.hidden,
+                        featured: false,
+                        run: Run::Fn(c.run),
+                    },
+                )
             });
-        own.chain(kernel).chain(crate::plugin_host::commands(self, offered)).collect()
+        let mut combined: Vec<(u16, Command)> = own.chain(kernel).collect();
+        combined.sort_by_key(|(order, _)| *order);
+        combined.into_iter().map(|(_, c)| c).chain(crate::plugin_host::commands(self, offered)).collect()
     }
 
     pub fn run_command(&mut self, id: &str, tx: &mut Tx) {
@@ -216,36 +228,38 @@ impl App {
         true
     }
 
-    fn copy_id(&mut self, id: Option<String>, tx: &mut Tx) {
+    pub(crate) fn copy_id(&mut self, id: Option<String>, tx: &mut Tx) {
         let Some(id) = id.filter(|i| !i.is_empty()) else { return };
         tx.copy(id);
         *self.status = opencode_i18n::t!("common.copied").into();
     }
 
-    fn open_session(&self) -> Option<String> {
-        match &*self.route {
-            Route::Session { id, .. } => Some(id.clone()),
-            _ => None,
-        }
-    }
-
     /// The open root session, which the session commands act on (a subagent's has no composer).
-    fn open_root(&self) -> Option<String> {
-        let id = self.open_session()?;
-        self.session(&id).is_none_or(|i| i.parent.is_none()).then_some(id)
+    pub(crate) fn open_root_session(&self) -> Option<String> {
+        let id = self.active_session_id()?;
+        self.session(id).is_none_or(|i| i.parent.is_none()).then(|| id.to_owned())
+    }
+
+    pub(crate) fn in_root_session(&self) -> bool {
+        self.open_root_session().is_some()
     }
 }
 
-/// Runs the enabled `COMMANDS` entry bound to `bind`, returning `true` if one ran.
+/// Runs the enabled command bound to `bind` (core `COMMANDS` or kernel `CommandRegistry`),
+/// returning `true` if one ran.
 pub fn run_bind(s: &mut App, bind: Bind, tx: &mut Tx) -> bool {
-    let Some(cmd) = collect(&COMMANDS).into_iter().find(|c| c.keys == Some(bind) && (c.enabled)(s)) else {
-        return false;
-    };
-    (cmd.run)(s, tx);
-    true
+    if let Some(cmd) = collect(&COMMANDS).into_iter().find(|c| c.keys == Some(bind) && (c.enabled)(s)) {
+        (cmd.run)(s, tx);
+        return true;
+    }
+    if let Some(entry) = s.kernel.commands.find_bind(bind.id(), s) {
+        (entry.run)(s, tx);
+        return true;
+    }
+    false
 }
 
-/// Static `COMMANDS` bindings dispatched ahead of plugin shortcuts (`commands::key`).
+/// Keymap-bound commands dispatched ahead of plugin shortcuts (`commands::key`).
 const KEY_BINDS: [Bind; 6] = [
     Bind::FocusInput,
     Bind::AddSelection,
@@ -276,30 +290,6 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     false
 }
 
-fn toggle_shell(s: &mut App, tx: &mut Tx) {
-    tx.animated();
-    if s.add.shell() { s.exit_shell() } else { s.enter_shell(tx) }
-}
-
-/// Delete session (`message-timeline.tsx:268-277`): the open root session's confirmation.
-fn delete(s: &mut App, tx: &mut Tx) {
-    let Some(id) = s.open_root() else { return };
-    tx.instant();
-    s.ask_delete(&id);
-}
-
-fn in_session(s: &App) -> bool {
-    s.open_root().is_some()
-}
-
-fn has_project(s: &App) -> bool {
-    s.open_session().and_then(|id| s.session(&id)).is_some_and(|i| !i.project.is_empty())
-}
-
-fn can_background(s: &App) -> bool {
-    s.open_session().is_some_and(|id| !crate::background::blocking(s, &id).is_empty())
-}
-
 fn agent_shown(s: &App) -> bool {
     s.has_composer() && s.picker_show_agent()
 }
@@ -316,27 +306,12 @@ fn reload(s: &mut App, _: &mut Tx) {
 }
 
 fn compact(s: &mut App, _: &mut Tx) {
-    let Some(id) = s.open_root() else { return };
+    let Some(id) = s.open_root_session() else { return };
     s.write(Write::Compact(id));
-}
-
-fn export(s: &mut App, _: &mut Tx) {
-    let Some(id) = s.open_root() else { return };
-    s.export_session_on(&crate::servers::runtime::current(), &id);
-}
-
-fn rename(s: &mut App, tx: &mut Tx) {
-    let Some(id) = s.open_root() else { return };
-    tx.instant();
-    s.begin_rename(&crate::session_menu::Target::active(s, &id, crate::session_menu::Spot::Header));
 }
 
 fn toggle_sidebar(s: &mut App, tx: &mut Tx) {
     s.toggle_sidebar(tx);
-}
-
-fn git_draft(s: &App) -> bool {
-    matches!(*s.route, Route::Draft(_)) && s.draft_project().is_some_and(|p| opencode_kit::model::project_git(&p.id))
 }
 
 /// Top tabs have no sidebar to toggle (`shell.tsx` registers the command for side tabs only).
@@ -346,139 +321,74 @@ fn has_sidebar(s: &App) -> bool {
 
 rune_register::register!(COMMANDS: Cmd = [
     // `session.new` has no keybind of its own; it runs `tab.new` (`use-session-commands.tsx:446-451`).
-    Cmd::new("new", opencode_i18n::key!("command.session.new"), |s, tx| s.new_session(tx)).slash("new").section(Section::Session),
+    Cmd::new("new", opencode_i18n::key!("command.session.new"), |s, tx| s.new_session(tx)).slash("new").section(Section::Session).order(10),
     // `titlebar.tsx:428-434`: hidden from the palette; its key and Settings keep it.
-    Cmd::new("home", opencode_i18n::key!("home.title"), |s, tx| s.go_home(tx)).keys(Bind::Home).hidden(),
+    Cmd::new("home", opencode_i18n::key!("home.title"), |s, tx| s.go_home(tx)).keys(Bind::Home).hidden().order(20),
     // `titlebar.tsx:148-160`.
     Cmd::new("back", opencode_i18n::key!("common.goBack"), |s, tx| {
         s.navigate(false, tx);
     })
-    .keys(Bind::GoBack),
+    .keys(Bind::GoBack)
+    .order(30),
     Cmd::new("forward", opencode_i18n::key!("common.goForward"), |s, tx| {
         s.navigate(true, tx);
     })
-    .keys(Bind::GoForward),
-    // `use-session-commands.tsx:711-722`: its title says what it will do.
-    Cmd::new("auto-accept", opencode_i18n::key!("command.permissions.autoaccept.enable"), |s, tx| s.toggle_auto_accept(tx))
-        .titled(|s| match (s.auto_accepting(), matches!(*s.route, Route::Session { .. }) && s.open_session().and_then(|id| s.session(&id).and_then(|i| s.project_for_session(i))).is_some()) {
-            (true, _) => opencode_i18n::key!("command.permissions.autoaccept.disable"),
-            (false, true) => opencode_i18n::key!("command.permissions.autoaccept.project"),
-            (false, false) => opencode_i18n::key!("command.permissions.autoaccept.enable"),
-        })
-        .keys(Bind::AutoAccept)
-        .when(|s| s.open_session().is_some()),
-    Cmd::new("sidebar", opencode_i18n::key!("command.sidebar.toggle"), toggle_sidebar).keys(Bind::Sidebar).when(has_sidebar),
-    Cmd::new("settings", opencode_i18n::key!("command.settings.open"), |s, tx| s.toggle_settings(tx)).keys(Bind::Settings),
-    Cmd::new("open-project", opencode_i18n::key!("command.project.open"), |s, tx| s.open_project_dialog(tx)).keys(Bind::OpenProject),
-    Cmd::new("select-project", opencode_i18n::key!("session.new.project.search"), |s, tx| s.toggle_project_switcher(tx)).keys(Bind::SelectProject),
-    Cmd::new("session.location.select", opencode_i18n::key!("session.location.worktree"), |s, tx| s.open_git_location(false, tx)).keys(Bind::LocationSelect).when(git_draft),
-    Cmd::new("session.branch.choose", opencode_i18n::key!("command.session.branch.choose"), |s, tx| s.open_git_location(true, tx)).keys(Bind::BranchChoose).when(git_draft),
-    Cmd::new("sessions", opencode_i18n::key!("command.session.search"), |s, tx| s.open_session_search(tx)).keys(Bind::SessionSearch),
-    Cmd::new(SEARCH, opencode_i18n::key!("command.commands.search"), |s, tx| s.open_command_search(tx)).keys(Bind::CommandSearch),
+    .keys(Bind::GoForward)
+    .order(40),
+    Cmd::new("sidebar", opencode_i18n::key!("command.sidebar.toggle"), toggle_sidebar).keys(Bind::Sidebar).order(60).when(has_sidebar),
     Cmd::new("reload", opencode_i18n::key!("command.config.reload"), reload)
         .describe(opencode_i18n::key!("command.config.reload.description"))
         .slash("reload")
+        .order(140)
         .when(is_live),
     Cmd::new("compact", opencode_i18n::key!("command.session.compact"), compact)
         .describe(opencode_i18n::key!("command.session.compact.description"))
         .slash("compact")
         .section(Section::Session)
-        .when(in_session),
-    Cmd::new("undo", opencode_i18n::key!("command.session.undo"), |s, tx| {
-        s.undo_last(tx);
-    })
-    .describe(opencode_i18n::key!("command.session.undo.description"))
-    .slash("undo")
-    .section(Section::Session)
-    .when(App::can_undo_session),
-    Cmd::new("redo", opencode_i18n::key!("command.session.redo"), |s, tx| {
-        s.redo_revert(tx);
-    })
-    .describe(opencode_i18n::key!("command.session.redo.description"))
-    .slash("redo")
-    .section(Section::Session)
-    .when(App::can_redo_session),
-    Cmd::new("fork", opencode_i18n::key!("command.session.fork"), |s, tx| {
-        s.open_fork_dialog(tx);
-    })
-    .describe(opencode_i18n::key!("command.session.fork.description"))
-    .slash("fork")
-    .section(Section::Session)
-    .when(App::can_fork_session),
-    // Neither has a `/name` in Desktop (`use-session-commands.tsx:476-482`, `session-identity-header.tsx`).
-    Cmd::new("background", opencode_i18n::key!("command.session.background"), |s, tx| {
-        s.move_to_background(tx);
-    })
-    .keys(Bind::Background)
-    .when(can_background),
-    Cmd::new("rename", opencode_i18n::key!("command.session.rename"), rename).keys(Bind::Rename).when(in_session),
-    Cmd::new("export", opencode_i18n::key!("command.session.export"), export)
-        .describe(opencode_i18n::key!("command.session.export.description"))
-        .slash("export")
-        .section(Section::Session)
-        .when(|s| s.open_root().is_some_and(|id| !s.exporting(crate::servers::runtime::active(s), &id))),
-    // Desktop's `file.open` (`use-session-commands.tsx:551-558`): Ctrl+P's search, as `/open`.
-    Cmd::new("file.open", opencode_i18n::key!("command.file.open"), |s, tx| s.open_file_search(tx))
-        .describe(opencode_i18n::key!("palette.search.placeholder"))
-        .keys(Bind::FileOpen)
-        .slash("open")
-        .when(in_session),
-    Cmd::new("copy-session", opencode_i18n::key!("command.session.copyID"), |s, tx| s.copy_id(s.open_session(), tx)).section(Section::Session).when(|s| s.open_session().is_some()),
-    Cmd::new("session.delete", opencode_i18n::key!("command.session.delete"), delete).when(in_session),
-    Cmd::new("copy-project", opencode_i18n::key!("command.project.copyID"), |s, tx| {
-        let id = s.open_session().and_then(|id| s.session(&id)).map(|i| i.project.clone());
+        .order(150)
+        .when(App::in_root_session),
+    Cmd::new("copy-session", opencode_i18n::key!("command.session.copyID"), |s, tx| {
+        let id = s.active_session_id().map(str::to_owned);
         s.copy_id(id, tx);
     })
-    .when(has_project),
-    // After Copy project ID and before the message keys, as Desktop registers it (`use-session-commands.tsx:610`).
-    Cmd::new("side", opencode_i18n::key!("command.review.toggle"), |s, tx| s.toggle_side_region(tx)).keys(Bind::SideToggle).when(in_session),
-    // `use-session-commands.tsx:674-681`, before the message keys as Desktop registers it.
-    Cmd::new("session.jumpToMessage", opencode_i18n::key!("dialog.jump.title"), |s, tx| {
-        s.open_jump_dialog(tx);
-    })
-    .describe(opencode_i18n::key!("command.session.jumpToMessage.description"))
-    .keys(Bind::JumpToMessage)
-    .when(|s| s.open_session().is_some()),
-    // `use-session-commands.tsx:636-653`: offered over any open session.
-    Cmd::new("message.previous", opencode_i18n::key!("command.message.previous"), |s, tx| s.navigate_message(-1, tx))
-        .describe(opencode_i18n::key!("command.message.previous.description"))
-        .keys(Bind::MessagePrev)
-        .when(|s| s.open_session().is_some()),
-    Cmd::new("message.next", opencode_i18n::key!("command.message.next"), |s, tx| s.navigate_message(1, tx))
-        .describe(opencode_i18n::key!("command.message.next.description"))
-        .keys(Bind::MessageNext)
-        .when(|s| s.open_session().is_some()),
+    .section(Section::Session)
+    .order(230)
+    .when(|s| s.active_session_id().is_some()),
     // The composer's commands, after the session's, as Desktop registers them (`composer/commands.tsx:111-161`,
     // mounted after `use-session-commands.tsx`): a palette query lists them in that order.
     Cmd::new("model", opencode_i18n::key!("command.model.choose"), |s, _| s.open_picker(Kind::Model))
         .describe(opencode_i18n::key!("command.model.choose.description"))
         .slash("model")
         .keys(Bind::Model)
+        .order(300)
         .when(App::has_composer),
     Cmd::new("variant", opencode_i18n::key!("command.model.variant.cycle"), |s, tx| s.cycle_picker(Kind::Effort, false, tx))
         .describe(opencode_i18n::key!("command.model.variant.cycle.description"))
         .keys(Bind::Variant)
+        .order(310)
         .when(|s| s.has_composer() && s.has_effort()),
     // Offered while the agent shows, as Desktop's `disabled: !local.agent.visible()` (`composer/commands.tsx:145-161`).
     Cmd::new("agent", opencode_i18n::key!("command.agent.cycle"), |s, tx| s.cycle_picker(Kind::Agent, false, tx))
         .describe(opencode_i18n::key!("command.agent.cycle.description"))
         .slash("agent")
         .keys(Bind::Agent)
+        .order(320)
         .when(agent_shown),
     Cmd::new("agent-back", opencode_i18n::key!("command.agent.cycle.reverse"), |s, tx| s.cycle_picker(Kind::Agent, true, tx))
         .describe(opencode_i18n::key!("command.agent.cycle.reverse.description"))
         .keys(Bind::AgentBack)
+        .order(330)
         .when(agent_shown),
-    Cmd::new("find", opencode_i18n::key!("rune.command.session.find"), |s, tx| s.open_find(tx)).keys(Bind::Find).when(|s| s.open_session().is_some()),
     Cmd::new("focus", opencode_i18n::key!("command.input.focus"), |s, tx| {
         s.focus_composer(tx);
     })
     .keys(Bind::FocusInput)
+    .order(350)
     .when(App::has_composer),
-    Cmd::new("next-tab", opencode_i18n::key!("command.session.next"), |s, tx| s.select_adjacent(1, tx)).keys(Bind::SessionNext),
-    Cmd::new("previous-tab", opencode_i18n::key!("command.session.previous"), |s, tx| s.select_adjacent(-1, tx)).keys(Bind::SessionPrev),
-    Cmd::new("previous-unread", opencode_i18n::key!("command.session.previous.unseen"), |s, tx| s.select_unread(-1, tx)).keys(Bind::UnseenPrev),
-    Cmd::new("next-unread", opencode_i18n::key!("command.session.next.unseen"), |s, tx| s.select_unread(1, tx)).keys(Bind::UnseenNext),
+    Cmd::new("next-tab", opencode_i18n::key!("command.session.next"), |s, tx| s.select_adjacent(1, tx)).keys(Bind::SessionNext).order(360),
+    Cmd::new("previous-tab", opencode_i18n::key!("command.session.previous"), |s, tx| s.select_adjacent(-1, tx)).keys(Bind::SessionPrev).order(370),
+    Cmd::new("previous-unread", opencode_i18n::key!("command.session.previous.unseen"), |s, tx| s.select_unread(-1, tx)).keys(Bind::UnseenPrev).order(380),
+    Cmd::new("next-unread", opencode_i18n::key!("command.session.next.unseen"), |s, tx| s.select_unread(1, tx)).keys(Bind::UnseenNext).order(390),
     Cmd::new("close-tab", opencode_i18n::key!("command.tab.close"), |s, tx| {
         if let Some(id) = s.current_tab() {
             s.close_tab(&id, tx);
@@ -487,7 +397,8 @@ rune_register::register!(COMMANDS: Cmd = [
     .keys(Bind::TabClose)
     .when(|s| s.current_tab().is_some())
     // `titlebar.tsx:453-458`.
-    .hidden(),
+    .hidden()
+    .order(400),
     // `titlebar.tsx:480-486`: the same close, listed.
     Cmd::new("close-session-tab", opencode_i18n::key!("command.tab.closeSession"), |s, tx| {
         if let Some(id) = s.current_tab() {
@@ -495,23 +406,12 @@ rune_register::register!(COMMANDS: Cmd = [
         }
     })
     .keys(Bind::TabCloseSession)
+    .order(410)
     .when(|s| s.current_tab().is_some()),
-    Cmd::new("reopen-tab", opencode_i18n::key!("command.tab.reopenClosed"), |s, tx| s.reopen_tab(tx)).keys(Bind::TabReopen),
+    Cmd::new("reopen-tab", opencode_i18n::key!("command.tab.reopenClosed"), |s, tx| s.reopen_tab(tx)).keys(Bind::TabReopen).order(420),
     // Beyond Desktop, which forgets a closed window: the newest one kept opens again.
-    Cmd::new("reopen-window", opencode_i18n::key!("rune.command.window.reopenClosed"), |s, _| crate::windows::reopen::reopen_newest(s)),
-    Cmd::new("zoom-in", opencode_i18n::key!("desktop.menu.zoomIn"), |s, tx| s.zoom_by(1, tx)).keys(Bind::ZoomIn),
-    Cmd::new("zoom-out", opencode_i18n::key!("desktop.menu.zoomOut"), |s, tx| s.zoom_by(-1, tx)).keys(Bind::ZoomOut),
-    Cmd::new("zoom-reset", opencode_i18n::key!("desktop.menu.actualSize"), |s, tx| s.zoom_by(0, tx)).keys(Bind::ZoomReset),
-    // The composer's modes (`composer/model.ts:579-599`).
-    Cmd::new("prompt.mode.toggle", opencode_i18n::key!("command.prompt.mode.toggle"), toggle_shell).keys(Bind::PromptModeToggle).when(App::has_composer),
-    Cmd::new("prompt.mode.shell", opencode_i18n::key!("command.prompt.mode.shell"), |s, tx| {
-        tx.instant();
-        s.enter_shell(tx);
-    })
-    .when(|s| s.has_composer() && !s.add.shell()),
-    Cmd::new("prompt.mode.normal", opencode_i18n::key!("command.prompt.mode.normal"), |s, tx| {
-        tx.instant();
-        s.exit_shell();
-    })
-    .when(|s| s.has_composer() && s.add.shell()),
+    Cmd::new("reopen-window", opencode_i18n::key!("rune.command.window.reopenClosed"), |s, _| crate::windows::reopen::reopen_newest(s)).order(430),
+    Cmd::new("zoom-in", opencode_i18n::key!("desktop.menu.zoomIn"), |s, tx| s.zoom_by(1, tx)).keys(Bind::ZoomIn).order(440),
+    Cmd::new("zoom-out", opencode_i18n::key!("desktop.menu.zoomOut"), |s, tx| s.zoom_by(-1, tx)).keys(Bind::ZoomOut).order(450),
+    Cmd::new("zoom-reset", opencode_i18n::key!("desktop.menu.actualSize"), |s, tx| s.zoom_by(0, tx)).keys(Bind::ZoomReset).order(460),
 ]);

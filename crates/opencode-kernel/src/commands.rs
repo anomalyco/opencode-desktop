@@ -41,8 +41,14 @@ pub struct CommandEntry<S> {
     pub description: Option<CommandTitle>,
     pub slash: Option<&'static str>,
     pub keybind: Option<&'static str>,
+    /// Optional host keymap binding id (for example `"settings.open"` or `"mcp.toggle"`).
+    pub bind_id: Option<&'static str>,
     pub section: Option<&'static str>,
     pub hidden: bool,
+    /// Ascending palette display order (ties preserve registration order; defaults to `u16::MAX`).
+    pub order: u16,
+    /// Dynamic title resolver evaluated against live host state, overriding [`Self::title`].
+    pub titled: Option<fn(&S) -> CommandTitle>,
     pub enabled: fn(&S) -> bool,
     pub run: fn(&mut S, &mut rune::Tx),
 }
@@ -62,8 +68,10 @@ impl<S> fmt::Debug for CommandEntry<S> {
             .field("title", &self.title)
             .field("slash", &self.slash)
             .field("keybind", &self.keybind)
+            .field("bind_id", &self.bind_id)
             .field("section", &self.section)
             .field("hidden", &self.hidden)
+            .field("order", &self.order)
             .finish()
     }
 }
@@ -81,8 +89,11 @@ impl<S> CommandEntry<S> {
             description: None,
             slash: None,
             keybind: None,
+            bind_id: None,
             section: None,
             hidden: false,
+            order: u16::MAX,
+            titled: None,
             enabled: always_enabled,
             run,
         }
@@ -96,8 +107,11 @@ impl<S> CommandEntry<S> {
             description: None,
             slash: None,
             keybind: None,
+            bind_id: None,
             section: None,
             hidden: false,
+            order: u16::MAX,
+            titled: None,
             enabled: always_enabled,
             run,
         }
@@ -111,8 +125,11 @@ impl<S> CommandEntry<S> {
             description: None,
             slash: None,
             keybind: None,
+            bind_id: None,
             section: None,
             hidden: false,
+            order: u16::MAX,
+            titled: None,
             enabled: always_enabled,
             run,
         }
@@ -136,6 +153,12 @@ impl<S> CommandEntry<S> {
         self
     }
 
+    /// Links the command to a host keymap binding id (for example `"settings.open"`).
+    pub const fn bind_id(mut self, id: &'static str) -> Self {
+        self.bind_id = Some(id);
+        self
+    }
+
     /// Assigns the command to a named palette/settings section.
     pub const fn section(mut self, section: &'static str) -> Self {
         self.section = Some(section);
@@ -148,15 +171,32 @@ impl<S> CommandEntry<S> {
         self
     }
 
+    /// Sets the command's ascending palette display order (defaults to `u16::MAX`).
+    pub const fn order(mut self, order: u16) -> Self {
+        self.order = order;
+        self
+    }
+
+    /// Attaches a dynamic title resolver evaluated against live host state, overriding [`Self::title`].
+    pub const fn titled(mut self, titled: fn(&S) -> CommandTitle) -> Self {
+        self.titled = Some(titled);
+        self
+    }
+
     /// Restricts when the command is listed and executable.
     pub const fn when(mut self, enabled: fn(&S) -> bool) -> Self {
         self.enabled = enabled;
         self
     }
 
-    /// Resolves the command's title in the active locale.
+    /// Resolves the command's static title in the active locale.
     pub fn title_text(&self) -> &'static str {
         self.title.resolve()
+    }
+
+    /// Resolves the command's title for `state` in the active locale.
+    pub fn title_for(&self, state: &S) -> &'static str {
+        self.titled.map_or(self.title, |f| f(state)).resolve()
     }
 
     /// Resolves the command's description in the active locale, if present.
@@ -289,6 +329,14 @@ impl<S> CommandRegistry<S> {
             .map(|(entry, kb)| (entry, kb.as_ref().and_then(|k| k.chords().first().copied())))
     }
 
+    /// Finds the first enabled command associated with host keymap `bind_id`.
+    pub fn find_bind(&self, bind_id: &str, state: &S) -> Option<CommandEntry<S>> {
+        self.entries
+            .iter()
+            .find(|entry| entry.bind_id == Some(bind_id) && entry.is_enabled(state))
+            .copied()
+    }
+
     /// Finds the first enabled command matching `ev` against its default keybind.
     pub fn find_key(&self, state: &S, ev: &rune::KeyEvent, tx: &rune::Tx) -> Option<CommandEntry<S>> {
         self.find_key_with(state, ev, tx, |_| None)
@@ -296,6 +344,7 @@ impl<S> CommandRegistry<S> {
 
     /// Finds the first enabled command matching `ev`, letting the host supply keybind overrides
     /// (returning `Some(override_kb)` to replace or unbind the command's default keybind).
+    /// Commands linked to a host keymap binding via [`CommandEntry::bind_id`] are skipped here.
     pub fn find_key_with<'a>(
         &'a self,
         state: &S,
@@ -311,7 +360,7 @@ impl<S> CommandRegistry<S> {
             .iter()
             .zip(self.keybinds.iter())
             .find(|(entry, default_kb)| {
-                if !entry.is_enabled(state) {
+                if entry.bind_id.is_some() || !entry.is_enabled(state) {
                     return false;
                 }
                 let kb = match override_for(entry.id) {

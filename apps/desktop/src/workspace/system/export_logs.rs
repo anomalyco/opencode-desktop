@@ -32,11 +32,6 @@ impl App {
     }
 }
 
-// Desktop's `logs.export` (`shell/commands/desktop.tsx`), beside the app menu's Export Logs….
-rune_register::register!(crate::commands::COMMANDS: crate::commands::Cmd = [
-    crate::commands::Cmd::new("logs.export", opencode_i18n::key!("command.logs.export"), |s, _| s.export_logs()),
-]);
-
 /// The local server's log folder (`serverLogRoots`): `~/.local/share/opencode/log`.
 fn server_log_roots() -> Vec<PathBuf> {
     let home = crate::dirs::home();

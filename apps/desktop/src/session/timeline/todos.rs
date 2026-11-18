@@ -3,13 +3,14 @@
 
 pub use opencode_feature_timeline_extras::todos::*;
 
-use opencode_kernel::{Feature, KernelBuilder, Phase};
+use opencode_kernel::{CommandEntry, CommandTitle, EscapeLayer, Feature, KernelBuilder, Phase};
 use opencode_kit::model::Transcript;
 use rune::{El, Tx};
 use rune_knobs::Knobs;
 use session_view::palette::Pal;
 
-use crate::App;
+use crate::keymap::Bind;
+use crate::{App, Route};
 
 impl TodosHost for App {
     fn is_session_running(&self, id: &str) -> bool {
@@ -86,6 +87,35 @@ impl Feature<App> for TimelineExtrasFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        // `use-session-commands.tsx:711-722`: its title says what it will do.
+        builder.add_command(
+            CommandEntry::<App>::from_key("auto-accept", opencode_i18n::key!("command.permissions.autoaccept.enable"), |s, tx| s.toggle_auto_accept(tx))
+                .titled(|s| {
+                    CommandTitle::Key(match (
+                        s.auto_accepting(),
+                        matches!(*s.route, Route::Session { .. })
+                            && s.active_session_id()
+                                .and_then(|id| s.session(id).and_then(|i| s.project_for_session(i)))
+                                .is_some(),
+                    ) {
+                        (true, _) => opencode_i18n::key!("command.permissions.autoaccept.disable"),
+                        (false, true) => opencode_i18n::key!("command.permissions.autoaccept.project"),
+                        (false, false) => opencode_i18n::key!("command.permissions.autoaccept.enable"),
+                    })
+                })
+                .bind_id(Bind::AutoAccept.id())
+                .order(50)
+                .when(|s| s.active_session_id().is_some()),
+        );
+        builder.register_escape_layer(EscapeLayer::new(
+            "escape.todo",
+            50,
+            |s| *s.todo_open,
+            |s, _, tx| {
+                tx.instant();
+                *s.todo_open = false;
+            },
+        ));
         builder.add_system(Phase::Derive, "timeline_extras.todos", |s, now, tx| sync(s, now, tx));
         builder.add_system(Phase::Derive, "timeline_extras.agent_rows", |s, _, tx| crate::agent_rows::poll(s, tx));
     }

@@ -5,8 +5,8 @@
 //! editing central dispatch chains in `main.rs`, `tick.rs`, `keys.rs`, or `view.rs`.
 
 use opencode_kernel::{
-    AppEnv, AppFeedback, AppOverlays, Kernel, KernelBuilder, OverlayEntry, OverlayEvent,
-    OverlayKind, OverlayRegistration, SurfaceDescriptor, SurfaceKind,
+    AppEnv, AppFeedback, AppOverlays, CommandEntry, EscapeLayer, Kernel, KernelBuilder,
+    OverlayEntry, OverlayEvent, OverlayKind, OverlayRegistration, SurfaceDescriptor, SurfaceKind,
 };
 
 use crate::{App, Route};
@@ -147,6 +147,44 @@ pub fn build() -> Kernel<App> {
                 crate::servers::dialog::view(s, p, cx)
             }),
     );
+    b.register_escape_layer(EscapeLayer::new(
+        "escape.tool_step",
+        20,
+        |s| s.tool_view_open(),
+        |s, _, tx| {
+            s.dismiss_tool_step(tx);
+        },
+    ));
+    b.register_escape_layer(EscapeLayer::new(
+        "escape.toast",
+        30,
+        |s| s.toast.current().is_some_and(|t| t.persistent),
+        |s, ev, tx| {
+            crate::status_toast::key(s, ev, tx);
+        },
+    ));
+    b.register_escape_layer(EscapeLayer::new(
+        "escape.opening",
+        90,
+        |s| s.opening.is_some(),
+        |s, _, tx| {
+            s.cancel_open(tx);
+        },
+    ));
+    b.register_escape_layer(EscapeLayer::new(
+        "escape.peek",
+        120,
+        |s| !*s.sidebar_open && s.layout.peek.shown(),
+        |s, _, tx| {
+            s.queue_peek(crate::layout_state::PeekEvent::Escape, tx);
+        },
+    ));
+    // Desktop's `logs.export` (`shell/commands/desktop.tsx`), beside the app menu's Export Logs….
+    b.add_command(CommandEntry::<App>::from_key(
+        "logs.export",
+        opencode_i18n::key!("command.logs.export"),
+        |s, _| s.export_logs(),
+    ));
     b.add_surface(
         SurfaceDescriptor::new("browser", SurfaceKind::Browser, "Browser")
             .with_multi_instance(true),

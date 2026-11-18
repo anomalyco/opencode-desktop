@@ -6,7 +6,7 @@ mod stories;
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use opencode_kernel::{Feature, KernelBuilder, OverlayRegistration, Phase};
+use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration, Phase};
 use opencode_kit::integration::{Integration, McpServer};
 use opencode_kit::model::{Project, SessionInfo};
 use opencode_kit::servers::health::Health;
@@ -19,6 +19,7 @@ use session_view::pickers::Model;
 
 use crate::App;
 use crate::jobs::Apply;
+use crate::keymap::Bind;
 use crate::pickers::PickerHost as _;
 
 /// Configures the extracted settings crate with desktop's build metadata.
@@ -700,6 +701,17 @@ impl Feature<App> for SettingsFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder.add_command(
+            CommandEntry::<App>::from_key("settings", opencode_i18n::key!("command.settings.open"), |s, tx| s.toggle_settings(tx))
+                .bind_id(Bind::Settings.id())
+                .order(70),
+        );
+        // Flips Text rendering from the palette, to compare renderers on the same screen.
+        builder.add_command(CommandEntry::<App>::from_key(
+            "text-rendering.cycle",
+            opencode_i18n::key!("rune.textRendering.cycle"),
+            |s, _| s.set_text_renderer(s.settings.text_renderer.cycle()),
+        ));
         builder.register_overlay(
             OverlayRegistration::<App>::new(WORKTREE_DELETE_OVERLAY_ID)
                 .with_z(230)
