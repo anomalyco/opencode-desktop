@@ -145,7 +145,6 @@ impl Typeahead {
         }
     }
 
-
     fn load(&mut self, query: String, now: f64) -> Effects<Effect> {
         let due = now + TIMEOUT;
         self.phase = Phase::Loading { query: query.clone(), due };

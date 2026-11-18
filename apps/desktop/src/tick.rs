@@ -8,12 +8,12 @@ use opencode_kit::model::Delivery;
 use rune::{Tx, Waker};
 
 use crate::{
-    App, Route, agent_rows, appearance, background, copied, crash_notice, deep_links, demo,
-    diagram, disclosure, dropzone, glitch, headless, inbox_model,
+    App, Route, appearance, background, copied, crash_notice, deep_links, demo,
+    diagram, disclosure, glitch, headless, inbox_model,
     incoming, jump_list, language, launch, layout_state, line_comments, line_reveal,
     model_picker, plugin_host, popup, project_switcher, projects,
-    reconnect, rune_mcp, servers, session_state, session_status, speech,
-    status_toast, stop, storage, submit, telemetry, text_rendering, todos,
+    reconnect, servers, session_state, session_status, speech,
+    status_toast, stop, storage, submit, telemetry, text_rendering,
     turn_errors, view, wall_ms, windows, working,
 };
 
@@ -76,7 +76,6 @@ pub(crate) fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     }
     changed |= deep_links::drain(s, tx);
     changed |= turn_errors::poll(s, tx);
-    changed |= dropzone::poll(s, tx);
     changed |= s.poll_pages(tx);
     while let Some(why) = s.output_errors.as_ref().and_then(|(_, rx)| rx.try_recv().ok()) {
         status_toast::fail(s, opencode_i18n::t!("common.requestFailed"), why);
@@ -129,7 +128,6 @@ pub(crate) fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     // Recompute derived views, indices, and projections from ingested state.
     changed |= scheduler.run_phase(Phase::Derive, s, now, tx);
     changed |= working::sync(s);
-    changed |= todos::sync(s, now, tx);
     if s.dock_face() != asked {
         s.morph(tx);
     }
@@ -140,29 +138,22 @@ pub(crate) fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= diagram::poll(s, now, tx);
     changed |= session_view::images::poll(s, now, tx);
     changed |= model_picker::hover::poll(s, now, tx);
-    changed |= agent_rows::poll(s, tx);
     changed |= background::poll(s, tx);
-    changed |= s.poll_home_search(tx);
     // Ingest local answers before settling the list: its rows, highlight and empty state must
     // all see the same sources. Previously a full-text landing changed the rows after this poll.
     let local_answers = s.poll_session_search(now, tx) | s.poll_fulltext();
     changed |= s.poll_switcher(tx, local_answers);
     changed |= s.poll_mentions(tx);
-    changed |= s.poll_commands(tx);
-    changed |= s.poll_suggestions(tx);
 
     // ── Phase 3: React ───────────────────────────────────────────────────────────────────────────
     // Trigger follow-up actions, animations, focus shifts, UI reactions, and registered React
     // systems (`egg::poll`).
     changed |= scheduler.run_phase(Phase::React, s, now, tx);
-    changed |= s.poll_branch_picker(now, tx);
-    changed |= s.poll_uploads(tx);
     if s.attach.poll() {
         rune::Tracked::touch(&s.attach);
         changed = true;
     }
     changed |= s.poll_panels(viewed || changed, tx);
-    changed |= rune_mcp::poll(s, tx);
     changed |= s.poll_turn_diffs();
     changed |= reconnect::poll(s, tx);
     changed |= session_state::poll(s, tx);
@@ -208,10 +199,7 @@ pub(crate) fn setup(s: &mut App, waker: Waker) {
     // The outbox was opened before the window had a waker: its stored prompts wake it when they're in.
     s.listen_outbox();
     windows::peer::set_waker(s, waker.clone());
-    s.attach.set_waker(waker.clone());
     s.icons.set_waker(waker.clone());
-    s.home_search.set_waker(waker.clone());
-    s.add.slash.set_waker(waker.clone());
     s.turn_diffs.set_waker(waker.clone());
     s.icons.set_sync(headless());
     s.setup_browser(waker.clone());
@@ -219,8 +207,6 @@ pub(crate) fn setup(s: &mut App, waker: Waker) {
     // Only the plugins this launch's first screen shows start before its first frame (`first_screen`).
     telemetry::startup("launch.plugins", || plugin_host::setup(s, waker.clone()));
     rune::marks::mark("plugins.started");
-    s.setup_rune_mcp(waker.clone());
-    rune::marks::mark("mcp.setup");
     let scheduler = s.kernel.scheduler.clone();
     scheduler.run_setup(s, waker);
     if !s.playback.is_empty() {

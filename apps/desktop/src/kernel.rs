@@ -17,6 +17,7 @@ pub fn build() -> Kernel<App> {
     b.with_feature(&crate::surfaces::updater::UpdaterFeature);
     b.with_feature(&crate::surfaces::code_view::CodeViewFeature);
     b.with_feature(&crate::line_comments::AnnotationsFeature);
+    b.with_feature(&crate::attachments::ComposerInputFeature);
     b.with_feature(&crate::connect::ConnectFeature);
     b.with_feature(&crate::dictation::DictationFeature);
     b.with_feature(&crate::files::FilesFeature);
@@ -37,8 +38,10 @@ pub fn build() -> Kernel<App> {
     b.with_feature(&crate::subagents::SubagentsFeature);
     b.with_feature(&crate::switcher::SwitcherFeature);
     b.with_feature(&crate::surfaces::terminal::TerminalSurfaceFeature);
+    b.with_feature(&crate::todos::TimelineExtrasFeature);
     b.with_feature(&crate::tips::TipsFeature);
     b.with_feature(&crate::usage::UsageFeature);
+    b.with_feature(&crate::new_worktree::WorkspaceToolsFeature);
     b.add_surface(
         SurfaceDescriptor::new("browser", SurfaceKind::Browser, "Browser")
             .with_multi_instance(true),

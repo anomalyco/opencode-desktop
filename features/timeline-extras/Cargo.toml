@@ -1,0 +1,18 @@
+[package]
+name = "opencode-feature-timeline-extras"
+version = "0.0.1"
+description = "Timeline interaction docks (todos, permission, question), live subagent rows, auto-accept, and timeline capture helpers for OpenCode (Rune)"
+edition = "2024"
+license.workspace = true
+publish = false
+
+[dependencies]
+opencode-i18n = { path = "../../crates/opencode-i18n" }
+opencode-kit = { path = "../../crates/opencode-kit" }
+rune.workspace = true
+rune-knobs.workspace = true
+serde_json.workspace = true
+session-view = { path = "../../crates/session-view" }
+
+[lints]
+workspace = true

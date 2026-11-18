@@ -3457,6 +3457,7 @@ dependencies = [
  "office-preview",
  "opencode-code-view",
  "opencode-feature-annotations",
+ "opencode-feature-composer-input",
  "opencode-feature-connect",
  "opencode-feature-dictation",
  "opencode-feature-egg",
@@ -3479,9 +3480,11 @@ dependencies = [
  "opencode-feature-subagents",
  "opencode-feature-switcher",
  "opencode-feature-terminal-surface",
+ "opencode-feature-timeline-extras",
  "opencode-feature-tips",
  "opencode-feature-updater",
  "opencode-feature-usage",
+ "opencode-feature-workspace-tools",
  "opencode-i18n",
  "opencode-kernel",
  "opencode-kit",
@@ -3531,6 +3534,23 @@ dependencies = [
  "rune-kit",
  "rune-knobs",
  "rune-theme-opencode",
+ "serde_json",
+ "session-view",
+]
+
+[[package]]
+name = "opencode-feature-composer-input"
+version = "0.0.1"
+dependencies = [
+ "image",
+ "opencode-i18n",
+ "opencode-kit",
+ "opencode-search",
+ "opencode-ui",
+ "rune",
+ "rune-kit",
+ "rune-theme-opencode",
+ "serde",
  "serde_json",
  "session-view",
 ]
@@ -3851,6 +3871,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "opencode-feature-timeline-extras"
+version = "0.0.1"
+dependencies = [
+ "opencode-i18n",
+ "opencode-kit",
+ "rune",
+ "rune-knobs",
+ "serde_json",
+ "session-view",
+]
+
+[[package]]
 name = "opencode-feature-tips"
 version = "0.0.1"
 dependencies = [
@@ -3890,6 +3922,20 @@ dependencies = [
  "rune-kit",
  "rune-theme-opencode",
  "serde_json",
+ "session-view",
+]
+
+[[package]]
+name = "opencode-feature-workspace-tools"
+version = "0.0.1"
+dependencies = [
+ "opencode-i18n",
+ "opencode-kit",
+ "opencode-search",
+ "opencode-storage",
+ "opencode-ui",
+ "rune",
+ "rune-theme-opencode",
  "session-view",
 ]
 
@@ -4057,6 +4103,7 @@ dependencies = [
  "notify",
  "opencode-code-view",
  "opencode-feature-annotations",
+ "opencode-feature-composer-input",
  "opencode-feature-connect",
  "opencode-feature-dictation",
  "opencode-feature-egg",
@@ -4078,9 +4125,11 @@ dependencies = [
  "opencode-feature-subagents",
  "opencode-feature-switcher",
  "opencode-feature-terminal-surface",
+ "opencode-feature-timeline-extras",
  "opencode-feature-tips",
  "opencode-feature-updater",
  "opencode-feature-usage",
+ "opencode-feature-workspace-tools",
  "opencode-i18n",
  "opencode-kernel",
  "opencode-kit",

@@ -11,6 +11,7 @@ rune-desktop/
 ├── plugins/                    # Tier 1 (Start here): Luau plugins (~80% of features, 0 Rust)
 ├── features/                   # Tier 2: Decoupled Rust feature crates (parallel, shallow DAG)
 │   ├── annotations/            #   opencode-feature-annotations (timeline/terminal quote toolbar, composer comment cards, quote-comment editor & code/diff line comments)
+│   ├── composer-input/         #   opencode-feature-composer-input (attachments, remote upload runner/toast, file dropzone overlay, suggestions machine, history popover, slash commands & prompt history)
 │   ├── connect/                #   opencode-feature-connect (provider connect dialog, catalog sync, picker reads, ChatGPT welcome)
 │   ├── dictation/              #   opencode-feature-dictation (Hex voice dictation state machine & polling)
 │   ├── egg/                    #   opencode-feature-egg (new-session GPU wordmark & brick breaker)
@@ -33,9 +34,11 @@ rune-desktop/
 │   ├── subagents/              #   opencode-feature-subagents (activity capsule, background shells machine & followers, subagent reply bar)
 │   ├── switcher/               #   opencode-feature-switcher (command/file/session palette, shared session search index, project/worktree/branch switcher)
 │   ├── terminal-surface/       #   opencode-feature-terminal-surface (Ghostty-VT terminal pane, workspace tabs, persistence, shell integration, find, links & paste guard)
+│   ├── timeline-extras/        #   opencode-feature-timeline-extras (todo pill/list, permission/question reply machines, live subagent step rows, auto-accept & timeline capture fixtures)
 │   ├── tips/                   #   opencode-feature-tips (paced one-time onboarding tip scheduler)
 │   ├── updater/                #   opencode-feature-updater (feed, verification, platform apply)
-│   └── usage/                  #   opencode-feature-usage (usage limits parser, dialog, picker warnings)
+│   ├── usage/                  #   opencode-feature-usage (usage limits parser, dialog, picker warnings)
+│   └── workspace-tools/        #   opencode-feature-workspace-tools (new-worktree branch picker, per-folder rune client MCP hub, Home session search & local full-text search)
 ├── crates/                     # Tier 3: Kernel, Runtime, Platform & Embeddable Libraries
 │   ├── opencode-code-view/     #   Shared virtualized syntax-highlighted code & diff viewers, review/delimited/label-find data models
 │   ├── opencode-kernel/        #   Shell kernel registries (StateSlots, OverlayStack, Scheduler,
