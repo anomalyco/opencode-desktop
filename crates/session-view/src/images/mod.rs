@@ -10,7 +10,9 @@ pub mod viewer;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::{Arc, Mutex};
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::{Condvar, Weak};
 
 use rune::{El, Image, ImageCache, SurfaceFit, TextStyle, Waker, col, el, row, text};
 
@@ -145,6 +147,7 @@ pub enum Fetched {
 pub struct Media {
     fetch: Option<Fetch>,
     state: Arc<Mutex<HashMap<String, Fetched>>>,
+    #[cfg(not(target_arch = "wasm32"))]
     queue: RefCell<Option<Arc<(Mutex<Vec<String>>, Condvar)>>>,
     /// A fetch finished since the app last polled: the view must run again to show it.
     landed: Arc<AtomicBool>,

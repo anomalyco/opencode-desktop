@@ -1,6 +1,9 @@
 //! Native Ghostty terminal core (`libghostty-vt` `v1.4.0`) and off-main-thread PTY session
 //! worker for OpenCode (Rune).
 
+// C-FFI wrapper for `libghostty-vt.a`.
+#![allow(unsafe_code)]
+
 mod connection;
 pub mod core;
 pub mod ffi;

@@ -131,6 +131,7 @@ pub fn clicked(_: &mut App, click: &rune_notify::Click) {
 }
 
 /// Gives a windowed run the app's identity before its window opens.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn identify() {
     opencode_feature_notifications::identify(&crate::launch::product(), crate::headless());
 }
@@ -141,6 +142,7 @@ pub fn settle_identity() {
 }
 
 /// Captures a COM toast-button activation when launched after quit.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn take_activation(args: &[String]) {
     opencode_feature_notifications::take_activation(args, &crate::launch::product());
 }

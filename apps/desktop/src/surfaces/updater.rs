@@ -5,9 +5,11 @@
 //! verification reads the desktop crate's own build environment.
 
 pub use opencode_feature_updater::{
-    BuildInfo, Updater, UpdaterConfig, UpdaterHost, check_async, finish_quit,
-    install_async, installs_on_quit, poll, poll_owed, start_if_packaged, state_data,
+    BuildInfo, Updater, UpdaterConfig, UpdaterHost, check_async, install_async, poll, poll_owed,
+    start_if_packaged, state_data,
 };
+#[cfg(not(target_arch = "wasm32"))]
+pub use opencode_feature_updater::{finish_quit, installs_on_quit};
 
 use opencode_kernel::{Feature, KernelBuilder, Phase};
 

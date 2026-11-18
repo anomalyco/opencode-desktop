@@ -141,6 +141,7 @@ fn told() -> MutexGuard<'static, Told> {
 /// Each window's waker, woken once the storage is ready.
 static WAKERS: Mutex<Vec<Waker>> = Mutex::new(Vec::new());
 /// The boot packet's size and, of it, the plugin values', for the launch trace.
+#[cfg(not(target_arch = "wasm32"))]
 static BOOT_BYTES: std::sync::OnceLock<(usize, usize)> = std::sync::OnceLock::new();
 
 fn step(phase: Phase, event: Event) -> (Phase, Option<Effect>) {
@@ -255,6 +256,7 @@ fn send(event: Event) {
                 (Opened::Saving { .. }, false) => None,
             };
         }
+        #[cfg(not(target_arch = "wasm32"))]
         if let Phase::Booted { boot, .. } = &next {
             BOOT_BYTES.get_or_init(|| (boot.len(), boot.plugin_bytes()));
         }
@@ -314,6 +316,7 @@ pub fn take_notice() -> Option<Notice> {
 
 /// This process is the app's one instance: the open may take the database's lock now (the
 /// record's raw read ran beside the claim).
+#[cfg(not(target_arch = "wasm32"))]
 pub fn claimed() {
     rune::marks::mark("instance.claimed");
     if let Some(Phase::Opening { opening } | Phase::Booted { opening, .. }) = &*lock() {
@@ -376,6 +379,7 @@ pub fn on_ready(waker: Waker) {
 }
 
 /// Whether this run keeps its state in the database (not a run in memory).
+#[cfg(not(target_arch = "wasm32"))]
 pub fn on_disk() -> bool {
     !matches!(&*lock(), Some(Phase::Memory(_)) | None)
 }
@@ -536,6 +540,7 @@ pub fn save_window_ids(ids: &[String]) {
 }
 
 /// Window `id`'s frame as last saved.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn frame(id: &str) -> Option<WindowFrame> {
     with(|s| s.windows().frame(id), |boot, queued| queued.frames.iter().rev().find(|(i, _)| i == id).map(|(_, f)| *f).or_else(|| boot.frame(id)))
 }
@@ -602,6 +607,7 @@ pub fn boot_packet() -> Option<Arc<BootPacket>> {
 }
 
 /// The boot packet's bytes and, of them, the plugin values'.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn boot_bytes() -> Option<(usize, usize)> {
     BOOT_BYTES.get().copied()
 }
@@ -714,6 +720,7 @@ pub fn flush(reason: FlushReason, wait: bool) {
 /// The app is ending: every queued row lands, the WAL is checkpointed when it holds writes, and
 /// the database closes, so its exclusive lock goes now rather than when the process is gone (an
 /// update's helper, the next launch). Later reads and writes stay in memory.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn close() {
     crate::launch::last_exit::mark_clean();
     flush(FlushReason::Quit, true);

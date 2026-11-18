@@ -12,6 +12,7 @@ pub(crate) const HEAD: usize = 24;
 /// A visible draft or session preview larger than this stays out of the record; the app reads
 /// it from the full store after stage B.
 pub(crate) const DOC_CAP: usize = 64 * 1024;
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) const PREVIEW_CAP: usize = 256 * 1024;
 /// Window keys the first frame doesn't draw from (closed tabs, migration leftovers): they load
 /// with the rest.
@@ -35,11 +36,14 @@ pub enum Kind {
     /// A session a window shows: its plugin values are in the record.
     Shown = 10,
     /// Where the draft journal is (native: `native::journal::Location`).
+    #[cfg(not(target_arch = "wasm32"))]
     Journal = 12,
     /// A shown draft's revision in the database (`draft_rev`), whether or not it has a document.
+    #[cfg(not(target_arch = "wasm32"))]
     DraftRev = 13,
     /// The journal instance the run that wrote this record kept (its 8 bytes): a record rebuilt by
     /// a run without the journal (an older build, a platform it was off on) has none.
+    #[cfg(not(target_arch = "wasm32"))]
     JournalOwner = 14,
 }
 
@@ -185,6 +189,7 @@ impl BootPacket {
 
     /// Puts what the packet holds into `cache` where it has nothing (an open that failed after
     /// the first frame was built from the packet: memory keeps what the screen shows).
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn fill_cache(&self, cache: &mut crate::cache::Cache) {
         for e in self.of(Kind::State) {
             let (name, key) = (self.str_of(&e.a), self.str_of(&e.b));

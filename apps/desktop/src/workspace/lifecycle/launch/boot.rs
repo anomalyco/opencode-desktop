@@ -30,12 +30,13 @@ pub fn attach_console() {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(all(not(target_os = "windows"), not(target_arch = "wasm32")))]
 pub fn attach_console() {}
 
 /// In a build that records the profile-guided optimisation profile (`scripts/pgo.ps1`), the counts:
 /// LLVM's runtime writes them when the process ends normally, and the fast exit ends it with
 /// `TerminateProcess`, which runs no exit handler.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn write_profile() {
     #[cfg(pgo_generate)]
     #[allow(unsafe_code)]
@@ -50,6 +51,7 @@ pub fn write_profile() {
 }
 
 /// `opencode-desktop --version`: the version and the release channel it was built for.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn print_version_if_asked() {
     if std::env::args().nth(1).as_deref() == Some("--version") {
         // A reader that went away (a GUI-subsystem exe captured by a shell that stopped waiting) is
@@ -94,6 +96,7 @@ pub fn product() -> win_install::Product {
 /// release build from a checkout) shares that folder and its database, which the running process
 /// holds locked, so a second one hands its links over rather than start without its state.
 /// Debug builds have a folder of their own, and runs with their own `RUNE_DIRS_ROOT` their root.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn instance_id() -> String {
     use sha2::{Digest, Sha256};
     let data = crate::dirs::data().unwrap_or_default();
@@ -111,7 +114,7 @@ pub fn apply_app_icon() {
 
 /// Sets the Dock icon from the enclosing `.app`'s `Contents/Resources/icon.icns` (preserving PR
 /// icon badges) when bundled, or the embedded default icon during `cargo run`.
-#[cfg(not(target_os = "windows"))]
+#[cfg(all(not(target_os = "windows"), not(target_arch = "wasm32")))]
 pub fn apply_app_icon() {
     let bundled = std::env::current_exe()
         .ok()

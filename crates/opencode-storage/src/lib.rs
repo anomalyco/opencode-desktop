@@ -204,7 +204,12 @@ pub(crate) enum Cmd {
     State { name: String, key: String, value: Option<Arc<str>> },
     ClearState { name: String },
     /// `rev`: the draft journal's revision of this text (0 for a document it doesn't record).
-    Doc { key: String, value: Option<Arc<str>>, rev: u64 },
+    Doc {
+        key: String,
+        value: Option<Arc<str>>,
+        #[cfg(not(target_arch = "wasm32"))]
+        rev: u64,
+    },
     Blob { id: String, data: Arc<[u8]> },
     Window { id: String, frame: Option<WindowFrame> },
     PluginRecord { id: String, record: PluginRecord, done: Option<Done> },

@@ -146,7 +146,14 @@ impl DocumentStore<'_> {
                 None => cache.docs.remove(key),
             };
         }
-        self.storage.send(Cmd::Doc { key: key.to_owned(), value, rev });
+        #[cfg(target_arch = "wasm32")]
+        let _ = rev;
+        self.storage.send(Cmd::Doc {
+            key: key.to_owned(),
+            value,
+            #[cfg(not(target_arch = "wasm32"))]
+            rev,
+        });
     }
 
     /// The keys stored under `prefix` (what's in memory and what waits on disk).
