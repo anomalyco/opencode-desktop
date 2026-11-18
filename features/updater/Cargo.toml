@@ -1,0 +1,30 @@
+[package]
+name = "opencode-feature-updater"
+version = "0.0.1"
+description = "Self-updater engine, state machine and platform installers (macOS, Windows, Linux) for Rune desktop apps"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+opencode-i18n = { path = "../../crates/opencode-i18n" }
+opencode-storage = { path = "../../crates/opencode-storage" }
+rune.workspace = true
+rune-luau.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+sha2 = "0.10"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ureq = { workspace = true, features = ["rustls"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+ureq-web = { path = "../../crates/ureq-web" }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+authenticode = { path = "../../crates/authenticode" }
+win-install = { path = "../../crates/win-install" }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Threading"] }
+
+[lints]
+workspace = true

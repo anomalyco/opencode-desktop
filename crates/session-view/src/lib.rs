@@ -45,6 +45,7 @@ pub mod themes;
 pub mod timeline;
 pub mod title;
 pub mod tools;
+pub mod traits;
 pub mod turn_diff;
 pub mod turn_errors;
 pub mod turns;
@@ -58,6 +59,8 @@ use opencode_kit::client::Request;
 use opencode_kit::model::{Inbox, InboxItem, ModelRef, ToolStatus, Transcript};
 use rune::{Cx, El, ScrollPos, SelectionChange, TextHighlight, Tx, Waker};
 use rune_knobs::Knobs;
+
+pub use traits::{TimelineActions, TimelineClock, TimelineStateAccess, TranscriptSource};
 
 /// Bundled per-window state for a host that embeds a session timeline.
 #[derive(Default)]
@@ -120,7 +123,7 @@ pub trait TimelineHost: Sized + 'static {
         None
     }
     fn with_transcript<R>(&self, session: &str, f: impl FnOnce(&Transcript) -> R) -> Option<R> {
-        self.transcript(session).map(f)
+        Self::transcript(self, session).map(f)
     }
     /// A number that moves whenever session `session`'s transcript may have changed (a
     /// `Tracked` cell's version), so the timeline keeps its projection while it holds. `None`,
@@ -181,7 +184,7 @@ pub trait TimelineHost: Sized + 'static {
     fn timeline_busy(&self, transcript: &opencode_kit::model::Transcript) -> bool { transcript.busy() }
 
     fn is_session_live(&self, session: &str) -> bool {
-        self.with_transcript(session, Transcript::busy).unwrap_or(false)
+        Self::with_transcript(self, session, Transcript::busy).unwrap_or(false)
     }
     fn is_session_stopped(&self, _session: &str) -> bool {
         false
@@ -194,7 +197,7 @@ pub trait TimelineHost: Sized + 'static {
     /// Whether session `session` itself waits on a question or a permission, which hides its
     /// Working (`message-timeline.tsx:339`).
     fn session_asking(&self, session: &str) -> bool {
-        self.session_waiting(session).is_some()
+        Self::session_waiting(self, session).is_some()
     }
     /// What session `session` waits on the user for, which its status line says
     /// (`timeline-next/status.ts`): a permission, or an answer to a question.
@@ -205,7 +208,7 @@ pub trait TimelineHost: Sized + 'static {
         None
     }
     fn for_each_tracked_session(&self, mut f: impl FnMut(&str)) {
-        if let Some(id) = self.active_session_id() {
+        if let Some(id) = Self::active_session_id(self) {
             f(id);
         }
     }
@@ -397,10 +400,10 @@ pub trait TimelineHost: Sized + 'static {
         false
     }
     fn quote_more_open(&self, id: &str) -> bool {
-        self.expanded().contains(&format!("quote-more:{id}"))
+        Self::expanded(self).contains(&format!("quote-more:{id}"))
     }
     fn open_quote_more(&mut self, id: String) {
-        self.expanded_mut().insert(format!("quote-more:{id}"));
+        Self::expanded_mut(self).insert(format!("quote-more:{id}"));
     }
     /// The button in a prompt's top trailing corner (`timeline::user_menu_button`), which opens
     /// its actions; `pending` for a steer the server hasn't delivered. `None` for none.

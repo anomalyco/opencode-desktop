@@ -366,5 +366,5 @@ pub fn key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         return false;
     }
     let Some(sid) = app.active_session_id().map(str::to_owned) else { return false };
-    app.review.sessions.get_mut(&sid).is_some_and(|sr| sr.diffs.handle_key(ev, tx))
+    app.review.sessions.get_mut(&sid).is_some_and(|sr| sr.diffs.handle_key(ev, tx, &crate::code_view::DesktopKeys))
 }

@@ -34,7 +34,7 @@ fn pages(a: &mut NodeArgs) -> Result<El, String> {
         fit: opencode_i18n::t!("ui.preview.fit").to_owned(),
         controls: opencode_i18n::t!("ui.preview.controls").to_owned(),
     };
-    Ok(office::pages::view(pal(a.dark()), id, &labels))
+    Ok(office::pages::view::<crate::App>(pal(a.dark()), id, &labels))
 }
 
 fn sheet(a: &mut NodeArgs) -> Result<El, String> {
@@ -49,7 +49,7 @@ fn sheet(a: &mut NodeArgs) -> Result<El, String> {
         _ => String::new(),
     };
     let labels = office::sheet::Labels { name: field("name"), too_large: field("copyTooLarge"), failed: field("copyFailed") };
-    Ok(office::sheet::view(id, labels, pal(a.dark()).v2.border_focus))
+    Ok(office::sheet::view::<crate::App>(id, labels, pal(a.dark()).v2.border_focus))
 }
 
 fn render_failed(p: &Pal, reason: &str) -> El {

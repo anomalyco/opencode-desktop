@@ -34,9 +34,17 @@ For prebuilt `dev` and side-by-side pull-request `.dmg` builds, see [docs/trying
 
 ## Workspace layout
 
-| Path | Crate | Purpose |
+Organized by progressive disclosure (see [ARCHITECTURE.md](ARCHITECTURE.md)):
+
+| Path | Crate / Scope | Purpose |
 | --- | --- | --- |
-| `apps/desktop` | `opencode-desktop` | **OpenCode (Rune)** macOS desktop client |
+| `plugins/*` | Built-in Luau plugins | Default home for ~80% of UI features (panels, dialogs, commands, server sources); hot reloads without touching Rust |
+| `features/code-view` | `opencode-feature-code-view` | Virtualized syntax-highlighted code and diff viewers |
+| `features/egg` | `opencode-feature-egg` | New-session GPU wordmark & Brick Breaker Easter egg |
+| `features/office` | `opencode-feature-office` | Word, Excel, and PowerPoint Vello preview engine |
+| `features/updater` | `opencode-feature-updater` | Release feed, verification, and platform update engine |
+| `crates/opencode-kernel` | `opencode-kernel` | Shell kernel registries (`StateSlots`, `OverlayStack`, `LifecycleScheduler`, `CommandRegistry`, `EventBus`) |
+| `crates/opencode-platform` | `opencode-platform` | Cross-platform OS/WASM utilities (wall clock, OTLP telemetry, askpass, HTTP fetch) |
 | `crates/session-view` | `session-view` | Embeddable virtualized OpenCode session timeline view (Markdown, `ui` outlines, Mermaid, tool groups, subagent cards, images, scroll bar) |
 | `crates/opencode-kit` | `opencode-kit` | OpenCode HTTP/SSE/WebSocket client, local `service.json` discovery, and session/transcript model |
 | `crates/rune-parts` | `rune-parts` | Generative UI (```` ```ui ````) outline parser, catalog, checker, HTML renderer, and optional Rune element view (`features = ["view"]`) |
@@ -45,6 +53,8 @@ For prebuilt `dev` and side-by-side pull-request `.dmg` builds, see [docs/trying
 | `crates/project-icon` | `project-icon` | Procedural CPU-shaded project icons and custom icon loader |
 | `crates/hex-client` | `hex-client` | Local HTTP client for driving Hex voice dictation |
 | `crates/otlp-lite` | `otlp-lite` | Minimal OTLP/HTTP trace and log exporter (`serde_json` only) |
+| `apps/desktop` | `opencode-desktop` | **OpenCode (Rune)** native desktop client (`shell/`, `session/`, `workspace/`, `surfaces/`, `dialogs/`, `plugin_host/`, `stories/`) |
+| `apps/web` | `opencode-web` | WASM / WebGPU browser client |
 | `apps/browser-engine` | `opencode-browser-engine` | Standalone CEF sidecar bundle (`OpenCode Browser Engine.app`), excluded from the default Cargo workspace |
 
 ### Embedding `session-view` in another Rune app
@@ -65,4 +75,6 @@ This repo has no automated tests (see `AGENTS.md`); verify changes by running th
 ```sh
 scripts/file-size.sh
 scripts/folder-shape.sh
+scripts/dialog-size.sh
+scripts/arch-check.sh
 ```

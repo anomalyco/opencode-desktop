@@ -1,0 +1,13 @@
+[package]
+name = "opencode-kernel"
+version = "0.0.1"
+description = "Lightweight shell kernel registries for Rune apps: typed slots, overlays, lifecycle scheduler, commands, events, and surfaces"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+opencode-i18n = { path = "../opencode-i18n" }
+rune.workspace = true
+
+[lints]
+workspace = true

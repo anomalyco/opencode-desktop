@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Checks Rust file sizes. Counts non-test lines per tracked .rs file under apps/ and crates/
+# Checks Rust file sizes. Counts non-test lines per tracked .rs file under apps/, crates/, and features/
 # (inline #[cfg(test)] items are excluded; test-only files are measured separately).
 #   warn  > 800 non-test lines       error > 1500 non-test lines unless listed in
 #   warn  > 1000 lines in a test file or inline test module   scripts/file-size-exceptions.txt ("<path> <ceiling>")
@@ -20,7 +20,7 @@ for a in "$@"; do
 done
 
 measure() {
-  git ls-files -z 'apps/*.rs' 'crates/*.rs' | xargs -0 awk '
+  git ls-files -z 'apps/*.rs' 'crates/*.rs' 'features/*.rs' | xargs -0 awk '
     function reset() { prod = 0; test = 0; st = 0; depth = 0; maxtest = 0; cur = 0 }
     function braces(s,   t, o, c) {
       gsub(/\\./, "", s); gsub(/"[^"]*"/, "", s); gsub(/\047.\047/, "", s)

@@ -24,7 +24,7 @@ while IFS= read -r -d '' f; do
       found=$((found + 1))
     done <<<"$out"
   fi
-done < <(git ls-files -z 'apps/*.rs' 'crates/*.rs')
+done < <(git ls-files -z 'apps/*.rs' 'crates/*.rs' 'features/*.rs')
 
 echo "dialog size: errors: $found"
 [ "$found" -eq 0 ]

@@ -6,7 +6,7 @@
 extern crate ureq_web as ureq;
 
 pub mod client;
-pub mod client_mcp;
+pub use client::mcp as client_mcp;
 pub mod integration;
 pub mod local_service;
 pub mod mention;
