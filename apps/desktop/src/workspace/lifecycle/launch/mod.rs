@@ -14,8 +14,12 @@ pub mod trace;
 #[cfg(target_arch = "wasm32")]
 pub use boot::start_first_reads;
 pub use boot::{
-    Accepted, FIRST_PATIENCE, First, GRACE, Ready, apply_app_icon, attach_console, defer, deferred,
-    initial_server, instance_id, print_version_if_asked, product, window_title, write_profile,
+    Accepted, FIRST_PATIENCE, First, GRACE, Ready, defer, deferred, initial_server, product,
+    window_title,
+};
+#[cfg(not(target_arch = "wasm32"))]
+pub use boot::{
+    apply_app_icon, attach_console, instance_id, print_version_if_asked, write_profile,
 };
 
 use std::sync::mpsc::{Receiver, TryRecvError};

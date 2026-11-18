@@ -25,7 +25,6 @@ extern "C" {
 /// export, so the app's background work runs on fibers that wait on the network without holding
 /// the page (`rune::task`). The password lives only in the kit's memory, which sends it as the
 /// `Authorization` header: nothing stores or logs it.
-#[allow(deprecated)]
 #[wasm_bindgen(jspi)]
 pub fn start(password: Option<String>) {
     rune::task::start_runners();

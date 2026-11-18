@@ -27,7 +27,9 @@ pub mod taskbar;
 pub mod tear;
 pub(crate) mod tear_stories;
 
-pub use open::{launch, new_window, opened};
+pub use open::new_window;
+#[cfg(not(target_arch = "wasm32"))]
+pub use open::{launch, opened};
 pub use reopen::reopen;
 
 /// One window's identity and what it tracks of itself.

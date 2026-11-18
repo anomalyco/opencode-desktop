@@ -18,6 +18,7 @@ pub fn early(config: StorageConfig) -> StorageConfig {
 }
 
 /// After `storage::start`: what Rune saves goes to the database (an unchanged row writes nothing).
+#[cfg(not(target_arch = "wasm32"))]
 pub fn start() {
     if !crate::storage::on_disk() {
         return;

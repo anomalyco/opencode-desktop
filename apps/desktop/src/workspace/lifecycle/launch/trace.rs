@@ -40,17 +40,21 @@ struct Boot {
     /// clock up with the marks.
     created: u64,
     /// Page faults (soft and hard) before `main`'s first line: the loader and static initialisers.
+    #[cfg(not(target_arch = "wasm32"))]
     faults: u32,
     /// The time-stamp counter at `at`, to learn its rate for [`process_cpu_ns`].
+    #[cfg(not(target_arch = "wasm32"))]
     tsc: u64,
 }
 
 static BOOT: OnceLock<Boot> = OnceLock::new();
 /// After the first drawn frame: the process's IO so far, and (`--launch-trace-threads`) its threads.
+#[cfg(not(target_arch = "wasm32"))]
 static FIRST_IO: OnceLock<(Io, Vec<(u32, String)>)> = OnceLock::new();
 
 /// The process's IO counters (`GetProcessIoCounters`): every read, write and other operation,
 /// files and devices alike.
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone, Copy, Default)]
 struct Io {
     read_ops: u64,
@@ -63,12 +67,14 @@ struct Io {
     cpu_ns: u64,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Io {
     fn json(self) -> serde_json::Value {
         serde_json::json!({ "read_ops": self.read_ops, "read_bytes": self.read_bytes, "write_ops": self.write_ops, "write_bytes": self.write_bytes, "other_ops": self.other_ops, "cpu_ns": self.cpu_ns })
     }
 }
 /// When the first frame with live content drew: the process's IO and CPU so far.
+#[cfg(not(target_arch = "wasm32"))]
 static LIVE_IO: OnceLock<Io> = OnceLock::new();
 static QUIT_SENT: AtomicBool = AtomicBool::new(false);
 /// The last frame drawn after `content.live`, until the window has been still for [`STILL`].
@@ -101,6 +107,7 @@ fn arm(slot: &std::sync::Mutex<Option<Instant>>, at: Instant, tx: &mut Tx) {
 }
 
 /// First thing in `main`.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn begin() {
     BOOT.get_or_init(|| {
         let at = Instant::now();
@@ -184,6 +191,7 @@ pub fn drawn(rt: &rune::Runtime<App>) {
         return;
     }
     let s = &rt.state;
+    #[cfg(not(target_arch = "wasm32"))]
     let _ = FIRST_IO.get_or_init(|| (io_counters(), crate::flag("--launch-trace-threads").then(threads).unwrap_or_default()));
     let rows = s.painted_session().map_or(0, |(_, rows)| rows);
     if rows > 0 {
@@ -192,6 +200,7 @@ pub fn drawn(rt: &rune::Runtime<App>) {
     let shows = rows > 0 || !matches!(*s.route, Route::Session { .. });
     if shows && !crate::launch::waiting(s) && !crate::launch::offline(s) {
         mark("content.live");
+        #[cfg(not(target_arch = "wasm32"))]
         let _ = LIVE_IO.get_or_init(io_counters);
     }
     if STABLE.get().is_none() && rune::marks::marks().iter().any(|(n, _)| *n == "content.live") {
@@ -304,12 +313,17 @@ fn quit_after() -> Option<Duration> {
 
 /// The text renderer the run draws with, named for the trace (`text_rendering::poll`).
 pub fn renderer(name: &'static str) {
+    #[cfg(not(target_arch = "wasm32"))]
     let _ = RENDERER.set(name);
+    #[cfg(target_arch = "wasm32")]
+    let _ = name;
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 static RENDERER: OnceLock<&'static str> = OnceLock::new();
 
 /// Last thing in `main`: appends the run's line to the `--launch-trace` file.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn finish(windows: usize) {
     let Some(path) = crate::arg("--launch-trace") else { return };
     mark("main.return");
@@ -375,7 +389,7 @@ fn io_calls(ns: &dyn Fn(Instant) -> u64) -> serde_json::Value {
     })
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(all(not(target_os = "windows"), not(target_arch = "wasm32")))]
 fn io_calls(_: &dyn Fn(Instant) -> u64) -> serde_json::Value {
     serde_json::Value::Null
 }
@@ -388,7 +402,7 @@ fn ui_thread() -> u32 {
     unsafe { windows_sys::Win32::System::Threading::GetCurrentThreadId() }
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(all(not(target_os = "windows"), not(target_arch = "wasm32")))]
 fn ui_thread() -> u32 {
     0
 }
@@ -406,7 +420,7 @@ fn io_counters() -> Io {
     Io { read_ops: c.ReadOperationCount, read_bytes: c.ReadTransferCount, write_ops: c.WriteOperationCount, write_bytes: c.WriteTransferCount, other_ops: c.OtherOperationCount, faults: page_faults(), cpu_ns: process_cpu_ns() }
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(all(not(target_os = "windows"), not(target_arch = "wasm32")))]
 fn io_counters() -> Io {
     Io { cpu_ns: process_cpu_ns(), ..Io::default() }
 }
@@ -458,7 +472,7 @@ fn process_cpu_ns() -> u64 {
     ns(r.ru_utime).saturating_add(ns(r.ru_stime))
 }
 
-#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+#[cfg(all(not(any(target_os = "windows", target_os = "macos", target_os = "linux")), not(target_arch = "wasm32")))]
 fn process_cpu_ns() -> u64 {
     0
 }
@@ -471,7 +485,7 @@ fn tsc() -> u64 {
     unsafe { core::arch::x86_64::_rdtsc() }
 }
 
-#[cfg(not(all(target_os = "windows", target_arch = "x86_64")))]
+#[cfg(all(not(all(target_os = "windows", target_arch = "x86_64")), not(target_arch = "wasm32")))]
 fn tsc() -> u64 {
     0
 }
@@ -490,7 +504,7 @@ fn page_faults() -> u32 {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(all(not(target_os = "windows"), not(target_arch = "wasm32")))]
 fn page_faults() -> u32 {
     0
 }
@@ -537,7 +551,7 @@ fn threads() -> Vec<(u32, String)> {
     out
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(all(not(target_os = "windows"), not(target_arch = "wasm32")))]
 fn threads() -> Vec<(u32, String)> {
     Vec::new()
 }
@@ -595,8 +609,8 @@ fn process_clock() -> (u64, u64) {
     (now.saturating_sub(age), now)
 }
 
-/// Elsewhere (the browser build) the marks count from `main`.
-#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+/// Elsewhere the marks count from `main`.
+#[cfg(all(not(any(target_os = "windows", target_os = "macos", target_os = "linux")), not(target_arch = "wasm32")))]
 fn process_clock() -> (u64, u64) {
     (0, 0)
 }

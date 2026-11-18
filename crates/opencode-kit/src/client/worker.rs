@@ -9,6 +9,7 @@ use rune::Waker;
 
 use super::{Incoming, Request, Server, Write, encode_component, list};
 use crate::model;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::wire_error::WireError;
 
 /// How long the event stream may stay silent before it's dropped and reopened, as Desktop's

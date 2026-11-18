@@ -2,7 +2,9 @@
 
 #[cfg(target_arch = "wasm32")]
 mod browser_history;
+// `#[wasm_bindgen(jspi)]` expands a sibling helper module that calls `jspi_is_experimental`.
 #[cfg(target_arch = "wasm32")]
+#[allow(deprecated)]
 mod web;
 
 #[cfg(target_arch = "wasm32")]

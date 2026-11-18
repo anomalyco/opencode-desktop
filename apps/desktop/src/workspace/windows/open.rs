@@ -85,8 +85,10 @@ impl App {
 }
 
 /// How many windows the launch opened (`launch`), for the launch trace at quit.
+#[cfg(not(target_arch = "wasm32"))]
 static OPENED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn opened() -> usize {
     OPENED.load(std::sync::atomic::Ordering::Relaxed)
 }
@@ -127,6 +129,7 @@ fn display_scale(frame: Option<&Frame>) -> Option<f32> {
 /// list and the frames come from the boot packet, taken once the event loop is up (so the
 /// storage's read runs under it); a list that didn't change isn't written again. Returns when
 /// the app quits, unless it ends at once (`rune::fast_exit`).
+#[cfg(not(target_arch = "wasm32"))]
 pub fn launch(diagnostics: crate::diagnostics::Diagnostics) {
     rune::run_windows(move |displays: &[Display]| {
         *DISPLAYS.lock().unwrap_or_else(|e| e.into_inner()) = displays.to_vec();

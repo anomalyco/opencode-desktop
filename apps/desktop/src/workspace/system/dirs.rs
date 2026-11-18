@@ -86,6 +86,7 @@ pub fn official() -> Vec<PathBuf> {
 
 /// The browser engine's folders (its installed versions, browser profiles and sockets), shared
 /// with every app that shows a browser pane: beside this app's, so `RUNE_DIRS_ROOT` moves them too.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn engine() -> Option<AppDirs> {
     Some(app()?.sibling("co.anomaly.opencode"))
 }

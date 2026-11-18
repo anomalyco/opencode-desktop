@@ -56,6 +56,7 @@ pub mod stores;
 pub mod surfaces;
 pub(crate) mod tasks;
 pub mod trust;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod types;
 mod view;
 mod vm;

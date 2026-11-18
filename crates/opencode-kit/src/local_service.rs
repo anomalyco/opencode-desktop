@@ -12,7 +12,9 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use crate::client::{DEFAULT_SERVER, Server};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::client::DEFAULT_SERVER;
+use crate::client::Server;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LocalService {

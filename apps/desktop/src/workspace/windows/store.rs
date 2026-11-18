@@ -47,6 +47,7 @@ pub fn forget(id: &str) {
     crate::storage::forget_window(id);
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn load_frame(id: &str) -> Option<Frame> {
     crate::storage::frame(id)
 }

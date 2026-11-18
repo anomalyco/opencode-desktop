@@ -41,7 +41,7 @@ pub fn publish_vms(app: &crate::App) {
 
 /// A measuring build's heap dumps (procwatch `alloc-sites`) also list each plugin VM's Luau heap
 /// and SQLite's own heap, which the allocator sites can't name by plugin or see at all.
-#[cfg(feature = "alloc-sites")]
+#[cfg(all(feature = "alloc-sites", not(target_arch = "wasm32")))]
 pub fn register_reports() {
     opencode_storage::count_sqlite_memory();
     procwatch::alloc::sites::contribute("luau-vms", || VMS.lock().map(|v| v.iter().map(|(id, bytes)| format!("vm {bytes} {id}\n")).collect()).unwrap_or_default());
@@ -56,6 +56,7 @@ pub fn register_reports() {
 /// (committed less live) largest first, then `total` and the same for abandoned pages (a thread
 /// that ended; seen only with `MIMALLOC_VISIT_ABANDONED=1`). Read from the dump thread while
 /// others allocate, so a measure, not an exact count.
+#[cfg(all(feature = "alloc-sites", not(target_arch = "wasm32")))]
 #[allow(unsafe_code)]
 fn mimalloc_pages() -> String {
     #[repr(C)]
@@ -107,6 +108,7 @@ fn mimalloc_pages() -> String {
 }
 
 /// Bytes the OS has committed in `[start, start + len)`.
+#[cfg(all(feature = "alloc-sites", target_os = "windows"))]
 #[allow(unsafe_code)]
 fn os_committed(start: usize, len: usize) -> usize {
     #[repr(C)]
@@ -126,10 +128,16 @@ fn os_committed(start: usize, len: usize) -> usize {
     sum
 }
 
+#[cfg(all(feature = "alloc-sites", not(target_os = "windows"), not(target_arch = "wasm32")))]
+fn os_committed(_start: usize, _len: usize) -> usize {
+    0
+}
+
 /// mimalloc's arenas slice by slice (`mi_arenas_print`, one character per 64 KiB slice), counted
 /// by kind: `arena-slices <kind> <slices>`, then the map itself as `arena-map` lines. Kinds: p/f/s
 /// pages in use (P/F/S not abandoned), i arena info, m metadata, ~ free and purgeable (committed,
 /// purge scheduled), _ free and committed, . free and reserved only.
+#[cfg(all(feature = "alloc-sites", not(target_arch = "wasm32")))]
 #[allow(unsafe_code)]
 fn arena_slices() -> String {
     unsafe extern "C" {
