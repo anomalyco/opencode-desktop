@@ -1,71 +1,78 @@
-//! OpenCode Desktop's window-wide keys, as pure functions: which keymap command is which action
-//! (`packages/app` `tab-strip.tsx`, `use-session-commands.tsx`, the View menu) and how tabs and
-//! zoom step.
+//! OpenCode Desktop's window-wide keys: one declarative dispatch table (`packages/app`
+//! `tab-strip.tsx`, `use-session-commands.tsx`, the View menu), tab stepping, and canonical
+//! zoom helpers re-exported from `opencode-runtime`.
+
+#[allow(unused_imports)]
+pub use opencode_runtime::ZOOM_LEVELS;
+pub use opencode_runtime::{ZOOM_MAX, ZOOM_MIN, step_zoom};
 
 use rune::{KeyEvent, Tx};
 
+use crate::App;
 use crate::keymap::Bind;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Action {
-    ZoomIn,
-    ZoomOut,
-    ZoomReset,
-    /// Previous or next tab, wrapping.
-    Tab(i32),
-    /// Previous or next tab with an unread dot, wrapping (`session.previous.unseen`).
-    UnreadTab(i32),
-    /// ⌘1 to ⌘9 pick the tab, or inbox row, with that number.
-    TabAt(usize),
-    NewSession,
-    OpenProject,
-    SelectProject,
-    CloseTab,
-    ReopenTab,
-    Settings,
-    AutoAccept,
+#[derive(Clone, Copy)]
+enum Target {
+    /// Dispatches through the registered `COMMANDS` entry carrying the same `Bind`.
+    Command,
+    /// Key-only shortcut (or one whose global shortcut semantics differ from palette visibility,
+    /// such as `AutoAccept` working outside a session and `TabClose` closing an empty window).
+    Direct(fn(&mut App, &mut Tx)),
 }
 
-/// The action `ev` is, by the keymap's chords (US punctuation; see `action_tx`).
-pub fn action(ev: &KeyEvent) -> Option<Action> {
-    resolve(|b| b.matches(ev))
+/// Window-wide shortcuts in match-priority order.
+const TABLE: [(Bind, Target); 26] = [
+    (Bind::SessionPrev, Target::Command),
+    (Bind::SessionNext, Target::Command),
+    (Bind::UnseenPrev, Target::Command),
+    (Bind::UnseenNext, Target::Command),
+    (Bind::TabPrev, Target::Direct(|s, tx| s.select_adjacent(-1, tx))),
+    (Bind::TabNext, Target::Direct(|s, tx| s.select_adjacent(1, tx))),
+    // Zoom lands at once; the scale and every re-laid-out row would otherwise spring.
+    (Bind::ZoomIn, Target::Command),
+    (Bind::ZoomOut, Target::Command),
+    (Bind::ZoomReset, Target::Command),
+    (Bind::AutoAccept, Target::Direct(|s, tx| s.toggle_auto_accept(tx))),
+    (Bind::Settings, Target::Command),
+    (Bind::TabReopen, Target::Command),
+    (Bind::TabNew, Target::Direct(|s, tx| s.new_session(tx))),
+    (Bind::OpenProject, Target::Command),
+    (Bind::SelectProject, Target::Command),
+    (Bind::TabClose, Target::Direct(|s, tx| s.close_tab_key(tx))),
+    (Bind::TabCloseSession, Target::Direct(|s, tx| s.close_tab_key(tx))),
+    // Desktop numbers the first nine it shows (`titlebar-tab-numbers`).
+    (Bind::Tab1, Target::Direct(|s, tx| s.select_nth(0, tx))),
+    (Bind::Tab2, Target::Direct(|s, tx| s.select_nth(1, tx))),
+    (Bind::Tab3, Target::Direct(|s, tx| s.select_nth(2, tx))),
+    (Bind::Tab4, Target::Direct(|s, tx| s.select_nth(3, tx))),
+    (Bind::Tab5, Target::Direct(|s, tx| s.select_nth(4, tx))),
+    (Bind::Tab6, Target::Direct(|s, tx| s.select_nth(5, tx))),
+    (Bind::Tab7, Target::Direct(|s, tx| s.select_nth(6, tx))),
+    (Bind::Tab8, Target::Direct(|s, tx| s.select_nth(7, tx))),
+    (Bind::Tab9, Target::Direct(|s, tx| s.select_nth(8, tx))),
+];
+
+/// Runs the first matching window-wide shortcut, following the keyboard layout.
+pub fn run(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    let Some(&(bind, target)) = TABLE.iter().find(|(b, _)| b.matches_tx(ev, tx)) else {
+        return false;
+    };
+    match target {
+        Target::Command => crate::commands::run_bind(s, bind, tx),
+        Target::Direct(handler) => {
+            handler(s, tx);
+            true
+        }
+    }
 }
 
-/// `action`, following the keyboard layout as a key handler should.
-pub fn action_tx(ev: &KeyEvent, tx: &Tx) -> Option<Action> {
-    resolve(|b| b.matches_tx(ev, tx))
-}
-
-fn resolve(hit: impl Fn(Bind) -> bool) -> Option<Action> {
-    const TABLE: [(Bind, Action); 26] = [
-        (Bind::SessionPrev, Action::Tab(-1)),
-        (Bind::SessionNext, Action::Tab(1)),
-        (Bind::UnseenPrev, Action::UnreadTab(-1)),
-        (Bind::UnseenNext, Action::UnreadTab(1)),
-        (Bind::TabPrev, Action::Tab(-1)),
-        (Bind::TabNext, Action::Tab(1)),
-        (Bind::ZoomIn, Action::ZoomIn),
-        (Bind::ZoomOut, Action::ZoomOut),
-        (Bind::ZoomReset, Action::ZoomReset),
-        (Bind::AutoAccept, Action::AutoAccept),
-        (Bind::Settings, Action::Settings),
-        (Bind::TabReopen, Action::ReopenTab),
-        (Bind::TabNew, Action::NewSession),
-        (Bind::OpenProject, Action::OpenProject),
-        (Bind::SelectProject, Action::SelectProject),
-        (Bind::TabClose, Action::CloseTab),
-        (Bind::TabCloseSession, Action::CloseTab),
-        (Bind::Tab1, Action::TabAt(0)),
-        (Bind::Tab2, Action::TabAt(1)),
-        (Bind::Tab3, Action::TabAt(2)),
-        (Bind::Tab4, Action::TabAt(3)),
-        (Bind::Tab5, Action::TabAt(4)),
-        (Bind::Tab6, Action::TabAt(5)),
-        (Bind::Tab7, Action::TabAt(6)),
-        (Bind::Tab8, Action::TabAt(7)),
-        (Bind::Tab9, Action::TabAt(8)),
-    ];
-    TABLE.iter().find(|(b, _)| hit(*b)).map(|(_, a)| *a)
+/// Whether `ev` is a window-wide shortcut that a focused browser page yields to the shell
+/// (every entry in [`TABLE`] except in-page zoom).
+pub fn claims_from_browser(ev: &KeyEvent) -> bool {
+    TABLE
+        .iter()
+        .find(|(b, _)| b.matches(ev))
+        .is_some_and(|(b, _)| !matches!(b, Bind::ZoomIn | Bind::ZoomOut | Bind::ZoomReset))
 }
 
 /// The nearest other tab in `offset`'s direction, wrapping, that `include` accepts
@@ -81,23 +88,3 @@ pub fn adjacent(order: &[&str], current: Option<&str>, offset: i32, include: imp
     };
     (1..n).map(|step| order[(index as i32 + offset * step).rem_euclid(n) as usize]).find(|k| include(k)).map(str::to_owned)
 }
-
-pub const ZOOM_MIN: f32 = 0.5;
-pub const ZOOM_MAX: f32 = 3.0;
-
-/// Desktop's zoom levels (`desktopZoomLevels`, Chromium's from 50% to 200%): the zoom keys and
-/// Appearance › Zoom each pick one.
-pub const ZOOM_LEVELS: [f32; 11] = [0.5, 0.67, 0.75, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0];
-
-/// The level after `zoom` in `dir`'s direction (`nextDesktopZoomLevel`), from wherever a pinch
-/// left it; `dir` 0 resets.
-pub fn step_zoom(zoom: f32, dir: i32) -> f32 {
-    if dir == 0 {
-        return 1.0;
-    }
-    if dir > 0 {
-        return ZOOM_LEVELS.into_iter().find(|l| *l > zoom + 0.01).unwrap_or(ZOOM_LEVELS[ZOOM_LEVELS.len() - 1]);
-    }
-    ZOOM_LEVELS.into_iter().rev().find(|l| *l < zoom - 0.01).unwrap_or(ZOOM_LEVELS[0])
-}
-

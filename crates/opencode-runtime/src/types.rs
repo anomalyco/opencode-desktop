@@ -195,3 +195,30 @@ impl TabSummary {
         }
     }
 }
+
+/// Desktop's zoom bounds (`desktopZoomLevels`, Chromium's from 50% to 200% preset steps).
+pub const ZOOM_MIN: f32 = 0.5;
+pub const ZOOM_MAX: f32 = 3.0;
+
+/// Desktop's zoom levels (`desktopZoomLevels`, Chromium's from 50% to 200%): the zoom keys and
+/// Appearance › Zoom each pick one.
+pub const ZOOM_LEVELS: [f32; 11] = [0.5, 0.67, 0.75, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0];
+
+/// The level after `zoom` in `dir`'s direction (`nextDesktopZoomLevel`), from wherever a pinch
+/// left it; `dir` 0 resets.
+pub fn step_zoom(zoom: f32, dir: i32) -> f32 {
+    if dir == 0 {
+        return 1.0;
+    }
+    if dir > 0 {
+        return ZOOM_LEVELS
+            .into_iter()
+            .find(|l| *l > zoom + 0.01)
+            .unwrap_or(ZOOM_LEVELS[ZOOM_LEVELS.len() - 1]);
+    }
+    ZOOM_LEVELS
+        .into_iter()
+        .rev()
+        .find(|l| *l < zoom - 0.01)
+        .unwrap_or(ZOOM_LEVELS[0])
+}

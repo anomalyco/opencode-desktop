@@ -2,7 +2,8 @@
 //! `command.register` feeds its palette and slash popover (`shell/commands/command.tsx`,
 //! `session/commands/use-session-commands.tsx`, `composer/commands.tsx`).
 //!
-//! A feature adds its commands from its own file:
+//! A feature adds its commands either in `Feature::register` via
+//! `builder.add_command(CommandEntry::...)` (`s.kernel.commands`) or statically via
 //! `rune_register::register!(crate::commands::COMMANDS: Cmd = [Cmd::new("id", key!("title.key"), run)…]);`
 //! Titles and descriptions are catalog keys, read in the current language as the list is made.
 //! Panels with a `.command(…)` join the list on their own (`App::commands`).
@@ -113,11 +114,34 @@ pub struct Command {
     pub run: Run,
 }
 
+impl Command {
+    /// Effective first chord shown in palettes and slash menus, applying Settings › Shortcuts overrides.
+    pub fn effective_chord(&self) -> Option<rune::Chord> {
+        if let Some(bind) = self.keys {
+            return bind.chord();
+        }
+        crate::keymap::overrides::command(self.id)
+            .map_or(self.chord, |k| k.chords().first().copied())
+    }
+}
+
 /// Search commands' own entry: the commands-only palette doesn't list itself.
 pub const SEARCH: &str = "commands";
 
+fn parse_section(name: &str) -> Option<Section> {
+    match name.to_ascii_lowercase().as_str() {
+        "general" => Some(Section::General),
+        "session" => Some(Section::Session),
+        "navigation" => Some(Section::Navigation),
+        "model" | "models" => Some(Section::Models),
+        "terminal" => Some(Section::Terminal),
+        "prompt" => Some(Section::Prompt),
+        _ => None,
+    }
+}
+
 impl App {
-    /// Every enabled command: the registered ones, the panels', then the plugins'.
+    /// Every enabled command: the registered ones, the kernel features', then the plugins'.
     pub fn commands(&self) -> Vec<Command> {
         self.listing(true)
     }
@@ -146,20 +170,36 @@ impl App {
             featured: false,
             run: Run::Fn(c.run),
         });
-        own.chain(crate::plugin_host::commands(self, offered)).collect()
+        let kernel = self
+            .kernel
+            .commands
+            .iter_with_chords()
+            .filter(|(c, _)| !offered || c.is_enabled(self))
+            .map(|(c, chord)| Command {
+                id: c.id,
+                title: c.title_text(),
+                description: c.description_text().unwrap_or(""),
+                slash: c.slash,
+                keys: None,
+                chord,
+                section: c.section.and_then(parse_section),
+                hidden: c.hidden,
+                featured: false,
+                run: Run::Fn(c.run),
+            });
+        own.chain(kernel).chain(crate::plugin_host::commands(self, offered)).collect()
     }
 
     pub fn run_command(&mut self, id: &str, tx: &mut Tx) {
-        let Some(c) = self.commands().into_iter().find(|c| c.id == id) else {
-            crate::plugin_host::run_command(self, id, tx);
+        if let Some(c) = collect(&COMMANDS).into_iter().find(|c| c.id == id && (c.enabled)(self)) {
+            (c.run)(self, tx);
             return;
-        };
-        match c.run {
-            Run::Fn(f) => f(self, tx),
-            Run::Plugin(id) => {
-                crate::plugin_host::run_command(self, id, tx);
-            }
         }
+        if let Some(entry) = self.kernel.commands.get(id).copied().filter(|e| e.is_enabled(self)) {
+            (entry.run)(self, tx);
+            return;
+        }
+        crate::plugin_host::run_command(self, id, tx);
     }
 
     /// `input.focus` (⌃L): the composer takes the keys from anywhere it shows.
@@ -196,34 +236,42 @@ impl App {
     }
 }
 
-/// Its Settings › Shortcuts group, when a registered command names one.
-pub fn section_of(id: &str) -> Option<Section> {
-    collect(&COMMANDS).into_iter().find(|c| c.id == id).and_then(|c| c.section)
+/// Runs the enabled `COMMANDS` entry bound to `bind`, returning `true` if one ran.
+pub fn run_bind(s: &mut App, bind: Bind, tx: &mut Tx) -> bool {
+    let Some(cmd) = collect(&COMMANDS).into_iter().find(|c| c.keys == Some(bind) && (c.enabled)(s)) else {
+        return false;
+    };
+    (cmd.run)(s, tx);
+    true
 }
 
+/// Static `COMMANDS` bindings dispatched ahead of plugin shortcuts (`commands::key`).
+const KEY_BINDS: [Bind; 6] = [
+    Bind::FocusInput,
+    Bind::AddSelection,
+    Bind::PromptModeToggle,
+    Bind::JumpToMessage,
+    Bind::MessagePrev,
+    Bind::MessageNext,
+];
+
 /// ⌃L, as Desktop binds `input.focus` (a focused panel, the terminal's clear screen, takes it
-/// first); ⇧⌘L adds the open file's selected lines; ⇧⌘X switches the composer's shell mode.
-/// Each declines its key where Desktop's command is disabled.
+/// first); ⇧⌘L adds the open file's selected lines; ⇧⌘X switches the composer's shell mode;
+/// message jump/navigation; plus any shortcut-bound kernel commands registered by features.
+/// Each declines its key where the command is disabled.
 pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if Bind::FocusInput.matches_tx(ev, tx) {
-        return s.focus_composer(tx);
-    }
-    if Bind::AddSelection.matches_tx(ev, tx) && s.can_add_selection() {
-        s.add_selection(tx);
-        return true;
-    }
-    if Bind::PromptModeToggle.matches_tx(ev, tx) && s.has_composer() {
-        toggle_shell(s, tx);
-        return true;
-    }
-    if Bind::JumpToMessage.matches_tx(ev, tx) && s.open_session().is_some() {
-        return s.open_jump_dialog(tx);
-    }
-    for (bind, offset) in [(Bind::MessagePrev, -1), (Bind::MessageNext, 1)] {
-        if bind.matches_tx(ev, tx) && s.open_session().is_some() {
-            s.navigate_message(offset, tx);
+    for bind in KEY_BINDS {
+        if bind.matches_tx(ev, tx) && run_bind(s, bind, tx) {
             return true;
         }
+    }
+    if let Some(entry) = s
+        .kernel
+        .commands
+        .find_key_with(s, ev, tx, |id| crate::keymap::overrides::command(id))
+    {
+        (entry.run)(s, tx);
+        return true;
     }
     false
 }

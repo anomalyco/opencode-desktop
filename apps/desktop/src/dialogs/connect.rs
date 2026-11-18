@@ -2,7 +2,7 @@
 
 pub use opencode_feature_connect::*;
 
-use opencode_kernel::{Feature, KernelBuilder, OverlayRegistration};
+use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration};
 use opencode_kit::integration::Integration;
 use rune::Tx;
 use rune::machine::Attempt;
@@ -200,6 +200,12 @@ impl Feature<App> for ConnectFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder.add_command(
+            CommandEntry::<App>::from_key("provider.connect", opencode_i18n::key!("command.provider.connect"), |s, tx| s.open_connect(None, false, tx))
+                .describe(opencode_i18n::key!("command.provider.connect.description"))
+                .slash("connect")
+                .when(App::has_composer),
+        );
         builder.register_overlay(
             OverlayRegistration::<App>::new(OVERLAY_ID)
                 .with_z(400)
@@ -222,13 +228,6 @@ impl Feature<App> for ConnectFeature {
         );
     }
 }
-
-rune_register::register!(crate::commands::COMMANDS: crate::commands::Cmd = [
-    crate::commands::Cmd::new("provider.connect", opencode_i18n::key!("command.provider.connect"), |s, tx| s.open_connect(None, false, tx))
-        .describe(opencode_i18n::key!("command.provider.connect.description"))
-        .slash("connect")
-        .when(App::has_composer),
-]);
 
 mod scenes {
     //! The connect dialog's steps that only a write reaches, as scenes (`--scene connect-models`):

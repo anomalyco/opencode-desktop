@@ -2,7 +2,7 @@
 
 pub use opencode_feature_usage::*;
 
-use opencode_kernel::{Feature, KernelBuilder, OverlayRegistration};
+use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration};
 use rune::Tx;
 use serde_json::Value;
 
@@ -105,12 +105,6 @@ impl App {
     }
 }
 
-rune_register::register!(crate::commands::COMMANDS: crate::commands::Cmd = [
-    crate::commands::Cmd::new("usage.view", opencode_i18n::key!("command.usage.view"), |s, tx| s.open_usage(tx))
-        .describe(opencode_i18n::key!("command.usage.view.description"))
-        .when(App::has_composer),
-]);
-
 /// Kernel feature registration for the Usage dialog.
 pub struct UsageFeature;
 
@@ -120,6 +114,11 @@ impl Feature<App> for UsageFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder.add_command(
+            CommandEntry::<App>::from_key("usage.view", opencode_i18n::key!("command.usage.view"), |s, tx| s.open_usage(tx))
+                .describe(opencode_i18n::key!("command.usage.view.description"))
+                .when(App::has_composer),
+        );
         builder.register_overlay(
             OverlayRegistration::<App>::new(OVERLAY_ID)
                 .with_z(440)

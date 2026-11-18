@@ -553,7 +553,6 @@ impl App {
 
     /// OpenCode Desktop's key defaults; true when `ev` was one.
     pub fn shortcut(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
-        use shortcuts::Action;
         if settings::pages::shortcuts::run_bound(self, ev, tx) || dictation::key(self, ev, tx) || background::key(self, ev, tx) || find::shortcut(self, ev, tx) || commands::key(self, ev, tx) || plugin_host::key(self, ev, tx) {
             return true;
         }
@@ -565,25 +564,7 @@ impl App {
             self.navigate(forward, tx);
             return true;
         }
-        let Some(action) = shortcuts::action_tx(ev, tx) else { return false };
-        match action {
-            // Zoom lands at once; the scale and every re-laid-out row would otherwise spring.
-            Action::ZoomIn => self.zoom_by(1, tx),
-            Action::ZoomOut => self.zoom_by(-1, tx),
-            Action::ZoomReset => self.zoom_by(0, tx),
-            Action::Tab(offset) => self.select_adjacent(offset, tx),
-            Action::UnreadTab(offset) => self.select_unread(offset, tx),
-            // Desktop numbers the first nine it shows (`titlebar-tab-numbers`).
-            Action::TabAt(i) => self.select_nth(i, tx),
-            Action::NewSession => self.new_session(tx),
-            Action::OpenProject => self.open_project_dialog(tx),
-            Action::SelectProject => self.toggle_project_switcher(tx),
-            Action::Settings => self.toggle_settings(tx),
-            Action::AutoAccept => self.toggle_auto_accept(tx),
-            Action::CloseTab => self.close_tab_key(tx),
-            Action::ReopenTab => self.reopen_tab(tx),
-        }
-        true
+        shortcuts::run(self, ev, tx)
     }
 
     pub fn live(&self) -> bool {
