@@ -49,6 +49,7 @@ Organized by progressive disclosure (see [ARCHITECTURE.md](ARCHITECTURE.md)):
 | --- | --- | --- |
 | `plugins/*` | Built-in Luau plugins | Default home for ~80% of UI features (panels, dialogs, commands, server sources); hot reloads without touching Rust |
 | `features/code-view` | `opencode-feature-code-view` | Virtualized syntax-highlighted code and diff viewers |
+| `features/connect` | `opencode-feature-connect` | Provider and integration connect dialog, catalog sync, picker catalog reads, and ChatGPT plan welcome |
 | `features/dictation` | `opencode-feature-dictation` | Hex voice dictation state machine, availability polling, and composer insertion |
 | `features/egg` | `opencode-feature-egg` | New-session GPU wordmark & Brick Breaker Easter egg |
 | `features/mcp` | `opencode-feature-mcp` | MCP server toggle machine, MCPs dialog, and browser OAuth sign-in dialog |
@@ -59,6 +60,7 @@ Organized by progressive disclosure (see [ARCHITECTURE.md](ARCHITECTURE.md)):
 | `features/usage` | `opencode-feature-usage` | Usage limits parser, Usage dialog, and model-picker budget warnings |
 | `crates/opencode-kernel` | `opencode-kernel` | Shell kernel registries (`StateSlots`, `OverlayStack`, `LifecycleScheduler`, `CommandRegistry`, `EventBus`) |
 | `crates/opencode-runtime` | `opencode-runtime` | Headless runtime primitives and explicit state machines (catalog, idle, pairing, server pool/form, window life/placement, fork/rewind/pages/queue/send) |
+| `crates/opencode-ui` | `opencode-ui` | Shared OpenCode UI primitives (`widgets`, dialog sizing helpers) and shortcut keymap (`keymap`) |
 | `crates/opencode-platform` | `opencode-platform` | Cross-platform OS/WASM utilities (wall clock, OTLP telemetry, askpass, HTTP fetch) |
 | `crates/session-view` | `session-view` | Embeddable virtualized OpenCode session timeline view (Markdown, `ui` outlines, Mermaid, tool groups, subagent cards, images, scroll bar) |
 | `crates/opencode-kit` | `opencode-kit` | OpenCode HTTP/SSE/WebSocket client, local `service.json` discovery, and session/transcript model |

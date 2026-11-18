@@ -192,6 +192,7 @@ pub(crate) use pickers::PickerHost;
 pub(crate) fn init_features() {
     static INIT: std::sync::Once = std::sync::Once::new();
     INIT.call_once(|| {
+        keymap::init();
         updater::init();
         #[cfg(feature = "office")]
         office::init();

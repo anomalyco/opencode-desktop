@@ -370,7 +370,7 @@ impl App {
                     Ok(()) => crate::status_toast::succeed(s, t!("provider.disconnect.toast.disconnected.title", provider = name), t!("provider.disconnect.toast.disconnected.description", provider = name)),
                     Err(e) => crate::status_toast::fail(s, t!("common.requestFailed"), e),
                 }
-                s.sync_catalogs(None, |_, _, _| {});
+                s.sync_catalogs(None);
             }) as crate::jobs::Apply
         });
     }
@@ -402,7 +402,7 @@ impl App {
                     Ok(()) => {}
                     Err(e) => crate::status_toast::fail(s, t!("common.requestFailed"), e),
                 }
-                s.sync_catalogs(None, |_, _, _| {});
+                s.sync_catalogs(None);
             }) as crate::jobs::Apply
         });
     }

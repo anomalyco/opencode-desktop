@@ -53,6 +53,7 @@ memchr = "2"
 scraper = { version = "0.24", default-features = false }
 mlua = { git = "https://github.com/mlua-rs/mlua", rev = "a0ad4535fc72ba89967a931c5be57b162b5f0f3f", features = ["luau"] }
 opencode-feature-code-view = { path = "../../features/code-view" }
+opencode-feature-connect = { path = "../../features/connect" }
 opencode-feature-dictation = { path = "../../features/dictation" }
 opencode-feature-egg = { path = "../../features/egg" }
 opencode-feature-mcp = { path = "../../features/mcp" }
@@ -67,6 +68,7 @@ opencode-platform = { path = "../../crates/opencode-platform" }
 opencode-runtime = { path = "../../crates/opencode-runtime" }
 opencode-search = { path = "../../crates/opencode-search" }
 opencode-storage = { path = "../../crates/opencode-storage" }
+opencode-ui = { path = "../../crates/opencode-ui" }
 opencode-plugin-spec = { path = "../../crates/opencode-plugin-spec" }
 project-icon = { path = "../../crates/project-icon" }
 qrcode = { version = "0.14", default-features = false }
