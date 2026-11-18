@@ -4090,7 +4090,6 @@ dependencies = [
  "image",
  "js-sys",
  "mlua",
- "notify",
  "opencode-code-view",
  "opencode-feature-annotations",
  "opencode-feature-composer-input",
