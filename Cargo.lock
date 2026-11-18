@@ -4069,7 +4069,6 @@ version = "0.0.1"
 dependencies = [
  "image",
  "opencode-kit",
- "resvg 0.45.1",
  "rune",
  "serde_json",
 ]

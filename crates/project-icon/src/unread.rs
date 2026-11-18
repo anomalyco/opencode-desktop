@@ -96,17 +96,6 @@ impl Icons {
 /// A small, centre-cropped copy of a vector logo for the notched tile. Decode on the existing
 /// icon worker, never on the key that first puts an unread project on screen.
 pub(super) fn svg_miniature(bytes: &[u8]) -> Option<image::RgbaImage> {
-    use resvg::{tiny_skia, usvg};
-    let mut options = usvg::Options::default();
-    options.image_href_resolver.resolve_string = Box::new(|_, _| None);
-    let tree = usvg::Tree::from_data(bytes, &options).ok()?;
-    let size = tree.size();
-    let k = PX as f32 / size.width().min(size.height());
-    let t = tiny_skia::Transform::from_row(k, 0.0, 0.0, k, (PX as f32 - size.width()*k)/2.0, (PX as f32 - size.height()*k)/2.0);
-    let mut pixmap = tiny_skia::Pixmap::new(PX, PX)?;
-    resvg::render(&tree, t, &mut pixmap.as_mut());
-    Some(image::RgbaImage::from_fn(PX, PX, |x,y| {
-        let c = pixmap.pixel(x,y).expect("pixel inside tile").demultiply();
-        image::Rgba([c.red(), c.green(), c.blue(), c.alpha()])
-    }))
+    let rgba = rune::image::svg_rgba_cover(bytes, PX).ok()?;
+    image::RgbaImage::from_raw(PX, PX, rgba)
 }
