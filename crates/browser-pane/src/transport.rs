@@ -91,6 +91,11 @@ pub(crate) fn engine_command(bin: &Path, sock: &Path, profile: &Path) -> Command
     if let Some((high, low)) = rune::native_surface::windows::adapter_luid() {
         cmd.arg("--adapter-luid").arg(format!("{high},{low}"));
     }
+    // Linux: the GPU the window draws on, whose Vulkan device imports the engine's dmabufs.
+    #[cfg(target_os = "linux")]
+    if let Some(node) = crate::dmabuf::device() {
+        cmd.arg("--dmabuf-device").arg(node);
+    }
     cmd
 }
 
@@ -473,6 +478,9 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
         }
         let _ = tx.send(open.clone());
     }
+    // Linux: frame reads and failures go to this connection only, never to a later engine's.
+    #[cfg(target_os = "linux")]
+    let frames_tx = tx.clone();
     *link.outbox.lock().unwrap() = Some(tx);
     drop(early);
     // Connected: the app's next turn sends the tabs that wait (`flush_pending_opens`).
@@ -512,10 +520,20 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
     std::thread::Builder::new()
         .name("rune-browser-rx".into())
         .spawn(move || {
+            #[cfg(target_os = "linux")]
+            let mut reader = crate::fd_lines::FdLines::new(reader_stream);
+            #[cfg(not(target_os = "linux"))]
             let mut reader = BufReader::new(reader_stream);
+            #[cfg(target_os = "linux")]
+            let (mut pools, mut frames) = (crate::dmabuf::Pools::new(frames_tx), crate::dmabuf::Frames::None);
             let mut line = String::new();
             loop {
                 line.clear();
+                #[cfg(target_os = "linux")]
+                let Ok((1.., line_at)) = reader.read_line(&mut line) else { break };
+                #[cfg(target_os = "linux")]
+                if !link.current() { break; }
+                #[cfg(not(target_os = "linux"))]
                 if !matches!(reader.read_line(&mut line), Ok(1..)) || !link.current() { break; }
                 // The sidecar writes the type tag first. Borrow the large base64 field directly
                 // from the reusable line buffer. Other layouts still go through the wire enum.
@@ -523,6 +541,11 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
                     && let Ok(paint) = serde_json::from_str::<WirePaint>(&line)
                 {
                     answers.heard(&link);
+                    #[cfg(target_os = "linux")]
+                    {
+                        frames.step(crate::dmabuf::Frames::Bgra);
+                        pools.forget(paint.tab_id);
+                    }
                     paint.push(&link.surfaces);
                     continue;
                 }
@@ -534,7 +557,26 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
                     push_shared(&link.surfaces, tab_id, frame_id, width, height, texture, release_fence);
                     continue;
                 }
+                #[cfg(target_os = "linux")]
+                match msg {
+                    EngineMsg::DmabufPool { tab_id, pool, buffers, width, height, stride, offset, modifier } => {
+                        let info = crate::dmabuf::PoolInfo { tab_id, pool, buffers, size: [width, height], stride, offset, modifier };
+                        pools.add(info, reader.take_fds(line_at));
+                        continue;
+                    }
+                    EngineMsg::DmabufFrame { tab_id, frame_id, pool, slot } => {
+                        frames.step(crate::dmabuf::Frames::Dmabuf);
+                        paint_event(PaintEvent::Frame);
+                        let surface = link.surfaces.lock().unwrap().get(&tab_id).cloned();
+                        pools.show(surface.as_ref(), tab_id, frame_id, pool, slot);
+                        continue;
+                    }
+                    EngineMsg::TabClosed { tab_id } => pools.forget(tab_id),
+                    _ => {}
+                }
                 if let EngineMsg::CpuFrame { tab_id, frame_id, width, height, bgra_b64 } = msg {
+                    #[cfg(target_os = "linux")]
+                    pools.forget(tab_id);
                     WirePaint { tab_id, frame_id, width, height, bgra_b64: &bgra_b64 }.push(&link.surfaces);
                     continue;
                 }

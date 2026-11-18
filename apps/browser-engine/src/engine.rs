@@ -9,7 +9,7 @@ use cef::rc::Rc as _;
 use cef::{
     App, Browser, BrowserHost, BrowserProcessHandler, BrowserSettings, CefString,
     CommandLine, ImplApp, ImplBrowser, ImplBrowserHost, ImplBrowserProcessHandler,
-    ImplCommandLine, ImplFrame, KeyEvent, KeyEventType, MouseButtonType,
+    ImplCommandLine, ImplFrame, MouseButtonType,
     MouseEvent, PaintElementType, Registration, Settings, WindowInfo, WrapApp,
     WrapBrowserProcessHandler, sys, wrap_app, wrap_browser_process_handler,
 };
@@ -17,9 +17,9 @@ use serde_json::{Value, json};
 
 use crate::handlers::{
     CdpPending, FrameRing, PendingClear, TabCdpObserver, TabDisplayHandler, TabLoadHandler,
-    TabRenderHandler, TabRequestHandler, ViewRectState, ascii_vk, cef_mods, event_flag,
-    mac_key_code, named_codes, native_key_code,
+    TabRenderHandler, TabRequestHandler, ViewRectState, cef_mods, event_flag,
 };
+use crate::keys::send_key;
 use crate::profile::Profile;
 use crate::tab_client::SidecarTabClient;
 use crate::wire::{
@@ -157,10 +157,7 @@ wrap_app! {
             let Some(cmd) = command_line else { return };
             // Rune owns the window. CEF paints offscreen even when no display server is running.
             #[cfg(target_os = "linux")]
-            {
-                cmd.append_switch_with_value(Some(&"ozone-platform".into()), Some(&"headless".into()));
-                cmd.append_switch(Some(&"disable-gpu".into()));
-            }
+            crate::linux_gpu::configure(cmd);
             cmd.append_switch(Some(&"mute-audio".into()));
             cmd.append_switch(Some(&"use-mock-keychain".into()));
             cmd.append_switch(Some(&"no-startup-window".into()));
@@ -205,7 +202,10 @@ struct ManagedTab {
     pending_clears: Arc<Mutex<Vec<PendingClear>>>,
     _cdp_reg: Option<Registration>,
     held_buttons: u32,
-    #[cfg(windows)]
+    /// Linux: whether it's the tab the app shows (`HostMsg::FocusTab`), to open it again so.
+    #[cfg(target_os = "linux")]
+    shown: bool,
+    #[cfg(any(windows, target_os = "linux"))]
     frames: FrameRing,
 }
 
@@ -222,11 +222,23 @@ pub struct EngineManager {
     /// Windows: the D3D11 device frames are copied on; None renders on the CPU instead.
     #[cfg(windows)]
     gpu: Option<Arc<crate::d3d_frames::Gpu>>,
+    /// Linux: dmabufs, read-back or CPU paints once they can't work, and where tabs report a
+    /// failed frame (`crate::Event::FramesFailed`).
+    #[cfg(target_os = "linux")]
+    transport: crate::dmabuf_frames::Transport,
+    #[cfg(target_os = "linux")]
+    events: std::sync::mpsc::Sender<crate::Event>,
 }
 
 impl EngineManager {
     /// Windows: `gpu` is the D3D11 device frames are copied on (None renders on the CPU).
-    pub fn new(out_tx: crate::output::Output, downloads: std::path::PathBuf, #[cfg(windows)] gpu: Option<Arc<crate::d3d_frames::Gpu>>) -> Self {
+    pub fn new(
+        out_tx: crate::output::Output,
+        downloads: std::path::PathBuf,
+        #[cfg(windows)] gpu: Option<Arc<crate::d3d_frames::Gpu>>,
+        #[cfg(target_os = "linux")] transport: crate::dmabuf_frames::Transport,
+        #[cfg(target_os = "linux")] events: std::sync::mpsc::Sender<crate::Event>,
+    ) -> Self {
         Self {
             tabs: HashMap::new(),
             mach_port: Arc::new(AtomicU32::new(0)),
@@ -237,6 +249,10 @@ impl EngineManager {
             downloads: crate::downloads::Downloads::open(&downloads),
             #[cfg(windows)]
             gpu,
+            #[cfg(target_os = "linux")]
+            transport,
+            #[cfg(target_os = "linux")]
+            events,
         }
     }
 
@@ -248,6 +264,7 @@ impl EngineManager {
     pub fn waits_for_texture(&self) -> bool {
         #[cfg(windows)]
         return self.tabs.values().any(|t| t.frames.as_ref().is_some_and(|ring| ring.lock().unwrap().dropped));
+        // Linux: the app's read repaints the tab (`HostMsg::FrameRead`); nothing waits on a timer.
         #[cfg(not(windows))]
         false
     }
@@ -263,6 +280,42 @@ impl EngineManager {
                 ring.dropped = false;
                 t.host.invalidate(PaintElementType::default());
             }
+        }
+    }
+
+    /// Linux: runs tab `tab_id`'s frame effects.
+    #[cfg(target_os = "linux")]
+    fn run_frames(&self, tab_id: u64, effects: Vec<crate::dmabuf_frames::Effect>) {
+        let host = self.tabs.get(&tab_id).map(|t| &t.host);
+        let events = self.events.clone();
+        crate::dmabuf_frames::run(effects, tab_id, &self.out_tx, host, &move |f| {
+            let _ = events.send(crate::Event::FramesFailed(f));
+        });
+    }
+
+    /// Linux: frames can't come the way they do; the engine's transport moves on.
+    #[cfg(target_os = "linux")]
+    pub fn frames_failed(&mut self, failure: crate::dmabuf_frames::Failure) {
+        use crate::dmabuf_frames::{Event, TransportEffect};
+        match self.transport.step(failure) {
+            Some(TransportEffect::ReadBackTabs) => {
+                for (&tab_id, t) in &self.tabs {
+                    let Some(ring) = &t.frames else { continue };
+                    self.run_frames(tab_id, ring.lock().unwrap().step(Event::ReadBack));
+                }
+            }
+            Some(TransportEffect::ReopenTabs) => {
+                let ids: Vec<u64> = self.tabs.keys().copied().collect();
+                for tab_id in ids {
+                    let Some(tab) = self.tabs.remove(&tab_id) else { continue };
+                    tab.host.close_browser(1);
+                    let url = tab.snap.lock().unwrap().url.clone();
+                    let v = tab.view_state.lock().unwrap().clone();
+                    let roots = tab.file_roots.lock().unwrap().clone();
+                    self.open_tab(tab_id, &url, v.width_pt, v.height_pt, v.scale, tab.shown, roots);
+                }
+            }
+            None => {}
         }
     }
 
@@ -372,6 +425,10 @@ impl EngineManager {
                         if let Some(ring) = &t.frames {
                             ring.lock().unwrap().forget_reads();
                         }
+                        #[cfg(target_os = "linux")]
+                        if let Some(ring) = &t.frames {
+                            let _ = ring.lock().unwrap().step(crate::dmabuf_frames::Event::Released);
+                        }
                         t.host.invalidate(PaintElementType::default());
                     }
                 }
@@ -392,8 +449,16 @@ impl EngineManager {
                 }
             }
             HostMsg::FocusTab { tab_id } => {
-                for (&id, t) in &self.tabs {
+                for (&id, t) in &mut self.tabs {
                     let active = id == tab_id;
+                    #[cfg(target_os = "linux")]
+                    {
+                        t.shown = active;
+                        // A hidden tab paints nothing: its buffers go until it's shown again.
+                        if let Some(ring) = t.frames.as_ref().filter(|_| !active) {
+                            let _ = ring.lock().unwrap().step(crate::dmabuf_frames::Event::Released);
+                        }
+                    }
                     t.host.was_hidden(i32::from(!active));
                     t.host.set_focus(i32::from(active));
                     if active {
@@ -722,6 +787,16 @@ impl EngineManager {
                     }
                 }
             }
+            #[cfg(target_os = "linux")]
+            HostMsg::FrameRead { tab_id, pool, frame_id } => {
+                if let Some(ring) = self.tabs.get(&tab_id).and_then(|t| t.frames.as_ref()) {
+                    self.run_frames(tab_id, ring.lock().unwrap().step(crate::dmabuf_frames::Event::Read { pool, frame_id }));
+                }
+            }
+            #[cfg(target_os = "linux")]
+            HostMsg::DmabufFailed { reason } => self.frames_failed(crate::dmabuf_frames::Failure::Share(format!("the app: {reason}"))),
+            #[cfg(not(target_os = "linux"))]
+            HostMsg::FrameRead { .. } | HostMsg::DmabufFailed { .. } => {}
             HostMsg::Shutdown => {
                 for (_, t) in self.tabs.drain() {
                     t.host.close_browser(1);
@@ -766,12 +841,14 @@ impl EngineManager {
             .gpu
             .clone()
             .map(|gpu| Arc::new(Mutex::new(crate::d3d_frames::TabFrames::new(gpu, tab_id))));
-        #[cfg(not(windows))]
+        #[cfg(target_os = "linux")]
+        let frames: FrameRing = self.transport.frames().map(|f| Arc::new(Mutex::new(f)));
+        #[cfg(target_os = "macos")]
         let frames: FrameRing = ();
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         let shared_texture = frames.is_some();
-        #[cfg(not(windows))]
-        let shared_texture = cfg!(target_os = "macos");
+        #[cfg(target_os = "macos")]
+        let shared_texture = true;
         let render = TabRenderHandler::new(
             tab_id,
             view_state.clone(),
@@ -779,6 +856,10 @@ impl EngineManager {
             self.out_tx.clone(),
             Arc::new(AtomicU64::new(0)),
             frames.clone(),
+            #[cfg(target_os = "linux")]
+            self.events.clone(),
+            #[cfg(not(target_os = "linux"))]
+            (),
         );
         let display = TabDisplayHandler::new(snap.clone(), self.out_tx.clone());
         let load = TabLoadHandler::new(tab_id, file_roots.clone(), snap.clone(), self.out_tx.clone());
@@ -850,7 +931,9 @@ impl EngineManager {
                 pending_clears,
                 _cdp_reg: cdp_reg,
                 held_buttons: 0,
-                #[cfg(windows)]
+                #[cfg(target_os = "linux")]
+                shown: focused,
+                #[cfg(any(windows, target_os = "linux"))]
                 frames,
             },
         );
@@ -875,82 +958,3 @@ impl EngineManager {
 }
 
 mod emulation;
-
-fn send_key(
-    host: &BrowserHost,
-    down: bool,
-    text: Option<&str>,
-    named: Option<&str>,
-    modifiers: u32,
-) {
-    if let Some(s) = text {
-        for ch in s.chars() {
-            let vk = ascii_vk(ch);
-            let mc = native_key_code(vk, mac_key_code(ch));
-            if down {
-                let raw_down = KeyEvent {
-                    type_: KeyEventType::from(sys::cef_key_event_type_t::KEYEVENT_RAWKEYDOWN),
-                    modifiers,
-                    windows_key_code: vk,
-                    native_key_code: mc,
-                    character: ch as u16,
-                    unmodified_character: ch.to_ascii_lowercase() as u16,
-                    ..Default::default()
-                };
-                host.send_key_event(Some(&raw_down));
-                let chr = KeyEvent {
-                    type_: KeyEventType::from(sys::cef_key_event_type_t::KEYEVENT_CHAR),
-                    modifiers,
-                    windows_key_code: ch as i32,
-                    native_key_code: mc,
-                    character: ch as u16,
-                    unmodified_character: ch.to_ascii_lowercase() as u16,
-                    ..Default::default()
-                };
-                host.send_key_event(Some(&chr));
-            } else {
-                let up = KeyEvent {
-                    type_: KeyEventType::from(sys::cef_key_event_type_t::KEYEVENT_KEYUP),
-                    modifiers,
-                    windows_key_code: vk,
-                    native_key_code: mc,
-                    character: ch as u16,
-                    unmodified_character: ch.to_ascii_lowercase() as u16,
-                    ..Default::default()
-                };
-                host.send_key_event(Some(&up));
-            }
-        }
-        return;
-    }
-    let Some(name) = named else { return };
-    let Some((vk, mc, ch)) = named_codes(name) else { return };
-    let mc = native_key_code(vk, mc);
-    let ty = if down {
-        sys::cef_key_event_type_t::KEYEVENT_RAWKEYDOWN
-    } else {
-        sys::cef_key_event_type_t::KEYEVENT_KEYUP
-    };
-    let ev = KeyEvent {
-        type_: KeyEventType::from(ty),
-        modifiers,
-        windows_key_code: vk,
-        native_key_code: mc,
-        character: ch.unwrap_or(0),
-        unmodified_character: ch.unwrap_or(0),
-        ..Default::default()
-    };
-    host.send_key_event(Some(&ev));
-    if down && let Some(c) = ch {
-        let chr = KeyEvent {
-            type_: KeyEventType::from(sys::cef_key_event_type_t::KEYEVENT_CHAR),
-            modifiers,
-            windows_key_code: vk,
-            native_key_code: mc,
-            character: c,
-            unmodified_character: c,
-            ..Default::default()
-        };
-        host.send_key_event(Some(&chr));
-    }
-}

@@ -4,6 +4,12 @@
 use cef::args::Args;
 
 fn main() {
+    // Chromium applies its crash fallback switches after CEF's before-launch callback.
+    #[cfg(target_os = "linux")]
+    if std::env::args().any(|a| a == "--type=gpu-process") {
+        let switch = |prefix: &str| std::env::args().filter_map(|a| a.strip_prefix(prefix).map(str::to_owned)).last().unwrap_or_default();
+        eprintln!("browser engine: gpu process gl={} angle={} transport=bgra", switch("--use-gl="), switch("--use-angle="));
+    }
     let args = Args::new();
 
     #[cfg(target_os = "macos")]

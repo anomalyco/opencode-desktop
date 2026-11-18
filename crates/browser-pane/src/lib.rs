@@ -7,8 +7,8 @@
 //! - Speaks line-delimited JSON over a private Unix domain socket (AF_UNIX on Windows too) for tabs,
 //!   input, resize, and CDP.
 //! - Receives zero-copy 2x Retina `IOSurface` frames over a Mach port pipe on macOS, and named D3D
-//!   shared textures on Windows, into Rune's `NativeSurface`. Linux streams CEF's CPU paints into
-//!   a `Pixels` handle per tab.
+//!   shared textures on Windows, into Rune's `NativeSurface`. On Linux the engine copies each GPU
+//!   frame into dmabufs it passes over the socket (`fd_lines.rs`), and falls back to BGRA paints.
 //!
 //! The sidecar needs the `engine` feature. Without it, `BrowserHost` keeps its tab model and mock
 //! tabs, and reports `EngineStatus::Unsupported` instead of starting an engine.
@@ -20,6 +20,10 @@ mod client;
 pub mod device;
 #[cfg(feature = "engine")]
 mod download;
+#[cfg(all(feature = "engine", target_os = "linux"))]
+mod dmabuf;
+#[cfg(all(feature = "engine", target_os = "linux"))]
+mod fd_lines;
 mod frame;
 pub mod installer;
 mod keys;

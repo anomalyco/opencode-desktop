@@ -22,6 +22,7 @@ install -m755 "$bin/opencode-browser-engine" "$bin/opencode-browser-engine-helpe
 # The distribution carries debug symbols in libcef.so. Only its dynamic symbols ship.
 strip --strip-unneeded -o "$app/libcef.so" "$cef/libcef.so"
 install -m644 "$cef"/{chrome_100_percent.pak,chrome_200_percent.pak,icudtl.dat,resources.pak,v8_context_snapshot.bin,CREDITS.html} "$app/"
+install -m644 "$cef/libvulkan.so.1" "$app/"
 if [[ -f "$cef/LICENSE.txt" ]]; then
   install -m644 "$cef/LICENSE.txt" "$app/"
 else
