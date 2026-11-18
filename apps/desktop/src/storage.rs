@@ -106,6 +106,8 @@ pub enum Notice {
     Memory(String),
     /// Another copy of OpenCode has this profile open: this run keeps its changes in memory.
     InUse,
+    /// Another copy of OpenCode is finishing a save: the windows show the last save until it has.
+    Waiting,
     /// The saved state was damaged: it's kept at this path, and the app started a new one.
     Damaged(String),
     /// Another process holds the file: the windows show its last checkpoint, and nothing is saved.
@@ -150,7 +152,11 @@ fn step(phase: Phase, event: Event) -> (Phase, Option<Effect>) {
             if boot.source.held() {
                 let mut t = told();
                 t.held = true;
-                t.owed = Some(if boot.source == opencode_storage::BootSource::Checkpoint { Notice::Checkpoint } else { Notice::FirstRun });
+                t.owed = Some(match boot.source {
+                    opencode_storage::BootSource::Checkpoint | opencode_storage::BootSource::Denied if opencode_storage::held_by_another_copy() => Notice::Waiting,
+                    opencode_storage::BootSource::Checkpoint => Notice::Checkpoint,
+                    _ => Notice::FirstRun,
+                });
             }
             (Phase::Booted { boot, opening, queued: Queued::default() }, None)
         }
