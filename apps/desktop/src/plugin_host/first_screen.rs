@@ -43,7 +43,8 @@ pub fn plugins(app: &App) -> Vec<&'static str> {
         };
         let with_tabs: Vec<&str> = tabs.all.iter().filter(|k| shown(k)).filter_map(|k| crate::panels::tabs::split_panel_key(k).map(|(plugin, _)| plugin)).collect();
         let files = with_tabs.contains(&"file");
-        out.extend(sources::builtin_ids().filter(|id| with_tabs.contains(id) || (files && has(id, &["FileViewer"]))));
+        let empty_side = side.visibility.open() && !tabs.all.iter().any(|k| tabs.panes.get(k).copied().unwrap_or(SessionPane::Side) != SessionPane::Bottom);
+        out.extend(sources::builtin_ids().filter(|id| with_tabs.contains(id) || (files && has(id, &["FileViewer"])) || (empty_side && has(id, &["Panel", "MenuItem"]))));
     }
     out.sort_unstable();
     out.dedup();

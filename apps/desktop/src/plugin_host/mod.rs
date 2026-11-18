@@ -430,6 +430,27 @@ fn settle_later(app: &mut App) {
     }
 }
 
+/// Adopts, now, any queued plugins still in `later` that register panels or menu items, so opening
+/// New tab or the `+` menu before `start_one_later` reaches them lists their entries at once.
+pub(super) fn adopt_later_launchers(app: &mut App) -> bool {
+    let mut now = Vec::new();
+    let mut keep = Vec::with_capacity(app.plugins.later.len());
+    for found in std::mem::take(&mut app.plugins.later) {
+        let kinds = sources::contributions(&found.manifest.id);
+        if found.tier != Tier::Bundled || kinds.contains(&"Panel") || kinds.contains(&"MenuItem") {
+            now.push(found);
+        } else {
+            keep.push(found);
+        }
+    }
+    app.plugins.later = keep;
+    let any = !now.is_empty();
+    if any {
+        adopt(app, now);
+    }
+    any
+}
+
 /// Whether built-in `id` has work of its own to do from launch, without a use: the updater's check,
 /// pill and What's new, and Pairing while Keep screen active holds the display. Those start in idle
 /// time rather than waiting for a use.
@@ -652,6 +673,7 @@ fn start(app: &mut App, i: usize) {
         stores::load(app, vec![id.clone()], false, move |app, tx| {
             if let Some(i) = app.plugins.find(&id).filter(|&i| matches!(app.plugins.list[i].life, Life::Loading)) {
                 start_loaded(app, i);
+                rune::Tracked::touch(&app.plugins);
                 tx.instant();
             }
         });

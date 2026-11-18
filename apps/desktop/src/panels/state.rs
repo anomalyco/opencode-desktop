@@ -361,7 +361,14 @@ impl App {
     fn resolve_side_region_now(&self) -> Option<ResolvedRegion> {
         let session_id = self.active_session_id()?.to_owned();
         let (directory, project_id) = match self.session(&session_id) {
-            Some(info) => (info.directory.clone(), info.project.clone()),
+            Some(info) => {
+                let pid = self
+                    .project_for_session(info)
+                    .map(|p| p.id.clone())
+                    .or_else(|| (!info.project.is_empty() && info.project != "global").then(|| info.project.clone()))
+                    .unwrap_or_default();
+                (info.directory.clone(), pid)
+            }
             None => (String::new(), String::new()),
         };
         let empty_tabs = SessionTabs::default();
@@ -575,22 +582,24 @@ impl App {
     /// whose only tabs are in the bottom pane shows the empty pane, as Desktop's does.
     pub(super) fn sync_empty_side(&mut self) -> bool {
         let Route::Session { id, .. } = &*self.route else { return false };
-        let stored_empty = self.side.sessions.get(id).is_none_or(|st| st.tab_state.tabs.all.is_empty());
+        let id = id.clone();
+        let stored_empty = self.side.sessions.get(&id).is_none_or(|st| st.tab_state.tabs.all.is_empty());
         let candidate = self.side_stored_open() && stored_empty;
-        if candidate && self.side.empty_span.within(id) {
+        if candidate && self.side.empty_span.within(&id) {
             return false;
         }
         // Pinned tabs fill the strip without being stored.
         let open_empty = candidate && self.resolve_side_region().is_none_or(|r| r.strip.is_empty());
-        if !self.side.empty_span.moves(id, open_empty) || !self.side.empty_span.step(id, open_empty) {
+        if !self.side.empty_span.moves(&id, open_empty) || !self.side.empty_span.step(&id, open_empty) {
             return false;
         }
+        let woke = crate::plugin_host::dormant::wake_launchers(self);
         // One left from an earlier opening shows again rather than being joined by another.
-        if self.shown_new_tab(id, SessionPane::Side, None).is_some() {
-            return false;
+        if self.shown_new_tab(&id, SessionPane::Side, None).is_some() {
+            return woke;
         }
         // Focus stays where it is, as Desktop's does: a terminal exiting doesn't take it.
-        let new = NewTabEntry { id: format!("new:{}", self.side.next_new_serial), pane: SessionPane::Side, session_id: id.clone(), over: None };
+        let new = NewTabEntry { id: format!("new:{}", self.side.next_new_serial), pane: SessionPane::Side, session_id: id, over: None };
         self.side.next_new_serial += 1;
         self.side.chosen_new_tab.insert(SessionPane::Side, new.id.clone());
         self.side.adding.push(new);

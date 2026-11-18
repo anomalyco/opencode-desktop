@@ -351,25 +351,42 @@ pub fn recorded_fn(app: &App, id: &str, kind: &str, key: &str, name: &str) -> bo
     app.plugins.dormant.asleep.get(id).and_then(|a| a.record.window.get(kind)).is_some_and(|es| es.iter().any(|e| e.key == key && e.fns.iter().any(|f| f == name)))
 }
 
-/// The side region's New tab view or its `+` menu is opening: the dormant plugins with entries
-/// there (panels, `session.panel` rows) start, so the entries are the ones they offer.
+/// The side region's New tab view or its `+` menu is opening: any queued or dormant plugins with
+/// entries there (panels, `session.panel` rows) start, so the entries are the ones they offer.
 pub fn wake_launchers(app: &mut App) -> bool {
-    wake_owners(app, |c| !c.panels.is_empty() || c.menu_items.iter().any(|m| m.spec.menu == spec::MenuName::SessionPanel))
+    let adopted = super::adopt_later_launchers(app);
+    let woke = wake_owners(app, |c| !c.panels.is_empty() || c.menu_items.iter().any(|m| m.spec.menu == spec::MenuName::SessionPanel));
+    adopted || woke
 }
 
 /// A surface on screen asked dormant plugin `id` something only its VM answers: it starts in idle
-/// time. Called from views, so it only marks.
+/// time. Called from views, so it only marks and nudges the window's waker for the next poll.
 pub fn want(app: &App, id: &str) {
     if wants(app, id, Wait::Idle) {
-        ASKED.with_borrow_mut(|w| push_once(w, id, Wait::Idle));
+        let first = ASKED.with_borrow_mut(|w| {
+            let empty = w.is_empty();
+            push_once(w, id, Wait::Idle);
+            empty
+        });
+        if first && let Some(wake) = &*app.waker {
+            wake();
+        }
     }
 }
 
 /// [`want`] for a surface that shows dormant plugin `id`'s part now (a slot, a code block, a file
-/// view): it starts at the next turn, so the surface draws without it for one frame at most.
+/// view, or an open New tab launcher list): it starts at the next turn, so the surface draws
+/// without it for one frame at most.
 pub fn want_now(app: &App, id: &str) {
     if wants(app, id, Wait::Next) {
-        ASKED.with_borrow_mut(|w| push_once(w, id, Wait::Next));
+        let first = ASKED.with_borrow_mut(|w| {
+            let empty = w.is_empty();
+            push_once(w, id, Wait::Next);
+            empty
+        });
+        if first && let Some(wake) = &*app.waker {
+            wake();
+        }
     }
 }
 
@@ -394,21 +411,34 @@ thread_local! {
     static ASKED: std::cell::RefCell<Vec<(String, Wait)>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
+/// Whether session `session`'s side region is open on New tab (empty side strip, or adding a tab).
+fn session_shows_launchers(app: &App, session: &str) -> bool {
+    app.side.sessions.get(session).is_some_and(|st| {
+        st.visibility.open()
+            && (!st.tab_state.tabs.all.iter().any(|k| st.tab_state.tabs.panes.get(k).copied().unwrap_or(crate::panels::SessionPane::Side) != crate::panels::SessionPane::Bottom)
+                || app.side.adding.iter().any(|n| n.session_id == session))
+    })
+}
+
 /// The dormant plugins a session's screen draws, as `first_screen` decides for a launch: its
 /// header slots (the debug bar's only while shown), its composer pills, the plugins with a tab in
 /// the session, and the file viewers when it has a Files tab. A code block a plugin draws asks for
 /// it as it shows ([`want_now`]); a link handler answers when a link is opened.
 fn for_session(app: &App, session: &str) -> Vec<String> {
-    let with_tabs: Vec<&str> = app.side.sessions.get(session).map(|side| side.tab_state.tabs.all.iter().filter_map(|k| crate::panels::tabs::split_panel_key(k).map(|(plugin, _)| plugin)).collect()).unwrap_or_default();
+    let side = app.side.sessions.get(session);
+    let with_tabs: Vec<&str> = side.map(|side| side.tab_state.tabs.all.iter().filter_map(|k| crate::panels::tabs::split_panel_key(k).map(|(plugin, _)| plugin)).collect()).unwrap_or_default();
     let files = with_tabs.contains(&"file");
+    let shows_launchers = session_shows_launchers(app, session);
     let has = |a: &Asleep, kind: &str| a.record.window.get(kind).is_some_and(|es| !es.is_empty());
+    let has_panel_menu = |a: &Asleep| a.record.window.get("menu_items").is_some_and(|es| es.iter().any(|e| e.spec.get("menu").and_then(|v| v.as_str()) == Some("session.panel")));
     app.plugins
         .dormant
         .asleep
         .iter()
         .filter(|(id, a)| {
             let slot = has(a, "slots") && (id.as_str() != "debug" || super::first_screen::debug_bar_shown());
-            slot || has(a, "composer_pills") || with_tabs.contains(&id.as_str()) || (files && has(a, "file_viewers"))
+            let launcher = shows_launchers && (has(a, "panels") || has_panel_menu(a));
+            slot || has(a, "composer_pills") || with_tabs.contains(&id.as_str()) || (files && has(a, "file_viewers")) || launcher
         })
         .map(|(id, _)| id.clone())
         .collect()
@@ -416,6 +446,9 @@ fn for_session(app: &App, session: &str) -> Vec<String> {
 
 /// The window routes to session `session`: what its screen draws starts before its frame.
 pub fn wake_for_route(app: &mut App, session: &str) {
+    if session_shows_launchers(app, session) {
+        super::adopt_later_launchers(app);
+    }
     for id in for_session(app, session) {
         wake(app, &id, Why::Use);
     }
@@ -453,6 +486,11 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
         }
     }
     if tx.input_waiting() {
+        if app.plugins.dormant.asleep.values().any(|a| a.wait == Wait::Next) {
+            tx.wake_after(Duration::ZERO);
+        } else if app.plugins.dormant.asleep.values().any(|a| a.wait == Wait::Idle) {
+            tx.wake_after(crate::idle::AFTER);
+        }
         return false;
     }
     let due = |wait: Wait| app.plugins.dormant.asleep.iter().find(|(_, a)| a.wait == wait).map(|(id, _)| id.clone());

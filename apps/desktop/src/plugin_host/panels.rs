@@ -325,7 +325,7 @@ fn asleep_launchers(app: &App, ctx: &PanelSessionCtx) -> Vec<PanelLauncherDesc> 
     let fns = |key: &str, name: &str| super::dormant::recorded_fn(app, id, "panels", key, name);
     let c = p.half.contribs.borrow();
     if c.panels.iter().any(|q| fns(q.key, "enabled")) || c.menu_items.iter().any(|m| super::dormant::recorded_fn(app, id, "menu_items", m.key, "when")) {
-        super::dormant::want(app, id);
+        super::dormant::want_now(app, id);
     }
     let mut out: Vec<PanelLauncherDesc> = c
         .panels
