@@ -10,7 +10,7 @@ use rusqlite::{Transaction, TransactionBehavior};
 
 use super::super::{boot_record, journal};
 use super::Writer;
-use crate::machine::checkpoint::WalEvent;
+use super::durability::WalEvent;
 
 /// The draft journal as the open leaves it to the writer.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
