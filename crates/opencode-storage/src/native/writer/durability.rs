@@ -229,11 +229,16 @@ fn wal_step(seq: &mut Seq, state: &mut Wal, event: WalEvent) -> Effects<WalEffec
             *state = Wal::Clean;
             Effects::one(WalEffect::CancelTimer)
         }
-        // The file was busy: try again after another quiet period, the record and sync still owed.
+        // The file was busy or failed: sync `-wal` directly if unsynced frames remain so idle or
+        // quit never leaves data unsynced on disk, then retry checkpointing after a quiet period.
         (Wal::Dirty { boot_stale, sync, .. }, WalEvent::CheckpointFailed) => {
             let attempt = seq.next();
             *state = Wal::Dirty { attempt, boot_stale, sync };
-            Effects::one(WalEffect::ArmTimer { attempt, delay_ms: IDLE_CHECKPOINT_MS })
+            if matches!(sync, WalSync::Unsynced { .. }) {
+                Effects::two(WalEffect::SyncWal, WalEffect::ArmTimer { attempt, delay_ms: IDLE_CHECKPOINT_MS })
+            } else {
+                Effects::one(WalEffect::ArmTimer { attempt, delay_ms: IDLE_CHECKPOINT_MS })
+            }
         }
         _ => Effects::none(),
     }
@@ -287,10 +292,15 @@ impl Writer {
         batches.extend(step_buffer(&mut self.seq, &mut self.previews, WriteBehindEvent::FlushRequested, PREVIEWS_MS, "previews", &mut self.timers).into_iter().map(|(a, m)| Batch::Previews(a, m)));
         batches.extend(step_buffer(&mut self.seq, &mut self.caches, WriteBehindEvent::FlushRequested, CACHES_MS, "caches", &mut self.timers).into_iter().map(|(a, m)| Batch::Caches(a, m)));
         self.commit(batches);
-        // At quit the WAL goes back into the file (`quit_checkpoint`) after the caller has its
-        // answer: the rows are committed now, and the synced checkpoint overlaps the windows
-        // closing; closing the storage waits for it.
-        let checkpointed = quit && !self.wal.is_clean();
+        // At quit / session-end / update-restart, complete the checkpoint (or fallback WAL sync)
+        // before returning FlushReport so callers and `close()`'s `journal::finish` never observe
+        // a clean/checkpointed answer while frames are still unsynced in the WAL.
+        let had_wal = !self.wal.is_clean();
+        self.quit_checkpoint(reason);
+        if quit {
+            rune::marks::mark("writer.checkpointed");
+        }
+        let checkpointed = quit && had_wal && self.wal.is_clean();
         FlushReport { clean: false, rows: self.written, micros: super::super::micros(started), checkpointed, timed_out: false }
     }
 
@@ -443,8 +453,12 @@ impl Writer {
                         })()
                         .is_ok();
                     rune::marks::mark("writer.rebuilt");
-                    let busy = if rebuilt { self.conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get::<_, i64>(0)).unwrap_or(1) } else { 1 };
-                    let event = if busy == 0 { WalEvent::Checkpointed } else { WalEvent::CheckpointFailed };
+                    let complete = rebuilt
+                        && matches!(
+                            self.conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))),
+                            Ok((0, log, ckpt)) if log >= 0 && ckpt >= log
+                        );
+                    let event = if complete { WalEvent::Checkpointed } else { WalEvent::CheckpointFailed };
                     queue.extend(wal_step(&mut self.seq, &mut self.wal, event));
                 }
             }

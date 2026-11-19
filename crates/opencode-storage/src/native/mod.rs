@@ -282,9 +282,9 @@ impl Backend {
 
     pub(crate) fn close(&self) -> FlushReport {
         let report = self.flush(FlushReason::Quit, Duration::from_secs(2));
-        // Before the writer stops (its repage may move pages): the journal is clean when every
-        // draft it holds is in the database.
-        journal::finish(!report.timed_out && crate::write_trouble().is_none());
+        // Before the writer stops (its repage may move pages): the journal is clean only once
+        // every draft it holds is checkpointed into the database (or the database was clean).
+        journal::finish(!report.timed_out && crate::write_trouble().is_none() && (report.clean || report.checkpointed));
         let w = std::mem::replace(&mut *self.lock(), Writer::Off);
         if let Writer::Running { tx, join } = w {
             tx.send(writer::Msg::Stop).ok();

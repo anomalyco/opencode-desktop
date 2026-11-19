@@ -285,8 +285,6 @@ impl Writer {
                     let report = self.flush(reason, started);
                     reply.send(report).ok();
                     rune::marks::mark("writer.flushed");
-                    self.quit_checkpoint(reason);
-                    rune::marks::mark("writer.checkpointed");
                 }
                 Ok(Msg::FirstFrame { done }) => {
                     let t = Instant::now();
@@ -297,7 +295,6 @@ impl Writer {
                     rune::marks::mark("writer.stop");
                     self.reserve_stopped();
                     self.flush(FlushReason::Quit, Instant::now());
-                    self.quit_checkpoint(FlushReason::Quit);
                     self.repage();
                     self.close_machines();
                     rune::marks::mark("writer.stopped");
