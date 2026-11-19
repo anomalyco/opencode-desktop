@@ -132,7 +132,9 @@ pub(super) enum WalEvent {
     TimerFired { attempt: Attempt },
     QuitRequested,
     Checkpointed,
-    CheckpointFailed,
+    /// `boot_rebuilt`: `boot_record::rebuild` committed new unsynced frames to `-wal` before
+    /// `PRAGMA wal_checkpoint(TRUNCATE)` failed.
+    CheckpointFailed { boot_rebuilt: bool, now: Instant },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -224,10 +226,17 @@ fn wal_step(seq: &mut Seq, state: &mut Wal, event: WalEvent) -> Effects<WalEffec
             *state = Wal::Clean;
             Effects::one(WalEffect::CancelTimer)
         }
-        // The file was busy or failed: sync `-wal` directly if unsynced frames remain so idle or
+        // The file was busy or failed: sync `-wal` directly if unsynced frames remain (including
+        // a `boot_record::rebuild` committed at NORMAL just before TRUNCATE failed) so idle or
         // quit never leaves data unsynced on disk, then retry checkpointing after a quiet period.
-        (Wal::Dirty { boot_stale, sync, .. }, WalEvent::CheckpointFailed) => {
+        (Wal::Dirty { boot_stale, sync, .. }, WalEvent::CheckpointFailed { boot_rebuilt, now }) => {
             let attempt = seq.next();
+            let boot_stale = boot_stale && !boot_rebuilt;
+            let sync = match sync {
+                WalSync::Unsynced { since, base_bytes } => WalSync::Unsynced { since, base_bytes },
+                WalSync::Synced { base_bytes } if boot_rebuilt => WalSync::Unsynced { since: now, base_bytes },
+                WalSync::Synced { base_bytes } => WalSync::Synced { base_bytes },
+            };
             *state = Wal::Dirty { attempt, boot_stale, sync };
             if matches!(sync, WalSync::Unsynced { .. }) {
                 Effects::two(WalEffect::SyncWal, WalEffect::ArmTimer { attempt, delay_ms: IDLE_CHECKPOINT_MS })
@@ -459,7 +468,11 @@ impl Writer {
                             self.conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))),
                             Ok((0, log, ckpt)) if log >= 0 && ckpt >= log
                         );
-                    let event = if complete { WalEvent::Checkpointed } else { WalEvent::CheckpointFailed };
+                    let event = if complete {
+                        WalEvent::Checkpointed
+                    } else {
+                        WalEvent::CheckpointFailed { boot_rebuilt: rebuild_boot && rebuilt, now: Instant::now() }
+                    };
                     queue.extend(wal_step(&mut self.seq, &mut self.wal, event));
                 }
             }
