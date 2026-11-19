@@ -81,13 +81,11 @@ opencode-ui = { path = "../../crates/opencode-ui" }
 opencode-plugin-runtime = { path = "../../crates/opencode-plugin-runtime" }
 opencode-plugin-spec = { path = "../../crates/opencode-plugin-spec" }
 project-icon = { path = "../../crates/project-icon" }
-procwatch.workspace = true
 rune-knobs.workspace = true
 rune-parts = { path = "../../crates/rune-parts", features = ["view"] }
 # The plugins (`plugin_host`), run on Luau. mlua is rune-luau's own, named here for the bindings.
 rune-luau = { workspace = true, features = ["serde"] }
 mlua.workspace = true
-rune-perf.workspace = true
 rune-register.workspace = true
 rune = { workspace = true, features = ["avif"] }
 rune-kit = { workspace = true, features = ["markdown", "mermaid"] }
@@ -110,9 +108,11 @@ opencode-feature-dictation = { path = "../../features/dictation" }
 opencode-feature-notifications = { path = "../../features/notifications" }
 opencode-feature-open-in = { path = "../../features/open-in" }
 opencode-feature-updater = { path = "../../features/updater" }
+procwatch.workspace = true
 rune = { workspace = true, features = ["native-file-dialog", "metal-backend", "tooling", "keys-overlay"] }
 rune-mac.workspace = true
 rune-notify.workspace = true
+rune-perf.workspace = true
 ureq = { workspace = true, features = ["rustls"] }
 # The build's identity everywhere; its install, uninstall and update registration on Windows.
 win-install = { path = "../../crates/win-install" }
