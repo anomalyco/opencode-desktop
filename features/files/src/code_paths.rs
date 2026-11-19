@@ -275,7 +275,7 @@ pub fn check_code_paths(host: &mut dyn FilesHost, sid: &str, path: &str) {
     }
     let todo: Vec<String> = {
         let Some(ws) = host.files().sessions.get(sid) else { return };
-        let Some(doc) = ws.docs.get(path).filter(|d| d.ready() && !d.binary()) else { return };
+        let Some(doc) = ws.docs.get(path).filter(|d| d.content().is_text()) else { return };
         let known = ws.code_paths.get(path);
         candidates(doc.text())
             .into_iter()

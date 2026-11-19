@@ -22,7 +22,10 @@ use rune_kit::syntax::{Highlight, Paint, Syntax, SyntaxTheme, highlight};
 use opencode_ui::palette::{Pal, kit};
 
 pub use diff::{DiffDocState, DiffFind, DiffViewer, PreparedDiffDoc, default_file_header};
-pub use file::{CodeDocState, CodeViewer, Content, DocFind, DocFindEvent, FileLineSelection};
+pub use file::{
+    CodeDocState, CodeViewer, Content, ContentEffect, ContentEvent, DocFind, DocFindEvent,
+    FileLineSelection,
+};
 pub use find_bar::{FindBar, find_bar, over};
 pub use fold::{ExpandMode, Fold, FoldEffect, FoldEvent, GapFacts, Reveal};
 pub use notes::{Handoff, LineNotes, LineRange, diff_range};

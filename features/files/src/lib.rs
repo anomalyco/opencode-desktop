@@ -45,8 +45,9 @@ pub use host::{
 };
 pub use links::{Link, link_directory, open_link, open_reply_link};
 pub use markdown::{
-    MdView, READ_ICON, READ_W, WRAP_STORAGE_KEY, WRAP_STORAGE_NS, WrapPrefs, file_find_step,
-    scroll_to_heading, set_file_wrap, sync_rendered_find, toggle_rendered,
+    MdView, PreviewMode, PreviewModeEvent, READ_ICON, READ_W, WRAP_STORAGE_KEY, WRAP_STORAGE_NS,
+    WrapPrefs, file_find_step, scroll_to_heading, set_file_wrap, sync_rendered_find,
+    toggle_rendered,
 };
 pub use ops::{
     apply_reply, ensure_file_loaded, ensure_workspace_files, execute_job, filtered_files,
@@ -85,9 +86,65 @@ pub struct SessionFiles {
     pub images: HashMap<String, image::FileImage>,
     /// Video files, each with its player and controls.
     pub videos: HashMap<String, video::FileVideo>,
-    pub ready: bool,
+    /// Root workspace directory listing lifecycle (`packages/app/src/workspaces/files/tree-machine.ts`).
+    pub tree_load: TreeLoad,
     /// What the narrow window's Files view shows (`narrow`).
     pub narrow: narrow::NarrowFiles,
+}
+
+/// Root workspace directory listing lifecycle (`packages/app/src/workspaces/files/tree-machine.ts`
+/// `DirectoryState` for the root `""`: `idle` -> `loading` -> `ready`, or `idle` -> `ready` for
+/// fixtures).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum TreeLoad {
+    /// Root listing has not been requested yet.
+    #[default]
+    Idle,
+    /// Live root listing request is in flight.
+    Loading,
+    /// Initial workspace listing (or fixture) has landed.
+    Ready,
+}
+
+/// Events driving [`TreeLoad`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TreeLoadEvent {
+    /// Request a live listing of the workspace root.
+    RequestLive,
+    /// A directory listing or fixture load completed.
+    Loaded,
+}
+
+/// Effects returned by [`TreeLoad::step`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TreeLoadEffect {
+    None,
+    /// Issue the root directory fetch against the live server.
+    FetchRoot,
+}
+
+impl TreeLoad {
+    pub fn is_idle(self) -> bool {
+        matches!(self, Self::Idle)
+    }
+
+    pub fn is_ready(self) -> bool {
+        matches!(self, Self::Ready)
+    }
+
+    pub fn step(&mut self, event: TreeLoadEvent) -> TreeLoadEffect {
+        match (*self, event) {
+            (Self::Idle, TreeLoadEvent::RequestLive) => {
+                *self = Self::Loading;
+                TreeLoadEffect::FetchRoot
+            }
+            (Self::Loading | Self::Ready, TreeLoadEvent::RequestLive) => TreeLoadEffect::None,
+            (_, TreeLoadEvent::Loaded) => {
+                *self = Self::Ready;
+                TreeLoadEffect::None
+            }
+        }
+    }
 }
 
 /// The server's search for the files a filter names, as Desktop's
@@ -171,13 +228,18 @@ impl Default for SessionFiles {
             code_paths: HashMap::new(),
             images: HashMap::new(),
             videos: HashMap::new(),
-            ready: false,
+            tree_load: TreeLoad::Idle,
             narrow: narrow::NarrowFiles::default(),
         }
     }
 }
 
 impl SessionFiles {
+    /// Whether watcher unlinks in `dir` should relist it (`tree-machine.ts::canRefreshDirectory`).
+    pub(crate) fn can_relist(&self, dir: &str) -> bool {
+        (dir.is_empty() && !self.tree_load.is_idle()) || self.listed_dirs.contains(dir)
+    }
+
     /// A reread starts with no rendered document. Drop the projection at the same time as the
     /// source: two revisions with the same path, dimensions and query can have different hits.
     pub fn invalidate_document(&mut self, path: &str) {
@@ -195,13 +257,13 @@ impl SessionFiles {
     /// Only a loaded, shown table is a Find target. A table in the source view keeps CodeViewer's
     /// ordinary selection, scroll and match ranges.
     pub(crate) fn shown_table(&self, path: &str) -> Option<&std::sync::Arc<delimited::Table>> {
-        if self.md.get(path).and_then(|v| v.rendered) == Some(false) {
+        if self.md.get(path).is_some_and(|v| v.mode.is_forced_source()) {
             return None;
         }
         self.tables.get(path).filter(|_| {
             self.docs
                 .get(path)
-                .is_some_and(|d| d.ready() && d.failure().is_none() && !d.binary() && !d.missing())
+                .is_some_and(|d| d.content().is_text())
         })
     }
 
@@ -240,7 +302,7 @@ impl SessionFiles {
     }
 
     pub(crate) fn shown_diagram(&self, path: &str) -> Option<std::rc::Rc<mermaid::Diagram>> {
-        if self.md.get(path).and_then(|v| v.rendered) == Some(false) {
+        if self.md.get(path).is_some_and(|v| v.mode.is_forced_source()) {
             return None;
         }
         self.diagram.current(self.docs.get(path)?)
@@ -255,9 +317,7 @@ impl SessionFiles {
 
     pub(crate) fn previewable(&self, path: &str) -> bool {
         self.docs.get(path).is_some_and(|d| {
-            d.ready()
-                && !d.missing()
-                && !d.binary()
+            d.content().is_text()
                 && (markdown::is_markdown(path)
                     || image::is_svg(path)
                     || self.html.contains_key(path)

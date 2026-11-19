@@ -483,7 +483,7 @@ fn new_half(s: &mut App, key: &ServerKey, adopt: bool) -> (Meta, Half) {
         None if key.is_sidecar() => (Meta::default(), own_server().unwrap_or_else(|| Server::new(opencode_kit::client::DEFAULT_SERVER))),
         None => (Meta::default(), Server::new(&format!("http://{}.invalid", key.as_str().replace([':', '/'], "-"))).with_remote_files()),
     };
-    let phase = if listed.is_some() { crate::launch::Phase::Waiting { beta_tabs: false } } else { crate::launch::Phase::Offline { retries: 0, retry_at: f64::INFINITY } };
+    let phase = if listed.is_some() { crate::launch::Phase::Waiting { beta_tabs: false, fallback_fixture: false } } else { crate::launch::Phase::Offline { retries: 0, retry_at: f64::INFINITY } };
     s.launch.set_phase(key.as_str(), phase);
     let wake = s.launch.inbox_wake.clone().or_else(|| (*s.waker).clone());
     let store = peer(key).filter(|_| adopt).map(|p| peer::member(p, wake)).unwrap_or_default();
