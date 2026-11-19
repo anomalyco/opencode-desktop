@@ -242,8 +242,9 @@ fn step_item<S: TimelineHost>(s: &S, p: &Pal, cx: crate::tools::Ctx, group: &str
             let calls: Vec<crate::tools::Call> = steps.iter().filter_map(call).collect();
             col().key(format!("skills-{}", calls[0].id)).w_full().child(crate::tools::cached(s, p, cx, &calls, || crate::tools::skill_group(s, p, cx, &calls)))
         }
-        st @ Step::Tool { id, files, .. } => {
-            let step = col().key(format!("step-{id}")).w_full().child(crate::tools::view(s, p, cx, &call(st).expect("a tool step")));
+        Step::Tool { id, name, status, input, metadata, files, .. } => {
+            let c = crate::tools::Call { id, name, status, input, metadata };
+            let step = col().key(format!("step-{id}")).w_full().child(crate::tools::view(s, p, cx, &c));
             step.children(crate::images::gallery(s, p, &format!("step-images-{id}"), files, false, None).map(|g| g.pl(22.0)))
         }
     }

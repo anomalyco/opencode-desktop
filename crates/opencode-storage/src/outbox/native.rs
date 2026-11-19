@@ -10,7 +10,7 @@ use crate::native::sql;
 /// An outbox request with its builder run: what to commit (with its blobs and the documents it
 /// clears), or what to read.
 pub(crate) enum Prepared {
-    Write(Written, Vec<(String, Arc<[u8]>)>, Vec<(String, u64)>),
+    Write(Box<Written>, Vec<(String, Arc<[u8]>)>, Vec<(String, u64)>),
     Read { server: String, adopt: Vec<String>, done: OutboxRead },
 }
 
@@ -21,10 +21,10 @@ pub(crate) fn prepare(op: OutboxOp) -> Prepared {
             rune::marks::mark("outbox.taken");
             let put = build();
             rune::marks::mark("outbox.built");
-            Prepared::Write(Written::Put(put.row), put.blobs, put.clear_documents)
+            Prepared::Write(Box::new(Written::Put(put.row)), put.blobs, put.clear_documents)
         }
-        OutboxOp::Update { server, id, update } => Prepared::Write(Written::Update { server, id, update }, Vec::new(), Vec::new()),
-        OutboxOp::Delete { server, id } => Prepared::Write(Written::Delete { server, id }, Vec::new(), Vec::new()),
+        OutboxOp::Update { server, id, update } => Prepared::Write(Box::new(Written::Update { server, id, update }), Vec::new(), Vec::new()),
+        OutboxOp::Delete { server, id } => Prepared::Write(Box::new(Written::Delete { server, id }), Vec::new(), Vec::new()),
         OutboxOp::Read { server, adopt, done } => Prepared::Read { server, adopt, done },
     }
 }

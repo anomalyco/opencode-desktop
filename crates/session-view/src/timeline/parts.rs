@@ -374,6 +374,8 @@ fn reply_meta<S: TimelineHost>(s: &S, t: &Transcript, message: usize) -> Vec<(St
 /// `working::status`; the thought the model is writing stands in for it), then the reply's Copy
 /// footer, with room of its own over the timeline's tail when it ends the timeline (`last`).
 /// `asking`, the session waits on a question or permission, only builds the row again.
+// Public timeline row helper kept stable for callers across apps and features.
+#[allow(clippy::too_many_arguments)]
 pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, _asking: bool, last: bool, session: &str, index: usize, message: &Message) -> El {
     // These share a footprint and swap at once: a crossfade would lay the copy icon's outline
     // over the W in Working.
@@ -502,6 +504,8 @@ pub fn markdown_view<S: TimelineHost>(p: &Pal, src: &str, fade: f32, streaming: 
 /// images) opens the reply's menu.
 /// `prompt` is the direction of the prompt the reply answers, which it reads in until its own
 /// words arrive.
+// Public markdown row helper kept stable for callers across apps and features.
+#[allow(clippy::too_many_arguments)]
 pub fn markdown_view_find<S: TimelineHost>(s: &S, p: &Pal, row_key: &str, src: &str, fade: f32, streaming: bool, message: Option<&str>, prompt: Option<rune::Direction>) -> El {
     // Session ids read as chips, except while Find marks the text as written.
     let hits = s.find_row_hits(row_key);

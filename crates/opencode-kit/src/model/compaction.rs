@@ -119,6 +119,6 @@ fn event_message_id(d: &Value, now: i64) -> String {
 /// document that sets `experimental` decides, as the server reads them.
 pub fn background_compaction(v: &Value) -> bool {
     let list = v.as_array().or_else(|| v["data"].as_array());
-    let last = list.into_iter().flatten().filter(|e| e["type"] == "document" && e["info"]["experimental"].is_object()).last();
+    let last = list.into_iter().flatten().rfind(|e| e["type"] == "document" && e["info"]["experimental"].is_object());
     last.is_some_and(|e| e["info"]["experimental"]["background_compaction"] == true)
 }

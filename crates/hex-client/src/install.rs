@@ -84,12 +84,12 @@ pub fn launch(_support: &Path, _show: bool) -> Result<(), String> {
 #[cfg(windows)]
 pub fn open_mic_settings() {
     // `ms-settings:` links open through the shell; Explorer hands them to Settings.
-    let _ = std::process::Command::new("explorer.exe").arg("ms-settings:privacy-microphone").spawn();
+    std::process::Command::new("explorer.exe").arg("ms-settings:privacy-microphone").spawn().ok();
 }
 
 #[cfg(target_os = "macos")]
 pub fn open_mic_settings() {
-    let _ = std::process::Command::new("open").arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone").spawn();
+    std::process::Command::new("open").arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone").spawn().ok();
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]

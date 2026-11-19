@@ -119,7 +119,7 @@ fn table_exists(c: &Connection, name: &str) -> rusqlite::Result<bool> {
 impl BootPacket {
     /// Where the draft journal is, as the record names it.
     pub(crate) fn journal_location(&self) -> Option<super::journal::Location> {
-        self.of(Kind::Journal).next().and_then(|e| super::journal::Location::decode(&self.bytes_of(e)))
+        self.of(Kind::Journal).next().and_then(|e| super::journal::Location::decode(self.bytes_of(e)))
     }
 
     /// The journal instance the run that wrote this record kept, when it kept one.

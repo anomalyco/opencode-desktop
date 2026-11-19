@@ -39,19 +39,24 @@ impl EventHub {
         // it heard to the subscribers.
         #[cfg(target_arch = "wasm32")]
         {
-            let _ = rune::task::serve("opencode-events-fan", inbox, move |m| fan_one(m, &to));
-            read_events(&server, idle, &events, &wake);
+            if let Err(e) = rune::task::serve("opencode-events-fan", inbox, move |m| fan_one(m, &to)) {
+                eprintln!("opencode-kit: couldn't start opencode-events-fan task: {e}");
+                *fan.lock().unwrap_or_else(|err| err.into_inner()) = Fan::Closed;
+            } else {
+                read_events(&server, idle, &events, &wake);
+            }
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            std::thread::Builder::new()
-                .name("opencode-events-fan".into())
-                .spawn(move || fan_out(&inbox, &to))
-                .expect("spawn event fan-out thread");
-            std::thread::Builder::new()
+            if let Err(e) = std::thread::Builder::new().name("opencode-events-fan".into()).spawn(move || fan_out(&inbox, &to)) {
+                eprintln!("opencode-kit: couldn't spawn opencode-events-fan thread: {e}");
+                *fan.lock().unwrap_or_else(|err| err.into_inner()) = Fan::Closed;
+            } else if let Err(e) = std::thread::Builder::new()
                 .name("opencode-events".into())
                 .spawn(move || read_events(&server, idle, &events, &wake))
-                .expect("spawn event thread");
+            {
+                eprintln!("opencode-kit: couldn't spawn opencode-events thread: {e}");
+            }
         }
         EventHub { base, fan }
     }

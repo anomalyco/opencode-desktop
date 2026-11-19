@@ -4,7 +4,7 @@
 //! worktree directories (`sandboxes`) live alongside it by project id, like `user_files`.
 
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock, PoisonError};
 
 use serde_json::Value;
 
@@ -35,7 +35,7 @@ fn sandbox_store() -> &'static Mutex<HashMap<String, Vec<String>>> {
 
 /// Non-canonical worktree directories the server reported on project `id` (`sandboxes`).
 pub fn project_sandboxes(id: &str) -> Vec<String> {
-    sandbox_store().lock().unwrap().get(id).cloned().unwrap_or_default()
+    sandbox_store().lock().unwrap_or_else(PoisonError::into_inner).get(id).cloned().unwrap_or_default()
 }
 
 /// Records the non-canonical worktree directories for project `id`.
@@ -43,7 +43,7 @@ pub fn set_project_sandboxes(id: &str, sandboxes: Vec<String>) {
     if id.is_empty() {
         return;
     }
-    let mut store = sandbox_store().lock().unwrap();
+    let mut store = sandbox_store().lock().unwrap_or_else(PoisonError::into_inner);
     if sandboxes.is_empty() {
         store.remove(id);
     } else {
@@ -59,7 +59,7 @@ fn git_store() -> &'static Mutex<HashMap<String, bool>> {
 /// Whether the server reported project `id` as a Git checkout (`vcs: "git"`): it can have
 /// worktrees, and a new one can be made.
 pub fn project_git(id: &str) -> bool {
-    git_store().lock().unwrap().get(id).copied().unwrap_or(false)
+    git_store().lock().unwrap_or_else(PoisonError::into_inner).get(id).copied().unwrap_or(false)
 }
 
 /// The directories of `GET /api/worktree?projectID=`, other than the project's own `root`.
@@ -114,7 +114,7 @@ fn meta_store() -> &'static Mutex<HashMap<String, ProjectMeta>> {
 
 /// Project `id`'s name as given and startup script, as the server last reported them.
 pub fn project_meta(id: &str) -> ProjectMeta {
-    meta_store().lock().unwrap().get(id).cloned().unwrap_or_default()
+    meta_store().lock().unwrap_or_else(PoisonError::into_inner).get(id).cloned().unwrap_or_default()
 }
 
 /// Parses one `Project.Info` object from `/api/project` or a `project.updated` event.
@@ -137,9 +137,9 @@ pub fn parse_project(p: &Value) -> Option<Project> {
         set_project_sandboxes(&id, sandboxes);
     }
     if !id.is_empty() {
-        git_store().lock().unwrap().insert(id.clone(), p["vcs"].as_str() == Some("git"));
+        git_store().lock().unwrap_or_else(PoisonError::into_inner).insert(id.clone(), p["vcs"].as_str() == Some("git"));
         let meta = ProjectMeta { name: p["name"].as_str().map(str::trim).unwrap_or("").to_owned(), start: p["commands"]["start"].as_str().unwrap_or("").to_owned() };
-        meta_store().lock().unwrap().insert(id.clone(), meta);
+        meta_store().lock().unwrap_or_else(PoisonError::into_inner).insert(id.clone(), meta);
     }
     Some(Project {
         id,

@@ -33,6 +33,7 @@ const FIRST: usize = 300;
 
 /// A transcript's rows: its spans' rows in order, with the rows where two spans meet spaced
 /// against each other (`seams`).
+#[derive(Default)]
 pub struct Projection {
     spans: Vec<Rc<Vec<RowSpec>>>,
     /// The index of each span's first row.
@@ -43,12 +44,6 @@ pub struct Projection {
     /// Which projection made the rows: a virtual list keeps the keys of the last commit given
     /// the same one (`El::virtual_rows_version`).
     pub generation: u64,
-}
-
-impl Default for Projection {
-    fn default() -> Self {
-        Projection { spans: Vec::new(), starts: Vec::new(), len: 0, seams: Vec::new(), generation: 0 }
-    }
 }
 
 impl Projection {

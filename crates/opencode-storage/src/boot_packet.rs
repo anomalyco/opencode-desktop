@@ -295,8 +295,6 @@ impl Writer {
     }
 }
 
-/// Rebuilds the record from the database inside the caller's write transaction, stores it as
-
 /// The record built from memory (the database couldn't open), so the first frame still draws
 /// what the user had.
 pub(crate) fn from_cache(cache: &crate::cache::Cache) -> BootPacket {

@@ -84,7 +84,7 @@ impl PreparedImage {
         self.size.map_or(0, |[w, h]| w as usize * h as usize * 16 / 3)
     }
 
-    pub fn wait(&self) { let _ = self.image.wait(); }
+    pub fn wait(&self) { self.image.wait().ok(); }
 }
 
 /// Called only on the page worker. Newest attachments first, at most eight megapixels per
@@ -141,6 +141,9 @@ pub enum Fetched {
     Decoded,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+type FetchQueue = (Mutex<Vec<String>>, Condvar);
+
 /// Ref fetches, on one worker thread that takes the newest request first: a view asks top to
 /// bottom, and the bottom of a transcript is what shows.
 #[derive(Default)]
@@ -148,7 +151,7 @@ pub struct Media {
     fetch: Option<Fetch>,
     state: Arc<Mutex<HashMap<String, Fetched>>>,
     #[cfg(not(target_arch = "wasm32"))]
-    queue: RefCell<Option<Arc<(Mutex<Vec<String>>, Condvar)>>>,
+    queue: RefCell<Option<Arc<FetchQueue>>>,
     /// A fetch finished since the app last polled: the view must run again to show it.
     landed: Arc<AtomicBool>,
 }
@@ -167,7 +170,7 @@ impl Media {
         {
             let (state, landed, hash) = (self.state.clone(), self.landed.clone(), hash.to_owned());
             let wake = waker.cloned().unwrap_or_else(|| Arc::new(|| {}));
-            let _ = rune::task::spawn("opencode-media", move || {
+            rune::task::spawn("opencode-media", move || {
                 let result = match fetch(&hash) {
                     Ok(bytes) => Fetched::Ready(bytes.into()),
                     Err(e) => Fetched::Failed(e),
@@ -175,7 +178,8 @@ impl Media {
                 state.lock().unwrap_or_else(|e| e.into_inner()).insert(hash, result);
                 landed.store(true, Ordering::Release);
                 wake();
-            });
+            })
+            .ok();
             Fetched::Loading
         }
         #[cfg(not(target_arch = "wasm32"))]
@@ -195,7 +199,7 @@ impl Media {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn spawn_fetcher(queue: Weak<(Mutex<Vec<String>>, Condvar)>, state: Arc<Mutex<HashMap<String, Fetched>>>, landed: Arc<AtomicBool>, fetch: Fetch, wake: Waker) {
+fn spawn_fetcher(queue: Weak<FetchQueue>, state: Arc<Mutex<HashMap<String, Fetched>>>, landed: Arc<AtomicBool>, fetch: Fetch, wake: Waker) {
     if let Err(e) = std::thread::Builder::new()
         .name("opencode-media".into())
         .spawn(move || {
@@ -257,7 +261,7 @@ impl MediaStore {
         if ready {
             let f = Attachment { mime: "image/png".into(), media: Some(hash.into()), ..Default::default() };
             if let Some(img) = self.image(&f) {
-                let _ = img.wait();
+                img.wait().ok();
             }
         }
     }

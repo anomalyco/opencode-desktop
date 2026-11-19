@@ -17,13 +17,14 @@ pub(super) fn register(c: &Connection) -> rusqlite::Result<()> {
     let api = unsafe { api.as_mut() }.ok_or(rusqlite::Error::InvalidQuery)?;
     let register = api.xCreateTokenizer.ok_or(rusqlite::Error::InvalidQuery)?;
     let mut methods = ffi::fts5_tokenizer { xCreate: Some(create), xDelete: Some(delete), xTokenize: Some(tokens) };
+    // SAFETY: `api` and `register` came from SQLite's FTS5 API on this live connection, the name is a static NUL-terminated C string, and `xCreateTokenizer` copies `methods` before returning.
     let rc = unsafe { register(api, c"opencode_tok".as_ptr(), ptr::null_mut(), &raw mut methods, None) };
     if rc == ffi::SQLITE_OK { Ok(()) } else { Err(rusqlite::Error::SqliteFailure(ffi::Error::new(rc), None)) }
 }
 
 unsafe extern "C" fn create(_: *mut c_void, _: *mut *const c_char, argc: c_int, out: *mut *mut ffi::Fts5Tokenizer) -> c_int {
     if argc != 0 || out.is_null() { return ffi::SQLITE_ERROR; }
-    // No state per tokenizer; FTS requires an opaque non-null handle, never dereferenced.
+    // SAFETY: SQLite's FTS5 passes a valid writable `out` pointer (checked non-null above); the opaque non-null handle carries no state and is never dereferenced by `tokens` or `delete`.
     unsafe { out.write(ptr::NonNull::<u8>::dangling().as_ptr().cast()) };
     ffi::SQLITE_OK
 }
@@ -47,6 +48,7 @@ unsafe extern "C" fn tokens(_: *mut ffi::Fts5Tokenizer, ctx: *mut c_void, flags:
             if rc == ffi::SQLITE_OK {
                 let Ok(len) = c_int::try_from(t.text.len()) else { rc = ffi::SQLITE_TOOBIG; return };
                 let colocated = if t.colocated { ffi::FTS5_TOKEN_COLOCATED } else { 0 };
+                // SAFETY: `emit` and `ctx` are FTS5's valid synchronous callback and context; `t.text` holds `len` valid UTF-8 bytes and `t.bytes` are valid byte offsets within the `n`-byte input.
                 rc = unsafe { emit(ctx, colocated, t.text.as_ptr().cast(), len, t.bytes.start as c_int, t.bytes.end as c_int) };
             }
         });

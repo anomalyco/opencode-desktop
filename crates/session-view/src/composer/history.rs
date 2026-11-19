@@ -79,12 +79,6 @@ enum Recall<Scope> {
     },
 }
 
-impl<Scope> Default for Recall<Scope> {
-    fn default() -> Self {
-        Recall::Idle
-    }
-}
-
 /// Whether ↑ (`up`) or ↓ steps through history with the caret at `caret` in `len` bytes
 /// (`canNavigateHistory`): while browsing, at either end; otherwise ↑ only on an empty draft,
 /// and ↓ at its end.
@@ -180,7 +174,7 @@ impl<Scope: Clone + PartialEq> PromptHistory<Scope> {
         if up {
             let index = browsing.map_or(0, |i| i + 1);
             let Some(entry) = list.get(index) else { return false };
-            let (draft, caret) = match std::mem::take(&mut self.recall) {
+            let (draft, caret) = match std::mem::replace(&mut self.recall, Recall::Idle) {
                 Recall::Browsing { draft, caret, .. } => (draft, caret),
                 Recall::Idle => (Entry::of(composer), at),
             };
@@ -188,7 +182,7 @@ impl<Scope: Clone + PartialEq> PromptHistory<Scope> {
             self.recall = Recall::Browsing { index, draft, caret, shown: composer.text.clone(), scope: scope.clone(), shell };
             return true;
         }
-        let Recall::Browsing { index, draft, caret, .. } = std::mem::take(&mut self.recall) else { return false };
+        let Recall::Browsing { index, draft, caret, .. } = std::mem::replace(&mut self.recall, Recall::Idle) else { return false };
         match index.checked_sub(1) {
             Some(newer) => {
                 let entry = &list[newer];

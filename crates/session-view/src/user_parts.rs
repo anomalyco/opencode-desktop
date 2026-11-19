@@ -124,11 +124,13 @@ pub struct BubbleMark {
     pub title: Option<String>,
 }
 
+type RawMark<'a> = (Range<usize>, MentionKind, Option<(&'a str, Option<String>)>);
+
 /// A bubble's text and badges: the message's [`recorded_mentions`], and each `@session:<id>`
 /// token as one badge reading the session's title, or its short id when `title` (which names a
 /// session by id) doesn't know it.
 pub fn bubble_marks(body: &str, mentions: &[UserMention], title: impl Fn(&str) -> Option<String>) -> (String, Vec<BubbleMark>) {
-    let mut marks: Vec<(Range<usize>, MentionKind, Option<(&str, Option<String>)>)> =
+    let mut marks: Vec<RawMark<'_>> =
         recorded_mentions(body, mentions).map(|m| (m.range.clone(), m.kind, None)).collect();
     for (r, id) in mention::session_tokens(body) {
         marks.push((r, MentionKind::Session, Some((id, title(id).filter(|t| !t.trim().is_empty())))));
@@ -182,11 +184,13 @@ pub fn session_of_link(link: &str) -> Option<&str> {
     link.strip_prefix("session:")
 }
 
+pub type BubbleBadges = (String, Vec<(Range<usize>, PillStyle)>, Vec<rune::Link>, Vec<Range<usize>>);
+
 /// Message `id`'s bubble text and its mention badges: pills styled by kind, a session's with
 /// its icon, and a link per session badge (opening it when the host can). A badge keeps its own
 /// order in the line around it: a file's or folder's reads left to right as a path does, any
 /// other's the way its own name does.
-pub fn bubble_badges<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str) -> (String, Vec<(Range<usize>, PillStyle)>, Vec<rune::Link>, Vec<Range<usize>>) {
+pub fn bubble_badges<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str) -> BubbleBadges {
     let title = |sid: &str| s.session_ref(sid).map(|r| r.title).filter(|t| !t.trim().is_empty()).or_else(|| s.session_title(sid));
     let (text, marks) = bubble_marks(body, &mention::user_mentions(id), title);
     let links = marks

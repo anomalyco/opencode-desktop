@@ -153,6 +153,7 @@ pub fn latest(key: &str) -> u64 {
     if j.busy.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_err() {
         return 0;
     }
+    // SAFETY: `busy` was acquired with `Acquire`, giving exclusive access to `j.inner` until `busy` is released below.
     #[allow(unsafe_code)]
     let seq = unsafe { &*j.inner.get() }.index.get(key).map_or(0, |e| e.seq);
     j.busy.store(false, Ordering::Release);
@@ -177,6 +178,7 @@ pub(crate) fn forget_window(namespace: &str) {
         if j.busy.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_err() {
             return;
         }
+        // SAFETY: `busy` was acquired with `Acquire`, giving exclusive access to `j.inner` until `busy` is released below.
         #[allow(unsafe_code)]
         let inner = unsafe { &*j.inner.get() };
         let keys = inner.index.iter().filter(|(k, _)| k.starts_with(&prefix)).map(|(k, e)| (k.clone(), e.seq)).collect();
@@ -197,6 +199,7 @@ pub(crate) fn finish(saved: bool) {
     while j.busy.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_err() {
         std::hint::spin_loop();
     }
+    // SAFETY: the CAS loop acquired `busy` with `Acquire`, giving exclusive mutable access to `j.inner` until `busy` is released below.
     #[allow(unsafe_code)]
     let inner = unsafe { &mut *j.inner.get() };
     let settled = j.settled.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -364,6 +367,7 @@ pub(crate) fn attach(db: &Path, loc: &Location, fresh: bool, now_us: u64) -> Res
     let j = Journal { busy: AtomicBool::new(false), open: AtomicBool::new(true), seq: AtomicU64::new(top), inner: UnsafeCell::new(inner), settled: Mutex::new(HashMap::new()), instance: loc.instance };
     // A journal that held records starts this run on a fresh half: they're copied forward.
     if !recovered.is_empty() {
+        // SAFETY: `j` is local and not yet published to `JOURNAL`, and `switch` only reads `j.seq` and `j.settled`, never `j.inner`.
         #[allow(unsafe_code)]
         unsafe { &mut *j.inner.get() }.switch(&j, "");
     }
@@ -371,6 +375,7 @@ pub(crate) fn attach(db: &Path, loc: &Location, fresh: bool, now_us: u64) -> Res
     // lock `hold` takes, so no key falls between the two and every later key has a later seq).
     let mut e = early();
     if let Early::Holding(held) = std::mem::replace(&mut *e, Early::Decided) {
+        // SAFETY: `j` is still unpublished in `JOURNAL`, and `Inner::write` only accesses `j.seq` and `j.settled`, never `j.inner`.
         #[allow(unsafe_code)]
         let inner = unsafe { &mut *j.inner.get() };
         for (key, text) in held {

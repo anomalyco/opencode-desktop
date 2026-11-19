@@ -98,8 +98,11 @@ fn spread(mut w: Vec<f32>, caps: &[f32], room: f32) -> Vec<f32> {
     w
 }
 
+type PlanKey = (u64, u32, u64);
+type PlanCache = HashMap<PlanKey, Option<Vec<f32>>>;
+
 thread_local! {
-    static PLANS: RefCell<HashMap<(u64, u32, u64), Option<Vec<f32>>>> = RefCell::new(HashMap::new());
+    static PLANS: RefCell<PlanCache> = RefCell::new(HashMap::new());
 }
 
 /// [`plan_row`] for a row node, kept per outline and width: a row is re-planned only when its

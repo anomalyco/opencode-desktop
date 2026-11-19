@@ -132,11 +132,18 @@ fn setup_replay(s: &mut Host, wake: rune::Waker) {
     let args: Vec<_> = std::env::args().collect();
     let arg = |flag| args.windows(2).find(|p| p[0] == flag).map(|p| p[1].clone());
     if let Some(path) = arg("--messages") {
-        let page = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
-        *s.talk.borrow_mut() = Some(opencode_kit::model::Transcript {
-            session: session_view::fixture::SESSION_ID.into(),
-            messages: opencode_kit::model::parse_messages(&page),
-        });
+        match std::fs::read(&path)
+            .map_err(|e| e.to_string())
+            .and_then(|bytes| serde_json::from_slice(&bytes).map_err(|e| e.to_string()))
+        {
+            Ok(page) => {
+                *s.talk.borrow_mut() = Some(opencode_kit::model::Transcript {
+                    session: session_view::fixture::SESSION_ID.into(),
+                    messages: opencode_kit::model::parse_messages(&page),
+                });
+            }
+            Err(e) => eprintln!("session-view read_only: failed to load --messages {path}: {e}"),
+        }
     }
     if let Some(dir) = arg("--media-dir") {
         s.view.media.set_fetch(std::sync::Arc::new(move |hash| {

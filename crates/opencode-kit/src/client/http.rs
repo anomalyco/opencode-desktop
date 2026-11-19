@@ -73,7 +73,7 @@ impl Server {
         let body = if status >= 300 {
             let mut bytes = Vec::new();
             // The status remains authoritative even if its explanation is oversized or cut short.
-            let _ = resp.body_mut().as_reader().take(64 << 10).read_to_end(&mut bytes);
+            resp.body_mut().as_reader().take(64 << 10).read_to_end(&mut bytes).ok();
             bytes
         } else if limit == 32 << 20 && is_json(&content_type) {
             // An indefinite page may be a single enormous string. Four readers buffering to

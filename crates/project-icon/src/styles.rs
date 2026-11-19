@@ -501,7 +501,7 @@ fn glyph(h: u64, x: f32, y: f32) -> f32 {
         0 => inside(x.hypot(y) <= 2.75),
         1 => inside((x.hypot(y) - 2.9).abs() <= 0.8),
         2 => inside(x.abs() + y.abs() <= 3.4),
-        3 => inside(y <= 2.4 && y >= -3.0 && x.abs() <= (y + 3.0) * 0.62),
+        3 => inside((-3.0..=2.4).contains(&y) && x.abs() <= (y + 3.0) * 0.62),
         4 => inside(round_box(x, y, 2.6, 0.9) <= 0.0),
         5 => inside(x.hypot(y + 1.2) <= 3.3 && y >= -1.2),
         6 => inside((x - 1.9).hypot(y) <= 1.6 || (x + 1.9).hypot(y) <= 1.6),

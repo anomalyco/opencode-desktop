@@ -344,7 +344,7 @@ fn quiet_label<S: TimelineHost>(s: &S, p: &Pal, running: bool, open: bool, start
         .w(ending_w)
         .h(16.0)
         .child(morph(text(ing).key("running").font(UI).color(p.faint), running, -shift, out.into()))
-        .child(morph(done, !running, shift, into.into()));
+        .child(morph(done, !running, shift, into));
     let mut label = row().key("label").child(lit(text(stem).key("stem"))).child(ending);
     if running && !calm {
         let glint = row()

@@ -224,8 +224,10 @@ pub fn step(state: &mut State, event: Event<'_>) -> Effect {
             _ => Effect::None,
         },
         Event::Jump { last, items } => match state {
-            State::Menu { active, .. } if !items.is_empty() => {
-                let key = if last { items.last() } else { items.first() }.cloned().unwrap();
+            State::Menu { active, .. } => {
+                let Some(key) = (if last { items.last() } else { items.first() }).cloned() else {
+                    return Effect::None;
+                };
                 *active = Some(key.clone());
                 Effect::Focus { key: format!("option-{key}"), ring: true, scroll_option: Some(key) }
             }

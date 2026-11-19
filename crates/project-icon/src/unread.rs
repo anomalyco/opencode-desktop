@@ -54,7 +54,7 @@ impl Icons {
                 let offset = (size - side) / 2;
                 let rgb = [bg.r, bg.g, bg.b].map(|c| pixels::enc(c) * 255.0);
                 let edge = [border.r, border.g, border.b].map(|c| pixels::enc(c) * 255.0);
-                for (i, dest) in rgba.chunks_exact_mut(4).enumerate() {
+                for (i, dest) in rgba.as_chunks_mut::<4>().0.iter_mut().enumerate() {
                     let (x, y) = (i as u32 % size, i as u32 / size);
                     let (u, v) = ((x as f32 + 0.5) / size as f32, (y as f32 + 0.5) / size as f32);
                     let inset = -styles::round_box(u - 0.5, v - 0.5, 0.5, styles::RADIUS) * PT;
@@ -68,7 +68,7 @@ impl Icons {
                 }
             }
             let light = finish.lit().then(|| finish::light(finish, src.is_some(), PT, size));
-            for (i, p) in rgba.chunks_exact_mut(4).enumerate() {
+            for (i, p) in rgba.as_chunks_mut::<4>().0.iter_mut().enumerate() {
                 if let Some(light) = &light {
                     let l = &light[i * 4..];
                     for k in 0..3 { p[k] = ((u32::from(p[k])*(255-u32::from(l[3]))+u32::from(l[k])*u32::from(l[3])+127)/255) as u8; }

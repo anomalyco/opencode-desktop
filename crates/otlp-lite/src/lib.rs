@@ -62,7 +62,7 @@ impl Span {
         });
         if let Some(p) = self.parent { span["parentSpanId"] = format!("{p:016x}").into(); }
         if CAPTURE.with(|c| c.borrow_mut().as_mut().map(|c| c.push(span.clone())).is_some()) { return; }
-        if let Some(out) = exporter() { let _ = out.send(span); }
+        if let Some(out) = exporter() { out.send(span).ok(); }
     }
 }
 
@@ -95,6 +95,8 @@ fn id() -> u64 {
 
 fn unix_nanos(t: Instant) -> u128 {
     static ANCHOR: OnceLock<(Instant, u128)> = OnceLock::new();
+    // Anchors monotonic span timestamps to Unix epoch once; otlp-lite sits below opencode-platform and uses rune::time::SystemTime for wasm32.
+    #[allow(clippy::disallowed_methods)]
     let (at, unix) = *ANCHOR.get_or_init(|| (Instant::now(), SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos())));
     if t >= at { unix + (t - at).as_nanos() } else { unix.saturating_sub((at - t).as_nanos()) }
 }
@@ -208,11 +210,13 @@ fn exporter() -> Option<&'static Sender<Value>> {
 fn post(to: SocketAddr, body: &str) {
     use std::io::{Read as _, Write as _};
     let Ok(mut s) = std::net::TcpStream::connect_timeout(&to, Duration::from_millis(250)) else { return };
-    let _ = s.set_write_timeout(Some(Duration::from_secs(2)));
-    let _ = s.set_read_timeout(Some(Duration::from_secs(2)));
+    s.set_write_timeout(Some(Duration::from_secs(2))).ok();
+    s.set_read_timeout(Some(Duration::from_secs(2))).ok();
     let head = format!("POST {PATH} HTTP/1.1\r\nHost: {to}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
     if s.write_all(head.as_bytes()).and_then(|_| s.write_all(body.as_bytes())).is_ok() {
-        let _ = s.read(&mut [0; 256]);
+        // Best-effort single-packet response drain before closing the loopback socket; byte count is unused.
+        #[allow(clippy::unused_io_amount)]
+        s.read(&mut [0; 256]).ok();
     }
 }
 

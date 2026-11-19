@@ -9,12 +9,11 @@
 use std::io::{BufRead, BufReader, Read};
 #[cfg(not(target_arch = "wasm32"))]
 use std::net::{SocketAddr, TcpStream};
-#[cfg(not(target_arch = "wasm32"))]
-use std::sync::mpsc::Sender;
 use std::time::Duration;
 
 use rune::time::Instant;
 
+#[cfg(target_arch = "wasm32")]
 use rune::Waker;
 use serde_json::Value;
 
@@ -75,6 +74,8 @@ pub const DEFAULT_SERVER: &str = "http://127.0.0.1:4096";
 /// reaches another Mac's server through a tunnel sets it with `launchctl setenv`, so opening the
 /// app from Spotlight or a launcher still finds it), else [`DEFAULT_SERVER`].
 pub fn default_server() -> String {
+    // Public standalone client API; opencode-kit has no app config.rs layer.
+    #[allow(clippy::disallowed_methods)]
     server_or_default(std::env::var("OPENCODE_SERVER_URL").ok())
 }
 
@@ -168,6 +169,8 @@ impl Server {
     pub fn wake_reconnects() { worker::wake_reconnects(); }
     pub fn new(base: &str) -> Server {
         let clean = base.trim_end_matches('/').to_owned();
+        // Public standalone client API; opencode-kit has no app config.rs layer.
+        #[allow(clippy::disallowed_methods)]
         let password = std::env::var("OPENCODE_SERVER_PASSWORD")
             .ok()
             .or_else(|| crate::local_service::password_for_base(&clean));
@@ -355,7 +358,7 @@ impl Server {
             (Expect::Prompt(_), Some(_)) => return Ok(v),
             (Expect::Prompt(_), None) => "JSON without the message's id (data.id)".into(),
         };
-        Err(crate::wire_error::WireError::new("POST", path, crate::wire_error::WireKind::NotOpenCode { status, what }).into())
+        Err(crate::wire_error::WireError::new("POST", path, crate::wire_error::WireKind::NotOpenCode { status, what }))
     }
 
     /// `write`, waiting up to `timeout` for the reply.
@@ -534,7 +537,7 @@ impl Server {
                 // A lost reply may be the only missing part of a successful first turn.
                 // Deleting the session then destroys both the message and its receipt.
                 if created.is_ok() && matches!(e.kind, WireKind::Status { status, .. } if (400..500).contains(&status) && ![408, 409, 425, 429].contains(&status)) {
-                    let _ = self.delete_session(id);
+                    self.delete_session(id).ok();
                 }
                 Err(e)
             }
@@ -670,17 +673,16 @@ impl Server {
         out
     }
 
-    /// Reads the event stream until it ends or goes silent for `idle`; `opened` says whether it
-    /// got as far as OpenCode's `server.connected`. Only then is it connected, so a stream a
-    /// captive portal answers (a redirect, a web page) is a failure, not a reconnect.
+    /// Reads `stream` as `epoch` until it ends or goes silent for `stream.idle`; `opened` says
+    /// whether it got as far as OpenCode's `server.connected`. Only then is it connected, so a
+    /// stream a captive portal answers (a redirect, a web page) is a failure, not a reconnect.
+    /// A stream replaced after a network change or a wake (`streams::verify`) ends quietly,
+    /// sending nothing more; `stream.heard()` is told of every line, heartbeats included.
     #[cfg(not(target_arch = "wasm32"))]
-    /// `live` says whether this stream still speaks for its server: one replaced after a network
-    /// change or a wake (`streams::verify`) ends quietly, sending nothing more; `heard` is told of
-    /// every line, heartbeats included.
-    fn events(&self, idle: Duration, inbox: &Sender<Incoming>, wake: &Waker, resumed: bool, opened: &mut bool, live: &dyn Fn() -> bool, heard: &dyn Fn()) -> Result<(), WireError> {
+    fn events(&self, stream: &streams::Stream, epoch: u64, resumed: bool, opened: &mut bool) -> Result<(), WireError> {
         use crate::wire_error::{read_failure, transport};
         let down = |kind: WireKind| WireError::new("GET", "/api/event", kind);
-        let config = ureq::Agent::config_builder().timeout_per_read(Some(idle)).http_status_as_error(false).max_redirects(0);
+        let config = ureq::Agent::config_builder().timeout_per_read(Some(stream.idle)).http_status_as_error(false).max_redirects(0);
         let agent: ureq::Agent = if http::loopback(&self.base) { config.proxy(None) } else { config }.build().into();
         let mut req = agent.get(format!("{}/api/event", self.base)).header("Accept", "text/event-stream");
         if let Some(a) = &self.auth {
@@ -701,7 +703,7 @@ impl Server {
         let mut reader = BufReader::new(resp.into_body().into_reader());
         let mut line = String::new();
         loop {
-            if !live() {
+            if !stream.live(epoch) {
                 return Ok(());
             }
             line.clear();
@@ -709,7 +711,7 @@ impl Server {
             let read = (&mut reader).take(limit + 1).read_line(&mut line).map_err(|e| down(read_failure(e)))?;
             if read == 0 { break; }
             if read as u64 > limit { return Err(down(WireKind::TooLarge { limit, length: None })); }
-            heard();
+            stream.heard();
             let Some(event) = event_line(line.trim_end_matches(['\r', '\n'])) else { continue };
             if !connected {
                 // OpenCode's first event, as Desktop waits for it (`connection.ts`).
@@ -718,14 +720,14 @@ impl Server {
                 }
                 connected = true;
                 *opened = true;
-                if inbox.send(if resumed { Incoming::Reconnected } else { Incoming::Opened }).is_err() {
+                if stream.inbox.send(if resumed { Incoming::Reconnected } else { Incoming::Opened }).is_err() {
                     return Ok(());
                 }
             }
-            if inbox.send(event).is_err() {
+            if stream.inbox.send(event).is_err() {
                 return Ok(());
             }
-            wake();
+            (stream.wake)();
         }
         Err(down(WireKind::Dropped("the stream ended".into())))
     }

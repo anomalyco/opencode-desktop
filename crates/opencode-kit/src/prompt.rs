@@ -133,7 +133,7 @@ impl Prompt {
         for (n, i) in inline.iter().enumerate() {
             let marker = format!("\\u0001inline{n}\\u0001");
             let Some(at) = rest.find(&marker) else { break };
-            out.extend_from_slice(rest[..at].as_bytes());
+            out.extend_from_slice(&rest.as_bytes()[..at]);
             let mime = serde_json::to_string(&i.mime).unwrap_or_default();
             out.extend_from_slice(b"data:");
             out.extend_from_slice(mime.trim_matches('"').as_bytes());

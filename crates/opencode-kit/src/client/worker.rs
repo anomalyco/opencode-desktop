@@ -2,6 +2,8 @@
 //! `Write`s and the event stream, each waking the window when something lands.
 
 use std::ops::ControlFlow;
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::PoisonError;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Duration;
 
@@ -24,7 +26,7 @@ static RETRY: (std::sync::Mutex<u64>, std::sync::Condvar) = (std::sync::Mutex::n
 pub(super) use super::web::{read_events, wake_reconnects};
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) fn wake_reconnects() {
-    *RETRY.0.lock().unwrap() += 1;
+    *RETRY.0.lock().unwrap_or_else(PoisonError::into_inner) += 1;
     RETRY.1.notify_all();
 }
 
@@ -41,10 +43,12 @@ pub fn connect_with_idle(server: Server, wake: Waker, idle: Duration) -> (Sender
     let (inbox_tx, inbox) = channel();
     let (req_tx, write_tx) = spawn_workers(&server, &inbox_tx, &wake);
     #[cfg(not(target_arch = "wasm32"))]
-    std::thread::Builder::new()
+    if let Err(e) = std::thread::Builder::new()
         .name("opencode-events".into())
         .spawn(move || read_events(&server, idle, &inbox_tx, &wake))
-        .expect("spawn event thread");
+    {
+        eprintln!("opencode-kit: couldn't spawn opencode-events thread: {e}");
+    }
     #[cfg(target_arch = "wasm32")]
     read_events(&server, idle, &inbox_tx, &wake);
     (req_tx, write_tx, inbox)
@@ -68,14 +72,14 @@ const PARKED: Duration = Duration::from_secs(30);
 /// it takes over from an earlier read (its first open is a reconnect, and resyncs).
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) fn run_stream(stream: &super::streams::Stream, epoch: u64, mut resumed: bool) {
-    let (server, idle, inbox_tx, wake) = (&stream.server, stream.idle, &stream.inbox, &stream.wake);
+    let (server, inbox_tx, wake) = (&stream.server, &stream.inbox, &stream.wake);
     let mut backoff: u64 = 250;
     // The failure the window last heard of: the same one again tells it nothing, so it isn't woken.
     let mut said: Option<WireError> = None;
     loop {
         let mut opened = false;
-        let generation = *RETRY.0.lock().unwrap();
-        let result = server.events(idle, inbox_tx, wake, resumed, &mut opened, &|| stream.live(epoch), &|| stream.heard());
+        let generation = *RETRY.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let result = server.events(stream, epoch, resumed, &mut opened);
         if !stream.live(epoch) {
             return;
         }
@@ -96,7 +100,10 @@ pub(super) fn run_stream(stream: &super::streams::Stream, epoch: u64, mut resume
         }
         resumed = true;
         let wait = if server.refusing() { PARKED } else { Duration::from_millis(backoff) };
-        let _wait = RETRY.1.wait_timeout_while(RETRY.0.lock().unwrap(),wait,|g| *g == generation).unwrap();
+        let _wait = RETRY
+            .1
+            .wait_timeout_while(RETRY.0.lock().unwrap_or_else(PoisonError::into_inner), wait, |g| *g == generation)
+            .unwrap_or_else(PoisonError::into_inner);
         backoff = (backoff * 2).min(3000);
     }
 }
@@ -114,7 +121,7 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
         let server = server.clone();
         let inbox_tx = inbox_tx.clone();
         let wake = wake.clone();
-        rune::task::serve("opencode-write", write_rx, move |w| {
+        if let Err(e) = rune::task::serve("opencode-write", write_rx, move |w| {
                     #[cfg(not(target_arch = "wasm32"))]
                     let (mut gate, w) = match w {
                         Write::Gated { gate, write } => (Some(gate), *write),
@@ -163,12 +170,12 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                         Write::CancelForm { session, form } => server.cancel_form(&session, &form),
                         Write::Interrupt(session) => server.stop(&session).map(|interrupted| {
                             if let Some(interrupted) = interrupted {
-                                let _ = inbox_tx.send(Incoming::InterruptAcknowledged { session, interrupted });
+                                inbox_tx.send(Incoming::InterruptAcknowledged { session, interrupted }).ok();
                             }
                         }),
                         Write::Create { directory, text } => server.create_session(&directory).and_then(|info| {
                             server.send_prompt(&info.id, &text)?;
-                            let _ = inbox_tx.send(Incoming::Created(info));
+                            inbox_tx.send(Incoming::Created(info)).ok();
                             Ok(())
                         }),
                         Write::Send { session, prompt } => {
@@ -189,18 +196,18 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                             if let Some(m) = &prompt.model {
                                 info.model = m.clone();
                             }
-                            let _ = inbox_tx.send(Incoming::Created(info));
+                            inbox_tx.send(Incoming::Created(info)).ok();
                             Ok(())
                         }),
                         Write::StartAs { session, directory, prompt } => server.start_as(&session, &directory, &prompt).map(|info| {
-                            let _ = inbox_tx.send(Incoming::Created(info));
+                            inbox_tx.send(Incoming::Created(info)).ok();
                         }),
                         Write::StartInNewWorktree { session, project, from, branch, prompt } => {
                             let made = || {
-                                let _ = inbox_tx.send(Incoming::WorktreeCreated { project: project.clone() });
+                                inbox_tx.send(Incoming::WorktreeCreated { project: project.clone() }).ok();
                             };
                             server.start_in_new_worktree(&session, &project, &from, branch.as_deref(), &prompt, made).map(|info| {
-                                let _ = inbox_tx.send(Incoming::Created(info));
+                                inbox_tx.send(Incoming::Created(info)).ok();
                             })
                         }
                         Write::Cancel { session, item } => server.cancel_inbox(&session, &item),
@@ -216,10 +223,10 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                         Write::Compact(session) => server.compact(&session),
                         // `command.config.reload.done` and `.failed` (`composer/commands.tsx:75-82`).
                         Write::Reload => server.write("POST", "/api/location/reload", None)
-                            .map(|_| { let _ = inbox_tx.send(Incoming::Status("Configuration reloaded".into())); }),
+                            .map(|_| { inbox_tx.send(Incoming::Status("Configuration reloaded".into())).ok(); }),
                         Write::OpenProject { directory, start_session } => server.open_project(&directory).and_then(|(location, projects)| {
                             let session = if start_session { Some(server.create_session(&location.directory)?) } else { None };
-                            let _ = inbox_tx.send(Incoming::ProjectOpened { location, projects, session });
+                            inbox_tx.send(Incoming::ProjectOpened { location, projects, session }).ok();
                             Ok(())
                         }),
                         Write::RevertStage { session, message, settle } => {
@@ -242,10 +249,10 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                         return ControlFlow::Continue(());
                     }
                     if result.is_ok() && let Some(id) = &request_id {
-                        let _ = inbox_tx.send(Incoming::RequestReplied(id.clone()));
+                        inbox_tx.send(Incoming::RequestReplied(id.clone())).ok();
                     }
                     if result.is_ok() && let Some((session,id)) = &prompt_id {
-                        let _ = inbox_tx.send(Incoming::PromptAccepted { session: session.clone(), id: id.clone() });
+                        inbox_tx.send(Incoming::PromptAccepted { session: session.clone(), id: id.clone() }).ok();
                     }
                     if let Some(mut data) = session_write {
                         data["ok"] = serde_json::json!(result.is_ok());
@@ -267,7 +274,9 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                     wake();
                     ControlFlow::Continue(())
             })
-            .expect("spawn write thread");
+        {
+            eprintln!("opencode-kit: couldn't spawn opencode-write thread: {e}");
+        }
     }
 
     {
@@ -280,7 +289,7 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
             ok
         };
         let sessions = |server: &Server| server.get("/api/session?limit=120").map(|v| model::parse_sessions(&v));
-        rune::task::serve("opencode-fetch", req_rx, move |r| {
+        if let Err(e) = rune::task::serve("opencode-fetch", req_rx, move |r| {
                     let ok = match r {
                         Request::Session(id) => match server.read(&format!("/api/session/{id}/message?limit=80&order=desc")) {
                             Ok(v) => send(Incoming::Messages { session: id, messages: model::parse_messages(&v) }),
@@ -336,7 +345,9 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                     // a timer between them: opening a session queues several reads together.
                     ControlFlow::Continue(())
             })
-            .expect("spawn fetch thread");
+        {
+            eprintln!("opencode-kit: couldn't spawn opencode-fetch thread: {e}");
+        }
     }
 
     (req_tx, write_tx)

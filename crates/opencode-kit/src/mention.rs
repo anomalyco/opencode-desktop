@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 use std::ops::Range;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use serde_json::Value;
 
@@ -34,14 +34,14 @@ fn store() -> &'static Mutex<HashMap<String, Arc<[UserMention]>>> {
 
 /// Keeps only the user messages `keep` says are still held (`model::retain_user_messages`).
 pub(crate) fn retain_user_messages(keep: &dyn Fn(&str) -> bool) {
-    store().lock().unwrap().retain(|id, _| keep(id));
-    created_store().lock().unwrap().retain(|id, _| keep(id));
-    path_store().lock().unwrap().retain(|id, _| keep(id));
+    store().lock().unwrap_or_else(PoisonError::into_inner).retain(|id, _| keep(id));
+    created_store().lock().unwrap_or_else(PoisonError::into_inner).retain(|id, _| keep(id));
+    path_store().lock().unwrap_or_else(PoisonError::into_inner).retain(|id, _| keep(id));
 }
 
 /// The mentions on user message `id`, sorted and apart (empty when it has none).
 pub fn user_mentions(id: &str) -> Arc<[UserMention]> {
-    store().lock().unwrap().get(id).cloned().unwrap_or_else(|| Arc::from([]))
+    store().lock().unwrap_or_else(PoisonError::into_inner).get(id).cloned().unwrap_or_else(|| Arc::from([]))
 }
 
 /// Records the mentions on user message `id`, as a local echo of a sent prompt has them.
@@ -55,7 +55,7 @@ pub fn set_user_mentions(id: &str, mut mentions: Vec<UserMention>) {
         }
         keep
     });
-    let mut store = store().lock().unwrap();
+    let mut store = store().lock().unwrap_or_else(PoisonError::into_inner);
     if mentions.is_empty() {
         store.remove(id);
     } else {
@@ -106,13 +106,13 @@ fn created_store() -> &'static Mutex<HashMap<String, i64>> {
 
 /// When user message `id` was created (`time.created`, in Unix milliseconds), if known.
 pub fn user_created(id: &str) -> Option<i64> {
-    created_store().lock().unwrap().get(id).copied()
+    created_store().lock().unwrap_or_else(PoisonError::into_inner).get(id).copied()
 }
 
 /// Records when user message `id` was created (`time.created`, in Unix milliseconds).
 pub fn set_user_created(id: &str, created: i64) {
     if created > 0 {
-        created_store().lock().unwrap().insert(id.to_owned(), created);
+        created_store().lock().unwrap_or_else(PoisonError::into_inner).insert(id.to_owned(), created);
     }
 }
 
@@ -123,12 +123,12 @@ fn path_store() -> &'static Mutex<HashMap<String, Arc<[PathAttachment]>>> {
 
 /// Path-referenced attachments (`metadata.attachments`) on user message `id`.
 pub fn user_path_attachments(id: &str) -> Arc<[PathAttachment]> {
-    path_store().lock().unwrap().get(id).cloned().unwrap_or_else(|| Arc::from([]))
+    path_store().lock().unwrap_or_else(PoisonError::into_inner).get(id).cloned().unwrap_or_else(|| Arc::from([]))
 }
 
 /// Records path-referenced attachments (`metadata.attachments`) on user message `id`.
 pub fn set_user_path_attachments(id: &str, items: Vec<PathAttachment>) {
-    let mut store = path_store().lock().unwrap();
+    let mut store = path_store().lock().unwrap_or_else(PoisonError::into_inner);
     if store.get(id).map_or(items.is_empty(), |old| old.as_ref() == items.as_slice()) { return; }
     crate::model::extras_changed();
     if items.is_empty() {

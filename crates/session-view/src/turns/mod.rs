@@ -334,10 +334,10 @@ fn commentary(entries: &[Entry], settled: bool) -> Vec<(usize, usize)> {
         };
         parts.iter().enumerate().map(move |(pi, p)| ((mi, pi), p))
     });
-    let Some(last_tool) = parts().filter(|(_, p)| matches!(p, Part::Tool { .. })).last().map(|(at, _)| at) else { return Vec::new() };
+    let Some(last_tool) = parts().rfind(|(_, p)| matches!(p, Part::Tool { .. })).map(|(at, _)| at) else { return Vec::new() };
     let mut out: Vec<(usize, usize)> = parts().take_while(|(at, _)| *at < last_tool).filter(|(_, p)| matches!(p, Part::Text { .. })).map(|(at, _)| at).collect();
     // Every text that shows is commentary only when the last of them comes before the last call.
-    let answer = parts().filter(|(_, p)| matches!(p, Part::Text { text } if !text.trim().is_empty())).last().map(|(at, _)| at);
+    let answer = parts().rfind(|(_, p)| matches!(p, Part::Text { text } if !text.trim().is_empty())).map(|(at, _)| at);
     if settled && let Some(answer) = answer.filter(|a| *a < last_tool) {
         out.retain(|t| *t != answer);
     }
