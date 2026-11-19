@@ -175,7 +175,7 @@ string_enum! {
         Terminal = "Terminal",
         /// Pages in this window's embedded browser, each a tab of a session's side region.
         Browser = "Browser",
-        /// The routed session's composer.
+        /// The active session's or draft's composer.
         Composer = "Composer",
         /// Office documents laid out and drawn by the host, each on a thread of its own.
         Office = "Office",
@@ -263,7 +263,7 @@ impl ServiceName {
             Self::Diff => &["Open", "Mode", "SetMode"],
             Self::Terminal => &["Create", "Attach", "List", "Available", "New", "Toggle", "Select", "OpenAsync"],
             Self::Browser => &["OpenAsync", "Tabs", "Get", "List", "Active", "Selected", "Focused", "Available", "Engine", "NormalizeUrl", "Prepare", "Changed", "Picked"],
-            Self::Composer => &["InsertPill"],
+            Self::Composer => &["InsertPill", "Active", "Directory", "Model"],
             Self::Office => &["OpenAsync", "Version", "SetSheet", "Sheet", "Close"],
             Self::Updater => &["State", "CheckAsync", "InstallAsync", "StateChanged"],
             Self::Diagnostics => &["Memory", "Metrics", "Plugins", "Get", "Set", "HeapSnapshotAsync"],

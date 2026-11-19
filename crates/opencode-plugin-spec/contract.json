@@ -865,6 +865,11 @@
       { "name": "outputLimit", "type": "integer?", "doc": "Its output limit in tokens." },
       { "name": "paid", "type": "boolean?", "doc": "Any of its token prices is above zero." }
     ] },
+    { "name": "ComposerModel", "kind": "record", "rust": true, "doc": "The model selected in the composer.", "fields": [
+      { "name": "providerId", "type": "string", "doc": "The provider id." },
+      { "name": "modelId", "type": "string", "doc": "The model id." },
+      { "name": "name", "type": "string", "doc": "Its display name." }
+    ] },
     { "name": "Resource", "kind": "record", "rust": true, "doc": "A cached server read.", "fields": [
       { "name": "status", "type": "ResourceStatus", "doc": "Its state." },
       { "name": "json", "type": "any?", "doc": "The answer as JSON, when it is JSON and the read didn't ask for `items`." },
@@ -1831,8 +1836,11 @@
       { "name": "Changed", "kind": "signal", "payload": "string", "doc": "Fires with a page's id when its address, title or loading changes, or it closes." },
       { "name": "Picked", "kind": "signal", "payload": "BrowserPick", "doc": "Fires when the element picker picks an element." }
     ] },
-    { "name": "Composer", "halves": ["window"], "doc": "The routed session's composer.", "members": [
-      { "name": "InsertPill", "kind": "method", "sig": "(id: string, label: string) -> ()", "doc": "Puts a pill at the caret, with a space on each side, and gives the composer the keyboard." }
+    { "name": "Composer", "halves": ["window"], "doc": "The active session's or draft's composer.", "members": [
+      { "name": "InsertPill", "kind": "method", "sig": "(id: string, label: string) -> ()", "doc": "Puts a pill at the caret, with a space on each side, and gives the composer the keyboard." },
+      { "name": "Active", "kind": "method", "sig": "() -> boolean", "since": "1.5", "doc": "Whether the current screen has a composer (a draft or a root session)." },
+      { "name": "Directory", "kind": "method", "sig": "() -> string", "since": "1.5", "doc": "The composer's workspace folder (the active session's, or the draft's)." },
+      { "name": "Model", "kind": "method", "sig": "() -> ComposerModel?", "since": "1.5", "doc": "The model currently selected in the composer, when listed in the model catalog." }
     ] },
     { "name": "Office", "halves": ["window"], "doc": "Office documents laid out and drawn by the host, each on a thread of its own.", "members": [
       { "name": "OpenAsync", "kind": "method", "sig": "(path: string, directory: string, kind: OfficeKind) -> OfficeFile", "yields": true, "doc": "Reads a file of the session's folder `directory` through the server and, when its bytes are a zip archive, opens and lays it out as `kind`." },

@@ -294,6 +294,11 @@ pub fn dep_version(app: &App, dep: &Dep) -> u64 {
         #[cfg(not(feature = "office"))]
         Dep::Office(_) => 0.hash(&mut h),
         Dep::Browser => super::native::browser::version(app).hash(&mut h),
+        Dep::Composer => {
+            use crate::pickers::PickerHost as _;
+            let sel = app.selection();
+            (app.has_composer(), app.composer_directory(), sel.model.provider, sel.model.id, app.composer_ext.pickers.models.len()).hash(&mut h);
+        }
     }
     h.finish()
 }

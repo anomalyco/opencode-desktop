@@ -172,6 +172,8 @@ pub enum Dep {
     Image(Rc<str>, u32),
     /// Whether a plugin's video (`ui.video`) can play, by its URL.
     Video(Rc<str>, String),
+    /// The active composer's visibility, workspace folder and selected model (`Composer`).
+    Composer,
 }
 
 /// Records that the running render read `dep`. Outside a recorded render it does nothing.

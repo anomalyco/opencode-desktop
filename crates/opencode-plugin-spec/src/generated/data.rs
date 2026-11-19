@@ -209,6 +209,20 @@ pub struct ModelInfo {
 }
 impl_record!(ModelInfo, ["providerName", "modelName", "contextLimit", "outputLimit", "paid"], [], []);
 
+/// The model selected in the composer.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct ComposerModel {
+    /// The provider id.
+    pub provider_id: String,
+    /// The model id.
+    pub model_id: String,
+    /// Its display name.
+    pub name: String,
+}
+impl_record!(ComposerModel, ["providerId", "modelId", "name"], [], []);
+
 /// A cached server read.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

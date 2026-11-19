@@ -424,11 +424,14 @@ Pages in this window's embedded browser, each a tab of a session's side region. 
 
 ### Composer
 
-The routed session's composer. Halves: window.
+The active session's or draft's composer. Halves: window.
 
 | Member | Type | Description |
 |---|---|---|
 | `:InsertPill` | `(id: string, label: string) -> ()` | Puts a pill at the caret, with a space on each side, and gives the composer the keyboard. |
+| `:Active` | `() -> boolean` | Whether the current screen has a composer (a draft or a root session). Since 1.5. |
+| `:Directory` | `() -> string` | The composer's workspace folder (the active session's, or the draft's). Since 1.5. |
+| `:Model` | `() -> ComposerModel?` | The model currently selected in the composer, when listed in the model catalog. Since 1.5. |
 
 ### Office
 
@@ -2112,6 +2115,16 @@ A model as the server's catalog names it.
 | `contextLimit` | `number?` | Its context window in tokens. |
 | `outputLimit` | `number?` | Its output limit in tokens. |
 | `paid` | `boolean?` | Any of its token prices is above zero. |
+
+### ComposerModel
+
+The model selected in the composer.
+
+| Field | Type | Description |
+|---|---|---|
+| `providerId` | `string` | The provider id. |
+| `modelId` | `string` | The model id. |
+| `name` | `string` | Its display name. |
 
 ### Resource
 

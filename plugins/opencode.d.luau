@@ -3306,6 +3306,16 @@ export type ModelInfo = {
     paid: boolean?,
 }
 
+--- The model selected in the composer.
+export type ComposerModel = {
+    --- The provider id.
+    providerId: string,
+    --- The model id.
+    modelId: string,
+    --- Its display name.
+    name: string,
+}
+
 --- A cached server read.
 export type Resource = {
     --- Its state.
@@ -5172,10 +5182,16 @@ export type BrowserService = {
     Picked: Signal<BrowserPick>,
 }
 
---- The routed session's composer. The window half only: `ctx:GetService("Composer")`.
+--- The active session's or draft's composer. The window half only: `ctx:GetService("Composer")`.
 export type ComposerService = {
     --- Puts a pill at the caret, with a space on each side, and gives the composer the keyboard.
     InsertPill: (self: ComposerService, id: string, label: string) -> (),
+    --- Whether the current screen has a composer (a draft or a root session).
+    Active: (self: ComposerService) -> boolean,
+    --- The composer's workspace folder (the active session's, or the draft's).
+    Directory: (self: ComposerService) -> string,
+    --- The model currently selected in the composer, when listed in the model catalog.
+    Model: (self: ComposerService) -> ComposerModel?,
 }
 
 --- Office documents laid out and drawn by the host, each on a thread of its own. The window half only: `ctx:GetService("Office")`.
