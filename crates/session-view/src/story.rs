@@ -21,7 +21,7 @@ use crate::{TimelineHost, ViewState};
 
 pub const DIAGRAM_SRC: &str = "graph LR\n  Kit[opencode-kit] --> View[session-view]\n  View --> Desktop[opencode-desktop]\n  View --> Seer[seer-sketch]\n";
 
-/// Standalone read-only host state for scenes, stories, and integration tests.
+/// Standalone read-only host state for scenes and stories.
 pub struct Host {
     pub knobs: Knobs,
     pub clock: f64,

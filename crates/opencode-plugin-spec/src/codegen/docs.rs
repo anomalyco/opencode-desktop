@@ -1,4 +1,4 @@
-//! `docs/api.md`: the reference manual, for people and models alike.
+//! `crates/opencode-plugin-spec/docs/api.md`: the reference manual, for people and models alike.
 
 use super::model::{Contract, HALVES, Member, MemberKind, TypeDef, TypeKind, context_type};
 use super::sig;

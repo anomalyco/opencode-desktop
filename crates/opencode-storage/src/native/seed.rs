@@ -1,6 +1,6 @@
 //! The first-run seed from Desktop's own database (`drafts.sqlite` in its `userData`), in
 //! process, read-only, after the first frame and off the UI thread. It replaces the
-//! `sqlite3.exe` child the app spawned before its first frame (`apps/desktop/src/tabs.rs:283-307`).
+//! `sqlite3.exe` child the app previously spawned before its first frame (now under `apps/desktop/src/shell/tabs/`).
 //!
 //! Desktop's folders are never written: its database opens with `SQLITE_OPEN_READ_ONLY` (falling
 //! back to `immutable=1` when it can't be read alongside a running Desktop), and its
@@ -29,8 +29,8 @@ pub fn open_read_only(db: &Path) -> Option<Connection> {
     Connection::open_with_flags(uri(""), flags).ok().and_then(usable).or_else(|| Connection::open_with_flags(uri("&immutable=1"), flags).ok().and_then(usable))
 }
 
-/// The tabs (`tabs`, `tabs.info`) of the window Desktop wrote last, as `apps/desktop/src/tabs.rs`
-/// `from_beta_db` read them through `sqlite3.exe`: a drop-in for that call, in process. Pass the
+/// The tabs (`tabs`, `tabs.info`) of the window Desktop wrote last, replacing `apps/desktop/src/shell/tabs/`'s
+/// former `sqlite3.exe` lookup: a drop-in for that call, in process. Pass the
 /// result to `opencode_kit::servers::migration::window::from_beta`.
 pub fn recent_tabs(db: &Path) -> Option<(Value, Value)> {
     let conn = open_read_only(db)?;

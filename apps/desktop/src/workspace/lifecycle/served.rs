@@ -1,5 +1,5 @@
 //! The fixture's server: the replies it stores from the events it streams, and the page
-//! refresh it answers after a step starts, as a live server does (`events.rs`).
+//! refresh it answers after a step starts, as a live server does (`session::events`).
 //!
 //! A server keeps a reply's parts in the order they started, and a stream's ordinals count
 //! texts and thoughts each on their own. So a refresh shows any place the app folded the

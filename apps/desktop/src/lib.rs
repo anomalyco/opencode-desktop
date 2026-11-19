@@ -224,7 +224,7 @@ fn quit_last() {
     storage::close();
     rune::marks::mark("storage.flushed");
     // Nothing of the app's is left to lose: whatever the rest waits on, the process ends within
-    // 2 s, saying what it waited for. A training build (`scripts/pgo.ps1`) writes ~50 MB of counts
+    // 2 s, saying what it waited for. A training build (`apps/desktop/scripts/pgo.ps1`) writes ~50 MB of counts
     // last; on a loaded machine that outlasted 2 s and left truncated, unmergeable files.
     rune::exit_deadline(std::time::Duration::from_secs(if cfg!(pgo_generate) { 120 } else { 2 }));
     // A launch handed on while the app quit claims it now, unless an update replaces it.

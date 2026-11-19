@@ -5,11 +5,15 @@ set -euo pipefail
 # `~/Library/Application Support/co.anomaly.opencode/browser-engine/<version>/`
 # (or a custom directory passed as `$1`).
 
-ENGINE_VERSION="156.0.14.1"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENGINE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+CEF_BUILD="$(grep -A1 '^name = "cef-dll-sys"$' "$ENGINE_DIR/Cargo.lock" | sed -n 's/^version = ".*+\(.*\)"$/\1/p')"
+ENGINE_REVISION="$(sed -n 's/^pub const ENGINE_REVISION: u32 = \([0-9]*\);$/\1/p' "$ENGINE_DIR/../../crates/browser-pane/src/installer.rs")"
+[[ -n "$CEF_BUILD" && -n "$ENGINE_REVISION" ]] || { echo "CEF build or ENGINE_REVISION not found" >&2; exit 1; }
+ENGINE_VERSION="$CEF_BUILD.$ENGINE_REVISION"
 DEST_ROOT="${1:-$HOME/Library/Application Support/co.anomaly.opencode/browser-engine/$ENGINE_VERSION}"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MANIFEST="$SCRIPT_DIR/../Cargo.toml"
+MANIFEST="$ENGINE_DIR/Cargo.toml"
 
 export CEF_PATH="${CEF_PATH:-$HOME/.local/share/cef}"
 mkdir -p "$CEF_PATH"
@@ -30,7 +34,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Frameworks" "$APP/Contents/Resourc
 
 cp "$MAIN_BIN" "$APP/Contents/MacOS/opencode-browser-engine"
 
-cat > "$APP/Contents/Info.plist" <<'PLIST'
+cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -39,8 +43,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleIdentifier</key><string>co.anomaly.opencode.browser-engine</string>
   <key>CFBundleExecutable</key><string>opencode-browser-engine</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleVersion</key><string>156.0.14.1</string>
-  <key>CFBundleShortVersionString</key><string>156.0.14.1</string>
+  <key>CFBundleVersion</key><string>$ENGINE_VERSION</string>
+  <key>CFBundleShortVersionString</key><string>$ENGINE_VERSION</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>LSUIElement</key><string>1</string>
   <key>NSHighResolutionCapable</key><true/>
@@ -73,8 +77,8 @@ for SUFFIX in "Helper" "Helper (GPU)" "Helper (Renderer)" "Helper (Plugin)" "Hel
   <key>CFBundleIdentifier</key><string>co.anomaly.opencode.browser-engine.$ID_SUFFIX</string>
   <key>CFBundleExecutable</key><string>$HNAME</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleVersion</key><string>156.0.14.1</string>
-  <key>CFBundleShortVersionString</key><string>156.0.14.1</string>
+  <key>CFBundleVersion</key><string>$ENGINE_VERSION</string>
+  <key>CFBundleShortVersionString</key><string>$ENGINE_VERSION</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>LSUIElement</key><string>1</string>
   <key>LSEnvironment</key><dict>

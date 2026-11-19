@@ -1,5 +1,5 @@
 //! Settings › Appearance, as Desktop has it (`settings/appearance/appearance.tsx`): colour
-//! scheme, theme (`themes.rs`), the UI, code and terminal fonts, interface zoom and Reduce
+//! scheme, theme (`opencode_ui::themes`), the UI, code and terminal fonts, interface zoom and Reduce
 //! motion (System / On / Off). The font rows take any family name, as Desktop's do: one of the
 //! faces the app bundles picks it, and any other installed family stands before the default,
 //! which Rune loads from the system by name.

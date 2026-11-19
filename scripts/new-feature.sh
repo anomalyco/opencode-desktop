@@ -3,7 +3,7 @@
 #
 # Usage:
 #   scripts/new-feature.sh plugin <id> [Title]   # Lane A (default): Luau plugin under plugins/<id>/
-#   scripts/new-feature.sh feature <id> [Title]  # Lane B: Rust feature crate under features/<id>/
+#   scripts/new-feature.sh feature <id> [Title]  # Lane B: Rust feature crate + desktop adapter + wiring
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -12,11 +12,11 @@ usage() {
   cat <<'EOF'
 Usage:
   scripts/new-feature.sh plugin <id> [Title]   # Lane A (default): Luau plugin under plugins/<id>/
-  scripts/new-feature.sh feature <id> [Title]  # Lane B: Rust feature crate under features/<id>/
+  scripts/new-feature.sh feature <id> [Title]  # Lane B: Rust feature crate + desktop adapter + wiring
 
 Rules:
   - <id> must be lowercase kebab-case (^[a-z][a-z0-9-]*$, max 64 chars)
-  - Existing target directories are never overwritten
+  - Existing target directories and adapter files are never overwritten
 EOF
 }
 
@@ -196,8 +196,28 @@ EOF
 fi
 
 TARGET="$ROOT/features/$ID"
+ADAPTER="$ROOT/apps/desktop/src/surfaces/${SNAKE}.rs"
+ADAPTER_DIR="$ROOT/apps/desktop/src/surfaces/${SNAKE}"
+ROOT_TOML="$ROOT/Cargo.toml"
+DESKTOP_TOML="$ROOT/apps/desktop/Cargo.toml"
+SURFACES_MOD="$ROOT/apps/desktop/src/surfaces/mod.rs"
+EXPORTS_RS="$ROOT/apps/desktop/src/exports.rs"
+KERNEL_RS="$ROOT/apps/desktop/src/kernel.rs"
+
 if [ -e "$TARGET" ]; then
   echo "error: '$TARGET' already exists; refusing to overwrite" >&2
+  exit 1
+fi
+if [ -e "$ADAPTER" ] || [ -e "$ADAPTER_DIR" ]; then
+  echo "error: desktop adapter for '${SNAKE}' already exists under apps/desktop/src/surfaces/; refusing to overwrite" >&2
+  exit 1
+fi
+if [ -f "$ROOT_TOML" ] && grep -Fq "\"features/${ID}\"" "$ROOT_TOML"; then
+  echo "error: 'features/${ID}' is already listed in Cargo.toml" >&2
+  exit 1
+fi
+if [ -f "$DESKTOP_TOML" ] && grep -Eq "^opencode-feature-${ID}[[:space:]]*=" "$DESKTOP_TOML"; then
+  echo "error: 'opencode-feature-${ID}' is already listed in apps/desktop/Cargo.toml" >&2
   exit 1
 fi
 
@@ -223,13 +243,12 @@ EOF
 cat <<EOF > "$TARGET/src/lib.rs"
 //! ${TITLE} feature crate (\`features/${ID}\`).
 //!
-//! Keep the host boundary object-safe (\`dyn ${PASCAL}Host\`) so \`apps/desktop\` and \`apps/web\`
-//! do not re-monomorphize this crate's codegen, and keep per-window state in
+//! Keep the host boundary object-safe (\`dyn ${PASCAL}Host\`) so \`apps/desktop\` does not
+//! re-monomorphize this crate's codegen, and keep per-window state in
 //! \`opencode_kernel::StateSlots\` instead of adding fields to \`struct App\`.
+//! Desktop wires \`${PASCAL}Host\` and \`Feature<App>\` in \`apps/desktop/src/surfaces/${SNAKE}.rs\`.
 
 #![forbid(unsafe_code)]
-
-use opencode_kernel::{Feature, KernelBuilder, Phase};
 
 /// Explicit state machine phase for ${TITLE}.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -239,13 +258,41 @@ pub enum ${PASCAL}Phase {
     NeedsRedraw,
 }
 
+/// Inputs that advance [\`${PASCAL}Phase\`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ${PASCAL}Event {
+    RequestRedraw,
+    Tick,
+}
+
+/// Effects returned by [\`step\`] for the caller to apply.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ${PASCAL}Effect {
+    Redraw,
+}
+
+/// Advances [\`${PASCAL}Phase\`] by one event and returns any effect for the host to perform.
+pub fn step(phase: &mut ${PASCAL}Phase, event: ${PASCAL}Event) -> Option<${PASCAL}Effect> {
+    match (*phase, event) {
+        (_, ${PASCAL}Event::RequestRedraw) => {
+            *phase = ${PASCAL}Phase::NeedsRedraw;
+            None
+        }
+        (${PASCAL}Phase::NeedsRedraw, ${PASCAL}Event::Tick) => {
+            *phase = ${PASCAL}Phase::Idle;
+            Some(${PASCAL}Effect::Redraw)
+        }
+        (${PASCAL}Phase::Idle, ${PASCAL}Event::Tick) => None,
+    }
+}
+
 /// Per-window state stored in \`opencode_kernel::StateSlots\`.
 #[derive(Debug, Default)]
 pub struct ${PASCAL}State {
     pub phase: ${PASCAL}Phase,
 }
 
-/// Object-safe host boundary implemented by the shell (\`apps/desktop\` / \`apps/web\`).
+/// Object-safe host boundary implemented by the desktop adapter (\`apps/desktop/src/surfaces/${SNAKE}.rs\`).
 pub trait ${PASCAL}Host: opencode_kernel::AppEnv + opencode_kernel::AppFeedback + opencode_kernel::AppOverlays {
     fn state(&self) -> Option<&${PASCAL}State>;
     fn state_mut(&mut self) -> &mut ${PASCAL}State;
@@ -255,44 +302,251 @@ pub trait ${PASCAL}Host: opencode_kernel::AppEnv + opencode_kernel::AppFeedback 
 ///
 /// Returns \`true\` when state changed and the window should redraw.
 pub fn poll(host: &mut dyn ${PASCAL}Host, tx: &mut rune::Tx) -> bool {
-    let state = host.state_mut();
-    match state.phase {
-        ${PASCAL}Phase::Idle => false,
-        ${PASCAL}Phase::NeedsRedraw => {
-            state.phase = ${PASCAL}Phase::Idle;
+    match step(&mut host.state_mut().phase, ${PASCAL}Event::Tick) {
+        Some(${PASCAL}Effect::Redraw) => {
             tx.instant();
             true
         }
+        None => false,
+    }
+}
+EOF
+
+cat <<EOF > "$ADAPTER"
+//! Desktop host adapter for \`opencode-feature-${ID}\` (\`features/${ID}\`).
+
+pub use opencode_feature_${SNAKE}::*;
+
+use opencode_kernel::{Feature, KernelBuilder, Phase};
+
+use crate::App;
+
+impl ${PASCAL}Host for App {
+    fn state(&self) -> Option<&${PASCAL}State> {
+        self.kernel.slots.get::<${PASCAL}State>()
+    }
+
+    fn state_mut(&mut self) -> &mut ${PASCAL}State {
+        self.kernel.slots.slot::<${PASCAL}State>()
     }
 }
 
 /// Kernel feature registration for ${TITLE}.
 pub struct ${PASCAL}Feature;
 
-impl<S: ${PASCAL}Host> Feature<S> for ${PASCAL}Feature {
+impl Feature<App> for ${PASCAL}Feature {
     fn id(&self) -> &'static str {
         "feature.${ID}"
     }
 
-    fn register(&self, builder: &mut KernelBuilder<S>) {
+    fn register(&self, builder: &mut KernelBuilder<App>) {
         builder.insert_slot(${PASCAL}State::default());
-        builder.add_system(Phase::Ingest, "${ID}.poll", |host, _, tx| poll(host, tx));
-        // Modal dialogs can self-register without editing shell view/keys/escape:
-        // builder.register_overlay(opencode_kernel::OverlayRegistration::dialog(ID, render, Some(on_key), Some(on_dismiss)));
+        builder.add_system(Phase::Ingest, "${ID}.poll", |s, _, tx| poll(s, tx));
+        // Register commands, modal overlays, Escape layers, or surfaces here without editing central switchboards:
+        // builder.add_command(opencode_kernel::CommandEntry::<App>::from_key(...));
+        // builder.register_overlay(opencode_kernel::OverlayRegistration::<App>::dialog(...));
+        // builder.register_escape_layer(opencode_kernel::EscapeLayer::new(...));
     }
 }
 EOF
 
-cat <<EOF
-Created Lane B Rust feature crate:
-  features/${ID}/Cargo.toml
-  features/${ID}/src/lib.rs
+UPDATED=()
+MANUAL=()
 
-Next steps (wire into the workspace):
-  1. Cargo.toml ([workspace] members):
-       "features/${ID}",
-  2. apps/desktop/Cargo.toml (dependencies):
-       opencode-feature-${ID} = { path = "../../features/${ID}" }
-  3. apps/desktop/src/kernel.rs (inside build(), after implementing ${PASCAL}Host for App in apps/desktop/src/surfaces/${SNAKE}.rs):
-       b.with_feature(&opencode_feature_${SNAKE}::${PASCAL}Feature);
-EOF
+# 1. Cargo.toml ([workspace] members)
+tmp="$(mktemp)"
+if [ -f "$ROOT_TOML" ] && LC_ALL=C awk -v id="$ID" '
+  BEGIN { in_members = 0; seen_feat = 0; inserted = 0; entry = "    \"features/" id "\"," }
+  /^[ \t]*members[ \t]*=[ \t]*\[/ { in_members = 1; print; next }
+  in_members && /^[ \t]*"features\/[a-z0-9-]+",[ \t]*$/ {
+    cur = $0
+    sub(/^[ \t]*"features\//, "", cur)
+    sub(/",[ \t]*$/, "", cur)
+    if (!inserted && cur > id) {
+      print entry
+      inserted = 1
+    }
+    seen_feat = 1
+    print
+    next
+  }
+  in_members && seen_feat && !inserted {
+    print entry
+    inserted = 1
+  }
+  in_members && /^[ \t]*\]/ { in_members = 0 }
+  { print }
+  END { if (!inserted) exit 1 }
+' "$ROOT_TOML" > "$tmp"; then
+  mv "$tmp" "$ROOT_TOML"
+  UPDATED+=("Cargo.toml")
+else
+  rm -f "$tmp"
+  MANUAL+=("Cargo.toml ([workspace] members): add \`\"features/${ID}\",\`")
+fi
+
+# 2. apps/desktop/Cargo.toml ([dependencies])
+tmp="$(mktemp)"
+if [ -f "$DESKTOP_TOML" ] && LC_ALL=C awk -v id="$ID" '
+  BEGIN { seen_feat = 0; inserted = 0; entry = "opencode-feature-" id " = { path = \"../../features/" id "\" }" }
+  /^opencode-feature-[a-z0-9-]+[ \t]*=[ \t]*\{[ \t]*path[ \t]*=[ \t]*"\.\.\/\.\.\/features\// {
+    cur = $0
+    sub(/^opencode-feature-/, "", cur)
+    sub(/[ \t]*=.*/, "", cur)
+    if (!inserted && cur > id) {
+      print entry
+      inserted = 1
+    }
+    seen_feat = 1
+    print
+    next
+  }
+  seen_feat && !inserted {
+    print entry
+    inserted = 1
+  }
+  { print }
+  END { if (!inserted) exit 1 }
+' "$DESKTOP_TOML" > "$tmp"; then
+  mv "$tmp" "$DESKTOP_TOML"
+  UPDATED+=("apps/desktop/Cargo.toml")
+else
+  rm -f "$tmp"
+  MANUAL+=("apps/desktop/Cargo.toml ([dependencies]): add \`opencode-feature-${ID} = { path = \"../../features/${ID}\" }\`")
+fi
+
+# 3. apps/desktop/src/surfaces/mod.rs
+tmp="$(mktemp)"
+if [ -f "$SURFACES_MOD" ] && LC_ALL=C awk -v snake="$SNAKE" '
+  BEGIN { inserted = 0; buf_n = 0; entry = "pub mod " snake ";" }
+  /^#\[.*\]$/ {
+    buf[++buf_n] = $0
+    next
+  }
+  /^pub mod [a-z0-9_]+;$/ {
+    cur = $0
+    sub(/^pub mod /, "", cur)
+    sub(/;$/, "", cur)
+    if (!inserted && cur > snake) {
+      print entry
+      inserted = 1
+    }
+    for (i = 1; i <= buf_n; i++) print buf[i]
+    buf_n = 0
+    print
+    next
+  }
+  {
+    for (i = 1; i <= buf_n; i++) print buf[i]
+    buf_n = 0
+    print
+  }
+  END {
+    for (i = 1; i <= buf_n; i++) print buf[i]
+    if (!inserted) {
+      print entry
+      inserted = 1
+    }
+  }
+' "$SURFACES_MOD" > "$tmp"; then
+  mv "$tmp" "$SURFACES_MOD"
+  UPDATED+=("apps/desktop/src/surfaces/mod.rs")
+else
+  rm -f "$tmp"
+  MANUAL+=("apps/desktop/src/surfaces/mod.rs: add \`pub mod ${SNAKE};\`")
+fi
+
+# 4. apps/desktop/src/exports.rs
+tmp="$(mktemp)"
+if [ -f "$EXPORTS_RS" ] && LC_ALL=C awk -v snake="$SNAKE" '
+  BEGIN { updated = 0 }
+  /^pub\(crate\) use crate::surfaces::\{[^}]+\};$/ {
+    inner = $0
+    sub(/^pub\(crate\) use crate::surfaces::\{/, "", inner)
+    sub(/\};$/, "", inner)
+    n = split(inner, raw, ",")
+    count = 0
+    found = 0
+    for (i = 1; i <= n; i++) {
+      item = raw[i]
+      gsub(/^[ \t]+|[ \t]+$/, "", item)
+      if (item == "") continue
+      if (item == snake) found = 1
+      items[++count] = item
+    }
+    if (!found) items[++count] = snake
+    for (i = 2; i <= count; i++) {
+      key = items[i]
+      j = i - 1
+      while (j >= 1 && items[j] > key) {
+        items[j + 1] = items[j]
+        j--
+      }
+      items[j + 1] = key
+    }
+    line = "pub(crate) use crate::surfaces::{"
+    for (i = 1; i <= count; i++) {
+      if (i > 1) line = line ", "
+      line = line items[i]
+    }
+    print line "};"
+    updated = 1
+    next
+  }
+  { print }
+  END { if (!updated) exit 1 }
+' "$EXPORTS_RS" > "$tmp"; then
+  mv "$tmp" "$EXPORTS_RS"
+  UPDATED+=("apps/desktop/src/exports.rs")
+else
+  rm -f "$tmp"
+  MANUAL+=("apps/desktop/src/exports.rs: add \`${SNAKE}\` to \`pub(crate) use crate::surfaces::{...};\`")
+fi
+
+# 5. apps/desktop/src/kernel.rs
+tmp="$(mktemp)"
+if [ -f "$KERNEL_RS" ] && LC_ALL=C awk -v snake="$SNAKE" -v pascal="$PASCAL" '
+  BEGIN { inserted = 0; entry = "    b.with_feature(&crate::surfaces::" snake "::" pascal "Feature);" }
+  /^    b\.with_feature\(&crate::plugin_host::PluginHostFeature\);$/ {
+    if (!inserted) {
+      print entry
+      inserted = 1
+    }
+    print
+    next
+  }
+  { print }
+  END { if (!inserted) exit 1 }
+' "$KERNEL_RS" > "$tmp"; then
+  mv "$tmp" "$KERNEL_RS"
+  UPDATED+=("apps/desktop/src/kernel.rs")
+else
+  rm -f "$tmp"
+  MANUAL+=("apps/desktop/src/kernel.rs (inside build()): add \`b.with_feature(&crate::surfaces::${SNAKE}::${PASCAL}Feature);\`")
+fi
+
+echo "Created Lane B Rust feature:"
+echo "  features/${ID}/Cargo.toml"
+echo "  features/${ID}/src/lib.rs"
+echo "  apps/desktop/src/surfaces/${SNAKE}.rs"
+if [ "${#UPDATED[@]}" -gt 0 ]; then
+  echo ""
+  echo "Wired into:"
+  for f in "${UPDATED[@]}"; do
+    echo "  ${f}"
+  done
+fi
+if [ "${#MANUAL[@]}" -gt 0 ]; then
+  echo ""
+  echo "Manual steps remaining:"
+  for step in "${MANUAL[@]}"; do
+    echo "  - ${step}"
+  done
+fi
+echo ""
+echo "Note: if this feature belongs under dialogs/, session/, shell/, or workspace/ instead of surfaces/,"
+echo "move apps/desktop/src/surfaces/${SNAKE}.rs there and update its mod.rs, exports.rs, and kernel.rs paths."
+echo ""
+echo "Verify with:"
+echo "  cargo check --workspace"
+echo "  scripts/arch-check.sh"

@@ -1,5 +1,5 @@
 //! The storybook's Long prompt story (Timeline › Long prompt): a pasted call transcript sent
-//! from the composer flies up and lands folded to its first 8 lines behind Read more (`fold.rs`).
+//! from the composer flies up and lands folded to its first 8 lines behind Read more (`session_view::fold`).
 //! O opens or closes it, S sends another, R replays. The Expanded variant opens it once it lands; Fold off
 //! turns the setting off; Steer and Queued send it while a run works.
 

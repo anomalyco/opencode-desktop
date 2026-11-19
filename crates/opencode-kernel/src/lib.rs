@@ -1,6 +1,6 @@
 //! Lightweight Shell Kernel for Rune apps (`rune-desktop`, Seer, and future hosts).
 //!
-//! Unites five orthogonal decoupling registries so features never add fields to the host `App`
+//! Unites six orthogonal decoupling registries so features never add fields to the host `App`
 //! struct or edit central switchboards:
 //! - [`StateSlots`]: typed per-window feature state storage.
 //! - [`OverlayStack`]: explicit state machine for modal/popover/sheet/menu/toast dismissal.

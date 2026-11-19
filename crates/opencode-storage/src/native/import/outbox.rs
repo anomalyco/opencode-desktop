@@ -1,4 +1,4 @@
-//! `outbox-<sha256>.json`, the outbox's journal (`apps/desktop/src/send_failed/journal.rs`): a
+//! `outbox-<sha256>.json`, the legacy outbox journal (superseded by `features/inbox/src/send_failed/outbox.rs`): a
 //! JSON array of rows, each attachment's bytes inline as an integer array and again as a
 //! base64 `data:` URL inside the prompt. Rows become `outbox` rows; the bytes are stored once,
 //! in `blob`, by SHA-256.

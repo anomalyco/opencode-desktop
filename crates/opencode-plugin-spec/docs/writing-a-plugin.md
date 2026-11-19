@@ -232,7 +232,7 @@ cargo run -p opencode-plugin-spec -- --check
 | `plugins/opencode.d.luau`, `plugins/types/*.luau`, `plugins/.luaurc` | `luau-lsp` and editors |
 | `plugins/plugin.schema.json` | TOML editors |
 | `plugins/opencode-selene.yml` | `selene` |
-| `docs/api.md` | People and models |
-| `src/generated/*.rs` | The host: tokens, enums, spec records, node props, registry, manifest |
+| `crates/opencode-plugin-spec/docs/api.md` | People and models |
+| `crates/opencode-plugin-spec/src/generated/*.rs` | The host: tokens, enums, spec records, node props, registry, manifest |
 
 Keep a change within the [versioning rules](api.md#versioning): a 1.x contract only adds.
