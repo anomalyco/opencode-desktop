@@ -110,11 +110,12 @@ pub fn retry(s: &App, tx: &mut Tx) -> Option<u64> {
     if !s.live() {
         return None;
     }
-    let (id, fx) = HEALTH.with_borrow_mut(|h| {
+    let (id, before, fx) = HEALTH.with_borrow_mut(|h| {
+        let before = shown(h);
         h.waiters += 1;
-        (h.waiters, health::step(&mut h.state, Event::RetryRequested(h.waiters)))
+        (h.waiters, before, health::step(&mut h.state, Event::RetryRequested(h.waiters)))
     });
-    run(s, fx, tx);
+    run(s, before, fx, tx);
     Some(id)
 }
 
@@ -124,8 +125,7 @@ pub fn nudge(s: &App, key: &ServerKey, tx: &mut Tx) {
     if !s.live() {
         return;
     }
-    let fx = HEALTH.with_borrow_mut(|h| health::step(&mut h.state, Event::Nudged(key.clone())));
-    run(s, fx, tx);
+    dispatch(s, Event::Nudged(key.clone()), tx);
 }
 
 /// Server `key`'s event stream opened (`up`) or dropped: while it's up the 10 s poll leaves the
@@ -135,8 +135,7 @@ pub fn streaming(s: &App, key: &ServerKey, up: bool, tx: &mut Tx) {
     if !s.live() {
         return;
     }
-    let fx = HEALTH.with_borrow_mut(|h| health::step(&mut h.state, Event::Streaming { key: key.clone(), up }));
-    run(s, fx, tx);
+    dispatch(s, Event::Streaming { key: key.clone(), up }, tx);
 }
 
 /// Whether `retry` caller `id`'s probes have all answered (it's forgotten once asked).
@@ -158,11 +157,12 @@ pub fn poll(s: &App, tx: &mut Tx) -> bool {
         if h.inputs == inputs {
             return None;
         }
+        let prev = shown(h);
         h.inputs = inputs.clone();
-        Some(health::step(&mut h.state, Event::ServersSynced(inputs)))
+        Some((prev, health::step(&mut h.state, Event::ServersSynced(inputs))))
     });
-    if let Some(fx) = synced {
-        run(s, fx, tx);
+    if let Some((prev, fx)) = synced {
+        run(s, prev, fx, tx);
     }
     // A server that refused connections accepts again: probe it now, not at the next poll.
     let back = HEALTH.with_borrow_mut(|h| opencode_kit::client::reach_back(&mut h.reach_seen));
@@ -195,16 +195,16 @@ pub fn poll(s: &App, tx: &mut Tx) -> bool {
             crate::servers::runtime::set_sidecar(&actual);
             let entries = super::registry::list(s);
             let inputs: Vec<Input> = entries.iter().map(|e| Input::of(&e.conn)).collect();
-            let fx = HEALTH.with_borrow_mut(|h| {
+            let (prev, fx) = HEALTH.with_borrow_mut(|h| {
+                let prev = shown(h);
                 h.conns = entries.into_iter().map(|e| (e.key(), e.conn)).collect();
                 h.inputs = inputs.clone();
-                health::step(&mut h.state, Event::ServersSynced(inputs))
+                (prev, health::step(&mut h.state, Event::ServersSynced(inputs)))
             });
-            run(s, fx, tx);
+            run(s, prev, fx, tx);
             continue;
         }
-        let fx = HEALTH.with_borrow_mut(|h| health::step(&mut h.state, Event::ProbeSettled { key, attempt, result }));
-        run(s, fx, tx);
+        dispatch(s, Event::ProbeSettled { key, attempt, result }, tx);
     }
     let due = HEALTH.with_borrow(|h| match h.timer {
         Timer::Every { due, .. } => Some(due),
@@ -212,13 +212,14 @@ pub fn poll(s: &App, tx: &mut Tx) -> bool {
     });
     if let Some(due) = due {
         if due <= *s.clock {
-            let fx = HEALTH.with_borrow_mut(|h| {
+            let (prev, fx) = HEALTH.with_borrow_mut(|h| {
+                let prev = shown(h);
                 if let Timer::Every { interval, .. } = h.timer {
                     h.timer = Timer::Every { due: *s.clock + interval, interval };
                 }
-                health::step(&mut h.state, Event::PollDue)
+                (prev, health::step(&mut h.state, Event::PollDue))
             });
-            run(s, fx, tx);
+            run(s, prev, fx, tx);
         }
         if let Timer::Every { due, .. } = HEALTH.with_borrow(|h| h.timer) {
             tx.wake_at(due);
@@ -227,10 +228,19 @@ pub fn poll(s: &App, tx: &mut Tx) -> bool {
     version() != before
 }
 
-fn run(s: &App, fx: rune::machine::Effects<Effect>, tx: &mut Tx) {
+type Shown = Vec<(ServerKey, Health, Option<String>)>;
+
+fn dispatch(s: &App, event: Event, tx: &mut Tx) {
+    let (before, fx) = HEALTH.with_borrow_mut(|h| {
+        let before = shown(h);
+        (before, health::step(&mut h.state, event))
+    });
+    run(s, before, fx, tx);
+}
+
+fn run(s: &App, before: Shown, fx: rune::machine::Effects<Effect>, tx: &mut Tx) {
     // Only what rows show moves the version and asks for a frame: an answer that says what the
     // last one did (an unreachable server's every 10 s) changes nothing on screen.
-    let before = HEALTH.with_borrow(shown);
     let mut changed = false;
     let mut known = Vec::new();
     for effect in fx {
@@ -264,14 +274,13 @@ fn run(s: &App, fx: rune::machine::Effects<Effect>, tx: &mut Tx) {
         tx.instant();
     }
     for (key, attempt, result) in known {
-        let fx = HEALTH.with_borrow_mut(|h| health::step(&mut h.state, Event::ProbeSettled { key, attempt, result }));
-        run(s, fx, tx);
+        dispatch(s, Event::ProbeSettled { key, attempt, result }, tx);
     }
 }
 
 /// What rows show of every server's health.
-fn shown(h: &Runtime) -> Vec<(Health, Option<String>)> {
-    h.state.entries.iter().map(|(k, slot)| (slot.health(), h.hostnames.get(k).cloned())).collect()
+fn shown(h: &Runtime) -> Shown {
+    h.state.entries.iter().map(|(k, slot)| (k.clone(), slot.health(), h.hostnames.get(k).cloned())).collect()
 }
 
 /// `checkServerHealth` on a worker: healthy with the version and hostname `/api/info` reports,
