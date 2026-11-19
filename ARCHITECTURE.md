@@ -92,7 +92,7 @@ Inside `apps/desktop/src/`:
 apps/desktop/src/
 ├── lib.rs          # Shared library root (`opencode_desktop`), fonts, AppSpec/rune_app, `run_native()`, and wasm32 `web_api`
 ├── main.rs         # Thin native binary (`#[global_allocator]` + `opencode_desktop::run_native()`)
-├── app.rs          # `pub struct App` (ratcheted <= 65 fields), launch/fixture/live loading, shortcuts, `App::rest`
+├── app.rs          # `pub struct App` (ratcheted <= 140 effective fields across `app.rs` and `shell/app_state.rs`), launch/fixture/live loading, shortcuts, `App::rest`
 ├── tick.rs         # 4-phase per-frame `poll` (Ingest -> Derive -> React -> Persist), `setup`, and `visibility`
 ├── kernel.rs       # `AppEnv`/`AppFeedback`/`AppOverlays` impls, `Feature` wiring, core overlays/Escape/commands/surfaces
 ├── exports.rs      # Internal `crate::*` re-export index across the domain folders
@@ -215,32 +215,58 @@ flowchart TB
   KERNEL --> I18N
 ```
 
+### Running guardrails
+
+Run the single cheap guardrail entry point before pushing (works on macOS, Linux, and Windows via Bun or Node.js 18+; no Python required; fails loudly if no working JS runtime is on `PATH`):
+
+```sh
+scripts/guardrails.sh         # macOS / Linux / Git Bash
+pwsh scripts/guardrails.ps1   # Windows PowerShell
+```
+
+`scripts/guardrails.sh` runs `scripts/arch-check.sh`, `scripts/file-size.sh`, `scripts/folder-shape.sh`, `scripts/dialog-size.sh`, and `scripts/tables-check.sh`, exiting non-zero on any failure. Slow compile/lint checks (`scripts/clippy.sh`, `cargo check -p session-view --examples`, and `pwsh scripts/web.ps1 -Check`) stay separate so the pre-push check finishes in a few seconds.
+
 ### Rules enforced by `scripts/arch-check.sh`
 
-1. **Strict downward layers and zero cycles (Rules 1 & 1b):** `crates/*` never depend on `features/*` or `apps/*`; `features/*` never depend on `apps/*`; full workspace DFS (excluding `apps/browser-engine`) confirms zero cycles.
-2. **Zero cross-feature dependencies and core-crate isolation (Rules 2 & 2b):** `features/*` crates never depend on sibling `features/*` crates (communicate via `opencode-kernel` or Luau Contracts). Core crates enforce downward isolation:
+1. **Strict downward layers and zero cycles (Rules 1 & 1b):** computed transitively from the resolved dependency graph (`cargo metadata --format-version 1 --all-features`, normal and build dependencies; comments ignored, workspace-inherited dependencies resolved, `[dev-dependencies]` excluded). `crates/*` never depend on `features/*` or `apps/*`; `features/*` never depend on `apps/*`; full workspace DFS (excluding `apps/browser-engine`) confirms zero cycles.
+2. **Zero cross-feature dependencies and core-crate isolation (Rules 2 & 2b):** computed transitively from the resolved graph. `features/*` crates never depend on sibling `features/*` crates (communicate via `opencode-kernel` or Luau Contracts). Core crates enforce downward isolation (named temporary exceptions, if any, live in `scripts/arch-check-exceptions.txt`):
    - `opencode-kernel`: no `session-view`, `terminal`, `browser-pane`, `office-preview`, or `opencode-storage`.
    - `opencode-runtime`: headless; no `session-view`, `terminal`, `browser-pane`, `office-preview`, or `opencode-storage`.
    - `opencode-ui`: pure UI foundation; no `session-view`, `opencode-storage`, `terminal`, `browser-pane`, `office-preview`, or `opencode-runtime`.
    - `opencode-code-view`: no `session-view`, `opencode-storage`, `terminal`, `browser-pane`, `office-preview`, or `opencode-runtime`.
-   - `opencode-search`: strictly headless; no `session-view`, `opencode-ui`, `opencode-code-view`, `opencode-storage`, `terminal`, `browser-pane`, `office-preview`, `opencode-runtime`, or `rune` / `rune-*` crates.
-   - `opencode-plugin-runtime`: `App`-independent; no `session-view`, `opencode-storage`, `terminal`, `browser-pane`, or `office-preview`.
-3. **Core crate `#![forbid(unsafe_code)]` (Rule 3):** `crates/opencode-kernel`, `crates/opencode-runtime`, `crates/opencode-ui`, and `crates/opencode-search` must declare `#![forbid(unsafe_code)]` in `src/lib.rs`.
-4. **`apps/desktop/src/` root breadth (Rule 4):** at most `10` top-level `.rs` files in `apps/desktop/src/`; domains live in subfolders.
-5. **`struct App` field-count ratchet (Rule 5):** `pub struct App` in `apps/desktop/src/app.rs` is capped at `<= 65` fields (`APP_FIELD_CEILING = 65`; ceilings only go down). New per-window feature state belongs in `opencode_kernel::StateSlots` or a Luau plugin.
-6. **Unified web library (Rule 6):** `apps/web/Cargo.toml` must depend on `opencode-desktop` via `path = "../desktop"` and must not duplicate any `features/*` dependencies.
-7. **Zero automated tests (Rule 7):** no `#[test]` or `#[cfg(test)]` in tracked `.rs` sources under `apps/`, `crates/`, or `features/` (see `AGENTS.md`).
+   - `opencode-search`: strictly headless; no `session-view`, `opencode-ui`, `opencode-code-view`, `opencode-storage`, `terminal`, `browser-pane`, `office-preview`, `opencode-runtime`, or transitive `rune` / `rune-*` crates.
+   - `opencode-plugin-runtime`: `App`-independent; no `session-view`, `opencode-storage`, `terminal`, `browser-pane`, or `office-preview` (temporary exception for `opencode-storage` via `opencode-platform` recorded in `scripts/arch-check-exceptions.txt` until that edge is removed).
+3. **Core crate `#![forbid(unsafe_code)]` (Rule 3):** `crates/opencode-kernel`, `crates/opencode-platform`, `crates/opencode-runtime`, `crates/opencode-search`, and `crates/opencode-ui` must declare `#![forbid(unsafe_code)]` in `src/lib.rs` (outside comments).
+4. **`apps/desktop/src/` root breadth (Rule 4):** at most `10` tracked top-level `.rs` files in `apps/desktop/src/`; domains live in subfolders.
+5. **`struct App` effective field-count ratchet (Rule 5):** `pub struct App` in `apps/desktop/src/app.rs` is capped at `<= 140` effective fields (`APP_FIELD_CEILING = 140`; ceilings only go down), expanding plain field-cluster wrapper structs in `apps/desktop/src/shell/app_state.rs` (and any other `apps/desktop/src` struct holding `Tracked<...>` fields) so moving fields into wrappers cannot bypass the ceiling. New per-window feature state belongs in `opencode_kernel::StateSlots` or a Luau plugin.
+6. **Unified web library (Rule 6):** verified from `cargo metadata` — `opencode-web` (`apps/web/Cargo.toml`) must have a direct normal dependency on `opencode-desktop` and must not duplicate any `features/*` dependencies.
+7. **Zero automated tests (Rule 7):** no `#[test]` or `#[cfg(...test...)]` (outside comments/strings) and no tracked test file paths (`tests.rs`, `*_tests.rs`, `*_test.rs`, `tests/`) under `apps/`, `crates/`, or `features/` (see `AGENTS.md`).
 8. **Hard `<= 800`-line cap (Rule 8):** every tracked `.rs` file in `apps/desktop/`, `features/`, and hand-written workspace `crates/` (excluding `crates/opencode-plugin-spec/src/generated/` and `crates/browser-pane/`) is hard-capped at `<= 800` lines.
-9. **Pure feature crate `#![forbid(unsafe_code)]` (Rule 9):** every `features/*/src/lib.rs` must declare `#![forbid(unsafe_code)]` outside the explicit FFI/GPU allowlist (`egg`, `office`, `open-in`, `updater`).
-10. **No `use crate::*;` wildcards (Rule 10):** zero `use crate::*;` (including `pub use crate::*;`) imports in `apps/desktop/src/`.
+9. **Pure feature crate `#![forbid(unsafe_code)]` (Rule 9):** every `features/*/src/lib.rs` must declare `#![forbid(unsafe_code)]` (outside comments) outside the explicit FFI/GPU allowlist (`egg`, `office`, `open-in`, `updater`), and allowlist entries are validated against disk.
+10. **No `use crate::*;` wildcards (Rule 10):** zero `use crate::*;` (including `pub use crate::*;`) imports in `apps/desktop/src/` (outside comments/strings).
+11. **Structural workspace invariants (Rule 11):** `features/<id>` package names must equal `opencode-feature-<id>`; every tracked `{apps,crates,features}/*/Cargo.toml` except `apps/browser-engine/Cargo.toml` must be a workspace member; every `anomalyco/rune` dependency and patch in root `Cargo.toml` must pin the same `rev`; and every non-`.d.luau` source inside a built-in `plugins/<id>/` directory with `plugin.toml` must start with `--!strict`.
 
-### Other check scripts
+### Other cheap guardrail scripts (included in `scripts/guardrails.sh`)
 
 - **`scripts/file-size.sh`:** repo-wide line-count monitor and 1,500-line ratchet across every tracked `.rs` file under `apps/`, `crates/`, and `features/` — including files excluded from `scripts/arch-check.sh` Rule 8 (`apps/web/`, `apps/installer/`, `apps/browser-engine/`, `crates/browser-pane/`, and `crates/opencode-plugin-spec/src/generated/`). Warns above `800` lines and errors above `1500` unless listed in `scripts/file-size-exceptions.txt` (ceilings only go down; currently empty). `scripts/arch-check.sh` Rule 8 enforces the stricter `<= 800` hard cap (no exceptions) on `apps/desktop/`, `features/`, and hand-written workspace `crates/`.
 - **`scripts/folder-shape.sh`:** checks tracked `.rs`, `.ts`, `.tsx`, and `.swift` sources (skipping generated/vendored/test files and Rust `examples/`, `benches/`, `bin/`). Errors on prefix families (`x.rs` or `x/` plus 2+ `x_*.rs` siblings, or 3+ `x_*.rs` alone; move into `x/`) and flags folder breadth (`> 40` files warn, `> 60` error) unless listed in `scripts/folder-shape-exceptions.txt` (currently empty).
 - **`scripts/dialog-size.sh`:** scans every tracked `.rs` file under `apps/`, `crates/`, and `features/` containing `role("dialog")` or `role("alertdialog")` (except `crates/opencode-ui/src/dialog.rs`) and errors on dialog-scale literals (`>= 380`) passed to `.w`/`.h`/`.max_w`/`.max_h` or `W`/`H`/`WIDTH`/`HEIGHT` consts, and on window-derived dimensions, unless marked `// dialog-size: ok`. Every dialog must take an `opencode_ui::dialog::DialogSize` preset (`Normal` 480 × 368, `Large` 720 × 600, `XLarge` 880 × 680).
-- **`scripts/clippy.sh`:** runs `cargo clippy --no-deps --all-targets -- -D warnings` over the workspace and over each feature set that compiles code the default build does not (`opencode-desktop` with `--no-default-features --features knobs` and with `--features alloc-sites`, `session-view --features open-bench`, `browser-pane` with `--no-default-features` and with `--features faults`, `win-install --features resources`). The lints it enforces are the `[workspace.lints]` tables in the root `Cargo.toml`. Extra arguments pass through to cargo.
+- **`scripts/tables-check.sh`:** verifies hand-maintained tables and generated bindings:
+  - `apps/desktop/src/stories/order.rs` matches every story registered in `STORY_LIST` (no duplicates, stale entries, or unordered stories).
+  - `apps/desktop/src/shell/commands/order.rs` assigns a unique order constant to every registered built-in `CommandEntry` (no raw literals, duplicate values, shared slots, unused constants, or duplicate command IDs).
+  - `crates/opencode-i18n/locales/rune/*.json` reports translation coverage against `rune/en.json` and fails on invalid JSON or keys present in another locale that do not exist in `rune/en.json` (permitting valid CLDR plural sibling keys).
+  - `cargo run -q -p opencode-plugin-spec -- --check` confirms all generated contract files match `crates/opencode-plugin-spec/contract.json`.
 
-### Non-generic (`dyn`) crate boundaries
+### Slow / compile checks (run separately)
 
-Keep `features/*` entrypoints concrete or `&dyn *Host` / `&mut dyn *Host` so `apps/desktop` does not re-monomorphize leaf feature codegen on every edit (see [`docs/fast-builds.md`](docs/fast-builds.md)).
+- **`scripts/clippy.sh`:** runs `cargo clippy --no-deps --all-targets -- -D warnings` over the workspace and over each feature set that compiles code the default build does not (`opencode-desktop` with `--no-default-features --features knobs` and with `--features alloc-sites`, `session-view --features open-bench`, `browser-pane` with `--no-default-features` and with `--features faults`, `win-install --features resources`). The lints it enforces are the `[workspace.lints]` tables in the root `Cargo.toml` plus `clippy.toml` (`disallowed-methods` pointing feature/UI code at `opencode_platform` and `opencode_kernel::AppEnv`). Extra arguments pass through to cargo.
+- **`cargo check -p session-view --examples`:** keeps `session-view`'s standalone embedder examples building.
+- **`pwsh scripts/web.ps1 -Check`:** runs `cargo check -p opencode-web --lib --target wasm32-unknown-unknown` and `bun scripts/web-clock.ts` (verifies `std::time::Instant` and `SystemTime::now` do not enter the browser build).
+
+### Architectural conventions (enforced by review, not scripts)
+
+- **Non-generic (`dyn`) crate boundaries:** keep `features/*` entrypoints concrete or `&dyn *Host` / `&mut dyn *Host` (limiting generic `H: *Host + 'static` wrappers to `rune::El` / `Tx` callback edges) so `apps/desktop` does not re-monomorphize leaf feature codegen on every edit (see [`docs/fast-builds.md`](docs/fast-builds.md)).
+- **Semantic crate scoping:** keep `session-view` free of `opencode-desktop`-only window/tab/sidebar assumptions and `opencode-kit` free of app-specific concepts.
+- **Explicit state machines & official parity:** model modal/phased behaviour with an explicit `enum State` and `step(&mut State, Event) -> Effects`, and match official OpenCode desktop behaviour with source-file citations (see `AGENTS.md`).
+- **Rune `dev` branch policy:** pin `anomalyco/rune` only to revs on Rune's `dev` branch and land upstream fixes there first (rev equality across `Cargo.toml` is enforced by Rule 11).
+- **Non-Rust test artefacts & sensitive data:** keep mocks, fuzzers, golden/snapshot files, motion audits, test benchmarks, CI test steps, personal paths, tailnet hostnames, real session IDs, and credentials out of the repository.
