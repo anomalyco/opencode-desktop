@@ -4,18 +4,24 @@ Keep local and mesh compile times, RAM usage, and `target/` churn low without ch
 
 ## 1. Fastest loop (0 s Rust compile)
 
-~80% of UI features belong in `plugins/*` (Luau). Pass `--plugin-hot` to watch plugin folders and reload edits live in a running app — works on both dev and prebuilt release binaries.
+Most UI features belong in `plugins/*` (Luau).
+
+- **Debug builds (non-headless):** automatically load the repository's `plugins/` folders from disk and watch them for live reload on save.
+- **Release builds (or external plugin folders):** built-ins run from embedded bytecode unless loaded from disk via `--plugin-dir <path>` (or `<config>/plugins-override` / `<data>/plugins`). Pass `--plugin-hot` to watch disk-backed plugin folders and reload edits live in a running app:
 
 ```sh
-# Launch once (or use scripts/dev-fast.{sh,ps1}, which pass --plugin-hot)
+# Debug build (or use scripts/dev-fast.{sh,ps1}, which pass --live --plugin-hot)
 opencode-desktop --live --plugin-hot
+
+# Prebuilt release binary watching a local plugins/ folder
+opencode-desktop --live --plugin-dir ./plugins --plugin-hot
 ```
 
-**Across mesh devices:** build once (or pull a dev build), launch with `--plugin-hot`, and sync only `plugins/` across machines. Zero Rust compiles on remote devices.
+**Across mesh devices:** build once (or pull a dev build), sync only `plugins/` across machines, and launch with `--live --plugin-dir <path> --plugin-hot`. Zero Rust compiles on remote devices.
 
 ## 2. Fast Rust dev loop
 
-Skip Vello, BetterOffice, ~6 MB of Office font packs (`office`), and the 30 standalone storybook modules under `apps/desktop/src/stories/{composer,shell,timeline}/` (`stories`) via `--no-default-features --features knobs`, skip DWARF/PDB emission (`--profile dev-fast`), and keep Luau hot reload on (default/release/harness builds keep `default = ["knobs", "office", "stories"]`):
+Skip Vello, BetterOffice, ~6 MB of Office font packs (`office`), and the standalone storybook modules under `apps/desktop/src/stories/{composer,shell,timeline}/` (`stories`) via `--no-default-features --features knobs`, skip DWARF/PDB emission (`--profile dev-fast`), and keep Luau hot reload on (default builds keep `default = ["knobs", "office", "stories"]`):
 
 ```sh
 # macOS / Linux
@@ -31,24 +37,25 @@ pwsh scripts/dev-fast.ps1 --server http://127.0.0.1:4096
 pwsh scripts/dev-fast.ps1 -Office                  # opt back into Word/Excel/PPT previews
 ```
 
-Dev dependencies compile at `opt-level = 1` with `debug = false`, keeping full `opt-level = 3` only on the 8 frame-hot crates (`project-icon`, `rune`, `parley_engine`, `image`, `flate2`, `crc32fast`, `opencode-search`, `memchr`).
+Dev dependencies compile at `opt-level = 1` with `debug = false`, keeping full `opt-level = 3` only on the frame-hot crates (`project-icon`, `rune`, `parley_engine`, `image`, `flate2`, `crc32fast`, `opencode-search`, `memchr`).
 
 ## 3. Profile matrix
 
-| Profile | Key settings | Peak RAM (`rustc`) | Clean build | Use case |
-| --- | --- | --- | --- | --- |
-| `dev` | `opt=0` workspace, `debug=2`, `opt=1` deps (`-O3` on 8 hot crates) | ~2–4 GB | ~1–3 min | Debugger (`lldb`/WinDbg), full stack traces |
-| `dev-fast` | `inherits = "dev"`, `debug=0`, `codegen-units=64` | ~1.5–3 GB | ~1–2 min (fast relink) | Default local & mesh Rust iteration (`scripts/dev-fast.*`) |
-| `rune-hot` | `inherits = "dev"`, `debug=0`, `incremental=true` | ~1.5–3 GB | Sub-second patch | Live-patching Rune views via `apps/desktop/scripts/hot.sh` |
-| `release-quick` | `opt=3`, `lto=false`, `codegen-units=16`, `incremental=false` | ~3–5 GB | ~2–5 min | Fast optimized builds, PR/Linux packaging, quick perf checks |
-| `release-thin` | `opt=3`, `lto="thin"`, `codegen-units=16`, `incremental=false` | ~4–6 GB | ~4–10 min | Near-release speed for perf checks & mesh dogfooding |
-| `release` | `opt=3`, `lto="fat"`, `codegen-units=1`, `incremental=false` | ~10 GB | ~25–60 min | Shipped binaries & PGO timing (`apps/desktop/scripts/release.ps1`) |
+All profiles defined in the root `Cargo.toml`:
 
-> For native profiler symbols without fat-LTO cost, use `--profile perf` (`inherits = "release-quick"`, `debug = 1`).
+| Profile | Key settings | Peak RAM (`rustc`) | Clean build | Use case / scripts |
+| --- | --- | --- | --- | --- |
+| `dev` | `opt-level=0` workspace, `debug=2`, `opt-level=1` / `debug=false` deps (`opt-level=3` on hot crates) | ~2–4 GB | ~1–3 min | Debugger (`lldb`/WinDbg), full stack traces, `apps/desktop/scripts/dev.sh` |
+| `dev-fast` | `inherits = "dev"`, `debug=0`, `codegen-units=64` | ~1.5–3 GB | ~1–2 min (fast relink) | Default local & mesh Rust iteration (`scripts/dev-fast.sh`, `scripts/dev-fast.ps1`) |
+| `rune-hot` | `inherits = "dev"`, `debug=0`, `incremental=true` | ~1.5–3 GB | Sub-second patch | Live-patching Rune views (`scripts/rune-hot`, `apps/desktop/scripts/hot.sh`) |
+| `release-quick` | `inherits = "release"`, `lto=false`, `codegen-units=16` (`opt-level=3`, `incremental=false`) | ~3–5 GB | ~2–5 min | Fast optimized iteration, quick perf checks, Linux release packaging (`.github/workflows/release.yml` + `apps/desktop/scripts/package-linux.sh`) |
+| `release-thin` | `inherits = "release"`, `lto="thin"`, `codegen-units=16` (`opt-level=3`, `incremental=false`) | ~4–6 GB | ~4–10 min | Near-release speed for perf checks and mesh dogfooding |
+| `perf` | `inherits = "release-quick"`, `incremental=false`, `debug=1` | ~3–5 GB | ~2–5 min | Native profiler symbols without fat-LTO cost |
+| `release` | `opt-level=3`, `lto="fat"`, `codegen-units=1`, `incremental=false` | ~10 GB | ~25–60 min | Shipped binaries & PGO builds (`apps/desktop/scripts/release.ps1` on Windows x64, `apps/desktop/scripts/build-app.sh` on macOS, `apps/desktop/scripts/dev.sh --release`) |
 
 ## 4. Mesh-wide build caching, fast linkers, and disk cleanup
 
-Configure these in your **user** `~/.cargo/config.toml` or environment — do **not** edit the repo's `.cargo/config.toml` (it pins Windows `crt-static`, WASM SIMD, and `LIBSQLITE3_FLAGS`).
+Configure these in your **user** `~/.cargo/config.toml` or environment — do **not** edit the repo's `.cargo/config.toml` (it pins `git-fetch-with-cli`, Windows `+crt-static`, WASM `getrandom_backend="wasm_js"` + `+simd128`, and `LIBSQLITE3_FLAGS`).
 
 ### Shared `sccache` (Windows / macOS / Linux)
 
@@ -95,7 +102,7 @@ cargo sweep --installed        # prune artifacts from old rustc toolchains
 
 ## 5. Non-generic (`dyn`) crate boundaries
 
-Keep `features/*` entrypoints non-generic (`&mut dyn Host` or concrete data) rather than generic over the host type (`<H: Host>`):
+Keep `features/*` entrypoints non-generic (`&dyn Host` / `&mut dyn Host` or concrete data) rather than generic over the host type (`<H: Host>`), leaving thin `H: Host + 'static` wrappers strictly at `rune::El` / `Tx` callback edges:
 
 | Boundary style | Where LLVM compiles feature code | Rebuild cost on `apps/desktop` edit |
 | --- | --- | --- |
