@@ -196,7 +196,7 @@ impl VtCore {
             kitty_keyboard_flags: kitty_flags,
             title: self.title.clone(),
             pwd: self.pwd.clone(),
-            bell_count: self.cb.bell_count,
+            bell_count: self.cb().bell_count,
             find,
             marks,
         })

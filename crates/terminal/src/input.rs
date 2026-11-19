@@ -115,12 +115,13 @@ impl VtCore {
             MouseBtn::WheelLeft => Some(GHOSTTY_MOUSE_BUTTON_SIX),
             MouseBtn::WheelRight => Some(GHOSTTY_MOUSE_BUTTON_SEVEN),
         };
+        let cb_size = self.cb().size;
         let size = GhosttyMouseEncoderSize {
             size: std::mem::size_of::<GhosttyMouseEncoderSize>(),
-            screen_width: u32::from(self.cb.size.columns) * self.cb.size.cell_width.max(1),
-            screen_height: u32::from(self.cb.size.rows) * self.cb.size.cell_height.max(1),
-            cell_width: self.cb.size.cell_width.max(1),
-            cell_height: self.cb.size.cell_height.max(1),
+            screen_width: u32::from(cb_size.columns) * cb_size.cell_width.max(1),
+            screen_height: u32::from(cb_size.rows) * cb_size.cell_height.max(1),
+            cell_width: cb_size.cell_width.max(1),
+            cell_height: cb_size.cell_height.max(1),
             padding_top: 0,
             padding_bottom: 0,
             padding_right: 0,
@@ -236,7 +237,7 @@ impl VtCore {
     /// (matching OpenCode Desktop's 2,000-line persistence cap) while keeping full viewport + styles.
     pub fn serialize_vt_capped(&self, max_scrollback: usize) -> Vec<u8> {
         let mut sb = GhosttyTerminalScrollbar::default();
-        let cols = self.cb.size.columns.max(1);
+        let cols = self.cb().size.columns.max(1);
         // SAFETY: `self.term` was created in `VtCore::new` and is freed only in `Drop`, and
         // `&mut sb` matches `GhosttyTerminalScrollbar*` for `GHOSTTY_TERMINAL_DATA_SCROLLBAR`.
         let ok = unsafe {
