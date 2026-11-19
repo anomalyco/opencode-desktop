@@ -26,7 +26,9 @@ fn main() {
     // A build recording the profile-guided optimisation profile (`apps/desktop/scripts/pgo.ps1`) writes it
     // before the fast exit (`launch::write_profile`).
     println!("cargo:rustc-check-cfg=cfg(pgo_generate)");
+    println!("cargo:rustc-check-cfg=cfg(disk_builtins)");
     println!("cargo:rerun-if-env-changed=CARGO_ENCODED_RUSTFLAGS");
+    println!("cargo:rerun-if-env-changed=OPENCODE_RUNE_EMBED_PLUGINS");
     if env("CARGO_ENCODED_RUSTFLAGS").is_some_and(|flags| flags.split('\x1f').any(|f| f.contains("profile-generate"))) {
         println!("cargo:rustc-cfg=pgo_generate");
     }
@@ -34,7 +36,14 @@ fn main() {
     let out_dir = env("OUT_DIR").unwrap_or_default();
     let packaged = env("OPENCODE_RUNE_BUILD_CHANNEL").is_some_and(|c| c != "local");
     let release_profile = std::env::var_os("CARGO_CFG_DEBUG_ASSERTIONS").is_none();
-    embed_luau_plugins(std::path::Path::new(&manifest_dir), std::path::Path::new(&out_dir));
+    let wasm = env("CARGO_CFG_TARGET_ARCH").as_deref() == Some("wasm32");
+    let force_embed = env("OPENCODE_RUNE_EMBED_PLUGINS").as_deref() == Some("1");
+    if packaged || release_profile || wasm || force_embed {
+        embed_luau_plugins(std::path::Path::new(&manifest_dir), std::path::Path::new(&out_dir));
+    } else {
+        println!("cargo:rustc-cfg=disk_builtins");
+        write_disk_builtins_stub(std::path::Path::new(&out_dir));
+    }
     embed_build_commit(std::path::Path::new(&manifest_dir), packaged || release_profile);
     if env("CARGO_CFG_TARGET_OS").as_deref() != Some("windows") {
         return;
@@ -72,6 +81,25 @@ fn main() {
     let resources = win_install::resources::Resources::new(&icon, &manifest, win_install::EXE, &version).names(&title, &title);
     if let Err(e) = win_install::resources::embed(&resources) {
         panic!("{e}");
+    }
+}
+
+/// Empty `luau_builtins.rs` for native local debug builds (`disk_builtins`), which load
+/// built-in plugins directly from `plugins/` on disk without watching or compiling them at
+/// build time.
+fn write_disk_builtins_stub(out: &std::path::Path) {
+    const STUB: &str = "\
+pub type BuiltinFile = (&'static str, &'static str);
+pub type BuiltinModule = (&'static str, &'static [u8], bool);
+pub static BUILTINS: &[(&str, &[BuiltinFile], &[u8])] = &[];
+pub static MODULES: &[(&str, &[BuiltinModule])] = &[];
+pub static CONTRIBUTIONS: &[(&str, &[&str])] = &[];
+pub static HASHES: &[(&str, &str)] = &[];
+pub static LUAURC: &str = \"\";
+";
+    let path = out.join("luau_builtins.rs");
+    if std::fs::read_to_string(&path).ok().as_deref() != Some(STUB) {
+        std::fs::write(&path, STUB).ok();
     }
 }
 
