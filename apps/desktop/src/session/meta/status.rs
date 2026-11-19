@@ -8,7 +8,7 @@
 //! open session and what runs below it (`session/requests/model.ts`), an inactive tab whose family
 //! runs (`tab-strip.tsx`) and a root that works, for the Inbox (`inbox-settle-machine.ts`) and
 //! for Home's rows, so a row waiting on a person shows its unread dot as Desktop's does. The
-//! `permission.*` and `form.*` events keep them current (`events.rs`).
+//! `permission.*` and `form.*` events keep them current (`session::events`).
 
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;

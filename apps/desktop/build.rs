@@ -23,7 +23,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=OPENCODE_RUNE_URL_SCHEME");
     #[allow(clippy::disallowed_methods)]
     let env = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty());
-    // A build recording the profile-guided optimisation profile (`scripts/pgo.ps1`) writes it
+    // A build recording the profile-guided optimisation profile (`apps/desktop/scripts/pgo.ps1`) writes it
     // before the fast exit (`launch::write_profile`).
     println!("cargo:rustc-check-cfg=cfg(pgo_generate)");
     println!("cargo:rerun-if-env-changed=CARGO_ENCODED_RUSTFLAGS");

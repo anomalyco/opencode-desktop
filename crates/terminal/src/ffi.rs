@@ -1,5 +1,5 @@
 //! Raw C ABI types and constants for `libghostty-vt` (`v1.4.0`, commit `83fb95624b`).
-//! Function declarations live in [`crate::ffi_fns`]; ABI layout is checked in `abi_tests.rs`.
+//! Function declarations live in [`crate::ffi_fns`].
 
 #![allow(non_camel_case_types, dead_code)]
 

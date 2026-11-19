@@ -1,4 +1,4 @@
-//! The egg's elements on the new-session page (`view/draft.rs`): the wordmark with the lodger's
+//! The egg's elements on the new-session page (`apps/desktop/src/shell/view/draft.rs`): the wordmark with the lodger's
 //! grip, the slots the egg draws in, the panel's pointer surface, the game's surface and HUD, and
 //! what the egg does to the composer. At rest it's the plain wordmark and two invisible hit areas
 //! in the "e"; the rest exists only while the egg is out.

@@ -124,14 +124,11 @@ Use `scripts/new-feature.sh` (macOS/Linux) or `pwsh scripts/new-feature.ps1` (Wi
 
 ```sh
 scripts/new-feature.sh plugin <id> [Title]    # Lane A (default): creates plugins/<id>/{plugin.toml,init.luau,locales/en.json}
-scripts/new-feature.sh feature <id> [Title]   # Lane B: creates features/<id>/{Cargo.toml,src/lib.rs}
+scripts/new-feature.sh feature <id> [Title]   # Lane B: creates features/<id>/{Cargo.toml,src/lib.rs}, apps/desktop/src/surfaces/<snake>.rs, and wires Cargo/desktop/kernel
 ```
 
 - **Lane A (`plugin`):** ready to run immediately with `scripts/dev-fast.sh` (or `pwsh scripts/dev-fast.ps1`); no Rust edits required.
-- **Lane B (`feature`):** generates `opencode-feature-<id>` with `#![forbid(unsafe_code)]`, an explicit phase enum, a `StateSlots` state struct, an object-safe `<Pascal>Host: AppEnv + AppFeedback + AppOverlays` trait, a non-generic `poll(&mut dyn <Pascal>Host, &mut Tx) -> bool`, and `impl<S: <Pascal>Host> Feature<S> for <Pascal>Feature`. Then complete the three wiring steps the script prints:
-  1. Add `"features/<id>",` to `[workspace] members` in root `Cargo.toml`.
-  2. Add `opencode-feature-<id> = { path = "../../features/<id>" }` to `apps/desktop/Cargo.toml` (never duplicate `features/*` deps in `apps/web/Cargo.toml`).
-  3. Implement `<Pascal>Host` for `App` in an adapter module (for example `apps/desktop/src/surfaces/<snake>.rs` or `apps/desktop/src/dialogs/<snake>.rs`, declared in that folder's `mod.rs`) and register the feature in `apps/desktop/src/kernel.rs::build()` via `b.with_feature(...)`.
+- **Lane B (`feature`):** generates `opencode-feature-<id>` with `#![forbid(unsafe_code)]`, an explicit state machine (`<Pascal>Phase` / `<Pascal>Event` / `<Pascal>Effect` + `step`), a `StateSlots` state struct, an object-safe `<Pascal>Host: AppEnv + AppFeedback + AppOverlays` trait, and a non-generic `poll(&mut dyn <Pascal>Host, &mut Tx) -> bool`; generates the desktop adapter `apps/desktop/src/surfaces/<snake>.rs` implementing both `<Pascal>Host` and `Feature<App>` for `App`; and wires `"features/<id>"` into root `Cargo.toml`, `opencode-feature-<id>` into `apps/desktop/Cargo.toml`, `pub mod <snake>;` into `apps/desktop/src/surfaces/mod.rs`, `<snake>` into `apps/desktop/src/exports.rs`, and `b.with_feature(&crate::surfaces::<snake>::<Pascal>Feature);` into `apps/desktop/src/kernel.rs::build()` (never duplicating `features/*` deps in `apps/web/Cargo.toml`). Move the adapter to `dialogs/`, `session/`, `shell/`, or `workspace/` if it belongs in another domain folder.
 
 ## 3. Where New Code Goes ("Which file do I touch?")
 
@@ -239,7 +236,7 @@ flowchart TB
 
 ### Other check scripts
 
-- **`scripts/file-size.sh`:** counts non-test lines across every tracked `.rs` file under `apps/`, `crates/`, and `features/`. Warns above `800` lines and errors above `1500` unless listed in `scripts/file-size-exceptions.txt` (ceilings only go down; currently empty). `scripts/arch-check.sh` Rule 8 enforces the stricter `<= 800` hard cap on `apps/desktop/`, `features/`, and hand-written workspace `crates/`.
+- **`scripts/file-size.sh`:** repo-wide line-count monitor and 1,500-line ratchet across every tracked `.rs` file under `apps/`, `crates/`, and `features/` — including files excluded from `scripts/arch-check.sh` Rule 8 (`apps/web/`, `apps/installer/`, `apps/browser-engine/`, `crates/browser-pane/`, and `crates/opencode-plugin-spec/src/generated/`). Warns above `800` lines and errors above `1500` unless listed in `scripts/file-size-exceptions.txt` (ceilings only go down; currently empty). `scripts/arch-check.sh` Rule 8 enforces the stricter `<= 800` hard cap (no exceptions) on `apps/desktop/`, `features/`, and hand-written workspace `crates/`.
 - **`scripts/folder-shape.sh`:** checks tracked `.rs`, `.ts`, `.tsx`, and `.swift` sources (skipping generated/vendored/test files and Rust `examples/`, `benches/`, `bin/`). Errors on prefix families (`x.rs` or `x/` plus 2+ `x_*.rs` siblings, or 3+ `x_*.rs` alone; move into `x/`) and flags folder breadth (`> 40` files warn, `> 60` error) unless listed in `scripts/folder-shape-exceptions.txt` (currently empty).
 - **`scripts/dialog-size.sh`:** scans every tracked `.rs` file under `apps/`, `crates/`, and `features/` containing `role("dialog")` or `role("alertdialog")` (except `crates/opencode-ui/src/dialog.rs`) and errors on dialog-scale literals (`>= 380`) passed to `.w`/`.h`/`.max_w`/`.max_h` or `W`/`H`/`WIDTH`/`HEIGHT` consts, and on window-derived dimensions, unless marked `// dialog-size: ok`. Every dialog must take an `opencode_ui::dialog::DialogSize` preset (`Normal` 480 × 368, `Large` 720 × 600, `XLarge` 880 × 680).
 

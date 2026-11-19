@@ -6,7 +6,7 @@
 //! - `plugins/opencode.d.luau`, `plugins/types/*.luau` and `plugins/.luaurc` for `luau-lsp`,
 //! - `plugins/plugin.schema.json` for plugin.toml,
 //! - `plugins/opencode-selene.yml` for `selene`,
-//! - `docs/api.md`,
+//! - `crates/opencode-plugin-spec/docs/api.md`,
 //! - this crate's generated types: semantic tokens, enums, records, the `ui.*` node
 //!   vocabulary and the registry of contributions, services and events.
 //!

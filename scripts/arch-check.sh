@@ -8,7 +8,10 @@
 #   5. struct App field-count ratchet (ceilings only go down; new features use opencode-kernel StateSlots or Luau)
 #   6. apps/web/Cargo.toml depends on opencode-desktop (path = "../desktop") and never duplicates features/* deps
 #   7. No #[test] or #[cfg(test)] in tracked workspace sources (AGENTS.md)
-#   8. Hard <= 800 non-test line cap on every tracked .rs file in apps/desktop/, features/, and hand-written workspace crates/
+#   8. Hard <= 800-line cap (no exceptions) on every tracked .rs file in apps/desktop/, features/,
+#      and hand-written workspace crates/ (excluding crates/opencode-plugin-spec/src/generated/ and
+#      crates/browser-pane/). For the repo-wide 800-warn / 1500-error ratchet across the entire tree
+#      (including sidecars, installers, web, browser-pane, and generated files), see scripts/file-size.sh.
 #   9. Pure feature crates under features/*/src/lib.rs forbid unsafe_code (outside explicit FFI/GPU allowlist)
 #  10. Zero `use crate::*;` ambient crate-root wildcard imports in apps/desktop/src/
 # Usage: scripts/arch-check.sh

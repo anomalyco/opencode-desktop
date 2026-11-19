@@ -1,5 +1,5 @@
-//! The one popover every menu and picker is built from lives in `session_view::popover`, shared
-//! with Seer; this module adds its story and its tests.
+//! The one popover every menu and picker is built from lives in `opencode_ui::popover`
+//! (re-exported through `session_view::popover` for Seer); this module adds its story.
 
 mod story;
 

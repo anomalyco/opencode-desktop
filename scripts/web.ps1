@@ -122,7 +122,7 @@ if (-not $NoBuild) {
   if ($Dev -or $Names) { $warm += '--keep-names' }
   & $js (Join-Path $PSScriptRoot 'web-warm.mjs') @warm
   if ($LASTEXITCODE) { throw "web-warm failed ($LASTEXITCODE)" }
-  # The fonts the page fetches after its first frame (main.rs's LATE_FONTS), and the terminal's when one attaches (TERMINAL_FONTS).
+  # The fonts the page fetches after its first frame (apps/desktop/src/lib.rs's LATE_FONTS), and the terminal's when one attaches (TERMINAL_FONTS).
   New-Item -ItemType Directory -Force (Join-Path $next 'fonts') | Out-Null
   Copy-Item (Join-Path $root 'apps/desktop/assets/fonts/*') (Join-Path $next 'fonts') -Include 'IBMPlexMono-TextItalic.ttf', 'CommitMono-*.otf', 'JetBrainsMonoNerdFontMono-*.ttf'
   # The spell checker's Hunspell dictionaries (SCOWL's en_US, wooorm/dictionaries `dictionary-en`), fetched when a field first checks.
@@ -139,7 +139,7 @@ if (-not $NoBuild) {
     & $js -e "const z = require('node:zlib'); const fs = require('node:fs'); for (const f of process.argv.slice(1)) { const b = fs.readFileSync(f); fs.writeFileSync(f + '.br', z.brotliCompressSync(b, { params: { [z.constants.BROTLI_PARAM_QUALITY]: 11, [z.constants.BROTLI_PARAM_SIZE_HINT]: b.length } })); }" @packed
     if ($LASTEXITCODE) { throw "brotli failed ($LASTEXITCODE)" }
   }
-  # The sound effects the page plays when they're asked for (sounds.rs).
+  # The sound effects the page plays when they're asked for (apps/desktop/src/workspace/system/sounds.rs).
   Copy-Item -Recurse (Join-Path $root 'apps/desktop/assets/sounds') (Join-Path $next 'sounds')
   # What a phone's Home Screen reads: the web app manifest and the app's icons (`apps/web/pwa`).
   Copy-Item -Recurse (Join-Path $root 'apps/web/pwa/*') $next

@@ -8,9 +8,9 @@
 
 Use these; don't draw your own. When one lacks what you need, extend it in its module (and its story), never a local copy beside your feature.
 
-| Need | Use (`src/`) |
+| Need | Use (`opencode_ui::popover`, re-exported as `crate::popover` via `src/shell/menus/popover/`) |
 |---|---|
-| A menu, picker or popover | `popover/`: `surface`, `place`, `scrim`, `search_row`, `List` (group headers), `option` (`Opt`), `nav` for the keys. Looks: `MENU` (actions, short choices) and `LIST` (long lists with search). |
+| A menu, picker or popover | `popover`: `surface`, `place`, `scrim`, `search_row`, `List` (group headers), `option` (`Opt`), `nav` for the keys. Looks: `MENU` (actions, short choices) and `LIST` (long lists with search). |
 | A popover opening and closing | `popover::place` gives it the ⌘⇧K Popover knobs' entrance and exit; commits that open or close one call `popover::motion::opening` / `closing`. Story: Popover › Open and close. |
 | A lit row (pointer or keys) | `popover::lit` (`p.row_active`) |
 | A group's title | `popover::group_header` |
@@ -18,5 +18,6 @@ Use these; don't draw your own. When one lacks what you need, extend it in its m
 
 ## Hot editing
 
-- `apps/desktop/scripts/hot.sh` opens a debug window on the live server (`:4096`) and patches saved edits to function bodies in `src/view.rs` and `src/palette.rs` into it in about 1.5 s, keeping state, tabs, and scroll. App flags pass through (`--read-only`, `--server URL`).
-- Any other edit restarts the app and reopens the same tabs and zoom. Requires Dioxus CLI (`dx`) in `~/.cargo/bin/dx`.
+- `apps/desktop/scripts/hot.sh` opens a debug window on the live server (`:4096`) via `scripts/rune-hot` with `--patch 'src/shell/view/**/*.rs'`. App flags pass through (`--read-only`, `--server URL`).
+- Edits outside `apps/desktop/src/shell/view/` (including `crates/opencode-ui/src/palette.rs`, `features/*`, and other crates) rebuild and restart the app, reopening the same tabs and zoom. Requires Dioxus CLI (`dx`) 0.7.10 in `~/.cargo/bin/dx`.
+- Note: Subsecond 0.7.10 only live-patches the tip binary crate (`src/main.rs`), whereas `apps/desktop` now builds a shared `[lib]` (`src/lib.rs`) plus thin `[[bin]]` wrapper; for fast UI iteration today, prefer Luau `--plugin-hot` or `scripts/dev-fast.sh` / `pwsh scripts/dev-fast.ps1`.

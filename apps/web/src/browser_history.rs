@@ -1,4 +1,4 @@
-//! The browser's history follows the app's (`history.rs`, Desktop's titlebar history): every
+//! The browser's history follows the app's (`apps/desktop/src/shell/nav/history.rs`, Desktop's titlebar history): every
 //! place the app goes is a browser entry with its own address (`?session=<id>`), so Back and
 //! Forward, a reload and a pasted address go where a web app's would.
 

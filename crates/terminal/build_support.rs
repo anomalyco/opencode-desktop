@@ -1,5 +1,4 @@
-// Shared deterministic cache, file-lock, override, and SHA256 helpers for `build.rs`
-// (also included by `abi_tests.rs` so every build invariant is unit-tested).
+// Shared deterministic cache, file-lock, override, and SHA256 helpers for `build.rs`.
 
 use std::fs::{self, File, OpenOptions};
 use std::path::{Path, PathBuf};
