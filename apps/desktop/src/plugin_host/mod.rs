@@ -212,7 +212,6 @@ pub struct PluginMetrics {
 #[derive(Default)]
 pub struct PluginHost {
     pub list: Vec<Plugin>,
-    started: bool,
     /// The plugins turned off in Settings › Plugins.
     disabled: BTreeSet<String>,
     /// Plugins from outside the app the user OKed: plugin id → the SHA-256 of their files.
@@ -222,13 +221,9 @@ pub struct PluginHost {
     checking: HashSet<String>,
     /// The window's page visits, for server covers' one sign-in offer per visit.
     pub cover_visit: servers::CoverVisit,
-    /// Where reading the plugin folders stands.
-    folders: runtime::boot::Folders,
-    /// Built-ins this launch's first screen doesn't show, started after its first frame.
-    later: Vec<sources::Found>,
-    /// The boot record knows the built-ins' records, and those of `later` that have one haven't
-    /// gone to sleep yet (`doze_owed`).
-    doze_owed: bool,
+    /// Where booting this window's plugins stands (unstarted, or started with folder scan,
+    /// deferred built-ins, and after-frame doze latch).
+    boot: runtime::boot::Boot,
     /// The built-ins waiting for their first use, and their records.
     pub dormant: dormant::Dormant,
     pub overlay: Overlay,

@@ -20,15 +20,130 @@ pub(crate) enum Folders {
     Read,
 }
 
+/// Whether the built-ins queued in `later` that have a record of this build still owe their
+/// after-frame doze (`doze_owed`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum Doze {
+    #[default]
+    Done,
+    Owed,
+}
+
+/// Where a window's plugin host boot stands: unstarted, or started with its folder scan, deferred
+/// built-ins, and one-shot after-frame doze latch.
+#[derive(Default)]
+pub(crate) enum Boot {
+    #[default]
+    Unstarted,
+    Started {
+        /// Where reading the plugin folders stands.
+        folders: Folders,
+        /// Built-ins this launch's first screen doesn't show, started after its first frame.
+        later: Vec<sources::Found>,
+        /// The boot record knows the built-ins' records, and those of `later` that have one
+        /// haven't gone to sleep yet (`doze_owed`).
+        doze: Doze,
+    },
+}
+
+pub(crate) enum BootEvent {
+    Start { later: Vec<sources::Found>, doze: Doze },
+    Doze,
+    FirstFrame,
+    ReadFolders,
+    FoldersLoaded,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BootEffect {
+    Doze,
+    StartLater,
+    ReadFolders,
+}
+
+impl Boot {
+    pub(crate) fn is_started(&self) -> bool {
+        matches!(self, Self::Started { .. })
+    }
+
+    pub(crate) fn later(&self) -> &[sources::Found] {
+        match self {
+            Self::Unstarted => &[],
+            Self::Started { later, .. } => later,
+        }
+    }
+
+    fn take_later(&mut self) -> Vec<sources::Found> {
+        match self {
+            Self::Unstarted => Vec::new(),
+            Self::Started { later, .. } => std::mem::take(later),
+        }
+    }
+
+    fn push_later(&mut self, found: sources::Found) {
+        if let Self::Started { later, .. } = self {
+            later.push(found);
+        }
+    }
+
+    fn extend_later(&mut self, found: Vec<sources::Found>) {
+        if let Self::Started { later, .. } = self {
+            later.extend(found);
+        }
+    }
+
+    fn set_later(&mut self, keep: Vec<sources::Found>) {
+        if let Self::Started { later, .. } = self {
+            *later = keep;
+        }
+    }
+
+    fn pop_front_later(&mut self) -> Option<sources::Found> {
+        match self {
+            Self::Started { later, .. } if !later.is_empty() => Some(later.remove(0)),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn step(&mut self, event: BootEvent) -> Vec<BootEffect> {
+        match (self, event) {
+            (boot @ Self::Unstarted, BootEvent::Start { later, doze }) => {
+                *boot = Self::Started { folders: Folders::Unread, later, doze };
+                Vec::new()
+            }
+            (Self::Started { doze: doze @ Doze::Owed, .. }, BootEvent::Doze) => {
+                *doze = Doze::Done;
+                vec![BootEffect::Doze]
+            }
+            (Self::Started { folders, .. }, BootEvent::FirstFrame) => {
+                let mut effects = vec![BootEffect::StartLater];
+                if *folders == Folders::Unread {
+                    *folders = Folders::Reading;
+                    effects.push(BootEffect::ReadFolders);
+                }
+                effects
+            }
+            (Self::Started { folders: folders @ Folders::Unread, .. }, BootEvent::ReadFolders) => {
+                *folders = Folders::Reading;
+                vec![BootEffect::ReadFolders]
+            }
+            (Self::Started { folders, .. }, BootEvent::FoldersLoaded) => {
+                *folders = Folders::Read;
+                Vec::new()
+            }
+            _ => Vec::new(),
+        }
+    }
+}
+
 /// Discovers and starts the plugins once the window's waker exists (`--no-plugins` skips it).
 pub fn setup(app: &mut App, waker: Waker) {
     let host = &mut app.plugins;
     host.shared.images.borrow_mut().start(waker.clone());
     host.waker = Some(waker);
-    if host.started || crate::flag("--no-plugins") {
+    if host.boot.is_started() || crate::flag("--no-plugins") {
         return;
     }
-    host.started = true;
     stores::begin();
     // What the user turned off and trusted: in memory, or in the boot record. A launch whose
     // plugin files weren't imported yet knows them only from stage B, so nothing starts before it.
@@ -45,14 +160,19 @@ pub fn setup(app: &mut App, waker: Waker) {
         .into_iter()
         .partition(|f| first.as_ref().is_none_or(|ids| ids.contains(&f.manifest.id.as_str())));
     let start_now = known && stores::answers();
-    app.plugins.later = later;
     // The ones with a record of this build go to sleep with it just after the first frame
     // (`doze_owed`): nothing they contribute draws in it (`first_screen`).
-    app.plugins.doze_owed = known && first.is_some();
-    if start_now {
-        adopt(app, now);
+    let doze = if known && first.is_some() { Doze::Owed } else { Doze::Done };
+    let (adopt_now, later) = if start_now {
+        (now, later)
     } else {
-        app.plugins.later.splice(0..0, now);
+        let mut queued = now;
+        queued.extend(later);
+        (Vec::new(), queued)
+    };
+    app.plugins.boot.step(BootEvent::Start { later, doze });
+    if !adopt_now.is_empty() {
+        adopt(app, adopt_now);
     }
     // A headless run (a capture, a check) reads the plugin folders before it draws; a window
     // reads them on a worker after its first frame ([`first_frame`]).
@@ -61,10 +181,10 @@ pub fn setup(app: &mut App, waker: Waker) {
         if start_now {
             adopt(app, found);
         } else {
-            app.plugins.later.extend(found);
+            app.plugins.boot.extend_later(found);
         }
         folders_read(app);
-        app.plugins.folders = Folders::Read;
+        app.plugins.boot.step(BootEvent::FoldersLoaded);
         // It has no first-frame hook either: what waits for the storage's records (a scratch
         // profile the harness writes to has none yet) starts once they're read.
         if !start_now {
@@ -72,7 +192,9 @@ pub fn setup(app: &mut App, waker: Waker) {
         }
     } else if cfg!(feature = "hot") {
         // A hot build has no first-frame hook.
-        read_folders(app);
+        if app.plugins.boot.step(BootEvent::ReadFolders).contains(&BootEffect::ReadFolders) {
+            spawn_read_folders(app);
+        }
         start_later(app);
     }
 }
@@ -132,7 +254,7 @@ fn start_later(app: &mut App) {
         .list
         .iter()
         .map(|p| p.manifest.id.clone())
-        .chain(app.plugins.later.iter().map(|f| f.manifest.id.clone()))
+        .chain(app.plugins.boot.later().iter().map(|f| f.manifest.id.clone()))
         .collect();
     stores::load(app, ids, true, |app, tx| {
         // Stage B is in: what the record couldn't say about overrides and trust, it does now.
@@ -160,13 +282,13 @@ fn settle_later(app: &mut App) {
     if crate::flag("--plugins-eager") {
         return;
     }
-    for found in std::mem::take(&mut app.plugins.later) {
+    for found in app.plugins.boot.take_later() {
         let hash = (found.tier == Tier::Bundled)
             .then(|| sources::files_hash(&found.manifest.id, &found.origin, found.tier))
             .flatten();
         match hash.and_then(|h| app.plugins.dormant.record(&found.manifest.id, &h)) {
             Some(record) => adopt_one(app, found, Some(record)),
-            None => app.plugins.later.push(found),
+            None => app.plugins.boot.push_later(found),
         }
     }
 }
@@ -174,9 +296,13 @@ fn settle_later(app: &mut App) {
 /// Adopts, now, any queued plugins still in `later` that register panels or menu items, so opening
 /// New tab or the `+` menu before `start_one_later` reaches them lists their entries at once.
 pub(super) fn adopt_later_launchers(app: &mut App) -> bool {
+    if app.plugins.boot.later().is_empty() {
+        return false;
+    }
+    let later = app.plugins.boot.take_later();
     let mut now = Vec::new();
-    let mut keep = Vec::with_capacity(app.plugins.later.len());
-    for found in std::mem::take(&mut app.plugins.later) {
+    let mut keep = Vec::with_capacity(later.len());
+    for found in later {
         let kinds = sources::contributions(&found.manifest.id);
         if found.tier != Tier::Bundled || kinds.contains(&"Panel") || kinds.contains(&"MenuItem") {
             now.push(found);
@@ -184,7 +310,7 @@ pub(super) fn adopt_later_launchers(app: &mut App) -> bool {
             keep.push(found);
         }
     }
-    app.plugins.later = keep;
+    app.plugins.boot.set_later(keep);
     let any = !now.is_empty();
     if any {
         adopt(app, now);
@@ -224,7 +350,10 @@ fn next_later(app: &App, after: std::time::Duration) {
 /// it, so their commands, keys and menus are listed: once, after the first frame is presented,
 /// at its after-frame turn (`launch::ready`) or at the first key if that comes first.
 pub fn doze_owed(app: &mut App) {
-    if !std::mem::take(&mut app.plugins.doze_owed) {
+    if !matches!(app.plugins.boot, Boot::Started { doze: Doze::Owed, .. }) {
+        return;
+    }
+    if !app.plugins.boot.step(BootEvent::Doze).contains(&BootEffect::Doze) {
         return;
     }
     rune::marks::mark("plugins.doze");
@@ -237,19 +366,21 @@ pub fn doze_owed(app: &mut App) {
 /// the app's thread. True when some start (the window redraws for them).
 pub fn first_frame(app: &mut App) -> bool {
     doze_owed(app);
-    let later = !app.plugins.later.is_empty();
-    if app.plugins.started {
-        start_later(app);
-    }
-    if app.plugins.started && app.plugins.folders == Folders::Unread {
-        read_folders(app);
+    let later = !app.plugins.boot.later().is_empty();
+    let effects = app.plugins.boot.step(BootEvent::FirstFrame);
+    for effect in effects {
+        match effect {
+            BootEffect::Doze => {}
+            BootEffect::StartLater => start_later(app),
+            BootEffect::ReadFolders => spawn_read_folders(app),
+        }
     }
     later
 }
 
 /// Starts the next built-in the first screen didn't show, and queues the one after for the next turn.
 fn start_one_later(app: &mut App, tx: &mut Tx) {
-    if app.plugins.later.is_empty() {
+    if app.plugins.boot.later().is_empty() {
         return;
     }
     // In a page, a start waits for a second without input: Safari's engine takes 200-650 ms to
@@ -271,7 +402,7 @@ fn start_one_later(app: &mut App, tx: &mut Tx) {
     }
     // In pieces, one a turn: its app half first, then the rest, so the input that comes meanwhile
     // waits for one piece.
-    let first = &app.plugins.later[0];
+    let Some(first) = app.plugins.boot.later().first() else { return };
     if let Some(entry) = first.manifest.app.clone()
         && !app_half::runs(&first.manifest.id)
         && stores::answers_for(&first.manifest.id)
@@ -284,9 +415,9 @@ fn start_one_later(app: &mut App, tx: &mut Tx) {
         tx.instant();
         return;
     }
-    let found = app.plugins.later.remove(0);
+    let Some(found) = app.plugins.boot.pop_front_later() else { return };
     adopt(app, vec![found]);
-    if !app.plugins.later.is_empty() {
+    if !app.plugins.boot.later().is_empty() {
         #[cfg(target_arch = "wasm32")]
         next_later(app, std::time::Duration::ZERO);
         #[cfg(not(target_arch = "wasm32"))]
@@ -295,15 +426,14 @@ fn start_one_later(app: &mut App, tx: &mut Tx) {
     tx.instant();
 }
 
-fn read_folders(app: &mut App) {
-    app.plugins.folders = Folders::Reading;
+fn spawn_read_folders(app: &mut App) {
     let deliver = app.deliverer();
     tasks::run(move || {
         let found = sources::folders();
         deliver(Box::new(move |app: &mut App, tx: &mut Tx| {
             adopt(app, found);
             folders_read(app);
-            app.plugins.folders = Folders::Read;
+            app.plugins.boot.step(BootEvent::FoldersLoaded);
             tx.instant();
         }));
     });
