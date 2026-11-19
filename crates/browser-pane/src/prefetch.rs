@@ -15,9 +15,9 @@ use rune::time::Instant;
 use rune::Waker;
 
 use crate::background;
-use crate::client::{EngineEffect, EngineEvent, SharedEngine};
 use crate::download::{Body, Cut, Pace};
 use crate::installer::{self, ENGINE_BUNDLE_NAME, EngineStatus, Failure, Fault, err_write};
+use crate::machine::{EngineEffect, EngineEvent, SharedEngine};
 use crate::source::{self, Release};
 use crate::trust::Verifier;
 use crate::unpack;

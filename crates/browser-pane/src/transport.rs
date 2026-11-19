@@ -12,9 +12,9 @@ use base64::Engine as _;
 use rune::time::Instant;
 use rune::Waker;
 
-use crate::client::{EarlyOpensMap, EngineEffect, EngineEvent, SharedEngine};
 use crate::frame::{self, TabSurface};
 use crate::installer::{self, EngineStatus, Fault, Installed};
+use crate::machine::{EarlyOpensMap, EngineEffect, EngineEvent, SharedEngine};
 use crate::profile;
 use crate::protocol::{EngineMsg, HostMsg};
 

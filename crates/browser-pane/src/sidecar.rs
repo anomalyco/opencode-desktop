@@ -6,10 +6,11 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::PoisonError;
 
-use crate::client::{BrowserHost, EngineEffect, EngineEvent};
+use crate::client::BrowserHost;
 use crate::installer::{self, EngineStatus, Fault};
 #[cfg(target_os = "macos")]
 use crate::mach_pipe::MachReceiver;
+use crate::machine::{EngineEffect, EngineEvent};
 use crate::prefetch::Mode;
 use crate::profile;
 use crate::transport::{Link, UnixStream, spawn_and_attach, wire_stream};
