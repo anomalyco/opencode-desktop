@@ -1,4 +1,6 @@
-use crate::*;
+use opencode_kit::model::Message;
+
+use crate::{App, Route};
 
 pub(crate) fn open_scene(s: &mut App) {
     let id = s.fixture_run.fixture["open"].as_str().map(str::to_owned).or_else(|| s.sessions.first().map(|x| x.id.clone()));

@@ -79,6 +79,8 @@ rune-mac = { git = "https://github.com/anomalyco/rune", rev = "d170ff6e4a9691e3d
 rune-notify = { git = "https://github.com/anomalyco/rune", rev = "d170ff6e4a9691e3db0b0ad83e7e719b720afc84" }
 rune-perf = { git = "https://github.com/anomalyco/rune", rev = "d170ff6e4a9691e3db0b0ad83e7e719b720afc84" }
 rune-register = { git = "https://github.com/anomalyco/rune", rev = "d170ff6e4a9691e3db0b0ad83e7e719b720afc84" }
+base64 = "0.22"
+polling = "3.11"
 # Objects keep their keys in the order they arrive, as JavaScript's do: a tool's arguments list as
 # Desktop lists them.
 serde_json = { version = "1", features = ["preserve_order"] }

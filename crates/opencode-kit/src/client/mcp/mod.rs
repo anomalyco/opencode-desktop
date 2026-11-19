@@ -6,11 +6,7 @@
 //! client. Reconnects with exponential backoff (`500 ms`..`10 s`, reset on
 //! `notifications/initialized`) and backs off quietly when the server lacks the experimental route.
 
-#[cfg(not(target_arch = "wasm32"))]
-use std::io::ErrorKind;
 use std::net::{Shutdown, TcpStream};
-#[cfg(not(target_arch = "wasm32"))]
-use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
@@ -19,23 +15,16 @@ use std::time::Duration;
 use rune::Waker;
 use rune::time::Instant;
 use serde_json::{Value, json};
-#[cfg(not(target_arch = "wasm32"))]
-use tungstenite::client::IntoClientRequest;
-#[cfg(not(target_arch = "wasm32"))]
-use tungstenite::http::HeaderValue;
-#[cfg(not(target_arch = "wasm32"))]
-use tungstenite::protocol::CloseFrame;
-#[cfg(not(target_arch = "wasm32"))]
-use tungstenite::protocol::frame::coding::CloseCode;
-#[cfg(not(target_arch = "wasm32"))]
-use tungstenite::stream::MaybeTlsStream;
-#[cfg(not(target_arch = "wasm32"))]
-use tungstenite::{Message, WebSocket};
 
 use crate::client::{Server, encode_component};
 
+#[cfg(not(target_arch = "wasm32"))]
+mod native;
+mod protocol;
 #[cfg(target_arch = "wasm32")]
 mod web;
+#[cfg(target_arch = "wasm32")]
+use protocol::{handle_frame, outbound_message};
 
 pub const PROTOCOL_VERSION: &str = "2025-11-25";
 pub const SESSION_ID_META_KEY: &str = "ai.opencode/sessionID";
@@ -44,9 +33,6 @@ pub const RECONNECT_MAX: Duration = Duration::from_secs(10);
 pub const UNSUPPORTED_RETRY: Duration = Duration::from_secs(60);
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-/// How long a read waits for the rest of a frame once the socket said it has data.
-#[cfg(not(target_arch = "wasm32"))]
-const READ_TIMEOUT: Duration = Duration::from_millis(200);
 
 /// One tool advertised on `tools/list`.
 #[derive(Clone, Debug, PartialEq)]
@@ -114,7 +100,7 @@ impl McpResult {
         Self { content: vec![McpContent::text(message)], is_error: true }
     }
 
-    fn to_json(&self) -> Value {
+    pub(super) fn to_json(&self) -> Value {
         let content: Vec<Value> = self.content.iter().map(McpContent::to_json).collect();
         if self.is_error { json!({ "content": content, "isError": true }) } else { json!({ "content": content }) }
     }
@@ -169,7 +155,7 @@ impl ClientMcpOptions {
     }
 }
 
-enum Outbound {
+pub(super) enum Outbound {
     Reply { id: Value, result: McpResult },
     ToolsChanged,
 }
@@ -178,7 +164,7 @@ enum Outbound {
 /// worker from its wait on the socket (natively a poller, in a page the task's bell), so it sleeps
 /// until there's something to do.
 #[derive(Clone)]
-struct Outbox {
+pub(super) struct Outbox {
     tx: Sender<Outbound>,
     #[cfg(not(target_arch = "wasm32"))]
     wake: Arc<polling::Poller>,
@@ -236,12 +222,12 @@ impl Drop for McpCall {
     }
 }
 
-struct Shared {
+pub(super) struct Shared {
     state: Mutex<InnerState>,
     cv: Condvar,
 }
 
-struct InnerState {
+pub(super) struct InnerState {
     conn: Conn,
     tools: Vec<McpTool>,
     tools_gen: u64,
@@ -250,7 +236,7 @@ struct InnerState {
 /// The socket's life, one state at a time (`ClientMcpStatus` reads it). Official
 /// `packages/client/src/mcp.ts` keeps the same lifecycle in `disposed`, `delay`, `timer` and
 /// `socket`.
-enum Conn {
+pub(super) enum Conn {
     /// The worker is opening a socket.
     Dialing,
     /// Waiting out a backoff before the next dial; `unsupported`: the server lacks the route.
@@ -273,7 +259,7 @@ impl Conn {
         }
     }
 
-    fn closed(&self) -> bool { matches!(self, Conn::Closed) }
+    pub(super) fn closed(&self) -> bool { matches!(self, Conn::Closed) }
 }
 
 /// Handle to a background client MCP WebSocket worker. Closes cleanly when dropped.
@@ -401,7 +387,7 @@ impl Server {
         #[cfg(not(target_arch = "wasm32"))]
         let handle = std::thread::Builder::new()
             .name(thread_name)
-            .spawn(move || run_worker(server, options, calls, waker, worker_shared))
+            .spawn(move || native::run_worker(server, options, calls, waker, worker_shared))
             .ok();
         #[cfg(not(target_arch = "wasm32"))]
         ClientMcp { shared, handle }
@@ -426,13 +412,13 @@ impl Server {
     }
 }
 
-fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+pub(super) fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// Moves the socket's state to `next` unless it was closed; false when it was. Wakes the app when
 /// the status changed.
-fn transition(shared: &Shared, next: impl FnOnce(&mut Conn) -> Option<Conn>, waker: &Waker) -> bool {
+pub(super) fn transition(shared: &Shared, next: impl FnOnce(&mut Conn) -> Option<Conn>, waker: &Waker) -> bool {
     let mut st = lock(&shared.state);
     if st.conn.closed() {
         return false;
@@ -451,7 +437,7 @@ fn transition(shared: &Shared, next: impl FnOnce(&mut Conn) -> Option<Conn>, wak
 
 /// `tools/list` was answered on the open socket: it's ready from now; if `set_tools` ran while
 /// the reply went out, notify once so the client lists the newer tools too.
-fn mark_ready(shared: &Shared, listed_gen: u64, waker: &Waker) {
+pub(super) fn mark_ready(shared: &Shared, listed_gen: u64, waker: &Waker) {
     let mut st = lock(&shared.state);
     if st.conn.closed() {
         return;
@@ -472,371 +458,3 @@ fn mark_ready(shared: &Shared, listed_gen: u64, waker: &Waker) {
         waker();
     }
 }
-
-/// Waits out `delay` before the next dial; false when the socket was closed meanwhile.
-#[cfg(not(target_arch = "wasm32"))]
-fn wait_backoff(shared: &Shared, delay: Duration, unsupported: bool, waker: &Waker) -> bool {
-    if !transition(shared, |_| Some(Conn::Waiting { unsupported }), waker) {
-        return false;
-    }
-    let st = lock(&shared.state);
-    let (st, _) = shared.cv.wait_timeout(st, delay).unwrap_or_else(|e| e.into_inner());
-    !st.conn.closed()
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-enum ConnectOutcome {
-    Connected(Box<WebSocket<MaybeTlsStream<TcpStream>>>),
-    Unsupported,
-    Failed,
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn dial(server: &Server, url: &str) -> ConnectOutcome {
-    let Ok(mut req) = url.into_client_request() else { return ConnectOutcome::Failed };
-    if let Some(auth) = &server.auth
-        && let Ok(val) = HeaderValue::from_str(auth)
-    {
-        req.headers_mut().insert("Authorization", val);
-    }
-    let Some(addr) = resolve_ws_addr(url) else { return ConnectOutcome::Failed };
-    let Ok(tcp) = TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT) else { return ConnectOutcome::Failed };
-    tcp.set_nodelay(true).ok();
-    tcp.set_read_timeout(Some(CONNECT_TIMEOUT)).ok();
-    tcp.set_write_timeout(Some(CONNECT_TIMEOUT)).ok();
-    match tungstenite::client_tls(req, tcp) {
-        Ok((ws, _)) => ConnectOutcome::Connected(Box::new(ws)),
-        Err(tungstenite::HandshakeError::Failure(tungstenite::Error::Http(resp)))
-            if matches!(resp.status().as_u16(), 404 | 405 | 501) =>
-        {
-            ConnectOutcome::Unsupported
-        }
-        Err(_) => ConnectOutcome::Failed,
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn resolve_ws_addr(url: &str) -> Option<SocketAddr> {
-    let (scheme, rest) = url.split_once("://")?;
-    let authority = rest.split(['/', '?']).next()?;
-    let default_port = if scheme == "wss" || scheme == "https" { 443 } else { 80 };
-    let host_port = if authority.starts_with('[') {
-        if authority.contains("]:") { authority.to_owned() } else { format!("{authority}:{default_port}") }
-    } else if authority.rsplit_once(':').is_some_and(|(_, p)| p.parse::<u16>().is_ok()) {
-        authority.replace("localhost", "127.0.0.1")
-    } else {
-        format!("{}:{default_port}", authority.replace("localhost", "127.0.0.1"))
-    };
-    if let Ok(a) = host_port.parse() {
-        return Some(a);
-    }
-    host_port.to_socket_addrs().ok()?.next()
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn tcp_ref(ws: &WebSocket<MaybeTlsStream<TcpStream>>) -> &TcpStream {
-    match ws.get_ref() {
-        MaybeTlsStream::Plain(s) => s,
-        MaybeTlsStream::Rustls(s) => s.get_ref(),
-        #[allow(unreachable_patterns)]
-        _ => unreachable!(),
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn run_worker(server: Server, options: ClientMcpOptions, calls: Sender<McpCall>, waker: Waker, shared: Arc<Shared>) {
-    let url = server.client_mcp_url(&options.directory, &options.name);
-    let mut delay = options.reconnect_min;
-
-    loop {
-        if !transition(&shared, |_| Some(Conn::Dialing), &waker) {
-            return;
-        }
-        let outcome = dial(&server, &url);
-
-        let mut ws = match outcome {
-            ConnectOutcome::Connected(ws) => *ws,
-            ConnectOutcome::Unsupported => {
-                if !wait_backoff(&shared, options.unsupported_retry, true, &waker) {
-                    return;
-                }
-                continue;
-            }
-            ConnectOutcome::Failed => {
-                if !wait_backoff(&shared, delay, false, &waker) {
-                    return;
-                }
-                delay = delay.saturating_mul(2).min(options.reconnect_max);
-                continue;
-            }
-        };
-
-        // The worker sleeps on the socket and on this poller's nudge: a reply or notice queued by
-        // the app wakes it, as data arriving does; nothing else does.
-        let Ok(wake) = polling::Poller::new() else {
-            send_normal_close(&mut ws);
-            if !wait_backoff(&shared, delay, false, &waker) {
-                return;
-            }
-            continue;
-        };
-        let wake = Arc::new(wake);
-        // SAFETY: the socket is removed from the poller (`delete` below) before `ws` closes it.
-        #[allow(unsafe_code)]
-        let added = unsafe { wake.add(tcp_ref(&ws), polling::Event::readable(0)) };
-        if added.is_err() {
-            send_normal_close(&mut ws);
-            if !wait_backoff(&shared, delay, false, &waker) {
-                return;
-            }
-            continue;
-        }
-        let (tx, out_rx) = channel::<Outbound>();
-        let out = Outbox { tx, wake: wake.clone() };
-        let tcp = tcp_ref(&ws).try_clone().ok();
-        let open = out.clone();
-        if !transition(&shared, move |_| Some(Conn::Open { tcp, out: open, ready: None, list_changed: true }), &waker) {
-            wake.delete(tcp_ref(&ws)).ok();
-            send_normal_close(&mut ws);
-            return;
-        }
-
-        let mut initialized = false;
-        let disconnected = serve_socket(&mut ws, &options, &calls, &waker, &shared, &out, &out_rx, &mut initialized);
-        wake.delete(tcp_ref(&ws)).ok();
-        if initialized {
-            delay = options.reconnect_min;
-        }
-
-        let stopping = matches!(disconnected, LoopExit::ReceiverDropped) || !transition(&shared, |_| Some(Conn::Waiting { unsupported: false }), &waker);
-        if stopping {
-            lock(&shared.state).conn = Conn::Closed;
-            send_normal_close(&mut ws);
-            waker();
-            return;
-        }
-
-        if !wait_backoff(&shared, delay, false, &waker) {
-            return;
-        }
-        delay = delay.saturating_mul(2).min(options.reconnect_max);
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-enum LoopExit {
-    SocketClosed,
-    ReceiverDropped,
-}
-
-#[allow(clippy::too_many_arguments)]
-#[cfg(not(target_arch = "wasm32"))]
-fn serve_socket(
-    ws: &mut WebSocket<MaybeTlsStream<TcpStream>>,
-    options: &ClientMcpOptions,
-    calls: &Sender<McpCall>,
-    waker: &Waker,
-    shared: &Shared,
-    out: &Outbox,
-    out_rx: &Receiver<Outbound>,
-    initialized: &mut bool,
-) -> LoopExit {
-    let mut in_flight: usize = 0;
-    tcp_ref(ws).set_write_timeout(Some(CONNECT_TIMEOUT)).ok();
-    tcp_ref(ws).set_read_timeout(Some(READ_TIMEOUT)).ok();
-    let mut events = polling::Events::new();
-
-    loop {
-        if lock(&shared.state).conn.closed() || !drain_outbound(ws, out_rx, &mut in_flight) {
-            return LoopExit::SocketClosed;
-        }
-
-        match ws.read() {
-            Ok(Message::Text(text)) => {
-                if !handle_frame(&mut |m| send_json(ws, m), text.as_str(), options, calls, waker, shared, out, &mut in_flight, initialized) {
-                    return LoopExit::ReceiverDropped;
-                }
-            }
-            Ok(Message::Binary(bytes)) => {
-                if let Ok(text) = std::str::from_utf8(&bytes)
-                    && !handle_frame(&mut |m| send_json(ws, m), text, options, calls, waker, shared, out, &mut in_flight, initialized)
-                {
-                    return LoopExit::ReceiverDropped;
-                }
-            }
-            Ok(Message::Ping(_)) => {
-                if ws.flush().is_err() {
-                    return LoopExit::SocketClosed;
-                }
-            }
-            Ok(Message::Pong(_) | Message::Frame(_)) => {}
-            Ok(Message::Close(_)) => return LoopExit::SocketClosed,
-            Err(tungstenite::Error::Io(ref err))
-                if matches!(err.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut | ErrorKind::Interrupted) =>
-            {
-                // Everything read: sleep until the socket has data or the app queued a reply.
-                // `modify` re-arms the one-shot interest; a nudge sent meanwhile is kept.
-                events.clear();
-                if out.wake.modify(tcp_ref(ws), polling::Event::readable(0)).is_err() || out.wake.wait(&mut events, None).is_err() {
-                    return LoopExit::SocketClosed;
-                }
-            }
-            Err(_) => return LoopExit::SocketClosed,
-        }
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn drain_outbound(ws: &mut WebSocket<MaybeTlsStream<TcpStream>>, out_rx: &Receiver<Outbound>, in_flight: &mut usize) -> bool {
-    let mut wrote = false;
-    loop {
-        let Ok(out) = out_rx.try_recv() else { break };
-        let msg = outbound_message(out, in_flight);
-        if ws.write(Message::Text(msg.to_string().into())).is_err() {
-            return false;
-        }
-        wrote = true;
-    }
-    !wrote || ws.flush().is_ok()
-}
-
-/// What goes on the socket for an answer or a tool-list change; an answer settles a call.
-fn outbound_message(out: Outbound, in_flight: &mut usize) -> Value {
-    match out {
-        Outbound::Reply { id, result } => {
-            *in_flight = in_flight.saturating_sub(1);
-            json!({ "jsonrpc": "2.0", "id": id, "result": result.to_json() })
-        }
-        Outbound::ToolsChanged => json!({ "jsonrpc": "2.0", "method": "notifications/tools/list_changed" }),
-    }
-}
-
-/// One JSON-RPC frame from the server: answers go out through `send` (false when the socket is
-/// gone), a `tools/call` goes to the app. False when the app stopped taking calls.
-#[allow(clippy::too_many_arguments)]
-fn handle_frame(
-    send: &mut dyn FnMut(&Value) -> bool,
-    raw: &str,
-    options: &ClientMcpOptions,
-    calls: &Sender<McpCall>,
-    waker: &Waker,
-    shared: &Shared,
-    out: &Outbox,
-    in_flight: &mut usize,
-    initialized: &mut bool,
-) -> bool {
-    let Ok(msg) = serde_json::from_str::<Value>(raw) else { return true };
-    let Some(method) = msg.as_object().and_then(|o| o.get("method")).and_then(Value::as_str) else { return true };
-    if method == "notifications/initialized" {
-        // Match `connectClientMcp`: reset backoff only after the server confirms initialization.
-        *initialized = true;
-    }
-    let Some(id) = msg.get("id").filter(|v| v.is_string() || v.is_number()).cloned() else { return true };
-    let params = msg.get("params");
-
-    match method {
-        "initialize" => {
-            let requested = params.and_then(|p| p.get("protocolVersion")).and_then(Value::as_str);
-            let supports = requested.is_some_and(|v| v >= "2024-11-05");
-            // 2024-11-05..2025-11-25 deliver `notifications/tools/list_changed` on the socket;
-            // 2026-07-28+ moved list-changed onto `subscriptions/listen`, so cap at 2025-11-25.
-            let proto = match requested {
-                Some(v) if ("2024-11-05".."2026-07-28").contains(&v) => v,
-                _ => PROTOCOL_VERSION,
-            };
-            let mut result = json!({
-                "protocolVersion": proto,
-                "capabilities": { "tools": { "listChanged": true } },
-                "serverInfo": { "name": options.name, "version": options.version },
-            });
-            if let Some(inst) = &options.instructions {
-                result["instructions"] = Value::String(inst.clone());
-            }
-            if send(&json!({ "jsonrpc": "2.0", "id": id, "result": result })) {
-                transition(shared, |conn| {
-                    if let Conn::Open { list_changed, .. } = conn {
-                        *list_changed = supports;
-                    }
-                    None
-                }, waker);
-            }
-        }
-        "ping" => {
-            send(&json!({ "jsonrpc": "2.0", "id": id, "result": {} }));
-        }
-        "tools/list" => {
-            let (listed_gen, tools_json) = {
-                let st = lock(&shared.state);
-                (st.tools_gen, st.tools.iter().map(tool_descriptor_json).collect::<Vec<Value>>())
-            };
-            if send(&json!({ "jsonrpc": "2.0", "id": id, "result": { "tools": tools_json } })) {
-                mark_ready(shared, listed_gen, waker);
-            }
-        }
-        "tools/call" => {
-            let tool_name = params.and_then(|p| p.get("name")).and_then(Value::as_str);
-            let known = tool_name.is_some_and(|name| lock(&shared.state).tools.iter().any(|t| t.name == name));
-            let Some(name) = tool_name.filter(|_| known) else {
-                let raw_name = params.and_then(|p| p.get("name")).map(display_param_name).unwrap_or_else(|| "undefined".into());
-                send(&json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32602, "message": format!("Unknown tool: {raw_name}") } }));
-                return true;
-            };
-            let arguments = params.and_then(|p| p.get("arguments")).filter(|v| v.is_object()).cloned().unwrap_or_else(|| json!({}));
-            let session_id = params
-                .and_then(|p| p.get("_meta"))
-                .and_then(|m| m.get(SESSION_ID_META_KEY))
-                .and_then(Value::as_str)
-                .map(str::to_owned);
-            let call = McpCall {
-                directory: options.directory.clone(),
-                name: name.to_owned(),
-                arguments,
-                session_id,
-                reply: Some((id, out.clone())),
-            };
-            if calls.send(call).is_err() {
-                return false;
-            }
-            *in_flight += 1;
-            waker();
-        }
-        _ => {
-            send(&json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32601, "message": format!("Method not found: {method}") } }));
-        }
-    }
-    true
-}
-
-fn display_param_name(v: &Value) -> String {
-    match v {
-        Value::String(s) => s.clone(),
-        Value::Null => "null".into(),
-        other => other.to_string(),
-    }
-}
-
-fn tool_descriptor_json(tool: &McpTool) -> Value {
-    let mut schema = match &tool.input_schema {
-        Value::Object(map) => map.clone(),
-        _ => serde_json::Map::new(),
-    };
-    schema.entry("type".to_owned()).or_insert_with(|| Value::String("object".into()));
-    json!({
-        "name": tool.name,
-        "description": tool.description,
-        "inputSchema": Value::Object(schema),
-    })
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn send_json(ws: &mut WebSocket<MaybeTlsStream<TcpStream>>, msg: &Value) -> bool {
-    ws.send(Message::Text(msg.to_string().into())).is_ok()
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn send_normal_close(ws: &mut WebSocket<MaybeTlsStream<TcpStream>>) {
-    tcp_ref(ws).set_write_timeout(Some(Duration::from_millis(250))).ok();
-    ws.close(Some(CloseFrame { code: CloseCode::Normal, reason: "".into() })).ok();
-    ws.flush().ok();
-}
-

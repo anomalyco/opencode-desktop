@@ -8,8 +8,9 @@
 #   5. struct App field-count ratchet (ceilings only go down; new features use opencode-kernel StateSlots or Luau)
 #   6. apps/web/Cargo.toml depends on opencode-desktop (path = "../desktop") and never duplicates features/* deps
 #   7. No #[test] or #[cfg(test)] in tracked workspace sources (AGENTS.md)
-#   8. Hard <= 800 non-test line cap on every tracked .rs file in apps/desktop/ and features/
+#   8. Hard <= 800 non-test line cap on every tracked .rs file in apps/desktop/, features/, and hand-written workspace crates/
 #   9. Pure feature crates under features/*/src/lib.rs forbid unsafe_code (outside explicit FFI/GPU allowlist)
+#  10. Zero `use crate::*;` ambient crate-root wildcard imports in apps/desktop/src/
 # Usage: scripts/arch-check.sh
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
@@ -195,14 +196,23 @@ for f in files:
     if os.path.exists(f) and test_attr.search(read_text(f)):
         errors.append(f"{f}: contains #[test] or #[cfg(test)] (forbidden by AGENTS.md)")
 
-# Rule 8: Hard <= 800 line ceiling on every tracked .rs file in apps/desktop/ and features/
+# Rule 8: Hard <= 800 line ceiling on every tracked .rs file in apps/desktop/, features/, and hand-written workspace crates/
 for f in files:
-    if not (f.startswith("apps/desktop/") or f.startswith("features/")):
+    in_scope = (
+        f.startswith("apps/desktop/")
+        or f.startswith("features/")
+        or (
+            f.startswith("crates/")
+            and not f.startswith("crates/opencode-plugin-spec/src/generated/")
+            and not f.startswith("crates/browser-pane/")
+        )
+    )
+    if not in_scope:
         continue
     if os.path.exists(f):
         line_count = len(read_text(f).splitlines())
         if line_count > HARD_LINE_CAP:
-            errors.append(f"{f}: {line_count} lines exceeds hard ceiling of {HARD_LINE_CAP} in apps/desktop/ and features/")
+            errors.append(f"{f}: {line_count} lines exceeds hard ceiling of {HARD_LINE_CAP}")
 
 # Rule 9: Pure feature crates under features/*/src/lib.rs forbid unsafe_code
 for lib in sorted(glob.glob("features/*/src/lib.rs")):
@@ -211,6 +221,14 @@ for lib in sorted(glob.glob("features/*/src/lib.rs")):
         continue
     if "#![forbid(unsafe_code)]" not in read_text(lib):
         errors.append(f"{lib}: pure feature crate must declare #![forbid(unsafe_code)]")
+
+# Rule 10: Zero `use crate::*;` ambient crate-root wildcard imports in apps/desktop/src/
+crate_wildcard = re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?use\s+crate::\*\s*;", re.MULTILINE)
+for f in files:
+    if not f.startswith("apps/desktop/src/"):
+        continue
+    if os.path.exists(f) and crate_wildcard.search(read_text(f)):
+        errors.append(f"{f}: contains `use crate::*;` wildcard import; use explicit imports instead")
 
 if errors:
     for e in errors:
@@ -222,6 +240,7 @@ print(
     f"arch check: ok "
     f"({sum(1 for _, t, _ in manifests if t == 'feature')} features, "
     f"{sum(1 for _, t, _ in manifests if t == 'crate')} crates, "
-    f"{len(desktop_root_rs)} apps/desktop/src root files, 0 cycles, 0 files >{HARD_LINE_CAP} in desktop/features)"
+    f"{len(desktop_root_rs)} apps/desktop/src root files, 0 cycles, "
+    f"0 files >{HARD_LINE_CAP} in desktop/features/crates, 0 crate::* wildcards)"
 )
 PY
