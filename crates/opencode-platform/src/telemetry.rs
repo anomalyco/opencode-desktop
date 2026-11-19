@@ -11,9 +11,41 @@ use std::cell::RefCell;
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use otlp_lite::{Ctx, Span, ms, record};
+use otlp_lite::{Ctx, Span, ms};
 use rune::time::Instant;
 use serde_json::Value;
+
+#[cfg(not(target_arch = "wasm32"))]
+fn to_otlp(t: Instant) -> otlp_lite::Instant { t }
+
+#[cfg(not(target_arch = "wasm32"))]
+fn from_otlp(t: otlp_lite::Instant) -> Instant { t }
+
+#[cfg(target_arch = "wasm32")]
+fn to_otlp(t: Instant) -> otlp_lite::Instant {
+    let now = Instant::now();
+    let otlp_now = otlp_lite::Instant::now();
+    if t >= now {
+        otlp_now + (t - now)
+    } else {
+        otlp_now.checked_sub(now - t).unwrap_or(otlp_now)
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn from_otlp(t: otlp_lite::Instant) -> Instant {
+    let now = Instant::now();
+    let otlp_now = otlp_lite::Instant::now();
+    if t >= otlp_now {
+        now + (t - otlp_now)
+    } else {
+        now.checked_sub(otlp_now - t).unwrap_or(now)
+    }
+}
+
+fn record(parent: Ctx, name: &'static str, (start, end): (Instant, Instant), attrs: Vec<(&'static str, Value)>) {
+    otlp_lite::record(parent, name, (to_otlp(start), to_otlp(end)), attrs);
+}
 
 /// After this, a late older page or decode no longer joins the open's trace.
 const FOLLOW: Duration = Duration::from_secs(30);
@@ -35,7 +67,7 @@ pub fn enabled() -> bool {
 pub fn send_receipt(session: &str, id: &str, outcome: &'static str, status: u16) {
     if on() {
         Span::root("prompt.delivery").attr("session.id", session).attr("message.id", id)
-            .attr("outcome", outcome).attr("http.status_code", status as i64).end_at(Instant::now());
+            .attr("outcome", outcome).attr("http.status_code", status as i64).end_at(to_otlp(Instant::now()));
     }
 }
 
@@ -96,10 +128,10 @@ pub fn open_begin(id: &str, held: bool) {
     OPEN.with(|o| {
         if let Some(old) = o.borrow_mut().take() && let Some(root) = old.root {
             let late = old.started.elapsed() >= FOLLOW;
-            root.attr("outcome", if late { "unpainted" } else { "replaced" }).end_at(if late { old.started + FOLLOW } else { Instant::now() });
+            root.attr("outcome", if late { "unpainted" } else { "replaced" }).end_at(to_otlp(if late { old.started + FOLLOW } else { Instant::now() }));
         }
         let root = Span::root("session.open").attr("session.id", id).attr("held", held);
-        *o.borrow_mut() = Some(Open { id: id.to_owned(), ctx: root.ctx(), started: root.start, root: Some(root), committed: None, history: false, pages: 0, restored: false, live: false, painted: false });
+        *o.borrow_mut() = Some(Open { id: id.to_owned(), ctx: root.ctx(), started: from_otlp(root.start), root: Some(root), committed: None, history: false, pages: 0, restored: false, live: false, painted: false });
     });
 }
 
@@ -108,7 +140,7 @@ fn with_open<R>(id: &str, f: impl FnOnce(&mut Open) -> R) -> Option<R> {
         let mut o = o.borrow_mut();
         if o.as_ref().is_some_and(|x| x.started.elapsed() >= FOLLOW) {
             // Never painted within FOLLOW: it ends there rather than waiting for the next open.
-            if let Some(open) = o.take() && let Some(root) = open.root { root.attr("outcome", "unpainted").end_at(open.started + FOLLOW); }
+            if let Some(open) = o.take() && let Some(root) = open.root { root.attr("outcome", "unpainted").end_at(to_otlp(open.started + FOLLOW)); }
             return None;
         }
         let open = o.as_mut().filter(|x| x.id == id)?;
@@ -140,7 +172,7 @@ pub fn launch_read(path: &'static str, start: Instant) {
 pub fn open_restored(id: &str, cached: usize) {
     if !on() { return; }
     let start = LAUNCHED.get().copied().unwrap_or_else(Instant::now);
-    let root = Span::root("session.open").at(start).attr("session.id", id).attr("restored", true).attr("cached_rows", cached as i64);
+    let root = Span::root("session.open").at(to_otlp(start)).attr("session.id", id).attr("restored", true).attr("cached_rows", cached as i64);
     let ctx = root.ctx();
     for &(name, a, b) in PHASES.lock().unwrap_or_else(|e| e.into_inner()).iter() { record(ctx, name, (a, b), vec![]); }
     if let Some((end, shown, rows)) = FIRST_FRAME.get() {
@@ -156,18 +188,18 @@ pub fn open_restored(id: &str, cached: usize) {
 pub fn page(id: &str, history: bool, read: &Read, shown: (Instant, Instant)) {
     with_open(id, |open| {
         let parent = if history {
-            let span = Span::child(open.ctx, "history").at(read.fetch.map_or(shown.0, |f| f.0))
+            let span = Span::child(open.ctx, "history").at(to_otlp(read.fetch.map_or(shown.0, |f| f.0)))
                 .attr("messages", read.messages as i64).attr("inline_images", read.inline_images as i64)
                 .attr("inline_image_bytes", read.inline_image_bytes as i64);
             let ctx = span.ctx();
-            span.end_at(shown.1);
+            span.end_at(to_otlp(shown.1));
             open.history = true;
             ctx
         } else {
             open.pages += 1;
             open.live |= read.source == "server";
             if open.live && open.painted && let Some(root) = open.root.take() {
-                root.attr("outcome", "cached").end_at(shown.1);
+                root.attr("outcome", "cached").end_at(to_otlp(shown.1));
             }
             open.ctx
         };
@@ -232,9 +264,9 @@ pub fn drawn(shown: Option<(&str, usize)>, (at, update_ms, encode_ms): (Instant,
         let frame = |name: &'static str| {
             let (update, encode) = (update_ms.unwrap_or(0.0), encode_ms.unwrap_or(0.0));
             let start = at.checked_sub(Duration::from_secs_f64((update + encode) / 1000.0)).unwrap_or(at);
-            let span = Span::child(open.ctx, name).at(start).attr("rows", rows as i64).attr("update_ms", update).attr("encode_ms", encode);
+            let span = Span::child(open.ctx, name).at(to_otlp(start)).attr("rows", rows as i64).attr("update_ms", update).attr("encode_ms", encode);
             record(span.ctx(), "layout", (start, start + Duration::from_secs_f64(update / 1000.0)), vec![("rows", (rows as i64).into())]);
-            span.end_at(at);
+            span.end_at(to_otlp(at));
         };
         if let Some(root) = open.root.take() {
             if rows == 0 || open.committed.is_none() || (open.restored && !open.live) {
@@ -244,7 +276,7 @@ pub fn drawn(shown: Option<(&str, usize)>, (at, update_ms, encode_ms): (Instant,
                 return false;
             }
             frame("first_paint");
-            root.attr("rows", rows as i64).attr("outcome", "painted").end_at(at);
+            root.attr("rows", rows as i64).attr("outcome", "painted").end_at(to_otlp(at));
             return false;
         }
         if open.history {
@@ -273,8 +305,8 @@ pub fn streamed(window: &str, sid: &str, data: &Value) {
 /// oldest delta the frame shows to the frame, so a window that draws late shows as late.
 pub fn stream_drawn(window: &str, at: Instant) {
     let Some((heard, sid)) = STREAMED.with(|s| s.borrow_mut().remove(window)) else { return };
-    Span::root("stream.paint").at(heard).attr("window", window).attr("session.id", sid.as_str())
-        .attr("latency_ms", ms(at.saturating_duration_since(heard))).end_at(at);
+    Span::root("stream.paint").at(to_otlp(heard)).attr("window", window).attr("session.id", sid.as_str())
+        .attr("latency_ms", ms(at.saturating_duration_since(heard))).end_at(to_otlp(at));
 }
 
 /// The last `encoded` frame, for `drawn`.
