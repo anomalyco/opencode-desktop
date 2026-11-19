@@ -471,19 +471,16 @@ impl Writer {
             }
             Cmd::Outbox { op, done } => match outbox::native::prepare(op) {
                 outbox::native::Prepared::Write(w, blobs, clear) => {
-                    // Committed to the WAL (kill-safe), answered, then synced: the request leaves
-                    // on the answer, and only a power cut in the sync's few ms is left open.
-                    let r = self.committed(false, |c, now| outbox::native::write(c, &w, &blobs, &clear, now));
+                    // Tier 0: committed and synced (`synchronous = FULL`) before settling the
+                    // draft journal or telling the caller the prompt is saved.
+                    let r = self.durable(false, |c, now| outbox::native::write(c, &w, &blobs, &clear, now));
                     if r.is_ok() {
                         outbox::cached(&mut self.cache().outbox, &w);
                         super::journal::settle(clear.iter().filter(|(_, rev)| *rev > 0).map(|(k, rev)| (k.as_str(), *rev)));
                         self.search.changed();
+                        rune::marks::mark("outbox.synced");
                     }
-                    let ok = r.is_ok();
                     answer(done, r);
-                    if ok {
-                        self.sync_wal();
-                    }
                 }
                 outbox::native::Prepared::Read { server, adopt, done } => {
                     let adopted = match outbox::native::has_adoptees(&self.conn, &adopt) {

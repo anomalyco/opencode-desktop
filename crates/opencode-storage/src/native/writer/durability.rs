@@ -20,10 +20,11 @@ use crate::{FlushReason, FlushReport, StorageError};
 /// The page size a file is rewritten to (`Writer::repage`), and the largest file rewritten.
 const REPAGE_TO: i64 = 16384;
 const REPAGE_MAX: i64 = 64 * 1024 * 1024;
-/// An unsynced commit (`commit_soon`, an outbox row): SQLite's checkpoint off for it, as it would
+/// An unsynced commit (`commit_soon`, write-behind): SQLite's checkpoint off for it, as it would
 /// run at OFF (`Writer::wal_unsynced`); and back.
 pub(super) const UNSYNCED: &str = "PRAGMA synchronous = OFF; PRAGMA wal_autocheckpoint = 0";
 pub(super) const SYNCED: &str = "PRAGMA synchronous = NORMAL; PRAGMA wal_autocheckpoint = 1000";
+const DURABLE: &str = "PRAGMA synchronous = FULL; PRAGMA wal_autocheckpoint = 0";
 /// The longest unsynced commits pile up, and the most WAL they fill, before a checkpoint syncs them.
 const UNSYNCED_FOR: Duration = Duration::from_secs(30);
 const UNSYNCED_BYTES: u64 = 16 * 1024 * 1024;
@@ -218,37 +219,6 @@ fn wal_step(seq: &mut Seq, state: &mut Wal, event: WalEvent) -> Effects<WalEffec
 }
 
 impl Writer {
-    /// A kill-safe write: committed to the WAL (handed to the operating system, no sync) before
-    /// it returns; `sync_wal` makes it survive a power cut too.
-    pub(super) fn committed(&mut self, boot: bool, f: impl FnOnce(&Connection, i64) -> rusqlite::Result<()>) -> Result<(), StorageError> {
-        let now = (self.clock)();
-        let result = (|| {
-            // Unsynced, the WAL header included (see `commit_buffered`); `sync_wal` follows.
-            self.conn.execute_batch(UNSYNCED)?;
-            let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
-            f(&tx, now)?;
-            tx.commit()
-        })();
-        note(&result);
-        self.conn.execute_batch(SYNCED).ok();
-        match result {
-            Ok(()) => {
-                self.wal_event(WalEvent::Committed { boot });
-                Ok(())
-            }
-            Err(e) => Err(StorageError(e.to_string())),
-        }
-    }
-
-    /// The WAL's frames to the disk (what `synchronous = FULL` does at each commit), through a
-    /// handle of its own kept open; a failed sync waits for the next checkpoint's.
-    pub(super) fn sync_wal(&mut self) {
-        if let Some(wal_bytes) = self.wal_file.sync_all(&self.conn) {
-            self.wal_event(WalEvent::WalSynced { wal_bytes });
-        }
-        rune::marks::mark("outbox.synced");
-    }
-
     /// Unsynced commits leave SQLite's own checkpoint off (`UNSYNCED`): one run at
     /// `synchronous = OFF` copies unsynced frames into the database file without a sync first,
     /// which a power cut could leave half-written. This runs it at NORMAL instead (the WAL synced,
@@ -261,17 +231,17 @@ impl Writer {
         self.wal_event(WalEvent::UnsyncedCommitted { boot, now: Instant::now(), wal_bytes });
     }
 
-    /// A Tier 0 write: committed and synced before it returns.
+    /// A Tier 0 write: committed and synced (`synchronous = FULL`) before it returns.
     pub(super) fn durable(&mut self, boot: bool, f: impl FnOnce(&Connection, i64) -> rusqlite::Result<()>) -> Result<(), StorageError> {
         let now = (self.clock)();
         let result = (|| {
-            self.conn.execute_batch("PRAGMA synchronous = FULL")?;
+            self.conn.execute_batch(DURABLE)?;
             let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
             f(&tx, now)?;
             tx.commit()
         })();
         note(&result);
-        self.conn.execute_batch("PRAGMA synchronous = NORMAL").ok();
+        self.conn.execute_batch(SYNCED).ok();
         match result {
             Ok(()) => {
                 self.wal_event(WalEvent::Committed { boot });
