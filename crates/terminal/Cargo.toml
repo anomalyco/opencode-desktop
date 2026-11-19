@@ -20,7 +20,7 @@ tungstenite = { version = "0.28", default-features = false, features = ["handsha
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tungstenite = { version = "0.28", default-features = false, features = ["handshake", "rustls-tls-webpki-roots"] }
 # A persistent PTY's worker sleeps on its socket and its commands together (IOCP on Windows).
-polling = "3.11"
+polling.workspace = true
 
 # A page's attachment: its own WebSocket, on a task of its event loop.
 [target.'cfg(target_arch = "wasm32")'.dependencies]

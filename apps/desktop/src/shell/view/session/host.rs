@@ -1,6 +1,15 @@
 //! The Desktop window as a host for the shared session timeline.
 
-use crate::*;
+use opencode_kit::client::Request;
+use opencode_kit::model::{Inbox, Message, Transcript};
+use rune::Tx;
+
+use crate::pickers::PickerHost as _;
+use crate::{
+    App, Route, Source, agent_rows, background, copied, diagram, disclosure, jump, line_reveal,
+    narrow, palette, pickers, plugin_host, popup, queue, quote, rewind, send_failed, settings,
+    speech, subagents, tool_open, working,
+};
 
 impl session_view::TimelineHost for App {
     fn knobs(&self) -> &rune_knobs::Knobs {

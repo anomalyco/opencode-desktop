@@ -8,7 +8,7 @@ publish = false
 
 [dependencies]
 anyhow = "1"
-base64 = "0.22"
+base64.workspace = true
 image = { version = "0.25", default-features = false, features = ["bmp", "gif", "jpeg", "png", "tiff", "webp"] }
 rustybuzz = "0.20"
 serde_json.workspace = true

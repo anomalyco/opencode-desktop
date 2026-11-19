@@ -80,6 +80,8 @@ mod surfaces;
 mod tick;
 mod workspace;
 
+use rune::AppSpec;
+
 pub use app::{App, Source, TabStatus};
 pub(crate) use app::{FIXTURE, arg, attended, auto_focus_composer, flag, harness_writes, headless};
 pub use shell::nav::route::Route;

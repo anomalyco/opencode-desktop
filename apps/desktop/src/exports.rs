@@ -73,22 +73,3 @@ pub(crate) use crate::dialogs::{connect, mcp, model_picker, model_prefs, setting
 
 #[allow(unused_imports)]
 pub(crate) use crate::stories::{demo, demo_script, fixture_ids, open as open_story, scenes};
-
-#[allow(unused_imports)]
-pub(crate) use std::collections::{HashMap, HashSet, VecDeque};
-#[allow(unused_imports)]
-pub(crate) use std::sync::mpsc::{Receiver, Sender};
-#[allow(unused_imports)]
-pub(crate) use rune::{AppSpec, Key, KeyEvent, TextEdit, Tx, Waker};
-#[allow(unused_imports)]
-pub(crate) use serde_json::Value;
-#[allow(unused_imports)]
-pub(crate) use opencode_kit::client::{DEFAULT_SERVER, Incoming, Prompt, Request, Server, Write};
-#[allow(unused_imports)]
-pub(crate) use opencode_kit::servers::ServerKey;
-#[allow(unused_imports)]
-pub(crate) use opencode_kit::model::{Delivery, Inbox, Message, Pending, Project, SessionInfo, Transcript};
-#[allow(unused_imports)]
-pub(crate) use crate::shell::tabs::Tab;
-#[allow(unused_imports)]
-pub(crate) use crate::session::composer::pickers::PickerHost;

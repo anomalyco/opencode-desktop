@@ -38,7 +38,7 @@ frame-profile = ["rune/frame-profile"]
 knobs = ["rune-knobs/panel"]
 
 [dependencies]
-base64 = "0.22"
+base64.workspace = true
 office-preview = { path = "../../crates/office-preview", optional = true }
 opencode-code-view = { path = "../../crates/opencode-code-view" }
 opencode-feature-annotations = { path = "../../features/annotations" }

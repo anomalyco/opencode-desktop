@@ -1,5 +1,10 @@
-use crate::*;
-use crate::tabs::{ClosedTab, TabKind};
+use opencode_kit::model::Message;
+use rune::Tx;
+use serde_json::Value;
+
+use crate::pickers::PickerHost as _;
+use crate::tabs::{self, ClosedTab, Tab, TabKind};
+use crate::{App, Route, TabStatus, shortcuts};
 
 impl App {
     pub(crate) fn save_tabs(&mut self) {

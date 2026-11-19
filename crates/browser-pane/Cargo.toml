@@ -16,7 +16,7 @@ engine = ["dep:authenticode", "dep:libc", "dep:memchr", "dep:sha2", "dep:ureq", 
 faults = ["engine"]
 
 [dependencies]
-base64 = "0.22"
+base64.workspace = true
 opencode-i18n = { path = "../opencode-i18n" }
 rune.workspace = true
 serde = { version = "1", features = ["derive"] }

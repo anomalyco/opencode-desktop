@@ -5,9 +5,10 @@
 use std::collections::{HashMap, VecDeque};
 use std::time::Duration;
 use rune::time::Instant;
+use opencode_kit::client::Request;
 use opencode_kit::model::SessionInfo;
 use serde_json::Value;
-use crate::{App, Request, Source};
+use crate::{App, Source};
 
 #[derive(Clone, Default)]
 pub struct Page {

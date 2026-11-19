@@ -1,5 +1,8 @@
-use crate::*;
+use rune::{Key, KeyEvent, Tx};
+
 use crate::keymap::Bind;
+use crate::pickers::PickerHost as _;
+use crate::{App, Route, knobs};
 
 pub(crate) fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     // A key before the after-frame turn still finds the dormant built-ins' shortcuts.
