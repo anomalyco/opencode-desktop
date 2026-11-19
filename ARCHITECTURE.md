@@ -10,6 +10,8 @@ Start at the top and go deeper only when a feature needs lower-level control. Ev
 
 Built-in `--!strict` Luau plugins targeting `opencode-plugin-spec` (`contract.json`), hot-reloaded in place without Rust compiles. `apps/desktop/build.rs` embeds every `plugins/<id>/` directory containing a `plugin.toml` into the binary as precompiled bytecode; non-headless debug builds load and watch the repository's `plugins/` folders directly. See [`crates/opencode-plugin-spec/docs/writing-a-plugin.md`](crates/opencode-plugin-spec/docs/writing-a-plugin.md).
 
+- **Contract surface rule (`contract.json` is additive in 1.x):** existing engine-specific native nodes (`terminalSurface`, `terminalTabLabel`, `browserSurface`, `codeView`, `diffView`, `fileTree`, `panelSidebar`, `openInButton`, `officePages`, `officeSheet`, `genUi`) stay for compatibility, but new contract additions must be reusable UI primitives or general-purpose services — do not add new engine-specific `ui.*` nodes or 1-to-1 engine wrapper services to put a thin Luau shell around a Rust feature. A new pure-UI dialog, popover, panel, or settings page should need no `contract.json` change at all; if a feature needs a new Rust engine, keep its UI in Lane B (`features/<id>/`) rather than paying the triple cost of feature crate, host adapter, and contract entry.
+
 ### Tier 2: `features/`
 
 Decoupled Rust feature crates in a flat, parallel layer with zero cross-feature dependencies. Entrypoints use concrete types or object-safe `&dyn *Host` / `&mut dyn *Host` boundaries (keeping thin generic `H: *Host + 'static` wrappers only at `rune::El` / `Tx` callback edges).
@@ -117,6 +119,8 @@ Pick the first lane that fits. Do not add fields to `struct App` or edit central
 | **Lane A (Default)** | `plugins/<id>/` | Dialogs, panels, settings pages, composer pills, popovers, commands, slash actions, MCP tools, server sources | 0 ms Rust (Luau hot reload) |
 | **Lane B** | `features/<id>/` | GPU shaders, frame recorders, heavy local indexing, OS-specific engines, or sub-ms hot paths | Leaf crate only |
 | **Lane C** | `crates/<id>/` | Reusable libraries or embeddable surfaces shared with `anomalyco/seer` or other Rune apps | Leaf crate only |
+
+Do not bridge a new Lane B Rust engine through a thin Lane A Luau shell: keep engine-backed UI in Lane B and reserve `contract.json` additions for reusable primitives and general services (see **Tier 1: `plugins/`**).
 
 ### Scaffolding a new feature
 
