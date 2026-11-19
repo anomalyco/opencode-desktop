@@ -241,7 +241,7 @@ impl ServiceName {
         match self {
             Self::Sessions => &["Get", "Routed", "Open", "Changed", "RoutedChanged"],
             Self::Models => &["Get", "Changed"],
-            Self::Server => &["RequestAsync", "Resource", "Invalidate", "OnEvent", "EncodeUri", "Version", "IsLocal", "CanWrite", "Connected"],
+            Self::Server => &["RequestAsync", "Resource", "Invalidate", "OnEvent", "EncodeUri", "Version", "IsLocal", "IsLive", "CanWrite", "Connected"],
             Self::Servers => &["List", "Current", "Health", "Connect", "Changed"],
             Self::Http => &["FetchAsync"],
             Self::Process => &["Spawn", "RunAsync"],

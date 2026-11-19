@@ -4884,6 +4884,8 @@ export type ServerService = {
     Version: (self: ServerService) -> string?,
     --- It runs on this machine.
     IsLocal: (self: ServerService) -> boolean,
+    --- The window works with a live server rather than an offline fixture.
+    IsLive: (self: ServerService) -> boolean,
     --- The app may change things on it.
     CanWrite: (self: ServerService) -> boolean,
     --- Fires as its event connection goes up or down.

@@ -167,6 +167,7 @@ The OpenCode server this window works with: the server of the session or draft i
 | `:EncodeUri` | `(text: string) -> string` | Percent-encodes text for a path or query. |
 | `:Version` | `() -> string?` | The version it reported. |
 | `:IsLocal` | `() -> boolean` | It runs on this machine. |
+| `:IsLive` | `() -> boolean` | The window works with a live server rather than an offline fixture. Since 1.5. |
 | `:CanWrite` | `() -> boolean` | The app may change things on it. |
 | `.Connected` | `Signal<boolean>` | Fires as its event connection goes up or down. |
 

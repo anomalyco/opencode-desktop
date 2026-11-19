@@ -1688,6 +1688,7 @@
       { "name": "EncodeUri", "kind": "method", "sig": "(text: string) -> string", "doc": "Percent-encodes text for a path or query." },
       { "name": "Version", "kind": "method", "sig": "() -> string?", "doc": "The version it reported." },
       { "name": "IsLocal", "kind": "method", "sig": "() -> boolean", "doc": "It runs on this machine." },
+      { "name": "IsLive", "kind": "method", "sig": "() -> boolean", "since": "1.5", "doc": "The window works with a live server rather than an offline fixture." },
       { "name": "CanWrite", "kind": "method", "sig": "() -> boolean", "doc": "The app may change things on it." },
       { "name": "Connected", "kind": "signal", "payload": "boolean", "doc": "Fires as its event connection goes up or down." }
     ] },
