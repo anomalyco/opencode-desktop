@@ -197,7 +197,12 @@ impl Feature<App> for SubagentsFeature {
                 shells::set_open(s, false);
             },
         ));
-        builder.add_system(Phase::Derive, "subagents.shells", |s, _, tx| shells::poll(s, tx));
+        builder.add_system_ordered(
+            Phase::Derive,
+            crate::tick::order::derive::SUBAGENTS_SHELLS,
+            "subagents.shells",
+            |s, _, tx| shells::poll(s, tx),
+        );
     }
 }
 

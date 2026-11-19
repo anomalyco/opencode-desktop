@@ -415,6 +415,11 @@ impl Feature<App> for FilesFeature {
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
         builder.add_setup("files.waker", |s, w| s.workspace_panes.files.set_waker(w));
-        builder.add_system(Phase::Ingest, "files.reply_links", |s, _, tx| poll_reply_links(s, tx));
+        builder.add_system_ordered(
+            Phase::Ingest,
+            crate::tick::order::ingest::FILES_REPLY_LINKS,
+            "files.reply_links",
+            |s, _, tx| poll_reply_links(s, tx),
+        );
     }
 }

@@ -120,7 +120,17 @@ impl Feature<App> for TimelineExtrasFeature {
                 *s.timeline_fx.todo_open = false;
             },
         ));
-        builder.add_system(Phase::Derive, "timeline_extras.todos", sync);
-        builder.add_system(Phase::Derive, "timeline_extras.agent_rows", |s, _, tx| crate::agent_rows::poll(s, tx));
+        builder.add_system_ordered(
+            Phase::Derive,
+            crate::tick::order::derive::TIMELINE_TODOS,
+            "timeline_extras.todos",
+            sync,
+        );
+        builder.add_system_ordered(
+            Phase::Derive,
+            crate::tick::order::derive::TIMELINE_AGENT_ROWS,
+            "timeline_extras.agent_rows",
+            |s, _, tx| crate::agent_rows::poll(s, tx),
+        );
     }
 }

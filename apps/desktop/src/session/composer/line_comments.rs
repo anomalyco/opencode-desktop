@@ -257,9 +257,17 @@ impl Feature<App> for AnnotationsFeature {
             crate::quote::setup(s, w.clone());
             setup(s, w);
         });
-        builder.add_system(Phase::Derive, "quote.poll", |s, now, tx| {
-            crate::quote::poll(s, now, tx)
-        });
-        builder.add_system(Phase::Derive, "line_comments.poll", |s, _, tx| poll(s, tx));
+        builder.add_system_ordered(
+            Phase::Ingest,
+            crate::tick::order::ingest::QUOTE,
+            "quote.poll",
+            |s, now, tx| crate::quote::poll(s, now, tx),
+        );
+        builder.add_system_ordered(
+            Phase::Ingest,
+            crate::tick::order::ingest::LINE_COMMENTS,
+            "line_comments.poll",
+            |s, _, tx| poll(s, tx),
+        );
     }
 }

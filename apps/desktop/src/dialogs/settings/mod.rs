@@ -758,6 +758,15 @@ impl Feature<App> for SettingsFeature {
                     pages::providers::step_accounts(s, pages::providers::Event::Cancel, tx);
                 }),
         );
-        builder.add_system(Phase::Derive, "settings.poll", |s, now, tx| poll(s, now, tx));
+        use crate::tick::order::{derive, ingest, react};
+        builder.add_system_ordered(Phase::Ingest, ingest::SETTINGS_SEARCH, "settings.search", |s, _, tx| search::poll(s, tx));
+        builder.add_system_ordered(Phase::Ingest, ingest::SETTINGS_SERVERS_UNAVAILABLE, "settings.servers_unavailable", |s, _, tx| {
+            pages::servers::unavailable::poll(s, tx);
+            false
+        });
+        builder.add_system_ordered(Phase::Derive, derive::SETTINGS_WORKTREES, "settings.worktrees", |s, _, tx| pages::worktrees::poll(s, tx));
+        builder.add_system_ordered(Phase::React, react::SETTINGS_PROJECT, "settings.project", |s, _, tx| pages::project::poll(s, tx));
+        builder.add_system_ordered(Phase::React, react::SETTINGS_ABOUT, "settings.about", |s, now, tx| pages::about::poll(s, now, tx));
+        builder.add_system_ordered(Phase::React, react::SETTINGS_PROJECTS, "settings.projects", |s, _, _| pages::projects::poll(s));
     }
 }

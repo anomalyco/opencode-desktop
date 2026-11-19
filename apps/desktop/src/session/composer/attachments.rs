@@ -238,9 +238,29 @@ impl Feature<App> for ComposerInputFeature {
         );
         builder.add_setup("composer_input.attach_waker", |s, waker| s.composer_ext.attach.set_waker(waker));
         builder.add_setup("composer_input.slash_waker", |s, waker| s.composer_ext.add.slash.set_waker(waker));
-        builder.add_system(Phase::Derive, "composer_input.dropzone", |s, _, tx| crate::dropzone::poll(s, tx));
-        builder.add_system(Phase::Derive, "composer_input.uploads", |s, _, tx| s.poll_uploads(tx));
-        builder.add_system(Phase::Derive, "composer_input.commands", |s, _, tx| s.poll_commands(tx));
-        builder.add_system(Phase::Derive, "composer_input.suggestions", |s, _, tx| s.poll_suggestions(tx));
+        builder.add_system_ordered(
+            Phase::Ingest,
+            crate::tick::order::ingest::COMPOSER_DROPZONE,
+            "composer_input.dropzone",
+            |s, _, tx| crate::dropzone::poll(s, tx),
+        );
+        builder.add_system_ordered(
+            Phase::Derive,
+            crate::tick::order::derive::COMPOSER_COMMANDS,
+            "composer_input.commands",
+            |s, _, tx| s.poll_commands(tx),
+        );
+        builder.add_system_ordered(
+            Phase::Derive,
+            crate::tick::order::derive::COMPOSER_SUGGESTIONS,
+            "composer_input.suggestions",
+            |s, _, tx| s.poll_suggestions(tx),
+        );
+        builder.add_system_ordered(
+            Phase::Derive,
+            crate::tick::order::derive::COMPOSER_UPLOADS,
+            "composer_input.uploads",
+            |s, _, tx| s.poll_uploads(tx),
+        );
     }
 }

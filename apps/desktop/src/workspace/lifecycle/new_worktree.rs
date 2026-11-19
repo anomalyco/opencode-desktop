@@ -254,8 +254,23 @@ impl Feature<App> for WorkspaceToolsFeature {
             s.setup_rune_mcp(waker);
             rune::marks::mark("mcp.setup");
         });
-        builder.add_system(Phase::Derive, "workspace_tools.branch_picker", |s, now, tx| s.poll_branch_picker(now, tx));
-        builder.add_system(Phase::Derive, "workspace_tools.rune_mcp", |s, _, tx| crate::rune_mcp::poll(s, tx));
-        builder.add_system(Phase::Derive, "workspace_tools.home_search", |s, _, tx| s.poll_home_search(tx));
+        builder.add_system_ordered(
+            Phase::Derive,
+            crate::tick::order::derive::HOME_SEARCH,
+            "workspace_tools.home_search",
+            |s, _, tx| s.poll_home_search(tx),
+        );
+        builder.add_system_ordered(
+            Phase::Derive,
+            crate::tick::order::derive::BRANCH_PICKER,
+            "workspace_tools.branch_picker",
+            |s, now, tx| s.poll_branch_picker(now, tx),
+        );
+        builder.add_system_ordered(
+            Phase::React,
+            crate::tick::order::react::RUNE_MCP,
+            "workspace_tools.rune_mcp",
+            |s, _, tx| crate::rune_mcp::poll(s, tx),
+        );
     }
 }

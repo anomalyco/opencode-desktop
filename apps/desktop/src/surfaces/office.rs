@@ -25,7 +25,12 @@ impl Feature<App> for OfficeFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
-        builder.add_system(Phase::Ingest, "office.poll", |s, _, tx| poll(s, tx));
+        builder.add_system_ordered(
+            Phase::Ingest,
+            crate::tick::order::ingest::OFFICE,
+            "office.poll",
+            |s, _, tx| poll(s, tx),
+        );
         builder.add_surface(
             SurfaceDescriptor::new("office", SurfaceKind::Office, "Office Preview")
                 .with_extensions(&["docx", "xlsx", "pptx"])

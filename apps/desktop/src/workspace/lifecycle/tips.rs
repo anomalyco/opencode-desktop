@@ -61,7 +61,12 @@ impl Feature<App> for TipsFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
-        builder.add_system(Phase::Derive, "tips.poll", |s, _, tx| poll(s, tx));
+        builder.add_system_ordered(
+            Phase::React,
+            crate::tick::order::react::TIPS,
+            "tips.poll",
+            |s, _, tx| poll(s, tx),
+        );
     }
 }
 
