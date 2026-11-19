@@ -673,14 +673,16 @@ impl Server {
         out
     }
 
-    /// Reads `stream` as `epoch` until it ends or goes silent for `stream.idle`; `opened` says
-    /// whether it got as far as OpenCode's `server.connected`. Only then is it connected, so a
-    /// stream a captive portal answers (a redirect, a web page) is a failure, not a reconnect.
-    /// A stream replaced after a network change or a wake (`streams::verify`) ends quietly,
-    /// sending nothing more; `stream.heard()` is told of every line, heartbeats included.
+    /// Reads `stream` as `epoch` until it ends or goes silent for `stream.idle`; drives `state`
+    /// through its `server.connected` handshake and frames. Only once `server.connected` arrives
+    /// does it enter `Open`, so a stream a captive portal answers (a redirect, a web page) is a
+    /// failure, not a reconnect. A stream replaced after a network change or a wake
+    /// (`streams::verify`) ends quietly, sending nothing more; `stream.heard()` is told of every
+    /// line, heartbeats included.
     #[cfg(not(target_arch = "wasm32"))]
-    fn events(&self, stream: &streams::Stream, epoch: u64, resumed: bool, opened: &mut bool) -> Result<(), WireError> {
+    fn events(&self, stream: &streams::Stream, epoch: u64, state: &mut worker::StreamState) -> Result<(), WireError> {
         use crate::wire_error::{read_failure, transport};
+        use worker::{Handshake, StreamEffect, StreamEvent, stream_step};
         let down = |kind: WireKind| WireError::new("GET", "/api/event", kind);
         let config = ureq::Agent::config_builder().timeout_per_read(Some(stream.idle)).http_status_as_error(false).max_redirects(0);
         let agent: ureq::Agent = if http::loopback(&self.base) { config.proxy(None) } else { config }.build().into();
@@ -699,11 +701,11 @@ impl Server {
         if !content_type.trim_start().to_ascii_lowercase().starts_with("text/event-stream") {
             return Err(down(WireKind::NotOpenCode { status: 200, what: http::kind_of(&content_type, false) }));
         }
-        let mut connected = false;
         let mut reader = BufReader::new(resp.into_body().into_reader());
         let mut line = String::new();
         loop {
             if !stream.live(epoch) {
+                stream_step(state, StreamEvent::Closed);
                 return Ok(());
             }
             line.clear();
@@ -713,21 +715,38 @@ impl Server {
             if read as u64 > limit { return Err(down(WireKind::TooLarge { limit, length: None })); }
             stream.heard();
             let Some(event) = event_line(line.trim_end_matches(['\r', '\n'])) else { continue };
-            if !connected {
-                // OpenCode's first event, as Desktop waits for it (`connection.ts`).
-                if !matches!(&event, Incoming::Event { ty, .. } if ty == "server.connected") {
-                    return Err(down(WireKind::NotOpenCode { status: 200, what: "an event stream that didn't start with server.connected".into() }));
-                }
-                connected = true;
-                *opened = true;
-                if stream.inbox.send(if resumed { Incoming::Reconnected } else { Incoming::Opened }).is_err() {
-                    return Ok(());
+            let connected = matches!(&event, Incoming::Event { ty, .. } if ty == "server.connected");
+            let mut pending_frame = Some(event);
+            let mut delivered = false;
+            for effect in stream_step(state, StreamEvent::Frame { connected }) {
+                match effect {
+                    StreamEffect::DeliverHandshake(h) => {
+                        let msg = match h {
+                            Handshake::Opened => Incoming::Opened,
+                            Handshake::Reconnected => Incoming::Reconnected,
+                        };
+                        if stream.inbox.send(msg).is_err() {
+                            stream_step(state, StreamEvent::Closed);
+                            return Ok(());
+                        }
+                        delivered = true;
+                    }
+                    StreamEffect::DeliverFrame => {
+                        if let Some(msg) = pending_frame.take() {
+                            if stream.inbox.send(msg).is_err() {
+                                stream_step(state, StreamEvent::Closed);
+                                return Ok(());
+                            }
+                            delivered = true;
+                        }
+                    }
+                    StreamEffect::RejectHandshake(err) => return Err(err),
+                    _ => {}
                 }
             }
-            if stream.inbox.send(event).is_err() {
-                return Ok(());
+            if delivered {
+                (stream.wake)();
             }
-            (stream.wake)();
         }
         Err(down(WireKind::Dropped("the stream ended".into())))
     }
