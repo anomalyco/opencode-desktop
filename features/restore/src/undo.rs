@@ -11,7 +11,7 @@
 //! history with it. A closed tab or window keeps its draft's words for reopening, and its
 //! history only for the rest of the run.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use opencode_kit::servers::TabKey;
@@ -19,6 +19,7 @@ use opencode_storage::Lookup;
 use rune::Tx;
 
 use crate::RestoreHost;
+use crate::places::{Settle, SettleEffect, SettleEvent};
 
 /// How many undo steps are kept per draft.
 const STEPS: usize = 32;
@@ -29,17 +30,25 @@ const SETTLE: f64 = 1.0;
 
 type DoneHistory = (String, u64, Option<String>);
 
+/// Per-draft undo-history load and persistence state.
+/// Absence from [`Kept::drafts`] means the draft's stored history has not been asked of disk yet.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Draft {
+    /// Disk load requested; waiting for storage to populate the document.
+    Asked,
+    /// Restored for this run with nothing written yet (equivalent to an empty history).
+    Empty,
+    /// Restored and synced with the last write's step counts and print id.
+    Written { len: (usize, usize), print: u64 },
+}
+
 /// What each draft's history was last written as, and the change waiting to hold still.
 #[derive(Default)]
 pub struct Kept {
-    /// Drafts whose stored history was taken back this run (or that had none).
-    restored: HashSet<String>,
-    /// Drafts whose stored history was asked of the disk.
-    asked: HashSet<String>,
-    /// Per draft: the step counts and the print of what was last written.
-    written: HashMap<String, ((usize, usize), u64)>,
+    /// Per draft: load/restore status and the last written step counts and print.
+    drafts: HashMap<String, Draft>,
     /// The shown draft's change waiting to hold still, and since when.
-    candidate: Option<(String, u64, f64)>,
+    candidate: Settle<(String, u64)>,
     /// What the shown draft's print was last taken from (`print`).
     print: Option<Print>,
     /// Histories a worker turned into JSON, waiting to be stored: each with the write it was
@@ -72,32 +81,39 @@ pub fn poll_undo(host: &mut dyn RestoreHost, now: f64, tx: &mut Tx) {
     }
     let Some(key) = host.restore().shown.clone() else { return };
     let doc = undo_document(host.window_id(), &crate::draft_tab_key(host, &key));
-    if !host.restore().undo.restored.contains(&key) && !take_back_history(host, &key, &doc) {
+    let restored = matches!(
+        host.restore().undo.drafts.get(&key),
+        Some(Draft::Empty | Draft::Written { .. })
+    );
+    if !restored && !take_back_history(host, &key, &doc) {
         return;
     }
     let len = host.composer().history_len();
     let p = print(host, &key);
-    // A draft with nothing stored has written an empty history.
-    let (written_len, written_print) = host.restore().undo.written.get(&key).copied().unwrap_or(((0, 0), 0));
-    let waiting = host.restore().undo.candidate.as_ref().filter(|(k, pr, _)| *k == key && *pr == p).map(|c| c.2);
-    match () {
-        _ if written_print == p || (len == (0, 0) && written_len == (0, 0)) => {
-            // Written only when it holds one: a poll that changes nothing writes nothing.
-            if host.restore().undo.candidate.is_some() {
-                host.restore_mut().undo.candidate = None;
-            }
-            return;
+    let (unchanged, step_closed) = match host.restore().undo.drafts.get(&key).copied() {
+        Some(Draft::Written { len: written_len, print: written_print }) => {
+            (written_print == p || (len == (0, 0) && written_len == (0, 0)), written_len != len)
         }
-        // A step closed (or undo, redo): written now.
-        _ if written_len != len => {}
-        _ => match waiting {
-            Some(at) if now - at + 1e-9 >= SETTLE => {}
-            Some(at) => return tx.wake_at(at + SETTLE),
-            None => {
-                host.restore_mut().undo.candidate = Some((key, p, now));
-                return tx.wake_at(now + SETTLE);
-            }
-        },
+        // A draft with nothing stored has written an empty history.
+        Some(Draft::Empty | Draft::Asked) | None => (len == (0, 0), len != (0, 0)),
+    };
+    if unchanged {
+        // Written only when it holds one: a poll that changes nothing writes nothing.
+        if !host.restore().undo.candidate.is_idle() {
+            host.restore_mut().undo.candidate.step(SettleEvent::Matched);
+        }
+        return;
+    }
+    // A step closed (or undo, redo): written now; otherwise wait for typing to hold still.
+    if !step_closed {
+        if let Some(at) = host.restore().undo.candidate.wake_if(|(k, pr)| *k == key && *pr == p, now, SETTLE) {
+            return tx.wake_at(at);
+        }
+        match host.restore_mut().undo.candidate.step(SettleEvent::Changed { value: (key.clone(), p), now, delay: SETTLE }) {
+            SettleEffect::Ready(_) => {}
+            SettleEffect::WakeAt(at) => return tx.wake_at(at),
+            SettleEffect::None => return,
+        }
     }
     // The JSON (the document, and the newest step however large) is made on a worker: a
     // 1.7 MB paste's history took 2-3 ms of the frame that closed its step. The field's copy
@@ -109,8 +125,8 @@ pub fn poll_undo(host: &mut dyn RestoreHost, now: f64, tx: &mut Tx) {
         kept.writes += 1;
         let write = kept.writes;
         kept.sent.insert(doc.clone(), write);
-        kept.written.insert(key, (len, p));
-        kept.candidate = None;
+        kept.drafts.insert(key, Draft::Written { len, print: p });
+        kept.candidate.step(SettleEvent::Matched);
         (write, kept.done.clone())
     };
     host.run_background(Box::new(move || {
@@ -170,10 +186,10 @@ fn take_back_history(host: &mut dyn RestoreHost, key: &str, doc: &str) -> bool {
         Lookup::Pending => {
             // Asked of the disk once the storage is open (before, a load goes nowhere).
             if host.storage_is_ready()
-                && !host.restore().undo.asked.contains(key)
+                && !matches!(host.restore().undo.drafts.get(key), Some(Draft::Asked))
                 && let Some(w) = host.waker()
             {
-                host.restore_mut().undo.asked.insert(key.to_owned());
+                host.restore_mut().undo.drafts.insert(key.to_owned(), Draft::Asked);
                 host.storage_load_docs(&[doc], Box::new(move || w()));
             }
             return false;
@@ -185,12 +201,14 @@ fn take_back_history(host: &mut dyn RestoreHost, key: &str, doc: &str) -> bool {
     {
         host.composer_mut().restore_history_json(&v);
     }
-    host.restore_mut().undo.restored.insert(key.to_owned());
-    if stored.is_some() {
+    let state = if stored.is_some() {
         let p = print(host, key);
-        let hlen = host.composer().history_len();
-        host.restore_mut().undo.written.insert(key.to_owned(), (hlen, p));
-    }
+        let len = host.composer().history_len();
+        Draft::Written { len, print: p }
+    } else {
+        Draft::Empty
+    };
+    host.restore_mut().undo.drafts.insert(key.to_owned(), state);
     true
 }
 
@@ -204,13 +222,12 @@ pub(crate) fn forget_undo(host: &mut dyn RestoreHost, tab: &TabKey) {
         host.storage_set_doc(&doc, None);
     }
     let encoded = tab.encode();
-    let keys: Vec<String> = host.restore().undo.written.keys().cloned().collect();
+    let keys: Vec<String> = host.restore().undo.drafts.keys().cloned().collect();
     let gone: Vec<String> = keys.into_iter().filter(|k| crate::draft_tab_key(host, k).encode() == encoded).collect();
     if !gone.is_empty() {
         let undo = &mut host.restore_mut().undo;
         for k in gone {
-            undo.written.remove(&k);
-            undo.restored.remove(&k);
+            undo.drafts.remove(&k);
         }
     }
 }
