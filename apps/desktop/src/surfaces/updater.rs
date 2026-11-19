@@ -2,19 +2,25 @@
 //!
 //! Keeps `build_channel`, `build_version`, and `build_commit` (including the `.rdata`
 //! `OPENCODE_RUNE_BUILD_STAMP` provenance record) inside `apps/desktop` so release
-//! verification reads the desktop crate's own build environment.
+//! verification reads the desktop crate's own build environment. On `wasm32`, the native
+//! self-updater crate is omitted and the Luau `Updater` service reports no updater.
 
-pub use opencode_feature_updater::{
-    BuildInfo, StateView, Updater, UpdaterConfig, UpdaterHost, poll, poll_owed, start_if_packaged,
-};
 #[cfg(not(target_arch = "wasm32"))]
-pub use opencode_feature_updater::{finish_quit, installs_on_quit};
+pub use opencode_feature_updater::{
+    BuildInfo, StateView, Updater, UpdaterConfig, UpdaterHost, finish_quit, installs_on_quit, poll,
+    poll_owed,
+};
 
+#[cfg(not(target_arch = "wasm32"))]
 use opencode_kernel::{Feature, KernelBuilder};
 use rune_luau::{Completer, Data};
 
 use crate::App;
 
+#[cfg(target_arch = "wasm32")]
+const NO_UPDATER: &str = "No updater runs in this build";
+
+#[cfg(not(target_arch = "wasm32"))]
 fn state_to_data(view: StateView) -> Data {
     let fields = [
         ("phase", Data::String(view.phase.into())),
@@ -26,23 +32,102 @@ fn state_to_data(view: StateView) -> Data {
 }
 
 /// Where the updater stands, as the `UpdaterState` Luau record (`Data::Nil` when unavailable).
-pub fn state_data(s: &dyn UpdaterHost) -> Data {
-    opencode_feature_updater::state_view(s).map_or(Data::Nil, state_to_data)
+pub fn state_data(s: &App) -> Data {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        opencode_feature_updater::state_view(s).map_or(Data::Nil, state_to_data)
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = s;
+        Data::Nil
+    }
 }
 
 /// `Updater:CheckAsync()`: checks now and completes `done` with the `UpdaterState` record.
-pub fn check_async(s: &dyn UpdaterHost, done: Completer) {
+pub fn check_async(s: &App, done: Completer) {
+    #[cfg(not(target_arch = "wasm32"))]
     opencode_feature_updater::check_with(s, move |view| {
         done.complete(view.map_or(Data::Nil, state_to_data));
     });
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = s;
+        done.complete(Data::Map(
+            [
+                ("phase".to_owned(), Data::String("error".into())),
+                ("error".to_owned(), Data::String(NO_UPDATER.into())),
+            ]
+            .into_iter()
+            .collect(),
+        ));
+    }
 }
 
 /// `Updater:InstallAsync()`: restarts into the ready version or opens a required download;
 /// completes `done` with `Data::Nil` on hand-off or an error string.
-pub fn install_async(s: &dyn UpdaterHost, done: Completer) {
+pub fn install_async(s: &App, done: Completer) {
+    #[cfg(not(target_arch = "wasm32"))]
     opencode_feature_updater::install_with(s, move |err| {
         done.complete(err.map_or(Data::Nil, Data::String));
     });
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = s;
+        done.complete(Data::String(NO_UPDATER.into()));
+    }
+}
+
+/// Starts the update service after the first frame when this build updates itself.
+pub fn start_if_packaged(s: &mut App) {
+    #[cfg(not(target_arch = "wasm32"))]
+    opencode_feature_updater::start_if_packaged(s);
+    #[cfg(target_arch = "wasm32")]
+    let _ = s;
+}
+
+/// Reactive revision of the updater service (`0` on `wasm32`, where no updater runs).
+pub(crate) fn revision(s: &App) -> u64 {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        s.kernel.slots.get(&UPDATER).revision()
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = s;
+        0
+    }
+}
+
+/// Untracked revision of the updater service for stamp hashing (`0` on `wasm32`).
+pub(crate) fn revision_untracked(s: &App) -> u64 {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        s.kernel.slots.untracked(&UPDATER).revision()
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = s;
+        0
+    }
+}
+
+/// Running version shown in Settings › About (bundle version once reported, else build version).
+pub(crate) fn display_version(s: &App) -> String {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let updater = s.kernel.slots.get(&UPDATER);
+        if updater.version.is_empty() {
+            build_version().to_owned()
+        } else {
+            updater.version.clone()
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = s;
+        build_version().to_owned()
+    }
 }
 
 #[cfg(windows)]
@@ -76,6 +161,7 @@ pub fn build_commit() -> Option<&'static str> {
 
 /// Configures the extracted updater crate with desktop's provenance and updates path.
 pub fn init() {
+    #[cfg(not(target_arch = "wasm32"))]
     opencode_feature_updater::configure(UpdaterConfig {
         build: BuildInfo {
             channel: build_channel(),
@@ -88,8 +174,10 @@ pub fn init() {
     });
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) static UPDATER: opencode_kernel::Slot<Updater> = opencode_kernel::Slot::new();
 
+#[cfg(not(target_arch = "wasm32"))]
 impl UpdaterHost for App {
     fn updater(&self) -> &Updater {
         self.kernel.slots.get(&UPDATER)
@@ -101,8 +189,10 @@ impl UpdaterHost for App {
 }
 
 /// Kernel feature registration for the self-updater.
+#[cfg(not(target_arch = "wasm32"))]
 pub struct UpdaterFeature;
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Feature<App> for UpdaterFeature {
     fn id(&self) -> &'static str {
         "feature.updater"

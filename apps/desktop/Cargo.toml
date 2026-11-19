@@ -66,7 +66,6 @@ opencode-feature-switcher = { path = "../../features/switcher" }
 opencode-feature-terminal-surface = { path = "../../features/terminal-surface" }
 opencode-feature-timeline-extras = { path = "../../features/timeline-extras" }
 opencode-feature-tips = { path = "../../features/tips" }
-opencode-feature-updater = { path = "../../features/updater" }
 opencode-feature-usage = { path = "../../features/usage" }
 opencode-feature-workspace-tools = { path = "../../features/workspace-tools" }
 opencode-kernel = { path = "../../crates/opencode-kernel" }
@@ -114,6 +113,7 @@ win-install = { path = "../../crates/win-install" }
 # Random ids and passwords for plugins (System:RandomId, the askpass token).
 getrandom = "0.3"
 mimalloc = { version = "0.1", default-features = false }
+opencode-feature-updater = { path = "../../features/updater" }
 rune = { workspace = true, features = ["native-file-dialog", "metal-backend", "tooling", "keys-overlay"] }
 ureq = { workspace = true, features = ["rustls"] }
 

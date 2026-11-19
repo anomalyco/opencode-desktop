@@ -91,6 +91,7 @@ pub fn build() -> Kernel<App> {
     b.with_feature(&crate::surfaces::egg::EggFeature);
     #[cfg(feature = "office")]
     b.with_feature(&crate::surfaces::office::OfficeFeature);
+    #[cfg(not(target_arch = "wasm32"))]
     b.with_feature(&crate::surfaces::updater::UpdaterFeature);
     b.with_feature(&crate::line_comments::AnnotationsFeature);
     b.with_feature(&crate::attachments::ComposerInputFeature);
@@ -262,10 +263,13 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
         false
     });
     // Precaution: `updater.poll` reads `I18N` via `t!("common.requestFailed")` before locale changes.
-    b.schedule(stage::INGEST_LOCAL, "language.poll", |s, _, tx| {
+    let language_poll = b.schedule(stage::INGEST_LOCAL, "language.poll", |s, _, tx| {
         crate::language::poll(s, tx)
-    })
-    .after("updater.poll");
+    });
+    #[cfg(not(target_arch = "wasm32"))]
+    language_poll.after("updater.poll");
+    #[cfg(target_arch = "wasm32")]
+    let _ = language_poll;
 
     // Precaution: `notifications.poll` can change `route` or answer `pending`/`requests` read by `speech.poll`.
     b.schedule(stage::INGEST_DISPATCH, "speech.poll", |s, _, tx| {
