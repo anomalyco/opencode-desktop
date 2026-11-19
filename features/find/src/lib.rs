@@ -25,9 +25,9 @@ use opencode_ui::keymap::Bind;
 use rune::{Key, KeyEvent, Latest, TextEdit, Tx, Waker};
 use session_view::disclosure::Disclosures;
 
-pub use machine::{Effect, Event, State, transition};
+pub use machine::{Effect, Event, OpenFind, State, transition};
 pub use matches::{ACTIVE_KEY, markdown_mark, seek_active, text_mark, unfold_if_hidden};
-use scan::{Answer, CopyKey, Copying, Indexing, Matching, Target};
+use scan::{Answer, Copying, Target};
 pub use scan::sync_index;
 pub use transcript_index::{Index, KEY_BUDGET, Kind, Results, RowHit, Source, TranscriptIndex, retire, row_hash};
 pub use view::{bar, menu_items};
@@ -127,18 +127,8 @@ pub struct Find {
     pub state: State,
     pub input: TextEdit,
 
-    /// The open session's transcript as last checked, and its shape.
-    pub(crate) checked: Option<(CopyKey, u64)>,
-    pub(crate) copying: Copying,
-    /// Its rows, copied when its shape changes while Find is open, and their index.
-    pub(crate) source: Option<Arc<Source>>,
-    pub(crate) index: Option<Arc<Index>>,
-    pub(crate) answer: Answer,
-    pub(crate) indexing: Indexing,
     pub(crate) indexer: Latest<Arc<Index>>,
-    pub(crate) matching: Matching,
     pub(crate) matcher: Latest<(u64, String, Arc<Results>)>,
-    pub(crate) target: Target,
 }
 
 impl Find {
@@ -148,23 +138,33 @@ impl Find {
     }
 
     pub fn is_open(&self) -> bool {
-        matches!(self.state, State::Open { .. })
+        matches!(self.state, State::Open(_))
     }
 
     pub fn is_focused(&self) -> bool {
         self.is_open() && self.input.focused
     }
 
-    /// A closed Find holds nothing: its index is made again (on the worker) when it opens.
-    pub(crate) fn release(&mut self) {
-        retire((std::mem::take(&mut self.answer), self.source.take(), self.index.take()));
-        self.checked = None;
-        self.copying = Copying::Idle;
-        self.indexing = Indexing::Idle;
-        self.matching = Matching::Idle;
+    pub(crate) fn open(&self) -> Option<&OpenFind> {
+        match &self.state {
+            State::Open(open) => Some(open),
+            State::Closed => None,
+        }
+    }
+
+    pub(crate) fn open_mut(&mut self) -> Option<&mut OpenFind> {
+        match &mut self.state {
+            State::Open(open) => Some(open),
+            State::Closed => None,
+        }
+    }
+
+    /// A closed Find holds nothing: retire the closed pipeline off-thread and cancel its workers.
+    pub(crate) fn finish_close(&mut self, open: Box<OpenFind>) {
+        retire(open);
+        self.input.clear();
         self.indexer.cancel();
         self.matcher.cancel();
-        self.target = Target::First;
     }
 
     pub fn query(&self) -> &str {
@@ -177,14 +177,11 @@ impl Find {
 
     /// The worker is still matching the rows off screen: the count isn't known yet.
     pub fn counting(&self) -> bool {
-        matches!(self.answer, Answer::Partial { .. })
+        self.open().is_some_and(|o| matches!(o.answer, Answer::Partial { .. }))
     }
 
     pub fn active_index(&self) -> usize {
-        let active = match self.state {
-            State::Open { active, .. } => active,
-            State::Closed => 0,
-        };
+        let active = self.open().map_or(0, |o| o.active);
         active.min(self.count().saturating_sub(1))
     }
 }
@@ -201,15 +198,7 @@ pub fn is_focused(s: &dyn FindHost) -> bool {
 
 /// Steps Find's machine and carries out what it asks.
 fn apply_event(s: &mut dyn FindHost, event: Event<'_>, tx: &mut Tx) {
-    let effects = {
-        let f = s.find_mut();
-        let effects = f.state.step(event);
-        if !f.is_open() {
-            f.input.clear();
-            f.release();
-        }
-        effects
-    };
+    let effects = s.find_mut().state.step(event);
     for effect in effects {
         match effect {
             Effect::FocusInput => {
@@ -229,6 +218,8 @@ fn apply_event(s: &mut dyn FindHost, event: Event<'_>, tx: &mut Tx) {
                 tx.blur();
             }
             Effect::Reveal => seek_active(s, tx),
+            Effect::Release(open) => s.find_mut().finish_close(open),
+            Effect::RetireAnswer(answer) => retire(answer),
         }
     }
 }
@@ -247,17 +238,23 @@ pub fn open(s: &mut dyn FindHost, tx: &mut Tx) {
 /// matches are known: a search result's jump to what matched.
 pub fn open_at(s: &mut dyn FindHost, query: &str, message: &str, tx: &mut Tx) {
     open(s, tx);
+    if !s.find().is_open() {
+        return;
+    }
     s.find_mut().input.replace_text(query.to_owned());
     typed(s, tx);
     let at = {
         let f = s.find_mut();
-        f.target = Target::Message(message.to_owned());
+        let Some(open) = f.open_mut() else { return };
+        open.target = Target::Message(message.to_owned());
         // An answer complete on the key lights the message now.
         f.results().and_then(|r| r.first_in_message(message))
     };
     if let Some(at) = at {
         let f = s.find_mut();
-        f.target = Target::First;
+        if let Some(open) = f.open_mut() {
+            open.target = Target::First;
+        }
         drop(f.state.step(Event::MatchesSynced { kept: Some(at) }));
         seek_active(s, tx);
     }
@@ -296,7 +293,9 @@ pub fn typed(s: &mut dyn FindHost, tx: &mut Tx) {
     // A query typed here lights its first match, wherever Find was opened from.
     let same = {
         let f = s.find_mut();
-        f.target = Target::First;
+        if let Some(open) = f.open_mut() {
+            open.target = Target::First;
+        }
         f.answered() == Some(f.query())
     };
     if same {
@@ -327,13 +326,16 @@ pub fn poll(s: &mut dyn FindHost, tx: &mut Tx) -> bool {
     }
     let was = {
         let f = s.find();
-        (f.checked.as_ref().map(|c| c.1), f.count(), f.counting())
+        (f.open().and_then(|o| o.checked.as_ref().map(|c| c.1)), f.count(), f.counting())
     };
     sync_index(s);
     let f = s.find();
+    let Some(open) = f.open() else {
+        return true;
+    };
     // A copy under way goes on next frame.
-    let copying = matches!(f.copying, Copying::Running { .. });
-    landed || copying || !f.is_open() || (f.checked.as_ref().map(|c| c.1), f.count(), f.counting()) != was
+    let copying = matches!(open.copying, Copying::Running { .. });
+    landed || copying || (open.checked.as_ref().map(|c| c.1), f.count(), f.counting()) != was
 }
 
 /// Global Find shortcuts: ⌘F opens Find in a session or focuses session search on Home;

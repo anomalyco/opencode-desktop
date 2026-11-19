@@ -10,7 +10,7 @@ use rune_kit::search::Fold;
 
 use crate::matches::seek_active;
 use crate::transcript_index::{Index, KEY_BUDGET, Kind, Results, Source, retire};
-use crate::{Event, FindHost, State};
+use crate::{Effect, Event, FindHost, State};
 
 /// What the matches are: none; those of the rows on screen while the worker matches the rest
 /// (`reveal`: the first match in the transcript lights and comes into view when they land); or
@@ -81,7 +81,8 @@ fn search_fold(s: &dyn FindHost) -> Fold {
 
 /// Find's target is a message the open session hasn't loaded, and older pages remain.
 pub(crate) fn target_waits(s: &dyn FindHost) -> bool {
-    let (Target::Message(message), Some(id)) = (&s.find().target, s.active_session_id()) else {
+    let Some(open) = s.find().open() else { return false };
+    let (Target::Message(message), Some(id)) = (&open.target, s.active_session_id()) else {
         return false;
     };
     let loaded = s.transcript(id).is_some_and(|t| t.messages.iter().any(|m| m.id() == message));
@@ -99,19 +100,27 @@ fn sync_session(s: &mut dyn FindHost) -> Option<String> {
         };
         if dirty {
             let f = s.find_mut();
-            drop(f.state.step(Event::Left));
-            f.input.clear();
-            if !f.is_open() {
-                f.release();
+            for effect in f.state.step(Event::Left) {
+                match effect {
+                    Effect::Release(open) => f.finish_close(open),
+                    Effect::RetireAnswer(answer) => retire(answer),
+                    Effect::FocusInput | Effect::BlurInput | Effect::Reveal => {}
+                }
             }
+            f.input.clear();
             f.input.focused = false;
         }
         return None;
     };
-    if matches!(&s.find().state, State::Open { session, .. } if *session != id) {
+    if s.find().open().is_some_and(|o| o.session != id) {
         let f = s.find_mut();
-        drop(f.state.step(Event::SessionChanged { session: &id }));
-        retire(std::mem::take(&mut f.answer));
+        for effect in f.state.step(Event::SessionChanged { session: &id }) {
+            match effect {
+                Effect::RetireAnswer(answer) => retire(answer),
+                Effect::Release(open) => f.finish_close(open),
+                Effect::FocusInput | Effect::BlurInput | Effect::Reveal => {}
+            }
+        }
     }
     Some(id)
 }
@@ -127,26 +136,32 @@ pub fn sync_index(s: &mut dyn FindHost) {
     }
     let current = current.unwrap_or_default();
     if !s.find().is_open() || current.is_empty() {
-        if !matches!(s.find().answer, Answer::None) {
-            retire(std::mem::take(&mut s.find_mut().answer));
+        if let Some(open) = s.find_mut().open_mut()
+            && !matches!(open.answer, Answer::None)
+        {
+            retire(std::mem::take(&mut open.answer));
         }
         return;
     }
     let Some(shape) = find_shape(s, &current) else {
-        if !matches!(s.find().answer, Answer::None) {
-            retire(std::mem::take(&mut s.find_mut().answer));
+        if let Some(open) = s.find_mut().open_mut()
+            && !matches!(open.answer, Answer::None)
+        {
+            retire(std::mem::take(&mut open.answer));
         }
         return;
     };
     let q = s.find().query().to_owned();
-    let indexed = s.find().index.as_ref().is_some_and(|i| i.source.shape == shape);
+    let indexed = s.find().open().is_some_and(|o| o.index.as_ref().is_some_and(|i| i.source.shape == shape));
     if q.is_empty() {
-        if !matches!(s.find().answer, Answer::None) {
-            retire(std::mem::take(&mut s.find_mut().answer));
+        if let Some(open) = s.find_mut().open_mut()
+            && !matches!(open.answer, Answer::None)
+        {
+            retire(std::mem::take(&mut open.answer));
         }
     } else if s.find().answered() != Some(q.as_str()) {
         let fold = search_fold(s);
-        let current_index = s.find().index.clone();
+        let current_index = s.find().open().and_then(|o| o.index.clone());
         let answer = match current_index {
             Some(index) if indexed => match index.candidates_within(&q, KEY_BUDGET) {
                 // Few rows can match: all of them, now.
@@ -167,51 +182,56 @@ pub fn sync_index(s: &mut dyn FindHost) {
             _ => Answer::Partial { query: q.clone(), results: Arc::default(), reveal: true },
         };
         let complete = {
-            let f = s.find_mut();
-            retire(std::mem::replace(&mut f.answer, answer));
-            matches!(f.answer, Answer::Complete { .. })
+            let Some(open) = s.find_mut().open_mut() else { return };
+            retire(std::mem::replace(&mut open.answer, answer));
+            matches!(open.answer, Answer::Complete { .. })
         };
         let waits = complete && target_waits(s);
         let f = s.find_mut();
+        let Some(open) = f.open_mut() else { return };
         // A new query lights its first match (`queryChanged`), and only a match that is the
         // first in the session is lit before the rest are counted.
         // Find opened on a search result's message lights that message's first match once
         // every match is known.
-        let first = match (&f.answer, &f.target) {
+        let first = match (&open.answer, &open.target) {
             (Answer::Partial { .. }, Target::Message(_)) | (Answer::Partial { reveal: true, .. }, _) => None,
             (Answer::Complete { results, .. }, Target::Message(id)) => results.first_in_message(id).or(Some(0)),
             _ => Some(0),
         };
         // The message isn't loaded yet: older pages are read (`poll`) and the target waits.
         if complete && !waits {
-            f.target = Target::First;
+            open.target = Target::First;
         }
         drop(f.state.step(Event::MatchesSynced { kept: first }));
     }
     // The index for this shape, once (keys never restart it).
-    if !indexed && s.find().indexing != (Indexing::Running { shape }) {
+    if !indexed && s.find().open().is_some_and(|o| o.indexing != (Indexing::Running { shape })) {
         let f = s.find_mut();
-        f.indexing = Indexing::Running { shape };
-        let source = f.source.clone().unwrap_or_default();
-        let prev = f.index.clone();
-        f.indexer.request((source, prev), |(source, prev): (Arc<Source>, Option<Arc<Index>>)| {
-            Arc::new(Index::build(source, prev.as_deref()))
-        });
+        if let State::Open(open) = &mut f.state {
+            open.indexing = Indexing::Running { shape };
+            let source = open.source.clone().unwrap_or_default();
+            let prev = open.index.clone();
+            f.indexer.request((source, prev), |(source, prev): (Arc<Source>, Option<Arc<Index>>)| {
+                Arc::new(Index::build(source, prev.as_deref()))
+            });
+        }
     }
     // Every match of the query, when a key couldn't match it all (or matched it on the last
     // shape), once the index for this shape is in.
     let job = Matching::Running { shape, query: q.clone() };
     let should_match = {
-        let f = s.find();
-        let stale = matches!(&f.answer, Answer::Complete { shape: ans_shape, .. } if *ans_shape != shape);
-        let wanted = !q.is_empty() && (matches!(f.answer, Answer::Partial { .. }) || stale);
-        indexed && wanted && f.matching != job && f.index.is_some()
+        let Some(open) = s.find().open() else { return };
+        let stale = matches!(&open.answer, Answer::Complete { shape: ans_shape, .. } if *ans_shape != shape);
+        let wanted = !q.is_empty() && (matches!(open.answer, Answer::Partial { .. }) || stale);
+        indexed && wanted && open.matching != job && open.index.is_some()
     };
     if should_match {
         let fold = search_fold(s);
         let f = s.find_mut();
-        if let Some(index) = f.index.clone() {
-            f.matching = job;
+        if let State::Open(open) = &mut f.state
+            && let Some(index) = open.index.clone()
+        {
+            open.matching = job;
             f.matcher.request((index, q), move |(index, q): (Arc<Index>, String)| {
                 let rows = index.candidates(&q);
                 let results = Arc::new(index.search(&rows, &q, fold));
@@ -221,7 +241,7 @@ pub fn sync_index(s: &mut dyn FindHost) {
     }
 }
 
-/// The open transcript's shape, once its rows are copied into [`crate::Find::source`]. A change is
+/// The open transcript's shape, once its rows are copied into [`crate::OpenFind::source`]. A change is
 /// copied a slice a frame ([`COPY_BUDGET`] rows that changed), so opening Find on 100,000
 /// messages spreads its copy over a few frames; the shape before stays meanwhile.
 fn find_shape(s: &mut dyn FindHost, current: &str) -> Option<u64> {
@@ -236,28 +256,28 @@ fn find_shape(s: &mut dyn FindHost, current: &str) -> Option<u64> {
         let key = (current.to_owned(), version << 2 | u64::from(live) << 1 | u64::from(outlines), shown);
         (key, live, outlines)
     };
-    if let Some((k, shape)) = &s.find().checked
+    if let Some((k, shape)) = s.find().open().and_then(|o| o.checked.as_ref())
         && *k == key
     {
         return Some(*shape);
     }
-    let copying = std::mem::take(&mut s.find_mut().copying);
+    let copying = std::mem::take(&mut s.find_mut().open_mut()?.copying);
     let copying = copy_rows(s, current, &key, copying, live, outlines);
-    let f = s.find_mut();
-    let before = f.checked.as_ref().map(|c| c.1).filter(|_| f.source.as_ref().is_some_and(|src| src.shape != 0));
+    let open = s.find_mut().open_mut()?;
+    let before = open.checked.as_ref().map(|c| c.1).filter(|_| open.source.as_ref().is_some_and(|src| src.shape != 0));
     match copying {
         Copying::Done(source) => {
             let shape = source.shape;
-            if f.source.as_ref().is_none_or(|src| src.shape != shape) {
-                retire(f.source.replace(Arc::new(source)));
+            if open.source.as_ref().is_none_or(|src| src.shape != shape) {
+                retire(open.source.replace(Arc::new(source)));
             } else {
                 retire(source);
             }
-            f.checked = Some((key, shape));
+            open.checked = Some((key, shape));
             Some(shape)
         }
         running => {
-            f.copying = running;
+            open.copying = running;
             before
         }
     }
@@ -340,22 +360,35 @@ pub(crate) fn land(s: &mut dyn FindHost, tx: &mut Tx) -> bool {
     }
     let landed = {
         let f = s.find_mut();
+        if !f.is_open() {
+            retire((index, matched));
+            return false;
+        }
         let mut changed = false;
-        if let Some(index) = index {
-            retire(f.index.replace(index));
-            f.indexing = Indexing::Idle;
+        if let Some(index) = index
+            && let Some(open) = f.open_mut()
+        {
+            retire(open.index.replace(index));
+            open.indexing = Indexing::Idle;
             changed = true;
         }
         let Some((shape, query, results)) = matched else {
             return changed;
         };
-        f.matching = Matching::Idle;
+        if let Some(open) = f.open_mut() {
+            open.matching = Matching::Idle;
+        }
         if f.query() != query {
+            retire(results);
             return true;
         }
-        let reveal = matches!(f.answer, Answer::Partial { reveal: true, .. });
         let lit = f.lit().map(|(h, local)| (h.key.clone(), local));
-        retire(std::mem::replace(&mut f.answer, Answer::Complete { query, shape, results }));
+        let Some(open) = f.open_mut() else {
+            retire(results);
+            return false;
+        };
+        let reveal = matches!(open.answer, Answer::Partial { reveal: true, .. });
+        retire(std::mem::replace(&mut open.answer, Answer::Complete { query, shape, results }));
         (reveal, lit)
     };
     // A target whose message is still to load keeps waiting, lighting the first match meanwhile.
@@ -363,7 +396,11 @@ pub(crate) fn land(s: &mut dyn FindHost, tx: &mut Tx) -> bool {
     let (reveal, lit) = landed;
     let should_seek = {
         let f = s.find_mut();
-        let target = if waits { Target::First } else { std::mem::take(&mut f.target) };
+        let target = if waits {
+            Target::First
+        } else {
+            f.open_mut().map_or(Target::First, |open| std::mem::take(&mut open.target))
+        };
         let reveal = (reveal || target != Target::First) && !waits;
         let kept = match target {
             Target::Message(id) => f.results().and_then(|r| r.first_in_message(&id)).or(Some(0)),
