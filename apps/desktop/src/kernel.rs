@@ -397,11 +397,12 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
         false
     });
     // Known: `tips.poll` can push a toast polled here, and closing an undo-delete toast calls
-    // `undo::toast_closed` -> `send_delete` before `REACT_SHELL`.
+    // `undo::toast_closed` -> `send_delete` before `REACT_SHELL`; precaution: `session_state.poll`
+    // reads `sessions` before an undo-delete toast commits.
     b.schedule(stage::REACT_STATUS, "status_toast.poll", |s, now, tx| {
         crate::status_toast::poll(s, now, tx)
     })
-    .after("tips.poll");
+    .after_all(&["session_state.poll", "tips.poll"]);
 
     b.schedule(stage::REACT_SHELL, "layout_state.poll", |s, now, tx| {
         crate::layout_state::poll(s, now, tx)
