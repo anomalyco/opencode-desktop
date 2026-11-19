@@ -4,7 +4,6 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::ffi::{c_char, c_int, c_void};
-use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::ffi::{self, *};
@@ -31,6 +30,10 @@ unsafe extern "C" fn on_write_pty(
     if userdata.is_null() || data.is_null() || len == 0 {
         return;
     }
+    // SAFETY: `userdata` is non-null and is the `Box::into_raw` `VtCore::cb` pointer registered in
+    // `VtCore::new`; `libghostty-vt` invokes callbacks synchronously during FFI calls where no Rust
+    // reference to `*cb` is live, callbacks do not re-enter `libghostty-vt`, and `Drop` frees
+    // `term` before reclaiming `cb`.
     let state = unsafe { &mut *(userdata as *mut CallbackState) };
     // SAFETY: `data` is checked non-null and `len > 0` above, and `GhosttyTerminalWritePtyFn`
     // guarantees `data` points to `len` readable bytes for the duration of the callback.
@@ -40,6 +43,9 @@ unsafe extern "C" fn on_write_pty(
 
 unsafe extern "C" fn on_bell(_term: GhosttyTerminal, userdata: *mut c_void) {
     if !userdata.is_null() {
+        // SAFETY: `userdata` is the non-null `Box::into_raw` `VtCore::cb` pointer; invoked
+        // synchronously by `libghostty-vt` while no Rust reference to `*cb` is live, without
+        // re-entrancy, and before `Drop` frees `term` and `cb`.
         let state = unsafe { &mut *(userdata as *mut CallbackState) };
         state.bell_count = state.bell_count.saturating_add(1);
         state.events.push(VtEvent::Bell);
@@ -48,12 +54,18 @@ unsafe extern "C" fn on_bell(_term: GhosttyTerminal, userdata: *mut c_void) {
 
 unsafe extern "C" fn on_title_changed(_term: GhosttyTerminal, userdata: *mut c_void) {
     if !userdata.is_null() {
+        // SAFETY: `userdata` is the non-null `Box::into_raw` `VtCore::cb` pointer; invoked
+        // synchronously by `libghostty-vt` while no Rust reference to `*cb` is live, without
+        // re-entrancy, and before `Drop` frees `term` and `cb`.
         unsafe { (&mut *(userdata as *mut CallbackState)).title_dirty = true };
     }
 }
 
 unsafe extern "C" fn on_pwd_changed(_term: GhosttyTerminal, userdata: *mut c_void) {
     if !userdata.is_null() {
+        // SAFETY: `userdata` is the non-null `Box::into_raw` `VtCore::cb` pointer; invoked
+        // synchronously by `libghostty-vt` while no Rust reference to `*cb` is live, without
+        // re-entrancy, and before `Drop` frees `term` and `cb`.
         unsafe { (&mut *(userdata as *mut CallbackState)).pwd_dirty = true };
     }
 }
@@ -66,6 +78,9 @@ unsafe extern "C" fn on_color_scheme(
     if userdata.is_null() || out_scheme.is_null() {
         return false;
     }
+    // SAFETY: `userdata` is the non-null `Box::into_raw` `VtCore::cb` pointer; invoked
+    // synchronously by `libghostty-vt` while no Rust reference to `*cb` is live, without
+    // re-entrancy, and before `Drop` frees `term` and `cb`.
     let state = unsafe { &*(userdata as *const CallbackState) };
     // SAFETY: `out_scheme` is checked non-null above, and `GhosttyTerminalColorSchemeFn`
     // guarantees it is a valid, aligned out-pointer for `GhosttyColorScheme` (`c_int`).
@@ -87,6 +102,9 @@ unsafe extern "C" fn on_size(
     if userdata.is_null() || out_size.is_null() {
         return false;
     }
+    // SAFETY: `userdata` is the non-null `Box::into_raw` `VtCore::cb` pointer; invoked
+    // synchronously by `libghostty-vt` while no Rust reference to `*cb` is live, without
+    // re-entrancy, and before `Drop` frees `term` and `cb`.
     let state = unsafe { &*(userdata as *const CallbackState) };
     // SAFETY: `out_size` is checked non-null above, and `GhosttyTerminalSizeFn` guarantees it
     // is a valid, aligned out-pointer for `GhosttySizeReportSize`.
@@ -98,6 +116,9 @@ unsafe extern "C" fn on_size(
 
 unsafe extern "C" fn on_render_hold(_term: GhosttyTerminal, userdata: *mut c_void, held: bool) {
     if !userdata.is_null() {
+        // SAFETY: `userdata` is the non-null `Box::into_raw` `VtCore::cb` pointer; invoked
+        // synchronously by `libghostty-vt` while no Rust reference to `*cb` is live, without
+        // re-entrancy, and before `Drop` frees `term` and `cb`.
         let state = unsafe { &mut *(userdata as *mut CallbackState) };
         state.render_held = held;
         state.events.push(VtEvent::RenderHold(held));
@@ -113,7 +134,10 @@ pub struct VtCore {
     pub(crate) key_event: GhosttyKeyEvent,
     pub(crate) mouse_encoder: GhosttyMouseEncoder,
     pub(crate) mouse_event: GhosttyMouseEvent,
-    pub(crate) cb: Pin<Box<CallbackState>>,
+    /// Owned heap allocation (`Box::into_raw`) shared with `libghostty-vt`'s `userdata`. Stored as
+    /// a raw pointer so moving or borrowing `VtCore` never retags `*cb` across C callbacks; freed
+    /// in `Drop` after `ghostty_terminal_free(self.term)`.
+    cb: *mut CallbackState,
     pub(crate) theme: TerminalTheme,
     pub(crate) title: String,
     pub(crate) pwd: String,
@@ -197,7 +221,7 @@ impl VtCore {
             }
         }
 
-        let mut cb = Box::pin(CallbackState {
+        let cb = Box::into_raw(Box::new(CallbackState {
             pty_writes: Vec::new(),
             bell_count: 0,
             title_dirty: false,
@@ -211,10 +235,13 @@ impl VtCore {
                 cell_height: 18,
             },
             events: Vec::new(),
-        });
+        }));
 
+        // SAFETY: `term` and `key_encoder` are freshly allocated live handles; `cb` was produced by
+        // `Box::into_raw` with no live Rust reference to `*cb` during registration or the initial
+        // `ghostty_terminal_vt_write` call; and every option pointer matches its key's C type.
         unsafe {
-            let userdata_ptr = (&mut *cb as *mut CallbackState).cast::<c_void>();
+            let userdata_ptr = cb.cast::<c_void>();
             let _ = ffi::ghostty_terminal_set(term, GHOSTTY_TERMINAL_OPT_USERDATA, userdata_ptr);
             let _ = ffi::ghostty_terminal_set(
                 term,
@@ -326,6 +353,22 @@ impl VtCore {
         Ok(core)
     }
 
+    /// Shared access to the callback state while no FFI call into `libghostty-vt` is active.
+    pub(crate) fn cb(&self) -> &CallbackState {
+        // SAFETY: `self.cb` was allocated with `Box::into_raw` in `VtCore::new` and is freed only
+        // in `Drop` after `self.term` is freed. `VtCore` is `!Sync`, and no `libghostty-vt`
+        // callback runs during `&self` methods or while this borrow is held.
+        unsafe { &*self.cb }
+    }
+
+    /// Exclusive access to the callback state while no FFI call into `libghostty-vt` is active.
+    pub(crate) fn cb_mut(&mut self) -> &mut CallbackState {
+        // SAFETY: `self.cb` was allocated with `Box::into_raw` in `VtCore::new` and is freed only
+        // in `Drop` after `self.term` is freed. `&mut self` guarantees exclusive access and prevents
+        // any `libghostty-vt` FFI call (and thus any callback) while this borrow is live.
+        unsafe { &mut *self.cb }
+    }
+
     fn apply_theme_colors(&mut self, theme: &TerminalTheme) {
         let fg = theme.fg.to_ffi();
         let bg = theme.bg.to_ffi();
@@ -360,7 +403,7 @@ impl VtCore {
 
     pub fn set_theme(&mut self, theme: TerminalTheme) {
         let scheme_changed = self.theme.dark != theme.dark;
-        self.cb.dark_scheme = theme.dark;
+        self.cb_mut().dark_scheme = theme.dark;
         self.apply_theme_colors(&theme);
         self.theme = theme;
         self.mutated_since_snapshot = true;
@@ -370,7 +413,7 @@ impl VtCore {
             && self.mode_enabled(GHOSTTY_MODE_COLOR_SCHEME_REPORT)
             && let Some(report) = self.color_scheme_report()
         {
-            self.cb.pty_writes.extend_from_slice(&report);
+            self.cb_mut().pty_writes.extend_from_slice(&report);
         }
     }
 
@@ -443,46 +486,52 @@ impl VtCore {
         if bytes.is_empty() {
             return;
         }
+        // SAFETY: `self.term` is live, `&mut self` serializes terminal access, `bytes` is valid for
+        // `bytes.len()` readable bytes, and `self.cb` is stored as a raw pointer with no live Rust
+        // reference to `*self.cb` across this FFI call, so synchronous callbacks may access it.
         unsafe {
             ffi::ghostty_terminal_vt_write(self.term, bytes.as_ptr(), bytes.len());
         }
         self.mutated_since_snapshot = true;
-        if self.cb.title_dirty {
-            self.cb.title_dirty = false;
+        if std::mem::take(&mut self.cb_mut().title_dirty) {
             self.title = self.query_string(GHOSTTY_TERMINAL_DATA_TITLE);
-            self.cb.events.push(VtEvent::TitleChanged(self.title.clone()));
+            let title = self.title.clone();
+            self.cb_mut().events.push(VtEvent::TitleChanged(title));
         }
-        if self.cb.pwd_dirty {
-            self.cb.pwd_dirty = false;
+        if std::mem::take(&mut self.cb_mut().pwd_dirty) {
             self.pwd = self.query_string(GHOSTTY_TERMINAL_DATA_PWD);
-            self.cb.events.push(VtEvent::PwdChanged(self.pwd.clone()));
+            let pwd = self.pwd.clone();
+            self.cb_mut().events.push(VtEvent::PwdChanged(pwd));
         }
     }
 
     pub fn take_pty_writes(&mut self) -> Vec<u8> {
-        std::mem::take(&mut self.cb.pty_writes)
+        std::mem::take(&mut self.cb_mut().pty_writes)
     }
 
     pub fn take_events(&mut self) -> Vec<VtEvent> {
-        std::mem::take(&mut self.cb.events)
+        std::mem::take(&mut self.cb_mut().events)
     }
 
     pub fn render_held(&self) -> bool {
-        self.cb.render_held
+        self.cb().render_held
     }
 
     pub fn clear_render_hold(&mut self) {
-        self.cb.render_held = false;
+        self.cb_mut().render_held = false;
     }
 
     pub fn resize(&mut self, cols: u16, rows: u16, cell_w_px: u32, cell_h_px: u32) {
         let (cols, rows, cw, ch) = (cols.max(1), rows.max(1), cell_w_px.max(1), cell_h_px.max(1));
-        self.cb.size = GhosttySizeReportSize {
+        self.cb_mut().size = GhosttySizeReportSize {
             rows,
             columns: cols,
             cell_width: cw,
             cell_height: ch,
         };
+        // SAFETY: `self.term` is live, `&mut self` serializes terminal access, and no Rust
+        // reference to `*self.cb` is live across this FFI call (the temporary `cb_mut()` borrow
+        // above has ended), so synchronous callbacks may access `CallbackState` via `userdata`.
         unsafe {
             let _ = ffi::ghostty_terminal_resize(self.term, cols, rows, cw, ch);
         }
@@ -586,7 +635,9 @@ impl Drop for VtCore {
         // SAFETY: every handle except `self.search` was created in `VtCore::new` and is freed
         // only here; `self.search` is either null or created in `find`, and `ghostty_search_free`
         // treats `NULL` as a no-op (`search.h`). Freeing `self.search` before `self.term` detaches
-        // tracked state cleanly, and `self.term` is freed before `self.cb` drops.
+        // tracked state cleanly, and `self.term` is freed before reclaiming `self.cb` (allocated
+        // via `Box::into_raw` in `VtCore::new`) so `libghostty-vt` can never invoke a callback into
+        // freed `CallbackState`.
         unsafe {
             ffi::ghostty_search_free(self.search);
             ffi::ghostty_mouse_event_free(self.mouse_event);
@@ -597,6 +648,7 @@ impl Drop for VtCore {
             ffi::ghostty_render_state_row_iterator_free(self.row_iter);
             ffi::ghostty_render_state_free(self.render_state);
             ffi::ghostty_terminal_free(self.term);
+            drop(Box::from_raw(self.cb));
         }
     }
 }
