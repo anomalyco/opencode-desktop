@@ -33,12 +33,12 @@ fn entry_error(c: &Conn, code: bool) -> Option<String> {
 }
 
 fn submit_entry(host: &mut dyn ConnectHost, tx: &mut Tx) {
-    let value = host.connect().open.as_ref().map_or(String::new(), |o| o.entry.text.clone());
+    let value = host.connect().dialog().map_or(String::new(), |o| o.entry.text.clone());
     input(host, Input::EntrySubmitted(value), tx);
 }
 
 fn submit_redirect(host: &mut dyn ConnectHost, tx: &mut Tx) {
-    let value = host.connect().open.as_ref().map_or(String::new(), |o| o.entry.text.clone());
+    let value = host.connect().dialog().map_or(String::new(), |o| o.entry.text.clone());
     input(host, Input::PasteSubmit(value), tx);
 }
 
@@ -47,7 +47,7 @@ fn toggle_paste(host: &mut dyn ConnectHost, locked: bool, shown: bool, tx: &mut 
         return;
     }
     input(host, Input::PasteToggle(!shown), tx);
-    if let Some(o) = host.connect_mut().open.as_mut() {
+    if let Some(o) = host.connect_mut().dialog_mut() {
         o.entry.focused = !shown;
     }
 }
@@ -145,7 +145,7 @@ fn build_copy_field_layout(p: &Pal, key: &str, label: Option<&str>, description:
 
 /// A labelled secret field, its error and Continue (`ApiAuthView`, `OAuthCodeView`).
 fn entry_form<H: ConnectHost + 'static>(s: &H, p: &Pal, label: String, placeholder: &str, error: Option<String>, submitting: bool, console: bool) -> El {
-    let Some(open) = s.connect().open.as_ref() else { return col() };
+    let Some(open) = s.connect().dialog() else { return col() };
     let field = TextInput::new(&open.entry)
         .large()
         .secure()
@@ -230,7 +230,7 @@ pub(super) fn code<H: ConnectHost + 'static>(s: &H, p: &Pal) -> El {
 }
 
 pub(super) fn browser<H: ConnectHost + 'static>(s: &H, p: &Pal) -> El {
-    let Some(open) = s.connect().open.as_ref() else { return col() };
+    let Some(open) = s.connect().dialog() else { return col() };
     let c = current(s);
     let name = crate::provider_name(s, &provider_id(s));
     let mut e = col()

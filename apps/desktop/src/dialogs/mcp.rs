@@ -37,7 +37,7 @@ impl McpHost for App {
     }
 
     fn can_toggle_shortcut(&self) -> bool {
-        self.dialogs.connect.open.is_none()
+        !self.dialogs.connect.is_modal_open()
     }
 
     fn before_dialog_open(&mut self) {

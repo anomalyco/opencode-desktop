@@ -18,7 +18,7 @@ mod ui;
 pub mod view;
 pub mod welcome;
 
-use rune::machine::Attempt;
+use rune::machine::{Attempt, Effects};
 use rune::{Key, KeyEvent, TextEdit, Tx};
 use serde_json::Value;
 use session_view::pickers::Model;
@@ -67,11 +67,74 @@ pub struct Open {
     pub rename: TextEdit,
 }
 
+/// Active modal owned by [`Connect`]: the provider connect dialog and the ChatGPT plan welcome
+/// card are mutually exclusive.
+#[derive(Default)]
+pub enum Modal {
+    #[default]
+    Closed,
+    Dialog(Box<Open>),
+    Welcome,
+}
+
+pub enum ModalEvent {
+    /// Open (or reopen) the Connect provider dialog, replacing any active modal.
+    OpenDialog(Box<Open>),
+    /// Close the Connect provider dialog; shows the ChatGPT plan welcome when `show_welcome` is true.
+    CloseDialog { show_welcome: bool },
+    /// Open the ChatGPT plan welcome modal directly when no modal is open.
+    OpenWelcome,
+    /// Close the ChatGPT plan welcome modal.
+    CloseWelcome,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ModalEffect {
+    OpenOverlay(&'static str),
+    CloseOverlay(&'static str),
+    MarkWelcomeSeen,
+    FocusComposer,
+}
+
+impl Modal {
+    pub fn step(&mut self, event: ModalEvent) -> Effects<ModalEffect> {
+        match (&*self, event) {
+            (Self::Closed | Self::Dialog(_), ModalEvent::OpenDialog(open)) => {
+                *self = Self::Dialog(open);
+                Effects::one(ModalEffect::OpenOverlay(OVERLAY_ID))
+            }
+            (Self::Welcome, ModalEvent::OpenDialog(open)) => {
+                *self = Self::Dialog(open);
+                Effects::two(ModalEffect::CloseOverlay(WELCOME_OVERLAY_ID), ModalEffect::OpenOverlay(OVERLAY_ID))
+            }
+            (Self::Dialog(_), ModalEvent::CloseDialog { show_welcome: true }) => {
+                *self = Self::Welcome;
+                let mut effects = Effects::two(ModalEffect::CloseOverlay(OVERLAY_ID), ModalEffect::MarkWelcomeSeen);
+                effects.push(ModalEffect::OpenOverlay(WELCOME_OVERLAY_ID));
+                effects
+            }
+            (Self::Dialog(_), ModalEvent::CloseDialog { show_welcome: false }) => {
+                *self = Self::Closed;
+                Effects::two(ModalEffect::CloseOverlay(OVERLAY_ID), ModalEffect::FocusComposer)
+            }
+            (Self::Closed | Self::Welcome, ModalEvent::CloseDialog { .. }) => Effects::none(),
+            (Self::Closed, ModalEvent::OpenWelcome) => {
+                *self = Self::Welcome;
+                Effects::two(ModalEffect::MarkWelcomeSeen, ModalEffect::OpenOverlay(WELCOME_OVERLAY_ID))
+            }
+            (Self::Dialog(_) | Self::Welcome, ModalEvent::OpenWelcome) => Effects::none(),
+            (Self::Welcome, ModalEvent::CloseWelcome) => {
+                *self = Self::Closed;
+                Effects::two(ModalEffect::CloseOverlay(WELCOME_OVERLAY_ID), ModalEffect::FocusComposer)
+            }
+            (Self::Closed | Self::Dialog(_), ModalEvent::CloseWelcome) => Effects::none(),
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct Connect {
-    pub open: Option<Open>,
-    /// The ChatGPT plan welcome shows.
-    pub welcome: bool,
+    pub modal: Modal,
     /// Fallback editor targets so `on_edit` callbacks never panic if fired after close.
     scratch_search: TextEdit,
     scratch_entry: TextEdit,
@@ -80,39 +143,60 @@ pub struct Connect {
 }
 
 impl Connect {
+    /// Whether the Connect provider dialog is open.
     pub fn is_open(&self) -> bool {
-        self.open.is_some()
+        matches!(self.modal, Modal::Dialog(_))
     }
 
+    /// Whether the ChatGPT plan welcome modal is open.
     pub fn is_welcome_open(&self) -> bool {
-        self.welcome
+        matches!(self.modal, Modal::Welcome)
+    }
+
+    /// Whether either Connect modal (provider dialog or ChatGPT plan welcome) is open.
+    pub fn is_modal_open(&self) -> bool {
+        !matches!(self.modal, Modal::Closed)
+    }
+
+    pub fn dialog(&self) -> Option<&Open> {
+        match &self.modal {
+            Modal::Dialog(open) => Some(open),
+            Modal::Closed | Modal::Welcome => None,
+        }
+    }
+
+    pub fn dialog_mut(&mut self) -> Option<&mut Open> {
+        match &mut self.modal {
+            Modal::Dialog(open) => Some(open),
+            Modal::Closed | Modal::Welcome => None,
+        }
     }
 
     pub(crate) fn search_mut(&mut self) -> &mut TextEdit {
-        match &mut self.open {
-            Some(o) => &mut o.search,
-            None => &mut self.scratch_search,
+        match &mut self.modal {
+            Modal::Dialog(o) => &mut o.search,
+            Modal::Closed | Modal::Welcome => &mut self.scratch_search,
         }
     }
 
     pub(crate) fn entry_mut(&mut self) -> &mut TextEdit {
-        match &mut self.open {
-            Some(o) => &mut o.entry,
-            None => &mut self.scratch_entry,
+        match &mut self.modal {
+            Modal::Dialog(o) => &mut o.entry,
+            Modal::Closed | Modal::Welcome => &mut self.scratch_entry,
         }
     }
 
     pub(crate) fn field_mut(&mut self) -> &mut TextEdit {
-        match &mut self.open {
-            Some(o) => &mut o.field,
-            None => &mut self.scratch_field,
+        match &mut self.modal {
+            Modal::Dialog(o) => &mut o.field,
+            Modal::Closed | Modal::Welcome => &mut self.scratch_field,
         }
     }
 
     pub(crate) fn rename_mut(&mut self) -> &mut TextEdit {
-        match &mut self.open {
-            Some(o) => &mut o.rename,
-            None => &mut self.scratch_rename,
+        match &mut self.modal {
+            Modal::Dialog(o) => &mut o.rename,
+            Modal::Closed | Modal::Welcome => &mut self.scratch_rename,
         }
     }
 }
@@ -198,6 +282,21 @@ fn focused(text: &str) -> TextEdit {
     t
 }
 
+pub(crate) fn apply_modal(host: &mut dyn ConnectHost, event: ModalEvent, tx: &mut Tx) {
+    let effects = host.connect_mut().modal.step(event);
+    for effect in effects {
+        match effect {
+            ModalEffect::OpenOverlay(id) => {
+                let return_focus = tx.focused().map(str::to_owned);
+                host.on_overlay_opened(id, return_focus);
+            }
+            ModalEffect::CloseOverlay(id) => host.on_overlay_closed(id),
+            ModalEffect::MarkWelcomeSeen => host.mark_chatgpt_welcome_seen(),
+            ModalEffect::FocusComposer => host.auto_focus_composer(tx),
+        }
+    }
+}
+
 /// Opens the dialog on its list, or on `provider`'s sign-in. From Settings it signs in at the
 /// server's default location; from the composer, in the composer's folder.
 pub fn open(host: &mut dyn ConnectHost, provider: Option<&str>, from_settings: bool, tx: &mut Tx) {
@@ -206,21 +305,23 @@ pub fn open(host: &mut dyn ConnectHost, provider: Option<&str>, from_settings: b
     let dir = (!from_settings).then(|| host.active_directory()).filter(|d| !d.is_empty());
     let scope = (!from_settings).then(|| host.picker_scope());
     let auth_host = host.auth_host();
-    host.connect_mut().open = Some(Open {
-        dialog: Dialog::default(),
-        auth_host,
-        dir: dir.clone(),
-        scope,
-        search: focused(""),
-        active: None,
-        entry: TextEdit::new(""),
-        field: TextEdit::new(""),
-        menu: None,
-        rename: TextEdit::new(""),
-    });
+    apply_modal(
+        host,
+        ModalEvent::OpenDialog(Box::new(Open {
+            dialog: Dialog::default(),
+            auth_host,
+            dir: dir.clone(),
+            scope,
+            search: focused(""),
+            active: None,
+            entry: TextEdit::new(""),
+            field: TextEdit::new(""),
+            menu: None,
+            rename: TextEdit::new(""),
+        })),
+        tx,
+    );
     fresh_inputs(host);
-    let return_focus = tx.focused().map(str::to_owned);
-    host.on_overlay_opened(OVERLAY_ID, return_focus);
     catalog::sync_catalogs(host, dir);
     if let Some(id) = provider {
         let accounts = accounts_of(host, id);
@@ -231,24 +332,19 @@ pub fn open(host: &mut dyn ConnectHost, provider: Option<&str>, from_settings: b
 /// Closes the Connect dialog, notifies `OverlayStack`, and opens the ChatGPT plan welcome when
 /// earned or restores composer focus.
 pub fn close(host: &mut dyn ConnectHost, tx: &mut Tx) {
-    if host.connect().open.is_none() {
+    if !host.connect().is_open() {
         return;
     }
     tx.instant();
-    let welcome = host.connect().open.as_ref().is_some_and(|o| o.dialog.chatgpt_welcome);
+    let show_welcome = host.connect().dialog().is_some_and(|o| o.dialog.chatgpt_welcome) && !host.chatgpt_welcome_seen();
     connect_event(host, Event::Disposed, tx);
-    host.connect_mut().open = None;
-    host.on_overlay_closed(OVERLAY_ID);
-    if welcome && welcome::open(host, tx) {
-        return;
-    }
-    host.auto_focus_composer(tx);
+    apply_modal(host, ModalEvent::CloseDialog { show_welcome }, tx);
 }
 
 /// Opens the Connect dialog directly onto a synthetic `provider` + `step` (for scene previews).
 pub fn preview_step(host: &mut dyn ConnectHost, provider: &str, step: Step) {
     open(host, None, false, &mut Tx::default());
-    if let Some(open) = host.connect_mut().open.as_mut() {
+    if let Some(open) = host.connect_mut().dialog_mut() {
         open.dialog = Dialog {
             session: 1,
             provider: Some(Provider { id: provider.into(), accounts: Accounts::default(), step, closed: false }),
@@ -260,7 +356,7 @@ pub fn preview_step(host: &mut dyn ConnectHost, provider: &str, step: Step) {
 
 /// The folder the currently open Connect dialog targets, if any.
 pub fn connect_dir(host: &dyn ConnectHost) -> Option<&str> {
-    host.connect().open.as_ref().and_then(|o| o.dir.as_deref())
+    host.connect().dialog().and_then(|o| o.dir.as_deref())
 }
 
 /// The integration's accounts as the server lists them, the active one first.
@@ -277,7 +373,7 @@ pub fn accounts_of(host: &dyn ConnectHost, id: &str) -> Accounts {
 /// Runs one event through the dialog and its effects.
 pub fn connect_event(host: &mut dyn ConnectHost, event: Event, tx: &mut Tx) {
     let (effects, moved, scope) = {
-        let Some(open) = host.connect_mut().open.as_mut() else { return };
+        let Some(open) = host.connect_mut().dialog_mut() else { return };
         let scope = open.scope.clone();
         let (next, effects) = dialog::transition(&open.dialog, event);
         // A transition to another step (or method, or form) starts its inputs afresh.
@@ -288,7 +384,7 @@ pub fn connect_event(host: &mut dyn ConnectHost, event: Event, tx: &mut Tx) {
     if moved {
         fresh_inputs(host);
         // Like the dialog's focus host. A freshly focused entry or the picker search wins.
-        if host.connect().open.as_ref().is_some_and(|o| o.dialog.provider.is_some()) {
+        if host.connect().dialog().is_some_and(|o| o.dialog.provider.is_some()) {
             tx.focus("connect-focus-host", false);
         }
     }
@@ -299,7 +395,7 @@ pub fn connect_event(host: &mut dyn ConnectHost, event: Event, tx: &mut Tx) {
 
 /// A new step's inputs start empty, its first one taking the keys.
 fn fresh_inputs(host: &mut dyn ConnectHost) {
-    let Some(open) = host.connect_mut().open.as_mut() else { return };
+    let Some(open) = host.connect_mut().dialog_mut() else { return };
     let value = steps::field_default(&open.dialog);
     open.field = focused(&value);
     open.entry = focused("");
@@ -311,8 +407,7 @@ fn fresh_inputs(host: &mut dyn ConnectHost) {
 pub fn catalogs_changed(host: &mut dyn ConnectHost, tx: &mut Tx) {
     let Some((id, claude)) = host
         .connect()
-        .open
-        .as_ref()
+        .dialog()
         .and_then(|o| o.dialog.provider.as_ref())
         .map(|p| (p.id.clone(), matches!(p.step, Step::Claude { .. })))
     else {
@@ -353,14 +448,14 @@ pub fn key(host: &mut dyn ConnectHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if welcome::key(host, ev, tx) {
         return true;
     }
-    let (menu_open, in_picker) = match &host.connect().open {
+    let (menu_open, in_picker) = match host.connect().dialog() {
         Some(open) => (open.menu.is_some(), open.dialog.provider.is_none()),
         None => return false,
     };
     if ev.key == Key::Escape {
         if menu_open {
             tx.instant();
-            if let Some(open) = host.connect_mut().open.as_mut() {
+            if let Some(open) = host.connect_mut().dialog_mut() {
                 open.menu = None;
             }
             return true;

@@ -28,7 +28,7 @@ fn confirm_model(host: &mut dyn ConnectHost, key: &str, tx: &mut Tx) {
 }
 
 pub(super) fn view<H: ConnectHost + 'static>(s: &H, p: &Pal, id: &str) -> El {
-    let Some(Step::Models { selected, collapsed }) = s.connect().open.as_ref().and_then(|o| o.dialog.provider.as_ref()).map(|p| &p.step) else {
+    let Some(Step::Models { selected, collapsed }) = s.connect().dialog().and_then(|o| o.dialog.provider.as_ref()).map(|p| &p.step) else {
         return col();
     };
     let groups = connection_groups(s, id);

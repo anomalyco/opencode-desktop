@@ -19,7 +19,7 @@ use crate::{ConnectHost, ConnectJob, ConnectRequest};
 
 /// Saves the account's new name (`AccountNameInput`), then leaves the field.
 fn rename_account(host: &mut dyn ConnectHost, credential: &str, tx: &mut Tx) {
-    let label = host.connect().open.as_ref().map(|o| o.rename.text.trim().to_owned()).unwrap_or_default();
+    let label = host.connect().dialog().map(|o| o.rename.text.trim().to_owned()).unwrap_or_default();
     crate::connect_event(host, Event::RenameClosed, tx);
     if label.is_empty() {
         return;
@@ -55,7 +55,7 @@ fn choose_account(host: &mut dyn ConnectHost, a: &Connection, tx: &mut Tx) {
 
 fn toggle_menu(host: &mut dyn ConnectHost, id: &str, tx: &mut Tx) {
     tx.instant();
-    if let Some(o) = host.connect_mut().open.as_mut() {
+    if let Some(o) = host.connect_mut().dialog_mut() {
         o.menu = if o.menu.as_deref() == Some(id) { None } else { Some(id.to_owned()) };
     }
 }
@@ -66,7 +66,7 @@ fn start_rename(host: &mut dyn ConnectHost, id: &str, tx: &mut Tx) {
         .and_then(|i| i.connections.iter().find(|c| c.id == id).map(|c| c.label.clone()))
         .unwrap_or_default();
     crate::connect_event(host, Event::RenameStarted(id.to_owned()), tx);
-    if let Some(o) = host.connect_mut().open.as_mut() {
+    if let Some(o) = host.connect_mut().dialog_mut() {
         o.menu = None;
         o.rename = TextEdit::new(&label);
         o.rename.focused = true;
@@ -75,7 +75,7 @@ fn start_rename(host: &mut dyn ConnectHost, id: &str, tx: &mut Tx) {
 
 fn prompt_remove(host: &mut dyn ConnectHost, id: &str, tx: &mut Tx) {
     crate::connect_event(host, Event::RemovePrompted(id.to_owned()), tx);
-    if let Some(o) = host.connect_mut().open.as_mut() {
+    if let Some(o) = host.connect_mut().dialog_mut() {
         o.menu = None;
     }
 }
@@ -93,7 +93,7 @@ fn add_account(host: &mut dyn ConnectHost, tx: &mut Tx) {
 }
 
 pub(super) fn view<H: ConnectHost + 'static>(s: &H, p: &Pal) -> El {
-    let Some(o) = s.connect().open.as_ref() else { return col() };
+    let Some(o) = s.connect().dialog() else { return col() };
     let Some(Step::Accounts { action, .. }) = o.dialog.provider.as_ref().map(|p| &p.step) else { return col() };
     let id = provider_id(s);
     let busy = matches!(action, AccountAction::Activating { .. } | AccountAction::Removing { .. });

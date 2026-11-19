@@ -78,7 +78,7 @@ impl App {
             && !self.project_state.home_menu_open
             && !self.shells.activity.is_open()
             && !*self.timeline_fx.todo_open
-            && self.dialogs.connect.open.is_none()
+            && !self.dialogs.connect.is_modal_open()
             && self.dialogs.mcp.open.is_none()
             && !self.plugins.dialog_open()
             && !self.timeline_fx.diagram.is_open()
