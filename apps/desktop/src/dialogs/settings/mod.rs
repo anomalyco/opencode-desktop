@@ -65,7 +65,7 @@ fn about_other_contributors(s: &App) -> u32 {
     if !crate::headless() {
         ABOUT_ASKED.call_once(|| {
             let waker = (*s.waker).clone();
-            let _ = rune::task::spawn("about-contributors", move || {
+            rune::task::spawn("about-contributors", move || {
                 let link = ureq::get("https://api.github.com/repos/anomalyco/opencode/contributors?anon=1&per_page=1")
                     .header("Accept", "application/vnd.github+json")
                     .header("X-GitHub-Api-Version", "2022-11-28")
@@ -78,7 +78,8 @@ fn about_other_contributors(s: &App) -> u32 {
                 if let Some(w) = waker {
                     w();
                 }
-            });
+            })
+            .ok();
         });
     }
     match ABOUT_OTHERS.load(Ordering::Relaxed) {
@@ -106,7 +107,7 @@ fn trace_about_wordmark(now: f64, letters: &str) {
     }
     OUT.with_borrow_mut(|f| {
         if let Some(f) = f {
-            let _ = writeln!(f, "{{\"t\":{now:.6},\"letters\":\"{letters}\"}}");
+            writeln!(f, "{{\"t\":{now:.6},\"letters\":\"{letters}\"}}").ok();
         }
     });
 }
@@ -565,7 +566,7 @@ impl SettingsHost for App {
     }
 
     fn open_external(&mut self, url: &str, tx: &mut Tx) {
-        let _ = tx.open_url(url);
+        tx.open_url(url).ok();
     }
 
     fn toast_failed_wire(&mut self, title: String, err: &WireError) {

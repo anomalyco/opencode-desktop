@@ -23,12 +23,14 @@ impl App {
         let logs = crate::dirs::logs();
         let Some(downloads) = crate::dirs::downloads() else { return };
         let server_logs = server_log_roots();
-        let _ = std::thread::Builder::new().name("export-logs".into()).spawn(move || {
+        if let Err(e) = std::thread::Builder::new().name("export-logs".into()).spawn(move || {
             match write_archive(now, &downloads, logs.as_deref(), &server_logs) {
                 Ok(path) => reveal(&path),
                 Err(e) => eprintln!("export logs: {e}"),
             }
-        });
+        }) {
+            eprintln!("export logs: {e}");
+        }
     }
 }
 
@@ -113,7 +115,7 @@ fn dos_time(now: i64) -> [u16; 2] {
     let iso = crate::motion_log::iso(now as f64);
     let n = |r: std::ops::Range<usize>| iso.get(r).and_then(|s| s.parse::<u16>().ok()).unwrap_or(0);
     let (y, mo, d, h, mi, s) = (n(0..4).max(1980), n(5..7), n(8..10), n(11..13), n(14..16), n(17..19));
-    [h << 11 | mi << 5 | s / 2, (y - 1980) << 9 | mo << 5 | d]
+    [h << 11 | mi << 5 | (s / 2), (y - 1980) << 9 | mo << 5 | d]
 }
 
 /// Node's `process.platform` and `process.arch` names, as Desktop's manifest has them.

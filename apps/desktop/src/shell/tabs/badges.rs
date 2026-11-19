@@ -26,8 +26,8 @@ pub(crate) fn root() -> PathBuf {
 
 fn stray_icon(repo: &Path) {
     let dir = repo.join("apps/desktop/assets");
-    let _ = std::fs::create_dir_all(&dir);
-    let _ = std::fs::write(dir.join("icon.icns"), STRAY_ICON);
+    std::fs::create_dir_all(&dir).ok();
+    std::fs::write(dir.join("icon.icns"), STRAY_ICON).ok();
 }
 
 fn project(id: &str, dir: &str, icon: Option<&str>) -> Value {
@@ -52,7 +52,7 @@ pub(crate) fn scene(s: &mut App) {
     let root = root();
     let r = root.to_string_lossy().into_owned();
     for repo in ["beacon", "signal", "signal-ios-loading", "worktrees/beacon-feature"] {
-        let _ = std::fs::create_dir_all(root.join(repo));
+        std::fs::create_dir_all(root.join(repo)).ok();
     }
     stray_icon(&root.join("beacon"));
     stray_icon(&root.join("signal"));

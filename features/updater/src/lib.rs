@@ -204,7 +204,7 @@ pub fn installs_on_quit() -> bool {
 pub fn finish_quit() {
     let handle = QUIT_INSTALL.lock().unwrap_or_else(|e| e.into_inner()).take();
     if let Some(handle) = handle {
-        let _ = handle.join();
+        handle.join().ok();
     }
 }
 

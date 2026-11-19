@@ -297,10 +297,12 @@ fn seeded(seed: Seed) -> Window {
     w
 }
 
+type OpenWindow = (String, WindowHandle, AppHandle<App>, Option<[f32; 4]>, u64);
+
 /// The front-most window, other than `skip`, under desktop point `point` (`at` set when the
 /// point is on its strip).
 fn target(point: (i32, i32), skip: &[&str]) -> Option<Target> {
-    let mut open: Vec<(String, WindowHandle, AppHandle<App>, Option<[f32; 4]>, u64)> = OPEN.with(|o| {
+    let mut open: Vec<OpenWindow> = OPEN.with(|o| {
         o.borrow().iter().filter(|w| w.life.saved() && !skip.contains(&w.id.as_str())).map(|w| (w.id.clone(), w.handle.clone(), w.app.clone(), w.strip, w.focused)).collect()
     });
     open.sort_by_key(|w| std::cmp::Reverse(w.4));

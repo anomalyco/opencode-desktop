@@ -54,8 +54,11 @@ pub fn claims_app_shortcut(ev: &KeyEvent) -> bool {
     matches!(ch, 'l' | 't' | 'n' | 'w' | ',' | '\\' | '[' | ']')
 }
 
-static PAGE_KEYS: std::sync::LazyLock<[rune::Chord; 7]> = std::sync::LazyLock::new(|| {
-    ["mod+a", "mod+c", "mod+v", "mod+x", "mod+z", "mod+r", "mod+shift+z"].map(|c| rune::Chord::parse(c).expect("chord"))
+static PAGE_KEYS: std::sync::LazyLock<Vec<rune::Chord>> = std::sync::LazyLock::new(|| {
+    ["mod+a", "mod+c", "mod+v", "mod+x", "mod+z", "mod+r", "mod+shift+z"]
+        .into_iter()
+        .filter_map(|c| rune::Chord::parse(c).ok())
+        .collect()
 });
 
 /// `url` when the default browser can open it: an `http:` or `https:` page, not `about:blank`,

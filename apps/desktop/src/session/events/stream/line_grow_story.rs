@@ -79,7 +79,9 @@ pub(crate) fn play(s: &mut App, word: f64) {
     let at = *s.clock;
     for (t, ty, step, more) in script(word) {
         let mut d = json!({ "sessionID": id, "assistantMessageID": step });
-        d.as_object_mut().unwrap().extend(more.as_object().cloned().unwrap_or_default());
+        if let (Some(dst), Some(src)) = (d.as_object_mut(), more.as_object()) {
+            dst.extend(src.iter().map(|(k, v)| (k.clone(), v.clone())));
+        }
         s.schedule(at + t, ty, d);
     }
     s.wake_at_playback();

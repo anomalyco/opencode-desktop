@@ -540,7 +540,7 @@ fn flyout_row(a: &mut NodeArgs) -> Result<El, String> {
             }
             let aiming = open.0 != row_key && aim.heading(point, open.1);
             let now = *app.clock;
-            moved(app, tx, &move |row: flyout::Row| FlyoutEvent::Moved { row, aiming, now: now });
+            moved(app, tx, &move |row: flyout::Row| FlyoutEvent::Moved { row, aiming, now });
         })
         .on_press_tx(move |app: &mut App, tx: &mut Tx| press(app, tx, &FlyoutEvent::Activated)))
 }
@@ -611,8 +611,9 @@ fn progress_circle(a: &mut NodeArgs) -> Result<El, String> {
 
 /// The ring's track and arc icons (`None` for an empty arc), interned once per look and percent.
 fn ring_icons(view: f32, stroke: f32, percent: u32) -> (u32, Option<u32>) {
+    type RingCache = std::collections::HashMap<(u32, u32, u32), (u32, Option<u32>)>;
     thread_local! {
-        static RINGS: std::cell::RefCell<std::collections::HashMap<(u32, u32, u32), (u32, Option<u32>)>> = std::cell::RefCell::default();
+        static RINGS: std::cell::RefCell<RingCache> = std::cell::RefCell::default();
     }
     let key = (view.to_bits(), stroke.to_bits(), percent);
     if let Some(found) = RINGS.with_borrow(|r| r.get(&key).copied()) {

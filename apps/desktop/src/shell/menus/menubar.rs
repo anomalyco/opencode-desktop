@@ -168,6 +168,6 @@ pub fn install(app: rune::App<App>) -> rune::App<App> {
 /// it opens, Rune has no native menu and this does nothing.
 pub fn refresh() {
     for handle in HANDLES.lock().unwrap_or_else(|e| e.into_inner()).iter() {
-        let _ = handle.set_menu(items());
+        handle.set_menu(items()).ok();
     }
 }

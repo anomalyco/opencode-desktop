@@ -10,13 +10,13 @@ use crate::App;
 
 /// A question, then a reply ending in a code block (`table` false) or a table wider than the timeline.
 fn add_wide(app: &mut App, sid: &str, table: bool) {
-    let t = app.transcripts.get_mut(sid).expect("session");
+    let Some(t) = app.transcripts.get_mut(sid) else { return };
     let code = (1..=14)
         .map(|n| format!("let stage_{n:02} = pipeline.stage(\"build-{n:02}\").timeout(Duration::from_secs({n})).retry(3).on_error(|e| warn!(\"stage {n} failed: {{e}}\")); // keeps the cache warm for the next stage"))
         .collect::<Vec<_>>()
         .join("\n");
     let head = (1..=12).map(|c| format!("Column {c}")).collect::<Vec<_>>().join(" | ");
-    let rule = vec!["---"; 12].join(" | ");
+    let rule = ["---"; 12].join(" | ");
     let rows = (1..=6)
         .map(|r| format!("| {} |", (1..=12).map(|c| format!("row {r}, value {c}")).collect::<Vec<_>>().join(" | ")))
         .collect::<Vec<_>>()

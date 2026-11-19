@@ -442,8 +442,8 @@ fn trace(live: &Live, now: f64) {
             line += &format!(",\"ball\":[{x},{y}],\"paddle\":[{},{},{},{},{}],\"score\":{},\"serve\":{},\"game\":\"{:?}\"", g.drawn.x, g.drawn.y, g.drawn.w, g.drawn.h, g.drawn_tilt, g.score, g.serve, g.state);
         }
         line.push('}');
-        let _ = writeln!(out, "{line}");
-        let _ = out.flush();
+        writeln!(out, "{line}").ok();
+        out.flush().ok();
     });
 }
 

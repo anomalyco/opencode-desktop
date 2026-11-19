@@ -369,13 +369,15 @@ enum Branch {
     Failed,
 }
 
+type BranchResult = (String, Result<Option<String>, ()>);
+
 /// The rows' branches by folder: git info isn't on the session, so each shown folder loads it
 /// from `/api/vcs`, and `vcs.branch.updated` keeps it current.
 #[derive(Default)]
 pub struct Branches {
     by_dir: HashMap<String, Branch>,
     queue: Vec<String>,
-    landed: Arc<Mutex<Vec<(String, Result<Option<String>, ()>)>>>,
+    landed: Arc<Mutex<Vec<BranchResult>>>,
 }
 
 impl Branches {
@@ -638,13 +640,17 @@ fn load_archived(s: &mut App) -> bool {
         return false;
     }
     let (server, landed, wake) = (server.clone(), Arc::clone(&inbox.archived_landed), (*s.waker).clone());
-    let _ = rune::task::spawn("inbox-archived", move || {
+    if rune::task::spawn("inbox-archived", move || {
         let Ok(v) = server.get("/api/session?parentID=null&archived=true&limit=50") else { return };
         *landed.lock().unwrap_or_else(|e| e.into_inner()) = Some(opencode_kit::model::parse_sessions(&v));
         if let Some(w) = wake {
             w();
         }
-    });
+    })
+    .is_err()
+    {
+        inbox.archived_asked = false;
+    }
     false
 }
 

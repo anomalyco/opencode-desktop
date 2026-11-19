@@ -54,7 +54,7 @@ pub fn groups() -> &'static [Group] {
 /// Applies a Question dock preset by name (`--preset` on the command line); "Desktop" is
 /// the defaults.
 pub fn apply_preset(s: &mut App, name: &str) {
-    let g = groups().iter().find(|g| g.name == "Question dock").expect("Question dock knobs");
+    let Some(g) = groups().iter().find(|g| g.name == "Question dock") else { return };
     let name = if name.eq_ignore_ascii_case("desktop") { "Default" } else { name };
     s.diag.knobs.apply(g, name);
 }

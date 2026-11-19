@@ -485,9 +485,10 @@ fn servers(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
         cx::read(Dep::Servers);
         let active = crate::servers::runtime::active(app).clone();
         let own = crate::servers::runtime::own_server().map(|s| s.base);
+        type ListedServer = (String, String, Option<String>, &'static str, bool, bool, Option<String>);
         // (key, name, label, state, local, current, version) of each server the app lists: its
         // own, the plugins' (ready or not) and those added by address.
-        let listed: Vec<(String, String, Option<String>, &'static str, bool, bool, Option<String>)> = crate::settings::pages::servers::inventory::list(app)
+        let listed: Vec<ListedServer> = crate::settings::pages::servers::inventory::list(app)
             .into_iter()
             .filter(|x| !matches!(&x.kind, crate::settings::pages::servers::inventory::Kind::Plugin(rec) if !rec.listed))
             .map(|x| {

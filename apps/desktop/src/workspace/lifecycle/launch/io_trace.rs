@@ -83,11 +83,12 @@ pub fn start() {
     if !crate::flag("--launch-trace-io") {
         return;
     }
-    let _ = RING.set(Ring {
+    RING.set(Ring {
         slots: (0..SLOTS).map(|_| UnsafeCell::new(MaybeUninit::uninit())).collect(),
         ready: (0..SLOTS).map(|_| AtomicBool::new(false)).collect(),
         next: AtomicUsize::new(0),
-    });
+    })
+    .ok();
     // SAFETY: patches this module's own import table before any other thread runs.
     unsafe {
         hook_imports();

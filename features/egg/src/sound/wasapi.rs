@@ -29,7 +29,7 @@ pub fn play(sound: Sound) {
         return;
     }
     let (tx, rx) = channel();
-    let _ = tx.send(sound);
+    tx.send(sound).ok();
     let started = std::thread::Builder::new().name("egg-sound".into()).spawn(move || run(rx));
     *stream = started.ok().map(|_| tx);
 }
@@ -37,7 +37,7 @@ pub fn play(sound: Sound) {
 fn run(rx: Receiver<Sound>) {
     // SAFETY: COM for this thread, matched below.
     let com = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.is_ok();
-    let _ = stream(&rx);
+    stream(&rx).ok();
     // The next sound starts a new stream.
     *STREAM.lock().unwrap_or_else(|e| e.into_inner()) = None;
     if com {
@@ -86,7 +86,7 @@ fn stream(rx: &Receiver<Sound>) -> windows::core::Result<()> {
                 && let Ok(data) = render.GetBuffer(free)
             {
                 let out = std::slice::from_raw_parts_mut(data.cast::<f32>(), free as usize * 2);
-                for frame in out.chunks_exact_mut(2) {
+                for frame in out.as_chunks_mut::<2>().0 {
                     if used == 128 {
                         engine.quantum(&mut quantum.0, &mut quantum.1);
                         used = 0;
@@ -95,7 +95,7 @@ fn stream(rx: &Receiver<Sound>) -> windows::core::Result<()> {
                     frame[1] = quantum.1[used];
                     used += 1;
                 }
-                let _ = render.ReleaseBuffer(free, 0);
+                render.ReleaseBuffer(free, 0).ok();
                 if !started {
                     started = client.Start().is_ok();
                 }
@@ -104,8 +104,8 @@ fn stream(rx: &Receiver<Sound>) -> windows::core::Result<()> {
                 break;
             }
         }
-        let _ = client.Stop();
-        let _ = CloseHandle(event);
+        client.Stop().ok();
+        CloseHandle(event).ok();
     }
     Ok(())
 }

@@ -50,8 +50,8 @@ impl App {
         }
         let rows: Map<String, Value> = crate::storage::window_rows(&id).into_iter().map(|(k, v)| (k, Value::String(v.to_string()))).collect();
         let drafts = self.draft_documents();
-        let bytes: u64 = drafts.iter().map(|(_, d)| image_bytes(d)).sum();
-        let keys: Vec<String> = drafts.iter().map(|(k, _)| k.clone()).collect();
+        let bytes: u64 = drafts.values().map(|d| image_bytes(d)).sum();
+        let keys: Vec<String> = drafts.keys().cloned().collect();
         let now = *self.now_ms;
         let snapshot = json!({ "closedAt": now, "tabs": self.tabs.len(), "rows": rows, "drafts": keys, "bytes": bytes, "frame": frame.map(|f| f.to_json()) });
         crate::storage::with_storage(move |s| {

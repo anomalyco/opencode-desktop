@@ -134,7 +134,7 @@ impl Flights {
             let Some(e) = cur.get(&f.path) else { self.drop_at(k); continue };
             if f.frames.len() > 1 { f.input |= cur.input; }
             f.scrolled |= e.scrolling;
-            let last = f.frames.last().unwrap().0;
+            let Some(&(last, _)) = f.frames.last() else { self.drop_at(k); continue };
             // A spring creeps in steps far under a point before it settles exactly.
             f.still = if (0..4).all(|a| (e.rect[a] - last[a]).abs() < 1e-4) { f.still + 1 } else { 0 };
             f.frames.push((e.rect, cur.ms));

@@ -154,7 +154,7 @@ impl App {
     pub(crate) fn poll_recent_reload(&mut self, tx: &mut rune::Tx) {
         match self.recent_reload.step(Event::Poll, Instant::now()) {
             Effect::Wake(delay) => tx.wake_after(delay),
-            Effect::Fetch => if let Source::Live { requests: Some(r), .. } = &*self.source { let _ = r.send(Request::Sessions); },
+            Effect::Fetch => if let Source::Live { requests: Some(r), .. } = &*self.source { r.send(Request::Sessions).ok(); },
             Effect::None => (),
         }
     }

@@ -100,7 +100,7 @@ pub fn request(app: &mut App, server: String, title: String, tx: &mut Tx) {
     let listed = listed(&server);
     let now = *app.clock;
     let host = &mut *app.plugins;
-    let effects = step(&mut host.project, &mut host.project_attempt, Event::Request { server, title, listed, now: now });
+    let effects = step(&mut host.project, &mut host.project_attempt, Event::Request { server, title, listed, now });
     run(app, effects, tx);
 }
 

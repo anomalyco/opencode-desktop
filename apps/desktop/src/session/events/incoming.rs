@@ -22,7 +22,12 @@ pub(crate) fn poll(s: &mut App, tx: &mut Tx) -> bool {
     }
     let heard = windows::peer::heard(s);
     for h in heard {
-        if !matches!(&*h, crate::events::Heard::Message(Incoming::Status(_) | Incoming::Failed(_) | Incoming::StreamDown(_) | Incoming::Unanswered(_))) {
+        let is_status = matches!(
+            &*h,
+            crate::events::Heard::Message(m)
+                if matches!(**m, Incoming::Status(_) | Incoming::Failed(_) | Incoming::StreamDown(_) | Incoming::Unanswered(_))
+        );
+        if !is_status {
             changed |= reconnect::heard(s);
         }
         changed |= match &*h {
@@ -37,7 +42,7 @@ pub(crate) fn poll(s: &mut App, tx: &mut Tx) -> bool {
                 if gone && let Some(id) = e.data["sessionID"].as_str() { crate::session_state::missing(s, id, tx); }
                 s.react_live(e) | gone
             }
-            crate::events::Heard::Message(m) => message(s, m.clone(), tx),
+            crate::events::Heard::Message(m) => message(s, (**m).clone(), tx),
         };
     }
     s.poll_recent_reload(tx);

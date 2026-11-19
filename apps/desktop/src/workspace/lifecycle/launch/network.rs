@@ -28,7 +28,7 @@ static BELL: std::sync::Mutex<Option<std::sync::mpsc::Sender<()>>> = std::sync::
 #[cfg(target_os = "windows")]
 fn ring() {
     if let Some(tx) = BELL.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
-        let _ = tx.send(());
+        tx.send(()).ok();
     }
 }
 
@@ -104,13 +104,15 @@ pub(super) fn subscribe(wake: rune::Waker) -> Option<Arc<Change>> {
         }
         // Both registrations last the process's life: their handles are never closed.
         let mut handle: HANDLE = std::ptr::null_mut();
-        // SAFETY: the callbacks are plain fns that only send on a channel; the out-pointers are
-        // valid. The level now is read first, so only a change rings.
+        // SAFETY: `NL_NETWORK_CONNECTIVITY_HINT` is a plain C struct valid when zeroed.
         let mut now: NL_NETWORK_CONNECTIVITY_HINT = unsafe { std::mem::zeroed() };
+        // SAFETY: `&mut now` is a valid, aligned out-pointer for `GetNetworkConnectivityHint`.
         if unsafe { GetNetworkConnectivityHint(&mut now) } == NO_ERROR {
             LEVEL.store(now.ConnectivityLevel, Ordering::Release);
         }
+        // SAFETY: `reach_changed` is a plain `extern "system"` callback touching only `LEVEL` and `BELL`; `&mut handle` is a valid out-pointer kept for the process's life.
         let net = unsafe { NotifyNetworkConnectivityHintChange(Some(reach_changed), std::ptr::null(), false, &mut handle) } == NO_ERROR
+            // SAFETY: `interface_changed` is a plain `extern "system"` callback that only rings `BELL`; `&mut handle` is a valid out-pointer kept for the process's life.
             || unsafe { NotifyIpInterfaceChange(AF_UNSPEC, Some(interface_changed), std::ptr::null(), false, &mut handle) } == NO_ERROR;
         let params: &'static mut DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS = Box::leak(Box::new(DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS { Callback: Some(power_changed), Context: std::ptr::null_mut() }));
         let mut registration: *mut c_void = std::ptr::null_mut();

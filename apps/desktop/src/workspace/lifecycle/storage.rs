@@ -181,6 +181,9 @@ fn step(phase: Phase, event: Event) -> (Phase, Option<Effect>) {
     }
 }
 
+type QueuedPreview = (String, String, Option<(i64, Arc<[u8]>)>);
+type StorageTask = Box<dyn FnOnce(&Storage) + Send>;
+
 /// Writes made before stage B was in hand, newest last; reads see them.
 #[derive(Default)]
 struct Queued {
@@ -188,9 +191,9 @@ struct Queued {
     docs: Vec<(String, Option<String>, u64)>,
     frames: Vec<(String, WindowFrame)>,
     forgotten: Vec<String>,
-    previews: Vec<(String, String, Option<(i64, Arc<[u8]>)>)>,
+    previews: Vec<QueuedPreview>,
     /// Work that needs the storage itself (the outbox's reads and Tier 0 rows), in order.
-    later: Vec<Box<dyn FnOnce(&Storage) + Send>>,
+    later: Vec<StorageTask>,
 }
 
 impl Queued {
@@ -641,7 +644,7 @@ pub fn load_state(names: Vec<String>, done: Box<dyn FnOnce() + Send>) {
 /// meanwhile and in the order asked. For the stores that live only in the database (the
 /// outbox's rows), never read before the first frame.
 pub fn with_storage(f: impl FnOnce(&Storage) + Send + 'static) {
-    let f: std::cell::Cell<Option<Box<dyn FnOnce(&Storage) + Send>>> = std::cell::Cell::new(Some(Box::new(f)));
+    let f: std::cell::Cell<Option<StorageTask>> = std::cell::Cell::new(Some(Box::new(f)));
     with(
         |s| {
             if let Some(f) = f.take() {

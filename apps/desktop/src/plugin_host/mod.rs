@@ -134,7 +134,7 @@ pub enum Overlay {
         align: rune::Align,
         gap: f32,
         data: Data,
-        flyout: Flyout,
+        flyout: Box<Flyout>,
         back: Option<String>,
     },
     PillMenu {

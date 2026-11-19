@@ -259,9 +259,11 @@ pub fn panel_key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 
 // ---- Menu items, links, code blocks, MCP and the app menu ------------------------------------------
 
+pub type MenuItem = (&'static str, String, Option<String>, Option<String>, i64);
+
 /// Luau menu items of host menu `menu` (`session.panel`, `server.add`, `server.row`), as
 /// `(key, title, description, icon, order)`.
-pub fn menu_items(app: &App, menu: &str) -> Vec<(&'static str, String, Option<String>, Option<String>, i64)> {
+pub fn menu_items(app: &App, menu: &str) -> Vec<MenuItem> {
     app.plugins
         .listed()
         .flat_map(|(_, p)| p.half.contribs.borrow().menu_items.iter().filter(|c| c.spec.menu.as_str() == menu).map(|c| (c.key, c.spec.title.clone(), c.spec.description.clone(), c.spec.icon.clone(), c.spec.order.unwrap_or(0))).collect::<Vec<_>>())

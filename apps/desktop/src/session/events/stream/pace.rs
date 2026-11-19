@@ -59,7 +59,9 @@ pub fn script(id: &str, reply: &str, pace: Pace, words: usize) -> Vec<(f64, &'st
     let text: String = pieces.concat();
     let msg = |extra: Value| {
         let mut v = json!({ "sessionID": id, "assistantMessageID": reply });
-        v.as_object_mut().unwrap().extend(extra.as_object().cloned().unwrap_or_default());
+        if let (Some(dst), Some(src)) = (v.as_object_mut(), extra.as_object()) {
+            dst.extend(src.iter().map(|(k, v)| (k.clone(), v.clone())));
+        }
         v
     };
     let mut out = vec![

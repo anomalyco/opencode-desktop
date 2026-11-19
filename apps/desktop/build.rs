@@ -83,8 +83,8 @@ fn embed_luau_plugins(manifest_dir: &std::path::Path, out: &std::path::Path) {
     let bytecode = out.join("luau-bytecode");
     std::fs::create_dir_all(&bytecode).ok();
     let mut consts = String::new();
-    let mut precompiled = String::from("pub static MODULES: &[(&str, &[(&str, &[u8], bool)])] = &[\n");
-    let mut code = String::from("pub static BUILTINS: &[(&str, &[(&str, &str)], &[u8])] = &[\n");
+    let mut precompiled = String::from("pub type BuiltinModule = (&'static str, &'static [u8], bool);\npub static MODULES: &[(&str, &[BuiltinModule])] = &[\n");
+    let mut code = String::from("pub type BuiltinFile = (&'static str, &'static str);\npub static BUILTINS: &[(&str, &[BuiltinFile], &[u8])] = &[\n");
     // What each plugin contributes (`ctx:AddSlot`, `ctx:AddPanel`, ...), read from its source, so the host
     // knows which plugins a first screen shows before starting any (`plugin_host::first_screen`).
     let mut contributions = String::from("pub static CONTRIBUTIONS: &[(&str, &[&str])] = &[\n");
@@ -130,12 +130,17 @@ fn embed_luau_plugins(manifest_dir: &std::path::Path, out: &std::path::Path) {
         for (index, (rel, path)) in files.into_iter().enumerate() {
             println!("cargo:rerun-if-changed={}", path.display());
             if rel.ends_with(".luau") && !rel.ends_with(".config.luau") {
-                let source = std::fs::read_to_string(&path).expect("read built-in Luau module");
+                let source = match std::fs::read_to_string(&path) {
+                    Ok(s) => s,
+                    Err(e) => panic!("read built-in Luau module {}: {e}", path.display()),
+                };
                 // Keep source on compile failure: the plugin console should show the original syntax error.
                 if let Ok(compiled) = compiler.compile(&source) {
                     let native = source.lines().map(str::trim).take_while(|l| l.is_empty() || l.starts_with("--")).any(|l| l.starts_with("--!native"));
                     let file = bytecode.join(format!("{id}-{index}.luauc"));
-                    std::fs::write(&file, compiled).expect("write built-in bytecode");
+                    if let Err(e) = std::fs::write(&file, compiled) {
+                        panic!("write built-in bytecode {}: {e}", file.display());
+                    }
                     writeln!(precompiled, "        ({rel:?}, include_bytes!({:?}), {native}),", file.display().to_string()).ok();
                     continue;
                 }

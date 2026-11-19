@@ -20,7 +20,7 @@ use std::hash::{BuildHasherDefault, Hash, Hasher};
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError};
-use rune::time::{Instant, SystemTime, UNIX_EPOCH};
+use rune::time::Instant;
 
 use rune::{ElementInfo, MotionElement, NodeId, Runtime};
 use serde_json::{Value, json};
@@ -160,10 +160,11 @@ impl Watch {
         self.bytes += sample.bytes;
         self.ring.push_back(sample);
         while self.ring.len() > FRAMES || self.bytes > BYTES && self.ring.len() > 4 {
-            self.bytes -= self.ring.pop_front().unwrap().bytes;
+            let Some(old) = self.ring.pop_front() else { break };
+            self.bytes -= old.bytes;
         }
         let mut lines = self.flights.step(&self.ring, window, events);
-        let latest = self.ring.back().unwrap();
+        let Some(latest) = self.ring.back() else { return lines };
         let dups: HashSet<String> = latest.els.iter().filter(|e| dup(e) && shown(e)).map(|e| short(&e.path)).collect();
         self.dups.retain(|d| dups.contains(d));
         let fresh: Vec<String> = dups.into_iter().filter(|d| !self.dups.contains(d)).collect();
@@ -394,10 +395,10 @@ impl Worker {
         self.minute.1 += 1;
         if matches!(self.file, LogFile::Open { len, .. } if len > ROTATE_AT) {
             self.file = LogFile::Closed;
-            let _ = std::fs::rename(&self.path, self.path.with_extension("1.jsonl"));
+            std::fs::rename(&self.path, self.path.with_extension("1.jsonl")).ok();
         }
         if matches!(self.file, LogFile::Closed) {
-            if let Some(dir) = self.path.parent() { let _ = std::fs::create_dir_all(dir); }
+            if let Some(dir) = self.path.parent() { std::fs::create_dir_all(dir).ok(); }
             self.file = match std::fs::OpenOptions::new().create(true).append(true).open(&self.path) {
                 Ok(f) => LogFile::Open { len: f.metadata().map_or(0, |m| m.len()), file: std::io::BufWriter::new(f) },
                 Err(_) => LogFile::Failed,
@@ -445,19 +446,29 @@ impl Log {
             let (tx, rx) = std::sync::mpsc::sync_channel::<Frame>(QUEUE);
             let (done, back) = std::sync::mpsc::sync_channel(QUEUE + 1);
             let mut worker = Worker::new(crate::dirs::motion_log().unwrap_or_else(|| std::env::temp_dir().join("motion.jsonl")));
-            let _ = std::thread::Builder::new().name("motion-log".into()).spawn(move || {
-                for mut f in rx {
-                    for line in worker.take(&mut f) { worker.write(&line, f.ms); }
-                    let _ = done.try_send(f.els);
-                }
-            });
-            *self = Log::On { feed: Feed::default(), tx, back, last: None };
+            if std::thread::Builder::new()
+                .name("motion-log".into())
+                .spawn(move || {
+                    for mut f in rx {
+                        for line in worker.take(&mut f) { worker.write(&line, f.ms); }
+                        done.try_send(f.els).ok();
+                    }
+                })
+                .is_ok()
+            {
+                *self = Log::On { feed: Feed::default(), tx, back, last: None };
+            } else {
+                *self = Log::Off;
+                return;
+            }
         }
         let Log::On { feed, tx, back, last } = self else { return };
         let now = Instant::now();
         let input = rune::last_input().is_some_and(|t| last.is_none_or(|last| t > last));
         *last = Some(now);
-        let ms = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64() * 1000.0);
+        static ANCHOR: std::sync::OnceLock<(Instant, f64)> = std::sync::OnceLock::new();
+        let (at, wall) = *ANCHOR.get_or_init(|| (now, crate::wall_ms() as f64));
+        let ms = wall + now.saturating_duration_since(at).as_secs_f64() * 1000.0;
         feed.spare.extend(back.try_iter());
         if let Err(TrySendError::Full(f) | TrySendError::Disconnected(f)) = tx.try_send(feed.frame(rt, input, ms)) {
             // What it carried for the first time goes again with the next one.

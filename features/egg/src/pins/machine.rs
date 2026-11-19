@@ -83,6 +83,12 @@ impl Board {
     }
 }
 
+impl Default for Board {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// `transitionPinBoard`: the same state when nothing changes.
 pub fn step(state: Board, event: Event) -> Board {
     if state == Board::Disposed {

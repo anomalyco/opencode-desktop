@@ -28,7 +28,7 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
         if args.is_some() {
             return lua.create_string(translate(&half.catalogs.borrow(), &key, args.as_ref()));
         }
-        cache.borrow_mut().get_or(lua, |k| k.extend([b'T'].iter().chain(key.as_bytes())), || translate(&half.catalogs.borrow(), &key, None))
+        cache.borrow_mut().get_or(lua, |k| k.extend(b"T".iter().chain(key.as_bytes())), || translate(&half.catalogs.borrow(), &key, None))
     })?;
     let half = vmx.half.clone();
     method(lua, t, "Has", move |_, key: String| {
@@ -317,6 +317,8 @@ fn fill(text: &str, args: Option<&Table>) -> String {
         let name = rest[open + 2..open + close].trim();
         if let Some(v) = args.and_then(|a| a.raw_get::<Value>(name).ok()) {
             match v {
+                // `mlua::Integer` is `i32` on wasm32 and `i64` on 64-bit targets.
+                #[allow(clippy::unnecessary_cast)]
                 Value::Integer(i) => out.push_str(&opencode_i18n::integer(i as i64)),
                 Value::Number(n) if n.fract() == 0.0 => out.push_str(&opencode_i18n::integer(n as i64)),
                 Value::Nil => {}

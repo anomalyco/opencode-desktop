@@ -33,11 +33,13 @@ struct Panel {
     restore: Option<Function>,
 }
 
+type AnswerEntry = (u64, Option<Data>, Vec<cx::Dep>);
+
 thread_local! {
     /// The last answer of each listing function (`list`, `tabTitle`, `isWide`, a menu item's
     /// `when`, `opened` and `detail`), with what it read: the side region resolves every frame,
     /// so an answer whose reads didn't change costs no VM call.
-    static ANSWERS: std::cell::RefCell<std::collections::HashMap<String, (u64, Option<Data>, Vec<cx::Dep>)>> = std::cell::RefCell::default();
+    static ANSWERS: std::cell::RefCell<std::collections::HashMap<String, AnswerEntry>> = std::cell::RefCell::default();
 }
 
 /// `f(args)` of plugin `i`, the last answer while nothing it read changed.
@@ -233,9 +235,9 @@ fn instance_tab(spec: &PanelSpec, group: &'static str, t: PanelTab) -> PanelTabD
 }
 
 /// What a panel's functions receive about tab `tab` of `session`.
-fn props(app: &App, all: &[Panel], k: usize, session: &str, tab: &str, active: bool, placement: &str, size: (f32, f32)) -> Data {
+fn props(app: &App, panel: &Panel, session: &str, tab: &str, active: bool, placement: &str, size: (f32, f32)) -> Data {
     let directory = app.session(session).map_or("", |s| s.directory.as_str()).to_owned();
-    let instance = if all[k].list.is_some() { Data::String(tab.to_owned()) } else { Data::Nil };
+    let instance = if panel.list.is_some() { Data::String(tab.to_owned()) } else { Data::Nil };
     map([
         ("sessionId", Data::String(session.to_owned())),
         ("directory", Data::String(directory)),
@@ -254,7 +256,7 @@ pub fn render(app: &App, p: &Pal, ctx: &PanelViewCtx) -> El {
     let Some(f) = &all[k].render else { return rune::el() };
     let placement = if ctx.mobile { "mobile" } else { "side" };
     native::terminal::SCALE.set(ctx.env_scale);
-    let mut data = props(app, &all, k, ctx.session_id, &ctx.tab.id, ctx.visible, placement, ctx.pane_size);
+    let mut data = props(app, &all[k], ctx.session_id, &ctx.tab.id, ctx.visible, placement, ctx.pane_size);
     // The nested view it opened in the More drawer (`Layout:OpenDrawerView`).
     let more = &app.layout.narrow.more;
     if let (true, Some(nested), Data::Map(fields)) = (ctx.mobile, more.nested(), &mut data)
@@ -310,7 +312,7 @@ pub fn launchers(app: &App, ctx: &PanelSessionCtx) -> Vec<PanelLauncherDesc> {
         let description = p.spec.description.clone().or_else(|| manifest.description.clone());
         PanelLauncherDesc::new(intern(&p.spec.id), p.spec.title.clone(), icon_of(&p.spec), p.spec.order.unwrap_or(0) as i32)
             .description(description)
-            .opened(ctx.open_ids.iter().any(|o| *o == p.spec.id))
+            .opened(ctx.open_ids.contains(&p.spec.id))
     });
     let mut out: Vec<PanelLauncherDesc> = own.collect();
     out.extend(commands::panel_menu_items(app, i, ctx.session_id));
@@ -333,7 +335,7 @@ fn asleep_launchers(app: &App, ctx: &PanelSessionCtx) -> Vec<PanelLauncherDesc> 
         .filter(|q| !fns(q.key, "list") && !fns(q.key, "enabled") && q.spec.launcher != Some(false) && q.spec.enabled != Some(false))
         .map(|q| {
             let description = q.spec.description.clone().or_else(|| p.manifest.description.clone());
-            PanelLauncherDesc::new(intern(&q.spec.id), q.spec.title.clone(), icon_of(&q.spec), q.spec.order.unwrap_or(0) as i32).description(description).opened(ctx.open_ids.iter().any(|o| *o == q.spec.id))
+            PanelLauncherDesc::new(intern(&q.spec.id), q.spec.title.clone(), icon_of(&q.spec), q.spec.order.unwrap_or(0) as i32).description(description).opened(ctx.open_ids.contains(&q.spec.id))
         })
         .collect();
     drop(c);
@@ -364,7 +366,7 @@ pub fn focused(app: &mut App, plugin: &str, session: &str, tab: &str, restored: 
     let Some((i, all)) = panels(app, plugin) else { return };
     let Some(k) = owner(&all, tab) else { return };
     let Some(f) = &all[k].on_focus else { return };
-    let mut data = props(app, &all, k, session, tab, true, "side", (0.0, 0.0));
+    let mut data = props(app, &all[k], session, tab, true, "side", (0.0, 0.0));
     if let Data::Map(m) = &mut data {
         m.insert("restored".into(), Data::Bool(restored || app.workspace_panes.side.background_open));
     }
@@ -379,7 +381,7 @@ pub fn closed(app: &mut App, plugin: &str, session: &str, tab: &str, tx: &mut Tx
     let Some((i, all)) = panels(app, plugin) else { return };
     let Some(k) = owner(&all, tab) else { return };
     let Some(f) = all[k].on_close.clone() else { return };
-    let data = props(app, &all, k, session, tab, false, "side", (0.0, 0.0));
+    let data = props(app, &all[k], session, tab, false, "side", (0.0, 0.0));
     commands::spawn(app, i, &f, data, tx);
 }
 
@@ -390,7 +392,7 @@ pub fn closed_info(app: &App, plugin: &str, session: &str, tab: &PanelTabDesc) -
     let Some(k) = owner(&all, &tab.id) else { return ClosedTabInfo::Default };
     let closed = match &all[k].closed_tab {
         Some(f) => {
-            let props = props(app, &all, k, session, &tab.id, false, "side", (0.0, 0.0));
+            let props = props(app, &all[k], session, &tab.id, false, "side", (0.0, 0.0));
             let answer = app.plugins.list[i].script().and_then(|s| cx::with_app(app, || s.eval_fn::<Data>(f, props).ok()));
             match answer.and_then(|d| d.decode::<opencode_plugin_spec::ClosedTab>().ok()) {
                 Some(c) => c,
@@ -411,7 +413,7 @@ pub fn restore(app: &mut App, plugin: &str, session: &str, tab: &str, data: Opti
     let Some((i, all)) = panels(app, plugin) else { return false };
     let Some(k) = owner(&all, tab) else { return false };
     let Some(f) = all[k].restore.clone() else { return false };
-    let props = props(app, &all, k, session, tab, false, "side", (0.0, 0.0));
+    let props = props(app, &all[k], session, tab, false, "side", (0.0, 0.0));
     commands::spawn(app, i, &f, (props, data.map(str::to_owned)), tx);
     true
 }

@@ -166,7 +166,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     inner = inner.children(crate::panels::view::context_menus(s, p));
     inner = inner.children(crate::panels::drag::layer(s, p));
     inner = inner.children(s.kernel.overlay_dispatcher.render_band(s, cx, 300, 599));
-    inner = inner.children(tab_preview::view(s, &p));
+    inner = inner.children(tab_preview::view(s, p));
     inner = inner.children(crate::popup::view(s, p));
     inner = inner.children(s.kernel.overlay_dispatcher.render_band(s, cx, 600, 699));
     inner = inner.children(crate::status_toast::view(s, p));
@@ -287,7 +287,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         .accepts_files(|path| !session_view::images::drag::is_own(path))
         .on_drop_hover(crate::dropzone::hover)
         .child(if s.settings.open { crate::settings::page(s, p, settings_sz) } else { match &*s.route {
-            Route::Home => home(s, p, [panel_sz.0, panel_sz.1], cx.layout_size("zoom").map_or([0.0, 0.0], |[w, h]| [w, h])),
+            Route::Home => home(s, p, [panel_sz.0, panel_sz.1], cx.layout_size("zoom").unwrap_or([0.0, 0.0])),
             Route::Session { id, .. } => session_page(s, p, id),
             Route::Draft(_) => draft_page(s, p, panel_sz.0),
         } })

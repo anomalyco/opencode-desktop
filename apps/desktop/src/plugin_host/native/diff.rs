@@ -256,9 +256,12 @@ pub fn tree_version(app: &App, session: &str) -> u64 {
     h.finish()
 }
 
+pub type FindVersion = (usize, usize, String, bool);
+pub type DiffVersion = (u64, bool, bool, Option<usize>, Option<FindVersion>);
+
 /// The version of what `Dep::Diff(session)` reads, the file heading stuck over the scrolled
 /// diff included: scrolling past a file's heading sticks it without changing the diff.
-pub fn version(app: &App, session: &str) -> (u64, bool, bool, Option<usize>, Option<(usize, usize, String, bool)>) {
+pub fn version(app: &App, session: &str) -> DiffVersion {
     let sr = app.workspace_panes.review.sessions.get(session);
     // The find bar the diff draws over itself: open, its matches, its field.
     let find = sr.map(|sr| &sr.diffs).filter(|d| d.find_open()).map(|d| (d.find_count(), d.find_index(), d.find.input.text.clone(), d.find.input.focused));
@@ -354,10 +357,9 @@ pub fn view(a: &mut NodeArgs) -> Result<El, String> {
 /// Session `sid`'s diff find field.
 fn diff_find_input<'a>(s: &'a mut App, sid: &str) -> &'a mut rune::TextEdit {
     let review = &mut *s.workspace_panes.review;
-    if review.sessions.contains_key(sid) {
-        &mut review.sessions.get_mut(sid).unwrap().diffs.find.input
-    } else {
-        &mut review.empty_diffs.find.input
+    match review.sessions.get_mut(sid) {
+        Some(sr) => &mut sr.diffs.find.input,
+        None => &mut review.empty_diffs.find.input,
     }
 }
 

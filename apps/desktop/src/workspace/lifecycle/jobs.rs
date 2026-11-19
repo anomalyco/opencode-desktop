@@ -57,23 +57,24 @@ impl App {
         // one does: an answer asked inline holds the frame clock while the server moves on.
         if crate::headless() && !crate::harness_writes() {
             if delay.is_zero() {
-                let _ = self.jobs.tx.send(work(server));
+                self.jobs.tx.send(work(server)).ok();
             }
             return;
         }
         let (server, out, wake) = (server.clone(), self.jobs.tx.clone(), (*self.waker).clone());
-        let _ = rune::task::spawn_after("opencode-job", delay, move || {
-            let _ = out.send(work(&server));
+        rune::task::spawn_after("opencode-job", delay, move || {
+            out.send(work(&server)).ok();
             if let Some(w) = wake {
                 w();
             }
-        });
+        })
+        .ok();
     }
 
     /// Applies `apply` on the next poll rather than now, so an answer known at once still lands
     /// after the transition that asked for it.
     pub(crate) fn later(&self, apply: Apply) {
-        let _ = self.jobs.window_tx.send(apply);
+        self.jobs.window_tx.send(apply).ok();
         if let Some(w) = &*self.waker {
             w();
         }
@@ -83,7 +84,7 @@ impl App {
     pub(crate) fn deliverer(&self) -> impl Fn(Apply) + Send + 'static {
         let (out, wake) = (self.jobs.window_tx.clone(), (*self.waker).clone());
         move |apply| {
-            let _ = out.send(apply);
+            out.send(apply).ok();
             if let Some(w) = &wake {
                 w();
             }

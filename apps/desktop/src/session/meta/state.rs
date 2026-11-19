@@ -123,7 +123,7 @@ fn run(s: &mut App, effects: Effects<ResolutionEffect>, tx: &mut Tx) -> bool {
 /// The tab of `id` opened.
 pub fn opened(s: &mut App, id: &str, tx: &mut Tx) {
     let (server, known, now) = (server(s), s.session(id).is_some(), *s.clock);
-    let effects = s.services.session_states.apply(&server, id, ResolutionEvent::Opened { known, now: now });
+    let effects = s.services.session_states.apply(&server, id, ResolutionEvent::Opened { known, now });
     run(s, effects, tx);
 }
 
@@ -139,7 +139,7 @@ pub fn reconnected(s: &mut App, tx: &mut Tx) {
     let (server, now) = (server(s), *s.clock);
     let ids: Vec<String> = s.services.session_states.0.iter().filter(|((k, _), r)| *k == server && **r == Resolution::Unreachable).map(|((_, id), _)| id.clone()).collect();
     for id in ids {
-        let effects = s.services.session_states.apply(&server, &id, ResolutionEvent::Reconnected { now: now });
+        let effects = s.services.session_states.apply(&server, &id, ResolutionEvent::Reconnected { now });
         run(s, effects, tx);
         s.reload_session(&id);
     }
@@ -156,7 +156,7 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     let resolving: Vec<String> = s.services.session_states.0.iter().filter(|((k, _), r)| *k == server && matches!(r, Resolution::Resolving { .. } | Resolution::Unreachable)).map(|((_, id), _)| id.clone()).collect();
     let mut changed = false;
     for id in resolving {
-        let event = if s.session(&id).is_some() { ResolutionEvent::Known } else { ResolutionEvent::Tick { now: now } };
+        let event = if s.session(&id).is_some() { ResolutionEvent::Known } else { ResolutionEvent::Tick { now } };
         let effects = s.services.session_states.apply(&server, &id, event);
         changed |= run(s, effects, tx);
     }

@@ -371,7 +371,7 @@ fn flyout_view(app: &App, p: &Pal, i: usize, flyout: &Flyout) -> Option<El> {
         })
         // The pointer reached the list: the aim ends (`aim.cancelled`).
         .on_hover_change(|s: &mut App, inside: bool, tx: &mut Tx| {
-            let aiming = matches!(&s.plugins.overlay, Overlay::Popover { flyout: Flyout::Aiming { .. }, .. });
+            let aiming = matches!(&s.plugins.overlay, Overlay::Popover { flyout, .. } if matches!(**flyout, Flyout::Aiming { .. }));
             if !(inside && aiming) {
                 return tx.live_only();
             }

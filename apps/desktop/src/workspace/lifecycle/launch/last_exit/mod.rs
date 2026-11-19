@@ -173,9 +173,9 @@ pub(crate) fn encode_record(
     buf
 }
 
-pub(super) fn decode_raw_fields(
-    buf: &[u8; RECORD_BYTES],
-) -> Option<(u8, u8, u32, u32, u64, u64, u64, u64, u32)> {
+pub(super) type RawFields = (u8, u8, u32, u32, u64, u64, u64, u64, u32);
+
+pub(super) fn decode_raw_fields(buf: &[u8; RECORD_BYTES]) -> Option<RawFields> {
     if u32::from_le_bytes(buf[0..4].try_into().ok()?) != MAGIC {
         return None;
     }
@@ -302,6 +302,7 @@ mod imp {
     unsafe impl<A: GlobalAlloc> GlobalAlloc for OomGuard<A> {
         #[inline(always)]
         unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            // SAFETY: caller upholds `GlobalAlloc::alloc` preconditions for `layout`.
             let p = unsafe { self.0.alloc(layout) };
             if p.is_null() {
                 on_alloc_oom(layout.size());
@@ -311,6 +312,7 @@ mod imp {
 
         #[inline(always)]
         unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+            // SAFETY: caller upholds `GlobalAlloc::alloc_zeroed` preconditions for `layout`.
             let p = unsafe { self.0.alloc_zeroed(layout) };
             if p.is_null() {
                 on_alloc_oom(layout.size());
@@ -320,11 +322,13 @@ mod imp {
 
         #[inline(always)]
         unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+            // SAFETY: caller upholds `GlobalAlloc::dealloc` preconditions for `ptr` and `layout`.
             unsafe { self.0.dealloc(ptr, layout) };
         }
 
         #[inline(always)]
         unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+            // SAFETY: caller upholds `GlobalAlloc::realloc` preconditions for `ptr`, `layout`, and `new_size`.
             let p = unsafe { self.0.realloc(ptr, layout, new_size) };
             if p.is_null() {
                 on_alloc_oom(new_size);
@@ -351,9 +355,9 @@ mod imp {
             return;
         }
         ARMED.call_once(|| {
-            let _ = MAIN_TID.set(std::thread::current().id());
+            MAIN_TID.set(std::thread::current().id()).ok();
             if let Some(dir) = crate::dirs::data() {
-                let _ = PATHS.set(EncodedPaths::new(dir.join("last-exit.bin"), dir.join("skip-restore.bin")));
+                PATHS.set(EncodedPaths::new(dir.join("last-exit.bin"), dir.join("skip-restore.bin"))).ok();
             }
             reserve_main_stack_guarantee();
             install_panic_hook();
@@ -406,7 +410,7 @@ mod imp {
                 && u64::from_le_bytes(b[8..16].try_into().unwrap_or([0; 8])) == want
         });
         if matched {
-            let _ = std::fs::remove_file(&paths.skip);
+            std::fs::remove_file(&paths.skip).ok();
             SKIPPED_HASH.store(want, Ordering::Release);
             RESTORE_SETTLED.store(true, Ordering::Release);
             eprintln!("last-exit: skipped restoring session {id} after 2 consecutive closes; opening Home");
@@ -434,7 +438,7 @@ mod imp {
         }
         init_hooks();
         STARTED.call_once(|| {
-            let _ = rune::task::spawn("last-exit", open_once);
+            rune::task::spawn("last-exit", open_once).ok();
         });
     }
 
@@ -448,7 +452,7 @@ mod imp {
             return;
         }
         if let Some(parent) = Path::new(&paths.record).parent() {
-            let _ = std::fs::create_dir_all(parent);
+            std::fs::create_dir_all(parent).ok();
         }
         let Ok(mut file) = open_file(&paths.record) else { return };
         let mut raw = [0u8; RECORD_BYTES];
@@ -502,7 +506,7 @@ mod imp {
             let fd = RECORD_FD.load(Ordering::Acquire);
             if fd != -1 && !TERMINAL_RECORDED.load(Ordering::Acquire) {
                 if let Some(paths) = PATHS.get() {
-                    let _ = std::fs::remove_file(&paths.skip);
+                    std::fs::remove_file(&paths.skip).ok();
                 }
                 let buf = encode_record(TAG_CLEAN, 0, 0, raw_pid(), 0, u64::MAX, seq, 0, 0);
                 write_raw(fd, &buf);
@@ -625,7 +629,7 @@ mod imp {
         let Some(root) = std::env::var_os("RUNE_DIRS_ROOT").map(PathBuf::from) else { return };
         let stack_bytes = if kind == "stack-commit" { 8 << 20 } else { 1 << 20 };
         let go = root.join("drill.go");
-        let _ = std::thread::Builder::new().name("crash-drill".into()).stack_size(stack_bytes).spawn(move || {
+        std::thread::Builder::new().name("crash-drill".into()).stack_size(stack_bytes).spawn(move || {
             super::os::wait_drill_go(&go);
             match kind.as_str() {
                 "heap" => {
@@ -646,12 +650,13 @@ mod imp {
                 "panic-main" => MAIN_DRILL_PENDING.store(1, Ordering::Release),
                 "access-violation" => super::os::raise_access_violation(),
                 "panic-caught" => {
-                    let _ = std::panic::catch_unwind(|| panic!("caught background drill panic"));
-                    let _ = std::fs::write(root.join("drill.caught"), "ok");
+                    std::panic::catch_unwind(|| panic!("caught background drill panic")).ok();
+                    std::fs::write(root.join("drill.caught"), "ok").ok();
                 }
                 _ => {}
             }
-        });
+        })
+        .ok();
     }
 }
 

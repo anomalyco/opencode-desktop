@@ -341,8 +341,10 @@ fn save_folds(folded: &[String]) {
     }
 }
 
+pub type SceneEntry = (&'static str, fn(&mut App));
+
 /// The app's scenes, then a scene per story under its path.
-pub fn scenes() -> &'static [(&'static str, fn(&mut App))] {
+pub fn scenes() -> &'static [SceneEntry] {
     let all: Vec<_> = self::scenes::all().into_iter().chain(stories().iter().map(|st| (st.path, st.scene))).collect();
     Box::leak(all.into_boxed_slice())
 }
@@ -425,7 +427,7 @@ fn knobs_style(p: &Pal) -> rune_knobs::Style {
 /// The story's knobs, beside its stage; `active` with the keyboard on them.
 fn side(s: &App, knobs: &'static [Group], active: bool, cx: &mut Cx<App>) -> El {
     let p = pal(s.dark(cx));
-    rune_knobs::inline(&s.diag.knobs, knobs, knobs_style(&p), |s: &mut App| &mut s.diag.knobs, active)
+    rune_knobs::inline(&s.diag.knobs, knobs, knobs_style(p), |s: &mut App| &mut s.diag.knobs, active)
 }
 
 /// The stage: the story's component alone on the window's ground.
@@ -728,7 +730,7 @@ fn gradient((w, h): (u32, u32), a: [f32; 3], b: [f32; 3]) -> Vec<u8> {
         image::Rgba([c(0), c(1), c(2), 255])
     });
     let mut out = std::io::Cursor::new(Vec::new());
-    img.write_to(&mut out, image::ImageFormat::Png).expect("encode a PNG");
+    img.write_to(&mut out, image::ImageFormat::Png).ok();
     out.into_inner()
 }
 

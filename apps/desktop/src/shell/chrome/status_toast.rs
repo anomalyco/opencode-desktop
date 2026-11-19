@@ -162,7 +162,7 @@ impl ToastHost for App {
             DesktopToastAction::Plugin(b) => {
                 dismiss_id(self, id);
                 if let Some(url) = &b.url {
-                    let _ = tx.open_url(url);
+                    tx.open_url(url).ok();
                 }
                 let Some(run) = &b.run else { return };
                 let Some(index) = self.plugins.running().find(|(_, pl)| pl.half.id == b.plugin).map(|(i, _)| i) else {

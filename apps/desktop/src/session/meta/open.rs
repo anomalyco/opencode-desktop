@@ -88,8 +88,8 @@ impl App {
             // A session still starting has nothing to read yet (`new_session.rs`).
             Source::Live { .. } if self.queue.starts.has(id) => {}
             Source::Live { requests: Some(r), .. } => {
-                if !self.pages.has_pool() { let _ = r.send(Request::Session(id.to_owned())); }
-                let _ = r.send(Request::Inbox(id.to_owned()));
+                if !self.pages.has_pool() { r.send(Request::Session(id.to_owned())).ok(); }
+                r.send(Request::Inbox(id.to_owned())).ok();
                 self.list_children(id);
                 self.window_opened(id);
                 self.read_open_requests(id);
@@ -108,9 +108,9 @@ impl App {
     pub(crate) fn resync_shared(&mut self) {
         self.refresh_recent();
         let Source::Live { requests: Some(r), .. } = &*self.source else { return };
-        let _ = r.send(Request::Active);
-        let _ = r.send(Request::Sessions);
-        let _ = r.send(Request::Projects);
+        r.send(Request::Active).ok();
+        r.send(Request::Sessions).ok();
+        r.send(Request::Projects).ok();
         // Requests asked while the stream was down never arrive as events: read again what shows
         // them, as Desktop's store invalidates its syncs on a disconnect.
         self.forget_request_reads();
@@ -132,7 +132,7 @@ impl App {
         }
         let Source::Live { requests: Some(r), .. } = &*self.source else { return };
         if let Route::Session { id, .. } = (*self.route).clone() {
-            let _ = r.send(Request::Inbox(id.clone()));
+            r.send(Request::Inbox(id.clone())).ok();
             self.list_children(&id);
             self.read_open_requests(&id);
             self.reload_session(&id);
@@ -176,8 +176,9 @@ impl App {
 fn wake_each(w: rune::Waker, mut times: std::vec::IntoIter<f64>, start: rune::time::Instant) {
     let Some(t) = times.next() else { return };
     let delay = std::time::Duration::from_secs_f64(t.max(0.0)).saturating_sub(start.elapsed());
-    let _ = rune::task::spawn_after("fixture-playback", delay, move || {
+    rune::task::spawn_after("fixture-playback", delay, move || {
         w();
         wake_each(w, times, start);
-    });
+    })
+    .ok();
 }

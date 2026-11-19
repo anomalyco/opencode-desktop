@@ -230,7 +230,7 @@ impl ProjectsHost for App {
 
     fn request_projects(&self) {
         if let Source::Live { requests: Some(r), .. } = &*self.source {
-            let _ = r.send(Request::Projects);
+            r.send(Request::Projects).ok();
         }
     }
 

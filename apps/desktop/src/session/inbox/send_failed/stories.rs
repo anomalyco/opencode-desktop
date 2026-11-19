@@ -13,7 +13,9 @@ pub(crate) fn setup(s: &mut App) {
     s.fixture_run.playback.clear();
     let Route::Session { id: sid, .. } = (*s.route).clone() else { return };
     for (id, body) in [(FIRST, "Why does it run on that machine?"), (SECOND, "Let's start with the ideas first.")] {
-        s.transcripts.get_mut(&sid).unwrap().messages.push(Message::User { id: id.into(), text: body.into() });
+        if let Some(t) = s.transcripts.get_mut(&sid) {
+            t.messages.push(Message::User { id: id.into(), text: body.into() });
+        }
         let prompt = opencode_kit::client::Prompt { id: Some(id.into()), text: body.into(), ..Default::default() };
         let sent = Sent::new(&sid, id, Entry::of(&TextEdit::new(body)), vec![], vec![], false).with_prompt(&prompt);
         s.unsent.note(sent);
