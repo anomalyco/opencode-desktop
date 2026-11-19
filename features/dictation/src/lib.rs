@@ -47,14 +47,14 @@ const SOURCE: &str = "OpenCode";
 pub(crate) const HOLD: f64 = 0.3;
 /// "Preparing dictation…" shows once Hex has taken this long to start, so a quick start shows
 /// nothing but the stop.
-const PREPARING_AFTER: f64 = 0.25;
+pub(crate) const PREPARING_AFTER: f64 = 0.25;
 
 /// The fake's transcription time.
 const FAKE_TRANSCRIBE: f64 = 0.6;
 /// How long the words may take after the stop. Hex transcribes on this computer, a long
 /// dictation in a few seconds; past this it isn't coming: the words heard so far go into the
 /// draft and the line says it didn't finish, rather than a spinner that never ends.
-const FINISH_LIMIT: f64 = 30.0;
+pub(crate) const FINISH_LIMIT: f64 = 30.0;
 /// The fake's start when the storybook asks for a slow one.
 const FAKE_SLOW_START: f64 = 1.2;
 pub const FAKE_WORDS: &str = "keep the retry budget as it is and add a test for the reconnect";
@@ -99,8 +99,6 @@ pub struct Dictation {
     pub(crate) presence: Option<Presence>,
     /// This window's toolbar joined the watcher.
     pub(crate) watching: Cell<bool>,
-    /// The recording's Hex thread wakes the window when it hears something.
-    wakes: bool,
     pub(crate) phase: Phase,
     /// What Hex's threads heard, tagged with their recording.
     heard: Arc<Mutex<Vec<(Attempt, Heard)>>>,
@@ -118,7 +116,6 @@ impl Default for Dictation {
             backend: OnceCell::new(),
             presence: None,
             watching: Cell::new(false),
-            wakes: false,
             phase: Phase::Idle,
             heard: Arc::default(),
             seq: Seq::default(),
@@ -136,7 +133,6 @@ impl Dictation {
             backend: OnceCell::from(backend),
             presence,
             watching: Cell::new(false),
-            wakes: false,
             phase: Phase::Idle,
             heard: Arc::default(),
             seq: Seq::default(),
@@ -205,12 +201,7 @@ impl Dictation {
 
     /// Cancels any active recording thread and transitions into `Failed(why)`.
     pub fn fail(&mut self, why: Problem) {
-        self.cancel_thread();
-        self.phase = Phase::Failed(why);
-    }
-
-    pub(crate) fn cancel_thread(&self) {
-        if let Some(cmd) = self.rec().and_then(|r| r.cmd.as_ref()) {
+        if let (_, Some(Effect::Cancel(cmd))) = step(self, Event::Fail(why)) {
             let _ = cmd.send(Cmd::Cancel).ok();
         }
     }
@@ -248,8 +239,7 @@ pub fn dismiss_error(host: &mut dyn DictationHost) -> bool {
     if !matches!(host.dictation().phase, Phase::Failed(_)) {
         return false;
     }
-    host.dictation_mut().phase = Phase::Idle;
-    true
+    step(host.dictation_mut(), Event::DismissError).0
 }
 
 /// Runs the fix action offered by a failed dictation status line.
@@ -284,7 +274,7 @@ fn run(host: &mut dyn DictationHost, event: Event, tx: Option<&mut Tx>) -> bool 
             if let Some(Backend::Hex { file, support }) = d.backend.get() {
                 let (cmd, rx) = mpsc::channel();
                 let (file, support, heard) = (file.clone(), support.clone(), d.heard.clone());
-                d.wakes = wake.is_some();
+                let wakes = wake.is_some();
                 std::thread::spawn(move || {
                     hex_client::dictate(&file, &support, SOURCE, &rx, &mut |h| {
                         heard.lock().unwrap_or_else(|e| e.into_inner()).push((attempt, h));
@@ -293,21 +283,29 @@ fn run(host: &mut dyn DictationHost, event: Event, tx: Option<&mut Tx>) -> bool 
                         }
                     });
                 });
-                if let Phase::Starting { rec, .. } | Phase::Listening { rec, .. } = &mut d.phase {
-                    rec.cmd = Some(cmd);
-                }
+                step(d, Event::ThreadStarted { attempt, cmd, wakes });
             }
         }
         Some(Effect::Stop) => {
-            if let Some(cmd) = host.dictation().rec().and_then(|r| r.cmd.as_ref()) {
+            if let Some(cmd) = host.dictation().rec().and_then(Rec::cmd) {
                 let _ = cmd.send(Cmd::Stop).ok();
             }
+        }
+        Some(Effect::Cancel(cmd)) => {
+            let _ = cmd.send(Cmd::Cancel).ok();
         }
         Some(Effect::Words { words, send }) => {
             insert(host, &words);
             if let (Some(alternate), Some(tx)) = (send, tx) {
                 host.submit_prompt(alternate, tx);
             }
+        }
+        Some(Effect::TimedOut { words, cancel }) => {
+            // Hex's thread is told to stop; a late answer is fenced off by the recording's attempt.
+            if let Some(cmd) = cancel {
+                let _ = cmd.send(Cmd::Cancel).ok();
+            }
+            insert(host, &words);
         }
         None => {}
     }
@@ -380,7 +378,7 @@ pub fn poll(host: &mut dyn DictationHost, now: f64, tx: &mut Tx) -> bool {
     let (attempt, since, fake, starting, prepare, wakes, words_due, gives_up, mut heard) = {
         let d = host.dictation();
         let Some(rec) = d.rec() else { return changed };
-        let (attempt, since, fake) = (rec.attempt, rec.since, rec.cmd.is_none());
+        let (attempt, since, fake, wakes) = (rec.attempt, rec.since, rec.is_fake(), rec.wakes());
         let heard: Vec<Heard> = d
             .heard
             .lock()
@@ -400,7 +398,7 @@ pub fn poll(host: &mut dyn DictationHost, now: f64, tx: &mut Tx) -> bool {
             Phase::Finishing { stopped, .. } => Some(stopped + FINISH_LIMIT),
             _ => None,
         };
-        (attempt, since, fake, starting, d.prepare, d.wakes, words_due, gives_up, heard)
+        (attempt, since, fake, starting, d.prepare, wakes, words_due, gives_up, heard)
     };
     if fake && starting && now - since >= prepare {
         heard.push(Heard::Ready);
@@ -429,27 +427,8 @@ pub fn poll(host: &mut dyn DictationHost, now: f64, tx: &mut Tx) -> bool {
     if next.is_finite() {
         tx.wake_at(next.max(now + 0.001));
     }
-    let mark_slow = matches!(host.dictation().phase, Phase::Starting { slow: false, .. }) && now - since >= PREPARING_AFTER;
-    if mark_slow && let Phase::Starting { slow, .. } = &mut host.dictation_mut().phase {
-        *slow = true;
-        changed = true;
-    }
-    // The words never came: what was heard goes into the draft (never sent on its own, though a
-    // send asked for it: the user hasn't seen it), and the line says so.
-    if gives_up.is_some_and(|t| now + 1e-9 >= t) && heard.is_empty() {
-        let words = match &host.dictation().phase {
-            Phase::Finishing { heard: Some(w), .. } => format!("{}{}", w.stable, w.tentative),
-            _ => String::new(),
-        };
-        let says = if words.trim().is_empty() {
-            opencode_i18n::t!("rune.dictation.timedOutEmpty")
-        } else {
-            opencode_i18n::t!("rune.dictation.timedOut")
-        };
-        // Hex's thread is told to stop; a late answer is fenced off by the recording's attempt.
-        host.dictation_mut().fail(Problem { says: says.to_owned(), fix: None });
-        insert(host, &words);
-        return true;
+    if machine::tick_due(host.dictation(), now, heard.is_empty()) {
+        changed |= run(host, Event::Tick { now, heard_empty: heard.is_empty() }, Some(tx));
     }
     for h in heard {
         changed = true;

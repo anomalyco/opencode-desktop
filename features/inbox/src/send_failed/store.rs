@@ -218,7 +218,7 @@ impl Log {
             let build = {
                 let snapshot = s.clone();
                 // Its draft goes with its first row only.
-                s.left_draft = None;
+                s.left_draft = super::LeftDraft::None;
                 let (server, s) = (server.clone(), snapshot);
                 Box::new(move || row::build(server, s)) as opencode_storage::OutboxBuild
             };

@@ -22,6 +22,8 @@ const ROW: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
 const NARROW_INPUT: TextStyle = TextStyle::new(16.0, 440.0).lh(16.0).tracking(-0.04);
 /// How many results show before "Narrow your search" (`shown`'s 60).
 const SHOWN: usize = 60;
+/// How long a revealed row stays lit before starting its fade.
+const REVEAL_LIT_S: f64 = 0.05;
 /// How long a revealed row stays lit (`settings-search-reveal`).
 const REVEAL_S: f64 = 1.8;
 
@@ -59,16 +61,62 @@ pub struct Find {
     pub highlighted: Option<String>,
     /// The result opened last (`aria-current`), by id.
     pub selected: Option<String>,
-    /// The row a result or the palette opened, lit since `started` (the app's clock).
-    reveal: Option<Reveal>,
+    /// The row a result or the palette opened, lit then faded on the app's clock.
+    reveal: Reveal,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-struct Reveal {
-    target: String,
-    started: f64,
-    /// The first frame draws it lit; after that it fades.
-    fading: bool,
+/// Three-phase highlight-then-fade timer for the row opened from search or the command palette.
+#[derive(Clone, Debug, Default, PartialEq)]
+enum Reveal {
+    #[default]
+    Idle,
+    /// First frame draws it lit until `fade_at`; `end_at` carries when the subsequent fade ends.
+    Lit { target: String, fade_at: f64, end_at: f64 },
+    /// Fading out until `end_at`.
+    Fading { target: String, end_at: f64 },
+}
+
+enum RevealEvent {
+    Start { target: String, now: f64 },
+    Tick { now: f64 },
+    Clear,
+}
+
+enum RevealEffect {
+    None,
+    Changed { wake_after: Option<std::time::Duration> },
+}
+
+impl Reveal {
+    fn step(&mut self, event: RevealEvent) -> RevealEffect {
+        match (std::mem::take(self), event) {
+            (_, RevealEvent::Start { target, now }) => {
+                *self = Self::Lit { target, fade_at: now + REVEAL_LIT_S, end_at: now + REVEAL_S + 0.1 };
+                RevealEffect::Changed { wake_after: Some(std::time::Duration::from_millis(50)) }
+            }
+            (Self::Idle, RevealEvent::Clear | RevealEvent::Tick { .. }) => RevealEffect::None,
+            (Self::Lit { .. } | Self::Fading { .. }, RevealEvent::Clear) => {
+                RevealEffect::Changed { wake_after: None }
+            }
+            (Self::Lit { target, fade_at, end_at }, RevealEvent::Tick { now }) => {
+                if now > fade_at {
+                    *self = Self::Fading { target, end_at };
+                    RevealEffect::Changed { wake_after: Some(std::time::Duration::from_secs_f64(REVEAL_S + 0.1)) }
+                } else {
+                    *self = Self::Lit { target, fade_at, end_at };
+                    RevealEffect::None
+                }
+            }
+            (Self::Fading { target, end_at }, RevealEvent::Tick { now }) => {
+                if now > end_at {
+                    RevealEffect::Changed { wake_after: None }
+                } else {
+                    *self = Self::Fading { target, end_at };
+                    RevealEffect::None
+                }
+            }
+        }
+    }
 }
 
 /// Whether the rail shows results instead of its pages.
@@ -78,7 +126,11 @@ pub fn active(s: &dyn SettingsHost) -> bool {
 
 /// Whether row `target` is being revealed: `Some(true)` while lit, `Some(false)` while it fades.
 pub fn reveal_of(s: &dyn SettingsHost, target: &str) -> Option<bool> {
-    s.settings_pages().find.reveal.as_ref().filter(|r| r.target == target).map(|r| !r.fading)
+    match &s.settings_pages().find.reveal {
+        Reveal::Lit { target: t, .. } if t == target => Some(true),
+        Reveal::Fading { target: t, .. } if t == target => Some(false),
+        _ => None,
+    }
 }
 
 /// Clears the search, as Escape or closing Settings does.
@@ -91,34 +143,32 @@ pub fn clear(s: &mut dyn SettingsHost) {
 
 /// A page opened from the rail ends the reveal, as another view does.
 pub fn leave(s: &mut dyn SettingsHost) {
-    s.settings_pages_mut().find.reveal = None;
+    s.settings_pages_mut().find.reveal.step(RevealEvent::Clear);
 }
 
 /// Starts the lit row's fade after its first frame, and drops it once faded.
 pub fn poll(s: &mut dyn SettingsHost, tx: &mut Tx) -> bool {
     let now = s.clock();
-    let Some((fading, started)) = s.settings_pages().find.reveal.as_ref().map(|r| (r.fading, r.started)) else {
-        return false;
-    };
-    if !s.settings().open {
-        s.settings_pages_mut().find.reveal = None;
-        return true;
-    }
-    if !fading && now > started + 0.05 {
-        if let Some(r) = s.settings_pages_mut().find.reveal.as_mut() {
-            r.fading = true;
+    let open = s.settings().open;
+    match &s.settings_pages().find.reveal {
+        Reveal::Idle => return false,
+        Reveal::Lit { fade_at, .. } if open && now <= *fade_at => {
+            tx.wake_after(std::time::Duration::from_millis(50));
+            return false;
         }
-        tx.wake_after(std::time::Duration::from_secs_f64(REVEAL_S + 0.1));
-        return true;
+        Reveal::Fading { end_at, .. } if open && now <= *end_at => return false,
+        _ => {}
     }
-    if fading && now > started + REVEAL_S + 0.1 {
-        s.settings_pages_mut().find.reveal = None;
-        return true;
+    let event = if !open { RevealEvent::Clear } else { RevealEvent::Tick { now } };
+    match s.settings_pages_mut().find.reveal.step(event) {
+        RevealEffect::Changed { wake_after } => {
+            if let Some(d) = wake_after {
+                tx.wake_after(d);
+            }
+            true
+        }
+        RevealEffect::None => false,
     }
-    if !fading {
-        tx.wake_after(std::time::Duration::from_millis(50));
-    }
-    false
 }
 
 /// Every entry: the pages, then each page's rows, the plugins', the server and its projects.
@@ -430,10 +480,12 @@ fn reveal_entry(s: &mut dyn SettingsHost, e: &Entry, tx: &mut Tx) {
     }
     match &e.target {
         Some(target) => {
-            let started = s.clock();
-            s.settings_pages_mut().find.reveal = Some(Reveal { target: target.clone(), started, fading: false });
+            let now = s.clock();
+            let effect = s.settings_pages_mut().find.reveal.step(RevealEvent::Start { target: target.clone(), now });
             tx.scroll_center(format!("setting-{target}"));
-            tx.wake_after(std::time::Duration::from_millis(50));
+            if let RevealEffect::Changed { wake_after: Some(d) } = effect {
+                tx.wake_after(d);
+            }
         }
         None => tx.scroll_to_instant("settings", 0.0, 0.0),
     }

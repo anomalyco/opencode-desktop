@@ -70,16 +70,78 @@ pub struct Region {
     pub full: bool,
 }
 
-#[derive(Clone, Copy, Debug, Default)]
-struct Pointer {
-    x: f64,
-    y: f64,
-    lx: f64,
-    ly: f64,
-    vx: f64,
-    vy: f64,
-    inside: bool,
-    entering: bool,
+/// Pointer state over the pin board: outside, entering from outside (first move anchors `lx, ly`
+/// with no entry velocity), inside with tracked velocity, or re-entering during an active drag.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+enum Pointer {
+    #[default]
+    Outside,
+    Entering,
+    Inside { x: f64, y: f64, lx: f64, ly: f64, vx: f64, vy: f64 },
+    Reentering { x: f64, y: f64, vx: f64, vy: f64 },
+}
+
+#[derive(Clone, Copy, Debug)]
+enum PointerEvent {
+    Enter,
+    Move { x: f64, y: f64 },
+    Leave,
+    Down { x: f64, y: f64 },
+    Steer { x: f64, y: f64 },
+    Step { dt: f64 },
+}
+
+impl Pointer {
+    fn step(&mut self, event: PointerEvent) -> Option<(f64, f64, f64, f64)> {
+        match (*self, event) {
+            (Self::Outside, PointerEvent::Enter) => {
+                *self = Self::Entering;
+                None
+            }
+            (Self::Entering | Self::Reentering { .. }, PointerEvent::Enter) => None,
+            (Self::Inside { x, y, vx, vy, .. }, PointerEvent::Enter) => {
+                *self = Self::Reentering { x, y, vx, vy };
+                None
+            }
+            (Self::Outside | Self::Entering, PointerEvent::Move { x, y } | PointerEvent::Steer { x, y }) => {
+                *self = Self::Inside { x, y, lx: x, ly: y, vx: 0.0, vy: 0.0 };
+                None
+            }
+            (Self::Reentering { vx, vy, .. }, PointerEvent::Move { x, y } | PointerEvent::Steer { x, y }) => {
+                *self = Self::Inside { x, y, lx: x, ly: y, vx, vy };
+                None
+            }
+            (Self::Inside { lx, ly, vx, vy, .. }, PointerEvent::Move { x, y } | PointerEvent::Steer { x, y }) => {
+                *self = Self::Inside { x, y, lx, ly, vx, vy };
+                None
+            }
+            (_, PointerEvent::Leave) => {
+                *self = Self::Outside;
+                None
+            }
+            (Self::Inside { lx, ly, vx, vy, .. }, PointerEvent::Down { x, y }) => {
+                *self = Self::Inside { x, y, lx, ly, vx, vy };
+                None
+            }
+            (Self::Reentering { vx, vy, .. }, PointerEvent::Down { x, y }) => {
+                *self = Self::Reentering { x, y, vx, vy };
+                None
+            }
+            (Self::Outside | Self::Entering, PointerEvent::Down { .. } | PointerEvent::Step { .. }) => None,
+            (Self::Inside { x, y, lx, ly, mut vx, mut vy }, PointerEvent::Step { dt }) => {
+                vx += ((x - lx) / dt - vx) * 0.5;
+                vy += ((y - ly) / dt - vy) * 0.5;
+                *self = Self::Inside { x, y, lx: x, ly: y, vx, vy };
+                Some((x, y, vx, vy))
+            }
+            (Self::Reentering { x, y, mut vx, mut vy }, PointerEvent::Step { .. }) => {
+                vx *= 0.5;
+                vy *= 0.5;
+                *self = Self::Reentering { x, y, vx, vy };
+                Some((x, y, vx, vy))
+            }
+        }
+    }
 }
 
 /// What a ball hitting the wall did (`PinBoardHandle.collide`).
@@ -290,33 +352,35 @@ impl Pins {
         if self.still {
             return;
         }
-        let pt = &mut self.pointer;
-        pt.vx += ((pt.x - pt.lx) / dt - pt.vx) * 0.5;
-        pt.vy += ((pt.y - pt.ly) / dt - pt.vy) * 0.5;
-        pt.lx = pt.x;
-        pt.ly = pt.y;
+        let active = self.pointer.step(PointerEvent::Step { dt });
         let v = self.view;
         let cx = v.x0 + (COLS * v.pitch) / 2.0;
         let cy = v.y0 + (ROWS * v.pitch) / 2.0;
         // In a game the board leans only slightly after the ball, so the bricks stay readable.
         let game = machine::accepts_game_input(self.board);
         let lean = if game { 0.12 } else { 0.6 };
-        let aim_x = clamp1(((cx - pt.x) / (v.w * 0.5)) * 1.4);
-        let aim_y = clamp1(((cy - pt.y) / (v.h * 0.5)) * 1.4);
-        let tx = if pt.inside { lerp(REST_TILT[0], aim_x, lean) } else { REST_TILT[0] };
-        let ty = if pt.inside { lerp(REST_TILT[1], aim_y, lean) } else { REST_TILT[1] };
+        let (tx, ty) = match active {
+            Some((px, py, _, _)) => {
+                let aim_x = clamp1(((cx - px) / (v.w * 0.5)) * 1.4);
+                let aim_y = clamp1(((cy - py) / (v.h * 0.5)) * 1.4);
+                (lerp(REST_TILT[0], aim_x, lean), lerp(REST_TILT[1], aim_y, lean))
+            }
+            None => (REST_TILT[0], REST_TILT[1]),
+        };
         let ease = 1.0 - (-dt * 4.0).exp();
         self.tilt[0] += (tx - self.tilt[0]) * ease;
         self.tilt[1] += (ty - self.tilt[1]) * ease;
-        let (px, py, pvx, pvy, inside) = (pt.x, pt.y, pt.vx, pt.vy, pt.inside);
         // A held button keeps knocking along the drag path, spaced so it reads as a trail.
-        if machine::drag_knock_due(self.board, px, py, v.pitch) {
+        if let Some((px, py, pvx, pvy)) = active
+            && machine::drag_knock_due(self.board, px, py, v.pitch)
+        {
             self.board = machine::step(self.board, Event::PointerDragged { x: px, y: py });
             self.knock(px, py, 16.0, 260.0, [pvx * 0.25, pvy * 0.25], now, rng, cues);
         }
         let cell = v.pitch;
         let (mut air, mut loose) = (0usize, 0usize);
         let sink = if game { 36.0 } else { 55.0 };
+        let (pvx, pvy) = active.map_or((0.0, 0.0), |(_, _, vx, vy)| (vx, vy));
         let mut activity = (tx - self.tilt[0]).abs() + (ty - self.tilt[1]).abs() + (pvx.abs() + pvy.abs()) / 1000.0;
         let closing = matches!(self.board, Board::Closing { .. });
         for i in 0..self.pins.len() {
@@ -330,7 +394,7 @@ impl Pins {
             }
             match p.phase {
                 PinPhase::Home => {
-                    let dist = if inside { (p.hx - px).hypot(p.hy - py) } else { f64::INFINITY };
+                    let dist = active.map_or(f64::INFINITY, |(px, py, _, _)| (p.hx - px).hypot(p.hy - py));
                     let f = if dist < sink { 1.0 - dist / sink } else { 0.0 };
                     let target = f * f * 0.9;
                     p.zv += ((target - p.z) * 260.0 - p.zv * 14.0) * dt;
@@ -458,27 +522,21 @@ impl Pins {
         if machine::accepts_game_input(self.board) || self.still {
             return;
         }
-        self.pointer.entering = true;
+        self.pointer.step(PointerEvent::Enter);
     }
 
     pub fn pointer_move(&mut self, x: f64, y: f64) {
         if machine::accepts_game_input(self.board) || self.still {
             return;
         }
-        self.pointer.x = x;
-        self.pointer.y = y;
-        if std::mem::take(&mut self.pointer.entering) {
-            self.pointer.lx = x;
-            self.pointer.ly = y;
-        }
-        self.pointer.inside = true;
+        self.pointer.step(PointerEvent::Move { x, y });
     }
 
     pub fn pointer_leave(&mut self) {
         if machine::dragging(self.board) || machine::accepts_game_input(self.board) || self.still {
             return;
         }
-        self.pointer.inside = false;
+        self.pointer.step(PointerEvent::Leave);
     }
 
     /// A press on the panel, off its controls: knocks pins out. False when the board takes none.
@@ -486,8 +544,7 @@ impl Pins {
         if !machine::accepts_pointer(self.board) || self.still {
             return false;
         }
-        self.pointer.x = x;
-        self.pointer.y = y;
+        self.pointer.step(PointerEvent::Down { x, y });
         self.board = machine::step(self.board, Event::PointerDown { x, y });
         self.knock(x, y, 24.0, 560.0, [0.0, 0.0], now, rng, cues);
         true
@@ -577,7 +634,7 @@ impl Pins {
             return;
         }
         self.board = next;
-        self.pointer.inside = false;
+        self.pointer.step(PointerEvent::Leave);
         self.piles_top.fill(0);
         self.piles_floor.fill(0);
         // Pins still loose from earlier clicks hurry home so the wall is whole when the ball is served.
@@ -599,9 +656,7 @@ impl Pins {
         if !machine::accepts_game_input(self.board) {
             return;
         }
-        self.pointer.x = x;
-        self.pointer.y = y;
-        self.pointer.inside = true;
+        self.pointer.step(PointerEvent::Steer { x, y });
     }
 
     /// Ends game mode: lost bricks fly back up from below the panel, sweeping in column by column.
@@ -611,7 +666,7 @@ impl Pins {
             return;
         }
         self.board = next;
-        self.pointer.inside = false;
+        self.pointer.step(PointerEvent::Leave);
         let (pitch, h) = (self.view.pitch, self.view.h);
         for p in &mut self.pins {
             if p.phase == PinPhase::Home {

@@ -131,17 +131,77 @@ fn map(fields: impl IntoIterator<Item = (&'static str, Data)>) -> Data {
     Data::Map(fields.into_iter().filter(|(_, v)| *v != Data::Nil).map(|(k, v)| (k.to_owned(), v)).collect())
 }
 
+/// Per-window updater lifecycle: idle before startup or when another copy holds the profile,
+/// waiting for storage to decide profile ownership, or attached to the shared service.
+#[derive(Default)]
+enum Lifecycle {
+    #[default]
+    Idle,
+    /// Its start waits for storage to say whether this copy holds the profile.
+    WaitingProfile,
+    /// Attached to the shared updater service; `seen` is the revision this window last showed.
+    Running {
+        service: Rc<RefCell<UpdaterService>>,
+        seen: u64,
+    },
+}
+
+enum LifecycleEvent {
+    StartRequested { headless: bool, holds_profile: Option<bool> },
+    ProfileDecided { headless: bool, holds_profile: bool },
+    Attached { service: Rc<RefCell<UpdaterService>>, seen: u64 },
+    RevisionSeen(u64),
+    Closing,
+}
+
+enum LifecycleEffect {
+    None,
+    Attach,
+    Detach(Rc<RefCell<UpdaterService>>),
+}
+
+fn step(state: &mut Lifecycle, event: LifecycleEvent) -> LifecycleEffect {
+    match (std::mem::replace(state, Lifecycle::Idle), event) {
+        (
+            Lifecycle::Idle | Lifecycle::WaitingProfile,
+            LifecycleEvent::StartRequested { headless: false, holds_profile: Some(true) },
+        ) => LifecycleEffect::Attach,
+        (
+            Lifecycle::Idle | Lifecycle::WaitingProfile,
+            LifecycleEvent::StartRequested { headless: false, holds_profile: None },
+        ) => {
+            *state = Lifecycle::WaitingProfile;
+            LifecycleEffect::None
+        }
+        (Lifecycle::WaitingProfile, LifecycleEvent::StartRequested { holds_profile: Some(false), .. }) => {
+            LifecycleEffect::None
+        }
+        (Lifecycle::WaitingProfile, LifecycleEvent::ProfileDecided { headless: false, holds_profile: true }) => {
+            LifecycleEffect::Attach
+        }
+        (Lifecycle::WaitingProfile, LifecycleEvent::ProfileDecided { .. }) => LifecycleEffect::None,
+        (Lifecycle::Idle, LifecycleEvent::Attached { service, seen }) => {
+            *state = Lifecycle::Running { service, seen };
+            LifecycleEffect::None
+        }
+        (Lifecycle::Running { service, .. }, LifecycleEvent::RevisionSeen(seen)) => {
+            *state = Lifecycle::Running { service, seen };
+            LifecycleEffect::None
+        }
+        (Lifecycle::Running { service, .. }, LifecycleEvent::Closing) => LifecycleEffect::Detach(service),
+        (Lifecycle::WaitingProfile, LifecycleEvent::Closing) => LifecycleEffect::None,
+        (prev, _) => {
+            *state = prev;
+            LifecycleEffect::None
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct Updater {
     pub version: String,
     pub channel: String,
-    /// The update service of an installed build, which every window shares; none in a build
-    /// without an updater.
-    service: Option<Rc<RefCell<UpdaterService>>>,
-    /// The service's revision this window last showed.
-    seen: u64,
-    /// Its start waits for the storage to say whether this copy holds the profile.
-    owed: bool,
+    state: Lifecycle,
 }
 
 /// A check or install a plugin waits on, answered by the service's ticket.
@@ -160,21 +220,28 @@ thread_local! {
 }
 
 impl Updater {
+    fn service_ref(&self) -> Option<&Rc<RefCell<UpdaterService>>> {
+        match &self.state {
+            Lifecycle::Running { service, .. } => Some(service),
+            Lifecycle::Idle | Lifecycle::WaitingProfile => None,
+        }
+    }
+
     /// The update service, while one runs: the interface a UI drives (state, progress, check,
     /// install).
     pub fn service(&self) -> Option<Rc<RefCell<UpdaterService>>> {
-        self.service.clone()
+        self.service_ref().cloned()
     }
 
     /// The service's revision: grows whenever what a UI draws of it changes.
     pub fn revision(&self) -> u64 {
-        self.service.as_ref().map_or(0, |s| s.borrow().revision())
+        self.service_ref().map_or(0, |s| s.borrow().revision())
     }
 
     /// This window closes. When it's the last, the app quits, and a ready update installs on the
     /// way out (Windows).
     pub fn closing(&mut self) {
-        let Some(service) = self.service.take() else { return };
+        let LifecycleEffect::Detach(service) = step(&mut self.state, LifecycleEvent::Closing) else { return };
         let left = WINDOWS.get().saturating_sub(1);
         WINDOWS.set(left);
         if left == 0 {
@@ -210,13 +277,15 @@ pub fn finish_quit() {
 
 /// A start that waited for the storage's decision (`start_if_packaged`).
 pub fn poll_owed(s: &mut dyn UpdaterHost) {
-    if s.updater().owed
-        && let Some(holds) = opencode_storage::holds_profile()
-    {
-        s.updater_mut().owed = false;
-        if holds {
-            start_if_packaged(s);
-        }
+    if !matches!(s.updater().state, Lifecycle::WaitingProfile) {
+        return;
+    }
+    let Some(holds_profile) = opencode_storage::holds_profile() else { return };
+    if matches!(
+        step(&mut s.updater_mut().state, LifecycleEvent::ProfileDecided { headless: rune::is_headless(), holds_profile }),
+        LifecycleEffect::Attach
+    ) {
+        attach_service(s);
     }
 }
 
@@ -224,20 +293,29 @@ pub fn poll_owed(s: &mut dyn UpdaterHost) {
 /// after the first frame; the service's worker finds out whether this build updates
 /// (`platform::make`) off the UI thread, so this only creates channels and starts the thread.
 pub fn start_if_packaged(s: &mut dyn UpdaterHost) {
-    if rune::is_headless() || s.updater().service.is_some() {
+    let headless = rune::is_headless();
+    if headless || matches!(s.updater().state, Lifecycle::Running { .. }) {
         return;
     }
     // Only the copy that holds the profile checks, downloads and stages: a second copy of the app
     // (macOS: `open -n`, a shell) would stage into the same folders. Undecided yet (a relaunch
     // waiting for its old copy): once it is (`poll_owed`).
-    match opencode_storage::holds_profile() {
-        Some(true) => {}
-        Some(false) => return,
-        None => {
-            s.updater_mut().owed = true;
-            return;
-        }
+    let holds_profile = opencode_storage::holds_profile();
+    if holds_profile == Some(false) && matches!(s.updater().state, Lifecycle::Idle) {
+        return;
     }
+    if holds_profile.is_none() && matches!(s.updater().state, Lifecycle::WaitingProfile) {
+        return;
+    }
+    if matches!(
+        step(&mut s.updater_mut().state, LifecycleEvent::StartRequested { headless, holds_profile }),
+        LifecycleEffect::Attach
+    ) {
+        attach_service(s);
+    }
+}
+
+fn attach_service(s: &mut dyn UpdaterHost) {
     let waker = s.waker();
     let shared = SHARED.with(|shared| shared.borrow().clone());
     let service = match shared {
@@ -261,8 +339,7 @@ pub fn start_if_packaged(s: &mut dyn UpdaterHost) {
     let updater = s.updater_mut();
     updater.version = version;
     updater.channel = channel;
-    updater.seen = seen;
-    updater.service = Some(service);
+    step(&mut updater.state, LifecycleEvent::Attached { service, seen });
 }
 
 /// This build's platform updater, on the updater's worker thread.
@@ -276,8 +353,8 @@ fn make_platform() -> Option<std::sync::Arc<dyn platform::Platform>> {
 /// quits the app, which saves every window first (`App::on_quit`), so the update opens each of
 /// them again.
 pub fn poll(s: &mut dyn UpdaterHost, tx: &mut Tx) -> bool {
-    let Some(service) = s.updater().service.clone() else { return false };
-    let seen = s.updater().seen;
+    let Lifecycle::Running { service, seen } = &s.updater().state else { return false };
+    let (service, seen) = (service.clone(), *seen);
     let (quit, relaunch, revision, version) = {
         let mut service = service.borrow_mut();
         service.poll();
@@ -290,7 +367,7 @@ pub fn poll(s: &mut dyn UpdaterHost, tx: &mut Tx) -> bool {
     {
         let updater = s.updater_mut();
         updater.version = version;
-        updater.seen = revision;
+        step(&mut updater.state, LifecycleEvent::RevisionSeen(revision));
     }
     answer_waiting(&service);
     if let Some(err) = service.borrow_mut().take_apply_error() {
@@ -331,7 +408,7 @@ const NO_UPDATER: &str = "No updater runs in this build";
 /// Where the updater stands, as the `UpdaterState` record; nil when no updater runs, or while
 /// the service is still finding out.
 pub fn state_data(s: &dyn UpdaterHost) -> Data {
-    let Some(service) = &s.updater().service else { return Data::Nil };
+    let Some(service) = s.updater().service_ref() else { return Data::Nil };
     let service = service.borrow();
     match service.snapshot().state {
         View::Starting | View::Disabled => Data::Nil,
@@ -363,7 +440,7 @@ fn view_data(view: &View, snapshot: &Snapshot) -> Data {
 
 /// `Updater:CheckAsync()`: checks now and answers with what the check found.
 pub fn check_async(s: &dyn UpdaterHost, done: Completer) {
-    let Some(service) = &s.updater().service else {
+    let Some(service) = s.updater().service_ref() else {
         done.complete(map([("phase", Data::String("error".into())), ("error", Data::String(NO_UPDATER.into()))]));
         return;
     };
@@ -375,7 +452,7 @@ pub fn check_async(s: &dyn UpdaterHost, done: Completer) {
 /// `Updater:InstallAsync()`: restarts into the ready version, or opens a required download;
 /// answers nil once it handed off.
 pub fn install_async(s: &dyn UpdaterHost, done: Completer) {
-    let Some(service) = s.updater().service.as_ref().filter(|s| s.borrow().snapshot().state != View::Disabled) else {
+    let Some(service) = s.updater().service_ref().filter(|s| s.borrow().snapshot().state != View::Disabled) else {
         done.complete(Data::String(NO_UPDATER.into()));
         return;
     };

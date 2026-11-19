@@ -69,7 +69,11 @@ pub fn build(server: String, s: Sent) -> OutboxPut {
         durable: s.journaled,
         legacy_json: None,
     };
-    OutboxPut { row, blobs, clear_documents: s.left_draft.into_iter().map(|k| (k, s.left_rev)).collect() }
+    let clear_documents = match s.left_draft {
+        super::LeftDraft::None => Vec::new(),
+        super::LeftDraft::Pending { key, rev } => vec![(key, rev)],
+    };
+    OutboxPut { row, blobs, clear_documents }
 }
 
 /// The columns a later step changes: where it is, why, and what waits on it.
@@ -151,7 +155,7 @@ pub fn sent(entry: OutboxEntry) -> Sent {
     let phase = match row.state.as_str() {
         _ if missing => Phase::Failed { why: "Couldn't read its attachment".into(), restored: false },
         "Waiting" => Phase::Waiting { why },
-        "Sending" => Phase::Sending { by: 0, then, handoff: 0 },
+        "Sending" => Phase::Sending { by: 0, then, handoff: 0, slow: super::SlowSend::Unstamped },
         "Unconfirmed" => Phase::Unconfirmed { why, then },
         "Accepted" => Phase::Accepted,
         _ => Phase::Failed { why, restored: row.restored },
@@ -170,8 +174,6 @@ pub fn sent(entry: OutboxEntry) -> Sent {
         seq: row.seq,
         row: super::store::Row::Written,
         handoffs: 0,
-        sending: None,
-        left_draft: None,
-        left_rev: 0,
+        left_draft: super::LeftDraft::None,
     }
 }

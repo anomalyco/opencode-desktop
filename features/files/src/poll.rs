@@ -86,13 +86,6 @@ pub fn poll_files(host: &mut dyn FilesHost, tx: &mut Tx) -> bool {
         }
     }
     changed |= video::poll(host, tx);
-    if host.files().dirty {
-        host.files_mut().dirty = false;
-        if let Some(sid) = host.active_session_id().map(str::to_owned) {
-            ops::ensure_workspace_files(host, &sid);
-            changed = true;
-        }
-    }
     // A session that comes on screen reads what changed while it was off.
     let session = host.active_session_id().map(str::to_owned);
     if session != host.files().shown_session {

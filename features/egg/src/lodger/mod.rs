@@ -8,6 +8,7 @@ mod steps;
 pub mod render;
 
 use super::wordmark::{self, Event, State};
+use super::{FrameLoop, FrameLoopEvent};
 
 pub const W: f64 = 234.0;
 pub const HOLE: [f64; 2] = [222.0, 15.0];
@@ -132,8 +133,7 @@ pub struct Lodger {
     pub drop: Option<[f64; 4]>,
     /// The frame clock and whether a frame is wanted (`timers.raf`, `timers.last`).
     pub now: f64,
-    pub last: f64,
-    pub wanted: bool,
+    pub frames: FrameLoop,
     pub still: bool,
     /// Brick Breaker may start from a drop on the composer (`play`).
     pub play: bool,
@@ -153,8 +153,7 @@ impl Lodger {
             stage,
             drop: None,
             now: 0.0,
-            last: 0.0,
-            wanted: false,
+            frames: FrameLoop::Idle,
             still,
             play: true,
             drawn: render::Drawn::default(),
@@ -163,11 +162,7 @@ impl Lodger {
 
     /// Asks for frames from `now` (`wake`).
     pub fn wake(&mut self, now: f64) {
-        if self.wanted {
-            return;
-        }
-        self.last = now - 1.0 / 60.0;
-        self.wanted = true;
+        self.frames.step(FrameLoopEvent::Wake { now });
     }
 
     fn reset_poses(&mut self, opacity: f64) {
@@ -186,10 +181,8 @@ impl Lodger {
     /// One frame (`frame`). Each step reads the state again: one step can hand over to the next
     /// within the same frame. Returns whether to keep the frames coming.
     pub fn frame(&mut self, now: f64, s: &mut Sender) -> bool {
-        self.wanted = false;
+        let dt = self.frames.step(FrameLoopEvent::BeginFrame { now }).unwrap_or(1.0 / 60.0);
         self.now = now;
-        let dt = (now - self.last).clamp(1.0 / 240.0, 1.0 / 30.0);
-        self.last = now;
         if *s.state == State::Drag {
             self.drag_out(dt, s);
         }
@@ -214,8 +207,8 @@ impl Lodger {
         self.render();
         // Desktop draws only in these frames: a squash still running when they stop stays
         // drawn as it was until the next one, and so does it here.
-        self.wanted |= wordmark::animating(*s.state);
-        self.wanted
+        self.frames.step(FrameLoopEvent::EndFrame { now, keep_running: wordmark::animating(*s.state) });
+        self.frames.is_running()
     }
 
     /// Gaze toward the pointer, snapped to 0.08 units (about 0.2 pt), so far-off pointer moves

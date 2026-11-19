@@ -300,7 +300,6 @@ pub struct FilesPane {
     pub sessions: HashMap<String, SessionFiles>,
     pub empty_doc: CodeDocState,
     pub filter: TextEdit,
-    pub dirty: bool,
     pub wrap: markdown::WrapPrefs,
     pub(crate) dir_fetch: Latest<DirListing>,
     /// Each file's reads (`content`).
@@ -334,7 +333,6 @@ impl Default for FilesPane {
             spoken_match: None,
             empty_doc: CodeDocState::default(),
             filter: TextEdit::new(""),
-            dirty: false,
             wrap: markdown::WrapPrefs::default(),
             dir_fetch: Latest::default(),
             reads: Default::default(),

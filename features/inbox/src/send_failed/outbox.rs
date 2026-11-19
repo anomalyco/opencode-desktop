@@ -188,11 +188,10 @@ fn enqueue_prompt_as(host: &mut dyn SendFailedHost, mut sent: Sent, write: Write
         && !host.composer().text.is_empty()
         && Entry::of(host.composer()) == sent.draft
         && host.unsent().store != Store::Memory
+        && let Some(key) = host.active_draft_document()
     {
-        sent.left_draft = host.active_draft_document();
-        if let Some(key) = sent.left_draft.clone() {
-            sent.left_rev = host.hand_off_draft_doc(&key);
-        }
+        let rev = host.hand_off_draft_doc(&key);
+        sent.left_draft = super::LeftDraft::Pending { key, rev };
     }
     let offline = host.is_reconnect_down() || host.live_writer().is_none();
     sent.phase = if preparing {
@@ -293,7 +292,8 @@ pub fn pump_outbox(host: &mut dyn SendFailedHost) -> bool {
         return false;
     };
     let by = host.peer_token();
-    super::step_send(host, &id, Event::Send { by });
+    let now = host.clock();
+    super::step_send(host, &id, Event::Send { by, now });
     let Some(Phase::Sending { handoff, .. }) = host.unsent().get(&id).map(|s| s.phase.clone()) else { return true };
     let write = operation.write(session, prompt);
     if host.unsent().store == Store::Memory {

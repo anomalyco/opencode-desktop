@@ -25,11 +25,68 @@ const SETTLE: f64 = 0.25;
 /// How many opened or shut rows the window keeps.
 const OPENED: usize = 200;
 
+/// Debounce state for a pending persistence value waiting to hold still for a settle delay.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) enum Settle<T> {
+    #[default]
+    Idle,
+    /// Holding `value` unchanged since `since`; ready to persist once `now - since >= delay`.
+    Waiting { value: T, since: f64 },
+}
+
+pub(crate) enum SettleEvent<T> {
+    /// Current value matches what is already persisted (or was written immediately): reset to idle.
+    Matched,
+    /// Current value differs from what is persisted; arm or complete the settle delay.
+    Changed { value: T, now: f64, delay: f64 },
+}
+
+pub(crate) enum SettleEffect<T> {
+    None,
+    /// Wait until this clock timestamp before polling again.
+    WakeAt(f64),
+    /// The value held still for `delay`: persist it now.
+    Ready(T),
+}
+
+impl<T: PartialEq> Settle<T> {
+    pub(crate) fn is_idle(&self) -> bool {
+        matches!(self, Self::Idle)
+    }
+
+    /// Read-only check for the hot path: returns `Some(wake_at)` when already waiting on the same
+    /// value and `delay` has not elapsed yet, so callers avoid mutating `Tracked` state.
+    pub(crate) fn wake_if(&self, same: impl FnOnce(&T) -> bool, now: f64, delay: f64) -> Option<f64> {
+        match self {
+            Self::Waiting { value, since } if same(value) && now - *since + 1e-9 < delay => Some(*since + delay),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn step(&mut self, event: SettleEvent<T>) -> SettleEffect<T> {
+        match (std::mem::take(self), event) {
+            (_, SettleEvent::Matched) => SettleEffect::None,
+            (Self::Waiting { value: prev, since }, SettleEvent::Changed { value, now, delay }) if prev == value => {
+                if now - since + 1e-9 >= delay {
+                    SettleEffect::Ready(value)
+                } else {
+                    *self = Self::Waiting { value: prev, since };
+                    SettleEffect::WakeAt(since + delay)
+                }
+            }
+            (_, SettleEvent::Changed { value, now, delay }) => {
+                *self = Self::Waiting { value, since: now };
+                SettleEffect::WakeAt(now + delay)
+            }
+        }
+    }
+}
+
 /// What the window last wrote, and the change waiting to hold still.
 #[derive(Default)]
 pub struct Kept {
     written: Option<Value>,
-    candidate: Option<(Value, f64)>,
+    candidate: Settle<Value>,
     /// The toggled disclosures, oldest toggle first, for keeping the newest [`OPENED`].
     order: Vec<String>,
 }
@@ -130,32 +187,25 @@ fn write_places(host: &mut dyn RestoreHost, now: f64, tx: &mut Tx) {
         return;
     }
     if host.kept_places().written.as_ref() == Some(&value) {
-        if host.kept_places().candidate.is_some() {
-            host.kept_places_mut().candidate = None;
+        if !host.kept_places().candidate.is_idle() {
+            host.kept_places_mut().candidate.step(SettleEvent::Matched);
         }
         return;
     }
-    let settle_at = match &host.kept_places().candidate {
-        Some((v, at)) if *v == value => Some(*at),
-        _ => None,
-    };
-    match settle_at {
-        Some(at) if now - at + 1e-9 >= SETTLE => {
+    if let Some(at) = host.kept_places().candidate.wake_if(|v| *v == value, now, SETTLE) {
+        tx.wake_at(at);
+        return;
+    }
+    match host.kept_places_mut().candidate.step(SettleEvent::Changed { value, now, delay: SETTLE }) {
+        SettleEffect::Ready(value) => {
             crate::doc::save_window_key(host, KEY, &value);
-            {
-                let kept = host.kept_places_mut();
-                kept.written = Some(value);
-                kept.candidate = None;
-            }
+            host.kept_places_mut().written = Some(value);
             // The boot preview follows the place to its turn, so a launch after a crash
             // draws it in its first frame too.
             crate::preview::preview_place(host);
         }
-        Some(at) => tx.wake_at(at + SETTLE),
-        None => {
-            host.kept_places_mut().candidate = Some((value, now));
-            tx.wake_at(now + SETTLE);
-        }
+        SettleEffect::WakeAt(at) => tx.wake_at(at),
+        SettleEffect::None => {}
     }
 }
 

@@ -3,7 +3,7 @@
 use rune::machine::Effects;
 
 pub use opencode_runtime::machines::send_failed::{
-    AfterCheck, Effect, Event, Found, Operation, Phase, Verdict, step_fields,
+    AfterCheck, Effect, Event, Found, Operation, Phase, SLOW_SEND, SlowSend, Verdict, step_fields,
 };
 
 use super::Sent;
