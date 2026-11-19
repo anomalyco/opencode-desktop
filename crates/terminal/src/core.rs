@@ -1,5 +1,6 @@
 //! Safe headless `libghostty-vt` emulator (`VtCore`): lifecycle, VT byte feeding, resize reflow,
-//! scrollback, and selection. Input encoding lives in `input.rs`; render extraction in `render_extract.rs`.
+//! and scrollback. Selection lives in `selection.rs`; input encoding in `input.rs`; render
+//! extraction in `render_extract.rs`.
 
 use std::collections::{HashMap, VecDeque};
 use std::ffi::{c_char, c_int, c_void};
@@ -31,6 +32,8 @@ unsafe extern "C" fn on_write_pty(
         return;
     }
     let state = unsafe { &mut *(userdata as *mut CallbackState) };
+    // SAFETY: `data` is checked non-null and `len > 0` above, and `GhosttyTerminalWritePtyFn`
+    // guarantees `data` points to `len` readable bytes for the duration of the callback.
     let slice = unsafe { std::slice::from_raw_parts(data, len) };
     state.pty_writes.extend_from_slice(slice);
 }
@@ -64,6 +67,8 @@ unsafe extern "C" fn on_color_scheme(
         return false;
     }
     let state = unsafe { &*(userdata as *const CallbackState) };
+    // SAFETY: `out_scheme` is checked non-null above, and `GhosttyTerminalColorSchemeFn`
+    // guarantees it is a valid, aligned out-pointer for `GhosttyColorScheme` (`c_int`).
     unsafe {
         *out_scheme = if state.dark_scheme {
             GHOSTTY_COLOR_SCHEME_DARK
@@ -83,6 +88,8 @@ unsafe extern "C" fn on_size(
         return false;
     }
     let state = unsafe { &*(userdata as *const CallbackState) };
+    // SAFETY: `out_size` is checked non-null above, and `GhosttyTerminalSizeFn` guarantees it
+    // is a valid, aligned out-pointer for `GhosttySizeReportSize`.
     unsafe {
         *out_size = state.size;
     }
@@ -140,6 +147,9 @@ impl VtCore {
         let mut mouse_encoder: GhosttyMouseEncoder = std::ptr::null_mut();
         let mut mouse_event: GhosttyMouseEvent = std::ptr::null_mut();
 
+        // SAFETY: `cols` and `rows` are clamped `>= 1`, `NULL` selects the default allocator,
+        // each out-pointer is a valid stack slot, and on partial failure every non-null handle
+        // already created is freed once before returning `Err`.
         unsafe {
             check(ffi::ghostty_terminal_new(std::ptr::null(), &mut term, cols, rows), "terminal_new")?;
             if let Err(e) = (|| -> Result<(), String> {
@@ -321,6 +331,9 @@ impl VtCore {
         let bg = theme.bg.to_ffi();
         let cursor = theme.cursor.to_ffi();
         let palette = theme.full_palette_ffi();
+        // SAFETY: `self.term` was created in `VtCore::new` and is freed only in `Drop`; `fg`,
+        // `bg`, and `cursor` are valid `GhosttyColorRgb` values, and `palette` is a 256-element
+        // `GhosttyColorRgb` array as required by `GHOSTTY_TERMINAL_OPT_COLOR_PALETTE`.
         unsafe {
             let _ = ffi::ghostty_terminal_set(
                 self.term,
@@ -369,6 +382,8 @@ impl VtCore {
         };
         let mut buf = [0u8; 32];
         let mut written = 0usize;
+        // SAFETY: `buf` is valid writable stack storage of `buf.len()` bytes and `&mut written`
+        // is a valid out-pointer.
         let rc = unsafe {
             ffi::ghostty_color_scheme_report_encode(
                 scheme,
@@ -395,6 +410,9 @@ impl VtCore {
     /// The emulator's id for the row the cursor is on, while it's in view.
     fn cursor_row_id(&mut self) -> Option<u128> {
         let mut cursor = GhosttyRenderStateCursor::default();
+        // SAFETY: `self.render_state`, `self.term`, and `self.row_iter` were created in
+        // `VtCore::new` and are freed only in `Drop`; `&mut self` ensures exclusive access,
+        // `cursor` has `size` initialized via `Default`, and each out-pointer matches its key.
         unsafe {
             let _ = ffi::ghostty_render_state_update(self.render_state, self.term);
             let _ = ffi::ghostty_render_state_get(self.render_state, GHOSTTY_RENDER_STATE_DATA_CURSOR, (&mut cursor as *mut GhosttyRenderStateCursor).cast());
@@ -404,9 +422,13 @@ impl VtCore {
             return None;
         }
         let mut row = 0;
+        // SAFETY: `self.row_iter` was just populated from `self.render_state` with no intervening
+        // render-state update.
         while unsafe { ffi::ghostty_render_state_row_iterator_next(self.row_iter) } {
             if row == cursor.viewport_y {
                 let mut id = GhosttyRenderStateRowId::default();
+                // SAFETY: `self.row_iter` is positioned on a row (`next` returned `true`) and
+                // `&mut id` matches `GhosttyRenderStateRowId*`.
                 unsafe {
                     let _ = ffi::ghostty_render_state_row_get(self.row_iter, GHOSTTY_RENDER_STATE_ROW_DATA_ID, (&mut id as *mut GhosttyRenderStateRowId).cast());
                 }
@@ -470,6 +492,8 @@ impl VtCore {
     }
 
     pub fn scroll(&mut self, op: ScrollOp) {
+        // SAFETY: `GhosttyTerminalScrollViewport` is a `#[repr(C)]` POD struct of an integer tag
+        // and integer union for which all-zeros is a valid bit pattern.
         let mut sv: GhosttyTerminalScrollViewport = unsafe { std::mem::zeroed() };
         match op {
             ScrollOp::Top => sv.tag = GHOSTTY_SCROLL_VIEWPORT_TOP,
@@ -487,225 +511,32 @@ impl VtCore {
                 sv.value.delta_prompt = delta;
             }
         }
+        // SAFETY: `self.term` was created in `VtCore::new` and is freed only in `Drop`, and `sv`
+        // has its tag and matching union payload initialized above.
         unsafe {
             ffi::ghostty_terminal_scroll_viewport(self.term, sv);
         }
     }
 
-    pub fn select(&mut self, op: SelectionOp) {
-        self.selection_changed = true;
-        match op {
-            SelectionOp::Clear => {
-                unsafe {
-                    let _ = ffi::ghostty_terminal_set(
-                        self.term,
-                        GHOSTTY_TERMINAL_OPT_SELECTION,
-                        std::ptr::null(),
-                    );
-                }
-                self.has_selection = false;
-            }
-            SelectionOp::All => {
-                let mut sel = GhosttySelection::default();
-                if unsafe { ffi::ghostty_terminal_select_all(self.term, &mut sel) }
-                    == GHOSTTY_SUCCESS
-                {
-                    self.apply_selection(&sel);
-                }
-            }
-            SelectionOp::Word(pt) => {
-                const WORD_BOUNDARIES: &[u32] = &[
-                    ' ' as u32, '\t' as u32, '\'' as u32, '"' as u32, ';' as u32, ':' as u32,
-                    ',' as u32, '(' as u32, ')' as u32, '[' as u32, ']' as u32, '{' as u32,
-                    '}' as u32, '<' as u32, '>' as u32, '|' as u32, '&' as u32, '!' as u32,
-                    '?' as u32, '`' as u32, '$' as u32,
-                ];
-                let mut gref = GhosttyGridRef::default();
-                if unsafe { ffi::ghostty_terminal_grid_ref(self.term, pt.to_ffi(), &mut gref) }
-                    == GHOSTTY_SUCCESS
-                {
-                    let opts = GhosttyTerminalSelectWordOptions {
-                        size: std::mem::size_of::<GhosttyTerminalSelectWordOptions>(),
-                        grid_ref: gref,
-                        boundary_codepoints: WORD_BOUNDARIES.as_ptr(),
-                        boundary_codepoints_len: WORD_BOUNDARIES.len(),
-                    };
-                    let mut sel = GhosttySelection::default();
-                    if unsafe { ffi::ghostty_terminal_select_word(self.term, &opts, &mut sel) }
-                        == GHOSTTY_SUCCESS
-                    {
-                        self.apply_selection(&sel);
-                    }
-                }
-            }
-            SelectionOp::Line(pt) => {
-                let mut gref = GhosttyGridRef::default();
-                if unsafe { ffi::ghostty_terminal_grid_ref(self.term, pt.to_ffi(), &mut gref) }
-                    == GHOSTTY_SUCCESS
-                {
-                    let opts = GhosttyTerminalSelectLineOptions {
-                        size: std::mem::size_of::<GhosttyTerminalSelectLineOptions>(),
-                        grid_ref: gref,
-                        whitespace: std::ptr::null(),
-                        whitespace_len: 0,
-                        semantic_prompt_boundary: false,
-                    };
-                    let mut sel = GhosttySelection::default();
-                    if unsafe { ffi::ghostty_terminal_select_line(self.term, &opts, &mut sel) }
-                        == GHOSTTY_SUCCESS
-                    {
-                        self.apply_selection(&sel);
-                    }
-                }
-            }
-            SelectionOp::Range {
-                start,
-                end,
-                rectangular,
-            } => {
-                let mut sref = GhosttyGridRef::default();
-                let mut eref = GhosttyGridRef::default();
-                let ok_s =
-                    unsafe { ffi::ghostty_terminal_grid_ref(self.term, start.to_ffi(), &mut sref) }
-                        == GHOSTTY_SUCCESS;
-                let ok_e =
-                    unsafe { ffi::ghostty_terminal_grid_ref(self.term, end.to_ffi(), &mut eref) }
-                        == GHOSTTY_SUCCESS;
-                if ok_s && ok_e {
-                    let sel = GhosttySelection {
-                        size: std::mem::size_of::<GhosttySelection>(),
-                        start: sref,
-                        end: eref,
-                        rectangle: rectangular,
-                    };
-                    self.apply_selection(&sel);
-                }
-            }
-            SelectionOp::Extend(to) => {
-                let (Some((a, b, rectangular)), Some(p)) = (self.selection_points(), self.screen_point(to)) else { return };
-                let at = |q: (u16, u32)| (q.1, q.0);
-                let (first, last) = if at(a) <= at(b) { (a, b) } else { (b, a) };
-                let anchor = if at(p) < at(first) { last } else { first };
-                self.select(SelectionOp::Range { start: GridPoint::Screen { col: anchor.0, row: anchor.1 }, end: GridPoint::Screen { col: p.0, row: p.1 }, rectangular });
-            }
-            SelectionOp::Nudge { dx, dy } => {
-                let Some((a, b, rectangular)) = self.selection_points() else { return };
-                let (mut cols, mut bar) = (0u16, GhosttyTerminalScrollbar::default());
-                unsafe {
-                    let _ = ffi::ghostty_terminal_get(self.term, GHOSTTY_TERMINAL_DATA_COLS, (&mut cols as *mut u16).cast());
-                    let _ = ffi::ghostty_terminal_get(self.term, GHOSTTY_TERMINAL_DATA_SCROLLBAR, (&mut bar as *mut GhosttyTerminalScrollbar).cast());
-                }
-                let (cols, total) = (i64::from(cols.max(1)), (bar.total as i64).max(1));
-                let cell = (i64::from(b.1) * cols + i64::from(b.0) + i64::from(dx) + i64::from(dy) * cols).clamp(0, total * cols - 1);
-                let end = GridPoint::Screen { col: (cell % cols) as u16, row: (cell / cols) as u32 };
-                self.select(SelectionOp::Range { start: GridPoint::Screen { col: a.0, row: a.1 }, end, rectangular });
-            }
-        }
-    }
-
-    /// The selection's two ends as (column, row from the top of the scrollback), and whether
-    /// it's a block.
-    fn selection_points(&self) -> Option<((u16, u32), (u16, u32), bool)> {
-        if !self.has_selection {
-            return None;
-        }
-        let mut sel = GhosttySelection::default();
-        if unsafe { ffi::ghostty_terminal_get(self.term, GHOSTTY_TERMINAL_DATA_SELECTION, (&mut sel as *mut GhosttySelection).cast()) } != GHOSTTY_SUCCESS {
-            return None;
-        }
-        Some((self.ref_point(&sel.start)?, self.ref_point(&sel.end)?, sel.rectangle))
-    }
-
-    fn screen_point(&self, p: GridPoint) -> Option<(u16, u32)> {
-        let mut gref = GhosttyGridRef::default();
-        (unsafe { ffi::ghostty_terminal_grid_ref(self.term, p.to_ffi(), &mut gref) } == GHOSTTY_SUCCESS).then_some(())?;
-        self.ref_point(&gref)
-    }
-
-    fn ref_point(&self, r: &GhosttyGridRef) -> Option<(u16, u32)> {
-        let mut c = GhosttyPointCoordinate::default();
-        (unsafe { ffi::ghostty_terminal_point_from_grid_ref(self.term, r, GHOSTTY_POINT_TAG_SCREEN, &mut c) } == GHOSTTY_SUCCESS).then_some((c.x, c.y))
-    }
-
-    fn apply_selection(&mut self, sel: &GhosttySelection) {
-        unsafe {
-            let _ = ffi::ghostty_terminal_set(
-                self.term,
-                GHOSTTY_TERMINAL_OPT_SELECTION,
-                (sel as *const GhosttySelection).cast(),
-            );
-        }
-        self.has_selection = true;
-    }
-
-    pub fn selected_text(&self) -> Option<String> {
-        self.selection_as(GHOSTTY_FORMATTER_FORMAT_PLAIN)
-    }
-
-    /// The selection as HTML, its colours and styles inline, for pasting into documents.
-    pub fn selected_html(&self) -> Option<String> {
-        self.selection_as(GHOSTTY_FORMATTER_FORMAT_HTML)
-    }
-
-    fn selection_as(&self, emit: c_int) -> Option<String> {
-        if !self.has_selection {
-            return None;
-        }
-        let mut sel = GhosttySelection::default();
-        if unsafe {
-            ffi::ghostty_terminal_get(
-                self.term,
-                GHOSTTY_TERMINAL_DATA_SELECTION,
-                (&mut sel as *mut GhosttySelection).cast(),
-            )
-        } != GHOSTTY_SUCCESS
-        {
-            return None;
-        }
-        let opts = GhosttyTerminalSelectionFormatOptions {
-            size: std::mem::size_of::<GhosttyTerminalSelectionFormatOptions>(),
-            emit,
-            // A line the terminal wrapped copies as the one line the program wrote.
-            unwrap: true,
-            trim: true,
-            selection: &sel,
-        };
-        let mut ptr: *mut u8 = std::ptr::null_mut();
-        let mut len = 0usize;
-        if unsafe {
-            ffi::ghostty_terminal_selection_format_alloc(
-                self.term,
-                std::ptr::null(),
-                opts,
-                &mut ptr,
-                &mut len,
-            )
-        } != GHOSTTY_SUCCESS
-            || ptr.is_null()
-        {
-            return None;
-        }
-        let text = unsafe {
-            let s = String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).into_owned();
-            ffi::ghostty_free(std::ptr::null(), ptr, len);
-            s
-        };
-        (!text.is_empty()).then_some(text)
-    }
-
     pub fn hyperlink_at(&self, col: u16, row: u16) -> Option<String> {
         let mut gref = GhosttyGridRef::default();
         let pt = GhosttyPoint::new(GHOSTTY_POINT_TAG_VIEWPORT, col, u32::from(row));
+        // SAFETY: `self.term` was created in `VtCore::new` and is freed only in `Drop`, and
+        // `gref` has `size` initialized via `Default`.
         if unsafe { ffi::ghostty_terminal_grid_ref(self.term, pt, &mut gref) } != GHOSTTY_SUCCESS {
             return None;
         }
         let mut buf = vec![0u8; 512];
         let mut len = 0usize;
+        // SAFETY: `gref` was just produced by `self.term` with no intervening mutation, `buf` is
+        // writable for `buf.len()` bytes, and `&mut len` is a valid out-pointer.
         let rc = unsafe {
             ffi::ghostty_grid_ref_hyperlink_uri(&gref, buf.as_mut_ptr(), buf.len(), &mut len)
         };
         if rc == GHOSTTY_OUT_OF_SPACE && len > buf.len() {
             buf.resize(len, 0);
+            // SAFETY: `gref` is still valid (no terminal mutation occurred), `buf` was resized to
+            // the required `len` writable bytes, and `&mut len` is a valid out-pointer.
             let rc2 = unsafe {
                 ffi::ghostty_grid_ref_hyperlink_uri(&gref, buf.as_mut_ptr(), buf.len(), &mut len)
             };
@@ -720,6 +551,8 @@ impl VtCore {
 
     pub fn mode_enabled(&self, mode: GhosttyMode) -> bool {
         let mut q = GhosttyTerminalModeQuery { mode, value: false };
+        // SAFETY: `self.term` was created in `VtCore::new` and is freed only in `Drop`, and `&mut q`
+        // matches `GhosttyTerminalModeConfig*` for `GHOSTTY_TERMINAL_DATA_MODE`.
         unsafe {
             ffi::ghostty_terminal_get(
                 self.term,
@@ -732,18 +565,28 @@ impl VtCore {
 
     fn query_string(&self, kind: c_int) -> String {
         let mut gs = GhosttyString { ptr: std::ptr::null(), len: 0 };
+        // SAFETY: `self.term` is live, and `query_string` is only called with
+        // `GHOSTTY_TERMINAL_DATA_TITLE` / `GHOSTTY_TERMINAL_DATA_PWD`, which both write a
+        // `GhosttyString` into `out`.
         let rc = unsafe {
             ffi::ghostty_terminal_get(self.term, kind, (&mut gs as *mut GhosttyString).cast())
         };
         if rc != GHOSTTY_SUCCESS || gs.ptr.is_null() || gs.len == 0 {
             return String::new();
         }
+        // SAFETY: `ghostty_terminal_get` succeeded with non-null `gs.ptr` and `gs.len > 0`;
+        // `terminal.h` guarantees the borrowed bytes stay valid until the next mutating call on
+        // `self.term` (`&self` prevents mutation while copying).
         unsafe { String::from_utf8_lossy(std::slice::from_raw_parts(gs.ptr, gs.len)).into_owned() }
     }
 }
 
 impl Drop for VtCore {
     fn drop(&mut self) {
+        // SAFETY: every handle except `self.search` was created in `VtCore::new` and is freed
+        // only here; `self.search` is either null or created in `find`, and `ghostty_search_free`
+        // treats `NULL` as a no-op (`search.h`). Freeing `self.search` before `self.term` detaches
+        // tracked state cleanly, and `self.term` is freed before `self.cb` drops.
         unsafe {
             ffi::ghostty_search_free(self.search);
             ffi::ghostty_mouse_event_free(self.mouse_event);

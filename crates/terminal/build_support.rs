@@ -65,7 +65,7 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
     let mut hex = String::with_capacity(64);
     for b in digest {
         use std::fmt::Write;
-        let _ = write!(&mut hex, "{b:02x}");
+        write!(&mut hex, "{b:02x}").ok();
     }
     hex
 }
@@ -153,7 +153,7 @@ impl CacheLock {
 
 impl Drop for CacheLock {
     fn drop(&mut self) {
-        let _ = self.file.unlock();
+        self.file.unlock().ok();
     }
 }
 

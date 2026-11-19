@@ -42,7 +42,7 @@ pub(crate) fn start(
         let (tx, rx) = channel();
         let (read_id, read_wait) = (id.clone(), wait.clone());
         let started = rune::task::spawn("terminal-snapshot", move || {
-            let _ = tx.send(fetch(&server, &pty_id, &read_id, observer));
+            tx.send(fetch(&server, &pty_id, &read_id, observer)).ok();
             read_wait.notify();
         });
         if started.is_err() {
@@ -152,7 +152,7 @@ impl PageSocket {
         self.ws.set_onmessage(None);
         self.ws.set_onerror(None);
         self.ws.set_onclose(None);
-        let _ = self.ws.close_with_code(1000);
+        self.ws.close_with_code(1000).ok();
     }
 }
 
