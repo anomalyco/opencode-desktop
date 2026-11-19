@@ -46,6 +46,7 @@ members = [
     "crates/opencode-plugin-spec",
     "crates/opencode-runtime",
     "crates/opencode-search",
+    "crates/opencode-servers",
     "crates/opencode-storage",
     "crates/opencode-ui",
     "crates/otlp-lite",
@@ -80,6 +81,7 @@ rune-notify = { git = "https://github.com/anomalyco/rune", rev = "d170ff6e4a9691
 rune-perf = { git = "https://github.com/anomalyco/rune", rev = "d170ff6e4a9691e3db0b0ad83e7e719b720afc84" }
 rune-register = { git = "https://github.com/anomalyco/rune", rev = "d170ff6e4a9691e3db0b0ad83e7e719b720afc84" }
 base64 = "0.22"
+mlua = { git = "https://github.com/mlua-rs/mlua", rev = "a0ad4535fc72ba89967a931c5be57b162b5f0f3f", features = ["luau"] }
 polling = "3.11"
 # Objects keep their keys in the order they arrive, as JavaScript's do: a tool's arguments list as
 # Desktop lists them.

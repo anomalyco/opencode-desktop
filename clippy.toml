@@ -1,10 +1,4 @@
-# shared-lints begin
-allow-unwrap-in-tests = true
-allow-expect-in-tests = true
-allow-panic-in-tests = true
-allow-dbg-in-tests = true
 disallowed-methods = [
-  { path = "std::env::var", reason = "read env in config.rs at startup" },
-  { path = "std::time::SystemTime::now", reason = "use config::now() or an injected clock" },
+  { path = "std::env::var", reason = "pass host paths/flags via opencode_platform::PlatformInfo / PlatformPaths or opencode_kernel::AppEnv instead of reading process env ad-hoc (or allow locally at the single startup/platform boundary)" },
+  { path = "std::time::SystemTime::now", reason = "use opencode_kernel::AppEnv::now_ms() in feature/UI code or opencode_platform::wall_ms() for process wall time (honors --clock and fixture time, and stays wasm32-safe via rune::time)" },
 ]
-# shared-lints end

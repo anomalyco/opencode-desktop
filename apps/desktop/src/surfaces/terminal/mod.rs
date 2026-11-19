@@ -6,7 +6,7 @@ pub mod story;
 
 use std::path::PathBuf;
 
-use opencode_kernel::{Feature, KernelBuilder, OverlayRegistration, SurfaceDescriptor, SurfaceKind};
+use opencode_kernel::{Feature, KernelBuilder, OverlayRegistration, Slot};
 use opencode_kit::client::Server;
 use opencode_kit::persistent_pty::PersistentPtyInfo;
 use rune::{Drag, KeyEvent, PointerPress, Tx, Waker};
@@ -57,13 +57,15 @@ fn write_terminal_storage_batch(
     });
 }
 
+pub(crate) static TERMINAL: Slot<TerminalPane> = Slot::new();
+
 impl TerminalSurfaceHost for App {
     fn terminal(&self) -> &TerminalPane {
-        &self.workspace_panes.terminal
+        self.kernel.slots.get(&TERMINAL)
     }
 
     fn terminal_mut(&mut self) -> &mut TerminalPane {
-        &mut self.workspace_panes.terminal
+        self.kernel.slots.get_mut(&TERMINAL)
     }
 
     fn session_directory(&self, sid: &str) -> Option<&str> {
@@ -80,7 +82,7 @@ impl TerminalSurfaceHost for App {
 
     fn poll_story_variant(&mut self) -> bool {
         if self.fixture_run.stage.is_some()
-            && self.workspace_panes.terminal.story.needs_rebuild(*self.fixture_run.variant)
+            && self.kernel.slots.get(&TERMINAL).story.needs_rebuild(*self.fixture_run.variant)
         {
             story::init_story(self);
             return true;
@@ -217,11 +219,11 @@ impl TerminalSurfaceHost for App {
     }
 
     fn is_side_focused(&self) -> bool {
-        self.workspace_panes.side.focus.is_focused()
+        self.kernel.slots.get(&crate::panels::SIDE).focus.is_focused()
     }
 
     fn focused_pane_shown_tab(&self) -> Option<String> {
-        let pane = self.workspace_panes.side.active_pane_focus;
+        let pane = self.kernel.slots.get(&crate::panels::SIDE).active_pane_focus;
         let visible = if pane == SessionPane::Bottom { self.bottom_open() } else { self.side_open() };
         visible.then(|| self.pane_shown_tab(pane)).flatten()
     }
@@ -231,14 +233,16 @@ impl TerminalSurfaceHost for App {
     }
 
     fn session_has_terminal_tabs(&self, sid: &str) -> bool {
-        self.workspace_panes.side
+        self.kernel
+            .slots
+            .get(&crate::panels::SIDE)
             .sessions
             .get(sid)
             .is_some_and(|st| st.tab_state.tabs.all.iter().any(|k| k.starts_with("terminal:")))
     }
 
     fn terminal_pane_estimate(&self) -> (f32, f32) {
-        let w = self.side_width(self.workspace_panes.side.laid_w.get());
+        let w = self.side_width(self.kernel.slots.get(&crate::panels::SIDE).laid_w.get());
         let h = if self.dock_placement() == DockPlacement::Bottom {
             self.bottom_height()
         } else {
@@ -249,10 +253,10 @@ impl TerminalSurfaceHost for App {
 
     fn focus_side_pane(&mut self, tab: Option<(&str, &str)>) {
         self.composer.focused = false;
-        self.workspace_panes.side.focus.focus();
+        self.kernel.slots.get_mut(&crate::panels::SIDE).focus.focus();
         if let Some((sid, key)) = tab {
-            self.workspace_panes.side.active_pane_focus =
-                crate::panels::tabs::session_tab_pane(&self.session_side_mut(sid).tab_state.tabs, key);
+            let pane = crate::panels::tabs::session_tab_pane(&self.session_side_mut(sid).tab_state.tabs, key);
+            self.kernel.slots.get_mut(&crate::panels::SIDE).active_pane_focus = pane;
         }
     }
 
@@ -421,6 +425,7 @@ impl Feature<App> for TerminalSurfaceFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder.register_slot(&TERMINAL);
         builder.register_overlay(
             OverlayRegistration::<App>::new("dialog.terminal.paste")
                 .with_z(220)
@@ -430,11 +435,7 @@ impl Feature<App> for TerminalSurfaceFeature {
                 })
                 .with_dismiss(|s, tx| paste::answer_paste(s, false, tx)),
         );
-        builder.add_surface(
-            SurfaceDescriptor::new("terminal", SurfaceKind::Terminal, "Terminal")
-                .with_multi_instance(true),
-        );
-        // Known: `terminal.poll` reads `workspace_panes.side` (`side_tab_visible`, `terminal_focus`)
+        // Known: `terminal.poll` reads `panels::SIDE` (`side_tab_visible`, `terminal_focus`)
         // for mount and `?1004` focus reports after `files.poll` (`finish_file_link`) opens side tabs.
         builder
             .schedule(crate::tick::stage::REACT_PANELS, "terminal.poll", |s, _, tx| {

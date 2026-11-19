@@ -19,5 +19,5 @@ pub mod wall;
 pub mod web_fetch;
 
 pub use host::{PlatformInfo, PlatformPaths};
-pub use storage::{DocLookup, StorageOp, StoragePort};
+pub use storage::{DocLookup, StoragePort};
 pub use wall::wall_ms;

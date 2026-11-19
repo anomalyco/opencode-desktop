@@ -2,17 +2,21 @@
 
 pub use opencode_feature_egg::*;
 
-use opencode_kernel::{CommandEntry, Feature, KernelBuilder, SurfaceDescriptor, SurfaceKind};
+use opencode_kernel::{CommandEntry, Feature, KernelBuilder, Slot};
 
 use crate::{App, Route};
 
+pub(crate) static EGG: Slot<Egg> = Slot::new();
+
 impl opencode_feature_egg::EggHost for App {
     fn egg(&self) -> &Egg {
-        &self.egg
+        // Untracked: egg frames step and draw without the view running; `egg::poll` says when
+        // the view must rebuild.
+        self.kernel.slots.untracked(&EGG)
     }
 
     fn egg_mut(&mut self) -> &mut Egg {
-        &mut self.egg
+        self.kernel.slots.get_mut(&EGG)
     }
 
     fn is_draft_route(&self) -> bool {
@@ -37,6 +41,7 @@ impl Feature<App> for EggFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder.register_slot(&EGG);
         builder.add_command(
             CommandEntry::from_key(
                 "egg.play",
@@ -50,6 +55,5 @@ impl Feature<App> for EggFeature {
             poll(s, now, tx)
         });
         builder.add_visibility("egg.visibility", |s, shown, tx| visibility(s, shown, tx));
-        builder.add_surface(SurfaceDescriptor::new("egg", SurfaceKind::Custom("egg"), "Wordmark Egg"));
     }
 }

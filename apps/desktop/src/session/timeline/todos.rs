@@ -3,7 +3,7 @@
 
 pub use opencode_feature_timeline_extras::todos::*;
 
-use opencode_kernel::{CommandEntry, CommandTitle, EscapeLayer, Feature, KernelBuilder};
+use opencode_kernel::{CommandEntry, CommandTitle, EscapeLayer, Feature, KernelBuilder, Slot};
 use opencode_kit::model::Transcript;
 use rune::{El, Tx};
 use rune_knobs::Knobs;
@@ -11,6 +11,9 @@ use session_view::palette::Pal;
 
 use crate::keymap::Bind;
 use crate::{App, Route};
+
+pub(crate) static TODO_OPEN: Slot<bool> = Slot::new();
+static TODO_TICKS: Slot<Ticks> = Slot::new();
 
 impl TodosHost for App {
     fn is_session_running(&self, id: &str) -> bool {
@@ -34,19 +37,19 @@ impl TodosHost for App {
     }
 
     fn todo_open(&self) -> bool {
-        *self.timeline_fx.todo_open
+        *self.kernel.slots.get(&TODO_OPEN)
     }
 
     fn set_todo_open(&mut self, open: bool) {
-        *self.timeline_fx.todo_open = open;
+        *self.kernel.slots.get_mut(&TODO_OPEN) = open;
     }
 
     fn todo_ticks(&self) -> &Ticks {
-        &self.timeline_fx.todo_ticks
+        self.kernel.slots.get(&TODO_TICKS)
     }
 
     fn todo_ticks_mut(&mut self) -> &mut Ticks {
-        &mut self.timeline_fx.todo_ticks
+        self.kernel.slots.get_mut(&TODO_TICKS)
     }
 
     fn on_todo_toggled(&mut self, _open: bool) {
@@ -111,13 +114,19 @@ impl Feature<App> for TimelineExtrasFeature {
             .bind_id(Bind::AutoAccept.id())
             .when(|s| s.active_session_id().is_some()),
         );
+        builder
+            .register_slot(&TODO_OPEN)
+            .register_slot(&TODO_TICKS)
+            .register_slot(&crate::agent_rows::AGENT_ROWS)
+            .register_slot(&crate::question::QUESTION)
+            .register_slot(&crate::permission::PERMISSION_SENT);
         builder.register_escape_layer(EscapeLayer::new(
             "escape.todo",
             50,
-            |s| *s.timeline_fx.todo_open,
+            |s| *s.kernel.slots.get(&TODO_OPEN),
             |s, _, tx| {
                 tx.instant();
-                *s.timeline_fx.todo_open = false;
+                *s.kernel.slots.get_mut(&TODO_OPEN) = false;
             },
         ));
         builder.schedule(crate::tick::stage::DERIVE_TIMELINE, "timeline_extras.todos", sync);

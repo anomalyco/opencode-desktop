@@ -12,7 +12,7 @@ use crate::stories::{Trigger, replay, sid};
 
 pub const KEYS: &[Trigger] = &[
     replay(open),
-    Trigger { key: 'o', label: "Open or close the list", run: |s, _| s.timeline_fx.todo_open = (!*s.timeline_fx.todo_open).into() },
+    Trigger { key: 'o', label: "Open or close the list", run: |s, _| { let open = s.kernel.slots.get_mut(&crate::todos::TODO_OPEN); *open = !*open; } },
     Trigger { key: 'n', label: "Next todo", run: |s, _| advance(s) },
     Trigger { key: 't', label: "Two in progress", run: |s, _| two_at_once(s) },
     Trigger { key: 's', label: "Thirty subagents beside it", run: |s, _| crate::stories::composer::capsule::run_thirty(s) },
@@ -35,7 +35,7 @@ fn open(s: &mut App, _: &mut Play<App>) {
     s.finish_stream();
     let id = sid(s);    s.running.insert(id);
     set_step(s, 2);
-    *s.timeline_fx.todo_open = true;
+    *s.kernel.slots.get_mut(&crate::todos::TODO_OPEN) = true;
 }
 
 /// The plan with the first `step` todos done (the changelog cancelled once it's reached) and the

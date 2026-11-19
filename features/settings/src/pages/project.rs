@@ -11,7 +11,7 @@ use opencode_ui::popup::{self, Item, Menu, MenuButton as _, PopupHost};
 use rune::{Color, Drag, El, Icon, Phase, TextEdit, TextStyle, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
 use serde_json::{Value, json};
-use session_view::palette::{Elevate as _, Pal, kit};
+use opencode_ui::palette::{Elevate as _, Pal, kit};
 
 use super::{Page, header, page, select};
 use crate::host::SettingsHost;
@@ -332,7 +332,7 @@ fn icon_button<H: SettingsHost + 'static>(s: &H, p: &Pal, x: &Project) -> El {
         .radius(6.0)
         .clip_rounded(6.0)
         .hover_group()
-        .hover_motion(session_view::style::HOVER_FADE, session_view::style::HOVER_FADE)
+        .hover_motion(opencode_ui::style::HOVER_FADE, opencode_ui::style::HOVER_FADE)
         .on_press_tx(move |s: &mut H, tx: &mut Tx| {
             tx.instant();
             if custom {
@@ -437,7 +437,7 @@ fn resize_grip<H: SettingsHost + 'static>() -> El {
 fn startup<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {
     let st = &s.settings_pages().project;
     let failed = st.failed.contains(&Field::Startup);
-    let input = session_view::style::field(&st.startup, STARTUP)
+    let input = opencode_ui::style::field(&st.startup, STARTUP)
         .key("settings-project-startup-input")
         .w_full()
         .color(p.text)
@@ -512,7 +512,7 @@ fn save_failed<H: SettingsHost + 'static>(p: &Pal, field: Field) -> El {
 
 /// A field left with a change saves it (Desktop saves on `blur`).
 pub fn poll(s: &mut dyn SettingsHost, tx: &mut Tx) -> bool {
-    if !matches!(s.settings_pages().page, Page::Project(..)) || !s.settings().open {
+    if !matches!(s.settings_pages().page, Page::Project(..)) || !s.settings_open() {
         return false;
     }
     let st = &s.settings_pages().project;

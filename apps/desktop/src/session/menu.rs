@@ -2,7 +2,7 @@
 
 pub use opencode_feature_session_menu::*;
 
-use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration};
+use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration, Slot};
 use opencode_kit::client::{Server, Write};
 use opencode_kit::model::{SessionInfo, Transcript};
 use opencode_kit::servers::ServerKey;
@@ -25,13 +25,15 @@ pub fn on_dialog(e: El, t: Target) -> El {
     opencode_feature_session_menu::on_dialog::<App>(e, t)
 }
 
+pub(crate) static MENUS: Slot<Menus> = Slot::new();
+
 impl SessionMenuHost for App {
     fn menus(&self) -> &Menus {
-        &self.dialogs.menus
+        self.kernel.slots.get(&MENUS)
     }
 
     fn menus_mut(&mut self) -> &mut Menus {
-        &mut self.dialogs.menus
+        self.kernel.slots.get_mut(&MENUS)
     }
 
     fn sessions(&self) -> &[SessionInfo] {
@@ -72,7 +74,7 @@ impl SessionMenuHost for App {
     }
 
     fn side_focused(&self) -> bool {
-        self.workspace_panes.side.focus.is_focused()
+        self.kernel.slots.get(&crate::panels::SIDE).focus.is_focused()
     }
 
     fn stage_active(&self) -> bool {
@@ -239,16 +241,6 @@ impl App {
         finish_rename(self, save);
     }
 
-    #[allow(dead_code)]
-    pub fn rename_session(&mut self, id: &str, title: &str) -> bool {
-        rename_session(self, id, title)
-    }
-
-    #[allow(dead_code)]
-    pub fn poll_rename(&mut self, now: f64, tx: &mut Tx) -> bool {
-        poll_rename(self, now, tx)
-    }
-
     pub fn open_rename_dialog(&mut self, t: &Target) {
         open_rename_dialog(self, t);
     }
@@ -267,16 +259,6 @@ impl App {
 
     pub fn cancel_delete(&mut self, tx: &mut Tx) {
         cancel_delete(self, tx);
-    }
-
-    #[allow(dead_code)]
-    pub fn delete_session(&mut self, tx: &mut Tx) {
-        delete_session(self, tx);
-    }
-
-    #[allow(dead_code)]
-    pub fn poll_delete(&mut self, now: f64, tx: &mut Tx) -> bool {
-        poll_delete(self, now, tx)
     }
 
     pub(crate) fn send_delete(&mut self, server: ServerKey, session: String, hidden: Vec<SessionInfo>, tx: &mut Tx) {
@@ -305,6 +287,7 @@ impl Feature<App> for SessionMenuFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder.register_slot(&MENUS);
         builder.add_command(
             CommandEntry::<App>::from_key(
                 "rename",

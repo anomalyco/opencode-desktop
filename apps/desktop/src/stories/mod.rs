@@ -208,10 +208,10 @@ pub fn playground() -> Playground<App> {
                 && (s.composer.focused
                     || s.question_takes_text()
                     || crate::plugin_host::field_focused(s)
-                    || s.dialogs.project_switcher.search.focused
+                    || s.kernel.slots.get(&crate::project_switcher::PROJECT_SWITCHER).search.focused
                     || s.search.focused
-                    || s.dialogs.switcher.search.focused
-                    || s.dialogs.fork.search.focused
+                    || s.kernel.slots.get(&crate::switcher::SWITCHER).search.focused
+                    || s.kernel.slots.get(&crate::fork::FORK).search.focused
                     || s.find_focused())
         })
         .folds(load_folds, save_folds)
@@ -293,9 +293,9 @@ fn fresh(real: &App) -> App {
     if let Some(waker) = (*w.waker).clone() {
         w.composer_ext.attach.set_waker(waker.clone());
         w.appearance_state.icons.set_waker(waker.clone());
-        w.composer_ext.mentions.set_waker(waker.clone());
-        w.dialogs.switcher.set_waker(waker.clone());
-        w.composer_ext.add.slash.set_waker(waker);
+        w.kernel.slots.get_mut(&crate::mentions::MENTIONS).set_waker(waker.clone());
+        w.kernel.slots.get_mut(&crate::switcher::SWITCHER).set_waker(waker.clone());
+        w.kernel.slots.get_mut(&crate::add_menu::ADD_MENU).slash.set_waker(waker);
     }
     open_scene(&mut w);
     w

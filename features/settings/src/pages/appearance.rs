@@ -5,7 +5,7 @@
 use opencode_i18n::t;
 use opencode_ui::popup::PopupHost;
 use rune::{El, Family, TextEdit, TextStyle, Tx, row};
-use session_view::palette::Pal;
+use opencode_ui::palette::Pal;
 
 use super::{header, page, select, select_some, text_field};
 use crate::host::SettingsHost;
@@ -105,7 +105,7 @@ fn pick_text_renderer(s: &mut dyn SettingsHost, id: &str, _tx: &mut Tx) {
 pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
     let st = s.settings();
     let f = &s.settings_pages().fonts;
-    let themes = session_view::themes::all();
+    let themes = opencode_ui::themes::all();
     let theme_about = row()
         .child(about(p, &format!("{} ", t!("settings.general.row.theme.description"))))
         .child(link::<H>(p, "settings-theme-docs", t!("common.learnMore"), "https://opencode.ai/docs/themes"));
@@ -120,8 +120,8 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
         levels.sort_by_key(|(id, _)| id.parse::<i32>().unwrap_or(0));
     }
     let current_theme = themes
-        .get(session_view::themes::index(&st.theme))
-        .map_or(session_view::themes::DEFAULT, |t| t.id.as_str());
+        .get(opencode_ui::themes::index(&st.theme))
+        .map_or(opencode_ui::themes::DEFAULT, |t| t.id.as_str());
     let face = |family: Family| {
         let mut t = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
         t.family = family;

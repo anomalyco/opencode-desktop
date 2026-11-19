@@ -11,7 +11,7 @@ pub mod actions;
 pub mod badges;
 pub mod recently_closed;
 
-use opencode_kit::servers::tabs as doc;
+use opencode_servers::tabs as doc;
 use opencode_kit::servers::{ServerKey, TabKey};
 
 use crate::Route;
@@ -316,7 +316,7 @@ fn scope(server: &str) -> String {
 pub fn from_beta() -> Option<Vec<Tab>> {
     let (tabs, info) = opencode_storage::desktop_recent_tabs(&crate::dirs::official())?;
     // Desktop's rows are already in the mixed-server shape; its own sidecar's tabs are this app's.
-    let beta = opencode_kit::servers::migration::window::from_beta(&tabs, &info);
+    let beta = opencode_servers::migration::window::from_beta(&tabs, &info);
     let list = beta.tabs.iter().flatten().filter(|t| matches!(t, doc::Tab::Session(s) if s.server.is_sidecar())).map(|t| Tab::from_doc(t, beta.info(&t.key()))).collect();
     Some(list)
 }

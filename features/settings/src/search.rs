@@ -11,7 +11,7 @@ use opencode_kit::servers::ServerKey;
 use opencode_ui::keymap::{self, Bind};
 use rune::{El, Icon, Key, KeyEvent, TextEdit, TextStyle, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
-use session_view::palette::Pal;
+use opencode_ui::palette::Pal;
 
 use crate::host::SettingsHost;
 use crate::pages::{self, ExtensionsTab, Page};
@@ -149,7 +149,7 @@ pub fn leave(s: &mut dyn SettingsHost) {
 /// Starts the lit row's fade after its first frame, and drops it once faded.
 pub fn poll(s: &mut dyn SettingsHost, tx: &mut Tx) -> bool {
     let now = s.clock();
-    let open = s.settings().open;
+    let open = s.settings_open();
     match &s.settings_pages().find.reveal {
         Reveal::Idle => return false,
         Reveal::Lit { fade_at, .. } if open && now <= *fade_at => {
@@ -403,7 +403,7 @@ pub fn rank(query: &str, items: Vec<Entry>) -> Vec<Entry> {
 /// A close fuzzy match on the title: its letters in order, mostly in runs (fuzzysort's 0.6).
 fn fuzzy(query: &str, title: &str) -> bool {
     let len = query.chars().filter(|c| !c.is_whitespace()).count() as i64;
-    session_view::pickers::search::score(query, &[title]).is_some_and(|s| s >= 18 * len)
+    opencode_search::model_search::score(query, &[title]).is_some_and(|s| s >= 18 * len)
 }
 
 fn normalize(value: &str) -> String {
@@ -457,7 +457,7 @@ pub fn open(s: &mut dyn SettingsHost, e: &Entry, tx: &mut Tx) {
 
 /// Opens `e` from the command palette: Settings on its page with its row lit, without a search.
 pub fn reveal(s: &mut dyn SettingsHost, e: &Entry, tx: &mut Tx) {
-    if !s.settings().open {
+    if !s.settings_open() {
         crate::open_settings_tx(s, e.page.clone(), tx);
     }
     clear(s);
@@ -614,7 +614,7 @@ pub fn field<H: SettingsHost + 'static>(s: &H, p: &Pal, narrow: bool) -> El {
     field
         .child(el().pl(8.0).child(icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted)))
         .child(
-            session_view::style::field(q, if narrow { NARROW_INPUT } else { ROW })
+            opencode_ui::style::field(q, if narrow { NARROW_INPUT } else { ROW })
                 .key("settings-search-input")
                 .single_line()
                 .grow(1.0)
@@ -622,7 +622,7 @@ pub fn field<H: SettingsHost + 'static>(s: &H, p: &Pal, narrow: bool) -> El {
                 .min_w(0.0)
                 .color(p.text)
                 .placeholder(t!("settings.search.placeholder"), p.faint)
-                .placeholder_font(if narrow && !session_view::style::touch_controls() { NARROW_INPUT } else { ROW })
+                .placeholder_font(if narrow && !opencode_ui::style::touch_controls() { NARROW_INPUT } else { ROW })
                 .caret(p.text, p.selection)
                 .selection_style(p.field_selection)
                 .label_static(t!("settings.search.placeholder"))
@@ -724,8 +724,8 @@ pub fn results<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {
         .w_full()
         .min_h(0.0)
         .child(
-            session_view::scroller::scroller("settings-results-scroll")
-                .bar(session_view::scroller::Bar::MenuScroll)
+            opencode_ui::scroller::scroller("settings-results-scroll")
+                .bar(opencode_ui::scroller::Bar::MenuScroll)
                 .build::<H>(p, col().w_full().shrink().min_h(0.0).clip_fade(0.0, 0.0, 0.0, 24.0), body),
         )
         .children(footer)

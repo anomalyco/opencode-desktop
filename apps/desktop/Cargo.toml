@@ -71,6 +71,7 @@ opencode-feature-usage = { path = "../../features/usage" }
 opencode-feature-workspace-tools = { path = "../../features/workspace-tools" }
 opencode-kernel = { path = "../../crates/opencode-kernel" }
 opencode-platform = { path = "../../crates/opencode-platform" }
+opencode-servers = { path = "../../crates/opencode-servers" }
 browser-pane = { path = "../../crates/browser-pane" }
 crc32fast = "1"
 flate2 = "1"
@@ -92,7 +93,7 @@ rune-knobs.workspace = true
 rune-parts = { path = "../../crates/rune-parts", features = ["view"] }
 # The plugins (`plugin_host`), run on Luau. mlua is rune-luau's own, named here for the bindings.
 rune-luau = { workspace = true, features = ["serde"] }
-mlua = { git = "https://github.com/mlua-rs/mlua", rev = "a0ad4535fc72ba89967a931c5be57b162b5f0f3f", features = ["luau"] }
+mlua.workspace = true
 rune-perf.workspace = true
 rune-register.workspace = true
 rune = { workspace = true, features = ["avif"] }
@@ -142,13 +143,14 @@ browser-pane = { path = "../../crates/browser-pane", features = ["engine"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 browser-pane = { path = "../../crates/browser-pane", features = ["engine"] }
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock", "Win32_Security", "Win32_Security_Cryptography", "Win32_Security_Cryptography_Catalog", "Win32_Security_Cryptography_Sip", "Win32_Security_WinTrust", "Win32_System_Console", "Win32_System_Diagnostics", "Win32_System_Diagnostics_Debug", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Power", "Win32_System_ProcessStatus", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Controls", "Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_Debug", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Power", "Win32_System_ProcessStatus", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Controls", "Win32_UI_WindowsAndMessaging"] }
 
 [build-dependencies]
 # The exe's icon, version and manifest resources on Windows.
 win-install = { path = "../../crates/win-install", features = ["resources"] }
 # The built-in plugins' Luau compiled to bytecode at build time (`build.rs`), with rune-luau's mlua.
-mlua = { git = "https://github.com/mlua-rs/mlua", rev = "a0ad4535fc72ba89967a931c5be57b162b5f0f3f", features = ["luau"] }
+# Matches target `mlua`'s `serde` feature so native builds compile mlua and bstr once.
+mlua = { workspace = true, features = ["serde"] }
 # The built-in plugins' `locales/*.json`, read into one table each at build time.
 serde_json.workspace = true
 

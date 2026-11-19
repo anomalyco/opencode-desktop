@@ -6,7 +6,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
-use opencode_kernel::{CommandEntry, Feature, KernelBuilder};
+use opencode_kernel::{CommandEntry, Feature, KernelBuilder, Slot};
 use opencode_ui::keymap::{Bind, Chord};
 use rune::{Drag, El, Ime, KeyEvent, Tx};
 use rune_knobs::Knobs;
@@ -14,13 +14,15 @@ use session_view::palette::Pal;
 
 use crate::{App, Route};
 
+pub(crate) static SIDE: Slot<SideState> = Slot::new();
+
 impl PanelsHost for App {
     fn side(&self) -> &SideState {
-        &self.workspace_panes.side
+        self.kernel.slots.get(&SIDE)
     }
 
     fn side_mut(&mut self) -> &mut SideState {
-        &mut self.workspace_panes.side
+        self.kernel.slots.get_mut(&SIDE)
     }
 
     fn session_directory(&self, sid: &str) -> Option<&str> {
@@ -43,7 +45,7 @@ impl PanelsHost for App {
     }
 
     fn settings_open(&self) -> bool {
-        self.settings.open
+        App::settings_open(self)
     }
 
     fn narrow(&self) -> bool {
@@ -96,7 +98,7 @@ impl PanelsHost for App {
     }
 
     fn popup_holds_focus(&self) -> bool {
-        self.dialogs.popup.holds_focus()
+        self.popup.holds_focus()
     }
 
     fn plugin_field_focused(&self, plugin: &str) -> bool {
@@ -117,15 +119,16 @@ impl PanelsHost for App {
 
     fn panel_tabs_stamp(&self) -> u64 {
         use rune::Tracked;
+        let slots = &self.kernel.slots;
         let mut h = DefaultHasher::new();
         self.active_session_id().hash(&mut h);
         crate::plugin_host::surfaces_version(self).hash(&mut h);
         (
-            (Tracked::id(&self.workspace_panes.side), Tracked::version(&self.workspace_panes.side)),
-            (Tracked::id(&self.workspace_panes.terminal), Tracked::version(&self.workspace_panes.terminal)),
+            (slots.cell_id(&SIDE), slots.version(&SIDE)),
+            (slots.cell_id(&crate::terminal::TERMINAL), slots.version(&crate::terminal::TERMINAL)),
             (Tracked::id(&self.workspace_panes.browser), Tracked::version(&self.workspace_panes.browser)),
-            (Tracked::id(&self.workspace_panes.files), Tracked::version(&self.workspace_panes.files)),
-            (Tracked::id(&self.workspace_panes.review), Tracked::version(&self.workspace_panes.review)),
+            (slots.cell_id(&crate::files::FILES), slots.version(&crate::files::FILES)),
+            (slots.cell_id(&crate::review::REVIEW), slots.version(&crate::review::REVIEW)),
             (Tracked::id(&self.diag.debug), Tracked::version(&self.diag.debug)),
             (Tracked::id(&self.sessions), Tracked::version(&self.sessions)),
             (Tracked::id(&self.projects), Tracked::version(&self.projects)),
@@ -213,13 +216,13 @@ impl PanelsHost for App {
 
     fn on_side_tab_selected(&mut self, key: &str) {
         if !key.starts_with("file:") {
-            self.workspace_panes.files.filter.focused = false;
+            self.kernel.slots.get_mut(&crate::files::FILES).filter.focused = false;
         }
     }
 
     fn on_side_tab_closing(&mut self, session_id: &str, key: &str) {
         if let Some(path) = key.strip_prefix("file:").and_then(crate::files::data::file_tab_path) {
-            if let Some(ws) = self.workspace_panes.files.sessions.get_mut(session_id) {
+            if let Some(ws) = self.kernel.slots.get_mut(&crate::files::FILES).sessions.get_mut(session_id) {
                 ws.close_preview(&path);
             }
             crate::files::watch::unwatch(self, session_id, &path);
@@ -401,9 +404,9 @@ impl App {
     pub(crate) fn poll_plugins(&mut self, tx: &mut Tx) -> bool {
         let stamp = plugin_watched_stamp(self);
         let watched_changed = {
-            let seen = self.kernel.slots.slot::<PluginWatchedStamp>();
-            let changed = seen.0 != Some(stamp);
-            seen.0 = Some(stamp);
+            let seen = &self.kernel.slots.untracked(&PLUGIN_WATCHED_STAMP).0;
+            let changed = seen.get() != Some(stamp);
+            seen.set(Some(stamp));
             changed
         };
         crate::plugin_host::poll(self, watched_changed, tx)
@@ -464,7 +467,9 @@ impl App {
 
 /// Last observed stamp of every host input read by `plugin_host::services::watch::fire_watched`.
 #[derive(Default)]
-struct PluginWatchedStamp(Option<u64>);
+struct PluginWatchedStamp(std::cell::Cell<Option<u64>>);
+
+static PLUGIN_WATCHED_STAMP: Slot<PluginWatchedStamp> = Slot::new();
 
 /// Stamp of every host input watched by Luau plugin signals (`plugin_host::services::watch`):
 /// `Sessions.Changed`, `Sessions.RoutedChanged`, `Browser.Changed`, `Models.Changed`,
@@ -474,6 +479,7 @@ struct PluginWatchedStamp(Option<u64>);
 fn plugin_watched_stamp(app: &App) -> u64 {
     use rune::Tracked;
     let stamp = |cell_id: u32, cell_ver: u64| (cell_id, cell_ver);
+    let slots = &app.kernel.slots;
     let mut h = DefaultHasher::new();
     crate::servers::runtime::active(app).hash(&mut h);
     [
@@ -485,7 +491,7 @@ fn plugin_watched_stamp(app: &App) -> u64 {
         stamp(Tracked::id(&app.transcripts), Tracked::version(&app.transcripts)),
         stamp(Tracked::id(&app.route), Tracked::version(&app.route)),
         stamp(Tracked::id(&app.workspace_panes.browser), Tracked::version(&app.workspace_panes.browser)),
-        stamp(Tracked::id(&app.workspace_panes.review), Tracked::version(&app.workspace_panes.review)),
+        stamp(slots.cell_id(&crate::review::REVIEW), slots.version(&crate::review::REVIEW)),
         stamp(Tracked::id(&app.composer_ext.pickers), Tracked::version(&app.composer_ext.pickers)),
         stamp(Tracked::id(&app.source), Tracked::version(&app.source)),
         stamp(Tracked::id(&app.services.server_links), Tracked::version(&app.services.server_links)),
@@ -500,7 +506,7 @@ fn plugin_watched_stamp(app: &App) -> u64 {
         opencode_i18n::I18N.locale(),
         crate::plugin_host::services::servers_version(app),
         app.plugins.window_blurred.get(),
-        app.services.updater.revision(),
+        slots.untracked(&crate::updater::UPDATER).revision(),
         crate::plugin_host::epoch(),
     )
         .hash(&mut h);
@@ -531,6 +537,9 @@ impl Feature<App> for PanelsFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder
+            .register_slot(&SIDE)
+            .register_slot(&PLUGIN_WATCHED_STAMP);
         // After Copy project ID and before the message keys, as Desktop registers it (`use-session-commands.tsx:610`).
         builder.add_command(
             CommandEntry::<App>::from_key(
@@ -549,14 +558,15 @@ impl Feature<App> for PanelsFeature {
         builder
             .schedule(crate::tick::stage::INGEST_DISPATCH, "panels.sync_composer", |s, _, _| {
                 let composing = s.composer.focused;
+                let side = s.kernel.slots.get(&SIDE);
                 let in_terminal = !composing
-                    && s.workspace_panes.side.focus.is_armed()
-                    && s.workspace_panes.side.focus.is_focused()
+                    && side.focus.is_armed()
+                    && side.focus.is_focused()
                     && s.terminal_focus().is_some();
                 let sync = SideFocusEvent::SyncComposer { composing, in_terminal };
                 // Written only when it changes: a write to the side state rebuilds every region reading it.
-                if s.workspace_panes.side.focus.would_change(sync) {
-                    s.workspace_panes.side.focus.sync_composer(composing, in_terminal);
+                if s.kernel.slots.get(&SIDE).focus.would_change(sync) {
+                    s.kernel.slots.get_mut(&SIDE).focus.sync_composer(composing, in_terminal);
                 }
                 false
             })

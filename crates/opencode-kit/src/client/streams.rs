@@ -11,7 +11,6 @@
 //! stream it reads no longer speaks for its server ([`Stream::live`]), sends nothing more, and
 //! ends at its next line or its idle limit.
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
@@ -25,17 +24,64 @@ use crate::wire_error::{WireError, transport};
 /// How long a verifying request may take: past it, the server counts as not answering.
 const CHECK: Duration = Duration::from_secs(1);
 
+/// Ownership and wire activity of a tracked event stream:
+/// - `Silent { epoch }`: no line has been read yet; thread `epoch` speaks for the stream.
+/// - `Active { epoch, last_heard }`: at least one line (including heartbeats) arrived at
+///   `last_heard`; thread `epoch` speaks for the stream.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Track {
+    Silent { epoch: u64 },
+    Active { epoch: u64, last_heard: Instant },
+}
+
+enum TrackEvent {
+    LineRead { at: Instant },
+    VerifyChecked { started_at: Instant },
+}
+
+enum TrackEffect {
+    Keep,
+    Replace { epoch: u64 },
+}
+
+impl Track {
+    fn epoch(self) -> u64 {
+        match self {
+            Self::Silent { epoch } | Self::Active { epoch, .. } => epoch,
+        }
+    }
+
+    fn step(&mut self, event: TrackEvent) -> TrackEffect {
+        match (*self, event) {
+            (Self::Silent { epoch } | Self::Active { epoch, .. }, TrackEvent::LineRead { at }) => {
+                *self = Self::Active { epoch, last_heard: at };
+                TrackEffect::Keep
+            }
+            (Self::Active { last_heard, .. }, TrackEvent::VerifyChecked { started_at }) if last_heard > started_at => {
+                TrackEffect::Keep
+            }
+            (Self::Silent { epoch }, TrackEvent::VerifyChecked { .. }) => {
+                let next = epoch + 1;
+                *self = Self::Silent { epoch: next };
+                TrackEffect::Replace { epoch: next }
+            }
+            (Self::Active { epoch, last_heard }, TrackEvent::VerifyChecked { .. }) => {
+                let next = epoch + 1;
+                *self = Self::Active { epoch: next, last_heard };
+                TrackEffect::Replace { epoch: next }
+            }
+        }
+    }
+}
+
 /// One server's event stream for one inbox (a window, or a hub of several).
 pub(super) struct Stream {
     pub server: Server,
     pub idle: Duration,
     pub inbox: Sender<Incoming>,
     pub wake: Waker,
-    /// Which of the stream's threads speaks for it; a replaced one stops at its next turn.
-    epoch: AtomicU64,
-    /// When the stream last read a line, heartbeats included (µs since [`Stream::born`]).
-    heard: AtomicU64,
-    born: Instant,
+    /// Owning epoch and last wire activity, stepped through [`Track::step`].
+    track: Mutex<Track>,
 }
 
 static STREAMS: Mutex<Vec<Weak<Stream>>> = Mutex::new(Vec::new());
@@ -43,7 +89,7 @@ static STREAMS: Mutex<Vec<Weak<Stream>>> = Mutex::new(Vec::new());
 impl Stream {
     /// A stream to read, known to [`verify`] for as long as a thread reads it.
     pub fn new(server: Server, idle: Duration, inbox: Sender<Incoming>, wake: Waker) -> Arc<Stream> {
-        let s = Arc::new(Stream { server, idle, inbox, wake, epoch: AtomicU64::new(0), heard: AtomicU64::new(0), born: Instant::now() });
+        let s = Arc::new(Stream { server, idle, inbox, wake, track: Mutex::new(Track::Silent { epoch: 0 }) });
         let mut all = STREAMS.lock().unwrap_or_else(|e| e.into_inner());
         all.retain(|w| w.strong_count() > 0);
         all.push(Arc::downgrade(&s));
@@ -51,7 +97,7 @@ impl Stream {
     }
 
     pub fn epoch(&self) -> u64 {
-        self.epoch.load(Ordering::Acquire)
+        self.track.lock().unwrap_or_else(|e| e.into_inner()).epoch()
     }
 
     /// Whether the thread reading as `epoch` still speaks for the stream.
@@ -60,11 +106,7 @@ impl Stream {
     }
 
     pub fn heard(&self) {
-        self.heard.store(self.born.elapsed().as_micros() as u64, Ordering::Release);
-    }
-
-    fn heard_since(&self, at: Instant) -> bool {
-        self.born + Duration::from_micros(self.heard.load(Ordering::Acquire)) > at
+        self.track.lock().unwrap_or_else(|e| e.into_inner()).step(TrackEvent::LineRead { at: Instant::now() });
     }
 }
 
@@ -81,9 +123,9 @@ pub fn verify() {
 
 fn check(s: &Arc<Stream>, at: Instant) {
     let answer = answers(&s.server);
-    if s.heard_since(at) {
+    let TrackEffect::Replace { epoch } = s.track.lock().unwrap_or_else(|e| e.into_inner()).step(TrackEvent::VerifyChecked { started_at: at }) else {
         return;
-    }
+    };
     if let Err(e) = answer {
         // Said before the new stream's own try, which may take its time to fail.
         if s.inbox.send(Incoming::Unanswered(e)).is_err() {
@@ -91,7 +133,7 @@ fn check(s: &Arc<Stream>, at: Instant) {
         }
         (s.wake)();
     }
-    replace(s);
+    spawn_replacement(s, epoch);
 }
 
 /// Whether `server` answers at all, on a connection of its own (a pooled one may be the dead
@@ -107,8 +149,7 @@ fn answers(server: &Server) -> Result<(), WireError> {
 }
 
 /// A new thread speaks for the stream from now; the old one ends quietly.
-fn replace(s: &Arc<Stream>) {
-    let epoch = s.epoch.fetch_add(1, Ordering::AcqRel) + 1;
+fn spawn_replacement(s: &Arc<Stream>, epoch: u64) {
     let s = s.clone();
     std::thread::Builder::new().name("opencode-events".into()).spawn(move || super::worker::run_stream(&s, epoch, true)).ok();
 }

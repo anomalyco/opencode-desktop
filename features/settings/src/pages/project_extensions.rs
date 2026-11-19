@@ -10,7 +10,7 @@ use opencode_kit::model::Project;
 use rune::{El, Icon, TextStyle, Tx, col, icon, row, text};
 use rune_theme_opencode::icons as ic;
 use serde_json::Value;
-use session_view::palette::Pal;
+use opencode_ui::palette::Pal;
 
 use super::{catalog, header, page};
 use crate::host::SettingsHost;

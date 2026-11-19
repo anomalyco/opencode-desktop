@@ -17,7 +17,7 @@ impl App {
     fn selected_lines(&self) -> Option<(String, Option<(u32, u32)>)> {
         let (session, path) = self.active_file_tab()?;
         let path = path?;
-        let lines = self.workspace_panes.files.sessions.get(&session).and_then(|w| w.docs.get(&path)).and_then(|d| d.selection()).map(|s| s.ordered());
+        let lines = self.kernel.slots.get(&crate::files::FILES).sessions.get(&session).and_then(|w| w.docs.get(&path)).and_then(|d| d.selection()).map(|s| s.ordered());
         Some((path, lines))
     }
 

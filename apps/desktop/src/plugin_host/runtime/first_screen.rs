@@ -35,7 +35,7 @@ pub fn plugins(app: &App) -> Vec<&'static str> {
     let transcript = app.launch.cold_transcript.is_some();
     // The debug plugin's one slot is its bar (`window.bottom`), counted above: hidden, it draws nothing.
     out.extend(sources::builtin_ids().filter(|id| (*id != "debug" && has(id, &["Slot", "ComposerPill"])) || (transcript && has(id, &["CodeBlock", "LinkHandler"]))));
-    if let Some(side) = app.workspace_panes.side.sessions.get(session) {
+    if let Some(side) = app.kernel.slots.get(&crate::panels::SIDE).sessions.get(session) {
         let tabs = &side.tab_state.tabs;
         let shown = |key: &String| match tabs.panes.get(key).copied().unwrap_or(SessionPane::Side) {
             SessionPane::Bottom => side.bottom_open,

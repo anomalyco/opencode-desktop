@@ -40,19 +40,19 @@ impl session_view::TimelineHost for App {
         plugin_host::surfaces::code_block(self, p, language, key, code, streaming, version, native)
     }
     fn shell_output(&self, shell: &str) -> Option<&str> {
-        self.shells.follow.output(shell)
+        self.kernel.slots.get(&crate::subagents::SHELLS).follow.output(shell)
     }
 
     fn output_save_failed(&mut self, reason: String) {
         crate::status_toast::fail(self, opencode_i18n::t!("common.requestFailed"), reason);
     }
     fn output_save_reporter(&mut self) -> Box<dyn FnOnce(String) + Send> {
-        let (send, _) = self.kernel.slots.slot::<crate::app::OutputErrors>().0.get_or_insert_with(std::sync::mpsc::channel);
+        let (send, _) = self.kernel.slots.get_mut(&crate::app::OUTPUT_ERRORS).0.get_or_insert_with(std::sync::mpsc::channel);
         let (send, wake) = (send.clone(), self.waker.as_ref().cloned());
         Box::new(move |why| { if send.send(why).is_ok() && let Some(wake) = wake { wake(); } })
     }
     fn shell_output_version(&self) -> u64 {
-        self.shells.follow.version()
+        self.kernel.slots.get(&crate::subagents::SHELLS).follow.version()
     }
     fn turn_diffs(&self) -> bool {
         self.settings.turn_diffs
@@ -180,7 +180,7 @@ impl session_view::TimelineHost for App {
         self.reply_code_links(body, live)
     }
     fn code_links_version(&self) -> u64 {
-        self.active_session_id().map_or(0, |sid| rune::Tracked::untracked(&self.workspace_panes.files).reply_version(sid))
+        self.active_session_id().map_or(0, |sid| self.kernel.slots.untracked(&crate::files::FILES).reply_version(sid))
     }
     fn reply_link_help(url: &str) -> Option<String> {
         crate::files::link_tip::tip(url, "")
@@ -256,7 +256,7 @@ impl session_view::TimelineHost for App {
         self.pages.more_above(session)
     }
     fn watch_scroll_top(&self, session: &str) -> Option<Box<dyn Fn(rune::ScrollPos)>> {
-        let (pages, nav) = (self.pages.watch_top(session), self.timeline_fx.message_nav.watch());
+        let (pages, nav) = (self.pages.watch_top(session), self.kernel.slots.get(&crate::message_nav::MESSAGE_NAV).watch());
         Some(Box::new(move |at| {
             pages(at);
             nav(at);
@@ -266,25 +266,25 @@ impl session_view::TimelineHost for App {
         quote::selection_changed(s, change, tx);
     }
     fn find_row_version(&self, row_key: &str) -> u64 {
-        self.timeline_fx.find.row_version(row_key)
+        self.kernel.slots.get(&crate::find::FIND).row_version(row_key)
     }
     fn find_text_highlights(&self, p: &palette::Pal, row_key: &str) -> Vec<rune::TextHighlight> {
-        self.timeline_fx.find.text_highlights(p, row_key)
+        self.kernel.slots.get(&crate::find::FIND).text_highlights(p, row_key)
     }
     fn find_markdown_highlights(&self, p: &palette::Pal, row_key: &str) -> Vec<(&[std::ops::Range<usize>], rune_kit::Highlight)> {
-        self.timeline_fx.find.markdown_highlights(p, row_key)
+        self.kernel.slots.get(&crate::find::FIND).markdown_highlights(p, row_key)
     }
     fn find_row_hits(&self, row_key: &str) -> Option<(&[Vec<std::ops::Range<usize>>], Option<usize>)> {
-        self.timeline_fx.find.row_hits(row_key)
+        self.kernel.slots.get(&crate::find::FIND).row_hits(row_key)
     }
     fn user_menu_open_on(&self, id: &str) -> bool {
-        self.dialogs.rewind.menu_open_on(id)
+        self.kernel.slots.get(&crate::rewind::REWIND).menu_open_on(id)
     }
     fn quote_more_open(&self, id: &str) -> bool {
-        self.composer_ext.quote.more.contains(id)
+        self.kernel.slots.get(&crate::quote::QUOTE).more.contains(id)
     }
     fn open_quote_more(&mut self, id: String) {
-        self.composer_ext.quote.more.insert(id);
+        self.kernel.slots.get_mut(&crate::quote::QUOTE).more.insert(id);
     }
     fn user_menu(&self, p: &palette::Pal, session: &str, id: &str, _body: &str, pending: bool) -> Option<rune::El> {
         rewind::user_menu(self, p, session, id, pending)

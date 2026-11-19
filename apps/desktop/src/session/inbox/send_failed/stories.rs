@@ -28,7 +28,7 @@ pub(crate) fn confirmed(s: &mut App) {
     s.judge_sends_by_page(&sid, &[Message::User { id: SECOND.into(), text: "Let's start with the ideas first.".into() }]);
     // The timed-out first is unconfirmed until its receipt check: the server never got it.
     s.step_send(FIRST, super::machine::Event::Checked(super::machine::Found::Missing));
-    s.dialogs.toast = Default::default();
+    *s.toast = Default::default();
 }
 
 const LONG: &str = "Well, what are the demos in order? It's also the performance improvements, right? \

@@ -461,7 +461,7 @@ impl crate::App {
     pub fn begin_open(&mut self, id: &str, tx: &mut rune::Tx) {
         self.close_picker(false);
         crate::subagents::shells::set_open(self, false);
-        *self.timeline_fx.todo_open = false;
+        *self.kernel.slots.get_mut(&crate::todos::TODO_OPEN) = false;
         let from = self.opening.as_ref().filter(|o| !o.loading()).map_or_else(|| (*self.route).clone(), |o| o.from.clone());
         *self.opening = Some(Opening::new(id, from, self.transcripts.contains_key(id), *self.clock));
         self.open_now(id, tx);
@@ -515,7 +515,7 @@ impl crate::App {
     }
 
     pub(crate) fn page_key(&self, id: &str) -> Key {
-        let updated = self.session(id).or_else(|| self.dialogs.switcher.loaded.iter().find(|s| s.id == id))
+        let updated = self.session(id).or_else(|| self.kernel.slots.get(&crate::switcher::SWITCHER).loaded.iter().find(|s| s.id == id))
             .map_or(0, |s| s.updated.max(s.busy.unwrap_or(0)).max(s.idle.unwrap_or(0)));
         Key { id: id.to_owned(), updated }
     }
@@ -627,7 +627,7 @@ impl crate::App {
                 }
             }
         } else {
-            match self.kernel.slots.get_mut::<crate::events::StreamGaps>().and_then(|g| g.0.get_mut(id.as_str())) {
+            match self.kernel.slots.get_mut(&crate::events::STREAM_GAPS).0.get_mut(id.as_str()) {
                 Some(gapped) => t.merge_caught(messages, gapped),
                 None => t.merge(messages),
             }

@@ -9,7 +9,7 @@ mod stories;
 use std::collections::HashSet;
 use std::rc::Rc;
 
-use opencode_kernel::{Feature, KernelBuilder};
+use opencode_kernel::{Feature, KernelBuilder, Slot};
 use opencode_kit::client::Server;
 use opencode_kit::wire_error::WireError;
 use opencode_ui::popup::Menu;
@@ -22,21 +22,23 @@ use crate::jobs::Apply;
 use crate::panels::SessionPane;
 use crate::{App, Source};
 
+pub(crate) static FILES: Slot<FilesPane> = Slot::new();
+
 impl FilesHost for App {
     fn files(&self) -> &FilesPane {
-        &self.workspace_panes.files
+        self.kernel.slots.get(&FILES)
     }
 
     fn files_untracked(&self) -> &FilesPane {
-        rune::Tracked::untracked(&self.workspace_panes.files).as_ref()
+        self.kernel.slots.untracked(&FILES)
     }
 
     fn files_mut(&mut self) -> &mut FilesPane {
-        &mut self.workspace_panes.files
+        self.kernel.slots.get_mut(&FILES)
     }
 
     fn touch_files(&self) {
-        rune::Tracked::touch(&self.workspace_panes.files);
+        self.kernel.slots.touch(&FILES);
     }
 
     fn session_directory(&self, sid: &str) -> Option<&str> {
@@ -98,10 +100,11 @@ impl FilesHost for App {
     }
 
     fn open_in_current(&self) -> Option<OpenInCurrent> {
+        let open_in = self.kernel.slots.get(&crate::open_in::OPEN_IN);
         Some(OpenInCurrent {
-            label: self.workspace_panes.open_in.current_label(),
-            icon: crate::open_in::icon_of(self.workspace_panes.open_in.current()),
-            busy: self.workspace_panes.open_in.busy(),
+            label: open_in.current_label(),
+            icon: crate::open_in::icon_of(open_in.current()),
+            busy: open_in.busy(),
         })
     }
 
@@ -142,7 +145,7 @@ impl FilesHost for App {
     }
 
     fn open_in_default(&mut self, abs_path: &str) {
-        self.workspace_panes.open_in.open_default(abs_path.to_owned());
+        self.kernel.slots.get_mut(&crate::open_in::OPEN_IN).open_default(abs_path.to_owned());
     }
 
     fn side_open(&self) -> bool {
@@ -154,7 +157,7 @@ impl FilesHost for App {
     }
 
     fn is_side_focused(&self) -> bool {
-        self.workspace_panes.side.focus.is_focused()
+        self.kernel.slots.get(&crate::panels::SIDE).focus.is_focused()
     }
 
     fn active_file_tab(&self) -> Option<(String, Option<String>)> {
@@ -162,9 +165,8 @@ impl FilesHost for App {
     }
 
     fn session_open_file_tabs(&self, sid: &str) -> (Vec<String>, Option<String>) {
-        let opened = self
-            .workspace_panes
-            .side
+        let side = self.kernel.slots.get(&crate::panels::SIDE);
+        let opened = side
             .sessions
             .get(sid)
             .map(|st| {
@@ -178,7 +180,7 @@ impl FilesHost for App {
                     .collect()
             })
             .unwrap_or_default();
-        let active = self.workspace_panes.side.sessions.get(sid).and_then(|st| {
+        let active = side.sessions.get(sid).and_then(|st| {
             st.tab_state
                 .tabs
                 .active
@@ -192,7 +194,7 @@ impl FilesHost for App {
     fn all_open_file_tabs(&self) -> Vec<(String, String)> {
         let shown = self.active_file_tab().and_then(|(sid, path)| Some((sid, path?)));
         let mut tabs: Vec<(String, String)> = shown.iter().cloned().collect();
-        for (sid, st) in self.workspace_panes.side.sessions.iter() {
+        for (sid, st) in self.kernel.slots.get(&crate::panels::SIDE).sessions.iter() {
             for key in &st.tab_state.tabs.all {
                 if let Some(path) = key.strip_prefix("file:").and_then(data::file_tab_path)
                     && shown.as_ref() != Some(&(sid.clone(), path.clone()))
@@ -213,8 +215,8 @@ impl FilesHost for App {
         remove_open_tab: bool,
         tx: &mut Tx,
     ) {
-        let saved_focus = (self.composer.focused, self.workspace_panes.side.focus.mode());
-        if remove_open_tab && let Some(st) = self.workspace_panes.side.sessions.get_mut(sid) {
+        let saved_focus = (self.composer.focused, self.kernel.slots.get(&crate::panels::SIDE).focus.mode());
+        if remove_open_tab && let Some(st) = self.kernel.slots.get_mut(&crate::panels::SIDE).sessions.get_mut(sid) {
             st.tab_state.tabs.all.retain(|k| k != data::OPEN_TAB_KEY);
         }
         self.show_pane_tab(tx, |s| {
@@ -222,7 +224,7 @@ impl FilesHost for App {
         });
         if !steal_focus {
             self.composer.focused = saved_focus.0;
-            self.workspace_panes.side.focus.restore(saved_focus.1);
+            self.kernel.slots.get_mut(&crate::panels::SIDE).focus.restore(saved_focus.1);
         }
     }
 
@@ -231,8 +233,8 @@ impl FilesHost for App {
     }
 
     fn side_quiet_clear(&mut self) {
-        if self.workspace_panes.side.focus.is_quiet() {
-            self.workspace_panes.side.focus.wake();
+        if self.kernel.slots.get(&crate::panels::SIDE).focus.is_quiet() {
+            self.kernel.slots.get_mut(&crate::panels::SIDE).focus.wake();
         }
     }
 
@@ -273,7 +275,9 @@ impl FilesHost for App {
     }
 
     fn review_file_status(&self, sid: &str, path: &str) -> Option<FileStatus> {
-        self.workspace_panes.review
+        self.kernel
+            .slots
+            .get(&crate::review::REVIEW)
             .sessions
             .get(sid)
             .and_then(|sr| sr.meta.iter().find(|m| m.path == path))
@@ -414,7 +418,8 @@ impl Feature<App> for FilesFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
-        builder.add_setup("files.waker", |s, w| s.workspace_panes.files.set_waker(w));
+        builder.register_slot(&FILES);
+        builder.add_setup("files.waker", |s, w| s.kernel.slots.get_mut(&FILES).set_waker(w));
         // Precaution: reads `active_session_id()`, which `jobs.poll` closures may mutate.
         builder
             .schedule(crate::tick::stage::INGEST_PAGES, "files.reply_links", |s, _, tx| {
@@ -422,7 +427,7 @@ impl Feature<App> for FilesFeature {
             })
             .after("jobs.poll");
         // Known/precaution: `files.poll` (`finish_file_link`) can open a side tab mutating
-        // `workspace_panes.side`, while `review.poll` reads `side_open()` (`should_refresh_on_poll`).
+        // `panels::SIDE`, while `review.poll` reads `side_open()` (`should_refresh_on_poll`).
         builder
             .schedule(crate::tick::stage::REACT_PANELS, "files.poll", |s, _, tx| {
                 crate::plugin_host::native::files::poll(s, tx)

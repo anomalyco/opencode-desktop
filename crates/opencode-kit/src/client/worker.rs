@@ -8,11 +8,145 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Duration;
 
 use rune::Waker;
+use rune::machine::Effects;
 
 use super::{Incoming, Request, Server, Write, encode_component, list};
 use crate::model;
-#[cfg(not(target_arch = "wasm32"))]
-use crate::wire_error::WireError;
+use crate::wire_error::{WireError, WireKind};
+
+/// Initial retry delay after a drop or first failure, doubled up to [`BACKOFF_MAX_MS`].
+pub(super) const BACKOFF_MIN_MS: u64 = 250;
+pub(super) const BACKOFF_MAX_MS: u64 = 3_000;
+
+/// Lifecycle of one `/api/event` stream worker.
+///
+/// Compared with the official app's `packages/client/src/solid/connection.ts`:
+/// - Matches `defaultIdleTimeout = 45_000` (`EVENTS_IDLE`), gating readiness on the first
+///   `server.connected` event, and distinguishing initial open (`Incoming::Opened`) from
+///   reconnects (`Incoming::Reconnected`).
+/// - Deliberately differs in backoff (`250 ms` doubling to `3_000 ms`, reset on `server.connected`
+///   rather than official's flat `1_000 ms` reset after 1 s connected), native reach-watcher
+///   parking (`PARKED = 30 s` while TCP refuses), and error-wake deduplication (`last_error`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum StreamState {
+    /// First attempt of a fresh stream, awaiting HTTP headers and `server.connected`.
+    /// Handshake emits `Incoming::Opened`.
+    Initial,
+    /// Subsequent attempt (after a failure, drop, or `streams::verify` takeover), awaiting HTTP
+    /// headers and `server.connected`. Handshake emits `Incoming::Reconnected`.
+    Reconnecting {
+        /// Delay (ms) to wait if this attempt fails before opening.
+        backoff_ms: u64,
+        /// Failure last reported to the window; an identical consecutive failure skips `wake()`.
+        last_error: Option<WireError>,
+    },
+    /// `server.connected` received; forwarding events to the inbox.
+    Open,
+    /// Waiting between failed or dropped attempts before opening the next connection.
+    Waiting {
+        /// Backoff (ms) carried into the next `Reconnecting` attempt (`(wait_ms * 2).min(3000)`).
+        next_backoff_ms: u64,
+        last_error: WireError,
+    },
+    /// Terminated (inbox closed or superseded by a newer epoch in `streams::verify`).
+    Closed,
+}
+
+pub(super) enum StreamEvent {
+    /// A non-heartbeat SSE `data:` frame parsed from the stream; `connected` is true iff its
+    /// `type` is `"server.connected"`.
+    Frame { connected: bool },
+    /// The connection attempt failed, timed out, returned an unexpected response, rejected
+    /// handshake, or ended (EOF).
+    Failed(WireError),
+    /// The retry sleep elapsed or was interrupted early by `wake_reconnects()`.
+    WaitElapsed,
+    /// The inbox closed or a newer `streams::verify` epoch took over.
+    Closed,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Handshake {
+    Opened,
+    Reconnected,
+}
+
+pub(super) enum StreamEffect {
+    /// Forward `Incoming::Opened` or `Incoming::Reconnected` to `inbox`.
+    DeliverHandshake(Handshake),
+    /// Forward the current SSE frame to `inbox`.
+    DeliverFrame,
+    /// First event was not `server.connected`; close this response and feed `StreamEvent::Failed`.
+    RejectHandshake(WireError),
+    /// Report `Incoming::StreamDown(error)` to `inbox`, waking the window iff `wake`.
+    ReportDown { error: WireError, wake: bool },
+    /// Register the server with the reach watcher (no-op on `wasm32`).
+    WatchReach,
+    /// Wait `backoff_ms` (or `PARKED` on native when `server.refusing()`), interruptible by
+    /// `wake_reconnects()`, then feed `StreamEvent::WaitElapsed`.
+    Wait { backoff_ms: u64 },
+}
+
+pub(super) fn stream_step(state: &mut StreamState, event: StreamEvent) -> Effects<StreamEffect> {
+    match (std::mem::replace(state, StreamState::Closed), event) {
+        (_, StreamEvent::Closed) | (StreamState::Closed, _) => Effects::none(),
+        (StreamState::Initial, StreamEvent::Frame { connected: true }) => {
+            *state = StreamState::Open;
+            Effects::two(StreamEffect::DeliverHandshake(Handshake::Opened), StreamEffect::DeliverFrame)
+        }
+        (StreamState::Initial, StreamEvent::Frame { connected: false }) => {
+            *state = StreamState::Initial;
+            Effects::one(StreamEffect::RejectHandshake(handshake_error()))
+        }
+        (StreamState::Reconnecting { .. }, StreamEvent::Frame { connected: true }) => {
+            *state = StreamState::Open;
+            Effects::two(StreamEffect::DeliverHandshake(Handshake::Reconnected), StreamEffect::DeliverFrame)
+        }
+        (StreamState::Reconnecting { backoff_ms, last_error }, StreamEvent::Frame { connected: false }) => {
+            *state = StreamState::Reconnecting { backoff_ms, last_error };
+            Effects::one(StreamEffect::RejectHandshake(handshake_error()))
+        }
+        (StreamState::Open, StreamEvent::Frame { .. }) => {
+            *state = StreamState::Open;
+            Effects::one(StreamEffect::DeliverFrame)
+        }
+        (StreamState::Initial | StreamState::Open, StreamEvent::Failed(error)) => {
+            let backoff_ms = BACKOFF_MIN_MS;
+            let next_backoff_ms = (backoff_ms * 2).min(BACKOFF_MAX_MS);
+            *state = StreamState::Waiting { next_backoff_ms, last_error: error.clone() };
+            let mut effects = Effects::two(StreamEffect::ReportDown { error, wake: true }, StreamEffect::WatchReach);
+            effects.push(StreamEffect::Wait { backoff_ms });
+            effects
+        }
+        (StreamState::Reconnecting { backoff_ms, last_error }, StreamEvent::Failed(error)) => {
+            let wake = last_error.as_ref() != Some(&error);
+            let next_backoff_ms = (backoff_ms * 2).min(BACKOFF_MAX_MS);
+            *state = StreamState::Waiting { next_backoff_ms, last_error: error.clone() };
+            let mut effects = Effects::two(StreamEffect::ReportDown { error, wake }, StreamEffect::WatchReach);
+            effects.push(StreamEffect::Wait { backoff_ms });
+            effects
+        }
+        (StreamState::Waiting { next_backoff_ms, last_error }, StreamEvent::WaitElapsed) => {
+            *state = StreamState::Reconnecting { backoff_ms: next_backoff_ms, last_error: Some(last_error) };
+            Effects::none()
+        }
+        (prev, _) => {
+            *state = prev;
+            Effects::none()
+        }
+    }
+}
+
+fn handshake_error() -> WireError {
+    WireError::new(
+        "GET",
+        "/api/event",
+        WireKind::NotOpenCode {
+            status: 200,
+            what: "an event stream that didn't start with server.connected".into(),
+        },
+    )
+}
 
 /// How long the event stream may stay silent before it's dropped and reopened, as Desktop's
 /// `defaultIdleTimeout`. The server writes a heartbeat every 15 s. A connection that died while
@@ -71,40 +205,51 @@ const PARKED: Duration = Duration::from_secs(30);
 /// Reads `stream` as `epoch` for as long as that's the thread that speaks for it; `resumed` when
 /// it takes over from an earlier read (its first open is a reconnect, and resyncs).
 #[cfg(not(target_arch = "wasm32"))]
-pub(super) fn run_stream(stream: &super::streams::Stream, epoch: u64, mut resumed: bool) {
+pub(super) fn run_stream(stream: &super::streams::Stream, epoch: u64, resumed: bool) {
     let (server, inbox_tx, wake) = (&stream.server, &stream.inbox, &stream.wake);
-    let mut backoff: u64 = 250;
-    // The failure the window last heard of: the same one again tells it nothing, so it isn't woken.
-    let mut said: Option<WireError> = None;
-    loop {
-        let mut opened = false;
+    let mut state = if resumed {
+        StreamState::Reconnecting { backoff_ms: BACKOFF_MIN_MS, last_error: None }
+    } else {
+        StreamState::Initial
+    };
+    while !matches!(state, StreamState::Closed) {
         let generation = *RETRY.0.lock().unwrap_or_else(PoisonError::into_inner);
-        let result = server.events(stream, epoch, resumed, &mut opened);
-        if !stream.live(epoch) {
+        let result = server.events(stream, epoch, &mut state);
+        if matches!(state, StreamState::Closed) {
             return;
         }
-        if let Err(e) = result {
-            let news = opened || said.as_ref() != Some(&e);
-            // Sent either way: a closed inbox is how this thread learns its window went.
-            if inbox_tx.send(Incoming::StreamDown(e.clone())).is_err() {
-                return;
-            }
-            if news {
-                wake();
-            }
-            said = Some(e);
-            server.watch_reach(None);
+        if !stream.live(epoch) {
+            stream_step(&mut state, StreamEvent::Closed);
+            return;
         }
-        if opened {
-            backoff = 250;
+        let Err(e) = result else {
+            stream_step(&mut state, StreamEvent::Closed);
+            return;
+        };
+        for effect in stream_step(&mut state, StreamEvent::Failed(e)) {
+            match effect {
+                StreamEffect::ReportDown { error, wake: news } => {
+                    // Sent either way: a closed inbox is how this thread learns its window went.
+                    if inbox_tx.send(Incoming::StreamDown(error)).is_err() {
+                        stream_step(&mut state, StreamEvent::Closed);
+                        return;
+                    }
+                    if news {
+                        wake();
+                    }
+                }
+                StreamEffect::WatchReach => server.watch_reach(None),
+                StreamEffect::Wait { backoff_ms } => {
+                    let wait = if server.refusing() { PARKED } else { Duration::from_millis(backoff_ms) };
+                    let _wait = RETRY
+                        .1
+                        .wait_timeout_while(RETRY.0.lock().unwrap_or_else(PoisonError::into_inner), wait, |g| *g == generation)
+                        .unwrap_or_else(PoisonError::into_inner);
+                    stream_step(&mut state, StreamEvent::WaitElapsed);
+                }
+                StreamEffect::DeliverHandshake(_) | StreamEffect::DeliverFrame | StreamEffect::RejectHandshake(_) => {}
+            }
         }
-        resumed = true;
-        let wait = if server.refusing() { PARKED } else { Duration::from_millis(backoff) };
-        let _wait = RETRY
-            .1
-            .wait_timeout_while(RETRY.0.lock().unwrap_or_else(PoisonError::into_inner), wait, |g| *g == generation)
-            .unwrap_or_else(PoisonError::into_inner);
-        backoff = (backoff * 2).min(3000);
     }
 }
 /// Whether a held write may go: its gate's answer (`false` when the gate is gone), or at once.

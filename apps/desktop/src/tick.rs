@@ -80,9 +80,11 @@ struct TickFrame {
     asked_dock_face: Option<String>,
 }
 
+static TICK_FRAME: opencode_kernel::Slot<TickFrame> = opencode_kernel::Slot::new();
+
 impl App {
     pub(crate) fn take_asked_dock_face(&mut self) -> Option<String> {
-        self.kernel.slots.slot::<TickFrame>().asked_dock_face.take()
+        self.kernel.slots.get_or_default(&TICK_FRAME).asked_dock_face.take()
     }
 }
 
@@ -90,7 +92,7 @@ impl App {
 /// `stop::poll` at the exact mid-ingest boundary (`31a59a9:apps/desktop/src/main.rs`).
 pub(crate) fn poll_stream(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     let asked = s.dock_face();
-    s.kernel.slots.slot::<TickFrame>().asked_dock_face = asked;
+    s.kernel.slots.get_or_default(&TICK_FRAME).asked_dock_face = asked;
     let mut changed = incoming::poll(s, tx);
     while s.fixture_run.playback.front().is_some_and(|e| e.0 <= now + 1e-9) {
         let Some((at, ty, mut data)) = s.fixture_run.playback.pop_front() else { break };

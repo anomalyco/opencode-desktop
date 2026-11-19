@@ -23,8 +23,8 @@ use opencode_ui::popup::{self, Menu, MenuButton as _, PopupHost};
 use rune::{El, Icon, TextEdit, TextStyle, Tx, col, el, icon, row, rule, text};
 use rune_kit::{Select, TextInput};
 use rune_theme_opencode::icons as ic;
-use session_view::palette::{Pal, kit};
-use session_view::style::{UI, UI_MED};
+use opencode_ui::palette::{Pal, kit};
+use opencode_ui::style::{UI, UI_MED};
 
 use crate::host::SettingsHost;
 
@@ -457,7 +457,7 @@ pub fn filter_field<H: SettingsHost + 'static>(
         .hover(p.layer2)
         .child(el().pl(16.0).child(icon(&ic::MAGNIFYING_GLASS, 14.0).color(p.icon_muted)))
         .child(
-            session_view::style::field(edit, NAME_REGULAR)
+            opencode_ui::style::field(edit, NAME_REGULAR)
                 .key(format!("{key}-input"))
                 .single_line()
                 .grow(1.0)

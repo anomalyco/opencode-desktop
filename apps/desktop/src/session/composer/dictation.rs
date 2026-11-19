@@ -4,18 +4,20 @@ pub use opencode_feature_dictation::*;
 
 use std::path::PathBuf;
 
-use opencode_kernel::{Feature, KernelBuilder};
+use opencode_kernel::{Feature, KernelBuilder, Slot};
 use rune::{KeyEvent, TextEdit, Tx, Waker};
 
 use crate::App;
 
+pub(crate) static DICTATION: Slot<Dictation> = Slot::new();
+
 impl DictationHost for App {
     fn dictation(&self) -> &Dictation {
-        &self.composer_ext.dictation
+        self.kernel.slots.get(&DICTATION)
     }
 
     fn dictation_mut(&mut self) -> &mut Dictation {
-        &mut self.composer_ext.dictation
+        self.kernel.slots.get_mut(&DICTATION)
     }
 
     fn composer_mut(&mut self) -> &mut TextEdit {
@@ -52,6 +54,7 @@ impl Feature<App> for DictationFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder.register_slot(&DICTATION);
         // Precaution: dictation can call `App::submit`, mutating `route`/`tabs`/`sessions`/`projects`
         // read by `projects.home` and `project_switcher.poll`.
         builder
@@ -76,7 +79,7 @@ mod stories {
             label: "Start",
             run: |s, tx| {
                 tx.instant();
-                s.composer_ext.dictation.set_fake_prepare(0.0);
+                s.kernel.slots.get_mut(&super::DICTATION).set_fake_prepare(0.0);
                 start(s);
             },
         },
@@ -86,7 +89,7 @@ mod stories {
             run: |s, tx| {
                 tx.instant();
                 cancel(s);
-                s.composer_ext.dictation.slow_fake();
+                s.kernel.slots.get_mut(&super::DICTATION).slow_fake();
                 start(s);
             },
         },
@@ -95,11 +98,11 @@ mod stories {
             label: "Words so far",
             run: |s, tx| {
                 tx.instant();
-                if !s.composer_ext.dictation.recording() {
-                    s.composer_ext.dictation.set_fake_prepare(0.0);
+                if !s.kernel.slots.get(&super::DICTATION).recording() {
+                    s.kernel.slots.get_mut(&super::DICTATION).set_fake_prepare(0.0);
                     start(s);
                 }
-                s.composer_ext.dictation.push_fake_heard([
+                s.kernel.slots.get_mut(&super::DICTATION).push_fake_heard([
                     Heard::Ready,
                     Heard::Partial {
                         stable: "keep the retry budget as it is".into(),
@@ -121,7 +124,7 @@ mod stories {
             label: "Finish, words never come",
             run: |s, tx| {
                 tx.instant();
-                s.composer_ext.dictation.set_fake_stall(true);
+                s.kernel.slots.get_mut(&super::DICTATION).set_fake_stall(true);
                 stop(s);
             },
         },
@@ -130,7 +133,7 @@ mod stories {
             label: "Next error",
             run: |s, tx| {
                 tx.instant();
-                let next = match s.composer_ext.dictation.error() {
+                let next = match s.kernel.slots.get(&super::DICTATION).error() {
                     Some(hex_client::NOT_RUNNING) => hex_client::BUSY,
                     Some(hex_client::BUSY) => hex_client::OUTDATED,
                     Some(hex_client::OUTDATED) => hex_client::NOT_INSTALLED,
@@ -138,7 +141,7 @@ mod stories {
                     _ => hex_client::NOT_RUNNING,
                 };
                 cancel(s);
-                s.composer_ext.dictation.fail(Problem::of(next));
+                s.kernel.slots.get_mut(&super::DICTATION).fail(Problem::of(next));
             },
         },
     ];
@@ -146,7 +149,7 @@ mod stories {
     /// A draft with the caret after it, then the loop iOS shows: the stop while it listens, the
     /// spinner while the words come, the words at the caret.
     fn story_open(s: &mut App, tx: &mut rune::Play<App>) {
-        *s.composer_ext.dictation = Dictation::fake();
+        *s.kernel.slots.get_mut(&super::DICTATION) = Dictation::fake();
         *s.composer = rune::TextEdit::new("Looks right. Before you merge,");
         start(s);
         tx.after(1.6, |s, tx| {

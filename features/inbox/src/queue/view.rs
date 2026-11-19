@@ -10,9 +10,9 @@ use opencode_kit::model::{self, InboxItem};
 use opencode_ui::keymap::{Bind, LABEL as KEYMAP_LABEL, chips as keymap_chips};
 use rune::{El, Icon, Key, KeyEvent, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
-use session_view::odometer::odometer;
-use session_view::palette::Pal;
-use session_view::style::{UI, UI_MED};
+use opencode_ui::odometer::odometer;
+use opencode_ui::palette::Pal;
+use opencode_ui::style::{UI, UI_MED};
 
 use super::QueueHost;
 use super::drag;
@@ -82,7 +82,7 @@ fn attachments_label(n: usize) -> String {
 /// a dock blocks the composer (`SessionQueuePanel hidden={blocked}`); it opens again after.
 pub fn panel<H: QueueHost + 'static>(host: &H, p: &Pal, session: &str, busy: bool) -> El {
     let rows = shown_rows(host, session);
-    let shell = col().key("queue").w_full().max_w(session_view::style::dock_w()).clip_soft(0.0);
+    let shell = col().key("queue").w_full().max_w(opencode_ui::style::dock_w()).clip_soft(0.0);
     if rows.is_empty() {
         return shell.h(0.0);
     }
@@ -332,7 +332,7 @@ fn queue_row<H: QueueHost + 'static>(p: &Pal, session: &str, r: &QueueRow, ids: 
     let shown = match (r.pending || st.parked || st.editing, st.lifted) {
         (true, _) => Shown::Always,
         (false, true) => Shown::Never,
-        (false, false) if session_view::style::hover_none() => Shown::Always,
+        (false, false) if opencode_ui::style::hover_none() => Shown::Always,
         (false, false) => Shown::OnHover,
     };
     let reveal = |e: El| match shown {
@@ -385,7 +385,7 @@ fn queue_row<H: QueueHost + 'static>(p: &Pal, session: &str, r: &QueueRow, ids: 
     let words = reveal(line(p, r, words));
     let left = row().grow(1.0).shrink().min_w(0.0).gap(8.0).center_y().child(handle::<H>(p, session, &r.id, ids, st.index, st.changing || r.pending)).child(words);
     let actions = if r.pending {
-        row().key("actions").gap(4.0).center_y().child(session_view::style::activity_ring_sized(p, 14.0))
+        row().key("actions").gap(4.0).center_y().child(opencode_ui::style::activity_ring_sized(p, 14.0))
     } else {
         let mut actions = reveal(row().key("actions").gap(4.0).center_y());
         if !st.editing {

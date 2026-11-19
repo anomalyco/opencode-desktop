@@ -4,7 +4,7 @@ pub use opencode_feature_annotations::line_comments::*;
 
 use std::rc::Rc;
 
-use opencode_kernel::{EscapeLayer, Feature, KernelBuilder};
+use opencode_kernel::{EscapeLayer, Feature, KernelBuilder, Slot};
 use opencode_kit::model::CommentOrigin;
 use opencode_ui::popup::Menu;
 use rune::{El, Tx};
@@ -13,27 +13,30 @@ use serde_json::Value;
 use crate::App;
 use crate::quote::comment::{Config, FieldEvent};
 
+pub(crate) static LINE_COMMENTS: Slot<LineComments> = Slot::new();
+
 impl LineCommentsHost for App {
     fn line_comments(&self) -> &LineComments {
-        &self.composer_ext.line_comments
+        self.kernel.slots.get(&LINE_COMMENTS)
     }
 
     fn line_comments_mut(&mut self) -> &mut LineComments {
-        &mut self.composer_ext.line_comments
+        self.kernel.slots.get_mut(&LINE_COMMENTS)
     }
 
     fn view_selection(&self, spot: &Spot) -> Option<Range> {
         match spot.surface {
             Surface::Files => self
-                .workspace_panes
-                .files
+                .kernel
+                .slots
+                .get(&crate::files::FILES)
                 .sessions
                 .get(&spot.session)?
                 .docs
                 .get(&spot.path)
                 .and_then(host::code_doc_selection),
             Surface::Review | Surface::Narrow => {
-                let sr = self.workspace_panes.review.sessions.get(&spot.session)?;
+                let sr = self.kernel.slots.get(&crate::review::REVIEW).sessions.get(&spot.session)?;
                 let diffs = if spot.surface == Surface::Review {
                     &sr.diffs
                 } else {
@@ -48,8 +51,9 @@ impl LineCommentsHost for App {
         match spot.surface {
             Surface::Files => {
                 if let Some(d) = self
-                    .workspace_panes
-                    .files
+                    .kernel
+                    .slots
+                    .get_mut(&crate::files::FILES)
                     .sessions
                     .get_mut(&spot.session)
                     .and_then(|w| w.docs.get_mut(&spot.path))
@@ -58,7 +62,7 @@ impl LineCommentsHost for App {
                 }
             }
             Surface::Review | Surface::Narrow => {
-                let Some(sr) = self.workspace_panes.review.sessions.get_mut(&spot.session) else { return };
+                let Some(sr) = self.kernel.slots.get_mut(&crate::review::REVIEW).sessions.get_mut(&spot.session) else { return };
                 let diffs = if spot.surface == Surface::Review {
                     Some(&mut sr.diffs)
                 } else {
@@ -74,11 +78,11 @@ impl LineCommentsHost for App {
     fn line_preview(&self, spot: &Spot, range: Range) -> Option<String> {
         match spot.surface {
             Surface::Files => {
-                let doc = self.workspace_panes.files.sessions.get(&spot.session)?.docs.get(&spot.path)?;
+                let doc = self.kernel.slots.get(&crate::files::FILES).sessions.get(&spot.session)?.docs.get(&spot.path)?;
                 host::code_doc_preview(doc, range)
             }
             Surface::Review | Surface::Narrow => {
-                let sr = self.workspace_panes.review.sessions.get(&spot.session)?;
+                let sr = self.kernel.slots.get(&crate::review::REVIEW).sessions.get(&spot.session)?;
                 let diffs = if spot.surface == Surface::Review {
                     &sr.diffs
                 } else {
@@ -96,7 +100,7 @@ impl LineCommentsHost for App {
         {
             return Some(Surface::Files);
         }
-        let sr = self.workspace_panes.review.sessions.get(sid)?;
+        let sr = self.kernel.slots.get(&crate::review::REVIEW).sessions.get(sid)?;
         if self.narrow() {
             return sr.narrow.is_open(path).then_some(Surface::Narrow);
         }
@@ -108,8 +112,9 @@ impl LineCommentsHost for App {
         match spot.surface {
             Surface::Files => {
                 if let Some(d) = self
-                    .workspace_panes
-                    .files
+                    .kernel
+                    .slots
+                    .get_mut(&crate::files::FILES)
                     .sessions
                     .get_mut(&spot.session)
                     .and_then(|w| w.docs.get_mut(&spot.path))
@@ -118,7 +123,7 @@ impl LineCommentsHost for App {
                 }
             }
             Surface::Review => {
-                if let Some(sr) = self.workspace_panes.review.sessions.get_mut(&spot.session) {
+                if let Some(sr) = self.kernel.slots.get_mut(&crate::review::REVIEW).sessions.get_mut(&spot.session) {
                     host::scroll_diff_doc(&mut sr.diffs, &spot.path, range, tx);
                 }
             }
@@ -236,10 +241,13 @@ impl Feature<App> for AnnotationsFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder
+            .register_slot(&crate::quote::QUOTE)
+            .register_slot(&LINE_COMMENTS);
         builder.register_escape_layer(EscapeLayer::new(
             "escape.quote",
             100,
-            |s| s.composer_ext.quote.offered(),
+            |s| s.kernel.slots.get(&crate::quote::QUOTE).offered(),
             |s, _, tx| {
                 tx.instant();
                 crate::quote::dismiss(s, tx);
@@ -248,7 +256,7 @@ impl Feature<App> for AnnotationsFeature {
         builder.register_escape_layer(EscapeLayer::new(
             "escape.comment_selection",
             110,
-            |s| matches!(s.composer_ext.line_comments.selection, selection::State::Settling { .. } | selection::State::Shown(_)),
+            |s| matches!(s.kernel.slots.get(&LINE_COMMENTS).selection, selection::State::Settling { .. } | selection::State::Shown(_)),
             |s, _, tx| {
                 selection::dispatch(s, selection::Event::Clear, tx);
             },

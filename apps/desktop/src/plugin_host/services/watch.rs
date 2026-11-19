@@ -131,7 +131,7 @@ fn observe(app: &App, plugin: &str, name: &str) -> Option<(u64, Data)> {
             let focused = !app.plugins.window_blurred.get();
             Some((u64::from(focused), Data::Bool(focused)))
         }
-        "Updater.StateChanged" => Some((app.services.updater.revision(), crate::updater::state_data(app))),
+        "Updater.StateChanged" => Some((app.kernel.slots.get(&crate::updater::UPDATER).revision(), crate::updater::state_data(app))),
         n => {
             let editor = |suffix: &str| n.strip_prefix("editor.").and_then(|s| s.strip_suffix(suffix)).and_then(|s| s.parse::<usize>().ok());
             if let Some(index) = editor(".FocusChanged") {

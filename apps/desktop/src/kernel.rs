@@ -1,12 +1,11 @@
-//! Shell kernel assembly: wires extracted feature crates and native surface descriptors into
-//! `opencode_kernel::Kernel<App>`.
+//! Shell kernel assembly: wires extracted feature crates into `opencode_kernel::Kernel<App>`.
 //!
 //! New Rust features register here via `Feature::register` instead of adding fields to `App` or
 //! editing central dispatch chains in `lib.rs`, `tick.rs`, `shell/input/keys.rs`, or `shell/view/mod.rs`.
 
 use opencode_kernel::{
     AppEnv, AppFeedback, AppOverlays, EscapeLayer, Kernel, KernelBuilder, OverlayEntry,
-    OverlayEvent, OverlayKind, OverlayRegistration, SurfaceDescriptor, SurfaceKind,
+    OverlayEvent, OverlayKind, OverlayRegistration,
 };
 
 use crate::{App, Route};
@@ -93,7 +92,6 @@ pub fn build() -> Kernel<App> {
     #[cfg(feature = "office")]
     b.with_feature(&crate::surfaces::office::OfficeFeature);
     b.with_feature(&crate::surfaces::updater::UpdaterFeature);
-    b.with_feature(&crate::surfaces::code_view::CodeViewFeature);
     b.with_feature(&crate::line_comments::AnnotationsFeature);
     b.with_feature(&crate::attachments::ComposerInputFeature);
     b.with_feature(&crate::connect::ConnectFeature);
@@ -160,7 +158,7 @@ pub fn build() -> Kernel<App> {
     b.register_escape_layer(EscapeLayer::new(
         "escape.toast",
         30,
-        |s| s.dialogs.toast.current().is_some_and(|t| t.persistent),
+        |s| s.toast.current().is_some_and(|t| t.persistent),
         |s, ev, tx| {
             crate::status_toast::key(s, ev, tx);
         },
@@ -182,14 +180,15 @@ pub fn build() -> Kernel<App> {
         },
     ));
     crate::commands::register_shell_commands(&mut b);
-    b.add_surface(
-        SurfaceDescriptor::new("browser", SurfaceKind::Browser, "Browser")
-            .with_multi_instance(true),
-    );
-    let mut kernel = b.build();
-    kernel.slots.insert(crate::app::ViewRuns::default());
-    kernel.slots.insert(crate::session_catalog::Catalog::default());
-    kernel
+    b.register_slot(&crate::app::VIEW_RUNS)
+        .register_slot(&crate::app::OUTPUT_ERRORS)
+        .register_slot(&crate::session_catalog::CATALOG)
+        .register_slot(&crate::events::TAIL_CHANGE)
+        .register_slot(&crate::events::STREAM_GAPS)
+        .register_slot(&crate::speech::SPEECH)
+        .register_slot(&crate::crash_notice::CRASH_NOTICE)
+        .register_slot(&crate::servers::dialog::DIALOG);
+    b.build()
 }
 
 /// Core shell and subsystem lifecycle polls registered into declared [`crate::tick::stage`]
@@ -274,7 +273,7 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
     })
     .after("notifications.poll");
     // Known: requires `launch.poll` (`INGEST_SERVERS`) for `Source::Live { writes: Some(_) }`;
-    // precaution: mutates `settings.open`, `route`, `tabs`, `projects`, and `composer.focused`.
+    // precaution: mutates `settings_open`, `route`, `tabs`, `projects`, and `composer.focused`.
     b.schedule(stage::INGEST_DISPATCH, "deep_links.drain", |s, _, tx| {
         crate::deep_links::drain(s, tx)
     })
@@ -291,14 +290,15 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
         s.poll_pages(tx);
         false
     });
-    // Precaution: both `session_pages.poll` and `app.output_errors` push toasts via `dialogs.toast`.
+    // Precaution: both `session_pages.poll` and `app.output_errors` push toasts via `App::toast`.
     b.schedule(stage::INGEST_PAGES, "app.output_errors", |s, _, _| {
         let mut changed = false;
         while let Some(why) = s
             .kernel
             .slots
-            .get::<crate::app::OutputErrors>()
-            .and_then(|e| e.0.as_ref())
+            .untracked(&crate::app::OUTPUT_ERRORS)
+            .0
+            .as_ref()
             .and_then(|(_, rx)| rx.try_recv().ok())
         {
             crate::status_toast::fail(s, opencode_i18n::t!("common.requestFailed"), why);
@@ -373,7 +373,7 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
         crate::plugin_host::native::browser::poll(s, tx)
     })
     .after_all(&["review.poll", "files.poll", "terminal.poll"]);
-    // Known: `plugin_watched_stamp` hashes `workspace_panes.{review,browser}` and `browser.poll`
+    // Known: `plugin_watched_stamp` hashes `review::REVIEW` and `workspace_panes.browser` and `browser.poll`
     // completes CDP promises / fires `Browser.Picked` before plugin VMs poll.
     b.schedule(stage::REACT_PANELS, "plugin_host.poll", |s, _, tx| s.poll_plugins(tx))
         .after("browser.poll");
@@ -418,7 +418,7 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
         crate::view::tab_preview::poll(s, now, tx)
     })
     .after("narrow.poll");
-    // Known: reads `tab_layout()` and `settings.open` settled by `layout_state.poll` -> `narrow.poll`.
+    // Known: reads `tab_layout()` and `settings_open()` settled by `layout_state.poll` -> `narrow.poll`.
     b.schedule(stage::REACT_SHELL, "session_status.poll", |s, now, tx| {
         crate::session_status::poll(s, now, tx)
     })
@@ -437,7 +437,7 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
         }
         crate::windows::reopen::poll(s);
         crate::windows::reopen::poll_asked(s);
-        s.composer_ext.prompts.hydrate((*s.waker).clone());
+        s.kernel.slots.get_mut(&crate::prompt_history::PROMPTS).hydrate((*s.waker).clone());
         s.poll_window();
         s.poll_taskbar();
         crate::jump_list::poll(s);

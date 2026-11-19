@@ -4,9 +4,9 @@
 use rune::{El, Tx, col, el, icon, row, spacer, text};
 use rune_kit::ButtonVariant;
 use rune_theme_opencode::icons as ic;
-use session_view::palette::{Pal, kit};
-use session_view::pickers::Model;
-use session_view::style::UI;
+use opencode_kit::model::Model;
+use opencode_ui::palette::{Pal, kit};
+use opencode_ui::style::UI;
 
 use super::connection_groups;
 use crate::dialog::{Event, Step};
@@ -133,7 +133,7 @@ pub(super) fn view<H: ConnectHost + 'static>(s: &H, p: &Pal, id: &str) -> El {
                 .px(20.0)
                 .child(text(opencode_i18n::t!("provider.connect.models.description")).font(BODY).color(p.muted).pb(20.0))
                 // `settings-panel`: no bar, as Desktop hides it (`dialog.tsx:1241`, `settings.css:593-607`).
-                .child(session_view::scroller::scroller("first-provider-model-scroll").hidden(col().w_full().shrink().min_h(0.0), scroll)),
+                .child(opencode_ui::scroller::scroller("first-provider-model-scroll").hidden(col().w_full().shrink().min_h(0.0), scroll)),
         )
         .child(el().w_full().h(0.5).fill(p.border_muted))
         .child(footer)

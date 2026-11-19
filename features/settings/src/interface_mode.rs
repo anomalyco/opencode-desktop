@@ -4,7 +4,7 @@
 
 use opencode_i18n::t;
 use rune::{Color, Direction, El, Tx, col, el, row, text};
-use session_view::palette::{Pal, kit};
+use opencode_ui::palette::{Pal, kit};
 
 use crate::host::SettingsHost;
 use crate::types::TabLayout;

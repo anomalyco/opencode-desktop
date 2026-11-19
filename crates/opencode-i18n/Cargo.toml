@@ -10,7 +10,6 @@ rune-i18n.workspace = true
 
 # A page fetches the locale it shows (`web.rs`).
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-js-sys = "0.3"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = ["console"] }

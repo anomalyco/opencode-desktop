@@ -1,0 +1,3 @@
+# Named temporary exceptions for scripts/arch-check.sh resolved-graph rules.
+# Format: <rule> <source-crate> -> <target-crate>  # <reason>
+# Delete an entry as soon as the underlying edge is removed.

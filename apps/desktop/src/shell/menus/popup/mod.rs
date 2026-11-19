@@ -2,7 +2,7 @@
 
 pub mod context;
 
-use opencode_kit::servers::health::Indicator;
+use opencode_ui::popup::Indicator;
 use rune::El;
 use rune_knobs::Knobs;
 use session_view::palette::Pal;
@@ -18,18 +18,17 @@ pub use opencode_ui::popup::{
 };
 
 /// `menu` as a drawn surface, row `active` lit (specialized to [`App`] for storybook previews).
-#[allow(dead_code)]
 pub fn surface(p: &Pal, menu: &Menu, active: Option<usize>) -> El {
     opencode_ui::popup::surface::<App>(p, menu, active)
 }
 
 impl opencode_ui::popup::PopupHost for App {
     fn popup(&self) -> &Popup {
-        &self.dialogs.popup
+        &self.popup
     }
 
     fn popup_mut(&mut self) -> &mut Popup {
-        &mut self.dialogs.popup
+        &mut self.popup
     }
 
     fn knobs(&self) -> &Knobs {
@@ -54,7 +53,7 @@ impl opencode_ui::popup::PopupHost for App {
     }
 
     fn status_indicator(&self, p: &Pal, indicator: Indicator) -> El {
-        crate::servers::indicator::mark(p, indicator)
+        crate::servers::indicator::mark_ui(p, indicator)
     }
 
     fn hairline(&self) -> f32 {

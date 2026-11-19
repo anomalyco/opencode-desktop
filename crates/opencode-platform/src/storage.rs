@@ -9,23 +9,20 @@
 //! Calling any helper before [`configure`] runs returns a safe default (`false`, `None`, `0`,
 //! [`DocLookup::Ready`]`(None)`, or a no-op) without panicking.
 
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
-use opencode_storage::Storage;
 use serde_json::{Map, Value};
 
-/// Result of reading a persisted document from memory (`opencode_storage::Lookup`).
-///
-/// Re-exported under `DocLookup` so feature crates can pattern-match `DocLookup::Ready(_)` and
-/// `DocLookup::Pending` while host shells pass `opencode_storage::Lookup` functions directly.
-pub use opencode_storage::Lookup as DocLookup;
+/// Result of reading a persisted document from memory (`Ready` with its text or `None`, or
+/// `Pending` while loading from the backing store).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DocLookup {
+    Ready(Option<Arc<str>>),
+    Pending,
+}
 
-/// A storage-thread operation executed against the host's [`Storage`] instance (now when open,
-/// or queued until storage finishes opening).
-pub type StorageOp = Box<dyn FnOnce(&Storage) + Send>;
-
-/// Process-wide host persistence callbacks covering JSON key-value state, large documents,
-/// draft hand-offs, and direct storage-thread operations.
+/// Process-wide host persistence callbacks covering JSON key-value state, large documents, and
+/// draft hand-offs.
 #[derive(Clone, Copy)]
 pub struct StoragePort {
     /// Whether the backing store has hydrated into memory.
@@ -47,8 +44,6 @@ pub struct StoragePort {
     /// Hands off a draft document to an outbox row without writing a draft journal record,
     /// returning the journal revision settled by `OutboxPut::clear_documents`.
     pub hand_off_doc: fn(key: &str) -> u64,
-    /// Runs `op` against the host's [`Storage`] (now when ready, else once opened).
-    pub with_storage: fn(op: StorageOp),
 }
 
 fn noop_bool() -> bool {
@@ -75,8 +70,6 @@ fn noop_hand_off_doc(_: &str) -> u64 {
     0
 }
 
-fn noop_with_storage(_: StorageOp) {}
-
 impl StoragePort {
     /// A port whose callbacks are safe no-ops returning empty/default values.
     /// Useful as a struct-update base (`StoragePort { read_json, ..StoragePort::noop() }`).
@@ -91,7 +84,6 @@ impl StoragePort {
             load_docs: noop_load_docs,
             set_doc: noop_set_doc,
             hand_off_doc: noop_hand_off_doc,
-            with_storage: noop_with_storage,
         }
     }
 }
@@ -200,11 +192,4 @@ pub fn set_doc(key: &str, value: Option<String>) {
 /// (`0` if unconfigured).
 pub fn hand_off_doc(key: &str) -> u64 {
     PORT.get().map_or(0, |p| (p.hand_off_doc)(key))
-}
-
-/// Runs `op` against the host's [`Storage`] (no-op if unconfigured).
-pub fn with_storage(op: StorageOp) {
-    if let Some(p) = PORT.get() {
-        (p.with_storage)(op);
-    }
 }

@@ -20,7 +20,7 @@ use self::shapes::{Plan, Row};
 use super::schema::{self, FLAG_RETIRED, FLAG_SEED_SETTLED};
 pub use super::schema::ImportGroup;
 use super::sql;
-use opencode_kit::servers::migration::Context;
+use opencode_servers::migration::Context;
 
 pub use self::outbox::rebuild as rebuild_outbox_row;
 

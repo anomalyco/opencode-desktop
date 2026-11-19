@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use base64::Engine;
-use opencode_kit::servers::migration::{global, window};
+use opencode_servers::migration::{global, window};
 use serde_json::{Map, Value, json};
 
 use super::ImportConfig;
@@ -226,7 +226,7 @@ fn shared(cfg: &ImportConfig, read: &mut BTreeMap<String, Read>) -> Source {
     for r in [&tabs, &ui, &servers, &home].into_iter().flatten() {
         source.rows.push(archive(&file_name(&r.path), &r.raw));
     }
-    let first_has_tabs = [tabs_v, ui_v].into_iter().flatten().any(|v| v.as_object().is_some_and(|m| m.keys().any(|k| opencode_kit::servers::migration::is_server_url(k))));
+    let first_has_tabs = [tabs_v, ui_v].into_iter().flatten().any(|v| v.as_object().is_some_and(|m| m.keys().any(|k| opencode_servers::migration::is_server_url(k))));
     if !has_ids && first_has_tabs {
         // A profile from before windows had files: its first window takes the shared lists. The
         // id comes from the files, so a second run makes the same window, not another.

@@ -39,7 +39,7 @@ pub fn methods(lua: &Lua) -> mlua::Result<Table> {
                 app_now("FileTreeModel")?.later(Box::new(move |s: &mut App, tx: &mut Tx| {
                     tx.instant();
                     if workspace {
-                        if s.workspace_panes.files.sessions.get(&sid).is_some_and(|w| w.expanded_dirs.contains(&path)) != open {
+                        if s.kernel.slots.get(&crate::files::FILES).sessions.get(&sid).is_some_and(|w| w.expanded_dirs.contains(&path)) != open {
                             s.toggle_workspace_dir(&path);
                         }
                     } else {
@@ -57,7 +57,7 @@ pub fn methods(lua: &Lua) -> mlua::Result<Table> {
             let workspace = is_workspace(&this);
             app_now("FileTreeModel:Reveal")?.later(Box::new(move |s: &mut App, tx: &mut Tx| {
                 if workspace {
-                    if let Some(w) = s.workspace_panes.files.sessions.get_mut(&sid) {
+                    if let Some(w) = s.kernel.slots.get_mut(&crate::files::FILES).sessions.get_mut(&sid) {
                         let parts: Vec<&str> = path.split('/').collect();
                         (1..parts.len()).for_each(|i| {
                             w.expanded_dirs.insert(parts[..i].join("/"));
@@ -65,7 +65,7 @@ pub fn methods(lua: &Lua) -> mlua::Result<Table> {
                         w.rebuild_tree();
                         w.tree.select(&path);
                     }
-                } else if let Some(sr) = s.workspace_panes.review.sessions.get_mut(&sid) {
+                } else if let Some(sr) = s.kernel.slots.get_mut(&crate::review::REVIEW).sessions.get_mut(&sid) {
                     sr.tree.reveal(&path, tx);
                     sr.stamp += 1;
                 }
@@ -96,7 +96,7 @@ pub fn methods(lua: &Lua) -> mlua::Result<Table> {
                 app.filtered_files(&sid, &query)
             } else {
                 cx::read(Dep::DiffTree(sid.clone()));
-                let all: Vec<String> = app.workspace_panes.review.sessions.get(&sid).map(|r| r.meta.iter().map(|m| m.path.clone()).collect()).unwrap_or_default();
+                let all: Vec<String> = app.kernel.slots.get(&crate::review::REVIEW).sessions.get(&sid).map(|r| r.meta.iter().map(|m| m.path.clone()).collect()).unwrap_or_default();
                 filter_review_files(&all, &query)
             };
             lua.create_sequence_from(found)
@@ -142,8 +142,8 @@ fn workspace(app: &App, p: &Pal, a: &NodeArgs, sid: &str, kinds: Rc<HashMap<Stri
     }
     cx::read(Dep::FilesTree(sid.to_owned()));
     let empty = crate::files::SessionFiles::default();
-    let ws = app.workspace_panes.files.sessions.get(sid).unwrap_or(&empty);
-    if !ws.ready {
+    let ws = app.kernel.slots.get(&crate::files::FILES).sessions.get(sid).unwrap_or(&empty);
+    if !ws.tree_load.is_ready() {
         return col().key("files-tree-loading").w_full().grow(1.0).px(10.0).pt(8.0).child(text(opencode_i18n::t!("ui.sessionReview.image.loading")).font(UI_SMALL).color(p.muted));
     }
     if filter.is_empty() {
@@ -203,7 +203,7 @@ fn picked(row: El, pick: &Option<Press>, path: &str) -> El {
 }
 
 fn change_tree(app: &App, p: &Pal, sid: &str, kinds: Rc<HashMap<String, String>>, selected: Option<String>, pick: Option<Press>) -> El {
-    let count = app.workspace_panes.review.sessions.get(sid).map_or(0, |r| r.tree.visible_len());
+    let count = app.kernel.slots.get(&crate::review::REVIEW).sessions.get(sid).map_or(0, |r| r.tree.visible_len());
     let (sid_keys, sid_rows) = (sid.to_owned(), sid.to_owned());
     let pal = *p;
     let selected = Rc::new(selected);
@@ -224,13 +224,13 @@ fn change_tree(app: &App, p: &Pal, sid: &str, kinds: Rc<HashMap<String, String>>
         .virtual_rows(
             count,
             ROW_H,
-            move |s: &App, i| s.workspace_panes.review.sessions.get(&sid_keys).and_then(|r| r.tree.row(i).map(|(_, tr)| Cow::Owned(format!("rt:{}", tr.id)))).unwrap_or(Cow::Borrowed("rt:empty")),
+            move |s: &App, i| s.kernel.slots.get(&crate::review::REVIEW).sessions.get(&sid_keys).and_then(|r| r.tree.row(i).map(|(_, tr)| Cow::Owned(format!("rt:{}", tr.id)))).unwrap_or(Cow::Borrowed("rt:empty")),
             move |s: &App, i| {
-                let Some((node, tr)) = s.workspace_panes.review.sessions.get(&sid_rows).and_then(|r| r.tree.row(i)) else { return el().h(ROW_H) };
+                let Some((node, tr)) = s.kernel.slots.get(&crate::review::REVIEW).sessions.get(&sid_rows).and_then(|r| r.tree.row(i)) else { return el().h(ROW_H) };
                 let (id, dir) = (tr.id.to_owned(), node.dir);
                 let glyph = (!dir).then(|| tree_icons::file(node.name.as_str()));
                 let on = selected.as_deref() == Some(tr.id);
-                let sr = &s.workspace_panes.review.sessions[&sid_rows];
+                let sr = &s.kernel.slots.get(&crate::review::REVIEW).sessions[&sid_rows];
                 let row = chrome::tree_row(&pal, node.name.as_str(), tr.depth, dir.then(|| sr.tree.is_expanded(tr.id)), glyph, on)
                     .position_in_set(i + 1, count)
                     .children((!dir).then(|| kinds.get(tr.id).and_then(|k| letter(&pal, k))).flatten())
@@ -239,8 +239,8 @@ fn change_tree(app: &App, p: &Pal, sid: &str, kinds: Rc<HashMap<String, String>>
                     let sid = sid_rows.clone();
                     row.on_press_tx(move |s: &mut App, tx: &mut Tx| {
                         tx.instant();
-                        if let Some(sr) = s.workspace_panes.review.sessions.get(&sid) {
-                            s.expand_review_dir(&sid, &id, !sr.tree.is_expanded(&id));
+                        if let Some(open) = s.kernel.slots.get(&crate::review::REVIEW).sessions.get(&sid).map(|sr| sr.tree.is_expanded(&id)) {
+                            s.expand_review_dir(&sid, &id, !open);
                         }
                     })
                 } else {
@@ -259,18 +259,18 @@ fn change_tree_key(s: &mut App, sid: &str, ev: &rune::KeyEvent, tx: &mut Tx) -> 
     let right = matches!(ev.key, rune::Key::Right);
     if !(right || matches!(ev.key, rune::Key::Left)) || ev.mods != rune::Mods::default() { return false; }
     let Some(id) = tx.focused().and_then(|k| k.strip_prefix("rt:")).map(str::to_owned) else { return false };
-    let Some(sr) = s.workspace_panes.review.sessions.get_mut(sid) else { return false };
+    let Some(sr) = s.kernel.slots.get(&crate::review::REVIEW).sessions.get(sid) else { return false };
     let dir = sr.tree.get(&id).is_some_and(|n| n.dir);
     let open = sr.tree.is_expanded(&id);
     match (right, dir, open) {
         (true, true, false) | (false, true, true) => {
             s.expand_review_dir(sid, &id, !open);
         }
-        (true, true, true) => match sr.tree.children(Some(&id)).next() {
+        (true, true, true) => match sr.tree.children(Some(&id)).next().map(str::to_owned) {
             Some(child) => tx.focus(format!("rt:{child}"), true),
             None => return false,
         },
-        (false, _, _) => match sr.tree.parent(&id) {
+        (false, _, _) => match sr.tree.parent(&id).map(str::to_owned) {
             Some(parent) => tx.focus(format!("rt:{parent}"), true),
             None => return false,
         },
@@ -281,7 +281,7 @@ fn change_tree_key(s: &mut App, sid: &str, ev: &rune::KeyEvent, tx: &mut Tx) -> 
 
 #[allow(clippy::too_many_arguments)]
 fn filtered(app: &App, p: &Pal, sid: &str, query: &str, _kinds: Rc<HashMap<String, String>>, selected: Option<String>, highlighted: Option<String>, pick: Option<Press>) -> El {
-    let all: Vec<String> = app.workspace_panes.review.sessions.get(sid).map(|r| r.meta.iter().map(|m| m.path.clone()).collect()).unwrap_or_default();
+    let all: Vec<String> = app.kernel.slots.get(&crate::review::REVIEW).sessions.get(sid).map(|r| r.meta.iter().map(|m| m.path.clone()).collect()).unwrap_or_default();
     let found = filter_review_files(&all, query);
     if found.is_empty() {
         return col().key("review-filter-empty").w_full().grow(1.0).px(10.0).pt(8.0).child(text(opencode_i18n::t!("rune.files.noMatches")).font(UI_SMALL).color(p.muted));
@@ -295,7 +295,7 @@ fn filtered(app: &App, p: &Pal, sid: &str, query: &str, _kinds: Rc<HashMap<Strin
         move |_s: &App, i| Cow::Owned(format!("rf:{}", keys[i])),
         move |s: &App, i| {
             let path = &found[i];
-            let meta = s.workspace_panes.review.sessions.get(&sid_rows).and_then(|sr| sr.meta.iter().find(|m| &m.path == path));
+            let meta = s.kernel.slots.get(&crate::review::REVIEW).sessions.get(&sid_rows).and_then(|sr| sr.meta.iter().find(|m| &m.path == path));
             let on = selected.as_deref() == Some(path.as_str()) || highlighted.as_deref().map_or(i == 0, |h| h == path);
             let (dir, name) = (Some(opencode_kit::path::parent(path)).filter(|d| !d.is_empty()), opencode_kit::path::basename(path));
             let t = tree_icons::file(name);

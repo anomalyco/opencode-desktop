@@ -98,18 +98,24 @@ pub use workspace::lifecycle::launch::last_exit::OomGuard;
 pub(crate) fn init_features() {
     static INIT: std::sync::Once = std::sync::Once::new();
     INIT.call_once(|| {
+        fn doc_lookup(key: &str) -> opencode_platform::DocLookup {
+            match storage::doc(key) {
+                opencode_storage::Lookup::Ready(v) => opencode_platform::DocLookup::Ready(v),
+                opencode_storage::Lookup::Pending => opencode_platform::DocLookup::Pending,
+            }
+        }
         opencode_platform::storage::configure(opencode_platform::StoragePort {
             is_ready: storage::is_ready,
             attended,
             read_json: storage::json,
             write_json: storage::set_json,
             delete: storage::delete,
-            doc: storage::doc,
+            doc: doc_lookup,
             load_docs: storage::load_docs,
             set_doc: storage::set_doc,
             hand_off_doc: storage::hand_off_doc,
-            with_storage: storage::with_storage,
         });
+        opencode_storage::configure_runner(|op| storage::with_storage(op));
         keymap::init();
         rune_mcp::init();
         updater::init();
@@ -435,9 +441,9 @@ pub mod web_api {
     }
 
     pub fn dismiss_touch_keyboard(s: &mut App) -> bool {
-        let changed = s.composer.focused || s.composer_ext.suggest.search.focused;
+        let changed = s.composer.focused || s.kernel.slots.get(&crate::suggestions::SUGGEST).search.focused;
         s.composer.focused = false;
-        s.composer_ext.suggest.search.focused = false;
+        s.kernel.slots.get_mut(&crate::suggestions::SUGGEST).search.focused = false;
         changed
     }
 
@@ -461,6 +467,6 @@ pub mod web_api {
     }
 
     pub fn settings_open(s: &App) -> bool {
-        s.settings.open
+        s.settings_open()
     }
 }

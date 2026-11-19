@@ -2,17 +2,19 @@
 
 pub use opencode_feature_tips::*;
 
-use opencode_kernel::{Feature, KernelBuilder};
+use opencode_kernel::{Feature, KernelBuilder, Slot};
 
 use crate::App;
 
+static TIPS: Slot<Tips> = Slot::new();
+
 impl TipsHost for App {
     fn tips(&self) -> &Tips {
-        &self.dialogs.tips
+        self.kernel.slots.get(&TIPS)
     }
 
     fn tips_mut(&mut self) -> &mut Tips {
-        &mut self.dialogs.tips
+        self.kernel.slots.get_mut(&TIPS)
     }
 
     fn is_connected(&self) -> bool {
@@ -20,7 +22,7 @@ impl TipsHost for App {
     }
 
     fn is_window_open(&self) -> bool {
-        !self.plugins.window_blurred.get() && self.dialogs.toast.stack.page() == rune_kit::ToastPage::Shown
+        !self.plugins.window_blurred.get() && self.toast.stack.page() == rune_kit::ToastPage::Shown
     }
 
     fn route_key(&self) -> TipRoute {
@@ -61,6 +63,7 @@ impl Feature<App> for TipsFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder.register_slot(&TIPS);
         // Known: reads `reconnect::down` via `is_connected()`.
         builder
             .schedule(crate::tick::stage::REACT_STATUS, "tips.poll", |s, _, tx| poll(s, tx))

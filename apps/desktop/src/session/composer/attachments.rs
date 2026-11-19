@@ -187,7 +187,7 @@ impl Feature<App> for ComposerInputFeature {
                 crate::commands::order::PROMPT_MODE_TOGGLE,
                 |s, tx| {
                     tx.animated();
-                    if s.composer_ext.add.shell() { s.exit_shell() } else { s.enter_shell(tx) }
+                    if s.kernel.slots.get(&crate::add_menu::ADD_MENU).shell() { s.exit_shell() } else { s.enter_shell(tx) }
                 },
             )
             .bind_id(Bind::PromptModeToggle.id())
@@ -203,7 +203,7 @@ impl Feature<App> for ComposerInputFeature {
                     s.enter_shell(tx);
                 },
             )
-            .when(|s| s.has_composer() && !s.composer_ext.add.shell()),
+            .when(|s| s.has_composer() && !s.kernel.slots.get(&crate::add_menu::ADD_MENU).shell()),
         );
         builder.add_command(
             CommandEntry::<App>::from_key(
@@ -215,7 +215,7 @@ impl Feature<App> for ComposerInputFeature {
                     s.exit_shell();
                 },
             )
-            .when(|s| s.has_composer() && s.composer_ext.add.shell()),
+            .when(|s| s.has_composer() && s.kernel.slots.get(&crate::add_menu::ADD_MENU).shell()),
         );
         builder.add_command(
             CommandEntry::<App>::from_key(
@@ -236,14 +236,18 @@ impl Feature<App> for ComposerInputFeature {
                     viewer(s, p, cx)
                 }),
         );
+        builder
+            .register_slot(&crate::prompt_history::PROMPTS)
+            .register_slot(&crate::suggestions::SUGGEST)
+            .register_slot(&crate::add_menu::ADD_MENU);
         builder.add_setup("composer_input.attach_waker", |s, waker| s.composer_ext.attach.set_waker(waker));
-        builder.add_setup("composer_input.slash_waker", |s, waker| s.composer_ext.add.slash.set_waker(waker));
+        builder.add_setup("composer_input.slash_waker", |s, waker| s.kernel.slots.get_mut(&crate::add_menu::ADD_MENU).slash.set_waker(waker));
         builder.schedule(
             crate::tick::stage::INGEST_SESSION_PRE,
             "composer_input.dropzone",
             |s, _, tx| crate::dropzone::poll(s, tx),
         );
-        // Known: shares `composer_ext.suggest` with `mentions.poll`.
+        // Known: shares `suggestions::SUGGEST` with `mentions.poll`.
         builder
             .schedule(
                 crate::tick::stage::DERIVE_COMPOSER,
@@ -251,7 +255,7 @@ impl Feature<App> for ComposerInputFeature {
                 |s, _, tx| s.poll_commands(tx),
             )
             .after("mentions.poll");
-        // Known: shares `composer_ext.suggest` with `composer_input.commands` (and reads
+        // Known: shares `suggestions::SUGGEST` with `composer_input.commands` (and reads
         // `search.focused` finalized in `DERIVE_SEARCH`).
         builder
             .schedule(
@@ -260,7 +264,7 @@ impl Feature<App> for ComposerInputFeature {
                 |s, _, tx| s.poll_suggestions(tx),
             )
             .after("composer_input.commands");
-        // Precaution: shares `dialogs.toast` with `session_menu.poll_delete`.
+        // Precaution: shares `App::toast` with `session_menu.poll_delete`.
         builder
             .schedule(
                 crate::tick::stage::DERIVE_COMPOSER,

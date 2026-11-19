@@ -12,17 +12,16 @@ use serde_json::Value;
 
 use crate::pickers::PickerHost as _;
 use crate::shell::app_state::{
-    AppearanceState, ComposerExt, DiagState, DialogStates, FixtureRun, PlatformServices,
-    QueueState, ShellGestures, TimelineFx, WorkspacePanes,
+    AppearanceState, ComposerExt, DiagState, FixtureRun, PlatformServices, QueueState,
+    ShellGestures, TimelineFx, WorkspacePanes,
 };
 use crate::tabs::Tab;
 use crate::{
-    Route, appearance, background, commands, connect, context_window, demo, dictation, dirs, egg,
-    events, files, find, fulltext, history, home_search, inbox_model, jobs, keymap, knobs, launch,
-    layout_state, model_prefs, open_in, permission, plugin_host, projects, prompt_history,
-    question, recent_page, restore, send_failed, servers, session_catalog, session_pages,
-    session_status, settings, shortcuts, slash, stop, subagents, switcher, tabs, telemetry,
-    turn_diffs, view, wall_ms, windows,
+    Route, appearance, background, commands, context_window, demo, dictation, dirs, events, files,
+    find, history, inbox_model, jobs, keymap, knobs, launch, layout_state, model_prefs, open_in,
+    plugin_host, popup, projects, prompt_history, recent_page, restore, send_failed, servers,
+    session_catalog, session_pages, session_status, settings, shortcuts, slash, status_toast, stop,
+    switcher, tabs, telemetry, turn_diffs, view, wall_ms, windows,
 };
 
 // A static, not a const: a const's bytes are copied into every codegen unit that names it.
@@ -41,14 +40,18 @@ pub enum Source {
 #[derive(Default)]
 pub(crate) struct OutputErrors(pub(crate) Option<(Sender<String>, Receiver<String>)>);
 
+pub(crate) static OUTPUT_ERRORS: opencode_kernel::Slot<OutputErrors> = opencode_kernel::Slot::new();
+
 /// Kernel state slot counting how many times the root view has run (read by `SwitcherHost::view_runs`).
 #[derive(Default)]
 pub(crate) struct ViewRuns(pub(crate) std::cell::Cell<u64>);
 
+pub(crate) static VIEW_RUNS: opencode_kernel::Slot<ViewRuns> = opencode_kernel::Slot::new();
+
 #[derive(Default)]
 pub struct App {
-    /// Decoupled shell kernel registries (lifecycle scheduler, typed feature slots, overlays,
-    /// commands, deferred event bus, and native surface catalog).
+    /// Decoupled shell kernel registries (lifecycle scheduler, tracked feature slots, overlays,
+    /// and commands).
     pub kernel: opencode_kernel::Kernel<App>,
     pub source: rune::Tracked<Source>,
     pub(crate) inbox: rune::Tracked<Option<Receiver<Incoming>>>,
@@ -62,8 +65,6 @@ pub struct App {
     pub recent_page: rune::Tracked<recent_page::Page>,
     pub recent_reload: recent_page::Reload,
     pub(crate) session_search: switcher::search_index::SessionSearch,
-    /// The palette's and Home's questions to the message text kept on this device.
-    pub(crate) fulltext: fulltext::Surfaces,
     pub route: rune::Tracked<Route>,
     /// Where ⌘[ and ⌘] go (`history.rs`).
     pub nav: rune::Tracked<history::History>,
@@ -95,8 +96,6 @@ pub struct App {
     pub inboxes: rune::Tracked<HashMap<String, Inbox>>,
     /// This window's place in its server's peer (`windows::peer`).
     pub store: rune::Tracked<Box<windows::peer::Link>>,
-    /// The question dock's place and in-progress answers for the forms it shows.
-    pub question: rune::Tracked<question::Dock>,
     /// Where a new draft starts, and where paths resolve off a session: the folder last picked.
     /// The open draft's own folder is `App::draft_dir`.
     pub default_dir: rune::Tracked<String>,
@@ -106,27 +105,10 @@ pub struct App {
     pub sidebar_w: rune::Tracked<f32>,
     pub composer: rune::Tracked<TextEdit>,
     pub search: rune::Tracked<TextEdit>,
-    pub home_search: rune::Tracked<Box<home_search::HomeSearch>>,
-    /// The new-session wordmark's Easter egg (`egg`): nothing until the pointer comes near its "e".
-    /// Untracked: its frames step and draw without the view running; `egg::poll` says when the
-    /// view must.
-    pub egg: egg::Egg,
     pub project_state: rune::Tracked<Box<projects::ProjectsState>>,
-    /// Home across servers: its selection, its servers and its list's phase (`projects::home`).
-    pub home_state: rune::Tracked<projects::home::Home>,
     pub settings: rune::Tracked<settings::Settings>,
-    /// Settings' Providers, Models and Extensions pages (`settings::pages`).
-    pub settings_pages: rune::Tracked<Box<settings::pages::State>>,
-    /// The integrations and providers it and Settings read, by folder.
-    pub catalogs: rune::Tracked<connect::catalog::Catalogs>,
     /// Server requests on their way back (`jobs`).
     pub(crate) jobs: rune::Tracked<jobs::Jobs>,
-    /// The open session and composer drafts, saved for the next launch.
-    pub restore: rune::Tracked<Box<restore::Restore>>,
-    /// Background shells, and the running-work list above the composer (`subagents::activity`).
-    pub shells: rune::Tracked<subagents::shells::Shells>,
-    /// Permission replies still on their way, to bring back if the server refuses one.
-    pub permission_sent: rune::Tracked<permission::Sent>,
     /// Prompts sent and not yet seen back, for rolling a failed one back (`send_failed.rs`).
     pub unsent: rune::Tracked<send_failed::Log>,
     /// Wall-clock milliseconds for relative times (fixture: its own fixed "now").
@@ -146,8 +128,10 @@ pub struct App {
     pub fixture_run: FixtureRun,
     /// Diagnostics, debug bar, live knobs, frame recorder, and motion log state.
     pub diag: DiagState,
-    /// Modal dialogs, popovers, switchers, menus, toasts, and onboarding tips.
-    pub dialogs: DialogStates,
+    /// The drawn menu or picker open now (off macOS).
+    pub popup: rune::Tracked<Box<popup::Popup>>,
+    /// Window status toast stack.
+    pub toast: rune::Tracked<status_toast::StatusToast>,
     /// Side/bottom workspace surfaces, panes, external openers, and client MCP hub.
     pub workspace_panes: WorkspacePanes,
     /// Shell gestures: tab drag/preview/reopen, pinch zoom, sidebar resize, and Home return tab.
@@ -225,11 +209,11 @@ impl App {
     }
 
     pub(crate) fn view_runs(&self) -> u64 {
-        self.kernel.slots.get::<ViewRuns>().map_or(0, |r| r.0.get())
+        self.kernel.slots.try_untracked(&VIEW_RUNS).map_or(0, |r| r.0.get())
     }
 
     pub(crate) fn bump_view_runs(&self) {
-        if let Some(r) = self.kernel.slots.get::<ViewRuns>() {
+        if let Some(r) = self.kernel.slots.try_untracked(&VIEW_RUNS) {
             r.0.set(r.0.get().wrapping_add(1));
         }
     }
@@ -323,8 +307,8 @@ impl App {
     pub(crate) fn load_fixture(&mut self, src: &str) {
         let v: Value = serde_json::from_str(src).unwrap_or_else(|e| panic!("fixture JSON: {e}"));
         self.composer_ext.pickers.load(&v);
-        self.composer_ext.mentions.load(&v);
-        self.composer_ext.add.slash.commands = slash::commands(&v["commands"]);
+        self.kernel.slots.get_mut(&crate::mentions::MENTIONS).load(&v);
+        self.kernel.slots.get_mut(&crate::add_menu::ADD_MENU).slash.commands = slash::commands(&v["commands"]);
         *self.fixture_run.base_ms = v["now"].as_i64().unwrap_or(0);
         *self.now_ms = *self.fixture_run.base_ms;
         *self.projects = opencode_kit::model::parse_projects(&v["projects"]);
@@ -344,8 +328,8 @@ impl App {
             }
         }
         *self.diag.status = "Fixture".into();
-        *self.workspace_panes.open_in = open_in::OpenIn::with(std::sync::Arc::new(open_in::Fixed(vec!["vscode", "cursor", "zed", "terminal", "ghostty", "xcode", "powershell"])));
-        self.workspace_panes.open_in.detect();
+        *self.kernel.slots.get_mut(&open_in::OPEN_IN) = open_in::OpenIn::with(std::sync::Arc::new(open_in::Fixed(vec!["vscode", "cursor", "zed", "terminal", "ghostty", "xcode", "powershell"])));
+        self.kernel.slots.get_mut(&open_in::OPEN_IN).detect();
         if let Some(home) = v["home"].as_str() {
             *self.home = home.to_owned();
         }
@@ -364,7 +348,6 @@ impl App {
         // A headless snapshot reads the server now; a window reads it and probes after its first frame.
         let deferred = launch::deferred();
         let first = if deferred {
-            self.launch.fallback_fixture = fallback_fixture;
             None
         } else {
             match launch::First::fetch(&server) {
@@ -381,16 +364,16 @@ impl App {
         let server = servers::runtime::bind(self, server);
         let doc = telemetry::startup("launch.window_doc", || restore::read_window(self));
         let saved_tabs = doc.tabs.as_ref().map(|list| list.iter().map(|t| Tab::from_doc(t, doc.info(&t.key()))).collect());
-        self.restore.unread_tabs = doc.unread_tabs.clone();
+        self.kernel.slots.get_mut(&restore::RESTORE).unread_tabs = doc.unread_tabs.clone();
         // Desktop's tabs come into a fresh profile's first window only.
         let beta = self.window.fresh && server.base == DEFAULT_SERVER;
         match saved_tabs.or_else(|| (beta && !deferred).then(tabs::from_beta).flatten()) {
             Some(tabs) => *self.tabs = tabs,
-            None if deferred => self.launch.set_phase(ServerKey::SIDECAR, launch::Phase::Waiting { beta_tabs: beta }),
+            None if deferred => self.launch.set_phase(ServerKey::SIDECAR, launch::Phase::Waiting { beta_tabs: beta, fallback_fixture }),
             None => {}
         }
         if deferred && self.launch.phase(ServerKey::SIDECAR).is_none() {
-            self.launch.set_phase(ServerKey::SIDECAR, launch::Phase::Waiting { beta_tabs: false });
+            self.launch.set_phase(ServerKey::SIDECAR, launch::Phase::Waiting { beta_tabs: false, fallback_fixture });
         }
         if let Some(first) = first {
             self.apply_first(first);
@@ -404,10 +387,11 @@ impl App {
         *self.layout = layout_state::Shell::at_rest(self.settings.tab_layout);
         self.load_open_in();
         if self.persists() {
-            self.workspace_panes.files.wrap = files::markdown::WrapPrefs::load(self);
+            let wrap = files::markdown::WrapPrefs::load(self);
+            self.kernel.slots.get_mut(&files::FILES).wrap = wrap;
             *self.workspace_panes.panel_sidebar = plugin_host::native::sidebar::PanelSidebar::load();
         }
-        *self.composer_ext.prompts = prompt_history::PromptHistory::load(attended());
+        *self.kernel.slots.get_mut(&prompt_history::PROMPTS) = prompt_history::PromptHistory::load(attended());
         self.composer_ext.pickers.prefs = model_prefs::load();
         telemetry::startup("launch.restore_ui", || self.restore_ui(&doc, &server.base));
         *self.fixture_run.base_ms = wall_ms();
@@ -481,29 +465,29 @@ impl App {
         let shown: HashSet<&str> = s.tabs.iter().map(|t| t.id.as_str()).chain(match &*s.route { Route::Session { id, .. } => Some(id.as_str()), _ => None }).chain(s.running.iter().map(String::as_str)).collect();
         let kept = |id: &str| s.ancestors(id).any(|a| shown.contains(a));
         let gone: Vec<String> = s.transcripts.keys().filter(|id| !kept(id)).cloned().collect();
-        let review_gone: Vec<String> = s.workspace_panes.review.sessions.keys().filter(|id| !kept(id)).cloned().collect();
-        let files_gone: Vec<String> = s.workspace_panes.files.sessions.keys().filter(|id| !kept(id)).cloned().collect();
-        let kept_ids: HashSet<String> = if has_rest_hooks {
-            shown
-                .iter()
-                .map(|id| (*id).to_owned())
-                .chain(s.sessions.iter().filter(|sess| kept(&sess.id)).map(|sess| sess.id.clone()))
-                .collect()
-        } else {
-            HashSet::new()
-        };
+        let review_gone: Vec<String> = s.kernel.slots.get(&crate::review::REVIEW).sessions.keys().filter(|id| !kept(id)).cloned().collect();
+        let files_gone: Vec<String> = s.kernel.slots.get(&files::FILES).sessions.keys().filter(|id| !kept(id)).cloned().collect();
+        let kept_ids: HashSet<String> = shown
+            .iter()
+            .map(|id| (*id).to_owned())
+            .chain(s.sessions.iter().filter(|sess| kept(&sess.id)).map(|sess| sess.id.clone()))
+            .collect();
         s.pages.rest(&kept);
-        s.workspace_panes.files.retain_reply_links(kept);
+        s.kernel.slots.get_mut(&files::FILES).retain_reply_links(|id| kept_ids.contains(id));
         if !gone.is_empty() {
             let transcripts = &mut *s.transcripts;
             for id in &gone { transcripts.remove(id); }
         }
         // A closed session's diffs and open files (their source lines, highlight chunks, images).
-        if !review_gone.is_empty() { for id in &review_gone { s.workspace_panes.review.sessions.remove(id); } }
+        if !review_gone.is_empty() {
+            let review = s.kernel.slots.get_mut(&crate::review::REVIEW);
+            for id in &review_gone { review.sessions.remove(id); }
+        }
         if !files_gone.is_empty() {
             for id in &files_gone {
-                s.workspace_panes.files.sessions.remove(id);
-                s.workspace_panes.files.reads.forget_session(id);
+                let f = s.kernel.slots.get_mut(&files::FILES);
+                f.sessions.remove(id);
+                f.reads.forget_session(id);
                 files::watch::forget_session(s, id);
             }
         }
@@ -540,10 +524,13 @@ impl App {
     }
 
     pub fn session(&self, id: &str) -> Option<&SessionInfo> {
-        if self.sessions.len() >= 512
-            && let Some(cat) = self.kernel.slots.get::<session_catalog::Catalog>()
-        {
-            return cat.lookup(&self.sessions, id).map(|(i, _)| &self.sessions[i]);
+        if self.sessions.len() >= 512 {
+            return self
+                .kernel
+                .slots
+                .untracked(&session_catalog::CATALOG)
+                .lookup(&self.sessions, id)
+                .map(|(i, _)| &self.sessions[i]);
         }
         self.sessions.iter().find(|s| s.id == id)
     }
@@ -566,10 +553,10 @@ impl App {
     /// folder, as Desktop's `openDraft`. On Home and in Settings it's Home's project, else the
     /// last used or the first the server lists, and with no project it does nothing.
     pub fn new_session(&mut self, tx: &mut Tx) {
-        if self.project_navigation() && (self.settings.open || self.route == Route::Home) {
+        if self.project_navigation() && (self.settings_open() || self.route == Route::Home) {
             return view::home::browse::start(self, tx);
         }
-        let dir = if self.settings.open || self.route == Route::Home {
+        let dir = if self.settings_open() || self.route == Route::Home {
             let project = self
                 .home_selected()
                 .or_else(|| self.last_used_project())

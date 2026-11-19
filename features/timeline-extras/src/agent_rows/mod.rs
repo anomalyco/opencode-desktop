@@ -33,19 +33,51 @@ pub trait AgentRowsHost: opencode_kernel::AppEnv {
     fn running_sessions(&self) -> &HashSet<String>;
 }
 
+/// How a live-observed subagent execution ended.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum RunOutcome {
+    Succeeded,
+    Failed { error: Option<String> },
+}
+
+impl RunOutcome {
+    fn is_failed(&self) -> bool {
+        matches!(self, Self::Failed { .. })
+    }
+
+    fn error(&self) -> Option<&str> {
+        match self {
+            Self::Succeeded => None,
+            Self::Failed { error } => error.as_deref(),
+        }
+    }
+}
+
+/// Live-observed execution state of a subagent session (absence means no live run observed or
+/// its end record expired). Running and ended are mutually exclusive in one map.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum LiveRun {
+    Running { started_at: i64 },
+    Ended { ended_at: i64, outcome: RunOutcome },
+}
+
+enum LiveEvent {
+    ExecutionStarted { sid: String, now_ms: i64 },
+    ExecutionEnded { sid: String, outcome: RunOutcome, now_ms: i64 },
+    PruneExpired { now_ms: i64 },
+}
+
 /// What the event stream says about subagents beyond running or not.
 #[derive(Default)]
 pub struct Live {
     /// Each session's latest steps, kept across its runs so each call's card finds its own.
     steps: HashMap<String, Log>,
-    /// When each subagent's latest run started while we watched; unlike `started`, kept after it ends.
+    /// When each subagent's latest run started while we watched; kept after it ends for step windows.
     began: HashMap<String, i64>,
-    /// Subagents that ended while we watched: whether they failed, when, and the error.
-    ended: HashMap<String, (bool, i64, Option<String>)>,
+    /// Each subagent's current live execution state (running or recently ended).
+    runs: HashMap<String, LiveRun>,
     /// When each subagent's runs ended while we watched, and whether they failed, oldest first.
     pub(crate) ends: HashMap<String, Vec<(i64, bool)>>,
-    /// When each subagent's current run started, for runs that started while we watched.
-    pub started: HashMap<String, i64>,
     /// When each subagent call began, by its tool part, for calls made while we watched.
     pub called: HashMap<String, i64>,
     /// The last poll's clock, to tell when a second has passed.
@@ -65,7 +97,53 @@ impl Live {
 
     /// When subagent session `id`'s current live run started, if observed live.
     pub fn started_at(&self, id: &str) -> Option<i64> {
-        self.started.get(id).copied()
+        match self.runs.get(id) {
+            Some(LiveRun::Running { started_at }) => Some(*started_at),
+            Some(LiveRun::Ended { .. }) | None => None,
+        }
+    }
+
+    fn ended_run(&self, id: &str) -> Option<(i64, &RunOutcome)> {
+        match self.runs.get(id) {
+            Some(LiveRun::Ended { ended_at, outcome }) => Some((*ended_at, outcome)),
+            Some(LiveRun::Running { .. }) | None => None,
+        }
+    }
+
+    fn has_expired_ended(&self, now_ms: i64) -> bool {
+        self.runs
+            .values()
+            .any(|r| matches!(r, LiveRun::Ended { ended_at, .. } if now_ms - *ended_at >= 3_600_000))
+    }
+
+    fn step(&mut self, event: LiveEvent) -> bool {
+        match event {
+            LiveEvent::ExecutionStarted { sid, now_ms } => {
+                self.began.insert(sid.clone(), now_ms);
+                let had_ended = matches!(
+                    self.runs.insert(sid.clone(), LiveRun::Running { started_at: now_ms }),
+                    Some(LiveRun::Ended { .. })
+                );
+                self.steps.contains_key(&sid) || had_ended
+            }
+            LiveEvent::ExecutionEnded { sid, outcome, now_ms } => {
+                let failed = outcome.is_failed();
+                self.runs.insert(sid.clone(), LiveRun::Ended { ended_at: now_ms, outcome });
+                let ends = self.ends.entry(sid).or_default();
+                ends.push((now_ms, failed));
+                if ends.len() > ENDS {
+                    ends.remove(0);
+                }
+                true
+            }
+            LiveEvent::PruneExpired { now_ms } => {
+                let before = self.runs.len();
+                self.runs.retain(|_, r| {
+                    !matches!(r, LiveRun::Ended { ended_at, .. } if now_ms - *ended_at >= 3_600_000)
+                });
+                self.runs.len() != before
+            }
+        }
     }
 
     /// Drops `child`'s step log so its row reads steps from a freshly loaded transcript.
@@ -124,24 +202,16 @@ pub fn note_agent(host: &mut dyn AgentRowsHost, ty: &str, data: &Value, sid: &st
         "session.tool.called" => step_of(data["name"].as_str().unwrap_or(""), &data["input"]),
         "session.reasoning.started" => opencode_i18n::t!("ui.sessionTurn.status.thinking").to_owned(),
         "session.execution.started" => {
-            let rows = host.agent_rows_mut();
-            rows.started.insert(sid.to_owned(), now_ms);
-            rows.began.insert(sid.to_owned(), now_ms);
-            let had = rows.ended.remove(sid).is_some();
-            return rows.steps.contains_key(sid) || had;
+            return host.agent_rows_mut().step(LiveEvent::ExecutionStarted { sid: sid.to_owned(), now_ms });
         }
         "session.execution.succeeded" | "session.execution.failed" | "session.execution.interrupted" => {
-            let rows = host.agent_rows_mut();
-            rows.started.remove(sid);
-            let failed = ty != "session.execution.succeeded";
-            let error = data["error"]["message"].as_str().or(data["error"].as_str()).map(str::to_owned);
-            rows.ended.insert(sid.to_owned(), (failed, now_ms, error));
-            let ends = rows.ends.entry(sid.to_owned()).or_default();
-            ends.push((now_ms, failed));
-            if ends.len() > ENDS {
-                ends.remove(0);
-            }
-            return true;
+            let outcome = if ty == "session.execution.succeeded" {
+                RunOutcome::Succeeded
+            } else {
+                let error = data["error"]["message"].as_str().or(data["error"].as_str()).map(str::to_owned);
+                RunOutcome::Failed { error }
+            };
+            return host.agent_rows_mut().step(LiveEvent::ExecutionEnded { sid: sid.to_owned(), outcome, now_ms });
         }
         _ => return false,
     };
@@ -179,11 +249,13 @@ pub fn agent_run(host: &dyn AgentRowsHost, parent: &str, call: &str, child: Opti
     let from = window.and_then(|w| w.from);
     let info = child.and_then(|c| host.session_info(c));
     let running = *status == ToolStatus::Running || child.is_some_and(|c| subtree_running(host, c));
-    let ended = child.and_then(|c| host.agent_rows().ended.get(c)).filter(|_| !running);
+    let ended = child.and_then(|c| host.agent_rows().ended_run(c)).filter(|_| !running);
     // A call to an agent that had finished, before its new run starts.
-    let waking = ended.is_some_and(|e| from.is_some_and(|f| e.1 < f));
+    let waking = ended.is_some_and(|(at, _)| from.is_some_and(|f| at < f));
     let (running, ended) = (running || waking, ended.filter(|_| !waking));
-    let failed = *status == ToolStatus::Error || ended.is_some_and(|e| e.0) || info.and_then(|i| i.outcome.as_deref()) == Some("failed");
+    let failed = *status == ToolStatus::Error
+        || ended.is_some_and(|(_, o)| o.is_failed())
+        || info.and_then(|i| i.outcome.as_deref()) == Some("failed");
     let state = if running { State::Running } else if failed { State::Failed } else { State::Done };
     // Its steps start with its own call or the child's latest run, whichever came later.
     let began = child.and_then(|c| host.agent_rows().began.get(c).copied());
@@ -198,13 +270,13 @@ pub fn agent_run(host: &dyn AgentRowsHost, parent: &str, call: &str, child: Opti
             return run_clock(host) - run_started(host, &i.id, None).max(start);
         }
         let end = match ended {
-            Some(e) => e.1,
+            Some((at, _)) => at,
             None => i.idle.unwrap_or(i.updated).max(i.created),
         };
         end - start
     });
     let result = (state == State::Done).then(|| child.and_then(|c| answer(host, c, from, None))).flatten();
-    let error = (state == State::Failed).then(|| ended.and_then(|e| e.2.as_deref()).and_then(first_line)).flatten();
+    let error = (state == State::Failed).then(|| ended.and_then(|(_, o)| o.error()).and_then(first_line)).flatten();
     Run { state, steps, taken, ms, result, error }
 }
 
@@ -216,7 +288,7 @@ pub fn run_started(host: &dyn AgentRowsHost, child: &str, call: Option<i64>) -> 
     let info = host.session_info(child);
     let created = info.map_or(0, |i| i.created);
     let idle = info.and_then(|i| i.idle).unwrap_or(0);
-    let seen = host.agent_rows().started.get(child).copied().unwrap_or(0);
+    let seen = host.agent_rows().started_at(child).unwrap_or(0);
     created.max(idle).max(call.unwrap_or(0)).max(seen)
 }
 
@@ -235,8 +307,8 @@ pub fn poll(host: &mut dyn AgentRowsHost, tx: &mut Tx) -> bool {
     if now.div_euclid(1000) != last.div_euclid(1000) {
         host.agent_rows_mut().polled = now;
     }
-    if host.agent_rows().ended.values().any(|e| now - e.1 >= 3_600_000) {
-        host.agent_rows_mut().ended.retain(|_, e| now - e.1 < 3_600_000);
+    if host.agent_rows().has_expired_ended(now) {
+        host.agent_rows_mut().step(LiveEvent::PruneExpired { now_ms: now });
     }
     if host.running_sessions().is_empty() || !run_times_shown(host) {
         return false;

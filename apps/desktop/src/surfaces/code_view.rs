@@ -6,10 +6,8 @@ pub use opencode_code_view::diff::{
 };
 pub use opencode_code_view::file::{state as file_state, view as file_view};
 
-use opencode_kernel::{Feature, KernelBuilder, SurfaceDescriptor, SurfaceKind};
 use rune::{KeyEvent, Tx};
 
-use crate::App;
 use crate::keymap::Bind;
 
 /// Desktop keybinding adapter for `opencode_code_view::KeyMatch`.
@@ -32,25 +30,5 @@ pub fn trace_hooks() -> TraceHooks {
         on: crate::files::trace::on,
         view: crate::files::trace::view,
         row: crate::files::trace::row,
-    }
-}
-
-/// Kernel feature registration for the virtualized code & diff surface.
-pub struct CodeViewFeature;
-
-impl Feature<App> for CodeViewFeature {
-    fn id(&self) -> &'static str {
-        "feature.code-view"
-    }
-
-    fn register(&self, builder: &mut KernelBuilder<App>) {
-        builder.add_surface(
-            SurfaceDescriptor::new("code-view", SurfaceKind::CodeView, "Code Viewer")
-                .with_multi_instance(true),
-        );
-        builder.add_surface(
-            SurfaceDescriptor::new("diff", SurfaceKind::Diff, "Diff Viewer")
-                .with_multi_instance(true),
-        );
     }
 }

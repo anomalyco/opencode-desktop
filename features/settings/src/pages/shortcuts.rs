@@ -7,7 +7,7 @@
 use opencode_i18n::t;
 use opencode_ui::keymap::{self, Section, all, overrides};
 use rune::{Chord, ChordKey, ChordMod, El, Key, KeyEvent, KeyPlatform, Keybind, TextEdit, TextStyle, Tx, col, row, text};
-use session_view::palette::Pal;
+use opencode_ui::palette::Pal;
 
 use super::{filter_field, ghost_button, header_beside, no_results};
 use crate::change_settings;
@@ -106,7 +106,7 @@ pub fn view<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {
         let mut rows: Vec<&Entry> = list
             .iter()
             .filter(|e| e.section == section)
-            .filter(|e| query.is_empty() || session_view::pickers::search::score(&query, &[&e.title, &label(&e.keybind)]).is_some())
+            .filter(|e| query.is_empty() || opencode_search::model_search::score(&query, &[&e.title, &label(&e.keybind)]).is_some())
             .collect();
         if rows.is_empty() {
             continue;

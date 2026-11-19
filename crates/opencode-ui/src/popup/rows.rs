@@ -1,7 +1,7 @@
 //! Pieces of a drawn menu's rows: a submenu row's chevron, a change count's note, a row that
 //! only tells, and the default server health mark.
 
-use opencode_kit::servers::health::Indicator;
+use super::Indicator;
 use rune::{El, Icon, TextStyle, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
 use crate::palette::{Pal, kit};

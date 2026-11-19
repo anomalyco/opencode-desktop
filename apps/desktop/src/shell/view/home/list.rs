@@ -65,7 +65,7 @@ impl App {
             (t.year, t.month, t.day)
         };
         let (today, yesterday) = (day(*self.now_ms), day(*self.now_ms - 86_400_000));
-        let hold = self.home_search.hold.at();
+        let hold = self.kernel.slots.get(&crate::home_search::HOME_SEARCH).hold.at();
         let bucket = |ses: &SessionInfo| {
             if let Some(&(_, b)) = hold.and_then(|h| h.get(&ses.id)) {
                 return b;
@@ -137,12 +137,14 @@ impl App {
     /// The rows glide to their places in the next frame's own commit, as the row the pointer left
     /// commits its hover at once in this one.
     pub(crate) fn hold_home_order(&mut self, inside: bool, tx: &mut Tx) {
-        self.home_search.hold = match std::mem::take(&mut self.home_search.hold) {
+        let cur = std::mem::take(&mut self.kernel.slots.get_mut(&crate::home_search::HOME_SEARCH).hold);
+        let next = match cur {
             Hold::Holding { at } | Hold::Leaving { at } if inside => Hold::Holding { at },
             Hold::Holding { at } | Hold::Leaving { at } => Hold::Leaving { at },
             Hold::Free if inside => Hold::Holding { at: self.home_order() },
             Hold::Free => Hold::Free,
         };
+        self.kernel.slots.get_mut(&crate::home_search::HOME_SEARCH).hold = next;
         if !inside {
             tx.wake_after(std::time::Duration::ZERO);
         }
@@ -163,6 +165,7 @@ impl App {
 
     /// Home's folds open or shut, all together.
     pub(crate) fn toggle_home_automations(&mut self) {
-        self.restore.inbox.home_automations = !self.restore.inbox.home_automations;
+        let r = self.kernel.slots.get_mut(&crate::restore::RESTORE);
+        r.inbox.home_automations = !r.inbox.home_automations;
     }
 }

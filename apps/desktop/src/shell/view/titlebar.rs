@@ -101,7 +101,7 @@ fn nav_button(p: &Pal, key: &str, label: &str, glyph: &'static Icon, pressed: bo
 }
 
 fn home_button(s: &App, p: &Pal) -> El {
-    let home = s.route == Route::Home && !s.settings.open;
+    let home = s.route == Route::Home && !s.settings_open();
     nav_button(p, "home", t!("home.title"), &ic::GRID_PLUS, home)
         .help(t!("home.title")).help_keys(crate::keymap::Bind::Home.keycaps())
         .matched(NAV_HOME).matched_crop().motion(GLIDE)

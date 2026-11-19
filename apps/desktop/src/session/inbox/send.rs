@@ -17,7 +17,7 @@ impl App {
         // back to the queue (Return) or steers (the other delivery) instead of a new send
         // (`composer/model.ts:540-560`).
         if let Route::Session { id, .. } = &*self.route
-            && let Some(q) = self.queue.ops.get(id)
+            && let Some(q) = self.kernel.slots.get(&crate::queue::QUEUE_OPS).get(id)
         {
             if q.undoing() {
                 return;
@@ -41,12 +41,12 @@ impl App {
         // Held, not dropped, while the session still opens (`submit.rs`).
         if self.hold_submit(alternate) { return; }
         if crate::dictation::submit(self, alternate) { return; }
-        if self.composer_ext.add.shell() {
+        if self.kernel.slots.get(&crate::add_menu::ADD_MENU).shell() {
             return self.submit_shell(alternate, tx);
         }
         if !alternate && self.retry_restored() { return; }
         let wire = self.mention_wire();
-        if wire.text.is_empty() && !self.composer_ext.attach.any() && !self.composer_ext.quote.any() {
+        if wire.text.is_empty() && !self.composer_ext.attach.any() && !self.kernel.slots.get(&crate::quote::QUOTE).any() {
             return;
         }
         if !self.composer_ext.attach.uploads.is_empty() {
@@ -60,7 +60,7 @@ impl App {
         let command = self.slash_command(&wire.text);
         // Commands take no path attachments or quotes; they wait in the composer for the next prompt.
         let refs = if command.is_none() { std::mem::take(&mut self.composer_ext.attach.paths) } else { Vec::new() };
-        let quotes = if command.is_none() { self.composer_ext.quote.quotes() } else { Vec::new() };
+        let quotes = if command.is_none() { self.kernel.slots.get(&crate::quote::QUOTE).quotes() } else { Vec::new() };
         // A file comment attaches its lines (`request.ts:186-207`), before the file context.
         let directory = self.composer_directory();
         let commented = quotes.iter().filter_map(|c| c.file()).map(|f| {
@@ -76,7 +76,7 @@ impl App {
             }
         };
         // A prompt of only quotes leaves from its first quote's chip; any other from its words.
-        let from = match self.composer_ext.quote.items.first() {
+        let from = match self.kernel.slots.get(&crate::quote::QUOTE).items.first() {
             Some(q) if wire.display.trim().is_empty() => format!("{}/card/title", crate::quote_cards::chip_key(q.key)),
             _ => "prompt".to_owned(),
         };
@@ -207,7 +207,7 @@ impl App {
         opencode_kit::mention::set_user_path_attachments(&local, refs);
         self.echo_wire_mentions(&local, wire.marks);
         opencode_kit::model::set_user_comments(&local, quotes);
-        self.composer_ext.quote.take();
+        self.kernel.slots.get_mut(&crate::quote::QUOTE).take();
         // Like the TUI, sent comments go with the prompt (`submit.ts:413-417`).
         self.clear_line_comments(&id);
         session_view::composer::land(self, &id, &local, &from, tx);
@@ -224,27 +224,29 @@ impl App {
     /// the send went (`quote::editor`). The id it went out under, `None` when nothing went, or
     /// `Some(None)` when it went with no id to wait on (a fixture's).
     pub(crate) fn send_quote(&mut self, key: u64, tx: &mut Tx) -> Option<Option<String>> {
-        let quote = self.composer_ext.quote.items.iter().find(|q| q.key == key)?.clone();
+        let quote = self.kernel.slots.get(&crate::quote::QUOTE).items.iter().find(|q| q.key == key)?.clone();
         let before = self.newest_send(None);
         // What the composer holds steps aside while the quote goes on its own.
         let composer = std::mem::replace(&mut *self.composer, TextEdit::new(""));
-        let others: Vec<_> = self.composer_ext.quote.items.iter().filter(|q| q.key != key).cloned().collect();
-        self.composer_ext.quote.items = vec![quote.clone()];
+        let q = self.kernel.slots.get_mut(&crate::quote::QUOTE);
+        let others: Vec<_> = q.items.iter().filter(|q| q.key != key).cloned().collect();
+        q.items = vec![quote.clone()];
+        let comment = std::mem::take(&mut q.comment);
         let files = std::mem::take(&mut self.composer_ext.attach.files);
         let paths = std::mem::take(&mut self.composer_ext.attach.paths);
         let context = std::mem::take(&mut self.composer_ext.attach.context);
-        let comment = std::mem::take(&mut self.composer_ext.quote.comment);
         self.send_prompt(true, tx);
-        let went = self.composer_ext.quote.items.is_empty();
+        let q = self.kernel.slots.get_mut(&crate::quote::QUOTE);
+        let went = q.items.is_empty();
+        q.comment = comment;
+        q.items = others;
+        // In its place, until its send settles.
+        let at = q.items.iter().position(|q| q.key > key).unwrap_or(q.items.len());
+        q.items.insert(at, quote);
         *self.composer = composer;
         self.composer_ext.attach.files = files;
         self.composer_ext.attach.paths = paths;
         self.composer_ext.attach.context = context;
-        self.composer_ext.quote.comment = comment;
-        self.composer_ext.quote.items = others;
-        // In its place, until its send settles.
-        let at = self.composer_ext.quote.items.iter().position(|q| q.key > key).unwrap_or(self.composer_ext.quote.items.len());
-        self.composer_ext.quote.items.insert(at, quote);
         went.then(|| self.newest_send(before.as_deref()))
     }
 

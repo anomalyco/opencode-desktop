@@ -4,13 +4,13 @@
 
 use opencode_i18n::t;
 use opencode_kit::servers::ServerKey;
-use opencode_kit::servers::health::indicator;
-use opencode_ui::popup::{self, Item, Menu, MenuButton as _, PopupHost};
+use opencode_servers::health::{Indicator, indicator};
+use opencode_ui::popup::{self, Indicator as PopupIndicator, Item, Menu, MenuButton as _, PopupHost};
 use opencode_ui::widgets;
 use rune::{Align, El, Tx, row, text};
 use rune_kit::ButtonVariant;
 use rune_theme_opencode::icons as ic;
-use session_view::palette::{Pal, kit};
+use opencode_ui::palette::{Pal, kit};
 
 use super::inventory::{self, Kind};
 use crate::host::SettingsHost;
@@ -48,12 +48,23 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> Option<El>
     Some(trigger)
 }
 
+fn popup_indicator(ind: Indicator) -> PopupIndicator {
+    match ind {
+        Indicator::Healthy => PopupIndicator::Healthy,
+        Indicator::Unreachable => PopupIndicator::Unreachable,
+        Indicator::Unknown => PopupIndicator::Unknown,
+        Indicator::Auth => PopupIndicator::Auth,
+        Indicator::Connecting => PopupIndicator::Connecting,
+        Indicator::Incompatible => PopupIndicator::Incompatible,
+    }
+}
+
 fn build_switcher_menu(s: &dyn SettingsHost) -> Menu {
     let servers = inventory::list(s);
     let current = inventory::selected(s).key;
     let this_computer = t!("server.thisComputer");
     let items = servers.iter().map(|x| {
-        let item = Item::new(x.key.as_str(), x.name.clone()).status(indicator(x.availability.health().as_ref())).checked(x.key == current);
+        let item = Item::new(x.key.as_str(), x.name.clone()).status(popup_indicator(indicator(x.availability.health().as_ref()))).checked(x.key == current);
         let item = if matches!(x.kind, Kind::Own { .. }) && x.name != this_computer { item.hint(this_computer) } else { item };
         if x.availability.unreachable() { item.note(t!("settings.server.switcher.unreachable")) } else { item }
     });

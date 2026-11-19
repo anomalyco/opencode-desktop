@@ -4,7 +4,7 @@ pub use opencode_feature_mentions::*;
 
 use std::borrow::Cow;
 
-use opencode_kernel::{Feature, KernelBuilder};
+use opencode_kernel::{Feature, KernelBuilder, Slot};
 use opencode_kit::client::{Request, Server};
 use opencode_kit::mention::UserMention;
 use opencode_kit::model::SessionInfo;
@@ -13,21 +13,24 @@ use session_view::session_chips::SessionRef;
 
 use crate::{App, Route, Source};
 
+pub(crate) static MENTIONS: Slot<Mentions> = Slot::new();
+static SESSION_REFS: Slot<refs::Lookups> = Slot::new();
+
 impl MentionsHost for App {
     fn mentions(&self) -> &Mentions {
-        &self.composer_ext.mentions
+        self.kernel.slots.get(&MENTIONS)
     }
 
     fn mentions_mut(&mut self) -> &mut Mentions {
-        &mut self.composer_ext.mentions
+        self.kernel.slots.get_mut(&MENTIONS)
     }
 
     fn session_refs(&self) -> &refs::Lookups {
-        &self.composer_ext.session_refs
+        self.kernel.slots.get(&SESSION_REFS)
     }
 
     fn session_refs_mut(&mut self) -> &mut refs::Lookups {
-        &mut self.composer_ext.session_refs
+        self.kernel.slots.get_mut(&SESSION_REFS)
     }
 
     fn composer(&self) -> &TextEdit {
@@ -130,11 +133,11 @@ impl MentionsHost for App {
     }
 
     fn mention_query(&self) -> Option<&str> {
-        self.composer_ext.suggest.state.context().map(|l| l.query.as_str())
+        self.kernel.slots.get(&crate::suggestions::SUGGEST).state.context().map(|l| l.query.as_str())
     }
 
     fn mention_active(&self) -> Option<&str> {
-        self.composer_ext.suggest.state.context().and_then(|l| l.active.id())
+        self.kernel.slots.get(&crate::suggestions::SUGGEST).state.context().and_then(|l| l.active.id())
     }
 
     fn refresh_suggestions(&mut self, tx: &mut Tx) {
@@ -150,7 +153,7 @@ impl MentionsHost for App {
     }
 
     fn suggest_search_mut(&mut self) -> &mut TextEdit {
-        &mut self.composer_ext.suggest.search
+        &mut self.kernel.slots.get_mut(&crate::suggestions::SUGGEST).search
     }
 
     fn suggest_query(&mut self, tx: &mut Tx) {
@@ -264,7 +267,10 @@ impl Feature<App> for MentionsFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
-        builder.add_setup("mentions.waker", |s, w| s.composer_ext.mentions.set_waker(w));
+        builder
+            .register_slot(&MENTIONS)
+            .register_slot(&SESSION_REFS);
+        builder.add_setup("mentions.waker", |s, w| s.kernel.slots.get_mut(&MENTIONS).set_waker(w));
         builder.schedule(crate::tick::stage::DERIVE_COMPOSER, "mentions.poll", |s, _, tx| {
             s.poll_mentions(tx)
         });

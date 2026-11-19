@@ -7,8 +7,8 @@
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 use rune::{El, Tx, row, text};
-use session_view::palette::Pal;
-use session_view::style::UI_SMALL;
+use opencode_ui::palette::Pal;
+use opencode_ui::style::UI_SMALL;
 
 use super::{AfterCheck, Phase, SendFailedHost, State};
 

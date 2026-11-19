@@ -48,7 +48,7 @@ impl App {
         self.close_message_menu();
         self.close_fork_dialog(false);
         crate::subagents::shells::set_open(self, false);
-        *self.timeline_fx.todo_open = false;
+        *self.kernel.slots.get_mut(&crate::todos::TODO_OPEN) = false;
         if self.route != Route::here(id.to_owned()) {
             // Read scrolled up, it comes back where it was read; otherwise on its end.
             self.timeline_fx.ends.reopen(id);

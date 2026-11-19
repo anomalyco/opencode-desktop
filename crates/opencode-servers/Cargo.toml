@@ -1,0 +1,15 @@
+[package]
+name = "opencode-servers"
+version = "0.0.1"
+description = "Desktop shell multi-server registry, health, controller, Home, Settings, tab, and legacy migration state machines for OpenCode (Rune)"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+opencode-kit = { path = "../opencode-kit" }
+rune.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

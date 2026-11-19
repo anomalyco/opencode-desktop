@@ -59,7 +59,6 @@ struct Args {
 
 fn parse() -> Option<Args> {
     let mut a = Args::default();
-    #[allow(clippy::disallowed_methods)]
     let mut it = std::env::args().skip(2);
     while let Some(flag) = it.next() {
         match flag.as_str() {

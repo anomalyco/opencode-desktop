@@ -26,7 +26,7 @@ pub fn prepare(host: &dyn FilesHost) {
     let dir = sid.map_or_else(|| host.draft_directory().to_owned(), |sid| link_directory(host, sid));
     let home = host.home_directory();
     let files = host.files_untracked();
-    let ws = sid.and_then(|sid| files.sessions.get(sid)).filter(|w| w.ready);
+    let ws = sid.and_then(|sid| files.sessions.get(sid)).filter(|w| w.tree_load.is_ready());
     let known_len = ws.map(|w| w.known_files.len());
     SCOPE.with_borrow_mut(|sc| {
         if sc.dir == dir && sc.home == home && sc.known_len == known_len {

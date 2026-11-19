@@ -5,7 +5,7 @@ pub use opencode_feature_history::message_nav::*;
 
 use std::rc::Rc;
 
-use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration};
+use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration, Slot};
 use opencode_kit::model::Transcript;
 use rune::{KeyEvent, LiveRegion, Tx};
 use session_view::timeline::Projection;
@@ -14,21 +14,24 @@ use crate::keymap::Bind;
 use crate::pickers::PickerHost as _;
 use crate::{App, Route, Source};
 
+pub(crate) static MESSAGE_NAV: Slot<MessageNav> = Slot::new();
+pub(crate) static JUMP: Slot<JumpState> = Slot::new();
+
 impl MessageNavHost for App {
     fn message_nav(&self) -> &MessageNav {
-        &self.timeline_fx.message_nav
+        self.kernel.slots.get(&MESSAGE_NAV)
     }
 
     fn message_nav_mut(&mut self) -> &mut MessageNav {
-        &mut self.timeline_fx.message_nav
+        self.kernel.slots.get_mut(&MESSAGE_NAV)
     }
 
     fn jump(&self) -> &JumpState {
-        &self.dialogs.jump
+        self.kernel.slots.get(&JUMP)
     }
 
     fn jump_mut(&mut self) -> &mut JumpState {
-        &mut self.dialogs.jump
+        self.kernel.slots.get_mut(&JUMP)
     }
 
     fn displayed_session_id(&self) -> Option<&str> {
@@ -82,7 +85,7 @@ impl MessageNavHost for App {
     }
 
     fn announce(&mut self, words: String, region: LiveRegion) {
-        self.kernel.slots.slot::<crate::speech::Speech>().say(words, region);
+        self.kernel.slots.get_mut(&crate::speech::SPEECH).say(words, region);
     }
 
     fn is_narrow(&self) -> bool {
@@ -93,7 +96,7 @@ impl MessageNavHost for App {
         // Replacing an open or dispatching palette inherits its focus-return origin
         // (`packages/ui/src/context/dialog-machine.ts:5-8,166-181`,
         // `packages/app/src/session/commands/use-session-commands.tsx:286-292`).
-        let restore = self.composer.focused || self.dialogs.switcher.restore_composer();
+        let restore = self.composer.focused || self.kernel.slots.get(&crate::switcher::SWITCHER).restore_composer();
         self.close_fork_dialog(false);
         self.close_picker(false);
         self.close_switcher(false);
@@ -218,12 +221,16 @@ impl Feature<App> for HistoryFeature {
             .bind_id(Bind::MessageNext.id())
             .when(|s| s.active_session_id().is_some()),
         );
+        builder.register_slot(&MESSAGE_NAV);
+        builder.register_slot(&JUMP);
+        builder.register_slot(&crate::fork::FORK);
+        builder.register_slot(&crate::rewind::REWIND);
         builder.register_overlay(
             OverlayRegistration::<App>::new(crate::fork::FORK_OVERLAY_ID)
                 .with_z(300)
                 .with_key_priority(200)
                 .with_render(|s, cx| {
-                    if s.dialogs.fork.is_open() {
+                    if s.kernel.slots.get(&crate::fork::FORK).is_open() {
                         let p = crate::palette::pal(s.dark(cx));
                         crate::fork::view(s, p, cx).into()
                     } else {
@@ -238,7 +245,7 @@ impl Feature<App> for HistoryFeature {
                 .with_z(310)
                 .with_key_priority(210)
                 .with_render(|s, cx| {
-                    if s.dialogs.jump.open() {
+                    if s.kernel.slots.get(&JUMP).open() {
                         let p = crate::palette::pal(s.dark(cx));
                         jump::view(s, p, cx).into()
                     } else {
@@ -260,7 +267,7 @@ impl Feature<App> for HistoryFeature {
             })
             .after("tick.stream");
         // Known: runs after `tick.stream` for fork settlements; precaution: shares `sessions` and
-        // `dialogs.toast` with `history.rewind`.
+        // `App::toast` with `history.rewind`.
         builder
             .schedule(crate::tick::stage::INGEST_STREAM, "history.fork", |s, _, tx| {
                 crate::fork::poll(s, tx)

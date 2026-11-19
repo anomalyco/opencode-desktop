@@ -7,20 +7,22 @@ pub use opencode_feature_notifications::{
     poll, quitting, seen,
 };
 
-use opencode_kernel::{Feature, KernelBuilder};
+use opencode_kernel::{Feature, KernelBuilder, Slot};
 use opencode_kit::client::Server;
 use opencode_kit::servers::ServerKey;
 use rune::Tx;
 
 use crate::App;
 
+pub(crate) static NOTIFIER: Slot<Notifier> = Slot::new();
+
 impl NotificationsHost for App {
     fn notifier(&self) -> &Notifier {
-        &self.services.notify
+        self.kernel.slots.get(&NOTIFIER)
     }
 
     fn notifier_mut(&mut self) -> &mut Notifier {
-        &mut self.services.notify
+        self.kernel.slots.get_mut(&NOTIFIER)
     }
 
     fn notification_prefs(&self) -> Kinds {
@@ -169,6 +171,7 @@ impl Feature<App> for NotificationsFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder.register_slot(&NOTIFIER);
         builder.schedule(
             crate::tick::stage::INGEST_DISPATCH,
             "notifications.poll",

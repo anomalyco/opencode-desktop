@@ -25,8 +25,9 @@ use std::sync::mpsc::Receiver;
 
 use opencode_kit::client::{Incoming, Server};
 use opencode_kit::model::Project;
-use opencode_kit::servers::health::Health;
-use opencode_kit::servers::{ServerConn, ServerKey, controllers};
+use opencode_kit::servers::ServerKey;
+use opencode_servers::health::Health;
+use opencode_servers::{ServerConn, controllers};
 use rune::Tx;
 use rune::machine::Attempt;
 
@@ -147,7 +148,7 @@ pub fn label(key: &ServerKey) -> String {
 /// app's own.
 pub fn tag(key: &ServerKey) -> Option<String> {
     let all = RUNTIME.with_borrow(|r| r.listed.len());
-    opencode_kit::servers::registry::server_tag(all, key.is_sidecar(), || label(key))
+    opencode_servers::registry::server_tag(all, key.is_sidecar(), || label(key))
 }
 
 /// Server `key`'s health (`global.servers.health[key]`).
@@ -222,7 +223,7 @@ fn apply(r: &mut Runtime, fx: rune::machine::Effects<controllers::Effect>, own: 
 
 /// A health probe answered (`health.reported`): a server that rejects its credentials stops its
 /// connection, and starts it again once a probe with the same credentials answers.
-pub fn reported(probe: &opencode_kit::servers::health::Probe) {
+pub fn reported(probe: &opencode_servers::health::Probe) {
     let Some(own) = own_server() else { return };
     RUNTIME.with_borrow_mut(|r| {
         let event = controllers::Event::HealthReported { key: probe.key.clone(), auth: probe.auth.clone(), result: probe.result.clone() };
@@ -413,8 +414,9 @@ impl App {
 /// a draft tab's, else Home's.
 pub fn desired(s: &App) -> ServerKey {
     // Settings' per-server pages work with Settings' own server while it's listed.
-    if s.settings.open && s.settings_pages.page.per_server() && listed().iter().any(|l| l.key == s.settings_pages.server.key) {
-        return s.settings_pages.server.key.clone();
+    let sp = s.kernel.slots.get(&crate::settings::SETTINGS_PAGES);
+    if s.settings_open() && sp.page.per_server() && listed().iter().any(|l| l.key == sp.server.key) {
+        return sp.server.key.clone();
     }
     match &*s.route {
         Route::Session { server, .. } => server.clone(),
@@ -511,7 +513,7 @@ fn new_half(s: &mut App, key: &ServerKey, adopt: bool) -> (Meta, Half) {
         None if key.is_sidecar() => (Meta::default(), own_server().unwrap_or_else(|| Server::new(opencode_kit::client::DEFAULT_SERVER))),
         None => (Meta::default(), Server::new(&format!("http://{}.invalid", key.as_str().replace([':', '/'], "-"))).with_remote_files()),
     };
-    let phase = if listed.is_some() { crate::launch::Phase::Waiting { beta_tabs: false } } else { crate::launch::Phase::Offline { retries: 0, retry_at: f64::INFINITY } };
+    let phase = if listed.is_some() { crate::launch::Phase::Waiting { beta_tabs: false, fallback_fixture: false } } else { crate::launch::Phase::Offline { retries: 0, retry_at: f64::INFINITY } };
     s.launch.set_phase(key.as_str(), phase);
     let wake = s.launch.inbox_wake.clone().or_else(|| (*s.waker).clone());
     let store = peer(key).filter(|_| adopt).map(|p| peer::member(p, wake)).unwrap_or_default();

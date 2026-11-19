@@ -37,8 +37,8 @@ fn follow(s: &mut App) {
 pub fn init(s: &mut App) {
     crate::open_scene(s);
     s.finish_stream();
-    s.workspace_panes.side = Default::default();
-    s.workspace_panes.files = Default::default();
+    *s.kernel.slots.get_mut(&crate::panels::SIDE) = Default::default();
+    *s.kernel.slots.get_mut(&super::FILES) = Default::default();
     let mut tx = Tx::default();
     s.open_workspace_file(PROPOSAL, false, None, &mut tx);
     s.workspace_panes.panel_sidebar.opened = false;

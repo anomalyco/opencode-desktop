@@ -19,8 +19,8 @@
 pub mod global;
 pub mod window;
 
-use super::key::{ServerKey, normalize_server_url};
-use super::registry::loopback_origin;
+use opencode_kit::servers::key::{ServerKey, normalize_server_url};
+use opencode_kit::servers::loopback_origin;
 
 /// What maps an old file's server addresses to keys.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

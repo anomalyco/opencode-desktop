@@ -29,7 +29,7 @@ pub(super) fn organized(s: &App, p: &Pal) -> El {
     let st = &s.project_state;
     let mut section = col().key("organize-projects").w_full().gap(8.0).child(header(p, st.organize_collapsed));
     if !st.organize_collapsed {
-        section = section.child(if s.project_navigation() && s.home_state.servers.len() > 1 { server_groups(s, p) } else { projects(s, p) });
+        section = section.child(if s.project_navigation() && s.kernel.slots.get(&crate::projects::HOME_STATE).servers.len() > 1 { server_groups(s, p) } else { projects(s, p) });
     }
     // The projects, the divider and the side tabs scroll together (`flex flex-col gap-3` in one
     // `ScrollView`, `sidebar-organized.tsx:118-158`).
@@ -66,7 +66,7 @@ const TRACK_PAST_END: f32 = 3.0 + 8.0;
 fn server_groups(s: &App, p: &Pal) -> El {
     use crate::servers::runtime;
     let mut groups = col().w_full().gap(4.0);
-    for server in &s.home_state.servers {
+    for server in &s.kernel.slots.get(&crate::projects::HOME_STATE).servers {
         let key = server.key.clone();
         let collapsed = crate::projects::home::collapsed(&key);
         let mut group = col().role("group").label(server.label.clone()).w_full().gap(4.0)
@@ -168,7 +168,7 @@ fn project(s: &App, p: &Pal, proj: &model::Project, index: usize) -> El {
     let key = project_key(s, &proj.id);
     let open = s.project_state.organize_expanded.contains(&key);
     let menu = format!("so-menu-{}", proj.id);
-    let menu_open = s.dialogs.popup.open_at(&menu);
+    let menu_open = s.popup.open_at(&menu);
     let (id, menu_id, ctx_id, new_dir, drag_id, layout_id) = (key, proj.id.clone(), proj.id.clone(), proj.directory.clone(), proj.id.clone(), proj.id.clone());
     let (anchor, ctx_anchor) = (menu.clone(), menu.clone());
     let actions = row()

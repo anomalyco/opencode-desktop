@@ -13,19 +13,21 @@ use crate::{App, Route, Source};
 
 rune_register::register!(crate::knobs::GROUP_LIST: rune_knobs::Group = [place::GROUP]);
 
+pub(crate) static QUOTE: opencode_kernel::Slot<Quotes> = opencode_kernel::Slot::new();
+
 impl QuoteHost for App {
     fn quotes(&self) -> &Quotes {
-        &self.composer_ext.quote
+        self.kernel.slots.get(&QUOTE)
     }
 
     fn quotes_mut(&mut self) -> &mut Quotes {
-        &mut self.composer_ext.quote
+        self.kernel.slots.get_mut(&QUOTE)
     }
 
     fn quote_session(&self) -> Option<&str> {
         let Route::Session { id, .. } = &*self.route else { return None };
         let child = self.session(id).is_some_and(|i| i.parent.is_some());
-        (!child && !self.composer_ext.add.shell() && !self.settings.open).then_some(id.as_str())
+        (!child && !self.kernel.slots.get(&crate::add_menu::ADD_MENU).shell() && !self.settings_open()).then_some(id.as_str())
     }
 
     fn quote_session_busy(&self) -> bool {
@@ -85,11 +87,11 @@ impl QuoteHost for App {
     }
 
     fn search_local_paths(&self, query: &str, limit: usize) -> Vec<String> {
-        self.composer_ext.mentions.local_paths(query, limit)
+        self.kernel.slots.get(&crate::mentions::MENTIONS).local_paths(query, limit)
     }
 
     fn active_line_comment_card(&self) -> Option<u64> {
-        self.composer_ext.line_comments.active_card
+        self.kernel.slots.get(&crate::line_comments::LINE_COMMENTS).active_card
     }
 
     fn open_line_comment_card(&mut self, key: u64, tx: &mut Tx) {

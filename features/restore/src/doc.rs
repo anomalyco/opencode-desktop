@@ -3,7 +3,7 @@
 //! (`opencode_storage::native::import`, MS-1's `migration::window`).
 
 use opencode_kit::servers::TabKey;
-use opencode_kit::servers::tabs::WindowDoc;
+use opencode_servers::tabs::WindowDoc;
 use opencode_storage::Lookup;
 use serde_json::{Map, Value};
 
