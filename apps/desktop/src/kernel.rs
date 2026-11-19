@@ -106,6 +106,7 @@ pub fn build() -> Kernel<App> {
     b.with_feature(&crate::mentions::MentionsFeature);
     b.with_feature(&crate::narrow::NarrowFeature);
     b.with_feature(&crate::notifications::NotificationsFeature);
+    #[cfg(not(target_arch = "wasm32"))]
     b.with_feature(&crate::open_in::OpenInFeature);
     b.with_feature(&crate::panels::PanelsFeature);
     b.with_feature(&crate::projects::ProjectsFeature);
@@ -319,7 +320,11 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
     .after("session_pages.poll");
     // Precaution: `jobs.poll` executes arbitrary `Apply` closures that can touch any `App` state.
     b.schedule(stage::INGEST_PAGES, "jobs.poll", |s, _, tx| s.poll_jobs(tx))
-        .after_all(&["context_window.poll", "inbox.outbox", "open_in.poll"])
+        .after_all(if cfg!(target_arch = "wasm32") {
+            &["context_window.poll", "inbox.outbox"]
+        } else {
+            &["context_window.poll", "inbox.outbox", "open_in.poll"]
+        })
         .per_server(|s, _, tx| {
             s.poll_server_jobs(tx);
             false

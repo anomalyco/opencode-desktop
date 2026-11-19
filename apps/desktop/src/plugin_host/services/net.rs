@@ -24,7 +24,7 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, name: &str, t: &Table) -> mlua::Result<()
             // machine's files (`session.server.local`); none on another machine's.
             method(lua, t, "OpenInApps", |lua, ()| {
                 super::with_app("Workspace:OpenInApps", |app| {
-                    let apps: Vec<Data> = if app.can_open_in() { app.kernel.slots.get(&crate::open_in::OPEN_IN).options().into_iter().map(|(id, name)| map([("id", Data::String(id.to_owned())), ("name", Data::String(name.to_owned()))])).collect() } else { Vec::new() };
+                    let apps: Vec<Data> = crate::open_in::apps_for_plugin(app).into_iter().map(|(id, name)| map([("id", Data::String(id.to_owned())), ("name", Data::String(name.to_owned()))])).collect();
                     mlua::IntoLua::into_lua(Data::List(apps), lua)
                 })
             })?;

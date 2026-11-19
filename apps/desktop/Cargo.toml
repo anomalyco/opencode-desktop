@@ -53,7 +53,6 @@ opencode-feature-mentions = { path = "../../features/mentions" }
 opencode-feature-narrow = { path = "../../features/narrow" }
 opencode-feature-notifications = { path = "../../features/notifications" }
 opencode-feature-office = { path = "../../features/office", optional = true }
-opencode-feature-open-in = { path = "../../features/open-in" }
 opencode-feature-panels = { path = "../../features/panels" }
 opencode-feature-projects = { path = "../../features/projects" }
 opencode-feature-restore = { path = "../../features/restore" }
@@ -113,6 +112,7 @@ getrandom = "0.3"
 hex-client = { path = "../../crates/hex-client" }
 mimalloc = { version = "0.1", default-features = false }
 opencode-feature-dictation = { path = "../../features/dictation" }
+opencode-feature-open-in = { path = "../../features/open-in" }
 opencode-feature-updater = { path = "../../features/updater" }
 rune = { workspace = true, features = ["native-file-dialog", "metal-backend", "tooling", "keys-overlay"] }
 ureq = { workspace = true, features = ["rustls"] }
