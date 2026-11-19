@@ -182,24 +182,30 @@ impl Feature<App> for SubagentsFeature {
             .bind_id(Bind::Background.id())
             .when(|s| s.active_session_id().is_some_and(|id| !crate::background::blocking(s, id).is_empty())),
         );
-        builder.register_escape_layer(EscapeLayer::new(
-            "escape.child_session",
-            10,
-            |s| reply::composer_empty(s) && s.has_parent(),
-            |s, _, tx| {
-                s.open_parent(tx);
-            },
-        ));
+        builder.register_escape_layer(
+            EscapeLayer::<App>::new(
+                "escape.child_session",
+                crate::overlays::escape_band::FALLBACK,
+                |s| reply::composer_empty(s) && s.has_parent(),
+                |s, _, tx| {
+                    s.open_parent(tx);
+                },
+            )
+            .after("escape.tool_step"),
+        );
         builder.register_slot(&SHELLS);
-        builder.register_escape_layer(EscapeLayer::new(
-            "escape.activity",
-            60,
-            |s| s.kernel.slots.get(&SHELLS).activity.is_open(),
-            |s, _, tx| {
-                tx.instant();
-                shells::set_open(s, false);
-            },
-        ));
+        builder.register_escape_layer(
+            EscapeLayer::<App>::new(
+                "escape.activity",
+                crate::overlays::escape_band::PAGE_POPOVER,
+                |s| s.kernel.slots.get(&SHELLS).activity.is_open(),
+                |s, _, tx| {
+                    tx.instant();
+                    shells::set_open(s, false);
+                },
+            )
+            .after("escape.home_menu"),
+        );
         builder.schedule(crate::tick::stage::DERIVE_TIMELINE, "subagents.shells", |s, _, tx| {
             shells::poll(s, tx)
         });

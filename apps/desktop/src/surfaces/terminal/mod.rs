@@ -428,11 +428,11 @@ impl Feature<App> for TerminalSurfaceFeature {
         builder.register_slot(&TERMINAL);
         builder.register_overlay(
             OverlayRegistration::<App>::new("dialog.terminal.paste")
-                .with_z(220)
-                .with_render(|s, cx| {
+                .with_render(crate::overlays::layer::ACTION_DIALOG, |s, cx| {
                     let p = crate::palette::pal(s.dark(cx));
                     paste::dialog(s, p, cx)
                 })
+                .above(crate::session_menu::RENAME_OVERLAY_ID)
                 .with_dismiss(|s, tx| paste::answer_paste(s, false, tx)),
         );
         // Known: `terminal.poll` reads `panels::SIDE` (`side_tab_visible`, `terminal_focus`)

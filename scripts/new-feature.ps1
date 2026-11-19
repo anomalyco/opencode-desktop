@@ -406,8 +406,8 @@ impl Feature<App> for __PASCAL__Feature {
         builder.schedule(crate::tick::stage::INGEST_LOCAL, "__ID__.poll", |s, _, tx| poll(s, tx));
         // Register commands, modal overlays, or Escape layers here without editing central switchboards:
         // builder.add_command(opencode_kernel::CommandEntry::<App>::from_key(...));
-        // builder.register_overlay(opencode_kernel::OverlayRegistration::<App>::dialog(...));
-        // builder.register_escape_layer(opencode_kernel::EscapeLayer::new(...));
+        // builder.register_overlay(opencode_kernel::OverlayRegistration::<App>::dialog("dialog.$Id", crate::overlays::layer::DIALOG, ...));
+        // builder.register_escape_layer(opencode_kernel::EscapeLayer::new("escape.$Id", crate::overlays::escape_band::PAGE_POPOVER, ...));
     }
 }
 '@

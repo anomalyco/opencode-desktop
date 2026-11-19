@@ -12,16 +12,19 @@ pub(crate) fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if s.kernel.slots.get(&crate::panels::SIDE).focus.is_quiet() && tx.focused().is_some() && !s.composer.focused {
         s.kernel.slots.get_mut(&crate::panels::SIDE).focus.wake_on_key();
     }
+    // Every declared key band in `overlays::key_band::ALL` must be dispatched below.
+    const _: () = assert!(crate::overlays::key_band::ALL.len() == 4);
     let overlays = s.kernel.overlay_dispatcher.clone();
     if crate::popup::key(s, ev, tx)
         || crate::narrow::key(s, ev, tx)
-        || overlays.handle_key_band(s, ev, tx, 0, 160)
+        || overlays.handle_key_band(crate::overlays::key_band::POPUP, s, ev, tx)
+        || overlays.handle_key_band(crate::overlays::key_band::MODAL, s, ev, tx)
         || crate::glitch::key(s, ev, tx)
         || crate::demo::key(s, ev, tx)
-        || overlays.handle_key_band(s, ev, tx, 190, 299)
+        || overlays.handle_key_band(crate::overlays::key_band::MID, s, ev, tx)
         || crate::dictation::key(s, ev, tx)
         || knobs::key(s, ev, tx)
-        || overlays.handle_key_band(s, ev, tx, 300, 499)
+        || overlays.handle_key_band(crate::overlays::key_band::LOW, s, ev, tx)
         || s.panels_key(ev, tx)
         || (s.opening.is_none() && s.question_key(ev, tx))
         || s.add_key(ev, tx)

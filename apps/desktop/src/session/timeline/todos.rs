@@ -120,15 +120,18 @@ impl Feature<App> for TimelineExtrasFeature {
             .register_slot(&crate::agent_rows::AGENT_ROWS)
             .register_slot(&crate::question::QUESTION)
             .register_slot(&crate::permission::PERMISSION_SENT);
-        builder.register_escape_layer(EscapeLayer::new(
-            "escape.todo",
-            50,
-            |s| *s.kernel.slots.get(&TODO_OPEN),
-            |s, _, tx| {
-                tx.instant();
-                *s.kernel.slots.get_mut(&TODO_OPEN) = false;
-            },
-        ));
+        builder.register_escape_layer(
+            EscapeLayer::<App>::new(
+                "escape.todo",
+                crate::overlays::escape_band::PAGE_POPOVER,
+                |s| *s.kernel.slots.get(&TODO_OPEN),
+                |s, _, tx| {
+                    tx.instant();
+                    *s.kernel.slots.get_mut(&TODO_OPEN) = false;
+                },
+            )
+            .after("escape.activity"),
+        );
         builder.schedule(crate::tick::stage::DERIVE_TIMELINE, "timeline_extras.todos", sync);
         builder.schedule(
             crate::tick::stage::DERIVE_TIMELINE,

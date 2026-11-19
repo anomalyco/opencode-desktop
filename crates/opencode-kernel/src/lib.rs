@@ -22,9 +22,9 @@ pub use commands::{CommandEntry, CommandRegistry, CommandTitle};
 pub use feature::Feature;
 pub use host::{AppEnv, AppFeedback, AppOverlays};
 pub use overlay::{
-    DEFAULT_DIALOG_Z, EscapeActionFn, EscapeLayer, EscapePredicateFn, OverlayDismissFn,
+    EscapeActionFn, EscapeBand, EscapeLayer, EscapePredicateFn, KeyBand, OverlayDismissFn,
     OverlayDispatcher, OverlayEffect, OverlayEntry, OverlayEvent, OverlayKeyFn, OverlayKind,
-    OverlayRegistration, OverlayRenderFn, OverlayStack, OverlayState,
+    OverlayLayer, OverlayRegistration, OverlayRenderFn, OverlayStack, OverlayState,
 };
 pub use scheduler::{
     CloseFn, LifecycleScheduler, Phase, RestFn, Scheduled, SetupFn, Stage, System, SystemFn,
@@ -195,25 +195,31 @@ impl<S> KernelBuilder<S> {
         self
     }
 
-    /// Declares the inclusive `z_order` bands rendered by the host.
-    pub fn add_overlay_render_bands(&mut self, bands: &[(u16, u16)]) -> &mut Self {
-        self.kernel.overlay_dispatcher.add_render_bands(bands);
+    /// Declares visual stacking layers rendered by the host in bottom-to-top order.
+    pub fn add_overlay_layers(&mut self, layers: &[OverlayLayer]) -> &mut Self {
+        self.kernel.overlay_dispatcher.add_layers(layers);
         self
     }
 
-    /// Declares the inclusive `key_priority` bands dispatched by the host.
-    pub fn add_overlay_key_bands(&mut self, bands: &[(u16, u16)]) -> &mut Self {
+    /// Declares key-dispatch bands in execution order (first band runs first).
+    pub fn add_overlay_key_bands(&mut self, bands: &[KeyBand]) -> &mut Self {
         self.kernel.overlay_dispatcher.add_key_bands(bands);
         self
     }
 
-    /// Registers a full overlay descriptor (render, key dispatch, Escape dismiss, z-order).
+    /// Declares page-Escape dismissal bands in dismissal order (first band dismisses first).
+    pub fn add_escape_bands(&mut self, bands: &[EscapeBand]) -> &mut Self {
+        self.kernel.overlay_dispatcher.add_escape_bands(bands);
+        self
+    }
+
+    /// Registers a full overlay descriptor (render, key dispatch, Escape dismiss, layer).
     pub fn register_overlay(&mut self, reg: OverlayRegistration<S>) -> &mut Self {
         self.kernel.overlay_dispatcher.register_overlay(reg);
         self
     }
 
-    /// Registers a dismissible page Escape layer handled in descending priority order.
+    /// Registers a dismissible page Escape layer targeting a declared [`EscapeBand`].
     pub fn register_escape_layer(&mut self, layer: EscapeLayer<S>) -> &mut Self {
         self.kernel.overlay_dispatcher.register_escape_layer(layer);
         self

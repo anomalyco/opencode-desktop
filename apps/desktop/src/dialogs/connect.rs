@@ -215,22 +215,21 @@ impl Feature<App> for ConnectFeature {
         );
         builder.register_overlay(
             OverlayRegistration::<App>::new(OVERLAY_ID)
-                .with_z(400)
-                .with_key_priority(100)
-                .with_render(|s, cx| {
+                .with_render(crate::overlays::layer::DIALOG, |s, cx| {
                     let p = crate::palette::pal(s.dark(cx));
                     view::layer(s, p, cx)
                 })
+                .above(crate::message_nav::JUMP_OVERLAY_ID)
                 .with_key(|s, ev, tx| key(s, ev, tx))
                 .with_dismiss(|s, tx| close(s, tx)),
         );
         builder.register_overlay(
             OverlayRegistration::<App>::new(WELCOME_OVERLAY_ID)
-                .with_z(410)
-                .with_render(|s, cx| {
+                .with_render(crate::overlays::layer::DIALOG, |s, cx| {
                     let p = crate::palette::pal(s.dark(cx));
                     welcome::layer(s, p, cx)
                 })
+                .above(OVERLAY_ID)
                 .with_dismiss(|s, tx| welcome::close(s, tx)),
         );
     }

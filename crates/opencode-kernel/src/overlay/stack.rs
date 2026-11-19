@@ -1,0 +1,205 @@
+//! Explicit state machine for transient overlay layers (dialogs, popovers, sheets, menus, toasts,
+//! and inline layers).
+//!
+//! Matches Desktop's layer-stack dismissal semantics (`ui/src/components/popover-machine.ts`,
+//! `ui/src/context/dialog-machine.ts`): Escape dismisses only the topmost layer, and never reaches
+//! past a non-escape-dismissible top layer.
+
+/// Visual and interaction category of an overlay entry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum OverlayKind {
+    Dialog,
+    Popover,
+    Sheet,
+    Menu,
+    Toast,
+    Inline,
+}
+
+/// One active layer on the overlay stack.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OverlayEntry {
+    pub id: &'static str,
+    pub kind: OverlayKind,
+    pub return_focus: Option<String>,
+    pub dismiss_on_escape: bool,
+}
+
+impl OverlayEntry {
+    /// Creates an entry that dismisses on Escape with no saved focus target.
+    pub const fn new(id: &'static str, kind: OverlayKind) -> Self {
+        Self { id, kind, return_focus: None, dismiss_on_escape: true }
+    }
+
+    /// Records the focus target to restore when this overlay is dismissed.
+    pub fn with_return_focus(mut self, focus: impl Into<String>) -> Self {
+        self.return_focus = Some(focus.into());
+        self
+    }
+
+    /// Configures whether pressing Escape dismisses this overlay when it is topmost.
+    pub const fn with_dismiss_on_escape(mut self, dismiss: bool) -> Self {
+        self.dismiss_on_escape = dismiss;
+        self
+    }
+}
+
+/// Explicit state of the overlay stack so an empty stack cannot hold an empty `Active` vector.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum OverlayState {
+    #[default]
+    Empty,
+    /// Non-empty stack ordered from bottom (index 0) to top (last element).
+    Active(Vec<OverlayEntry>),
+}
+
+/// Input events for the overlay stack state machine.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum OverlayEvent {
+    /// Push a layer onto the top of the stack (moving it to the top if `id` is already present).
+    Push(OverlayEntry),
+    /// Close a specific layer by id.
+    Close(&'static str),
+    /// Handle an Escape key press against the topmost layer.
+    Escape,
+    /// Dismiss every layer matching `OverlayKind`, top-to-bottom.
+    ClearKind(OverlayKind),
+}
+
+/// Side effects emitted by [`step`] for the host shell to execute.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum OverlayEffect {
+    Dismissed {
+        id: &'static str,
+        restore_focus: Option<String>,
+    },
+    None,
+}
+
+/// Ordered stack of active overlays managed via [`step`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct OverlayStack {
+    state: OverlayState,
+}
+
+impl OverlayStack {
+    /// Creates an empty overlay stack.
+    pub const fn new() -> Self {
+        Self { state: OverlayState::Empty }
+    }
+
+    /// Current explicit state of the stack.
+    pub fn state(&self) -> &OverlayState {
+        &self.state
+    }
+
+    /// Active entries from bottom to top.
+    pub fn entries(&self) -> &[OverlayEntry] {
+        match &self.state {
+            OverlayState::Empty => &[],
+            OverlayState::Active(entries) => entries.as_slice(),
+        }
+    }
+
+    /// The topmost active overlay, if any.
+    pub fn top(&self) -> Option<&OverlayEntry> {
+        self.entries().last()
+    }
+
+    /// Returns `true` if a layer with `id` is currently active.
+    pub fn contains(&self, id: &str) -> bool {
+        self.entries().iter().any(|entry| entry.id == id)
+    }
+
+    /// Returns `true` if at least one layer of `kind` is active.
+    pub fn has_kind(&self, kind: OverlayKind) -> bool {
+        self.entries().iter().any(|entry| entry.kind == kind)
+    }
+
+    /// Number of active overlays.
+    pub fn len(&self) -> usize {
+        self.entries().len()
+    }
+
+    /// Returns `true` when no overlays are active.
+    pub fn is_empty(&self) -> bool {
+        matches!(self.state, OverlayState::Empty)
+    }
+
+    /// Advances the overlay state machine by one event and returns effects to apply.
+    pub fn step(&mut self, event: OverlayEvent) -> Vec<OverlayEffect> {
+        step(self, event)
+    }
+}
+
+/// Pure transition function for [`OverlayStack`].
+pub fn step(stack: &mut OverlayStack, event: OverlayEvent) -> Vec<OverlayEffect> {
+    match event {
+        OverlayEvent::Push(entry) => {
+            match &mut stack.state {
+                OverlayState::Empty => {
+                    stack.state = OverlayState::Active(vec![entry]);
+                }
+                OverlayState::Active(entries) => {
+                    entries.retain(|existing| existing.id != entry.id);
+                    entries.push(entry);
+                }
+            }
+            Vec::new()
+        }
+        OverlayEvent::Close(id) => {
+            let OverlayState::Active(entries) = &mut stack.state else {
+                return Vec::new();
+            };
+            let Some(index) = entries.iter().rposition(|entry| entry.id == id) else {
+                return Vec::new();
+            };
+            let removed = entries.remove(index);
+            if entries.is_empty() {
+                stack.state = OverlayState::Empty;
+            }
+            vec![OverlayEffect::Dismissed { id: removed.id, restore_focus: removed.return_focus }]
+        }
+        OverlayEvent::Escape => {
+            let OverlayState::Active(entries) = &mut stack.state else {
+                return Vec::new();
+            };
+            if !entries.last().is_some_and(|top| top.dismiss_on_escape) {
+                return Vec::new();
+            }
+            let Some(removed) = entries.pop() else {
+                stack.state = OverlayState::Empty;
+                return Vec::new();
+            };
+            if entries.is_empty() {
+                stack.state = OverlayState::Empty;
+            }
+            vec![OverlayEffect::Dismissed { id: removed.id, restore_focus: removed.return_focus }]
+        }
+        OverlayEvent::ClearKind(kind) => {
+            let OverlayState::Active(entries) = &mut stack.state else {
+                return Vec::new();
+            };
+            let mut effects = Vec::new();
+            let mut kept = Vec::with_capacity(entries.len());
+            for entry in entries.drain(..) {
+                if entry.kind == kind {
+                    effects.push(OverlayEffect::Dismissed {
+                        id: entry.id,
+                        restore_focus: entry.return_focus,
+                    });
+                } else {
+                    kept.push(entry);
+                }
+            }
+            // Emit dismissals top-to-bottom so the topmost overlay restores focus first.
+            effects.reverse();
+            if kept.is_empty() {
+                stack.state = OverlayState::Empty;
+            } else {
+                *entries = kept;
+            }
+            effects
+        }
+    }
+}

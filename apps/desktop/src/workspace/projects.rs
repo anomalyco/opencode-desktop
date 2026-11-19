@@ -514,7 +514,7 @@ impl Feature<App> for ProjectsFeature {
         );
         builder.register_escape_layer(EscapeLayer::new(
             "escape.home_menu",
-            70,
+            crate::overlays::escape_band::PAGE_POPOVER,
             |s| s.project_state.home_menu_open,
             |s, _, tx| {
                 tx.instant();
@@ -523,11 +523,11 @@ impl Feature<App> for ProjectsFeature {
         ));
         builder.register_overlay(
             OverlayRegistration::<App>::new(REMOTE_PICKER_OVERLAY_ID)
-                .with_z(510)
-                .with_render(|s, cx| {
+                .with_render(crate::overlays::layer::ELEVATED_DIALOG, |s, cx| {
                     let p = crate::palette::pal(s.dark(cx));
                     remote_picker::view::view(s, p, cx)
                 })
+                .above(crate::settings::PROVIDER_REMOVAL_OVERLAY_ID)
                 .with_dismiss(|s, tx| remote_picker::close(s, tx)),
         );
         // Known/precaution: reads `checkout`, `servers::runtime::sidecar_stamp`, and listed server state.

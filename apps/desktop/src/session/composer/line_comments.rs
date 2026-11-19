@@ -244,23 +244,29 @@ impl Feature<App> for AnnotationsFeature {
         builder
             .register_slot(&crate::quote::QUOTE)
             .register_slot(&LINE_COMMENTS);
-        builder.register_escape_layer(EscapeLayer::new(
-            "escape.quote",
-            100,
-            |s| s.kernel.slots.get(&crate::quote::QUOTE).offered(),
-            |s, _, tx| {
-                tx.instant();
-                crate::quote::dismiss(s, tx);
-            },
-        ));
-        builder.register_escape_layer(EscapeLayer::new(
-            "escape.comment_selection",
-            110,
-            |s| matches!(s.kernel.slots.get(&LINE_COMMENTS).selection, selection::State::Settling { .. } | selection::State::Shown(_)),
-            |s, _, tx| {
-                selection::dispatch(s, selection::Event::Clear, tx);
-            },
-        ));
+        builder.register_escape_layer(
+            EscapeLayer::<App>::new(
+                "escape.quote",
+                crate::overlays::escape_band::CHROME,
+                |s| s.kernel.slots.get(&crate::quote::QUOTE).offered(),
+                |s, _, tx| {
+                    tx.instant();
+                    crate::quote::dismiss(s, tx);
+                },
+            )
+            .after("escape.comment_selection"),
+        );
+        builder.register_escape_layer(
+            EscapeLayer::<App>::new(
+                "escape.comment_selection",
+                crate::overlays::escape_band::CHROME,
+                |s| matches!(s.kernel.slots.get(&LINE_COMMENTS).selection, selection::State::Settling { .. } | selection::State::Shown(_)),
+                |s, _, tx| {
+                    selection::dispatch(s, selection::Event::Clear, tx);
+                },
+            )
+            .after("escape.peek"),
+        );
         builder.add_setup("annotations.waker", |s, w| {
             crate::quote::setup(s, w.clone());
             setup(s, w);

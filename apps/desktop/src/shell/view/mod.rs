@@ -157,18 +157,20 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     if let Some(pop) = home::home_projects_popover(s, p) {
         inner = inner.children(pop);
     }
-    inner = inner.children(s.kernel.overlay_dispatcher.render_band(s, cx, 100, 199));
+    inner = inner.children(s.kernel.overlay_dispatcher.render_layer(crate::overlays::layer::SWITCHER, s, cx));
+    inner = inner.children(s.kernel.overlay_dispatcher.render_layer(crate::overlays::layer::MEDIA_LIGHTBOX, s, cx));
     inner = inner.children(session_view::tools::details_overlay(s, p, cx));
-    inner = inner.children(s.kernel.overlay_dispatcher.render_band(s, cx, 200, 299));
+    inner = inner.children(s.kernel.overlay_dispatcher.render_layer(crate::overlays::layer::ACTION_DIALOG, s, cx));
     inner = inner.children(crate::quote::editor::view(s, p, cx));
     inner = inner.children(crate::quote::toolbar(s, p, cx));
     inner = inner.children(crate::line_comments::selection::toolbar(s, p, cx));
     inner = inner.children(crate::panels::view::context_menus(s, p));
     inner = inner.children(crate::panels::drag::layer(s, p));
-    inner = inner.children(s.kernel.overlay_dispatcher.render_band(s, cx, 300, 599));
+    inner = inner.children(s.kernel.overlay_dispatcher.render_layer(crate::overlays::layer::DIALOG, s, cx));
+    inner = inner.children(s.kernel.overlay_dispatcher.render_layer(crate::overlays::layer::ELEVATED_DIALOG, s, cx));
     inner = inner.children(tab_preview::view(s, p));
     inner = inner.children(crate::popup::view(s, p));
-    inner = inner.children(s.kernel.overlay_dispatcher.render_band(s, cx, 600, 699));
+    inner = inner.children(s.kernel.overlay_dispatcher.render_layer(crate::overlays::layer::PLUGIN_TOP, s, cx));
     inner = inner.children(crate::status_toast::view(s, p));
     let root = el().key("zoom");
     // The app keeps clear of the safe area and the window's colour runs under it to the screen's

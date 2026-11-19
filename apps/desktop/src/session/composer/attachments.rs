@@ -230,8 +230,7 @@ impl Feature<App> for ComposerInputFeature {
         );
         builder.register_overlay(
             OverlayRegistration::<App>::new("overlay.attachments.viewer")
-                .with_z(160)
-                .with_render(|s, cx| {
+                .with_render(crate::overlays::layer::MEDIA_LIGHTBOX, |s, cx| {
                     let p = crate::palette::pal(s.dark(cx));
                     viewer(s, p, cx)
                 }),
