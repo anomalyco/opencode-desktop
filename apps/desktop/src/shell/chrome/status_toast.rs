@@ -51,8 +51,6 @@ pub enum DesktopToastAction {
 
 pub type StatusToast = opencode_ui::toast::StatusToast<DesktopToastAction>;
 pub type Entry = opencode_ui::toast::Entry<DesktopToastAction>;
-#[allow(dead_code)]
-pub type Shown = opencode_ui::toast::Shown<DesktopToastAction>;
 pub type ToastAction = opencode_ui::toast::ToastAction<DesktopToastAction>;
 
 impl ToastHost for App {

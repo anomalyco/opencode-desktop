@@ -606,11 +606,6 @@ impl App {
         open_settings_at(self, page);
     }
 
-    #[allow(dead_code)]
-    pub fn open_settings_tx(&mut self, page: pages::Page, tx: &mut Tx) {
-        open_settings_tx(self, page, tx);
-    }
-
     pub fn close_settings(&mut self) {
         close_settings(self);
     }
@@ -627,27 +622,12 @@ impl App {
         set_fold_user(self, on);
     }
 
-    #[allow(dead_code)]
-    pub fn set_notify(&mut self, kind: NotifyKind, on: bool) {
-        set_notify(self, kind, on);
-    }
-
     pub fn set_scheme(&mut self, scheme: Scheme) {
         set_scheme(self, scheme);
     }
 
-    #[allow(dead_code)]
-    pub fn set_terminal_placement(&mut self, placement: DockPlacement, tx: &mut Tx) {
-        set_terminal_placement(self, placement, tx);
-    }
-
     pub fn settings_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
         settings_key(self, ev, tx)
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn back_to_app(&mut self, tx: &mut Tx) {
-        back_to_app(self, tx);
     }
 
     pub fn toggle_settings(&mut self, tx: &mut Tx) {
@@ -687,10 +667,6 @@ impl App {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn commit_project_rename(&mut self, tx: &mut Tx) {
-        pages::project::commit_project_rename(self, tx);
-    }
 }
 
 /// Kernel feature registration for the Settings screen, overlays, and per-frame poll.

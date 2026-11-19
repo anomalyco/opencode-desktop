@@ -170,11 +170,6 @@ impl App {
         integrations(self, dir)
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn integration_of(&self, dir: Option<&str>, id: &str) -> Option<&Integration> {
-        integration_of(self, dir, id)
-    }
-
     /// The providers the server runs at `dir`, once read.
     pub(crate) fn provider_infos(&self, dir: Option<&str>) -> Option<&[ProviderInfo]> {
         provider_infos(self, dir)

@@ -115,16 +115,6 @@ impl App {
         close(self, restore_focus);
     }
 
-    #[allow(dead_code)]
-    pub fn fork_messages(&self) -> Vec<ForkableMessage> {
-        messages(self)
-    }
-
-    #[allow(dead_code)]
-    pub fn fork_filtered(&self) -> Vec<ForkableMessage> {
-        filtered(self)
-    }
-
     pub fn fork_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
         key(self, ev, tx)
     }

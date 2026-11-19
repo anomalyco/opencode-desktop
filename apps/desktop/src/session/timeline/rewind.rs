@@ -193,11 +193,6 @@ impl App {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn can_rewind_session(&self, session: &str) -> bool {
-        can_rewind_session(self, session)
-    }
-
     pub fn visible_user_ids(&self, session: &str) -> Vec<String> {
         visible_user_ids(self, session)
     }
@@ -210,32 +205,12 @@ impl App {
         can_redo_session(self)
     }
 
-    #[allow(dead_code)]
-    pub fn draft_from_message(&self, id: &str, body: &str) -> SavedDraft {
-        draft_from_message(self, id, body)
-    }
-
-    #[allow(dead_code)]
-    pub fn rewind_to(&mut self, session: &str, message_id: &str, tx: &mut Tx) {
-        rewind_to(self, session, message_id, tx);
-    }
-
     pub fn undo_last(&mut self, tx: &mut Tx) -> bool {
         undo_last(self, tx)
     }
 
-    #[allow(dead_code)]
-    pub fn undo(&mut self, tx: &mut Tx) -> bool {
-        undo(self, tx)
-    }
-
     pub fn redo_revert(&mut self, tx: &mut Tx) -> bool {
         redo_revert(self, tx)
-    }
-
-    #[allow(dead_code)]
-    pub fn redo(&mut self, tx: &mut Tx) -> bool {
-        redo(self, tx)
     }
 
     pub fn undo_rewind(&mut self, undo: UndoRewind, tx: &mut Tx) {
@@ -246,12 +221,7 @@ impl App {
         revert_settled(self, session, attempt, result);
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn revert_timeouts(&mut self, tx: &mut Tx) -> bool {
-        revert_timeouts(self, tx)
-    }
-
-    #[allow(dead_code)]
+    #[cfg(feature = "stories")]
     pub(crate) fn set_session_revert(&mut self, session: &str, revert: Option<String>) {
         set_session_revert(self, session, revert);
     }

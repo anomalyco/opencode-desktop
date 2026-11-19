@@ -93,7 +93,6 @@ pub fn platform(exe: &Path, version: &str, build_channel: &str, updates: PathBuf
     sweep(&root, &updates);
     let _ = receipt::at(&root);
     let facts = Facts { version: version.to_owned(), channel: feed::feed_channel(build_channel), service, updates };
-    #[allow(clippy::disallowed_methods)]
     let args = std::env::args().skip(1).collect();
     Some(Windows { engine: Engine::new(facts), version: version.to_owned(), root, trust, staged: Mutex::new(None), args })
 }
@@ -290,7 +289,6 @@ fn check_replaceable(root: &Path) -> Result<(), String> {
 
 /// Windows' own bsdtar reads zip archives (a GNU tar earlier on PATH doesn't).
 fn unpack_zip(zip: &Path, into: &Path) -> Result<(), String> {
-    #[allow(clippy::disallowed_methods)]
     let system = std::env::var_os("SystemRoot").map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from);
     let out = Command::new(system.join("System32").join("tar.exe"))
         .arg("-xf")

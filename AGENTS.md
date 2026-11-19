@@ -15,7 +15,7 @@ Start at the top and go deeper only when a feature needs lower-level control. Se
   - `apps/installer` (`opencode-rune-setup`): Windows per-user setup bootstrapper.
   - `apps/browser-engine` (`opencode-browser-engine`): standalone out-of-process CEF sidecar bundle, excluded from the Cargo workspace in root `Cargo.toml`.
 
-Rune comes from `anomalyco/rune` as a git dependency pinned in the root `Cargo.toml`. Pin only revs on Rune's `dev` branch; upstream fixes go to `anomalyco/rune` first, then bump the rev here.
+Rune comes from `anomalyco/rune` as a git dependency pinned in the root `Cargo.toml`. Keep every `anomalyco/rune` dependency and patch on the same rev (enforced by `scripts/arch-check.sh`); pin only revs on Rune's `dev` branch and land upstream fixes in `anomalyco/rune` first (convention).
 
 ## No tests
 
@@ -27,15 +27,18 @@ Application code only. This repo has no automated tests of any kind, and none ge
 
 ## Working here
 
-- Keep `session-view`'s standalone example building: `cargo check -p session-view --examples`.
-- Guardrails (full rule list in [`ARCHITECTURE.md`](ARCHITECTURE.md)):
-  - `scripts/arch-check.sh`: enforces downward crate layers, zero cycles, zero cross-feature deps, core/feature `#![forbid(unsafe_code)]`, `<= 10` root `.rs` files in `apps/desktop/src/`, `struct App` `<= 65` fields, `apps/web` depending on `opencode-desktop`, zero `#[test]`/`#[cfg(test)]`, hard `<= 800`-line cap in `apps/desktop/`, `features/`, and hand-written workspace `crates/`, and zero `use crate::*;` wildcards in `apps/desktop/src/`.
+- **Before pushing (cheap guardrails):** run `scripts/guardrails.sh` (macOS/Linux/Git Bash) or `pwsh scripts/guardrails.ps1` (Windows PowerShell). Requires Bun or Node.js 18+ (no Python) and exits non-zero on any failure. Full rule list and conventions live in [`ARCHITECTURE.md`](ARCHITECTURE.md):
+  - `scripts/arch-check.sh`: enforces resolved transitive downward crate layers and zero cycles (`cargo metadata`), zero cross-feature deps, core-crate isolation (temporary exceptions in `scripts/arch-check-exceptions.txt`), core/feature `#![forbid(unsafe_code)]` (including `opencode-platform`), `<= 10` root `.rs` files in `apps/desktop/src/`, `struct App` `<= 140` effective fields (counting through `shell/app_state.rs` and any `Tracked` wrappers), `apps/web` depending directly on `opencode-desktop` with zero duplicated `features/*` deps, zero automated tests (`#[test]`, `#[cfg(...test...)]`, `tests.rs`, `*_tests.rs`, `*_test.rs`, `tests/`), hard `<= 800`-line cap in `apps/desktop/`, `features/`, and hand-written workspace `crates/`, zero `use crate::*;` wildcards in `apps/desktop/src/`, `opencode-feature-*` naming, workspace manifest completeness, a single `anomalyco/rune` rev pin, and `--!strict` built-in Luau plugins.
   - `scripts/file-size.sh`: repo-wide line-count monitor and 1,500-line ratchet across every tracked `.rs` file under `apps/`, `crates/`, and `features/` (including `apps/web/`, `apps/installer/`, `apps/browser-engine/`, `crates/browser-pane/`, and generated files outside `arch-check.sh` Rule 8); warns `> 800`, errors `> 1500` unless ratcheted in `scripts/file-size-exceptions.txt`.
   - `scripts/folder-shape.sh`: enforces prefix-family subfolders and folder breadth (`> 40` warn, `> 60` error).
   - `scripts/dialog-size.sh`: every dialog takes an `opencode_ui::dialog::DialogSize` preset (re-exported as `session_view::dialog::DialogSize`; `Normal` 480 × 368, `Large` 720 × 600, `XLarge` 880 × 680; `opencode_ui::widgets::{sized, sized_modal}`, re-exported as `crate::widgets` in `apps/desktop`), never its own width or height.
+  - `scripts/tables-check.sh`: checks `apps/desktop/src/stories/order.rs` against `STORY_LIST`, `apps/desktop/src/shell/commands/order.rs` against registered built-in commands, `crates/opencode-i18n/locales/rune/*.json` coverage and unknown keys against `en.json`, and `cargo run -q -p opencode-plugin-spec -- --check` against `contract.json`.
+- **Slow / compile checks (run separately):**
   - `scripts/clippy.sh`: zero clippy diagnostics (`-D warnings`) across the workspace and each feature set that compiles different code.
+  - `cargo check -p session-view --examples`: keep `session-view`'s standalone examples building.
+  - `pwsh scripts/web.ps1 -Check`: checks the `wasm32` browser build (`opencode-web`) and runs `scripts/web-clock.ts` to keep `std::time::Instant` and `SystemTime::now` out of the browser build.
 - Fast local loop & profiles: `scripts/dev-fast.sh` / `pwsh scripts/dev-fast.ps1` with Luau `--plugin-hot` (see [`docs/fast-builds.md`](docs/fast-builds.md)); macOS `.app` install via `apps/desktop/scripts/dev.sh` (`apps/desktop/scripts/bundle.sh` / `scripts/mac-app`).
-- Keep personal paths (`/Users/<real-name>`), tailnet hostnames (`*.ts.net`, except `*.example.ts.net`), real session IDs, and credentials out of code, scripts, and commits.
+- Convention: keep personal paths (`/Users/<real-name>`), tailnet hostnames (`*.ts.net`, except `*.example.ts.net`), real session IDs, and credentials out of code, scripts, and commits.
 
 ## Official app
 
