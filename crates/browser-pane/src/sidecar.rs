@@ -159,8 +159,11 @@ impl BrowserHost {
         };
         let prefetch = self.prefetch.clone();
         let spawned = std::thread::Builder::new().name("opencode-browser-connect".into()).spawn(move || {
+            if !link.current() {
+                return;
+            }
             if let Ok(stream) = UnixStream::connect(&sock) {
-                wire_stream(stream, mach_service, &link);
+                let _ = wire_stream(stream, mach_service, &link);
                 return;
             }
             let Some(profile) = profile else {

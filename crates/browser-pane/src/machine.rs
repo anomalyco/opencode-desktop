@@ -377,7 +377,7 @@ impl SharedEngine {
                     return EngineEffect::None;
                 }
                 match &self.phase {
-                    EnginePhase::Connected { .. } => {
+                    EnginePhase::Connected { .. } | EnginePhase::Disconnected(EngineStatus::Connecting) => {
                         self.phase = EnginePhase::Disconnected(EngineStatus::Failed(fault.into()));
                         EngineEffect::LostFirst
                     }

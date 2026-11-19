@@ -130,10 +130,16 @@ fn chromium_locale(id: &str) -> &str {
 /// Starts the engine and connects to it as soon as it listens (it says so on its output), on
 /// the calling thread.
 pub(crate) fn spawn_and_attach(engine: &Installed, sock: &Path, profile: &Path, mach_service: Option<String>, link: &Link) {
+    if !link.current() {
+        return;
+    }
     std::fs::remove_file(sock).ok();
     // This app has no engine running (its socket didn't answer), so a held profile is an
     // engine on its way out, most likely the shared one from before per-app engines.
     profile::wait_until_free(profile, profile::UNLOCK_WAIT);
+    if !link.current() {
+        return;
+    }
     let mut child = match engine_command(&engine.bin, sock, profile).spawn() {
         Ok(child) => child,
         Err(e) => {
@@ -174,15 +180,21 @@ pub(crate) fn spawn_and_attach(engine: &Installed, sock: &Path, profile: &Path, 
         }
     }
     rune::marks::mark("browser.engine.listening");
+    if !link.current() {
+        return;
+    }
     match UnixStream::connect(sock) {
-        Ok(stream) => {
-            if !wire_stream(stream, mach_service, link) {
-                child.kill().ok();
-                return;
-            }
-        }
+        Ok(stream) => match wire_stream(stream, mach_service, link) {
+            WireResult::Attached => {}
+            // Do not kill `child`: on `Stale` a newer generation may already be using it on the
+            // same socket, and on `Failed` we cannot rule out a newer generation attaching once
+            // `lost` released `shared`. An unused engine exits on its own after `RECONNECT_GRACE`.
+            WireResult::Stale | WireResult::Failed => return,
+        },
         Err(_) => {
-            child.kill().ok();
+            if link.current() {
+                child.kill().ok();
+            }
             return link.set(EngineStatus::Failed(Fault::Stopped.into()));
         }
     }
@@ -386,10 +398,10 @@ mod proc {
 /// The engine went away on its own (the app's `shutdown_sidecar` transitions out of `Connected`
 /// first): the pane says so, and Retry starts it again. The socket's end usually comes first,
 /// without the process's exit code; the process's end then names the cause when it was a lack of
-/// memory.
-fn lost(link: &Link, code: Option<u32>) {
+/// memory. Returns whether the transition applied for `link`'s generation.
+fn lost(link: &Link, code: Option<u32>) -> bool {
     if !link.current() {
-        return;
+        return false;
     }
     if let Some(code) = code {
         eprintln!("browser engine: ended with exit code {code:#010x}");
@@ -404,9 +416,13 @@ fn lost(link: &Link, code: Option<u32>) {
             rune::marks::mark("browser.engine.lost");
             std::fs::remove_file(&link.sock).ok();
             link.wake();
+            true
         }
-        EngineEffect::Wake => link.wake(),
-        _ => {}
+        EngineEffect::Wake => {
+            link.wake();
+            true
+        }
+        _ => false,
     }
 }
 
@@ -554,9 +570,21 @@ impl Answers {
     }
 }
 
-pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link: &Link) -> bool {
+/// Outcome of attaching a connected `UnixStream` to [`SharedEngine`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum WireResult {
+    /// Attached to the current generation and started the framing threads.
+    Attached,
+    /// `link.generation` was superseded before attach; caller must not touch the socket or child.
+    Stale,
+    /// `stream.try_clone()` failed for the current generation; reported via `lost` so Retry works.
+    Failed,
+}
+
+pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link: &Link) -> WireResult {
     let Ok(reader_stream) = stream.try_clone() else {
-        return false;
+        drop(stream);
+        return if lost(link, None) { WireResult::Failed } else { WireResult::Stale };
     };
     let (tx, rx) = mpsc::channel::<HostMsg>();
     tx.send(HostMsg::Hello { mach_service, pid: std::process::id() }).ok();
@@ -576,7 +604,7 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
         early,
     });
     if matches!(attached, EngineEffect::Rejected) {
-        return false;
+        return WireResult::Stale;
     }
     // Connected: the app's next turn sends the tabs that wait (`flush_pending_opens`).
     link.wake();
@@ -690,7 +718,7 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
             lost(&link, None);
         })
         .ok();
-    true
+    WireResult::Attached
 }
 
 #[derive(serde::Deserialize)]
