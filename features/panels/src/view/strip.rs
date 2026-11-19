@@ -55,6 +55,9 @@ pub(super) fn is_pane_focused(
     // region on every keystroke in it.
     let composing = host.composer_focused_untracked();
     let side = host.side();
+    // A focused input inside `#review-panel` fires `focusin` there, lighting the tab even if the
+    // region itself was unfocused (`closed-tabs.ts:146-153,186-193`, `side-region.tsx:108`,
+    // `tabs.css:561-582`).
     match side.focus.mode() {
         FocusMode::Quiet => false,
         FocusMode::Active => (side.active_pane_focus == pane || field_in_tab) && !composing && !host.popup_holds_focus(),

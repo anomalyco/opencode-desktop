@@ -63,6 +63,11 @@ pub struct ForkState {
 /// How long a fork runs before its row says the server is still working on it.
 const SLOW: f64 = 5.0;
 
+/// Clock time at which a fork timing out at `due` crosses the [`SLOW`] wait threshold.
+fn slow_at(due: f64) -> f64 {
+    due - machine::TIMEOUT_SECS + SLOW
+}
+
 impl ForkState {
     /// The prompt a fork is on its way from: the picker holds still and shows it pending.
     pub fn pending(&self) -> Option<&str> {
@@ -217,6 +222,9 @@ fn step_fork(host: &mut dyn ForkHost, event: Event, tx: &mut Tx) -> bool {
     for effect in effects {
         match effect {
             Effect::Start { attempt, session, message } => {
+                if let ForkModal::Open { slow, .. } = &mut host.fork_mut().modal {
+                    *slow = false;
+                }
                 // The fixture and the storybook fork at once, as a server would.
                 if host.is_simulated() {
                     let forked = create_fixture_fork(host, &session, &message);
@@ -308,9 +316,14 @@ pub fn open(host: &mut dyn ForkHost, tx: &mut Tx) -> bool {
     let restore_composer = if was_open { prev_restore } else { shell_restore };
     let return_focus = tx.focused().map(str::to_owned);
     let first = messages(host).first().map(|m| m.id.clone());
+    let now = host.clock();
+    let slow = match &host.fork().machine.state {
+        machine::State::Forking { session, due, .. } if host.is_session_open(session) => now + 1e-9 >= slow_at(*due),
+        machine::State::Forking { .. } | machine::State::Idle => false,
+    };
     {
         let f = host.fork_mut();
-        f.modal = ForkModal::Open { active: first, restore_composer, slow: false };
+        f.modal = ForkModal::Open { active: first, restore_composer, slow };
         f.search = TextEdit::new("");
         f.search.focused = true;
     }
@@ -471,8 +484,8 @@ pub fn poll(host: &mut dyn ForkHost, tx: &mut Tx) -> bool {
     if now + 1e-9 >= due {
         return step_fork(host, Event::Due { now }, tx);
     }
-    let slow_at = due - machine::TIMEOUT_SECS + SLOW;
-    let next_slow = now + 1e-9 >= slow_at;
+    let at = slow_at(due);
+    let next_slow = now + 1e-9 >= at;
     let changed = match host.fork().modal {
         ForkModal::Open { slow, .. } if slow != next_slow => {
             match &mut host.fork_mut().modal {
@@ -483,7 +496,7 @@ pub fn poll(host: &mut dyn ForkHost, tx: &mut Tx) -> bool {
         }
         ForkModal::Open { .. } | ForkModal::Closed => false,
     };
-    let wait = if next_slow { due - now } else { slow_at - now };
+    let wait = if next_slow { due - now } else { at - now };
     tx.wake_after(Duration::from_secs_f64(wait.max(0.0)));
     changed
 }
