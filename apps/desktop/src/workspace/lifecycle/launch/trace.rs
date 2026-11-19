@@ -161,15 +161,15 @@ fn echo() {
     }
     use std::io::Write;
     let mut out = std::io::stdout().lock();
-    let _ = out.write_all(lines.as_bytes());
-    let _ = out.flush();
+    out.write_all(lines.as_bytes()).ok();
+    out.flush().ok();
     // A launch from the Dock, Finder or Explorer has no stdout: the same lines go to
     // `<logs>/launch-marks.log`. The first milestone is the first frame, so this file is never
     // written before it.
     if let Some(dir) = crate::dirs::logs() {
-        let _ = std::fs::create_dir_all(&dir);
+        std::fs::create_dir_all(&dir).ok();
         if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("launch-marks.log")) {
-            let _ = file.write_all(lines.as_bytes());
+            file.write_all(lines.as_bytes()).ok();
         }
     }
 }
@@ -268,7 +268,7 @@ fn settle(tx: &mut Tx) {
     let last = handed.map_or(drawn, |h| h.max(drawn));
     let quiet = Instant::now().checked_duration_since(last).unwrap_or_default();
     if quiet >= STILL {
-        let _ = STABLE.set(last);
+        STABLE.set(last).ok();
         return;
     }
     arm(&SETTLE_WAKE, last + STILL, tx);
@@ -314,7 +314,7 @@ fn quit_after() -> Option<Duration> {
 /// The text renderer the run draws with, named for the trace (`text_rendering::poll`).
 pub fn renderer(name: &'static str) {
     #[cfg(not(target_arch = "wasm32"))]
-    let _ = RENDERER.set(name);
+    RENDERER.set(name).ok();
     #[cfg(target_arch = "wasm32")]
     let _ = name;
 }
@@ -351,7 +351,7 @@ pub fn finish(windows: usize) {
     });
     use std::io::Write;
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-        let _ = writeln!(f, "{line}");
+        writeln!(f, "{line}").ok();
     }
 }
 

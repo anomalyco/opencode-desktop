@@ -44,6 +44,8 @@ pub fn poll(s: &mut App) {
 /// its own and is a debug build.
 fn scratch_lead() -> Option<String> {
     let own_identity = rune::extra_args().iter().any(|a| a.starts_with("--app-id="));
+    // Debug-only harness jump-list helper reads RUNE_DIRS_ROOT (set at startup via --dirs-root) to forward it to jump-list tasks.
+    #[allow(clippy::disallowed_methods)]
     let root = std::env::var("RUNE_DIRS_ROOT").ok()?;
     (own_identity && cfg!(debug_assertions)).then(|| format!("--dirs-root={root}"))
 }

@@ -57,7 +57,7 @@ impl Diagnostics {
     /// After `run`: drains what's queued. The window is gone, so nothing waits on it.
     pub fn shutdown(&self) {
         if let Some(r) = self.0.borrow_mut().recorder.take() {
-            let _ = r.shutdown();
+            r.shutdown().ok();
         }
     }
 }

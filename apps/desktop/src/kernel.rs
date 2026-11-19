@@ -314,15 +314,15 @@ fn register_post_feature_systems(b: &mut KernelBuilder<App>) {
         }
         false
     });
-    b.add_system(Phase::Derive, "disclosure.poll", |s, now, tx| crate::disclosure::poll(s, now, tx));
+    b.add_system(Phase::Derive, "disclosure.poll", crate::disclosure::poll);
     b.add_system(Phase::Derive, "timeline.projection", |s, _, tx| {
         session_view::timeline::projection_poll(s, tx)
     });
     b.add_system(Phase::Derive, "line_reveal.poll", |s, now, tx| {
         crate::line_reveal::poll(s, now, tx)
     });
-    b.add_system(Phase::Derive, "copied.poll", |s, now, tx| crate::copied::poll(s, now, tx));
-    b.add_system(Phase::Derive, "diagram.poll", |s, now, tx| crate::diagram::poll(s, now, tx));
+    b.add_system(Phase::Derive, "copied.poll", crate::copied::poll);
+    b.add_system(Phase::Derive, "diagram.poll", crate::diagram::poll);
     b.add_system(Phase::Derive, "timeline.images", |s, now, tx| {
         session_view::images::poll(s, now, tx)
     });

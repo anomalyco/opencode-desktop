@@ -279,6 +279,8 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
             return true;
         }
     }
+    // Closure coerces `Option<&'static Keybind>` to `&'a Keybind` so `s.kernel.commands` is not borrowed for `'static`.
+    #[allow(clippy::redundant_closure)]
     if let Some(entry) = s
         .kernel
         .commands

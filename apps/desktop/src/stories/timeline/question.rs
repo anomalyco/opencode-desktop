@@ -106,7 +106,9 @@ pub fn answered(v: usize) -> Vec<(&'static str, Value)> {
         None => ("form.cancelled", ("session.tool.failed", json!({ "error": { "type": "unknown", "message": "The user dismissed this question" } }))),
     };
     let mut d = call;
-    d.as_object_mut().unwrap().extend(result.1.as_object().unwrap().clone());
+    if let (Some(dst), Some(src)) = (d.as_object_mut(), result.1.as_object()) {
+        dst.extend(src.iter().map(|(k, v)| (k.clone(), v.clone())));
+    }
     vec![(close, json!({ "id": FORM })), (result.0, d), ("session.step.ended", json!({ "assistantMessageID": STEP }))]
 }
 

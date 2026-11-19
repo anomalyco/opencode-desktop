@@ -200,7 +200,7 @@ mod capture {
         with(now, sound, |c| {
             advance(c, now);
             if let Some(f) = c.cues.as_mut() {
-                let _ = writeln!(f, "{{\"at\":{now:.6},\"t\":{:.6},\"ctx\":{:.6},\"cue\":\"{cue:?}\"}}", now - c.origin, c.engine.now());
+                writeln!(f, "{{\"at\":{now:.6},\"t\":{:.6},\"ctx\":{:.6},\"cue\":\"{cue:?}\"}}", now - c.origin, c.engine.now()).ok();
             }
             c.engine.play(cue, &mut { sound.random });
             c.dirty = true;
@@ -236,6 +236,6 @@ mod capture {
         out.extend_from_slice(b"data");
         out.extend_from_slice(&(data.len() as u32).to_le_bytes());
         out.extend_from_slice(&data);
-        let _ = std::fs::write(&path, out);
+        std::fs::write(&path, out).ok();
     }
 }

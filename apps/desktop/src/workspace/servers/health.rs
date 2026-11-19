@@ -230,7 +230,7 @@ pub fn poll(s: &App, tx: &mut Tx) -> bool {
 fn run(s: &App, fx: rune::machine::Effects<Effect>, tx: &mut Tx) {
     // Only what rows show moves the version and asks for a frame: an answer that says what the
     // last one did (an unreachable server's every 10 s) changes nothing on screen.
-    let before = HEALTH.with_borrow(|h| shown(h));
+    let before = HEALTH.with_borrow(shown);
     let mut changed = false;
     let mut known = Vec::new();
     for effect in fx {
@@ -258,7 +258,7 @@ fn run(s: &App, fx: rune::machine::Effects<Effect>, tx: &mut Tx) {
             }
         }
     }
-    changed |= HEALTH.with_borrow(|h| shown(h)) != before;
+    changed |= HEALTH.with_borrow(shown) != before;
     if changed {
         HEALTH.with_borrow_mut(|h| h.version += 1);
         tx.instant();
@@ -321,14 +321,14 @@ fn probe(s: &App, key: &ServerKey, attempt: Attempt) -> Option<ProbeResult> {
         }
         let healthy = matches!(result, ProbeResult::Healthy { .. });
         let discovered = discover_sidecar.then(|| server.clone());
-        let _ = send.send(Answer::Probe { key: key.clone(), attempt, result, discovered });
+        send.send(Answer::Probe { key: key.clone(), attempt, result, discovered }).ok();
         if let Some(w) = &wake {
             w();
         }
         let Some(v) = (ask_home && healthy).then(|| server.get("/api/location").ok()).flatten() else { return };
         let dir = |v: &serde_json::Value| v["directory"].as_str().unwrap_or_default().to_owned();
         let home = Some(opencode_kit::path::infer_home(&dir(&v))).filter(|h| !h.is_empty()).unwrap_or_else(|| opencode_kit::path::infer_home(&dir(&v["project"])));
-        let _ = send.send(Answer::Home { key, home });
+        send.send(Answer::Home { key, home }).ok();
         if let Some(w) = &wake {
             w();
         }

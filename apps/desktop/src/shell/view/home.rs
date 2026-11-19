@@ -94,7 +94,7 @@ pub(crate) fn home(s: &App, p: &Pal, [panel_w, panel_h]: [f32; 2], window: [f32;
     // The thumb sits in the sessions column's 12 pt gutter under its sticky header, in a track as
     // long as the page below it, shown while the pointer is on that column (`route.tsx:34-40`,
     // `sessions/view.tsx`'s `home-session-scroll-track`).
-    let bar = ScrollBarStyle::scroll_view(&crate::palette::kit(p)).hover_target().track_offset(tier.header_top(), gutter_end(panel, pad));
+    let bar = ScrollBarStyle::scroll_view(crate::palette::kit(p)).hover_target().track_offset(tier.header_top(), gutter_end(panel, pad));
     let scroller = session_view::scroller::scroller("home")
         .bar(session_view::scroller::Bar::Styled(bar))
         .build::<App>(p, viewport, col().key("home-content").w_full().items_center().child(grid))

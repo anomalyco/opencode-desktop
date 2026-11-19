@@ -241,7 +241,7 @@ pub fn audit(s: &App) {
         return;
     }
     let line = serde_json::json!({ "t": *s.clock, "msg": a.id, "done": a.completed.is_some(), "text": text });
-    let _ = writeln!(f.0, "{line}");
+    writeln!(f.0, "{line}").ok();
     f.1 = text;
 }
 
@@ -276,7 +276,7 @@ pub fn catch_up(s: &mut App) {
 fn refresh(s: &mut App, server: &str, id: String) {
     let Source::Live { requests: Some(r), .. } = &*s.source else { return };
     if s.services.server_links.refreshing.entry(server.to_owned()).or_default().insert(id.clone()) {
-        let _ = r.send(Request::Session(id));
+        r.send(Request::Session(id)).ok();
     }
 }
 

@@ -3,7 +3,7 @@
 //! click independent of speculative reads. Neither lane writes to the server or to a file.
 use crate::pickers::PickerHost as _;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::{Arc, Condvar, Mutex, mpsc::{Receiver, Sender, channel}};
+use std::sync::{Arc, Condvar, Mutex, PoisonError, mpsc::{Receiver, Sender, channel}};
 use std::time::Duration;
 use rune::time::Instant;
 
@@ -53,13 +53,13 @@ impl State {
 
     /// `App::rest`: the reader's cache keeps only the pages of sessions `keep` says are shown.
     pub fn rest(&self, keep: &dyn Fn(&str) -> bool) {
-        if let Some(pool) = &self.pool { pool.shared.0.lock().unwrap().ready.retain(|p| keep(&p.key.id)); }
+        if let Some(pool) = &self.pool { pool.shared.0.lock().unwrap_or_else(PoisonError::into_inner).ready.retain(|p| keep(&p.key.id)); }
     }
 
     /// The user messages of the pages in the reader's cache, which a tab shows when it opens.
     pub fn user_message_ids(&self) -> Vec<String> {
         let Some(pool) = &self.pool else { return Vec::new() };
-        let q = pool.shared.0.lock().unwrap();
+        let q = pool.shared.0.lock().unwrap_or_else(PoisonError::into_inner);
         q.ready.iter().flat_map(|p| p.messages.iter()).filter_map(|m| match m { Message::User { id, .. } => Some(id.clone()), _ => None }).collect()
     }
 
@@ -145,29 +145,30 @@ struct Queue {
 
 type Shared = Arc<(Mutex<Queue>, Condvar)>;
 pub type Fetch = Arc<dyn Fn(&str) -> Result<Value, opencode_kit::wire_error::WireError> + Send + Sync>;
+pub type PageResult = Result<Arc<Page>, (Key, opencode_kit::wire_error::WireError)>;
 
 pub struct Pages {
     shared: Shared,
-    pub results: Receiver<Result<Arc<Page>, (Key, opencode_kit::wire_error::WireError)>>,
+    pub results: Receiver<PageResult>,
     wake: Option<Waker>,
     /// The server it reads (its base URL; empty for a fixture's or a test's).
     server: String,
     /// What the web's lanes read with: a page has no threads to wait on the queue, so each
     /// request starts a task that reads what's queued.
     #[cfg(target_arch = "wasm32")]
-    lanes: Option<(Fetch, Sender<Result<Arc<Page>, (Key, opencode_kit::wire_error::WireError)>>, Waker)>,
+    lanes: Option<(Fetch, Sender<PageResult>, Waker)>,
 }
 
 impl Drop for Pages {
     fn drop(&mut self) {
-        self.shared.0.lock().unwrap().stopped = true;
+        self.shared.0.lock().unwrap_or_else(PoisonError::into_inner).stopped = true;
         self.shared.1.notify_all();
     }
 }
 
 impl Pages {
     /// In-process delivery for deterministic stories/tests; no server or worker is started.
-    pub(crate) fn fixture(ready: Option<Arc<Page>>) -> (Self, Sender<Result<Arc<Page>, (Key, opencode_kit::wire_error::WireError)>>) {
+    pub(crate) fn fixture(ready: Option<Arc<Page>>) -> (Self, Sender<PageResult>) {
         let (send, results) = channel();
         let mut q = Queue::default();
         q.ready.extend(ready);
@@ -192,8 +193,10 @@ impl Pages {
         {
             for foreground in [true, false] {
                 let (q, fetch, out, wake) = (shared.clone(), fetch.clone(), out.clone(), wake.clone());
-                std::thread::Builder::new().name(format!("session-{}", if foreground { "open" } else { "prefetch" }))
-                    .spawn(move || worker(q, fetch, out, wake, foreground)).expect("session reader");
+                let name = format!("session-{}", if foreground { "open" } else { "prefetch" });
+                if let Err(e) = std::thread::Builder::new().name(name.clone()).spawn(move || worker(q, fetch, out, wake, foreground)) {
+                    eprintln!("opencode-rune: couldn't spawn {name} thread: {e}");
+                }
             }
             Self { shared, results, wake: Some(wake), server: String::new() }
         }
@@ -201,17 +204,17 @@ impl Pages {
 
     /// How long the open lane has gone without an answer from the server, if it has.
     pub fn stalled_for(&self) -> Option<Duration> {
-        self.shared.0.lock().unwrap().stalled.map(|at| now().saturating_duration_since(at))
+        self.shared.0.lock().unwrap_or_else(PoisonError::into_inner).stalled.map(|at| now().saturating_duration_since(at))
     }
 
     /// Starts the silence over, as when the event stream comes back.
     pub fn forgive(&self) {
-        self.shared.0.lock().unwrap().stalled = None;
+        self.shared.0.lock().unwrap_or_else(PoisonError::into_inner).stalled = None;
     }
 
     /// Memory is ready before the worker wakes the app, so a click racing that wake can paint.
     pub fn peek(&self, id: &str) -> Option<Arc<Page>> {
-        let mut q = self.shared.0.lock().unwrap();
+        let mut q = self.shared.0.lock().unwrap_or_else(PoisonError::into_inner);
         let at = q.ready.iter().position(|p| p.key.id == id)?;
         let page = q.ready.remove(at)?;
         q.ready.push_back(page.clone());
@@ -228,7 +231,7 @@ impl Pages {
     }
 
     fn enqueue(&self, job: Job) {
-        let mut q = self.shared.0.lock().unwrap();
+        let mut q = self.shared.0.lock().unwrap_or_else(PoisonError::into_inner);
         q.failed.retain(|_, until| *until > Instant::now());
         if !job.foreground && q.failed.contains_key(&job.key) { return; }
         if job.cursor.is_none() && !job.foreground && q.ready.iter().any(|p| p.key == job.key) { return; }
@@ -238,8 +241,11 @@ impl Pages {
             if job.key.updated > old.key.updated { old.key = job.key; }
         } else {
             // A pointer sweeping the list cannot leave an unbounded speculative backlog.
-            if !job.foreground && q.jobs.iter().filter(|j| !j.foreground).count() >= ENTRIES {
-                if let Some(i) = q.jobs.iter().position(|j| !j.foreground) { q.jobs.remove(i); }
+            if !job.foreground
+                && q.jobs.iter().filter(|j| !j.foreground).count() >= ENTRIES
+                && let Some(i) = q.jobs.iter().position(|j| !j.foreground)
+            {
+                q.jobs.remove(i);
             }
             q.jobs.push_back(job);
         }
@@ -248,14 +254,15 @@ impl Pages {
         if let Some((fetch, out, wake)) = self.lanes.clone() {
             drop(q);
             let shared = self.shared.clone();
-            let _ = rune::task::spawn("session-pages", move || {
+            rune::task::spawn("session-pages", move || {
                 let images = rune::ImageCache::new(wake.clone());
                 for foreground in [true, false] {
                     while let Some(job) = take_now(&shared, foreground) {
                         if !read(&shared, &fetch, &out, &wake, &images, foreground, job) { return; }
                     }
                 }
-            });
+            })
+            .ok();
         }
     }
 }
@@ -266,20 +273,21 @@ fn now() -> Instant {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn worker(q: Shared, fetch: Fetch, out: Sender<Result<Arc<Page>, (Key, opencode_kit::wire_error::WireError)>>, wake: Waker, foreground: bool) {
+fn worker(q: Shared, fetch: Fetch, out: Sender<PageResult>, wake: Waker, foreground: bool) {
     let images = rune::ImageCache::new(wake.clone());
     loop {
         let job = {
-            let mut state = q.0.lock().unwrap();
+            let mut state = q.0.lock().unwrap_or_else(PoisonError::into_inner);
             loop {
                 if state.stopped { return; }
                 // Newest hover first; foreground has its own lane and never queues behind history.
-                if let Some(i) = state.jobs.iter().rposition(|j| j.foreground == foreground) {
-                    let job = state.jobs.remove(i).unwrap();
+                if let Some(i) = state.jobs.iter().rposition(|j| j.foreground == foreground)
+                    && let Some(job) = state.jobs.remove(i)
+                {
                     state.active.insert((job.key.clone(), job.cursor.clone()));
                     break job;
                 }
-                state = q.1.wait(state).unwrap();
+                state = q.1.wait(state).unwrap_or_else(PoisonError::into_inner);
             }
         };
         if !read(&q, &fetch, &out, &wake, &images, foreground, job) { return; }
@@ -289,7 +297,7 @@ fn worker(q: Shared, fetch: Fetch, out: Sender<Result<Arc<Page>, (Key, opencode_
 /// The next job for the lane, if one waits: the web's lanes take what's queued and stop.
 #[cfg(target_arch = "wasm32")]
 fn take_now(q: &Shared, foreground: bool) -> Option<Job> {
-    let mut state = q.0.lock().unwrap();
+    let mut state = q.0.lock().unwrap_or_else(PoisonError::into_inner);
     if state.stopped { return None; }
     let i = state.jobs.iter().rposition(|j| j.foreground == foreground)?;
     let job = state.jobs.remove(i)?;
@@ -300,7 +308,7 @@ fn take_now(q: &Shared, foreground: bool) -> Option<Job> {
 /// Reads `job` from the server and hands each page to `out`; false
 /// when the pool stopped meanwhile.
 #[allow(clippy::too_many_arguments)]
-fn read(q: &Shared, fetch: &Fetch, out: &Sender<Result<Arc<Page>, (Key, opencode_kit::wire_error::WireError)>>, wake: &Waker, images: &rune::ImageCache, foreground: bool, job: Job) -> bool {
+fn read(q: &Shared, fetch: &Fetch, out: &Sender<PageResult>, wake: &Waker, images: &rune::ImageCache, foreground: bool, job: Job) -> bool {
     {
         let publish = |value: &Value, mut read: crate::telemetry::Read| {
             let parsing = Instant::now();
@@ -320,7 +328,7 @@ fn read(q: &Shared, fetch: &Fetch, out: &Sender<Result<Arc<Page>, (Key, opencode
                 read,
             });
             if !page.history {
-                let mut state = q.0.lock().unwrap();
+                let mut state = q.0.lock().unwrap_or_else(PoisonError::into_inner);
                 if state.ready.iter().all(|p| p.key.id != page.key.id || p.key.updated <= page.key.updated) {
                     state.ready.retain(|p| p.key.id != page.key.id);
                     state.ready.push_back(page.clone());
@@ -348,14 +356,14 @@ fn read(q: &Shared, fetch: &Fetch, out: &Sender<Result<Arc<Page>, (Key, opencode
             let Err(error) = &answer else { break };
             if !foreground || !error.transient() { break; }
             eprintln!("opencode-rune: session read failed, retrying: {error}");
-            q.0.lock().unwrap().stalled.get_or_insert_with(now);
+            q.0.lock().unwrap_or_else(PoisonError::into_inner).stalled.get_or_insert_with(now);
             wake();
             if !pause(q, backoff(attempt)) { return false; }
             start = Instant::now();
             crate::telemetry::take_read();
             answer = fetch(&path);
         }
-        if answer.is_ok() { q.0.lock().unwrap().stalled = None; }
+        if answer.is_ok() { q.0.lock().unwrap_or_else(PoisonError::into_inner).stalled = None; }
         match answer {
             Ok(value) => {
                 if first { rune::marks::mark("session.read.received"); }
@@ -368,11 +376,11 @@ fn read(q: &Shared, fetch: &Fetch, out: &Sender<Result<Arc<Page>, (Key, opencode
                 publish(&value, read);
             }
             Err(error) => {
-                q.0.lock().unwrap().failed.insert(job.key.clone(), Instant::now() + Duration::from_secs(30));
+                q.0.lock().unwrap_or_else(PoisonError::into_inner).failed.insert(job.key.clone(), Instant::now() + Duration::from_secs(30));
                 if out.send(Err((job.key.clone(), error))).is_ok() { wake(); }
             }
         }
-        q.0.lock().unwrap().active.remove(&(job.key, job.cursor));
+        q.0.lock().unwrap_or_else(PoisonError::into_inner).active.remove(&(job.key, job.cursor));
     }
     true
 }
@@ -387,10 +395,10 @@ fn backoff(attempt: u32) -> Duration {
 fn pause(q: &Shared, total: Duration) -> bool {
     let until = Instant::now() + total;
     while Instant::now() < until {
-        if q.0.lock().unwrap().stopped { return false; }
+        if q.0.lock().unwrap_or_else(PoisonError::into_inner).stopped { return false; }
         rune::task::sleep(Duration::from_millis(10).min(until - Instant::now()));
     }
-    !q.0.lock().unwrap().stopped
+    !q.0.lock().unwrap_or_else(PoisonError::into_inner).stopped
 }
 
 impl crate::App {
@@ -469,7 +477,7 @@ impl crate::App {
         match &self.pages.pool {
             Some(pages) => pages.request(self.page_key(id), true),
             None => {
-                let _ = r.send(opencode_kit::client::Request::Session(id.to_owned()));
+                r.send(opencode_kit::client::Request::Session(id.to_owned())).ok();
             }
         }
     }

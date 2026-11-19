@@ -50,7 +50,9 @@ pub fn setup(s: &mut App, at: usize) {
         info.id = "ses_open_previous".into(); info.title = "Current session".into();
         s.sessions.push(info);
     }
-    s.sessions.iter_mut().find(|i| i.id == TARGET).unwrap().parent = (at == 3).then(|| "ses_open_previous".into());
+    if let Some(info) = s.sessions.iter_mut().find(|i| i.id == TARGET) {
+        info.parent = (at == 3).then(|| "ses_open_previous".into());
+    }
     s.composer.focused = false;
     *s.fixture_run.open_demo = Some(Demo { page, send, png, at, before:false });
 }
@@ -83,7 +85,7 @@ pub(crate) fn arrive(s: &mut App, picture: bool) {
     if picture {
         s.composer_ext.attach.fixture_media(MEDIA, Some(d.png.clone()));
     } else {
-        let _ = d.send.send(Ok(d.page.clone()));
+        d.send.send(Ok(d.page.clone())).ok();
     }
 }
 
@@ -110,7 +112,7 @@ fn picture() -> Vec<u8> {
         image::Rgb(if bar { [92, 171, 190] } else if y % 60 == 10 { [58, 65, 72] } else { [30, 35, 42] })
     });
     let mut out = std::io::Cursor::new(Vec::new());
-    image.write_to(&mut out, image::ImageFormat::Png).unwrap();
+    image.write_to(&mut out, image::ImageFormat::Png).ok();
     out.into_inner()
 }
 

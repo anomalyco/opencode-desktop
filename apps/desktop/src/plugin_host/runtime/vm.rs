@@ -77,8 +77,8 @@ pub fn options(half: Rc<Half>) -> ScriptOptions {
     let kind = half.kind;
     let log_half = half.clone();
     let mut options = ScriptOptions::new()
-        .palette(Rc::new(|name, dark| palette(name, dark)))
-        .shadows(Rc::new(|name, dark| shadows(name, dark)))
+        .palette(Rc::new(palette))
+        .shadows(Rc::new(shadows))
         .text(TextStyle::new(13.0, 440.0), [440.0, 530.0, 600.0, 700.0])
         .setup(move |host| setup(host, &half))
         .start(move |lua, module, vm| start(lua, module, vm, kind))

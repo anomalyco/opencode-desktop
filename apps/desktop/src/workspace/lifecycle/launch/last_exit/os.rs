@@ -49,17 +49,20 @@ impl EncodedPaths {
 
 #[cfg(windows)]
 pub(super) fn raw_pid() -> u32 {
+    // SAFETY: `GetCurrentProcessId` takes no parameters and has no preconditions.
     unsafe { windows_sys::Win32::System::Threading::GetCurrentProcessId() }
 }
 
 #[cfg(unix)]
 pub(super) fn raw_pid() -> u32 {
+    // SAFETY: `getpid` takes no parameters and is always safe to call.
     unsafe { libc::getpid() as u32 }
 }
 
 #[cfg(windows)]
 pub(super) fn reserve_main_stack_guarantee() {
     let mut bytes = 16 * 1024u32;
+    // SAFETY: `&raw mut bytes` points to a valid, aligned `u32` owned by this stack frame.
     unsafe {
         let _ = windows_sys::Win32::System::Threading::SetThreadStackGuarantee(&raw mut bytes);
     }
@@ -142,6 +145,7 @@ static PREV_FILTER: std::sync::atomic::AtomicPtr<core::ffi::c_void> =
 #[cfg(windows)]
 pub(super) fn install_os_hooks() {
     const SIGABRT: i32 = 22;
+    // SAFETY: `unhandled_filter` and `on_sigabrt` are static functions with matching Win32/C ABIs installed once at startup.
     unsafe {
         let prev = SetUnhandledExceptionFilter(Some(unhandled_filter));
         if let Some(f) = prev {
@@ -258,8 +262,10 @@ unsafe extern "system" fn unhandled_filter(info: *const ExceptionPointers) -> i3
     const EXCEPTION_CONTINUE_SEARCH: i32 = 0;
     const EXCEPTION_EXECUTE_HANDLER: i32 = 1;
     if !info.is_null() {
+        // SAFETY: Windows SEH passes a valid `EXCEPTION_POINTERS` (checked non-null above) whose first field is `ExceptionRecord`.
         let rec = unsafe { (*info).record };
         if !rec.is_null() {
+            // SAFETY: `rec` is a non-null `EXCEPTION_RECORD` whose first field is `DWORD ExceptionCode`.
             let code = unsafe { (*rec).code };
             let (short, avail) = commit_short_and_avail();
             let tag = match code {
@@ -272,6 +278,7 @@ unsafe extern "system" fn unhandled_filter(info: *const ExceptionPointers) -> i3
             let prev = PREV_FILTER.load(Ordering::Acquire);
             if prev.is_null() {
                 // End at once with `code` rather than unwinding/detaching DLLs or spawning WerFault on an exhausted stack.
+                // SAFETY: `GetCurrentProcess()` returns the valid current-process pseudo-handle; terminating with `code` has no memory preconditions.
                 unsafe {
                     let _ = windows_sys::Win32::System::Threading::TerminateProcess(
                         windows_sys::Win32::System::Threading::GetCurrentProcess(),
@@ -284,7 +291,9 @@ unsafe extern "system" fn unhandled_filter(info: *const ExceptionPointers) -> i3
     }
     let prev = PREV_FILTER.load(Ordering::Acquire);
     if !prev.is_null() {
+        // SAFETY: `PREV_FILTER` only stores a non-null `TopLevelFilter` previously returned by `SetUnhandledExceptionFilter`.
         let f: TopLevelFilter = unsafe { core::mem::transmute(prev) };
+        // SAFETY: `f` is the prior top-level exception filter and `info` is the SEH pointer passed to this handler.
         return unsafe { f(info) };
     }
     EXCEPTION_CONTINUE_SEARCH
@@ -299,6 +308,7 @@ pub(super) fn commit_short_and_avail() -> (bool, u64) {
     use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
     let mut avail = u64::MAX;
     let mut short = false;
+    // SAFETY: `MEMORYSTATUSEX` and `JOBOBJECT_EXTENDED_LIMIT_INFORMATION` are zero-initialisable Win32 POD structs passed with their exact sizes; a null job handle queries the current process's job.
     unsafe {
         let mut status: MEMORYSTATUSEX = core::mem::zeroed();
         status.dwLength = core::mem::size_of::<MEMORYSTATUSEX>() as u32;
@@ -373,6 +383,7 @@ pub(super) fn open_raw_emergency() -> isize {
         OPEN_ALWAYS,
     };
     let Some(paths) = PATHS.get() else { return -1 };
+    // SAFETY: `paths.record_wide` is a NUL-terminated UTF-16 path stored in the `'static` `PATHS` lock.
     let h = unsafe {
         CreateFileW(
             paths.record_wide.as_ptr(),
@@ -399,6 +410,7 @@ pub(super) fn read_raw(fd: isize, buf: &mut [u8; RECORD_BYTES]) -> bool {
     use windows_sys::Win32::Storage::FileSystem::{FILE_BEGIN, ReadFile, SetFilePointerEx};
     let handle = fd as windows_sys::Win32::Foundation::HANDLE;
     let mut got = 0u32;
+    // SAFETY: `handle` is an open file handle from `open_raw_emergency`, `buf` is writable for `RECORD_BYTES`, and `got` is a valid aligned `u32`.
     unsafe {
         SetFilePointerEx(handle, 0, core::ptr::null_mut(), FILE_BEGIN) != 0
             && ReadFile(handle, buf.as_mut_ptr(), RECORD_BYTES as u32, &raw mut got, core::ptr::null_mut()) != 0
@@ -414,6 +426,7 @@ pub(super) fn read_raw(fd: isize, buf: &mut [u8; RECORD_BYTES]) -> bool {
 
 #[cfg(windows)]
 pub(super) fn close_raw(fd: isize) {
+    // SAFETY: called only on a temporary handle returned by `open_raw_emergency`, closing it once.
     unsafe {
         let _ = windows_sys::Win32::Foundation::CloseHandle(fd as windows_sys::Win32::Foundation::HANDLE);
     }
@@ -439,6 +452,7 @@ pub(super) fn write_skip_sentinel(tag: u8, session_hash: u64) {
     buf[4] = tag;
     buf[8..16].copy_from_slice(&session_hash.to_le_bytes());
     let mut written = 0u32;
+    // SAFETY: `paths.skip_wide` is a `'static` NUL-terminated UTF-16 path; `buf` holds `SKIP_BYTES` initialized bytes; `h` is validated before writing and closed once.
     unsafe {
         let h = CreateFileW(
             paths.skip_wide.as_ptr(),
@@ -480,6 +494,7 @@ pub(super) fn write_raw(fd: isize, buf: &[u8; RECORD_BYTES]) {
     }
     let handle = fd as windows_sys::Win32::Foundation::HANDLE;
     let mut written = 0u32;
+    // SAFETY: `handle` is an open file handle owned by `RECORD_FD` or the current emergency call; `buf` holds `RECORD_BYTES` initialized bytes and `written` is valid.
     unsafe {
         if SetFilePointerEx(handle, 0, core::ptr::null_mut(), FILE_BEGIN) != 0 {
             let _ = WriteFile(
@@ -511,6 +526,7 @@ pub(super) fn wait_drill_go(go: &Path) {
         go.as_os_str().encode_wide().chain([0]).collect::<Vec<u16>>()
     };
     loop {
+        // SAFETY: `probe` is a valid NUL-terminated UTF-16 path alive for this entire loop.
         #[cfg(windows)]
         let ready = unsafe {
             windows_sys::Win32::Storage::FileSystem::GetFileAttributesW(probe.as_ptr()) != u32::MAX
@@ -526,6 +542,7 @@ pub(super) fn wait_drill_go(go: &Path) {
 
 #[cfg(debug_assertions)]
 pub(super) fn raise_access_violation() {
+    // SAFETY: debug-only crash drill invokes Win32 `RaiseException` with 0 arguments, null array, and `EXCEPTION_NONCONTINUABLE` to exercise `unhandled_filter` and terminate the process.
     #[cfg(windows)]
     unsafe {
         windows_sys::Win32::System::Diagnostics::Debug::RaiseException(

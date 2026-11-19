@@ -39,7 +39,7 @@ impl AttachmentsHost for App {
     }
 
     fn draft_key(&self) -> Option<String> {
-        crate::restore::draft_key(&*self.route)
+        crate::restore::draft_key(&self.route)
     }
 
     fn live_server(&self) -> Option<Server> {

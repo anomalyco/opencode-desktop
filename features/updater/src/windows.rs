@@ -345,7 +345,7 @@ fn sweep(root: &Path, updates: &Path) {
             if root_intact && n.strip_prefix(&format!(".{name}.old-")).and_then(|pid| pid.parse::<u32>().ok()).is_some() {
                 // A locked image does not protect the assets beside it. Never remove even one
                 // entry on a refusal; another launch tries again. Stages belong to their helper.
-                let _ = bundle::retire(&e.path());
+                bundle::retire(&e.path()).ok();
             } else if let Some(pid) = n.strip_prefix(&format!(".{name}.staging-")).and_then(|s| s.split_once('-')).and_then(|(p, _)| p.parse::<u32>().ok())
                 && bundle::process_gone(pid)
             {

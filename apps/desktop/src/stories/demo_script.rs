@@ -92,7 +92,9 @@ impl Script<'_> {
         let base = json!({ "assistantMessageID": mid, "ordinal": ordinal });
         let with = |extra: Value| {
             let mut d = base.clone();
-            d.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            if let (Some(dst), Some(src)) = (d.as_object_mut(), extra.as_object()) {
+                dst.extend(src.iter().map(|(k, v)| (k.clone(), v.clone())));
+            }
             d
         };
         self.ev(&format!("session.{kind}.started"), base.clone());

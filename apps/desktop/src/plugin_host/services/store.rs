@@ -120,8 +120,9 @@ fn value(lua: &Lua, vmx: &Rc<Vmx>, name: String, default: Value, per_session: bo
     let ns: Rc<str> = opencode_storage::plugin_namespace(&plugin).into();
     let read = {
         let (plugin, ns, name, default) = (plugin.clone(), ns.clone(), name.clone(), default.clone());
+        type ParsedCache = HashMap<Rc<str>, (u64, Data)>;
         // Each key's value as last parsed, by its version: a render reads it every time it runs.
-        let parsed: Rc<std::cell::RefCell<HashMap<Rc<str>, (u64, Data)>>> = Rc::default();
+        let parsed: Rc<std::cell::RefCell<ParsedCache>> = Rc::default();
         move |lua: &Lua, session: &str| -> mlua::Result<Value> {
             let key: Rc<str> = if per_session { stores::key(&name, &scope_session(app_now("Store")?, session)).into() } else { name.clone() };
             cx::read(Dep::Store(plugin.clone(), key.clone()));
@@ -277,6 +278,8 @@ fn split(v: &Value, path: &mut Vec<String>, fns: &mut Vec<(Vec<String>, Function
             Data::Map(fields)
         }
         Value::Boolean(b) => Data::Bool(*b),
+        // `mlua::Integer` is `i32` on wasm32 and `i64` on 64-bit targets.
+        #[allow(clippy::unnecessary_cast)]
         Value::Integer(i) => Data::Integer(*i as i64),
         Value::Number(n) => Data::Number(*n),
         Value::String(s) => Data::String(s.to_string_lossy()),

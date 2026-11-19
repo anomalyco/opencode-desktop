@@ -192,9 +192,9 @@ impl Convolver {
 
     /// Convolves one block of 128 frames in place.
     pub fn block(&mut self, io: &mut [f32]) {
-        for i in 0..BLOCK {
+        for (i, &sample) in io[..BLOCK].iter().enumerate() {
             self.work[i] = [self.last[i], 0.0];
-            self.work[BLOCK + i] = [io[i], 0.0];
+            self.work[BLOCK + i] = [sample, 0.0];
         }
         self.last.copy_from_slice(&io[..BLOCK]);
         fft(&mut self.work, &self.twiddle, false);
@@ -210,8 +210,8 @@ impl Convolver {
             }
         }
         fft(&mut self.acc, &self.twiddle, true);
-        for i in 0..BLOCK {
-            io[i] = self.acc[BLOCK + i][0] / FFT as f32;
+        for (out, acc) in io[..BLOCK].iter_mut().zip(&self.acc[BLOCK..]) {
+            *out = acc[0] / FFT as f32;
         }
     }
 }
@@ -357,11 +357,11 @@ impl Compressor {
         let release_frames = self.rate * self.release;
         let sat_release_frames = 0.0025 * self.rate;
         let (z1, z2, z3, z4) = (0.09f32, 0.16f32, 0.42f32, 0.98f32);
-        let ka = 0.999_999_999_999_999_8 * z1 + 1.843_221_968_432_392_3e-16 * z2 - 1.937_339_435_167_642_3e-16 * z3 + 8.824_516_011_816_245e-18 * z4;
-        let kb = -1.578_832_035_284_588_8 * z1 + 2.330_583_703_207_428_6 * z2 - 0.914_119_420_484_042_9 * z3 + 0.162_367_752_561_203_2 * z4;
-        let kc = 0.533_414_286_910_642_4 * z1 - 1.272_736_789_213_631 * z2 + 0.925_885_604_220_751_2 * z3 - 0.186_563_101_917_762_26 * z4;
-        let kd = 0.087_834_631_382_072_34 * z1 - 0.169_416_296_792_562_2 * z2 + 0.085_880_579_515_952_72 * z3 - 0.004_298_914_105_462_83 * z4;
-        let ke = -0.042_416_883_008_123_074 * z1 + 0.111_569_382_798_760_2 * z2 - 0.097_646_763_252_658_72 * z3 + 0.028_494_263_462_021_576 * z4;
+        let ka = 0.999_999_999_999_999_8 * z1 + 1.843_221_9e-16 * z2 - 1.937_339_4e-16 * z3 + 8.824_516e-18 * z4;
+        let kb = -1.578_832 * z1 + 2.330_583_8 * z2 - 0.914_119_4 * z3 + 0.162_367_75 * z4;
+        let kc = 0.533_414_3 * z1 - 1.272_736_8 * z2 + 0.925_885_6 * z3 - 0.186_563_1 * z4;
+        let kd = 0.087_834_634 * z1 - 0.169_416_3 * z2 + 0.085_880_58 * z3 - 0.004_298_914 * z4;
+        let ke = -0.042_416_88 * z1 + 0.111_569_38 * z2 - 0.097_646_765 * z3 + 0.028_494_263 * z4;
         let (a, b, c, d, e) = (release_frames * ka, release_frames * kb, release_frames * kc, release_frames * kd, release_frames * ke);
         let n = l.len();
         let mut i = 0;

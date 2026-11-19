@@ -156,7 +156,7 @@ fn forget_old_file() {
     let Some(cache) = crate::dirs::cache() else { return };
     tasks::run(move || {
         for name in ["plugin-contributions.json", "plugin-contributions.json.tmp"] {
-            let _ = std::fs::remove_file(cache.join(name));
+            std::fs::remove_file(cache.join(name)).ok();
         }
     });
 }

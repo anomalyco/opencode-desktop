@@ -55,7 +55,7 @@ fn redeem_at_once(link: &Link) -> Redeemed {
     for (i, url) in link.urls.iter().enumerate() {
         let (tx, url, code) = (tx.clone(), url.clone(), link.code.clone());
         std::thread::spawn(move || {
-            let _ = tx.send((i, connect(&url, &code)));
+            tx.send((i, connect(&url, &code))).ok();
         });
     }
     drop(tx);

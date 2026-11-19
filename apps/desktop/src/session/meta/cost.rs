@@ -44,7 +44,7 @@ impl App {
     /// Lists every direct subagent session of `id`, so its family's cost counts them.
     pub(crate) fn list_children(&self, id: &str) {
         if let Source::Live { requests: Some(r), .. } = &*self.source {
-            let _ = r.send(Request::Children(id.to_owned()));
+            r.send(Request::Children(id.to_owned())).ok();
         }
     }
 

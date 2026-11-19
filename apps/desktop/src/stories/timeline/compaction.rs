@@ -201,7 +201,7 @@ fn long_open(s: &mut App, tx: &mut Play<App>) {
     for at in [0.6, 1.4, 2.2, 2.28, 3.0, 4.6] {
         tx.after(at, |s, tx| crate::compaction::press(s, tx, LONG));
     }
-    tx.after(3.8, |s, tx| scroll_in(s, tx));
+    tx.after(3.8, scroll_in);
 }
 
 const LONG_KNOBS: &[rune_knobs::Group] = &[rune_knobs::Group::new("Fold", "stage", &[crate::disclosure::FOLD_SPEED, crate::disclosure::FOLD_FEATHER])];

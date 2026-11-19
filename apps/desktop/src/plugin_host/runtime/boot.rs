@@ -86,12 +86,14 @@ fn refresh_records(app: &mut App) -> bool {
     true
 }
 
+pub(super) type SaveRecordCallback = Box<dyn FnOnce(&mut App, &mut Tx, Result<(), String>) + Send>;
+
 /// Writes plugin `id`'s record (its off switch and the files it's trusted for) as the window holds
 /// it, in one durable commit; `then` gets how it went, on this window's thread.
 pub(super) fn save_record(
     app: &App,
     id: &str,
-    then: Option<Box<dyn FnOnce(&mut App, &mut Tx, Result<(), String>) + Send>>,
+    then: Option<SaveRecordCallback>,
 ) {
     let record = opencode_storage::PluginRecord {
         enabled: app.plugins.disabled.contains(id).then_some(false),

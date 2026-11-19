@@ -475,7 +475,7 @@ impl App {
     /// Asks the server for one session's info (live only).
     pub fn fetch_info(&self, id: &str) {
         if let Source::Live { requests: Some(r), .. } = &*self.source {
-            let _ = r.send(Request::Info(id.to_owned()));
+            r.send(Request::Info(id.to_owned())).ok();
         }
     }
 
@@ -501,7 +501,7 @@ impl App {
             HashSet::new()
         };
         s.pages.rest(&kept);
-        s.workspace_panes.files.retain_reply_links(&kept);
+        s.workspace_panes.files.retain_reply_links(kept);
         if !gone.is_empty() {
             let transcripts = &mut *s.transcripts;
             for id in &gone { transcripts.remove(id); }

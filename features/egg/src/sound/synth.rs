@@ -240,9 +240,9 @@ impl Engine {
         }
         // The room, from the bus, at 0.18, then the 0.9 master and the limiter.
         let mut wet = [[0.0f32; QUANTUM]; 2];
-        for c in 0..2 {
-            wet[c].copy_from_slice(&self.bus[c]);
-            self.room[c].block(&mut wet[c]);
+        for (wet, (bus, room)) in wet.iter_mut().zip(self.bus.iter().zip(&mut self.room)) {
+            wet.copy_from_slice(bus);
+            room.block(wet);
         }
         for i in 0..QUANTUM {
             l[i] = (self.bus[0][i] + wet[0][i] * 0.18) * 0.9;

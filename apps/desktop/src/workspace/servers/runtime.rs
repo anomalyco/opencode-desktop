@@ -376,7 +376,7 @@ impl App {
     /// The server the window works against, when it isn't the app's own (a plugin's `<plugin>:<id>`,
     /// an added server's address): what plugins see as the current server.
     pub fn server_key(&self) -> Option<String> {
-        Some(self.checkout.active.as_str().to_owned()).filter(|_| !self.checkout.active.is_sidecar())
+        (!self.checkout.active.is_sidecar()).then(|| self.checkout.active.as_str().to_owned())
     }
 }
 

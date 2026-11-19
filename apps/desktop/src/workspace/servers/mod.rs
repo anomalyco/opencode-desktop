@@ -207,7 +207,7 @@ pub fn refresh(s: &App) {
                 tx.instant();
                 with(|r| {
                     r.checking.remove(&server.url);
-                    if r.list.iter().any(|x| *x == server) {
+                    if r.list.contains(&server) {
                         r.health.insert(server.url.clone(), health);
                     }
                 });

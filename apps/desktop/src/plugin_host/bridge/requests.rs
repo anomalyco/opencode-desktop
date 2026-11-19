@@ -10,7 +10,7 @@ use rune_luau::Data;
 use super::cx::{self, Request};
 use crate::App;
 use crate::plugin_host::panels::tab_key;
-use crate::plugin_host::{Flyout, FlyoutEvent, OpenDialog, Overlay, bump, services};
+use crate::plugin_host::{FlyoutEvent, OpenDialog, Overlay, bump, services};
 
 pub fn carry_out(app: &mut App, tx: &mut Tx) {
     let asked = cx::take_asked();
@@ -57,7 +57,7 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
             // even when a shortcut opened it, else what had focus.
             let back = trigger.or_else(|| tx.focused().map(str::to_owned));
             tx.focus(format!("plugin-popover-{plugin}.{id}"), tx.focus_visible());
-            app.plugins.overlay = Overlay::Popover { plugin: plugin.clone(), id, anchor, side, align, gap, data, flyout: Flyout::default(), back };
+            app.plugins.overlay = Overlay::Popover { plugin: plugin.clone(), id, anchor, side, align, gap, data, flyout: Box::default(), back };
             crate::popover::motion::opening(&app.diag.knobs, tx);
         }
         Request::ClosePopover => close_popover(app, tx),
@@ -196,8 +196,8 @@ pub fn step_flyout(app: &mut App, plugin: Option<&std::rc::Rc<str>>, event: Flyo
     if plugin.is_some_and(|p| p != owner) {
         return;
     }
-    let (next, effect) = std::mem::take(flyout).step(event);
-    *flyout = next;
+    let (next, effect) = std::mem::take(&mut **flyout).step(event);
+    **flyout = next;
     if effect.changed {
         // Lists swap at once, as Desktop's do without the submenu motion knob.
         tx.instant();

@@ -97,7 +97,7 @@ impl App {
     pub(crate) fn read_requests(&mut self, id: &str) {
         let Source::Live { requests: Some(r), .. } = &*self.source else { return };
         if self.request_reads.read.insert(id.to_owned()) {
-            let _ = r.send(Request::Pending(id.to_owned()));
+            r.send(Request::Pending(id.to_owned())).ok();
         }
     }
 

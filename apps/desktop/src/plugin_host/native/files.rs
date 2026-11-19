@@ -172,11 +172,6 @@ pub fn tree_version(app: &App, session: &str) -> u64 {
     let mut h = std::hash::DefaultHasher::new();
     if let Some(w) = app.workspace_panes.files.sessions.get(session) {
         (w.ready, w.tree.visible_len(), w.known_files.len(), w.known_dirs.len(), w.expanded_dirs.len(), &w.search, &w.highlighted_filter_path).hash(&mut h);
-        for dir in &w.expanded_dirs {
-            let mut dh = std::hash::DefaultHasher::new();
-            dir.hash(&mut dh);
-            let _ = dh.finish();
-        }
         let mut expanded_xor = 0u64;
         for dir in &w.expanded_dirs {
             let mut dh = std::hash::DefaultHasher::new();

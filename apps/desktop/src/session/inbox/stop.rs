@@ -142,7 +142,7 @@ impl App {
         // The fixture and the storybook answer as a server would, a little later.
         let fixture = self.fixture_run.stage.is_some() || matches!(*self.source, Source::Fixture);
         let now = *self.now_ms;
-        for effect in self.stops.step(&sid, Event::Pressed { now: now }) {
+        for effect in self.stops.step(&sid, Event::Pressed { now }) {
             let Effect::Interrupt(attempt) = effect else { continue };
             let asked = if fixture {
                 self.fixture_interrupt(&sid);
@@ -240,7 +240,7 @@ pub fn poll(s: &mut App, _clock: f64, tx: &mut rune::Tx) -> bool {
     let ids: Vec<String> = s.stops.by.keys().cloned().collect();
     let mut late = false;
     for sid in ids {
-        for effect in s.stops.step(&sid, Event::Due { now: now }) {
+        for effect in s.stops.step(&sid, Event::Due { now }) {
             if effect == (Effect::Resume { failed: false }) {
                 late = true;
                 s.running.insert(sid.clone());
@@ -254,7 +254,7 @@ pub fn poll(s: &mut App, _clock: f64, tx: &mut rune::Tx) -> bool {
     }
     if late {
         if let Source::Live { requests: Some(r), .. } = &*s.source {
-            let _ = r.send(Request::Active);
+            r.send(Request::Active).ok();
         }
         crate::windows::peer::touch(s);
     }

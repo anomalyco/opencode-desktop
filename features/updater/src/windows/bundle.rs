@@ -126,9 +126,10 @@ impl Transaction {
         // SAFETY: default transaction options, no borrowed pointers. Closing the handle before
         // commit (including process termination) rolls the transaction back.
         let h = unsafe { CreateTransaction(ptr::null_mut(), ptr::null_mut(), 0, 0, 0, 0, ptr::null()) };
-        if h == INVALID_HANDLE_VALUE {
+        if h == INVALID_HANDLE_VALUE || h.is_null() {
             return Err(io::Error::last_os_error());
         }
+        // SAFETY: `CreateTransaction` succeeded and returned a valid, owned transaction handle.
         Ok(Self(unsafe { OwnedHandle::from_raw_handle(h) }))
     }
 
@@ -161,13 +162,15 @@ impl Transaction {
                 ptr::null(),
             )
         };
-        if h == INVALID_HANDLE_VALUE {
+        if h == INVALID_HANDLE_VALUE || h.is_null() {
             return Err(io::Error::last_os_error());
         }
+        // SAFETY: `CreateFileTransactedW` succeeded and returned a valid, owned file handle.
         Ok(unsafe { OwnedHandle::from_raw_handle(h) })
     }
 
     fn commit(self) -> io::Result<()> {
+        // SAFETY: `self.0` is a live transaction handle owned by `self`, committed once before drop.
         check(unsafe { CommitTransaction(self.0.as_raw_handle()) })
     }
 
@@ -177,11 +180,13 @@ impl Transaction {
             return Err(io::Error::other("not following an update reparse point"));
         }
         if !meta.is_dir() {
+            // SAFETY: `wide(path)` is NUL-terminated for this call and `self.0` is a live transaction handle.
             return check(unsafe { DeleteFileTransactedW(wide(path).as_ptr(), self.0.as_raw_handle()) });
         }
         for entry in fs::read_dir(path)? {
             self.unlink(&entry?.path())?;
         }
+        // SAFETY: `wide(path)` is NUL-terminated for this call and `self.0` is a live transaction handle.
         check(unsafe { RemoveDirectoryTransactedW(wide(path).as_ptr(), self.0.as_raw_handle()) })
     }
 }
@@ -284,7 +289,7 @@ fn publish_plain(root: &Path, stage: &Path, previous: &Path) -> io::Result<()> {
                 }
             }
             PlainEffect::RestoreOld => {
-                let _ = fs::rename(previous, root);
+                fs::rename(previous, root).ok();
             }
             PlainEffect::Done => return err.map_or(Ok(()), Err),
         }
@@ -308,6 +313,7 @@ pub(crate) fn retire(old: &Path) -> io::Result<Mode> {
             return Err(e);
         }
     };
+    // SAFETY: `wide(&exe)` is NUL-terminated for this call and `tx.0` is a live transaction handle.
     check(unsafe { DeleteFileTransactedW(wide(&exe).as_ptr(), tx.0.as_raw_handle()) })?;
     drop(image);
     for e in fs::read_dir(old)? {
@@ -316,6 +322,7 @@ pub(crate) fn retire(old: &Path) -> io::Result<Mode> {
             tx.unlink(&path)?;
         }
     }
+    // SAFETY: `wide(old)` is NUL-terminated for this call and `tx.0` is a live transaction handle.
     check(unsafe { RemoveDirectoryTransactedW(wide(old).as_ptr(), tx.0.as_raw_handle()) })?;
     tx.commit().map(|()| Mode::Transacted)
 }
@@ -329,6 +336,7 @@ fn retire_plain(old: &Path) -> io::Result<()> {
         Ok(image) => {
             // Unlink the executable while holding the exclusive-write guard, then close the
             // handle so the executable is gone before any sibling asset is removed.
+            // SAFETY: `wide(&exe)` is a valid NUL-terminated UTF-16 path for the duration of the call.
             check(unsafe { DeleteFileW(wide(&exe).as_ptr()) })?;
             drop(image);
         }
@@ -412,6 +420,7 @@ fn file_id_128(path: &Path) -> Option<String> {
     if ok == 0 {
         return None;
     }
+    // SAFETY: `GetFileInformationByHandleEx` succeeded and wrote a complete `FILE_ID_INFO` into `info`.
     let info = unsafe { info.assume_init() };
     if info.FileId.Identifier == [0u8; 16] {
         return None;
@@ -444,7 +453,9 @@ pub(super) fn process_gone(pid: u32) -> bool {
     if h.is_null() {
         return io::Error::last_os_error().raw_os_error() == Some(ERROR_INVALID_PARAMETER as i32);
     }
+    // SAFETY: `h` is a valid non-null process handle with `PROCESS_SYNCHRONIZE` access returned by `OpenProcess`.
     let done = unsafe { WaitForSingleObject(h, 0) == WAIT_OBJECT_0 };
+    // SAFETY: `h` is owned by this function and closed once after waiting.
     unsafe { CloseHandle(h) };
     done
 }

@@ -39,10 +39,11 @@ impl rune::Compositor<App> for AppCompositor {
         let egg = &mut self.egg;
         f.ui.draw_with(f.encoder, f.target, clear, &mut |pass, site| {
             if crate::egg::gpu::is_mark(site.mark) {
-                return egg.draw(pass, site, queue, device);
+                egg.draw(pass, site, queue, device);
+            } else {
+                #[cfg(feature = "office")]
+                pages.draw(pass, site, queue, device);
             }
-            #[cfg(feature = "office")]
-            pages.draw(pass, site, queue, device);
         });
     }
 

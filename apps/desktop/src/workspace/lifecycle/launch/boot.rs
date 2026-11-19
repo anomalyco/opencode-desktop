@@ -56,10 +56,11 @@ pub fn print_version_if_asked() {
     if std::env::args().nth(1).as_deref() == Some("--version") {
         // A reader that went away (a GUI-subsystem exe captured by a shell that stopped waiting) is
         // no reason to panic.
-        let _ = std::io::Write::write_fmt(
+        std::io::Write::write_fmt(
             &mut std::io::stdout(),
             format_args!("opencode-rune {} ({})\n", crate::updater::build_version(), crate::updater::build_channel()),
-        );
+        )
+        .ok();
         std::process::exit(0);
     }
 }
@@ -302,7 +303,7 @@ pub(super) fn spawn_probe(s: &App, beta_tabs: bool, grace: Duration) -> (Receive
             }
         } else {
             // The window counts its patience from here (`poll`).
-            let _ = took.set(Instant::now());
+            took.set(Instant::now()).ok();
             if let Some(w) = &wake {
                 w();
             }
@@ -310,7 +311,7 @@ pub(super) fn spawn_probe(s: &App, beta_tabs: bool, grace: Duration) -> (Receive
             let first = First::fetch(&actual);
             Ready { server: Some(actual), beta_tabs, first: Some(first), refused: false }
         };
-        let _ = out.send(ready);
+        out.send(ready).ok();
         if let Some(w) = wake {
             w();
         }
@@ -415,10 +416,10 @@ pub(super) fn connect(s: &mut App, tx: &mut Tx) {
         *writes = Some(w);
         // Tabs for sessions past the listed page: their info, so marks and avatars resolve.
         for t in s.tabs.iter().filter(|t| !t.is_draft() && !s.sessions.iter().any(|x| x.id == t.id)) {
-            let _ = r.send(Request::Info(t.id.clone()));
+            r.send(Request::Info(t.id.clone())).ok();
         }
         for id in missing {
-            let _ = r.send(Request::Info(id));
+            r.send(Request::Info(id)).ok();
         }
         *requests = Some(r);
         *s.inbox = Some(inbox);

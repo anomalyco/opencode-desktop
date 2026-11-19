@@ -246,7 +246,7 @@ impl App {
         }
         let draft = self.show_start(id, &directory, tx);
         let now = *self.clock;
-        let effects = self.queue.starts.step(id, Event::Begin { place, draft, held, toggling, now: now });
+        let effects = self.queue.starts.step(id, Event::Begin { place, draft, held, toggling, now });
         self.start_effects(id, effects, tx);
         true
     }
@@ -266,7 +266,7 @@ impl App {
         if self.queue.starts.due().is_some_and(|d| now + 1e-9 >= d) {
             let ids: Vec<String> = self.queue.starts.starts.keys().cloned().collect();
             for id in ids {
-                let effects = self.queue.starts.step(&id, Event::Tick { now: now });
+                let effects = self.queue.starts.step(&id, Event::Tick { now });
                 self.start_effects(&id, effects, tx);
             }
         }
@@ -290,7 +290,7 @@ impl App {
                                     s.worktree_updated(&project);
                                 }
                                 let now = *s.clock;
-                                let effects = s.queue.starts.step(&session, Event::WorktreeMade { attempt, result, now: now });
+                                let effects = s.queue.starts.step(&session, Event::WorktreeMade { attempt, result, now });
                                 s.start_effects(&session, effects, tx);
                             });
                         })
@@ -329,9 +329,9 @@ impl App {
             *old = info;
         }
         if let Source::Live { requests: Some(r), .. } = &*self.source {
-            if !self.pages.has_pool() { let _ = r.send(Request::Session(id.clone())); }
-            let _ = r.send(Request::Pending(id.clone()));
-            let _ = r.send(Request::Inbox(id.clone()));
+            if !self.pages.has_pool() { r.send(Request::Session(id.clone())).ok(); }
+            r.send(Request::Pending(id.clone())).ok();
+            r.send(Request::Inbox(id.clone())).ok();
         }
         self.open_page(&id, tx);
     }

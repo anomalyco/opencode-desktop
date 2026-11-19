@@ -114,7 +114,7 @@ impl App {
 pub enum Heard {
     Event(StreamEvent),
     /// Anything else the stream says: it reconnected, or a line about the stream.
-    Message(Incoming),
+    Message(Box<Incoming>),
 }
 
 /// Where this poll got the open timeline's geometry. A page wins over stream events in
@@ -202,9 +202,9 @@ impl App {
             }
             Incoming::Reconnected => {
                 self.resync_shared();
-                Heard::Message(Incoming::Reconnected)
+                Heard::Message(Box::new(Incoming::Reconnected))
             }
-            other => Heard::Message(other),
+            other => Heard::Message(Box::new(other)),
         }
     }
 
@@ -373,7 +373,7 @@ impl App {
                 }
                 // The server's own idle mark, like Desktop's re-read after a run ends.
                 if let Source::Live { requests: Some(r), .. } = &*self.source {
-                    let _ = r.send(Request::Info(sid.to_owned()));
+                    r.send(Request::Info(sid.to_owned())).ok();
                 }
                 true
             }
@@ -416,12 +416,11 @@ impl App {
         }
         if ty == "session.revert.committed"
             && let Some(to) = data["to"].as_str()
+            && let Some(inbox) = self.inboxes.get_mut(sid)
         {
-            if let Some(inbox) = self.inboxes.get_mut(sid) {
-                let before = inbox.items.len();
-                inbox.items.retain(|i| i.id.as_str() < to);
-                changed |= inbox.items.len() != before;
-            }
+            let before = inbox.items.len();
+            inbox.items.retain(|i| i.id.as_str() < to);
+            changed |= inbox.items.len() != before;
         }
         changed
     }

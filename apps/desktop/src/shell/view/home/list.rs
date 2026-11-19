@@ -89,13 +89,14 @@ impl App {
                 }
                 None => {}
                 Some(name) => {
-                    let fold = match folds[b].iter().position(|f| f.name == name) {
-                        Some(i) => &mut folds[b][i],
+                    let idx = match folds[b].iter().position(|f| f.name == name) {
+                        Some(i) => i,
                         None => {
                             folds[b].push(Fold { name, sessions: vec![], running: 0, total: 0 });
-                            folds[b].last_mut().unwrap()
+                            folds[b].len() - 1
                         }
                     };
+                    let fold = &mut folds[b][idx];
                     fold.total += 1;
                     fold.running += busy.contains(ses.id.as_str()) as usize;
                     fold.sessions.push(ses);

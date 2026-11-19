@@ -148,7 +148,7 @@ fn end_key(s: &App, last: bool) -> Option<(String, String)> {
         Line::Header(_) | Line::Empty => None,
     }
     .map(|key| (l.key(&order), key));
-    let shelf = s.restore.inbox.working_expanded.then(|| order.group(Group::Working)).unwrap_or_default();
+    let shelf = if s.restore.inbox.working_expanded { order.group(Group::Working) } else { Default::default() };
     let shelved = |r: &crate::inbox_order::Shown| (r.key.clone(), r.key.clone());
     if last {
         shelf.last().map(shelved).or_else(|| items.iter().rev().find_map(reach))

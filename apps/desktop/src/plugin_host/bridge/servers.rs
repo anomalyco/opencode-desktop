@@ -200,7 +200,7 @@ pub fn authenticating(key: &str) -> bool {
 pub fn poll_actions(app: &mut App, tx: &mut Tx) {
     sync_actions(app);
     if app.plugins.cover_visit.moved(&app.route, app.settings.open) {
-        app.plugins.cover_visit.follow(&*app.route, app.settings.open);
+        app.plugins.cover_visit.follow(&app.route, app.settings.open);
     }
     for (key, attempt, ready) in SETTLED.take() {
         let effects = ACTIONS.with_borrow_mut(|a| a.get_mut(&key).map(|slot| plugin_server::step(&mut slot.machine, plugin_server::Event::ConnectSettled { attempt, ready })));

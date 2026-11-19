@@ -109,7 +109,7 @@ impl NewWorktreeHost for App {
 
     fn send_request(&self, req: Request) {
         if let Source::Live { requests: Some(r), .. } = &*self.source {
-            let _ = r.send(req);
+            r.send(req).ok();
         }
     }
 }

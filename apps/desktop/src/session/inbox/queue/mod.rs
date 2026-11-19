@@ -316,7 +316,7 @@ impl Feature<App> for InboxFeature {
         builder.register_escape_layer(EscapeLayer::new(
             "escape.run",
             80,
-            |s| crate::stop::escape_stops(s),
+            crate::stop::escape_stops,
             |s, ev, tx| {
                 crate::stop::key(s, ev, tx);
             },

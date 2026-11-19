@@ -19,6 +19,8 @@ pub enum Fork {
 
 impl Fork {
     /// A number in [0, 1).
+    // Unbounded PRNG draw returning f64 directly, not a fallible Iterator::next.
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> f64 {
         match self {
             Fork::X32(s) => {
@@ -76,6 +78,8 @@ impl Rng {
     }
 
     /// A number in [0, 1).
+    // Unbounded PRNG draw returning f64 directly, not a fallible Iterator::next.
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> f64 {
         STREAM.with(|s| {
             let mut f = s.get();
