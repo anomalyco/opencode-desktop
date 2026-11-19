@@ -294,7 +294,7 @@ impl App {
         self.composer.focused = composer;
         if routed && side.is_focused() && !self.side_open() {
             self.workspace_panes.side.focus.blur();
-            self.workspace_panes.side.emptied_guard = true;
+            self.workspace_panes.side.close_guard.step(crate::panels::CloseTabGuardEvent::Emptied);
         } else {
             self.workspace_panes.side.focus.restore(side);
         }

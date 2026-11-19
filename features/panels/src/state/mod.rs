@@ -6,6 +6,7 @@ mod resolve;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::time::Duration;
 
 use crate::closing;
 use crate::drag::PaneDrag;
@@ -15,7 +16,7 @@ use crate::tabs::{ClosedSideTab, SessionTabState, SessionTabs, session_pane_tab,
 use crate::{Launch, PanelLauncherDesc, PanelRegistration, PanelTabDesc, SessionPane};
 
 pub use actions::{
-    SavedKeyboardFocus, begin_keeping_keyboard, close_side_tab, dismiss_side_new_tab, end_keeping_keyboard, finish_show_pane_tab,
+    begin_keeping_keyboard, close_side_tab, dismiss_side_new_tab, end_keeping_keyboard, finish_show_pane_tab,
     hide_side_tab, keeping_keyboard, move_side_tab, open_side_new_tab, open_side_tab, open_side_tab_for_session,
     promote_preview_tab, reopen_closed_side_tab, select_side_tab, show_pane_tab, show_side_tab, sync_empty_side,
     toggle_bottom_region, toggle_side_region,
@@ -328,6 +329,173 @@ impl SideFocus {
     }
 }
 
+/// Whether the left sidebar's flight is moving the side region's edge, so its contents glide
+/// with the edge rather than land at once (`App::toggle_sidebar`, `panels::view::region_body`).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum EdgeFlight {
+    #[default]
+    Idle,
+    /// Gliding with the sidebar's edge until `until` (`PanelsHost::clock`).
+    Flying { until: f64 },
+}
+
+/// Events driving [`EdgeFlight`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum EdgeFlightEvent {
+    /// The left sidebar toggled while the side region was open at `now`.
+    Started { now: f64 },
+    /// Per-frame poll at `now`: lands the flight once `now >= until`.
+    Tick { now: f64 },
+}
+
+/// Effects returned by [`EdgeFlight::step`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum EdgeFlightEffect {
+    /// Wake after the flight finishes so `Flying` transitions back to `Idle`.
+    WakeAfter(Duration),
+    /// The flight finished (`Flying -> Idle`): redraw the side region without gliding.
+    Redraw,
+}
+
+impl EdgeFlight {
+    pub fn is_flying(self) -> bool {
+        matches!(self, Self::Flying { .. })
+    }
+
+    /// Whether `Tick { now }` would transition `Flying -> Idle` (lets polls avoid dirtying
+    /// `Tracked<SideState>` while idle or mid-flight).
+    pub fn due(self, now: f64) -> bool {
+        matches!(self, Self::Flying { until } if now >= until)
+    }
+
+    pub fn step(&mut self, event: EdgeFlightEvent) -> Option<EdgeFlightEffect> {
+        match event {
+            EdgeFlightEvent::Started { now } => {
+                *self = Self::Flying { until: now + crate::view::SIDE_FLIGHT };
+                Some(EdgeFlightEffect::WakeAfter(Duration::from_secs_f64(crate::view::SIDE_FLIGHT + 0.01)))
+            }
+            EdgeFlightEvent::Tick { now } => match *self {
+                Self::Flying { until } if now >= until => {
+                    *self = Self::Idle;
+                    Some(EdgeFlightEffect::Redraw)
+                }
+                Self::Idle | Self::Flying { .. } => None,
+            },
+        }
+    }
+}
+
+/// Guards against a held or repeated `⌘W` closing the session tab right after emptying the side
+/// region (`packages/app/src/session/commands/machine.ts` `CloseTabGuardState`,
+/// `packages/app/src/session/commands/use-session-commands.tsx:161-213,464-482`).
+///
+/// Opening a side/bottom tab or reopening the side region disarms it, matching Desktop's
+/// `layout.synced` (`machine.ts:220-225`) and `file.close` `when` guard (`use-session-commands.tsx:470`),
+/// so a tab opened by pointer or menu is closed normally by the next `⌘W`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CloseTabGuard {
+    #[default]
+    Disarmed,
+    /// Armed after `⌘W` closed the side region's last tab; swallows repeated `⌘W` until another
+    /// key is pressed or a foreground user action opens/focuses a panel tab or region.
+    Armed,
+}
+
+/// Events driving [`CloseTabGuard`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CloseTabGuardEvent {
+    /// Closing a tab via `⌘W` emptied or shut the side region.
+    Emptied,
+    /// A key event reached the panels key handler (`is_close`: matches `Bind::TabClose`).
+    KeyDown { is_close: bool },
+    /// A foreground action opened/selected a panel tab or reopened/focused the side region.
+    RegionOpened,
+}
+
+/// Effects returned by [`CloseTabGuard::step`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CloseTabGuardEffect {
+    /// Swallow this `⌘W` so it does not fall through and close the session tab.
+    Swallow,
+    /// Let the key continue normally.
+    Pass,
+}
+
+impl CloseTabGuard {
+    pub fn is_armed(self) -> bool {
+        matches!(self, Self::Armed)
+    }
+
+    /// Pure transition: computes `(next_state, effect)` without mutating `self`.
+    pub fn next(self, event: CloseTabGuardEvent) -> (Self, CloseTabGuardEffect) {
+        match (self, event) {
+            (_, CloseTabGuardEvent::Emptied) => (Self::Armed, CloseTabGuardEffect::Pass),
+            (Self::Armed, CloseTabGuardEvent::KeyDown { is_close: true }) => (Self::Armed, CloseTabGuardEffect::Swallow),
+            (Self::Armed, CloseTabGuardEvent::KeyDown { is_close: false } | CloseTabGuardEvent::RegionOpened) => {
+                (Self::Disarmed, CloseTabGuardEffect::Pass)
+            }
+            (Self::Disarmed, CloseTabGuardEvent::KeyDown { .. } | CloseTabGuardEvent::RegionOpened) => {
+                (Self::Disarmed, CloseTabGuardEffect::Pass)
+            }
+        }
+    }
+
+    pub fn step(&mut self, event: CloseTabGuardEvent) -> CloseTabGuardEffect {
+        let (next, effect) = self.next(event);
+        *self = next;
+        effect
+    }
+}
+
+/// Saved keyboard focus snapshot held while a background tab open runs ([`keeping_keyboard`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SavedKeyboardFocus {
+    pub composer_focused: bool,
+    pub side_focus: FocusMode,
+    pub active_pane_focus: SessionPane,
+}
+
+/// Whether a tab is opening on someone else's behalf ([`keeping_keyboard`]), carrying the
+/// saved keyboard focus snapshot only while active.
+///
+/// Not re-entrant: every caller (`surfaces/browser/mod.rs`, `terminal-surface/src/ops.rs`)
+/// runs a synchronous non-re-entrant tab open inside [`keeping_keyboard`], and Luau `onFocus`
+/// hooks only queue deferred work for the next poll.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BackgroundOpen {
+    #[default]
+    Idle,
+    Active(SavedKeyboardFocus),
+}
+
+/// Events driving [`BackgroundOpen`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BackgroundOpenEvent {
+    Begin(SavedKeyboardFocus),
+    End,
+}
+
+impl BackgroundOpen {
+    pub fn is_active(self) -> bool {
+        matches!(self, Self::Active(_))
+    }
+
+    /// Steps the background-open state machine; `End` returns the saved focus snapshot to restore.
+    pub fn step(&mut self, event: BackgroundOpenEvent) -> Option<SavedKeyboardFocus> {
+        match event {
+            BackgroundOpenEvent::Begin(saved) => {
+                debug_assert!(matches!(*self, Self::Idle), "keeping_keyboard is not re-entrant");
+                *self = Self::Active(saved);
+                None
+            }
+            BackgroundOpenEvent::End => match std::mem::replace(self, Self::Idle) {
+                Self::Active(saved) => Some(saved),
+                Self::Idle => None,
+            },
+        }
+    }
+}
+
 pub(crate) type ResolvedCache = (u64, rune::Reads, Option<Rc<ResolvedRegion>>);
 
 pub struct SideState {
@@ -341,18 +509,19 @@ pub struct SideState {
     pub empty_span: EmptySpan,
     /// The window's width at the last layout, for sizes estimated outside the view.
     pub laid_w: Cell<f32>,
-    /// Until when (`PanelsHost::clock`) the left sidebar's flight moves the side region's edge,
-    /// so its contents glide with the edge rather than land at once.
-    pub edge_flight: Option<f64>,
+    /// Whether the left sidebar's flight is moving the side region's edge, so its contents glide
+    /// with the edge rather than land at once.
+    pub edge_flight: EdgeFlight,
     /// A tab dragged between panes.
     pub pane_drag: PaneDrag,
     /// Side/bottom region keyboard focus and composer-shortcut quiet state machine.
     pub focus: SideFocus,
     pub active_pane_focus: SessionPane,
-    /// A tab is opening for someone other than the user ([`keeping_keyboard`]).
-    pub background_open: bool,
+    /// A tab is opening for someone other than the user ([`keeping_keyboard`]), carrying the
+    /// saved keyboard focus snapshot until completion.
+    pub background_open: BackgroundOpen,
     /// Blocks an extra `⌘W` right after closing the side region's last tab from closing the session.
-    pub emptied_guard: bool,
+    pub close_guard: CloseTabGuard,
     /// The side region's last tab, still drawn while closing it slides the region shut.
     pub closing: closing::State,
     /// Active strip context menu (tab right-click menu or `+` launcher dropdown).
@@ -377,12 +546,12 @@ impl Default for SideState {
             bottom_resize: Default::default(),
             empty_span: EmptySpan::Outside,
             laid_w: Cell::new(1280.0),
-            edge_flight: None,
+            edge_flight: EdgeFlight::Idle,
             pane_drag: Default::default(),
             focus: SideFocus::default(),
             active_pane_focus: SessionPane::Side,
-            background_open: false,
-            emptied_guard: false,
+            background_open: BackgroundOpen::Idle,
+            close_guard: CloseTabGuard::Disarmed,
             closing: Default::default(),
             menu: SideMenu::Closed,
             strips: Rc::default(),

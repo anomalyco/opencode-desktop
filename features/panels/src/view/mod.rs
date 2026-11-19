@@ -14,7 +14,8 @@ use crate::host::PanelsHost;
 use crate::keys::closing_side_entry;
 use crate::resize::{ResizeEffect, ResizeEvent};
 use crate::state::{
-    ResolvedRegion, SPLIT_MIN_H, resolve_side_region, session_side_mut, side_mounted, side_open, toggle_side_region,
+    CloseTabGuardEvent, ResolvedRegion, SPLIT_MIN_H, resolve_side_region, session_side_mut, side_mounted, side_open,
+    toggle_side_region,
 };
 use crate::width::{SESSION_MIN_W, chat_width, chat_width_max, side_width, split_ratio};
 
@@ -228,7 +229,7 @@ fn region_body<H: PanelsHost + 'static>(
     // A tab switch lands the contents at once. While the sidebar's flight moves the region's edge
     // they glide with it instead (`App::toggle_sidebar`): what keeps to the start rides the edge,
     // what keeps to the end stays, as Desktop's holdLandingWidth "blocks" does (`screen.tsx:171`).
-    let flying = host.side().edge_flight.is_some_and(|until| host.clock() < until);
+    let flying = host.side().edge_flight.is_flying();
     let panes = visible_side_panes(host, reg);
     let split_h = (col_h * (1.0 - split_ratio(host))).round();
 
@@ -395,6 +396,7 @@ fn focus_side_body(host: &mut dyn PanelsHost) {
         let side = host.side_mut();
         side.focus.press();
         side.menu.close();
+        side.close_guard.step(CloseTabGuardEvent::RegionOpened);
     }
     host.set_composer_focused(false);
 }
