@@ -33,6 +33,7 @@ Application code only. This repo has no automated tests of any kind, and none ge
   - `scripts/file-size.sh`: warns `> 800` and errors `> 1500` non-test lines across all `apps/`, `crates/`, and `features/`.
   - `scripts/folder-shape.sh`: enforces prefix-family subfolders and folder breadth (`> 40` warn, `> 60` error).
   - `scripts/dialog-size.sh`: every dialog takes an `opencode_ui::dialog::DialogSize` preset (re-exported as `session_view::dialog::DialogSize`; `Normal` 480 × 368, `Large` 720 × 600, `XLarge` 880 × 680; `opencode_ui::widgets::{sized, sized_modal}`, re-exported as `crate::widgets` in `apps/desktop`), never its own width or height.
+  - `scripts/clippy.sh`: zero clippy diagnostics (`-D warnings`) across the workspace and each feature set that compiles different code.
 - Fast local loop & profiles: `scripts/dev-fast.sh` / `pwsh scripts/dev-fast.ps1` (see [`docs/fast-builds.md`](docs/fast-builds.md)); macOS `.app` install via `apps/desktop/scripts/dev.sh` (`apps/desktop/scripts/bundle.sh` / `scripts/mac-app`); live-patching via `apps/desktop/scripts/hot.sh` (`scripts/rune-hot`).
 - Keep personal paths (`/Users/<real-name>`), tailnet hostnames (`*.ts.net`, except `*.example.ts.net`), real session IDs, and credentials out of code, scripts, and commits.
 
