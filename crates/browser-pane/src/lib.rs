@@ -29,6 +29,7 @@ pub mod installer;
 mod keys;
 #[cfg(all(feature = "engine", target_os = "macos"))]
 pub mod mach_pipe;
+mod machine;
 pub mod policy;
 #[cfg(feature = "engine")]
 mod prefetch;

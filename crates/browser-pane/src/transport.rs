@@ -14,6 +14,7 @@ use rune::Waker;
 
 use crate::frame::{self, TabSurface};
 use crate::installer::{self, EngineStatus, Fault, Installed};
+use crate::machine::{EarlyOpensMap, EngineEffect, EngineEvent, SharedEngine};
 use crate::profile;
 use crate::protocol::{EngineMsg, HostMsg};
 
@@ -39,36 +40,51 @@ const ANSWER_DEADLINE: Duration = Duration::from_secs(5);
 #[derive(Clone)]
 pub(crate) struct Link {
     pub generation: u64,
-    pub conn_gen: Arc<std::sync::atomic::AtomicU64>,
-    pub status: Arc<Mutex<EngineStatus>>,
-    pub outbox: Arc<Mutex<Option<Sender<HostMsg>>>>,
+    pub shared: Arc<Mutex<SharedEngine>>,
     pub inbox_tx: Sender<EngineMsg>,
     pub surfaces: Surfaces,
     pub waker: Option<Waker>,
-    /// The engine this app started, while it runs: Retry ends one that stopped answering.
-    pub engine: Arc<Mutex<Option<u32>>>,
     /// Its socket, removed once it's gone, so the next connect starts a new engine instead of
     /// reaching the old one while Windows still ends it.
     pub sock: PathBuf,
     /// The tabs that waited when the connect began, by id: sent the moment the engine is
     /// connected, behind Hello, without waiting for the app's next turn (one that's busy drawing
-    /// held them for 20-650 ms); `early` names them with the address and size each opened at,
-    /// so that turn doesn't send them again and corrects what changed meanwhile.
+    /// held them for 20-650 ms); stored into `Connected::early` on attach so that turn doesn't
+    /// send them again and corrects what changed meanwhile.
     pub opens: Vec<(u64, HostMsg)>,
-    pub early: crate::client::EarlyOpens,
 }
 
 impl Link {
     pub(crate) fn current(&self) -> bool {
-        self.conn_gen.load(std::sync::atomic::Ordering::Relaxed) == self.generation
+        self.shared.lock().unwrap_or_else(PoisonError::into_inner).is_current(self.generation)
     }
 
     pub(crate) fn set(&self, status: EngineStatus) {
-        if !self.current() {
-            return;
+        let effect = self.shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::LinkStatus {
+            generation: self.generation,
+            status,
+        });
+        if matches!(effect, EngineEffect::Wake) {
+            self.wake();
         }
-        *self.status.lock().unwrap_or_else(PoisonError::into_inner) = status;
-        self.wake();
+    }
+
+    fn mark_hung(&self) {
+        let effect = self.shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::Hung {
+            generation: self.generation,
+        });
+        if matches!(effect, EngineEffect::Wake) {
+            self.wake();
+        }
+    }
+
+    fn recover_hung(&self) {
+        let effect = self.shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::Recovered {
+            generation: self.generation,
+        });
+        if matches!(effect, EngineEffect::Wake) {
+            self.wake();
+        }
     }
 
     fn wake(&self) {
@@ -114,10 +130,16 @@ fn chromium_locale(id: &str) -> &str {
 /// Starts the engine and connects to it as soon as it listens (it says so on its output), on
 /// the calling thread.
 pub(crate) fn spawn_and_attach(engine: &Installed, sock: &Path, profile: &Path, mach_service: Option<String>, link: &Link) {
+    if !link.current() {
+        return;
+    }
     std::fs::remove_file(sock).ok();
     // This app has no engine running (its socket didn't answer), so a held profile is an
     // engine on its way out, most likely the shared one from before per-app engines.
     profile::wait_until_free(profile, profile::UNLOCK_WAIT);
+    if !link.current() {
+        return;
+    }
     let mut child = match engine_command(&engine.bin, sock, profile).spawn() {
         Ok(child) => child,
         Err(e) => {
@@ -158,21 +180,40 @@ pub(crate) fn spawn_and_attach(engine: &Installed, sock: &Path, profile: &Path, 
         }
     }
     rune::marks::mark("browser.engine.listening");
+    if !link.current() {
+        return;
+    }
     match UnixStream::connect(sock) {
-        Ok(stream) => wire_stream(stream, mach_service, link),
+        Ok(stream) => match wire_stream(stream, mach_service, link) {
+            WireResult::Attached => {}
+            // Do not kill `child`: on `Stale` a newer generation may already be using it on the
+            // same socket, and on `Failed` we cannot rule out a newer generation attaching once
+            // `lost` released `shared`. An unused engine exits on its own after `RECONNECT_GRACE`.
+            WireResult::Stale | WireResult::Failed => return,
+        },
         Err(_) => {
-            child.kill().ok();
+            if link.current() {
+                child.kill().ok();
+            }
             return link.set(EngineStatus::Failed(Fault::Stopped.into()));
         }
     }
-    *link.engine.lock().unwrap_or_else(PoisonError::into_inner) = Some(child.id());
+    let pid = child.id();
+    link.shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::ProcessSpawned {
+        generation: link.generation,
+        pid,
+    });
     let link = link.clone();
     std::thread::Builder::new()
         .name("opencode-browser-watch".into())
         .spawn(move || {
             let code = wait_for_end(&mut child);
-            *link.engine.lock().unwrap_or_else(PoisonError::into_inner) = None;
+            link.shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::ProcessExited {
+                generation: link.generation,
+                pid,
+            });
             lost(&link, code);
+            drop(child);
         })
         .ok();
 }
@@ -248,12 +289,10 @@ fn wait_for_end(child: &mut Child) -> Option<u32> {
     child.wait().ok()?.code().map(|c| c as u32)
 }
 
-/// Ends the engine this app started, at once (Retry, when it stopped answering). The watcher
+/// Ends the engine process with `pid` at once (Retry, when it stopped answering). The watcher
 /// still holds the engine's own handle, so its pid is still the engine's.
-pub(crate) fn end_engine(engine: &Mutex<Option<u32>>) {
-    if let Some(pid) = engine.lock().unwrap_or_else(PoisonError::into_inner).take() {
-        proc::kill(pid);
-    }
+pub(crate) fn kill_pid(pid: u32) {
+    proc::kill(pid);
 }
 
 #[allow(unsafe_code)]
@@ -356,25 +395,34 @@ mod proc {
         }
     }
 }
-/// The engine went away on its own (the app's `shutdown_sidecar` empties the outbox first): the
-/// pane says so, and Retry starts it again. The socket's end usually comes first, without the
-/// process's exit code; the process's end then names the cause when it was a lack of memory.
-fn lost(link: &Link, code: Option<u32>) {
+/// The engine went away on its own (the app's `shutdown_sidecar` transitions out of `Connected`
+/// first): the pane says so, and Retry starts it again. The socket's end usually comes first,
+/// without the process's exit code; the process's end then names the cause when it was a lack of
+/// memory. Returns whether the transition applied for `link`'s generation.
+fn lost(link: &Link, code: Option<u32>) -> bool {
     if !link.current() {
-        return;
+        return false;
     }
     if let Some(code) = code {
         eprintln!("browser engine: ended with exit code {code:#010x}");
     }
     let fault = if code.is_some_and(out_of_memory) { Fault::OutOfMemory } else { Fault::Stopped };
-    if link.outbox.lock().unwrap_or_else(PoisonError::into_inner).take().is_some() {
-        rune::marks::mark("browser.engine.lost");
-        std::fs::remove_file(&link.sock).ok();
-        return link.set(EngineStatus::Failed(fault.into()));
-    }
-    let stopped = matches!(&*link.status.lock().unwrap_or_else(PoisonError::into_inner), EngineStatus::Failed(f) if f.fault == Fault::Stopped);
-    if fault == Fault::OutOfMemory && stopped {
-        link.set(EngineStatus::Failed(fault.into()));
+    let effect = link.shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::Lost {
+        generation: link.generation,
+        fault,
+    });
+    match effect {
+        EngineEffect::LostFirst => {
+            rune::marks::mark("browser.engine.lost");
+            std::fs::remove_file(&link.sock).ok();
+            link.wake();
+            true
+        }
+        EngineEffect::Wake => {
+            link.wake();
+            true
+        }
+        _ => false,
     }
 }
 
@@ -407,86 +455,140 @@ fn expects_answer(msg: &HostMsg) -> bool {
     )
 }
 
-/// The oldest request the engine hasn't answered, whether the pane says it isn't responding
-/// (and what it showed before), and whether the connection is over.
-#[derive(Default)]
-struct Asked {
-    since: Option<Instant>,
-    hung: Option<EngineStatus>,
-    over: bool,
+/// Pending-answer deadline state for one sidecar socket connection.
+#[derive(Clone, Copy, Default)]
+enum AskState {
+    #[default]
+    Idle,
+    /// Waiting for any engine message since `since`.
+    Waiting { since: Instant },
+    /// Deadline passed and `SharedEngine` moved to `LiveStage::Hung`.
+    Hung,
+    /// Connection ended; watcher thread exits.
+    Over,
+}
+
+enum AskEvent {
+    Asked(Instant),
+    Heard,
+    DeadlinePassed,
+    Ended,
+}
+
+enum AskEffect {
+    None,
+    Notify,
+    RecoverAndNotify,
+    MarkHung,
+}
+
+impl AskState {
+    fn step(&mut self, event: AskEvent) -> AskEffect {
+        match (*self, event) {
+            (Self::Idle, AskEvent::Asked(since)) => {
+                *self = Self::Waiting { since };
+                AskEffect::Notify
+            }
+            (Self::Waiting { .. }, AskEvent::Heard) => {
+                *self = Self::Idle;
+                AskEffect::Notify
+            }
+            (Self::Hung, AskEvent::Heard) => {
+                *self = Self::Idle;
+                AskEffect::RecoverAndNotify
+            }
+            (Self::Waiting { .. }, AskEvent::DeadlinePassed) => {
+                *self = Self::Hung;
+                AskEffect::MarkHung
+            }
+            (_, AskEvent::Ended) => {
+                *self = Self::Over;
+                AskEffect::Notify
+            }
+            _ => AskEffect::None,
+        }
+    }
 }
 
 #[derive(Default)]
 struct Answers {
-    asked: Mutex<Asked>,
+    state: Mutex<AskState>,
     changed: Condvar,
 }
 
 impl Answers {
     fn ask(&self) {
-        let mut a = self.asked.lock().unwrap_or_else(PoisonError::into_inner);
-        if a.since.is_none() {
-            a.since = Some(Instant::now());
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if matches!(state.step(AskEvent::Asked(Instant::now())), AskEffect::Notify) {
             self.changed.notify_all();
         }
     }
 
     /// Any message answers; one after the pane said the engine isn't responding takes that back.
     fn heard(&self, link: &Link) {
-        let mut a = self.asked.lock().unwrap_or_else(PoisonError::into_inner);
-        if a.since.is_none() && a.hung.is_none() {
-            return;
-        }
-        a.since = None;
-        if let Some(before) = a.hung.take() {
-            let mut status = link.status.lock().unwrap_or_else(PoisonError::into_inner);
-            if status.is_hung() {
-                *status = before;
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        match state.step(AskEvent::Heard) {
+            AskEffect::None => {}
+            AskEffect::Notify => self.changed.notify_all(),
+            AskEffect::RecoverAndNotify => {
+                link.recover_hung();
+                self.changed.notify_all();
             }
-            drop(status);
-            link.wake();
+            AskEffect::MarkHung => {}
         }
-        self.changed.notify_all();
     }
 
     fn end(&self) {
-        self.asked.lock().unwrap_or_else(PoisonError::into_inner).over = true;
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.step(AskEvent::Ended);
         self.changed.notify_all();
     }
 
     /// Sleeps until a request is asked, then until it's answered or its deadline passes: the
     /// thread only runs while the app waits on the engine.
     fn watch(&self, link: &Link) {
-        let mut a = self.asked.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         loop {
-            if a.over {
-                return;
+            match *state {
+                AskState::Over => return,
+                AskState::Idle | AskState::Hung => {
+                    state = self.changed.wait(state).unwrap_or_else(PoisonError::into_inner);
+                }
+                AskState::Waiting { since } => {
+                    let left = ANSWER_DEADLINE.saturating_sub(since.elapsed());
+                    if !left.is_zero() {
+                        state = self.changed.wait_timeout(state, left).unwrap_or_else(PoisonError::into_inner).0;
+                        continue;
+                    }
+                    if matches!(state.step(AskEvent::DeadlinePassed), AskEffect::MarkHung) {
+                        rune::marks::mark("browser.engine.hung");
+                        link.mark_hung();
+                    }
+                }
             }
-            let Some(since) = a.since.filter(|_| a.hung.is_none()) else {
-                a = self.changed.wait(a).unwrap_or_else(PoisonError::into_inner);
-                continue;
-            };
-            let left = ANSWER_DEADLINE.saturating_sub(since.elapsed());
-            if !left.is_zero() {
-                a = self.changed.wait_timeout(a, left).unwrap_or_else(PoisonError::into_inner).0;
-                continue;
-            }
-            rune::marks::mark("browser.engine.hung");
-            let mut status = link.status.lock().unwrap_or_else(PoisonError::into_inner);
-            a.hung = Some(std::mem::replace(&mut *status, EngineStatus::Failed(Fault::Hung.into())));
-            drop(status);
-            link.wake();
         }
     }
 }
 
-pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link: &Link) {
+/// Outcome of attaching a connected `UnixStream` to [`SharedEngine`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum WireResult {
+    /// Attached to the current generation and started the framing threads.
+    Attached,
+    /// `link.generation` was superseded before attach; caller must not touch the socket or child.
+    Stale,
+    /// `stream.try_clone()` failed for the current generation; reported via `lost` so Retry works.
+    Failed,
+}
+
+pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link: &Link) -> WireResult {
     let Ok(reader_stream) = stream.try_clone() else {
-        return;
+        drop(stream);
+        return if lost(link, None) { WireResult::Failed } else { WireResult::Stale };
     };
     let (tx, rx) = mpsc::channel::<HostMsg>();
     tx.send(HostMsg::Hello { mach_service, pid: std::process::id() }).ok();
-    let mut early = link.early.lock().unwrap_or_else(PoisonError::into_inner);
+    let mut early = EarlyOpensMap::new();
     for (id, open) in &link.opens {
         if let HostMsg::OpenTab { url, width_pt, height_pt, scale, .. } = open {
             early.insert(*id, (url.clone(), (*width_pt, *height_pt, *scale)));
@@ -496,10 +598,16 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
     // Linux: frame reads and failures go to this connection only, never to a later engine's.
     #[cfg(target_os = "linux")]
     let frames_tx = tx.clone();
-    *link.outbox.lock().unwrap_or_else(PoisonError::into_inner) = Some(tx);
-    drop(early);
+    let attached = link.shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::Attach {
+        generation: link.generation,
+        outbox: tx,
+        early,
+    });
+    if matches!(attached, EngineEffect::Rejected) {
+        return WireResult::Stale;
+    }
     // Connected: the app's next turn sends the tabs that wait (`flush_pending_opens`).
-    link.set(EngineStatus::Connecting);
+    link.wake();
 
     let answers = Arc::new(Answers::default());
     let (watched, watcher) = (answers.clone(), link.clone());
@@ -610,6 +718,7 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
             lost(&link, None);
         })
         .ok();
+    WireResult::Attached
 }
 
 #[derive(serde::Deserialize)]

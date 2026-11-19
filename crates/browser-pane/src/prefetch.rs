@@ -17,6 +17,7 @@ use rune::Waker;
 use crate::background;
 use crate::download::{Body, Cut, Pace};
 use crate::installer::{self, ENGINE_BUNDLE_NAME, EngineStatus, Failure, Fault, err_write};
+use crate::machine::{EngineEffect, EngineEvent, SharedEngine};
 use crate::source::{self, Release};
 use crate::trust::Verifier;
 use crate::unpack;
@@ -90,22 +91,22 @@ impl Default for Prefetch {
 impl Prefetch {
     /// Starts a job for `mode`, or makes a running one hurry when a page waits. Without a source,
     /// a page waiting hears the browser isn't available, and nothing else starts.
-    pub(crate) fn start(self: &Arc<Self>, mode: Mode, status: Arc<Mutex<EngineStatus>>, waker: Option<Waker>) {
+    pub(crate) fn start(self: &Arc<Self>, mode: Mode, shared: Arc<Mutex<SharedEngine>>, waker: Option<Waker>) {
         if !source::configured() {
             if mode == Mode::Urgent {
-                set(&status, waker.as_ref(), EngineStatus::Failed(Fault::NotPublished.into()));
+                set(&shared, waker.as_ref(), EngineStatus::Failed(Fault::NotPublished.into()));
             }
             return;
         }
         let Some(root) = installer::try_engines_root() else {
             if mode == Mode::Urgent {
-                set(&status, waker.as_ref(), EngineStatus::Failed(Fault::Dirs(installer::NO_DIRS).into()));
+                set(&shared, waker.as_ref(), EngineStatus::Failed(Fault::Dirs(installer::NO_DIRS).into()));
             }
             return;
         };
         let effect = self.event(Event::Start(mode));
         if effect == Some(Effect::Spawn(mode)) {
-            let job = Job { ctl: self.clone(), status, waker };
+            let job = Job { ctl: self.clone(), shared, waker };
             if std::thread::Builder::new().name("opencode-browser-install".into()).spawn(move || job.run(&root)).is_err() {
                 self.event(Event::Finished);
             }
@@ -141,7 +142,7 @@ impl Prefetch {
 
 struct Job {
     ctl: Arc<Prefetch>,
-    status: Arc<Mutex<EngineStatus>>,
+    shared: Arc<Mutex<SharedEngine>>,
     waker: Option<Waker>,
 }
 
@@ -278,7 +279,9 @@ impl Job {
             if update {
                 return;
             }
-            *self.status.lock().unwrap_or_else(PoisonError::into_inner) = EngineStatus::Downloading { downloaded_bytes, total_bytes: Some(total) };
+            self.shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::InstallStatus(
+                EngineStatus::Downloading { downloaded_bytes, total_bytes: Some(total) },
+            ));
             if self.urgent() || last_wake.elapsed() >= QUIET_WAKE || downloaded_bytes == total {
                 last_wake = Instant::now();
                 self.wake();
@@ -369,7 +372,7 @@ impl Job {
     /// Sets the engine's status, unless this job is an update (an engine runs).
     fn report(&self, next: EngineStatus) {
         if self.ctl.state() != State::Running(Mode::Update) {
-            set(&self.status, self.waker.as_ref(), next);
+            set(&self.shared, self.waker.as_ref(), next);
         }
     }
 
@@ -387,9 +390,10 @@ fn unzip(archive: &Path, staging: &Path) -> Result<(), Cut> {
     if ok { Ok(()) } else { Err(Cut::Rejected(Fault::Corrupt)) }
 }
 
-fn set(status: &Mutex<EngineStatus>, waker: Option<&Waker>, next: EngineStatus) {
-    *status.lock().unwrap_or_else(PoisonError::into_inner) = next;
-    if let Some(w) = waker {
+fn set(shared: &Mutex<SharedEngine>, waker: Option<&Waker>, next: EngineStatus) {
+    if matches!(shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::InstallStatus(next)), EngineEffect::Wake)
+        && let Some(w) = waker
+    {
         w();
     }
 }
