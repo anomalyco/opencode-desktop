@@ -579,10 +579,27 @@ pub(super) fn raise_access_violation() {
             core::ptr::null(),
         );
     }
-    // SAFETY: debug-only crash drill raises `SIGSEGV` on the current thread to exercise
-    // `on_fatal_signal` and terminate the process without dereferencing unreadable memory.
+    // SAFETY: this debug-only drill faults on purpose. It maps a fresh `PROT_NONE` region that
+    // nothing else refers to and reads from the middle of it, so the kernel delivers `SIGSEGV`
+    // with a real fault address for `on_fatal_signal` to record. A raised signal would carry none.
     #[cfg(unix)]
     unsafe {
-        let _ = libc::raise(libc::SIGSEGV);
+        #[cfg(target_os = "macos")]
+        const ANON: libc::c_int = libc::MAP_ANON;
+        #[cfg(not(target_os = "macos"))]
+        const ANON: libc::c_int = libc::MAP_ANONYMOUS;
+        let page = libc::mmap(
+            core::ptr::null_mut(),
+            262_144,
+            libc::PROT_NONE,
+            libc::MAP_PRIVATE | ANON,
+            -1,
+            0,
+        );
+        if page != libc::MAP_FAILED {
+            let _ = core::ptr::read_volatile(page.cast::<u8>().add(131_072));
+        } else {
+            libc::abort();
+        }
     }
 }
