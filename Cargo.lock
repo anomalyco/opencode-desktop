@@ -3259,7 +3259,6 @@ dependencies = [
  "betteroffice-pptx",
  "betteroffice-pptx-render",
  "betteroffice-xlsx",
- "betteroffice-xlsx-raster",
  "betteroffice-xlsx-render",
  "image",
  "rustybuzz",
@@ -3529,8 +3528,6 @@ dependencies = [
  "rune",
  "rune-kit",
  "rune-theme-opencode",
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -3726,7 +3723,6 @@ dependencies = [
  "rune",
  "rune-kit",
  "rune-theme-opencode",
- "serde_json",
 ]
 
 [[package]]
@@ -3800,7 +3796,6 @@ dependencies = [
  "opencode-ui",
  "rune",
  "rune-kit",
- "rune-theme-opencode",
  "serde_json",
 ]
 
@@ -3822,7 +3817,6 @@ dependencies = [
 name = "opencode-i18n"
 version = "0.0.1"
 dependencies = [
- "js-sys",
  "rune-i18n",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -3988,7 +3982,6 @@ dependencies = [
  "opencode-ui",
  "rune",
  "wasm-bindgen",
- "wasm-bindgen-futures",
  "web-sys",
 ]
 
@@ -5890,13 +5883,11 @@ name = "terminal"
 version = "0.0.1"
 dependencies = [
  "js-sys",
- "libc",
  "memchr",
  "opencode-kit",
  "parking_lot",
  "polling",
  "rune",
- "serde",
  "serde_json",
  "sha2",
  "tungstenite",

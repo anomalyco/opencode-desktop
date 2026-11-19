@@ -14,8 +14,6 @@ opencode-ui = { path = "../../crates/opencode-ui" }
 rune.workspace = true
 rune-kit.workspace = true
 rune-theme-opencode.workspace = true
-serde = { version = "1", features = ["derive"] }
-serde_json.workspace = true
 
 [lints]
 workspace = true

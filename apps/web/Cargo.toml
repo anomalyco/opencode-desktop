@@ -22,7 +22,6 @@ opencode-storage = { path = "../../crates/opencode-storage" }
 opencode-ui = { path = "../../crates/opencode-ui" }
 rune = { workspace = true, features = ["avif", "embedded-fonts"] }
 wasm-bindgen = "0.2"
-wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = ["Document", "History", "Location", "Navigator", "PopStateEvent", "UrlSearchParams", "Window"] }
 
 [lints]
