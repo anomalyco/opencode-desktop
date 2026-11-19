@@ -384,12 +384,14 @@ impl Checkout {
         self.active.hash(&mut h);
         self.synced.hash(&mut h);
         self.parked.len().hash(&mut h);
+        // `swap_to` rotates `self.parked` on every `with_server`, so combine entries order-independently.
+        let mut parked_xor = 0u64;
         for (key, meta, half) in &self.parked {
-            key.hash(&mut h);
-            meta.base.hash(&mut h);
-            half.used.hash(&mut h);
-            half.store.home_data_stamp().hash(&mut h);
+            let mut eh = std::collections::hash_map::DefaultHasher::new();
+            (key, &meta.base, &half.used, half.store.home_data_stamp()).hash(&mut eh);
+            parked_xor ^= eh.finish();
         }
+        parked_xor.hash(&mut h);
         h.finish()
     }
 }
