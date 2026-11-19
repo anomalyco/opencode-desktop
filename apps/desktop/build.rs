@@ -29,8 +29,13 @@ fn main() {
     println!("cargo:rerun-if-env-changed=CARGO_ENCODED_RUSTFLAGS");
     if env("CARGO_ENCODED_RUSTFLAGS").is_some_and(|flags| flags.split('\x1f').any(|f| f.contains("profile-generate"))) {
         println!("cargo:rustc-cfg=pgo_generate");
-    }    embed_luau_plugins(std::path::Path::new(&env("CARGO_MANIFEST_DIR").unwrap_or_default()), std::path::Path::new(&env("OUT_DIR").unwrap_or_default()));
-    embed_build_commit(std::path::Path::new(&env("CARGO_MANIFEST_DIR").unwrap_or_default()));
+    }
+    let manifest_dir = env("CARGO_MANIFEST_DIR").unwrap_or_default();
+    let out_dir = env("OUT_DIR").unwrap_or_default();
+    let packaged = env("OPENCODE_RUNE_BUILD_CHANNEL").is_some_and(|c| c != "local");
+    let release_profile = std::env::var_os("CARGO_CFG_DEBUG_ASSERTIONS").is_none();
+    embed_luau_plugins(std::path::Path::new(&manifest_dir), std::path::Path::new(&out_dir));
+    embed_build_commit(std::path::Path::new(&manifest_dir), packaged || release_profile);
     if env("CARGO_CFG_TARGET_OS").as_deref() != Some("windows") {
         return;
     }
@@ -230,18 +235,36 @@ fn catalog_table(locales: &[(String, std::path::PathBuf)]) -> Vec<u8> {
     words.iter().flat_map(|w| w.to_le_bytes()).chain(strings).collect()
 }
 
-/// The build's commit (`OPENCODE_RUNE_COMMIT`); without git, nothing is embedded.
-fn embed_build_commit(manifest_dir: &std::path::Path) {
+/// The build's commit (`OPENCODE_RUNE_COMMIT`) and `.rdata` provenance stamp
+/// (`OPENCODE_RUNE_BUILD_STAMP`). Resolved from git only in release or packaged builds (or when
+/// `OPENCODE_RUNE_COMMIT` is set explicitly), so local dev builds never watch `.git/HEAD` and
+/// don't recompile `opencode-desktop` on every commit, rebase, or checkout.
+fn embed_build_commit(manifest_dir: &std::path::Path, stamped: bool) {
     println!("cargo:rerun-if-env-changed=OPENCODE_RUNE_COMMIT");
     #[allow(clippy::disallowed_methods)]
     let env_sha = std::env::var("OPENCODE_RUNE_COMMIT").ok().map(|s| s.trim().to_owned()).filter(|s| !s.is_empty());
-    let git = |args: &[&str]| std::process::Command::new("git").args(args).current_dir(manifest_dir).output().ok().filter(|o| o.status.success()).map(|o| String::from_utf8_lossy(&o.stdout).into_owned());
-    if let Some(dir) = git(&["rev-parse", "--absolute-git-dir"]) {
-        let dir = std::path::Path::new(dir.trim());
-        println!("cargo:rerun-if-changed={}", dir.join("HEAD").display());
-        println!("cargo:rerun-if-changed={}", dir.join("logs").join("HEAD").display());
-    }
-    if let Some(sha) = env_sha.or_else(|| git(&["rev-parse", "HEAD"]).map(|s| s.trim().to_owned()).filter(|s| !s.is_empty())) {
+    let sha = if let Some(sha) = env_sha {
+        Some(sha)
+    } else if stamped {
+        let git = |args: &[&str]| {
+            std::process::Command::new("git")
+                .args(args)
+                .current_dir(manifest_dir)
+                .output()
+                .ok()
+                .filter(|o| o.status.success())
+                .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        };
+        if let Some(dir) = git(&["rev-parse", "--absolute-git-dir"]) {
+            let dir = std::path::Path::new(dir.trim());
+            println!("cargo:rerun-if-changed={}", dir.join("HEAD").display());
+            println!("cargo:rerun-if-changed={}", dir.join("logs").join("HEAD").display());
+        }
+        git(&["rev-parse", "HEAD"]).map(|s| s.trim().to_owned()).filter(|s| !s.is_empty())
+    } else {
+        None
+    };
+    if let Some(sha) = sha {
         println!("cargo:rustc-env=OPENCODE_RUNE_COMMIT={sha}");
         println!("cargo:rustc-env=OPENCODE_RUNE_BUILD_STAMP={{\"sha\":\"{sha}\"}}");
     }
