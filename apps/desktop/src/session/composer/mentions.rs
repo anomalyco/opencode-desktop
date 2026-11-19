@@ -265,6 +265,9 @@ impl Feature<App> for MentionsFeature {
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
         builder.add_setup("mentions.waker", |s, w| s.composer_ext.mentions.set_waker(w));
+        builder.schedule(crate::tick::stage::DERIVE_COMPOSER, "mentions.poll", |s, _, tx| {
+            s.poll_mentions(tx)
+        });
     }
 }
 

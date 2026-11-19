@@ -263,5 +263,10 @@ impl Feature<App> for AnnotationsFeature {
         builder.schedule(crate::tick::stage::INGEST_SESSION_PRE, "line_comments.poll", |s, _, tx| {
             poll(s, tx)
         });
+        builder.schedule(
+            crate::tick::stage::PERSIST_FLUSH,
+            "annotations.poll_saved",
+            |s, _, _| s.persists() && poll_saved(s),
+        );
     }
 }

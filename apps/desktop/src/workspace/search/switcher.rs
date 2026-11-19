@@ -465,5 +465,20 @@ impl Feature<App> for SwitcherFeature {
             s.session_search.set_waker(w);
         });
         builder.add_rest("switcher.rest_search", |s, _| s.rest_session_search());
+        // Precaution: reads listed server projects/worktrees; `projects.home` can open a project dir.
+        builder
+            .schedule(crate::tick::stage::INGEST_SERVERS, "project_switcher.poll", |s, _, _| {
+                crate::project_switcher::poll(s)
+            })
+            .after("projects.home");
+        // Ingest local answers before settling the list: its rows, highlight and empty state must
+        // all see the same sources. Previously a full-text landing changed the rows after this poll.
+        // Known: `poll_fulltext` reads `home_search` updated by `workspace_tools.home_search`.
+        builder
+            .schedule(crate::tick::stage::DERIVE_SEARCH, "switcher.poll", |s, now, tx| {
+                let local_answers = s.poll_session_search(now, tx) | s.poll_fulltext();
+                s.poll_switcher(tx, local_answers)
+            })
+            .after("workspace_tools.home_search");
     }
 }

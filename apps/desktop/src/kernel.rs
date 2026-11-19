@@ -207,15 +207,6 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
     b.schedule(stage::INGEST_HYDRATE, "windows.peer.behind", |s, _, _| {
         crate::windows::peer::behind(s)
     });
-    b.schedule(stage::INGEST_HYDRATE, "restore.places", |s, now, tx| {
-        s.poll_places(now, tx)
-    });
-    // Precaution: both `restore.places` and `restore.undo` write to restore state and storage.
-    b.schedule(stage::INGEST_HYDRATE, "restore.undo", |s, now, tx| {
-        s.poll_undo(now, tx);
-        false
-    })
-    .after("restore.places");
     b.schedule(stage::INGEST_HYDRATE, "reconnect.audit", |s, _, _| {
         crate::reconnect::audit(s);
         false
@@ -234,16 +225,6 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
         crate::servers::health::poll(s, tx)
     })
     .after("servers.runtime");
-    // Known/precaution: reads `checkout`, `servers::runtime::sidecar_stamp`, and listed server state.
-    b.schedule(stage::INGEST_SERVERS, "projects.home", |s, _, tx| {
-        crate::projects::home::poll(s, tx)
-    })
-    .after("servers.health");
-    // Precaution: reads listed server projects/worktrees; `projects.home` can open a project dir.
-    b.schedule(stage::INGEST_SERVERS, "project_switcher.poll", |s, _, _| {
-        crate::project_switcher::poll(s)
-    })
-    .after("projects.home");
     // Precaution: `launch.poll` mutates `source`, `tabs`, `route`, `sessions`, `projects`, and `transcripts`.
     b.schedule(stage::INGEST_SERVERS, "launch.poll", |s, _, tx| {
         crate::launch::poll(s, tx)
@@ -288,24 +269,6 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
         crate::speech::poll(s, tx)
     })
     .after("notifications.poll");
-    // A shortcut from the composer that moved the keyboard into the side region (its command
-    // may run a frame later) leaves the selected tab's label muted (`FocusMode::Quiet`).
-    // Known: `egg.poll` (in `INGEST_LOCAL`) and `notifications.poll` can focus the composer;
-    // precaution: `speech.poll` adjusts focus before composer focus sync.
-    b.schedule(stage::INGEST_DISPATCH, "panels.sync_composer", |s, _, _| {
-        let composing = s.composer.focused;
-        let in_terminal = !composing
-            && s.workspace_panes.side.focus.is_armed()
-            && s.workspace_panes.side.focus.is_focused()
-            && s.terminal_focus().is_some();
-        let sync = crate::panels::SideFocusEvent::SyncComposer { composing, in_terminal };
-        // Written only when it changes: a write to the side state rebuilds every region reading it.
-        if s.workspace_panes.side.focus.would_change(sync) {
-            s.workspace_panes.side.focus.sync_composer(composing, in_terminal);
-        }
-        false
-    })
-    .after("speech.poll");
     // Known: requires `launch.poll` (`INGEST_SERVERS`) for `Source::Live { writes: Some(_) }`;
     // precaution: mutates `settings.open`, `route`, `tabs`, `projects`, and `composer.focused`.
     b.schedule(stage::INGEST_DISPATCH, "deep_links.drain", |s, _, tx| {
@@ -341,16 +304,6 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
         s.poll_context_window()
     })
     .after("session_pages.poll");
-    // Precaution: shares `dialogs.toast` with `app.output_errors`.
-    b.schedule(stage::INGEST_PAGES, "inbox.sends", |s, _, _| {
-        s.poll_sends()
-    })
-    .after("app.output_errors");
-    // Known: `inbox.sends` (`take_mail`/receipts) unblocks `pump_outbox`.
-    b.schedule(stage::INGEST_PAGES, "inbox.outbox", |s, _, tx| {
-        s.tick_outbox(tx)
-    })
-    .after("inbox.sends");
     // Precaution: `jobs.poll` executes arbitrary `Apply` closures that can touch any `App` state.
     b.schedule(stage::INGEST_PAGES, "jobs.poll", |s, _, tx| s.poll_jobs(tx))
         .after_all(&["context_window.poll", "inbox.outbox", "open_in.poll"]);
@@ -396,31 +349,7 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
         crate::background::poll(s, tx)
     });
 
-    // Ingest local answers before settling the list: its rows, highlight and empty state must
-    // all see the same sources. Previously a full-text landing changed the rows after this poll.
-    // Known: `poll_fulltext` reads `home_search` updated by `workspace_tools.home_search`.
-    b.schedule(stage::DERIVE_SEARCH, "switcher.poll", |s, now, tx| {
-        let local_answers = s.poll_session_search(now, tx) | s.poll_fulltext();
-        s.poll_switcher(tx, local_answers)
-    })
-    .after("workspace_tools.home_search");
-
-    b.schedule(stage::DERIVE_COMPOSER, "mentions.poll", |s, _, tx| {
-        s.poll_mentions(tx)
-    });
-
     // ── Phase 3: React ───────────────────────────────────────────────────────────────────────────
-    b.schedule(stage::REACT_PANELS, "composer_input.attach", |s, _, _| {
-        if s.composer_ext.attach.poll() {
-            rune::Tracked::touch(&s.composer_ext.attach);
-            true
-        } else {
-            false
-        }
-    });
-    b.schedule(stage::REACT_PANELS, "panels.poll", |s, _, tx| {
-        s.poll_panels(tx)
-    });
     // Precaution: `panels.poll` (`review`, plugins) and `workspace_tools.rune_mcp` (`tools::execute`)
     // can mutate `source`/session state before turn diffs start.
     b.schedule(stage::REACT_PANELS, "turn_diffs.poll", |s, _, _| {
@@ -461,31 +390,8 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
         crate::session_status::poll(s, now, tx)
     })
     .after("narrow.poll");
-    // Each draft keeps its own composer in any window, saved or not (`restore::show_draft`).
-    // Known: runs after `status_toast.poll` (`REACT_STATUS`) and `narrow.poll` settle `route`,
-    // and after `composer_input.attach` (`REACT_PANELS`).
-    b.schedule(stage::REACT_SHELL, "restore.show_draft", |s, _, _| {
-        s.show_draft()
-    })
-    .after("narrow.poll");
 
     // ── Phase 4: Persist ─────────────────────────────────────────────────────────────────────────
-    b.schedule(stage::PERSIST_FLUSH, "restore.persist", |s, _, tx| {
-        if !s.persists() {
-            return false;
-        }
-        let mut changed = false;
-        changed |= s.tell_storage_notice();
-        changed |= s.hydrate_restore();
-        changed |= crate::crash_notice::poll(s);
-        s.poll_restore();
-        s.poll_preview(false);
-        changed |= s.poll_copies(tx);
-        changed
-    });
-    b.schedule(stage::PERSIST_FLUSH, "annotations.poll_saved", |s, _, _| {
-        s.persists() && crate::line_comments::poll_saved(s)
-    });
     // Known: `restore.persist` runs `hydrate_restore` mutating `tabs`/`route`/`window` before
     // window, taskbar, and jump-list persistence.
     b.schedule(stage::PERSIST_FLUSH, "windows.persist", |s, _, _| {

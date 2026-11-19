@@ -268,5 +268,13 @@ impl Feature<App> for ComposerInputFeature {
                 |s, _, tx| s.poll_uploads(tx),
             )
             .after("session_menu.poll_delete");
+        builder.schedule(crate::tick::stage::REACT_PANELS, "composer_input.attach", |s, _, _| {
+            if s.composer_ext.attach.poll() {
+                rune::Tracked::touch(&s.composer_ext.attach);
+                true
+            } else {
+                false
+            }
+        });
     }
 }

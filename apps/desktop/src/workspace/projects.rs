@@ -523,6 +523,12 @@ impl Feature<App> for ProjectsFeature {
                 })
                 .with_dismiss(|s, tx| remote_picker::close(s, tx)),
         );
+        // Known/precaution: reads `checkout`, `servers::runtime::sidecar_stamp`, and listed server state.
+        builder
+            .schedule(crate::tick::stage::INGEST_SERVERS, "projects.home", |s, _, tx| {
+                home::poll(s, tx)
+            })
+            .after("servers.health");
     }
 }
 

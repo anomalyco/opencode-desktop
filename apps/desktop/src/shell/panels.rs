@@ -540,5 +540,27 @@ impl Feature<App> for PanelsFeature {
             .bind_id(Bind::SideToggle.id())
             .when(App::in_root_session),
         );
+        // A shortcut from the composer that moved the keyboard into the side region (its command
+        // may run a frame later) leaves the selected tab's label muted (`FocusMode::Quiet`).
+        // Known: `egg.poll` (in `INGEST_LOCAL`) and `notifications.poll` can focus the composer;
+        // precaution: `speech.poll` adjusts focus before composer focus sync.
+        builder
+            .schedule(crate::tick::stage::INGEST_DISPATCH, "panels.sync_composer", |s, _, _| {
+                let composing = s.composer.focused;
+                let in_terminal = !composing
+                    && s.workspace_panes.side.focus.is_armed()
+                    && s.workspace_panes.side.focus.is_focused()
+                    && s.terminal_focus().is_some();
+                let sync = SideFocusEvent::SyncComposer { composing, in_terminal };
+                // Written only when it changes: a write to the side state rebuilds every region reading it.
+                if s.workspace_panes.side.focus.would_change(sync) {
+                    s.workspace_panes.side.focus.sync_composer(composing, in_terminal);
+                }
+                false
+            })
+            .after("speech.poll");
+        builder.schedule(crate::tick::stage::REACT_PANELS, "panels.poll", |s, _, tx| {
+            s.poll_panels(tx)
+        });
     }
 }
