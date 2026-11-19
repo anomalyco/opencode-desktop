@@ -29,7 +29,8 @@ web-sys = { version = "0.3", features = ["BinaryType", "CloseEvent", "Event", "M
 
 [build-dependencies]
 sha2 = "0.10"
-ureq = { workspace = true, features = ["rustls"] }
+# Matches desktop's `ureq` features (`browser-pane`) so native builds compile `ureq` once.
+ureq = { workspace = true, features = ["rustls", "platform-verifier"] }
 
 [lints]
 workspace = true

@@ -93,7 +93,7 @@ rune-knobs.workspace = true
 rune-parts = { path = "../../crates/rune-parts", features = ["view"] }
 # The plugins (`plugin_host`), run on Luau. mlua is rune-luau's own, named here for the bindings.
 rune-luau = { workspace = true, features = ["serde"] }
-mlua = { git = "https://github.com/mlua-rs/mlua", rev = "a0ad4535fc72ba89967a931c5be57b162b5f0f3f", features = ["luau"] }
+mlua.workspace = true
 rune-perf.workspace = true
 rune-register.workspace = true
 rune = { workspace = true, features = ["avif"] }
@@ -149,7 +149,8 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Network
 # The exe's icon, version and manifest resources on Windows.
 win-install = { path = "../../crates/win-install", features = ["resources"] }
 # The built-in plugins' Luau compiled to bytecode at build time (`build.rs`), with rune-luau's mlua.
-mlua = { git = "https://github.com/mlua-rs/mlua", rev = "a0ad4535fc72ba89967a931c5be57b162b5f0f3f", features = ["luau"] }
+# Matches target `mlua`'s `serde` feature so native builds compile mlua and bstr once.
+mlua = { workspace = true, features = ["serde"] }
 # The built-in plugins' `locales/*.json`, read into one table each at build time.
 serde_json.workspace = true
 
