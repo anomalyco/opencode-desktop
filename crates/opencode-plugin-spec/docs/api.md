@@ -2103,6 +2103,7 @@ A session as the app holds it.
 | `created` | `number?` | When it was created, in milliseconds since the Unix epoch. |
 | `updated` | `number?` | When it last changed, in milliseconds since the Unix epoch. |
 | `messages` | `number?` | How many messages the app holds for it. Nil before it has read them. |
+| `lastErrorStatus` | `number?` | The HTTP status code of the session's last assistant message failure, when it failed with one (such as 402 or 429). Since 1.5. |
 
 ### ModelInfo
 

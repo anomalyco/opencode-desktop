@@ -188,8 +188,10 @@ pub struct Session {
     pub updated: Option<f64>,
     /// How many messages the app holds for it. Nil before it has read them.
     pub messages: Option<i64>,
+    /// The HTTP status code of the session's last assistant message failure, when it failed with one (such as 402 or 429).
+    pub last_error_status: Option<i64>,
 }
-impl_record!(Session, ["id", "serverId", "directory", "title", "parentId", "projectId", "agent", "variant", "busy", "version", "messagesVersion", "cost", "usage", "usageProviderId", "usageModelId", "usageMessageId", "windowStart", "usageCreated", "providerId", "modelId", "created", "updated", "messages"], [], []);
+impl_record!(Session, ["id", "serverId", "directory", "title", "parentId", "projectId", "agent", "variant", "busy", "version", "messagesVersion", "cost", "usage", "usageProviderId", "usageModelId", "usageMessageId", "windowStart", "usageCreated", "providerId", "modelId", "created", "updated", "messages", "lastErrorStatus"], [], []);
 
 /// A model as the server's catalog names it.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

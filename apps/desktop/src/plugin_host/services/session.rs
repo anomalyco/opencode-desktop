@@ -108,6 +108,19 @@ fn session_project_id<'a>(app: &'a App, info: &'a opencode_kit::model::SessionIn
         .or_else(|| (!info.project.is_empty() && info.project != "global").then_some(info.project.as_str()))
 }
 
+/// HTTP status code of `t`'s last assistant reply failure, when it failed with one.
+fn last_error_status(t: Option<&opencode_kit::model::Transcript>) -> Option<u16> {
+    t?.messages
+        .iter()
+        .rev()
+        .find_map(|m| match m {
+            opencode_kit::model::Message::Assistant(a) => Some(a),
+            _ => None,
+        })
+        .and_then(|a| a.failure.as_ref())
+        .and_then(|e| e.status)
+}
+
 /// A session's version, as plugins see it: it moves when its title, cost, usage, message count
 /// or busy state does, and not while a reply streams within a step.
 /// `watch::SessionInputs` tracks the shared inputs. Only this session reads its transcript.
@@ -119,7 +132,7 @@ pub fn session_version(app: &App, id: &str) -> u64 {
     let messages = t.map(|t| t.messages.len());
     let usage = last.map(|(_, k)| (k.input, k.output, k.reasoning, k.cache_read, k.cache_write));
     let mut h = std::hash::DefaultHasher::new();
-    (&info.title, info.updated, cost.to_bits(), messages, app.subtree_running(&info.id), usage, last.map(|(a, _)| (&a.id, a.completed)), (&info.model.provider, &info.model.id, &info.model.variant, &info.agent, session_project_id(app, info), app.held(id))).hash(&mut h);
+    (&info.title, info.updated, cost.to_bits(), messages, last_error_status(t), app.subtree_running(&info.id), usage, last.map(|(a, _)| (&a.id, a.completed)), (&info.model.provider, &info.model.id, &info.model.variant, &info.agent, session_project_id(app, info), app.held(id))).hash(&mut h);
     // The Context tab lists the inbox's waiting input too.
     messages_version(app, id).hash(&mut h);
     h.finish()
@@ -186,7 +199,7 @@ fn build_session(lua: &Lua, app: &App, id: &str) -> mlua::Result<Value> {
     let version = (session_version(app, id) >> 11) as f64;
     let cost = app.session_cost(id);
     let held = app.held(id);
-    let s = record(lua, 24, |s| {
+    let s = record(lua, 25, |s| {
         s.str(c"id", &info.id);
         s.str(c"serverId", &server_id(crate::servers::runtime::active(app)));
         s.str(c"directory", &info.directory);
@@ -229,6 +242,9 @@ fn build_session(lua: &Lua, app: &App, id: &str) -> mlua::Result<Value> {
         s.num(c"updated", info.updated as f64);
         if let Some(t) = t {
             s.num(c"messages", t.messages.len() as f64);
+        }
+        if let Some(status) = last_error_status(t) {
+            s.num(c"lastErrorStatus", f64::from(status));
         }
     })?;
     Ok(Value::Table(s))

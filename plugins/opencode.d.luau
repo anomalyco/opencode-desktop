@@ -3290,6 +3290,8 @@ export type Session = {
     updated: number?,
     --- How many messages the app holds for it. Nil before it has read them.
     messages: number?,
+    --- The HTTP status code of the session's last assistant message failure, when it failed with one (such as 402 or 429).
+    lastErrorStatus: number?,
 }
 
 --- A model as the server's catalog names it.

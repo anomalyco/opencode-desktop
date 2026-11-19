@@ -856,7 +856,8 @@
       { "name": "modelId", "type": "string?", "doc": "The model the session runs with." },
       { "name": "created", "type": "number?", "doc": "When it was created, in milliseconds since the Unix epoch." },
       { "name": "updated", "type": "number?", "doc": "When it last changed, in milliseconds since the Unix epoch." },
-      { "name": "messages", "type": "integer?", "doc": "How many messages the app holds for it. Nil before it has read them." }
+      { "name": "messages", "type": "integer?", "doc": "How many messages the app holds for it. Nil before it has read them." },
+      { "name": "lastErrorStatus", "type": "integer?", "since": "1.5", "doc": "The HTTP status code of the session's last assistant message failure, when it failed with one (such as 402 or 429)." }
     ] },
     { "name": "ModelInfo", "kind": "record", "rust": true, "doc": "A model as the server's catalog names it.", "fields": [
       { "name": "providerName", "type": "string?", "doc": "The provider's name. Nil when the catalog does not list the provider." },
