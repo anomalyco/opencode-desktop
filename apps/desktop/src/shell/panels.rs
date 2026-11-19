@@ -115,6 +115,26 @@ impl PanelsHost for App {
         crate::plugin_host::surfaces_version(self)
     }
 
+    fn panel_tabs_stamp(&self) -> u64 {
+        use rune::Tracked;
+        let mut h = DefaultHasher::new();
+        self.active_session_id().hash(&mut h);
+        crate::plugin_host::surfaces_version(self).hash(&mut h);
+        (
+            (Tracked::id(&self.workspace_panes.side), Tracked::version(&self.workspace_panes.side)),
+            (Tracked::id(&self.workspace_panes.terminal), Tracked::version(&self.workspace_panes.terminal)),
+            (Tracked::id(&self.workspace_panes.browser), Tracked::version(&self.workspace_panes.browser)),
+            (Tracked::id(&self.workspace_panes.files), Tracked::version(&self.workspace_panes.files)),
+            (Tracked::id(&self.workspace_panes.review), Tracked::version(&self.workspace_panes.review)),
+            (Tracked::id(&self.diag.debug), Tracked::version(&self.diag.debug)),
+            (Tracked::id(&self.sessions), Tracked::version(&self.sessions)),
+            (Tracked::id(&self.projects), Tracked::version(&self.projects)),
+            (Tracked::id(&self.settings), Tracked::version(&self.settings)),
+        )
+            .hash(&mut h);
+        h.finish()
+    }
+
     fn panel_providers(&self) -> Vec<PanelRegistration> {
         crate::plugin_host::panels::providers(self)
     }
@@ -179,8 +199,15 @@ impl PanelsHost for App {
         crate::plugin_host::native::poll(self, tx)
     }
 
-    fn poll_plugins(&mut self, fresh: bool, tx: &mut Tx) -> bool {
-        crate::plugin_host::poll(self, fresh, tx)
+    fn poll_plugins(&mut self, tx: &mut Tx) -> bool {
+        let stamp = plugin_watched_stamp(self);
+        let watched_changed = {
+            let seen = self.kernel.slots.slot::<PluginWatchedStamp>();
+            let changed = seen.0 != Some(stamp);
+            seen.0 = Some(stamp);
+            changed
+        };
+        crate::plugin_host::poll(self, watched_changed, tx)
     }
 
     fn handle_panel_ime(&mut self, ime: &Ime) -> bool {
@@ -382,8 +409,8 @@ impl App {
         closing_side_entry(self, reg, pane)
     }
 
-    pub fn poll_panels(&mut self, fresh: bool, tx: &mut Tx) -> bool {
-        poll_panels(self, fresh, tx)
+    pub fn poll_panels(&mut self, tx: &mut Tx) -> bool {
+        poll_panels(self, tx)
     }
 
     pub fn panels_ime(&mut self, ime: &Ime) -> bool {
@@ -437,6 +464,60 @@ impl App {
     pub fn bottom_height(&self) -> f32 {
         width::bottom_height(self)
     }
+}
+
+/// Last observed stamp of every host input read by `plugin_host::services::watch::fire_watched`.
+#[derive(Default)]
+struct PluginWatchedStamp(Option<u64>);
+
+/// Stamp of every host input watched by Luau plugin signals (`plugin_host::services::watch`):
+/// `Sessions.Changed`, `Sessions.RoutedChanged`, `Browser.Changed`, `Models.Changed`,
+/// `Theme.Changed`, `I18n.Changed`, `App.LocaleChanged`, `Server.Connected`, `Servers.Changed`,
+/// `ctx.FocusChanged`, `Updater.StateChanged`, `editor.*.{Changed,FocusChanged}`,
+/// `Store.*.Changed`, `Diff.*.Changed`, and `Contracts.*.Changed`.
+fn plugin_watched_stamp(app: &App) -> u64 {
+    use rune::Tracked;
+    let stamp = |cell_id: u32, cell_ver: u64| (cell_id, cell_ver);
+    let mut h = DefaultHasher::new();
+    crate::servers::runtime::active(app).hash(&mut h);
+    [
+        stamp(Tracked::id(&app.sessions), Tracked::version(&app.sessions)),
+        stamp(Tracked::id(&app.projects), Tracked::version(&app.projects)),
+        stamp(Tracked::id(&app.running), Tracked::version(&app.running)),
+        stamp(Tracked::id(&app.inboxes), Tracked::version(&app.inboxes)),
+        stamp(Tracked::id(&app.context_windows), Tracked::version(&app.context_windows)),
+        stamp(Tracked::id(&app.transcripts), Tracked::version(&app.transcripts)),
+        stamp(Tracked::id(&app.route), Tracked::version(&app.route)),
+        stamp(Tracked::id(&app.workspace_panes.browser), Tracked::version(&app.workspace_panes.browser)),
+        stamp(Tracked::id(&app.workspace_panes.review), Tracked::version(&app.workspace_panes.review)),
+        stamp(Tracked::id(&app.composer_ext.pickers), Tracked::version(&app.composer_ext.pickers)),
+        stamp(Tracked::id(&app.source), Tracked::version(&app.source)),
+        stamp(Tracked::id(&app.services.server_links), Tracked::version(&app.services.server_links)),
+        stamp(Tracked::id(&app.plugins), Tracked::version(&app.plugins)),
+    ]
+        .hash(&mut h);
+    let p = crate::palette::pal(app.plugins.dark.get());
+    (
+        p.theme,
+        p.generation,
+        p.dark,
+        opencode_i18n::I18N.locale(),
+        crate::plugin_host::services::servers_version(app),
+        app.plugins.window_blurred.get(),
+        app.services.updater.revision(),
+        crate::plugin_host::epoch(),
+    )
+        .hash(&mut h);
+    // Editor focus can change through interior mutability (`editors::{focus,blur}`) before
+    // `requests::carry_out` bumps the plugin epoch; XOR makes the hash order-independent.
+    let mut editor_focus = 0u64;
+    for (key, edit) in app.plugins.editors.borrow().iter() {
+        let mut eh = DefaultHasher::new();
+        (key, edit.focused).hash(&mut eh);
+        editor_focus ^= eh.finish();
+    }
+    editor_focus.hash(&mut h);
+    h.finish()
 }
 
 /// Kernel feature registration for the session side, split, and bottom panels engine.

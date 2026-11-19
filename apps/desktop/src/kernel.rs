@@ -229,8 +229,7 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
         crate::servers::health::poll(s, tx)
     });
     b.add_system_ordered(Phase::Ingest, ingest::PROJECTS_HOME, "projects.home", |s, _, tx| {
-        let fresh = s.tick_fresh();
-        crate::projects::home::poll(s, fresh, tx)
+        crate::projects::home::poll(s, tx)
     });
     b.add_system_ordered(Phase::Ingest, ingest::PROJECT_SWITCHER, "project_switcher.poll", |s, _, _| {
         crate::project_switcher::poll(s)
@@ -369,8 +368,7 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
         }
     });
     b.add_system_ordered(Phase::React, react::PANELS, "panels.poll", |s, _, tx| {
-        let fresh = s.tick_fresh();
-        s.poll_panels(fresh, tx)
+        s.poll_panels(tx)
     });
     b.add_system_ordered(Phase::React, react::TURN_DIFFS, "turn_diffs.poll", |s, _, _| {
         s.poll_turn_diffs()

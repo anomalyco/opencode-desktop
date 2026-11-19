@@ -105,6 +105,16 @@ pub fn version() -> u64 {
     RUNTIME.with_borrow(|r| r.version)
 }
 
+/// Changes whenever the sidecar's endpoint or credentials do, even before `sync` runs.
+pub(crate) fn sidecar_stamp() -> u64 {
+    use std::hash::{Hash, Hasher};
+    RUNTIME.with_borrow(|r| {
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        r.sidecar.as_ref().map(|s| (&s.base, s.auth_header())).hash(&mut h);
+        h.finish()
+    })
+}
+
 pub(crate) fn peer(key: &ServerKey) -> Option<Rc<ServerPeer>> {
     RUNTIME.with_borrow(|r| r.peers.get(key).cloned())
 }
@@ -364,6 +374,23 @@ impl Checkout {
     /// Every server the window has a half of, the checked-out one first.
     pub fn keys(&self) -> Vec<ServerKey> {
         std::iter::once(self.active.clone()).chain(self.parked.iter().map(|(k, ..)| k.clone())).collect()
+    }
+
+    /// Version stamp of the active checkout key and every parked server's Home-visible data
+    /// (`used` project IDs and `projects`/`sessions`/`recent_page` `Tracked` versions).
+    pub(crate) fn home_data_stamp(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        self.active.hash(&mut h);
+        self.synced.hash(&mut h);
+        self.parked.len().hash(&mut h);
+        for (key, meta, half) in &self.parked {
+            key.hash(&mut h);
+            meta.base.hash(&mut h);
+            half.used.hash(&mut h);
+            half.store.home_data_stamp().hash(&mut h);
+        }
+        h.finish()
     }
 }
 

@@ -41,8 +41,7 @@ pub enum Source {
 #[derive(Default)]
 pub(crate) struct OutputErrors(pub(crate) Option<(Sender<String>, Receiver<String>)>);
 
-/// Kernel state slot counting how many times the root view has run; compared against `PolledRuns`
-/// in `tick.rs` so polls know whether derived state may have moved.
+/// Kernel state slot counting how many times the root view has run (read by `SwitcherHost::view_runs`).
 #[derive(Default)]
 pub(crate) struct ViewRuns(pub(crate) std::cell::Cell<u64>);
 

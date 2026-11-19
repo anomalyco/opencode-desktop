@@ -5,7 +5,6 @@
 //! (`Ingest`, `Derive`, `React`, `Persist`) ordered by [`order`], matching the pre-refactor
 //! `poll` sequence (`31a59a9:apps/desktop/src/main.rs`) independently of feature registration order.
 
-use opencode_kernel::Phase;
 use opencode_kit::model::Delivery;
 use rune::{Tx, Waker};
 
@@ -122,20 +121,14 @@ pub(crate) mod order {
     }
 }
 
-/// Per-frame tick handoff slot read by registered `LifecycleScheduler` systems so polls see
-/// exact `viewed || changed` freshness and pre-stream `dock_face` transitions.
+/// Per-frame tick handoff slot carrying the pre-stream `dock_face` snapshot from `tick.stream`
+/// into Derive's `timeline.dock_morph`.
 #[derive(Default)]
 struct TickFrame {
-    polled_runs: u64,
-    fresh: bool,
     asked_dock_face: Option<String>,
 }
 
 impl App {
-    pub(crate) fn tick_fresh(&self) -> bool {
-        self.kernel.slots.get::<TickFrame>().is_some_and(|f| f.fresh)
-    }
-
     pub(crate) fn take_asked_dock_face(&mut self) -> Option<String> {
         self.kernel.slots.slot::<TickFrame>().asked_dock_face.take()
     }
@@ -206,22 +199,8 @@ pub(crate) fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     if s.fixture_run.stage.is_some_and(|st| st.watch()) {
         s.composer.focused = false;
     }
-    // The view ran since the last poll: state the polls below derive from other state may have moved.
-    let runs = s.view_runs();
-    let frame = s.kernel.slots.slot::<TickFrame>();
-    let viewed = runs != frame.polled_runs;
-    frame.polled_runs = runs;
-    frame.fresh = viewed;
     let scheduler = s.kernel.scheduler.clone();
-
-    let mut changed = false;
-    for phase in Phase::ALL {
-        changed |= scheduler.run_phase_with(phase, s, now, tx, |s, step_changed| {
-            if step_changed {
-                s.kernel.slots.slot::<TickFrame>().fresh = true;
-            }
-        });
-    }
+    let changed = scheduler.run_all(s, now, tx);
     s.finish_tail_change(tx);
     changed
 }

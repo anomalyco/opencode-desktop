@@ -1,6 +1,7 @@
 //! Panel polling, IME forwarding, and side/dock region keyboard shortcuts.
 
 use std::collections::HashSet;
+use std::hash::{DefaultHasher, Hash, Hasher};
 
 use opencode_ui::keymap::Bind;
 use rune::{Ime, Key, KeyEvent, Tx};
@@ -76,10 +77,16 @@ pub(crate) fn run_closing(effects: Vec<Effect>, tx: &mut Tx) -> bool {
     changed
 }
 
-/// `fresh`: the view ran or an earlier poll changed something since the last poll, so what
-/// derives from the app's state (tab keys, transient tabs, plugins' watched signals) may
-/// have moved. Otherwise those checks are skipped: nothing they read changed.
-pub fn poll_panels(host: &mut dyn PanelsHost, fresh: bool, tx: &mut Tx) -> bool {
+fn tabs_check_stamp(host: &dyn PanelsHost) -> u64 {
+    let mut h = DefaultHasher::new();
+    host.panel_tabs_stamp().hash(&mut h);
+    host.side().resolved_gen.get().hash(&mut h);
+    h.finish()
+}
+
+/// Polls panel animations, stored-tab rekeying/pruning (when any tab/panel input moved),
+/// empty-side New tab sync, native panels, and plugins.
+pub fn poll_panels(host: &mut dyn PanelsHost, tx: &mut Tx) -> bool {
     let mut changed = false;
     if host.side().edge_flight.is_flying() {
         let now = host.clock();
@@ -95,50 +102,61 @@ pub fn poll_panels(host: &mut dyn PanelsHost, fresh: bool, tx: &mut Tx) -> bool 
         let effects = host.side_mut().closing.step(Event::Frame { clock, shut });
         changed |= run_closing(effects, tx);
     }
-    let has_stored_tabs = fresh
-        && host
-            .active_session_id()
-            .and_then(|sid| host.side().sessions.get(sid))
-            .is_some_and(|st| !st.tab_state.tabs.all.is_empty());
+    let has_stored_tabs = host
+        .active_session_id()
+        .and_then(|sid| host.side().sessions.get(sid))
+        .is_some_and(|st| !st.tab_state.tabs.all.is_empty());
     if has_stored_tabs
         && let Some(sid) = host.active_session_id().map(str::to_owned)
     {
-        let panels = all_panels(host);
-        let needs_rekey = host.side().sessions.get(&sid).is_some_and(|st| {
-            panels
-                .iter()
-                .any(|prov| needs_rekey_luau(&st.tab_state.tabs, prov.plugin))
-        });
-        if needs_rekey && let Some(st) = host.side_mut().sessions.get_mut(&sid) {
-            for prov in &panels {
-                changed |= rekey_luau(&mut st.tab_state.tabs, prov.plugin);
-            }
-        }
-        if panels.iter().any(|p| p.transient)
-            && let Some(reg) = resolve_side_region(host)
-        {
-            let listed: HashSet<&str> = reg.entries.iter().map(|e| e.key.as_str()).collect();
-            let transient_prefixes: Vec<String> = panels
-                .iter()
-                .filter(|p| p.transient)
-                .map(|p| format!("{}:", p.plugin))
-                .collect();
-            let needs_prune = host.side().sessions.get(&sid).is_some_and(|st| {
-                st.tab_state.tabs.all.iter().any(|k| {
-                    !listed.contains(k.as_str())
-                        && transient_prefixes.iter().any(|pref| k.starts_with(pref))
-                })
+        let plugins = host.plugin_surfaces_version();
+        let resolved_stale = host
+            .side()
+            .resolved
+            .borrow()
+            .as_ref()
+            .is_some_and(|(v, read, _)| *v != plugins || read.changed());
+        let stamp = tabs_check_stamp(host);
+        if resolved_stale || host.side().tabs_stamp.get() != Some(stamp) {
+            let panels = all_panels(host);
+            let needs_rekey = host.side().sessions.get(&sid).is_some_and(|st| {
+                panels
+                    .iter()
+                    .any(|prov| needs_rekey_luau(&st.tab_state.tabs, prov.plugin))
             });
-            if needs_prune && let Some(st) = host.side_mut().sessions.get_mut(&sid) {
-                let before = st.tab_state.tabs.all.len();
-                st.tab_state.tabs.all.retain(|k| {
-                    listed.contains(k.as_str())
-                        || !transient_prefixes.iter().any(|pref| k.starts_with(pref))
-                });
-                if st.tab_state.tabs.all.len() != before {
-                    changed = true;
+            if needs_rekey && let Some(st) = host.side_mut().sessions.get_mut(&sid) {
+                for prov in &panels {
+                    changed |= rekey_luau(&mut st.tab_state.tabs, prov.plugin);
                 }
             }
+            if panels.iter().any(|p| p.transient)
+                && let Some(reg) = resolve_side_region(host)
+            {
+                let listed: HashSet<&str> = reg.entries.iter().map(|e| e.key.as_str()).collect();
+                let transient_prefixes: Vec<String> = panels
+                    .iter()
+                    .filter(|p| p.transient)
+                    .map(|p| format!("{}:", p.plugin))
+                    .collect();
+                let needs_prune = host.side().sessions.get(&sid).is_some_and(|st| {
+                    st.tab_state.tabs.all.iter().any(|k| {
+                        !listed.contains(k.as_str())
+                            && transient_prefixes.iter().any(|pref| k.starts_with(pref))
+                    })
+                });
+                if needs_prune && let Some(st) = host.side_mut().sessions.get_mut(&sid) {
+                    let before = st.tab_state.tabs.all.len();
+                    st.tab_state.tabs.all.retain(|k| {
+                        listed.contains(k.as_str())
+                            || !transient_prefixes.iter().any(|pref| k.starts_with(pref))
+                    });
+                    if st.tab_state.tabs.all.len() != before {
+                        changed = true;
+                    }
+                }
+            }
+            let after = tabs_check_stamp(host);
+            host.side().tabs_stamp.set(Some(after));
         }
     }
     // A strip its last tab left (a terminal that exited) shows a New tab, as Desktop's does.
@@ -146,7 +164,7 @@ pub fn poll_panels(host: &mut dyn PanelsHost, fresh: bool, tx: &mut Tx) -> bool 
     // The native views Luau panels place (Review's diffs).
     changed |= host.poll_native_panels(tx);
     // The plugins: what came due, finished or arrived for them. At rest it enters no VM.
-    changed |= host.poll_plugins(fresh || changed, tx);
+    changed |= host.poll_plugins(tx);
     changed
 }
 

@@ -29,6 +29,7 @@ pub fn resolve_side_region(host: &dyn PanelsHost) -> Option<Rc<ResolvedRegion>> 
     }
     let (region, read) = rune::tracked_reads(|| resolve_side_region_now(host).map(Rc::new));
     *host.side().resolved.borrow_mut() = Some((plugins, read, region.clone()));
+    host.side().resolved_gen.set(host.side().resolved_gen.get().wrapping_add(1));
     region
 }
 
