@@ -117,13 +117,12 @@ mimalloc = { version = "0.1", default-features = false }
 rune = { workspace = true, features = ["native-file-dialog", "metal-backend", "tooling", "keys-overlay"] }
 ureq = { workspace = true, features = ["rustls"] }
 
-# Browser (`wasm32`) equivalents used by desktop's own cross-target modules (embedded fonts, ureq-web,
-# audio playback, page sign-out, and wasm_js getrandom).
+# Browser (`wasm32`) equivalents used by desktop's own cross-target modules (ureq-web, audio
+# playback, page sign-out, and wasm_js getrandom). `apps/desktop/src/lib.rs` embeds Inter and
+# IBM Plex Mono directly on wasm32, so Rune's `embedded-fonts` faces are unreachable.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.3", features = ["wasm_js"] }
 js-sys = "0.3"
-# The web keeps Rune's bundled Inter and IBM Plex Mono (first faces, full faces after the first frame).
-rune = { workspace = true, features = ["embedded-fonts"] }
 ureq-web = { path = "../../crates/ureq-web" }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
