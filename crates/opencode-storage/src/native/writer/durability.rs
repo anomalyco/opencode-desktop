@@ -68,6 +68,10 @@ impl WalFile {
         file.sync_all().ok()?;
         Some(file.metadata().ok().map_or(0, |m| m.len()))
     }
+
+    fn close(&mut self) {
+        *self = Self::Unopened;
+    }
 }
 
 fn unsynced_wal_bytes(wal_bytes: u64, base_bytes: u64) -> u64 {
@@ -296,15 +300,21 @@ impl Writer {
         // VACUUM moves every page: the draft journal's place goes with it, so it's reserved
         // again at the next launch (closed and clean by now: `journal::finish`).
         self.conn.execute_batch("DELETE FROM journal_meta; DELETE FROM journal;").ok();
+        // Drop the extra handle to `<db>-wal` before switching journal modes so `-wal` cannot be
+        // left delete-pending on Windows or bound to an unlinked inode if SQLite deletes it.
+        self.wal_file.close();
         let done = self.conn.execute_batch(&format!("PRAGMA journal_mode = DELETE; PRAGMA page_size = {REPAGE_TO}; VACUUM; PRAGMA journal_mode = WAL;"));
-        // The WAL back to empty: the next launch reads the record raw.
-        self.conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(())).ok();
+        if done.is_err() {
+            self.conn.execute_batch("PRAGMA journal_mode = WAL;").ok();
+        }
         let root: i64 = self.conn.query_row("SELECT rootpage FROM sqlite_schema WHERE name = 'boot'", [], |r| r.get(0)).unwrap_or(0);
         if root != 2
             && let Ok(version) = super::super::schema::user_version(&self.conn)
         {
             super::super::schema::set_flags(&self.conn, version & super::super::schema::FLAG_MASK & !super::super::schema::FLAG_BOOT_PAGE2).ok();
         }
+        // The WAL back to empty after any `user_version` update: the next launch reads the record raw.
+        self.conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(())).ok();
         eprintln!("opencode-storage: {} {} pages of {page} B into {REPAGE_TO} B pages in {} us", if done.is_ok() { "rewrote" } else { "couldn't rewrite" }, pages, t.elapsed().as_micros());
     }
 
