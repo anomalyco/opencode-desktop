@@ -2,7 +2,7 @@
 
 pub use opencode_feature_egg::*;
 
-use opencode_kernel::{CommandEntry, Feature, KernelBuilder, Phase, Slot, SurfaceDescriptor, SurfaceKind};
+use opencode_kernel::{CommandEntry, Feature, KernelBuilder, Phase, Slot};
 
 use crate::{App, Route};
 
@@ -58,6 +58,5 @@ impl Feature<App> for EggFeature {
             |s, now, tx| poll(s, now, tx),
         );
         builder.add_visibility("egg.visibility", |s, shown, tx| visibility(s, shown, tx));
-        builder.add_surface(SurfaceDescriptor::new("egg", SurfaceKind::Custom("egg"), "Wordmark Egg"));
     }
 }

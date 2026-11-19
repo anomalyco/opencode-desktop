@@ -1,12 +1,11 @@
-//! Shell kernel assembly: wires extracted feature crates and native surface descriptors into
-//! `opencode_kernel::Kernel<App>`.
+//! Shell kernel assembly: wires extracted feature crates into `opencode_kernel::Kernel<App>`.
 //!
 //! New Rust features register here via `Feature::register` instead of adding fields to `App` or
 //! editing central dispatch chains in `lib.rs`, `tick.rs`, `shell/input/keys.rs`, or `shell/view/mod.rs`.
 
 use opencode_kernel::{
     AppEnv, AppFeedback, AppOverlays, EscapeLayer, Kernel, KernelBuilder, OverlayEntry,
-    OverlayEvent, OverlayKind, OverlayRegistration, Phase, SurfaceDescriptor, SurfaceKind,
+    OverlayEvent, OverlayKind, OverlayRegistration, Phase,
 };
 
 use crate::{App, Route};
@@ -92,7 +91,6 @@ pub fn build() -> Kernel<App> {
     #[cfg(feature = "office")]
     b.with_feature(&crate::surfaces::office::OfficeFeature);
     b.with_feature(&crate::surfaces::updater::UpdaterFeature);
-    b.with_feature(&crate::surfaces::code_view::CodeViewFeature);
     b.with_feature(&crate::line_comments::AnnotationsFeature);
     b.with_feature(&crate::attachments::ComposerInputFeature);
     b.with_feature(&crate::connect::ConnectFeature);
@@ -181,10 +179,6 @@ pub fn build() -> Kernel<App> {
         },
     ));
     crate::commands::register_shell_commands(&mut b);
-    b.add_surface(
-        SurfaceDescriptor::new("browser", SurfaceKind::Browser, "Browser")
-            .with_multi_instance(true),
-    );
     b.register_slot(&crate::app::VIEW_RUNS)
         .register_slot(&crate::app::OUTPUT_ERRORS)
         .register_slot(&crate::session_catalog::CATALOG)

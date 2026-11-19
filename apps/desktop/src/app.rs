@@ -51,8 +51,8 @@ pub(crate) static VIEW_RUNS: opencode_kernel::Slot<ViewRuns> = opencode_kernel::
 
 #[derive(Default)]
 pub struct App {
-    /// Decoupled shell kernel registries (lifecycle scheduler, typed feature slots, overlays,
-    /// commands, deferred event bus, and native surface catalog).
+    /// Decoupled shell kernel registries (lifecycle scheduler, tracked feature slots, overlays,
+    /// and commands).
     pub kernel: opencode_kernel::Kernel<App>,
     pub source: rune::Tracked<Source>,
     pub(crate) inbox: rune::Tracked<Option<Receiver<Incoming>>>,

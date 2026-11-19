@@ -1,18 +1,15 @@
 //! Lightweight Shell Kernel for Rune apps (`rune-desktop`, Seer, and future hosts).
 //!
-//! Unites six orthogonal decoupling registries so features never add fields to the host `App`
+//! Unites four orthogonal decoupling registries so features never add fields to the host `App`
 //! struct or edit central switchboards:
-//! - [`StateSlots`]: typed per-window feature state storage.
+//! - [`StateSlots`]: tracked per-window feature state storage indexed by static [`Slot`] handles.
 //! - [`OverlayStack`]: explicit state machine for modal/popover/sheet/menu/toast dismissal.
 //! - [`LifecycleScheduler`]: 4-phase tick scheduler plus `setup`, `rest`, `visibility`, and `close` hooks.
 //! - [`CommandRegistry`]: unified palette and `/slash` command registration.
-//! - [`EventBus`]: typed deferred event queue for cross-feature messaging.
-//! - [`SurfaceRegistry`]: native surface provider catalog (`terminal`, `browser`, `office`, `code-view`, ...).
 
 #![forbid(unsafe_code)]
 
 pub mod commands;
-pub mod events;
 pub mod feature;
 pub mod host;
 pub mod overlay;
@@ -22,8 +19,7 @@ pub mod slots;
 use std::fmt;
 
 pub use commands::{CommandEntry, CommandRegistry, CommandTitle};
-pub use events::EventBus;
-pub use feature::{Feature, SurfaceDescriptor, SurfaceKind, SurfaceRegistry};
+pub use feature::Feature;
 pub use host::{AppEnv, AppFeedback, AppOverlays};
 pub use overlay::{
     DEFAULT_DIALOG_Z, EscapeActionFn, EscapeLayer, EscapePredicateFn, OverlayDismissFn,
@@ -40,8 +36,6 @@ pub struct Kernel<S> {
     pub overlay_dispatcher: OverlayDispatcher<S>,
     pub scheduler: LifecycleScheduler<S>,
     pub commands: CommandRegistry<S>,
-    pub events: EventBus,
-    pub surfaces: SurfaceRegistry,
     features: Vec<&'static str>,
 }
 
@@ -60,8 +54,6 @@ impl<S> Kernel<S> {
             overlay_dispatcher: OverlayDispatcher::new(),
             scheduler: LifecycleScheduler::new(),
             commands: CommandRegistry::new(),
-            events: EventBus::new(),
-            surfaces: SurfaceRegistry::new(),
             features: Vec::new(),
         }
     }
@@ -114,8 +106,6 @@ impl<S> fmt::Debug for Kernel<S> {
             .field("overlay_dispatcher", &self.overlay_dispatcher)
             .field("scheduler", &self.scheduler)
             .field("commands", &self.commands)
-            .field("events", &self.events)
-            .field("surfaces", &self.surfaces.len())
             .finish()
     }
 }
@@ -193,12 +183,6 @@ impl<S> KernelBuilder<S> {
     /// Registers a palette or slash command.
     pub fn add_command(&mut self, entry: CommandEntry<S>) -> &mut Self {
         self.kernel.commands.register(entry);
-        self
-    }
-
-    /// Registers a native surface provider descriptor.
-    pub fn add_surface(&mut self, descriptor: SurfaceDescriptor) -> &mut Self {
-        self.kernel.surfaces.register(descriptor);
         self
     }
 
