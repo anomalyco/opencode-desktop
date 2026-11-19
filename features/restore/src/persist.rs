@@ -12,7 +12,7 @@ use opencode_kit::servers::key::Route as Page;
 use opencode_servers::tabs::ClosedTab;
 use opencode_kit::servers::TabKey;
 use serde_json::{Value, json};
-use opencode_ui::composer_mode::Mode;
+use opencode_runtime::composer_mode::Mode;
 
 use crate::state::organize_expanded_sorted;
 use crate::{GLOBAL, RestoreHost, RestoreRoute, doc, draft_doc, hydrate_restore, hydrated, parked, show_draft, undo};

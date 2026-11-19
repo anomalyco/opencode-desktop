@@ -8,8 +8,6 @@
 
 #![forbid(unsafe_code)]
 
-pub mod composer_mode;
-pub mod detail;
 pub mod dialog;
 pub mod keymap;
 pub mod odometer;

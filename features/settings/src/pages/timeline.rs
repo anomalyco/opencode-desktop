@@ -7,7 +7,7 @@ use opencode_i18n::t;
 use opencode_ui::popup::PopupHost;
 use rune::{Color, Drag, El, Key, KeyEvent, Phase, TextStyle, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
-use opencode_ui::detail::{Activity, Category, Detail, PRESETS, Placement, preset_description};
+use opencode_runtime::detail::{Activity, Category, Detail, PRESETS, Placement, preset_description};
 use opencode_ui::palette::{Elevate as _, Pal};
 
 use super::choice;
