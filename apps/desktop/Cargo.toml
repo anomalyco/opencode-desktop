@@ -97,8 +97,6 @@ serde = { version = "1", features = ["derive"] }
 sha2 = "0.10"
 session-view = { path = "../../crates/session-view" }
 terminal = { path = "../../crates/terminal" }
-# The build's identity everywhere; its install, uninstall and update registration on Windows.
-win-install = { path = "../../crates/win-install" }
 
 # Native desktop dependencies and Rune's agent tooling (`--snap`, `--tree`, `--script`, `--html`, ...) in
 # release builds too, as before Rune #834: the harnesses run release builds; `keys-overlay` keeps `--pointer`
@@ -116,6 +114,8 @@ rune = { workspace = true, features = ["native-file-dialog", "metal-backend", "t
 rune-mac.workspace = true
 rune-notify.workspace = true
 ureq = { workspace = true, features = ["rustls"] }
+# The build's identity everywhere; its install, uninstall and update registration on Windows.
+win-install = { path = "../../crates/win-install" }
 
 # Browser (`wasm32`) equivalents used by desktop's own cross-target modules (ureq-web, audio
 # playback, page sign-out, and wasm_js getrandom). `apps/desktop/src/lib.rs` embeds Inter and
