@@ -278,6 +278,9 @@ impl ProjectsHost for App {
     }
 
     fn before_open_project_dialog(&mut self) -> bool {
+        // Carry the palette's focus origin across both Open and Dispatching: closing the palette
+        // returns focus to the composer before the command runs (`palette.ts:210-219`,
+        // `dialog-machine.ts:20-27,167-181,229-253`, `workspaces/selection/picker.tsx:30-37,58-75`).
         let restore_composer = self.composer.focused
             || self.dialogs.switcher.restore_composer()
             || self.composer_ext.pickers.open().is_some();

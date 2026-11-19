@@ -223,6 +223,10 @@ impl ProjectSwitcherHost for App {
     }
 
     fn before_project_switcher_open(&mut self) -> bool {
+        // Carry the palette's focus origin across both Open and Dispatching: cancelling
+        // `NewSessionLocationDialog` returns focus to the composer (`palette.ts:210-219`,
+        // `dialog-machine.ts:20-27,167-181,229-253`, `new-session/location/dialog.tsx:52-64`,
+        // `new-session/screen.tsx:24,41-42`).
         let restore = self.composer.focused
             || self.dialogs.switcher.restore_composer()
             || self.composer_ext.pickers.open().is_some();

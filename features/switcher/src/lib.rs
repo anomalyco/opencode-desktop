@@ -269,8 +269,10 @@ pub enum SwitcherPhase {
         pointer: Option<[f32; 2]>,
     },
     /// Closed while synchronously dispatching a picked command (`Action::Command`), carrying
-    /// whether the composer had focus before the palette opened so dialogs launched by that
-    /// command (Fork, Jump, Open project, Project switcher) hand focus back on dismiss.
+    /// whether the composer had focus before the palette opened so dialogs or palette modes
+    /// launched by that command hand focus back on dismiss (`packages/app/src/shell/commands/palette.ts:210-219`,
+    /// `packages/ui/src/context/dialog-machine.ts:20-27,167-181,229-253`,
+    /// `packages/ui/src/context/dialog.tsx:126-133,246-247,258-287`).
     Dispatching {
         restore_composer: bool,
     },
@@ -428,6 +430,9 @@ pub fn open_mode(host: &mut dyn SwitcherHost, mode: SwitcherMode, return_focus: 
             }
             (true, Some(restore_composer))
         }
+        // Palette commands opening another palette mode (`sessions.search`, `commands.search`,
+        // `file.open`) inherit the closing palette's focus origin (`dialog-machine.ts:20,167-176`,
+        // `palette.ts:210-219`, `titlebar.tsx:512-527`, `shell.tsx:197-207`).
         SwitcherPhase::Dispatching { restore_composer } => (false, Some(restore_composer)),
         SwitcherPhase::Closed => (false, None),
     };

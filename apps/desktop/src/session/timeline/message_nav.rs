@@ -90,6 +90,9 @@ impl MessageNavHost for App {
     }
 
     fn before_jump_open(&mut self) -> bool {
+        // Replacing an open or dispatching palette inherits its focus-return origin
+        // (`packages/ui/src/context/dialog-machine.ts:5-8,166-181`,
+        // `packages/app/src/session/commands/use-session-commands.tsx:286-292`).
         let restore = self.composer.focused || self.dialogs.switcher.restore_composer();
         self.close_fork_dialog(false);
         self.close_picker(false);

@@ -352,7 +352,7 @@ pub fn select_side_tab(host: &mut dyn PanelsHost, key: &str, tx: &mut Tx) {
     let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
     // Switching tabs is always instant (rules.md).
     tx.instant();
-    host.side_mut().menu = SideMenu::Closed;
+    host.side_mut().menu.close_tab_menu();
     // A plugin's field in the tab left behind gives up the keyboard, as the app's own do.
     host.blur_panel_fields();
     host.on_side_tab_selected(key);
@@ -408,7 +408,7 @@ pub fn promote_preview_tab(host: &mut dyn PanelsHost, key: &str) {
 
 pub fn close_side_tab(host: &mut dyn PanelsHost, key: &str, tx: &mut Tx) {
     let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
-    host.side_mut().menu = SideMenu::Closed;
+    host.side_mut().menu.close_tab_menu();
     let reg = resolve_side_region(host);
     let entry = reg.as_ref().and_then(|r| r.entry(key)).cloned();
     if entry.as_ref().is_some_and(|e| !e.tab.can_close()) {

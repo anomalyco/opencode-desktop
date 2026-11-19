@@ -149,14 +149,27 @@ impl SideMenu {
     pub fn close(&mut self) {
         *self = Self::Closed;
     }
+
+    /// Closes only the tab right-click menu, leaving an open `+` launcher dropdown intact
+    /// (`side-region.tsx:502-571`, `deferred-menu-machine.ts:90-97`).
+    pub fn close_tab_menu(&mut self) {
+        if matches!(self, Self::Tab { .. }) {
+            *self = Self::Closed;
+        }
+    }
 }
 
 /// Keyboard focus mode of the side/bottom panel region.
 ///
-/// `Quiet` cannot exist while unfocused: a shortcut pressed in the composer moved the keyboard
-/// here (Open file, New tab, Reopen closed tab), so the selected tab's label rests muted until
-/// the next key or press inside (`closed-tabs.ts:146-153`). A terminal is the exception there
-/// too: its focus comes later.
+/// `Quiet` cannot exist while unfocused: Desktop tracks side focus in one `last` signal updated on
+/// every `focusin`/`pointerdown`/`keydown` (`packages/app/src/runtime/plugin/closed-tabs.ts:146-153,186-193`),
+/// with no muted bit surviving blur. Re-focusing through `toggle()` calls `root.focus()`
+/// (`packages/app/src/runtime/plugin/panels.tsx:461-468`), setting `data-focused`
+/// (`packages/app/src/runtime/plugin/side-region.tsx:108`) and lighting the selected tab
+/// (`packages/ui/src/navigation/tabs/tabs.css:561-582`); `#bottom-panel` is never muted there either.
+/// A shortcut pressed in the composer moves the keyboard here in `Quiet` (Open file, New tab,
+/// Reopen closed tab), so the selected tab's label rests muted until the next key or press inside;
+/// a terminal is the exception because its focus lands later.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum FocusMode {
     #[default]
