@@ -36,12 +36,15 @@ pub fn view<H: ProjectSwitcherHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> [El
     let size = DialogSize::Large;
     let w = size.width(win_w);
     let max_h = size.height(win_h);
+    let Some(open) = host.project_switcher().state.open_state() else {
+        return [el().key("project-switcher-scrim"), el().key("project-switcher")];
+    };
     let q = host.project_switcher().query();
     let list_rows = rows(host);
     let lit = active(host, &list_rows);
-    let (placeholder, step_title) = step_meta(&host.project_switcher().mode);
+    let (placeholder, step_title) = step_meta(&open.mode);
 
-    let leading = if matches!(host.project_switcher().mode, StepMode::Others | StepMode::Servers) {
+    let leading = if matches!(open.mode, StepMode::Others | StepMode::Servers) {
         search_back_shell(p).on_press_tx(|s: &mut H, tx: &mut Tx| super::back(s, tx))
     } else {
         icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted)
@@ -59,13 +62,13 @@ pub fn view<H: ProjectSwitcherHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> [El
         content_h += 32.0;
     }
     if list_rows.is_empty() {
-        let waiting = matches!(host.project_switcher().mode, StepMode::Branches { list: branches::List::Loading(_), .. });
+        let waiting = matches!(open.mode, StepMode::Branches { list: branches::List::Loading(_), .. });
         list = list.child(empty_shell(p, waiting));
         content_h += 120.0;
     }
     let mut shown_other_heading = false;
     for (idx, r) in list_rows.iter().enumerate() {
-        if !q.is_empty() && host.project_switcher().mode == StepMode::Projects && r.section == "Other projects" && !shown_other_heading {
+        if !q.is_empty() && open.mode == StepMode::Projects && r.section == "Other projects" && !shown_other_heading {
             shown_other_heading = true;
             list = list.child(other_heading_shell(p));
             content_h += 32.0;
@@ -197,7 +200,7 @@ fn draw_row<H: ProjectSwitcherHost + 'static>(s: &H, p: &Pal, r: &SwitcherRow, a
     let host: &dyn ProjectSwitcherHost = s;
     let key = r.key.clone();
     let hover = r.key.clone();
-    let multi = !host.project_switcher().servers.is_empty();
+    let multi = !host.project_switcher().servers().is_empty();
     let main = row_main(host, p, r, q, w);
     let line = row_shell(p, r, active, main)
         // Only a moving pointer takes the row (`dialog.tsx:395-399`), so rows the keys scroll

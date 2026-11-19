@@ -39,7 +39,7 @@ pub const SWITCHER_KEYS: &[Trigger] = &[
         key: 'w',
         label: "Drill into lumen worktrees",
         run: |s, tx| {
-            if !s.dialogs.project_switcher.open {
+            if !s.dialogs.project_switcher.is_open() {
                 s.open_project_switcher();
             }
             if let Some(id) = s.projects.iter().find(|p| p.name == "lumen").map(|p| p.id.clone()) {
