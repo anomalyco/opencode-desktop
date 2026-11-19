@@ -115,8 +115,10 @@ impl Wal {
 }
 
 pub(super) enum WalEvent {
-    /// A commit landed at NORMAL/FULL (or an outbox commit before `sync_wal` runs).
+    /// A commit landed at NORMAL.
     Committed { boot: bool },
+    /// A Tier 0 commit landed with `synchronous = FULL`, syncing the entire WAL up to `wal_bytes`.
+    DurableCommitted { boot: bool, wal_bytes: u64 },
     /// An unsynced (`synchronous = OFF`) commit landed; `wal_bytes` is the `-wal` file length.
     UnsyncedCommitted { boot: bool, now: Instant, wal_bytes: u64 },
     /// `PRAGMA wal_checkpoint(PASSIVE)` checkpointed every frame in the WAL (`busy == 0`,
@@ -156,6 +158,12 @@ fn wal_step(seq: &mut Seq, state: &mut Wal, event: WalEvent) -> Effects<WalEffec
             };
             let attempt = seq.next();
             *state = Wal::Dirty { attempt, boot_stale: prev_boot || boot, sync };
+            Effects::one(WalEffect::ArmTimer { attempt, delay_ms: IDLE_CHECKPOINT_MS })
+        }
+        (s, WalEvent::DurableCommitted { boot, wal_bytes }) => {
+            let prev_boot = matches!(s, Wal::Dirty { boot_stale: true, .. });
+            let attempt = seq.next();
+            *state = Wal::Dirty { attempt, boot_stale: prev_boot || boot, sync: WalSync::Synced { base_bytes: wal_bytes } };
             Effects::one(WalEffect::ArmTimer { attempt, delay_ms: IDLE_CHECKPOINT_MS })
         }
         (s, WalEvent::UnsyncedCommitted { boot, now, wal_bytes }) => {
@@ -244,7 +252,8 @@ impl Writer {
         self.conn.execute_batch(SYNCED).ok();
         match result {
             Ok(()) => {
-                self.wal_event(WalEvent::Committed { boot });
+                let wal_bytes = self.wal_file.len(&self.conn);
+                self.wal_event(WalEvent::DurableCommitted { boot, wal_bytes });
                 Ok(())
             }
             Err(e) => Err(StorageError(e.to_string())),
