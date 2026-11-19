@@ -147,10 +147,18 @@ pub(super) fn subscribe(wake: rune::Waker) -> Option<Arc<Change>> {
             .name("network-change".into())
             .spawn(|| {
                 let (mut fd, mut token) = (-1, 0);
-                // Both out-pointers are valid until registration returns. libnotify owns fd until cancel.
+                // SAFETY: `name` is a static NUL-terminated C string and `&mut fd` / `&mut token`
+                // are valid writable `i32` out-pointers; libnotify owns `fd` until `notify_cancel`.
                 if unsafe { notify_register_file_descriptor(c"com.apple.system.config.network_change".as_ptr(), &mut fd, 0, &mut token) } != 0 {
                     return;
                 }
+                if fd < 0 {
+                    // SAFETY: `notify_register_file_descriptor` succeeded and initialized `token`.
+                    unsafe { notify_cancel(token) };
+                    return;
+                }
+                // SAFETY: `fd` is a valid non-negative descriptor opened by libnotify and kept live
+                // until `notify_cancel(token)` below; `ManuallyDrop` ensures `File` never closes it.
                 let mut file = std::mem::ManuallyDrop::new(unsafe { std::fs::File::from_raw_fd(fd) });
                 while file.read_exact(&mut [0; 4]).is_ok() {
                     opencode_kit::client::Server::wake_reconnects();
@@ -165,6 +173,8 @@ pub(super) fn subscribe(wake: rune::Waker) -> Option<Arc<Change>> {
                         }
                     });
                 }
+                // SAFETY: `token` was created by `notify_register_file_descriptor` above, `file`
+                // (wrapped in `ManuallyDrop`) is no longer used, and `notify_cancel` closes `fd` once.
                 unsafe { notify_cancel(token) };
             })
             .is_ok()

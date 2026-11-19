@@ -452,9 +452,12 @@ impl Killer {
             windows_sys::Win32::System::Threading::TerminateProcess(self.handle as _, 1);
         }
         #[cfg(unix)]
-        // SAFETY: the waiter hasn't reaped the child while this is reachable, so the pid is its.
-        unsafe {
-            libc::kill(self.pid, libc::SIGTERM);
+        if self.pid > 0 {
+            // SAFETY: `self.pid > 0` targets a single process (never 0 or a negative process group)
+            // and `libc::kill` has no memory preconditions.
+            unsafe {
+                libc::kill(self.pid, libc::SIGTERM);
+            }
         }
     }
 }

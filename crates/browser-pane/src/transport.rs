@@ -345,9 +345,14 @@ mod proc {
 
     #[cfg(unix)]
     pub(super) fn kill(pid: u32) {
-        // SAFETY: a plain signal to the engine's pid.
-        unsafe {
-            libc::kill(pid as libc::pid_t, libc::SIGKILL);
+        if let Ok(pid) = libc::pid_t::try_from(pid)
+            && pid > 0
+        {
+            // SAFETY: `pid > 0` targets a single process (never 0 or a negative process group) and
+            // `libc::kill` has no memory preconditions.
+            unsafe {
+                libc::kill(pid, libc::SIGKILL);
+            }
         }
     }
 }

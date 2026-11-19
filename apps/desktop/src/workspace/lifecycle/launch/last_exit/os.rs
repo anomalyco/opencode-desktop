@@ -79,6 +79,10 @@ static MAIN_STACK_BOUNDS: [std::sync::atomic::AtomicUsize; 2] = [
 
 #[cfg(unix)]
 pub(super) fn reserve_main_stack_guarantee() {
+    // SAFETY: called once on the main thread from `init_hooks`; `cur` and `attr` are
+    // zero-initialisable C POD structs, `ALT_STACK` is `'static` storage never touched by Rust
+    // code (used only by the kernel as this thread's alternate signal stack), and `attr` is
+    // destroyed whenever `pthread_getattr_np` succeeds.
     unsafe {
         let mut cur: libc::stack_t = core::mem::zeroed();
         if libc::sigaltstack(core::ptr::null(), &raw mut cur) != 0
@@ -167,6 +171,9 @@ const FATAL_SIGS: [libc::c_int; 6] = [
 
 #[cfg(unix)]
 pub(super) fn install_os_hooks() {
+    // SAFETY: `act` is a zero-initialisable `sigaction` struct initialized with `on_fatal_signal`
+    // (whose `extern "C"` signature matches `SA_SIGINFO` and which uses only lock-free atomics,
+    // raw POSIX syscalls, and `_exit`); `sigemptyset` and `sigaction` receive valid stack pointers.
     unsafe {
         for &sig in &FATAL_SIGS {
             let mut act: libc::sigaction = core::mem::zeroed();
@@ -183,6 +190,9 @@ fn is_stack_overflow_addr(addr: usize) -> bool {
     if addr < 4096 {
         return false;
     }
+    // SAFETY: `pthread_self` returns the calling thread's live `pthread_t`; on Darwin
+    // `pthread_get_stackaddr_np` and `pthread_get_stacksize_np` read fields of that thread's
+    // descriptor with no locks or allocation.
     unsafe {
         let th = libc::pthread_self();
         let high = libc::pthread_get_stackaddr_np(th) as usize;
@@ -211,10 +221,14 @@ fn siginfo_fault_addr(info: *mut libc::siginfo_t) -> usize {
         return 0;
     }
     #[cfg(target_os = "linux")]
+    // SAFETY: private helper called only from `on_fatal_signal` (`SA_SIGINFO`) with the kernel's
+    // `siginfo_t` pointer, checked non-null above; `si_addr` reads a POD pointer field.
     unsafe {
         (*info).si_addr() as usize
     }
     #[cfg(not(target_os = "linux"))]
+    // SAFETY: private helper called only from `on_fatal_signal` (`SA_SIGINFO`) with the kernel's
+    // `siginfo_t` pointer, checked non-null above.
     unsafe {
         (*info).si_addr as usize
     }
@@ -241,6 +255,7 @@ extern "C" fn on_fatal_signal(
         record_fault(tag, FLAG_OS_EXCEPTION, sig as u32, 0, avail, true);
     }
     // End at once via `_exit` rather than re-raising into CrashReporter or unwinding on an exhausted stack.
+    // SAFETY: `_exit` is async-signal-safe and immediately terminates the process with no memory preconditions.
     unsafe {
         libc::_exit(128 + sig);
     }
@@ -401,6 +416,8 @@ pub(super) fn open_raw_emergency() -> isize {
 #[cfg(unix)]
 pub(super) fn open_raw_emergency() -> isize {
     let Some(paths) = PATHS.get() else { return -1 };
+    // SAFETY: `paths.record_c` is a `'static` NUL-terminated `CString` in `PATHS`; `O_RDWR | O_CREAT`
+    // passes a valid `c_int` mode (`0o600`), and `open` is async-signal-safe.
     let fd = unsafe { libc::open(paths.record_c.as_ptr(), libc::O_RDWR | libc::O_CREAT, 0o600) };
     fd as isize
 }
@@ -420,6 +437,8 @@ pub(super) fn read_raw(fd: isize, buf: &mut [u8; RECORD_BYTES]) -> bool {
 
 #[cfg(unix)]
 pub(super) fn read_raw(fd: isize, buf: &mut [u8; RECORD_BYTES]) -> bool {
+    // SAFETY: `fd` is an open file descriptor from `open_raw_emergency`, `buf` is valid writable
+    // storage for `RECORD_BYTES` bytes, and `pread` is async-signal-safe.
     let got = unsafe { libc::pread(fd as libc::c_int, buf.as_mut_ptr().cast(), RECORD_BYTES, 0) };
     got == RECORD_BYTES as isize
 }
@@ -434,6 +453,8 @@ pub(super) fn close_raw(fd: isize) {
 
 #[cfg(unix)]
 pub(super) fn close_raw(fd: isize) {
+    // SAFETY: called once on a temporary file descriptor returned by `open_raw_emergency`; `close`
+    // is async-signal-safe.
     unsafe {
         let _ = libc::close(fd as libc::c_int);
     }
@@ -477,6 +498,9 @@ pub(super) fn write_skip_sentinel(tag: u8, session_hash: u64) {
     buf[0..4].copy_from_slice(&SKIP_MAGIC.to_le_bytes());
     buf[4] = tag;
     buf[8..16].copy_from_slice(&session_hash.to_le_bytes());
+    // SAFETY: `paths.skip_c` is a `'static` NUL-terminated `CString` in `PATHS`, `buf` holds
+    // `SKIP_BYTES` initialized bytes, `fd` is checked `>= 0` before writing and closed once, and
+    // `open`/`write`/`close` are async-signal-safe.
     unsafe {
         let fd = libc::open(paths.skip_c.as_ptr(), libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC, 0o600);
         if fd >= 0 {
@@ -513,6 +537,9 @@ pub(super) fn write_raw(fd: isize, buf: &[u8; RECORD_BYTES]) {
     if fd < 0 {
         return;
     }
+    // SAFETY: `fd` is checked `>= 0` above and is an open descriptor owned by `RECORD_FD` or the
+    // current emergency call; `buf` holds `RECORD_BYTES` initialized bytes and `pwrite` is
+    // async-signal-safe.
     unsafe {
         let _ = libc::pwrite(fd as libc::c_int, buf.as_ptr().cast(), RECORD_BYTES, 0);
     }
@@ -552,24 +579,10 @@ pub(super) fn raise_access_violation() {
             core::ptr::null(),
         );
     }
+    // SAFETY: debug-only crash drill raises `SIGSEGV` on the current thread to exercise
+    // `on_fatal_signal` and terminate the process without dereferencing unreadable memory.
     #[cfg(unix)]
     unsafe {
-        #[cfg(target_os = "macos")]
-        const ANON: libc::c_int = libc::MAP_ANON;
-        #[cfg(not(target_os = "macos"))]
-        const ANON: libc::c_int = libc::MAP_ANONYMOUS;
-        let page = libc::mmap(
-            core::ptr::null_mut(),
-            262_144,
-            libc::PROT_NONE,
-            libc::MAP_PRIVATE | ANON,
-            -1,
-            0,
-        );
-        if page != libc::MAP_FAILED {
-            let _ = core::ptr::read_volatile(page.cast::<u8>().add(131_072));
-        } else {
-            libc::abort();
-        }
+        let _ = libc::raise(libc::SIGSEGV);
     }
 }
