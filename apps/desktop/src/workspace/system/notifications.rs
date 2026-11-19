@@ -7,7 +7,7 @@ pub use opencode_feature_notifications::{
     poll, quitting, seen,
 };
 
-use opencode_kernel::{Feature, KernelBuilder, Phase, Slot};
+use opencode_kernel::{Feature, KernelBuilder, Slot};
 use opencode_kit::client::Server;
 use opencode_kit::servers::ServerKey;
 use rune::Tx;
@@ -172,9 +172,8 @@ impl Feature<App> for NotificationsFeature {
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
         builder.register_slot(&NOTIFIER);
-        builder.add_system_ordered(
-            Phase::Ingest,
-            crate::tick::order::ingest::NOTIFICATIONS,
+        builder.schedule(
+            crate::tick::stage::INGEST_DISPATCH,
             "notifications.poll",
             |s, _, tx| poll(s, tx),
         );

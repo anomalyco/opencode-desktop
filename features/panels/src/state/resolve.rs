@@ -28,7 +28,20 @@ pub fn resolve_side_region(host: &dyn PanelsHost) -> Option<Rc<ResolvedRegion>> 
         }
     }
     let (region, read) = rune::tracked_reads(|| resolve_side_region_now(host).map(Rc::new));
-    *host.side().resolved.borrow_mut() = Some((plugins, read, region.clone()));
+    let mut cache = host.side().resolved.borrow_mut();
+    let keys_changed = match (cache.as_ref().and_then(|(_, _, r)| r.as_deref()), region.as_deref()) {
+        (Some(prev), Some(next)) => {
+            prev.session_id != next.session_id
+                || prev.entries.len() != next.entries.len()
+                || prev.entries.iter().zip(&next.entries).any(|(a, b)| a.key != b.key)
+        }
+        (None, None) => false,
+        _ => true,
+    };
+    *cache = Some((plugins, read, region.clone()));
+    if keys_changed {
+        host.side().resolved_gen.set(host.side().resolved_gen.get().wrapping_add(1));
+    }
     region
 }
 

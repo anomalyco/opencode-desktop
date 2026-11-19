@@ -3,7 +3,7 @@
 
 pub use opencode_feature_workspace_tools::new_worktree::*;
 
-use opencode_kernel::{CommandEntry, Feature, KernelBuilder, Phase, Slot};
+use opencode_kernel::{CommandEntry, Feature, KernelBuilder, Slot};
 use opencode_kit::client::{Prompt, Request, Write};
 use opencode_kit::model::Project;
 use rune::{El, KeyEvent, Tx};
@@ -12,7 +12,7 @@ use session_view::palette::Pal;
 use crate::keymap::Bind;
 use crate::{App, Route, Source};
 
-static NEW_WORKTREE: Slot<NewWorktree> = Slot::new();
+pub(crate) static NEW_WORKTREE: Slot<NewWorktree> = Slot::new();
 
 impl NewWorktreeHost for App {
     fn new_worktree(&self) -> &NewWorktree {
@@ -261,23 +261,23 @@ impl Feature<App> for WorkspaceToolsFeature {
             s.setup_rune_mcp(waker);
             rune::marks::mark("mcp.setup");
         });
-        builder.add_system_ordered(
-            Phase::Derive,
-            crate::tick::order::derive::HOME_SEARCH,
+        builder.schedule(
+            crate::tick::stage::DERIVE_SEARCH,
             "workspace_tools.home_search",
             |s, _, tx| s.poll_home_search(tx),
         );
-        builder.add_system_ordered(
-            Phase::Derive,
-            crate::tick::order::derive::BRANCH_PICKER,
+        builder.schedule(
+            crate::tick::stage::DERIVE_COMPOSER,
             "workspace_tools.branch_picker",
             |s, now, tx| s.poll_branch_picker(now, tx),
         );
-        builder.add_system_ordered(
-            Phase::React,
-            crate::tick::order::react::RUNE_MCP,
-            "workspace_tools.rune_mcp",
-            |s, _, tx| crate::rune_mcp::poll(s, tx),
-        );
+        // Known: reads `mcp_tools_generation` updated by `plugin_host.poll` (`contrib::sync`).
+        builder
+            .schedule(
+                crate::tick::stage::REACT_PANELS,
+                "workspace_tools.rune_mcp",
+                |s, _, tx| crate::rune_mcp::poll(s, tx),
+            )
+            .after("plugin_host.poll");
     }
 }

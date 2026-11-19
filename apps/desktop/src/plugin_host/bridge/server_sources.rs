@@ -45,7 +45,7 @@ pub fn pending_sources() -> Vec<(String, String)> {
     REGISTRY.with_borrow(Registry::pending_sources)
 }
 
-/// A hash of every source's list, for `Servers.Changed`.
+/// A hash of every source's list and display order, for `Servers.Changed` and Home sync.
 pub fn version() -> u64 {
     REGISTRY.with_borrow(Registry::version)
 }

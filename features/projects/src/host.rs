@@ -232,6 +232,12 @@ pub trait ProjectsHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlays {
     fn server_sources_hydrated(&self) -> bool {
         true
     }
+    /// Stamp of every host input [`crate::home::poll`] reads when syncing Home's server list
+    /// (server registry, runtime listing, health, locale, active/parked projects, sessions,
+    /// recent activity, launch connection phases, and worktrees).
+    fn home_sync_stamp(&self) -> u64 {
+        0
+    }
     /// Whether this window may send mutating writes to the live server.
     fn can_write(&self) -> bool {
         self.is_live() && !self.is_stage()

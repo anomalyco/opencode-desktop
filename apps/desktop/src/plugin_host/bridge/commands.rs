@@ -221,7 +221,9 @@ const TOOL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 /// deadline; true when one was answered.
 pub fn expire_calls(app: &mut App, tx: &mut Tx) -> bool {
     let now = rune::time::Instant::now();
-    let calls = app.plugins.mcp_calls.get_mut();
+    // Borrowed through `&App`: reaching the cell through `&mut` would mark the plugin host changed
+    // on every poll, and stamps and views that read it would rerun every frame.
+    let mut calls = app.plugins.mcp_calls.borrow_mut();
     let ids: Vec<u64> = calls.iter().filter(|(_, (_, at))| *at <= now).map(|(id, _)| *id).collect();
     let late: Vec<McpCall> = ids.into_iter().filter_map(|id| calls.remove(&id)).map(|(call, _)| call).collect();
     if let Some(next) = calls.values().map(|(_, at)| *at).min() {

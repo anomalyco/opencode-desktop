@@ -6,7 +6,7 @@ mod stories;
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration, Phase};
+use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration};
 use opencode_kit::integration::{Integration, McpServer};
 use opencode_kit::model::{Project, SessionInfo};
 use opencode_kit::servers::ServerKey;
@@ -758,15 +758,16 @@ impl Feature<App> for SettingsFeature {
                     pages::providers::step_accounts(s, pages::providers::Event::Cancel, tx);
                 }),
         );
-        use crate::tick::order::{derive, ingest, react};
-        builder.add_system_ordered(Phase::Ingest, ingest::SETTINGS_SEARCH, "settings.search", |s, _, tx| search::poll(s, tx));
-        builder.add_system_ordered(Phase::Ingest, ingest::SETTINGS_SERVERS_UNAVAILABLE, "settings.servers_unavailable", |s, _, tx| {
+        use crate::tick::stage;
+        builder.schedule(stage::INGEST_LOCAL, "settings.search", |s, _, tx| search::poll(s, tx));
+        builder.schedule(stage::INGEST_LOCAL, "settings.servers_unavailable", |s, _, tx| {
             pages::servers::unavailable::poll(s, tx);
             false
         });
-        builder.add_system_ordered(Phase::Derive, derive::SETTINGS_WORKTREES, "settings.worktrees", |s, _, tx| pages::worktrees::poll(s, tx));
-        builder.add_system_ordered(Phase::React, react::SETTINGS_PROJECT, "settings.project", |s, _, tx| pages::project::poll(s, tx));
-        builder.add_system_ordered(Phase::React, react::SETTINGS_ABOUT, "settings.about", |s, now, tx| pages::about::poll(s, now, tx));
-        builder.add_system_ordered(Phase::React, react::SETTINGS_PROJECTS, "settings.projects", |s, _, _| pages::projects::poll(s));
+        builder.schedule(stage::DERIVE_TIMELINE, "settings.worktrees", |s, _, tx| pages::worktrees::poll(s, tx));
+        builder.schedule(stage::REACT_STATUS, "settings.project", |s, _, tx| pages::project::poll(s, tx));
+        builder.schedule(stage::REACT_STATUS, "settings.about", |s, now, tx| pages::about::poll(s, now, tx));
+        // Precaution: shares `SETTINGS_PAGES.project` with `settings.project`.
+        builder.schedule(stage::REACT_STATUS, "settings.projects", |s, _, _| pages::projects::poll(s)).after("settings.project");
     }
 }

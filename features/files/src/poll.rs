@@ -20,8 +20,10 @@ pub fn poll_reply_links(host: &dyn FilesHost, tx: &mut Tx) -> bool {
 /// Lands the folder listings, file loads and finds the panel asked for.
 pub fn poll_files(host: &mut dyn FilesHost, tx: &mut Tx) -> bool {
     let mut changed = false;
-    for ws in host.files_mut().sessions.values_mut() {
-        changed |= ws.paths.poll();
+    if host.files().sessions.values().any(|ws| ws.paths.is_building()) {
+        for ws in host.files_mut().sessions.values_mut() {
+            changed |= ws.paths.poll();
+        }
     }
     if let Some((session_id, rel_dir, entries)) = host.files().dir_fetch.take() {
         tx.instant();

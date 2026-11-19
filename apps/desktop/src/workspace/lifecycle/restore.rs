@@ -705,8 +705,38 @@ impl Feature<App> for RestoreFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        use crate::tick::stage;
         builder
             .register_slot(&RESTORE)
             .register_slot(&KEPT_PLACES);
+        builder.schedule(stage::INGEST_HYDRATE, "restore.places", |s, now, tx| {
+            s.poll_places(now, tx)
+        });
+        // Precaution: both `restore.places` and `restore.undo` write to restore state and storage.
+        builder
+            .schedule(stage::INGEST_HYDRATE, "restore.undo", |s, now, tx| {
+                s.poll_undo(now, tx);
+                false
+            })
+            .after("restore.places");
+        // Each draft keeps its own composer in any window, saved or not (`restore::show_draft`).
+        // Known: runs after `status_toast.poll` (`REACT_STATUS`) and `narrow.poll` settle `route`,
+        // and after `composer_input.attach` (`REACT_PANELS`).
+        builder
+            .schedule(stage::REACT_SHELL, "restore.show_draft", |s, _, _| s.show_draft())
+            .after("narrow.poll");
+        builder.schedule(stage::PERSIST_FLUSH, "restore.persist", |s, _, tx| {
+            if !s.persists() {
+                return false;
+            }
+            let mut changed = false;
+            changed |= s.tell_storage_notice();
+            changed |= s.hydrate_restore();
+            changed |= crate::crash_notice::poll(s);
+            s.poll_restore();
+            s.poll_preview(false);
+            changed |= s.poll_copies(tx);
+            changed
+        });
     }
 }

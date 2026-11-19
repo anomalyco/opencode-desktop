@@ -4,7 +4,7 @@ pub use opencode_feature_subagents::*;
 
 use std::collections::HashSet;
 
-use opencode_kernel::{CommandEntry, EscapeLayer, Feature, KernelBuilder, Phase, Slot};
+use opencode_kernel::{CommandEntry, EscapeLayer, Feature, KernelBuilder, Slot};
 use opencode_kit::client::{Prompt, Write};
 use opencode_kit::model::{SessionInfo, Transcript};
 use rune::Tx;
@@ -200,12 +200,9 @@ impl Feature<App> for SubagentsFeature {
                 shells::set_open(s, false);
             },
         ));
-        builder.add_system_ordered(
-            Phase::Derive,
-            crate::tick::order::derive::SUBAGENTS_SHELLS,
-            "subagents.shells",
-            |s, _, tx| shells::poll(s, tx),
-        );
+        builder.schedule(crate::tick::stage::DERIVE_TIMELINE, "subagents.shells", |s, _, tx| {
+            shells::poll(s, tx)
+        });
     }
 }
 

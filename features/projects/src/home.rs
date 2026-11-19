@@ -13,6 +13,7 @@
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
+use std::hash::{DefaultHasher, Hash, Hasher};
 
 use opencode_kit::model::Project;
 use opencode_kit::servers::ServerKey;
@@ -131,6 +132,8 @@ pub struct Home {
     pub servers: Vec<ServerView>,
     /// The store's version the machine last read.
     seen: u64,
+    /// Stamp of every host and store input as of the last [`sync`]; `None` before the first sync.
+    sync_stamp: Option<u64>,
 }
 
 /// What every window shares, saved in Desktop's global keys.
@@ -179,7 +182,8 @@ fn ensure_hydrated_ops() {
     let loaded = parse_store(storage::read_json);
     STORE.with_borrow_mut(|st| {
         if !st.hydrated {
-            *st = loaded;
+            let version = st.version.wrapping_add(1);
+            *st = Store { version, ..loaded };
         }
     });
 }
@@ -195,14 +199,18 @@ fn ensure_hydrated_host(host: &dyn ProjectsHost) {
     };
     STORE.with_borrow_mut(|st| {
         if !st.hydrated {
-            *st = loaded;
+            let version = st.version.wrapping_add(1);
+            *st = Store { version, ..loaded };
         }
     });
 }
 
 /// Clears the hydration flag so the next read re-loads Home's global store from storage.
 pub fn reload_store() {
-    STORE.with_borrow_mut(|st| st.hydrated = false);
+    STORE.with_borrow_mut(|st| {
+        st.hydrated = false;
+        st.version = st.version.wrapping_add(1);
+    });
 }
 
 type SerializedStore = (Value, Map<String, Value>, Map<String, Value>);
@@ -421,6 +429,18 @@ fn follow(host: &mut dyn ProjectsHost, before: Option<ServerKey>) {
     }
 }
 
+/// Stamp of every host and Home-store input that [`sync`] reads.
+fn sync_stamp(host: &dyn ProjectsHost) -> u64 {
+    let mut h = DefaultHasher::new();
+    host.home_sync_stamp().hash(&mut h);
+    STORE.with_borrow(|st| (st.hydrated, st.version).hash(&mut h));
+    match &host.home_state().adding {
+        Adding::Idle => 0u64.hash(&mut h),
+        Adding::Waiting { attempt, .. } => (1u64, attempt.0).hash(&mut h),
+    }
+    h.finish()
+}
+
 /// The servers Home lists, read from each (`env`), and the machine told.
 fn sync(host: &mut dyn ProjectsHost) {
     ensure_hydrated_host(host);
@@ -481,6 +501,8 @@ fn sync(host: &mut dyn ProjectsHost) {
     let fx = step(host, machine::Event::EnvSynced(env));
     run(host, fx, &mut Tx::default());
     added(host);
+    let stamp = sync_stamp(host);
+    host.home_state_mut().sync_stamp = Some(stamp);
 }
 
 /// The server's first reads landed (or there's no server to read: a fixture).
@@ -533,10 +555,9 @@ fn added(host: &mut dyn ProjectsHost) {
     run(host, fx, &mut Tx::default());
 }
 
-/// Each poll: the servers' latest state reaches the selection, and while Home shows, its list's
-/// phase follows the focused server. True when what Home shows changed.
-/// `fresh`: the app's state may have moved since the last poll, so Home's servers are read again.
-pub fn poll(host: &mut dyn ProjectsHost, fresh: bool, tx: &mut Tx) -> bool {
+/// Each poll: the servers' latest state reaches the selection whenever any Home input moved, and
+/// while Home shows, its list's phase follows the focused server. True when what Home shows changed.
+pub fn poll(host: &mut dyn ProjectsHost, tx: &mut Tx) -> bool {
     let landed = landing(host, tx);
     let snapshot = |h: &dyn ProjectsHost| {
         (
@@ -551,7 +572,7 @@ pub fn poll(host: &mut dyn ProjectsHost, fresh: bool, tx: &mut Tx) -> bool {
     };
     let before = snapshot(host);
     let closed = remote_picker::poll(host, tx);
-    if fresh || closed {
+    if host.home_state().sync_stamp != Some(sync_stamp(host)) || closed {
         sync(host);
     }
     let shown = host.is_home_route() && !host.settings_open();

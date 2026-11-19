@@ -117,6 +117,67 @@ impl PanelsHost for App {
         crate::plugin_host::surfaces_version(self)
     }
 
+    fn panel_tabs_stamp(&self) -> u64 {
+        use rune::Tracked;
+        let slots = &self.kernel.slots;
+        let mut h = DefaultHasher::new();
+        self.active_session_id().hash(&mut h);
+        crate::servers::runtime::active(self).hash(&mut h);
+        let server_base = match Tracked::untracked(&self.source) {
+            crate::Source::Live { server, allow_send, .. } => {
+                (true, server.base.as_str(), server.is_local(), *allow_send).hash(&mut h);
+                server.base.as_str()
+            }
+            crate::Source::Fixture => {
+                (false, "", false, false).hash(&mut h);
+                "fixture"
+            }
+        };
+        if let Some(sid) = self.active_session_id() {
+            let wk = crate::terminal::workspace_key(server_base, sid);
+            match slots.untracked(&crate::terminal::TERMINAL).workspaces.get(&wk) {
+                Some(ws) => {
+                    (1u8, &ws.active, &ws.failure, ws.tabs.len()).hash(&mut h);
+                    ws.tabs.iter().for_each(|t| (&t.id, &t.title, t.title_number).hash(&mut h));
+                }
+                None => 0u8.hash(&mut h),
+            }
+        }
+        let pickers = Tracked::untracked(&self.composer_ext.pickers);
+        (
+            crate::plugin_host::surfaces_version(self),
+            opencode_i18n::I18N.locale(),
+            crate::plugin_host::services::servers_version(self),
+            slots.untracked(&crate::updater::UPDATER).revision(),
+            pickers.models.len(),
+            pickers.limits.len(),
+            pickers.paid.len(),
+        )
+            .hash(&mut h);
+        [
+            (slots.cell_id(&SIDE), slots.version(&SIDE)),
+            (Tracked::id(&self.workspace_panes.browser), Tracked::version(&self.workspace_panes.browser)),
+            (slots.cell_id(&crate::files::FILES), slots.version(&crate::files::FILES)),
+            (slots.cell_id(&crate::review::REVIEW), slots.version(&crate::review::REVIEW)),
+            (slots.cell_id(&crate::line_comments::LINE_COMMENTS), slots.version(&crate::line_comments::LINE_COMMENTS)),
+            (slots.cell_id(&crate::new_worktree::NEW_WORKTREE), slots.version(&crate::new_worktree::NEW_WORKTREE)),
+            (Tracked::id(&self.diag.debug), Tracked::version(&self.diag.debug)),
+            (Tracked::id(&self.sessions), Tracked::version(&self.sessions)),
+            (Tracked::id(&self.projects), Tracked::version(&self.projects)),
+            (Tracked::id(&self.running), Tracked::version(&self.running)),
+            (Tracked::id(&self.inboxes), Tracked::version(&self.inboxes)),
+            (Tracked::id(&self.context_windows), Tracked::version(&self.context_windows)),
+            (Tracked::id(&self.transcripts), Tracked::version(&self.transcripts)),
+            (Tracked::id(&self.settings), Tracked::version(&self.settings)),
+            (Tracked::id(&self.plugins), Tracked::version(&self.plugins)),
+            (Tracked::id(&self.layout), Tracked::version(&self.layout)),
+            (Tracked::id(&self.workspace_panes.panel_sidebar), Tracked::version(&self.workspace_panes.panel_sidebar)),
+            (Tracked::id(&self.default_dir), Tracked::version(&self.default_dir)),
+        ]
+            .hash(&mut h);
+        h.finish()
+    }
+
     fn panel_providers(&self) -> Vec<PanelRegistration> {
         crate::plugin_host::panels::providers(self)
     }
@@ -175,14 +236,6 @@ impl PanelsHost for App {
 
     fn wake_panel_launchers(&mut self) -> bool {
         crate::plugin_host::dormant::wake_launchers(self)
-    }
-
-    fn poll_native_panels(&mut self, tx: &mut Tx) -> bool {
-        crate::plugin_host::native::poll(self, tx)
-    }
-
-    fn poll_plugins(&mut self, fresh: bool, tx: &mut Tx) -> bool {
-        crate::plugin_host::poll(self, fresh, tx)
     }
 
     fn handle_panel_ime(&mut self, ime: &Ime) -> bool {
@@ -384,8 +437,19 @@ impl App {
         closing_side_entry(self, reg, pane)
     }
 
-    pub fn poll_panels(&mut self, fresh: bool, tx: &mut Tx) -> bool {
-        poll_panels(self, fresh, tx)
+    pub fn poll_panels(&mut self, tx: &mut Tx) -> bool {
+        poll_panels(self, tx)
+    }
+
+    pub(crate) fn poll_plugins(&mut self, tx: &mut Tx) -> bool {
+        let stamp = plugin_watched_stamp(self);
+        let watched_changed = {
+            let seen = &self.kernel.slots.untracked(&PLUGIN_WATCHED_STAMP).0;
+            let changed = seen.get() != Some(stamp);
+            seen.set(Some(stamp));
+            changed
+        };
+        crate::plugin_host::poll(self, watched_changed, tx)
     }
 
     pub fn panels_ime(&mut self, ime: &Ime) -> bool {
@@ -441,6 +505,73 @@ impl App {
     }
 }
 
+/// Last observed stamp of every host input read by `plugin_host::services::watch::fire_watched`.
+#[derive(Default)]
+struct PluginWatchedStamp(std::cell::Cell<Option<u64>>);
+
+static PLUGIN_WATCHED_STAMP: Slot<PluginWatchedStamp> = Slot::new();
+
+/// Stamp of every host input watched by Luau plugin signals (`plugin_host::services::watch`):
+/// `Sessions.Changed`, `Sessions.RoutedChanged`, `Browser.Changed`, `Models.Changed`,
+/// `Theme.Changed`, `I18n.Changed`, `App.LocaleChanged`, `Server.Connected`, `Servers.Changed`,
+/// `ctx.FocusChanged`, `Updater.StateChanged`, `editor.*.{Changed,FocusChanged}`,
+/// `Store.*.Changed`, `Diff.*.Changed`, and `Contracts.*.Changed`.
+fn plugin_watched_stamp(app: &App) -> u64 {
+    use rune::Tracked;
+    let stamp = |cell_id: u32, cell_ver: u64| (cell_id, cell_ver);
+    let slots = &app.kernel.slots;
+    let mut h = DefaultHasher::new();
+    crate::servers::runtime::active(app).hash(&mut h);
+    [
+        stamp(Tracked::id(&app.sessions), Tracked::version(&app.sessions)),
+        stamp(Tracked::id(&app.projects), Tracked::version(&app.projects)),
+        stamp(Tracked::id(&app.running), Tracked::version(&app.running)),
+        stamp(Tracked::id(&app.inboxes), Tracked::version(&app.inboxes)),
+        stamp(Tracked::id(&app.context_windows), Tracked::version(&app.context_windows)),
+        stamp(Tracked::id(&app.transcripts), Tracked::version(&app.transcripts)),
+        stamp(Tracked::id(&app.route), Tracked::version(&app.route)),
+        stamp(Tracked::id(&app.workspace_panes.browser), Tracked::version(&app.workspace_panes.browser)),
+        stamp(slots.cell_id(&crate::review::REVIEW), slots.version(&crate::review::REVIEW)),
+        stamp(Tracked::id(&app.services.server_links), Tracked::version(&app.services.server_links)),
+        stamp(Tracked::id(&app.plugins), Tracked::version(&app.plugins)),
+    ]
+        .hash(&mut h);
+    let pickers = Tracked::untracked(&app.composer_ext.pickers);
+    (pickers.models.len(), pickers.limits.len(), pickers.paid.len()).hash(&mut h);
+    match Tracked::untracked(&app.source) {
+        crate::Source::Live { server, .. } => (true, server.base.as_str()).hash(&mut h),
+        crate::Source::Fixture => (false, "").hash(&mut h),
+    }
+    let p = crate::palette::pal(app.plugins.dark.get());
+    (
+        p.theme,
+        p.generation,
+        p.dark,
+        opencode_i18n::I18N.locale(),
+        crate::plugin_host::services::servers_version(app),
+        app.plugins.window_blurred.get(),
+        slots.untracked(&crate::updater::UPDATER).revision(),
+        crate::plugin_host::epoch(),
+    )
+        .hash(&mut h);
+    // Editor focus can change through interior mutability (`editors::{focus,blur}`) before
+    // `requests::carry_out` bumps the plugin epoch; XOR makes the hash order-independent.
+    let mut editor_focus = 0u64;
+    for (key, edit) in app.plugins.editors.borrow().iter() {
+        let mut eh = DefaultHasher::new();
+        (key, edit.focused).hash(&mut eh);
+        editor_focus ^= eh.finish();
+    }
+    editor_focus.hash(&mut h);
+    // Lazily created signals (`Store`, `Contracts`, `editor`, `Browser.Changed`) register via
+    // `RefCell` without bumping `epoch()`; hashing each plugin's signal count ensures
+    // `fire_watched` baselines new signals before their first real mutation arrives.
+    for p in &app.plugins.list {
+        (p.half.id.as_ref(), p.half.signals.borrow().len()).hash(&mut h);
+    }
+    h.finish()
+}
+
 /// Kernel feature registration for the session side, split, and bottom panels engine.
 pub struct PanelsFeature;
 
@@ -450,7 +581,9 @@ impl Feature<App> for PanelsFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
-        builder.register_slot(&SIDE);
+        builder
+            .register_slot(&SIDE)
+            .register_slot(&PLUGIN_WATCHED_STAMP);
         // After Copy project ID and before the message keys, as Desktop registers it (`use-session-commands.tsx:610`).
         builder.add_command(
             CommandEntry::<App>::from_key(
@@ -462,5 +595,28 @@ impl Feature<App> for PanelsFeature {
             .bind_id(Bind::SideToggle.id())
             .when(App::in_root_session),
         );
+        // A shortcut from the composer that moved the keyboard into the side region (its command
+        // may run a frame later) leaves the selected tab's label muted (`FocusMode::Quiet`).
+        // Known: `egg.poll` (in `INGEST_LOCAL`) and `notifications.poll` can focus the composer;
+        // precaution: `speech.poll` adjusts focus before composer focus sync.
+        builder
+            .schedule(crate::tick::stage::INGEST_DISPATCH, "panels.sync_composer", |s, _, _| {
+                let composing = s.composer.focused;
+                let side = s.kernel.slots.get(&SIDE);
+                let in_terminal = !composing
+                    && side.focus.is_armed()
+                    && side.focus.is_focused()
+                    && s.terminal_focus().is_some();
+                let sync = SideFocusEvent::SyncComposer { composing, in_terminal };
+                // Written only when it changes: a write to the side state rebuilds every region reading it.
+                if s.kernel.slots.get(&SIDE).focus.would_change(sync) {
+                    s.kernel.slots.get_mut(&SIDE).focus.sync_composer(composing, in_terminal);
+                }
+                false
+            })
+            .after("speech.poll");
+        builder.schedule(crate::tick::stage::REACT_PANELS, "panels.poll", |s, _, tx| {
+            s.poll_panels(tx)
+        });
     }
 }

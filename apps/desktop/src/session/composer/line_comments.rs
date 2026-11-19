@@ -4,7 +4,7 @@ pub use opencode_feature_annotations::line_comments::*;
 
 use std::rc::Rc;
 
-use opencode_kernel::{EscapeLayer, Feature, KernelBuilder, Phase, Slot};
+use opencode_kernel::{EscapeLayer, Feature, KernelBuilder, Slot};
 use opencode_kit::model::CommentOrigin;
 use opencode_ui::popup::Menu;
 use rune::{El, Tx};
@@ -265,17 +265,16 @@ impl Feature<App> for AnnotationsFeature {
             crate::quote::setup(s, w.clone());
             setup(s, w);
         });
-        builder.add_system_ordered(
-            Phase::Ingest,
-            crate::tick::order::ingest::QUOTE,
-            "quote.poll",
-            |s, now, tx| crate::quote::poll(s, now, tx),
-        );
-        builder.add_system_ordered(
-            Phase::Ingest,
-            crate::tick::order::ingest::LINE_COMMENTS,
-            "line_comments.poll",
-            |s, _, tx| poll(s, tx),
+        builder.schedule(crate::tick::stage::INGEST_SESSION_PRE, "quote.poll", |s, now, tx| {
+            crate::quote::poll(s, now, tx)
+        });
+        builder.schedule(crate::tick::stage::INGEST_SESSION_PRE, "line_comments.poll", |s, _, tx| {
+            poll(s, tx)
+        });
+        builder.schedule(
+            crate::tick::stage::PERSIST_FLUSH,
+            "annotations.poll_saved",
+            |s, _, _| s.persists() && poll_saved(s),
         );
     }
 }

@@ -106,6 +106,16 @@ pub fn version() -> u64 {
     RUNTIME.with_borrow(|r| r.version)
 }
 
+/// Changes whenever the sidecar's endpoint or credentials do, even before `sync` runs.
+pub(crate) fn sidecar_stamp() -> u64 {
+    use std::hash::{Hash, Hasher};
+    RUNTIME.with_borrow(|r| {
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        r.sidecar.as_ref().map(|s| (&s.base, s.auth_header())).hash(&mut h);
+        h.finish()
+    })
+}
+
 pub(crate) fn peer(key: &ServerKey) -> Option<Rc<ServerPeer>> {
     RUNTIME.with_borrow(|r| r.peers.get(key).cloned())
 }
@@ -366,6 +376,25 @@ impl Checkout {
     pub fn keys(&self) -> Vec<ServerKey> {
         std::iter::once(self.active.clone()).chain(self.parked.iter().map(|(k, ..)| k.clone())).collect()
     }
+
+    /// Version stamp of the active checkout key and every parked server's Home-visible data
+    /// (`used` project IDs and `projects`/`sessions`/`recent_page` `Tracked` versions).
+    pub(crate) fn home_data_stamp(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        self.active.hash(&mut h);
+        self.synced.hash(&mut h);
+        self.parked.len().hash(&mut h);
+        // `swap_to` rotates `self.parked` on every `with_server`, so combine entries order-independently.
+        let mut parked_xor = 0u64;
+        for (key, meta, half) in &self.parked {
+            let mut eh = std::collections::hash_map::DefaultHasher::new();
+            (key, &meta.base, &half.used, half.store.home_data_stamp()).hash(&mut eh);
+            parked_xor ^= eh.finish();
+        }
+        parked_xor.hash(&mut h);
+        h.finish()
+    }
 }
 
 /// The server the window works against now.
@@ -541,24 +570,13 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     changed || s.sidebar_inbox.redraw
 }
 
-/// A server the window isn't checked out on: its launch, page loads, sends, jobs, replies and
-/// stream events. True when its tabs' marks or titles changed.
+/// A server the window isn't checked out on: runs every system marked `.per_server(...)` in the
+/// global resolved schedule order. True when its tabs' marks, titles, or inbox branches changed.
 fn background(s: &mut App, tx: &mut Tx) -> bool {
     let before = marks(s);
-    crate::launch::poll(s, tx);
-    s.poll_pages(tx);
-    s.poll_sends();
-    s.tick_outbox(tx);
-    s.poll_server_jobs(tx);
-    crate::incoming::poll(s, tx);
-    crate::stop::poll(s, *s.clock, tx);
-    crate::session_state::poll(s, tx);
-    let now = *s.clock;
-    // Its running tabs' and rows' questions and permissions, so their marks say they wait on
-    // you rather than work (Desktop syncs every server's requests).
-    crate::session_status::poll(s, now, tx);
-    let branches = crate::inbox_model::poll_branches(s, now, tx);
-    before != marks(s) || branches
+    let scheduler = s.kernel.scheduler.clone();
+    let redraw = scheduler.run_per_server(s, *s.clock, tx);
+    before != marks(s) || redraw
 }
 
 fn marks(s: &App) -> Vec<(Option<TabStatus>, String)> {

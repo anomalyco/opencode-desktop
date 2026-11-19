@@ -271,6 +271,9 @@ impl Feature<App> for MentionsFeature {
             .register_slot(&MENTIONS)
             .register_slot(&SESSION_REFS);
         builder.add_setup("mentions.waker", |s, w| s.kernel.slots.get_mut(&MENTIONS).set_waker(w));
+        builder.schedule(crate::tick::stage::DERIVE_COMPOSER, "mentions.poll", |s, _, tx| {
+            s.poll_mentions(tx)
+        });
     }
 }
 

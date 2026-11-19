@@ -190,5 +190,9 @@ impl Feature<App> for ReviewFeature {
     fn register(&self, builder: &mut KernelBuilder<App>) {
         builder.register_slot(&REVIEW);
         builder.add_setup("review.waker", |s, w| s.kernel.slots.get_mut(&REVIEW).set_waker(w));
+        // Precaution: `panels.poll` reconciles side tabs before native panel polls run.
+        builder
+            .schedule(crate::tick::stage::REACT_PANELS, "review.poll", |s, _, tx| poll(s, tx))
+            .after("panels.poll");
     }
 }
