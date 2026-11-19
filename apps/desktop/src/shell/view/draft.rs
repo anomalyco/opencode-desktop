@@ -16,7 +16,7 @@ pub(crate) fn draft_page(s: &App, p: &Pal, width: f32) -> El {
     // The wordmark's top is 25.375% down the panel (`view.tsx:105`), under the 48 pt header;
     // before the first layout, flex shares put it near there.
     let above_h = rune::memo::layout_with("draft", |r| r[3]).map(|h| (0.25375 * h - 48.0).max(0.0));
-    let egg = s.egg.live.is_some();
+    let egg = s.kernel.slots.untracked(&crate::egg::EGG).live.is_some();
     let composer = crate::egg::view::composer_part(s, composer(s, p).max_w(880.0));
     let composer = if egg { composer.paint_order(1) } else { composer };
     let tray = crate::egg::view::composer_part(s, super::draft_location::location(s, p, width));

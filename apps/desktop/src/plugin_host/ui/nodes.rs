@@ -200,8 +200,8 @@ fn filter_field(a: &NodeArgs, edit: &rune::TextEdit, plugin: String, index: usiz
         move |app: &mut App, ev: &rune::KeyEvent, tx: &mut Tx| {
             // A key in the field is a key inside the side region: its tab's label wakes
             // (`FocusMode::Quiet`).
-            if app.workspace_panes.side.focus.is_quiet() {
-                app.workspace_panes.side.focus.wake();
+            if app.kernel.slots.get(&crate::panels::SIDE).focus.is_quiet() {
+                app.kernel.slots.get_mut(&crate::panels::SIDE).focus.wake();
             }
             // The panel's tab keys from its filter (`file.tab.prev`/`next` act while the side
             // region has focus), not the field's Tab traversal.

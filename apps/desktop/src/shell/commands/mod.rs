@@ -130,7 +130,7 @@ impl App {
         self.close_switcher(false);
         self.close_picker(false);
         self.search.focused = false;
-        self.timeline_fx.find.input.focused = false;
+        self.kernel.slots.get_mut(&crate::find::FIND).input.focused = false;
         self.composer.focused = true;
         true
     }

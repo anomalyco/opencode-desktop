@@ -81,7 +81,7 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
         cx::read(Dep::Browser);
         let found = with_app("Browser:Selected", |app| {
             let Some(sid) = sid.or_else(|| app.active_session_id().map(str::to_owned)) else { return Ok(None) };
-            let open = app.workspace_panes.side.sessions.get(&sid).is_some_and(|st| st.visibility.open()) && !app.narrow();
+            let open = app.kernel.slots.get(&crate::panels::SIDE).sessions.get(&sid).is_some_and(|st| st.visibility.open()) && !app.narrow();
             Ok(app.active_browser_tab_for_session(&sid).filter(|&id| open && app.workspace_panes.browser.host.tab(id).is_some()))
         })?;
         match found {
@@ -159,7 +159,7 @@ pub fn composer(lua: &Lua, t: &Table) -> mlua::Result<()> {
                 s.composer.insert_pill(id, &label);
                 s.composer.insert(" ");
                 s.composer.focused = true;
-                s.workspace_panes.side.focus.blur();
+                s.kernel.slots.get_mut(&crate::panels::SIDE).focus.blur();
                 super::super::blur_fields(s);
             }));
             Ok(())
@@ -577,8 +577,9 @@ pub fn version(app: &App) -> u64 {
     sessions.hash(&mut h);
     // Only the composer's focus: a region reading the composer would build again per keystroke.
     // The side region passes it in (`panels::view::side_region`).
-    (rune::Tracked::untracked(&app.composer).focused, app.workspace_panes.side.focus.is_focused(), format!("{:?}", app.workspace_panes.side.active_pane_focus), app.active_browser_tab_id()).hash(&mut h);
-    app.active_session_id().and_then(|sid| app.workspace_panes.side.sessions.get(sid)).map(|st| st.visibility.open()).hash(&mut h);
+    let side = app.kernel.slots.get(&crate::panels::SIDE);
+    (rune::Tracked::untracked(&app.composer).focused, side.focus.is_focused(), format!("{:?}", side.active_pane_focus), app.active_browser_tab_id()).hash(&mut h);
+    app.active_session_id().and_then(|sid| side.sessions.get(sid)).map(|st| st.visibility.open()).hash(&mut h);
     h.finish()
 }
 

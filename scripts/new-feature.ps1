@@ -120,6 +120,7 @@ $capParts = foreach ($part in $parts) {
 $pascal = ($capParts -join '')
 $defaultTitle = ($capParts -join ' ')
 $snake = $Id.Replace('-', '_')
+$upper = $snake.ToUpperInvariant()
 
 $title = if ($TitleWords -and $TitleWords.Count -gt 0) {
   ($TitleWords -join ' ').Trim()
@@ -134,6 +135,7 @@ $titleEsc = $title.Replace('\', '\\').Replace('"', '\"')
 $tokens = @{
   '__ID__'        = $Id
   '__SNAKE__'     = $snake
+  '__UPPER__'     = $upper
   '__PASCAL__'    = $pascal
   '__TITLE__'     = $title
   '__TITLE_ESC__' = $titleEsc
@@ -342,7 +344,7 @@ pub fn step(phase: &mut __PASCAL__Phase, event: __PASCAL__Event) -> Option<__PAS
     }
 }
 
-/// Per-window state stored in `opencode_kernel::StateSlots`.
+/// Per-window tracked state stored in `opencode_kernel::StateSlots`.
 #[derive(Debug, Default)]
 pub struct __PASCAL__State {
     pub phase: __PASCAL__Phase,
@@ -350,7 +352,7 @@ pub struct __PASCAL__State {
 
 /// Object-safe host boundary implemented by the desktop adapter (`apps/desktop/src/surfaces/__SNAKE__.rs`).
 pub trait __PASCAL__Host: opencode_kernel::AppEnv + opencode_kernel::AppFeedback + opencode_kernel::AppOverlays {
-    fn state(&self) -> Option<&__PASCAL__State>;
+    fn state(&self) -> &__PASCAL__State;
     fn state_mut(&mut self) -> &mut __PASCAL__State;
 }
 
@@ -373,17 +375,19 @@ $adapterRs = @'
 
 pub use opencode_feature___SNAKE__::*;
 
-use opencode_kernel::{Feature, KernelBuilder, Phase};
+use opencode_kernel::{Feature, KernelBuilder, Phase, Slot};
 
 use crate::App;
 
+static __UPPER__: Slot<__PASCAL__State> = Slot::new();
+
 impl __PASCAL__Host for App {
-    fn state(&self) -> Option<&__PASCAL__State> {
-        self.kernel.slots.get::<__PASCAL__State>()
+    fn state(&self) -> &__PASCAL__State {
+        self.kernel.slots.get(&__UPPER__)
     }
 
     fn state_mut(&mut self) -> &mut __PASCAL__State {
-        self.kernel.slots.slot::<__PASCAL__State>()
+        self.kernel.slots.get_mut(&__UPPER__)
     }
 }
 
@@ -396,9 +400,9 @@ impl Feature<App> for __PASCAL__Feature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
-        builder.insert_slot(__PASCAL__State::default());
+        builder.register_slot(&__UPPER__);
         builder.add_system(Phase::Ingest, "__ID__.poll", |s, _, tx| poll(s, tx));
-        // Register commands, modal overlays, Escape layers, or surfaces here without editing central switchboards:
+        // Register commands, modal overlays, or Escape layers here without editing central switchboards:
         // builder.add_command(opencode_kernel::CommandEntry::<App>::from_key(...));
         // builder.register_overlay(opencode_kernel::OverlayRegistration::<App>::dialog(...));
         // builder.register_escape_layer(opencode_kernel::EscapeLayer::new(...));

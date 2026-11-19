@@ -1,14 +1,71 @@
 //! The health probe: `GET /api/info` with the server's password (`checkServerHealth`,
-//! `runtime/server/health.ts:97-143`). Blocking, so off the app's thread only: the caller runs it
-//! for each [`super::health::Effect::Probe`] and steps the answer back as `ProbeSettled`.
+//! `runtime/server/health.ts:97-143`), plus its plain [`HttpBase`] endpoint and [`ProbeResult`]
+//! value types. Blocking, so off the app's thread only.
 
 use std::time::Duration;
 
 use rune::time::Instant;
 use serde_json::Value;
 
-use super::health::ProbeResult;
-use super::registry::HttpBase;
+/// An endpoint and its optional password (`ServerConnection.HttpBase`, `persistence.ts:6-9`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct HttpBase {
+    pub url: String,
+    pub password: Option<String>,
+}
+
+impl HttpBase {
+    pub fn new(url: impl Into<String>) -> HttpBase {
+        HttpBase { url: url.into(), password: None }
+    }
+
+    pub fn with_password(mut self, password: impl Into<String>) -> HttpBase {
+        self.password = Some(password.into());
+        self
+    }
+
+    /// `endpointCredentials` (`runtime/server/machine.ts:92-94`): `<url>\n<password>`, what a
+    /// probe answered for and what a controller is bound to.
+    pub fn credentials(&self) -> String {
+        format!("{}\n{}", self.url, self.password.as_deref().unwrap_or(""))
+    }
+}
+
+/// `loopbackOrigin` (`registry.tsx:41-48`): `<scheme>//127.0.0.1:<port>` for a loopback address.
+pub fn loopback_origin(url: &str) -> Option<String> {
+    let (scheme, rest) = url.trim().split_once("://")?;
+    let scheme = scheme.to_ascii_lowercase();
+    if scheme != "http" && scheme != "https" {
+        return None;
+    }
+    let authority = rest.split(['/', '?', '#']).next()?;
+    let authority = authority.rsplit_once('@').map_or(authority, |(_, a)| a);
+    let (host, port) = match authority.strip_prefix('[') {
+        Some(v6) => {
+            let (host, after) = v6.split_once(']')?;
+            (format!("[{host}]"), after.strip_prefix(':').unwrap_or(""))
+        }
+        None => match authority.rsplit_once(':') {
+            Some((h, p)) => (h.to_owned(), p),
+            None => (authority.to_owned(), ""),
+        },
+    };
+    let host = host.to_ascii_lowercase();
+    if host != "localhost" && host != "127.0.0.1" && host != "[::1]" {
+        return None;
+    }
+    let default = if scheme == "https" { "443" } else { "80" };
+    let port = if port.is_empty() || port == default { default } else { port };
+    Some(format!("{scheme}://127.0.0.1:{port}"))
+}
+
+/// The answer of one `/api/info` probe (`ServerProbeResult`, `health-machine.ts:7-11`).
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum ProbeResult {
+    Healthy { version: Option<String>, hostname: Option<String> },
+    Unauthorized,
+    Unreachable,
+}
 
 /// `defaultTimeoutMs` (`health.ts:26`): the whole probe, retries included.
 pub const PROBE_TIMEOUT: Duration = Duration::from_secs(30);

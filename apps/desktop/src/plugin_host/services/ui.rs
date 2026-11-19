@@ -247,11 +247,11 @@ fn layout(lua: &Lua, p: &Rc<str>, t: &Table) -> mlua::Result<()> {
         cx::read(Dep::Browser);
         with_app("Layout:RegionOpen", |app| {
             let session = session.as_deref().or(app.active_session_id()).unwrap_or_default();
-            Ok(app.workspace_panes.side.sessions.get(session).is_some_and(|st| st.visibility.open()))
+            Ok(app.kernel.slots.get(&crate::panels::SIDE).sessions.get(session).is_some_and(|st| st.visibility.open()))
         })
     })?;
     method(lua, t, "RegionFocused", |_, ()| {
-        with_app("Layout:RegionFocused", |app| Ok(app.workspace_panes.side.focus.is_focused() && !app.composer.focused && !app.dialogs.popup.holds_focus()))
+        with_app("Layout:RegionFocused", |app| Ok(app.kernel.slots.get(&crate::panels::SIDE).focus.is_focused() && !app.composer.focused && !app.popup.holds_focus()))
     })?;
     method(lua, t, "TogglePanelSidebar", |_, ()| {
         with_app("Layout:TogglePanelSidebar", |app| {

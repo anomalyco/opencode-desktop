@@ -16,8 +16,6 @@ mod worker;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use rune_luau::Data;
-
 pub use compositor::OfficeCompositor;
 pub use worker::{Scene, SheetFrame};
 
@@ -76,11 +74,6 @@ pub(crate) fn wall_ms() -> i64 {
         return f();
     }
     rune::time::SystemTime::now().duration_since(rune::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
-}
-
-/// A map of `Data` fields, omitting `Data::Nil` entries.
-pub(crate) fn map(fields: impl IntoIterator<Item = (&'static str, Data)>) -> Data {
-    Data::Map(fields.into_iter().filter(|(_, v)| *v != Data::Nil).map(|(k, v)| (k.to_owned(), v)).collect())
 }
 
 /// Takes the file threads' and the font fetch's news, and does what a sheet's grid asked of the

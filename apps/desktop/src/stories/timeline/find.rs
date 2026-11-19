@@ -35,8 +35,11 @@ fn open(s: &mut App, tx: &mut Play<App>) {
         3 => "interface change",
         _ => "stream",
     };
-    s.timeline_fx.find.input = TextEdit::new(q);
-    s.timeline_fx.find.input.focused = false;
+    {
+        let f = s.kernel.slots.get_mut(&crate::find::FIND);
+        f.input = TextEdit::new(q);
+        f.input.focused = false;
+    }
     s.composer.focused = false;
     crate::find::typed(s, tx);
     if s.fixture_run.variant == 1 {
@@ -46,12 +49,15 @@ fn open(s: &mut App, tx: &mut Play<App>) {
 }
 
 fn toggle(s: &mut App, tx: &mut Play<App>) {
-    if s.timeline_fx.find.is_open() {
+    if s.kernel.slots.get(&crate::find::FIND).is_open() {
         s.close_find(tx);
     } else {
         s.open_find(tx);
-        s.timeline_fx.find.input = TextEdit::new("stream");
-        s.timeline_fx.find.input.focused = false;
+        {
+            let f = s.kernel.slots.get_mut(&crate::find::FIND);
+            f.input = TextEdit::new("stream");
+            f.input.focused = false;
+        }
         crate::find::typed(s, tx);
     }
 }

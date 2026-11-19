@@ -4,9 +4,10 @@
 //! Home and the health checks see them all. The runtime connects to the ones with an endpoint
 //! (`servers::runtime`); what lists call each is [`label`].
 
-use opencode_kit::servers::plugin_server::{PluginStage, PluginStatus};
-use opencode_kit::servers::registry::{server_hint, server_label};
-use opencode_kit::servers::{HttpBase, ServerConn, ServerKey};
+use opencode_kit::servers::{HttpBase, ServerKey};
+use opencode_servers::ServerConn;
+use opencode_servers::plugin_server::{PluginStage, PluginStatus};
+use opencode_servers::registry::{server_hint, server_label};
 use opencode_plugin_spec::ServerState;
 
 use crate::App;

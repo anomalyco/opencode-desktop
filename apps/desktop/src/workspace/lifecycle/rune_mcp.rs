@@ -19,13 +19,15 @@ pub fn init() {
     });
 }
 
+pub(crate) static RUNE_MCP: opencode_kernel::Slot<WindowMcp> = opencode_kernel::Slot::new();
+
 impl RuneMcpHost for App {
     fn rune_mcp(&self) -> &WindowMcp {
-        &self.workspace_panes.rune_mcp
+        self.kernel.slots.get(&RUNE_MCP)
     }
 
     fn rune_mcp_mut(&mut self) -> &mut WindowMcp {
-        &mut self.workspace_panes.rune_mcp
+        self.kernel.slots.get_mut(&RUNE_MCP)
     }
 
     fn is_launch_waiting(&self) -> bool {

@@ -140,7 +140,7 @@ pub fn bracket(ev: &KeyEvent, physical: Option<PhysicalKeyCode>) -> Option<bool>
 impl App {
     /// Notes where the app is, so a move made since the last look joins the history.
     pub fn sync_history(&mut self) {
-        let page = self.settings.open.then(|| self.settings_pages.page.clone());
+        let page = self.settings_open().then(|| self.kernel.slots.get(&crate::settings::SETTINGS_PAGES).page.clone());
         // Every poll comes here: the history is written only when the app moved.
         if !self.nav.holds(&self.route, &page) && (self.opening.is_none() || matches!(self.nav.cursor, Cursor::Idle(_))) {
             let now = Place { route: (*self.route).clone(), settings: page };
@@ -151,7 +151,7 @@ impl App {
     /// Opens the entry before (or after) this one. False when there's nowhere to go.
     pub fn navigate(&mut self, forward: bool, tx: &mut Tx) -> bool {
         self.sync_history();
-        let dest = (self.settings.open && self.project_navigation()).then(|| Place { route: self.restore_project_tab().map_or(Route::Home, |tab| tab.route()), settings: None });
+        let dest = (self.settings_open() && self.project_navigation()).then(|| Place { route: self.restore_project_tab().map_or(Route::Home, |tab| tab.route()), settings: None });
         let Some(to) = self.nav.step(if forward { Event::Forward } else { Event::Back(dest) }) else { return false };
         let keep_home = tx.focused() == Some("home");
         tx.instant();
@@ -164,7 +164,7 @@ impl App {
             }
             route => *self.route = route,
         }
-        match (to.settings, self.settings.open) {
+        match (to.settings, self.settings_open()) {
             (Some(page), _) => {
                 tx.scroll_to_instant("settings", 0.0, 0.0);
                 self.open_settings_at(page);

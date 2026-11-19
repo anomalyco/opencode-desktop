@@ -25,11 +25,11 @@ fn last_prompt(s: &App) -> Option<String> {
 
 fn is_open(s: &App) -> bool {
     match *s.fixture_run.variant {
-        0 => s.composer_ext.add.open(),
-        1 => s.dialogs.rewind.menu.is_some() && s.dialogs.popup.is_open(),
-        4 => s.dialogs.popup.is_open(),
-        2 => s.shells.activity.is_open(),
-        _ => *s.timeline_fx.todo_open,
+        0 => s.kernel.slots.get(&crate::add_menu::ADD_MENU).open(),
+        1 => s.kernel.slots.get(&crate::rewind::REWIND).menu.is_some() && s.popup.is_open(),
+        4 => s.popup.is_open(),
+        2 => s.kernel.slots.get(&crate::subagents::SHELLS).activity.is_open(),
+        _ => *s.kernel.slots.get(&crate::todos::TODO_OPEN),
     }
 }
 
@@ -46,7 +46,7 @@ fn set(s: &mut App, open: bool, tx: &mut Play<App>) {
         4 if open => right_click(s, tx),
         1 | 4 => crate::popup::dismiss(s, tx),
         2 => crate::subagents::shells::set_open(s, open),
-        _ => *s.timeline_fx.todo_open = open,
+        _ => *s.kernel.slots.get_mut(&crate::todos::TODO_OPEN) = open,
     }
     motion::toggled(&s.diag.knobs, tx, open);
 }
@@ -65,7 +65,7 @@ fn start(s: &mut App, tx: &mut Play<App>) {
     s.close_add_menu(crate::add_menu::Close::Outside, tx);
     s.close_message_menu();
     crate::subagents::shells::set_open(s, false);
-    *s.timeline_fx.todo_open = false;
+    *s.kernel.slots.get_mut(&crate::todos::TODO_OPEN) = false;
     match *s.fixture_run.variant {
         2 => crate::stories::composer::capsule::run_thirty(s),
         3 => {

@@ -7,7 +7,7 @@ use opencode_kit::integration::Connection;
 use rune::{El, Key, KeyEvent, TextEdit, Tx, col, el, icon, row, spacer, text};
 use rune_kit::{ButtonVariant, TextInput};
 use rune_theme_opencode::icons as ic;
-use session_view::palette::{Pal, kit};
+use opencode_ui::palette::{Pal, kit};
 
 use super::{open_url, provider_id};
 use crate::catalog;

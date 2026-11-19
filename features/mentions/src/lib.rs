@@ -18,8 +18,8 @@ use rune::machine::{Attempt, Seq};
 use rune::{Cx, El, KeyEvent, Latest, PointerPress, TextEdit, Tx, Waker, icon};
 use rune_theme_opencode::icons as ic;
 use serde_json::Value;
-use session_view::palette::Pal;
-use session_view::user_parts::SESSION as SPEECH_BUBBLE;
+use opencode_ui::palette::Pal;
+use opencode_ui::style::SESSION as SPEECH_BUBBLE;
 
 pub mod badge;
 pub mod fuzzysort;
@@ -170,7 +170,7 @@ pub trait MentionsHost: opencode_kernel::AppEnv {
     }
     /// Whether picking a popover row should focus the composer.
     fn auto_focus_composer(&self, tx: &Tx) -> bool {
-        !session_view::style::touch_controls() || tx.by_keys()
+        !opencode_ui::style::touch_controls() || tx.by_keys()
     }
 
     /// The open `@` context popover's query (`None` when closed).

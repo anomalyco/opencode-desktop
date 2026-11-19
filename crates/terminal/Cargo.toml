@@ -7,12 +7,10 @@ license.workspace = true
 build = "build.rs"
 
 [dependencies]
-libc = "0.2"
 memchr = "2"
 opencode-kit = { path = "../opencode-kit" }
 parking_lot = "0.12"
 rune.workspace = true
-serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true
 tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
 
@@ -31,7 +29,8 @@ web-sys = { version = "0.3", features = ["BinaryType", "CloseEvent", "Event", "M
 
 [build-dependencies]
 sha2 = "0.10"
-ureq = { workspace = true, features = ["rustls"] }
+# Matches desktop's `ureq` features (`browser-pane`) so native builds compile `ureq` once.
+ureq = { workspace = true, features = ["rustls", "platform-verifier"] }
 
 [lints]
 workspace = true

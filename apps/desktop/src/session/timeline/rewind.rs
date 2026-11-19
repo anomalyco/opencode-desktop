@@ -10,13 +10,15 @@ use rune::Tx;
 
 use crate::{App, Source};
 
+pub(crate) static REWIND: opencode_kernel::Slot<RewindState> = opencode_kernel::Slot::new();
+
 impl RewindHost for App {
     fn rewind(&self) -> &RewindState {
-        &self.dialogs.rewind
+        self.kernel.slots.get(&REWIND)
     }
 
     fn rewind_mut(&mut self) -> &mut RewindState {
-        &mut self.dialogs.rewind
+        self.kernel.slots.get_mut(&REWIND)
     }
 
     fn session(&self, session: &str) -> Option<&SessionInfo> {
@@ -62,7 +64,7 @@ impl RewindHost for App {
     }
 
     fn resolve_skill_id(&self, name_or_id: &str) -> Option<&str> {
-        self.composer_ext.mentions.skills.iter().find(|sk| sk.id == name_or_id || sk.name == name_or_id).map(|sk| sk.id.as_str())
+        self.kernel.slots.get(&crate::mentions::MENTIONS).skills.iter().find(|sk| sk.id == name_or_id || sk.name == name_or_id).map(|sk| sk.id.as_str())
     }
 
     fn stop_running_family(&mut self, session: &str) -> Vec<String> {
@@ -113,7 +115,7 @@ impl RewindHost for App {
     }
 
     fn dismiss_rewound_toast(&mut self, session: &str) {
-        if let Some(e) = self.dialogs.toast.current()
+        if let Some(e) = self.toast.current()
             && matches!(&e.action, Some(crate::status_toast::ToastAction::Custom(crate::status_toast::DesktopToastAction::UndoRewind(u))) if u.session == session)
         {
             crate::status_toast::dismiss(self);
@@ -121,7 +123,7 @@ impl RewindHost for App {
     }
 
     fn popup_open_at(&self, anchor: &str) -> bool {
-        self.dialogs.popup.open_at(anchor)
+        self.popup.open_at(anchor)
     }
 
     fn dismiss_popup(&mut self, tx: &mut Tx) {
@@ -156,11 +158,12 @@ impl App {
                 caret: self.composer.range().1.min(self.composer.text.len()),
                 files: self.composer_ext.attach.files.clone(),
                 paths: self.composer_ext.attach.paths.clone(),
-                quotes: self.composer_ext.quote.quotes(),
+                quotes: self.kernel.slots.get(&crate::quote::QUOTE).quotes(),
             };
         }
-        let text = self.restore.drafts.get(session).cloned().unwrap_or_default();
-        let parked = self.restore.parked.get(session).cloned().unwrap_or_default();
+        let r = self.kernel.slots.get(&crate::restore::RESTORE);
+        let text = r.drafts.get(session).cloned().unwrap_or_default();
+        let parked = r.parked.get(session).cloned().unwrap_or_default();
         let caret = parked.caret.filter(|&c| text.is_char_boundary(c)).unwrap_or(text.len());
         SavedDraft { entry: Entry { text, pills: parked.pills }, caret, files: parked.files, paths: parked.paths, quotes: parked.quotes }
     }
@@ -187,15 +190,10 @@ impl App {
         self.composer.focused = focused;
         self.composer_ext.attach.files = draft.files;
         self.composer_ext.attach.paths = draft.paths;
-        let _ = self.composer_ext.quote.take();
+        let _ = self.kernel.slots.get_mut(&crate::quote::QUOTE).take();
         for q in draft.quotes {
-            self.composer_ext.quote.push(q);
+            self.kernel.slots.get_mut(&crate::quote::QUOTE).push(q);
         }
-    }
-
-    #[allow(dead_code)]
-    pub fn can_rewind_session(&self, session: &str) -> bool {
-        can_rewind_session(self, session)
     }
 
     pub fn visible_user_ids(&self, session: &str) -> Vec<String> {
@@ -210,32 +208,12 @@ impl App {
         can_redo_session(self)
     }
 
-    #[allow(dead_code)]
-    pub fn draft_from_message(&self, id: &str, body: &str) -> SavedDraft {
-        draft_from_message(self, id, body)
-    }
-
-    #[allow(dead_code)]
-    pub fn rewind_to(&mut self, session: &str, message_id: &str, tx: &mut Tx) {
-        rewind_to(self, session, message_id, tx);
-    }
-
     pub fn undo_last(&mut self, tx: &mut Tx) -> bool {
         undo_last(self, tx)
     }
 
-    #[allow(dead_code)]
-    pub fn undo(&mut self, tx: &mut Tx) -> bool {
-        undo(self, tx)
-    }
-
     pub fn redo_revert(&mut self, tx: &mut Tx) -> bool {
         redo_revert(self, tx)
-    }
-
-    #[allow(dead_code)]
-    pub fn redo(&mut self, tx: &mut Tx) -> bool {
-        redo(self, tx)
     }
 
     pub fn undo_rewind(&mut self, undo: UndoRewind, tx: &mut Tx) {
@@ -246,12 +224,7 @@ impl App {
         revert_settled(self, session, attempt, result);
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn revert_timeouts(&mut self, tx: &mut Tx) -> bool {
-        revert_timeouts(self, tx)
-    }
-
-    #[allow(dead_code)]
+    #[cfg(feature = "stories")]
     pub(crate) fn set_session_revert(&mut self, session: &str, revert: Option<String>) {
         set_session_revert(self, session, revert);
     }

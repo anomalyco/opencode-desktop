@@ -10,15 +10,16 @@ pub mod unavailable;
 use std::collections::HashMap;
 
 use opencode_i18n::t;
-use opencode_kit::servers::health::{Health, Indicator, indicator, is_unauthorized};
-use opencode_kit::servers::{ServerConn, ServerKey};
+use opencode_kit::servers::ServerKey;
+use opencode_servers::ServerConn;
+use opencode_servers::health::{Health, Indicator, indicator, is_unauthorized};
 use opencode_ui::popup::{self, Item, Menu, MenuButton as _, PopupHost};
 use opencode_ui::widgets::{self, BODY_MED};
 use rune::{Align, El, Tx, col, el, icon, row, rule, text};
 use rune_kit::ButtonVariant;
 use rune_theme_opencode::icons as ic;
 use serde_json::Value;
-use session_view::palette::{Pal, kit};
+use opencode_ui::palette::{Pal, kit};
 
 use super::{ghost_menu_button, header_with, page_with};
 use crate::host::{HttpServer, SettingsHost};
@@ -46,7 +47,7 @@ pub struct Shells {
 /// reached with its timer.
 pub struct Scope {
     pub key: ServerKey,
-    pub retry: opencode_kit::servers::settings::Retry,
+    pub retry: opencode_servers::settings::Retry,
     pub wait: unavailable::Wait,
 }
 
@@ -54,7 +55,7 @@ impl Default for Scope {
     fn default() -> Scope {
         Scope {
             key: ServerKey::sidecar(),
-            retry: opencode_kit::servers::settings::Retry::new(ServerKey::sidecar()),
+            retry: opencode_servers::settings::Retry::new(ServerKey::sidecar()),
             wait: unavailable::Wait::Off,
         }
     }

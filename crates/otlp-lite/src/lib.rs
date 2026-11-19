@@ -11,7 +11,8 @@ use std::net::SocketAddr;
 use std::sync::{OnceLock, atomic::{AtomicU64, Ordering}, mpsc::{Sender, channel}};
 use std::time::Duration;
 
-use rune::time::{Instant, SystemTime, UNIX_EPOCH};
+pub use web_time::Instant;
+use web_time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
@@ -95,7 +96,7 @@ fn id() -> u64 {
 
 fn unix_nanos(t: Instant) -> u128 {
     static ANCHOR: OnceLock<(Instant, u128)> = OnceLock::new();
-    // Anchors monotonic span timestamps to Unix epoch once; otlp-lite sits below opencode-platform and uses rune::time::SystemTime for wasm32.
+    // Anchors monotonic span timestamps to Unix epoch once; web_time uses std::time on native and browser clocks on wasm32.
     #[allow(clippy::disallowed_methods)]
     let (at, unix) = *ANCHOR.get_or_init(|| (Instant::now(), SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos())));
     if t >= at { unix + (t - at).as_nanos() } else { unix.saturating_sub((at - t).as_nanos()) }

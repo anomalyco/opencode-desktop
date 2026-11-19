@@ -44,11 +44,13 @@ fn target(s: &App) -> Target {
 
 fn open(s: &mut App, _: &mut Play<App>) {
     s.finish_stream();
-    s.dialogs.menus = Default::default();
+    *s.kernel.slots.get_mut(&session_menu::MENUS) = Default::default();
     match *s.fixture_run.variant {
         0..=2 => {
-            s.dialogs.menus.on = Some(target(s));
-            s.dialogs.menus.hot = Some("rename".into());
+            let t = target(s);
+            let m = s.kernel.slots.get_mut(&session_menu::MENUS);
+            m.on = Some(t);
+            m.hot = Some("rename".into());
         }
         3..=5 => start(s, false),
         _ => { let id = first(s); s.ask_delete(&id) }
@@ -60,13 +62,13 @@ fn start(s: &mut App, retitle: bool) {
     let t = Target::active(s, &first(s), spot(*s.fixture_run.variant));
     s.begin_rename(&t);
     if retitle {
-        s.dialogs.menus.edit.replace_text("Reconnect jitter, with a fake clock");
+        s.kernel.slots.get_mut(&session_menu::MENUS).edit.replace_text("Reconnect jitter, with a fake clock");
     }
 }
 
 fn native(s: &mut App, tx: &mut Tx) {
     let t = target(s);
-    s.dialogs.menus.on = None;
+    s.kernel.slots.get_mut(&session_menu::MENUS).on = None;
     let anchor = match t.spot {
         Spot::Tab => "story-tab-0",
         Spot::Row => "story-row-0",
@@ -83,13 +85,13 @@ fn next(s: &mut App, _: &mut Tx) {
             _ => None,
         })
         .collect();
-    let at = ids.iter().position(|id| Some(*id) == s.dialogs.menus.hot.as_deref()).map_or(0, |i| i + 1);
-    s.dialogs.menus.hot = ids.get(at % ids.len().max(1)).map(|id| (*id).to_owned());
+    let at = ids.iter().position(|id| Some(*id) == s.kernel.slots.get(&session_menu::MENUS).hot.as_deref()).map_or(0, |i| i + 1);
+    s.kernel.slots.get_mut(&session_menu::MENUS).hot = ids.get(at % ids.len().max(1)).map(|id| (*id).to_owned());
 }
 
 pub fn view(s: &App, p: &Pal) -> El {
     let t = target(s);
-    let menu = (*s.fixture_run.variant <= 2).then(|| preview(s, p, "menu", &session_menu::lines(s, &t), s.dialogs.menus.hot.as_deref()));
+    let menu = (*s.fixture_run.variant <= 2).then(|| preview(s, p, "menu", &session_menu::lines(s, &t), s.kernel.slots.get(&session_menu::MENUS).hot.as_deref()));
     let stage = match t.spot {
         Spot::Tab => tabs(s, p, menu),
         Spot::Row => rows(s, p, menu),

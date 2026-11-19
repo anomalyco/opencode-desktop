@@ -2,11 +2,11 @@
 
 use std::collections::BTreeMap;
 
+use opencode_kit::servers::key::{Route, ServerKey, TabKey};
 use serde_json::{Map, Value, json};
 
 use super::{Context, is_server_url};
-use crate::servers::key::{Route, ServerKey, TabKey};
-use crate::servers::tabs::{ClosedTab, DraftTab, SessionTab, Tab, TabInfo, WindowDoc};
+use crate::tabs::{ClosedTab, DraftTab, SessionTab, Tab, TabInfo, WindowDoc};
 
 /// What one window read before: its own file and, for the profile's first window, the shared
 /// files it fell back to for a server its own file had nothing for (`windows/store.rs` `load`).
@@ -112,7 +112,7 @@ fn old_closed(v: &Value) -> Vec<OldClosed> {
         out.retain(|c| c.id != entry.id);
         out.push(entry);
     }
-    let over = out.len().saturating_sub(crate::servers::tabs::CLOSED_LIMIT);
+    let over = out.len().saturating_sub(crate::tabs::CLOSED_LIMIT);
     out.drain(..over);
     out
 }

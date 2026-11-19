@@ -9,8 +9,9 @@ use std::path::PathBuf;
 
 use opencode_kit::client::{Server, Write};
 use opencode_kit::model::{ModelRef, Project, SessionInfo};
-use opencode_kit::servers::health::Health;
-use opencode_kit::servers::{Route, ServerConn, ServerKey};
+use opencode_kit::servers::{Route, ServerKey};
+use opencode_servers::ServerConn;
+use opencode_servers::health::Health;
 use opencode_kit::wire_error::WireError;
 use rune::{El, FileDialogOptions, Tx};
 use serde_json::{Map, Value};
@@ -204,7 +205,7 @@ pub trait ProjectsHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlays {
     }
     /// Display label for server connection `conn` (`servers::registry::label`).
     fn server_label(&self, conn: &ServerConn) -> String {
-        opencode_kit::servers::registry::server_label(conn, conn.builtin(), None, opencode_i18n::t!("server.thisComputer"))
+        opencode_servers::registry::server_label(conn, conn.builtin(), None, opencode_i18n::t!("server.thisComputer"))
     }
     /// Display label for server `key` (`servers::registry::label_of`).
     fn server_label_of(&self, key: &ServerKey) -> String {

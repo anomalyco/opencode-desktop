@@ -212,7 +212,7 @@ pub enum MoreDrawer {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Nested {
     pub title: String,
-    pub data: rune_luau::Data,
+    pub data: serde_json::Value,
 }
 
 #[derive(Clone, Debug, PartialEq)]

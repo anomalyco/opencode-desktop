@@ -12,13 +12,15 @@ use crate::pickers::PickerHost as _;
 use crate::stories::{Story, Trigger, replay, stage};
 use crate::{App, Route, Source};
 
+pub(crate) static HOME_SEARCH: opencode_kernel::Slot<HomeSearch> = opencode_kernel::Slot::new();
+
 impl HomeSearchHost for App {
     fn home_search(&self) -> &HomeSearch {
-        &self.home_search
+        self.kernel.slots.get(&HOME_SEARCH)
     }
 
     fn home_search_mut(&mut self) -> &mut HomeSearch {
-        &mut self.home_search
+        self.kernel.slots.get_mut(&HOME_SEARCH)
     }
 
     fn search_input(&self) -> &TextEdit {
@@ -34,7 +36,7 @@ impl HomeSearchHost for App {
     }
 
     fn settings_open(&self) -> bool {
-        self.settings.open
+        App::settings_open(self)
     }
 
     fn live_server(&self) -> Option<Server> {
@@ -53,7 +55,7 @@ impl HomeSearchHost for App {
         );
         let key = crate::projects::home::server(self);
         let connected = matches!(*self.source, Source::Live { .. })
-            && self.home_state.servers.iter().any(|v| v.key == key && v.healthy());
+            && self.kernel.slots.get(&crate::projects::HOME_STATE).servers.iter().any(|v| v.key == key && v.healthy());
         (scope, connected)
     }
 

@@ -8,7 +8,7 @@ use opencode_ui::popup::PopupHost;
 use opencode_ui::widgets;
 use rune::{El, Icon, TextStyle, Tx, col, icon, row, rule, text};
 use rune_theme_opencode::icons as ic;
-use session_view::palette::Pal;
+use opencode_ui::palette::Pal;
 
 use super::{ExtensionsTab, LINE, NAME, catalog_with, header_with, page};
 use crate::host::SettingsHost;

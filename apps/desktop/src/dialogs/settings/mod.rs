@@ -9,9 +9,10 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration, Phase};
 use opencode_kit::integration::{Integration, McpServer};
 use opencode_kit::model::{Project, SessionInfo};
-use opencode_kit::servers::health::Health;
-use opencode_kit::servers::plugin_server::{PluginStage, PluginStatus};
-use opencode_kit::servers::{ServerConn, ServerKey};
+use opencode_kit::servers::ServerKey;
+use opencode_servers::ServerConn;
+use opencode_servers::health::Health;
+use opencode_servers::plugin_server::{PluginStage, PluginStatus};
 use opencode_kit::wire_error::WireError;
 use rune::{El, KeyEvent, Tx};
 use session_view::palette::Pal;
@@ -45,7 +46,7 @@ fn make_server_entry(
     source: Option<Option<PluginStage>>,
 ) -> ServerEntry {
     let health = crate::servers::health::get(&key);
-    let availability = opencode_kit::servers::settings::availability(opencode_kit::servers::settings::Input {
+    let availability = opencode_servers::settings::availability(opencode_servers::settings::Input {
         connection: connection.as_ref(),
         source,
         health: health.as_ref(),
@@ -112,6 +113,9 @@ fn trace_about_wordmark(now: f64, letters: &str) {
     });
 }
 
+pub(crate) static SETTINGS_SCREEN: opencode_kernel::Slot<SettingsScreen> = opencode_kernel::Slot::new();
+pub(crate) static SETTINGS_PAGES: opencode_kernel::Slot<pages::State> = opencode_kernel::Slot::new();
+
 impl SettingsHost for App {
     fn settings(&self) -> &Settings {
         &self.settings
@@ -121,12 +125,20 @@ impl SettingsHost for App {
         &mut self.settings
     }
 
+    fn settings_open(&self) -> bool {
+        App::settings_open(self)
+    }
+
+    fn set_settings_open(&mut self, open: bool) {
+        App::set_settings_open(self, open);
+    }
+
     fn settings_pages(&self) -> &pages::State {
-        &self.settings_pages
+        self.kernel.slots.get(&SETTINGS_PAGES)
     }
 
     fn settings_pages_mut(&mut self) -> &mut pages::State {
-        &mut self.settings_pages
+        self.kernel.slots.get_mut(&SETTINGS_PAGES)
     }
 
     fn can_write(&self) -> bool {
@@ -216,10 +228,11 @@ impl SettingsHost for App {
     }
 
     fn about_info(&self) -> AboutInfo {
-        let version = if self.services.updater.version.is_empty() {
+        let updater = self.kernel.slots.get(&crate::updater::UPDATER);
+        let version = if updater.version.is_empty() {
             crate::updater::build_version().to_owned()
         } else {
-            self.services.updater.version.clone()
+            updater.version.clone()
         };
         AboutInfo { version, other_contributors: about_other_contributors(self) }
     }
@@ -594,6 +607,14 @@ impl SettingsHost for App {
 }
 
 impl App {
+    pub fn settings_open(&self) -> bool {
+        self.kernel.slots.get(&SETTINGS_SCREEN).is_open()
+    }
+
+    pub fn set_settings_open(&mut self, open: bool) {
+        self.kernel.slots.get_mut(&SETTINGS_SCREEN).set_open(open);
+    }
+
     pub fn dark(&self, cx: &rune::Cx<App>) -> bool {
         self.settings.is_dark(cx.system_contrast().map(|c| c.window), cx.system_dark())
     }
@@ -604,11 +625,6 @@ impl App {
 
     pub fn open_settings_at(&mut self, page: pages::Page) {
         open_settings_at(self, page);
-    }
-
-    #[allow(dead_code)]
-    pub fn open_settings_tx(&mut self, page: pages::Page, tx: &mut Tx) {
-        open_settings_tx(self, page, tx);
     }
 
     pub fn close_settings(&mut self) {
@@ -627,27 +643,12 @@ impl App {
         set_fold_user(self, on);
     }
 
-    #[allow(dead_code)]
-    pub fn set_notify(&mut self, kind: NotifyKind, on: bool) {
-        set_notify(self, kind, on);
-    }
-
     pub fn set_scheme(&mut self, scheme: Scheme) {
         set_scheme(self, scheme);
     }
 
-    #[allow(dead_code)]
-    pub fn set_terminal_placement(&mut self, placement: DockPlacement, tx: &mut Tx) {
-        set_terminal_placement(self, placement, tx);
-    }
-
     pub fn settings_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
         settings_key(self, ev, tx)
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn back_to_app(&mut self, tx: &mut Tx) {
-        back_to_app(self, tx);
     }
 
     pub fn toggle_settings(&mut self, tx: &mut Tx) {
@@ -687,10 +688,6 @@ impl App {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn commit_project_rename(&mut self, tx: &mut Tx) {
-        pages::project::commit_project_rename(self, tx);
-    }
 }
 
 /// Kernel feature registration for the Settings screen, overlays, and per-frame poll.
@@ -702,6 +699,9 @@ impl Feature<App> for SettingsFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder
+            .register_slot(&SETTINGS_SCREEN)
+            .register_slot(&SETTINGS_PAGES);
         builder.add_command(
             CommandEntry::<App>::from_key(
                 "settings",
@@ -726,7 +726,7 @@ impl Feature<App> for SettingsFeature {
                     pages::worktrees::dialog(s, p, cx)
                 })
                 .with_dismiss(|s, tx| {
-                    let attempt = match &s.settings_pages.worktrees.delete.phase {
+                    let attempt = match &s.kernel.slots.get(&SETTINGS_PAGES).worktrees.delete.phase {
                         pages::worktrees::Phase::ConfirmingOne { attempt, .. }
                         | pages::worktrees::Phase::ConfirmingMany { attempt, .. } => Some(*attempt),
                         _ => None,
@@ -747,7 +747,7 @@ impl Feature<App> for SettingsFeature {
             OverlayRegistration::<App>::new(PROVIDER_REMOVAL_OVERLAY_ID)
                 .with_z(500)
                 .with_render(|s, cx| {
-                    if s.settings.open {
+                    if s.settings_open() {
                         let p = crate::palette::pal(s.dark(cx));
                         pages::providers::confirmation(s, p, cx)
                     } else {

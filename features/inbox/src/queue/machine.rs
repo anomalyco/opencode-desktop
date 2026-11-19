@@ -13,7 +13,7 @@ use opencode_kit::client::PathAttachment;
 use opencode_kit::model::{Attachment, Delivery, InboxItem};
 use opencode_kit::wire_error::{WireError, WireKind};
 use rune::machine::{Attempt, Effects, Seq};
-use session_view::composer::history::Entry;
+use opencode_ui::prompt_history::Entry;
 
 /// `QUEUE_MUTATION_TIMEOUT_MS`: bounds an edit, reorder or undo (a steer or removal is one
 /// request, bounded by the request itself).

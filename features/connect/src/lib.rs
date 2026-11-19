@@ -21,7 +21,7 @@ pub mod welcome;
 use rune::machine::{Attempt, Effects};
 use rune::{Key, KeyEvent, TextEdit, Tx};
 use serde_json::Value;
-use session_view::pickers::Model;
+use opencode_kit::model::Model;
 
 pub use catalog::{
     CatalogRead, Catalogs, ProviderInfo, SyncAfter, integration_of, integrations, provider_infos, seed_catalogs, sync_catalogs,

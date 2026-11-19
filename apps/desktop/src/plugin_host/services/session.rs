@@ -326,7 +326,7 @@ fn server(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
             if !window || active.is_sidecar() {
                 return Ok(own);
             }
-            Ok(opencode_kit::servers::health::version(crate::servers::health::get(active).as_ref()).map(str::to_owned))
+            Ok(opencode_servers::health::version(crate::servers::health::get(active).as_ref()).map(str::to_owned))
         })
     })?;
     method(lua, t, "IsLocal", move |_, ()| {
@@ -388,7 +388,7 @@ fn servers(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
                         _ => None,
                     };
                     let local = x.key.is_sidecar() || x.connection.as_ref().is_some_and(|c| c.local(own.as_deref()));
-                    let version = opencode_kit::servers::health::version(x.health.as_ref()).map(str::to_owned);
+                    let version = opencode_servers::health::version(x.health.as_ref()).map(str::to_owned);
                     (server_id(&x.key), x.name.clone(), label, state, local, window && x.key == active, version)
                 })
                 .collect();

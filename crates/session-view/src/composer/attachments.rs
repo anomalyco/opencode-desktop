@@ -2,7 +2,6 @@
 
 use std::path::Path;
 
-use opencode_kit::client::{FileInput, PathAttachment};
 use opencode_kit::model::{Attachment, Message, Transcript};
 use rune::{ClipboardContent, El, Live, ScrollPos, SurfaceFit, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
@@ -65,33 +64,7 @@ pub fn from_path(path: &Path) -> Result<Attachment, String> {
     Ok(Attachment { mime: mime.into(), name, bytes: bytes.into(), media: None })
 }
 
-/// Appends `Attached file:` lines for path-referenced attachments.
-pub fn path_lines(text: &str, refs: &[PathAttachment]) -> String {
-    let lines = refs.iter().map(|r| format!("Attached file: `{}`", r.path));
-    (!text.trim().is_empty())
-        .then(|| text.to_owned())
-        .into_iter()
-        .chain(lines)
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-/// Inline `Attachment`s as `PromptInput.FileAttachment` values: a `media:` ref, or the bytes
-/// themselves, shared, which go as a `data:` URL when the request is built on the write lane.
-pub fn inputs(files: &[Attachment]) -> Vec<FileInput> {
-    files
-        .iter()
-        .map(|f| match &f.media {
-            Some(hash) => FileInput {
-                uri: format!("media:{hash}"),
-                name: f.name.clone(),
-                mime: Some(f.mime.clone()),
-                ..Default::default()
-            },
-            None => FileInput::inline(&f.name, &f.mime, f.bytes.clone()),
-        })
-        .collect()
-}
+pub use opencode_kit::prompt::{attachment_inputs as inputs, path_lines};
 
 /// Pastes files or an image from the clipboard into the host's composer attachments.
 pub fn paste<S: ComposerHost>(s: &mut S, content: &ClipboardContent, _: &mut Tx) -> bool {

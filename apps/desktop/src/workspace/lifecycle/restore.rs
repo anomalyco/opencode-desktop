@@ -4,23 +4,23 @@ pub use opencode_feature_restore::*;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 
-use opencode_kernel::{Feature, KernelBuilder};
+use opencode_kernel::{Feature, KernelBuilder, Slot};
 use opencode_kit::client::PathAttachment;
 use opencode_kit::model::{Attachment, PromptComment, Transcript};
-use opencode_kit::servers::tabs::{ClosedTab, WindowDoc};
+use opencode_servers::tabs::{ClosedTab, WindowDoc};
 use opencode_kit::servers::{ServerKey, TabKey};
 use opencode_storage::{FlushReason, Lookup, Storage};
+use opencode_ui::composer_mode::Mode;
+use opencode_ui::scroller::Place;
 use rune::{TextEdit, Tx};
 use serde_json::{Map, Value};
-use session_view::composer::mode::Mode;
-use session_view::disclosure::Disclosures;
-use session_view::jump::Ends;
 
 use crate::{App, Route};
 
-static EMPTY_PLACES: LazyLock<places::Kept> = LazyLock::new(places::Kept::default);
+pub(crate) static RESTORE: Slot<Restore> = Slot::new();
+static KEPT_PLACES: Slot<places::Kept> = Slot::new();
 
 /// The draft key for a desktop [`Route`]: a session's id, or a draft tab's.
 pub fn draft_key(route: &Route) -> Option<String> {
@@ -48,19 +48,19 @@ fn from_restore_route(route: RestoreRoute) -> Route {
 
 impl RestoreHost for App {
     fn restore(&self) -> &Restore {
-        &self.restore
+        self.kernel.slots.get(&RESTORE)
     }
 
     fn restore_mut(&mut self) -> &mut Restore {
-        &mut self.restore
+        self.kernel.slots.get_mut(&RESTORE)
     }
 
     fn kept_places(&self) -> &places::Kept {
-        self.kernel.slots.get::<places::Kept>().unwrap_or(&EMPTY_PLACES)
+        self.kernel.slots.get(&KEPT_PLACES)
     }
 
     fn kept_places_mut(&mut self) -> &mut places::Kept {
-        self.kernel.slots.slot::<places::Kept>()
+        self.kernel.slots.get_mut(&KEPT_PLACES)
     }
 
     fn window_id(&self) -> &str {
@@ -165,19 +165,19 @@ impl RestoreHost for App {
     }
 
     fn composer_mode(&self) -> Mode {
-        self.composer_ext.add.mode
+        self.kernel.slots.get(&crate::add_menu::ADD_MENU).mode
     }
 
     fn park_composer_mode(&mut self, key: String, mode: Mode) {
-        self.composer_ext.add.park(key, mode);
+        self.kernel.slots.get_mut(&crate::add_menu::ADD_MENU).park(key, mode);
     }
 
     fn swap_composer_mode_draft(&mut self, from: Option<&str>, to: Option<&str>) {
-        self.composer_ext.add.swap_draft(from, to);
+        self.kernel.slots.get_mut(&crate::add_menu::ADD_MENU).swap_draft(from, to);
     }
 
     fn parked_composer_modes(&self) -> Vec<(String, Mode)> {
-        self.composer_ext.add.parked().map(|(k, m)| (k.to_owned(), m)).collect()
+        self.kernel.slots.get(&crate::add_menu::ADD_MENU).parked().map(|(k, m)| (k.to_owned(), m)).collect()
     }
 
     fn attach_files(&self) -> &[Attachment] {
@@ -225,25 +225,25 @@ impl RestoreHost for App {
     }
 
     fn quote_any(&self) -> bool {
-        self.composer_ext.quote.any()
+        self.kernel.slots.get(&crate::quote::QUOTE).any()
     }
 
     fn quote_revision(&self) -> u64 {
         let mut h = DefaultHasher::new();
-        self.composer_ext.quote.revision().hash(&mut h);
+        self.kernel.slots.get(&crate::quote::QUOTE).revision().hash(&mut h);
         h.finish()
     }
 
     fn quote_comments(&self) -> Vec<&PromptComment> {
-        self.composer_ext.quote.items.iter().map(|q| &q.comment).collect()
+        self.kernel.slots.get(&crate::quote::QUOTE).items.iter().map(|q| &q.comment).collect()
     }
 
     fn take_quotes(&mut self) -> Vec<PromptComment> {
-        self.composer_ext.quote.take()
+        self.kernel.slots.get_mut(&crate::quote::QUOTE).take()
     }
 
     fn push_quote(&mut self, comment: PromptComment) {
-        self.composer_ext.quote.push(comment);
+        self.kernel.slots.get_mut(&crate::quote::QUOTE).push(comment);
     }
 
     fn leave_queue_edits(&mut self) {
@@ -255,11 +255,11 @@ impl RestoreHost for App {
     }
 
     fn last_project(&self) -> Option<(&ServerKey, &str)> {
-        self.home_state.last_project.as_ref().map(|(s, d)| (s, d.as_str()))
+        self.kernel.slots.get(&crate::projects::HOME_STATE).last_project.as_ref().map(|(s, d)| (s, d.as_str()))
     }
 
     fn set_last_project(&mut self, project: Option<(ServerKey, String)>) {
-        self.home_state.last_project = project;
+        self.kernel.slots.get_mut(&crate::projects::HOME_STATE).last_project = project;
     }
 
     fn sidebar_open(&self) -> bool {
@@ -330,20 +330,20 @@ impl RestoreHost for App {
     }
 
     fn settings_open(&self) -> bool {
-        self.settings.open
+        App::settings_open(self)
     }
 
     fn settings_page_id(&self) -> &str {
-        self.settings_pages.page.id()
+        self.kernel.slots.get(&crate::settings::SETTINGS_PAGES).page.id()
     }
 
     fn open_restored_settings(&mut self, tab: &str) {
-        self.settings.open = true;
-        self.settings_pages.page = crate::settings::pages::Page::parse(tab);
+        self.set_settings_open(true);
+        self.kernel.slots.get_mut(&crate::settings::SETTINGS_PAGES).page = crate::settings::pages::Page::parse(tab);
     }
 
     fn reopen_settings_page(&mut self, tx: &mut Tx) {
-        let page = std::mem::take(&mut self.settings_pages.page);
+        let page = std::mem::take(&mut self.kernel.slots.get_mut(&crate::settings::SETTINGS_PAGES).page);
         self.open_settings_page(page, tx);
     }
 
@@ -387,20 +387,44 @@ impl RestoreHost for App {
         self.transcripts.insert(id, transcript);
     }
 
-    fn expanded(&self) -> &Disclosures {
-        &self.timeline_fx.expanded
+    fn restore_expanded(&mut self, touched: Vec<(String, bool)>) {
+        self.timeline_fx.expanded.restore(touched);
     }
 
-    fn expanded_mut(&mut self) -> &mut Disclosures {
-        &mut self.timeline_fx.expanded
+    fn touched_expanded(&self) -> Vec<(String, bool)> {
+        self.timeline_fx.expanded.touched().map(|(k, v)| (k.clone(), v)).collect()
     }
 
-    fn ends(&self) -> &Ends {
-        &self.timeline_fx.ends
+    fn restore_places(&mut self, places: Vec<Place>) {
+        self.timeline_fx.ends.restore(places);
     }
 
-    fn ends_mut(&mut self) -> &mut Ends {
-        &mut self.timeline_fx.ends
+    fn reopen_place(&mut self, id: &str) {
+        self.timeline_fx.ends.reopen(id);
+    }
+
+    fn place_due(&self, id: &str) -> bool {
+        self.timeline_fx.ends.due(id)
+    }
+
+    fn place_due_row(&self, id: &str) -> Option<&str> {
+        self.timeline_fx.ends.due_row(id)
+    }
+
+    fn land_place(&mut self, id: &str, tx: &mut Tx) {
+        self.timeline_fx.ends.land(id, tx);
+    }
+
+    fn wait_place(&mut self, id: &str, now: f64) -> bool {
+        self.timeline_fx.ends.wait(id, now)
+    }
+
+    fn timeline_place(&self, id: &str) -> Option<(String, f32)> {
+        self.timeline_fx.ends.place(id)
+    }
+
+    fn timeline_places(&self, sessions: &[&str]) -> Vec<Place> {
+        self.timeline_fx.ends.places(sessions.iter().copied())
     }
 
     fn timeline_has_row(&self, id: &str, row: &str) -> bool {
@@ -433,20 +457,20 @@ impl RestoreHost for App {
     }
 
     fn restore_side_json(&mut self, value: &Value) {
-        self.workspace_panes.side.restore_json(value);
+        self.kernel.slots.get_mut(&crate::panels::SIDE).restore_json(value);
     }
 
     fn restore_side_rest(&mut self, value: &Value) {
-        self.workspace_panes.side.restore_rest(value);
+        self.kernel.slots.get_mut(&crate::panels::SIDE).restore_rest(value);
     }
 
     fn side_json_where(&self, pred: &dyn Fn(&str) -> bool) -> Value {
-        self.workspace_panes.side.to_json_where(pred)
+        self.kernel.slots.get(&crate::panels::SIDE).to_json_where(pred)
     }
 
     fn side_stamp(&self) -> u64 {
         let mut h = DefaultHasher::new();
-        self.workspace_panes.side.stamp_hash(&mut h);
+        self.kernel.slots.get(&crate::panels::SIDE).stamp_hash(&mut h);
         h.finish()
     }
 
@@ -543,7 +567,7 @@ impl RestoreHost for App {
 
     fn note_skipped_restore(&mut self, server: ServerKey, session_id: String, title: String) {
         crate::crash_notice::note_skipped(
-            self.kernel.slots.slot::<crate::crash_notice::State>(),
+            self.kernel.slots.get_mut(&crate::crash_notice::CRASH_NOTICE),
             server,
             session_id,
             title,
@@ -593,11 +617,6 @@ impl App {
 
     pub fn hydrate_restore(&mut self) -> bool {
         hydrate_restore(self)
-    }
-
-    #[allow(dead_code)]
-    pub fn hydrated(&self) -> bool {
-        hydrated(self)
     }
 
     pub fn resume_settings_page(&mut self) {
@@ -656,22 +675,12 @@ impl App {
         land_upload(self, key, r);
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn restore_places(&mut self) {
-        restore_places(self);
-    }
-
     pub(crate) fn land_place(&mut self, id: &str, tx: &mut Tx) -> bool {
         land_place(self, id, tx)
     }
 
     pub(crate) fn poll_places(&mut self, now: f64, tx: &mut Tx) -> bool {
         poll_places(self, now, tx)
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn ask_copy(&mut self, server: &ServerKey, id: &str) {
-        ask_copy(self, server, id);
     }
 
     pub(crate) fn poll_copies(&mut self, tx: &mut Tx) -> bool {
@@ -695,5 +704,9 @@ impl Feature<App> for RestoreFeature {
         "feature.restore"
     }
 
-    fn register(&self, _builder: &mut KernelBuilder<App>) {}
+    fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder
+            .register_slot(&RESTORE)
+            .register_slot(&KEPT_PLACES);
+    }
 }

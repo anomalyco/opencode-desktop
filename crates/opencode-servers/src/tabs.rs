@@ -4,9 +4,8 @@
 //! (`tabs.info`), the closed tabs (`tabs.closed`), the last tab (`tabs.recent`) and the page
 //! (`lastActiveUrl`). Rune also keeps the composer drafts and side panes there.
 
+use opencode_kit::servers::key::{Route, ServerKey, TabKey};
 use serde_json::{Map, Value, json};
-
-use super::key::{Route, ServerKey, TabKey};
 
 /// A session tab (`TabStorage.Session`, `schema.ts:9-15`). The route is kept only when it
 /// shows another session than the tab's own (a subagent), and its parent only with it.

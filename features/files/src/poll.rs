@@ -40,7 +40,7 @@ pub fn poll_files(host: &mut dyn FilesHost, tx: &mut Tx) -> bool {
         if added {
             ws.reindex(waker.as_ref());
         }
-        ws.ready = true;
+        ws.tree_load.step(crate::TreeLoadEvent::Loaded);
         ws.rebuild_tree();
         changed = true;
     }
@@ -124,7 +124,7 @@ pub fn poll_files(host: &mut dyn FilesHost, tx: &mut Tx) -> bool {
                     (!ws.html.contains_key(&path)
                         && !ws.tables.contains_key(&path)
                         && ws.diagram.current(doc).is_none())
-                        || ws.md.get(&path).and_then(|v| v.rendered) == Some(false),
+                        || ws.md.get(&path).is_some_and(|v| v.mode.is_forced_source()),
                 )
             })
             .unwrap_or(false);
@@ -187,7 +187,7 @@ fn land_read(host: &mut dyn FilesHost, landed: content::Landed, tx: &mut Tx) -> 
         .sessions
         .get(&sid)
         .and_then(|w| w.docs.get(&path))
-        .is_some_and(|d| d.ready() && d.failure().is_none() && !d.missing());
+        .is_some_and(|d| d.content().has_content());
     if !body.content() && (again.is_some() || (shows_content && matches!(body, content::Body::Failed(_)))) {
         if again.is_none() {
             host.files_mut().reads.outdate(&sid, &path);

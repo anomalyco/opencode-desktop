@@ -7,15 +7,14 @@ use opencode_kit::model::SessionInfo;
 use opencode_search::query::upsert_latest;
 use rune::{Color, Cx, El, KeyEvent, TextEdit, TextStyle, Transition, Tx, col, row, text};
 use serde_json::Value;
-use session_view::composer::composer_fill;
-use session_view::palette::{Elevate as _, Pal};
-use session_view::popover::search_field;
-use session_view::scroller::scroller;
-use session_view::style::UI;
+use opencode_ui::palette::{Elevate as _, Pal};
+use opencode_ui::popover::search_field;
+use opencode_ui::scroller::scroller;
+use opencode_ui::style::{UI, composer_fill};
 
 use crate::MentionsHost;
 
-pub use session_view::popover::{Highlight, cycle};
+pub use opencode_ui::popover::{Highlight, cycle};
 
 /// `composer-suggestions` inherits the page's 13/24 regular face with normal letter spacing.
 /// The compact menu label (13/16 with negative tracking) pulls long descriptions to the left.

@@ -255,7 +255,7 @@ pub fn render(app: &App, p: &Pal, ctx: &PanelViewCtx) -> El {
     if let (true, Some(nested), Data::Map(fields)) = (ctx.mobile, more.nested(), &mut data)
         && more.drawn_view() == Some(crate::panels::panel_key(ctx.plugin, &all[k].spec.id).as_str())
     {
-        fields.insert("drawer".to_owned(), nested.data.clone());
+        fields.insert("drawer".to_owned(), crate::plugin_host::services::json_to_data(&nested.data));
     }
     let instance = if all[k].list.is_some() { ctx.tab.id.as_str() } else { "" };
     let suffix = if ctx.mobile { ":mobile" } else { "" };
@@ -361,7 +361,7 @@ pub fn focused(app: &mut App, plugin: &str, session: &str, tab: &str, restored: 
     let Some(f) = &all[k].on_focus else { return };
     let mut data = props(app, &all[k], session, tab, true, "side", (0.0, 0.0));
     if let Data::Map(m) = &mut data {
-        m.insert("restored".into(), Data::Bool(restored || app.workspace_panes.side.background_open.is_active()));
+        m.insert("restored".into(), Data::Bool(restored || app.kernel.slots.get(&crate::panels::SIDE).background_open.is_active()));
     }
     if let Some(script) = app.plugins.list[i].script() {
         cx::enter(app, || script.spawn_fn(f, data, None).ok());

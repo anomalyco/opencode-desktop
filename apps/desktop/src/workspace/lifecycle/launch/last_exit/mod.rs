@@ -43,7 +43,6 @@ pub const FLAG_PANIC: u8 = 3;
 
 /// Why the previous process ended, recorded only when that process observed the cause itself.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum Reason {
     OutOfMemory,
     StackOverflow,
@@ -52,7 +51,6 @@ pub enum Reason {
 
 /// What `<data>/last-exit.bin` held from the previous session when this one opened it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum Previous {
     /// First launch, unreadable record, or the previous session quit cleanly (`tag = 0`).
     Clean,
@@ -85,7 +83,6 @@ pub enum State {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum Event {
     Opened { seq: u64, previous: Previous },
     TakePrevious,
@@ -625,7 +622,6 @@ mod imp {
         }
         #[allow(clippy::disallowed_methods)]
         let Some(kind) = std::env::var("OPENCODE_RUNE_CRASH_DRILL").ok() else { return };
-        #[allow(clippy::disallowed_methods)]
         let Some(root) = std::env::var_os("RUNE_DIRS_ROOT").map(PathBuf::from) else { return };
         let stack_bytes = if kind == "stack-commit" { 8 << 20 } else { 1 << 20 };
         let go = root.join("drill.go");

@@ -7,8 +7,8 @@ use opencode_i18n::t;
 use opencode_ui::popup::PopupHost;
 use rune::{Color, Drag, El, Key, KeyEvent, Phase, TextStyle, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
-use session_view::detail::{Activity, Category, Detail, PRESETS, Placement, preset_description};
-use session_view::palette::{Elevate as _, Pal};
+use opencode_ui::detail::{Activity, Category, Detail, PRESETS, Placement, preset_description};
+use opencode_ui::palette::{Elevate as _, Pal};
 
 use super::choice;
 use crate::host::SettingsHost;
@@ -203,8 +203,8 @@ fn detail<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {
 fn scale<H: SettingsHost + 'static>(p: &Pal, at: Option<usize>) -> El {
     let frac = at.unwrap_or_default() as f32 / (STOPS - 1) as f32;
     let track_bg = if p.dark { p.layer2 } else { p.q.layer4 };
-    let marker = session_view::palette::token(p.dark, if p.dark { "grey-700" } else { "grey-500" }).unwrap_or(p.icon_faint);
-    let grey300 = session_view::palette::token(p.dark, "grey-300").unwrap_or(p.switch_thumb);
+    let marker = opencode_ui::palette::token(p.dark, if p.dark { "grey-700" } else { "grey-500" }).unwrap_or(p.icon_faint);
+    let grey300 = opencode_ui::palette::token(p.dark, "grey-300").unwrap_or(p.switch_thumb);
     let accent = p.bg_accent.mix(Color::WHITE, 0.1);
     let dots = (0..STOPS).fold(row().key("stops").pin(Some(-4.0), Some(-3.0), Some(-4.0), None).h(8.0).justify_between(), |r, i| {
         r.child(el().size(8.0, 8.0).radius(4.0).fill(if at.is_some_and(|at| i <= at) { accent } else { marker }))
@@ -265,9 +265,9 @@ fn advanced<H: SettingsHost + 'static>(s: &H, p: &Pal, d: &Detail, custom: bool)
         .self_start()
         .on_press_tx(move |s: &mut H, tx: &mut Tx| toggle_advanced(s, custom, tx))
         .hover_group()
-        .hover_motion(session_view::style::HOVER_FADE, session_view::style::HOVER_FADE)
+        .hover_motion(opencode_ui::style::HOVER_FADE, opencode_ui::style::HOVER_FADE)
         .child(text(t!("settings.timeline.advanced")).font(LINE_MED).color(p.text));
-    let arrow = el().w(16.0).h(24.0).center().child(session_view::style::arrow(p, open));
+    let arrow = el().w(16.0).h(24.0).center().child(opencode_ui::style::arrow(p, open));
     let trigger = trigger.child(arrow);
     let mut c = col().key("timeline-detail-advanced").w_full().pt(8.0).child(trigger);
     if !open {

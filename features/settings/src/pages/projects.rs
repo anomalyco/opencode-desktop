@@ -11,7 +11,7 @@ use opencode_ui::widgets;
 use rune::{El, Key, KeyEvent, TextEdit, TextStyle, Tx, col, el, icon, row, text};
 use rune_kit::ButtonVariant;
 use rune_theme_opencode::icons as ic;
-use session_view::palette::{Pal, kit};
+use opencode_ui::palette::{Pal, kit};
 
 use super::{filter_field, ghost_button, header_with, no_results, page};
 use crate::host::SettingsHost;
@@ -193,7 +193,7 @@ fn card<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, x: &Project, _oth
         .hover(p.layer2);
     let st = &s.settings_pages().project;
     if st.renaming.as_deref() == Some(x.directory.as_str()) {
-        let field = session_view::style::field(&st.rename, NAME)
+        let field = opencode_ui::style::field(&st.rename, NAME)
             .key("settings-project-rename")
             .spellcheck(s.settings().spellcheck)
             .single_line()

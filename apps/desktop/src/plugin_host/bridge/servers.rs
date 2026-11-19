@@ -8,7 +8,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use opencode_kit::servers::HttpBase;
-use opencode_kit::servers::plugin_server::{self, PluginEntry, PluginStage};
+use opencode_servers::plugin_server::{self, PluginEntry, PluginStage};
 use opencode_plugin_spec::ServerState;
 use rune::Tx;
 use rune::machine::Attempt;
@@ -183,8 +183,9 @@ pub fn authenticating(key: &str) -> bool {
 /// and a managed server whose health dropped runs its plugin's `reconnect`.
 pub fn poll_actions(app: &mut App, tx: &mut Tx) {
     sync_actions(app);
-    if app.plugins.cover_visit.moved(&app.route, app.settings.open) {
-        app.plugins.cover_visit.follow(&app.route, app.settings.open);
+    let settings_open = app.settings_open();
+    if app.plugins.cover_visit.moved(&app.route, settings_open) {
+        app.plugins.cover_visit.follow(&app.route, settings_open);
     }
     for (key, attempt, ready) in SETTLED.take() {
         let effects = ACTIONS.with_borrow_mut(|a| a.get_mut(&key).map(|slot| plugin_server::step(&mut slot.machine, plugin_server::Event::ConnectSettled { attempt, ready })));
@@ -210,8 +211,8 @@ pub fn poll_actions(app: &mut App, tx: &mut Tx) {
                 let managed = managed.contains(key);
                 let health = crate::servers::health::get(&opencode_kit::servers::ServerKey::new(key));
                 let now = match health {
-                    Some(opencode_kit::servers::health::Health::Probe(opencode_kit::servers::health::ProbeResult::Healthy { .. })) => Link::Up,
-                    Some(opencode_kit::servers::health::Health::Probe(opencode_kit::servers::health::ProbeResult::Unreachable)) => Link::Down,
+                    Some(opencode_servers::health::Health::Probe(opencode_servers::health::ProbeResult::Healthy { .. })) => Link::Up,
+                    Some(opencode_servers::health::Health::Probe(opencode_servers::health::ProbeResult::Unreachable)) => Link::Down,
                     _ => slot.link,
                 };
                 let was = std::mem::replace(&mut slot.link, now);
@@ -310,15 +311,15 @@ impl CoverVisit {
 /// A dialog shows over the window (`plugin.dialogs.active()`): a cover offers no sign-in then.
 pub fn dialog_shows(app: &App) -> bool {
     app.plugins.dialog_open()
-        || app.dialogs.switcher.is_open()
-        || app.dialogs.project_switcher.is_open()
-        || app.dialogs.fork.is_open()
-        || app.dialogs.jump.open()
-        || app.dialogs.menus.confirming().is_some()
-        || app.dialogs.connect.is_modal_open()
-        || app.dialogs.mcp.open.is_some()
+        || app.kernel.slots.get(&crate::switcher::SWITCHER).is_open()
+        || app.kernel.slots.get(&crate::project_switcher::PROJECT_SWITCHER).is_open()
+        || app.kernel.slots.get(&crate::fork::FORK).is_open()
+        || app.kernel.slots.get(&crate::message_nav::JUMP).open()
+        || app.kernel.slots.get(&crate::session_menu::MENUS).confirming().is_some()
+        || app.kernel.slots.get(&crate::connect::CONNECT).is_modal_open()
+        || app.kernel.slots.get(&crate::mcp::MCP).open.is_some()
         || crate::servers::dialog::is_open(app)
-        || app.dialogs.remote_picker.is_open()
+        || app.kernel.slots.get(&crate::projects::REMOTE_PICKER).is_open()
 }
 
 /// The plugin cover over the routed session or draft tab (`PluginServerCover`): drawn by the
@@ -338,7 +339,7 @@ pub fn cover(app: &App, p: &crate::palette::Pal) -> Option<rune::El> {
 pub fn row(app: &App, p: &crate::palette::Pal, c: &Contributed) -> Option<rune::El> {
     if c.by_address() {
         return crate::servers::list().into_iter().find(|s| s.url == c.key).map(|s| {
-            let key = opencode_kit::servers::ServerConn::http_server(&s.url)
+            let key = opencode_servers::ServerConn::http_server(&s.url)
                 .map_or_else(|| opencode_kit::servers::ServerKey::new(&s.url), |conn| conn.key());
             let health = crate::servers::health::get(&key);
             let http = crate::settings::HttpServer { url: s.url, password: s.password, name: s.name };

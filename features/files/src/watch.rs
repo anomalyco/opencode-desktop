@@ -97,7 +97,7 @@ pub fn changed(host: &mut dyn FilesHost, data: &serde_json::Value) {
             continue;
         }
         let parent = path.rsplit_once('/').map_or("", |(dir, _)| dir).to_owned();
-        if data["event"] == "unlink" && ws.listed_dirs.contains(&parent) {
+        if data["event"] == "unlink" && ws.can_relist(&parent) {
             lists.push((sid.clone(), parent));
         }
         if ws.docs.contains_key(&path) {

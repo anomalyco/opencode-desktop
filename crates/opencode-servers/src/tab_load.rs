@@ -4,9 +4,8 @@
 //! background tab with a saved title shows it with no request at all, so a window full of tabs
 //! from a server that is away paints from what it saved.
 
+use opencode_kit::servers::key::{ServerKey, TabKey};
 use rune::machine::{Attempt, Effects};
-
-use super::key::{ServerKey, TabKey};
 
 /// `SESSION_TAB_LOAD_TIMEOUT_MS` (`tab-load-machine.ts:5`).
 pub const SESSION_TAB_LOAD_TIMEOUT_MS: u64 = 15_000;

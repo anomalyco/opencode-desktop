@@ -129,6 +129,8 @@ pub struct AddMenu {
     pub slash: Slash,
 }
 
+pub(crate) static ADD_MENU: opencode_kernel::Slot<AddMenu> = opencode_kernel::Slot::new();
+
 impl AddMenu {
     pub fn open(&self) -> bool {
         matches!(self.menu, Menu::Open { .. })
@@ -177,14 +179,14 @@ impl App {
     }
 
     pub fn add_menu(&mut self, event: MenuEvent, tx: &mut Tx) {
-        if let Some(MenuEffect::FocusTrigger { ring }) = step_menu(&mut self.composer_ext.add.menu, event) {
+        if let Some(MenuEffect::FocusTrigger { ring }) = step_menu(&mut self.kernel.slots.get_mut(&ADD_MENU).menu, event) {
             self.composer.focused = false;
             tx.focus("add", ring);
         }
     }
 
     pub fn open_add_menu(&mut self, tx: &mut Tx) {
-        if self.composer_ext.add.shell() {
+        if self.kernel.slots.get(&ADD_MENU).shell() {
             return;
         }
         let keyboard = tx.focus_visible();
@@ -211,17 +213,17 @@ impl App {
 
     /// Steps the composer's mode and runs what it asks; true when it took the key.
     pub fn composer_mode(&mut self, event: Event) -> bool {
-        let was = self.composer_ext.add.shell();
-        let step = mode::step(&mut self.composer_ext.add.mode, event);
+        let was = self.kernel.slots.get(&ADD_MENU).shell();
+        let step = mode::step(&mut self.kernel.slots.get_mut(&ADD_MENU).mode, event);
         for effect in step.effects {
             match effect {
-                Effect::ClosePopovers => self.composer_ext.add.menu = Menu::Closed,
+                Effect::ClosePopovers => self.kernel.slots.get_mut(&ADD_MENU).menu = Menu::Closed,
                 Effect::ClearDraft => self.composer.clear(),
             }
         }
         // The suggestion lists hear the mode when it changes (`mode.shell`, `mode.normal`), not
         // on every keystroke, which would close the @ list a shell command's `@` opened.
-        if self.composer_ext.add.shell() != was {
+        if self.kernel.slots.get(&ADD_MENU).shell() != was {
             self.suggest_mode();
         }
         step.handled
@@ -247,7 +249,7 @@ impl App {
     /// Keys for the + menu, ⌘U, shell mode and the command popover. The composer's handler
     /// and the window's both call it.
     pub fn add_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
-        if let Menu::Open { active, .. } = self.composer_ext.add.menu {
+        if let Menu::Open { active, .. } = self.kernel.slots.get(&ADD_MENU).menu {
             match ev.key {
                 Key::Escape => {
                     tx.instant();
@@ -265,7 +267,7 @@ impl App {
             return true;
         }
         if crate::keymap::Bind::Attach.matches_tx(ev, tx) && self.has_composer() {
-            if !self.composer_ext.add.shell() {
+            if !self.kernel.slots.get(&ADD_MENU).shell() {
                 self.pick_attachment(tx);
             }
             return true;
@@ -279,7 +281,7 @@ impl App {
             Key::Backspace => Event::Backspace { empty: self.composer.text.is_empty() },
             _ => return false,
         };
-        if self.composer.preedit().is_some() || self.composer_ext.suggest.state.is_open() || !self.composer_mode(event) {
+        if self.composer.preedit().is_some() || self.kernel.slots.get(&crate::suggestions::SUGGEST).state.is_open() || !self.composer_mode(event) {
             return false;
         }
         // The + button and the pickers fade back in (`editor.tsx:178-182`).
@@ -362,7 +364,7 @@ impl App {
 /// ([`shell_hidden`]). The pickers start 4 after it (`ms-1`): the toolbar's 2 pt gap and its
 /// own 2.
 pub fn trigger(s: &App, p: &Pal) -> El {
-    let open = s.composer_ext.add.open();
+    let open = s.kernel.slots.get(&ADD_MENU).open();
     let mut b = el()
         .key("add")
         .role("button")
@@ -376,8 +378,8 @@ pub fn trigger(s: &App, p: &Pal) -> El {
         .hover(p.hover)
         .press(p.pressed)
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
-            if s.composer_ext.add.open() { s.close_add_menu(Close::Outside, tx) } else { s.open_add_menu(tx) }
-            crate::popover::motion::toggled(&s.diag.knobs, tx, s.composer_ext.add.open());
+            if s.kernel.slots.get(&ADD_MENU).open() { s.close_add_menu(Close::Outside, tx) } else { s.open_add_menu(tx) }
+            crate::popover::motion::toggled(&s.diag.knobs, tx, s.kernel.slots.get(&ADD_MENU).open());
         });
     if crate::popup::PRESS_ON_DOWN {
         b = b.press_on_down();
@@ -393,7 +395,7 @@ pub fn trigger(s: &App, p: &Pal) -> El {
 /// `aria-hidden` and `inert` at 426-460).
 pub fn shell_hidden(s: &App, el: El) -> El {
     let el = el.opacity_motion(rune::Anim::new(rune::Curve::tween(0.2, rune::Easing::EASE)));
-    if s.composer_ext.add.shell() { el.opacity(0.0).inert().a11y_hidden() } else { el.opacity(1.0) }
+    if s.kernel.slots.get(&ADD_MENU).shell() { el.opacity(0.0).inert().a11y_hidden() } else { el.opacity(1.0) }
 }
 
 /// "Exit Esc" before Send in shell mode (`editor.tsx:499-516`): `button-v2` ghost-faint at size
@@ -431,7 +433,7 @@ pub fn exit_shell_button(p: &Pal, wide: bool) -> El {
 
 /// The menu over the + button, and the scrim that closes it.
 pub fn menu(s: &App, p: &Pal) -> Option<El> {
-    if !s.composer_ext.add.open() {
+    if !s.kernel.slots.get(&ADD_MENU).open() {
         return None;
     }
     // `menu-v2-content` (`menu.css:6-21`): layer 1, a 2 pt inset, 6 pt corners and
@@ -455,7 +457,7 @@ pub fn menu(s: &App, p: &Pal) -> Option<El> {
             // `menu-v2-separator`: edge to edge, through the menu's 2 pt inset.
             menu = menu.child(el().key("add-separator").h(1.0).mt(2.0).mb(2.0).ml(-2.0).mr(-2.0).fill(p.border_muted));
         }
-        let active = s.composer_ext.add.active() == Some(item);
+        let active = s.kernel.slots.get(&ADD_MENU).active() == Some(item);
         menu = menu.child(
             row()
                 .key(format!("add-{}", item.key()))
@@ -471,7 +473,7 @@ pub fn menu(s: &App, p: &Pal) -> Option<El> {
                 .fill(if active { p.hover } else { Color::TRANSPARENT })
                 .press(p.pressed)
                 .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
-                    if inside && s.composer_ext.add.open() {
+                    if inside && s.kernel.slots.get(&ADD_MENU).open() {
                         tx.instant();
                         s.add_menu(MenuEvent::Lit(item), tx);
                     }

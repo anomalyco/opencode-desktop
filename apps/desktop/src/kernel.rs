@@ -1,12 +1,11 @@
-//! Shell kernel assembly: wires extracted feature crates and native surface descriptors into
-//! `opencode_kernel::Kernel<App>`.
+//! Shell kernel assembly: wires extracted feature crates into `opencode_kernel::Kernel<App>`.
 //!
 //! New Rust features register here via `Feature::register` instead of adding fields to `App` or
 //! editing central dispatch chains in `lib.rs`, `tick.rs`, `shell/input/keys.rs`, or `shell/view/mod.rs`.
 
 use opencode_kernel::{
     AppEnv, AppFeedback, AppOverlays, EscapeLayer, Kernel, KernelBuilder, OverlayEntry,
-    OverlayEvent, OverlayKind, OverlayRegistration, Phase, SurfaceDescriptor, SurfaceKind,
+    OverlayEvent, OverlayKind, OverlayRegistration, Phase,
 };
 
 use crate::{App, Route};
@@ -92,7 +91,6 @@ pub fn build() -> Kernel<App> {
     #[cfg(feature = "office")]
     b.with_feature(&crate::surfaces::office::OfficeFeature);
     b.with_feature(&crate::surfaces::updater::UpdaterFeature);
-    b.with_feature(&crate::surfaces::code_view::CodeViewFeature);
     b.with_feature(&crate::line_comments::AnnotationsFeature);
     b.with_feature(&crate::attachments::ComposerInputFeature);
     b.with_feature(&crate::connect::ConnectFeature);
@@ -159,7 +157,7 @@ pub fn build() -> Kernel<App> {
     b.register_escape_layer(EscapeLayer::new(
         "escape.toast",
         30,
-        |s| s.dialogs.toast.current().is_some_and(|t| t.persistent),
+        |s| s.toast.current().is_some_and(|t| t.persistent),
         |s, ev, tx| {
             crate::status_toast::key(s, ev, tx);
         },
@@ -181,14 +179,15 @@ pub fn build() -> Kernel<App> {
         },
     ));
     crate::commands::register_shell_commands(&mut b);
-    b.add_surface(
-        SurfaceDescriptor::new("browser", SurfaceKind::Browser, "Browser")
-            .with_multi_instance(true),
-    );
-    let mut kernel = b.build();
-    kernel.slots.insert(crate::app::ViewRuns::default());
-    kernel.slots.insert(crate::session_catalog::Catalog::default());
-    kernel
+    b.register_slot(&crate::app::VIEW_RUNS)
+        .register_slot(&crate::app::OUTPUT_ERRORS)
+        .register_slot(&crate::session_catalog::CATALOG)
+        .register_slot(&crate::events::TAIL_CHANGE)
+        .register_slot(&crate::events::STREAM_GAPS)
+        .register_slot(&crate::speech::SPEECH)
+        .register_slot(&crate::crash_notice::CRASH_NOTICE)
+        .register_slot(&crate::servers::dialog::DIALOG);
+    b.build()
 }
 
 /// Core shell and subsystem lifecycle polls registered at explicit `tick::order` positions so
@@ -271,14 +270,15 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
     // may run a frame later) leaves the selected tab's label muted (`FocusMode::Quiet`).
     b.add_system_ordered(Phase::Ingest, ingest::PANELS_SYNC_COMPOSER, "panels.sync_composer", |s, _, _| {
         let composing = s.composer.focused;
+        let side = s.kernel.slots.get(&crate::panels::SIDE);
         let in_terminal = !composing
-            && s.workspace_panes.side.focus.is_armed()
-            && s.workspace_panes.side.focus.is_focused()
+            && side.focus.is_armed()
+            && side.focus.is_focused()
             && s.terminal_focus().is_some();
         let sync = crate::panels::SideFocusEvent::SyncComposer { composing, in_terminal };
         // Written only when it changes: a write to the side state rebuilds every region reading it.
-        if s.workspace_panes.side.focus.would_change(sync) {
-            s.workspace_panes.side.focus.sync_composer(composing, in_terminal);
+        if s.kernel.slots.get(&crate::panels::SIDE).focus.would_change(sync) {
+            s.kernel.slots.get_mut(&crate::panels::SIDE).focus.sync_composer(composing, in_terminal);
         }
         false
     });
@@ -296,8 +296,9 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
         while let Some(why) = s
             .kernel
             .slots
-            .get::<crate::app::OutputErrors>()
-            .and_then(|e| e.0.as_ref())
+            .untracked(&crate::app::OUTPUT_ERRORS)
+            .0
+            .as_ref()
             .and_then(|(_, rx)| rx.try_recv().ok())
         {
             crate::status_toast::fail(s, opencode_i18n::t!("common.requestFailed"), why);
@@ -424,7 +425,7 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
         }
         crate::windows::reopen::poll(s);
         crate::windows::reopen::poll_asked(s);
-        s.composer_ext.prompts.hydrate((*s.waker).clone());
+        s.kernel.slots.get_mut(&crate::prompt_history::PROMPTS).hydrate((*s.waker).clone());
         s.poll_window();
         s.poll_taskbar();
         crate::jump_list::poll(s);

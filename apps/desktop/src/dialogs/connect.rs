@@ -2,7 +2,7 @@
 
 pub use opencode_feature_connect::*;
 
-use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration};
+use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration, Slot};
 use opencode_kit::integration::Integration;
 use rune::Tx;
 use rune::machine::Attempt;
@@ -13,21 +13,24 @@ use crate::App;
 use crate::jobs::Apply;
 use crate::pickers::PickerHost as _;
 
+pub(crate) static CONNECT: Slot<Connect> = Slot::new();
+static CATALOGS: Slot<Catalogs> = Slot::new();
+
 impl ConnectHost for App {
     fn connect(&self) -> &Connect {
-        &self.dialogs.connect
+        self.kernel.slots.get(&CONNECT)
     }
 
     fn connect_mut(&mut self) -> &mut Connect {
-        &mut self.dialogs.connect
+        self.kernel.slots.get_mut(&CONNECT)
     }
 
     fn catalogs(&self) -> &Catalogs {
-        &self.catalogs
+        self.kernel.slots.get(&CATALOGS)
     }
 
     fn catalogs_mut(&mut self) -> &mut Catalogs {
-        &mut self.catalogs
+        self.kernel.slots.get_mut(&CATALOGS)
     }
 
     fn active_directory(&self) -> String {
@@ -42,7 +45,8 @@ impl ConnectHost for App {
     }
 
     fn auth_host(&self) -> AuthHost {
-        use opencode_kit::servers::{ServerConn, registry::loopback_origin};
+        use opencode_kit::servers::loopback_origin;
+        use opencode_servers::ServerConn;
         let key = crate::servers::runtime::active(self);
         if key.is_sidecar() {
             return AuthHost::Local;
@@ -126,7 +130,7 @@ impl ConnectHost for App {
 
     fn auto_focus_composer(&mut self, tx: &mut Tx) {
         if crate::auto_focus_composer(tx) {
-            self.composer.focused = self.has_composer() && !self.settings.open;
+            self.composer.focused = self.has_composer() && !self.settings_open();
         }
     }
 
@@ -170,11 +174,6 @@ impl App {
         integrations(self, dir)
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn integration_of(&self, dir: Option<&str>, id: &str) -> Option<&Integration> {
-        integration_of(self, dir, id)
-    }
-
     /// The providers the server runs at `dir`, once read.
     pub(crate) fn provider_infos(&self, dir: Option<&str>) -> Option<&[ProviderInfo]> {
         provider_infos(self, dir)
@@ -200,6 +199,9 @@ impl Feature<App> for ConnectFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder
+            .register_slot(&CONNECT)
+            .register_slot(&CATALOGS);
         builder.add_command(
             CommandEntry::<App>::from_key(
                 "provider.connect",

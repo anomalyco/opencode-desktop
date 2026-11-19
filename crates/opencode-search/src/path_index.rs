@@ -161,19 +161,170 @@ mod worker {
 
     use super::{PathIndex, Waker};
 
+    /// Active worker phase. At most one worker thread exists at any time: none in `Idle` or
+    /// `Ready`, and one in `Queued`, `Building`, or `Draining`. A queued job always supersedes
+    /// any previously landed index, so `Queued` and a landed index can never coexist.
     #[derive(Default)]
-    struct Slot {
-        latest: u64,
-        pending: Option<(u64, Vec<String>)>,
-        running: bool,
-        landed: Option<(u64, PathIndex)>,
-        waker: Option<Waker>,
-        cancelled: bool,
+    enum Phase {
+        /// No worker thread is running and no built index waits for `take`.
+        #[default]
+        Idle,
+        /// No worker thread is running; the latest built index waits for `take`.
+        Ready(u64, PathIndex),
+        /// A worker thread exists and a newer job is queued (either freshly spawned before its
+        /// first dequeue, or currently building a stale generation whose result will be discarded).
+        Queued(u64, Vec<String>),
+        /// The worker thread is actively building `generation` with no newer request queued.
+        Building(u64),
+        /// The worker finished its current build (storing `landed` if it succeeded and has not
+        /// yet been taken) and is looping back to exit unless another request arrives first.
+        Draining(Option<(u64, PathIndex)>),
+    }
+
+    /// Shared worker slot protected by `Inner::slot`: either active or cancelled on drop (which
+    /// holds no waker, pending job, or landed index).
+    enum Slot {
+        Active { waker: Option<Waker>, phase: Phase },
+        Cancelled,
+    }
+
+    impl Default for Slot {
+        fn default() -> Self {
+            Self::Active {
+                waker: None,
+                phase: Phase::Idle,
+            }
+        }
+    }
+
+    enum SlotEvent {
+        SetWaker(Waker),
+        Request { generation: u64, paths: Vec<String> },
+        Take,
+        Cancel,
+        WorkerNext,
+        WorkerFinished { generation: u64, built: Option<PathIndex> },
+    }
+
+    enum SlotEffect {
+        DropWaker(Option<Waker>),
+        Requested {
+            spawn: bool,
+            drop_landed: Option<(u64, PathIndex)>,
+            drop_pending: Option<(u64, Vec<String>)>,
+        },
+        Taken(Option<(u64, PathIndex)>),
+        DropSlot(Slot),
+        Run(Option<(u64, Vec<String>)>),
+        Finished {
+            wake: Option<Waker>,
+            drop_index: Option<PathIndex>,
+        },
+    }
+
+    impl Slot {
+        /// Pure state transition run under `Inner::slot`. Every replaced or discarded value is
+        /// returned in the effect so the caller drops it after releasing the mutex.
+        fn step(&mut self, event: SlotEvent) -> SlotEffect {
+            match (self, event) {
+                (Slot::Active { waker, .. }, SlotEvent::SetWaker(next)) => {
+                    SlotEffect::DropWaker(waker.replace(next))
+                }
+                (Slot::Cancelled, SlotEvent::SetWaker(next)) => SlotEffect::DropWaker(Some(next)),
+                (Slot::Active { phase, .. }, SlotEvent::Request { generation, paths }) => {
+                    let (spawn, drop_landed, drop_pending) =
+                        match std::mem::replace(phase, Phase::Queued(generation, paths)) {
+                            Phase::Idle => (true, None, None),
+                            Phase::Ready(g, idx) => (true, Some((g, idx)), None),
+                            Phase::Queued(g, p) => (false, None, Some((g, p))),
+                            Phase::Building(_) => (false, None, None),
+                            Phase::Draining(landed) => (false, landed, None),
+                        };
+                    SlotEffect::Requested {
+                        spawn,
+                        drop_landed,
+                        drop_pending,
+                    }
+                }
+                (Slot::Cancelled, SlotEvent::Request { generation, paths }) => {
+                    SlotEffect::Requested {
+                        spawn: false,
+                        drop_landed: None,
+                        drop_pending: Some((generation, paths)),
+                    }
+                }
+                (Slot::Active { phase, .. }, SlotEvent::Take) => {
+                    let taken = match phase {
+                        Phase::Ready(_, _) => match std::mem::replace(phase, Phase::Idle) {
+                            Phase::Ready(g, idx) => Some((g, idx)),
+                            _ => unreachable!(),
+                        },
+                        Phase::Draining(landed) => landed.take(),
+                        Phase::Idle | Phase::Queued(_, _) | Phase::Building(_) => None,
+                    };
+                    SlotEffect::Taken(taken)
+                }
+                (Slot::Cancelled, SlotEvent::Take) => SlotEffect::Taken(None),
+                (slot, SlotEvent::Cancel) => {
+                    SlotEffect::DropSlot(std::mem::replace(slot, Slot::Cancelled))
+                }
+                (Slot::Active { phase, .. }, SlotEvent::WorkerNext) => {
+                    match std::mem::take(phase) {
+                        Phase::Queued(generation, paths) => {
+                            *phase = Phase::Building(generation);
+                            SlotEffect::Run(Some((generation, paths)))
+                        }
+                        Phase::Draining(Some((g, idx))) => {
+                            *phase = Phase::Ready(g, idx);
+                            SlotEffect::Run(None)
+                        }
+                        Phase::Draining(None) | Phase::Idle => {
+                            *phase = Phase::Idle;
+                            SlotEffect::Run(None)
+                        }
+                        prev @ (Phase::Ready(_, _) | Phase::Building(_)) => {
+                            *phase = prev;
+                            SlotEffect::Run(None)
+                        }
+                    }
+                }
+                (Slot::Cancelled, SlotEvent::WorkerNext) => SlotEffect::Run(None),
+                (
+                    Slot::Active { waker, phase },
+                    SlotEvent::WorkerFinished { generation, built },
+                ) => match phase {
+                    Phase::Building(g) if *g == generation => {
+                        let wake = built.as_ref().and_then(|_| waker.clone());
+                        *phase = Phase::Draining(built.map(|idx| (generation, idx)));
+                        SlotEffect::Finished {
+                            wake,
+                            drop_index: None,
+                        }
+                    }
+                    _ => SlotEffect::Finished {
+                        wake: None,
+                        drop_index: built,
+                    },
+                },
+                (Slot::Cancelled, SlotEvent::WorkerFinished { built, .. }) => {
+                    SlotEffect::Finished {
+                        wake: None,
+                        drop_index: built,
+                    }
+                }
+            }
+        }
     }
 
     #[derive(Default)]
     struct Inner {
         slot: Mutex<Slot>,
+    }
+
+    impl Inner {
+        fn step(&self, event: SlotEvent) -> SlotEffect {
+            self.slot.lock().unwrap_or_else(|e| e.into_inner()).step(event)
+        }
     }
 
     /// Latest-wins background builder: at most one thread per `LivePaths`, coalescing rapid
@@ -185,30 +336,22 @@ mod worker {
 
     impl PathWorker {
         pub(super) fn set_waker(&mut self, waker: Waker) {
-            let old = self
-                .inner
-                .slot
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .waker
-                .replace(waker);
-            drop(old);
+            if let SlotEffect::DropWaker(old) = self.inner.step(SlotEvent::SetWaker(waker)) {
+                drop(old);
+            }
         }
 
         pub(super) fn request(&mut self, generation: u64, paths: Vec<String>) {
-            let (spawn, old_landed, old_pending) = {
-                let mut slot = self.inner.slot.lock().unwrap_or_else(|e| e.into_inner());
-                slot.latest = generation;
-                let old_landed = slot.landed.take();
-                let old_pending = slot.pending.replace((generation, paths));
-                let spawn = !slot.running;
-                if spawn {
-                    slot.running = true;
-                }
-                (spawn, old_landed, old_pending)
+            let SlotEffect::Requested {
+                spawn,
+                drop_landed,
+                drop_pending,
+            } = self.inner.step(SlotEvent::Request { generation, paths })
+            else {
+                return;
             };
-            drop(old_landed);
-            drop(old_pending);
+            drop(drop_landed);
+            drop(drop_pending);
             if spawn {
                 let inner = self.inner.clone();
                 if std::thread::Builder::new()
@@ -222,61 +365,34 @@ mod worker {
         }
 
         pub(super) fn take(&mut self) -> Option<(u64, PathIndex)> {
-            self.inner
-                .slot
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .landed
-                .take()
+            match self.inner.step(SlotEvent::Take) {
+                SlotEffect::Taken(landed) => landed,
+                _ => None,
+            }
         }
     }
 
     impl Drop for PathWorker {
         fn drop(&mut self) {
-            let (old_landed, old_pending, old_waker) = {
-                let mut slot = self.inner.slot.lock().unwrap_or_else(|e| e.into_inner());
-                slot.cancelled = true;
-                (slot.landed.take(), slot.pending.take(), slot.waker.take())
-            };
-            drop(old_landed);
-            drop(old_pending);
-            drop(old_waker);
+            if let SlotEffect::DropSlot(old) = self.inner.step(SlotEvent::Cancel) {
+                drop(old);
+            }
         }
     }
 
     fn drive(inner: Arc<Inner>) {
         loop {
-            let next = {
-                let mut slot = inner.slot.lock().unwrap_or_else(|e| e.into_inner());
-                if slot.cancelled {
-                    slot.running = false;
-                    return;
-                }
-                match slot.pending.take() {
-                    Some(job) => job,
-                    None => {
-                        slot.running = false;
-                        return;
-                    }
-                }
+            let SlotEffect::Run(Some((generation, paths))) = inner.step(SlotEvent::WorkerNext)
+            else {
+                return;
             };
-            let (generation, paths) = next;
-            let built = catch_unwind(AssertUnwindSafe(|| PathIndex::new(paths.into_iter())));
-            let (wake, discarded) = {
-                let mut slot = inner.slot.lock().unwrap_or_else(|e| e.into_inner());
-                if !slot.cancelled && slot.latest == generation {
-                    match built {
-                        Ok(index) => {
-                            let old = slot.landed.replace((generation, index));
-                            (slot.waker.clone(), old)
-                        }
-                        Err(_) => (None, None),
-                    }
-                } else {
-                    (None, built.ok().map(|i| (generation, i)))
-                }
+            let built = catch_unwind(AssertUnwindSafe(|| PathIndex::new(paths.into_iter()))).ok();
+            let SlotEffect::Finished { wake, drop_index } =
+                inner.step(SlotEvent::WorkerFinished { generation, built })
+            else {
+                return;
             };
-            drop(discarded);
+            drop(drop_index);
             if let Some(waker) = wake {
                 waker();
             }

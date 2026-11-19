@@ -1,8 +1,9 @@
 //! The servers Settings lists (`settings/servers/inventory.ts`): every server reported by
 //! [`SettingsHost::servers_inventory`], with its name, connection, health, and availability.
 
-use opencode_kit::servers::settings::{self, Input};
-use opencode_kit::servers::{HttpBase, ServerConn, ServerKey};
+use opencode_kit::servers::{HttpBase, ServerKey};
+use opencode_servers::ServerConn;
+use opencode_servers::settings::{self, Input};
 
 pub use crate::host::{ServerEntry as Server, ServerKind as Kind};
 use crate::host::SettingsHost;

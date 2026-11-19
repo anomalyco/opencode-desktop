@@ -14,6 +14,9 @@ use crate::installer::EngineStatus;
 use crate::keys::{is_shell_shortcut, named_key_str, page_zoom_dir};
 #[cfg(all(feature = "engine", target_os = "macos"))]
 use crate::mach_pipe::MachReceiver;
+#[cfg(feature = "engine")]
+use crate::machine::UpdateCheck;
+use crate::machine::{EngineCaps, EngineEffect, EngineEvent, SharedEngine};
 use crate::site_zoom::{SiteZoom, site_of};
 use crate::protocol::{
     CursorKind, DownloadFile, EngineMsg, HostMsg, PickedElement, TabSnapshot, pack_mods,
@@ -66,9 +69,10 @@ pub struct BrowserHost {
     pub(crate) tabs: Vec<BrowserTab>,
     focused_tab: Option<u64>,
     pub(crate) surfaces: Arc<Mutex<HashMap<u64, TabSurface>>>,
-    pub(crate) status: Arc<Mutex<EngineStatus>>,
+    /// Shared sidecar connection state (`generation`, `status`, `outbox`, child PID, and early opens).
+    pub(crate) shared: Arc<Mutex<SharedEngine>>,
+    /// Status last observed by `poll()`, for change detection in `quiet()` and `poll()`.
     last_polled_status: EngineStatus,
-    pub(crate) outbox: Arc<Mutex<Option<Sender<HostMsg>>>>,
     #[cfg_attr(not(feature = "engine"), allow(dead_code))]
     pub(crate) inbox_tx: Sender<EngineMsg>,
     inbox_rx: Receiver<EngineMsg>,
@@ -79,10 +83,8 @@ pub struct BrowserHost {
     pub(crate) socket_override: Option<PathBuf>,
     #[cfg_attr(not(feature = "engine"), allow(dead_code))]
     pub(crate) profile_dir: Option<PathBuf>,
-    /// The running engine keeps a page's downloads (its `Ready` said so).
-    engine_downloads: bool,
-    /// The running engine enforces URL and workspace `file://` policy in its request handlers.
-    engine_policy: bool,
+    /// Capabilities advertised by the running (or last run) engine's `Ready`.
+    caps: EngineCaps,
     next_tab_id: u64,
     next_req_id: u64,
     pending_opens: Vec<(u64, String)>,
@@ -101,20 +103,12 @@ pub struct BrowserHost {
     pub(crate) prefetch: Arc<crate::prefetch::Prefetch>,
     /// Whether this run looked for a newer engine yet (`check_for_update_once`).
     #[cfg(feature = "engine")]
-    pub(crate) update_checked: bool,
-    /// The engine this app started, while it runs (`transport::end_engine`).
-    #[cfg(feature = "engine")]
-    pub(crate) engine: Arc<Mutex<Option<u32>>>,
-    /// The waiting tabs a connect sent itself (`flush_pending_opens` skips them).
-    pub(crate) early: EarlyOpens,
+    pub(crate) update_check: UpdateCheck,
     /// Tabs opened so far, and `prepare` calls: an engine started for a page that didn't come
     /// stops once its hold ends with neither changed.
     pub(crate) opened: Arc<std::sync::atomic::AtomicU64>,
     #[cfg(feature = "engine")]
     pub(crate) prepared: Arc<std::sync::atomic::AtomicU64>,
-    /// Monotonic connection generation so a shutting-down engine's reader/watcher cannot clobber a newer connection.
-    #[cfg_attr(not(feature = "engine"), allow(dead_code))]
-    pub(crate) conn_gen: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl Default for BrowserHost {
@@ -132,8 +126,7 @@ impl BrowserHost {
             focused_tab: None,
             surfaces: Arc::new(Mutex::new(HashMap::new())),
             last_polled_status: initial_status.clone(),
-            status: Arc::new(Mutex::new(initial_status)),
-            outbox: Arc::new(Mutex::new(None)),
+            shared: Arc::new(Mutex::new(SharedEngine::new(initial_status))),
             inbox_tx,
             inbox_rx,
             held: Default::default(),
@@ -141,8 +134,7 @@ impl BrowserHost {
             shell_shortcut: None,
             socket_override: None,
             profile_dir: None,
-            engine_downloads: false,
-            engine_policy: false,
+            caps: EngineCaps::Unknown,
             next_tab_id: 1,
             next_req_id: 1,
             pending_opens: Vec::new(),
@@ -157,14 +149,10 @@ impl BrowserHost {
             #[cfg(feature = "engine")]
             prefetch: Arc::default(),
             #[cfg(feature = "engine")]
-            update_checked: false,
-            #[cfg(feature = "engine")]
-            engine: Arc::default(),
-            early: Arc::default(),
+            update_check: UpdateCheck::Pending,
             opened: Arc::default(),
             #[cfg(feature = "engine")]
             prepared: Arc::default(),
-            conn_gen: Arc::default(),
         }
     }
 
@@ -192,11 +180,11 @@ impl BrowserHost {
     /// (`OPENCODE_BROWSER_PROFILE` in the environment still wins). Takes effect at the next spawn.
     /// The engine that runs (or last ran) keeps a page's downloads, for the agent's tools.
     pub fn engine_downloads(&self) -> bool {
-        self.engine_downloads
+        self.caps.downloads()
     }
 
     pub fn engine_policy(&self) -> bool {
-        self.engine_policy
+        self.caps.policy()
     }
 
     /// Where tab `tab_id`'s download `file` is, when it's where the engine keeps it: the engine
@@ -262,7 +250,7 @@ impl BrowserHost {
         #[cfg(feature = "engine")]
         {
             h.last_polled_status = EngineStatus::Unchecked;
-            *h.status.lock().unwrap_or_else(PoisonError::into_inner) = EngineStatus::Unchecked;
+            h.shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::MockStatus(EngineStatus::Unchecked));
         }
         h
     }
@@ -283,7 +271,7 @@ impl BrowserHost {
     }
 
     pub fn status(&self) -> EngineStatus {
-        self.status.lock().unwrap_or_else(PoisonError::into_inner).clone()
+        self.shared.lock().unwrap_or_else(PoisonError::into_inner).status()
     }
 
     pub fn tabs(&self) -> &[BrowserTab] {
@@ -335,7 +323,7 @@ impl BrowserHost {
         });
         self.focused_tab = Some(id);
         self.last_polled_status = status.clone();
-        *self.status.lock().unwrap_or_else(PoisonError::into_inner) = status;
+        self.shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::MockStatus(status));
         id
     }
 
@@ -377,13 +365,13 @@ impl BrowserHost {
     /// Sends every message to the returned receiver instead of an engine (tests).
     pub fn capture_sent(&mut self) -> Receiver<HostMsg> {
         let (tx, rx) = mpsc::channel();
-        *self.outbox.lock().unwrap_or_else(PoisonError::into_inner) = Some(tx);
+        self.shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::Capture(tx));
         rx
     }
 
     pub fn set_mock_status(&mut self, status: EngineStatus) {
         self.last_polled_status = status.clone();
-        *self.status.lock().unwrap_or_else(PoisonError::into_inner) = status;
+        self.shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::MockStatus(status));
     }
 
     pub fn open_tab(&mut self, raw_url: &str) -> u64 {
@@ -396,7 +384,7 @@ impl BrowserHost {
         let candidate = if from_address { resolve_address(raw_url) } else { crate::policy::with_scheme(raw_url) };
         let connected = self.is_connected();
         // An older engine without request-level `file://` confinement cannot safely host a `file://` origin.
-        let effective_roots: &[String] = if connected && !self.engine_policy { &[] } else { &file_roots };
+        let effective_roots: &[String] = if connected && !self.engine_policy() { &[] } else { &file_roots };
         let refused = crate::policy::refusal(&candidate, effective_roots);
         let url = if refused.is_some() { "about:blank".to_owned() } else { candidate };
         let id = self.alloc_tab_id();
@@ -438,7 +426,7 @@ impl BrowserHost {
                 height_pt,
                 scale,
                 focused: true,
-                file_roots: if self.engine_policy { file_roots } else { Vec::new() },
+                file_roots: if self.engine_policy() { file_roots } else { Vec::new() },
             });
         } else {
             self.pending_opens.push((id, url));
@@ -452,7 +440,7 @@ impl BrowserHost {
             && t.file_roots != file_roots
         {
             t.file_roots = file_roots.clone();
-            if self.is_connected() && self.engine_policy {
+            if self.is_connected() && self.engine_policy() {
                 self.send(HostMsg::SetTabPolicy { tab_id, file_roots });
             }
         }
@@ -498,7 +486,7 @@ impl BrowserHost {
         crate::transport::paint_event(crate::transport::PaintEvent::Navigate);
         let url = if from_address { resolve_address(raw_url) } else { crate::policy::with_scheme(raw_url) };
         let connected = self.is_connected();
-        let engine_policy = self.engine_policy;
+        let engine_policy = self.engine_policy();
         let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) else {
             return;
         };
@@ -590,7 +578,7 @@ impl BrowserHost {
         session_id: Option<String>,
     ) -> Result<u64, String> {
         let method = method.into();
-        crate::policy::check_cdp(&method, &params, self.engine_policy)?;
+        crate::policy::check_cdp(&method, &params, self.engine_policy())?;
         let request_id = self.next_req_id;
         self.next_req_id += 1;
         self.send(HostMsg::CdpCall {
@@ -613,7 +601,7 @@ impl BrowserHost {
             .ok_or_else(|| format!("No browser tab with tabID {tab_id}"))?;
         let request_id = self.next_req_id;
         self.next_req_id += 1;
-        if !self.engine_policy || crate::policy::destination_origin(&url).is_none() {
+        if !self.engine_policy() || crate::policy::destination_origin(&url).is_none() {
             self.cdp_responses.insert(request_id, Ok(serde_json::json!({ "cookies": 0 })));
             return Ok(request_id);
         }
@@ -626,7 +614,7 @@ impl BrowserHost {
         if !self.tabs.iter().any(|t| t.id == tab_id) {
             return Err(format!("No browser tab with tabID {tab_id}"));
         }
-        if !self.engine_policy {
+        if !self.engine_policy() {
             return Err("Clearing site data requires an updated browser engine.".into());
         }
         let request_id = self.next_req_id;
@@ -665,14 +653,18 @@ impl BrowserHost {
     /// Sends the tabs that waited for the engine, as soon as it's connected: the engine opens
     /// them right after it says it's ready, without a turn of the app in between.
     fn flush_pending_opens(&mut self) {
-        if !self.is_connected() {
-            return;
-        }
-        let ready = *self.status.lock().unwrap_or_else(PoisonError::into_inner) == EngineStatus::Ready;
-        let engine_policy = self.engine_policy;
+        let (ready, early) = {
+            let mut shared = self.shared.lock().unwrap_or_else(PoisonError::into_inner);
+            if !shared.is_connected() {
+                return;
+            }
+            let ready = shared.status() == EngineStatus::Ready;
+            let early = shared.take_early();
+            (ready, early)
+        };
+        let engine_policy = self.engine_policy();
         // Those the connect sent already (`transport::Link::opens`): one closed meanwhile closes;
         // one given another address or laid out at another size meanwhile gets them.
-        let early = std::mem::take(&mut *self.early.lock().unwrap_or_else(PoisonError::into_inner));
         for (&tab_id, (sent_url, sent_size)) in &early {
             let pending_url = self.pending_opens.iter().find(|(id, _)| *id == tab_id).map(|(_, u)| u.clone());
             let (size, roots_to_send, nav_url) = {
@@ -782,7 +774,7 @@ impl BrowserHost {
         if let Ok(msg) = self.inbox_rx.try_recv() {
             self.held.borrow_mut().push_back(msg);
         }
-        self.held.borrow().is_empty() && self.pending_opens.is_empty() && *self.status.lock().unwrap_or_else(PoisonError::into_inner) == self.last_polled_status
+        self.held.borrow().is_empty() && self.pending_opens.is_empty() && self.status() == self.last_polled_status
     }
 
     pub fn poll(&mut self) -> bool {
@@ -793,15 +785,19 @@ impl BrowserHost {
         for msg in mail {
             match msg {
                 EngineMsg::Ready { downloads, policy, .. } => {
-                    self.engine_downloads = downloads;
-                    self.engine_policy = policy;
+                    if !matches!(
+                        self.shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::Ready),
+                        EngineEffect::ReadyApplied
+                    ) {
+                        continue;
+                    }
+                    self.caps = EngineCaps::Known { downloads, policy };
                     // A new engine starts with an empty downloads folder and numbers its files
                     // from 1 again: the last one's files are gone.
                     for t in &mut self.tabs {
                         t.files.clear();
                     }
                     rune::marks::mark("browser.engine.ready");
-                    *self.status.lock().unwrap_or_else(PoisonError::into_inner) = EngineStatus::Ready;
                     // Before any page loads, so the first draws in the app's scheme.
                     match self.color_scheme.load(std::sync::atomic::Ordering::Relaxed) {
                         0 => {}
@@ -911,9 +907,9 @@ impl BrowserHost {
             self.ensure_connected();
         }
         {
-            let guard = self.status.lock().unwrap_or_else(PoisonError::into_inner);
-            if *guard != self.last_polled_status {
-                self.last_polled_status = guard.clone();
+            let status = self.status();
+            if status != self.last_polled_status {
+                self.last_polled_status = status;
                 changed = true;
             }
         }
@@ -940,16 +936,13 @@ impl BrowserHost {
     /// Builds a focusable Rune `El` displaying `tab_id`'s zero-copy `NativeSurface` and forwarding
     /// layout resizes, pointer clicks/drags/wheel, cursor shapes, and non-shell keys.
     pub fn shutdown_sidecar(&mut self) {
-        self.conn_gen.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let effect = self.shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::Shutdown);
         #[cfg(feature = "engine")]
         if let Ok(sock) = self.engine_socket() {
             std::fs::remove_file(sock).ok();
         }
-        self.send(HostMsg::Shutdown);
-        *self.outbox.lock().unwrap_or_else(PoisonError::into_inner) = None;
-        let mut status = self.status.lock().unwrap_or_else(PoisonError::into_inner);
-        if *status == EngineStatus::Ready || *status == EngineStatus::Connecting {
-            *status = EngineStatus::Installed;
+        if let EngineEffect::Shutdown { outbox: Some(tx) } = effect {
+            tx.send(HostMsg::Shutdown).ok();
         }
     }
 
@@ -1006,11 +999,11 @@ impl BrowserHost {
     }
 
     pub(crate) fn is_connected(&self) -> bool {
-        self.outbox.lock().unwrap_or_else(PoisonError::into_inner).is_some()
+        self.shared.lock().unwrap_or_else(PoisonError::into_inner).is_connected()
     }
 
     pub(crate) fn send(&self, msg: HostMsg) {
-        if let Some(tx) = self.outbox.lock().unwrap_or_else(PoisonError::into_inner).as_ref() {
+        if let Some(tx) = self.shared.lock().unwrap_or_else(PoisonError::into_inner).outbox() {
             tx.send(msg).ok();
         }
     }
@@ -1098,7 +1091,3 @@ impl BrowserHost {
 
     pub fn prepare(&mut self, _hold: std::time::Duration) {}
 }
-
-/// Tabs a connect sent itself, by id: the address and size (width, height in points, scale)
-/// each opened at.
-pub(crate) type EarlyOpens = Arc<Mutex<HashMap<u64, (String, (f32, f32, f32))>>>;

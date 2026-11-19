@@ -121,7 +121,7 @@ pub fn stream_down(s: &mut App, e: opencode_kit::wire_error::WireError, tx: &mut
     let now = *s.clock;
     // What was mid-text when it dropped grows again only from whole text (the barrier).
     if !s.transcripts.is_empty() {
-        let gaps = &mut s.kernel.slots.slot::<crate::events::StreamGaps>().0;
+        let gaps = &mut s.kernel.slots.get_mut(&crate::events::STREAM_GAPS).0;
         for (sid, t) in s.transcripts.iter() {
             gaps.entry(sid.clone()).or_default().extend(t.open_steps());
         }
@@ -202,7 +202,7 @@ fn probed(s: &mut App, tx: &mut Tx) -> bool {
         Some(Cover::SignedOut) => Probe::SignedOut,
         Some(Cover::Incompatible) => Probe::Incompatible,
         None if crate::launch::offline(s) || unavailable::unreachable(&key) => Probe::Unreachable,
-        None if crate::servers::health::get(&key).is_some_and(|h| opencode_kit::servers::health::is_healthy(Some(&h))) => Probe::Answering,
+        None if crate::servers::health::get(&key).is_some_and(|h| opencode_servers::health::is_healthy(Some(&h))) => Probe::Answering,
         None => Probe::Unknown,
     };
     let server = key.as_str().to_owned();

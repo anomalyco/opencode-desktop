@@ -11,7 +11,7 @@ use opencode_kit::model::{self, Attachment, Delivery, Inbox, InboxChange, InboxI
 use opencode_kit::wire_error::WireError;
 use rune::machine::Attempt;
 use rune::{TextEdit, Tx};
-use session_view::composer::history::Entry;
+use opencode_ui::prompt_history::Entry;
 
 pub mod drag;
 pub mod edit;

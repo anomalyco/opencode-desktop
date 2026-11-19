@@ -13,6 +13,7 @@ use rune::time::Instant;
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 
+use super::worker::{Handshake, StreamEffect, StreamEvent, StreamState, stream_step};
 use super::{Incoming, Server};
 use crate::wire_error::{WireError, WireKind};
 
@@ -56,36 +57,43 @@ pub(super) fn wake_reconnects() {
 pub(super) fn read_events(server: &Server, idle: Duration, inbox_tx: &Sender<Incoming>, wake: &Waker) {
     let (server, inbox_tx, wake) = (server.clone(), inbox_tx.clone(), wake.clone());
     wasm_bindgen_futures::spawn_local(async move {
-        let mut resumed = false;
-        let mut backoff = 250u64;
-        loop {
-            let mut opened = false;
+        let mut state = StreamState::Initial;
+        while !matches!(state, StreamState::Closed) {
             let generation = RETRY.load(Ordering::Relaxed);
-            match events(&server, idle, &inbox_tx, &wake, resumed, &mut opened).await {
+            match events(&server, idle, &inbox_tx, &wake, &mut state).await {
                 Ok(()) => return,
                 Err(e) => {
-                    if inbox_tx.send(Incoming::StreamDown(e)).is_err() {
-                        return;
+                    for effect in stream_step(&mut state, StreamEvent::Failed(e)) {
+                        match effect {
+                            StreamEffect::ReportDown { error, wake: news } => {
+                                if inbox_tx.send(Incoming::StreamDown(error)).is_err() {
+                                    stream_step(&mut state, StreamEvent::Closed);
+                                    return;
+                                }
+                                if news {
+                                    wake();
+                                }
+                            }
+                            StreamEffect::WatchReach => server.watch_reach(None),
+                            StreamEffect::Wait { backoff_ms } => {
+                                // Wait out the backoff, or less when a reconnect is asked for.
+                                let until = Instant::now() + Duration::from_millis(backoff_ms);
+                                while Instant::now() < until && RETRY.load(Ordering::Relaxed) == generation {
+                                    sleep(Duration::from_millis(100)).await;
+                                }
+                                stream_step(&mut state, StreamEvent::WaitElapsed);
+                            }
+                            StreamEffect::DeliverHandshake(_) | StreamEffect::DeliverFrame | StreamEffect::RejectHandshake(_) => {}
+                        }
                     }
-                    wake();
                 }
             }
-            if opened {
-                backoff = 250;
-            }
-            resumed = true;
-            // Wait out the backoff, or less when a reconnect is asked for.
-            let until = Instant::now() + Duration::from_millis(backoff);
-            while Instant::now() < until && RETRY.load(Ordering::Relaxed) == generation {
-                sleep(Duration::from_millis(100)).await;
-            }
-            backoff = (backoff * 2).min(3000);
         }
     });
 }
 
 /// One open of `/api/event`: `Ok` when the inbox closed, else why the stream ended.
-async fn events(server: &Server, idle: Duration, inbox: &Sender<Incoming>, wake: &Waker, resumed: bool, opened: &mut bool) -> Result<(), WireError> {
+async fn events(server: &Server, idle: Duration, inbox: &Sender<Incoming>, wake: &Waker, state: &mut StreamState) -> Result<(), WireError> {
     let down = |kind: WireKind| WireError::new("GET", "/api/event", kind);
     let page = |what: &str| down(WireKind::Other(what.to_owned()));
     let window = web_sys::window().ok_or_else(|| page("no window"))?;
@@ -114,8 +122,6 @@ async fn events(server: &Server, idle: Duration, inbox: &Sender<Incoming>, wake:
     }
     let reader: web_sys::ReadableStreamDefaultReader =
         response.body().ok_or_else(|| page("no body"))?.get_reader().dyn_into().map_err(|_| page("no reader"))?;
-    // Connected only once OpenCode's first event (`server.connected`) is in.
-    let mut connected = false;
     let mut pending: Vec<u8> = Vec::new();
     loop {
         let chunk = with_idle(reader.read(), idle, &abort).await.map_err(|e| down(e.unwrap_or_else(WireKind::Dropped)))?;
@@ -132,21 +138,34 @@ async fn events(server: &Server, idle: Duration, inbox: &Sender<Incoming>, wake:
             let line: Vec<u8> = pending.drain(..=end).collect();
             let line = String::from_utf8_lossy(&line);
             let Some(message) = super::event_line(line.trim_end_matches(['\n', '\r'])) else { continue };
-            if !connected {
-                if !matches!(&message, Incoming::Event { ty, .. } if ty == "server.connected") {
-                    let what = "an event stream that didn't start with server.connected".to_owned();
-                    return Err(down(WireKind::NotOpenCode { status: 200, what }));
-                }
-                connected = true;
-                *opened = true;
-                if inbox.send(if resumed { Incoming::Reconnected } else { Incoming::Opened }).is_err() {
-                    return Ok(());
+            let connected = matches!(&message, Incoming::Event { ty, .. } if ty == "server.connected");
+            let mut pending_frame = Some(message);
+            for effect in stream_step(state, StreamEvent::Frame { connected }) {
+                match effect {
+                    StreamEffect::DeliverHandshake(h) => {
+                        let msg = match h {
+                            Handshake::Opened => Incoming::Opened,
+                            Handshake::Reconnected => Incoming::Reconnected,
+                        };
+                        if inbox.send(msg).is_err() {
+                            stream_step(state, StreamEvent::Closed);
+                            return Ok(());
+                        }
+                        woke = true;
+                    }
+                    StreamEffect::DeliverFrame => {
+                        if let Some(msg) = pending_frame.take() {
+                            if inbox.send(msg).is_err() {
+                                stream_step(state, StreamEvent::Closed);
+                                return Ok(());
+                            }
+                            woke = true;
+                        }
+                    }
+                    StreamEffect::RejectHandshake(err) => return Err(err),
+                    _ => {}
                 }
             }
-            if inbox.send(message).is_err() {
-                return Ok(());
-            }
-            woke = true;
         }
         if woke {
             wake();

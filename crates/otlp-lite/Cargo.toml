@@ -6,8 +6,8 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-# Its clock (`rune::time`), which a browser build needs: std's has none there.
-rune = { workspace = true, default-features = false }
+# Browser-safe monotonic and wall clocks (`std::time` on native, `performance.now()`/`Date.now()` on wasm32).
+web-time = "1.1"
 serde_json.workspace = true
 
 # The machine's name for spans (`host.name`), asked of the system rather than of a `hostname` program.
