@@ -66,7 +66,9 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
             tx.instant();
             // A dialog takes over from a popover, as Kobalte's does as focus leaves it.
             close_popover(app, tx);
+            let return_focus = tx.focused().map(str::to_owned);
             app.plugins.dialog = Some(OpenDialog { plugin: plugin.clone(), id, data });
+            opencode_kernel::AppOverlays::on_overlay_opened(app, "plugin.dialog", return_focus);
         }
         // Only the drawer kind view of this plugin that the More drawer shows opens one.
         Request::DrawerView { title, data } => {
@@ -78,6 +80,7 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
         Request::CloseDialog => {
             if app.plugins.dialog.take().is_some() {
                 tx.instant();
+                close_dialog_overlay(app, tx);
             }
         }
         Request::DismissToast(handle) => {
@@ -207,10 +210,22 @@ pub fn step_flyout(app: &mut App, plugin: Option<&std::rc::Rc<str>>, event: Flyo
     }
 }
 
+/// Pops `"plugin.dialog"` from `OverlayStack` and restores focus to whatever held it before open
+/// (yielding to any focus move the close handler itself makes).
+fn close_dialog_overlay(app: &mut App, tx: &mut Tx) {
+    let effects = app.kernel.step_overlay(opencode_kernel::OverlayEvent::Close("plugin.dialog"));
+    for effect in effects {
+        if let opencode_kernel::OverlayEffect::Dismissed { restore_focus: Some(focus), .. } = effect {
+            tx.return_focus(focus, tx.focus_visible());
+        }
+    }
+}
+
 /// Esc or a press outside closed the open dialog: its `onDismiss` runs.
 pub fn dismiss_dialog(app: &mut App, tx: &mut Tx) {
     let Some(open) = app.plugins.dialog.take() else { return };
     tx.instant();
+    close_dialog_overlay(app, tx);
     let found = app.plugins.running().find_map(|(i, p)| (p.half.id == open.plugin).then(|| p.half.contribs.borrow().dialogs.iter().find(|c| c.spec.id == open.id).and_then(|c| c.f("onDismiss").cloned()).map(|f| (i, f))).flatten());
     if let Some((i, f)) = found {
         super::commands::spawn(app, i, &f, (), tx);

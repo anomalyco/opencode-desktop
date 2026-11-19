@@ -406,8 +406,12 @@ pub struct DialogSpec {
     pub title: Option<String>,
     /// Its size preset.
     pub size: Option<DialogSize>,
+    /// Corner radius in points. Defaults to 6 for `normal` dialogs and 12 for `large` and `x-large`.
+    pub radius: Option<f64>,
+    /// Hides the scroll bar when a `normal` dialog's content overflows, as Desktop's `dialog-content` does. Defaults to false.
+    pub hide_scrollbar: Option<bool>,
 }
-impl_record!(DialogSpec, ["id", "title", "size"], ["render", "onDismiss"], []);
+impl_record!(DialogSpec, ["id", "title", "size", "radius", "hideScrollbar"], ["render", "onDismiss"], []);
 
 /// Popover content, opened with `Popover:Open` or `ui.flyoutRow`. The host owns placement, focus and dismissal.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

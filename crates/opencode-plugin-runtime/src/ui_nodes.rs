@@ -340,6 +340,7 @@ pub fn dialog_header(a: &mut NodeArgs, attach_close: impl FnOnce(El) -> El) -> R
             .radius(4.0)
             .center()
             .hover(pal.hover)
+            .press(pal.pressed)
             .hover_motion(rune::Anim::INSTANT, rune::Anim::INSTANT)
             .child(rune_icon(&widgets::DIALOG_CLOSE, 16.0).color(pal.icon_muted));
         header = header.child(attach_close(close));

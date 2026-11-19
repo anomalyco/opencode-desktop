@@ -389,22 +389,21 @@ fn flyout_view(app: &App, p: &Pal, i: usize, flyout: &Flyout) -> Option<El> {
     Some(col().key(format!("plugin-flyout-{key}")).anchored(list.row.clone(), list.side, rune::Align::Start, 2.0).on_press(|_: &mut App| {}).child(body))
 }
 
-/// The open plugin dialog over a scrim, as the app's own dialogs sit: in Desktop's dialog frame
-/// at the plugin's size preset (`runtime/plugin/ui.tsx` `Dialog`): a normal one as tall as its
-/// content (`<Dialog fit>`), a large or x-large one its size's height on bg-base with 12 pt corners.
-/// Esc or a press outside closes it and runs its `onDismiss`.
-pub fn dialog_view(app: &App, p: &Pal, cx: &rune::Cx<App>) -> Vec<El> {
+/// The open plugin dialog's card sized for `win`, without its modal scrim or focus trap (for
+/// standalone story stages as well as [`dialog_view`]).
+pub fn dialog_card(app: &App, p: &Pal, win: [f32; 2]) -> Option<(&'static str, El)> {
     use crate::widgets::{DialogSize, Fit};
-    let Some(open) = &app.plugins.dialog else { return Vec::new() };
-    let Some((i, _)) = app.plugins.running().find(|(_, pl)| pl.half.id == open.plugin) else { return Vec::new() };
+    let open = app.plugins.dialog.as_ref()?;
+    let (i, _) = app.plugins.running().find(|(_, pl)| pl.half.id == open.plugin)?;
     let found = app.plugins.list[i].half.contribs.borrow().dialogs.iter().find(|c| c.spec.id == open.id).map(|c| (c.key, c.spec.clone(), c.f("render").cloned()));
-    let Some((key, spec, Some(f))) = found else { return Vec::new() };
+    let (key, spec, Some(f)) = found? else { return None };
     let size = match spec.size {
         Some(opencode_plugin_spec::DialogSize::Large) => DialogSize::Large,
         Some(opencode_plugin_spec::DialogSize::XLarge) => DialogSize::XLarge,
         _ => DialogSize::Normal,
     };
-    let (fit, radius, fill) = if size == DialogSize::Normal { (Fit::Content, 6.0, p.layer1) } else { (Fit::Fixed, 12.0, p.bg_base) };
+    let (fit, default_radius, fill) = if size == DialogSize::Normal { (Fit::Content, 6.0, p.layer1) } else { (Fit::Fixed, 12.0, p.bg_base) };
+    let radius = spec.radius.map_or(default_radius, |r| r as f32);
     let content = render(app, p, i, &format!("dialog:{}", open.id), &f, map([("data", open.data.clone())]));
     // The clip goes on a child: on the card it would clip the card's own shadow too.
     // A normal one's content scrolls past its height, as `DialogBody`'s `overflow-y-auto` box does
@@ -412,12 +411,23 @@ pub fn dialog_view(app: &App, p: &Pal, cx: &rune::Cx<App>) -> Vec<El> {
     let inner = col().w_full().clip_rounded(radius);
     let inner = if fit == Fit::Fixed {
         inner.h_full().child(content)
+    } else if spec.hide_scrollbar == Some(true) {
+        inner.shrink().min_h(0.0).child(session_view::scroller::scroller(format!("plugin-dialog-scroll-{key}")).hidden(col().w_full().shrink().min_h(0.0), content))
     } else {
         inner.shrink().min_h(0.0).child(session_view::scroller::scroller(format!("plugin-dialog-scroll-{key}")).build::<App>(p, col().w_full().shrink().min_h(0.0), content))
     };
-    let card = col().radius(radius).fill(fill).elevate(p.overlay).child(inner);
-    let card = crate::widgets::sized(card, size, fit, crate::widgets::dialog_window(cx, *app.zoom));
-    let card = col().key(format!("plugin-dialog-{key}")).role("dialog").label(spec.title.clone().unwrap_or_default()).modal(true, |s: &mut App| requests::dismiss_dialog(s, &mut Tx::default())).child(card);
+    let card = col().radius(radius).fill(fill).elevate(p.overlay).transition(rune::Transition::none()).child(inner);
+    let card = crate::widgets::sized(card, size, fit, win);
+    Some((key, col().key(format!("plugin-dialog-{key}")).role("dialog").label(spec.title.clone().unwrap_or_default()).child(card)))
+}
+
+/// The open plugin dialog over a scrim, as the app's own dialogs sit: in Desktop's dialog frame
+/// at the plugin's size preset (`runtime/plugin/ui.tsx` `Dialog`): a normal one as tall as its
+/// content (`<Dialog fit>`), a large or x-large one its size's height on bg-base with 12 pt corners.
+/// Esc or a press outside closes it and runs its `onDismiss`.
+pub fn dialog_view(app: &App, p: &Pal, cx: &rune::Cx<App>) -> Vec<El> {
+    let Some((key, card)) = dialog_card(app, p, crate::widgets::dialog_window(cx, *app.zoom)) else { return Vec::new() };
+    let card = card.modal(true, |s: &mut App| requests::dismiss_dialog(s, &mut Tx::default()));
     crate::widgets::modal(&format!("plugin-dialog-modal-{key}"), p, card, None)
 }
 

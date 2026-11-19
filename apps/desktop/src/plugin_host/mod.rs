@@ -415,9 +415,12 @@ pub fn popover_key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     true
 }
 
-/// Esc closes the open plugin dialog, telling its plugin.
+/// Esc closes the open plugin dialog, telling its plugin (yielding when another overlay sits above it).
 pub fn dialog_key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if ev.key != rune::Key::Escape || app.plugins.dialog.is_none() {
+        return false;
+    }
+    if app.kernel.overlays.top().is_some_and(|top| top.id != "plugin.dialog") {
         return false;
     }
     requests::dismiss_dialog(app, tx);
@@ -451,7 +454,8 @@ impl opencode_kernel::Feature<App> for PluginHostFeature {
                     let p = crate::palette::pal(s.dark(cx));
                     dialog_view(s, p, cx)
                 })
-                .with_key(dialog_key),
+                .with_key(dialog_key)
+                .with_dismiss(requests::dismiss_dialog),
         );
         builder.register_overlay(
             opencode_kernel::OverlayRegistration::<App>::new("plugin.trust")

@@ -3346,6 +3346,8 @@ A modal dialog, opened with `Dialog:Open`.
 | `id` | `string` | Its id within the plugin. |
 | `title` | `string?` | Its heading and accessible name. |
 | `size` | `DialogSize?` | Its size preset. |
+| `radius` | `number?` | Corner radius in points. Defaults to 6 for `normal` dialogs and 12 for `large` and `x-large`. Since 1.5. |
+| `hideScrollbar` | `boolean?` | Hides the scroll bar when a `normal` dialog's content overflows, as Desktop's `dialog-content` does. Defaults to false. Since 1.5. |
 | `render` | `(view: View, props: DialogProps) -> UiNode?` | Draws its body inside the host's dialog frame: Desktop's dialog with the overlay elevation. A normal one is as tall as its content on layer-01 with 6-point corners; a large or x-large one is its size's height on bg-base with 12-point corners, so its body can fill it (`h = "full"`). |
 | `onDismiss` | `(() -> ())?` | Runs when Esc or a click outside closes it. |
 

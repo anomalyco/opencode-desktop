@@ -1599,6 +1599,8 @@
       { "name": "id", "type": "string", "doc": "Its id within the plugin." },
       { "name": "title", "type": "string?", "doc": "Its heading and accessible name." },
       { "name": "size", "type": "DialogSize?", "doc": "Its size preset." },
+      { "name": "radius", "type": "number?", "since": "1.5", "doc": "Corner radius in points. Defaults to 6 for `normal` dialogs and 12 for `large` and `x-large`." },
+      { "name": "hideScrollbar", "type": "boolean?", "since": "1.5", "doc": "Hides the scroll bar when a `normal` dialog's content overflows, as Desktop's `dialog-content` does. Defaults to false." },
       { "name": "render", "type": "(view: View, props: DialogProps) -> UiNode?", "doc": "Draws its body inside the host's dialog frame: Desktop's dialog with the overlay elevation. A normal one is as tall as its content on layer-01 with 6-point corners; a large or x-large one is its size's height on bg-base with 12-point corners, so its body can fill it (`h = \"full\"`)." },
       { "name": "onDismiss", "type": "(() -> ())?", "doc": "Runs when Esc or a click outside closes it." }
     ] },
