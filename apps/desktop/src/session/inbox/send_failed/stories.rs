@@ -10,7 +10,7 @@ pub(crate) const SECOND: &str = "msg_zzreceipt2";
 
 pub(crate) fn setup(s: &mut App) {
     crate::scenes::busy_scene(s);
-    s.playback.clear();
+    s.fixture_run.playback.clear();
     let Route::Session { id: sid, .. } = (*s.route).clone() else { return };
     for (id, body) in [(FIRST, "Why does it run on that machine?"), (SECOND, "Let's start with the ideas first.")] {
         s.transcripts.get_mut(&sid).unwrap().messages.push(Message::User { id: id.into(), text: body.into() });
@@ -26,7 +26,7 @@ pub(crate) fn confirmed(s: &mut App) {
     s.judge_sends_by_page(&sid, &[Message::User { id: SECOND.into(), text: "Let's start with the ideas first.".into() }]);
     // The timed-out first is unconfirmed until its receipt check: the server never got it.
     s.step_send(FIRST, super::machine::Event::Checked(super::machine::Found::Missing));
-    s.toast = Default::default();
+    s.dialogs.toast = Default::default();
 }
 
 const LONG: &str = "Well, what are the demos in order? It's also the performance improvements, right? \

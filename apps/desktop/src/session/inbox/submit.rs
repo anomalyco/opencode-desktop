@@ -66,7 +66,7 @@ impl App {
             return false;
         }
         let event = Event::Pressed { alternate, draft: self.composer.text.clone(), route: (*self.route).clone() };
-        self.submit.step(event);
+        self.queue.submit.step(event);
         true
     }
 }
@@ -74,12 +74,12 @@ impl App {
 /// Each frame: a held send goes through once the session has opened, or ends when its draft or
 /// route changed. True when it went.
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
-    if s.submit.state == State::Idle {
+    if s.queue.submit.state == State::Idle {
         return false;
     }
     let event = Event::Settled { draft: s.composer.text.clone(), route: (*s.route).clone(), opening: s.opening.is_some() };
     let mut sent = false;
-    for effect in s.submit.step(event) {
+    for effect in s.queue.submit.step(event) {
         let Effect::Submit { alternate } = effect;
         s.submit(alternate, tx);
         sent = true;

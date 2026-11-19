@@ -9,7 +9,7 @@ const LABEL: TextStyle = TextStyle::new(15.0, 530.0).lh(20.0);
 const SYMBOL: TextStyle = TextStyle::new(17.0, 440.0).mono().lh(20.0);
 
 pub(super) fn mounted(s: &App) -> bool {
-    if !session_view::style::touch_controls() || s.settings.open || s.stage.is_some() { return false; }
+    if !session_view::style::touch_controls() || s.settings.open || s.fixture_run.stage.is_some() { return false; }
     match &*s.route {
         Route::Home => false,
         Route::Draft(_) => true,
@@ -33,7 +33,7 @@ impl Delivery {
 
 pub(in crate::shell::view) fn bar(s: &App, p: &Pal) -> Option<El> {
     if !mounted(s) { return None; }
-    let shell = s.add.shell();
+    let shell = s.composer_ext.add.shell();
     // `h-14` under its 1 pt rule, `px-2`; the page's `p-px` root (`view::shell`) keeps it 1 pt in.
     let mut bar = row().key("composer-touch-bar").w_full().min_h(57.0).h(57.0).pt(1.0).px(8.0).gap(4.0).center_y()
         .fill(p.bg_base).border_sides([1.0, 0.0, 0.0, 0.0], p.border);

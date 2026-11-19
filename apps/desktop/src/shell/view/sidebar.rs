@@ -95,8 +95,8 @@ pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
     if !s.shows_sidebar() {
         return aside.w(GAP_ROOM).clip_soft(0.0);
     }
-    let (w, open, peek, k) = (*s.sidebar_w, *s.sidebar_open, s.layout.peek, &s.knobs);
-    let reduced = *s.reduced_motion;
+    let (w, open, peek, k) = (*s.sidebar_w, *s.sidebar_open, s.layout.peek, &s.diag.knobs);
+    let reduced = *s.appearance_state.reduced_motion;
     // Past the window's start: closed, or a peek sliding away. Under Reduce Motion a peek fades
     // where it is instead.
     let away = !open && !peek.open();
@@ -254,7 +254,7 @@ pub(crate) fn peek(s: &App) -> Vec<El> {
     let edge = el()
         .key("peek-edge")
         .pin(Some(0.0), Some(chrome.top() + EDGE_TOP), None, Some(0.0))
-        .w(s.knobs.get(&PEEK_EDGE))
+        .w(s.diag.knobs.get(&PEEK_EDGE))
         .on_hover_change(|s: &mut App, inside, tx: &mut Tx| {
             tx.live_only();
             let can_peek = !*s.sidebar_open && can_peek(s);
@@ -273,12 +273,12 @@ pub(crate) fn peek(s: &App) -> Vec<El> {
 
 /// A menu or a rename holds an open peek.
 fn held(s: &App) -> bool {
-    s.popup.is_open() || s.menus.renaming().is_some()
+    s.dialogs.popup.is_open() || s.dialogs.menus.renaming().is_some()
 }
 
 /// Nothing holds the pointer elsewhere: no drag, resize or menu.
 fn can_peek(s: &App) -> bool {
-    !s.popup.is_open() && s.tab_drag.dragging().is_none() && matches!(*s.sidebar_drag, Resize::Idle) && s.menus.confirming().is_none()
+    !s.dialogs.popup.is_open() && s.gestures.tab_drag.dragging().is_none() && matches!(*s.gestures.sidebar_drag, Resize::Idle) && s.dialogs.menus.confirming().is_none()
 }
 
 /// `packages/ui/src/components/resize-handle-machine.ts`. Rune owns pointer capture
@@ -322,7 +322,7 @@ pub(super) fn resize_handle(w: f32) -> El {
                 Phase::Up if d.cancelled() => ResizeEvent::Cancel,
                 Phase::Up => ResizeEvent::Release,
             };
-            if let Some(width) = resize_step(&mut s.sidebar_drag, event) { *s.sidebar_w = width; }
+            if let Some(width) = resize_step(&mut s.gestures.sidebar_drag, event) { *s.sidebar_w = width; }
         })
 }
 

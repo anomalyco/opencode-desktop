@@ -29,7 +29,7 @@ fn rewind_open(s: &mut App, tx: &mut Play<App>) {
     s.close_message_menu();
     let id = sid(s);
     s.set_session_revert(&id, None);
-    match *s.variant {
+    match *s.fixture_run.variant {
         1 => {
             if let Some(last) = s.visible_user_ids(&id).pop() {
                 tx.instant();
@@ -45,7 +45,7 @@ fn rewind_open(s: &mut App, tx: &mut Play<App>) {
 }
 
 fn toast_undo(s: &mut App, tx: &mut Play<App>) {
-    let undo = s.toast.current().and_then(|e| match &e.action {
+    let undo = s.dialogs.toast.current().and_then(|e| match &e.action {
         Some(status_toast::ToastAction::Custom(status_toast::DesktopToastAction::UndoRewind(u))) => Some(u.clone()),
         _ => None,
     });
@@ -62,7 +62,7 @@ fn fork_scene(s: &mut App) {
 fn fork_open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
     s.close_fork_dialog(false);
-    match *s.variant {
+    match *s.fixture_run.variant {
         1 => fork_latest(s, tx),
         _ => {
             s.open_fork_dialog(tx);

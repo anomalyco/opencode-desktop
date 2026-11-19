@@ -130,7 +130,7 @@ const SUBAGENT_KEYS: &[Trigger] = &[replay(subagent_open), Trigger { key: 's', l
 const IMAGE_KEYS: &[Trigger] = &[
     replay(images_open),
     Trigger { key: 'o', label: "Open the first image", run: view_image },
-    Trigger { key: 'z', label: "Zoom in", run: |s, tx| s.attach.zoom.zoom_in(tx) },
+    Trigger { key: 'z', label: "Zoom in", run: |s, tx| s.composer_ext.attach.zoom.zoom_in(tx) },
     Trigger { key: 'e', label: "Escape", run: |_, tx| tx.press(rune::Key::Escape) },
 ];
 const JUMP_KEYS: &[Trigger] = &[
@@ -256,7 +256,7 @@ const COPY_KEYS: &[Trigger] = &[replay(copy_last)];
 /// Copies the session's last reply, as pressing its Copy does.
 fn copy_last(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
-    *s.copied = crate::copied::Copied::default();
+    *s.timeline_fx.copied = crate::copied::Copied::default();
     let id = sid(s);
     let last = s
         .transcripts
@@ -284,14 +284,14 @@ pub fn playground() -> Playground<App> {
         .fresh(fresh)
         .keep(keep)
         .typing(|s| {
-            !s.stage.is_some_and(|st| st.watch)
+            !s.fixture_run.stage.is_some_and(|st| st.watch)
                 && (s.composer.focused
                     || s.question_takes_text()
                     || crate::plugin_host::field_focused(s)
-                    || s.project_switcher.search.focused
+                    || s.dialogs.project_switcher.search.focused
                     || s.search.focused
-                    || s.switcher.search.focused
-                    || s.fork.search.focused
+                    || s.dialogs.switcher.search.focused
+                    || s.dialogs.fork.search.focused
                     || s.find_focused())
         })
         .folds(load_folds, save_folds)
@@ -301,11 +301,11 @@ pub fn playground() -> Playground<App> {
             pg = pg.trigger(st.path, t.key, t.label, t.run);
         }
         for &(name, v) in st.variants {
-            pg = pg.variant(st.path, name, move |s: &mut App| *s.variant = v);
+            pg = pg.variant(st.path, name, move |s: &mut App| *s.fixture_run.variant = v);
         }
         if !st.knobs.is_empty() {
             let knobs = st.knobs;
-            pg = pg.side_keys(st.path, move |s, active, cx| side(s, knobs, active, cx), rune_knobs::side_key(knobs, |s: &mut App| &mut s.knobs));
+            pg = pg.side_keys(st.path, move |s, active, cx| side(s, knobs, active, cx), rune_knobs::side_key(knobs, |s: &mut App| &mut s.diag.knobs));
         }
     }
     pg
@@ -352,28 +352,28 @@ pub fn scenes() -> &'static [(&'static str, fn(&mut App))] {
 fn fresh(real: &App) -> App {
     let mut w = App::empty();
     w.load_fixture(FIXTURE);
-    w.knobs = real.knobs.clone();
+    w.diag.knobs = real.diag.knobs.clone();
     *w.zoom = *real.zoom;
     *w.sidebar_w = *real.sidebar_w;
     *w.sidebar_open = *real.sidebar_open;
-    *w.reduced_motion = *real.reduced_motion;
-    *w.debug = *real.debug;
+    *w.appearance_state.reduced_motion = *real.appearance_state.reduced_motion;
+    *w.diag.debug = *real.diag.debug;
     w.settings.scheme = real.settings.scheme;
     w.settings.theme = real.settings.theme.clone();
     (w.settings.ui_font, w.settings.code_font) = (real.settings.ui_font, real.settings.code_font);
     w.settings.text_renderer = real.settings.text_renderer;
     *w.clock = *real.clock;
     // Relative times read as the fixture has them, however long the app has run.
-    *w.base_ms -= (*real.clock * 1000.0) as i64;
-    *w.now_ms = *w.base_ms + (*real.clock * 1000.0) as i64;
+    *w.fixture_run.base_ms -= (*real.clock * 1000.0) as i64;
+    *w.now_ms = *w.fixture_run.base_ms + (*real.clock * 1000.0) as i64;
     w.waker = real.waker.clone();
     serve_pictures(&w);
     if let Some(waker) = (*w.waker).clone() {
-        w.attach.set_waker(waker.clone());
-        w.icons.set_waker(waker.clone());
-        w.mentions.set_waker(waker.clone());
-        w.switcher.set_waker(waker.clone());
-        w.add.slash.set_waker(waker);
+        w.composer_ext.attach.set_waker(waker.clone());
+        w.appearance_state.icons.set_waker(waker.clone());
+        w.composer_ext.mentions.set_waker(waker.clone());
+        w.dialogs.switcher.set_waker(waker.clone());
+        w.composer_ext.add.slash.set_waker(waker);
     }
     open_scene(&mut w);
     w
@@ -381,17 +381,17 @@ fn fresh(real: &App) -> App {
 
 /// What the stories tuned stays in the app.
 fn keep(stage: &App, real: &mut App) {
-    real.knobs = stage.knobs.clone();
+    real.diag.knobs = stage.diag.knobs.clone();
 }
 
 /// Sets up a story's stage: `view` alone on it.
 pub(crate) fn stage(s: &mut App, view: fn(&App, &Pal) -> El) {
-    *s.stage = Some(Stage { view, watch: false });
+    *s.fixture_run.stage = Some(Stage { view, watch: false });
 }
 
 /// [`stage`] for a story that only plays.
 pub(crate) fn watch(s: &mut App, view: fn(&App, &Pal) -> El) {
-    *s.stage = Some(Stage { view, watch: true });
+    *s.fixture_run.stage = Some(Stage { view, watch: true });
 }
 
 // Drawing.
@@ -425,7 +425,7 @@ fn knobs_style(p: &Pal) -> rune_knobs::Style {
 /// The story's knobs, beside its stage; `active` with the keyboard on them.
 fn side(s: &App, knobs: &'static [Group], active: bool, cx: &mut Cx<App>) -> El {
     let p = pal(s.dark(cx));
-    rune_knobs::inline(&s.knobs, knobs, knobs_style(&p), |s: &mut App| &mut s.knobs, active)
+    rune_knobs::inline(&s.diag.knobs, knobs, knobs_style(&p), |s: &mut App| &mut s.diag.knobs, active)
 }
 
 /// The stage: the story's component alone on the window's ground.
@@ -493,7 +493,7 @@ pub(crate) fn emit(s: &mut App, ty: &str, mut data: Value, tx: &mut Tx) {
 
 fn composer_open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
-    match *s.variant {
+    match *s.fixture_run.variant {
         1 => *s.composer = TextEdit::new(DRAFT),
         2 => pending(s),
         3 => {
@@ -531,9 +531,9 @@ fn arrival_open(s: &mut App, tx: &mut Play<App>) {
 }
 
 fn arrive(s: &mut App, tx: &mut Play<App>) {
-    *s.sends += 1;
+    *s.queue.sends += 1;
     let text = ["Sent from my phone: does this cover the laptop waking on battery too?", "And on a flaky hotel network?", "One more: what about a VPN dropping?"];
-    let n = *s.sends as usize;
+    let n = *s.queue.sends as usize;
     emit(s, "session.prompted", json!({ "messageID": format!("{ARRIVED}{n}"), "text": text[(n - 1) % text.len()] }), tx);
 }
 
@@ -562,7 +562,7 @@ pub(crate) fn stream_open(s: &mut App, _: &mut Play<App>) {
 }
 
 fn finish_stream(s: &mut App, _: &mut Play<App>) {
-    while let Some((_, ty, data)) = s.playback.pop_front() {
+    while let Some((_, ty, data)) = s.fixture_run.playback.pop_front() {
         s.apply_event(&ty, &data);
     }
 }
@@ -612,9 +612,9 @@ fn finish(s: &mut App, tx: &mut Play<App>) {
 const LABELS: &[&str] = &["Working", "Thinking", "Running the tests", "Searching the codebase"];
 
 fn relabel(s: &mut App, _: &mut Play<App>) {
-    let at = LABELS.iter().position(|l| *l == s.working.label()).unwrap_or(0);
+    let at = LABELS.iter().position(|l| *l == s.timeline_fx.working.label()).unwrap_or(0);
     let now = *s.clock;
-    s.working.relabel(LABELS[(at + 1) % LABELS.len()], now);
+    s.timeline_fx.working.relabel(LABELS[(at + 1) % LABELS.len()], now);
 }
 
 /// Working, until the turn finishes and its actions take its place.
@@ -699,7 +699,7 @@ fn pictures() -> &'static [Attachment] {
 
 /// A reply's markdown picture reads from the storybook, never a server or the web.
 pub(crate) fn serve_pictures(w: &App) {
-    w.attach.markdown.set_fetch(
+    w.composer_ext.attach.markdown.set_fetch(
         Arc::new(|_: &str, path: &str| if path == REPLY_PICTURE { Ok(reply_picture().to_vec()) } else { Err("not in the storybook".into()) }),
         Arc::new(|_: &str| Err("offline".into())),
     );
@@ -749,7 +749,7 @@ fn images_open(s: &mut App, tx: &mut Play<App>) {
         tx.animated();
     });
     tx.after(1.6, view_image);
-    tx.after(2.6, |s, tx| s.attach.zoom.zoom_in(tx));
+    tx.after(2.6, |s, tx| s.composer_ext.attach.zoom.zoom_in(tx));
     tx.after(3.6, |_, tx| tx.press(rune::Key::Escape));
     tx.after(3.8, |_, tx| tx.press(rune::Key::Escape));
 }

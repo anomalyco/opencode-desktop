@@ -12,10 +12,10 @@ pub use session_view::pickers::*;
 
 impl PickerHost for App {
     fn pickers(&self) -> &Pickers {
-        &self.pickers
+        &self.composer_ext.pickers
     }
     fn pickers_mut(&mut self) -> &mut Pickers {
-        &mut self.pickers
+        &mut self.composer_ext.pickers
     }
     fn picker_provider_mark(&self, p: &crate::palette::Pal, provider: &str) -> Option<rune::El> {
         Some(crate::widgets::provider_mark(provider, p.icon))
@@ -32,7 +32,7 @@ impl PickerHost for App {
     }
     /// Desktop's order, not another session's model: a server with no sessions still names one.
     fn picker_fallback_model(&self) -> Option<ModelRef> {
-        self.pickers.fallback_model()
+        self.composer_ext.pickers.fallback_model()
     }
     fn picker_subagent(&self) -> Option<(String, Selection)> {
         self.subagent_page().map(|i| (i.id.clone(), Selection { model: i.model.clone(), agent: i.agent.clone() }))
@@ -48,8 +48,8 @@ impl PickerHost for App {
         // A valid list can still be incomplete while a provider starts. Opening the picker is
         // a chance to ask again, without polling a genuinely empty server at rest.
         let selected = self.selection().model;
-        if self.live() && (self.pickers.models.is_empty() || (!selected.id.is_empty()
-            && !self.pickers.models.iter().any(|m| m.id == selected.id && m.provider == selected.provider))) {
+        if self.live() && (self.composer_ext.pickers.models.is_empty() || (!selected.id.is_empty()
+            && !self.composer_ext.pickers.models.iter().any(|m| m.id == selected.id && m.provider == selected.provider))) {
             crate::connect::picker_reads::refresh(self);
         }
     }
@@ -106,7 +106,7 @@ impl App {
     /// After `apply_selected`, in each window: a pick it now runs with is forgotten, so the
     /// session follows changes made elsewhere.
     pub fn selected_landed(&mut self, sid: &str, confirmed: &Selection) {
-        if self.pickers.selections.get(sid) == Some(confirmed) { self.pickers.selections.remove(sid); }
+        if self.composer_ext.pickers.selections.get(sid) == Some(confirmed) { self.composer_ext.pickers.selections.remove(sid); }
     }
 
     /// The fixture's server: a prompt that switches the session says so in its stream, before

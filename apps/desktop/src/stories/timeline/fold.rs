@@ -20,7 +20,7 @@ pub const LINK: &str = "https://anoma-ly.slack.com/archives/D0AF31JMF0A/p1793485
 
 /// What the story sends: the long call notes, or just the link in the Long link variant.
 fn prompt(s: &App) -> &'static str {
-    if s.variant == 5 { LINK } else { LONG }
+    if s.fixture_run.variant == 5 { LINK } else { LONG }
 }
 
 /// A long prompt: a call's notes pasted whole, 26 lines.
@@ -53,21 +53,21 @@ That's everything from the call; start with the backoff and the tests.";
 
 fn open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
-    s.settings.fold_user = s.variant != 2;
+    s.settings.fold_user = s.fixture_run.variant != 2;
     *s.composer = TextEdit::new(prompt(s));
-    if s.variant == 3 || s.variant == 4 {
+    if s.fixture_run.variant == 3 || s.fixture_run.variant == 4 {
         // While a run works the prompt waits: as a Pending steer, or in the queue.
         let id = sid(s);        s.running.insert(id);
     }
     tx.after(0.6, |s, tx| send(s, tx));
-    if s.variant == 1 {
+    if s.fixture_run.variant == 1 {
         tx.after(2.2, |s, tx| flip(s, tx));
     }
 }
 
 fn send(s: &mut App, tx: &mut Tx) {
     *s.composer = TextEdit::new(prompt(s));
-    s.submit(s.variant == 4, tx);
+    s.submit(s.fixture_run.variant == 4, tx);
 }
 
 /// Opens or closes the last long prompt.

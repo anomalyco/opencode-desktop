@@ -12,15 +12,15 @@ use crate::{App, Source};
 
 impl SlashHost for App {
     fn slash(&self) -> &Slash {
-        &self.add.slash
+        &self.composer_ext.add.slash
     }
 
     fn slash_mut(&mut self) -> &mut Slash {
-        &mut self.add.slash
+        &mut self.composer_ext.add.slash
     }
 
     fn slash_suggest(&self) -> &Suggest {
-        &self.suggest
+        &self.composer_ext.suggest
     }
 
     fn slash_composer_mut(&mut self) -> &mut TextEdit {

@@ -60,11 +60,11 @@ pub fn init() {
 
 impl UpdaterHost for App {
     fn updater(&self) -> &Updater {
-        &self.updater
+        &self.services.updater
     }
 
     fn updater_mut(&mut self) -> &mut Updater {
-        &mut self.updater
+        &mut self.services.updater
     }
 }
 
@@ -82,6 +82,6 @@ impl Feature<App> for UpdaterFeature {
             poll_owed(s);
             false
         });
-        builder.add_close("updater.closing", |s| s.updater.closing());
+        builder.add_close("updater.closing", |s| s.services.updater.closing());
     }
 }

@@ -44,6 +44,7 @@ fn menu(s: &App, query: &str) -> Menu {
     let matches = |title: &str| query.is_empty() || tab_title(title).to_lowercase().contains(&query);
     let row = |key: &str, id: &str, title: &str, dir: &str| Item::new(format!("{key}:{id}"), tab_title(title)).project(dir);
     let entries: Vec<_> = s
+        .gestures
         .closed
         .list(&s.tabs)
         .filter(|e| e.prompted)

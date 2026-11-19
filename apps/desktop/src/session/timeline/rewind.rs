@@ -12,11 +12,11 @@ use crate::{App, Source};
 
 impl RewindHost for App {
     fn rewind(&self) -> &RewindState {
-        &self.rewind
+        &self.dialogs.rewind
     }
 
     fn rewind_mut(&mut self) -> &mut RewindState {
-        &mut self.rewind
+        &mut self.dialogs.rewind
     }
 
     fn session(&self, session: &str) -> Option<&SessionInfo> {
@@ -62,7 +62,7 @@ impl RewindHost for App {
     }
 
     fn resolve_skill_id(&self, name_or_id: &str) -> Option<&str> {
-        self.mentions.skills.iter().find(|sk| sk.id == name_or_id || sk.name == name_or_id).map(|sk| sk.id.as_str())
+        self.composer_ext.mentions.skills.iter().find(|sk| sk.id == name_or_id || sk.name == name_or_id).map(|sk| sk.id.as_str())
     }
 
     fn stop_running_family(&mut self, session: &str) -> Vec<String> {
@@ -81,11 +81,11 @@ impl RewindHost for App {
     }
 
     fn is_simulated(&self) -> bool {
-        self.stage.is_some() || matches!(*self.source, Source::Fixture)
+        self.fixture_run.stage.is_some() || matches!(*self.source, Source::Fixture)
     }
 
     fn clear_playback(&mut self, session: &str) {
-        self.playback.retain(|(_, _, d)| d["sessionID"].as_str() != Some(session));
+        self.fixture_run.playback.retain(|(_, _, d)| d["sessionID"].as_str() != Some(session));
     }
 
     fn send_write(&mut self, write: Write) -> bool {
@@ -93,7 +93,7 @@ impl RewindHost for App {
     }
 
     fn status_text(&self) -> &str {
-        &self.status
+        &self.diag.status
     }
 
     fn format_wire_error(&self, err: &WireError) -> String {
@@ -113,7 +113,7 @@ impl RewindHost for App {
     }
 
     fn dismiss_rewound_toast(&mut self, session: &str) {
-        if let Some(e) = self.toast.current()
+        if let Some(e) = self.dialogs.toast.current()
             && matches!(&e.action, Some(crate::status_toast::ToastAction::Custom(crate::status_toast::DesktopToastAction::UndoRewind(u))) if u.session == session)
         {
             crate::status_toast::dismiss(self);
@@ -121,7 +121,7 @@ impl RewindHost for App {
     }
 
     fn popup_open_at(&self, anchor: &str) -> bool {
-        self.popup.open_at(anchor)
+        self.dialogs.popup.open_at(anchor)
     }
 
     fn dismiss_popup(&mut self, tx: &mut Tx) {
@@ -154,9 +154,9 @@ impl App {
             return SavedDraft {
                 entry: Entry::of(&self.composer),
                 caret: self.composer.range().1.min(self.composer.text.len()),
-                files: self.attach.files.clone(),
-                paths: self.attach.paths.clone(),
-                quotes: self.quote.quotes(),
+                files: self.composer_ext.attach.files.clone(),
+                paths: self.composer_ext.attach.paths.clone(),
+                quotes: self.composer_ext.quote.quotes(),
             };
         }
         let text = self.restore.drafts.get(session).cloned().unwrap_or_default();
@@ -182,14 +182,14 @@ impl App {
     }
 
     fn write_composer_draft(&mut self, draft: SavedDraft) {
-        let focused = self.composer.focused || (!self.stage.is_some_and(|st| st.watch()) && self.has_composer());
+        let focused = self.composer.focused || (!self.fixture_run.stage.is_some_and(|st| st.watch()) && self.has_composer());
         draft.entry.put(&mut self.composer, draft.caret.min(draft.entry.text.len()));
         self.composer.focused = focused;
-        self.attach.files = draft.files;
-        self.attach.paths = draft.paths;
-        let _ = self.quote.take();
+        self.composer_ext.attach.files = draft.files;
+        self.composer_ext.attach.paths = draft.paths;
+        let _ = self.composer_ext.quote.take();
         for q in draft.quotes {
-            self.quote.push(q);
+            self.composer_ext.quote.push(q);
         }
     }
 

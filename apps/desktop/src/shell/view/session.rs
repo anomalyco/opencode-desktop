@@ -43,7 +43,7 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El, with_header: bo
     let timeline = match s.displayed_session(id) {
         Some(shown) => {
             // A long transcript's projection fills in above its newest rows on the frame after its first.
-            let inputs = ((p.theme, p.generation, p.dark), format!("{:?}", super::chrome::chrome()), content_w.to_bits(), with_header, session_view::style::hover_none(), session_view::style::permanent_cpu_canvas(), crate::plugin_host::surfaces_version(s), s.family_transcript_version(shown), (crate::speech::listening(s), session_view::timeline::projection_wanted(), session_view::scroller::device_scale().to_bits(), rune::Tracked::untracked(&s.files).reply_version(shown)));
+            let inputs = ((p.theme, p.generation, p.dark), format!("{:?}", super::chrome::chrome()), content_w.to_bits(), with_header, session_view::style::hover_none(), session_view::style::permanent_cpu_canvas(), crate::plugin_host::surfaces_version(s), s.family_transcript_version(shown), (crate::speech::listening(s), session_view::timeline::projection_wanted(), session_view::scroller::device_scale().to_bits(), rune::Tracked::untracked(&s.workspace_panes.files).reply_version(shown)));
             rune::region_with("timeline-area", (id, shown, inputs), || {
                 let t = rune::Tracked::untracked(&s.transcripts).get(shown).filter(|_| !s.loading_session(id));
                 let child = s.session(id).is_some_and(|i| i.parent.is_some());
@@ -56,9 +56,9 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El, with_header: bo
                 let head = with_header.then(|| header(s, p, s.session(shown).or(saved.as_ref()), t));
                 // Previous and Next message read the prompt in view from where it lies (`message_nav`).
                 session_view::timeline_area(s, p, shown, t, pills, head).on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| {
-                    s.message_nav.view = Some(r);
+                    s.timeline_fx.message_nav.view = Some(r);
                     if let Some((id, row, y)) = s.layout.narrow.reading.borrow_mut().take()
-                        && s.narrow() && s.active_session_id() == Some(id.as_str()) && !s.ends.due(&id)
+                        && s.narrow() && s.active_session_id() == Some(id.as_str()) && !s.timeline_fx.ends.due(&id)
                     {
                         tx.scroll_key_to(row, y - r[1]);
                         return;
@@ -80,14 +80,14 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El, with_header: bo
     };
     let mut page = page
         .on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| {
-            s.message_nav.page = Some(r);
+            s.timeline_fx.message_nav.page = Some(r);
             tx.live_only();
         })
         // Only held content belongs to the tab we left. In particular a completed size
         // refusal contains real, selectable output and a working Copy preview action.
         .child(if s.opening.as_ref().is_some_and(|o| !o.loading()) { timeline.inert() } else { timeline })
         .child(composer_dock(s, p));
-    page = page.children(s.debug.then(|| status_bar(s, p, info)));
+    page = page.children(s.diag.debug.then(|| status_bar(s, p, info)));
     page
 }
 

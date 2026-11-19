@@ -103,49 +103,49 @@ impl SendFailedHost for App {
     }
 
     fn composer_files(&self) -> &[Attachment] {
-        &self.attach.files
+        &self.composer_ext.attach.files
     }
 
     fn composer_paths(&self) -> &[PathAttachment] {
-        &self.attach.paths
+        &self.composer_ext.attach.paths
     }
 
     fn composer_has_attachments(&self) -> bool {
-        self.attach.any()
+        self.composer_ext.attach.any()
     }
 
     fn composer_has_context_or_uploads(&self) -> bool {
-        !self.attach.context.is_empty() || !self.attach.uploads.is_empty()
+        !self.composer_ext.attach.context.is_empty() || !self.composer_ext.attach.uploads.is_empty()
     }
 
     fn composer_quotes(&self) -> Vec<PromptComment> {
-        self.quote.quotes()
+        self.composer_ext.quote.quotes()
     }
 
     fn composer_has_quotes(&self) -> bool {
-        self.quote.any()
+        self.composer_ext.quote.any()
     }
 
     fn clear_composer_attachments_and_quotes(&mut self) {
-        self.attach.files.clear();
-        self.attach.paths.clear();
-        let _ = self.quote.take();
+        self.composer_ext.attach.files.clear();
+        self.composer_ext.attach.paths.clear();
+        let _ = self.composer_ext.quote.take();
     }
 
     fn add_composer_file(&mut self, file: Attachment) {
-        self.attach.add(file);
+        self.composer_ext.attach.add(file);
     }
 
     fn add_composer_path(&mut self, path: PathAttachment) {
-        self.attach.add_path(path);
+        self.composer_ext.attach.add_path(path);
     }
 
     fn push_composer_quote(&mut self, quote: PromptComment) {
-        self.quote.push(quote);
+        self.composer_ext.quote.push(quote);
     }
 
     fn retain_echoes_without(&mut self, id: &str) {
-        self.attach.echoes.retain(|e| e.1 != id);
+        self.composer_ext.attach.echoes.retain(|e| e.1 != id);
     }
 
     fn restore_inactive_draft(&mut self, session: &str, entry: Entry, files: Vec<Attachment>, paths: Vec<PathAttachment>, quotes: Vec<PromptComment>) {

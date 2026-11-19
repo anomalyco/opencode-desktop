@@ -37,13 +37,13 @@ fn follow(s: &mut App) {
 pub fn init(s: &mut App) {
     crate::open_scene(s);
     s.finish_stream();
-    s.side = Default::default();
-    s.files = Default::default();
+    s.workspace_panes.side = Default::default();
+    s.workspace_panes.files = Default::default();
     let mut tx = Tx::default();
     s.open_workspace_file(PROPOSAL, false, None, &mut tx);
-    s.panel_sidebar.opened = false;
+    s.workspace_panes.panel_sidebar.opened = false;
     let Some(sid) = s.active_session_id().map(str::to_owned) else { return };
-    match *s.variant {
+    match *s.fixture_run.variant {
         1 => s.toggle_rendered(&sid, PROPOSAL, &mut tx),
         2 => follow(s),
         _ => {}

@@ -11,7 +11,7 @@ pub(super) fn methods(lua: &Lua, m: &Table) -> mlua::Result<()> {
             cx::read(Dep::Browser);
             let app = app_now("BrowserTab:Viewport")?;
             let id = id_of(&this)?;
-            let Some(d) = app.browser.host.tab(id).and_then(|t| t.device.as_ref()) else {
+            let Some(d) = app.workspace_panes.browser.host.tab(id).and_then(|t| t.device.as_ref()) else {
                 return Ok(None);
             };
             let value = lua.create_table()?;
@@ -42,12 +42,12 @@ pub(super) fn methods(lua: &Lua, m: &Table) -> mlua::Result<()> {
             let device = viewport.map(decode).transpose()?;
             later(&this, "BrowserTab:SetViewport", move |s, id, _| {
                 if device.is_none()
-                    || s.browser
+                    || s.workspace_panes.browser
                         .host
                         .tab(id)
                         .is_some_and(|t| (t.zoom - 1.0).abs() < 0.001)
                 {
-                    s.browser.host.set_device(id, device);
+                    s.workspace_panes.browser.host.set_device(id, device);
                 }
             })
         })?,
@@ -83,7 +83,7 @@ fn decode(t: Table) -> mlua::Result<Device> {
 }
 
 pub(super) fn frame(a: &NodeArgs, app: &App, id: u64, surface: El) -> El {
-    let Some(d) = app.browser.host.tab(id).and_then(|t| t.device.as_ref()) else {
+    let Some(d) = app.workspace_panes.browser.host.tab(id).and_then(|t| t.device.as_ref()) else {
         return surface;
     };
     let zoom = *app.zoom;
@@ -138,7 +138,7 @@ pub(super) fn frame(a: &NodeArgs, app: &App, id: u64, surface: El) -> El {
                     }
                     next.profile = Profile::Desktop;
                     next.preset = None;
-                    s.browser.host.set_device(id, Some(next));
+                    s.workspace_panes.browser.host.set_device(id, Some(next));
                 }
                 _ => (),
             },

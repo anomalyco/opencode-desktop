@@ -112,7 +112,7 @@ fn notices() -> (Vec<Part>, Vec<NoticeKind>) {
 fn open(s: &mut App, _tx: &mut Play<App>) {
     s.finish_stream();
     let parent = sid(s);
-    let (parts, kinds) = match *s.variant {
+    let (parts, kinds) = match *s.fixture_run.variant {
         0 => subagents(s, &parent),
         1 => shells(),
         _ => notices(),

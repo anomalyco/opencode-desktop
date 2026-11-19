@@ -24,19 +24,19 @@ use crate::{App, Source};
 
 impl FilesHost for App {
     fn files(&self) -> &FilesPane {
-        &self.files
+        &self.workspace_panes.files
     }
 
     fn files_untracked(&self) -> &FilesPane {
-        rune::Tracked::untracked(&self.files).as_ref()
+        rune::Tracked::untracked(&self.workspace_panes.files).as_ref()
     }
 
     fn files_mut(&mut self) -> &mut FilesPane {
-        &mut self.files
+        &mut self.workspace_panes.files
     }
 
     fn touch_files(&self) {
-        rune::Tracked::touch(&self.files);
+        rune::Tracked::touch(&self.workspace_panes.files);
     }
 
     fn session_directory(&self, sid: &str) -> Option<&str> {
@@ -69,7 +69,7 @@ impl FilesHost for App {
     }
 
     fn fixture_root(&self) -> Option<&Value> {
-        Some(&self.fixture)
+        Some(&self.fixture_run.fixture)
     }
 
     fn server_label(&self) -> String {
@@ -99,9 +99,9 @@ impl FilesHost for App {
 
     fn open_in_current(&self) -> Option<OpenInCurrent> {
         Some(OpenInCurrent {
-            label: self.open_in.current_label(),
-            icon: crate::open_in::icon_of(self.open_in.current()),
-            busy: self.open_in.busy(),
+            label: self.workspace_panes.open_in.current_label(),
+            icon: crate::open_in::icon_of(self.workspace_panes.open_in.current()),
+            busy: self.workspace_panes.open_in.busy(),
         })
     }
 
@@ -142,7 +142,7 @@ impl FilesHost for App {
     }
 
     fn open_in_default(&mut self, abs_path: &str) {
-        self.open_in.open_default(abs_path.to_owned());
+        self.workspace_panes.open_in.open_default(abs_path.to_owned());
     }
 
     fn side_open(&self) -> bool {
@@ -154,7 +154,7 @@ impl FilesHost for App {
     }
 
     fn is_side_focused(&self) -> bool {
-        self.side.focus.is_focused()
+        self.workspace_panes.side.focus.is_focused()
     }
 
     fn active_file_tab(&self) -> Option<(String, Option<String>)> {
@@ -163,6 +163,7 @@ impl FilesHost for App {
 
     fn session_open_file_tabs(&self, sid: &str) -> (Vec<String>, Option<String>) {
         let opened = self
+            .workspace_panes
             .side
             .sessions
             .get(sid)
@@ -177,7 +178,7 @@ impl FilesHost for App {
                     .collect()
             })
             .unwrap_or_default();
-        let active = self.side.sessions.get(sid).and_then(|st| {
+        let active = self.workspace_panes.side.sessions.get(sid).and_then(|st| {
             st.tab_state
                 .tabs
                 .active
@@ -191,7 +192,7 @@ impl FilesHost for App {
     fn all_open_file_tabs(&self) -> Vec<(String, String)> {
         let shown = self.active_file_tab().and_then(|(sid, path)| Some((sid, path?)));
         let mut tabs: Vec<(String, String)> = shown.iter().cloned().collect();
-        for (sid, st) in self.side.sessions.iter() {
+        for (sid, st) in self.workspace_panes.side.sessions.iter() {
             for key in &st.tab_state.tabs.all {
                 if let Some(path) = key.strip_prefix("file:").and_then(data::file_tab_path)
                     && shown.as_ref() != Some(&(sid.clone(), path.clone()))
@@ -212,8 +213,8 @@ impl FilesHost for App {
         remove_open_tab: bool,
         tx: &mut Tx,
     ) {
-        let saved_focus = (self.composer.focused, self.side.focus.mode());
-        if remove_open_tab && let Some(st) = self.side.sessions.get_mut(sid) {
+        let saved_focus = (self.composer.focused, self.workspace_panes.side.focus.mode());
+        if remove_open_tab && let Some(st) = self.workspace_panes.side.sessions.get_mut(sid) {
             st.tab_state.tabs.all.retain(|k| k != data::OPEN_TAB_KEY);
         }
         self.show_pane_tab(tx, |s| {
@@ -221,7 +222,7 @@ impl FilesHost for App {
         });
         if !steal_focus {
             self.composer.focused = saved_focus.0;
-            self.side.focus.restore(saved_focus.1);
+            self.workspace_panes.side.focus.restore(saved_focus.1);
         }
     }
 
@@ -230,8 +231,8 @@ impl FilesHost for App {
     }
 
     fn side_quiet_clear(&mut self) {
-        if self.side.focus.is_quiet() {
-            self.side.focus.wake();
+        if self.workspace_panes.side.focus.is_quiet() {
+            self.workspace_panes.side.focus.wake();
         }
     }
 
@@ -272,7 +273,7 @@ impl FilesHost for App {
     }
 
     fn review_file_status(&self, sid: &str, path: &str) -> Option<FileStatus> {
-        self.review
+        self.workspace_panes.review
             .sessions
             .get(sid)
             .and_then(|sr| sr.meta.iter().find(|m| m.path == path))
@@ -290,7 +291,7 @@ impl FilesHost for App {
 impl App {
     /// Returns `(session_id, Some(file_path) | None /* file:open */)` when a `file:*` tab is active & visible.
     pub fn active_file_tab(&self) -> Option<(String, Option<String>)> {
-        if !(self.side_open() || self.stage.is_some()) {
+        if !(self.side_open() || self.fixture_run.stage.is_some()) {
             return None;
         }
         let reg = self.resolve_side_region()?;
@@ -413,7 +414,7 @@ impl Feature<App> for FilesFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
-        builder.add_setup("files.waker", |s, w| s.files.set_waker(w));
+        builder.add_setup("files.waker", |s, w| s.workspace_panes.files.set_waker(w));
         builder.add_system(Phase::Ingest, "files.reply_links", |s, _, tx| poll_reply_links(s, tx));
     }
 }

@@ -24,7 +24,7 @@ pub const GROUP: Group = Group::new("Project icons", "sidebar", &[FINISH]);
 rune_register::register!(crate::knobs::GROUP_LIST: Group = [GROUP]);
 
 pub fn finish(s: &App) -> Finish {
-    Finish::ALL.get(s.knobs.get(&FINISH).round() as usize).copied().unwrap_or_default()
+    Finish::ALL.get(s.diag.knobs.get(&FINISH).round() as usize).copied().unwrap_or_default()
 }
 
 pub fn palette(p: &Pal) -> Palette {
@@ -33,17 +33,17 @@ pub fn palette(p: &Pal) -> Palette {
 
 /// Before a frame: images and SVGs rasterize for the screen and zoom, in the knob's finish.
 pub fn prepare(s: &App, cx: &Cx<App>) {
-    s.icons.set_scale(cx.env().scale);
-    s.icons.set_look(Look::style(Style::Desktop));
-    s.icons.set_finish(finish(s));
+    s.appearance_state.icons.set_scale(cx.env().scale);
+    s.appearance_state.icons.set_look(Look::style(Style::Desktop));
+    s.appearance_state.icons.set_finish(finish(s));
 }
 
 /// A project's 16 pt icon, or its letter tile for `name` when the project isn't known.
 pub fn badge(s: &App, p: &Pal, project: Option<&Project>, name: &str) -> El {
     let pal = palette(p);
     match project {
-        Some(x) => s.icons.view(&pal, x, 16.0),
-        None => s.icons.view(&pal, project_icon::Project::named(name), 16.0),
+        Some(x) => s.appearance_state.icons.view(&pal, x, 16.0),
+        None => s.appearance_state.icons.view(&pal, project_icon::Project::named(name), 16.0),
     }
 }
 
@@ -52,7 +52,7 @@ pub fn badge(s: &App, p: &Pal, project: Option<&Project>, name: &str) -> El {
 pub fn session_avatar(s: &App, p: &Pal, project: Option<&Project>, name: &str, open: bool, unread: bool) -> El {
     let face = if unread {
         let project = project.map(Into::into).unwrap_or_else(|| project_icon::Project::named(name));
-        s.icons.unread_face(&palette(p), project)
+        s.appearance_state.icons.unread_face(&palette(p), project)
     } else { badge(s, p, project, name) };
     let mut avatar = el().key("badge").size(16.0, 16.0).child(face);
     if open {

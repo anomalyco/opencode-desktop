@@ -17,11 +17,11 @@ use crate::{App, Route, Source};
 
 impl SwitcherHost for App {
     fn switcher(&self) -> &Switcher {
-        &self.switcher
+        &self.dialogs.switcher
     }
 
     fn switcher_mut(&mut self) -> &mut Switcher {
-        &mut self.switcher
+        &mut self.dialogs.switcher
     }
 
     fn session_search(&self) -> &SessionSearch {
@@ -80,7 +80,7 @@ impl SwitcherHost for App {
     }
 
     fn is_stage(&self) -> bool {
-        self.stage.is_some()
+        self.fixture_run.stage.is_some()
     }
 
     fn home_search_active(&self) -> bool {
@@ -88,7 +88,7 @@ impl SwitcherHost for App {
     }
 
     fn view_runs(&self) -> u64 {
-        self.view_runs.get()
+        App::view_runs(self)
     }
 
     fn peer_waker(&self) -> Option<Waker> {
@@ -187,22 +187,22 @@ impl SwitcherHost for App {
     }
 
     fn side_tab_keys(&self, session_id: &str) -> Option<(Option<&str>, &[String])> {
-        let tabs = &self.side.sessions.get(session_id)?.tab_state.tabs;
+        let tabs = &self.workspace_panes.side.sessions.get(session_id)?.tab_state.tabs;
         Some((tabs.active.as_deref(), &tabs.all))
     }
 
     fn local_workspace_files(&self, session_id: &str, query: &str, limit: usize) -> Vec<String> {
-        self.files.sessions.get(session_id).map(|w| w.local_files(query, limit)).unwrap_or_default()
+        self.workspace_panes.files.sessions.get(session_id).map(|w| w.local_files(query, limit)).unwrap_or_default()
     }
 
     fn fixture_find(&self) -> Option<(Vec<String>, Option<f64>)> {
-        let extra = self.fixture["find_files"]
+        let extra = self.fixture_run.fixture["find_files"]
             .as_array()
             .into_iter()
             .flatten()
             .filter_map(|p| p.as_str().map(str::to_owned))
             .collect();
-        Some((extra, self.fixture["find_ms"].as_f64()))
+        Some((extra, self.fixture_run.fixture["find_ms"].as_f64()))
     }
 
     fn ensure_workspace_files(&mut self, session_id: &str) {
@@ -234,14 +234,14 @@ impl SwitcherHost for App {
     fn before_switcher_open(&mut self) -> bool {
         // The palette lists the commands a plugin offers as their `enabled` and `hidden` say.
         crate::plugin_host::dormant::wake_kind(self, "commands", &["enabled", "hidden"]);
-        let restore = self.composer.focused || (self.project_switcher.open && self.project_switcher.restore_composer());
+        let restore = self.composer.focused || (self.dialogs.project_switcher.open && self.dialogs.project_switcher.restore_composer());
         self.close_picker(false);
         self.close_project_switcher(false);
         self.project_state.home_menu_open = false;
-        self.menus.edit.focused = false;
+        self.dialogs.menus.edit.focused = false;
         self.composer.focused = false;
         self.search.focused = false;
-        self.find.input.focused = false;
+        self.timeline_fx.find.input.focused = false;
         restore
     }
 
@@ -292,7 +292,7 @@ impl SwitcherHost for App {
 
     fn avatar_memo_version(&self) -> u64 {
         let mut h = DefaultHasher::new();
-        (crate::icons::finish(self), rune::Tracked::version(&self.icons), rune::Tracked::version(&self.projects)).hash(&mut h);
+        (crate::icons::finish(self), rune::Tracked::version(&self.appearance_state.icons), rune::Tracked::version(&self.projects)).hash(&mut h);
         h.finish()
     }
 }
@@ -413,7 +413,7 @@ impl Feature<App> for SwitcherFeature {
                 .with_z(100)
                 .with_key_priority(300)
                 .with_render(|s, cx| {
-                    if s.switcher.is_open() {
+                    if s.dialogs.switcher.is_open() {
                         let p = crate::palette::pal(s.dark(cx));
                         view(s, p, cx).into()
                     } else {
@@ -431,7 +431,7 @@ impl Feature<App> for SwitcherFeature {
                 .with_z(110)
                 .with_key_priority(310)
                 .with_render(|s, cx| {
-                    if s.project_switcher.open {
+                    if s.dialogs.project_switcher.open {
                         let p = crate::palette::pal(s.dark(cx));
                         project::view(s, p, cx).into()
                     } else {
@@ -445,7 +445,7 @@ impl Feature<App> for SwitcherFeature {
                 }),
         );
         builder.add_setup("switcher.waker", |s, w| {
-            s.switcher.set_waker(w.clone());
+            s.dialogs.switcher.set_waker(w.clone());
             s.session_search.set_waker(w);
         });
         builder.add_rest("switcher.rest_search", |s, _| s.rest_session_search());

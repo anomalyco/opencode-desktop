@@ -77,15 +77,15 @@ fn server_of(s: &App) -> Option<ServerId> {
 /// Steps server `server`'s link (`opencode_kit::servers::link`) and carries out what it asks.
 pub fn step_link(s: &mut App, server: &str, event: opencode_kit::servers::link::Event, tx: &mut Tx) -> bool {
     use opencode_kit::servers::link::Effect;
-    let mut state = s.server_links.state(server);
+    let mut state = s.services.server_links.state(server);
     let was = state.dropped();
     let opened = matches!(event, Event::StreamUp);
     let effects = state.step(event);
     let dropped = state.dropped();
     if state == Link::Online {
-        s.server_links.states.remove(server);
+        s.services.server_links.states.remove(server);
     } else {
-        s.server_links.states.insert(server.to_owned(), state);
+        s.services.server_links.states.insert(server.to_owned(), state);
     }
     // The stream opening says the server's alive for as long as it stays up (its heartbeat), so
     // the health poll leaves it be; its dropping is the first word that the server went, and the
@@ -112,7 +112,7 @@ pub fn step_link(s: &mut App, server: &str, event: opencode_kit::servers::link::
 
 /// Server `server`'s link as the header tells it.
 pub fn link_of(s: &App, server: &str) -> Link {
-    s.server_links.state(server)
+    s.services.server_links.state(server)
 }
 
 /// The event stream dropped or failed to open (`Incoming::StreamDown`), with its typed error.
@@ -126,7 +126,7 @@ pub fn stream_down(s: &mut App, e: opencode_kit::wire_error::WireError, tx: &mut
             gaps.entry(sid.clone()).or_default().extend(t.open_steps());
         }
     }
-    *s.status = e.to_string();
+    *s.diag.status = e.to_string();
     step_link(s, &server, Event::StreamDown { now, error: Some(e) }, tx);
 }
 
@@ -135,7 +135,7 @@ pub fn stream_down(s: &mut App, e: opencode_kit::wire_error::WireError, tx: &mut
 pub fn unanswered(s: &mut App, e: opencode_kit::wire_error::WireError, tx: &mut Tx) {
     let Some(server) = server_of(s) else { return };
     let now = *s.clock;
-    *s.status = e.to_string();
+    *s.diag.status = e.to_string();
     step_link(s, &server, Event::Unanswered { now, error: Some(e) }, tx);
 }
 
@@ -159,7 +159,7 @@ pub fn back(s: &mut App) {
 /// The server answered something: a suspect link is fine. True when the header changed.
 pub fn heard(s: &mut App) -> bool {
     let Some(server) = server_of(s) else { return false };
-    if !matches!(s.server_links.state(&server), Link::Suspect { .. }) {
+    if !matches!(s.services.server_links.state(&server), Link::Suspect { .. }) {
         return false;
     }
     step_link(s, &server, Event::Heard, &mut Tx::default())
@@ -176,7 +176,7 @@ pub fn down(s: &App) -> bool {
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     let now = *s.clock;
     let mut changed = probed(s, tx);
-    let ticking: Vec<ServerId> = s.server_links.states.iter().filter(|(_, l)| l.ticks()).map(|(k, _)| k.clone()).collect();
+    let ticking: Vec<ServerId> = s.services.server_links.states.iter().filter(|(_, l)| l.ticks()).map(|(k, _)| k.clone()).collect();
     for server in ticking {
         changed |= step_link(s, &server, Event::Tick { now }, tx);
     }
@@ -206,7 +206,7 @@ fn probed(s: &mut App, tx: &mut Tx) -> bool {
         None => Probe::Unknown,
     };
     let server = key.as_str().to_owned();
-    if s.server_links.heard.get(&server).copied().unwrap_or(Probe::Unknown) == probe {
+    if s.services.server_links.heard.get(&server).copied().unwrap_or(Probe::Unknown) == probe {
         return false;
     }
     let now = *s.clock;
@@ -218,11 +218,11 @@ fn probed(s: &mut App, tx: &mut Tx) -> bool {
         Probe::Unreachable if matches!(link_of(s, &server), Link::Online | Link::Suspect { .. }) => return false,
         Probe::Unreachable => Event::Unreachable { now },
         Probe::Unknown => {
-            s.server_links.heard.insert(server, probe);
+            s.services.server_links.heard.insert(server, probe);
             return false;
         }
     };
-    s.server_links.heard.insert(server.clone(), probe);
+    s.services.server_links.heard.insert(server.clone(), probe);
     step_link(s, &server, event, tx)
 }
 
@@ -250,8 +250,8 @@ pub fn audit(s: &App) {
 /// were (or "Starting").
 pub fn catch_up(s: &mut App) {
     let Some(server) = server_of(s) else { return };
-    s.server_links.catch_up.insert(server.clone(), CatchUp::AwaitingActive);
-    s.server_links.refreshing.remove(&server);
+    s.services.server_links.catch_up.insert(server.clone(), CatchUp::AwaitingActive);
+    s.services.server_links.refreshing.remove(&server);
     let Route::Session { id: open, .. } = &*s.route else { return };
     let root = s.root_of(open);
     let mut kids: Vec<String> = s.running.iter().filter(|id| id.as_str() != root && s.descends(id, root)).cloned().collect();
@@ -275,7 +275,7 @@ pub fn catch_up(s: &mut App) {
 
 fn refresh(s: &mut App, server: &str, id: String) {
     let Source::Live { requests: Some(r), .. } = &*s.source else { return };
-    if s.server_links.refreshing.entry(server.to_owned()).or_default().insert(id.clone()) {
+    if s.services.server_links.refreshing.entry(server.to_owned()).or_default().insert(id.clone()) {
         let _ = r.send(Request::Session(id));
     }
 }
@@ -284,7 +284,7 @@ fn refresh(s: &mut App, server: &str, id: String) {
 /// reconnect each running subagent's page is read too.
 pub fn active(s: &mut App, ids: &[String]) {
     let Some(server) = server_of(s) else { return };
-    let catching_up = s.server_links.catch_up.remove(&server) == Some(CatchUp::AwaitingActive);
+    let catching_up = s.services.server_links.catch_up.remove(&server) == Some(CatchUp::AwaitingActive);
     let mut missing: Vec<String> = ids.iter().filter_map(|id| s.missing_ancestor(id)).collect();
     missing.sort();
     missing.dedup();
@@ -302,7 +302,7 @@ pub fn active(s: &mut App, ids: &[String]) {
 /// A page landed: a subagent read again after a reconnect shows its latest step from it.
 pub fn page_in(s: &mut App, id: &str) {
     let Some(server) = server_of(s) else { return };
-    if s.server_links.refreshing.get_mut(&server).is_some_and(|ids| ids.remove(id)) {
+    if s.services.server_links.refreshing.get_mut(&server).is_some_and(|ids| ids.remove(id)) {
         s.forget_agent_steps(id);
     }
 }
@@ -321,7 +321,7 @@ mod story {
         let now = *s.clock;
         step_link(s, &server, Event::StreamDown { now: now - super::QUIET, error: None }, &mut rune::Tx::default());
         step_link(s, &server, Event::Tick { now }, &mut rune::Tx::default());
-        debug_assert_eq!(s.server_links.state(&server), Link::Reopening { since: now - super::QUIET, shown: true });
+        debug_assert_eq!(s.services.server_links.state(&server), Link::Reopening { since: now - super::QUIET, shown: true });
     }
 
     const KEYS: &[Trigger] = &[

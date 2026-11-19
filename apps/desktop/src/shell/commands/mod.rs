@@ -223,7 +223,7 @@ impl App {
         self.close_switcher(false);
         self.close_picker(false);
         self.search.focused = false;
-        self.find.input.focused = false;
+        self.timeline_fx.find.input.focused = false;
         self.composer.focused = true;
         true
     }
@@ -231,7 +231,7 @@ impl App {
     pub(crate) fn copy_id(&mut self, id: Option<String>, tx: &mut Tx) {
         let Some(id) = id.filter(|i| !i.is_empty()) else { return };
         tx.copy(id);
-        *self.status = opencode_i18n::t!("common.copied").into();
+        *self.diag.status = opencode_i18n::t!("common.copied").into();
     }
 
     /// The open root session, which the session commands act on (a subagent's has no composer).
@@ -301,7 +301,7 @@ fn is_live(s: &App) -> bool {
 /// `/reload` (`composer/commands.tsx:45-84`): the server rebuilds every location, and the app
 /// says so while it does and once it has.
 fn reload(s: &mut App, _: &mut Tx) {
-    *s.status = opencode_i18n::t!("command.config.reload.pending").into();
+    *s.diag.status = opencode_i18n::t!("command.config.reload.pending").into();
     s.write(Write::Reload);
 }
 

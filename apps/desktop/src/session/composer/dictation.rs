@@ -11,11 +11,11 @@ use crate::App;
 
 impl DictationHost for App {
     fn dictation(&self) -> &Dictation {
-        &self.dictation
+        &self.composer_ext.dictation
     }
 
     fn dictation_mut(&mut self) -> &mut Dictation {
-        &mut self.dictation
+        &mut self.composer_ext.dictation
     }
 
     fn composer_mut(&mut self) -> &mut TextEdit {
@@ -70,7 +70,7 @@ mod stories {
             label: "Start",
             run: |s, tx| {
                 tx.instant();
-                s.dictation.set_fake_prepare(0.0);
+                s.composer_ext.dictation.set_fake_prepare(0.0);
                 start(s);
             },
         },
@@ -80,7 +80,7 @@ mod stories {
             run: |s, tx| {
                 tx.instant();
                 cancel(s);
-                s.dictation.slow_fake();
+                s.composer_ext.dictation.slow_fake();
                 start(s);
             },
         },
@@ -89,11 +89,11 @@ mod stories {
             label: "Words so far",
             run: |s, tx| {
                 tx.instant();
-                if !s.dictation.recording() {
-                    s.dictation.set_fake_prepare(0.0);
+                if !s.composer_ext.dictation.recording() {
+                    s.composer_ext.dictation.set_fake_prepare(0.0);
                     start(s);
                 }
-                s.dictation.push_fake_heard([
+                s.composer_ext.dictation.push_fake_heard([
                     Heard::Ready,
                     Heard::Partial {
                         stable: "keep the retry budget as it is".into(),
@@ -115,7 +115,7 @@ mod stories {
             label: "Finish, words never come",
             run: |s, tx| {
                 tx.instant();
-                s.dictation.set_fake_stall(true);
+                s.composer_ext.dictation.set_fake_stall(true);
                 stop(s);
             },
         },
@@ -124,7 +124,7 @@ mod stories {
             label: "Next error",
             run: |s, tx| {
                 tx.instant();
-                let next = match s.dictation.error() {
+                let next = match s.composer_ext.dictation.error() {
                     Some(hex_client::NOT_RUNNING) => hex_client::BUSY,
                     Some(hex_client::BUSY) => hex_client::OUTDATED,
                     Some(hex_client::OUTDATED) => hex_client::NOT_INSTALLED,
@@ -132,7 +132,7 @@ mod stories {
                     _ => hex_client::NOT_RUNNING,
                 };
                 cancel(s);
-                s.dictation.fail(Problem::of(next));
+                s.composer_ext.dictation.fail(Problem::of(next));
             },
         },
     ];
@@ -140,7 +140,7 @@ mod stories {
     /// A draft with the caret after it, then the loop iOS shows: the stop while it listens, the
     /// spinner while the words come, the words at the caret.
     fn story_open(s: &mut App, tx: &mut rune::Play<App>) {
-        *s.dictation = Dictation::fake();
+        *s.composer_ext.dictation = Dictation::fake();
         *s.composer = rune::TextEdit::new("Looks right. Before you merge,");
         start(s);
         tx.after(1.6, |s, tx| {

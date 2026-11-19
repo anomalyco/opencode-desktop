@@ -59,11 +59,11 @@ fn write_terminal_storage_batch(
 
 impl TerminalSurfaceHost for App {
     fn terminal(&self) -> &TerminalPane {
-        &self.terminal
+        &self.workspace_panes.terminal
     }
 
     fn terminal_mut(&mut self) -> &mut TerminalPane {
-        &mut self.terminal
+        &mut self.workspace_panes.terminal
     }
 
     fn session_directory(&self, sid: &str) -> Option<&str> {
@@ -75,12 +75,12 @@ impl TerminalSurfaceHost for App {
     }
 
     fn is_story_stage(&self) -> bool {
-        self.stage.is_some()
+        self.fixture_run.stage.is_some()
     }
 
     fn poll_story_variant(&mut self) -> bool {
-        if self.stage.is_some()
-            && self.terminal.story_built_variant.is_some_and(|v| v != *self.variant)
+        if self.fixture_run.stage.is_some()
+            && self.workspace_panes.terminal.story_built_variant.is_some_and(|v| v != *self.fixture_run.variant)
         {
             story::init_story(self);
             return true;
@@ -115,7 +115,7 @@ impl TerminalSurfaceHost for App {
     }
 
     fn knobs(&self) -> &Knobs {
-        &self.knobs
+        &self.diag.knobs
     }
 
     fn terminal_font(&self) -> (usize, &str) {
@@ -217,11 +217,11 @@ impl TerminalSurfaceHost for App {
     }
 
     fn is_side_focused(&self) -> bool {
-        self.side.focus.is_focused()
+        self.workspace_panes.side.focus.is_focused()
     }
 
     fn focused_pane_shown_tab(&self) -> Option<String> {
-        let pane = self.side.active_pane_focus;
+        let pane = self.workspace_panes.side.active_pane_focus;
         let visible = if pane == SessionPane::Bottom { self.bottom_open() } else { self.side_open() };
         visible.then(|| self.pane_shown_tab(pane)).flatten()
     }
@@ -231,14 +231,14 @@ impl TerminalSurfaceHost for App {
     }
 
     fn session_has_terminal_tabs(&self, sid: &str) -> bool {
-        self.side
+        self.workspace_panes.side
             .sessions
             .get(sid)
             .is_some_and(|st| st.tab_state.tabs.all.iter().any(|k| k.starts_with("terminal:")))
     }
 
     fn terminal_pane_estimate(&self) -> (f32, f32) {
-        let w = self.side_width(self.side.laid_w.get());
+        let w = self.side_width(self.workspace_panes.side.laid_w.get());
         let h = if self.dock_placement() == DockPlacement::Bottom {
             self.bottom_height()
         } else {
@@ -249,9 +249,9 @@ impl TerminalSurfaceHost for App {
 
     fn focus_side_pane(&mut self, tab: Option<(&str, &str)>) {
         self.composer.focused = false;
-        self.side.focus.focus();
+        self.workspace_panes.side.focus.focus();
         if let Some((sid, key)) = tab {
-            self.side.active_pane_focus =
+            self.workspace_panes.side.active_pane_focus =
                 crate::panels::tabs::session_tab_pane(&self.session_side_mut(sid).tab_state.tabs, key);
         }
     }

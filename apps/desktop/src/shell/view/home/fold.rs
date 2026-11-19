@@ -103,7 +103,7 @@ mod story {
     pub(crate) fn setup(s: &mut App) {
         *s.route = Route::Home;
         super::add_flow(s, 40, 3);
-        s.restore.inbox.home_automations = s.variant == 1;
+        s.restore.inbox.home_automations = s.fixture_run.variant == 1;
     }
 
     fn open(s: &mut App, tx: &mut Play<App>) {

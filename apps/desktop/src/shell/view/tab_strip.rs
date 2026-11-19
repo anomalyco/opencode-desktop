@@ -52,7 +52,7 @@ fn strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation, viewport: Opt
         .zip(&uids)
         .map(|(t, uid)| {
             let target = target(s, t);
-            let keep = s.menus.on.as_ref() == Some(&target) || s.menus.renames(&target);
+            let keep = s.dialogs.menus.on.as_ref() == Some(&target) || s.dialogs.menus.renames(&target);
             TabSlot { id: uid.as_str().into(), pinned: false, two_line: false, keep }
         })
         .collect();
@@ -70,7 +70,7 @@ fn strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation, viewport: Opt
         .busy_indicator(|k| session_view::style::tab_busy_glyph(k, 14.0))
         .matched_prefix(Some(MATCHED))
         .label(if vertical { opencode_i18n::t!("settings.general.row.interfaceMode.side") } else { opencode_i18n::t!("titlebar.tabs") })
-        .drag_state(&s.tab_drag, |s: &mut App| &mut s.tab_drag)
+        .drag_state(&s.gestures.tab_drag, |s: &mut App| &mut s.gestures.tab_drag)
         // A mouse selects a tab as its button goes down, top or side, as Desktop's do
         // (`tab-nav.tsx`'s `onMouseDown`); a finger only on a tap, so a long press opens the
         // tab's menu and selects nothing.
@@ -117,7 +117,7 @@ fn item<'a>(s: &'a App, p: &Pal, t: &'a crate::tabs::Tab, uid: String, index: us
     let draft = t.is_draft();
     let face = face(s, t);
     let target = target(s, t);
-    let marked = s.menus.on.as_ref() == Some(&target);
+    let marked = s.dialogs.menus.on.as_ref() == Some(&target);
     // No server badge or dot on the tab itself: only its preview names the server
     // (`tab-nav.tsx:158-164`).
     let id = uid.clone();

@@ -59,11 +59,11 @@ impl ToastHost for App {
     type CustomAction = DesktopToastAction;
 
     fn toast(&self) -> &StatusToast {
-        &self.toast
+        &self.dialogs.toast
     }
 
     fn toast_mut(&mut self) -> &mut StatusToast {
-        &mut self.toast
+        &mut self.dialogs.toast
     }
 
     fn clock(&self) -> f64 {
@@ -71,7 +71,7 @@ impl ToastHost for App {
     }
 
     fn reduced_motion(&self) -> bool {
-        *self.reduced_motion
+        *self.appearance_state.reduced_motion
     }
 
     fn viewport_width(&self) -> f32 {
@@ -94,7 +94,7 @@ impl ToastHost for App {
     }
 
     fn set_status(&mut self, status: String) {
-        *self.status = status;
+        *self.diag.status = status;
     }
 
     fn announce(&mut self, words: String, region: LiveRegion) {
@@ -110,7 +110,7 @@ impl ToastHost for App {
     }
 
     fn has_uploads(&self) -> bool {
-        !self.attach.uploads.is_empty()
+        !self.composer_ext.attach.uploads.is_empty()
     }
 
     fn uploads_card(&self, p: &Pal, content_shows: bool) -> Option<El> {
@@ -214,7 +214,7 @@ pub fn crash_notice(
         Some(r) => format!("{title}: {description} {r}"),
         None => format!("{title}: {description}"),
     };
-    *s.status = summary;
+    *s.diag.status = summary;
     let buttons = native_buttons
         .into_iter()
         .enumerate()
@@ -283,7 +283,7 @@ pub fn failed_wire(s: &mut App, what: &str, wire: &opencode_kit::wire_error::Wir
 /// from the typed error; a read stays in the debug bar, since the app retries those itself.
 pub fn from_wire(s: &mut App, e: opencode_kit::wire_error::WireError) {
     if e.method == "GET" {
-        *s.status = e.to_string();
+        *s.diag.status = e.to_string();
         return;
     }
     let server = crate::servers::runtime::label(crate::servers::runtime::active(s));

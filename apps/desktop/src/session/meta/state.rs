@@ -123,23 +123,23 @@ fn run(s: &mut App, effects: Effects<ResolutionEffect>, tx: &mut Tx) -> bool {
 /// The tab of `id` opened.
 pub fn opened(s: &mut App, id: &str, tx: &mut Tx) {
     let (server, known, now) = (server(s), s.session(id).is_some(), *s.clock);
-    let effects = s.session_states.apply(&server, id, ResolutionEvent::Opened { known, now: now });
+    let effects = s.services.session_states.apply(&server, id, ResolutionEvent::Opened { known, now: now });
     run(s, effects, tx);
 }
 
 /// `id`'s server said it doesn't have it: a read answered 404, or it was deleted while open.
 pub fn missing(s: &mut App, id: &str, tx: &mut Tx) -> bool {
     let server = server(s);
-    let effects = s.session_states.apply(&server, id, ResolutionEvent::Missing);
+    let effects = s.services.session_states.apply(&server, id, ResolutionEvent::Missing);
     run(s, effects, tx)
 }
 
 /// The server came back: what didn't resolve tries again.
 pub fn reconnected(s: &mut App, tx: &mut Tx) {
     let (server, now) = (server(s), *s.clock);
-    let ids: Vec<String> = s.session_states.0.iter().filter(|((k, _), r)| *k == server && **r == Resolution::Unreachable).map(|((_, id), _)| id.clone()).collect();
+    let ids: Vec<String> = s.services.session_states.0.iter().filter(|((k, _), r)| *k == server && **r == Resolution::Unreachable).map(|((_, id), _)| id.clone()).collect();
     for id in ids {
-        let effects = s.session_states.apply(&server, &id, ResolutionEvent::Reconnected { now: now });
+        let effects = s.services.session_states.apply(&server, &id, ResolutionEvent::Reconnected { now: now });
         run(s, effects, tx);
         s.reload_session(&id);
     }
@@ -149,15 +149,15 @@ pub fn reconnected(s: &mut App, tx: &mut Tx) {
 /// be reached.
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     let key = crate::servers::runtime::active(s).as_str();
-    if !s.session_states.0.iter().any(|((k, _), r)| k == key && matches!(r, Resolution::Resolving { .. } | Resolution::Unreachable)) {
+    if !s.services.session_states.0.iter().any(|((k, _), r)| k == key && matches!(r, Resolution::Resolving { .. } | Resolution::Unreachable)) {
         return false;
     }
     let (server, now) = (server(s), *s.clock);
-    let resolving: Vec<String> = s.session_states.0.iter().filter(|((k, _), r)| *k == server && matches!(r, Resolution::Resolving { .. } | Resolution::Unreachable)).map(|((_, id), _)| id.clone()).collect();
+    let resolving: Vec<String> = s.services.session_states.0.iter().filter(|((k, _), r)| *k == server && matches!(r, Resolution::Resolving { .. } | Resolution::Unreachable)).map(|((_, id), _)| id.clone()).collect();
     let mut changed = false;
     for id in resolving {
         let event = if s.session(&id).is_some() { ResolutionEvent::Known } else { ResolutionEvent::Tick { now: now } };
-        let effects = s.session_states.apply(&server, &id, event);
+        let effects = s.services.session_states.apply(&server, &id, event);
         changed |= run(s, effects, tx);
     }
     changed
@@ -170,7 +170,7 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
 /// out or incompatible panel, and an unreachable one whose info it hadn't listed.
 pub fn view(s: &App, id: &str) -> View {
     let key = crate::servers::runtime::active(s);
-    let resolution = s.session_states.get(&server(s), id);
+    let resolution = s.services.session_states.get(&server(s), id);
     if resolution == Some(Resolution::NotFound) {
         return View::NotFound;
     }

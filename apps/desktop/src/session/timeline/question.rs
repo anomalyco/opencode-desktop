@@ -20,7 +20,7 @@ impl QuestionHost for App {
     }
 
     fn knobs(&self) -> &Knobs {
-        &self.knobs
+        &self.diag.knobs
     }
 
     fn question_shown(&self) -> bool {
@@ -56,7 +56,7 @@ impl QuestionHost for App {
     }
 
     fn fixture_question(&self) -> Option<&Value> {
-        Some(&self.fixture["question"])
+        Some(&self.fixture_run.fixture["question"])
     }
 }
 
@@ -104,17 +104,17 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
     ("question", |s| {
         crate::open_scene(s);
         s.finish_stream();
-        let q = s.fixture["question"].clone();
+        let q = s.fixture_run.fixture["question"].clone();
         s.apply_event("form.created", &q);
     }),
     // Answered elsewhere at 1.5 s, asked again at 2.5 s: the morph both ways.
     ("question-morph", |s| {
         crate::open_scene(s);
         s.finish_stream();
-        let q = s.fixture["question"].clone();
+        let q = s.fixture_run.fixture["question"].clone();
         s.apply_event("form.created", &q);
         let replied = scene_replied_payload(&q);
-        *s.playback = [(1.5, "form.replied".into(), replied), (2.5, "form.created".into(), q)].into();
+        *s.fixture_run.playback = [(1.5, "form.replied".into(), replied), (2.5, "form.created".into(), q)].into();
     }),
     ("question-long", |s| {
         crate::open_scene(s);

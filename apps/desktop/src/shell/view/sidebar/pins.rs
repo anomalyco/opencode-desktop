@@ -28,7 +28,7 @@ pub(crate) fn section(s: &App, p: &Pal) -> (Option<El>, Vec<usize>) {
         let tab = s.tabs.iter().position(|tab| !tab.is_draft() && tab.is(&server, id));
         let info = (&server == crate::servers::runtime::active(s)).then(|| s.session(id)).flatten();
         if info.is_some_and(|i| i.archived.is_some()) { continue; }
-        let closed = s.closed.entries().find(|c| c.tab.is(&server, id));
+        let closed = s.gestures.closed.entries().find(|c| c.tab.is(&server, id));
         let name = info.map(|i| i.title.as_str()).or_else(|| tab.map(|i| s.tabs[i].title.as_str())).or_else(|| closed.map(|c| c.tab.title.as_str()));
         let Some(name) = name else { continue };
         let target = Target::on(&server, id, if tab.is_some() { Spot::Tab } else { Spot::Row });
@@ -50,7 +50,7 @@ pub(crate) fn section(s: &App, p: &Pal) -> (Option<El>, Vec<usize>) {
         .active(active.as_deref()).close_icon(&ic::XMARK_SMALL).fill(p.bg_deep).label(t!("sidebar.recent.pinned"))
         .on_select(|s: &mut App, key, tx| { if let Some((key, id)) = super::state::split(key) { crate::servers::runtime::switch(s, &ServerKey::new(key)); s.open(id, tx); } })
         .on_close(|s: &mut App, key, tx| { if let Some((key, id)) = super::state::split(key) { s.close_tab(&crate::tabs::session_uid(&ServerKey::new(key), id), tx); } })
-        .drag_state(&s.tab_drag, |s: &mut App| &mut s.tab_drag)
+        .drag_state(&s.gestures.tab_drag, |s: &mut App| &mut s.gestures.tab_drag)
         .on_reorder(move |s: &mut App, r, _| s.project_state.recent.reorder(&visible, r.from, r.to))
         .build(crate::palette::kit(p));
     let h = rune::memo::layout_with("project-pins-list", |r| r[3]).unwrap_or(count as f32 * 30.0);

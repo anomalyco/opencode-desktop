@@ -8,11 +8,11 @@ use crate::App;
 
 impl TipsHost for App {
     fn tips(&self) -> &Tips {
-        &self.tips
+        &self.dialogs.tips
     }
 
     fn tips_mut(&mut self) -> &mut Tips {
-        &mut self.tips
+        &mut self.dialogs.tips
     }
 
     fn is_connected(&self) -> bool {
@@ -20,7 +20,7 @@ impl TipsHost for App {
     }
 
     fn is_window_open(&self) -> bool {
-        !self.plugins.window_blurred.get() && self.toast.stack.page() == rune_kit::ToastPage::Shown
+        !self.plugins.window_blurred.get() && self.dialogs.toast.stack.page() == rune_kit::ToastPage::Shown
     }
 
     fn route_key(&self) -> TipRoute {

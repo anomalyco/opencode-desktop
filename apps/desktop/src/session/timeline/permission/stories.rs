@@ -49,9 +49,9 @@ fn open(s: &mut App, _: &mut Play<App>) {
 }
 
 fn ask_soon(s: &mut App) {
-    let (action, resources) = asked(*s.variant);
+    let (action, resources) = asked(*s.fixture_run.variant);
     let ask = json!({ "id": ID, "sessionID": crate::stories::sid(s), "action": action, "resources": resources });
-    *s.playback = [(*s.clock + 0.4, "permission.asked".into(), ask)].into();
+    *s.fixture_run.playback = [(*s.clock + 0.4, "permission.asked".into(), ask)].into();
     s.wake_at_playback();
 }
 

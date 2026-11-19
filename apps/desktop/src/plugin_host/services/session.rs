@@ -242,7 +242,7 @@ fn build_session(lua: &Lua, app: &App, id: &str) -> mlua::Result<Value> {
 
 /// What a model's record reads now, as a number.
 pub fn model_version(app: &App, provider: &str, model: &str) -> u64 {
-    let p = &app.pickers;
+    let p = &app.composer_ext.pickers;
     let key = format!("{provider}:{model}");
     let mut h = std::hash::DefaultHasher::new();
     (p.models.iter().find(|m| m.provider == provider && m.id == model).map(|m| &m.name), p.providers.get(provider), p.limits.get(&key), p.paid.contains(&key)).hash(&mut h);
@@ -254,10 +254,10 @@ fn models(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
         let app = app_now("Models:Get")?;
         let key = format!("{provider}:{model}");
         let mut h = std::hash::DefaultHasher::new();
-        (model_version(app, &provider, &model), app.pickers.models.iter().any(|m| m.provider == provider)).hash(&mut h);
+        (model_version(app, &provider, &model), app.composer_ext.pickers.models.iter().any(|m| m.provider == provider)).hash(&mut h);
         // Each server has its own catalog.
         let m = snapshot(lua, &format!("model:{}:{key}", server_id(crate::servers::runtime::active(app))), h.finish(), || {
-            let p = &app.pickers;
+            let p = &app.composer_ext.pickers;
             let listed = p.models.iter().find(|m| m.provider == provider && m.id == model);
             let provider_name = p.providers.get(&provider).map(String::as_str).or_else(|| p.models.iter().any(|m| m.provider == provider).then_some(provider.as_str()));
             record(lua, 4, |m| {

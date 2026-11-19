@@ -83,7 +83,7 @@ pub fn asyncs(host: &Host<'_>, t: &Table, _half: &Rc<Half>) -> mlua::Result<()> 
 /// What `Diagnostics:Get(name)` answers now.
 pub fn get(app: &App, name: &str) -> Data {
     use session_view::knobs::{SOURCES_ENABLED, SOURCES_ICONS};
-    let k = &app.knobs;
+    let k = &app.diag.knobs;
     let on = |v: f32| v > 0.5;
     let word = |s: &str| Data::String(s.to_owned());
     match name {
@@ -107,10 +107,10 @@ pub fn get(app: &App, name: &str) -> Data {
 pub fn apply(app: &mut App, name: &str, value: Data, tx: &mut rune::Tx) {
     tx.instant();
     match (name, value) {
-        ("speed", Data::Number(x)) => app.knobs.set(&crate::knobs::SPEED, x as f32),
-        ("speed", Data::Integer(x)) => app.knobs.set(&crate::knobs::SPEED, x as f32),
-        ("slow", Data::Bool(on)) => app.knobs.set(&crate::knobs::SLOW, if on { 1.0 } else { 0.0 }),
-        ("knobs", Data::Bool(open)) if open != app.knobs.open => app.knobs.toggle(),
+        ("speed", Data::Number(x)) => app.diag.knobs.set(&crate::knobs::SPEED, x as f32),
+        ("speed", Data::Integer(x)) => app.diag.knobs.set(&crate::knobs::SPEED, x as f32),
+        ("slow", Data::Bool(on)) => app.diag.knobs.set(&crate::knobs::SLOW, if on { 1.0 } else { 0.0 }),
+        ("knobs", Data::Bool(open)) if open != app.diag.knobs.open => app.diag.knobs.toggle(),
         ("components", _) => tx.open_playground(),
         ("direction", Data::String(d)) => opencode_i18n::set_direction(if d == "rtl" { opencode_i18n::Direction::Rtl } else { opencode_i18n::Direction::Ltr }),
         ("forceFocus", Data::Bool(on)) => app.plugins.force_focus = on,

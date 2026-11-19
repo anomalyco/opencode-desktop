@@ -15,17 +15,17 @@ rune_register::register!(crate::knobs::GROUP_LIST: rune_knobs::Group = [place::G
 
 impl QuoteHost for App {
     fn quotes(&self) -> &Quotes {
-        &self.quote
+        &self.composer_ext.quote
     }
 
     fn quotes_mut(&mut self) -> &mut Quotes {
-        &mut self.quote
+        &mut self.composer_ext.quote
     }
 
     fn quote_session(&self) -> Option<&str> {
         let Route::Session { id, .. } = &*self.route else { return None };
         let child = self.session(id).is_some_and(|i| i.parent.is_some());
-        (!child && !self.add.shell() && !self.settings.open).then_some(id.as_str())
+        (!child && !self.composer_ext.add.shell() && !self.settings.open).then_some(id.as_str())
     }
 
     fn quote_session_busy(&self) -> bool {
@@ -41,7 +41,7 @@ impl QuoteHost for App {
 
     fn can_send_quote(&self) -> bool {
         matches!(*self.route, Route::Session { .. })
-            && self.attach.uploads.is_empty()
+            && self.composer_ext.attach.uploads.is_empty()
             && self.opening.is_none()
     }
 
@@ -62,7 +62,7 @@ impl QuoteHost for App {
     }
 
     fn knobs(&self) -> &Knobs {
-        &self.knobs
+        &self.diag.knobs
     }
 
     fn auto_focus_composer(&self, tx: &Tx) -> bool {
@@ -85,11 +85,11 @@ impl QuoteHost for App {
     }
 
     fn search_local_paths(&self, query: &str, limit: usize) -> Vec<String> {
-        self.mentions.local_paths(query, limit)
+        self.composer_ext.mentions.local_paths(query, limit)
     }
 
     fn active_line_comment_card(&self) -> Option<u64> {
-        self.line_comments.active_card
+        self.composer_ext.line_comments.active_card
     }
 
     fn open_line_comment_card(&mut self, key: u64, tx: &mut Tx) {

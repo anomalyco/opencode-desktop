@@ -9,10 +9,10 @@ fn scene(s: &mut App) {
     crate::open_scene(s);
     s.finish_stream();
     for (url, title) in [("http://localhost:3000/", "Local Preview"), ("https://github.com/anomalyco/rune", "anomalyco/rune")] {
-        let id = s.browser.host.insert_mock_tab(url, title, EngineStatus::Ready);
+        let id = s.workspace_panes.browser.host.insert_mock_tab(url, title, EngineStatus::Ready);
         s.register_existing_browser_tab(id);
     }
-    s.side.focus.blur();
+    s.workspace_panes.side.focus.blur();
     s.composer.focused = true;
 }
 

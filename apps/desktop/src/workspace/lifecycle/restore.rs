@@ -68,7 +68,7 @@ impl RestoreHost for App {
     }
 
     fn stage_active(&self) -> bool {
-        self.stage.is_some()
+        self.fixture_run.stage.is_some()
     }
 
     fn run_background(&self, job: Box<dyn FnOnce() + Send>) {
@@ -101,11 +101,11 @@ impl RestoreHost for App {
     }
 
     fn home_return_tab(&self) -> Option<&str> {
-        self.home_return_tab.as_deref()
+        self.gestures.home_return_tab.as_deref()
     }
 
     fn set_home_return_tab(&mut self, uid: Option<String>) {
-        *self.home_return_tab = uid;
+        *self.gestures.home_return_tab = uid;
     }
 
     fn tab_key_by_uid(&self, uid: &str) -> Option<TabKey> {
@@ -121,34 +121,34 @@ impl RestoreHost for App {
     }
 
     fn restore_closed_tabs(&mut self, closed: &[ClosedTab]) {
-        *self.closed = crate::tabs::Closed::from_doc(closed);
+        *self.gestures.closed = crate::tabs::Closed::from_doc(closed);
     }
 
     fn hydrate_closed_tabs(&mut self, closed_doc: &[ClosedTab], closed_drafts: &Value, now_ms: i64) -> Vec<String> {
         let mut closed = crate::tabs::Closed::from_doc(closed_doc);
         let expired = closed.take_drafts_json(closed_drafts, now_ms);
-        for e in self.closed.entries().cloned().collect::<Vec<_>>() {
+        for e in self.gestures.closed.entries().cloned().collect::<Vec<_>>() {
             if e.tab.is_draft() {
                 closed.push_draft(e, now_ms);
             } else {
                 closed.push(e);
             }
         }
-        *self.closed = closed;
+        *self.gestures.closed = closed;
         expired
     }
 
     fn closed_tabs_doc(&self) -> Vec<ClosedTab> {
-        self.closed.to_doc()
+        self.gestures.closed.to_doc()
     }
 
     fn closed_drafts_json(&self) -> Value {
-        self.closed.drafts_json()
+        self.gestures.closed.drafts_json()
     }
 
     fn closed_tabs_stamp(&self) -> u64 {
         let mut h = DefaultHasher::new();
-        self.closed.hash(&mut h);
+        self.gestures.closed.hash(&mut h);
         h.finish()
     }
 
@@ -165,85 +165,85 @@ impl RestoreHost for App {
     }
 
     fn composer_mode(&self) -> Mode {
-        self.add.mode
+        self.composer_ext.add.mode
     }
 
     fn park_composer_mode(&mut self, key: String, mode: Mode) {
-        self.add.park(key, mode);
+        self.composer_ext.add.park(key, mode);
     }
 
     fn swap_composer_mode_draft(&mut self, from: Option<&str>, to: Option<&str>) {
-        self.add.swap_draft(from, to);
+        self.composer_ext.add.swap_draft(from, to);
     }
 
     fn parked_composer_modes(&self) -> Vec<(String, Mode)> {
-        self.add.parked().map(|(k, m)| (k.to_owned(), m)).collect()
+        self.composer_ext.add.parked().map(|(k, m)| (k.to_owned(), m)).collect()
     }
 
     fn attach_files(&self) -> &[Attachment] {
-        &self.attach.files
+        &self.composer_ext.attach.files
     }
 
     fn attach_paths(&self) -> &[PathAttachment] {
-        &self.attach.paths
+        &self.composer_ext.attach.paths
     }
 
     fn attach_context(&self) -> &[ContextFile] {
-        &self.attach.context
+        &self.composer_ext.attach.context
     }
 
     fn push_attach_file(&mut self, file: Attachment) {
-        self.attach.files.push(file);
+        self.composer_ext.attach.files.push(file);
     }
 
     fn add_attach_path(&mut self, path: PathAttachment) {
-        self.attach.add_path(path);
+        self.composer_ext.attach.add_path(path);
     }
 
     fn take_attach_files(&mut self) -> Vec<Attachment> {
-        std::mem::take(&mut self.attach.files)
+        std::mem::take(&mut self.composer_ext.attach.files)
     }
 
     fn take_attach_paths(&mut self) -> Vec<PathAttachment> {
-        std::mem::take(&mut self.attach.paths)
+        std::mem::take(&mut self.composer_ext.attach.paths)
     }
 
     fn take_attach_context(&mut self) -> Vec<ContextFile> {
-        std::mem::take(&mut self.attach.context)
+        std::mem::take(&mut self.composer_ext.attach.context)
     }
 
     fn set_attach_files(&mut self, files: Vec<Attachment>) {
-        self.attach.files = files;
+        self.composer_ext.attach.files = files;
     }
 
     fn set_attach_paths(&mut self, paths: Vec<PathAttachment>) {
-        self.attach.paths = paths;
+        self.composer_ext.attach.paths = paths;
     }
 
     fn set_attach_context(&mut self, context: Vec<ContextFile>) {
-        self.attach.context = context;
+        self.composer_ext.attach.context = context;
     }
 
     fn quote_any(&self) -> bool {
-        self.quote.any()
+        self.composer_ext.quote.any()
     }
 
     fn quote_revision(&self) -> u64 {
         let mut h = DefaultHasher::new();
-        self.quote.revision().hash(&mut h);
+        self.composer_ext.quote.revision().hash(&mut h);
         h.finish()
     }
 
     fn quote_comments(&self) -> Vec<&PromptComment> {
-        self.quote.items.iter().map(|q| &q.comment).collect()
+        self.composer_ext.quote.items.iter().map(|q| &q.comment).collect()
     }
 
     fn take_quotes(&mut self) -> Vec<PromptComment> {
-        self.quote.take()
+        self.composer_ext.quote.take()
     }
 
     fn push_quote(&mut self, comment: PromptComment) {
-        self.quote.push(comment);
+        self.composer_ext.quote.push(comment);
     }
 
     fn leave_queue_edits(&mut self) {
@@ -388,19 +388,19 @@ impl RestoreHost for App {
     }
 
     fn expanded(&self) -> &Disclosures {
-        &self.expanded
+        &self.timeline_fx.expanded
     }
 
     fn expanded_mut(&mut self) -> &mut Disclosures {
-        &mut self.expanded
+        &mut self.timeline_fx.expanded
     }
 
     fn ends(&self) -> &Ends {
-        &self.ends
+        &self.timeline_fx.ends
     }
 
     fn ends_mut(&mut self) -> &mut Ends {
-        &mut self.ends
+        &mut self.timeline_fx.ends
     }
 
     fn timeline_has_row(&self, id: &str, row: &str) -> bool {
@@ -433,20 +433,20 @@ impl RestoreHost for App {
     }
 
     fn restore_side_json(&mut self, value: &Value) {
-        self.side.restore_json(value);
+        self.workspace_panes.side.restore_json(value);
     }
 
     fn restore_side_rest(&mut self, value: &Value) {
-        self.side.restore_rest(value);
+        self.workspace_panes.side.restore_rest(value);
     }
 
     fn side_json_where(&self, pred: &dyn Fn(&str) -> bool) -> Value {
-        self.side.to_json_where(pred)
+        self.workspace_panes.side.to_json_where(pred)
     }
 
     fn side_stamp(&self) -> u64 {
         let mut h = DefaultHasher::new();
-        self.side.stamp_hash(&mut h);
+        self.workspace_panes.side.stamp_hash(&mut h);
         h.finish()
     }
 

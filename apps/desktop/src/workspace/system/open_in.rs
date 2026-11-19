@@ -14,11 +14,11 @@ use crate::popup::{self, Item, Menu, MenuButton as _};
 
 impl OpenInHost for App {
     fn open_in(&self) -> &OpenIn {
-        &self.open_in
+        &self.workspace_panes.open_in
     }
 
     fn open_in_mut(&mut self) -> &mut OpenIn {
-        &mut self.open_in
+        &mut self.workspace_panes.open_in
     }
 
     fn is_local_server(&self) -> bool {
@@ -124,12 +124,12 @@ pub fn button(s: &App, p: &Pal, key: &'static str, rel: &str) -> Option<El> {
     if !s.can_open_in() {
         return None;
     }
-    let label = s.open_in.current_label();
+    let label = s.workspace_panes.open_in.current_label();
     let (rel_main, rel_menu) = (rel.to_owned(), rel.to_owned());
-    let busy = s.open_in.busy();
+    let busy = s.workspace_panes.open_in.busy();
     let chevron_key = format!("{key}-menu");
     let anchor = chevron_key.clone();
-    let mark = match rune_theme_opencode::app_icons::named(icon_of(s.open_in.current()), p.dark) {
+    let mark = match rune_theme_opencode::app_icons::named(icon_of(s.workspace_panes.open_in.current()), p.dark) {
         _ if busy => Loader::new().size(14.0).build(kit(p)),
         Some(glyph) => icon(glyph, 16.0),
         None => el().size(16.0, 16.0),
@@ -151,7 +151,7 @@ pub fn button(s: &App, p: &Pal, key: &'static str, rel: &str) -> Option<El> {
             open_current(s, &rel_main, false, false);
         })
         .child(mark);
-    let open = s.popup.open_at(&chevron_key);
+    let open = s.dialogs.popup.open_at(&chevron_key);
     let menu_anchor = chevron_key.clone();
     let chev = el()
         .key(chevron_key)
@@ -167,7 +167,7 @@ pub fn button(s: &App, p: &Pal, key: &'static str, rel: &str) -> Option<El> {
         .help(opencode_i18n::t!("plugin.file.open.menu"))
         .layer_opacity(if busy { 0.5 } else { 1.0 })
         .menu_button(menu_anchor, move |s: &mut App, tx: &mut Tx| {
-            if s.open_in.busy() {
+            if s.workspace_panes.open_in.busy() {
                 return;
             }
             let rel = rel_menu.clone();
@@ -202,7 +202,7 @@ impl Feature<App> for OpenInFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
-        builder.add_setup("open_in.waker", |s, w| s.open_in.set_waker(w));
+        builder.add_setup("open_in.waker", |s, w| s.workspace_panes.open_in.set_waker(w));
         builder.add_system(Phase::Ingest, "open_in.poll", |s, _, _| poll(s));
     }
 }

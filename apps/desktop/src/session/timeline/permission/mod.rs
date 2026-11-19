@@ -39,11 +39,11 @@ impl PermissionHost for App {
     }
 
     fn answers_permission_at_once(&self) -> bool {
-        self.stage.is_some() || matches!(*self.source, Source::Fixture)
+        self.fixture_run.stage.is_some() || matches!(*self.source, Source::Fixture)
     }
 
     fn settles_form_at_once(&self) -> bool {
-        self.stage.is_some()
+        self.fixture_run.stage.is_some()
     }
 
     fn write(&mut self, write: Write) -> bool {
@@ -110,7 +110,7 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
         s.finish_stream();
         let Route::Session { id, .. } = (*s.route).clone() else { return };
         let ask = scene_permission_ask(&id);
-        s.playback.push_back((*s.clock + 0.6, "permission.asked".into(), ask));
+        s.fixture_run.playback.push_back((*s.clock + 0.6, "permission.asked".into(), ask));
         s.wake_at_playback();
     }),
 ]);

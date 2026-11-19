@@ -235,7 +235,7 @@ fn layout(lua: &Lua, p: &Rc<str>, t: &Table) -> mlua::Result<()> {
     })?;
     method(lua, t, "PanelSidebar", |lua, ()| {
         cx::read(Dep::Sidebar);
-        let s = &app_now("Layout:PanelSidebar")?.panel_sidebar;
+        let s = &app_now("Layout:PanelSidebar")?.workspace_panes.panel_sidebar;
         let width = s.width.unwrap_or(crate::plugin_host::native::sidebar::DEFAULT_W);
         mlua::IntoLua::into_lua(super::map([("opened", Data::Bool(s.opened)), ("width", Data::Number(f64::from(width)))]), lua)
     })?;
@@ -243,16 +243,16 @@ fn layout(lua: &Lua, p: &Rc<str>, t: &Table) -> mlua::Result<()> {
         cx::read(Dep::Browser);
         let app = app_now("Layout:RegionOpen")?;
         let session = session.as_deref().or(app.active_session_id()).unwrap_or_default();
-        Ok(app.side.sessions.get(session).is_some_and(|st| st.visibility.open()))
+        Ok(app.workspace_panes.side.sessions.get(session).is_some_and(|st| st.visibility.open()))
     })?;
     method(lua, t, "RegionFocused", |_, ()| {
         let app = app_now("Layout:RegionFocused")?;
-        Ok(app.side.focus.is_focused() && !app.composer.focused && !app.popup.holds_focus())
+        Ok(app.workspace_panes.side.focus.is_focused() && !app.composer.focused && !app.dialogs.popup.holds_focus())
     })?;
     method(lua, t, "TogglePanelSidebar", |_, ()| {
         app_now("Layout:TogglePanelSidebar")?.later(Box::new(|s: &mut App, tx: &mut rune::Tx| {
             tx.instant();
-            s.panel_sidebar.toggle();
+            s.workspace_panes.panel_sidebar.toggle();
             crate::plugin_host::bump();
         }));
         Ok(())

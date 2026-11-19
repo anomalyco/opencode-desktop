@@ -27,7 +27,7 @@ pub(crate) fn poll(s: &mut App, tx: &mut Tx) -> bool {
         }
         changed |= match &*h {
             crate::events::Heard::Event(e) => {
-                if crate::motion_log::wanted() { s.motion_events.note(&e.ty); }
+                if crate::motion_log::wanted() { s.diag.motion_events.note(&e.ty); }
                 // A session deleted while its tab is open: the tab says it's gone (`session_state`).
                 let gone = e.ty == "session.deleted" && e.data["sessionID"].as_str().is_some_and(|id| s.route == Route::here(id.to_owned()));
                 if e.ty == "session.deleted" && let Some(id) = e.data["sessionID"].as_str() {
@@ -55,7 +55,7 @@ fn message(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             s.sidebar_inbox.branches.reconnected();
             reconnect::back(s);
             // Terminals that failed under the old connection attach again (`server.connected`).
-            s.terminal.connections += 1;
+            s.workspace_panes.terminal.connections += 1;
             s.pump_outbox();
             s.stream_back();
             s.check_sends();
@@ -168,7 +168,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             let tab_after = s.tab_status(&root);
             let shown_here = matches!(&*s.route, crate::Route::Home)
                 || s.tab_layout() == crate::layout_state::TabLayout::Inbox
-                || s.switcher.is_open()
+                || s.dialogs.switcher.is_open()
                 || matches!(&*s.route, crate::Route::Session { id, .. } if s.root_of(id) == root);
             return recent_changed || visible_meta || tab_before != tab_after || (changed && shown_here);
         }
@@ -183,7 +183,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             }
             let first = !s.transcripts.contains_key(&session);
             let t = s.transcripts.entry(session.clone()).or_insert_with(|| Transcript { session: session.clone(), messages: vec![] });
-            attachments::reconcile(&mut s.attach.echoes, t, &messages);
+            attachments::reconcile(&mut s.composer_ext.attach.echoes, t, &messages);
             let delivered: Vec<String> = messages.iter().map(|m| m.id().to_owned()).collect();
             match s.kernel.slots.get_mut::<crate::events::StreamGaps>().and_then(|g| g.0.get_mut(&session)) {
                 Some(gapped) => t.merge_caught(messages, gapped),
@@ -213,7 +213,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             return admitted;
         }
         Incoming::Event { ty, data } => {
-            if crate::motion_log::wanted() { s.motion_events.note(&ty); }
+            if crate::motion_log::wanted() { s.diag.motion_events.note(&ty); }
             return s.live_event(ty, data);
         }
         Incoming::Status(e) => status_toast::from_server(s, e),
@@ -268,7 +268,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             s.apply_project_opened(location, projects, session, tx);
         }
         Incoming::Settled { ticket, result } => settled(s, ticket, result, tx),
-        Incoming::Created(info) if s.starts.has(&info.id) => {
+        Incoming::Created(info) if s.queue.starts.has(&info.id) => {
             s.started(info, tx);
         }
         Incoming::Created(info) => {
@@ -278,7 +278,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             if s.session(&id).is_none() {
                 s.sessions.insert(0, info);
             }
-            *s.status = s.live_status();
+            *s.diag.status = s.live_status();
             s.open(&id, tx);
         }
     }

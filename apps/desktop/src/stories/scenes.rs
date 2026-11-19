@@ -1,7 +1,7 @@
 use crate::*;
 
 pub(crate) fn open_scene(s: &mut App) {
-    let id = s.fixture["open"].as_str().map(str::to_owned).or_else(|| s.sessions.first().map(|x| x.id.clone()));
+    let id = s.fixture_run.fixture["open"].as_str().map(str::to_owned).or_else(|| s.sessions.first().map(|x| x.id.clone()));
     if let Some(id) = id {
         *s.route = Route::here(id.clone());
     }
@@ -73,7 +73,7 @@ rune_register::register!(SCENE_LIST: Scene = [
     ("streaming", |s| {
         open_scene(s);
         // Playback starts on the first poll.
-        if let Some(id) = s.fixture["open"].as_str().map(str::to_owned) {
+        if let Some(id) = s.fixture_run.fixture["open"].as_str().map(str::to_owned) {
             s.start_stream_if_due(&id);
         }
     }),
@@ -85,7 +85,7 @@ rune_register::register!(SCENE_LIST: Scene = [
         busy_scene(s);
         let Route::Session { id, .. } = (*s.route).clone() else { return };
         let next = |kind: &str| serde_json::json!({ "sessionID": id, "next": kind });
-        *s.playback = [(5.6, "session.inbox.delivered".into(), next("steer")), (6.6, "session.inbox.delivered".into(), next("queue")), (7.6, "session.inbox.delivered".into(), next("queue"))].into();
+        *s.fixture_run.playback = [(5.6, "session.inbox.delivered".into(), next("steer")), (6.6, "session.inbox.delivered".into(), next("queue")), (7.6, "session.inbox.delivered".into(), next("queue"))].into();
     }),
     ("draft", |s| {
         s.open_draft_tab();
@@ -169,8 +169,8 @@ rune_register::register!(SCENE_LIST: Scene = [
     ("status", |s| {
         open_scene(s);
         s.finish_stream();
-        for e in s.fixture["status_events"].as_array().cloned().unwrap_or_default() {
-            s.playback.push_back((e["t"].as_f64().unwrap_or(0.0), e["type"].as_str().unwrap_or("").into(), e["data"].clone()));
+        for e in s.fixture_run.fixture["status_events"].as_array().cloned().unwrap_or_default() {
+            s.fixture_run.playback.push_back((e["t"].as_f64().unwrap_or(0.0), e["type"].as_str().unwrap_or("").into(), e["data"].clone()));
         }
     }),
 ]);

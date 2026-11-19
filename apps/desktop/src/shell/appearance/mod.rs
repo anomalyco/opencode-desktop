@@ -91,11 +91,11 @@ pub fn apply_args(app: &mut App) {
 
 /// Picks up a change in macOS's Reduce motion.
 pub fn poll(s: &mut App) -> bool {
-    let system = s.motion.system.get();
-    if system == s.motion.applied {
+    let system = s.appearance_state.motion.system.get();
+    if system == s.appearance_state.motion.applied {
         return false;
     }
-    s.motion.applied = system;
+    s.appearance_state.motion.applied = system;
     s.apply_reduce_motion()
 }
 
@@ -107,7 +107,7 @@ impl App {
         crate::themes::set_active(&self.settings.theme);
         crate::keymap::overrides::apply(&self.settings.keybinds);
         self.apply_reduce_motion();
-        self.knobs.set(&crate::terminal::TERM_FONT, self.settings.terminal_font as f32);
+        self.diag.knobs.set(&crate::terminal::TERM_FONT, self.settings.terminal_font as f32);
         crate::terminal::set_custom_font(&self.settings.terminal_font_name);
         rune::spell::set_languages(&self.settings.spellcheck_languages);
     }
@@ -121,7 +121,7 @@ impl App {
             s.terminal_font = i;
             s.terminal_font_name = name;
         });
-        self.knobs.set(&crate::terminal::TERM_FONT, i as f32);
+        self.diag.knobs.set(&crate::terminal::TERM_FONT, i as f32);
     }
 
     /// Switches the UI font in this frame: every window lays its text out again in it.
@@ -160,14 +160,14 @@ impl App {
 
     /// Sets `reduced_motion` from the flag, the setting and the system; true when it changed.
     pub fn apply_reduce_motion(&mut self) -> bool {
-        let on = self.motion.flag
+        let on = self.appearance_state.motion.flag
             || match self.settings.reduce_motion {
-                ReduceMotion::System => self.motion.applied,
+                ReduceMotion::System => self.appearance_state.motion.applied,
                 ReduceMotion::On => true,
                 ReduceMotion::Off => false,
             };
-        let changed = on != *self.reduced_motion;
-        *self.reduced_motion = on;
+        let changed = on != *self.appearance_state.reduced_motion;
+        *self.appearance_state.reduced_motion = on;
         changed
     }
 

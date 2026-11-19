@@ -41,15 +41,15 @@ impl Default for Glitch {
 /// Attaches the recorder while the setting is on, and lets it go when it's turned off.
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     let want = s.settings.record_glitches;
-    if want == s.glitch.attached {
+    if want == s.diag.glitch.attached {
         return false;
     }
-    s.glitch.attached = want;
-    tx.record_rewind(want.then_some(&s.glitch.rewind));
+    s.diag.glitch.attached = want;
+    tx.record_rewind(want.then_some(&s.diag.glitch.rewind));
     // Attaching shows nothing new; only closing an open scrubber needs a frame.
-    let open = s.glitch.scrub.is_open();
+    let open = s.diag.glitch.scrub.is_open();
     if !want {
-        s.glitch.scrub.close();
+        s.diag.glitch.scrub.close();
     }
     !want && open
 }
@@ -60,12 +60,12 @@ fn is_chord(ev: &KeyEvent) -> bool {
 
 /// ⌘⇧⌥R freezes the window (and closes the scrubber again); while it's open, it takes every key.
 pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if s.glitch.scrub.is_open() {
+    if s.diag.glitch.scrub.is_open() {
         if is_chord(ev) {
-            s.glitch.scrub.close();
+            s.diag.glitch.scrub.close();
             return true;
         }
-        if let Keyed::Send(sent) = s.glitch.scrub.key(ev) {
+        if let Keyed::Send(sent) = s.diag.glitch.scrub.key(ev) {
             send(s, sent, tx);
         }
         return true;
@@ -73,7 +73,7 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if !is_chord(ev) {
         return false;
     }
-    if !s.glitch.attached {
+    if !s.diag.glitch.attached {
         crate::status_toast::say(s, "Rewind is off", "Turn on Rewind in Settings › Developer.");
         return true;
     }
@@ -85,8 +85,8 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 pub fn freeze(s: &mut App) {
     s.composer.focused = false;
     s.search.focused = false;
-    let rewind = s.glitch.rewind.clone();
-    s.glitch.scrub.open(&rewind);
+    let rewind = s.diag.glitch.rewind.clone();
+    s.diag.glitch.scrub.open(&rewind);
 }
 
 /// The app's view, paused while the scrubber shows, with the scrubber over it. The app is wrapped
@@ -96,8 +96,8 @@ pub fn wrap(s: &App, app: El) -> El {
         .w_full()
         .h_full()
         .center()
-        .child(app.time_scale(if s.glitch.scrub.is_open() { 0.0 } else { 1.0 }))
-        .child(s.glitch.scrub.view(|s: &mut App| &mut s.glitch.scrub, send))
+        .child(app.time_scale(if s.diag.glitch.scrub.is_open() { 0.0 } else { 1.0 }))
+        .child(s.diag.glitch.scrub.view(|s: &mut App| &mut s.diag.glitch.scrub, send))
 }
 
 /// Where a bundle goes: `<data dir>/rune-opencode/glitches/<ms>`, or the temp folder in tests
@@ -207,9 +207,9 @@ fn send(s: &mut App, sent: Sent, _: &mut Tx) {
 }
 
 fn close(s: &mut App, session: &str) {
-    s.glitch.scrub.close();
+    s.diag.glitch.scrub.close();
     let title = s.sessions.iter().find(|i| i.id == session).map(|i| i.title.clone()).filter(|t| !t.is_empty());
-    *s.status = format!("Sent to {}", title.as_deref().unwrap_or("the session"));
+    *s.diag.status = format!("Sent to {}", title.as_deref().unwrap_or("the session"));
 }
 
 /// Settings › Developer.

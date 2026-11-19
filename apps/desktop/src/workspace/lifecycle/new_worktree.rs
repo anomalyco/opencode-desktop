@@ -14,11 +14,11 @@ use crate::{App, Route, Source};
 
 impl NewWorktreeHost for App {
     fn new_worktree(&self) -> &NewWorktree {
-        &self.new_worktree
+        &self.dialogs.new_worktree
     }
 
     fn new_worktree_mut(&mut self) -> &mut NewWorktree {
-        &mut self.new_worktree
+        &mut self.dialogs.new_worktree
     }
 
     fn draft_id(&self) -> Option<&str> {
@@ -65,11 +65,11 @@ impl NewWorktreeHost for App {
     }
 
     fn project_switcher_open(&self) -> bool {
-        self.project_switcher.open
+        self.dialogs.project_switcher.open
     }
 
     fn is_stage(&self) -> bool {
-        self.stage.is_some()
+        self.fixture_run.stage.is_some()
     }
 
     fn set_composer_focused(&mut self, focused: bool) {

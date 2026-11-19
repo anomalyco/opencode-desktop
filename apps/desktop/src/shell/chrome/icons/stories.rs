@@ -17,8 +17,8 @@ const KEYS: &[Trigger] = &[
         key: 'f',
         label: "Next finish",
         run: |s, _| {
-            let next = (s.knobs.get(&FINISH).round() as usize + 1) % project_icon::Finish::ALL.len();
-            s.knobs.set(&FINISH, next as f32);
+            let next = (s.diag.knobs.get(&FINISH).round() as usize + 1) % project_icon::Finish::ALL.len();
+            s.diag.knobs.set(&FINISH, next as f32);
         },
     },
 ];
@@ -32,7 +32,7 @@ const GLYPH: &str = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/
 
 fn setup(s: &mut App, _: &mut Play<App>) {
     s.finish_stream();
-    s.knobs.set(&FINISH, *s.variant as f32);
+    s.diag.knobs.set(&FINISH, *s.fixture_run.variant as f32);
     for p in &mut s.projects {
         match opencode_kit::path::basename(&p.directory) {
             "lumen" => p.icon.override_url = DROP.into(),

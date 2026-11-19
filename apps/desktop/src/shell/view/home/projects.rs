@@ -103,7 +103,7 @@ fn menu_key(id: &str) -> String {
 /// the row's surface. A click scopes Home to it; a right-click opens its menu.
 pub(super) fn project_row(s: &App, p: &Pal, server: &ServerKey, proj: &model::Project, active: bool, width: f32) -> El {
     let menu = menu_key(&proj.id);
-    let menu_open = s.popup.open_at(&menu);
+    let menu_open = s.dialogs.popup.open_at(&menu);
     let (menu_id, ctx_id, new_dir, dir) = (proj.id.clone(), proj.id.clone(), proj.directory.clone(), proj.directory.clone());
     let (menu_server, ctx_server, new_server, server) = (server.clone(), server.clone(), server.clone(), server.clone());
     let surface = if active { p.layer3 } else { p.layer1 };

@@ -37,7 +37,7 @@ enum Changes {
 /// folder's, and its project root's for a folder on none.
 pub(super) fn open_card(s: &mut App, tx: &mut Tx) {
     tx.instant();
-    if s.popup.open_at(TRIGGER) {
+    if s.dialogs.popup.open_at(TRIGGER) {
         return popup::dismiss(s, tx);
     }
     let crate::Route::Session { id, .. } = &*s.route else { return };
@@ -85,7 +85,7 @@ pub(super) fn open_card(s: &mut App, tx: &mut Tx) {
 
 /// Draws the open card again with what it's learned.
 fn reshow(s: &mut App, tx: &mut Tx) {
-    if s.popup.open_at(TRIGGER)
+    if s.dialogs.popup.open_at(TRIGGER)
         && let crate::Route::Session { id, .. } = &*s.route
         && let Some(info) = s.session(id).cloned()
     {
@@ -160,8 +160,8 @@ fn show(s: &mut App, info: &opencode_kit::model::SessionInfo, tx: &mut Tx) {
         folder = folder.item(Item::new("reveal", reveal_label()).icon(&ic::OUTLINE_ARROW_UP_RIGHT));
     }
     // The file plugin's row (`session.location.path.menu`): Open in the chosen app.
-    if s.can_open_in() && s.open_in.current() != crate::open_in::FINDER {
-        folder = folder.item(Item::new("open-in", t!("plugin.file.open.ariaLabel", app = s.open_in.current_label())).icon(&ic::OUTLINE_ARROW_UP_RIGHT));
+    if s.can_open_in() && s.workspace_panes.open_in.current() != crate::open_in::FINDER {
+        folder = folder.item(Item::new("open-in", t!("plugin.file.open.ariaLabel", app = s.workspace_panes.open_in.current_label())).icon(&ic::OUTLINE_ARROW_UP_RIGHT));
     }
     menu = menu.submenu_icon("path", elide_middle(&dir, PATH_W), &ic::FOLDER, folder);
     menu = menu.separator().item(Item::new("settings", t!("dialog.project.edit.title")).icon(&ic::SETTINGS_GEAR).enabled(project.is_some()));
@@ -187,7 +187,7 @@ fn show(s: &mut App, info: &opencode_kit::model::SessionInfo, tx: &mut Tx) {
             }
         }
         Some("open-in") => {
-            let app = s.open_in.current().to_owned();
+            let app = s.workspace_panes.open_in.current().to_owned();
             s.open_in_app(&app, "", false);
         }
         Some("settings") => match root.as_deref() {
@@ -213,7 +213,7 @@ fn changes_row(s: &App, sid: &str) -> Item {
             _ => item(t!("plugin.details.loadingChanges")),
         };
     }
-    match s.review.sessions.get(sid) {
+    match s.workspace_panes.review.sessions.get(sid) {
         Some(r) if r.load.ready() && r.meta.is_empty() => item(t!("plugin.details.noChanges")),
         Some(r) if r.load.ready() => {
             let (added, removed) = r.totals();

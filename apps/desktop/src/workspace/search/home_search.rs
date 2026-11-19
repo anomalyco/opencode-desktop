@@ -196,7 +196,7 @@ const STORY_VARIANTS: &[(&str, usize)] = &[("By title", 0), ("By project", 1), (
 
 fn story_open(s: &mut App, tx: &mut Play<App>) {
     *s.route = Route::Home;
-    let q = match *s.variant {
+    let q = match *s.fixture_run.variant {
         1 => "harbor",
         2 => "notpresent",
         _ => "reconnect",

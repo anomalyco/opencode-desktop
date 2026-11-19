@@ -143,14 +143,14 @@ fn prompt(s: &mut App) {
 fn open(s: &mut App, _: &mut Play<App>) {
     s.finish_stream();
     prompt(s);
-    match *s.variant {
+    match *s.fixture_run.variant {
         1 => stream(s, MIXED_ID, MIXED, 0.06),
         _ => stream(s, PLAN_ID, PLAN, 0.09),
     }
 }
 
 pub(crate) fn finish(s: &mut App, _: &mut Play<App>) {
-    while let Some((_, ty, data)) = s.playback.pop_front() {
+    while let Some((_, ty, data)) = s.fixture_run.playback.pop_front() {
         s.apply_event(&ty, &data);
     }
 }

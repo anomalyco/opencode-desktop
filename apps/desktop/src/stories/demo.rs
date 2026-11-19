@@ -33,11 +33,11 @@ pub fn start(s: &mut App) {
         return;
     }
     // A send in the fixture answers with its canned reply; the script is the reply here.
-    s.fixture["reply"] = Value::Array(Vec::new());
-    s.fixture["stream"]["played"] = true.into();
-    s.demo.run += 1;
-    s.demo.paused = None;
-    let ids = Ids::new(s.demo.run);
+    s.fixture_run.fixture["reply"] = Value::Array(Vec::new());
+    s.fixture_run.fixture["stream"]["played"] = true.into();
+    s.fixture_run.demo.run += 1;
+    s.fixture_run.demo.paused = None;
+    let ids = Ids::new(s.fixture_run.demo.run);
     clear(s);
     let from = s.sessions.first().cloned().unwrap_or_default();
     s.sessions.insert(0, SessionInfo {
@@ -57,16 +57,16 @@ pub fn start(s: &mut App) {
     s.composer.clear();
     let now = *s.clock;
     for (t, ty, data) in demo_script::events(&ids) {
-        s.playback.push_back((now + t, ty, data));
+        s.fixture_run.playback.push_back((now + t, ty, data));
     }
-    s.playback.make_contiguous().sort_by(|a, b| a.0.total_cmp(&b.0));
+    s.fixture_run.playback.make_contiguous().sort_by(|a, b| a.0.total_cmp(&b.0));
     s.wake_at_playback();
 }
 
 /// Drops the earlier play: its sessions, tab, inbox, question and queued events.
 fn clear(s: &mut App) {
     let mine = |id: &str| id.starts_with("ses_demo");
-    s.playback.clear();
+    s.fixture_run.playback.clear();
     s.sessions.retain(|x| !mine(&x.id));
     s.tabs.retain(|t| !mine(&t.id));
     s.transcripts.retain(|id, _| !mine(id));
@@ -112,7 +112,7 @@ pub fn apply(s: &mut App, ty: &str, data: &Value, tx: &mut Tx) {
 /// ⌥⌘R replays from the start, ⌥⌘P pauses or resumes; only once the demo has played.
 pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     use crate::keymap::Bind;
-    if s.demo.run == 0 {
+    if s.fixture_run.demo.run == 0 {
         return false;
     }
     if Bind::DemoReplay.matches_tx(ev, tx) {
@@ -128,16 +128,16 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 }
 
 fn toggle_pause(s: &mut App) {
-    match s.demo.paused.take() {
+    match s.fixture_run.demo.paused.take() {
         None => {
             let now = *s.clock;
-            let held = s.playback.drain(..).map(|(t, ty, d)| ((t - now).max(0.0), ty, d)).collect();
-            s.demo.paused = Some((*s.now_ms, held));
+            let held = s.fixture_run.playback.drain(..).map(|(t, ty, d)| ((t - now).max(0.0), ty, d)).collect();
+            s.fixture_run.demo.paused = Some((*s.now_ms, held));
         }
         Some((_, held)) => {
             let now = *s.clock;
             for (t, ty, d) in held {
-                s.playback.push_back((now + t, ty, d));
+                s.fixture_run.playback.push_back((now + t, ty, d));
             }
             s.wake_at_playback();
         }
@@ -146,8 +146,8 @@ fn toggle_pause(s: &mut App) {
 
 /// Each frame while paused, the app's ms clock stays where the pause stopped it.
 pub fn poll(s: &mut App) {
-    if let Some((at, _)) = s.demo.paused {
-        *s.base_ms = at - (*s.clock * 1000.0) as i64;
+    if let Some((at, _)) = s.fixture_run.demo.paused {
+        *s.fixture_run.base_ms = at - (*s.clock * 1000.0) as i64;
         *s.now_ms = at;
     }
 }

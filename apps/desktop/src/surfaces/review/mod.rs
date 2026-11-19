@@ -18,11 +18,11 @@ use crate::{App, Route, Source};
 
 impl ReviewHost for App {
     fn review(&self) -> &ReviewPane {
-        &self.review
+        &self.workspace_panes.review
     }
 
     fn review_mut(&mut self) -> &mut ReviewPane {
-        &mut self.review
+        &mut self.workspace_panes.review
     }
 
     fn session_directory(&self, sid: &str) -> Option<&str> {
@@ -42,7 +42,7 @@ impl ReviewHost for App {
     }
 
     fn fixture_root(&self) -> Option<&Value> {
-        Some(&self.fixture)
+        Some(&self.fixture_run.fixture)
     }
 
     fn review_shown(&self) -> bool {
@@ -50,7 +50,7 @@ impl ReviewHost for App {
     }
 
     fn should_refresh_on_poll(&self) -> bool {
-        App::review_shown(self) || self.stage.is_some()
+        App::review_shown(self) || self.fixture_run.stage.is_some()
     }
 
     fn wrap_lines(&self) -> bool {
@@ -67,18 +67,18 @@ impl ReviewHost for App {
     }
 
     fn show_review_tab(&mut self, sid: &str, focus_panel: bool, tx: &mut Tx) {
-        let saved_focus = (self.composer.focused, self.side.focus.mode());
+        let saved_focus = (self.composer.focused, self.workspace_panes.side.focus.mode());
         self.show_pane_tab(tx, |s| s.show_side_tab(sid, REVIEW_KEY, None));
         if focus_panel {
-            self.side.focus.focus();
-            self.side.active_pane_focus = crate::panels::tabs::session_tab_pane(
+            self.workspace_panes.side.focus.focus();
+            self.workspace_panes.side.active_pane_focus = crate::panels::tabs::session_tab_pane(
                 &self.session_side_mut(sid).tab_state.tabs,
                 REVIEW_KEY,
             );
             self.composer.focused = false;
         } else {
             self.composer.focused = saved_focus.0;
-            self.side.focus.restore(saved_focus.1);
+            self.workspace_panes.side.focus.restore(saved_focus.1);
         }
     }
 
@@ -115,7 +115,7 @@ impl App {
     }
 
     pub fn is_review_active(&self) -> bool {
-        if !(self.side_open() || self.stage.is_some()) {
+        if !(self.side_open() || self.fixture_run.stage.is_some()) {
             return false;
         }
         self.resolve_side_region().and_then(|r| r.active.clone()).as_deref() == Some(REVIEW_KEY)
@@ -184,6 +184,6 @@ impl Feature<App> for ReviewFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
-        builder.add_setup("review.waker", |s, w| s.review.set_waker(w));
+        builder.add_setup("review.waker", |s, w| s.workspace_panes.review.set_waker(w));
     }
 }

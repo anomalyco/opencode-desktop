@@ -23,7 +23,7 @@ pub fn apply(s: &mut App) {
         None => opencode_i18n::detect(),
     };
     opencode_i18n::set_locale(id);
-    s.language.0 = Some(opencode_i18n::I18N.locale());
+    s.appearance_state.language.0 = Some(opencode_i18n::I18N.locale());
     rune::set_labels(label);
     sync_runtime_locale();
 }
@@ -84,11 +84,11 @@ fn label(label: rune::Label<'_>) -> Option<String> {
 /// they were built with.
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     let now = opencode_i18n::I18N.locale();
-    if s.language.0 == Some(now) {
+    if s.appearance_state.language.0 == Some(now) {
         return false;
     }
-    let first = s.language.0.is_none();
-    s.language.0 = Some(now);
+    let first = s.appearance_state.language.0.is_none();
+    s.appearance_state.language.0 = Some(now);
     if first {
         return false;
     }

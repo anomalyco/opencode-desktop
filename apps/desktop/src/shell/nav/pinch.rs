@@ -92,9 +92,9 @@ impl App {
             return true;
         }
         let delta = wheel_pixels(&ev, *self.zoom);
-        if let Some(zoom) = self.zoom_pinch.wheel(*self.zoom, delta, *self.clock) {
+        if let Some(zoom) = self.gestures.zoom_pinch.wheel(*self.zoom, delta, *self.clock) {
             tx.instant();
-            self.zoom_pinch.level.get_or_insert(*self.zoom);
+            self.gestures.zoom_pinch.level.get_or_insert(*self.zoom);
             *self.zoom = zoom;
         }
         true
@@ -104,11 +104,11 @@ impl App {
     pub fn set_pinch_zoom(&mut self, on: bool, tx: &mut Tx) {
         tx.instant();
         self.change_settings(|s| s.pinch_zoom = on);
-        if let Some(level) = self.zoom_pinch.level.filter(|_| !on) {
+        if let Some(level) = self.gestures.zoom_pinch.level.filter(|_| !on) {
             *self.zoom = level;
         }
         if !on {
-            self.zoom_pinch.leveled();
+            self.gestures.zoom_pinch.leveled();
         }
     }
 }

@@ -27,11 +27,11 @@ pub mod toast {
 
 impl AttachmentsHost for App {
     fn attach_ref(&self) -> AttachRef<'_> {
-        self.attach.as_ref_parts()
+        self.composer_ext.attach.as_ref_parts()
     }
 
     fn attach_mut(&mut self) -> AttachMut<'_> {
-        self.attach.as_mut_parts()
+        self.composer_ext.attach.as_mut_parts()
     }
 
     fn composer_directory(&self) -> String {
@@ -99,7 +99,7 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
         if let crate::Route::Session { id, .. } = (*s.route).clone()
             && let Some(t) = s.transcripts.get_mut(&id)
         {
-            opencode_feature_composer_input::attachments::add_reply_image(t, &s.attach.store);
+            opencode_feature_composer_input::attachments::add_reply_image(t, &s.composer_ext.attach.store);
         }
     }),
 ]);
@@ -117,7 +117,7 @@ impl Feature<App> for ComposerInputFeature {
         builder.add_command(
             CommandEntry::<App>::from_key("prompt.mode.toggle", opencode_i18n::key!("command.prompt.mode.toggle"), |s, tx| {
                 tx.animated();
-                if s.add.shell() { s.exit_shell() } else { s.enter_shell(tx) }
+                if s.composer_ext.add.shell() { s.exit_shell() } else { s.enter_shell(tx) }
             })
             .bind_id(Bind::PromptModeToggle.id())
             .order(470)
@@ -129,7 +129,7 @@ impl Feature<App> for ComposerInputFeature {
                 s.enter_shell(tx);
             })
             .order(480)
-            .when(|s| s.has_composer() && !s.add.shell()),
+            .when(|s| s.has_composer() && !s.composer_ext.add.shell()),
         );
         builder.add_command(
             CommandEntry::<App>::from_key("prompt.mode.normal", opencode_i18n::key!("command.prompt.mode.normal"), |s, tx| {
@@ -137,7 +137,7 @@ impl Feature<App> for ComposerInputFeature {
                 s.exit_shell();
             })
             .order(490)
-            .when(|s| s.has_composer() && s.add.shell()),
+            .when(|s| s.has_composer() && s.composer_ext.add.shell()),
         );
         builder.add_command(
             CommandEntry::<App>::from_key("context.addSelection", opencode_i18n::key!("command.context.addSelection"), |s, tx| s.add_selection(tx))
@@ -153,8 +153,8 @@ impl Feature<App> for ComposerInputFeature {
                     viewer(s, p, cx)
                 }),
         );
-        builder.add_setup("composer_input.attach_waker", |s, waker| s.attach.set_waker(waker));
-        builder.add_setup("composer_input.slash_waker", |s, waker| s.add.slash.set_waker(waker));
+        builder.add_setup("composer_input.attach_waker", |s, waker| s.composer_ext.attach.set_waker(waker));
+        builder.add_setup("composer_input.slash_waker", |s, waker| s.composer_ext.add.slash.set_waker(waker));
         builder.add_system(Phase::Derive, "composer_input.dropzone", |s, _, tx| crate::dropzone::poll(s, tx));
         builder.add_system(Phase::Derive, "composer_input.uploads", |s, _, tx| s.poll_uploads(tx));
         builder.add_system(Phase::Derive, "composer_input.commands", |s, _, tx| s.poll_commands(tx));

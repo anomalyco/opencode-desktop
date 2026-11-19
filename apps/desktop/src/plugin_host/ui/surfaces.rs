@@ -296,7 +296,7 @@ pub fn pill_views(app: &App, p: &Pal, session: &str) -> Vec<El> {
                         return requests::close_popover(s, tx);
                     }
                     s.plugins.overlay = Overlay::PillMenu { plugin: plugin.clone(), id: id.clone(), anchor: anchor.clone(), data: props.clone() };
-                    crate::popover::motion::opening(&s.knobs, tx);
+                    crate::popover::motion::opening(&s.diag.knobs, tx);
                 } else if let Some(run) = &run {
                     commands::spawn(s, i, run, props.clone(), tx);
                 }
@@ -340,14 +340,14 @@ pub fn popover_view(app: &App, p: &Pal) -> Vec<El> {
             .on_press(|_: &mut App| {})
             .child(col().w_full().px(8.0).pt(4.0).pb(6.0).child(head))
             .child(content);
-        return vec![scrim, crate::popover::place(&app.knobs, card, anchor, rune::Side::Top, rune::Align::Start, 8.0)];
+        return vec![scrim, crate::popover::place(&app.diag.knobs, card, anchor, rune::Side::Top, rune::Align::Start, 8.0)];
     }
     let Overlay::Popover { anchor, side, align, gap, flyout, .. } = &app.plugins.overlay else { return Vec::new() };
     let found = half.contribs.borrow().popovers.iter().find(|c| c.spec.id == *id).map(|c| (c.key, c.f("render").cloned()));
     let Some((key, Some(f))) = found else { return Vec::new() };
     let content = render(app, p, i, &format!("popover:{id}"), &f, map([("data", data.clone())]));
     let content = col().key(format!("plugin-popover-{key}")).on_press(|_: &mut App| {}).child(content);
-    let mut out = vec![scrim, crate::popover::place(&app.knobs, content, anchor, *side, *align, *gap)];
+    let mut out = vec![scrim, crate::popover::place(&app.diag.knobs, content, anchor, *side, *align, *gap)];
     out.extend(flyout_view(app, p, i, flyout));
     out
 }

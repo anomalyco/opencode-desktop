@@ -11,11 +11,11 @@ use crate::pickers::PickerHost as _;
 
 impl UsageHost for App {
     fn usage(&self) -> &Usage {
-        &self.usage
+        &self.dialogs.usage
     }
 
     fn usage_mut(&mut self) -> &mut Usage {
-        &mut self.usage
+        &mut self.dialogs.usage
     }
 
     fn composer_directory(&self) -> String {
@@ -36,7 +36,7 @@ impl UsageHost for App {
     }
 
     fn fixture_usage_limits(&self) -> Option<&Value> {
-        self.fixture.get("usage_limits")
+        self.fixture_run.fixture.get("usage_limits")
     }
 
     fn fetch_usage_limits(&mut self, directory: String, seq: u32) {
@@ -84,7 +84,7 @@ impl App {
     }
 
     pub(crate) fn picker_budget_label(&self, key: &str) -> Option<(String, bool)> {
-        let model = self.pickers.models.iter().find(|m| m.key == key && !m.free)?;
+        let model = self.composer_ext.pickers.models.iter().find(|m| m.key == key && !m.free)?;
         let served = model.provider != "opencode-go"
             && (model.provider == "opencode"
                 || self
@@ -227,7 +227,7 @@ mod stories {
             models: vec![opus(Some(20.0)), sonnet(Some(4.5))],
             ..budget("each")
         };
-        let (load, model, credits) = match *s.variant {
+        let (load, model, credits) = match *s.fixture_run.variant {
             1 => (Load::Ready(info(vec![per_model], false)), current, false),
             2 => (Load::Ready(info(vec![anthropic(150.42), pool(394.57)], false)), current, false),
             3 => (Load::Ready(info(vec![anthropic(80.0), pool(1_000.12)], false)), None, false),
@@ -236,7 +236,7 @@ mod stories {
             6 => (Load::SignedOut, None, false),
             _ => (Load::Ready(info(vec![anthropic(123.14), pool(394.57)], true)), None, false),
         };
-        s.usage.open = Some(Open {
+        s.dialogs.usage.open = Some(Open {
             directory: s.composer_directory(),
             model,
             credits,

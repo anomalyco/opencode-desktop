@@ -85,13 +85,13 @@ fn resolve(choice: TextRenderer) -> Rendering {
 /// mode changes.
 pub fn poll(s: &mut App, tx: &mut Tx) {
     // Every poll comes here: the state is written only when the choice resolves differently.
-    if resolve(s.settings.text_renderer) != *s.text_rendering {
-        let effects = s.text_rendering.step(RenderingEvent::Poll(s.settings.text_renderer));
+    if resolve(s.settings.text_renderer) != *s.appearance_state.text_rendering {
+        let effects = s.appearance_state.text_rendering.step(RenderingEvent::Poll(s.settings.text_renderer));
         s.apply_rendering(effects);
     }
     let (mode, name) = match measured() {
         Some(forced) => forced,
-        None => (s.text_rendering.mode(), s.settings.text_renderer.name()),
+        None => (s.appearance_state.text_rendering.mode(), s.settings.text_renderer.name()),
     };
     crate::launch::trace::renderer(name);
     tx.set_font_smoothing(mode);
@@ -117,7 +117,7 @@ impl App {
     /// Saves Text rendering and says which it is in a toast; [`poll`] redraws with it.
     pub fn set_text_renderer(&mut self, r: TextRenderer) {
         self.change_settings(|s| s.text_renderer = r);
-        let effects = self.text_rendering.step(RenderingEvent::Pick(r));
+        let effects = self.appearance_state.text_rendering.step(RenderingEvent::Pick(r));
         self.apply_rendering(effects);
     }
 

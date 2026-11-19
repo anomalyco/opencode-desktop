@@ -25,7 +25,7 @@ const FILES_KEYS: &[Trigger] = &[
         key: 't',
         label: "Toggle file tree",
         run: |s, _| {
-            s.panel_sidebar.opened = !s.panel_sidebar.opened;
+            s.workspace_panes.panel_sidebar.opened = !s.workspace_panes.panel_sidebar.opened;
         },
     },
 ];
@@ -35,18 +35,18 @@ const PALETTE_KEYS: &[Trigger] = &[replay(setup_palette)];
 pub fn init_files(s: &mut App) {
     crate::open_scene(s);
     s.finish_stream();
-    s.side = Default::default();
-    s.files = Default::default();
+    s.workspace_panes.side = Default::default();
+    s.workspace_panes.files = Default::default();
     let Some(sid) = s.active_session_id().map(str::to_owned) else { return };
     s.ensure_session_review(&sid);
     let mut tx = rune::Tx::default();
-    match *s.variant {
+    match *s.fixture_run.variant {
         0 => {
             s.open_workspace_file("src/net/stream.ts", false, Some(12), &mut tx);
         }
         1 => {
             s.open_workspace_file("src/net/backoff.ts", false, None, &mut tx);
-            if let Some(ws) = s.files.sessions.get_mut(&sid)
+            if let Some(ws) = s.workspace_panes.files.sessions.get_mut(&sid)
                 && let Some(doc) = ws.docs.get_mut("src/net/backoff.ts")
             {
                 doc.set_find_open(true);
@@ -68,12 +68,12 @@ fn setup_files(s: &mut App, _play: &mut Play<'_, App>) {
 pub fn init_palette(s: &mut App) {
     crate::open_scene(s);
     s.finish_stream();
-    s.files = Default::default();
+    s.workspace_panes.files = Default::default();
     let mut tx = rune::Tx::default();
     s.open_file_search(&mut tx);
-    if s.variant == 1 {
-        s.switcher.search = TextEdit::new("stream.ts:15");
-        s.switcher.search.focused = true;
+    if s.fixture_run.variant == 1 {
+        s.dialogs.switcher.search = TextEdit::new("stream.ts:15");
+        s.dialogs.switcher.search.focused = true;
         s.poll_switcher(&mut tx, false);
     }
 }
@@ -87,7 +87,7 @@ fn view_files_card(s: &App, p: &Pal) -> El {
 }
 
 fn view_palette_card(s: &App, p: &Pal) -> El {
-    if !s.switcher.is_open() {
+    if !s.dialogs.switcher.is_open() {
         return rune::col().w(480.0);
     }
     crate::switcher::dialog(s, p, 480.0, 480.0)

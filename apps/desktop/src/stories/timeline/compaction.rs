@@ -57,7 +57,7 @@ const SUMMARY: &str = "## Goal\nMake reconnects survive a laptop sleeping mid-st
 
 fn open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
-    let v = *s.variant;
+    let v = *s.fixture_run.variant;
     if v == 0 {
         tx.after(0.3, |s, tx| emit(s, "session.inbox.enqueued", json!({ "inboxID": QUEUED, "item": { "type": "compaction" } }), tx));
         return;
@@ -93,13 +93,13 @@ fn open(s: &mut App, tx: &mut Play<App>) {
     if v == 7 {
         tx.after(3.4, |s, tx| {
             tx.instant();
-            s.expanded.insert(crate::compaction::Piece::Quiet.key(ID));
+            s.timeline_fx.expanded.insert(crate::compaction::Piece::Quiet.key(ID));
         });
     }
 }
 
 fn reason(s: &App) -> &'static str {
-    if s.variant == MANUAL { "manual" } else { "auto" }
+    if s.fixture_run.variant == MANUAL { "manual" } else { "auto" }
 }
 
 fn start(s: &mut App, tx: &mut Tx) {
@@ -134,7 +134,7 @@ fn settled_page(s: &mut App) {
 }
 
 fn end(s: &mut App, tx: &mut Tx) {
-    let v = *s.variant;
+    let v = *s.fixture_run.variant;
     let tokens = tokens();
     let mut d = json!({ "reason": reason(s), "text": SUMMARY, "tokens": tokens });
     if v == 3 {

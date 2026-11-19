@@ -114,7 +114,7 @@ pub fn open(s: &mut App, url: &str, tx: &mut Tx) {
     match (project(url, crate::launch::product().scheme()), server_of(s)) {
         (Some(dir), Some(server)) => {
             let ready = ready_servers(s);
-            let effects = s.deep_links.step(DeepLinkEvent::Received(Queued { server, dir }), |server| ready.iter().any(|r| r == server));
+            let effects = s.services.deep_links.step(DeepLinkEvent::Received(Queued { server, dir }), |server| ready.iter().any(|r| r == server));
             run(s, effects, tx);
         }
         _ => eprintln!("opencode-rune: ignored a link it doesn't open: {url}"),
@@ -123,12 +123,12 @@ pub fn open(s: &mut App, url: &str, tx: &mut Tx) {
 
 /// Opens the links waiting for a server once it connects (from `poll`).
 pub fn drain(s: &mut App, tx: &mut Tx) -> bool {
-    if !s.deep_links.is_waiting() {
+    if !s.services.deep_links.is_waiting() {
         return false;
     }
     let ready = ready_servers(s);
     let Some(server) = ready.first().cloned() else { return false };
-    let effects = s.deep_links.step(DeepLinkEvent::Ready { server }, |server| ready.iter().any(|r| r == server));
+    let effects = s.services.deep_links.step(DeepLinkEvent::Ready { server }, |server| ready.iter().any(|r| r == server));
     run(s, effects, tx)
 }
 

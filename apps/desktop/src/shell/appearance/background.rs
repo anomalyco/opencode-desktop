@@ -94,13 +94,13 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
         Route::Session { id, .. } => blocking_calls(s, id).last().map(|(part, started)| (id.clone(), part.clone(), *started)),
         _ => None,
     };
-    let mut hint = s.background.hint.clone();
+    let mut hint = s.appearance_state.background.hint.clone();
     let fx = step(&mut hint, HintEvent::Seen { latest, now: *s.now_ms });
     if let Some(ms) = fx.wake_ms {
         tx.wake_after(std::time::Duration::from_millis(ms.max(0) as u64));
     }
     if fx.changed {
-        s.background.hint = hint;
+        s.appearance_state.background.hint = hint;
     }
     fx.changed
 }
@@ -135,7 +135,7 @@ impl App {
                 self.move_blocking(session, true);
             }
             Source::Live { .. } => {
-                self.background.awaiting.insert((session.to_owned(), id.to_owned()));
+                self.appearance_state.background.awaiting.insert((session.to_owned(), id.to_owned()));
             }
         }
     }
@@ -169,12 +169,12 @@ pub fn admitted(s: &mut App, ty: &str, data: &serde_json::Value, sid: &str) {
     let key = (sid.to_owned(), id.to_owned());
     match ty {
         "session.inbox.enqueued" | "session.inbox.delivery.changed" if data["delivery"].as_str() != Some("queue") && data["item"]["delivery"].as_str() != Some("queue") => {
-            if s.background.awaiting.remove(&key) {
+            if s.appearance_state.background.awaiting.remove(&key) {
                 s.move_blocking(sid, true);
             }
         }
         "session.inbox.delivered" | "session.inbox.cancelled" => {
-            s.background.awaiting.remove(&key);
+            s.appearance_state.background.awaiting.remove(&key);
         }
         _ => {}
     }
@@ -200,7 +200,7 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 /// 4 corners, 6 between its words and keys, 13 px at 530 in `text-faint`, `overlay-hover` under
 /// the pointer and `overlay-pressed` held, with no fade; its keys the neutral `Keybind`.
 pub fn hint(s: &App, p: &Pal, session: &str, busy: bool) -> Option<El> {
-    let Hint::Shown { session: shown, part } = &s.background.hint else { return None };
+    let Hint::Shown { session: shown, part } = &s.appearance_state.background.hint else { return None };
     if !busy || shown != session || blocking(s, session).last() != Some(part) {
         return None;
     }

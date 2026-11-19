@@ -148,7 +148,7 @@ impl App {
     /// `poll`: a gesture that ended without a release (Escape, the window losing focus) takes
     /// its window back.
     pub(crate) fn poll_tear(&mut self) {
-        if matches!(self.window.tear, Tear::Out(_)) && !self.tab_drag.torn_out() {
+        if matches!(self.window.tear, Tear::Out(_)) && !self.gestures.tab_drag.torn_out() {
             self.tear_back();
         }
     }
@@ -175,7 +175,7 @@ impl App {
         w.life = super::life::Life::Torn;
         let id = w.id.clone();
         let Some(handle) = open(self, w, Some(frame), true) else { return };
-        self.tab_drag.hand_off();
+        self.gestures.tab_drag.hand_off();
         self.window.tear = Tear::Out(Out { tab, id, handle, offset, over: None, lone });
     }
 
@@ -220,9 +220,9 @@ impl App {
     /// A tab dragged from another window is over this window's strip at `at` (window points), or
     /// left it: the strip opens a gap where it would land (`TabDragState::set_incoming`).
     pub(crate) fn tab_incoming(&mut self, at: Option<[f32; 2]>, tx: &mut Tx) -> bool {
-        let open = self.tab_drag.incoming_slot().is_some();
+        let open = self.gestures.tab_drag.incoming_slot().is_some();
         // The strip lays out in the view's points, the window's over its zoom.
-        self.tab_drag.set_incoming(at.map(|a| a.map(|v| v / *self.zoom)));
+        self.gestures.tab_drag.set_incoming(at.map(|a| a.map(|v| v / *self.zoom)));
         if !open && at.is_none() {
             tx.live_only();
             return false;
@@ -241,8 +241,8 @@ impl App {
         if let Some(parked) = parked {
             self.restore.parked.insert(tab.id.clone(), parked);
         }
-        let slot = self.tab_drag.incoming_slot();
-        self.tab_drag.set_incoming(None);
+        let slot = self.gestures.tab_drag.incoming_slot();
+        self.gestures.tab_drag.set_incoming(None);
         if !self.tabs.iter().any(|t| t.uid() == tab.uid()) {
             let index = slot.or_else(|| at.map(|at| self.drop_index(at))).unwrap_or(self.tabs.len()).min(self.tabs.len());
             self.tabs.insert(index, tab.clone());
@@ -271,7 +271,7 @@ impl App {
         let id = self.tabs.remove(i).id;
         self.restore.drafts.remove(&id);
         self.restore.parked.remove(&id);
-        self.add.park(id, session_view::composer::mode::Mode::Normal);
+        self.composer_ext.add.park(id, session_view::composer::mode::Mode::Normal);
         if shown {
             self.drop_shown_draft();
             match self.tabs.get(i).or_else(|| self.tabs.get(i.wrapping_sub(1))).map(Tab::uid) {

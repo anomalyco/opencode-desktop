@@ -143,7 +143,7 @@ impl App {
             Tracked::version(&self.projects),
             Tracked::version(&self.settings),
             Tracked::version(&self.route),
-            Tracked::version(&self.menus),
+            Tracked::version(&self.dialogs.menus),
         )
             .hash(&mut h);
         crate::servers::runtime::active(self).hash(&mut h);

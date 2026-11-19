@@ -21,11 +21,11 @@ pub fn init() {
 
 impl RuneMcpHost for App {
     fn rune_mcp(&self) -> &WindowMcp {
-        &self.rune_mcp
+        &self.workspace_panes.rune_mcp
     }
 
     fn rune_mcp_mut(&mut self) -> &mut WindowMcp {
-        &mut self.rune_mcp
+        &mut self.workspace_panes.rune_mcp
     }
 
     fn is_launch_waiting(&self) -> bool {
@@ -33,7 +33,7 @@ impl RuneMcpHost for App {
     }
 
     fn is_stage(&self) -> bool {
-        self.stage.is_some()
+        self.fixture_run.stage.is_some()
     }
 
     fn client_mcp_flag(&self) -> bool {

@@ -126,14 +126,14 @@ impl ComposerHost for App {
         crate::stop::press(self, tx);
     }
     fn composer_attachments(&self) -> &[Attachment] {
-        &self.attach.files
+        &self.composer_ext.attach.files
     }
     fn composer_remove_attachment(&mut self, id: &str) {
-        self.attach.files.retain(|f| crate::attachments::identity(f) != id);
+        self.composer_ext.attach.files.retain(|f| crate::attachments::identity(f) != id);
         self.suggest_edited();
     }
     fn composer_paste_attachment(&mut self, a: Attachment) -> bool {
-        self.attach.add(a);
+        self.composer_ext.attach.add(a);
         self.suggest_edited();
         true
     }
@@ -147,14 +147,14 @@ impl ComposerHost for App {
         self.pick_attachment(tx);
     }
     fn composer_path_attachments(&self) -> &[PathAttachment] {
-        &self.attach.paths
+        &self.composer_ext.attach.paths
     }
     fn composer_remove_path_attachment(&mut self, path: &str) {
-        self.attach.paths.retain(|f| f.path != path);
+        self.composer_ext.attach.paths.retain(|f| f.path != path);
         self.suggest_edited();
     }
     fn composer_uploading(&self) -> Vec<(String, String, u32)> {
-        self.attach.uploads.list().iter().map(|u| (u.id.clone(), u.name.clone(), u.percent())).collect()
+        self.composer_ext.attach.uploads.list().iter().map(|u| (u.id.clone(), u.name.clone(), u.percent())).collect()
     }
     fn composer_cancel_upload(&mut self, id: &str) {
         self.cancel_upload(id);
@@ -163,13 +163,13 @@ impl ComposerHost for App {
         crate::quote_cards::chips(self, p).into_iter().chain(crate::add_selection::chips(self, p)).collect()
     }
     fn composer_has_extra_payload(&self) -> bool {
-        self.quote.any()
+        self.composer_ext.quote.any()
     }
     /// Desktop's (`composer/model.ts:113-120`): a shell example, a follow-up while the session
     /// works or has prompts queued, else the question.
     fn composer_placeholder(&self) -> String {
         let queued = matches!(&*self.route, Route::Session { id, .. } if self.inbox_for(id).is_some_and(|i| i.queued().next().is_some()));
-        if self.add.shell() {
+        if self.composer_ext.add.shell() {
             t!("prompt.placeholder.shell", example = "git status")
         } else if self.composer_busy() || queued {
             t!("ui.promptInput.placeholder.followUp", slash = "/", at = "@")
@@ -178,13 +178,13 @@ impl ComposerHost for App {
         }
     }
     fn composer_shell_mode(&self) -> bool {
-        self.add.shell()
+        self.composer_ext.add.shell()
     }
     fn composer_spellcheck(&self) -> bool {
         self.settings.spellcheck
     }
     fn composer_dictating(&self) -> bool {
-        self.dictation.active()
+        self.composer_ext.dictation.active()
     }
     /// A session's composer sits on its docks (`region.tsx` passes `borderUnderlay`); the
     /// new-session page's doesn't.
@@ -213,7 +213,7 @@ impl ComposerHost for App {
         crate::dictation::status(self, p)
     }
     fn composer_held_height(&self) -> Option<f32> {
-        self.suggest.state.held_height()
+        self.composer_ext.suggest.state.held_height()
     }
     fn composer_on_change(&mut self, tx: &mut Tx) {
         if self.composer_typed() {
@@ -256,7 +256,7 @@ impl ComposerHost for App {
             return true;
         }
         // A recording takes Escape before the page's layers: it throws the dictation away.
-        if ev.key == Key::Escape && self.dictation.active() && crate::dictation::key(self, ev, tx) {
+        if ev.key == Key::Escape && self.composer_ext.dictation.active() && crate::dictation::key(self, ev, tx) {
             return true;
         }
         // Escape closes the topmost layer and the caret stays put: a contenteditable keeps focus
@@ -291,15 +291,15 @@ fn toolbar_items(s: &App, p: &Pal, scope: &str, queues: bool) -> Vec<El> {
         model::capitalize(&model.variant)
     };
     let agent = (s.settings.show_agent || s.subagent_page().is_some()).then(|| model::capitalize(&selected.agent));
-    let model_name = s.pickers.model_name(&model);
-    let provider = s.pickers.provider_label(&model);
+    let model_name = s.composer_ext.pickers.model_name(&model);
+    let provider = s.composer_ext.pickers.provider_label(&model);
     // What the model's button measures to: the provider, its slash's 6 pt either side, the name.
     let model_label = match &provider {
         Some(provider) => format!("{provider} / {model_name}"),
         None => model_name.clone(),
     };
     let mic = crate::dictation::toolbar(s, p);
-    let dictating = s.dictation.active();
+    let dictating = s.composer_ext.dictation.active();
     // Desktop's `Default` shows only under the pointer and otherwise keeps its room past the
     // row's end, which scrolls (`editor.tsx`, `overflow-x-auto`): it folds nothing. The row folds as
     // if it weren't there, and it shows where it fits without folding anything.
@@ -320,7 +320,7 @@ fn toolbar_items(s: &App, p: &Pal, scope: &str, queues: bool) -> Vec<El> {
         out.push(hidden(session_view::pickers::view::effort_trigger(s, p, &model.variant, fold.chevrons)));
     }
     // Shell mode has no other delivery, and its Exit stands where that hint would.
-    let actions = if s.add.shell() {
+    let actions = if s.composer_ext.add.shell() {
         Some(crate::add_menu::exit_shell_button(p, s.layout.narrow.sm()))
     } else {
         // An open queued prompt's other delivery steers it, whether or not a turn runs
@@ -338,7 +338,7 @@ fn toolbar_items(s: &App, p: &Pal, scope: &str, queues: bool) -> Vec<El> {
     // Shell mode keeps only Exit beside Send (`editor.tsx:491-528`), unless a dictation runs.
     // It goes and comes back at once, so Exit never lands over it; while it shows, it rides the
     // composer's edge as Send does (an instant-changes slot would jump to where it lands).
-    out.extend(mic.filter(|_| (fold.mic && !s.add.shell()) || dictating).map(|m| m.transition(rune::Transition::none())));
+    out.extend(mic.filter(|_| (fold.mic && !s.composer_ext.add.shell()) || dictating).map(|m| m.transition(rune::Transition::none())));
     out
 }
 
@@ -359,7 +359,7 @@ fn folds(
         let t = narrow::Toolbar::after(k);
         // The add button and its 2 pt margin, the room, and Send.
         let mut items = vec![30.0, 0.0, 28.0];
-        if s.add.shell() {
+        if s.composer_ext.add.shell() {
             // Exit and its keys (from 640 wide), 6 in and 6 apart, and 10 before Send.
             let keys = if s.layout.narrow.sm() { 6.0 + narrow::text_w(t!("common.key.esc"), UI_SMALL) + 8.0 } else { 0.0 };
             items.push(narrow::text_w(t!("ui.promptInput.exitShell"), UI_MED) + keys + 12.0 + 10.0);
@@ -404,5 +404,5 @@ pub(super) fn status_bar(s: &App, p: &Pal, info: Option<&SessionInfo>) -> El {
         .child(text(dir).font(UI_SMALL).color(p.faint).truncate_fade())
         .child(spacer())
         .child(el().size(6.0, 6.0).radius(3.0).fill(if live { p.success } else { p.icon_faint }))
-        .child(text((*s.status).clone()).font(UI_SMALL).color(p.faint))
+        .child(text((*s.diag.status).clone()).font(UI_SMALL).color(p.faint))
 }

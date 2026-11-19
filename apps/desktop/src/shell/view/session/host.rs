@@ -4,7 +4,7 @@ use crate::*;
 
 impl session_view::TimelineHost for App {
     fn knobs(&self) -> &rune_knobs::Knobs {
-        &self.knobs
+        &self.diag.knobs
     }
     fn assistive(&self) -> bool {
         speech::listening(self)
@@ -16,10 +16,10 @@ impl session_view::TimelineHost for App {
         *self.now_ms
     }
     fn reduced_motion(&self) -> bool {
-        *self.reduced_motion
+        *self.appearance_state.reduced_motion
     }
     fn smooth_timeline(&self) -> bool {
-        self.settings.smooth_timeline && !*self.reduced_motion
+        self.settings.smooth_timeline && !*self.appearance_state.reduced_motion
     }
     fn timeline_detail(&self) -> session_view::detail::Detail {
         self.settings.timeline_detail
@@ -97,7 +97,7 @@ impl session_view::TimelineHost for App {
         matches!(last,Some(Message::User{..})) || matches!(last,Some(Message::Assistant(a)) if a.completed.is_none() && a.error.is_none())
     }
     fn working_label_for(&self, session: &str) -> Option<&'static str> {
-        self.starts.status(session)
+        self.queue.starts.status(session)
     }
     fn is_session_stopped(&self, session: &str) -> bool {
         self.stops.has(session)
@@ -117,46 +117,46 @@ impl session_view::TimelineHost for App {
         }
     }
     fn expanded(&self) -> &disclosure::Disclosures {
-        &self.expanded
+        &self.timeline_fx.expanded
     }
     fn expanded_mut(&mut self) -> &mut disclosure::Disclosures {
-        &mut self.expanded
+        &mut self.timeline_fx.expanded
     }
     fn copied_state(&self) -> &copied::Copied {
-        &self.copied
+        &self.timeline_fx.copied
     }
     fn copied_state_mut(&mut self) -> &mut copied::Copied {
-        &mut self.copied
+        &mut self.timeline_fx.copied
     }
     fn working_state(&self) -> &working::Working {
-        &self.working
+        &self.timeline_fx.working
     }
     fn working_state_mut(&mut self) -> &mut working::Working {
-        &mut self.working
+        &mut self.timeline_fx.working
     }
     fn diagrams(&self) -> &diagram::Diagrams {
-        &self.diagram
+        &self.timeline_fx.diagram
     }
     fn diagrams_mut(&mut self) -> &mut diagram::Diagrams {
-        &mut self.diagram
+        &mut self.timeline_fx.diagram
     }
     fn media_store(&self) -> &session_view::images::MediaStore {
-        &self.attach.store
+        &self.composer_ext.attach.store
     }
     fn media_store_mut(&mut self) -> &mut session_view::images::MediaStore {
-        &mut self.attach.store
+        &mut self.composer_ext.attach.store
     }
     fn line_hold(&self) -> &line_reveal::Hold {
-        &self.line_hold
+        &self.timeline_fx.line_hold
     }
     fn line_hold_mut(&mut self) -> &mut line_reveal::Hold {
-        &mut self.line_hold
+        &mut self.timeline_fx.line_hold
     }
     fn ends(&self) -> &jump::Ends {
-        &self.ends
+        &self.timeline_fx.ends
     }
     fn ends_mut(&mut self) -> &mut jump::Ends {
-        &mut self.ends
+        &mut self.timeline_fx.ends
     }
     fn fold_user_messages(&self) -> bool {
         self.settings.fold_user
@@ -171,7 +171,7 @@ impl session_view::TimelineHost for App {
         self.reply_code_links(body, live)
     }
     fn code_links_version(&self) -> u64 {
-        self.active_session_id().map_or(0, |sid| rune::Tracked::untracked(&self.files).reply_version(sid))
+        self.active_session_id().map_or(0, |sid| rune::Tracked::untracked(&self.workspace_panes.files).reply_version(sid))
     }
     fn reply_link_help(url: &str) -> Option<String> {
         crate::files::link_tip::tip(url, "")
@@ -188,12 +188,12 @@ impl session_view::TimelineHost for App {
         true
     }
     fn switch_model(&mut self, _tx: &mut Tx) {
-        if self.pickers.open() != Some(pickers::Kind::Model) {
+        if self.composer_ext.pickers.open() != Some(pickers::Kind::Model) {
             self.open_picker(pickers::Kind::Model);
         }
     }
     fn model_name(&self, model: &opencode_kit::model::ModelRef) -> String {
-        self.pickers.model_name(model)
+        self.composer_ext.pickers.model_name(model)
     }
     fn tool_row_action(&self, p: &palette::Pal, session: &str, call: &session_view::tools::Call) -> Option<rune::El> {
         tool_open::action(self, p, session, call)
@@ -214,10 +214,10 @@ impl session_view::TimelineHost for App {
         self.prefetch_session(child);
     }
     fn subagent_hover(&self) -> Option<&str> {
-        self.agent_hover.as_deref()
+        self.timeline_fx.agent_hover.as_deref()
     }
     fn set_subagent_hover(&mut self, call: Option<String>) {
-        *self.agent_hover = call;
+        *self.timeline_fx.agent_hover = call;
     }
     fn open_subagent(&mut self, parent: &str, child: &str, title: &str, agent: &str, tx: &mut Tx) {
         self.open_child(parent, child, title, agent, tx);
@@ -247,7 +247,7 @@ impl session_view::TimelineHost for App {
         self.pages.more_above(session)
     }
     fn watch_scroll_top(&self, session: &str) -> Option<Box<dyn Fn(rune::ScrollPos)>> {
-        let (pages, nav) = (self.pages.watch_top(session), self.message_nav.watch());
+        let (pages, nav) = (self.pages.watch_top(session), self.timeline_fx.message_nav.watch());
         Some(Box::new(move |at| {
             pages(at);
             nav(at);
@@ -257,25 +257,25 @@ impl session_view::TimelineHost for App {
         quote::selection_changed(s, change, tx);
     }
     fn find_row_version(&self, row_key: &str) -> u64 {
-        self.find.row_version(row_key)
+        self.timeline_fx.find.row_version(row_key)
     }
     fn find_text_highlights(&self, p: &palette::Pal, row_key: &str) -> Vec<rune::TextHighlight> {
-        self.find.text_highlights(p, row_key)
+        self.timeline_fx.find.text_highlights(p, row_key)
     }
     fn find_markdown_highlights(&self, p: &palette::Pal, row_key: &str) -> Vec<(&[std::ops::Range<usize>], rune_kit::Highlight)> {
-        self.find.markdown_highlights(p, row_key)
+        self.timeline_fx.find.markdown_highlights(p, row_key)
     }
     fn find_row_hits(&self, row_key: &str) -> Option<(&[Vec<std::ops::Range<usize>>], Option<usize>)> {
-        self.find.row_hits(row_key)
+        self.timeline_fx.find.row_hits(row_key)
     }
     fn user_menu_open_on(&self, id: &str) -> bool {
-        self.rewind.menu_open_on(id)
+        self.dialogs.rewind.menu_open_on(id)
     }
     fn quote_more_open(&self, id: &str) -> bool {
-        self.quote.more.contains(id)
+        self.composer_ext.quote.more.contains(id)
     }
     fn open_quote_more(&mut self, id: String) {
-        self.quote.more.insert(id);
+        self.composer_ext.quote.more.insert(id);
     }
     fn user_menu(&self, p: &palette::Pal, session: &str, id: &str, _body: &str, pending: bool) -> Option<rune::El> {
         rewind::user_menu(self, p, session, id, pending)

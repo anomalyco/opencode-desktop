@@ -40,7 +40,7 @@ pub(super) fn header(s: &App, p: &Pal, info: Option<&SessionInfo>, t: Option<&Tr
 /// Session details). In a narrow window the location's worktree name hides, then its project
 /// name, then the actions drop their details; only then does the title truncate.
 pub(crate) fn header_in(s: &App, p: &Pal, info: Option<&SessionInfo>, _t: Option<&Transcript>, scope: &str) -> El {
-    let reserve_side = !s.side_open() && s.stage.is_none();
+    let reserve_side = !s.side_open() && s.fixture_run.stage.is_none();
     let project = info.and_then(|i| s.project(&i.project));
     let proj = info.map(|i| super::project_or_dir(project, &i.directory)).unwrap_or_default();
     let parent = info.and_then(|i| i.parent.as_deref()).and_then(|pid| s.session(pid));
@@ -107,7 +107,7 @@ pub(crate) fn header_in(s: &App, p: &Pal, info: Option<&SessionInfo>, _t: Option
         .children(slots)
         // Pulled back over its gap, so with the side region open it takes no room at all: the
         // actions end 12 from the header's end, as Desktop's do.
-        .children(s.stage.is_none().then(|| {
+        .children(s.fixture_run.stage.is_none().then(|| {
             el().key("header-side-slot")
                 .ml(-8.0)
                 .w(if reserve_side { 36.0 } else { 0.0 })
@@ -190,7 +190,7 @@ fn header_title(s: &App, p: &Pal, info: &SessionInfo) -> Vec<El> {
         return vec![text(title_of(info)).key("title").role("heading").level(1).font(CRUMB).color(p.text).truncate_fade().px(4.0).py(6.0).shrink().min_w(0.0).dir(rune::Direction::Auto)];
     }
     let target = Target::on(crate::servers::runtime::active(s), &info.id, Spot::Header);
-    let marked = s.menus.on.as_ref() == Some(&target);
+    let marked = s.dialogs.menus.on.as_ref() == Some(&target);
     let dots_target = target.clone();
     let title = match crate::session_menu_view::field(s, p, &target, CRUMB) {
         Some(field) => row().key("title").h(28.0).px(4.0).center_y().min_w(0.0).shrink().child(field),
@@ -203,7 +203,7 @@ fn header_title(s: &App, p: &Pal, info: &SessionInfo) -> Vec<El> {
                     tx.instant();
                     s.begin_rename(&begin);
                 })
-                .child(crate::title_change::title(&s.knobs, &format!("title-{}", info.id), title_of(info), CRUMB, p.text));
+                .child(crate::title_change::title(&s.diag.knobs, &format!("title-{}", info.id), title_of(info), CRUMB, p.text));
             crate::session_menu::on(t, target)
         }
     };

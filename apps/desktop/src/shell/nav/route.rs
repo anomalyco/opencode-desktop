@@ -16,7 +16,7 @@ impl crate::App {
 
     pub(crate) fn restore_project_tab(&self) -> Option<&crate::tabs::Tab> {
         self.current_tab().and_then(|id| self.tab(&id))
-            .or_else(|| self.home_return_tab.as_ref().and_then(|id| self.tab(id)))
+            .or_else(|| self.gestures.home_return_tab.as_ref().and_then(|id| self.tab(id)))
             .or_else(|| self.tabs.last())
     }
 }

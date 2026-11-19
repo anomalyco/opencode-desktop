@@ -16,19 +16,19 @@ use crate::{App, Route, Source};
 
 impl MessageNavHost for App {
     fn message_nav(&self) -> &MessageNav {
-        &self.message_nav
+        &self.timeline_fx.message_nav
     }
 
     fn message_nav_mut(&mut self) -> &mut MessageNav {
-        &mut self.message_nav
+        &mut self.timeline_fx.message_nav
     }
 
     fn jump(&self) -> &JumpState {
-        &self.jump
+        &self.dialogs.jump
     }
 
     fn jump_mut(&mut self) -> &mut JumpState {
-        &mut self.jump
+        &mut self.dialogs.jump
     }
 
     fn displayed_session_id(&self) -> Option<&str> {
@@ -53,7 +53,7 @@ impl MessageNavHost for App {
     }
 
     fn timeline_at_end(&self, session: &str) -> bool {
-        self.ends.at_end(session)
+        self.timeline_fx.ends.at_end(session)
     }
 
     fn more_above(&self, session: &str) -> bool {
@@ -90,7 +90,7 @@ impl MessageNavHost for App {
     }
 
     fn before_jump_open(&mut self) -> bool {
-        let restore = self.composer.focused || self.switcher.restore_composer();
+        let restore = self.composer.focused || self.dialogs.switcher.restore_composer();
         self.close_fork_dialog(false);
         self.close_picker(false);
         self.close_switcher(false);
@@ -196,7 +196,7 @@ impl Feature<App> for HistoryFeature {
                 .with_z(300)
                 .with_key_priority(200)
                 .with_render(|s, cx| {
-                    if s.fork.is_open() {
+                    if s.dialogs.fork.is_open() {
                         let p = crate::palette::pal(s.dark(cx));
                         crate::fork::view(s, p, cx).into()
                     } else {
@@ -211,7 +211,7 @@ impl Feature<App> for HistoryFeature {
                 .with_z(310)
                 .with_key_priority(210)
                 .with_render(|s, cx| {
-                    if s.jump.open() {
+                    if s.dialogs.jump.open() {
                         let p = crate::palette::pal(s.dark(cx));
                         jump::view(s, p, cx).into()
                     } else {

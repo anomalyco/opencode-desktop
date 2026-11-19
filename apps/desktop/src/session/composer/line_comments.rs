@@ -15,16 +15,17 @@ use crate::quote::comment::{Config, FieldEvent};
 
 impl LineCommentsHost for App {
     fn line_comments(&self) -> &LineComments {
-        &self.line_comments
+        &self.composer_ext.line_comments
     }
 
     fn line_comments_mut(&mut self) -> &mut LineComments {
-        &mut self.line_comments
+        &mut self.composer_ext.line_comments
     }
 
     fn view_selection(&self, spot: &Spot) -> Option<Range> {
         match spot.surface {
             Surface::Files => self
+                .workspace_panes
                 .files
                 .sessions
                 .get(&spot.session)?
@@ -32,7 +33,7 @@ impl LineCommentsHost for App {
                 .get(&spot.path)
                 .and_then(host::code_doc_selection),
             Surface::Review | Surface::Narrow => {
-                let sr = self.review.sessions.get(&spot.session)?;
+                let sr = self.workspace_panes.review.sessions.get(&spot.session)?;
                 let diffs = if spot.surface == Surface::Review {
                     &sr.diffs
                 } else {
@@ -47,6 +48,7 @@ impl LineCommentsHost for App {
         match spot.surface {
             Surface::Files => {
                 if let Some(d) = self
+                    .workspace_panes
                     .files
                     .sessions
                     .get_mut(&spot.session)
@@ -56,7 +58,7 @@ impl LineCommentsHost for App {
                 }
             }
             Surface::Review | Surface::Narrow => {
-                let Some(sr) = self.review.sessions.get_mut(&spot.session) else { return };
+                let Some(sr) = self.workspace_panes.review.sessions.get_mut(&spot.session) else { return };
                 let diffs = if spot.surface == Surface::Review {
                     Some(&mut sr.diffs)
                 } else {
@@ -72,11 +74,11 @@ impl LineCommentsHost for App {
     fn line_preview(&self, spot: &Spot, range: Range) -> Option<String> {
         match spot.surface {
             Surface::Files => {
-                let doc = self.files.sessions.get(&spot.session)?.docs.get(&spot.path)?;
+                let doc = self.workspace_panes.files.sessions.get(&spot.session)?.docs.get(&spot.path)?;
                 host::code_doc_preview(doc, range)
             }
             Surface::Review | Surface::Narrow => {
-                let sr = self.review.sessions.get(&spot.session)?;
+                let sr = self.workspace_panes.review.sessions.get(&spot.session)?;
                 let diffs = if spot.surface == Surface::Review {
                     &sr.diffs
                 } else {
@@ -94,7 +96,7 @@ impl LineCommentsHost for App {
         {
             return Some(Surface::Files);
         }
-        let sr = self.review.sessions.get(sid)?;
+        let sr = self.workspace_panes.review.sessions.get(sid)?;
         if self.narrow() {
             return sr.narrow.is_open(path).then_some(Surface::Narrow);
         }
@@ -106,6 +108,7 @@ impl LineCommentsHost for App {
         match spot.surface {
             Surface::Files => {
                 if let Some(d) = self
+                    .workspace_panes
                     .files
                     .sessions
                     .get_mut(&spot.session)
@@ -115,7 +118,7 @@ impl LineCommentsHost for App {
                 }
             }
             Surface::Review => {
-                if let Some(sr) = self.review.sessions.get_mut(&spot.session) {
+                if let Some(sr) = self.workspace_panes.review.sessions.get_mut(&spot.session) {
                     host::scroll_diff_doc(&mut sr.diffs, &spot.path, range, tx);
                 }
             }
@@ -236,7 +239,7 @@ impl Feature<App> for AnnotationsFeature {
         builder.register_escape_layer(EscapeLayer::new(
             "escape.quote",
             100,
-            |s| s.quote.offered(),
+            |s| s.composer_ext.quote.offered(),
             |s, _, tx| {
                 tx.instant();
                 crate::quote::dismiss(s, tx);
@@ -245,7 +248,7 @@ impl Feature<App> for AnnotationsFeature {
         builder.register_escape_layer(EscapeLayer::new(
             "escape.comment_selection",
             110,
-            |s| matches!(s.line_comments.selection, selection::State::Settling { .. } | selection::State::Shown(_)),
+            |s| matches!(s.composer_ext.line_comments.selection, selection::State::Settling { .. } | selection::State::Shown(_)),
             |s, _, tx| {
                 selection::dispatch(s, selection::Event::Clear, tx);
             },

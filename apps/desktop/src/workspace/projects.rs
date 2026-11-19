@@ -34,11 +34,11 @@ impl ProjectsHost for App {
     }
 
     fn remote_picker(&self) -> &remote_picker::Picker {
-        &self.remote_picker
+        &self.dialogs.remote_picker
     }
 
     fn remote_picker_mut(&mut self) -> &mut remote_picker::Picker {
-        &mut self.remote_picker
+        &mut self.dialogs.remote_picker
     }
 
     fn projects(&self) -> &[Project] {
@@ -213,7 +213,7 @@ impl ProjectsHost for App {
     }
 
     fn is_stage(&self) -> bool {
-        self.stage.is_some()
+        self.fixture_run.stage.is_some()
     }
 
     fn switch_server(&mut self, key: &ServerKey) {
@@ -254,7 +254,7 @@ impl ProjectsHost for App {
     }
 
     fn set_status(&mut self, status: String) {
-        *self.status = status;
+        *self.diag.status = status;
     }
 
     fn toast_fail(&mut self, title: &str, description: &str) {
@@ -279,20 +279,20 @@ impl ProjectsHost for App {
 
     fn before_open_project_dialog(&mut self) -> bool {
         let restore_composer = self.composer.focused
-            || self.switcher.restore_composer()
-            || self.pickers.open().is_some();
+            || self.dialogs.switcher.restore_composer()
+            || self.composer_ext.pickers.open().is_some();
         self.close_picker(false);
         self.close_switcher(false);
         self.close_project_switcher(false);
         self.settings.open = false;
-        self.menus.on = None;
+        self.dialogs.menus.on = None;
         crate::subagents::shells::set_open(self, false);
-        *self.todo_open = false;
+        *self.timeline_fx.todo_open = false;
         restore_composer
     }
 
     fn restore_composer_focus(&mut self) {
-        if self.stage.is_none() {
+        if self.fixture_run.stage.is_none() {
             self.composer.focused = true;
         }
     }

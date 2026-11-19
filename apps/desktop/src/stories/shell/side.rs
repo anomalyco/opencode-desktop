@@ -38,13 +38,13 @@ pub const INSTALL_KEYS: &[Trigger] = &[
         run: |s, play| {
             play.animated();
             let total = 128_352_035u64;
-            let next = match s.browser.host.status() {
+            let next = match s.workspace_panes.browser.host.status() {
                 EngineStatus::Downloading { downloaded_bytes, .. } => {
                     (downloaded_bytes + 19_000_000).min(total)
                 }
                 _ => 19_000_000,
             };
-            s.browser.host.set_mock_status(EngineStatus::Downloading {
+            s.workspace_panes.browser.host.set_mock_status(EngineStatus::Downloading {
                 downloaded_bytes: next,
                 total_bytes: Some(total),
             });
@@ -106,7 +106,7 @@ pub const BROWSER_KEYS: &[Trigger] = &[
         label: "Toggle element picker",
         run: |s, _| {
             if let Some(id) = s.active_browser_tab_id() {
-                s.browser.host.toggle_inspect(id);
+                s.workspace_panes.browser.host.toggle_inspect(id);
             }
         },
     },
@@ -115,11 +115,11 @@ pub const BROWSER_KEYS: &[Trigger] = &[
 pub fn init_region(s: &mut App) {
     crate::stories::scenes::open_scene(s);
     s.finish_stream();
-    s.side = Default::default();
-    s.browser = Default::default();
+    s.workspace_panes.side = Default::default();
+    s.workspace_panes.browser = Default::default();
     let Some(sid) = s.active_session_id().map(str::to_owned) else { return };
 
-    match *s.variant {
+    match *s.fixture_run.variant {
         0 => {
             s.open_new_browser_tab("http://localhost:3000/dashboard");
             s.open_new_browser_tab("https://github.com/anomalyco/rune");
@@ -164,8 +164,8 @@ pub const CLOSE_LAST_KEYS: &[Trigger] = &[
 pub fn init_close_last(s: &mut App) {
     crate::stories::scenes::open_scene(s);
     s.finish_stream();
-    s.side = Default::default();
-    s.browser = Default::default();
+    s.workspace_panes.side = Default::default();
+    s.workspace_panes.browser = Default::default();
     let Some(sid) = s.active_session_id().map(str::to_owned) else { return };
     let mut tx = rune::Tx::default();
     s.show_review(&sid, &mut tx);
@@ -185,11 +185,11 @@ fn close_last(s: &mut App, play: &mut Play<'_, App>) {
 pub fn init_browser(s: &mut App) {
     crate::stories::scenes::open_scene(s);
     s.finish_stream();
-    s.side = Default::default();
-    s.browser = Default::default();
-    match *s.variant {
+    s.workspace_panes.side = Default::default();
+    s.workspace_panes.browser = Default::default();
+    match *s.fixture_run.variant {
         0 => {
-            let id = s.browser.host.insert_mock_tab(
+            let id = s.workspace_panes.browser.host.insert_mock_tab(
                 "http://localhost:3000/dashboard",
                 "Local Preview",
                 EngineStatus::Ready,
@@ -197,13 +197,13 @@ pub fn init_browser(s: &mut App) {
             s.register_existing_browser_tab(id);
         }
         1 => {
-            let id1 = s.browser.host.insert_mock_tab(
+            let id1 = s.workspace_panes.browser.host.insert_mock_tab(
                 "http://localhost:3000/",
                 "Local Preview",
                 EngineStatus::Ready,
             );
             s.register_existing_browser_tab(id1);
-            let id2 = s.browser.host.insert_mock_tab(
+            let id2 = s.workspace_panes.browser.host.insert_mock_tab(
                 "https://github.com/anomalyco/rune",
                 "anomalyco/rune",
                 EngineStatus::Ready,
@@ -211,13 +211,13 @@ pub fn init_browser(s: &mut App) {
             s.register_existing_browser_tab(id2);
         }
         _ => {
-            let id = s.browser.host.insert_mock_tab(
+            let id = s.workspace_panes.browser.host.insert_mock_tab(
                 "http://localhost:5173/settings",
                 "Settings App",
                 EngineStatus::Ready,
             );
             s.register_existing_browser_tab(id);
-            s.browser.host.toggle_inspect(id);
+            s.workspace_panes.browser.host.toggle_inspect(id);
         }
     }
 }
@@ -229,9 +229,9 @@ pub fn setup_browser(s: &mut App, _play: &mut Play<'_, App>) {
 pub fn init_install(s: &mut App) {
     crate::stories::scenes::open_scene(s);
     s.finish_stream();
-    s.side = Default::default();
-    s.browser = Default::default();
-    let status = match *s.variant {
+    s.workspace_panes.side = Default::default();
+    s.workspace_panes.browser = Default::default();
+    let status = match *s.fixture_run.variant {
         0 => EngineStatus::NotInstalled,
         1 => EngineStatus::Downloading {
             downloaded_bytes: 58_400_000,
@@ -244,6 +244,7 @@ pub fn init_install(s: &mut App) {
         _ => EngineStatus::Failed(browser_pane::Fault::Stopped.into()),
     };
     let id = s
+        .workspace_panes
         .browser
         .host
         .insert_mock_tab("http://localhost:3000/", "Local Preview", status);
@@ -255,7 +256,7 @@ pub fn setup_install(s: &mut App, _play: &mut Play<'_, App>) {
 }
 
 pub fn view_card(s: &App, p: &Pal) -> El {
-    crate::panels::view::story_card(s, p, s.side_width(s.side.laid_w.get()).min(640.0), 540.0)
+    crate::panels::view::story_card(s, p, s.side_width(s.workspace_panes.side.laid_w.get()).min(640.0), 540.0)
 }
 
 rune_register::register!(crate::stories::STORY_LIST: Story = [

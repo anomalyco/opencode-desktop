@@ -13,11 +13,11 @@ use crate::{App, Route, Source};
 
 impl ForkHost for App {
     fn fork(&self) -> &ForkState {
-        &self.fork
+        &self.dialogs.fork
     }
 
     fn fork_mut(&mut self) -> &mut ForkState {
-        &mut self.fork
+        &mut self.dialogs.fork
     }
 
     fn is_session_open(&self, session: &str) -> bool {
@@ -56,11 +56,11 @@ impl ForkHost for App {
     }
 
     fn resolve_skill_id(&self, name_or_id: &str) -> Option<&str> {
-        self.mentions.skills.iter().find(|sk| sk.id == name_or_id || sk.name == name_or_id).map(|sk| sk.id.as_str())
+        self.composer_ext.mentions.skills.iter().find(|sk| sk.id == name_or_id || sk.name == name_or_id).map(|sk| sk.id.as_str())
     }
 
     fn is_simulated(&self) -> bool {
-        self.stage.is_some() || matches!(*self.source, Source::Fixture)
+        self.fixture_run.stage.is_some() || matches!(*self.source, Source::Fixture)
     }
 
     fn send_write(&mut self, write: Write) -> bool {
@@ -68,7 +68,7 @@ impl ForkHost for App {
     }
 
     fn status_text(&self) -> &str {
-        &self.status
+        &self.diag.status
     }
 
     fn format_wire_error(&self, err: &WireError) -> String {
@@ -76,7 +76,7 @@ impl ForkHost for App {
     }
 
     fn before_fork_open(&mut self) -> bool {
-        let restore = self.composer.focused || self.switcher.restore_composer();
+        let restore = self.composer.focused || self.dialogs.switcher.restore_composer();
         self.close_jump_dialog(false);
         self.close_picker(false);
         self.close_switcher(false);

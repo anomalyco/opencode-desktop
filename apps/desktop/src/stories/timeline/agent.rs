@@ -64,8 +64,8 @@ fn started(s: &App) -> Vec<String> {
 /// fails, so one of each shows from 5.4 s until the rest finish at 9 s.
 fn open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
-    let n = COUNTS[s.variant.min(4)];
-    let working = s.variant == 3;
+    let n = COUNTS[s.fixture_run.variant.min(4)];
+    let working = s.fixture_run.variant == 3;
     if working {
         let id = sid(s);
         if let Some(Message::Assistant(a)) = s.transcripts.get_mut(&id).and_then(|t| t.messages.last_mut()) {
@@ -84,7 +84,7 @@ fn open(s: &mut App, tx: &mut Play<App>) {
     if working {
         return;
     }
-    if s.variant == 4 {
+    if s.fixture_run.variant == 4 {
         tx.after(2.0, |s, tx| follow_up(s, tx));
         tx.after(3.5, |s, tx| finish_oldest(s, tx));
         tx.after(4.0, |s, tx| fail_newest(s, tx));

@@ -24,18 +24,18 @@ fn last_prompt(s: &App) -> Option<String> {
 }
 
 fn is_open(s: &App) -> bool {
-    match *s.variant {
-        0 => s.add.open(),
-        1 => s.rewind.menu.is_some() && s.popup.is_open(),
-        4 => s.popup.is_open(),
+    match *s.fixture_run.variant {
+        0 => s.composer_ext.add.open(),
+        1 => s.dialogs.rewind.menu.is_some() && s.dialogs.popup.is_open(),
+        4 => s.dialogs.popup.is_open(),
         2 => s.shells.activity.is_open(),
-        _ => *s.todo_open,
+        _ => *s.timeline_fx.todo_open,
     }
 }
 
 /// Opens or closes the variant's menu, with the motion its control uses.
 fn set(s: &mut App, open: bool, tx: &mut Play<App>) {
-    match *s.variant {
+    match *s.fixture_run.variant {
         0 if open => s.open_add_menu(tx),
         0 => s.close_add_menu(crate::add_menu::Close::Outside, tx),
         1 if open => {
@@ -46,9 +46,9 @@ fn set(s: &mut App, open: bool, tx: &mut Play<App>) {
         4 if open => right_click(s, tx),
         1 | 4 => crate::popup::dismiss(s, tx),
         2 => crate::subagents::shells::set_open(s, open),
-        _ => *s.todo_open = open,
+        _ => *s.timeline_fx.todo_open = open,
     }
-    motion::toggled(&s.knobs, tx, open);
+    motion::toggled(&s.diag.knobs, tx, open);
 }
 
 /// A right-click on an image in the newest prompt, drawn as on Windows and Linux: the image's
@@ -65,8 +65,8 @@ fn start(s: &mut App, tx: &mut Play<App>) {
     s.close_add_menu(crate::add_menu::Close::Outside, tx);
     s.close_message_menu();
     crate::subagents::shells::set_open(s, false);
-    *s.todo_open = false;
-    match *s.variant {
+    *s.timeline_fx.todo_open = false;
+    match *s.fixture_run.variant {
         2 => crate::stories::composer::capsule::run_thirty(s),
         3 => {
             let id = sid(s);            s.running.insert(id);
