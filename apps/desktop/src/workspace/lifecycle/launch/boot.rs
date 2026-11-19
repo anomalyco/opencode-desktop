@@ -262,7 +262,7 @@ fn probe(server: &Server, discover: bool, grace: Duration) -> (Server, bool) {
 }
 
 /// The probe, Desktop Beta's tabs and the first reads, on a thread; the window wakes for them.
-pub(super) fn spawn_probe(s: &App, beta_tabs: bool, grace: Duration) -> (Receiver<Ready>, Accepted) {
+pub(super) fn spawn_probe(s: &App, beta_tabs: bool, fallback_fixture: bool, grace: Duration) -> (Receiver<Ready>, Accepted) {
     let (out, rx) = std::sync::mpsc::channel();
     let accepted = Accepted::default();
     let Source::Live { server, .. } = &*s.source else { return (rx, accepted) };
@@ -271,7 +271,7 @@ pub(super) fn spawn_probe(s: &App, beta_tabs: bool, grace: Duration) -> (Receive
     // Only the app's own server may stand down for the fixture, or move to the port
     // `service.json` names.
     let own = crate::servers::runtime::active(s).is_sidecar();
-    let fallback = s.launch.fallback_fixture && own;
+    let fallback = fallback_fixture && own;
     let discover_local = own && crate::arg("--server").is_none();
     let server = if discover_local {
         crate::servers::runtime::own_server().unwrap_or(server)

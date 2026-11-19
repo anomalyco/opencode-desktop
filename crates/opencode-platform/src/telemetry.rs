@@ -94,7 +94,7 @@ type FrameStamp = (Instant, Option<f64>, Option<f64>);
 
 thread_local! {
     static READ: RefCell<Option<(Instant, usize, Instant)>> = const { RefCell::new(None) };
-    static OPEN: RefCell<Option<Open>> = const { RefCell::new(None) };
+    static OPEN: RefCell<OpenTrace> = const { RefCell::new(OpenTrace::Idle) };
     static FRAME: RefCell<Option<FrameStamp>> = const { RefCell::new(None) };
     static PAINTED: RefCell<Option<(String, usize)>> = const { RefCell::new(None) };
 }
@@ -106,46 +106,166 @@ pub fn note_read(first_byte: Instant, bytes: usize, json: Instant) {
 
 pub fn take_read() -> Option<(Instant, usize, Instant)> { READ.with(|r| r.borrow_mut().take()) }
 
+/// Lifecycle of `session.open`'s root span: open for a direct click, open for a launch-restored
+/// session (which waits for a server page and may settle as `"cached"` when its disk copy already
+/// painted), or settled once the root span ended (staying alive for `history.paint` or a late
+/// commit span).
+enum RootPhase {
+    Direct { root: Span },
+    Restored { root: Span, live: bool, painted: bool },
+    Settled { restored: bool },
+}
+
+impl RootPhase {
+    fn is_restored(&self) -> bool {
+        matches!(self, Self::Restored { .. } | Self::Settled { restored: true })
+    }
+
+    fn take_root(&mut self) -> Option<Span> {
+        let restored = self.is_restored();
+        match std::mem::replace(self, Self::Settled { restored }) {
+            Self::Direct { root } | Self::Restored { root, .. } => Some(root),
+            Self::Settled { .. } => None,
+        }
+    }
+}
+
 struct Open {
     id: String,
     ctx: Ctx,
     started: Instant,
-    /// Until the first paint ends it.
-    root: Option<Span>,
-    committed: Option<Instant>,
+    phase: RootPhase,
+    committed: bool,
     history: bool,
     pages: usize,
-    /// Restored at launch: its disk copy may be up from frame 0, so it ends on a server page.
-    restored: bool,
-    live: bool,
-    /// A restored session's disk copy was on screen: a server page that redraws nothing ends it.
-    painted: bool,
+}
+
+#[derive(Default)]
+enum OpenTrace {
+    #[default]
+    Idle,
+    Active(Box<Open>),
+}
+
+enum OpenEvent<'a> {
+    BeginDirect { id: String, root: Span, ctx: Ctx, started: Instant, now: Instant },
+    BeginRestored { id: String, root: Span, ctx: Ctx, started: Instant, painted: bool },
+    Page { id: &'a str, history: bool, server: bool, shown_end: Instant, now: Instant },
+    Committed { id: &'a str, loading: bool, now: Instant },
+    Drawn { id: &'a str, rows: usize, at: Instant, now: Instant },
+}
+
+enum OpenEffect {
+    EndRoot { root: Span, outcome: &'static str, rows: Option<usize>, at: Instant },
+    RecordPage { ctx: Ctx, started: Instant, history: bool },
+    RecordCommit { ctx: Ctx, name: &'static str, started: Instant, now: Instant, loading: bool, pages: usize },
+    RecordFrame { ctx: Ctx, name: &'static str, rows: usize },
+}
+
+impl OpenTrace {
+    fn expire_if_due(&mut self, now: Instant, effects: &mut Vec<OpenEffect>) {
+        let expired = matches!(self, Self::Active(open) if now.saturating_duration_since(open.started) >= FOLLOW);
+        if expired && let Self::Active(mut open) = std::mem::take(self) && let Some(root) = open.phase.take_root() {
+            effects.push(OpenEffect::EndRoot { root, outcome: "unpainted", rows: None, at: open.started + FOLLOW });
+        }
+    }
+
+    fn step(&mut self, event: OpenEvent<'_>) -> Vec<OpenEffect> {
+        let mut effects = Vec::new();
+        match event {
+            OpenEvent::BeginDirect { id, root, ctx, started, now } => {
+                if let Self::Active(mut old) = std::mem::take(self) && let Some(old_root) = old.phase.take_root() {
+                    let late = now.saturating_duration_since(old.started) >= FOLLOW;
+                    effects.push(OpenEffect::EndRoot {
+                        root: old_root,
+                        outcome: if late { "unpainted" } else { "replaced" },
+                        rows: None,
+                        at: if late { old.started + FOLLOW } else { now },
+                    });
+                }
+                *self = Self::Active(Box::new(Open { id, ctx, started, phase: RootPhase::Direct { root }, committed: false, history: false, pages: 0 }));
+            }
+            OpenEvent::BeginRestored { id, root, ctx, started, painted } => {
+                *self = Self::Active(Box::new(Open { id, ctx, started, phase: RootPhase::Restored { root, live: false, painted }, committed: false, history: false, pages: 0 }));
+            }
+            OpenEvent::Page { id, history, server, shown_end, now } => {
+                self.expire_if_due(now, &mut effects);
+                let Self::Active(open) = self else { return effects };
+                if open.id != id { return effects; }
+                if history {
+                    open.history = true;
+                } else {
+                    open.pages += 1;
+                    if let RootPhase::Restored { live, painted, .. } = &mut open.phase {
+                        *live |= server;
+                        if *live && *painted && let Some(root) = open.phase.take_root() {
+                            effects.push(OpenEffect::EndRoot { root, outcome: "cached", rows: None, at: shown_end });
+                        }
+                    }
+                }
+                effects.push(OpenEffect::RecordPage { ctx: open.ctx, started: open.started, history });
+            }
+            OpenEvent::Committed { id, loading, now } => {
+                self.expire_if_due(now, &mut effects);
+                let Self::Active(open) = self else { return effects };
+                if open.id != id || open.committed { return effects; }
+                open.committed = true;
+                let name = if open.phase.is_restored() { "launch" } else { "hold" };
+                effects.push(OpenEffect::RecordCommit { ctx: open.ctx, name, started: open.started, now, loading, pages: open.pages });
+            }
+            OpenEvent::Drawn { id, rows, at, now } => {
+                self.expire_if_due(now, &mut effects);
+                let Self::Active(open) = self else { return effects };
+                if open.id != id { return effects; }
+                match &mut open.phase {
+                    RootPhase::Direct { .. } if rows > 0 && open.committed => {
+                        if let Some(root) = open.phase.take_root() {
+                            effects.push(OpenEffect::RecordFrame { ctx: open.ctx, name: "first_paint", rows });
+                            effects.push(OpenEffect::EndRoot { root, outcome: "painted", rows: Some(rows), at });
+                        }
+                    }
+                    RootPhase::Restored { live, painted, .. } => {
+                        if rows == 0 || !open.committed || !*live {
+                            // A restored session's disk copy is up from the first frames, before its commit.
+                            *painted |= rows > 0;
+                        } else if let Some(root) = open.phase.take_root() {
+                            effects.push(OpenEffect::RecordFrame { ctx: open.ctx, name: "first_paint", rows });
+                            effects.push(OpenEffect::EndRoot { root, outcome: "painted", rows: Some(rows), at });
+                        }
+                    }
+                    RootPhase::Settled { .. } if open.history => {
+                        let ctx = open.ctx;
+                        *self = Self::Idle;
+                        effects.push(OpenEffect::RecordFrame { ctx, name: "history.paint", rows });
+                    }
+                    RootPhase::Direct { .. } | RootPhase::Settled { .. } => {}
+                }
+            }
+        }
+        effects
+    }
+}
+
+fn end_root(root: Span, outcome: &'static str, rows: Option<usize>, at: Instant) {
+    let root = match rows {
+        Some(n) => root.attr("rows", n as i64),
+        None => root,
+    };
+    root.attr("outcome", outcome).end_at(to_otlp(at));
+}
+
+fn step_open(event: OpenEvent<'_>) -> Vec<OpenEffect> {
+    OPEN.with(|o| o.borrow_mut().step(event))
 }
 
 /// A click on session `id` (UI thread). `held`: the opening gate keeps the old page up.
 pub fn open_begin(id: &str, held: bool) {
     if !on() { return; }
-    OPEN.with(|o| {
-        if let Some(old) = o.borrow_mut().take() && let Some(root) = old.root {
-            let late = old.started.elapsed() >= FOLLOW;
-            root.attr("outcome", if late { "unpainted" } else { "replaced" }).end_at(to_otlp(if late { old.started + FOLLOW } else { Instant::now() }));
-        }
-        let root = Span::root("session.open").attr("session.id", id).attr("held", held);
-        *o.borrow_mut() = Some(Open { id: id.to_owned(), ctx: root.ctx(), started: from_otlp(root.start), root: Some(root), committed: None, history: false, pages: 0, restored: false, live: false, painted: false });
-    });
-}
-
-fn with_open<R>(id: &str, f: impl FnOnce(&mut Open) -> R) -> Option<R> {
-    OPEN.with(|o| {
-        let mut o = o.borrow_mut();
-        if o.as_ref().is_some_and(|x| x.started.elapsed() >= FOLLOW) {
-            // Never painted within FOLLOW: it ends there rather than waiting for the next open.
-            if let Some(open) = o.take() && let Some(root) = open.root { root.attr("outcome", "unpainted").end_at(to_otlp(open.started + FOLLOW)); }
-            return None;
-        }
-        let open = o.as_mut().filter(|x| x.id == id)?;
-        Some(f(open))
-    })
+    let root = Span::root("session.open").attr("session.id", id).attr("held", held);
+    let (ctx, started) = (root.ctx(), from_otlp(root.start));
+    for effect in step_open(OpenEvent::BeginDirect { id: id.to_owned(), root, ctx, started, now: Instant::now() }) {
+        if let OpenEffect::EndRoot { root, outcome, rows, at } = effect { end_root(root, outcome, rows, at); }
+    }
 }
 
 static LAUNCHED: OnceLock<Instant> = OnceLock::new();
@@ -181,59 +301,63 @@ pub fn open_restored(id: &str, cached: usize) {
     for (path, a, b) in LAUNCH_READS.lock().unwrap_or_else(|e| e.into_inner()).drain(..) { record(ctx, "launch.read", (a, b), vec![("path", path.into())]); }
     // on_ready connects after the cached launch frame; an unchanged server page need not draw.
     let painted = PAINTED.with(|p| p.borrow().as_ref().is_some_and(|(shown, rows)| shown == id && *rows > 0));
-    OPEN.with(|o| *o.borrow_mut() = Some(Open { id: id.to_owned(), ctx, started: start, root: Some(root), committed: None, history: false, pages: 0, restored: true, live: false, painted }));
+    let _ = step_open(OpenEvent::BeginRestored { id: id.to_owned(), root, ctx, started: start, painted });
 }
 
 /// A page for `id` reached the app; `shown` is the UI thread's time merging it.
 pub fn page(id: &str, history: bool, read: &Read, shown: (Instant, Instant)) {
-    with_open(id, |open| {
-        let parent = if history {
-            let span = Span::child(open.ctx, "history").at(to_otlp(read.fetch.map_or(shown.0, |f| f.0)))
-                .attr("messages", read.messages as i64).attr("inline_images", read.inline_images as i64)
-                .attr("inline_image_bytes", read.inline_image_bytes as i64);
-            let ctx = span.ctx();
-            span.end_at(to_otlp(shown.1));
-            open.history = true;
-            ctx
-        } else {
-            open.pages += 1;
-            open.live |= read.source == "server";
-            if open.live && open.painted && let Some(root) = open.root.take() {
-                root.attr("outcome", "cached").end_at(to_otlp(shown.1));
+    let effects = step_open(OpenEvent::Page { id, history, server: read.source == "server", shown_end: shown.1, now: Instant::now() });
+    for effect in effects {
+        match effect {
+            OpenEffect::EndRoot { root, outcome, rows, at } => end_root(root, outcome, rows, at),
+            OpenEffect::RecordPage { ctx, started, history } => {
+                let parent = if history {
+                    let span = Span::child(ctx, "history").at(to_otlp(read.fetch.map_or(shown.0, |f| f.0)))
+                        .attr("messages", read.messages as i64).attr("inline_images", read.inline_images as i64)
+                        .attr("inline_image_bytes", read.inline_image_bytes as i64);
+                    let hctx = span.ctx();
+                    span.end_at(to_otlp(shown.1));
+                    hctx
+                } else {
+                    ctx
+                };
+                let n = |v: usize| Value::from(v as i64);
+                let mut fetch = vec![("source", read.source.into()), ("bytes", n(read.bytes)), ("thread", read.thread.clone().into()),
+                    ("before_click", read.fetch.is_some_and(|f| f.0 < started).into())];
+                if let (Some((start, _)), Some(first)) = (read.fetch, read.first_byte) { fetch.push(("server_ms", ms(first - start).into())); }
+                if let Some(f) = read.fetch { record(parent, "fetch", f, fetch); }
+                if let Some(j) = read.json { record(parent, "json", j, vec![("bytes", n(read.bytes))]); }
+                if let Some(p) = read.parse { record(parent, "parse", p, vec![("messages", n(read.messages))]); }
+                if let Some(i) = read.images {
+                    record(parent, "images", i, vec![("prepared", n(read.prepared.len())), ("inline_images", n(read.inline_images)),
+                        ("inline_image_bytes", n(read.inline_image_bytes)), ("thread", read.thread.clone().into())]);
+                }
+                record(parent, "show", shown, vec![("messages", n(read.messages)), ("thread", "main".into())]);
+                if !read.prepared.is_empty() {
+                    let (images, since) = (read.prepared.clone(), read.images.map_or(shown.0, |i| i.0));
+                    // Decodes run on Rune's image worker; this thread only waits on their handles.
+                    drop(std::thread::Builder::new().name("otel-decode-wait".into()).spawn(move || {
+                        let decoded = images.iter().filter(|i| i.wait().is_ok()).count();
+                        record(parent, "images.decode", (since, Instant::now()), vec![("count", n(images.len())), ("decoded", n(decoded)), ("thread", "rune-images".into())]);
+                    }));
+                }
             }
-            open.ctx
-        };
-        let n = |v: usize| Value::from(v as i64);
-        let mut fetch = vec![("source", read.source.into()), ("bytes", n(read.bytes)), ("thread", read.thread.clone().into()),
-            ("before_click", read.fetch.is_some_and(|f| f.0 < open.started).into())];
-        if let (Some((start, _)), Some(first)) = (read.fetch, read.first_byte) { fetch.push(("server_ms", ms(first - start).into())); }
-        if let Some(f) = read.fetch { record(parent, "fetch", f, fetch); }
-        if let Some(j) = read.json { record(parent, "json", j, vec![("bytes", n(read.bytes))]); }
-        if let Some(p) = read.parse { record(parent, "parse", p, vec![("messages", n(read.messages))]); }
-        if let Some(i) = read.images {
-            record(parent, "images", i, vec![("prepared", n(read.prepared.len())), ("inline_images", n(read.inline_images)),
-                ("inline_image_bytes", n(read.inline_image_bytes)), ("thread", read.thread.clone().into())]);
+            OpenEffect::RecordCommit { .. } | OpenEffect::RecordFrame { .. } => {}
         }
-        record(parent, "show", shown, vec![("messages", n(read.messages)), ("thread", "main".into())]);
-        if !read.prepared.is_empty() {
-            let (images, since) = (read.prepared.clone(), read.images.map_or(shown.0, |i| i.0));
-            // Decodes run on Rune's image worker; this thread only waits on their handles.
-            drop(std::thread::Builder::new().name("otel-decode-wait".into()).spawn(move || {
-                let decoded = images.iter().filter(|i| i.wait().is_ok()).count();
-                record(parent, "images.decode", (since, Instant::now()), vec![("count", n(images.len())), ("decoded", n(decoded)), ("thread", "rune-images".into())]);
-            }));
-        }
-    });
+    }
 }
 
 /// The opening gate let the route change: `loading` when its hold ran out first.
 pub fn committed(id: &str, loading: bool) {
-    with_open(id, |open| {
-        if open.committed.is_some() { return; }
-        let now = Instant::now();
-        record(open.ctx, if open.restored { "launch" } else { "hold" }, (open.started, now), vec![("loading", loading.into()), ("pages", (open.pages as i64).into())]);
-        open.committed = Some(now);
-    });
+    for effect in step_open(OpenEvent::Committed { id, loading, now: Instant::now() }) {
+        match effect {
+            OpenEffect::EndRoot { root, outcome, rows, at } => end_root(root, outcome, rows, at),
+            OpenEffect::RecordCommit { ctx, name, started, now, loading, pages } => {
+                record(ctx, name, (started, now), vec![("loading", loading.into()), ("pages", (pages as i64).into())]);
+            }
+            OpenEffect::RecordPage { .. } | OpenEffect::RecordFrame { .. } => {}
+        }
+    }
 }
 
 /// `on_frame_encoded`: the newest drawn frame's timing.
@@ -260,32 +384,19 @@ pub fn drawn(shown: Option<(&str, usize)>, (at, update_ms, encode_ms): (Instant,
         }
     });
     let Some((id, rows)) = shown else { return };
-    let finished = with_open(id, |open| {
-        let frame = |name: &'static str| {
-            let (update, encode) = (update_ms.unwrap_or(0.0), encode_ms.unwrap_or(0.0));
-            let start = at.checked_sub(Duration::from_secs_f64((update + encode) / 1000.0)).unwrap_or(at);
-            let span = Span::child(open.ctx, name).at(to_otlp(start)).attr("rows", rows as i64).attr("update_ms", update).attr("encode_ms", encode);
-            record(span.ctx(), "layout", (start, start + Duration::from_secs_f64(update / 1000.0)), vec![("rows", (rows as i64).into())]);
-            span.end_at(to_otlp(at));
-        };
-        if let Some(root) = open.root.take() {
-            if rows == 0 || open.committed.is_none() || (open.restored && !open.live) {
-                // A restored session's disk copy is up from the first frames, before its commit.
-                open.painted |= open.restored && rows > 0;
-                open.root = Some(root);
-                return false;
+    for effect in step_open(OpenEvent::Drawn { id, rows, at, now: Instant::now() }) {
+        match effect {
+            OpenEffect::EndRoot { root, outcome, rows, at } => end_root(root, outcome, rows, at),
+            OpenEffect::RecordFrame { ctx, name, rows } => {
+                let (update, encode) = (update_ms.unwrap_or(0.0), encode_ms.unwrap_or(0.0));
+                let start = at.checked_sub(Duration::from_secs_f64((update + encode) / 1000.0)).unwrap_or(at);
+                let span = Span::child(ctx, name).at(to_otlp(start)).attr("rows", rows as i64).attr("update_ms", update).attr("encode_ms", encode);
+                record(span.ctx(), "layout", (start, start + Duration::from_secs_f64(update / 1000.0)), vec![("rows", (rows as i64).into())]);
+                span.end_at(to_otlp(at));
             }
-            frame("first_paint");
-            root.attr("rows", rows as i64).attr("outcome", "painted").end_at(to_otlp(at));
-            return false;
+            OpenEffect::RecordPage { .. } | OpenEffect::RecordCommit { .. } => {}
         }
-        if open.history {
-            frame("history.paint");
-            return true;
-        }
-        false
-    });
-    if finished == Some(true) { OPEN.with(|o| *o.borrow_mut() = None); }
+    }
 }
 
 thread_local! {

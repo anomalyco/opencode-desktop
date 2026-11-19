@@ -50,12 +50,15 @@ pub struct Again {
 pub enum Phase {
     /// A windowed run waits for `on_ready` before its first reads. `beta_tabs`: no tabs were
     /// saved, so Desktop Beta's `drafts.sqlite` tabs are read too; without them a first launch
-    /// has none and shows Home, as Desktop's does.
-    Waiting { beta_tabs: bool },
+    /// has none and shows Home, as Desktop's does. `fallback_fixture`: fall back to the built-in
+    /// fixture when the initial probe finds no server (sidecar only).
+    Waiting { beta_tabs: bool, fallback_fixture: bool },
     /// The probe and first reads are on their way; `again` while the server didn't answer before.
     /// `accepted`: when the server took the probe's connection, so the reads that follow are
-    /// waiting on it (`FIRST_PATIENCE`).
-    Probing { rx: Receiver<Ready>, again: Option<Again>, accepted: Accepted },
+    /// waiting on it (`FIRST_PATIENCE`). `defer_plugins`: on `wasm32`, `ready()` held back the
+    /// off-first-screen built-ins so starting them on the single browser thread does not delay
+    /// these reads' answers.
+    Probing { rx: Receiver<Ready>, again: Option<Again>, accepted: Accepted, defer_plugins: bool },
     /// No server answered: the next try is at `retry_at` (`App::clock`), or, when nothing
     /// accepted a connection there (`retry_at` infinite), once its health says it answers.
     Offline { retries: u32, retry_at: f64 },
@@ -67,6 +70,9 @@ pub enum Phase {
 pub enum LaunchEvent {
     /// `on_ready`, or `setup` for a run that read the server already.
     Start,
+    /// On `wasm32`, `ready()` ran while probing and deferred non-first-screen built-ins until the
+    /// probe settles.
+    DeferPlugins,
     /// Retry: the card's button (`quiet` false), or the app on its own.
     Retry { quiet: bool },
     /// The network came back: start the backoff over.
@@ -84,13 +90,15 @@ pub enum LaunchEvent {
 #[derive(Debug, PartialEq)]
 pub enum LaunchEffect {
     /// Start the probe and first reads, keeping on for `grace`; the caller enters `Probing`.
-    Probe { beta_tabs: bool, again: Option<Again>, grace: Duration },
+    Probe { beta_tabs: bool, fallback_fixture: bool, again: Option<Again>, grace: Duration },
     /// The first reads are in: connect the stream and the open session.
     Connect,
     /// No server answered, first said: the card and the session's unavailable panel show.
     Unreachable,
     /// The fixture stands in for a server that isn't there.
     Fixture,
+    /// Start the off-first-screen built-ins that `ready()` deferred while probing (`wasm32`).
+    StartPlugins,
     WakeAt(f64),
     /// Something on screen changed.
     Repaint,
@@ -100,44 +108,59 @@ impl Phase {
     pub fn step(&mut self, event: LaunchEvent, grace: Duration) -> Effects<LaunchEffect> {
         use LaunchEffect::*;
         match (std::mem::take(self), event) {
-            (Phase::Waiting { beta_tabs }, LaunchEvent::Start) => Effects::one(Probe { beta_tabs, again: None, grace }),
-            (Phase::Connected, LaunchEvent::Start) => Effects::one(Connect),
-            (Phase::Offline { retries, .. }, LaunchEvent::Retry { quiet }) => {
-                Effects::two(Repaint, Probe { beta_tabs: false, again: Some(Again { retries, quiet }), grace: if quiet { Duration::ZERO } else { grace } })
+            (Phase::Waiting { beta_tabs, fallback_fixture }, LaunchEvent::Start) => {
+                Effects::one(Probe { beta_tabs, fallback_fixture, again: None, grace })
             }
-            (Phase::Offline { .. }, LaunchEvent::NetworkUp) => Effects::one(Probe { beta_tabs: false, again: Some(Again { retries: 0, quiet: true }), grace: Duration::ZERO }),
+            (Phase::Connected, LaunchEvent::Start) => Effects::one(Connect),
+            (Phase::Probing { rx, again, accepted, .. }, LaunchEvent::DeferPlugins) => {
+                *self = Phase::Probing { rx, again, accepted, defer_plugins: true };
+                Effects::none()
+            }
+            (Phase::Offline { retries, .. }, LaunchEvent::Retry { quiet }) => {
+                Effects::two(Repaint, Probe { beta_tabs: false, fallback_fixture: false, again: Some(Again { retries, quiet }), grace: if quiet { Duration::ZERO } else { grace } })
+            }
+            (Phase::Offline { .. }, LaunchEvent::NetworkUp) => Effects::one(Probe { beta_tabs: false, fallback_fixture: false, again: Some(Again { retries: 0, quiet: true }), grace: Duration::ZERO }),
             (Phase::Offline { retries, retry_at }, LaunchEvent::Answering) if retry_at.is_infinite() => {
-                Effects::one(Probe { beta_tabs: false, again: Some(Again { retries, quiet: true }), grace: Duration::ZERO })
+                Effects::one(Probe { beta_tabs: false, fallback_fixture: false, again: Some(Again { retries, quiet: true }), grace: Duration::ZERO })
             }
             (Phase::Offline { retries, retry_at }, LaunchEvent::Tick { now }) if now + 1e-3 >= retry_at => {
-                Effects::one(Probe { beta_tabs: false, again: Some(Again { retries, quiet: true }), grace: Duration::ZERO })
+                Effects::one(Probe { beta_tabs: false, fallback_fixture: false, again: Some(Again { retries, quiet: true }), grace: Duration::ZERO })
             }
             (Phase::Offline { retries, retry_at }, LaunchEvent::Tick { .. }) => {
                 *self = Phase::Offline { retries, retry_at };
                 Effects::none()
             }
-            (Phase::Probing { again, .. }, LaunchEvent::Landed { reached: Some(true), .. }) => {
+            (Phase::Probing { again, defer_plugins, .. }, LaunchEvent::Landed { reached: Some(true), .. }) => {
                 *self = Phase::Connected;
                 let _ = again;
-                Effects::two(Repaint, Connect)
+                let mut effects = Effects::two(Repaint, Connect);
+                effects.extend(defer_plugins.then_some(StartPlugins));
+                effects
             }
-            (Phase::Probing { .. }, LaunchEvent::Landed { reached: None, .. }) => {
+            (Phase::Probing { defer_plugins, .. }, LaunchEvent::Landed { reached: None, .. }) => {
                 *self = Phase::Connected;
-                Effects::two(Repaint, Fixture)
+                let mut effects = Effects::two(Repaint, Fixture);
+                effects.extend(defer_plugins.then_some(StartPlugins));
+                effects
             }
-            (Phase::Probing { again, .. }, LaunchEvent::Landed { reached: Some(false), refused, now }) => {
+            (Phase::Probing { again, defer_plugins, .. }, LaunchEvent::Landed { reached: Some(false), refused, now }) => {
                 let retries = again.map_or(0, |a| a.retries);
                 // A server that refuses waits for the reach watcher, which wakes nothing until
                 // it accepts; one that accepts but fails its reads tries again on a timer.
                 let retry_at = if refused { f64::INFINITY } else { now + retry_delay(retries) };
                 *self = Phase::Offline { retries: retries.saturating_add(1), retry_at };
                 let wake = (!refused).then_some(WakeAt(retry_at));
+                let plugins = defer_plugins.then_some(StartPlugins);
                 // A try the app made on its own that misses again changes nothing on screen.
                 if again.is_some_and(|a| a.quiet) {
-                    return wake.map_or_else(Effects::none, Effects::one);
+                    let mut effects = Effects::none();
+                    effects.extend(wake);
+                    effects.extend(plugins);
+                    return effects;
                 }
                 let mut effects = Effects::two(Repaint, Unreachable);
                 effects.extend(wake);
+                effects.extend(plugins);
                 effects
             }
             (phase, _) => {
@@ -171,18 +194,16 @@ pub struct Launch {
     pub inbox_wake: Option<rune::Waker>,
     /// Each server's launch, many at once: every server the window has a half of (`servers::runtime`).
     phases: std::collections::HashMap<ServerId, Phase>,
-    /// Fall back to the built-in fixture when the background probe finds no server.
-    pub fallback_fixture: bool,
-    /// Restored session id whose cached messages painted on frame 0 and settle on first live refresh.
+    /// Restored session id whose cached boot-preview messages painted on frame 0 and settle on the
+    /// first live message page (`session::pages` or `session::events::incoming`). Independent of
+    /// per-server `Phase`: set in `Waiting`, preserved across `Probing` and `Offline`, and still
+    /// live in `Connected` until the async first message page lands.
     pub cold_transcript: Option<String>,
     /// How long a launch keeps probing the local default address before Home shows the setup
     /// card ([`GRACE`] unless a test sets it): a server that is just starting comes up in this time.
     pub grace: Option<Duration>,
     /// The address the setup card names, in its story.
     pub story_addr: Option<String>,
-    /// In a page, the built-ins the first screen didn't show wait for the first reads to land
-    /// (`ready`): started first, they held the reads' answers back for about 115 ms.
-    plugins_after_reads: bool,
 }
 
 impl Launch {
@@ -207,7 +228,7 @@ pub(crate) fn story_offline(s: &mut App, checking: bool) {
         let (answer, rx) = std::sync::mpsc::channel();
         // The story's probe stays on its way: its sender lives as long as the app.
         std::mem::forget(answer);
-        Phase::Probing { rx, again: Some(Again { retries: 0, quiet: false }), accepted: Accepted::default() }
+        Phase::Probing { rx, again: Some(Again { retries: 0, quiet: false }), accepted: Accepted::default(), defer_plugins: false }
     } else {
         Phase::Offline { retries: 0, retry_at: f64::INFINITY }
     };
@@ -321,7 +342,7 @@ pub fn ready(s: &mut App, tx: &mut Tx) -> bool {
     // In a page, after the first reads land (`poll`): the page has one thread, and a built-in's
     // start on it holds the reads' answers back.
     if cfg!(target_arch = "wasm32") && matches!(window_phase(s), Some(Phase::Probing { .. })) {
-        s.launch.plugins_after_reads = true;
+        step(s, LaunchEvent::DeferPlugins, tx);
         return false;
     }
     let started = crate::plugin_host::first_frame(s);
@@ -360,9 +381,9 @@ fn step(s: &mut App, event: LaunchEvent, tx: &mut Tx) -> bool {
     let mut changed = false;
     for effect in effects {
         match effect {
-            LaunchEffect::Probe { beta_tabs, again, grace } => {
-                let (rx, accepted) = boot::spawn_probe(s, beta_tabs, grace);
-                s.launch.set_phase(&server, Phase::Probing { rx, again, accepted });
+            LaunchEffect::Probe { beta_tabs, fallback_fixture, again, grace } => {
+                let (rx, accepted) = boot::spawn_probe(s, beta_tabs, fallback_fixture, grace);
+                s.launch.set_phase(&server, Phase::Probing { rx, again, accepted, defer_plugins: false });
             }
             LaunchEffect::Connect => boot::connect(s, tx),
             LaunchEffect::Unreachable => {
@@ -370,6 +391,11 @@ fn step(s: &mut App, event: LaunchEvent, tx: &mut Tx) -> bool {
                 changed |= crate::reconnect::step_link(s, &server, opencode_kit::servers::link::Event::Unreachable { now }, tx);
             }
             LaunchEffect::Fixture => {}
+            LaunchEffect::StartPlugins => {
+                if crate::plugin_host::first_frame(s) {
+                    tx.instant();
+                }
+            }
             LaunchEffect::WakeAt(at) => tx.wake_after(Duration::from_secs_f64((at - *s.clock).max(0.0))),
             LaunchEffect::Repaint => {
                 tx.instant();
@@ -422,13 +448,6 @@ fn first_reads_slow(s: &mut App, tx: &mut Tx) -> bool {
 
 /// `poll`: the first reads land at once (nothing animates in on the first load), then connect.
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
-    // The first reads landed (or stopped): the built-ins `ready` held back start now.
-    if s.launch.plugins_after_reads && !matches!(window_phase(s), Some(Phase::Probing { .. })) {
-        s.launch.plugins_after_reads = false;
-        if crate::plugin_host::first_frame(s) {
-            tx.instant();
-        }
-    }
     if s.launch.network_change.as_ref().is_some_and(|n| n.take()) {
         network_available(s, tx);
     }

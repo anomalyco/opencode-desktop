@@ -10,7 +10,7 @@ use rune_kit::ScrollBar;
 use rune_kit::diff::Side;
 use opencode_ui::palette::Pal;
 
-use super::state::{CodeDocState, FileLineSelection};
+use super::state::{CodeDocState, Content, FileLineSelection};
 use crate::notes::{Handoff, LineNotes, LineRange};
 use crate::{CodeLook, EDGE_FADE, LINE_H, TraceHooks, expand_tabs};
 
@@ -122,8 +122,8 @@ impl<S: 'static> CodeViewer<S> {
 }
 
 fn non_text_view(st: &CodeDocState, look: &CodeLook, p: &Pal, root_key: &str) -> Option<El> {
-    if !st.ready() {
-        return Some(
+    match st.content() {
+        Content::Loading => Some(
             col()
                 .key(root_key.to_owned())
                 .w_full()
@@ -132,11 +132,9 @@ fn non_text_view(st: &CodeDocState, look: &CodeLook, p: &Pal, root_key: &str) ->
                 .fill(p.bg_base)
                 .center()
                 .child(text(opencode_i18n::t!("rune.file.loading")).font(look.label).color(look.muted)),
-        );
-    }
-    // A read that failed says so, and why, rather than "not found" (`files::FilePayload::Failed`).
-    if let Some((what, why)) = st.failure() {
-        return Some(
+        ),
+        // A read that failed says so, and why, rather than "not found" (`files::FilePayload::Failed`).
+        Content::Failed { what, why } => Some(
             col()
                 .key(root_key.to_owned())
                 .w_full()
@@ -148,23 +146,21 @@ fn non_text_view(st: &CodeDocState, look: &CodeLook, p: &Pal, root_key: &str) ->
                 .px(24.0)
                 .child(text(what.clone()).key("file-read-failed").font(look.label).color(p.text))
                 .child(text(why.clone()).font(look.label).color(look.muted).wrap().max_w(448.0).align(rune::Align::Center)),
-        );
-    }
-    if st.missing() {
-        let name = opencode_kit::path::basename(st.path());
-        return Some(
-            col()
-                .key(root_key.to_owned())
-                .w_full()
-                .grow(1.0)
-                .min_h(0.0)
-                .fill(p.bg_base)
-                .center()
-                .child(text(opencode_i18n::t!("plugin.file.tab.notFound", name = name)).font(look.label).color(look.muted)),
-        );
-    }
-    if st.binary() {
-        return Some(
+        ),
+        Content::Missing => {
+            let name = opencode_kit::path::basename(st.path());
+            Some(
+                col()
+                    .key(root_key.to_owned())
+                    .w_full()
+                    .grow(1.0)
+                    .min_h(0.0)
+                    .fill(p.bg_base)
+                    .center()
+                    .child(text(opencode_i18n::t!("plugin.file.tab.notFound", name = name)).font(look.label).color(look.muted)),
+            )
+        }
+        Content::Binary { size } => Some(
             col()
                 .key(root_key.to_owned())
                 .w_full()
@@ -173,13 +169,13 @@ fn non_text_view(st: &CodeDocState, look: &CodeLook, p: &Pal, root_key: &str) ->
                 .fill(p.bg_base)
                 .center()
                 .child(
-                    text(opencode_i18n::t!("rune.file.binary", size = st.size_bytes()))
+                    text(opencode_i18n::t!("rune.file.binary", size = *size))
                         .font(look.label)
                         .color(look.muted),
                 ),
-        );
+        ),
+        Content::Text { .. } => None,
     }
-    None
 }
 
 fn content_width(look: &CodeLook, st: &CodeDocState) -> f32 {

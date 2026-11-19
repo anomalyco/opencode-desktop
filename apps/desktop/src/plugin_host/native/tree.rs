@@ -143,7 +143,7 @@ fn workspace(app: &App, p: &Pal, a: &NodeArgs, sid: &str, kinds: Rc<HashMap<Stri
     cx::read(Dep::FilesTree(sid.to_owned()));
     let empty = crate::files::SessionFiles::default();
     let ws = app.workspace_panes.files.sessions.get(sid).unwrap_or(&empty);
-    if !ws.ready {
+    if !ws.tree_load.is_ready() {
         return col().key("files-tree-loading").w_full().grow(1.0).px(10.0).pt(8.0).child(text(opencode_i18n::t!("ui.sessionReview.image.loading")).font(UI_SMALL).color(p.muted));
     }
     if filter.is_empty() {

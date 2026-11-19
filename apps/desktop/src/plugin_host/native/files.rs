@@ -20,7 +20,7 @@ pub fn build(lua: &Lua, t: &Table) -> mlua::Result<()> {
         let app = app_now("Workspace:OpenTree")?;
         let sid = session_for(app, &directory).ok_or_else(|| mlua::Error::runtime(format!("Workspace:OpenTree: no session is open in {directory}")))?;
         // Listed once its session's folder is known (an empty one would list the server's own).
-        if !app.workspace_panes.files.sessions.get(&sid).is_some_and(|w| w.ready) && app.session(&sid).is_some_and(|i| !i.directory.is_empty()) {
+        if !app.workspace_panes.files.sessions.get(&sid).is_some_and(|w| w.tree_load.is_ready()) && app.session(&sid).is_some_and(|i| !i.directory.is_empty()) {
             let id = sid.clone();
             app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
@@ -38,7 +38,7 @@ pub fn build(lua: &Lua, t: &Table) -> mlua::Result<()> {
         // wasn't known), or one a failed refresh left stale, reads as it shows.
         let doc = app.workspace_panes.files.sessions.get(&sid).and_then(|w| w.docs.get(&path));
         let known = app.session(&sid).is_some_and(|i| !i.directory.is_empty());
-        let waiting = known && doc.is_some_and(|d| !d.ready()) && !app.workspace_panes.files.reads.running(&sid, &path) && !crate::files::video::is_video(&path);
+        let waiting = known && doc.is_some_and(|d| d.content().is_loading()) && !app.workspace_panes.files.reads.running(&sid, &path) && !crate::files::video::is_video(&path);
         if doc.is_none() || waiting || (known && app.workspace_panes.files.reads.stale(&sid, &path)) {
             let (id, at) = (sid.clone(), path.clone());
             app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
@@ -87,7 +87,7 @@ fn document(lua: &Lua) -> mlua::Result<Table> {
             cx::read(Dep::FilesMissing(sid.clone(), path.clone()));
             let app = app_now("CodeDocument:Missing")?;
             let doc = app.workspace_panes.files.sessions.get(&sid).and_then(|w| w.docs.get(&path));
-            Ok(doc.is_some_and(|d| d.missing()))
+            Ok(doc.is_some_and(|d| d.content().is_missing()))
         })?,
     )?;
     m.raw_set(
@@ -95,7 +95,7 @@ fn document(lua: &Lua) -> mlua::Result<Table> {
         lua.create_function(move |_, this: Table| {
             let (app, sid, path) = read_doc(&this, "CodeDocument:Binary")?;
             let doc = app.workspace_panes.files.sessions.get(&sid).and_then(|w| w.docs.get(&path));
-            Ok(doc.is_some_and(|d| d.binary()))
+            Ok(doc.is_some_and(|d| d.content().is_binary()))
         })?,
     )?;
     m.raw_set(
@@ -133,14 +133,14 @@ fn session_for(app: &App, directory: &str) -> Option<String> {
 pub fn version(app: &App, session: &str) -> u64 {
     let mut h = std::hash::DefaultHasher::new();
     if let Some(w) = app.workspace_panes.files.sessions.get(session) {
-        (w.ready, w.tree.visible_len(), w.known_files.len(), w.known_dirs.len(), w.expanded_dirs.len(), &w.search, &w.highlighted_filter_path).hash(&mut h);
+        (w.tree_load.is_ready(), w.tree.visible_len(), w.known_files.len(), w.known_dirs.len(), w.expanded_dirs.len(), &w.search, &w.highlighted_filter_path).hash(&mut h);
         let mut docs: Vec<_> = w.docs.iter().collect();
         docs.sort_by(|a, b| a.0.cmp(b.0));
         for (path, d) in docs {
-            (path, d.rev, d.ready(), d.missing(), d.binary(), d.size_bytes(), d.wrap(), d.line_count(), d.find_open(), d.match_count(), d.active_match_index(), d.text().len()).hash(&mut h);
+            (path, d.rev, d.content(), d.wrap(), d.line_count(), d.find_open(), d.match_count(), d.active_match_index(), d.text().len()).hash(&mut h);
             (&d.find_input.text, d.find_input.focused).hash(&mut h);
             if d.find_open() { w.file_matches(path,d).hash(&mut h); }
-            w.md.get(path).map(|v| (v.rendered, v.matches.len(), v.active)).hash(&mut h);
+            w.md.get(path).map(|v| (v.mode, v.matches.len(), v.active)).hash(&mut h);
             w.code_paths.get(path).map(|c| c.rev).hash(&mut h);
         }
         // A picture's decode, its zoom and pan, and the stage it fits.
@@ -164,14 +164,14 @@ pub fn version(app: &App, session: &str) -> u64 {
 
 /// Whether `path` in `session` is ready and missing (`Dep::FilesMissing`).
 pub fn missing_version(app: &App, session: &str, path: &str) -> Option<(bool, bool)> {
-    app.workspace_panes.files.sessions.get(session).and_then(|w| w.docs.get(path)).map(|d| (d.ready(), d.missing()))
+    app.workspace_panes.files.sessions.get(session).and_then(|w| w.docs.get(path)).map(|d| (!d.content().is_loading(), d.content().is_missing()))
 }
 
 /// The workspace tree and file search version for `session` (`Dep::FilesTree`).
 pub fn tree_version(app: &App, session: &str) -> u64 {
     let mut h = std::hash::DefaultHasher::new();
     if let Some(w) = app.workspace_panes.files.sessions.get(session) {
-        (w.ready, w.tree.visible_len(), w.known_files.len(), w.known_dirs.len(), w.expanded_dirs.len(), &w.search, &w.highlighted_filter_path).hash(&mut h);
+        (w.tree_load.is_ready(), w.tree.visible_len(), w.known_files.len(), w.known_dirs.len(), w.expanded_dirs.len(), &w.search, &w.highlighted_filter_path).hash(&mut h);
         let mut expanded_xor = 0u64;
         for dir in &w.expanded_dirs {
             let mut dh = std::hash::DefaultHasher::new();
@@ -188,11 +188,11 @@ pub fn doc_version(app: &App, session: &str, path: &str) -> u64 {
     let mut h = std::hash::DefaultHasher::new();
     if let Some(w) = app.workspace_panes.files.sessions.get(session) {
         if let Some(d) = w.docs.get(path) {
-            (d.rev, d.ready(), d.missing(), d.binary(), d.size_bytes(), d.wrap(), d.line_count(), d.find_open(), d.match_count(), d.active_match_index(), d.text().len()).hash(&mut h);
+            (d.rev, d.content(), d.wrap(), d.line_count(), d.find_open(), d.match_count(), d.active_match_index(), d.text().len()).hash(&mut h);
             (&d.find_input.text, d.find_input.focused).hash(&mut h);
             if d.find_open() { w.file_matches(path, d).hash(&mut h); }
         }
-        w.md.get(path).map(|v| (v.rendered, v.matches.len(), v.active)).hash(&mut h);
+        w.md.get(path).map(|v| (v.mode, v.matches.len(), v.active)).hash(&mut h);
         w.code_paths.get(path).map(|c| c.rev).hash(&mut h);
         if let Some(img) = w.images.get(path) {
             let shown = img.shown();

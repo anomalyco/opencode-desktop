@@ -10,7 +10,7 @@
 //! for Home's rows, so a row waiting on a person shows its unread dot as Desktop's does. The
 //! `permission.*` and `form.*` events keep them current (`session::events`).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::time::Duration;
 
 use opencode_kit::client::Request;
@@ -35,12 +35,103 @@ pub struct Marks {
     pub unread: bool,
 }
 
+/// Per-session pending-request fetch state on the current connection (absence means unread).
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum SessionRead {
+    /// Inactive busy tab waiting out its stagger delay until `at` (`App::clock`).
+    Scheduled { at: f64 },
+    /// Pending permissions and forms have been requested on this connection.
+    Read,
+}
+
+enum ReadEvent {
+    /// Request a session's pending permissions and forms immediately.
+    ReadNow(String),
+    /// Reconcile the inactive busy tabs eligible for staggered fetching at `now`.
+    SyncTabs { tabs: Vec<(usize, String)>, now: f64 },
+    /// Connection dropped: forget all read marks and pending schedules.
+    Reset,
+}
+
+enum ReadEffect {
+    Fetch(String),
+    WakeAfter(Duration),
+}
+
 /// Which sessions' pending requests this connection has read (`sync.run`'s done keys), and the
-/// tabs waiting out their delay.
+/// tabs waiting out their delay, in one per-session map so a session cannot be both scheduled
+/// and already read.
 #[derive(Default)]
 pub struct RequestReads {
-    read: HashSet<String>,
-    due: HashMap<String, f64>,
+    sessions: HashMap<String, SessionRead>,
+}
+
+impl RequestReads {
+    fn is_read(&self, id: &str) -> bool {
+        matches!(self.sessions.get(id), Some(SessionRead::Read))
+    }
+
+    fn has_scheduled(&self) -> bool {
+        self.sessions.values().any(|s| matches!(s, SessionRead::Scheduled { .. }))
+    }
+
+    fn step(&mut self, event: ReadEvent) -> Vec<ReadEffect> {
+        match event {
+            ReadEvent::ReadNow(id) => {
+                if self.is_read(&id) {
+                    return Vec::new();
+                }
+                self.sessions.insert(id.clone(), SessionRead::Read);
+                vec![ReadEffect::Fetch(id)]
+            }
+            ReadEvent::SyncTabs { tabs, now } => {
+                self.sessions.retain(|id, state| {
+                    matches!(state, SessionRead::Read) || tabs.iter().any(|(_, t)| t == id)
+                });
+                for (index, id) in tabs {
+                    self.sessions
+                        .entry(id)
+                        .or_insert(SessionRead::Scheduled { at: now + TAB_DELAY + TAB_STEP * index as f64 });
+                }
+                let mut effects = Vec::new();
+                let mut next: Option<f64> = None;
+                for (id, state) in &mut self.sessions {
+                    let SessionRead::Scheduled { at } = *state else { continue };
+                    if at <= now + 1e-9 {
+                        *state = SessionRead::Read;
+                        effects.push(ReadEffect::Fetch(id.clone()));
+                    } else {
+                        next = Some(next.map_or(at, |m| m.min(at)));
+                    }
+                }
+                if let Some(at) = next {
+                    effects.push(ReadEffect::WakeAfter(Duration::from_secs_f64(at - now)));
+                }
+                effects
+            }
+            ReadEvent::Reset => {
+                self.sessions.clear();
+                Vec::new()
+            }
+        }
+    }
+}
+
+fn apply_effects(s: &mut App, effects: Vec<ReadEffect>, mut tx: Option<&mut Tx>) {
+    for effect in effects {
+        match effect {
+            ReadEffect::Fetch(id) => {
+                if let Source::Live { requests: Some(r), .. } = &*s.source {
+                    r.send(Request::Pending(id)).ok();
+                }
+            }
+            ReadEffect::WakeAfter(delay) => {
+                if let Some(tx) = tx.as_deref_mut() {
+                    tx.wake_after(delay);
+                }
+            }
+        }
+    }
 }
 
 impl App {
@@ -95,10 +186,11 @@ impl App {
 
     /// Reads `id`'s open permissions and forms, once per connection.
     pub(crate) fn read_requests(&mut self, id: &str) {
-        let Source::Live { requests: Some(r), .. } = &*self.source else { return };
-        if self.request_reads.read.insert(id.to_owned()) {
-            r.send(Request::Pending(id.to_owned())).ok();
+        if !matches!(&*self.source, Source::Live { requests: Some(_), .. }) || self.request_reads.is_read(id) {
+            return;
         }
+        let effects = self.request_reads.step(ReadEvent::ReadNow(id.to_owned()));
+        apply_effects(self, effects, None);
     }
 
     /// The open session's requests and those of what runs below it.
@@ -113,7 +205,9 @@ impl App {
 
     /// The connection dropped: every session's requests read again when next shown.
     pub(crate) fn forget_request_reads(&mut self) {
-        *self.request_reads = RequestReads::default();
+        if !self.request_reads.sessions.is_empty() {
+            let _ = self.request_reads.step(ReadEvent::Reset);
+        }
     }
 }
 
@@ -135,25 +229,14 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         s.tabs
             .iter()
             .enumerate()
-            .filter(|(_, t)| !t.is_draft() && t.server == *crate::servers::runtime::active(s) && shown.as_deref() != Some(t.id.as_str()) && !s.request_reads.read.contains(&t.id))
+            .filter(|(_, t)| !t.is_draft() && t.server == *crate::servers::runtime::active(s) && shown.as_deref() != Some(t.id.as_str()) && !s.request_reads.is_read(&t.id))
             .filter(|(_, t)| s.running.iter().any(|r| s.root_of(r) == t.id))
             .map(|(i, t)| (i, t.id.clone()))
             .collect()
     };
-    if !tabs.is_empty() || !s.request_reads.due.is_empty() {
-        let reads = &mut *s.request_reads;
-        reads.due.retain(|id, _| tabs.iter().any(|(_, t)| t == id));
-        for (index, id) in &tabs {
-            reads.due.entry(id.clone()).or_insert(now + TAB_DELAY + TAB_STEP * *index as f64);
-        }
-        let ready: Vec<String> = reads.due.iter().filter(|(_, at)| **at <= now + 1e-9).map(|(id, _)| id.clone()).collect();
-        if let Some(next) = reads.due.values().copied().filter(|at| *at > now + 1e-9).reduce(f64::min) {
-            tx.wake_after(Duration::from_secs_f64(next - now));
-        }
-        for id in &ready {
-            s.request_reads.due.remove(id);
-            s.read_requests(id);
-        }
+    if !tabs.is_empty() || s.request_reads.has_scheduled() {
+        let effects = s.request_reads.step(ReadEvent::SyncTabs { tabs, now });
+        apply_effects(s, effects, Some(tx));
     }
     // A live run may be waiting on a person. A saved busy timestamp is not a live run:
     // asking for its permissions/forms can boot a cold location just to draw the Inbox.
@@ -166,7 +249,7 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         let working: Vec<String> = s
             .sessions
             .iter()
-            .filter(|i| i.parent.is_none() && !s.request_reads.read.contains(&i.id) && s.has_live_family(&i.id))
+            .filter(|i| i.parent.is_none() && !s.request_reads.is_read(&i.id) && s.has_live_family(&i.id))
             .map(|i| i.id.clone())
             .collect();
         for id in working {

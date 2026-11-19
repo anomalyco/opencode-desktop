@@ -365,7 +365,6 @@ impl App {
         // A headless snapshot reads the server now; a window reads it and probes after its first frame.
         let deferred = launch::deferred();
         let first = if deferred {
-            self.launch.fallback_fixture = fallback_fixture;
             None
         } else {
             match launch::First::fetch(&server) {
@@ -387,11 +386,11 @@ impl App {
         let beta = self.window.fresh && server.base == DEFAULT_SERVER;
         match saved_tabs.or_else(|| (beta && !deferred).then(tabs::from_beta).flatten()) {
             Some(tabs) => *self.tabs = tabs,
-            None if deferred => self.launch.set_phase(ServerKey::SIDECAR, launch::Phase::Waiting { beta_tabs: beta }),
+            None if deferred => self.launch.set_phase(ServerKey::SIDECAR, launch::Phase::Waiting { beta_tabs: beta, fallback_fixture }),
             None => {}
         }
         if deferred && self.launch.phase(ServerKey::SIDECAR).is_none() {
-            self.launch.set_phase(ServerKey::SIDECAR, launch::Phase::Waiting { beta_tabs: false });
+            self.launch.set_phase(ServerKey::SIDECAR, launch::Phase::Waiting { beta_tabs: false, fallback_fixture });
         }
         if let Some(first) = first {
             self.apply_first(first);

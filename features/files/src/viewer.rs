@@ -245,15 +245,14 @@ pub fn code_area<H: FilesHost + PopupHost + 'static>(
     let plugin_view = s.plugin_file_viewer(p, session_id, &links::link_directory(s, session_id), path);
     // `artifact-view-machine.ts` at 9ca3daec38: ordinary text has fixed source mode.
     // It shares the artifact toolbar's content actions with switchable previews.
-    let loaded = doc.is_some_and(|d| d.ready() && !d.missing());
+    let loaded = doc.is_some_and(|d| d.content().has_content());
     let toolbar = artifact && (loaded || picture.is_some() || clip.is_some() || plugin_view.is_some());
     if toolbar {
         let source = previewable
-            || (loaded
-                && picture.is_none()
+            || (picture.is_none()
                 && clip.is_none()
                 && plugin_view.is_none()
-                && doc.is_some_and(|d| !d.binary()));
+                && doc.is_some_and(|d| d.content().is_text()));
         let meta = picture
             .filter(|_| s.files().stage_size.get()[0] > META_MIN_W)
             .map(|img| img.meta());
