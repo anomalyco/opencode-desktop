@@ -132,7 +132,7 @@ pub fn build() -> Kernel<App> {
             .with_key(crate::diagram::key),
     );
     b.register_overlay(
-        OverlayRegistration::<App>::new("dialog.move_recovery")
+        OverlayRegistration::<App>::new(crate::view::move_recovery::OVERLAY_ID)
             .with_render(crate::overlays::layer::ELEVATED_DIALOG, |s, cx| {
                 let p = crate::palette::pal(s.dark(cx));
                 crate::view::move_recovery::view(s, p, cx)
@@ -140,15 +140,17 @@ pub fn build() -> Kernel<App> {
             .with_key(crate::view::move_recovery::key)
             // Visually above `connect`/`mcp` in ELEVATED_DIALOG, kept after `mcp` in MODAL keys
             // to preserve existing key order (mutually exclusive in practice; swallows all keys while open).
-            .after_key(crate::mcp::OVERLAY_ID),
+            .after_key(crate::mcp::OVERLAY_ID)
+            .with_dismiss(crate::view::move_recovery::keep),
     );
     b.register_overlay(
-        OverlayRegistration::<App>::new("dialog.servers")
+        OverlayRegistration::<App>::new(crate::servers::dialog::OVERLAY_ID)
             .with_render(crate::overlays::layer::ELEVATED_DIALOG, |s, cx| {
                 let p = crate::palette::pal(s.dark(cx));
                 crate::servers::dialog::view(s, p, cx)
             })
-            .above("plugin.dialog"),
+            .above("plugin.dialog")
+            .with_dismiss(crate::servers::dialog::close),
     );
     b.register_escape_layer(
         EscapeLayer::<App>::new(
