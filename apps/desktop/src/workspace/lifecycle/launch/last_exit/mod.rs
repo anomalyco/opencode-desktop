@@ -625,7 +625,6 @@ mod imp {
         }
         #[allow(clippy::disallowed_methods)]
         let Some(kind) = std::env::var("OPENCODE_RUNE_CRASH_DRILL").ok() else { return };
-        #[allow(clippy::disallowed_methods)]
         let Some(root) = std::env::var_os("RUNE_DIRS_ROOT").map(PathBuf::from) else { return };
         let stack_bytes = if kind == "stack-commit" { 8 << 20 } else { 1 << 20 };
         let go = root.join("drill.go");

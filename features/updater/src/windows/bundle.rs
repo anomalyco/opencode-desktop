@@ -105,7 +105,6 @@ fn debug_txf_fault(at_create: bool) -> Option<io::Error> {
     if crate::build_channel() != "local" {
         return None;
     }
-    #[allow(clippy::disallowed_methods)]
     let mode = std::env::var_os("OPENCODE_RUNE_DISABLE_TXF")?;
     let s = mode.to_string_lossy();
     match (at_create, s.as_ref()) {

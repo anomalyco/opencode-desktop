@@ -34,7 +34,6 @@ const CLOSE_GRACE: Duration = Duration::from_secs(10);
 
 /// Uninstalls and exits, when this run is the uninstaller.
 pub fn run_if_asked() {
-    #[allow(clippy::disallowed_methods)]
     let args: Vec<String> = std::env::args().skip(1).collect();
     let code = match args.first().map(String::as_str) {
         Some("--uninstall") => uninstall(&Args::parse(&args[1..])),
