@@ -140,11 +140,11 @@ pub fn pending_sources() -> Vec<(String, String)> {
     SOURCES.with_borrow(|all| all.iter().filter(|s| !s.state.complete()).map(|s| (s.plugin.clone(), s.id.clone())).collect())
 }
 
-/// A hash of every source's list, for `Servers.Changed`.
+/// A hash of every source's list and display order, for `Servers.Changed` and Home sync.
 pub fn version() -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::hash::DefaultHasher::new();
-    SOURCES.with_borrow(|all| all.iter().for_each(|s| (&s.plugin, &s.id, &s.state).hash(&mut h)));
+    SOURCES.with_borrow(|all| all.iter().for_each(|s| (&s.plugin, &s.id, s.order, &s.state).hash(&mut h)));
     h.finish()
 }
 
