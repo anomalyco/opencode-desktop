@@ -115,7 +115,7 @@ pub const BROWSER_KEYS: &[Trigger] = &[
 pub fn init_region(s: &mut App) {
     crate::stories::scenes::open_scene(s);
     s.finish_stream();
-    s.workspace_panes.side = Default::default();
+    *s.kernel.slots.get_mut(&crate::panels::SIDE) = Default::default();
     s.workspace_panes.browser = Default::default();
     let Some(sid) = s.active_session_id().map(str::to_owned) else { return };
 
@@ -164,7 +164,7 @@ pub const CLOSE_LAST_KEYS: &[Trigger] = &[
 pub fn init_close_last(s: &mut App) {
     crate::stories::scenes::open_scene(s);
     s.finish_stream();
-    s.workspace_panes.side = Default::default();
+    *s.kernel.slots.get_mut(&crate::panels::SIDE) = Default::default();
     s.workspace_panes.browser = Default::default();
     let Some(sid) = s.active_session_id().map(str::to_owned) else { return };
     let mut tx = rune::Tx::default();
@@ -185,7 +185,7 @@ fn close_last(s: &mut App, play: &mut Play<'_, App>) {
 pub fn init_browser(s: &mut App) {
     crate::stories::scenes::open_scene(s);
     s.finish_stream();
-    s.workspace_panes.side = Default::default();
+    *s.kernel.slots.get_mut(&crate::panels::SIDE) = Default::default();
     s.workspace_panes.browser = Default::default();
     match *s.fixture_run.variant {
         0 => {
@@ -229,7 +229,7 @@ pub fn setup_browser(s: &mut App, _play: &mut Play<'_, App>) {
 pub fn init_install(s: &mut App) {
     crate::stories::scenes::open_scene(s);
     s.finish_stream();
-    s.workspace_panes.side = Default::default();
+    *s.kernel.slots.get_mut(&crate::panels::SIDE) = Default::default();
     s.workspace_panes.browser = Default::default();
     let status = match *s.fixture_run.variant {
         0 => EngineStatus::NotInstalled,
@@ -256,7 +256,7 @@ pub fn setup_install(s: &mut App, _play: &mut Play<'_, App>) {
 }
 
 pub fn view_card(s: &App, p: &Pal) -> El {
-    crate::panels::view::story_card(s, p, s.side_width(s.workspace_panes.side.laid_w.get()).min(640.0), 540.0)
+    crate::panels::view::story_card(s, p, s.side_width(s.kernel.slots.get(&crate::panels::SIDE).laid_w.get()).min(640.0), 540.0)
 }
 
 rune_register::register!(crate::stories::STORY_LIST: Story = [

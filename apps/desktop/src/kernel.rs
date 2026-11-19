@@ -276,14 +276,15 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
     // may run a frame later) leaves the selected tab's label muted (`FocusMode::Quiet`).
     b.add_system_ordered(Phase::Ingest, ingest::PANELS_SYNC_COMPOSER, "panels.sync_composer", |s, _, _| {
         let composing = s.composer.focused;
+        let side = s.kernel.slots.get(&crate::panels::SIDE);
         let in_terminal = !composing
-            && s.workspace_panes.side.focus.is_armed()
-            && s.workspace_panes.side.focus.is_focused()
+            && side.focus.is_armed()
+            && side.focus.is_focused()
             && s.terminal_focus().is_some();
         let sync = crate::panels::SideFocusEvent::SyncComposer { composing, in_terminal };
         // Written only when it changes: a write to the side state rebuilds every region reading it.
-        if s.workspace_panes.side.focus.would_change(sync) {
-            s.workspace_panes.side.focus.sync_composer(composing, in_terminal);
+        if s.kernel.slots.get(&crate::panels::SIDE).focus.would_change(sync) {
+            s.kernel.slots.get_mut(&crate::panels::SIDE).focus.sync_composer(composing, in_terminal);
         }
         false
     });

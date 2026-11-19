@@ -60,7 +60,7 @@ fn message(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             s.sidebar_inbox.branches.reconnected();
             reconnect::back(s);
             // Terminals that failed under the old connection attach again (`server.connected`).
-            s.workspace_panes.terminal.connections += 1;
+            s.kernel.slots.get_mut(&crate::terminal::TERMINAL).connections += 1;
             s.pump_outbox();
             s.stream_back();
             s.check_sends();

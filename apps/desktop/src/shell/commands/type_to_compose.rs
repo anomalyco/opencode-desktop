@@ -62,7 +62,7 @@ impl App {
         let menus = self.kernel.slots.get(&crate::session_menu::MENUS);
         self.has_composer()
             && !self.settings.open
-            && !self.workspace_panes.side.focus.is_focused()
+            && !self.kernel.slots.get(&crate::panels::SIDE).focus.is_focused()
             && !self.kernel.slots.get(&crate::switcher::SWITCHER).is_open()
             && !self.kernel.slots.get(&crate::project_switcher::PROJECT_SWITCHER).is_open()
             && !self.kernel.slots.get(&crate::fork::FORK).is_open()

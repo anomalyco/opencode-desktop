@@ -5,7 +5,7 @@ pub use opencode_feature_review::*;
 mod stories;
 
 use opencode_code_view::ExpandMode;
-use opencode_kernel::{Feature, KernelBuilder};
+use opencode_kernel::{Feature, KernelBuilder, Slot};
 use opencode_kit::client::Server;
 use opencode_kit::wire_error::WireError;
 use rune::time::Instant;
@@ -16,13 +16,15 @@ use serde_json::Value;
 use crate::jobs::Apply;
 use crate::{App, Route, Source};
 
+pub(crate) static REVIEW: Slot<ReviewPane> = Slot::new();
+
 impl ReviewHost for App {
     fn review(&self) -> &ReviewPane {
-        &self.workspace_panes.review
+        self.kernel.slots.get(&REVIEW)
     }
 
     fn review_mut(&mut self) -> &mut ReviewPane {
-        &mut self.workspace_panes.review
+        self.kernel.slots.get_mut(&REVIEW)
     }
 
     fn session_directory(&self, sid: &str) -> Option<&str> {
@@ -67,18 +69,20 @@ impl ReviewHost for App {
     }
 
     fn show_review_tab(&mut self, sid: &str, focus_panel: bool, tx: &mut Tx) {
-        let saved_focus = (self.composer.focused, self.workspace_panes.side.focus.mode());
+        let saved_focus = (self.composer.focused, self.kernel.slots.get(&crate::panels::SIDE).focus.mode());
         self.show_pane_tab(tx, |s| s.show_side_tab(sid, REVIEW_KEY, None));
         if focus_panel {
-            self.workspace_panes.side.focus.focus();
-            self.workspace_panes.side.active_pane_focus = crate::panels::tabs::session_tab_pane(
+            let pane = crate::panels::tabs::session_tab_pane(
                 &self.session_side_mut(sid).tab_state.tabs,
                 REVIEW_KEY,
             );
+            let side = self.kernel.slots.get_mut(&crate::panels::SIDE);
+            side.focus.focus();
+            side.active_pane_focus = pane;
             self.composer.focused = false;
         } else {
             self.composer.focused = saved_focus.0;
-            self.workspace_panes.side.focus.restore(saved_focus.1);
+            self.kernel.slots.get_mut(&crate::panels::SIDE).focus.restore(saved_focus.1);
         }
     }
 
@@ -184,6 +188,7 @@ impl Feature<App> for ReviewFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
-        builder.add_setup("review.waker", |s, w| s.workspace_panes.review.set_waker(w));
+        builder.register_slot(&REVIEW);
+        builder.add_setup("review.waker", |s, w| s.kernel.slots.get_mut(&REVIEW).set_waker(w));
     }
 }

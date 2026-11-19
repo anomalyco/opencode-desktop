@@ -67,10 +67,11 @@ fn story_card_size(zoom: f32) -> (f32, f32) {
 pub fn init_story(s: &mut App) {
     crate::open_scene(s);
     s.finish_stream();
-    s.workspace_panes.terminal.workspaces.clear();
-    s.workspace_panes.terminal.lru_order.clear();
-    s.workspace_panes.terminal.story.step(StoryStageEvent::Build { variant: *s.fixture_run.variant });
-    s.workspace_panes.terminal.reset_blink(*s.clock);
+    let term = s.kernel.slots.get_mut(&super::TERMINAL);
+    term.workspaces.clear();
+    term.lru_order.clear();
+    term.story.step(StoryStageEvent::Build { variant: *s.fixture_run.variant });
+    term.reset_blink(*s.clock);
 
     let theme = theme_from_pal(pal(s.terminal_dark()));
     let (choice, style) = terminal_font_style(&s.diag.knobs);
@@ -149,7 +150,7 @@ fn stream_update(s: &mut App, _play: &mut Play<'_, App>) {
     } else {
         BUILD_BURST
     };
-    if let Some(ws) = s.workspace_panes.terminal.workspaces.get(STORY_WS)
+    if let Some(ws) = s.kernel.slots.get(&super::TERMINAL).workspaces.get(STORY_WS)
         && let Some(active) = ws.active.as_deref()
         && let Some(tab) = ws.tabs.iter().find(|t| t.id == active)
         && let Some(stream) = tab.backend.stream()
@@ -159,7 +160,7 @@ fn stream_update(s: &mut App, _play: &mut Play<'_, App>) {
 }
 
 fn scroll_up(s: &mut App, _play: &mut Play<'_, App>) {
-    if let Some(ws) = s.workspace_panes.terminal.workspaces.get(STORY_WS)
+    if let Some(ws) = s.kernel.slots.get(&super::TERMINAL).workspaces.get(STORY_WS)
         && let Some(active) = ws.active.as_deref()
         && let Some(tab) = ws.tabs.iter().find(|t| t.id == active)
     {
@@ -168,7 +169,7 @@ fn scroll_up(s: &mut App, _play: &mut Play<'_, App>) {
 }
 
 fn scroll_bottom(s: &mut App, _play: &mut Play<'_, App>) {
-    if let Some(ws) = s.workspace_panes.terminal.workspaces.get(STORY_WS)
+    if let Some(ws) = s.kernel.slots.get(&super::TERMINAL).workspaces.get(STORY_WS)
         && let Some(active) = ws.active.as_deref()
         && let Some(tab) = ws.tabs.iter().find(|t| t.id == active)
     {
@@ -179,7 +180,7 @@ fn scroll_bottom(s: &mut App, _play: &mut Play<'_, App>) {
 /// A three-line script pasted into the story's shell, which hasn't asked for bracketed paste:
 /// the terminal asks before it runs (`paste.rs`).
 fn paste_script(s: &mut App, play: &mut Play<'_, App>) {
-    let Some(tab) = s.workspace_panes.terminal.workspaces.get(STORY_WS).and_then(|ws| ws.active.clone()) else { return };
+    let Some(tab) = s.kernel.slots.get(&super::TERMINAL).workspaces.get(STORY_WS).and_then(|ws| ws.active.clone()) else { return };
     let script = "git fetch origin\r\ngit reset --hard origin/main\r\ncargo build --release\r\n".to_owned();
     s.paste_into_terminal(STORY_WS, &tab, script, play);
 }
@@ -189,7 +190,8 @@ fn new_tab(s: &mut App, _play: &mut Play<'_, App>) {
 }
 
 pub fn view_card(s: &App, p: &Pal) -> El {
-    s.workspace_panes.terminal.painted_dark.set(Some(p.dark));
+    let term = s.kernel.slots.get(&super::TERMINAL);
+    term.painted_dark.set(Some(p.dark));
     let (card_w, card_h) = story_card_size(*s.zoom);
     let inner = render_terminal_pane(
         s,
@@ -198,7 +200,7 @@ pub fn view_card(s: &App, p: &Pal) -> El {
         None,
         (card_w, card_h),
         2.0,
-        s.workspace_panes.terminal.story.is_focused(),
+        term.story.is_focused(),
         true,
     );
     col()

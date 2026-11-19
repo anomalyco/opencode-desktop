@@ -278,8 +278,9 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         .key("panel")
         .role("main")
         .on_background_press(|s: &mut App| {
-            s.workspace_panes.side.focus.blur();
-            s.workspace_panes.side.menu.close();
+            let side = s.kernel.slots.get_mut(&crate::panels::SIDE);
+            side.focus.blur();
+            side.menu.close();
         })
         // Files dropped anywhere on the page attach, as in Desktop; a timeline image
         // dragged out of the page attaches only on the composer.

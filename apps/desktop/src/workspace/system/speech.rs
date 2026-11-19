@@ -417,7 +417,7 @@ fn terminal_output(app: &mut App, tx: &mut Tx) {
         }
         return;
     };
-    let Some(snap) = app.workspace_panes.terminal.workspaces.get(&wk).and_then(|ws| ws.tabs.iter().find(|t| t.id == id)).map(|t| t.session.snapshot()) else { return };
+    let Some(snap) = app.kernel.slots.get(&crate::terminal::TERMINAL).workspaces.get(&wk).and_then(|ws| ws.tabs.iter().find(|t| t.id == id)).map(|t| t.session.snapshot()) else { return };
     let now = *app.clock;
     if let Mode::Listening(l) = &mut app.kernel.slots.get_mut(&SPEECH).mode {
         match l.terminal.step(OutputEvent::Poll { terminal: (wk, id), snap: &snap, now }) {
@@ -434,7 +434,7 @@ pub fn terminal_key(app: &mut App, wk: &str, id: &str) {
     if !listening(app) {
         return;
     }
-    let Some(snap) = app.workspace_panes.terminal.workspaces.get(wk).and_then(|ws| ws.tabs.iter().find(|t| t.id == id)).map(|t| t.session.snapshot()) else { return };
+    let Some(snap) = app.kernel.slots.get(&crate::terminal::TERMINAL).workspaces.get(wk).and_then(|ws| ws.tabs.iter().find(|t| t.id == id)).map(|t| t.session.snapshot()) else { return };
     let cursor_row = snap.screen_rows.get(usize::from(snap.cursor.row)).map(|r| r.id);
     if let Mode::Listening(l) = &mut app.kernel.slots.get_mut(&SPEECH).mode {
         l.terminal.step(OutputEvent::Key { wk, id, cursor_row });

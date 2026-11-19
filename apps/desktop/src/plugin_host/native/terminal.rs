@@ -26,7 +26,7 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<super::super::vm::Vmx>, t: &Table) -> 
         cx::read(Dep::Terminals(sid.clone()));
         let app = app_now("Terminal:List")?;
         let row = |id: &str, title: String, number: usize, hidden: bool| map([("id", Data::String(id.to_owned())), ("title", Data::String(title)), ("number", Data::Integer(number as i64)), ("hidden", Data::Bool(hidden))]);
-        let ws = app.workspace_panes.terminal.workspaces.get(&app.terminal_workspace_key_for_session(&sid));
+        let ws = app.kernel.slots.get(&crate::terminal::TERMINAL).workspaces.get(&app.terminal_workspace_key_for_session(&sid));
         let rows: Vec<Data> = match ws {
             Some(ws) if !ws.tabs.is_empty() || ws.failure.is_none() => ws.tabs.iter().map(|t| row(&t.id, t.title.trim().to_owned(), t.title_number, false)).collect(),
             Some(_) => open.iter().map(|id| row(id, String::new(), 0, false)).collect(),
@@ -105,7 +105,7 @@ fn session(lua: &Lua, sid: &str, id: &str) -> mlua::Result<Table> {
             let (sid, id) = read(&this)?;
             cx::read(Dep::Terminals(sid.clone()));
             let app = app_now("PtySession:Title")?;
-            let ws = app.workspace_panes.terminal.workspaces.get(&app.terminal_workspace_key_for_session(&sid));
+            let ws = app.kernel.slots.get(&crate::terminal::TERMINAL).workspaces.get(&app.terminal_workspace_key_for_session(&sid));
             Ok(ws.and_then(|w| w.tabs.iter().find(|t| t.id == id)).map(|t| t.title.clone()).unwrap_or_default())
         })?,
     )?;
@@ -115,7 +115,7 @@ fn session(lua: &Lua, sid: &str, id: &str) -> mlua::Result<Table> {
             let (sid, id) = read(&this)?;
             cx::read(Dep::Terminals(sid.clone()));
             let app = app_now("PtySession:Running")?;
-            let ws = app.workspace_panes.terminal.workspaces.get(&app.terminal_workspace_key_for_session(&sid));
+            let ws = app.kernel.slots.get(&crate::terminal::TERMINAL).workspaces.get(&app.terminal_workspace_key_for_session(&sid));
             Ok(ws.is_some_and(|w| w.tabs.iter().any(|t| t.id == id)))
         })?,
     )?;
@@ -136,7 +136,7 @@ fn session(lua: &Lua, sid: &str, id: &str) -> mlua::Result<Table> {
             let (sid, id) = read(&this)?;
             app_now("PtySession:Write")?.later(Box::new(move |s: &mut App, _: &mut Tx| {
                 let wk = s.terminal_workspace_key_for_session(&sid);
-                if let Some(tab) = s.workspace_panes.terminal.workspaces.get(&wk).and_then(|w| w.tabs.iter().find(|t| t.id == id)) {
+                if let Some(tab) = s.kernel.slots.get(&crate::terminal::TERMINAL).workspaces.get(&wk).and_then(|w| w.tabs.iter().find(|t| t.id == id)) {
                     tab.session.write_bytes(text.into_bytes());
                 }
             }));
@@ -151,7 +151,7 @@ fn session(lua: &Lua, sid: &str, id: &str) -> mlua::Result<Table> {
 /// one and why a list failed.
 pub fn version(app: &App, session: &str) -> u64 {
     let mut h = std::hash::DefaultHasher::new();
-    match app.workspace_panes.terminal.workspaces.get(&app.terminal_workspace_key_for_session(session)) {
+    match app.kernel.slots.get(&crate::terminal::TERMINAL).workspaces.get(&app.terminal_workspace_key_for_session(session)) {
         Some(ws) => {
             (&ws.active, &ws.failure).hash(&mut h);
             ws.tabs.iter().for_each(|t| (&t.id, &t.title, t.title_number).hash(&mut h));
@@ -168,14 +168,14 @@ pub fn version(app: &App, session: &str) -> u64 {
 pub fn screen_version(app: &App, session: &str) -> u64 {
     let mut h = std::hash::DefaultHasher::new();
     version(app, session).hash(&mut h);
-    if let Some(ws) = app.workspace_panes.terminal.workspaces.get(&app.terminal_workspace_key_for_session(session)) {
+    if let Some(ws) = app.kernel.slots.get(&crate::terminal::TERMINAL).workspaces.get(&app.terminal_workspace_key_for_session(session)) {
         ws.tabs.iter().for_each(|t| {
             (t.session.generation(), t.session.revealed(), t.session.cursor_offset(), t.drag, t.mount, t.scroll_px_accum.to_bits(), &t.preedit).hash(&mut h);
             (t.find.is_some(), t.hover).hash(&mut h);
         });
     }
     let now = *app.clock;
-    (app.workspace_panes.terminal.bell.is_ringing(now), app.workspace_panes.terminal.cursor_lit(now), app.composer.focused, app.workspace_panes.side.focus.is_focused(), format!("{:?}", app.workspace_panes.side.active_pane_focus)).hash(&mut h);
+    (app.kernel.slots.get(&crate::terminal::TERMINAL).bell.is_ringing(now), app.kernel.slots.get(&crate::terminal::TERMINAL).cursor_lit(now), app.composer.focused, app.kernel.slots.get(&crate::panels::SIDE).focus.is_focused(), format!("{:?}", app.kernel.slots.get(&crate::panels::SIDE).active_pane_focus)).hash(&mut h);
     crate::terminal::rename_stamp(app, &mut h);
     h.finish()
 }

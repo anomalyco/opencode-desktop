@@ -267,7 +267,7 @@ impl App {
             }
         };
         // Focus stays in the timeline, as a link's click leaves it.
-        self.workspace_panes.side.focus.blur();
+        self.kernel.slots.get_mut(&crate::panels::SIDE).focus.blur();
         *self.workspace_panes.tool_open = Some(Opened { session: sid, step: step.to_owned(), tab, before });
     }
 
@@ -276,7 +276,7 @@ impl App {
     fn open_change(&mut self, sid: &str, path: &str, anchor: Option<&Anchor>, tx: &mut Tx) -> String {
         self.show_side_tab(sid, REVIEW_KEY, None);
         self.ensure_session_review(sid);
-        let Some(sr) = self.workspace_panes.review.sessions.get_mut(sid) else { return REVIEW_KEY.to_owned() };
+        let Some(sr) = self.kernel.slots.get_mut(&crate::review::REVIEW).sessions.get_mut(sid) else { return REVIEW_KEY.to_owned() };
         if let crate::review::Load::Loading { focus } = &mut sr.load {
             *focus = Some((path.to_owned(), anchor.cloned()));
             return REVIEW_KEY.to_owned();
@@ -310,11 +310,11 @@ impl App {
         match o.before {
             Some(tab) => {
                 self.select_side_tab(&tab, tx);
-                self.workspace_panes.side.focus.blur();
+                self.kernel.slots.get_mut(&crate::panels::SIDE).focus.blur();
             }
             None => {
                 self.session_side_mut(&o.session).visibility.step(false);
-                self.workspace_panes.side.focus.blur();
+                self.kernel.slots.get_mut(&crate::panels::SIDE).focus.blur();
             }
         }
         true

@@ -189,12 +189,12 @@ impl SwitcherHost for App {
     }
 
     fn side_tab_keys(&self, session_id: &str) -> Option<(Option<&str>, &[String])> {
-        let tabs = &self.workspace_panes.side.sessions.get(session_id)?.tab_state.tabs;
+        let tabs = &self.kernel.slots.get(&crate::panels::SIDE).sessions.get(session_id)?.tab_state.tabs;
         Some((tabs.active.as_deref(), &tabs.all))
     }
 
     fn local_workspace_files(&self, session_id: &str, query: &str, limit: usize) -> Vec<String> {
-        self.workspace_panes.files.sessions.get(session_id).map(|w| w.local_files(query, limit)).unwrap_or_default()
+        self.kernel.slots.get(&crate::files::FILES).sessions.get(session_id).map(|w| w.local_files(query, limit)).unwrap_or_default()
     }
 
     fn fixture_find(&self) -> Option<(Vec<String>, Option<f64>)> {

@@ -329,8 +329,8 @@ impl App {
             }
         }
         *self.diag.status = "Fixture".into();
-        *self.workspace_panes.open_in = open_in::OpenIn::with(std::sync::Arc::new(open_in::Fixed(vec!["vscode", "cursor", "zed", "terminal", "ghostty", "xcode", "powershell"])));
-        self.workspace_panes.open_in.detect();
+        *self.kernel.slots.get_mut(&open_in::OPEN_IN) = open_in::OpenIn::with(std::sync::Arc::new(open_in::Fixed(vec!["vscode", "cursor", "zed", "terminal", "ghostty", "xcode", "powershell"])));
+        self.kernel.slots.get_mut(&open_in::OPEN_IN).detect();
         if let Some(home) = v["home"].as_str() {
             *self.home = home.to_owned();
         }
@@ -389,7 +389,8 @@ impl App {
         *self.layout = layout_state::Shell::at_rest(self.settings.tab_layout);
         self.load_open_in();
         if self.persists() {
-            self.workspace_panes.files.wrap = files::markdown::WrapPrefs::load(self);
+            let wrap = files::markdown::WrapPrefs::load(self);
+            self.kernel.slots.get_mut(&files::FILES).wrap = wrap;
             *self.workspace_panes.panel_sidebar = plugin_host::native::sidebar::PanelSidebar::load();
         }
         *self.kernel.slots.get_mut(&prompt_history::PROMPTS) = prompt_history::PromptHistory::load(attended());
@@ -466,29 +467,29 @@ impl App {
         let shown: HashSet<&str> = s.tabs.iter().map(|t| t.id.as_str()).chain(match &*s.route { Route::Session { id, .. } => Some(id.as_str()), _ => None }).chain(s.running.iter().map(String::as_str)).collect();
         let kept = |id: &str| s.ancestors(id).any(|a| shown.contains(a));
         let gone: Vec<String> = s.transcripts.keys().filter(|id| !kept(id)).cloned().collect();
-        let review_gone: Vec<String> = s.workspace_panes.review.sessions.keys().filter(|id| !kept(id)).cloned().collect();
-        let files_gone: Vec<String> = s.workspace_panes.files.sessions.keys().filter(|id| !kept(id)).cloned().collect();
-        let kept_ids: HashSet<String> = if has_rest_hooks {
-            shown
-                .iter()
-                .map(|id| (*id).to_owned())
-                .chain(s.sessions.iter().filter(|sess| kept(&sess.id)).map(|sess| sess.id.clone()))
-                .collect()
-        } else {
-            HashSet::new()
-        };
+        let review_gone: Vec<String> = s.kernel.slots.get(&crate::review::REVIEW).sessions.keys().filter(|id| !kept(id)).cloned().collect();
+        let files_gone: Vec<String> = s.kernel.slots.get(&files::FILES).sessions.keys().filter(|id| !kept(id)).cloned().collect();
+        let kept_ids: HashSet<String> = shown
+            .iter()
+            .map(|id| (*id).to_owned())
+            .chain(s.sessions.iter().filter(|sess| kept(&sess.id)).map(|sess| sess.id.clone()))
+            .collect();
         s.pages.rest(&kept);
-        s.workspace_panes.files.retain_reply_links(kept);
+        s.kernel.slots.get_mut(&files::FILES).retain_reply_links(|id| kept_ids.contains(id));
         if !gone.is_empty() {
             let transcripts = &mut *s.transcripts;
             for id in &gone { transcripts.remove(id); }
         }
         // A closed session's diffs and open files (their source lines, highlight chunks, images).
-        if !review_gone.is_empty() { for id in &review_gone { s.workspace_panes.review.sessions.remove(id); } }
+        if !review_gone.is_empty() {
+            let review = s.kernel.slots.get_mut(&crate::review::REVIEW);
+            for id in &review_gone { review.sessions.remove(id); }
+        }
         if !files_gone.is_empty() {
             for id in &files_gone {
-                s.workspace_panes.files.sessions.remove(id);
-                s.workspace_panes.files.reads.forget_session(id);
+                let f = s.kernel.slots.get_mut(&files::FILES);
+                f.sessions.remove(id);
+                f.reads.forget_session(id);
                 files::watch::forget_session(s, id);
             }
         }

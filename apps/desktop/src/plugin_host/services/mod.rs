@@ -433,7 +433,7 @@ pub fn dep_version(app: &App, dep: &Dep) -> u64 {
         Dep::Dev(name) => format!("{:?}", diag::get(app, name)).hash(&mut h),
         Dep::Console => super::console::version().hash(&mut h),
         Dep::Diff(session) => super::native::diff::version(app, session).hash(&mut h),
-        Dep::DiffMode => (app.workspace_panes.review.diff_mode == rune_kit::diff::DiffMode::Split).hash(&mut h),
+        Dep::DiffMode => (app.kernel.slots.get(&crate::review::REVIEW).diff_mode == rune_kit::diff::DiffMode::Split).hash(&mut h),
         Dep::DiffTotals(session) => super::native::diff::totals_version(app, session).hash(&mut h),
         Dep::DiffTree(session) => super::native::diff::tree_version(app, session).hash(&mut h),
         Dep::DiffMeta(session) => super::native::diff::meta_version(app, session).hash(&mut h),

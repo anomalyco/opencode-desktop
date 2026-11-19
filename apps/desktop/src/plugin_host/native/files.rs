@@ -20,7 +20,7 @@ pub fn build(lua: &Lua, t: &Table) -> mlua::Result<()> {
         let app = app_now("Workspace:OpenTree")?;
         let sid = session_for(app, &directory).ok_or_else(|| mlua::Error::runtime(format!("Workspace:OpenTree: no session is open in {directory}")))?;
         // Listed once its session's folder is known (an empty one would list the server's own).
-        if !app.workspace_panes.files.sessions.get(&sid).is_some_and(|w| w.ready) && app.session(&sid).is_some_and(|i| !i.directory.is_empty()) {
+        if !app.kernel.slots.get(&crate::files::FILES).sessions.get(&sid).is_some_and(|w| w.ready) && app.session(&sid).is_some_and(|i| !i.directory.is_empty()) {
             let id = sid.clone();
             app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
@@ -36,10 +36,10 @@ pub fn build(lua: &Lua, t: &Table) -> mlua::Result<()> {
         let path = crate::review::data::normalize_path(&path);
         // A file not read yet, one still loading with no read running (its session's folder
         // wasn't known), or one a failed refresh left stale, reads as it shows.
-        let doc = app.workspace_panes.files.sessions.get(&sid).and_then(|w| w.docs.get(&path));
+        let doc = app.kernel.slots.get(&crate::files::FILES).sessions.get(&sid).and_then(|w| w.docs.get(&path));
         let known = app.session(&sid).is_some_and(|i| !i.directory.is_empty());
-        let waiting = known && doc.is_some_and(|d| !d.ready()) && !app.workspace_panes.files.reads.running(&sid, &path) && !crate::files::video::is_video(&path);
-        if doc.is_none() || waiting || (known && app.workspace_panes.files.reads.stale(&sid, &path)) {
+        let waiting = known && doc.is_some_and(|d| !d.ready()) && !app.kernel.slots.get(&crate::files::FILES).reads.running(&sid, &path) && !crate::files::video::is_video(&path);
+        if doc.is_none() || waiting || (known && app.kernel.slots.get(&crate::files::FILES).reads.stale(&sid, &path)) {
             let (id, at) = (sid.clone(), path.clone());
             app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
@@ -86,7 +86,7 @@ fn document(lua: &Lua) -> mlua::Result<Table> {
             let (sid, path): (String, String) = (this.raw_get("sessionId")?, this.raw_get("Path")?);
             cx::read(Dep::FilesMissing(sid.clone(), path.clone()));
             let app = app_now("CodeDocument:Missing")?;
-            let doc = app.workspace_panes.files.sessions.get(&sid).and_then(|w| w.docs.get(&path));
+            let doc = app.kernel.slots.get(&crate::files::FILES).sessions.get(&sid).and_then(|w| w.docs.get(&path));
             Ok(doc.is_some_and(|d| d.missing()))
         })?,
     )?;
@@ -94,7 +94,7 @@ fn document(lua: &Lua) -> mlua::Result<Table> {
         "Binary",
         lua.create_function(move |_, this: Table| {
             let (app, sid, path) = read_doc(&this, "CodeDocument:Binary")?;
-            let doc = app.workspace_panes.files.sessions.get(&sid).and_then(|w| w.docs.get(&path));
+            let doc = app.kernel.slots.get(&crate::files::FILES).sessions.get(&sid).and_then(|w| w.docs.get(&path));
             Ok(doc.is_some_and(|d| d.binary()))
         })?,
     )?;
@@ -105,7 +105,7 @@ fn document(lua: &Lua) -> mlua::Result<Table> {
             // Read again in place, as a change on disk reads it: the view keeps where it is.
             app_now("CodeDocument:Reload")?.later(Box::new(move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
-                if s.workspace_panes.files.sessions.get(&sid).is_some_and(|w| w.docs.contains_key(&path)) {
+                if s.kernel.slots.get(&crate::files::FILES).sessions.get(&sid).is_some_and(|w| w.docs.contains_key(&path)) {
                     crate::files::watch::reload(s, &sid, &path);
                 } else {
                     s.ensure_file_loaded(&sid, &path);
@@ -132,7 +132,7 @@ fn session_for(app: &App, directory: &str) -> Option<String> {
 /// state, with where its code is scrolled (a scroll asks for the rows it brings into view).
 pub fn version(app: &App, session: &str) -> u64 {
     let mut h = std::hash::DefaultHasher::new();
-    if let Some(w) = app.workspace_panes.files.sessions.get(session) {
+    if let Some(w) = app.kernel.slots.get(&crate::files::FILES).sessions.get(session) {
         (w.ready, w.tree.visible_len(), w.known_files.len(), w.known_dirs.len(), w.expanded_dirs.len(), &w.search, &w.highlighted_filter_path).hash(&mut h);
         let mut docs: Vec<_> = w.docs.iter().collect();
         docs.sort_by(|a, b| a.0.cmp(b.0));
@@ -157,20 +157,20 @@ pub fn version(app: &App, session: &str) -> u64 {
             let p = &v.player;
             (path, format!("{:?} {:?} {:?}", p.state(), v.overlay, v.scrub), p.is_playing(), p.muted(), p.has_sound(), p.natural_size(), p.duration().map(f64::to_bits), (p.time() * 4.0) as u64).hash(&mut h);
         }
-        app.workspace_panes.files.stage_size.get().map(f32::to_bits).hash(&mut h);
+        app.kernel.slots.get(&crate::files::FILES).stage_size.get().map(f32::to_bits).hash(&mut h);
     }
     h.finish()
 }
 
 /// Whether `path` in `session` is ready and missing (`Dep::FilesMissing`).
 pub fn missing_version(app: &App, session: &str, path: &str) -> Option<(bool, bool)> {
-    app.workspace_panes.files.sessions.get(session).and_then(|w| w.docs.get(path)).map(|d| (d.ready(), d.missing()))
+    app.kernel.slots.get(&crate::files::FILES).sessions.get(session).and_then(|w| w.docs.get(path)).map(|d| (d.ready(), d.missing()))
 }
 
 /// The workspace tree and file search version for `session` (`Dep::FilesTree`).
 pub fn tree_version(app: &App, session: &str) -> u64 {
     let mut h = std::hash::DefaultHasher::new();
-    if let Some(w) = app.workspace_panes.files.sessions.get(session) {
+    if let Some(w) = app.kernel.slots.get(&crate::files::FILES).sessions.get(session) {
         (w.ready, w.tree.visible_len(), w.known_files.len(), w.known_dirs.len(), w.expanded_dirs.len(), &w.search, &w.highlighted_filter_path).hash(&mut h);
         let mut expanded_xor = 0u64;
         for dir in &w.expanded_dirs {
@@ -186,7 +186,7 @@ pub fn tree_version(app: &App, session: &str) -> u64 {
 /// One open file's version (`Dep::FilesDoc`): its text, find bar, scroll, markdown and media.
 pub fn doc_version(app: &App, session: &str, path: &str) -> u64 {
     let mut h = std::hash::DefaultHasher::new();
-    if let Some(w) = app.workspace_panes.files.sessions.get(session) {
+    if let Some(w) = app.kernel.slots.get(&crate::files::FILES).sessions.get(session) {
         if let Some(d) = w.docs.get(path) {
             (d.rev, d.ready(), d.missing(), d.binary(), d.size_bytes(), d.wrap(), d.line_count(), d.find_open(), d.match_count(), d.active_match_index(), d.text().len()).hash(&mut h);
             (&d.find_input.text, d.find_input.focused).hash(&mut h);
@@ -203,7 +203,7 @@ pub fn doc_version(app: &App, session: &str, path: &str) -> u64 {
             (format!("{:?} {:?} {:?}", p.state(), v.overlay, v.scrub), p.is_playing(), p.muted(), p.has_sound(), p.natural_size(), p.duration().map(f64::to_bits), (p.time() * 4.0) as u64).hash(&mut h);
         }
         if w.images.contains_key(path) || w.videos.contains_key(path) {
-            app.workspace_panes.files.stage_size.get().map(f32::to_bits).hash(&mut h);
+            app.kernel.slots.get(&crate::files::FILES).stage_size.get().map(f32::to_bits).hash(&mut h);
         }
     }
     h.finish()
@@ -217,7 +217,7 @@ pub fn view(a: &mut NodeArgs) -> Result<El, String> {
     let path = handle_field(a, "doc", "Path").unwrap_or_default();
     cx::read(Dep::FilesDoc(sid.clone(), path.clone()));
     let empty = crate::files::SessionFiles::default();
-    let ws = app.workspace_panes.files.sessions.get(&sid).unwrap_or(&empty);
+    let ws = app.kernel.slots.get(&crate::files::FILES).sessions.get(&sid).unwrap_or(&empty);
     let notes: std::rc::Rc<dyn crate::code_view::notes::LineNotes<App>> =
         crate::line_comments::host::Notes::new(&sid, crate::line_comments::Surface::Files);
     Ok(col().w_full().grow(1.0).min_h(0.0).child(crate::files::viewer::code_area(app, &pal, &sid, ws, &path, true, Some(notes))))

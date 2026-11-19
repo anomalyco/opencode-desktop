@@ -10,9 +10,9 @@ use serde_json::Value;
 
 use crate::{
     appearance, attachments, background, browser, copied, deep_links, demo, diagnostics, diagram,
-    disclosure, files, glitch, jump, language, line_reveal, motion_log, new_session, open_in,
-    open_story, panels, pickers, pinch, plugin_host, reconnect, review, rune_mcp, served,
-    session_state, stories, submit, tabs, terminal, text_rendering, tool_open, undo, view, working,
+    disclosure, glitch, jump, language, line_reveal, motion_log, new_session, open_story, pickers,
+    pinch, plugin_host, reconnect, served, session_state, stories, submit, tabs, text_rendering,
+    tool_open, undo, view, working,
 };
 
 /// Fixture playback, demo script, and storybook playground state.
@@ -47,20 +47,14 @@ pub struct DiagState {
     pub diagnostics: rune::Tracked<diagnostics::Diagnostics>,
 }
 
-/// Side/bottom workspace surfaces, panes, external openers, and client MCP hub.
+/// Host-owned workspace panes and plugin panel sidebar.
 #[derive(Default)]
 pub struct WorkspacePanes {
-    pub side: rune::Tracked<Box<panels::SideState>>,
     pub browser: rune::Tracked<Box<browser::BrowserPane>>,
-    pub review: rune::Tracked<Box<review::ReviewPane>>,
     /// The file sidebar the Review and Files panels share (Desktop's `PanelSidebar`).
     pub panel_sidebar: rune::Tracked<plugin_host::native::sidebar::PanelSidebar>,
-    pub files: rune::Tracked<Box<files::FilesPane>>,
-    pub terminal: rune::Tracked<Box<terminal::TerminalPane>>,
-    pub open_in: rune::Tracked<open_in::OpenIn>,
     /// What a tool step last opened in the side region (`tool_open`).
     pub tool_open: rune::Tracked<Option<tool_open::Opened>>,
-    pub rune_mcp: rune::Tracked<rune_mcp::WindowMcp>,
 }
 
 /// Shell gestures: tab drag/preview/reopen, pinch zoom, sidebar resize, and Home return tab.

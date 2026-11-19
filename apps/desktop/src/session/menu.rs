@@ -74,7 +74,7 @@ impl SessionMenuHost for App {
     }
 
     fn side_focused(&self) -> bool {
-        self.workspace_panes.side.focus.is_focused()
+        self.kernel.slots.get(&crate::panels::SIDE).focus.is_focused()
     }
 
     fn stage_active(&self) -> bool {

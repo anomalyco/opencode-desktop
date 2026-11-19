@@ -234,7 +234,8 @@ impl Feature<App> for WorkspaceToolsFeature {
         builder
             .register_slot(&NEW_WORKTREE)
             .register_slot(&crate::fulltext::FULLTEXT)
-            .register_slot(&crate::home_search::HOME_SEARCH);
+            .register_slot(&crate::home_search::HOME_SEARCH)
+            .register_slot(&crate::rune_mcp::RUNE_MCP);
         builder.add_command(
             CommandEntry::<App>::from_key(
                 "session.location.select",

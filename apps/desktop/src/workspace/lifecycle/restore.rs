@@ -434,20 +434,20 @@ impl RestoreHost for App {
     }
 
     fn restore_side_json(&mut self, value: &Value) {
-        self.workspace_panes.side.restore_json(value);
+        self.kernel.slots.get_mut(&crate::panels::SIDE).restore_json(value);
     }
 
     fn restore_side_rest(&mut self, value: &Value) {
-        self.workspace_panes.side.restore_rest(value);
+        self.kernel.slots.get_mut(&crate::panels::SIDE).restore_rest(value);
     }
 
     fn side_json_where(&self, pred: &dyn Fn(&str) -> bool) -> Value {
-        self.workspace_panes.side.to_json_where(pred)
+        self.kernel.slots.get(&crate::panels::SIDE).to_json_where(pred)
     }
 
     fn side_stamp(&self) -> u64 {
         let mut h = DefaultHasher::new();
-        self.workspace_panes.side.stamp_hash(&mut h);
+        self.kernel.slots.get(&crate::panels::SIDE).stamp_hash(&mut h);
         h.finish()
     }
 
