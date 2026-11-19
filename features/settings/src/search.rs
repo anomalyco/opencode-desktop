@@ -149,7 +149,7 @@ pub fn leave(s: &mut dyn SettingsHost) {
 /// Starts the lit row's fade after its first frame, and drops it once faded.
 pub fn poll(s: &mut dyn SettingsHost, tx: &mut Tx) -> bool {
     let now = s.clock();
-    let open = s.settings().open;
+    let open = s.settings_open();
     match &s.settings_pages().find.reveal {
         Reveal::Idle => return false,
         Reveal::Lit { fade_at, .. } if open && now <= *fade_at => {
@@ -457,7 +457,7 @@ pub fn open(s: &mut dyn SettingsHost, e: &Entry, tx: &mut Tx) {
 
 /// Opens `e` from the command palette: Settings on its page with its row lit, without a search.
 pub fn reveal(s: &mut dyn SettingsHost, e: &Entry, tx: &mut Tx) {
-    if !s.settings().open {
+    if !s.settings_open() {
         crate::open_settings_tx(s, e.page.clone(), tx);
     }
     clear(s);

@@ -28,7 +28,7 @@ const REVIEW_KEYS: &[Trigger] = &[
         key: 's',
         label: "Toggle split / unified",
         run: |s, _| {
-            let next = match s.workspace_panes.review.diff_mode {
+            let next = match s.kernel.slots.get(&super::REVIEW).diff_mode {
                 DiffMode::Unified => DiffMode::Split,
                 DiffMode::Split => DiffMode::Unified,
             };
@@ -46,7 +46,7 @@ const REVIEW_KEYS: &[Trigger] = &[
         key: 'e',
         label: "Toggle expand all",
         run: |s, _| {
-            let next = match s.workspace_panes.review.expand_mode {
+            let next = match s.kernel.slots.get(&super::REVIEW).expand_mode {
                 ExpandMode::Collapse => ExpandMode::Expand,
                 ExpandMode::Expand => ExpandMode::Collapse,
             };
@@ -60,8 +60,8 @@ const INLINE_KEYS: &[Trigger] = &[replay(setup_inline)];
 pub fn init_review(s: &mut App) {
     crate::open_scene(s);
     s.finish_stream();
-    s.workspace_panes.side = Default::default();
-    s.workspace_panes.review = Default::default();
+    *s.kernel.slots.get_mut(&crate::panels::SIDE) = Default::default();
+    *s.kernel.slots.get_mut(&super::REVIEW) = Default::default();
     let Some(sid) = s.active_session_id().map(str::to_owned) else { return };
     s.show_side_tab(&sid, &panel_key("review", "changes"), None);
     match *s.fixture_run.variant {
@@ -90,7 +90,7 @@ pub fn init_inline(s: &mut App) {
         session_view::tools::TEXT_CONTEXT,
     ));
     inline.set_mode(if s.fixture_run.variant == 1 { DiffMode::Split } else { DiffMode::Unified });
-    s.workspace_panes.review.empty_diffs = inline;
+    s.kernel.slots.get_mut(&super::REVIEW).empty_diffs = inline;
 }
 
 fn setup_inline(s: &mut App, _play: &mut Play<'_, App>) {
@@ -98,7 +98,7 @@ fn setup_inline(s: &mut App, _play: &mut Play<'_, App>) {
 }
 
 fn view_review_card(s: &App, p: &Pal) -> El {
-    let w = if s.workspace_panes.review.diff_mode == DiffMode::Split { 760.0 } else { 640.0 };
+    let w = if s.kernel.slots.get(&super::REVIEW).diff_mode == DiffMode::Split { 760.0 } else { 640.0 };
     crate::panels::view::story_card(s, p, w, 540.0)
 }
 
@@ -124,8 +124,8 @@ fn view_inline_card(s: &App, p: &Pal) -> El {
         .child(
             DiffViewer::new(
                 "story-inline-diff",
-                |a: &App| &a.workspace_panes.review.empty_diffs,
-                |a: &mut App| &mut a.workspace_panes.review.empty_diffs,
+                |a: &App| &a.kernel.slots.get(&super::REVIEW).empty_diffs,
+                |a: &mut App| &mut a.kernel.slots.get_mut(&super::REVIEW).empty_diffs,
             )
             .sticky_headers(false)
             .build(s, p),
@@ -136,7 +136,7 @@ fn view_inline_card(s: &App, p: &Pal) -> El {
 rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [("review-collapsed", |s| {
     init_review(s);
     let Some(sid) = s.active_session_id().map(str::to_owned) else { return };
-    if let Some(sr) = s.workspace_panes.review.sessions.get_mut(&sid) {
+    if let Some(sr) = s.kernel.slots.get_mut(&super::REVIEW).sessions.get_mut(&sid) {
         sr.tree.toggle("src/net");
     }
     s.note_review_event("filesystem.changed", &serde_json::Value::Null);

@@ -88,13 +88,15 @@ pub fn init() {
     });
 }
 
+pub(crate) static UPDATER: opencode_kernel::Slot<Updater> = opencode_kernel::Slot::new();
+
 impl UpdaterHost for App {
     fn updater(&self) -> &Updater {
-        &self.services.updater
+        self.kernel.slots.get(&UPDATER)
     }
 
     fn updater_mut(&mut self) -> &mut Updater {
-        &mut self.services.updater
+        self.kernel.slots.get_mut(&UPDATER)
     }
 }
 
@@ -107,6 +109,7 @@ impl Feature<App> for UpdaterFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder.register_slot(&UPDATER);
         builder.add_system_ordered(
             Phase::Ingest,
             crate::tick::order::ingest::UPDATER,
@@ -122,6 +125,6 @@ impl Feature<App> for UpdaterFeature {
                 false
             },
         );
-        builder.add_close("updater.closing", |s| s.services.updater.closing());
+        builder.add_close("updater.closing", |s| s.kernel.slots.get_mut(&UPDATER).closing());
     }
 }

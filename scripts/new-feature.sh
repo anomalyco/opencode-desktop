@@ -84,6 +84,7 @@ for part in "${PARTS[@]}"; do
 done
 
 SNAKE="${ID//-/_}"
+UPPER="$(printf '%s' "$SNAKE" | LC_ALL=C tr '[:lower:]' '[:upper:]')"
 TITLE="${*:-$DEFAULT_TITLE}"
 TITLE_ESC="$(escape_quoted "$TITLE")"
 
@@ -286,7 +287,7 @@ pub fn step(phase: &mut ${PASCAL}Phase, event: ${PASCAL}Event) -> Option<${PASCA
     }
 }
 
-/// Per-window state stored in \`opencode_kernel::StateSlots\`.
+/// Per-window tracked state stored in \`opencode_kernel::StateSlots\`.
 #[derive(Debug, Default)]
 pub struct ${PASCAL}State {
     pub phase: ${PASCAL}Phase,
@@ -294,7 +295,7 @@ pub struct ${PASCAL}State {
 
 /// Object-safe host boundary implemented by the desktop adapter (\`apps/desktop/src/surfaces/${SNAKE}.rs\`).
 pub trait ${PASCAL}Host: opencode_kernel::AppEnv + opencode_kernel::AppFeedback + opencode_kernel::AppOverlays {
-    fn state(&self) -> Option<&${PASCAL}State>;
+    fn state(&self) -> &${PASCAL}State;
     fn state_mut(&mut self) -> &mut ${PASCAL}State;
 }
 
@@ -317,17 +318,19 @@ cat <<EOF > "$ADAPTER"
 
 pub use opencode_feature_${SNAKE}::*;
 
-use opencode_kernel::{Feature, KernelBuilder, Phase};
+use opencode_kernel::{Feature, KernelBuilder, Phase, Slot};
 
 use crate::App;
 
+static ${UPPER}: Slot<${PASCAL}State> = Slot::new();
+
 impl ${PASCAL}Host for App {
-    fn state(&self) -> Option<&${PASCAL}State> {
-        self.kernel.slots.get::<${PASCAL}State>()
+    fn state(&self) -> &${PASCAL}State {
+        self.kernel.slots.get(&${UPPER})
     }
 
     fn state_mut(&mut self) -> &mut ${PASCAL}State {
-        self.kernel.slots.slot::<${PASCAL}State>()
+        self.kernel.slots.get_mut(&${UPPER})
     }
 }
 
@@ -340,9 +343,9 @@ impl Feature<App> for ${PASCAL}Feature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
-        builder.insert_slot(${PASCAL}State::default());
+        builder.register_slot(&${UPPER});
         builder.add_system(Phase::Ingest, "${ID}.poll", |s, _, tx| poll(s, tx));
-        // Register commands, modal overlays, Escape layers, or surfaces here without editing central switchboards:
+        // Register commands, modal overlays, or Escape layers here without editing central switchboards:
         // builder.add_command(opencode_kernel::CommandEntry::<App>::from_key(...));
         // builder.register_overlay(opencode_kernel::OverlayRegistration::<App>::dialog(...));
         // builder.register_escape_layer(opencode_kernel::EscapeLayer::new(...));

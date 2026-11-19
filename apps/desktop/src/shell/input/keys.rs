@@ -9,8 +9,8 @@ pub(crate) fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     crate::plugin_host::doze_owed(s);
     crate::status_toast::hotkey(s, ev, tx);
     // A key from inside the side region (something there has the keyboard) wakes its tab's label.
-    if s.workspace_panes.side.focus.is_quiet() && tx.focused().is_some() && !s.composer.focused {
-        s.workspace_panes.side.focus.wake_on_key();
+    if s.kernel.slots.get(&crate::panels::SIDE).focus.is_quiet() && tx.focused().is_some() && !s.composer.focused {
+        s.kernel.slots.get_mut(&crate::panels::SIDE).focus.wake_on_key();
     }
     let overlays = s.kernel.overlay_dispatcher.clone();
     if crate::popup::key(s, ev, tx)

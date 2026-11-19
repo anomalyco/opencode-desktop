@@ -169,8 +169,8 @@ impl App {
     /// rename, its menu.
     fn preview_blocked(&self, id: &str) -> bool {
         self.gestures.tab_drag.phase() != rune_kit::shell::TabDragPhase::Idle
-            || self.dialogs.menus.renaming().is_some_and(|t| self.names(&t, id))
-            || self.dialogs.menus.on.as_ref().is_some_and(|t| self.names(t, id))
+            || self.kernel.slots.get(&crate::session_menu::MENUS).renaming().is_some_and(|t| self.names(&t, id))
+            || self.kernel.slots.get(&crate::session_menu::MENUS).on.as_ref().is_some_and(|t| self.names(t, id))
     }
 
     /// Whether a menu or rename target is tab `id` (`Tab::uid`).
@@ -213,7 +213,7 @@ impl App {
         }
         // Its menu opening closes the tab's card (`if (open) setPopoverOpen(false)`).
         if let Card::Asked { tab } = &self.gestures.tab_preview.card
-            && self.dialogs.menus.on.as_ref().is_some_and(|t| self.names(t, tab))
+            && self.kernel.slots.get(&crate::session_menu::MENUS).on.as_ref().is_some_and(|t| self.names(t, tab))
         {
             self.gestures.tab_preview.card = Card::Resting { tab: tab.clone() };
         }

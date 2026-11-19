@@ -131,13 +131,15 @@ struct TickFrame {
     asked_dock_face: Option<String>,
 }
 
+static TICK_FRAME: opencode_kernel::Slot<TickFrame> = opencode_kernel::Slot::new();
+
 impl App {
     pub(crate) fn tick_fresh(&self) -> bool {
-        self.kernel.slots.get::<TickFrame>().is_some_and(|f| f.fresh)
+        self.kernel.slots.try_untracked(&TICK_FRAME).is_some_and(|f| f.fresh)
     }
 
     pub(crate) fn take_asked_dock_face(&mut self) -> Option<String> {
-        self.kernel.slots.slot::<TickFrame>().asked_dock_face.take()
+        self.kernel.slots.get_or_default(&TICK_FRAME).asked_dock_face.take()
     }
 }
 
@@ -145,7 +147,7 @@ impl App {
 /// `stop::poll` at the exact mid-ingest boundary (`31a59a9:apps/desktop/src/main.rs`).
 pub(crate) fn poll_stream(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     let asked = s.dock_face();
-    s.kernel.slots.slot::<TickFrame>().asked_dock_face = asked;
+    s.kernel.slots.get_or_default(&TICK_FRAME).asked_dock_face = asked;
     let mut changed = incoming::poll(s, tx);
     while s.fixture_run.playback.front().is_some_and(|e| e.0 <= now + 1e-9) {
         let Some((at, ty, mut data)) = s.fixture_run.playback.pop_front() else { break };
@@ -208,7 +210,7 @@ pub(crate) fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     }
     // The view ran since the last poll: state the polls below derive from other state may have moved.
     let runs = s.view_runs();
-    let frame = s.kernel.slots.slot::<TickFrame>();
+    let frame = s.kernel.slots.get_or_default(&TICK_FRAME);
     let viewed = runs != frame.polled_runs;
     frame.polled_runs = runs;
     frame.fresh = viewed;
@@ -218,7 +220,7 @@ pub(crate) fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     for phase in Phase::ALL {
         changed |= scheduler.run_phase_with(phase, s, now, tx, |s, step_changed| {
             if step_changed {
-                s.kernel.slots.slot::<TickFrame>().fresh = true;
+                s.kernel.slots.get_or_default(&TICK_FRAME).fresh = true;
             }
         });
     }

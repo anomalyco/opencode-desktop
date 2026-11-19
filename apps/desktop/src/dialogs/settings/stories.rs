@@ -96,13 +96,14 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
     // Settings search for "notif": its results in the rail, Preferences beside them.
     ("settings-search", |s| {
         on(s, Page::General);
-        s.settings_pages.find.query = rune::TextEdit::new("notif");
-        s.settings_pages.find.query.focused = true;
+        let sp = s.kernel.slots.get_mut(&super::SETTINGS_PAGES);
+        sp.find.query = rune::TextEdit::new("notif");
+        sp.find.query.focused = true;
     }),
     // A result opened: Appearance with its Theme row lit, the results still in the rail.
     ("settings-search-opened", |s| {
         on(s, Page::General);
-        s.settings_pages.find.query = rune::TextEdit::new("theme");
+        s.kernel.slots.get_mut(&super::SETTINGS_PAGES).find.query = rune::TextEdit::new("theme");
         let hit = crate::settings::search::rank("theme", crate::settings::search::index(s)).into_iter().find(|e| e.target.as_deref() == Some("settings-theme"));
         if let Some(e) = hit {
             crate::settings::search::open(s, &e, &mut rune::Tx::default());
@@ -111,7 +112,7 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
     // Shortcuts recording Auto-accept permissions' chord.
     ("settings-shortcut-recording", |s| {
         on(s, Page::Shortcuts);
-        s.settings_pages.shortcuts.capture = Some("permissions.autoaccept".into());
+        s.kernel.slots.get_mut(&super::SETTINGS_PAGES).shortcuts.capture = Some("permissions.autoaccept".into());
     }),
     // Providers disconnect confirmation dialog.
     ("provider-disconnect", |s| {

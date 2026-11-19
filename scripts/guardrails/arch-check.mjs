@@ -18,7 +18,7 @@ const root = join(fileURLToPath(new URL("../..", import.meta.url)));
 // expanding plain field-cluster wrappers in apps/desktop/src/shell/app_state.rs (and any
 // other apps/desktop/src struct whose fields hold `Tracked<...>`).
 // Ceilings only go down; new feature state belongs in opencode_kernel::StateSlots or Luau.
-const APP_FIELD_CEILING = 140;
+const APP_FIELD_CEILING = 94;
 const DESKTOP_ROOT_MAX_FILES = 10;
 const HARD_LINE_CAP = 800;
 

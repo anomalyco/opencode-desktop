@@ -103,14 +103,14 @@ mod story {
     pub(crate) fn setup(s: &mut App) {
         *s.route = Route::Home;
         super::add_flow(s, 40, 3);
-        s.restore.inbox.home_automations = s.fixture_run.variant == 1;
+        s.kernel.slots.get_mut(&crate::restore::RESTORE).inbox.home_automations = s.fixture_run.variant == 1;
     }
 
     fn open(s: &mut App, tx: &mut Play<App>) {
         tx.instant();
         s.sessions.retain(|x| !x.id.starts_with("ses_flow"));
         s.running.retain(|id| !id.starts_with("ses_flow"));
-        s.home_search.hold = crate::view::HomeHold::Free;
+        s.kernel.slots.get_mut(&crate::home_search::HOME_SEARCH).hold = crate::view::HomeHold::Free;
         setup(s);
     }
 
@@ -134,7 +134,7 @@ mod story {
         ("home-flow", setup),
         ("home-flow-open", |s| {
             setup(s);
-            s.restore.inbox.home_automations = true;
+            s.kernel.slots.get_mut(&crate::restore::RESTORE).inbox.home_automations = true;
         }),
     ]);
 }

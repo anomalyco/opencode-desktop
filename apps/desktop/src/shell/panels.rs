@@ -6,7 +6,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
-use opencode_kernel::{CommandEntry, Feature, KernelBuilder};
+use opencode_kernel::{CommandEntry, Feature, KernelBuilder, Slot};
 use opencode_ui::keymap::{Bind, Chord};
 use rune::{Drag, El, Ime, KeyEvent, Tx};
 use rune_knobs::Knobs;
@@ -14,13 +14,15 @@ use session_view::palette::Pal;
 
 use crate::{App, Route};
 
+pub(crate) static SIDE: Slot<SideState> = Slot::new();
+
 impl PanelsHost for App {
     fn side(&self) -> &SideState {
-        &self.workspace_panes.side
+        self.kernel.slots.get(&SIDE)
     }
 
     fn side_mut(&mut self) -> &mut SideState {
-        &mut self.workspace_panes.side
+        self.kernel.slots.get_mut(&SIDE)
     }
 
     fn session_directory(&self, sid: &str) -> Option<&str> {
@@ -43,7 +45,7 @@ impl PanelsHost for App {
     }
 
     fn settings_open(&self) -> bool {
-        self.settings.open
+        App::settings_open(self)
     }
 
     fn narrow(&self) -> bool {
@@ -96,7 +98,7 @@ impl PanelsHost for App {
     }
 
     fn popup_holds_focus(&self) -> bool {
-        self.dialogs.popup.holds_focus()
+        self.popup.holds_focus()
     }
 
     fn plugin_field_focused(&self, plugin: &str) -> bool {
@@ -201,13 +203,13 @@ impl PanelsHost for App {
 
     fn on_side_tab_selected(&mut self, key: &str) {
         if !key.starts_with("file:") {
-            self.workspace_panes.files.filter.focused = false;
+            self.kernel.slots.get_mut(&crate::files::FILES).filter.focused = false;
         }
     }
 
     fn on_side_tab_closing(&mut self, session_id: &str, key: &str) {
         if let Some(path) = key.strip_prefix("file:").and_then(crate::files::data::file_tab_path) {
-            if let Some(ws) = self.workspace_panes.files.sessions.get_mut(session_id) {
+            if let Some(ws) = self.kernel.slots.get_mut(&crate::files::FILES).sessions.get_mut(session_id) {
                 ws.close_preview(&path);
             }
             crate::files::watch::unwatch(self, session_id, &path);
@@ -448,6 +450,7 @@ impl Feature<App> for PanelsFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder.register_slot(&SIDE);
         // After Copy project ID and before the message keys, as Desktop registers it (`use-session-commands.tsx:610`).
         builder.add_command(
             CommandEntry::<App>::from_key(

@@ -32,7 +32,7 @@ pub(crate) fn inbox(s: &App, p: &Pal, inset: (f32, f32)) -> El {
         );
     }
     let order = s.inbox_order();
-    let expanded = s.restore.inbox.recent_expanded;
+    let expanded = s.kernel.slots.get(&crate::restore::RESTORE).inbox.recent_expanded;
     let items = Rc::new(items(&order, expanded));
     // Only the rows in sight are built (a virtual list), whatever Show more shows: each row is
     // its session, and its card reads the session as it stands. The rows' places stand as the
@@ -140,7 +140,7 @@ fn items(order: &Order, expanded: bool) -> Vec<Line> {
 /// element to focus.
 fn end_key(s: &App, last: bool) -> Option<(String, String)> {
     let order = s.inbox_order();
-    let items = items(&order, s.restore.inbox.recent_expanded);
+    let items = items(&order, s.kernel.slots.get(&crate::restore::RESTORE).inbox.recent_expanded);
     let reach = |l: &Line| match l {
         Line::Card { at, .. } => Some(order.rows[*at].key.clone()),
         Line::More => Some("inbox-more".to_owned()),
@@ -148,7 +148,7 @@ fn end_key(s: &App, last: bool) -> Option<(String, String)> {
         Line::Header(_) | Line::Empty => None,
     }
     .map(|key| (l.key(&order), key));
-    let shelf = if s.restore.inbox.working_expanded { order.group(Group::Working) } else { Default::default() };
+    let shelf = if s.kernel.slots.get(&crate::restore::RESTORE).inbox.working_expanded { order.group(Group::Working) } else { Default::default() };
     let shelved = |r: &crate::inbox_order::Shown| (r.key.clone(), r.key.clone());
     if last {
         shelf.last().map(shelved).or_else(|| items.iter().rev().find_map(reach))
@@ -192,10 +192,10 @@ impl Line {
                 None => el().key(self.element_key(order)).h(CARD_H),
             },
             Line::More => {
-                let label = if s.restore.inbox.recent_expanded { t!("sidebar.inbox.showLess") } else { t!("sidebar.inbox.showMore") };
+                let label = if s.kernel.slots.get(&crate::restore::RESTORE).inbox.recent_expanded { t!("sidebar.inbox.showLess") } else { t!("sidebar.inbox.showMore") };
                 ghost_button(p, "inbox-more", label).on_press_tx(|s: &mut App, tx: &mut Tx| {
                     tx.instant();
-                    let opening = !s.restore.inbox.recent_expanded;
+                    let opening = !s.kernel.slots.get(&crate::restore::RESTORE).inbox.recent_expanded;
                     s.toggle_inbox_recent();
                     // Open, the button goes to the list's end, past the rows built: focus goes on
                     // to the first row it brought, which stands where the button stood.
@@ -245,7 +245,7 @@ fn scroller(p: &Pal, key: &str, content: El) -> El {
 /// Working sessions, in a shelf pinned below the list: at most 40% of the inbox, behind a
 /// full-bleed hairline.
 fn working(s: &App, p: &Pal, order: &Order, inset: (f32, f32)) -> El {
-    let open = s.restore.inbox.working_expanded;
+    let open = s.kernel.slots.get(&crate::restore::RESTORE).inbox.working_expanded;
     let mut shelf = col()
         .key("inbox-working")
         .role("group")

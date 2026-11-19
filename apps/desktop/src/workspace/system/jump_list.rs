@@ -21,13 +21,15 @@ const EVERY: f64 = 2.0;
 #[derive(Default)]
 struct JumpListClock(f64);
 
+static JUMP_LIST_CLOCK: opencode_kernel::Slot<JumpListClock> = opencode_kernel::Slot::new();
+
 /// `poll`, in a live window: sends the list when it changed.
 pub fn poll(s: &mut App) {
-    let last = s.kernel.slots.get::<JumpListClock>().map_or(0.0, |c| c.0);
+    let last = s.kernel.slots.try_untracked(&JUMP_LIST_CLOCK).map_or(0.0, |c| c.0);
     if !s.live() || !s.persists() || !matches!(s.checkout.boot, crate::servers::runtime::Boot::Ready) || *s.clock - last < EVERY {
         return;
     }
-    s.kernel.slots.slot::<JumpListClock>().0 = *s.clock;
+    s.kernel.slots.get_or_default(&JUMP_LIST_CLOCK).0 = *s.clock;
     // A run under a scratch root (`RUNE_DIRS_ROOT`) shares the installed app's identity unless it
     // took its own (`--app-id`), and leaves that list alone. Under its own, a pick carries the
     // root back (`--dirs-root`, which only debug builds read) so it reaches this run, not the

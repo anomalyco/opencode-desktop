@@ -17,11 +17,11 @@ use opencode_i18n::t;
 pub(super) fn column(s: &App, p: &Pal, selected: Option<&model::Project>, wide: bool, page_h: f32) -> El {
     let used = s.used_projects();
     let server = crate::servers::runtime::active(s);
-    let failed = s.home_state.servers.iter().any(|v| v.key == *server && v.failed());
+    let failed = s.kernel.slots.get(&crate::projects::HOME_STATE).servers.iter().any(|v| v.key == *server && v.failed());
     // `h-7 pl-1.5 pr-3`: Projects in muted 530, and, with one server, the large ghost-muted
     // folder-add button (disabled while it's down).
     let mut header = row().key("home-projects-header").w_full().h(28.0).pl(6.0).pr(12.0).center_y().child(text(t!("home.projects")).font(HOME_MED).color(p.muted)).child(spacer());
-    if s.home_state.servers.len() <= 1 {
+    if s.kernel.slots.get(&crate::projects::HOME_STATE).servers.len() <= 1 {
         let add = el().key("home-add-project").role("button").label_static(t!("home.project.add")).help(t!("home.project.add")).size(28.0, 28.0).radius(6.0).center();
         let add = if failed { add.opacity(0.5) } else { add.hover(p.hover).press(p.pressed).on_press_tx(|s: &mut App, tx: &mut Tx| s.open_project_dialog(tx)) };
         header = header.child(add.child(icon(&ic::FOLDER_ADD_LEFT, 16.0).color(p.icon_muted)));
@@ -59,7 +59,7 @@ pub(super) fn column(s: &App, p: &Pal, selected: Option<&model::Project>, wide: 
 /// rows `gap-1`), or along Home's foot, one at each end.
 pub(super) fn utility(p: &Pal, stacked: bool) -> El {
     let settings = nav_row(p, "home-settings", &ic::SETTINGS_GEAR, t!("sidebar.settings")).on_press_tx(|s: &mut App, tx: &mut Tx| {
-        if !s.settings.open {
+        if !s.settings_open() {
             s.toggle_settings(tx);
         }
     });
@@ -103,7 +103,7 @@ fn menu_key(id: &str) -> String {
 /// the row's surface. A click scopes Home to it; a right-click opens its menu.
 pub(super) fn project_row(s: &App, p: &Pal, server: &ServerKey, proj: &model::Project, active: bool, width: f32) -> El {
     let menu = menu_key(&proj.id);
-    let menu_open = s.dialogs.popup.open_at(&menu);
+    let menu_open = s.popup.open_at(&menu);
     let (menu_id, ctx_id, new_dir, dir) = (proj.id.clone(), proj.id.clone(), proj.directory.clone(), proj.directory.clone());
     let (menu_server, ctx_server, new_server, server) = (server.clone(), server.clone(), server.clone(), server.clone());
     let surface = if active { p.layer3 } else { p.layer1 };
@@ -284,9 +284,9 @@ pub(super) fn dropdown_trigger(s: &App, p: &Pal, selected: Option<&model::Projec
     // With several servers, the focused one's name under it, muted at 70%
     // (`leading-[var(--line-height-compact)]`).
     let name = text(label.to_owned()).key("name").font(UI).color(p.text).truncate().dir(rune::Direction::Auto);
-    let server = (s.home_state.servers.len() > 1).then(|| {
+    let server = (s.kernel.slots.get(&crate::projects::HOME_STATE).servers.len() > 1).then(|| {
         let key = crate::projects::home::server(s);
-        s.home_state.servers.iter().find(|v| v.key == key).map(|v| text(v.label.clone()).key("server").font(UI).color(p.muted).opacity(0.7).truncate().dir(rune::Direction::Auto))
+        s.kernel.slots.get(&crate::projects::HOME_STATE).servers.iter().find(|v| v.key == key).map(|v| text(v.label.clone()).key("server").font(UI).color(p.muted).opacity(0.7).truncate().dir(rune::Direction::Auto))
     });
     let labels = col().key("labels").grow(1.0).shrink().min_w(0.0).child(name).children(server.flatten());
     row()
@@ -326,7 +326,7 @@ pub(crate) fn home_projects_popover(s: &App, p: &Pal) -> Option<[El; 2]> {
     let selected_id = s.home_selected().map(|p| p.id.as_str());
     let width = s.project_state.trigger_w.max(160.0);
     let server = crate::servers::runtime::active(s);
-    let failed = s.home_state.servers.iter().any(|v| v.key == *server && v.failed());
+    let failed = s.kernel.slots.get(&crate::projects::HOME_STATE).servers.iter().any(|v| v.key == *server && v.failed());
     // The same `home-projects-viewport` as the column's, its bar too.
     let viewport = col().w_full().max_h(320.0).scroll_fade(rune::ScrollFade::strength(16.0).linear().full_at(1.0));
     let scroll = |viewport: El, rows: El| session_view::scroller::scroller("home-projects-menu-scroll").build::<App>(p, viewport, rows);

@@ -10,19 +10,21 @@ use opencode_storage::Storage;
 
 use crate::App;
 
+pub(crate) static FULLTEXT: opencode_kernel::Slot<Surfaces> = opencode_kernel::Slot::new();
+
 impl FulltextHost for App {
     fn fulltext(&self) -> &Surfaces {
-        &self.fulltext
+        self.kernel.slots.get(&FULLTEXT)
     }
 
     fn fulltext_mut(&mut self) -> &mut Surfaces {
-        &mut self.fulltext
+        self.kernel.slots.get_mut(&FULLTEXT)
     }
 
     fn surface_query(&self, which: Surface) -> &str {
         match which {
-            Surface::Palette if self.dialogs.switcher.is_open() && self.dialogs.switcher.mode != crate::switcher::SwitcherMode::Commands => {
-                self.dialogs.switcher.query()
+            Surface::Palette if self.kernel.slots.get(&crate::switcher::SWITCHER).is_open() && self.kernel.slots.get(&crate::switcher::SWITCHER).mode != crate::switcher::SwitcherMode::Commands => {
+                self.kernel.slots.get(&crate::switcher::SWITCHER).query()
             }
             Surface::Home if self.home_search_open() => self.search.text.as_str(),
             _ => "",
@@ -34,7 +36,7 @@ impl FulltextHost for App {
     }
 
     fn palette_archived(&self) -> bool {
-        self.dialogs.switcher.mode == crate::switcher::SwitcherMode::Archived
+        self.kernel.slots.get(&crate::switcher::SWITCHER).mode == crate::switcher::SwitcherMode::Archived
     }
 
     fn home_selected_id(&self) -> Option<String> {

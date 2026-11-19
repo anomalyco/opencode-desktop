@@ -29,8 +29,8 @@ const KEYS: &[Trigger] = &[
 fn setup(s: &mut App) {
     crate::stories::scenes::open_scene(s);
     s.finish_stream();
-    s.workspace_panes.side = Default::default();
-    s.workspace_panes.review = Default::default();
+    *s.kernel.slots.get_mut(&crate::panels::SIDE) = Default::default();
+    *s.kernel.slots.get_mut(&crate::review::REVIEW) = Default::default();
     *s.workspace_panes.tool_open = None;
     s.timeline_fx.expanded.insert(format!("c-{EDIT}"));
     s.timeline_fx.expanded.insert("c-call_grep_27000".into());

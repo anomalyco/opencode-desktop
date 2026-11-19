@@ -19,7 +19,7 @@ const TURN: Curve = Curve::tween(0.15, Easing::cubic(0.42, 0.0, 0.58, 1.0));
 /// Home groups its projects by server: more than one is listed, or one is signing in
 /// (`view.tsx:247-251`).
 pub(super) fn grouped(s: &App) -> bool {
-    let servers = &s.home_state.servers;
+    let servers = &s.kernel.slots.get(&crate::projects::HOME_STATE).servers;
     servers.len() > 1 || servers.iter().any(|v| v.sign_in_required() || v.connecting())
 }
 
@@ -28,7 +28,7 @@ pub(super) fn grouped(s: &App) -> bool {
 pub(super) fn groups(s: &App, p: &Pal, dropdown: bool, width: f32) -> El {
     let sel = home_state::selection(s);
     let mut list = col().key("home-servers").w_full().gap(if dropdown { 4.0 } else { 16.0 });
-    for v in &s.home_state.servers {
+    for v in &s.kernel.slots.get(&crate::projects::HOME_STATE).servers {
         let collapsed = home_state::collapsed(&v.key);
         let selected = sel.server.as_ref() == Some(&v.key) && sel.directory.is_none();
         let mut group = col().key(format!("home-server-{}", v.key)).w_full().gap(4.0).child(server_row(s, p, v, selected, collapsed));
@@ -72,7 +72,7 @@ fn hairline(p: &Pal) -> El {
 fn server_row(s: &App, p: &Pal, v: &ServerView, selected: bool, collapsed: bool) -> El {
     let key = v.key.clone();
     let menu = menu_key(&key);
-    let menu_open = s.dialogs.popup.open_at(&menu);
+    let menu_open = s.popup.open_at(&menu);
     let healthy = v.healthy();
     let auth = v.sign_in_required();
     let incompatible = v.incompatible();
@@ -222,7 +222,7 @@ fn focus(s: &mut App, key: &ServerKey, tx: &mut Tx) {
 /// An added server that rejects its saved sign-in opens its Edit server dialog, for a new
 /// password or pairing link (`actions.authenticate`). True when it asked.
 fn authenticate(s: &mut App, key: &ServerKey, tx: &mut Tx) -> bool {
-    let Some(v) = s.home_state.servers.iter().find(|v| v.key == *key) else { return false };
+    let Some(v) = s.kernel.slots.get(&crate::projects::HOME_STATE).servers.iter().find(|v| v.key == *key) else { return false };
     if !v.sign_in_required() {
         return false;
     }
@@ -247,7 +247,7 @@ pub(super) fn choose_project(s: &mut App, key: &ServerKey, tx: &mut Tx) {
     if authenticate(s, key, tx) {
         return;
     }
-    if s.home_state.servers.iter().any(|v| v.key == *key && v.failed()) {
+    if s.kernel.slots.get(&crate::projects::HOME_STATE).servers.iter().any(|v| v.key == *key && v.failed()) {
         return;
     }
     let server = key.clone();
@@ -259,12 +259,12 @@ pub(super) fn choose_project(s: &mut App, key: &ServerKey, tx: &mut Tx) {
 /// `ServerRowMenuView`: Edit (an added server's), Hide from project list (the app's own, while
 /// another shows), then Remove (an added server's).
 fn open_menu(s: &mut App, key: &ServerKey, tx: &mut Tx) {
-    let Some(v) = s.home_state.servers.iter().find(|v| v.key == *key) else { return };
+    let Some(v) = s.kernel.slots.get(&crate::projects::HOME_STATE).servers.iter().find(|v| v.key == *key) else { return };
     let http = match &v.conn {
         ServerConn::Http { http, .. } => Some(http.url.clone()),
         _ => None,
     };
-    let can_hide = v.conn.builtin() && s.home_state.servers.len() > 1;
+    let can_hide = v.conn.builtin() && s.kernel.slots.get(&crate::projects::HOME_STATE).servers.len() > 1;
     let mut menu = Menu::new(t!("settings.section.server"))
         .min_width(160.0)
         .align(Align::End)

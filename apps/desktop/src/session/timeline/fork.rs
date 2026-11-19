@@ -11,13 +11,15 @@ use rune::{KeyEvent, Tx};
 use crate::pickers::PickerHost as _;
 use crate::{App, Route, Source};
 
+pub(crate) static FORK: opencode_kernel::Slot<ForkState> = opencode_kernel::Slot::new();
+
 impl ForkHost for App {
     fn fork(&self) -> &ForkState {
-        &self.dialogs.fork
+        self.kernel.slots.get(&FORK)
     }
 
     fn fork_mut(&mut self) -> &mut ForkState {
-        &mut self.dialogs.fork
+        self.kernel.slots.get_mut(&FORK)
     }
 
     fn is_session_open(&self, session: &str) -> bool {
@@ -56,7 +58,7 @@ impl ForkHost for App {
     }
 
     fn resolve_skill_id(&self, name_or_id: &str) -> Option<&str> {
-        self.composer_ext.mentions.skills.iter().find(|sk| sk.id == name_or_id || sk.name == name_or_id).map(|sk| sk.id.as_str())
+        self.kernel.slots.get(&crate::mentions::MENTIONS).skills.iter().find(|sk| sk.id == name_or_id || sk.name == name_or_id).map(|sk| sk.id.as_str())
     }
 
     fn is_simulated(&self) -> bool {
@@ -79,7 +81,7 @@ impl ForkHost for App {
         // Replacing an open or dispatching palette inherits its focus-return origin
         // (`packages/ui/src/context/dialog-machine.ts:5-8,166-181`,
         // `packages/app/src/session/commands/use-session-commands.tsx:286-292`).
-        let restore = self.composer.focused || self.dialogs.switcher.restore_composer();
+        let restore = self.composer.focused || self.kernel.slots.get(&crate::switcher::SWITCHER).restore_composer();
         self.close_jump_dialog(false);
         self.close_picker(false);
         self.close_switcher(false);

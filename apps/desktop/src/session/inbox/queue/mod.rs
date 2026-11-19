@@ -7,13 +7,17 @@ mod story;
 use std::collections::HashMap;
 
 use opencode_feature_inbox::send_failed::SendFailedHost;
-use opencode_kernel::{EscapeLayer, Feature, KernelBuilder};
+use opencode_kernel::{EscapeLayer, Feature, KernelBuilder, Slot};
 use opencode_kit::client::{PathAttachment, Prompt, Write};
 use opencode_kit::model::{Attachment, Delivery, Inbox, InboxItem, PromptComment, Transcript};
 use opencode_kit::wire_error::WireError;
 use rune::{KeyEvent, TextEdit, Tx};
 
 use crate::{App, Route, Source};
+
+pub(crate) static QUEUE_OPS: Slot<HashMap<String, machine::Queue>> = Slot::new();
+static QUEUE_DRAG: Slot<drag::Drag> = Slot::new();
+static QUEUE_RUNS: Slot<run::Runs> = Slot::new();
 
 impl QueueHost for App {
     fn inboxes(&self) -> &HashMap<String, Inbox> {
@@ -33,27 +37,27 @@ impl QueueHost for App {
     }
 
     fn queue_ops(&self) -> &HashMap<String, machine::Queue> {
-        &self.queue.ops
+        self.kernel.slots.get(&QUEUE_OPS)
     }
 
     fn queue_ops_mut(&mut self) -> &mut HashMap<String, machine::Queue> {
-        &mut self.queue.ops
+        self.kernel.slots.get_mut(&QUEUE_OPS)
     }
 
     fn queue_drag(&self) -> &drag::Drag {
-        &self.queue.drag
+        self.kernel.slots.get(&QUEUE_DRAG)
     }
 
     fn queue_drag_mut(&mut self) -> &mut drag::Drag {
-        &mut self.queue.drag
+        self.kernel.slots.get_mut(&QUEUE_DRAG)
     }
 
     fn queue_runs(&self) -> &run::Runs {
-        &self.queue.runs
+        self.kernel.slots.get(&QUEUE_RUNS)
     }
 
     fn queue_runs_mut(&mut self) -> &mut run::Runs {
-        &mut self.queue.runs
+        self.kernel.slots.get_mut(&QUEUE_RUNS)
     }
 
     fn is_fixture(&self) -> bool {
@@ -107,18 +111,18 @@ impl QueueHost for App {
     }
 
     fn composer_shell(&self) -> bool {
-        self.composer_ext.add.shell()
+        self.kernel.slots.get(&crate::add_menu::ADD_MENU).shell()
     }
 
     fn sync_composer_shell(&mut self, shell: bool) {
-        if shell != self.composer_ext.add.shell() {
+        if shell != self.kernel.slots.get(&crate::add_menu::ADD_MENU).shell() {
             use session_view::composer::mode::{Event, Mode};
             self.composer_mode(Event::Synced(if shell { Mode::Shell } else { Mode::Normal }));
         }
     }
 
     fn take_composer_comments(&mut self) -> Vec<PromptComment> {
-        self.composer_ext.quote.take()
+        self.kernel.slots.get_mut(&crate::quote::QUOTE).take()
     }
 
     fn clear_line_comments(&mut self, session: &str) {
@@ -127,9 +131,10 @@ impl QueueHost for App {
 
     fn merge_parked_draft(&mut self, session: &str, text: String, files: Vec<Attachment>, paths: Vec<PathAttachment>) {
         if let Some(key) = crate::restore::draft_key(&Route::here(session.into())) {
-            let draft = self.restore.drafts.entry(key.clone()).or_default();
+            let r = self.kernel.slots.get_mut(&crate::restore::RESTORE);
+            let draft = r.drafts.entry(key.clone()).or_default();
             *draft = machine::merged_text(draft, &text);
-            let parked = self.restore.parked.entry(key).or_default();
+            let parked = r.parked.entry(key).or_default();
             parked.files.extend(files);
             parked.paths.extend(paths);
         }
@@ -309,6 +314,10 @@ impl Feature<App> for InboxFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder
+            .register_slot(&QUEUE_OPS)
+            .register_slot(&QUEUE_DRAG)
+            .register_slot(&QUEUE_RUNS);
         builder.register_escape_layer(EscapeLayer::new(
             "escape.run",
             80,

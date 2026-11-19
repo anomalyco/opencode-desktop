@@ -47,7 +47,7 @@ fn quotes(variant: usize) -> Vec<PromptComment> {
 fn open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
     for q in quotes(*s.fixture_run.variant) {
-        s.composer_ext.quote.push(q);
+        s.kernel.slots.get_mut(&super::QUOTE).push(q);
     }
     *s.composer = TextEdit::new(ASK);
     prompt(s, tx);

@@ -4,19 +4,15 @@
 //! [`rune::Tracked`] cells, preserving exact per-field reactive tracking granularity while
 //! keeping `struct App` compact and navigable.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 
 use serde_json::Value;
 
 use crate::{
-    add_menu, agent_rows, appearance, attachments, background, browser, connect, copied,
-    deep_links, demo, diagnostics, diagram, dictation, disclosure, files, find, fork, glitch,
-    jump, language, line_comments, line_reveal, mcp, mentions, message_nav, motion_log,
-    new_session, new_worktree, notifications, open_in, open_story, panels, pickers, pinch,
-    plugin_host, popup, project_switcher, projects, prompt_history, queue, quote, reconnect,
-    review, rewind, rune_mcp, served, session_menu, session_state, status_toast, stories, submit,
-    suggestions, switcher, tabs, terminal, text_rendering, tips, todos, tool_open, undo, updater,
-    usage, view, working,
+    appearance, attachments, background, browser, copied, deep_links, demo, diagnostics, diagram,
+    disclosure, glitch, jump, language, line_reveal, motion_log, new_session, open_story, pickers,
+    pinch, plugin_host, reconnect, served, session_state, stories, submit, tabs, text_rendering,
+    tool_open, undo, view, working,
 };
 
 /// Fixture playback, demo script, and storybook playground state.
@@ -51,46 +47,14 @@ pub struct DiagState {
     pub diagnostics: rune::Tracked<diagnostics::Diagnostics>,
 }
 
-/// Modal dialogs, popovers, command/project switchers, menus, toasts, and onboarding tips.
-#[derive(Default)]
-pub struct DialogStates {
-    pub usage: rune::Tracked<usage::Usage>,
-    /// Session menus, the title being renamed and Delete's confirmation.
-    pub menus: rune::Tracked<Box<session_menu::Menus>>,
-    /// The drawn menu or picker open now (off macOS).
-    pub popup: rune::Tracked<Box<popup::Popup>>,
-    pub switcher: rune::Tracked<Box<switcher::Switcher>>,
-    pub project_switcher: rune::Tracked<project_switcher::ProjectSwitcher>,
-    /// A server's folder picker, while one is open (`projects::remote_picker`).
-    pub remote_picker: rune::Tracked<projects::remote_picker::Picker>,
-    /// The connect dialog (`connect`).
-    pub connect: rune::Tracked<Box<connect::Connect>>,
-    /// The MCP servers' toggles and the MCPs dialog (`mcp`).
-    pub mcp: rune::Tracked<Box<mcp::Mcp>>,
-    pub fork: rune::Tracked<Box<fork::ForkState>>,
-    pub jump: rune::Tracked<message_nav::jump::JumpState>,
-    pub rewind: rune::Tracked<rewind::RewindState>,
-    pub toast: rune::Tracked<status_toast::StatusToast>,
-    /// The paced one-time tips (`tips.rs`).
-    pub tips: rune::Tracked<tips::Tips>,
-    /// Drafts that start in a new worktree, worktree lists and the branch picker (`new_worktree.rs`).
-    pub new_worktree: rune::Tracked<Box<new_worktree::NewWorktree>>,
-}
-
-/// Side/bottom workspace surfaces, panes, external openers, and client MCP hub.
+/// Host-owned workspace panes and plugin panel sidebar.
 #[derive(Default)]
 pub struct WorkspacePanes {
-    pub side: rune::Tracked<Box<panels::SideState>>,
     pub browser: rune::Tracked<Box<browser::BrowserPane>>,
-    pub review: rune::Tracked<Box<review::ReviewPane>>,
     /// The file sidebar the Review and Files panels share (Desktop's `PanelSidebar`).
     pub panel_sidebar: rune::Tracked<plugin_host::native::sidebar::PanelSidebar>,
-    pub files: rune::Tracked<Box<files::FilesPane>>,
-    pub terminal: rune::Tracked<Box<terminal::TerminalPane>>,
-    pub open_in: rune::Tracked<open_in::OpenIn>,
     /// What a tool step last opened in the side region (`tool_open`).
     pub tool_open: rune::Tracked<Option<tool_open::Opened>>,
-    pub rune_mcp: rune::Tracked<rune_mcp::WindowMcp>,
 }
 
 /// Shell gestures: tab drag/preview/reopen, pinch zoom, sidebar resize, and Home return tab.
@@ -112,7 +76,7 @@ pub struct ShellGestures {
     pub(crate) home_return_tab: rune::Tracked<Option<String>>,
 }
 
-/// Timeline presentation, animations, disclosures, hover state, plan drawer, find, and navigation.
+/// Timeline presentation, animations, disclosures, hover state, and working indicator.
 #[derive(Default)]
 pub struct TimelineFx {
     /// The disclosures the reader toggled, tool groups springing shut among them (`disclosure`).
@@ -129,13 +93,6 @@ pub struct TimelineFx {
     pub agent_hover: rune::Tracked<Option<String>>,
     /// When each run started, for the Working label's rhythm (`working.rs`).
     pub working: rune::Tracked<working::Working>,
-    /// Subagents' latest steps and how their runs ended, for their timeline rows.
-    pub agent_rows: rune::Tracked<agent_rows::Live>,
-    /// The plan's list over the todo pill is open (`todos.rs`).
-    pub todo_open: rune::Tracked<bool>,
-    pub todo_ticks: rune::Tracked<todos::Ticks>,
-    pub find: rune::Tracked<Box<find::Find>>,
-    pub message_nav: rune::Tracked<message_nav::MessageNav>,
 }
 
 /// Theme, motion, text rendering, background, locale, project icons, and window frame state.
@@ -154,42 +111,19 @@ pub struct AppearanceState {
     pub icons: rune::Tracked<project_icon::Icons>,
 }
 
-/// Composer auxiliary inputs: history, attachments, quotes, comments, pickers, mentions, slash,
-/// suggestions, voice dictation, and toast undo stacks.
+/// Composer per-server attachments/pickers (`servers::runtime::Half` swap) and toast undo stacks.
 #[derive(Default)]
 pub struct ComposerExt {
-    /// Sent prompts, for ↑ and ↓ in the composer (`prompt_history.rs`).
-    pub prompts: rune::Tracked<prompt_history::PromptHistory>,
     /// The composer's images, and sent prompts waiting on the server's copy.
     pub attach: rune::Tracked<Box<attachments::Attach>>,
-    /// The Quote button over a timeline selection, and the quotes waiting in the composer.
-    pub quote: rune::Tracked<Box<quote::Quotes>>,
-    /// Comments on lines of files, from Files and Changes (`line_comments`).
-    pub line_comments: rune::Tracked<Box<line_comments::LineComments>>,
     pub pickers: rune::Tracked<Box<pickers::Pickers>>,
-    /// The composer's `@` popover and what it lists.
-    pub mentions: rune::Tracked<Box<mentions::Mentions>>,
-    /// Session ids named in replies, looked up once (`mentions::refs`).
-    pub session_refs: rune::Tracked<mentions::refs::Lookups>,
-    /// The + menu, the `/` command popover and shell mode.
-    pub add: rune::Tracked<add_menu::AddMenu>,
-    /// The composer's suggestion lists and prompt recall (`suggestions/machine.rs`).
-    pub suggest: rune::Tracked<suggestions::Suggest>,
-    /// Hex dictation into the composer (⇧⌘M or the mic).
-    pub dictation: rune::Tracked<dictation::Dictation>,
     /// What the window's toasts offer back (`undo`).
     pub undos: rune::Tracked<undo::Undos>,
 }
 
-/// Prompt queue mutations, drag/rewrite runs, held sends, and optimistic session starts.
+/// Held sends, fixture send counter, and optimistic session starts.
 #[derive(Default)]
 pub struct QueueState {
-    /// Each session's queue changes this window asked for (`queue::machine`).
-    pub ops: rune::Tracked<HashMap<String, queue::machine::Queue>>,
-    /// A queued prompt dragged to a new place (`queue::drag`).
-    pub drag: rune::Tracked<queue::drag::Drag>,
-    /// The queue rewrites in flight and how far each got (`queue::run`).
-    pub runs: rune::Tracked<queue::run::Runs>,
     /// A send held while a session opens (`submit.rs`).
     pub submit: rune::Tracked<submit::Submit>,
     pub(crate) sends: rune::Tracked<u32>,
@@ -197,15 +131,11 @@ pub struct QueueState {
     pub starts: rune::Tracked<new_session::Starts>,
 }
 
-/// Platform and connectivity services: notifications, deep links, updater, reconnect links, and
-/// session availability states.
+/// Connectivity and deep-link services: deep links, reconnect links, and session availability.
 #[derive(Default)]
 pub struct PlatformServices {
-    /// System notifications for finished runs, permission requests and errors.
-    pub notify: rune::Tracked<notifications::Notifier>,
     /// Links the system handed the app, until they open (`deep_links`).
     pub deep_links: rune::Tracked<deep_links::DeepLinks>,
-    pub updater: rune::Tracked<updater::Updater>,
     /// Every server's link: live, in doubt or down (`reconnect`).
     pub server_links: rune::Tracked<reconnect::Links>,
     /// Whether each open session can show, by (server, session) (`session_state`).

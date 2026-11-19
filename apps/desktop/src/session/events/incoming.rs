@@ -60,7 +60,7 @@ fn message(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             s.sidebar_inbox.branches.reconnected();
             reconnect::back(s);
             // Terminals that failed under the old connection attach again (`server.connected`).
-            s.workspace_panes.terminal.connections += 1;
+            s.kernel.slots.get_mut(&crate::terminal::TERMINAL).connections += 1;
             s.pump_outbox();
             s.stream_back();
             s.check_sends();
@@ -173,7 +173,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             let tab_after = s.tab_status(&root);
             let shown_here = matches!(&*s.route, crate::Route::Home)
                 || s.tab_layout() == crate::layout_state::TabLayout::Inbox
-                || s.dialogs.switcher.is_open()
+                || s.kernel.slots.get(&crate::switcher::SWITCHER).is_open()
                 || matches!(&*s.route, crate::Route::Session { id, .. } if s.root_of(id) == root);
             return recent_changed || visible_meta || tab_before != tab_after || (changed && shown_here);
         }
@@ -190,7 +190,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             let t = s.transcripts.entry(session.clone()).or_insert_with(|| Transcript { session: session.clone(), messages: vec![] });
             attachments::reconcile(&mut s.composer_ext.attach.echoes, t, &messages);
             let delivered: Vec<String> = messages.iter().map(|m| m.id().to_owned()).collect();
-            match s.kernel.slots.get_mut::<crate::events::StreamGaps>().and_then(|g| g.0.get_mut(&session)) {
+            match s.kernel.slots.get_mut(&crate::events::STREAM_GAPS).0.get_mut(&session) {
                 Some(gapped) => t.merge_caught(messages, gapped),
                 None => t.merge(messages),
             }

@@ -4,7 +4,7 @@ pub use opencode_feature_office::{
     OfficeCompositor, OfficeEnv, configure, pages, poll, sheet,
 };
 
-use opencode_kernel::{Feature, KernelBuilder, Phase, SurfaceDescriptor, SurfaceKind};
+use opencode_kernel::{Feature, KernelBuilder, Phase};
 
 use crate::App;
 
@@ -75,11 +75,6 @@ impl Feature<App> for OfficeFeature {
             crate::tick::order::ingest::OFFICE,
             "office.poll",
             |s, _, tx| poll(s, tx),
-        );
-        builder.add_surface(
-            SurfaceDescriptor::new("office", SurfaceKind::Office, "Office Preview")
-                .with_extensions(&["docx", "xlsx", "pptx"])
-                .with_multi_instance(true),
         );
     }
 }
