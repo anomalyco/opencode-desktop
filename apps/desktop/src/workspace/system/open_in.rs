@@ -203,6 +203,11 @@ impl Feature<App> for OpenInFeature {
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
         builder.add_setup("open_in.waker", |s, w| s.workspace_panes.open_in.set_waker(w));
-        builder.add_system(Phase::Ingest, "open_in.poll", |s, _, _| poll(s));
+        builder.add_system_ordered(
+            Phase::Ingest,
+            crate::tick::order::ingest::OPEN_IN,
+            "open_in.poll",
+            |s, _, _| poll(s),
+        );
     }
 }

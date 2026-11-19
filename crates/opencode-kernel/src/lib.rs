@@ -148,9 +148,21 @@ impl<S> KernelBuilder<S> {
         self
     }
 
-    /// Registers a per-tick system in `phase`.
+    /// Registers a per-tick system in `phase` at the end of the phase (`u16::MAX`).
     pub fn add_system(&mut self, phase: Phase, name: &'static str, f: SystemFn<S>) -> &mut Self {
         self.kernel.scheduler.add_system(phase, name, f);
+        self
+    }
+
+    /// Registers a per-tick system in `phase` at an explicit ascending `order`.
+    pub fn add_system_ordered(
+        &mut self,
+        phase: Phase,
+        order: u16,
+        name: &'static str,
+        f: SystemFn<S>,
+    ) -> &mut Self {
+        self.kernel.scheduler.add_system_ordered(phase, order, name, f);
         self
     }
 

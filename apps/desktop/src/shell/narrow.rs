@@ -233,9 +233,11 @@ impl Feature<App> for NarrowFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
-        builder.add_system(Phase::React, "narrow.poll", |s, now, tx| {
-            let changed = poll(s, now, tx);
-            s.note_tick_change(changed)
-        });
+        builder.add_system_ordered(
+            Phase::React,
+            crate::tick::order::react::NARROW,
+            "narrow.poll",
+            |s, now, tx| poll(s, now, tx),
+        );
     }
 }

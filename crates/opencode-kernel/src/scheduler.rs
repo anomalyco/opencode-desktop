@@ -33,6 +33,7 @@ pub type VisibilityFn<S> = fn(&mut S, bool, &mut rune::Tx);
 pub type CloseFn<S> = fn(&mut S);
 
 struct SystemEntry<S> {
+    order: u16,
     name: &'static str,
     run: SystemFn<S>,
 }
@@ -160,9 +161,23 @@ impl<S> LifecycleScheduler<S> {
         Arc::make_mut(self.inner.get_or_insert_with(|| Arc::new(Schedule::default())))
     }
 
-    /// Registers a per-tick system in `phase`. Systems execute in registration order within a phase.
+    /// Registers a per-tick system in `phase` at the end of the phase (`u16::MAX`).
+    /// Systems with equal `order` execute in registration order within a phase.
     pub fn add_system(&mut self, phase: Phase, name: &'static str, f: SystemFn<S>) {
-        self.schedule_mut().phases[phase.index()].push(SystemEntry { name, run: f });
+        self.add_system_ordered(phase, u16::MAX, name, f);
+    }
+
+    /// Registers a per-tick system in `phase` in ascending `order` (ties preserve registration order).
+    pub fn add_system_ordered(
+        &mut self,
+        phase: Phase,
+        order: u16,
+        name: &'static str,
+        f: SystemFn<S>,
+    ) {
+        let entries = &mut self.schedule_mut().phases[phase.index()];
+        let idx = entries.partition_point(|existing| existing.order <= order);
+        entries.insert(idx, SystemEntry { order, name, run: f });
     }
 
     /// Registers a one-time window setup hook invoked with the window's `Waker`.
@@ -187,10 +202,27 @@ impl<S> LifecycleScheduler<S> {
 
     /// Runs every system registered in `phase`. Returns `true` if any system reported a change.
     pub fn run_phase(&self, phase: Phase, state: &mut S, now: f64, tx: &mut rune::Tx) -> bool {
+        self.run_phase_with(phase, state, now, tx, |_, _| {})
+    }
+
+    /// Runs every system registered in `phase`, calling `on_step(state, system_changed)` after
+    /// each system returns. Returns `true` if any system reported a change.
+    pub fn run_phase_with(
+        &self,
+        phase: Phase,
+        state: &mut S,
+        now: f64,
+        tx: &mut rune::Tx,
+        mut on_step: impl FnMut(&mut S, bool),
+    ) -> bool {
         let Some(inner) = self.inner.as_deref() else { return false };
         let mut changed = false;
         for system in &inner.phases[phase.index()] {
-            changed |= (system.run)(state, now, tx);
+            let step_changed = (system.run)(state, now, tx);
+            if step_changed {
+                changed = true;
+            }
+            on_step(state, step_changed);
         }
         changed
     }

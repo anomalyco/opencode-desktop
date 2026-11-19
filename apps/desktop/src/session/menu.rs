@@ -381,9 +381,29 @@ impl Feature<App> for SessionMenuFeature {
                 })
                 .with_dismiss(|s, tx| close_rename_dialog(s, tx)),
         );
-        builder.add_system(Phase::Ingest, "session_menu.unread", |s, _, _| unread::poll(s));
-        builder.add_system(Phase::Ingest, "session_menu.preferences", |s, _, _| preferences::poll(s));
-        builder.add_system(Phase::Derive, "session_menu.poll_rename", |s, now, tx| poll_rename(s, now, tx));
-        builder.add_system(Phase::Derive, "session_menu.poll_delete", |s, now, tx| poll_delete(s, now, tx));
+        builder.add_system_ordered(
+            Phase::Ingest,
+            crate::tick::order::ingest::SESSION_MENU_UNREAD,
+            "session_menu.unread",
+            |s, _, _| unread::poll(s),
+        );
+        builder.add_system_ordered(
+            Phase::Ingest,
+            crate::tick::order::ingest::SESSION_MENU_PREFERENCES,
+            "session_menu.preferences",
+            |s, _, _| preferences::poll(s),
+        );
+        builder.add_system_ordered(
+            Phase::Derive,
+            crate::tick::order::derive::SESSION_MENU_RENAME,
+            "session_menu.poll_rename",
+            |s, now, tx| poll_rename(s, now, tx),
+        );
+        builder.add_system_ordered(
+            Phase::Derive,
+            crate::tick::order::derive::SESSION_MENU_DELETE,
+            "session_menu.poll_delete",
+            |s, now, tx| poll_delete(s, now, tx),
+        );
     }
 }

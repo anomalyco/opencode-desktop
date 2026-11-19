@@ -1,8 +1,9 @@
-//! Four-phase per-frame tick (`poll`), one-time window `setup`, and `visibility` lifecycle hooks.
+//! Four-phase per-frame tick (`poll`), canonical system order (`order`), one-time window `setup`,
+//! and `visibility` lifecycle hooks.
 //!
 //! Decoupled feature and subsystem polls run through `s.kernel.scheduler` in explicit phases
-//! (`Ingest`, `Derive`, `React`, `Persist`) registered in `kernel.rs` and each `Feature::register`,
-//! keeping this file focused on frame timing, live/fixture stream dispatch, and window lifecycle.
+//! (`Ingest`, `Derive`, `React`, `Persist`) ordered by [`order`], matching the pre-refactor
+//! `poll` sequence (`31a59a9:apps/desktop/src/main.rs`) independently of feature registration order.
 
 use opencode_kernel::Phase;
 use opencode_kit::model::Delivery;
@@ -13,8 +14,116 @@ use crate::{
     wall_ms, windows,
 };
 
-/// Per-frame tick handoff slot read by registered `LifecycleScheduler` systems so polls preserve
-/// exact `viewed || changed` freshness and pre-ingest `dock_face` transitions.
+/// Canonical per-frame poll order within each scheduler phase, spaced by 10, matching the
+/// pre-refactor `poll` sequence (`31a59a9:apps/desktop/src/main.rs`).
+pub(crate) mod order {
+    pub(crate) mod ingest {
+        pub const WINDOWS_PEER_BEHIND: u16 = 10;
+        pub const SESSION_MENU_UNREAD: u16 = 20;
+        pub const SESSION_MENU_PREFERENCES: u16 = 30;
+        pub const RESTORE_PLACES: u16 = 40;
+        pub const RESTORE_UNDO: u16 = 50;
+        pub const RECONNECT_AUDIT: u16 = 60;
+        pub const POPUP: u16 = 70;
+        pub const SERVERS_RUNTIME: u16 = 80;
+        pub const SERVERS_HEALTH: u16 = 90;
+        pub const PROJECTS_HOME: u16 = 100;
+        pub const PROJECT_SWITCHER: u16 = 110;
+        pub const APPEARANCE_ICONS: u16 = 120;
+        pub const DICTATION: u16 = 130;
+        pub const LAUNCH: u16 = 140;
+        pub const LAUNCH_TRACE: u16 = 150;
+        pub const UPDATER: u16 = 160;
+        #[cfg(feature = "office")]
+        pub const OFFICE: u16 = 170;
+        pub const GLITCH: u16 = 180;
+        pub const EGG: u16 = 190;
+        pub const APPEARANCE: u16 = 200;
+        pub const TEXT_RENDERING: u16 = 210;
+        pub const LANGUAGE: u16 = 220;
+        pub const SETTINGS_SEARCH: u16 = 230;
+        pub const SETTINGS_SERVERS_UNAVAILABLE: u16 = 240;
+        pub const NOTIFICATIONS: u16 = 250;
+        pub const SPEECH: u16 = 260;
+        pub const PANELS_SYNC_COMPOSER: u16 = 270;
+        pub const DEEP_LINKS: u16 = 280;
+        pub const QUOTE: u16 = 290;
+        pub const LINE_COMMENTS: u16 = 300;
+        pub const HISTORY_MESSAGE_NAV: u16 = 310;
+        pub const TURN_ERRORS: u16 = 320;
+        pub const COMPOSER_DROPZONE: u16 = 330;
+        pub const SESSION_PAGES: u16 = 340;
+        pub const APP_OUTPUT_ERRORS: u16 = 350;
+        pub const CONTEXT_WINDOW: u16 = 360;
+        pub const INBOX_SENDS: u16 = 370;
+        pub const INBOX_OUTBOX: u16 = 380;
+        pub const OPEN_IN: u16 = 390;
+        pub const JOBS: u16 = 400;
+        pub const FILES_REPLY_LINKS: u16 = 410;
+        pub const TICK_STREAM: u16 = 420;
+        pub const HISTORY_REWIND: u16 = 430;
+        pub const HISTORY_FORK: u16 = 440;
+        pub const HISTORY_JUMP: u16 = 450;
+        pub const TICK_SUBMIT: u16 = 460;
+    }
+
+    pub(crate) mod derive {
+        pub const WORKING_SYNC: u16 = 10;
+        pub const SUBAGENTS_SHELLS: u16 = 20;
+        pub const TIMELINE_TODOS: u16 = 30;
+        pub const SETTINGS_WORKTREES: u16 = 40;
+        pub const TIMELINE_DOCK_MORPH: u16 = 50;
+        pub const DISCLOSURE: u16 = 60;
+        pub const TIMELINE_PROJECTION: u16 = 70;
+        pub const LINE_REVEAL: u16 = 80;
+        pub const COPIED: u16 = 90;
+        pub const DIAGRAM: u16 = 100;
+        pub const TIMELINE_IMAGES: u16 = 110;
+        pub const MODEL_PICKER_HOVER: u16 = 120;
+        pub const TIMELINE_AGENT_ROWS: u16 = 130;
+        pub const BACKGROUND: u16 = 140;
+        pub const FIND: u16 = 150;
+        pub const HOME_SEARCH: u16 = 160;
+        pub const SWITCHER: u16 = 170;
+        pub const MENTIONS: u16 = 180;
+        pub const COMPOSER_COMMANDS: u16 = 190;
+        pub const COMPOSER_SUGGESTIONS: u16 = 200;
+        pub const SESSION_MENU_RENAME: u16 = 210;
+        pub const BRANCH_PICKER: u16 = 220;
+        pub const SESSION_MENU_DELETE: u16 = 230;
+        pub const COMPOSER_UPLOADS: u16 = 240;
+    }
+
+    pub(crate) mod react {
+        pub const COMPOSER_ATTACH: u16 = 10;
+        pub const PANELS: u16 = 20;
+        pub const RUNE_MCP: u16 = 30;
+        pub const TURN_DIFFS: u16 = 40;
+        pub const SETTINGS_PROJECT: u16 = 50;
+        pub const SETTINGS_ABOUT: u16 = 60;
+        pub const SETTINGS_PROJECTS: u16 = 70;
+        pub const RECONNECT: u16 = 80;
+        pub const SESSION_STATE: u16 = 90;
+        pub const TIPS: u16 = 100;
+        pub const STATUS_TOAST: u16 = 110;
+        pub const LAYOUT_STATE: u16 = 120;
+        pub const NARROW: u16 = 130;
+        pub const INBOX_MODEL: u16 = 140;
+        pub const TAB_PREVIEW: u16 = 150;
+        pub const SESSION_STATUS: u16 = 160;
+        pub const RESTORE_SHOW_DRAFT: u16 = 170;
+    }
+
+    pub(crate) mod persist {
+        pub const UPDATER_OWED: u16 = 10;
+        pub const RESTORE_PERSIST: u16 = 20;
+        pub const ANNOTATIONS_SAVED: u16 = 30;
+        pub const WINDOWS_PERSIST: u16 = 40;
+    }
+}
+
+/// Per-frame tick handoff slot read by registered `LifecycleScheduler` systems so polls see
+/// exact `viewed || changed` freshness and pre-stream `dock_face` transitions.
 #[derive(Default)]
 struct TickFrame {
     polled_runs: u64,
@@ -27,43 +136,17 @@ impl App {
         self.kernel.slots.get::<TickFrame>().is_some_and(|f| f.fresh)
     }
 
-    pub(crate) fn note_tick_change(&mut self, changed: bool) -> bool {
-        if changed {
-            self.kernel.slots.slot::<TickFrame>().fresh = true;
-        }
-        changed
-    }
-
     pub(crate) fn take_asked_dock_face(&mut self) -> Option<String> {
         self.kernel.slots.slot::<TickFrame>().asked_dock_face.take()
     }
 }
 
-pub(crate) fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
-    session_view::scroller::set_device_scale(windows::view_scale(s));
-    *s.clock = now;
-    s.sync_history();
-    *s.now_ms = if s.live() { wall_ms() } else { *s.fixture_run.base_ms + (now * 1000.0) as i64 };
-    demo::poll(s);
-    // The morph loop is for watching: the composer it lands on doesn't take the keys.
-    if s.fixture_run.stage.is_some_and(|st| st.watch()) {
-        s.composer.focused = false;
-    }
-    // The view ran since the last poll: state the polls below derive from other state may have moved.
-    let runs = s.view_runs();
-    let frame = s.kernel.slots.slot::<TickFrame>();
-    let viewed = runs != frame.polled_runs;
-    frame.polled_runs = runs;
-    frame.fresh = viewed;
-    let scheduler = s.kernel.scheduler.clone();
-
-    // ── Phase 1: Ingest ──────────────────────────────────────────────────────────────────────────
-    // Pull external inputs, worker results, timers, and registered Ingest systems, then dispatch
-    // live SSE/WS events and scripted fixture playback.
-    let mut changed = scheduler.run_phase(Phase::Ingest, s, now, tx);
+/// Snapshots `dock_face`, drains live SSE/WS events and due fixture playback events, and runs
+/// `stop::poll` at the exact mid-ingest boundary (`31a59a9:apps/desktop/src/main.rs`).
+pub(crate) fn poll_stream(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     let asked = s.dock_face();
     s.kernel.slots.slot::<TickFrame>().asked_dock_face = asked;
-    changed |= incoming::poll(s, tx);
+    let mut changed = incoming::poll(s, tx);
     while s.fixture_run.playback.front().is_some_and(|e| e.0 <= now + 1e-9) {
         let Some((at, ty, mut data)) = s.fixture_run.playback.pop_front() else { break };
         if ty.starts_with("session.execution.") || ty == "session.archived" {
@@ -103,19 +186,42 @@ pub(crate) fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         tx.wake_at(at);
     }
     changed |= stop::poll(s, now, tx);
+    changed
+}
+
+/// Arms queue/start timers and runs `submit::poll` right after rewind/fork/jump polls.
+pub(crate) fn poll_submit(s: &mut App, tx: &mut Tx) -> bool {
     s.queue_timers(tx);
     s.start_timers(tx);
-    changed |= submit::poll(s, tx);
+    submit::poll(s, tx)
+}
 
-    // ── Phase 2: Derive ──────────────────────────────────────────────────────────────────────────
-    changed |= scheduler.run_phase(Phase::Derive, s, now, tx);
+pub(crate) fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
+    session_view::scroller::set_device_scale(windows::view_scale(s));
+    *s.clock = now;
+    s.sync_history();
+    *s.now_ms = if s.live() { wall_ms() } else { *s.fixture_run.base_ms + (now * 1000.0) as i64 };
+    demo::poll(s);
+    // The morph loop is for watching: the composer it lands on doesn't take the keys.
+    if s.fixture_run.stage.is_some_and(|st| st.watch()) {
+        s.composer.focused = false;
+    }
+    // The view ran since the last poll: state the polls below derive from other state may have moved.
+    let runs = s.view_runs();
+    let frame = s.kernel.slots.slot::<TickFrame>();
+    let viewed = runs != frame.polled_runs;
+    frame.polled_runs = runs;
+    frame.fresh = viewed;
+    let scheduler = s.kernel.scheduler.clone();
 
-    // ── Phase 3: React ───────────────────────────────────────────────────────────────────────────
-    s.kernel.slots.slot::<TickFrame>().fresh = viewed || changed;
-    changed |= scheduler.run_phase(Phase::React, s, now, tx);
-
-    // ── Phase 4: Persist ─────────────────────────────────────────────────────────────────────────
-    changed |= scheduler.run_phase(Phase::Persist, s, now, tx);
+    let mut changed = false;
+    for phase in Phase::ALL {
+        changed |= scheduler.run_phase_with(phase, s, now, tx, |s, step_changed| {
+            if step_changed {
+                s.kernel.slots.slot::<TickFrame>().fresh = true;
+            }
+        });
+    }
     s.finish_tail_change(tx);
     changed
 }

@@ -169,6 +169,11 @@ impl Feature<App> for NotificationsFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
-        builder.add_system(Phase::Ingest, "notifications.poll", |s, _, tx| poll(s, tx));
+        builder.add_system_ordered(
+            Phase::Ingest,
+            crate::tick::order::ingest::NOTIFICATIONS,
+            "notifications.poll",
+            |s, _, tx| poll(s, tx),
+        );
     }
 }
