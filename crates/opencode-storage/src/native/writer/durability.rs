@@ -119,6 +119,9 @@ impl Wal {
 }
 
 pub(super) enum WalEvent {
+    /// Database opened with pre-existing WAL frames or a stale boot record (unsynced until
+    /// checkpointed or synced).
+    OpenedDirty { boot_stale: bool, now: Instant },
     /// A commit landed at NORMAL.
     Committed { boot: bool },
     /// A Tier 0 commit landed with `synchronous = FULL`, syncing the entire WAL up to `wal_bytes`.
@@ -154,6 +157,11 @@ pub(super) enum WalEffect {
 
 fn wal_step(seq: &mut Seq, state: &mut Wal, event: WalEvent) -> Effects<WalEffect> {
     match (*state, event) {
+        (Wal::Clean, WalEvent::OpenedDirty { boot_stale, now }) => {
+            let attempt = seq.next();
+            *state = Wal::Dirty { attempt, boot_stale, sync: WalSync::Unsynced { since: now, base_bytes: 0 } };
+            Effects::one(WalEffect::ArmTimer { attempt, delay_ms: IDLE_CHECKPOINT_MS })
+        }
         // Every commit pushes the quiet period back.
         (s, WalEvent::Committed { boot }) => {
             let (prev_boot, sync) = match s {

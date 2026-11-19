@@ -168,7 +168,14 @@ impl Backend {
     }
 
     pub(crate) fn parked(w: writer::Writer) -> Backend {
-        Backend { writer: Mutex::new(Writer::Parked(Box::new(w))), queue: SharedQueue::default(), urgent: Arc::default() }
+        let dirty = w.wal_dirty();
+        let backend = Backend { writer: Mutex::new(Writer::Parked(Box::new(w))), queue: SharedQueue::default(), urgent: Arc::default() };
+        if dirty {
+            // A database opened dirty has an armed idle-checkpoint timer that needs the writer
+            // thread running even if no writes arrive.
+            backend.sender();
+        }
+        backend
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Writer> {

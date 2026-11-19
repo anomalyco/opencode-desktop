@@ -27,7 +27,7 @@ use crate::{Cmd, FlushReason, FlushReport, Loaded, StorageError, WindowFrame};
 mod durability;
 mod reserve;
 mod rows;
-use durability::{SYNCED, UNSYNCED, Wal, WalEvent, WalFile, WalSync};
+use durability::{SYNCED, UNSYNCED, Wal, WalEvent, WalFile};
 pub(crate) use reserve::OpenJournal;
 use reserve::{Reservation, ReserveStep};
 use rows::{apply, cmd_name, note, settled, slow};
@@ -142,10 +142,9 @@ impl Writer {
     /// the tables (the open reserved the draft journal, whose place the record names); `created`:
     /// this open made the file, so schema 2 is its own (`search::Origin`).
     pub(crate) fn new(conn: Connection, cache: Arc<Mutex<Cache>>, clock: fn() -> i64, deferred: Deferred, wal_dirty: bool, journal: OpenJournal, created: bool) -> Writer {
-        let mut seq = Seq::default();
+        let seq = Seq::default();
         let boot_stale = journal == OpenJournal::Reserved;
-        let wal = if wal_dirty || boot_stale { Wal::Dirty { attempt: seq.next(), boot_stale, sync: WalSync::Synced { base_bytes: 0 } } } else { Wal::Clean };
-        Writer {
+        let mut writer = Writer {
             conn,
             cache,
             reservation: match journal {
@@ -163,13 +162,17 @@ impl Writer {
             previews: WriteBehindState::Idle,
             caches: WriteBehindState::Idle,
             gc: DraftGcState::Closed,
-            wal,
+            wal: Wal::Clean,
             timers: HashMap::new(),
             deferred,
             touched: HashMap::new(),
             written: 0,
             wal_file: WalFile::Unopened,
+        };
+        if wal_dirty || boot_stale {
+            writer.wal_event(WalEvent::OpenedDirty { boot_stale, now: Instant::now() });
         }
+        writer
     }
 
     /// The WAL holds frames to checkpoint (quit has work even with nothing queued).
