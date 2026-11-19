@@ -31,7 +31,7 @@ pub fn drive(app: &mut App, i: usize, event: LifeEvent) {
 /// `Started` or `StartFailed`.
 fn start(app: &mut App, i: usize) {
     // Its first read has its saved value: its values come into memory first.
-    if !stores::answers_for(&app.plugins.list[i].manifest.id) {
+    if !app.plugins.list[i].manifest.stores.is_empty() && !stores::answers_for(&app.plugins.list[i].manifest.id) {
         let id = app.plugins.list[i].manifest.id.clone();
         stores::load(app, vec![id.clone()], false, move |app, tx| {
             if let Some(i) = app.plugins.find(&id).filter(|&i| matches!(app.plugins.list[i].life, Life::Loading)) {

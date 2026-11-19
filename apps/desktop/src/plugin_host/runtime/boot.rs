@@ -11,6 +11,27 @@ use crate::plugin_host::{
     Half, Hot, Life, LifeEvent, Plugin, Tier, Trust, contrib, drive, process, servers, services, stores, tasks,
 };
 
+/// Starts a single built-in plugin synchronously on `app` when not yet running (used by
+/// standalone storybook stages, which construct a fresh `App` without booting every plugin).
+pub fn boot_builtin(app: &mut App, id: &str) {
+    if app.plugins.waker.is_none() {
+        app.plugins.waker = (*app.waker).clone();
+    }
+    if app.plugins.find(id).is_some_and(|i| app.plugins.list[i].running()) {
+        return;
+    }
+    if app.plugins.find(id).is_some() {
+        dormant::wake(app, id, dormant::Why::Use);
+        if app.plugins.find(id).is_some_and(|i| app.plugins.list[i].running()) {
+            return;
+        }
+    }
+    stores::begin();
+    if let Some(found) = sources::builtins().into_iter().find(|f| f.manifest.id == id) {
+        adopt_one(app, found, None);
+    }
+}
+
 /// Discovers and starts the plugins once the window's waker exists (`--no-plugins` skips it).
 pub fn setup(app: &mut App, waker: Waker) {
     let host = &mut app.plugins;

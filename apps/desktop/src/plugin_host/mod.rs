@@ -53,7 +53,7 @@ pub use flyout::{Flyout, FlyoutEvent, Overlay};
 pub use machines::{Hot, HotEffect, Life, LifeEffect, LifeEvent, Trust, TrustEffect, TrustEvent};
 pub use plugin::Half;
 pub use reveal::reveal;
-pub use runtime::boot::{doze_owed, first_frame, setup};
+pub use runtime::boot::{boot_builtin, doze_owed, first_frame, setup};
 pub use runtime::lifecycle::{drive, fire_named, poll, reload, step_trust, toggle};
 pub use servers::{
     ServerRec, all as contributed_servers, authenticating as server_authenticating, changed as servers_changed,
@@ -61,9 +61,9 @@ pub use servers::{
 };
 pub use sources::{Origin, Tier};
 pub use surfaces::{
-    dialog_view, file_viewer, pill_views, popover_view, settings_page, settings_page_actions, settings_page_icon,
-    settings_page_ids, settings_page_key, settings_page_title, settings_pages, sidebar_items, slot, slot_with,
-    titlebar_items,
+    dialog_card, dialog_view, file_viewer, pill_views, popover_view, settings_page, settings_page_actions,
+    settings_page_icon, settings_page_ids, settings_page_key, settings_page_title, settings_pages, sidebar_items, slot,
+    slot_with, titlebar_items,
 };
 pub use trust::dialog as trust_dialog;
 pub use ui::view::settings_section;

@@ -416,9 +416,17 @@ pub fn dialog_card(app: &App, p: &Pal, win: [f32; 2]) -> Option<(&'static str, E
     } else {
         inner.shrink().min_h(0.0).child(session_view::scroller::scroller(format!("plugin-dialog-scroll-{key}")).build::<App>(p, col().w_full().shrink().min_h(0.0), content))
     };
-    let card = col().radius(radius).fill(fill).elevate(p.overlay).transition(rune::Transition::none()).child(inner);
+    let card = col()
+        .key(format!("plugin-dialog-{key}"))
+        .role("dialog")
+        .label(spec.title.clone().unwrap_or_default())
+        .radius(radius)
+        .fill(fill)
+        .elevate(p.overlay)
+        .transition(rune::Transition::none())
+        .child(inner);
     let card = crate::widgets::sized(card, size, fit, win);
-    Some((key, col().key(format!("plugin-dialog-{key}")).role("dialog").label(spec.title.clone().unwrap_or_default()).child(card)))
+    Some((key, card))
 }
 
 /// The open plugin dialog over a scrim, as the app's own dialogs sit: in Desktop's dialog frame

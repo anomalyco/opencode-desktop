@@ -125,6 +125,7 @@ pub enum Dep {
     Panel(Rc<str>, String),
     Narrow,
     Locale,
+    Now,
     Server,
     /// The listed servers and their health.
     Servers,
