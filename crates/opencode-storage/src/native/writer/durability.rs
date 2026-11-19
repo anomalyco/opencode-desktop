@@ -122,11 +122,12 @@ pub(super) enum WalEvent {
     /// Database opened with pre-existing WAL frames or a stale boot record (unsynced until
     /// checkpointed or synced).
     OpenedDirty { boot_stale: bool, now: Instant },
-    /// A commit landed at NORMAL.
-    Committed { boot: bool },
+    /// The boot record must be rebuilt at the next checkpoint (no new SQLite commit of its own,
+    /// e.g. after attaching the draft journal).
+    BootStale,
     /// A Tier 0 commit landed with `synchronous = FULL`, syncing the entire WAL up to `wal_bytes`.
     DurableCommitted { boot: bool, wal_bytes: u64 },
-    /// An unsynced (`synchronous = OFF`) commit landed; `wal_bytes` is the `-wal` file length.
+    /// An unsynced (`synchronous = OFF` or `NORMAL`) commit landed; `wal_bytes` is the `-wal` file length.
     UnsyncedCommitted { boot: bool, now: Instant, wal_bytes: u64 },
     /// `PRAGMA wal_checkpoint(PASSIVE)` checkpointed every frame in the WAL (`busy == 0`,
     /// `log >= 0`, `checkpointed >= log`).
@@ -162,14 +163,14 @@ fn wal_step(seq: &mut Seq, state: &mut Wal, event: WalEvent) -> Effects<WalEffec
             *state = Wal::Dirty { attempt, boot_stale, sync: WalSync::Unsynced { since: now, base_bytes: 0 } };
             Effects::one(WalEffect::ArmTimer { attempt, delay_ms: IDLE_CHECKPOINT_MS })
         }
-        // Every commit pushes the quiet period back.
-        (s, WalEvent::Committed { boot }) => {
-            let (prev_boot, sync) = match s {
-                Wal::Clean => (false, WalSync::Synced { base_bytes: 0 }),
-                Wal::Dirty { boot_stale, sync, .. } => (boot_stale, sync),
+        // Marks the boot record stale without recording a new commit; preserves sync status.
+        (s, WalEvent::BootStale) => {
+            let sync = match s {
+                Wal::Clean => WalSync::Synced { base_bytes: 0 },
+                Wal::Dirty { sync, .. } => sync,
             };
             let attempt = seq.next();
-            *state = Wal::Dirty { attempt, boot_stale: prev_boot || boot, sync };
+            *state = Wal::Dirty { attempt, boot_stale: true, sync };
             Effects::one(WalEffect::ArmTimer { attempt, delay_ms: IDLE_CHECKPOINT_MS })
         }
         (s, WalEvent::DurableCommitted { boot, wal_bytes }) => {
@@ -384,8 +385,11 @@ impl Writer {
                 }
                 DraftGcEffect::Collect { attempt, at_ms, before_ms } => {
                     let event = match sql::collect_blobs(&self.conn, before_ms) {
-                        Ok(oldest) => {
+                        Ok((oldest, deleted)) => {
                             self.touched.retain(|_, t| *t >= before_ms);
+                            if deleted > 0 {
+                                self.wal_unsynced(false);
+                            }
                             DraftGcEvent::CollectSucceeded { attempt, at_ms, oldest_orphan_ms: oldest }
                         }
                         Err(e) => DraftGcEvent::CollectFailed { attempt, at_ms, error: e.to_string() },

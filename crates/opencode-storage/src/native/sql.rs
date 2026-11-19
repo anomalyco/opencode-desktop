@@ -199,16 +199,15 @@ const REFERENCED: &str = "
 const COLLECT_BATCH: i64 = 64;
 
 /// Drops blobs nothing references and nothing touched since `before_ms`, oldest first, at most
-/// [`COLLECT_BATCH`]; returns the oldest `touched_at` among unreferenced blobs left (an orphan
-/// still inside the grace period, or the next batch's) (`collectBlobs`, `drafts.ts:183-195`).
-pub fn collect_blobs(conn: &Connection, before_ms: i64) -> rusqlite::Result<Option<i64>> {
+/// [`COLLECT_BATCH`]; returns `(oldest_orphan_ms, deleted_count)` (`collectBlobs`, `drafts.ts:183-195`).
+pub fn collect_blobs(conn: &Connection, before_ms: i64) -> rusqlite::Result<(Option<i64>, usize)> {
     let tx = conn.unchecked_transaction()?;
     if !tx.query_row("SELECT EXISTS (SELECT 1 FROM blob)", [], |r| r.get::<_, bool>(0))? {
-        return Ok(None);
+        return Ok((None, 0));
     }
     // A NULL among the ids would make every `NOT IN` unknown, and nothing would go. In
     // `touched_at` order (the `blob_by_touch` index), so a batch reads only what it drops.
-    tx.execute(
+    let deleted = tx.execute(
         &format!("WITH refs(id) AS ({REFERENCED}) DELETE FROM blob WHERE rowid IN (SELECT rowid FROM blob WHERE touched_at < ?1 AND id NOT IN (SELECT id FROM refs WHERE id IS NOT NULL) ORDER BY touched_at LIMIT {COLLECT_BATCH})"),
         [before_ms],
     )?;
@@ -216,5 +215,5 @@ pub fn collect_blobs(conn: &Connection, before_ms: i64) -> rusqlite::Result<Opti
         .query_row(&format!("WITH refs(id) AS ({REFERENCED}) SELECT touched_at FROM blob WHERE id NOT IN (SELECT id FROM refs WHERE id IS NOT NULL) ORDER BY touched_at LIMIT 1"), [], |r| r.get::<_, i64>(0))
         .optional()?;
     tx.commit()?;
-    Ok(oldest)
+    Ok((oldest, deleted))
 }

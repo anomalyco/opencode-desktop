@@ -444,13 +444,15 @@ impl Writer {
                 let n = name.clone();
                 self.state_event(WriteBehindEvent::Drop(Box::new(move |k: &StateKey, _: &Value| k.0 == n)));
                 let boot = crate::in_boot_record(&name, "");
-                let done = (|| -> rusqlite::Result<()> {
+                let done = (|| -> rusqlite::Result<usize> {
                     let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
-                    tx.execute("DELETE FROM state WHERE name = ?1", [&name])?;
-                    tx.commit()
+                    let deleted = tx.execute("DELETE FROM state WHERE name = ?1", [&name])?;
+                    tx.commit()?;
+                    Ok(deleted)
                 })();
-                if done.is_ok() {
-                    self.wal_event(WalEvent::Committed { boot });
+                note(&done);
+                if matches!(done, Ok(n) if n > 0) {
+                    self.wal_unsynced(boot);
                 }
             }
             Cmd::Doc { key, value, rev } => self.docs_event(WriteBehindEvent::Set { key, value: (value, rev) }),
@@ -461,9 +463,11 @@ impl Writer {
                 let now = (self.clock)();
                 let inserted = sql::insert_blob(&self.conn, &id, &data, now);
                 note(&inserted);
-                if inserted.is_ok() {
+                if let Ok(added) = inserted {
                     self.touched.insert(id, now);
-                    self.wal_event(WalEvent::Committed { boot: false });
+                    if added {
+                        self.wal_unsynced(false);
+                    }
                     let effects = draft_gc::step(&mut self.seq, &mut self.gc, DraftGcEvent::BlobUploaded { at_ms: now });
                     self.gc_effects(effects);
                 }
@@ -570,6 +574,7 @@ impl Writer {
         }
         if !self.deferred.pending() { ran(done); return }
         let seeded = import::after_first_frame(&mut self.conn, &mut self.deferred, now);
+        let boot = seeded.iter().any(|(name, key, _)| crate::in_boot_record(name, key));
         if !seeded.is_empty() {
             let mut cache = self.cache();
             for (name, key, value) in seeded {
@@ -578,7 +583,7 @@ impl Writer {
                 }
             }
         }
-        self.wal_event(WalEvent::Committed { boot: false });
+        self.wal_unsynced(boot);
         ran(done);
     }
 }
