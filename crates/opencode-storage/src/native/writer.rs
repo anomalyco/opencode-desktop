@@ -19,7 +19,6 @@ use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior};
 use super::import::{self, Deferred};
 use super::sql;
 use crate::cache::{Cache, Doc, OutboxCache};
-use crate::machine::checkpoint::{WalEvent, WalState};
 use crate::machine::draft_gc::{self, DraftGcEvent, DraftGcState, STARTUP_COLLECT_DELAY_MS};
 use crate::machine::write_behind::{self as wb, WriteBehindEffect, WriteBehindEvent, WriteBehindState};
 use crate::outbox;
@@ -28,7 +27,7 @@ use crate::{Cmd, FlushReason, FlushReport, Loaded, StorageError, WindowFrame};
 mod durability;
 mod reserve;
 mod rows;
-use durability::{SYNCED, UNSYNCED};
+use durability::{SYNCED, UNSYNCED, Wal, WalEvent, WalFile, WalSync};
 pub(crate) use reserve::OpenJournal;
 use reserve::{Reservation, ReserveStep};
 use rows::{apply, cmd_name, note, settled, slow};
@@ -93,12 +92,9 @@ type Armed = Option<(Attempt, Instant)>;
 
 pub(crate) struct Writer {
     conn: Connection,
-    /// A `Cmd::CommitSoon` came: commit the buffered rows once the queue is drained.
-    commit_due: bool,
-    /// The WAL, opened once for `sync_wal` and `bound_unsynced`.
-    wal_file: Option<std::fs::File>,
-    /// Since when the WAL holds commits nothing has synced (`bound_unsynced`).
-    unsynced_since: Option<Instant>,
+    /// The WAL, opened once for `sync_wal` and `wal_unsynced` (`SQLITE_FCNTL_PERSIST_WAL` keeps
+    /// `-wal` on disk across checkpoints, so the handle outlives `Wal::Dirty`).
+    wal_file: WalFile,
     cache: Arc<Mutex<Cache>>,
     search: super::search::State,
     clock: fn() -> i64,
@@ -109,7 +105,7 @@ pub(crate) struct Writer {
     previews: WriteBehindState<PreviewKey, Option<Preview>>,
     caches: WriteBehindState<String, Option<CacheEntry>>,
     gc: DraftGcState,
-    wal: WalState,
+    wal: Wal,
     timers: HashMap<&'static str, Armed>,
     deferred: Deferred,
     /// When this run last touched each chunk, so an unchanged chunk of a long draft isn't
@@ -148,7 +144,7 @@ impl Writer {
     pub(crate) fn new(conn: Connection, cache: Arc<Mutex<Cache>>, clock: fn() -> i64, deferred: Deferred, wal_dirty: bool, journal: OpenJournal, created: bool) -> Writer {
         let mut seq = Seq::default();
         let boot_stale = journal == OpenJournal::Reserved;
-        let wal = if wal_dirty || boot_stale { WalState::Dirty { attempt: seq.next(), boot_stale } } else { WalState::Clean };
+        let wal = if wal_dirty || boot_stale { Wal::Dirty { attempt: seq.next(), boot_stale, sync: WalSync::Synced } } else { Wal::Clean };
         Writer {
             conn,
             cache,
@@ -172,15 +168,13 @@ impl Writer {
             deferred,
             touched: HashMap::new(),
             written: 0,
-            commit_due: false,
-            wal_file: None,
-            unsynced_since: None,
+            wal_file: WalFile::Unopened,
         }
     }
 
     /// The WAL holds frames to checkpoint (quit has work even with nothing queued).
     pub(crate) fn wal_dirty(&self) -> bool {
-        self.wal != WalState::Clean
+        !self.wal.is_clean()
     }
 
     pub(crate) fn run(mut self, rx: Receiver<Msg>, queue: super::SharedQueue, urgent: Arc<std::sync::atomic::AtomicU64>) {
@@ -201,14 +195,17 @@ impl Writer {
                 if cmds.is_empty() {
                     break;
                 }
+                let mut commit_due = false;
                 for cmd in cmds {
                     let (what, t) = (cmd_name(&cmd), Instant::now());
-                    self.handle(cmd);
+                    commit_due |= self.handle(cmd);
                     slow(what, t);
                 }
-                let t = Instant::now();
-                self.commit_if_due();
-                slow("the kill-safe commit", t);
+                if commit_due {
+                    let t = Instant::now();
+                    self.commit_buffered();
+                    slow("the kill-safe commit", t);
+                }
             }
             let admitted = urgent.load(std::sync::atomic::Ordering::Acquire);
             let msg = match rx.try_recv() {
@@ -242,15 +239,12 @@ impl Writer {
                         self.conn.execute_batch(UNSYNCED).ok();
                         let stepped = super::search::index::step(&mut self.conn, &urgent);
                         self.conn.execute_batch(SYNCED).ok();
-                        if matches!(stepped, Ok(Step::Done { .. })) {
-                            self.bound_unsynced();
-                        }
                         match stepped {
                             Ok(Step::Done { key, work_us, commit_us }) => {
+                                self.wal_unsynced(false);
                                 if work_us + commit_us >= 250_000 {
                                     eprintln!("opencode-storage: indexing {key:?} for search took {work_us} us, its commit {commit_us} us");
                                 }
-                                self.wal_event(WalEvent::Committed { boot: false });
                                 self.fire_due();
                                 continue;
                             }
@@ -274,10 +268,13 @@ impl Writer {
                 q.commit_queued = false;
                 std::mem::take(&mut q.cmds)
             };
+            let mut commit_due = false;
             for cmd in cmds {
-                self.handle(cmd);
+                commit_due |= self.handle(cmd);
             }
-            self.commit_if_due();
+            if commit_due {
+                self.commit_buffered();
+            }
             match msg {
                 Ok(Msg::Wake) => {}
                 Ok(Msg::Flush { reason, started, reply }) => {
@@ -402,7 +399,7 @@ impl Writer {
         })();
         self.conn.execute_batch(SYNCED).ok();
         if result.is_ok() {
-            self.bound_unsynced();
+            self.wal_unsynced(boot);
         }
         note(&result);
         let ok = result.is_ok();
@@ -428,16 +425,17 @@ impl Writer {
         for id in fresh {
             self.touched.insert(id, now);
         }
-        self.wal_event(WalEvent::Committed { boot });
         if docs {
             let effects = draft_gc::step(&mut self.seq, &mut self.gc, DraftGcEvent::DocumentsWritten { at_ms: now });
             self.gc_effects(effects);
         }
     }
 
-    fn handle(&mut self, cmd: Cmd) {
+    /// Runs `cmd`; returns `true` when it asks for a kill-safe commit (`Cmd::CommitSoon`) after
+    /// the current batch drains.
+    fn handle(&mut self, cmd: Cmd) -> bool {
         match cmd {
-            Cmd::CommitSoon => self.commit_due = true,
+            Cmd::CommitSoon => return true,
             Cmd::State { name, key, value } => self.state_event(WriteBehindEvent::Set { key: (name, key), value }),
             Cmd::ClearState { name } => {
                 let n = name.clone();
@@ -542,6 +540,7 @@ impl Writer {
                 done(row);
             }
         }
+        false
     }
 
     fn cache(&self) -> std::sync::MutexGuard<'_, Cache> {
@@ -555,10 +554,14 @@ impl Writer {
         self.reserve_after_frame();
         let now = (self.clock)();
         if matches!(self.search, super::search::State::BeforeFrame) {
+            let before = super::schema::user_version(&self.conn).ok();
             self.conn.execute_batch(UNSYNCED).ok();
             let initialized = super::search::initialize(&mut self.conn, now, self.origin);
             self.conn.execute_batch(SYNCED).ok();
-            self.bound_unsynced();
+            // `initialize` commits a schema-2 migration transaction iff `user_version` advances.
+            if matches!(initialized, Ok(true)) && super::schema::user_version(&self.conn).ok() != before {
+                self.wal_unsynced(false);
+            }
             self.search = match initialized {
                 Ok(true) => super::search::State::Ready(super::search::Work::Pending),
                 Ok(false) => super::search::State::Unavailable("schema 2 is off for this profile (RUNE_STORAGE_V2)".into()),
