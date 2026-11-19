@@ -201,7 +201,7 @@ impl SessionFiles {
         self.tables.get(path).filter(|_| {
             self.docs
                 .get(path)
-                .is_some_and(|d| d.ready() && d.failure().is_none() && !d.binary() && !d.missing())
+                .is_some_and(|d| d.content().is_text())
         })
     }
 
@@ -255,9 +255,7 @@ impl SessionFiles {
 
     pub(crate) fn previewable(&self, path: &str) -> bool {
         self.docs.get(path).is_some_and(|d| {
-            d.ready()
-                && !d.missing()
-                && !d.binary()
+            d.content().is_text()
                 && (markdown::is_markdown(path)
                     || image::is_svg(path)
                     || self.html.contains_key(path)

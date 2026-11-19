@@ -140,9 +140,9 @@ pub fn landed(sid: &str, path: &str, attempt: u64, times: [Instant; 3], swap: In
         "bytes": doc.map(|d| d.size_bytes()),
         "lines": doc.map(|d| d.line_count()),
         "doc": doc.map(|d| json!({
-            "missing": d.missing(),
-            "binary": d.binary(),
-            "failed": d.failure().is_some(),
+            "missing": d.content().is_missing(),
+            "binary": d.content().is_binary(),
+            "failed": d.content().is_failed(),
             "selection": d.selection().map(|s| [s.start, s.end]),
             "find": d.find_query(),
             "find_active": d.active_match_index(),

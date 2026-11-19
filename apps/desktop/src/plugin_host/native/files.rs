@@ -38,7 +38,7 @@ pub fn build(lua: &Lua, t: &Table) -> mlua::Result<()> {
         // wasn't known), or one a failed refresh left stale, reads as it shows.
         let doc = app.workspace_panes.files.sessions.get(&sid).and_then(|w| w.docs.get(&path));
         let known = app.session(&sid).is_some_and(|i| !i.directory.is_empty());
-        let waiting = known && doc.is_some_and(|d| !d.ready()) && !app.workspace_panes.files.reads.running(&sid, &path) && !crate::files::video::is_video(&path);
+        let waiting = known && doc.is_some_and(|d| d.content().is_loading()) && !app.workspace_panes.files.reads.running(&sid, &path) && !crate::files::video::is_video(&path);
         if doc.is_none() || waiting || (known && app.workspace_panes.files.reads.stale(&sid, &path)) {
             let (id, at) = (sid.clone(), path.clone());
             app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
@@ -87,7 +87,7 @@ fn document(lua: &Lua) -> mlua::Result<Table> {
             cx::read(Dep::FilesMissing(sid.clone(), path.clone()));
             let app = app_now("CodeDocument:Missing")?;
             let doc = app.workspace_panes.files.sessions.get(&sid).and_then(|w| w.docs.get(&path));
-            Ok(doc.is_some_and(|d| d.missing()))
+            Ok(doc.is_some_and(|d| d.content().is_missing()))
         })?,
     )?;
     m.raw_set(
@@ -95,7 +95,7 @@ fn document(lua: &Lua) -> mlua::Result<Table> {
         lua.create_function(move |_, this: Table| {
             let (app, sid, path) = read_doc(&this, "CodeDocument:Binary")?;
             let doc = app.workspace_panes.files.sessions.get(&sid).and_then(|w| w.docs.get(&path));
-            Ok(doc.is_some_and(|d| d.binary()))
+            Ok(doc.is_some_and(|d| d.content().is_binary()))
         })?,
     )?;
     m.raw_set(
@@ -137,7 +137,7 @@ pub fn version(app: &App, session: &str) -> u64 {
         let mut docs: Vec<_> = w.docs.iter().collect();
         docs.sort_by(|a, b| a.0.cmp(b.0));
         for (path, d) in docs {
-            (path, d.rev, d.ready(), d.missing(), d.binary(), d.size_bytes(), d.wrap(), d.line_count(), d.find_open(), d.match_count(), d.active_match_index(), d.text().len()).hash(&mut h);
+            (path, d.rev, d.content(), d.wrap(), d.line_count(), d.find_open(), d.match_count(), d.active_match_index(), d.text().len()).hash(&mut h);
             (&d.find_input.text, d.find_input.focused).hash(&mut h);
             if d.find_open() { w.file_matches(path,d).hash(&mut h); }
             w.md.get(path).map(|v| (v.rendered, v.matches.len(), v.active)).hash(&mut h);
@@ -164,7 +164,7 @@ pub fn version(app: &App, session: &str) -> u64 {
 
 /// Whether `path` in `session` is ready and missing (`Dep::FilesMissing`).
 pub fn missing_version(app: &App, session: &str, path: &str) -> Option<(bool, bool)> {
-    app.workspace_panes.files.sessions.get(session).and_then(|w| w.docs.get(path)).map(|d| (d.ready(), d.missing()))
+    app.workspace_panes.files.sessions.get(session).and_then(|w| w.docs.get(path)).map(|d| (!d.content().is_loading(), d.content().is_missing()))
 }
 
 /// The workspace tree and file search version for `session` (`Dep::FilesTree`).
@@ -188,7 +188,7 @@ pub fn doc_version(app: &App, session: &str, path: &str) -> u64 {
     let mut h = std::hash::DefaultHasher::new();
     if let Some(w) = app.workspace_panes.files.sessions.get(session) {
         if let Some(d) = w.docs.get(path) {
-            (d.rev, d.ready(), d.missing(), d.binary(), d.size_bytes(), d.wrap(), d.line_count(), d.find_open(), d.match_count(), d.active_match_index(), d.text().len()).hash(&mut h);
+            (d.rev, d.content(), d.wrap(), d.line_count(), d.find_open(), d.match_count(), d.active_match_index(), d.text().len()).hash(&mut h);
             (&d.find_input.text, d.find_input.focused).hash(&mut h);
             if d.find_open() { w.file_matches(path, d).hash(&mut h); }
         }

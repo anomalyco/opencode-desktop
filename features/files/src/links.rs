@@ -316,7 +316,7 @@ fn open_file_link(
     {
         let ws = host.files_mut().sessions.entry(sid.to_owned()).or_default();
         // Ask again for a file that wasn't there, or whose answer was lost.
-        if ws.docs.get(path).is_some_and(|d| d.missing() || !d.ready()) {
+        if ws.docs.get(path).is_some_and(|d| !d.content().has_content()) {
             ws.invalidate_document(path);
         }
     }
@@ -325,7 +325,7 @@ fn open_file_link(
         let Some(ws) = host.files_mut().sessions.get_mut(sid) else { return };
         let link = LinkOpen { lines, heading };
         match ws.docs.get(path) {
-            Some(d) if !d.ready() => {
+            Some(d) if d.content().is_loading() => {
                 ws.link_opens.insert(path.to_owned(), link);
                 None
             }
@@ -343,7 +343,7 @@ pub(crate) fn finish_file_link(host: &mut dyn FilesHost, sid: &str, path: &str, 
         let pane = host.files_mut();
         let waker = pane.waker.clone();
         let Some(ws) = pane.sessions.get_mut(sid) else { return };
-        if ws.docs.get(path).is_none_or(|d| d.missing()) {
+        if ws.docs.get(path).is_none_or(|d| d.content().is_missing()) {
             ws.invalidate_document(path);
             if ws.known_files.remove(path) {
                 ws.reindex(waker.as_ref());

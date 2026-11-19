@@ -187,7 +187,7 @@ fn land_read(host: &mut dyn FilesHost, landed: content::Landed, tx: &mut Tx) -> 
         .sessions
         .get(&sid)
         .and_then(|w| w.docs.get(&path))
-        .is_some_and(|d| d.ready() && d.failure().is_none() && !d.missing());
+        .is_some_and(|d| d.content().has_content());
     if !body.content() && (again.is_some() || (shows_content && matches!(body, content::Body::Failed(_)))) {
         if again.is_none() {
             host.files_mut().reads.outdate(&sid, &path);

@@ -33,14 +33,61 @@ impl From<FileLineSelection> for Lines<u32> {
     }
 }
 
-/// What the document holds: Desktop's `workspaces/files/content-machine.ts` `FileEntryState`
-/// (loading, ready, missing), a ready file being text or binary.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// What the document holds: Desktop's `packages/app/src/workspaces/files/content-machine.ts`
+/// `FileEntryState` (`loading`, `ready` as text or binary, `missing`, `error`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Content {
+    #[default]
     Loading,
     Text { size: usize },
     Binary { size: usize },
     Missing,
+    /// Its read failed (not a missing file): headline and detail shown in the view.
+    Failed { what: String, why: String },
+}
+
+/// Events driving a document's [`Content`] state.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ContentEvent {
+    LoadedText { size: usize },
+    LoadedBinary { size: usize },
+    Missing,
+    Failed { what: String, why: String },
+}
+
+/// Effects returned by [`Content::step`] for [`CodeDocState`] to apply to its text buffers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ContentEffect {
+    KeepText,
+    ClearText,
+}
+
+impl Content {
+    pub fn step(&mut self, event: ContentEvent) -> ContentEffect {
+        let (next, effect) = match event {
+            ContentEvent::LoadedText { size } => (Self::Text { size }, ContentEffect::KeepText),
+            ContentEvent::LoadedBinary { size } => (Self::Binary { size }, ContentEffect::ClearText),
+            ContentEvent::Missing => (Self::Missing, ContentEffect::ClearText),
+            ContentEvent::Failed { what, why } => (Self::Failed { what, why }, ContentEffect::ClearText),
+        };
+        *self = next;
+        effect
+    }
+
+    pub fn is_loading(&self) -> bool { matches!(self, Self::Loading) }
+    pub fn is_text(&self) -> bool { matches!(self, Self::Text { .. }) }
+    pub fn is_binary(&self) -> bool { matches!(self, Self::Binary { .. }) }
+    pub fn is_missing(&self) -> bool { matches!(self, Self::Missing) }
+    pub fn is_failed(&self) -> bool { matches!(self, Self::Failed { .. }) }
+    pub fn has_content(&self) -> bool { matches!(self, Self::Text { .. } | Self::Binary { .. }) }
+
+    /// The loaded file's size in bytes (0 while loading, missing, or failed).
+    pub fn size_bytes(&self) -> usize {
+        match self {
+            Self::Text { size } | Self::Binary { size } => *size,
+            Self::Loading | Self::Missing | Self::Failed { .. } => 0,
+        }
+    }
 }
 
 impl FileLineSelection {
@@ -84,8 +131,6 @@ pub struct CodeDocState {
     pub(crate) heights: RowHeights,
     pub rev: u64,
     pub keys_rev: u64,
-    /// Why it couldn't be read, when that's what it shows: a headline and the reason in words.
-    failure: Option<(String, String)>,
     /// The line (1-based) the keyboard's line cursor is on: the view's one Tab stop, which Up
     /// and Down move (a roving tab index).
     pub(super) cursor: u32,
@@ -134,7 +179,6 @@ impl CodeDocState {
             heights: RowHeights::default(),
             rev: 1,
             keys_rev: 1,
-            failure: None,
             cursor: 1,
         };
         if !content.is_empty() {
@@ -148,10 +192,14 @@ impl CodeDocState {
     }
 
     pub fn set_text(&mut self, content: &str) {
-        self.failure = None;
         let size = content.len();
         let binary = content.contains('\0');
-        self.content = if binary { Content::Binary { size } } else { Content::Text { size } };
+        let event = if binary {
+            ContentEvent::LoadedBinary { size }
+        } else {
+            ContentEvent::LoadedText { size }
+        };
+        let _ = self.content.step(event);
         self.source = if binary {
             SourceLines::default()
         } else {
@@ -189,8 +237,7 @@ impl CodeDocState {
     /// (`pierre/file-find-machine.ts`, `refresh.requested` with `reset`), without scrolling, and
     /// unchanged highlight chunks and row identities carry across.
     pub fn refresh(&mut self, prepared: Prepared) {
-        self.failure = None;
-        self.content = Content::Text { size: prepared.source.text().len() };
+        let _ = self.content.step(ContentEvent::LoadedText { size: prepared.source.text().len() });
         self.trailing = prepared.trailing;
         let mut stale_chunks = Vec::new();
         {
@@ -283,58 +330,22 @@ impl CodeDocState {
         self.find_open().then(|| self.find.query().to_owned())
     }
 
-    pub fn set_binary(&mut self, size_bytes: usize) {
-        self.failure = None;
-        self.content = Content::Binary { size: size_bytes };
-        self.slab = Slab::Absent;
-        self.source = SourceLines::default();
-        self.trailing = false;
-        self.bump_keys();
-    }
-
-    pub fn set_missing(&mut self) {
-        self.failure = None;
-        self.content = Content::Missing;
-        self.slab = Slab::Absent;
-        self.source = SourceLines::default();
-        self.trailing = false;
-        self.bump_keys();
-    }
-
-    pub fn content(&self) -> Content {
-        self.content
-    }
-
-    /// Its read failed (not a missing file): shown as `what`, `why`; a reopen reads it again.
-    pub fn set_failed(&mut self, what: String, why: String) {
-        self.set_missing();
-        self.failure = Some((what, why));
-    }
-
-    /// The failed read's headline and reason, when it failed.
-    pub fn failure(&self) -> Option<&(String, String)> {
-        self.failure.as_ref()
-    }
-
-    pub fn ready(&self) -> bool {
-        self.content != Content::Loading
-    }
-
-    pub fn missing(&self) -> bool {
-        self.content == Content::Missing
-    }
-
-    pub fn binary(&self) -> bool {
-        matches!(self.content, Content::Binary { .. })
-    }
-
-    /// The loaded file's size in bytes (0 while loading or missing).
-    pub fn size_bytes(&self) -> usize {
-        match self.content {
-            Content::Text { size } | Content::Binary { size } => size,
-            Content::Loading | Content::Missing => 0,
+    fn step_content(&mut self, event: ContentEvent) {
+        if self.content.step(event) == ContentEffect::ClearText {
+            self.slab = Slab::Absent;
+            self.source = SourceLines::default();
+            self.trailing = false;
+            self.bump_keys();
         }
     }
+
+    pub fn set_binary(&mut self, size_bytes: usize) { self.step_content(ContentEvent::LoadedBinary { size: size_bytes }); }
+    pub fn set_missing(&mut self) { self.step_content(ContentEvent::Missing); }
+    /// Its read failed (not a missing file): shown as `what`, `why`; a reopen reads it again.
+    pub fn set_failed(&mut self, what: String, why: String) { self.step_content(ContentEvent::Failed { what, why }); }
+    pub fn content(&self) -> &Content { &self.content }
+    /// The loaded file's size in bytes (0 while loading, missing, or failed).
+    pub fn size_bytes(&self) -> usize { self.content.size_bytes() }
 
     fn bump_keys(&mut self) {
         self.rev += 1;

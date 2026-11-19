@@ -125,22 +125,20 @@ impl WrapPrefs {
 /// preview, which an SVG opens in).
 pub fn shows_rendered(ws: &SessionFiles, path: &str) -> bool {
     let Some(d) = ws.docs.get(path) else { return false };
+    let opencode_code_view::Content::Text { size } = *d.content() else { return false };
     let svg = super::image::is_svg(path);
     if !(is_markdown(path)
         || svg
         || ws.html.contains_key(path)
         || ws.tables.contains_key(path)
         || ws.diagram.current(d).is_some())
-        || !d.ready()
-        || d.missing()
-        || d.binary()
     {
         return false;
     }
     ws.md
         .get(path)
         .and_then(|m| m.rendered)
-        .unwrap_or(svg || d.size_bytes() <= RENDER_LIMIT)
+        .unwrap_or(svg || size <= RENDER_LIMIT)
 }
 
 pub fn scroll_key(sid: &str, path: &str) -> String {

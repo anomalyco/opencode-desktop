@@ -123,7 +123,8 @@ impl Stage {
     }
 
     pub(crate) fn prepare(&self, sid: &str, path: &str, doc: &CodeDocState, p: &Pal) {
-        if !kind(path) || !doc.ready() || doc.binary() || doc.missing() || doc.size_bytes() > markdown::RENDER_LIMIT {
+        let opencode_code_view::Content::Text { size } = *doc.content() else { return };
+        if !kind(path) || size > markdown::RENDER_LIMIT {
             return;
         }
         let width = rune::memo::layout_with(&scroll_key(sid, path), |r| r[2])
