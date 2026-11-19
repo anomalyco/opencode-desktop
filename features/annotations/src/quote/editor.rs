@@ -519,7 +519,11 @@ pub fn view<H: QuoteHost + 'static>(s: &H, p: &Pal, cx: &mut Cx<H>) -> Option<El
     let chip = cx.window_layout(&chip_key(key));
     let opening = if q.opening.get() == 0.0 { measured.unwrap_or(0.0) } else { q.opening.get() };
     let (scroll, dock, anchor_origin) = match q.comment.anchor().filter(|_| opening > 0.0) {
-        Some(a) => (cx.window_layout(&format!("scroll-{}", a.session)), cx.window_layout("dock"), cx.window_layout(&a.path)),
+        Some(a) => (
+            cx.window_layout(&format!("scroll-{}", a.session)),
+            cx.window_layout("composer-dock").or_else(|| cx.window_layout("dock")),
+            cx.window_layout(&a.path),
+        ),
         None => (None, None, None),
     };
     let layout = resolve_editor_layout(

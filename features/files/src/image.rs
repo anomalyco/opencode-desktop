@@ -201,9 +201,15 @@ pub fn stage<H: FilesHost + 'static>(s: &H, p: &Pal, img: &FileImage) -> El {
         )
         .build(&img.zoom, k, size);
     let sizer = s.files().stage_size.clone();
-    stage.on_layout_tx(move |_: &mut H, [_, _, w, h], tx| {
-        sizer.set([w, h]);
-        tx.instant();
+    stage.on_layout_tx(move |s: &mut H, [_, _, w, h], tx| {
+        let prev = sizer.get();
+        if (prev[0] - w).abs() > 0.5 || (prev[1] - h).abs() > 0.5 {
+            sizer.set([w, h]);
+            s.touch_files();
+            tx.instant();
+        } else {
+            tx.live_only();
+        }
     })
 }
 

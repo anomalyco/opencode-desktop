@@ -1,5 +1,7 @@
 //! Cached side-region projection from panel providers and stored per-session tabs.
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 use crate::host::PanelsHost;
@@ -12,15 +14,17 @@ use super::{ResolvedEntry, ResolvedRegion, all_panels};
 /// The routed session's side region: its tabs from every panel's provider, in strip order.
 ///
 /// Asking every provider (each plugin's `list`) costs a view about 100 us, and views and
-/// handlers ask several times a frame: the last answer stands while the plugins' surfaces and
-/// the `Tracked` state it read are as they were, as a region's would. A region that asks gets
-/// those reads either way.
+/// handlers ask several times a frame: the last answer stands while the plugins' surfaces,
+/// untracked inputs (locale, narrow mode), and the `Tracked` state it read are as they were, as
+/// a region's would. A region that asks gets those reads either way.
 pub fn resolve_side_region(host: &dyn PanelsHost) -> Option<Rc<ResolvedRegion>> {
-    let plugins = host.plugin_surfaces_version();
+    let mut h = DefaultHasher::new();
+    (host.plugin_surfaces_version(), opencode_i18n::locale().id(), host.narrow()).hash(&mut h);
+    let key = h.finish();
     {
         let cache = host.side().resolved.borrow();
         if let Some((version, read, region)) = &*cache
-            && *version == plugins
+            && *version == key
             && !read.changed()
         {
             read.read();
@@ -38,7 +42,7 @@ pub fn resolve_side_region(host: &dyn PanelsHost) -> Option<Rc<ResolvedRegion>> 
         (None, None) => false,
         _ => true,
     };
-    *cache = Some((plugins, read, region.clone()));
+    *cache = Some((key, read, region.clone()));
     if keys_changed {
         host.side().resolved_gen.set(host.side().resolved_gen.get().wrapping_add(1));
     }
