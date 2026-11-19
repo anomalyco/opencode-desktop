@@ -48,8 +48,8 @@ pub(super) fn titlebar(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
         let built = bar.trailing_padding(8.0 + 6.0).tabs(crate::narrow::tabs::trigger(s, p));
         // Along the foot, its controls sit in the row's top 36, 8 clear of the window's edge.
         if chrome.bottom {
-            let row = built.height(chrome.row_h - 8.0).top_padding(0.0).build(crate::palette::kit(p));
-            return Some(col().key("titlebar-foot").w_full().h(chrome.row_h).child(row));
+            let row = built.key("titlebar-foot").height(chrome.row_h - 8.0).top_padding(0.0).build(crate::palette::kit(p));
+            return Some(col().key("titlebar").w_full().h(chrome.row_h).child(row));
         }
         return Some(built.build(crate::palette::kit(p)));
     }
