@@ -7,13 +7,15 @@ license.workspace = true
 publish = false
 
 [dependencies]
-hex-client = { path = "../../crates/hex-client" }
 opencode-i18n = { path = "../../crates/opencode-i18n" }
 opencode-kernel = { path = "../../crates/opencode-kernel" }
 opencode-platform = { path = "../../crates/opencode-platform" }
 rune.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+hex-client = { path = "../../crates/hex-client" }
 
 [lints]
 workspace = true

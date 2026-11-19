@@ -143,7 +143,7 @@ pub struct Settings {
     /// Preferences › Timeline: what of a turn's work shows (`general.timelineDetail`), the
     /// column (`timelineWidth`), where background work shows (`backgroundActivity`) and
     /// whether a finished turn lists its changed files (`showTurnDiffs`).
-    pub timeline_detail: opencode_ui::detail::Detail,
+    pub timeline_detail: opencode_runtime::detail::Detail,
     pub timeline_width: TimelineWidth,
     pub background_activity: BackgroundActivity,
     pub turn_diffs: bool,
@@ -191,7 +191,7 @@ impl Default for Settings {
             sounds: Sounds::default(),
             keybinds: BTreeMap::new(),
             keep_screen_active: false,
-            timeline_detail: opencode_ui::detail::Detail::default(),
+            timeline_detail: opencode_runtime::detail::Detail::default(),
             timeline_width: TimelineWidth::default(),
             background_activity: BackgroundActivity::default(),
             turn_diffs: false,
@@ -303,7 +303,7 @@ impl Settings {
                 .map(|m| m.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned()))).collect())
                 .unwrap_or_default(),
             keep_screen_active: v["keepScreenActive"].as_bool().unwrap_or(false),
-            timeline_detail: opencode_ui::detail::Detail::from_json(&v["timelineDetail"]),
+            timeline_detail: opencode_runtime::detail::Detail::from_json(&v["timelineDetail"]),
             timeline_width: TimelineWidth::parse(v["timelineWidth"].as_str()),
             background_activity: BackgroundActivity::parse(v["backgroundActivity"].as_str()),
             turn_diffs: v["showTurnDiffs"].as_bool().unwrap_or(false),
