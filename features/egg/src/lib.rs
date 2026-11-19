@@ -97,6 +97,48 @@ impl Geo {
     }
 }
 
+/// Idle-or-running animation frame loop shared by the pin board and lodger (`wanted` + `last`).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum FrameLoop {
+    #[default]
+    Idle,
+    /// Running; `last` is the previous frame timestamp (`now - 1/60` on wake so the first frame
+    /// steps by one 60 Hz tick when run at `now`).
+    Running { last: f64 },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum FrameLoopEvent {
+    Wake { now: f64 },
+    BeginFrame { now: f64 },
+    EndFrame { now: f64, keep_running: bool },
+}
+
+impl FrameLoop {
+    pub fn running(now: f64) -> Self {
+        Self::Running { last: now - 1.0 / 60.0 }
+    }
+
+    pub fn is_running(self) -> bool {
+        matches!(self, Self::Running { .. })
+    }
+
+    pub fn step(&mut self, event: FrameLoopEvent) -> Option<f64> {
+        match (*self, event) {
+            (Self::Idle, FrameLoopEvent::Wake { now }) => { *self = Self::running(now); None }
+            (Self::Running { last }, FrameLoopEvent::BeginFrame { now }) => {
+                *self = Self::Idle;
+                Some((now - last).clamp(1.0 / 240.0, 1.0 / 30.0))
+            }
+            (Self::Idle, FrameLoopEvent::EndFrame { now, keep_running: true }) => {
+                *self = Self::Running { last: now };
+                None
+            }
+            _ => None,
+        }
+    }
+}
+
 /// The pin board while it's mounted, with what it draws.
 pub struct Board {
     pub pins: Pins,
@@ -105,8 +147,7 @@ pub struct Board {
     pub front: Quads,
     pub front_on: bool,
     scratch: Scratch,
-    last: f64,
-    wanted: bool,
+    frames: FrameLoop,
 }
 
 /// The shimmer across the flat wordmark when it shows again (`wordmark-shimmer`, 800 ms).
@@ -227,7 +268,7 @@ impl Live {
                         self.cues.extend(sound::ask(cue, now));
                     }
                     let colors = colors(geo.dark);
-                    self.board = Some(Box::new(Board { pins, colors, back: Quads::default(), front: Quads::default(), front_on: false, scratch: Scratch::default(), last: now - 1.0 / 60.0, wanted: true }));
+                    self.board = Some(Box::new(Board { pins, colors, back: Quads::default(), front: Quads::default(), front_on: false, scratch: Scratch::default(), frames: FrameLoop::running(now) }));
                     wordmark::step(&mut self.state, Event::BoardMounted);
                 }
                 if sel.closing && let Some(b) = self.board.as_deref_mut() && !matches!(b.pins.board, pins::machine::Board::Closing { .. }) {
@@ -250,17 +291,13 @@ impl Live {
 
     /// Nothing moves, nothing is out and the eyes are shut: the egg can go.
     fn spent(&self) -> bool {
-        self.state == State::Hidden && self.lodger.c.eyes == 0.0 && !self.lodger.wanted && self.board.is_none() && self.game.is_none() && self.shimmer == Shimmer::Off && self.lodger.blink == lodger::Blink::Open
+        self.state == State::Hidden && self.lodger.c.eyes == 0.0 && !self.lodger.frames.is_running() && self.board.is_none() && self.game.is_none() && self.shimmer == Shimmer::Off && self.lodger.blink == lodger::Blink::Open
     }
 }
 
 impl Board {
     fn wake(&mut self, now: f64) {
-        if self.wanted {
-            return;
-        }
-        self.last = now - 1.0 / 60.0;
-        self.wanted = true;
+        self.frames.step(FrameLoopEvent::Wake { now });
     }
 }
 
@@ -316,7 +353,7 @@ pub fn poll(s: &mut dyn EggHost, now: f64, tx: &mut Tx) -> bool {
     if let BlinkTimer::Due(due) = live.lodger.blink_timer && now >= due {
         live.lodger.blink_due(now, live.state, &mut live.rng);
     }
-    if live.lodger.wanted {
+    if live.lodger.frames.is_running() {
         live.with_lodger(now, |l, s| l.frame(now, s));
     }
     // Desktop's lodger `render` ends by starting the blink timer when it's idle (`wordmark.tsx:396`):
@@ -331,13 +368,12 @@ pub fn poll(s: &mut dyn EggHost, now: f64, tx: &mut Tx) -> bool {
         step_game(live, now, tx);
     }
     if let Some(b) = live.board.as_deref_mut()
-        && b.wanted
+        && let Some(dt) = b.frames.step(FrameLoopEvent::BeginFrame { now })
     {
-        let dt = (now - b.last).clamp(1.0 / 240.0, 1.0 / 30.0);
-        b.last = now;
         b.pins.step(now, dt, &mut live.rng, &mut live.cues);
         b.front_on = b.pins.draw(now, &b.colors, &mut b.back, &mut b.front, &mut b.scratch);
-        b.wanted = !b.pins.settled(now);
+        let keep_running = !b.pins.settled(now);
+        b.frames.step(FrameLoopEvent::EndFrame { now, keep_running });
     }
     // The flat wordmark's shimmer runs each time it shows again (a CSS animation restarts when
     // `display` comes back); never on the page's first show.
@@ -367,7 +403,7 @@ pub fn poll(s: &mut dyn EggHost, now: f64, tx: &mut Tx) -> bool {
     for s in live.cues.drain(..) {
         sound::play(s, now);
     }
-    let moving = live.lodger.wanted || live.board.as_ref().is_some_and(|b| b.wanted) || live.game.is_some() || live.lodger.blink != lodger::Blink::Open || live.shimmer != Shimmer::Off || live.auto != Auto::Off;
+    let moving = live.lodger.frames.is_running() || live.board.as_ref().is_some_and(|b| b.frames.is_running()) || live.game.is_some() || live.lodger.blink != lodger::Blink::Open || live.shimmer != Shimmer::Off || live.auto != Auto::Off;
     if moving {
         tx.wake_after(Duration::ZERO);
     } else if let BlinkTimer::Due(due) = live.lodger.blink_timer {
@@ -529,7 +565,7 @@ pub fn pointer_move(s: &mut dyn EggHost, x: f64, y: f64, tx: &mut Tx) {
     let now = tx.clock();
     let Some(live) = s.egg_mut().live.as_deref_mut() else { return };
     let state = live.state;
-    if live.lodger.pointer_move(x, y, now, state) || live.lodger.wanted {
+    if live.lodger.pointer_move(x, y, now, state) || live.lodger.frames.is_running() {
         tx.wake_after(Duration::ZERO);
     }
     if let Some(g) = live.game.as_deref_mut() {
