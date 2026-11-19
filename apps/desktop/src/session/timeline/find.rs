@@ -148,10 +148,14 @@ impl Feature<App> for FindFeature {
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
         builder.add_command(
-            CommandEntry::<App>::from_key("find", opencode_i18n::key!("rune.command.session.find"), |s, tx| s.open_find(tx))
-                .bind_id(Bind::Find.id())
-                .order(340)
-                .when(|s| s.active_session_id().is_some()),
+            CommandEntry::<App>::from_key(
+                "find",
+                opencode_i18n::key!("rune.command.session.find"),
+                crate::commands::order::FIND,
+                |s, tx| s.open_find(tx),
+            )
+            .bind_id(Bind::Find.id())
+            .when(|s| s.active_session_id().is_some()),
         );
         builder.register_escape_layer(EscapeLayer::new(
             "escape.find",

@@ -201,10 +201,15 @@ impl Feature<App> for ConnectFeature {
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
         builder.add_command(
-            CommandEntry::<App>::from_key("provider.connect", opencode_i18n::key!("command.provider.connect"), |s, tx| s.open_connect(None, false, tx))
-                .describe(opencode_i18n::key!("command.provider.connect.description"))
-                .slash("connect")
-                .when(App::has_composer),
+            CommandEntry::<App>::from_key(
+                "provider.connect",
+                opencode_i18n::key!("command.provider.connect"),
+                crate::commands::order::PROVIDER_CONNECT,
+                |s, tx| s.open_connect(None, false, tx),
+            )
+            .describe(opencode_i18n::key!("command.provider.connect.description"))
+            .slash("connect")
+            .when(App::has_composer),
         );
         builder.register_overlay(
             OverlayRegistration::<App>::new(OVERLAY_ID)

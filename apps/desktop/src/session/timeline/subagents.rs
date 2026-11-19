@@ -169,11 +169,15 @@ impl Feature<App> for SubagentsFeature {
     fn register(&self, builder: &mut KernelBuilder<App>) {
         // Neither has a `/name` in Desktop (`use-session-commands.tsx:476-482`, `session-identity-header.tsx`).
         builder.add_command(
-            CommandEntry::<App>::from_key("background", opencode_i18n::key!("command.session.background"), |s, tx| {
-                s.move_to_background(tx);
-            })
+            CommandEntry::<App>::from_key(
+                "background",
+                opencode_i18n::key!("command.session.background"),
+                crate::commands::order::BACKGROUND,
+                |s, tx| {
+                    s.move_to_background(tx);
+                },
+            )
             .bind_id(Bind::Background.id())
-            .order(190)
             .when(|s| s.active_session_id().is_some_and(|id| !crate::background::blocking(s, id).is_empty())),
         );
         builder.register_escape_layer(EscapeLayer::new(

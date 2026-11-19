@@ -5,9 +5,8 @@
 //! editing central dispatch chains in `lib.rs`, `tick.rs`, `shell/input/keys.rs`, or `shell/view/mod.rs`.
 
 use opencode_kernel::{
-    AppEnv, AppFeedback, AppOverlays, CommandEntry, EscapeLayer, Kernel, KernelBuilder,
-    OverlayEntry, OverlayEvent, OverlayKind, OverlayRegistration, Phase, SurfaceDescriptor,
-    SurfaceKind,
+    AppEnv, AppFeedback, AppOverlays, EscapeLayer, Kernel, KernelBuilder, OverlayEntry,
+    OverlayEvent, OverlayKind, OverlayRegistration, Phase, SurfaceDescriptor, SurfaceKind,
 };
 
 use crate::{App, Route};
@@ -182,12 +181,7 @@ pub fn build() -> Kernel<App> {
             s.queue_peek(crate::layout_state::PeekEvent::Escape, tx);
         },
     ));
-    // Desktop's `logs.export` (`shell/commands/desktop.tsx`), beside the app menu's Export Logs….
-    b.add_command(CommandEntry::<App>::from_key(
-        "logs.export",
-        opencode_i18n::key!("command.logs.export"),
-        |s, _| s.export_logs(),
-    ));
+    crate::commands::register_shell_commands(&mut b);
     b.add_surface(
         SurfaceDescriptor::new("browser", SurfaceKind::Browser, "Browser")
             .with_multi_instance(true),
