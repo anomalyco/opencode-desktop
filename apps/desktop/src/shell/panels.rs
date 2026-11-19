@@ -122,18 +122,58 @@ impl PanelsHost for App {
         let slots = &self.kernel.slots;
         let mut h = DefaultHasher::new();
         self.active_session_id().hash(&mut h);
-        crate::plugin_host::surfaces_version(self).hash(&mut h);
+        crate::servers::runtime::active(self).hash(&mut h);
+        let server_base = match Tracked::untracked(&self.source) {
+            crate::Source::Live { server, allow_send, .. } => {
+                (true, server.base.as_str(), server.is_local(), *allow_send).hash(&mut h);
+                server.base.as_str()
+            }
+            crate::Source::Fixture => {
+                (false, "", false, false).hash(&mut h);
+                "fixture"
+            }
+        };
+        if let Some(sid) = self.active_session_id() {
+            let wk = crate::terminal::workspace_key(server_base, sid);
+            match slots.untracked(&crate::terminal::TERMINAL).workspaces.get(&wk) {
+                Some(ws) => {
+                    (1u8, &ws.active, &ws.failure, ws.tabs.len()).hash(&mut h);
+                    ws.tabs.iter().for_each(|t| (&t.id, &t.title, t.title_number).hash(&mut h));
+                }
+                None => 0u8.hash(&mut h),
+            }
+        }
+        let pickers = Tracked::untracked(&self.composer_ext.pickers);
         (
+            crate::plugin_host::surfaces_version(self),
+            opencode_i18n::I18N.locale(),
+            crate::plugin_host::services::servers_version(self),
+            slots.untracked(&crate::updater::UPDATER).revision(),
+            pickers.models.len(),
+            pickers.limits.len(),
+            pickers.paid.len(),
+        )
+            .hash(&mut h);
+        [
             (slots.cell_id(&SIDE), slots.version(&SIDE)),
-            (slots.cell_id(&crate::terminal::TERMINAL), slots.version(&crate::terminal::TERMINAL)),
             (Tracked::id(&self.workspace_panes.browser), Tracked::version(&self.workspace_panes.browser)),
             (slots.cell_id(&crate::files::FILES), slots.version(&crate::files::FILES)),
             (slots.cell_id(&crate::review::REVIEW), slots.version(&crate::review::REVIEW)),
+            (slots.cell_id(&crate::line_comments::LINE_COMMENTS), slots.version(&crate::line_comments::LINE_COMMENTS)),
+            (slots.cell_id(&crate::new_worktree::NEW_WORKTREE), slots.version(&crate::new_worktree::NEW_WORKTREE)),
             (Tracked::id(&self.diag.debug), Tracked::version(&self.diag.debug)),
             (Tracked::id(&self.sessions), Tracked::version(&self.sessions)),
             (Tracked::id(&self.projects), Tracked::version(&self.projects)),
+            (Tracked::id(&self.running), Tracked::version(&self.running)),
+            (Tracked::id(&self.inboxes), Tracked::version(&self.inboxes)),
+            (Tracked::id(&self.context_windows), Tracked::version(&self.context_windows)),
+            (Tracked::id(&self.transcripts), Tracked::version(&self.transcripts)),
             (Tracked::id(&self.settings), Tracked::version(&self.settings)),
-        )
+            (Tracked::id(&self.plugins), Tracked::version(&self.plugins)),
+            (Tracked::id(&self.layout), Tracked::version(&self.layout)),
+            (Tracked::id(&self.workspace_panes.panel_sidebar), Tracked::version(&self.workspace_panes.panel_sidebar)),
+            (Tracked::id(&self.default_dir), Tracked::version(&self.default_dir)),
+        ]
             .hash(&mut h);
         h.finish()
     }
@@ -492,12 +532,16 @@ fn plugin_watched_stamp(app: &App) -> u64 {
         stamp(Tracked::id(&app.route), Tracked::version(&app.route)),
         stamp(Tracked::id(&app.workspace_panes.browser), Tracked::version(&app.workspace_panes.browser)),
         stamp(slots.cell_id(&crate::review::REVIEW), slots.version(&crate::review::REVIEW)),
-        stamp(Tracked::id(&app.composer_ext.pickers), Tracked::version(&app.composer_ext.pickers)),
-        stamp(Tracked::id(&app.source), Tracked::version(&app.source)),
         stamp(Tracked::id(&app.services.server_links), Tracked::version(&app.services.server_links)),
         stamp(Tracked::id(&app.plugins), Tracked::version(&app.plugins)),
     ]
         .hash(&mut h);
+    let pickers = Tracked::untracked(&app.composer_ext.pickers);
+    (pickers.models.len(), pickers.limits.len(), pickers.paid.len()).hash(&mut h);
+    match Tracked::untracked(&app.source) {
+        crate::Source::Live { server, .. } => (true, server.base.as_str()).hash(&mut h),
+        crate::Source::Fixture => (false, "").hash(&mut h),
+    }
     let p = crate::palette::pal(app.plugins.dark.get());
     (
         p.theme,

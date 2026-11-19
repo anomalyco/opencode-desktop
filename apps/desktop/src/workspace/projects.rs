@@ -219,14 +219,16 @@ impl ProjectsHost for App {
         crate::plugin_host::server_sources::version().hash(&mut h);
         crate::servers::health::version().hash(&mut h);
         opencode_i18n::I18N.locale().hash(&mut h);
+        match Tracked::untracked(&self.source) {
+            Source::Live { server, .. } => (true, server.base.as_str()).hash(&mut h),
+            Source::Fixture => (false, "").hash(&mut h),
+        }
         (
-            (Tracked::id(&self.source), Tracked::version(&self.source)),
             (Tracked::id(&self.projects), Tracked::version(&self.projects)),
             (Tracked::id(&self.sessions), Tracked::version(&self.sessions)),
             (Tracked::id(&self.recent_page), Tracked::version(&self.recent_page)),
-            (Tracked::id(&self.project_state), Tracked::version(&self.project_state)),
-            (Tracked::id(&self.launch), Tracked::version(&self.launch)),
-            (Tracked::id(&self.checkout), Tracked::version(&self.checkout)),
+            Tracked::untracked(&self.project_state).home_sync_stamp(),
+            Tracked::untracked(&self.launch).connected_stamp(),
             (
                 self.kernel.slots.cell_id(&crate::new_worktree::NEW_WORKTREE),
                 self.kernel.slots.version(&crate::new_worktree::NEW_WORKTREE),

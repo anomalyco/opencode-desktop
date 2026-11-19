@@ -536,7 +536,8 @@ pub struct SideState {
     /// The last [`resolve_side_region`]: the plugins' surface versions and the `Tracked`
     /// state it read, and what it resolved.
     pub(crate) resolved: RefCell<Option<ResolvedCache>>,
-    /// Incremented whenever [`resolve_side_region`] recomputes, so polls detect view-time rebuilds.
+    /// Incremented whenever [`resolve_side_region`] recomputes with a changed entry key list,
+    /// so polls detect view-time tab list changes without churning on no-op cache rebuilds.
     pub(crate) resolved_gen: Cell<u64>,
     /// Stamp of stored-tab rekey/prune inputs as of the last [`crate::poll_panels`] check.
     pub(crate) tabs_stamp: Cell<Option<u64>>,

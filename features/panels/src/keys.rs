@@ -109,15 +109,8 @@ pub fn poll_panels(host: &mut dyn PanelsHost, tx: &mut Tx) -> bool {
     if has_stored_tabs
         && let Some(sid) = host.active_session_id().map(str::to_owned)
     {
-        let plugins = host.plugin_surfaces_version();
-        let resolved_stale = host
-            .side()
-            .resolved
-            .borrow()
-            .as_ref()
-            .is_some_and(|(v, read, _)| *v != plugins || read.changed());
         let stamp = tabs_check_stamp(host);
-        if resolved_stale || host.side().tabs_stamp.get() != Some(stamp) {
+        if host.side().tabs_stamp.get() != Some(stamp) {
             let panels = all_panels(host);
             let needs_rekey = host.side().sessions.get(&sid).is_some_and(|st| {
                 panels
