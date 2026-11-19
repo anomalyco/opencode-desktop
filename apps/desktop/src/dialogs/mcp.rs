@@ -50,7 +50,7 @@ impl McpHost for App {
     fn auto_focus_composer(&mut self, tx: &mut Tx) {
         if crate::auto_focus_composer(tx) {
             let mcp = self.kernel.slots.get(&MCP);
-            self.composer.focused = self.has_composer() && !self.settings.open && mcp.open.is_none() && mcp.sign_in.is_none();
+            self.composer.focused = self.has_composer() && !self.settings_open() && mcp.open.is_none() && mcp.sign_in.is_none();
         }
     }
 

@@ -9,7 +9,7 @@ const LABEL: TextStyle = TextStyle::new(15.0, 530.0).lh(20.0);
 const SYMBOL: TextStyle = TextStyle::new(17.0, 440.0).mono().lh(20.0);
 
 pub(super) fn mounted(s: &App) -> bool {
-    if !session_view::style::touch_controls() || s.settings.open || s.fixture_run.stage.is_some() { return false; }
+    if !session_view::style::touch_controls() || s.settings_open() || s.fixture_run.stage.is_some() { return false; }
     match &*s.route {
         Route::Home => false,
         Route::Draft(_) => true,

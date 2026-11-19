@@ -33,11 +33,11 @@ impl NarrowHost for App {
     }
 
     fn settings_open(&self) -> bool {
-        self.settings.open
+        App::settings_open(self)
     }
 
     fn is_home_route(&self) -> bool {
-        self.route == Route::Home && !self.settings.open
+        self.route == Route::Home && !App::settings_open(self)
     }
 
     fn chrome(&self) -> NarrowChrome {

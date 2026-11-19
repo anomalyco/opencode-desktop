@@ -93,7 +93,7 @@ impl FindHost for App {
     }
 
     fn settings_open(&self) -> bool {
-        self.settings.open
+        App::settings_open(self)
     }
 
     fn session_opening(&self) -> bool {

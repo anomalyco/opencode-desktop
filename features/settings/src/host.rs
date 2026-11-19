@@ -180,6 +180,8 @@ impl Default for AboutInfo {
 pub trait SettingsHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback + opencode_kernel::AppOverlays {
     fn settings(&self) -> &Settings;
     fn settings_mut(&mut self) -> &mut Settings;
+    fn settings_open(&self) -> bool;
+    fn set_settings_open(&mut self, open: bool);
     fn settings_pages(&self) -> &pages::State;
     fn settings_pages_mut(&mut self) -> &mut pages::State;
 

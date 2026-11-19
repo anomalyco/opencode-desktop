@@ -331,7 +331,7 @@ impl RestoreHost for App {
     }
 
     fn settings_open(&self) -> bool {
-        self.settings.open
+        App::settings_open(self)
     }
 
     fn settings_page_id(&self) -> &str {
@@ -339,7 +339,7 @@ impl RestoreHost for App {
     }
 
     fn open_restored_settings(&mut self, tab: &str) {
-        self.settings.open = true;
+        self.set_settings_open(true);
         self.kernel.slots.get_mut(&crate::settings::SETTINGS_PAGES).page = crate::settings::pages::Page::parse(tab);
     }
 

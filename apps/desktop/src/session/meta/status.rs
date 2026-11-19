@@ -162,7 +162,7 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     // the unread dot once the Inbox, its tab or the stream brings them. Settings, where the
     // layout switches to the Inbox, reads them ahead, so the Inbox's first load has settled when
     // it shows and the active tab flies into its card rather than the Inbox showing its loader.
-    if layout == TabLayout::Inbox || s.settings.open {
+    if layout == TabLayout::Inbox || s.settings_open() {
         let working: Vec<String> = s
             .sessions
             .iter()

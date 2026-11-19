@@ -55,7 +55,7 @@ impl SuggestionsHost for App {
         self.kernel.slots.get(&crate::add_menu::ADD_MENU).open()
             || self.composer_ext.pickers.open().is_some()
             || self.kernel.slots.get(&crate::switcher::SWITCHER).is_open()
-            || self.settings.open
+            || self.settings_open()
     }
 
     fn composer_has_attachments_or_quotes(&self) -> bool {

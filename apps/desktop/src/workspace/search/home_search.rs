@@ -36,7 +36,7 @@ impl HomeSearchHost for App {
     }
 
     fn settings_open(&self) -> bool {
-        self.settings.open
+        App::settings_open(self)
     }
 
     fn live_server(&self) -> Option<Server> {

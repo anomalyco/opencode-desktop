@@ -79,7 +79,7 @@ impl ToastHost for App {
     }
 
     fn composer_clearance(&self) -> ComposerClearance {
-        if self.settings.open {
+        if self.settings_open() {
             return ComposerClearance::None;
         }
         match &*self.route {

@@ -63,7 +63,7 @@ impl NewWorktreeHost for App {
     }
 
     fn settings_open(&self) -> bool {
-        self.settings.open
+        App::settings_open(self)
     }
 
     fn project_switcher_open(&self) -> bool {

@@ -59,7 +59,7 @@ pub(super) fn column(s: &App, p: &Pal, selected: Option<&model::Project>, wide: 
 /// rows `gap-1`), or along Home's foot, one at each end.
 pub(super) fn utility(p: &Pal, stacked: bool) -> El {
     let settings = nav_row(p, "home-settings", &ic::SETTINGS_GEAR, t!("sidebar.settings")).on_press_tx(|s: &mut App, tx: &mut Tx| {
-        if !s.settings.open {
+        if !s.settings_open() {
             s.toggle_settings(tx);
         }
     });

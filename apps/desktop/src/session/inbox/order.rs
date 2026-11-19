@@ -142,6 +142,7 @@ impl App {
             Tracked::version(&self.inboxes),
             Tracked::version(&self.projects),
             Tracked::version(&self.settings),
+            self.kernel.slots.version(&crate::settings::SETTINGS_SCREEN),
             Tracked::version(&self.route),
             self.kernel.slots.version(&crate::session_menu::MENUS),
         )

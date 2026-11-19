@@ -61,7 +61,7 @@ impl App {
     pub(crate) fn takes_stray_keys(&self) -> bool {
         let menus = self.kernel.slots.get(&crate::session_menu::MENUS);
         self.has_composer()
-            && !self.settings.open
+            && !self.settings_open()
             && !self.kernel.slots.get(&crate::panels::SIDE).focus.is_focused()
             && !self.kernel.slots.get(&crate::switcher::SWITCHER).is_open()
             && !self.kernel.slots.get(&crate::project_switcher::PROJECT_SWITCHER).is_open()

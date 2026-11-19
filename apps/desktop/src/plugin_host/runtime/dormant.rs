@@ -289,7 +289,7 @@ pub fn doze(app: &mut App, i: usize, record: Record, background: bool) {
 /// busy now: a process or run of it, power or a prompt it holds, its dialog or popover open. Not
 /// with another window open either, which may show it and shares its app half.
 pub fn sleep_unused(app: &mut App) {
-    if app.other_windows() || app.settings.open {
+    if app.other_windows() || app.settings_open() {
         return;
     }
     let running: Vec<(usize, String)> = app.plugins.list.iter().enumerate()

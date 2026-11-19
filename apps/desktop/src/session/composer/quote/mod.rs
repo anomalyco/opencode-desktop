@@ -27,7 +27,7 @@ impl QuoteHost for App {
     fn quote_session(&self) -> Option<&str> {
         let Route::Session { id, .. } = &*self.route else { return None };
         let child = self.session(id).is_some_and(|i| i.parent.is_some());
-        (!child && !self.kernel.slots.get(&crate::add_menu::ADD_MENU).shell() && !self.settings.open).then_some(id.as_str())
+        (!child && !self.kernel.slots.get(&crate::add_menu::ADD_MENU).shell() && !self.settings_open()).then_some(id.as_str())
     }
 
     fn quote_session_busy(&self) -> bool {

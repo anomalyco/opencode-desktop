@@ -512,7 +512,7 @@ fn save_failed<H: SettingsHost + 'static>(p: &Pal, field: Field) -> El {
 
 /// A field left with a change saves it (Desktop saves on `blur`).
 pub fn poll(s: &mut dyn SettingsHost, tx: &mut Tx) -> bool {
-    if !matches!(s.settings_pages().page, Page::Project(..)) || !s.settings().open {
+    if !matches!(s.settings_pages().page, Page::Project(..)) || !s.settings_open() {
         return false;
     }
     let st = &s.settings_pages().project;

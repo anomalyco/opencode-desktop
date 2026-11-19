@@ -79,7 +79,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     let narrow = width.is_some_and(|w| s.layout.narrow.measure(w)) && s.fixture_run.stage.is_none();
     if was_narrow != narrow {
         let reading = narrow.then(|| s.active_session_id()).flatten()
-            .filter(|id| !s.timeline_fx.ends.due(id) && s.displayed_session(id) == Some(*id) && !s.settings.open)
+            .filter(|id| !s.timeline_fx.ends.due(id) && s.displayed_session(id) == Some(*id) && !s.settings_open())
             .and_then(|id| s.timeline_fx.ends.recall.screen_place(id).map(|(key, y)| (id.to_owned(), key, y)));
         *s.layout.narrow.reading.borrow_mut() = reading;
     }
@@ -220,16 +220,16 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     } else {
         0.0
     };
-    let need_panel_sz = (!s.settings.open && matches!(*s.route, Route::Draft(_) | Route::Home)) || s.composer_ext.attach.drop.present();
+    let need_panel_sz = (!s.settings_open() && matches!(*s.route, Route::Draft(_) | Route::Home)) || s.composer_ext.attach.drop.present();
     let panel_sz = if need_panel_sz {
         cx.layout_size("panel").map_or((0.0, 0.0), |[w, h]| (w, h))
     } else {
         (0.0, 0.0)
     };
-    let settings_sz = if s.settings.open { cx.layout_size("panel").map_or((0.0, 0.0), |[w, h]| (w, h)) } else { (0.0, 0.0) };
+    let settings_sz = if s.settings_open() { cx.layout_size("panel").map_or((0.0, 0.0), |[w, h]| (w, h)) } else { (0.0, 0.0) };
     // The bottom pane's reserve and the pane itself read the side region's tabs, which ask every
     // panel's plugin: once per view.
-    let side_reg = (!s.settings.open && s.bottom_has_candidate()).then(|| s.resolve_side_region()).flatten();
+    let side_reg = (!s.settings_open() && s.bottom_has_candidate()).then(|| s.resolve_side_region()).flatten();
     let bottom_reserve = crate::panels::view::bottom_reserve_height(s, side_reg.as_deref());
     let dock = crate::panels::view::bottom_dock(s, side_reg.as_deref(), p, cx);
     // On a phone the shell's surfaces run under the side and bottom insets to the screen's edge
@@ -287,7 +287,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         .on_drop_files(crate::dropzone::drop)
         .accepts_files(|path| !session_view::images::drag::is_own(path))
         .on_drop_hover(crate::dropzone::hover)
-        .child(if s.settings.open { crate::settings::page(s, p, settings_sz) } else { match &*s.route {
+        .child(if s.settings_open() { crate::settings::page(s, p, settings_sz) } else { match &*s.route {
             Route::Home => home(s, p, [panel_sz.0, panel_sz.1], cx.layout_size("zoom").unwrap_or([0.0, 0.0])),
             Route::Session { id, .. } => session_page(s, p, id),
             Route::Draft(_) => draft_page(s, p, panel_sz.0),
@@ -333,7 +333,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     // A plugin's cover over a tab whose server isn't ready (`PluginServerCover`): the whole main
     // area from under the titlebar row (`<main>`, not the panels' inset in it), the page and its
     // panels mounted under it.
-    if let Some(cover) = (!s.settings.open).then(|| crate::plugin_host::server_cover(s, p)).flatten() {
+    if let Some(cover) = (!s.settings_open()).then(|| crate::plugin_host::server_cover(s, p)).flatten() {
         root = root.child(cover.pin(Some(s.sidebar_shown_w()), Some(chrome().main_top()), Some(0.0), Some(chrome().foot())).paint_contained(main));
     }
     if open {

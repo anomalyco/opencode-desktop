@@ -555,10 +555,10 @@ impl App {
     /// folder, as Desktop's `openDraft`. On Home and in Settings it's Home's project, else the
     /// last used or the first the server lists, and with no project it does nothing.
     pub fn new_session(&mut self, tx: &mut Tx) {
-        if self.project_navigation() && (self.settings.open || self.route == Route::Home) {
+        if self.project_navigation() && (self.settings_open() || self.route == Route::Home) {
             return view::home::browse::start(self, tx);
         }
-        let dir = if self.settings.open || self.route == Route::Home {
+        let dir = if self.settings_open() || self.route == Route::Home {
             let project = self
                 .home_selected()
                 .or_else(|| self.last_used_project())

@@ -116,7 +116,7 @@ impl App {
             crate::view::home::browse::open(self, tx);
             return true;
         }
-        if self.route == Route::Home && !self.settings.open {
+        if self.route == Route::Home && !self.settings_open() {
             if let Some(uid) = self.gestures.home_return_tab.take()
                 && self.tabs.iter().any(|tab| tab.uid() == uid)
             {
@@ -364,7 +364,7 @@ impl App {
     /// The tab, or inbox row, the open page belongs to.
     fn nav_current(&self) -> Option<String> {
         match (&*self.route, self.tab_layout()) {
-            (Route::Session { id, server }, crate::layout_state::TabLayout::Inbox) if !self.settings.open => Some(tabs::session_uid(server, self.root_of(id))),
+            (Route::Session { id, server }, crate::layout_state::TabLayout::Inbox) if !self.settings_open() => Some(tabs::session_uid(server, self.root_of(id))),
             _ => self.current_tab(),
         }
     }

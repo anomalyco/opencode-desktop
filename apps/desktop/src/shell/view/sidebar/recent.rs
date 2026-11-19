@@ -76,7 +76,7 @@ pub(crate) fn recent(s: &App, p: &Pal) -> El {
 fn strip(s: &App, p: &Pal, strip_key: &str, sessions: &[&SessionInfo], pins: Option<Vec<String>>) -> El {
     let here = crate::servers::runtime::active(s).clone();
     let selected = match &*s.route {
-        crate::Route::Session { id, server } if *server == here && !s.settings.open => Some(s.root_of(id).to_owned()),
+        crate::Route::Session { id, server } if *server == here && !s.settings_open() => Some(s.root_of(id).to_owned()),
         _ => None,
     };
     let pinned = pins.is_some();

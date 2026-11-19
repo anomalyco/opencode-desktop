@@ -199,8 +199,9 @@ pub fn authenticating(key: &str) -> bool {
 /// and a managed server whose health dropped runs its plugin's `reconnect`.
 pub fn poll_actions(app: &mut App, tx: &mut Tx) {
     sync_actions(app);
-    if app.plugins.cover_visit.moved(&app.route, app.settings.open) {
-        app.plugins.cover_visit.follow(&app.route, app.settings.open);
+    let settings_open = app.settings_open();
+    if app.plugins.cover_visit.moved(&app.route, settings_open) {
+        app.plugins.cover_visit.follow(&app.route, settings_open);
     }
     for (key, attempt, ready) in SETTLED.take() {
         let effects = ACTIONS.with_borrow_mut(|a| a.get_mut(&key).map(|slot| plugin_server::step(&mut slot.machine, plugin_server::Event::ConnectSettled { attempt, ready })));

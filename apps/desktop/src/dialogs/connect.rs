@@ -129,7 +129,7 @@ impl ConnectHost for App {
 
     fn auto_focus_composer(&mut self, tx: &mut Tx) {
         if crate::auto_focus_composer(tx) {
-            self.composer.focused = self.has_composer() && !self.settings.open;
+            self.composer.focused = self.has_composer() && !self.settings_open();
         }
     }
 

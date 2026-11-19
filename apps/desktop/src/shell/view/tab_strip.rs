@@ -40,7 +40,7 @@ pub(crate) fn section_strip(s: &App, p: &Pal, key: &str, indices: &[usize], hide
 #[allow(clippy::too_many_arguments)]
 fn strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation, viewport: Option<f32>, trailing: Option<El>, indices: &[usize], hide_avatars: bool) -> El {
     // Every server's tabs mix in one strip, each named by its `Tab::uid`.
-    let current = if s.settings.open { None } else { s.current_tab() };
+    let current = if s.settings_open() { None } else { s.current_tab() };
     let vertical = orientation == TabOrientation::Vertical;
     let tabs: Vec<&crate::tabs::Tab> = indices.iter().filter_map(|&i| s.tabs.get(i)).collect();
     let uids: Vec<String> = tabs.iter().map(|t| t.uid()).collect();

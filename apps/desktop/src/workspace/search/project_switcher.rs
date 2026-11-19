@@ -235,7 +235,7 @@ impl ProjectSwitcherHost for App {
         self.close_picker(false);
         self.close_switcher(false);
         self.project_state.home_menu_open = false;
-        self.settings.open = false;
+        self.set_settings_open(false);
         self.search.focused = false;
         self.composer.focused = false;
         restore

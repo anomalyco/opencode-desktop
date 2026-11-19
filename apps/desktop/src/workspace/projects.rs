@@ -142,7 +142,7 @@ impl ProjectsHost for App {
     }
 
     fn settings_open(&self) -> bool {
-        self.settings.open
+        App::settings_open(self)
     }
 
     fn close_settings(&mut self) {
@@ -291,7 +291,7 @@ impl ProjectsHost for App {
         self.close_picker(false);
         self.close_switcher(false);
         self.close_project_switcher(false);
-        self.settings.open = false;
+        self.set_settings_open(false);
         self.kernel.slots.get_mut(&crate::session_menu::MENUS).on = None;
         crate::subagents::shells::set_open(self, false);
         *self.kernel.slots.get_mut(&crate::todos::TODO_OPEN) = false;

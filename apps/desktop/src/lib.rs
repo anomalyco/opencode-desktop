@@ -461,6 +461,6 @@ pub mod web_api {
     }
 
     pub fn settings_open(s: &App) -> bool {
-        s.settings.open
+        s.settings_open()
     }
 }
