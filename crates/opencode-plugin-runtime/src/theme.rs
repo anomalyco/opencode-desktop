@@ -21,6 +21,7 @@ pub fn palette(name: &str, dark: bool) -> Option<Color> {
         "surface-hover" => p.hover,
         "surface-press" => p.pressed,
         "surface-selected" | "selected" => p.row_active,
+        "surface-inverse" => p.v2.bg_inverse,
         "text-strong" | "text" => desktop("text-strong", p.text),
         "text-base" => desktop("text-base", p.muted),
         "text-weak" => desktop("text-weak", p.faint),
@@ -45,6 +46,13 @@ pub fn palette(name: &str, dark: bool) -> Option<Color> {
         "status-warning" => p.warning,
         "status-danger" => p.danger,
         "status-info" => p.info,
+        "status-success-bg" => p.v2.success.bg,
+        "status-warning-bg" => p.v2.warning.bg,
+        "status-danger-bg" => p.v2.danger.bg,
+        "status-info-bg" => p.v2.info.bg,
+        "status-danger-strong" => {
+            if dark { p.v2.danger.fg } else { token(false, "red-900").unwrap_or(p.v2.danger.fg) }
+        }
         "avatar-orange" => p.avatars[0].0,
         "avatar-yellow" => p.avatars[1].0,
         "avatar-cyan" => p.avatars[2].0,

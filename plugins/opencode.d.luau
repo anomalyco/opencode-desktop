@@ -1,4 +1,4 @@
--- OpenCode plugin contract 1.4: global types for luau-lsp.
+-- OpenCode plugin contract 1.5: global types for luau-lsp.
 -- Generated from crates/opencode-plugin-spec/contract.json by `cargo run -p opencode-plugin-spec -- --write`. Do not edit.
 -- Load it with `luau-lsp analyze --definitions=@opencode=plugins/opencode.d.luau`.
 
@@ -16,6 +16,7 @@ export type SemanticToken =
     | "surface-hover" -- The fill of a row or button under the pointer.
     | "surface-press" -- The fill of a row or button while it is pressed.
     | "surface-selected" -- The fill of a selected row or tab.
+    | "surface-inverse" -- A high-contrast inverse fill, such as a progress bar fill or solid contrast indicator. Since 1.5.
     | "text-strong" -- Headings and the most important text.
     | "text-base" -- Body text.
     | "text-weak" -- Secondary text: descriptions and labels.
@@ -41,6 +42,11 @@ export type SemanticToken =
     | "status-warning" -- Needs attention.
     | "status-danger" -- Failed, blocked or destructive.
     | "status-info" -- Neutral information.
+    | "status-success-bg" -- A tinted background for success callouts and banners. Since 1.5.
+    | "status-warning-bg" -- A tinted background for warning callouts and banners. Since 1.5.
+    | "status-danger-bg" -- A tinted background for danger callouts and banners. Since 1.5.
+    | "status-info-bg" -- A tinted background for informational callouts and banners. Since 1.5.
+    | "status-danger-strong" -- High-contrast danger ink for text and indicators on light or tinted danger surfaces. Since 1.5.
     | "avatar-orange" -- A letter tile's fill, as the app's project avatars draw: the first of eight a name hashes to.
     | "avatar-yellow" -- A letter tile's fill, the second of eight.
     | "avatar-cyan" -- A letter tile's fill, the third of eight.

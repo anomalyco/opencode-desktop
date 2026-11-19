@@ -1,6 +1,6 @@
 {
   "$comment": "The OpenCode plugin contract: the single source of truth for plugin types, the plugin.toml schema, the selene std, the API docs and the host's Rust decoders. Edit this file, then run `cargo run -p opencode-plugin-spec -- --write`. Type strings use Luau syntax; `integer` is a whole number (Luau `number`).",
-  "contract": "1.4",
+  "contract": "1.5",
   "versioning": {
     "format": "MAJOR.MINOR",
     "rules": [
@@ -23,6 +23,7 @@
     { "name": "surface-hover", "group": "surface", "doc": "The fill of a row or button under the pointer." },
     { "name": "surface-press", "group": "surface", "doc": "The fill of a row or button while it is pressed." },
     { "name": "surface-selected", "group": "surface", "doc": "The fill of a selected row or tab." },
+    { "name": "surface-inverse", "group": "surface", "since": "1.5", "fallback": "text-strong", "doc": "A high-contrast inverse fill, such as a progress bar fill or solid contrast indicator." },
     { "name": "text-strong", "group": "text", "doc": "Headings and the most important text." },
     { "name": "text-base", "group": "text", "doc": "Body text." },
     { "name": "text-weak", "group": "text", "doc": "Secondary text: descriptions and labels." },
@@ -48,6 +49,11 @@
     { "name": "status-warning", "group": "status", "doc": "Needs attention." },
     { "name": "status-danger", "group": "status", "doc": "Failed, blocked or destructive." },
     { "name": "status-info", "group": "status", "doc": "Neutral information." },
+    { "name": "status-success-bg", "group": "status", "since": "1.5", "fallback": "surface-2", "doc": "A tinted background for success callouts and banners." },
+    { "name": "status-warning-bg", "group": "status", "since": "1.5", "fallback": "surface-2", "doc": "A tinted background for warning callouts and banners." },
+    { "name": "status-danger-bg", "group": "status", "since": "1.5", "fallback": "surface-2", "doc": "A tinted background for danger callouts and banners." },
+    { "name": "status-info-bg", "group": "status", "since": "1.5", "fallback": "surface-2", "doc": "A tinted background for informational callouts and banners." },
+    { "name": "status-danger-strong", "group": "status", "since": "1.5", "fallback": "status-danger", "doc": "High-contrast danger ink for text and indicators on light or tinted danger surfaces." },
     { "name": "avatar-orange", "group": "avatar", "doc": "A letter tile's fill, as the app's project avatars draw: the first of eight a name hashes to." },
     { "name": "avatar-yellow", "group": "avatar", "doc": "A letter tile's fill, the second of eight." },
     { "name": "avatar-cyan", "group": "avatar", "doc": "A letter tile's fill, the third of eight." },

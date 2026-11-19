@@ -1,4 +1,4 @@
-# OpenCode plugin API reference (contract 1.4)
+# OpenCode plugin API reference (contract 1.5)
 
 > Generated from crates/opencode-plugin-spec/contract.json by `cargo run -p opencode-plugin-spec -- --write`. Do not edit. For a walkthrough, read [Writing a plugin](writing-a-plugin.md).
 
@@ -6,7 +6,7 @@ Contents: [Versioning](#versioning) · [Modules and globals](#modules-and-global
 
 ## Versioning
 
-Contract versions are `MAJOR.MINOR`. This is contract `1.4`.
+Contract versions are `MAJOR.MINOR`. This is contract `1.5`.
 
 - A plugin names the contract it targets in plugin.toml: `contract = "1.0"`.
 - Minor versions (1.1, 1.2, …) only add: new optional properties on `ui.*` nodes and specs, new semantic tokens (each with a 1.0 fallback token), new services, methods, signals, contribution kinds and enum values. A plugin that targets 1.0 runs unchanged on every 1.x host.
@@ -604,6 +604,7 @@ A `Color` is one of these tokens, or `ui.hex("#RRGGBB")`. The host resolves toke
 | `surface-hover` | surface | The fill of a row or button under the pointer. |
 | `surface-press` | surface | The fill of a row or button while it is pressed. |
 | `surface-selected` | surface | The fill of a selected row or tab. |
+| `surface-inverse` | surface | A high-contrast inverse fill, such as a progress bar fill or solid contrast indicator. Falls back to `text-strong` on older hosts. Since 1.5. |
 | `text-strong` | text | Headings and the most important text. |
 | `text-base` | text | Body text. |
 | `text-weak` | text | Secondary text: descriptions and labels. |
@@ -629,6 +630,11 @@ A `Color` is one of these tokens, or `ui.hex("#RRGGBB")`. The host resolves toke
 | `status-warning` | status | Needs attention. |
 | `status-danger` | status | Failed, blocked or destructive. |
 | `status-info` | status | Neutral information. |
+| `status-success-bg` | status | A tinted background for success callouts and banners. Falls back to `surface-2` on older hosts. Since 1.5. |
+| `status-warning-bg` | status | A tinted background for warning callouts and banners. Falls back to `surface-2` on older hosts. Since 1.5. |
+| `status-danger-bg` | status | A tinted background for danger callouts and banners. Falls back to `surface-2` on older hosts. Since 1.5. |
+| `status-info-bg` | status | A tinted background for informational callouts and banners. Falls back to `surface-2` on older hosts. Since 1.5. |
+| `status-danger-strong` | status | High-contrast danger ink for text and indicators on light or tinted danger surfaces. Falls back to `status-danger` on older hosts. Since 1.5. |
 | `avatar-orange` | avatar | A letter tile's fill, as the app's project avatars draw: the first of eight a name hashes to. |
 | `avatar-yellow` | avatar | A letter tile's fill, the second of eight. |
 | `avatar-cyan` | avatar | A letter tile's fill, the third of eight. |
