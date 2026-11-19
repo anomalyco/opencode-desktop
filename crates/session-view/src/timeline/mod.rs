@@ -182,7 +182,8 @@ impl RowSpec {
                         // reply asks nothing, so its rows don't look.
                         let code = (!*live && body.contains('`')).then(|| s.code_links_version());
                         let scale_bits = crate::scroller::device_scale().to_bits();
-                        let ver = (&t.session, body.as_str(), *live, pt.to_bits(), fade.to_bits(), p.dark, self.streaming, find_ver, dw, s.diagrams().hidden_in(body), line, (copied, pictures, footer, crate::style::content_w().to_bits(), scale_bits, chips, own, code));
+                        let look = (p.theme, p.generation, p.dark, opencode_i18n::locale().id(), crate::style::hover_none());
+                        let ver = (&t.session, body.as_str(), *live, pt.to_bits(), fade.to_bits(), look, self.streaming, find_ver, dw, s.diagrams().hidden_in(body), line, (copied, pictures, footer, crate::style::content_w().to_bits(), scale_bits, chips, own, code));
                         return rune::memo(self.key.clone(), ver, || {
                             ROW_BUILDS.set(ROW_BUILDS.get() + 1);
                             self.text_row(s, p, t, *message, *part, body, fade, *live, *pt, footer)
@@ -194,7 +195,8 @@ impl RowSpec {
                 {
                     let fold = crate::disclosure::fold(k).duration.to_bits();
                     let detail = s.timeline_detail();
-                    let ver = (&t.session, group_hash(&t.messages[*start..*end]), *block, *live, pt.to_bits(), p.dark, self.streaming, (fold, crate::style::content_w().to_bits(), crate::scroller::device_scale().to_bits(), detail, s.shell_output_version(), crate::style::sticky_top().to_bits(), s.reduced_motion()));
+                    let look = (p.theme, p.generation, p.dark, opencode_i18n::locale().id(), crate::style::hover_none());
+                    let ver = (&t.session, group_hash(&t.messages[*start..*end]), *block, *live, pt.to_bits(), look, self.streaming, (fold, crate::style::content_w().to_bits(), crate::scroller::device_scale().to_bits(), detail, s.shell_output_version(), crate::style::sticky_top().to_bits(), s.reduced_motion()));
                     return rune::memo(self.key.clone(), ver, || {
                         ROW_BUILDS.set(ROW_BUILDS.get() + 1);
                         let blocks = turns::fold_with(&entries(&t.messages[*start..*end], &detail), *live, &detail);
@@ -218,7 +220,8 @@ impl RowSpec {
                         let meta = prompt_meta(s, t, Some(*message));
                         // A turn's place is only for its heading, which only a reader gets.
                         let (turn, more) = if s.assistive() { (turn_of(t, *message), s.more_above(&t.session)) } else { ((0, 0), false) };
-                        let ver = (&t.session, id.as_str(), text.as_str(), [*tight, *above, *below, fold.past, s.fold_user_messages(), open, p.dark, self.streaming, s.smooth_timeline()], (fold.viewport.to_bits(), reply.to_bits(), crate::scroller::device_scale().to_bits()), find_ver, s.user_status_version(id), &meta, crate::style::content_w().to_bits(), turn, more, s.assistive());
+                        let look = (p.theme, p.generation, p.dark, opencode_i18n::locale().id(), crate::style::hover_none());
+                        let ver = (&t.session, id.as_str(), text.as_str(), [*tight, *above, *below, fold.past, s.fold_user_messages(), open, self.streaming, s.smooth_timeline()], (look, fold.viewport.to_bits(), reply.to_bits(), crate::scroller::device_scale().to_bits()), find_ver, s.user_status_version(id), &meta, crate::style::content_w().to_bits(), turn, more, s.assistive());
                         return rune::memo(self.key.clone(), ver, || {
                             ROW_BUILDS.set(ROW_BUILDS.get() + 1);
                             let run = Place { tight: *tight, above: *above, below: *below, reply: *reply, fold: *fold };
