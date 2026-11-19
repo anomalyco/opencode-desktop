@@ -239,9 +239,11 @@ impl Feature<App> for NarrowFeature {
                     let p = crate::palette::pal(s.dark(cx));
                     sheet::layer(s, p, cx)
                 })
-                // Visually at the bottom (SURFACE_POPOVER), kept in `key_band::POPUP` ahead of
-                // `key_band::MODAL` to preserve existing key precedence (flagged for review).
-                .with_key_in(crate::overlays::key_band::POPUP, |s, ev, tx| key(s, ev, tx)),
+                // Visually at the bottom (SURFACE_POPOVER), kept in `key_band::POPUP` after
+                // `overlay.popup` and ahead of `key_band::MODAL` to preserve existing key
+                // precedence (flagged for review).
+                .with_key_in(crate::overlays::key_band::POPUP, |s, ev, tx| key(s, ev, tx))
+                .after_key("overlay.popup"),
         );
         // Precaution: layout and narrow machines coordinate sidebar/tab layout transitions.
         builder

@@ -15,8 +15,7 @@ pub(crate) fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     // Every declared key band in `overlays::key_band::ALL` must be dispatched below.
     const _: () = assert!(crate::overlays::key_band::ALL.len() == 4);
     let overlays = s.kernel.overlay_dispatcher.clone();
-    if crate::popup::key(s, ev, tx)
-        || overlays.handle_key_band(crate::overlays::key_band::POPUP, s, ev, tx)
+    if overlays.handle_key_band(crate::overlays::key_band::POPUP, s, ev, tx)
         || overlays.handle_key_band(crate::overlays::key_band::MODAL, s, ev, tx)
         || crate::glitch::key(s, ev, tx)
         || crate::demo::key(s, ev, tx)

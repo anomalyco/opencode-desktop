@@ -140,6 +140,39 @@ pub fn build() -> Kernel<App> {
             .with_key(crate::diagram::key),
     );
     b.register_overlay(
+        OverlayRegistration::<App>::new("overlay.tool_details")
+            .with_render(crate::overlays::layer::MEDIA_LIGHTBOX, |s, cx| {
+                let p = crate::palette::pal(s.dark(cx));
+                session_view::tools::details_overlay(s, p, cx)
+            })
+            .above("overlay.diagram"),
+    );
+    b.register_overlay(
+        OverlayRegistration::<App>::new("overlay.tab_preview")
+            .with_render(crate::overlays::layer::CHROME_POPUP, |s, cx| {
+                let p = crate::palette::pal(s.dark(cx));
+                crate::view::tab_preview::view(s, p).into_iter().collect()
+            }),
+    );
+    b.register_overlay(
+        OverlayRegistration::<App>::new("overlay.popup")
+            .with_render(crate::overlays::layer::CHROME_POPUP, |s, cx| {
+                let p = crate::palette::pal(s.dark(cx));
+                crate::popup::view(s, p)
+            })
+            .above("overlay.tab_preview")
+            // Visually below `plugin.popover` (PLUGIN_TOP), runs first in `key_band::POPUP` so an
+            // open context/dropdown menu takes Escape and navigation keys before every other overlay.
+            .with_key(crate::popup::key),
+    );
+    b.register_overlay(
+        OverlayRegistration::<App>::new("overlay.status_toast")
+            .with_render(crate::overlays::layer::TOAST, |s, cx| {
+                let p = crate::palette::pal(s.dark(cx));
+                crate::status_toast::view(s, p).into_iter().collect()
+            }),
+    );
+    b.register_overlay(
         OverlayRegistration::<App>::new(crate::view::move_recovery::OVERLAY_ID)
             .with_render(crate::overlays::layer::ELEVATED_DIALOG, |s, cx| {
                 let p = crate::palette::pal(s.dark(cx));

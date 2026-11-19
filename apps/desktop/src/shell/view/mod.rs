@@ -126,22 +126,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
         }
         None => shell(s, cx),
     };
-    inner = inner.children(s.kernel.overlay_dispatcher.render_layer(crate::overlays::layer::SURFACE_POPOVER, s, cx));
-    inner = inner.children(s.kernel.overlay_dispatcher.render_layer(crate::overlays::layer::SWITCHER, s, cx));
-    inner = inner.children(s.kernel.overlay_dispatcher.render_layer(crate::overlays::layer::MEDIA_LIGHTBOX, s, cx));
-    inner = inner.children(session_view::tools::details_overlay(s, p, cx));
-    inner = inner.children(s.kernel.overlay_dispatcher.render_layer(crate::overlays::layer::ACTION_DIALOG, s, cx));
-    inner = inner.children(crate::quote::editor::view(s, p, cx));
-    inner = inner.children(crate::quote::toolbar(s, p, cx));
-    inner = inner.children(crate::line_comments::selection::toolbar(s, p, cx));
-    inner = inner.children(crate::panels::view::context_menus(s, p));
-    inner = inner.children(crate::panels::drag::layer(s, p));
-    inner = inner.children(s.kernel.overlay_dispatcher.render_layer(crate::overlays::layer::DIALOG, s, cx));
-    inner = inner.children(s.kernel.overlay_dispatcher.render_layer(crate::overlays::layer::ELEVATED_DIALOG, s, cx));
-    inner = inner.children(tab_preview::view(s, p));
-    inner = inner.children(crate::popup::view(s, p));
-    inner = inner.children(s.kernel.overlay_dispatcher.render_layer(crate::overlays::layer::PLUGIN_TOP, s, cx));
-    inner = inner.children(crate::status_toast::view(s, p));
+    inner = inner.children(s.kernel.overlay_dispatcher.render_all(s, cx));
     let root = el().key("zoom");
     // The app keeps clear of the safe area and the window's colour runs under it to the screen's
     // edge; the shell's surfaces reach under the side and bottom insets themselves (`shell`).
@@ -171,6 +156,8 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
         // Hovers land and leave at once, like Desktop.
         .hover_motion_within(INSTANT, INSTANT)
         .child(crate::glitch::wrap(s, el().key("zoomed").w_full().h_full().child(inner)))
+        // Stays outside `OverlayDispatcher` and `glitch::wrap(zoomed(inner))`: the developer knobs
+        // panel must draw above the paused glitch scrubber and outside the zoomed shell subtree.
         .child(crate::knobs::layer(s))
 }
 

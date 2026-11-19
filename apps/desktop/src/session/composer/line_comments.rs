@@ -244,6 +244,29 @@ impl Feature<App> for AnnotationsFeature {
         builder
             .register_slot(&crate::quote::QUOTE)
             .register_slot(&LINE_COMMENTS);
+        builder.register_overlay(
+            opencode_kernel::OverlayRegistration::<App>::new("overlay.quote_editor")
+                .with_render(crate::overlays::layer::FLOATING_CHROME, |s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    crate::quote::editor::view(s, p, cx).into_iter().collect()
+                }),
+        );
+        builder.register_overlay(
+            opencode_kernel::OverlayRegistration::<App>::new("overlay.quote_toolbar")
+                .with_render(crate::overlays::layer::FLOATING_CHROME, |s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    crate::quote::toolbar(s, p, cx).into_iter().collect()
+                })
+                .above("overlay.quote_editor"),
+        );
+        builder.register_overlay(
+            opencode_kernel::OverlayRegistration::<App>::new("overlay.line_comment_toolbar")
+                .with_render(crate::overlays::layer::FLOATING_CHROME, |s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    selection::toolbar(s, p, cx).into_iter().collect()
+                })
+                .above("overlay.quote_toolbar"),
+        );
         builder.register_escape_layer(
             EscapeLayer::<App>::new(
                 "escape.quote",
