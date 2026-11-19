@@ -10,7 +10,6 @@ use std::sync::mpsc::Receiver;
 
 use office_preview::xlsx::SheetLayout;
 use office_preview::{Kind, PageInfo};
-use rune_luau::{Completer, Data};
 
 use super::sheet::pointer::PointerEvent;
 use super::sheet::select::{self, Cell, Selection};
@@ -59,9 +58,28 @@ struct Doc {
     width: f32,
 }
 
+/// Summary of an opened Office document returned to the caller of [`open`].
+#[derive(Clone, Debug)]
+pub struct OpenedDocument {
+    pub id: u64,
+    pub kind: Kind,
+    pub pages: usize,
+    pub sheets: Vec<String>,
+}
+
+/// Outcome delivered to the callback passed to [`open`].
+#[derive(Clone, Debug)]
+pub struct OpenAnswer {
+    pub size: usize,
+    pub document: Option<OpenedDocument>,
+    pub error: Option<String>,
+}
+
+type OpenCallback = Box<dyn FnOnce(OpenAnswer)>;
+
 /// A file's lifecycle (`office-worker.ts`'s `worker-machine.ts`): opening, then open or failed.
 enum State {
-    Opening { waiters: Vec<(Completer, usize)> },
+    Opening { waiters: Vec<(OpenCallback, usize)> },
     Open(Box<Open>),
     RenderFailed(String),
     Failed,
@@ -141,7 +159,7 @@ pub struct Snapshot {
 }
 
 /// Starts opening `bytes` (`size` bytes long, for the answer) and answers `done` once it opened.
-pub fn open(kind: Kind, bytes: Vec<u8>, size: usize, waker: Option<rune::Waker>, done: Completer) {
+pub fn open(kind: Kind, bytes: Vec<u8>, size: usize, waker: Option<rune::Waker>, done: impl FnOnce(OpenAnswer) + 'static) {
     let packs = super::cjk::packs();
     let (tx, replies) = std::sync::mpsc::channel();
     if let (Some(w), Ok(mut all)) = (waker.clone(), WAKERS.lock()) {
@@ -152,13 +170,13 @@ pub fn open(kind: Kind, bytes: Vec<u8>, size: usize, waker: Option<rune::Waker>,
         None => Arc::new(|| {}),
     };
     let Some(jobs) = worker::start(kind, bytes, packs, tx, wake) else {
-        done.complete(answer(size, None, Some("The file could not be opened")));
+        done(OpenAnswer { size, document: None, error: Some("The file could not be opened".to_owned()) });
         return;
     };
     REGISTRY.with_borrow_mut(|r| {
         r.next_doc += 1;
         let id = r.next_doc;
-        r.docs.insert(id, Doc { kind, state: State::Opening { waiters: vec![(done, size)] }, jobs, replies, version: 1, zoom: 1.0, width: 0.0 });
+        r.docs.insert(id, Doc { kind, state: State::Opening { waiters: vec![(Box::new(done), size)] }, jobs, replies, version: 1, zoom: 1.0, width: 0.0 });
     });
 }
 
@@ -193,9 +211,9 @@ fn step(id: u64, doc: &mut Doc, reply: Reply) {
             if opened.wants_cjk {
                 super::cjk::want();
             }
-            let record = document(id, doc.kind, &opened.pages, &opened.sheets);
+            let record = OpenedDocument { id, kind: doc.kind, pages: opened.pages.len(), sheets: opened.sheets.clone() };
             for (done, size) in waiters.drain(..) {
-                done.complete(answer(size, Some(record.clone()), None));
+                done(OpenAnswer { size, document: Some(record.clone()), error: None });
             }
             if doc.kind == Kind::Spreadsheet && !opened.sheets.is_empty() {
                 doc.jobs.send(Job::Layout { sheet: 0 }).ok();
@@ -205,7 +223,7 @@ fn step(id: u64, doc: &mut Doc, reply: Reply) {
         (State::Opening { waiters }, Reply::Failed(reason)) => {
             eprintln!("office: {reason}");
             for (done, size) in waiters.drain(..) {
-                done.complete(answer(size, None, Some(&reason)));
+                done(OpenAnswer { size, document: None, error: Some(reason.clone()) });
             }
             doc.state = State::Failed;
         }
@@ -243,30 +261,6 @@ fn step(id: u64, doc: &mut Doc, reply: Reply) {
         },
         _ => {}
     }
-}
-
-/// The record `Office:OpenAsync` resumes with.
-fn answer(size: usize, document: Option<Data>, error: Option<&str>) -> Data {
-    crate::map([
-        ("size", Data::Integer(size as i64)),
-        ("signature", Data::String("zip".into())),
-        ("document", document.unwrap_or(Data::Nil)),
-        ("error", error.map_or(Data::Nil, |e| Data::String(e.to_owned()))),
-    ])
-}
-
-fn document(id: u64, kind: Kind, pages: &[PageInfo], sheets: &[String]) -> Data {
-    let kind = match kind {
-        Kind::Document => "docx",
-        Kind::Spreadsheet => "xlsx",
-        Kind::Presentation => "pptx",
-    };
-    crate::map([
-        ("id", Data::Integer(id as i64)),
-        ("kind", Data::String(kind.into())),
-        ("pages", Data::Integer(pages.len() as i64)),
-        ("sheets", Data::List(sheets.iter().cloned().map(Data::String).collect())),
-    ])
 }
 
 /// What a view of file `id` draws.

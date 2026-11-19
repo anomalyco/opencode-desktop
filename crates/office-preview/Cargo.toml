@@ -29,7 +29,6 @@ betteroffice-opc = { git = "https://github.com/openooxml/betteroffice", rev = "e
 betteroffice-pptx = { git = "https://github.com/openooxml/betteroffice", rev = "ed0a3cea5bd24119c4f2e144a978849177e06fcd", default-features = false, features = ["raster", "fonts", "fonts-latin", "fonts-intl"] }
 betteroffice-pptx-render = { git = "https://github.com/openooxml/betteroffice", rev = "ed0a3cea5bd24119c4f2e144a978849177e06fcd" }
 betteroffice-xlsx = { git = "https://github.com/openooxml/betteroffice", rev = "ed0a3cea5bd24119c4f2e144a978849177e06fcd", default-features = false, features = ["raster", "fonts", "fonts-latin", "fonts-intl"] }
-betteroffice-xlsx-raster = { git = "https://github.com/openooxml/betteroffice", rev = "ed0a3cea5bd24119c4f2e144a978849177e06fcd" }
 betteroffice-xlsx-render = { git = "https://github.com/openooxml/betteroffice", rev = "ed0a3cea5bd24119c4f2e144a978849177e06fcd" }
 
 [lints]

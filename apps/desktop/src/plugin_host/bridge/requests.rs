@@ -73,7 +73,7 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
             let Some(view) = app.layout.narrow.more.drawn_view().filter(|v| crate::panels::split_panel_key(v).is_some_and(|(p, _)| p == &**plugin)).map(str::to_owned) else { return };
             let data = if data == Data::Nil { Data::Map(Default::default()) } else { data };
             tx.instant();
-            app.more_drawer(crate::narrow::machine::MoreEvent::Nest { view, nested: crate::narrow::machine::Nested { title, data } }, tx);
+            app.more_drawer(crate::narrow::machine::MoreEvent::Nest { view, nested: crate::narrow::machine::Nested { title, data: data.to_json() } }, tx);
         }
         Request::CloseDialog => {
             if app.plugins.dialog.take().is_some() {

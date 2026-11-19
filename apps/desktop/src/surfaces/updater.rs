@@ -5,15 +5,45 @@
 //! verification reads the desktop crate's own build environment.
 
 pub use opencode_feature_updater::{
-    BuildInfo, Updater, UpdaterConfig, UpdaterHost, check_async, install_async, poll, poll_owed,
-    start_if_packaged, state_data,
+    BuildInfo, StateView, Updater, UpdaterConfig, UpdaterHost, poll, poll_owed, start_if_packaged,
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use opencode_feature_updater::{finish_quit, installs_on_quit};
 
 use opencode_kernel::{Feature, KernelBuilder, Phase};
+use rune_luau::{Completer, Data};
 
 use crate::App;
+
+fn state_to_data(view: StateView) -> Data {
+    let fields = [
+        ("phase", Data::String(view.phase.into())),
+        ("version", view.version.map_or(Data::Nil, Data::String)),
+        ("progress", view.progress.map_or(Data::Nil, Data::Number)),
+        ("error", view.error.map_or(Data::Nil, Data::String)),
+    ];
+    Data::Map(fields.into_iter().filter(|(_, v)| *v != Data::Nil).map(|(k, v)| (k.to_owned(), v)).collect())
+}
+
+/// Where the updater stands, as the `UpdaterState` Luau record (`Data::Nil` when unavailable).
+pub fn state_data(s: &dyn UpdaterHost) -> Data {
+    opencode_feature_updater::state_view(s).map_or(Data::Nil, state_to_data)
+}
+
+/// `Updater:CheckAsync()`: checks now and completes `done` with the `UpdaterState` record.
+pub fn check_async(s: &dyn UpdaterHost, done: Completer) {
+    opencode_feature_updater::check_with(s, move |view| {
+        done.complete(view.map_or(Data::Nil, state_to_data));
+    });
+}
+
+/// `Updater:InstallAsync()`: restarts into the ready version or opens a required download;
+/// completes `done` with `Data::Nil` on hand-off or an error string.
+pub fn install_async(s: &dyn UpdaterHost, done: Completer) {
+    opencode_feature_updater::install_with(s, move |err| {
+        done.complete(err.map_or(Data::Nil, Data::String));
+    });
+}
 
 #[cfg(windows)]
 pub mod apply {

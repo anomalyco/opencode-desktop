@@ -44,7 +44,6 @@ use std::rc::Rc;
 use std::sync::OnceLock;
 
 use rune::Tx;
-use rune_luau::{Completer, Data};
 
 use self::machine::View;
 use self::service::{Answer, Snapshot, Ticket, UpdaterService};
@@ -126,9 +125,13 @@ pub(crate) fn plain_error(e: &str) -> String {
     }
 }
 
-/// A map of `Data` fields, omitting `Data::Nil` entries.
-fn map(fields: impl IntoIterator<Item = (&'static str, Data)>) -> Data {
-    Data::Map(fields.into_iter().filter(|(_, v)| *v != Data::Nil).map(|(k, v)| (k.to_owned(), v)).collect())
+/// Host-agnostic snapshot of the updater's state (`UpdaterState` in the plugin contract).
+#[derive(Clone, Debug)]
+pub struct StateView {
+    pub phase: &'static str,
+    pub version: Option<String>,
+    pub progress: Option<f64>,
+    pub error: Option<String>,
 }
 
 /// Per-window updater lifecycle: idle before startup or when another copy holds the profile,
@@ -204,10 +207,10 @@ pub struct Updater {
     state: Lifecycle,
 }
 
-/// A check or install a plugin waits on, answered by the service's ticket.
+/// A check or install a caller waits on, answered by the service's ticket.
 enum Waiting {
-    Check(Ticket, Completer),
-    Install(Ticket, Completer),
+    Check(Ticket, Box<dyn FnOnce(Option<StateView>)>),
+    Install(Ticket, Box<dyn FnOnce(Option<String>)>),
 }
 
 thread_local! {
@@ -395,9 +398,10 @@ fn answer_waiting(service: &Rc<RefCell<UpdaterService>>) {
                 continue;
             };
             match (waiting.remove(i), answer) {
-                (Waiting::Check(_, done), Answer::Checked(view)) => done.complete(view_data(&view, service.snapshot())),
-                (Waiting::Install(_, done), Answer::Installed(result)) => done.complete(result.err().map_or(Data::Nil, Data::String)),
-                (Waiting::Check(_, done) | Waiting::Install(_, done), _) => done.complete(Data::Nil),
+                (Waiting::Check(_, done), Answer::Checked(view)) => done(Some(view_state(&view, service.snapshot()))),
+                (Waiting::Install(_, done), Answer::Installed(result)) => done(result.err()),
+                (Waiting::Check(_, done), _) => done(None),
+                (Waiting::Install(_, done), _) => done(None),
             }
         }
     });
@@ -405,18 +409,18 @@ fn answer_waiting(service: &Rc<RefCell<UpdaterService>>) {
 
 const NO_UPDATER: &str = "No updater runs in this build";
 
-/// Where the updater stands, as the `UpdaterState` record; nil when no updater runs, or while
-/// the service is still finding out.
-pub fn state_data(s: &dyn UpdaterHost) -> Data {
-    let Some(service) = s.updater().service_ref() else { return Data::Nil };
+/// Where the updater stands, as [`StateView`]; `None` when no updater runs, or while the service
+/// is still finding out.
+pub fn state_view(s: &dyn UpdaterHost) -> Option<StateView> {
+    let service = s.updater().service_ref()?;
     let service = service.borrow();
     match service.snapshot().state {
-        View::Starting | View::Disabled => Data::Nil,
-        ref view => view_data(view, service.snapshot()),
+        View::Starting | View::Disabled => None,
+        ref view => Some(view_state(view, service.snapshot())),
     }
 }
 
-fn view_data(view: &View, snapshot: &Snapshot) -> Data {
+fn view_state(view: &View, snapshot: &Snapshot) -> StateView {
     let (phase, version, error) = match view {
         View::Starting | View::Disabled => ("error", None, Some(NO_UPDATER)),
         View::Idle => ("idle", None, None),
@@ -430,33 +434,38 @@ fn view_data(view: &View, snapshot: &Snapshot) -> Data {
         View::Error(e) => ("error", None, Some(e.as_str())),
     };
     let progress = snapshot.progress.filter(|p| p.total > 0).map(|p| p.downloaded as f64 / p.total as f64);
-    map([
-        ("phase", Data::String(phase.into())),
-        ("version", version.map_or(Data::Nil, |v| Data::String(v.clone()))),
-        ("progress", progress.map_or(Data::Nil, Data::Number)),
-        ("error", error.map_or(Data::Nil, |e| Data::String(e.to_owned()))),
-    ])
+    StateView {
+        phase,
+        version: version.cloned(),
+        progress,
+        error: error.map(str::to_owned),
+    }
 }
 
-/// `Updater:CheckAsync()`: checks now and answers with what the check found.
-pub fn check_async(s: &dyn UpdaterHost, done: Completer) {
+/// Checks for updates now and passes the resulting [`StateView`] to `done`.
+pub fn check_with(s: &dyn UpdaterHost, done: impl FnOnce(Option<StateView>) + 'static) {
     let Some(service) = s.updater().service_ref() else {
-        done.complete(map([("phase", Data::String("error".into())), ("error", Data::String(NO_UPDATER.into()))]));
+        done(Some(StateView {
+            phase: "error",
+            version: None,
+            progress: None,
+            error: Some(NO_UPDATER.into()),
+        }));
         return;
     };
     let ticket = service.borrow_mut().check();
-    WAITING.with_borrow_mut(|w| w.push(Waiting::Check(ticket, done)));
+    WAITING.with_borrow_mut(|w| w.push(Waiting::Check(ticket, Box::new(done))));
     answer_waiting(service);
 }
 
-/// `Updater:InstallAsync()`: restarts into the ready version, or opens a required download;
-/// answers nil once it handed off.
-pub fn install_async(s: &dyn UpdaterHost, done: Completer) {
+/// Restarts into the ready version, or opens a required download; passes `None` on hand-off or an
+/// error message on failure to `done`.
+pub fn install_with(s: &dyn UpdaterHost, done: impl FnOnce(Option<String>) + 'static) {
     let Some(service) = s.updater().service_ref().filter(|s| s.borrow().snapshot().state != View::Disabled) else {
-        done.complete(Data::String(NO_UPDATER.into()));
+        done(Some(NO_UPDATER.into()));
         return;
     };
     let ticket = service.borrow_mut().install();
-    WAITING.with_borrow_mut(|w| w.push(Waiting::Install(ticket, done)));
+    WAITING.with_borrow_mut(|w| w.push(Waiting::Install(ticket, Box::new(done))));
     answer_waiting(service);
 }
