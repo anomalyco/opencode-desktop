@@ -2,7 +2,7 @@
 //! `client/src/solid/data.ts`): a subagent's session its own server total, a root its own plus
 //! every session of its family the app holds. Opening a session lists all its direct subagents
 //! (`session.sync(id, { children: true })`), and `session.usage.updated` keeps each total current
-//! while a step or a subagent runs (`events.rs`).
+//! while a step or a subagent runs (`session::events`).
 
 use std::collections::HashSet;
 

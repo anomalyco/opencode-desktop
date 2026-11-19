@@ -30,11 +30,11 @@ Application code only. This repo has no automated tests of any kind, and none ge
 - Keep `session-view`'s standalone example building: `cargo check -p session-view --examples`.
 - Guardrails (full rule list in [`ARCHITECTURE.md`](ARCHITECTURE.md)):
   - `scripts/arch-check.sh`: enforces downward crate layers, zero cycles, zero cross-feature deps, core/feature `#![forbid(unsafe_code)]`, `<= 10` root `.rs` files in `apps/desktop/src/`, `struct App` `<= 65` fields, `apps/web` depending on `opencode-desktop`, zero `#[test]`/`#[cfg(test)]`, hard `<= 800`-line cap in `apps/desktop/`, `features/`, and hand-written workspace `crates/`, and zero `use crate::*;` wildcards in `apps/desktop/src/`.
-  - `scripts/file-size.sh`: warns `> 800` and errors `> 1500` non-test lines across all `apps/`, `crates/`, and `features/`.
+  - `scripts/file-size.sh`: repo-wide line-count monitor and 1,500-line ratchet across every tracked `.rs` file under `apps/`, `crates/`, and `features/` (including `apps/web/`, `apps/installer/`, `apps/browser-engine/`, `crates/browser-pane/`, and generated files outside `arch-check.sh` Rule 8); warns `> 800`, errors `> 1500` unless ratcheted in `scripts/file-size-exceptions.txt`.
   - `scripts/folder-shape.sh`: enforces prefix-family subfolders and folder breadth (`> 40` warn, `> 60` error).
   - `scripts/dialog-size.sh`: every dialog takes an `opencode_ui::dialog::DialogSize` preset (re-exported as `session_view::dialog::DialogSize`; `Normal` 480 × 368, `Large` 720 × 600, `XLarge` 880 × 680; `opencode_ui::widgets::{sized, sized_modal}`, re-exported as `crate::widgets` in `apps/desktop`), never its own width or height.
   - `scripts/clippy.sh`: zero clippy diagnostics (`-D warnings`) across the workspace and each feature set that compiles different code.
-- Fast local loop & profiles: `scripts/dev-fast.sh` / `pwsh scripts/dev-fast.ps1` (see [`docs/fast-builds.md`](docs/fast-builds.md)); macOS `.app` install via `apps/desktop/scripts/dev.sh` (`apps/desktop/scripts/bundle.sh` / `scripts/mac-app`); live-patching via `apps/desktop/scripts/hot.sh` (`scripts/rune-hot`).
+- Fast local loop & profiles: `scripts/dev-fast.sh` / `pwsh scripts/dev-fast.ps1` (see [`docs/fast-builds.md`](docs/fast-builds.md)); macOS `.app` install via `apps/desktop/scripts/dev.sh` (`apps/desktop/scripts/bundle.sh` / `scripts/mac-app`); guarded hot-reload wrapper via `apps/desktop/scripts/hot.sh` (`scripts/rune-hot` with `--patch 'src/shell/view/**/*.rs'`; see [`docs/fast-builds.md`](docs/fast-builds.md) for current lib+bin Subsecond limitations).
 - Keep personal paths (`/Users/<real-name>`), tailnet hostnames (`*.ts.net`, except `*.example.ts.net`), real session IDs, and credentials out of code, scripts, and commits.
 
 ## Explicit state machines

@@ -82,7 +82,7 @@ rune_register::register!(SCENE_LIST: Scene = [
     // The open session's turn still running, so Enter steers and ⌘⏎ queues.
     ("busy", busy_scene),
     // Busy, then the server takes the steer at 5.6 s and the queued prompts at 6.6 and
-    // 7.6 s: with `scripts/steer-dock.json`, a steer and two queued prompts delivered.
+    // 7.6 s: with `apps/desktop/scripts/steer-dock.json`, a steer and two queued prompts delivered.
     ("busy-deliver", |s| {
         busy_scene(s);
         let Route::Session { id, .. } = (*s.route).clone() else { return };
@@ -98,7 +98,7 @@ rune_register::register!(SCENE_LIST: Scene = [
         s.open_settings();
     }),
     // The storybook (⌘⇧D)'s stories are scenes too, under their paths ("Timeline/Send"):
-    // `--playground PATH [--variant NAME]` opens one with its motion playing (`stories.rs`).
+    // `--playground PATH [--variant NAME]` opens one with its motion playing (`stories/mod.rs`).
     ("sidebar-closed", |s| {
         open_scene(s);
         s.finish_stream();

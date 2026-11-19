@@ -3,8 +3,7 @@
 // Clippy can't say this: natively `rune::time::Instant` *is* `std::time::Instant`, so a
 // `disallowed-types` ban fails on correct code. This walks every crate of this workspace that the
 // web build compiles, from its root through its `mod` declarations, leaves out modules and items
-// compiled out for wasm32 (or only for tests), and refuses std's `Instant` and `SystemTime::now`
-// in what's left.
+// compiled out for wasm32, and refuses std's `Instant` and `SystemTime::now` in what's left.
 // `scripts/web.ps1 -Check` runs it. Usage: bun scripts/web-clock.ts [package] (default opencode-web)
 import { existsSync, readFileSync } from "node:fs"
 import { dirname, join, relative, basename } from "node:path"
@@ -93,7 +92,7 @@ function modules(text: string, file: string, dir: string, seen: Set<string>) {
   }
 }
 
-// The text without the braced items (an inline `mod tests { .. }`, a function, an impl) whose
+// The text without the braced items (a function, an impl, a submodule) whose
 // `#[cfg(...)]` leaves them out of the web build.
 function stripCompiledOut(text: string) {
   for (;;) {
@@ -109,7 +108,7 @@ function stripCompiledOut(text: string) {
   }
 }
 
-// Whether a `cfg(...)` predicate holds for the web build: wasm32-unknown-unknown, not a test.
+// Whether a `cfg(...)` predicate holds for the web build (`wasm32-unknown-unknown`).
 // A feature counts as on; a bare name other than `debug_assertions` as off.
 function cfg(src: string): boolean {
   let at = 0

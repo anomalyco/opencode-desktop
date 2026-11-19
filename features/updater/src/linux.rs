@@ -1,6 +1,6 @@
 //! Linux: checks the release feed and offers the download, never installs.
 //!
-//! The release ships an AppImage, a `.deb` and an `.rpm` (`scripts/package-linux.sh`), none of
+//! The release ships an AppImage, a `.deb` and an `.rpm` (`apps/desktop/scripts/package-linux.sh`), none of
 //! which can safely replace itself, so a newer release comes back as Desktop's external update
 //! (`Target::External`, the `download-required` state): Download opens the channel's latest
 //! link for the package this build was installed from,

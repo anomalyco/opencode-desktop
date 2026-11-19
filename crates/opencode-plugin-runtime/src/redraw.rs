@@ -1,6 +1,6 @@
 //! Which plugins redraw only when they ask (`writing-a-plugin.md`, section 4). A built-in does
 //! once each state it draws has been driven live and drew the same frames as the legacy redraw,
-//! on each platform apart: the "live" cells in `redraw-audit.md`. Keep `LIVE` and that table in
+//! on each platform apart: the "live" cells in `apps/desktop/src/plugin_host/redraw-audit.md`. Keep `LIVE` and that table in
 //! step. Every other built-in, and installed, override and `--plugin-dir` plugins, keep the
 //! legacy redraw after any script execution. Choosing a mode only consults the source tier and
 //! manifest id, never a VM.
@@ -13,7 +13,7 @@ use rune_luau::Script;
 
 use crate::sources::Tier;
 
-/// The built-ins whose rows in `redraw-audit.md` say "live" in this platform's column: each was
+/// The built-ins whose rows in `apps/desktop/src/plugin_host/redraw-audit.md` say "live" in this platform's column: each was
 /// driven on that platform. A platform where none has run keeps every built-in on the legacy
 /// redraw.
 #[cfg(windows)]

@@ -2,7 +2,7 @@
 //! `opencode_kernel::Kernel<App>`.
 //!
 //! New Rust features register here via `Feature::register` instead of adding fields to `App` or
-//! editing central dispatch chains in `main.rs`, `tick.rs`, `keys.rs`, or `view.rs`.
+//! editing central dispatch chains in `lib.rs`, `tick.rs`, `shell/input/keys.rs`, or `shell/view/mod.rs`.
 
 use opencode_kernel::{
     AppEnv, AppFeedback, AppOverlays, CommandEntry, EscapeLayer, Kernel, KernelBuilder,

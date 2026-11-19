@@ -1,13 +1,20 @@
 #!/usr/bin/env bash
-# Checks Rust file sizes. Counts non-test lines per tracked .rs file under apps/, crates/, and features/
-# (inline #[cfg(test)] items are excluded; test-only files are measured separately).
-#   warn  > 800 non-test lines       error > 1500 non-test lines unless listed in
-#   warn  > 1000 lines in a test file or inline test module   scripts/file-size-exceptions.txt ("<path> <ceiling>")
+# Repo-wide Rust file-size monitor and 1,500-line exception ratchet across every tracked .rs file
+# under apps/, crates/, and features/ — including files outside scripts/arch-check.sh Rule 8
+# (apps/web/, apps/installer/, apps/browser-engine/, crates/browser-pane/, and generated files).
+#   warn  > 800 lines
+#   error > 1500 lines unless listed in scripts/file-size-exceptions.txt ("<path> <ceiling>")
+#
+# Distinct roles:
+#   - scripts/file-size.sh   repo-wide 800-warn / 1500-error ceiling with downward-only exceptions
+#   - scripts/arch-check.sh  Rule 8 enforces the stricter <= 800 hard cap (no exceptions) on
+#                            apps/desktop/, features/, and hand-written workspace crates/
+#
 # Usage: scripts/file-size.sh [--warn-only] [--update-exceptions [--allow-raise]]
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
-SOFT=800 HARD=1500 TESTCAP=1000
+SOFT=800 HARD=1500
 EXC=scripts/file-size-exceptions.txt
 warn_only=0 update=0 raise=0
 for a in "$@"; do
@@ -21,40 +28,9 @@ done
 
 measure() {
   git ls-files -z 'apps/*.rs' 'crates/*.rs' 'features/*.rs' | xargs -0 awk '
-    function reset() { prod = 0; test = 0; st = 0; depth = 0; maxtest = 0; cur = 0 }
-    function braces(s,   t, o, c) {
-      gsub(/\\./, "", s); gsub(/"[^"]*"/, "", s); gsub(/\047.\047/, "", s)
-      sub(/\/\/.*/, "", s)
-      t = s; o = gsub(/\{/, "", t); t = s; c = gsub(/\}/, "", t)
-      return o - c
-    }
-    function flush() {
-      if (name != "") {
-        if (cur > maxtest) maxtest = cur
-        printf "%s %d %d %d\n", name, prod, test, maxtest
-      }
-    }
-    FNR == 1 { flush(); reset(); name = FILENAME
-      testfile = (FILENAME ~ /(^|\/)tests?\.rs$/ || FILENAME ~ /_tests\.rs$/ || FILENAME ~ /(^|\/)tests\//) }
-    {
-      if (testfile) { test++; cur++; next }
-      if (st == 0) {
-        if ($0 ~ /^[ \t]*#\[cfg\(test\)\]/) { st = 1; cur = 1; test++; next }
-        prod++; next
-      }
-      test++; cur++
-      if (st == 1) {                      # attribute seen, find the item head
-        if ($0 ~ /^[ \t]*#\[/) next
-        d = braces($0)
-        if (d > 0 || $0 ~ /\{/) { depth = d; st = (depth > 0) ? 2 : 0 }
-        else if ($0 ~ /;[ \t]*$/) st = 0
-        if (st == 0) { if (cur > maxtest) maxtest = cur; cur = 0 }
-        next
-      }
-      depth += braces($0)
-      if (depth <= 0) { st = 0; if (cur > maxtest) maxtest = cur; cur = 0 }
-    }
-    END { flush() }'
+    FNR == 1 { if (name != "") printf "%s %d\n", name, lines; name = FILENAME; lines = 0 }
+    { lines++ }
+    END { if (name != "") printf "%s %d\n", name, lines }'
 }
 
 rows=$(measure)
@@ -64,37 +40,26 @@ errors=0 warns=0 oversoft=0 overhard=0
 out=$(mktemp); trap 'rm -f "$out"' EXIT
 ann() { [ "${GITHUB_ACTIONS:-}" = true ] && echo "::$1 file=$2::$3" || true; }
 
-while read -r p prod test maxtest; do
-  if [ "$prod" -eq 0 ] && [ "$test" -gt 0 ] && [ "$maxtest" -eq "$test" ] && [ "$test" -gt "$TESTCAP" ]; then
-    # test-only file
-    warns=$((warns + 1))
-    printf '%6d  %-6s %s\n' "$test" "tests" "$p" >> "$out"
-    ann warning "$p" "test file has $test lines (limit $TESTCAP)"
-    continue
-  fi
-  if [ "$maxtest" -gt "$TESTCAP" ]; then
-    warns=$((warns + 1))
-    printf '%6d  %-6s %s\n' "$maxtest" "tests" "$p" >> "$out"
-    ann warning "$p" "inline test module has $maxtest lines (limit $TESTCAP)"
-  fi
-  [ "$prod" -gt "$SOFT" ] || continue
+while read -r p lines; do
+  [ -n "${p:-}" ] || continue
+  [ "$lines" -gt "$SOFT" ] || continue
   oversoft=$((oversoft + 1))
-  if [ "$prod" -gt "$HARD" ]; then
+  if [ "$lines" -gt "$HARD" ]; then
     overhard=$((overhard + 1))
     limit=$(ceil_of "$p"); limit=${limit:-$HARD}
-    if [ "$prod" -gt "$limit" ]; then
+    if [ "$lines" -gt "$limit" ]; then
       errors=$((errors + 1))
-      printf '%6d  %-6s %s (limit %d)\n' "$prod" "ERROR" "$p" "$limit" >> "$out"
-      ann error "$p" "$prod non-test lines, limit $limit; split a module out before adding more"
+      printf '%6d  %-6s %s (limit %d)\n' "$lines" "ERROR" "$p" "$limit" >> "$out"
+      ann error "$p" "$lines lines, limit $limit; split a module out before adding more"
     else
       warns=$((warns + 1))
-      printf '%6d  %-6s %s (exception, ceiling %d)\n' "$prod" "warn" "$p" "$limit" >> "$out"
-      ann warning "$p" "$prod non-test lines (exception ceiling $limit, soft limit $SOFT)"
+      printf '%6d  %-6s %s (exception, ceiling %d)\n' "$lines" "warn" "$p" "$limit" >> "$out"
+      ann warning "$p" "$lines lines (exception ceiling $limit, soft limit $SOFT)"
     fi
   else
     warns=$((warns + 1))
-    printf '%6d  %-6s %s\n' "$prod" "warn" "$p" >> "$out"
-    ann warning "$p" "$prod non-test lines (soft limit $SOFT)"
+    printf '%6d  %-6s %s\n' "$lines" "warn" "$p" >> "$out"
+    ann warning "$p" "$lines lines (soft limit $SOFT)"
   fi
 done <<< "$rows"
 
@@ -104,17 +69,18 @@ echo "over $SOFT: $oversoft, over $HARD: $overhard, errors: $errors, warnings: $
 if [ "$update" -eq 1 ]; then
   tmp=$(mktemp)
   {
-    echo "# <path> <ceiling>: non-test line ceilings for files above $HARD. Ceilings only go down."
+    echo "# <path> <ceiling>: line ceilings for files above $HARD. Ceilings only go down."
     echo "# Refresh with scripts/file-size.sh --update-exceptions."
-    while read -r p prod _ _; do
-      [ "$prod" -gt "$HARD" ] || continue
+    while read -r p lines; do
+      [ -n "${p:-}" ] || continue
+      [ "$lines" -gt "$HARD" ] || continue
       old=$(ceil_of "$p")
       if [ -z "$old" ]; then
-        if [ "$raise" -eq 1 ]; then echo "$p $prod"; else echo "not listing new oversized file $p ($prod); use --allow-raise" >&2; fi
-      elif [ "$prod" -gt "$old" ] && [ "$raise" -eq 0 ]; then
+        if [ "$raise" -eq 1 ]; then echo "$p $lines"; else echo "not listing new oversized file $p ($lines); use --allow-raise" >&2; fi
+      elif [ "$lines" -gt "$old" ] && [ "$raise" -eq 0 ]; then
         echo "$p $old"
       else
-        echo "$p $prod"
+        echo "$p $lines"
       fi
     done <<< "$rows" | sort
   } > "$tmp"

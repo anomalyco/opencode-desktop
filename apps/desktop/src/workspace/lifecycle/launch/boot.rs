@@ -33,7 +33,7 @@ pub fn attach_console() {
 #[cfg(all(not(target_os = "windows"), not(target_arch = "wasm32")))]
 pub fn attach_console() {}
 
-/// In a build that records the profile-guided optimisation profile (`scripts/pgo.ps1`), the counts:
+/// In a build that records the profile-guided optimisation profile (`apps/desktop/scripts/pgo.ps1`), the counts:
 /// LLVM's runtime writes them when the process ends normally, and the fast exit ends it with
 /// `TerminateProcess`, which runs no exit handler.
 #[cfg(not(target_arch = "wasm32"))]

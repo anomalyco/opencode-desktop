@@ -42,7 +42,7 @@ if (Test-Path $profdata) {
     # (a shallow clone, as CI's checkout is, has no history to count).
     $known = $false
     if ($trained) { git -C $root cat-file -e "$trained^{commit}" 2>$null; $known = $LASTEXITCODE -eq 0 }
-    $since = if ($known) { [int](git -C $root rev-list --count "$trained..HEAD" -- apps crates Cargo.toml Cargo.lock ':(exclude)apps/desktop/pgo/**') } else { $null }
+    $since = if ($known) { [int](git -C $root rev-list --count "$trained..HEAD" -- apps features crates Cargo.toml Cargo.lock ':(exclude)apps/desktop/pgo/**') } else { $null }
     $age = if ($null -ne $since) { "$since commits to the app since" } else { 'its age unknown (the training commit is not in this clone)' }
     # The Rune rev the profile was trained at against the one this build pins. A profile names functions by their mangled
     # symbols, and the symbol hash of every crate from the Rune repo (rune, winit, wgpu, ...) and of every crate depending

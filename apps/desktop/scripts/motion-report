@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Summarizes the live app's motion log (apps/desktop/src/motion_log.rs) by rule: how many
+"""Summarizes the live app's motion log (apps/desktop/src/shell/diag/motion_log/) by rule: how many
 entries each rule logged in the last N hours, the keys it hit most, and the latest entry's detail.
 
   apps/desktop/scripts/motion-report [--hours 24] [--rule end-snap] [--flights] [--top 5] [LOG ...]
