@@ -21,7 +21,7 @@ pub mod row;
 pub mod store;
 pub mod view;
 
-pub use machine::{AfterCheck, Phase};
+pub use machine::{AfterCheck, Phase, SLOW_SEND, SlowSend};
 pub use opencode_platform::storage::StorageOp;
 pub use opencode_runtime::SendResult;
 pub use outbox::{
@@ -32,9 +32,6 @@ pub use view::{footer, footer_version};
 use machine::{Effect, Event, Found, Verdict};
 
 const KEEP: usize = 32;
-/// How long a prompt sends before its footer says the server hasn't answered yet: a send that
-/// takes this long is no longer a moment's wait, and nothing else on screen says why.
-pub const SLOW_SEND: f64 = 5.0;
 
 /// Object-safe host boundary for the durable prompt outbox, delivery receipt checks, retry/edit
 /// recovery, and send status footers.
@@ -173,6 +170,16 @@ pub enum State {
     Waiting,
 }
 
+/// The composer draft a prompt's words left, cleared in the transaction of its first row so a
+/// crash never finds them both in the outbox and back in the composer (a second send).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) enum LeftDraft {
+    #[default]
+    None,
+    /// Handed off from draft document `key` at journal revision `rev`; cleared with the first row.
+    Pending { key: String, rev: u64 },
+}
+
 /// One prompt in the outbox: what was typed, what went out, and where it is (`phase`).
 #[derive(Clone)]
 pub struct Sent {
@@ -195,13 +202,8 @@ pub struct Sent {
     pub(crate) row: store::Row,
     /// How many times it was handed to a writer (`Phase::Sending`'s `handoff`).
     pub(crate) handoffs: u32,
-    /// When (`clock`) its current `Sending` began, and whether the footer says it's slow.
-    pub(crate) sending: Option<(f64, bool)>,
-    /// The composer draft its words left, cleared in the transaction of its first row, so a crash
-    /// never finds them both in the outbox and back in the composer (a second send).
-    pub(crate) left_draft: Option<String>,
-    /// The draft journal's revision of those words: the row settles it.
-    pub(crate) left_rev: u64,
+    /// The composer draft handed off to this outbox row, if still pending first-row commit.
+    pub(crate) left_draft: LeftDraft,
 }
 
 /// Whether a receipt check is out.
@@ -272,14 +274,10 @@ impl Log {
             if !matches!(s.phase, Phase::Sending { .. }) {
                 continue;
             }
-            let (since, told) = *s.sending.get_or_insert((now, false));
-            if told {
-                continue;
-            }
-            if now + 1e-9 >= since + SLOW_SEND {
-                s.sending = Some((since, true));
+            if !machine::step(s, Event::Tick { now }).is_empty() {
                 changed = true;
-            } else {
+            }
+            if let Phase::Sending { slow: SlowSend::Waiting { since }, .. } = s.phase {
                 next = Some(next.map_or(since + SLOW_SEND, |n: f64| n.min(since + SLOW_SEND)));
             }
         }
@@ -288,7 +286,11 @@ impl Log {
 
     /// Whether [`Self::tell_slow`] would change anything at `now`.
     pub fn slow_writes(&self, now: f64) -> bool {
-        self.sent.iter().any(|s| matches!(s.phase, Phase::Sending { .. }) && s.sending.is_none_or(|(since, told)| !told && now + 1e-9 >= since + SLOW_SEND))
+        self.sent.iter().any(|s| match s.phase {
+            Phase::Sending { slow: SlowSend::Unstamped, .. } => true,
+            Phase::Sending { slow: SlowSend::Waiting { since }, .. } => now + 1e-9 >= since + SLOW_SEND,
+            _ => false,
+        })
     }
 
     /// What [`Self::tell_slow`] returns when it changes nothing: when the next prompt turns slow.
@@ -296,15 +298,17 @@ impl Log {
         let next = self
             .sent
             .iter()
-            .filter(|s| matches!(s.phase, Phase::Sending { .. }))
-            .filter_map(|s| s.sending.filter(|&(_, told)| !told).map(|(since, _)| since + SLOW_SEND))
+            .filter_map(|s| match s.phase {
+                Phase::Sending { slow: SlowSend::Waiting { since }, .. } => Some(since + SLOW_SEND),
+                _ => None,
+            })
             .reduce(f64::min);
         (false, next)
     }
 
     /// Whether prompt `id` has been sending past [`SLOW_SEND`].
     pub fn slow(&self, id: &str) -> bool {
-        self.get(id).is_some_and(|s| matches!(s.sending, Some((_, true))))
+        self.get(id).is_some_and(|s| matches!(s.phase, Phase::Sending { slow: SlowSend::Slow, .. }))
     }
 
     pub fn sending(&self, id: &str) -> bool {
@@ -361,15 +365,13 @@ impl Sent {
             paths,
             inbox,
             prompt: None,
-            phase: Phase::Sending { by: 0, then: None, handoff: 0 },
+            phase: Phase::Sending { by: 0, then: None, handoff: 0, slow: SlowSend::Unstamped },
             journaled: false,
             operation: Default::default(),
             seq: store::next_seq(),
             row: store::Row::None,
             handoffs: 0,
-            sending: None,
-            left_draft: None,
-            left_rev: 0,
+            left_draft: LeftDraft::None,
         }
     }
 
@@ -427,17 +429,11 @@ impl Sent {
 
 /// Steps prompt `id`'s machine and carries out what it says.
 pub fn step_send(host: &mut dyn SendFailedHost, id: &str, event: Event) -> bool {
-    let now = host.clock();
     let (before, after, effects) = {
         let Some(s) = host.unsent_mut().sent.iter_mut().find(|s| s.id == id) else { return false };
         let before = s.result();
         let effects = machine::step(s, event);
         let after = s.result();
-        s.sending = match (&s.phase, s.sending) {
-            (Phase::Sending { .. }, Some(kept)) => Some(kept),
-            (Phase::Sending { .. }, None) => Some((now, false)),
-            _ => None,
-        };
         (before, after, effects)
     };
     let changed = !effects.is_empty();
@@ -492,6 +488,7 @@ fn send_effect(host: &mut dyn SendFailedHost, id: &str, effect: Effect) {
                 );
             }
         }
+        Effect::Slow => {}
     }
 }
 
@@ -670,7 +667,7 @@ pub fn retry_send(host: &mut dyn SendFailedHost, id: &str) {
         });
     }
     let by = host.peer_token();
-    host.unsent_mut().note(Sent { phase: Phase::Sending { by, then: None, handoff: 0 }, ..sent });
+    host.unsent_mut().note(Sent { phase: Phase::Sending { by, then: None, handoff: 0, slow: SlowSend::Unstamped }, ..sent });
 }
 
 /// Moves a local failed prompt back into an empty composer for editing.

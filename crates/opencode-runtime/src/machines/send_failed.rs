@@ -14,11 +14,26 @@ use rune::machine::Effects;
 
 use super::send_reason::NO_RECEIPT;
 
+/// How long a prompt sends before the UI says the server hasn't answered yet.
+pub const SLOW_SEND: f64 = 5.0;
+
 /// Action queued while waiting for a delivery receipt check.
 #[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq, Hash)]
 pub enum AfterCheck {
     Edit,
     Delete,
+}
+
+/// Slow-send timer state while a prompt is in [`Phase::Sending`].
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum SlowSend {
+    /// Entered `Sending` without a timestamp yet; the first [`Event::Tick`] anchors it.
+    #[default]
+    Unstamped,
+    /// Sending since `since`, not yet past [`SLOW_SEND`].
+    Waiting { since: f64 },
+    /// Past [`SLOW_SEND`]: the server has not answered yet.
+    Slow,
 }
 
 /// Which server write an outbox entry performs.
@@ -67,7 +82,7 @@ pub enum Phase {
     /// its own, a fixture or story), as hand-off number `handoff`: its row commits, then the
     /// storage thread gives the write to the writer (`NotSaved` when the commit failed and the
     /// write never went, `NotSent` when the writer was gone).
-    Sending { by: u64, then: Option<AfterCheck>, handoff: u32 },
+    Sending { by: u64, then: Option<AfterCheck>, handoff: u32, slow: SlowSend },
     /// Its reply was lost: a receipt check decides whether the server has it. `why` is what the
     /// last check or failure said.
     Unconfirmed { why: String, then: Option<AfterCheck> },
@@ -108,8 +123,10 @@ pub enum Found {
 }
 
 pub enum Event {
-    /// The outbox's pump hands it to window `by`'s writer.
-    Send { by: u64 },
+    /// The outbox's pump hands it to window `by`'s writer at `now`.
+    Send { by: u64, now: f64 },
+    /// Clock tick at `now`: anchors an unstamped `Sending` phase or marks it slow past [`SLOW_SEND`].
+    Tick { now: f64 },
     /// Hand-off `handoff`'s writer couldn't take it (the window's link is gone).
     NotSent { why: &'static str, handoff: u32 },
     /// Its row couldn't be committed: hand-off `handoff`'s write never went, or (`handoff` none)
@@ -156,6 +173,8 @@ pub enum Effect {
     /// Accepted: reset the backoff; `late` when an Edit or Delete waited on it, which the server
     /// beat ("Message already sent").
     Accepted { late: bool },
+    /// A `Sending` prompt crossed [`SLOW_SEND`] and its status footer should repaint.
+    Slow,
 }
 
 /// Owned machine state for a standalone headless send entry.
@@ -193,11 +212,22 @@ pub fn step_fields(phase: &mut Phase, operation: &mut Operation, handoffs: &mut 
             Effects::two(Effect::Save, Effect::Accepted { late })
         }
         // The pump commits its row, and the storage thread hands the write over once it's durable.
-        (Phase::Waiting { .. }, Event::Send { by }) => {
+        (Phase::Waiting { .. }, Event::Send { by, now }) => {
             *handoffs += 1;
-            *phase = Phase::Sending { by, then: None, handoff: *handoffs };
+            *phase = Phase::Sending { by, then: None, handoff: *handoffs, slow: SlowSend::Waiting { since: now } };
             Effects::none()
         }
+        (Phase::Sending { slow, .. }, Event::Tick { now }) => match *slow {
+            SlowSend::Unstamped => {
+                *slow = SlowSend::Waiting { since: now };
+                Effects::none()
+            }
+            SlowSend::Waiting { since } if now + 1e-9 >= since + SLOW_SEND => {
+                *slow = SlowSend::Slow;
+                Effects::one(Effect::Slow)
+            }
+            SlowSend::Waiting { .. } | SlowSend::Slow => Effects::none(),
+        },
         (Phase::Sending { then, handoff, .. }, Event::NotSent { why, handoff: h }) if *handoff == h => {
             let then = then.take();
             // Its row still says Sending: a launch before the next hand-off checks for it first.
