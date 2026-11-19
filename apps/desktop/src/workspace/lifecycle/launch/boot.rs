@@ -73,6 +73,7 @@ pub fn window_title() -> &'static str {
 /// The build's identity: its name, its app id (the Windows AppUserModelID, the uninstall
 /// entry's key and the single-instance pipe's name) and its own URL scheme, from the same
 /// environment the release workflows give every artifact of a build (the setup too).
+#[cfg(not(target_arch = "wasm32"))]
 pub fn product() -> win_install::Product {
     let product = win_install::Product::from_build(
         option_env!("OPENCODE_RUNE_WINDOW_TITLE"),

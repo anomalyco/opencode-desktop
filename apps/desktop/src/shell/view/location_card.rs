@@ -160,8 +160,8 @@ fn show(s: &mut App, info: &opencode_kit::model::SessionInfo, tx: &mut Tx) {
         folder = folder.item(Item::new("reveal", reveal_label()).icon(&ic::OUTLINE_ARROW_UP_RIGHT));
     }
     // The file plugin's row (`session.location.path.menu`): Open in the chosen app.
-    if s.can_open_in() && s.kernel.slots.get(&crate::open_in::OPEN_IN).current() != crate::open_in::FINDER {
-        folder = folder.item(Item::new("open-in", t!("plugin.file.open.ariaLabel", app = s.kernel.slots.get(&crate::open_in::OPEN_IN).current_label())).icon(&ic::OUTLINE_ARROW_UP_RIGHT));
+    if let Some((_, label)) = crate::open_in::current_non_finder(s) {
+        folder = folder.item(Item::new("open-in", t!("plugin.file.open.ariaLabel", app = label)).icon(&ic::OUTLINE_ARROW_UP_RIGHT));
     }
     menu = menu.submenu_icon("path", elide_middle(&dir, PATH_W), &ic::FOLDER, folder);
     menu = menu.separator().item(Item::new("settings", t!("dialog.project.edit.title")).icon(&ic::SETTINGS_GEAR).enabled(project.is_some()));
@@ -187,8 +187,9 @@ fn show(s: &mut App, info: &opencode_kit::model::SessionInfo, tx: &mut Tx) {
             }
         }
         Some("open-in") => {
-            let app = s.kernel.slots.get(&crate::open_in::OPEN_IN).current().to_owned();
-            s.open_in_app(&app, "", false);
+            if let Some((app, _)) = crate::open_in::current_non_finder(s) {
+                s.open_in_app(&app, "", false);
+            }
         }
         Some("settings") => match root.as_deref() {
             Some(dir) => s.edit_project(dir, tx),
