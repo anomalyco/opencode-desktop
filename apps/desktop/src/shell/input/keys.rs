@@ -1,6 +1,5 @@
 use rune::{Key, KeyEvent, Tx};
 
-use crate::keymap::Bind;
 use crate::pickers::PickerHost as _;
 use crate::{App, Route, knobs};
 
@@ -27,8 +26,8 @@ pub(crate) fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         || (s.opening.is_none() && s.question_key(ev, tx))
         || s.add_key(ev, tx)
         || s.draft_location_key(ev, tx)
-        || crate::app_menu::accelerator(s, ev, tx)
-        || s.shortcut(ev, tx)
+        || crate::shortcuts::run_window_accelerators(s, ev, tx)
+        || s.shortcut_without_dictation(ev, tx)
         || s.picker_key(ev, tx)
     {
         return true;
@@ -55,17 +54,7 @@ pub(crate) fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 
 /// The window's commands that a focused field doesn't keep for itself, as Desktop matches its
 /// command keybinds on the document before the field (`command.tsx` `handleKeyDown`, capture):
-/// the composer asks for them first too, so Alt+Home goes Home from it.
+/// the composer and Home search ask for them first too, so Alt+Home goes Home from them.
 pub(crate) fn global(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    // Top tabs have no sidebar: the keys pass through, as Desktop registers no command there.
-    if s.shows_sidebar() && Bind::Sidebar.matches_tx(ev, tx) {
-        return s.toggle_sidebar(tx);
-    }
-    if Bind::Home.matches_tx(ev, tx) {
-        if s.toggle_home(tx) {
-            s.focus_home_search(tx);
-        }
-        return true;
-    }
-    false
+    crate::shortcuts::run_global(s, ev, tx)
 }

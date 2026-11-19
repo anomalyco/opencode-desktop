@@ -237,7 +237,9 @@ pub fn build() -> Kernel<App> {
         .register_slot(&crate::speech::SPEECH)
         .register_slot(&crate::crash_notice::CRASH_NOTICE)
         .register_slot(&crate::servers::dialog::DIALOG);
-    b.build()
+    let kernel = b.build();
+    crate::shortcuts::validate(&kernel.commands);
+    kernel
 }
 
 /// Core shell and subsystem lifecycle polls registered into declared [`crate::tick::stage`]

@@ -161,17 +161,7 @@ pub fn run_bind(s: &mut App, bind: Bind, tx: &mut Tx) -> bool {
     true
 }
 
-/// Keymap-bound commands dispatched ahead of plugin shortcuts (`commands::key`).
-const KEY_BINDS: [Bind; 6] = [
-    Bind::FocusInput,
-    Bind::AddSelection,
-    Bind::PromptModeToggle,
-    Bind::JumpToMessage,
-    Bind::MessagePrev,
-    Bind::MessageNext,
-];
-
-/// Dispatches the six keymap-bound commands ahead of plugin shortcuts (`KEY_BINDS`), plus any
+/// Dispatches `shortcuts::TABLE`'s `BeforePlugins` entries ahead of plugin shortcuts, plus any
 /// kernel command with a default `.keybind(...)` that has no Settings › Shortcuts override.
 ///
 /// Key dispatch rule for duplicate chords (matching pre-`6a8c7eb` behaviour):
@@ -180,13 +170,14 @@ const KEY_BINDS: [Bind; 6] = [
 ///   decides: if its command is disabled or unknown, `run_bound` declines the key and
 ///   `commands::key` never re-dispatches `overrides::command(id)` or fires a fallback default
 ///   `.keybind(...)` for that chord.
-/// - Among `KEY_BINDS`, the first matching `Bind` decides (as in `shortcuts::run`); if its
-///   command is disabled, no second `KEY_BINDS` entry fires for the same key.
+/// - Among `BeforePlugins` entries in `shortcuts::TABLE`, the first matching `Bind` decides (as in
+///   `shortcuts::run`); if its command is disabled, no second `BeforePlugins` entry or fallback
+///   default `.keybind(...)` fires for the same key.
 /// - Among un-overridden default `.keybind(...)` commands, the first matching command decides; if
 ///   it is disabled, no second default command fires for the same key.
 pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if let Some(bind) = KEY_BINDS.into_iter().find(|b| b.matches_tx(ev, tx)) {
-        return run_bind(s, bind, tx);
+    if let Some(handled) = crate::shortcuts::match_before_plugins(s, ev, tx) {
+        return handled;
     }
     if crate::keymap::overrides::commands().iter().any(|(_, kb)| kb.matches_tx(ev, tx)) {
         return false;
