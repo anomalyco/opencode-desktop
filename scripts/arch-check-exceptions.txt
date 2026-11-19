@@ -1,0 +1,5 @@
+# Named temporary exceptions for scripts/arch-check.sh resolved-graph rules.
+# Format: <rule> <source-crate> -> <target-crate>  # <reason>
+# Delete an entry as soon as the underlying edge is removed.
+
+isolation opencode-plugin-runtime -> opencode-storage  # temporary: transitive via opencode-platform -> opencode-storage; being removed on another branch
