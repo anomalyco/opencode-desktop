@@ -10,7 +10,7 @@ use opencode_kit::client::rewrite::{edited_admission, is_composer_file, queued_t
 use opencode_kit::client::{Prompt, message_id};
 use opencode_kit::model::{self, Delivery};
 use rune::{Key, KeyEvent, Tx};
-use session_view::composer::history::Entry;
+use opencode_ui::prompt_history::Entry;
 
 use super::QueueHost;
 use super::machine::{Draft, Effect, Event, Queue, Row, merged_text};
@@ -69,8 +69,8 @@ pub fn confirm_edit(host: &mut dyn QueueHost, alternate: bool) {
     let wire = host.edit_wire();
     let refs = host.composer_paths().to_vec();
     let prompt = Prompt {
-        text: session_view::composer::attachments::path_lines(&wire.text, &refs),
-        files: wire.files.into_iter().chain(session_view::composer::attachments::inputs(host.composer_files())).collect(),
+        text: opencode_kit::prompt::path_lines(&wire.text, &refs),
+        files: wire.files.into_iter().chain(opencode_kit::prompt::attachment_inputs(host.composer_files())).collect(),
         agents: wire.agents,
         skills: wire.skills,
         display_text: Some(wire.display),
@@ -153,7 +153,7 @@ fn put_draft(host: &mut dyn QueueHost, draft: Draft, focus: bool) {
     let caret = draft.caret.min(draft.entry.text.len());
     draft.entry.put(host.composer_mut(), caret);
     host.set_composer_attachments(draft.files, draft.paths);
-    if focus && !session_view::style::touch_controls() {
+    if focus && !opencode_ui::style::touch_controls() {
         host.composer_mut().focused = true;
     }
 }
@@ -191,7 +191,7 @@ pub(super) fn apply_draft_effect(host: &mut dyn QueueHost, session: &str, effect
             let composer = host.composer_mut();
             composer.replace_text(merged);
             composer.set_caret(caret);
-            if !session_view::style::touch_controls() {
+            if !opencode_ui::style::touch_controls() {
                 composer.focused = true;
             }
             host.extend_composer_attachments(files, paths);

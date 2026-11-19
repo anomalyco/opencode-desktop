@@ -3,9 +3,8 @@
 //! until the plugin reports the server ready, the plugin's `connect` gives up, or the 120 s
 //! timeout runs out; meanwhile the server shows as starting.
 
+use opencode_kit::servers::HttpBase;
 use rune::machine::{Attempt, Effects};
-
-use super::registry::HttpBase;
 
 /// How long a sign-in may run before the server shows what its plugin reports again
 /// (`PLUGIN_CONNECT_TIMEOUT_MS`, `plugin-machine.ts:4-5`).

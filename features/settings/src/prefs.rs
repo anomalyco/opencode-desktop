@@ -53,11 +53,11 @@ choice! {
 }
 
 impl TimelineWidth {
-    pub fn width(self) -> session_view::style::Width {
+    pub fn width(self) -> opencode_ui::style::Width {
         match self {
-            TimelineWidth::Focused => session_view::style::Width::Focused,
-            TimelineWidth::Comfortable => session_view::style::Width::Comfortable,
-            TimelineWidth::Wide => session_view::style::Width::Wide,
+            TimelineWidth::Focused => opencode_ui::style::Width::Focused,
+            TimelineWidth::Comfortable => opencode_ui::style::Width::Comfortable,
+            TimelineWidth::Wide => opencode_ui::style::Width::Wide,
         }
     }
 }

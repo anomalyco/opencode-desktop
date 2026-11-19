@@ -13,8 +13,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicI64, Ordering};
 
 use opencode_kit::client::Write;
-use opencode_platform::storage::{self, StorageOp};
-use opencode_storage::Storage;
+use opencode_storage::{self as storage, Storage, StorageOp};
 use rune::Waker;
 
 use super::{Log, Sent, row};

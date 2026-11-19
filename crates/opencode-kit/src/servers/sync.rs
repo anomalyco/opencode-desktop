@@ -4,7 +4,7 @@
 
 use rune::machine::{Attempt, Effects};
 
-use super::registry::HttpBase;
+use super::probe::HttpBase;
 
 /// The event stream's status as the client reports it (`ClientConnectionStatus`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

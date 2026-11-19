@@ -8,7 +8,7 @@
 //! and "Jump to latest", with no OpenCode (Rune)-only shell or side-panel assumptions inside.
 
 pub use opencode_ui::keymap::base as keymap;
-pub use opencode_ui::{dialog, odometer, palette, scroller, sheet, themes};
+pub use opencode_ui::{detail, dialog, odometer, palette, scroller, sheet, themes};
 
 pub mod activity;
 pub mod agent_start;
@@ -16,7 +16,6 @@ pub mod arrivals;
 pub mod compaction;
 pub mod composer;
 pub mod copied;
-pub mod detail;
 pub mod diagram;
 pub mod disclosure;
 pub mod dock;

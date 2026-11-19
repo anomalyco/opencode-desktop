@@ -15,7 +15,7 @@ use std::collections::HashMap;
 
 use rune::Tx;
 use serde_json::{Map, Value, json};
-use session_view::jump::Place;
+use opencode_ui::scroller::Place;
 
 use crate::{RestoreHost, RestoreRoute};
 
@@ -125,10 +125,10 @@ pub fn restore_places(host: &mut dyn RestoreHost) {
         .filter_map(|d| Some((d[0].as_str()?.to_owned(), d[1].as_bool()?)))
         .collect();
     host.kept_places_mut().order = touched.iter().map(|(k, _)| k.clone()).collect();
-    host.expanded_mut().restore(touched);
-    host.ends_mut().restore(places);
+    host.restore_expanded(touched);
+    host.restore_places(places);
     if let RestoreRoute::Session { id, .. } = host.route() {
-        host.ends_mut().reopen(&id);
+        host.reopen_place(&id);
     }
     host.kept_places_mut().written = Some(v);
 }
@@ -136,11 +136,11 @@ pub fn restore_places(host: &mut dyn RestoreHost) {
 /// Puts session `id`'s place back in this commit if its transcript has the place's row
 /// (`session_view::returning`); false while the row hasn't come.
 pub fn land_place(host: &mut dyn RestoreHost, id: &str, tx: &mut Tx) -> bool {
-    let Some(row) = host.ends().due_row(id).map(str::to_owned) else { return false };
+    let Some(row) = host.place_due_row(id).map(str::to_owned) else { return false };
     if !host.timeline_has_row(id, &row) {
         return false;
     }
-    host.ends_mut().land(id, tx);
+    host.land_place(id, tx);
     true
 }
 
@@ -155,7 +155,7 @@ pub fn poll_places(host: &mut dyn RestoreHost, now: f64, tx: &mut Tx) -> bool {
 
 fn poll_due(host: &mut dyn RestoreHost, now: f64, tx: &mut Tx) -> bool {
     if let RestoreRoute::Session { id, .. } = host.route()
-        && host.ends().due(&id)
+        && host.place_due(&id)
     {
         // The place lands in the first commit whose transcript has its row; until then the
         // timeline holds its loading look and older pages are read on up to it, and a row
@@ -163,7 +163,7 @@ fn poll_due(host: &mut dyn RestoreHost, now: f64, tx: &mut Tx) -> bool {
         if land_place(host, &id, tx) {
             return true;
         }
-        if host.ends_mut().wait(&id, now) {
+        if host.wait_place(&id, now) {
             host.read_toward_place(&id, tx);
             tx.wake_at(now + 0.25);
             return false;
@@ -214,13 +214,13 @@ fn write_places(host: &mut dyn RestoreHost, now: f64, tx: &mut Tx) {
 fn timeline_json(host: &mut dyn RestoreHost) -> Value {
     let shown = host.route().session_id().map(str::to_owned);
     let tab_ids = host.session_tab_ids();
+    let sessions: Vec<&str> = tab_ids.iter().map(String::as_str).chain(shown.as_deref()).collect();
     let places: Map<String, Value> = host
-        .ends()
-        .places(tab_ids.iter().map(String::as_str).chain(shown.as_deref()))
+        .timeline_places(&sessions)
         .into_iter()
         .map(|p| (p.session, json!([p.row, p.at, p.far])))
         .collect();
-    let touched: HashMap<String, bool> = host.expanded().touched().map(|(k, v)| (k.clone(), v)).collect();
+    let touched: HashMap<String, bool> = host.touched_expanded().into_iter().collect();
     let opened: Vec<Value> = {
         let order = &mut host.kept_places_mut().order;
         order.retain(|k| touched.contains_key(k));

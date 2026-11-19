@@ -71,6 +71,7 @@ opencode-feature-usage = { path = "../../features/usage" }
 opencode-feature-workspace-tools = { path = "../../features/workspace-tools" }
 opencode-kernel = { path = "../../crates/opencode-kernel" }
 opencode-platform = { path = "../../crates/opencode-platform" }
+opencode-servers = { path = "../../crates/opencode-servers" }
 browser-pane = { path = "../../crates/browser-pane" }
 crc32fast = "1"
 flate2 = "1"

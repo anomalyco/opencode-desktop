@@ -8,6 +8,8 @@
 
 #![forbid(unsafe_code)]
 
+pub mod composer_mode;
+pub mod detail;
 pub mod dialog;
 pub mod keymap;
 pub mod odometer;
@@ -15,6 +17,7 @@ pub mod palette;
 pub mod panel_chrome;
 pub mod popover;
 pub mod popup;
+pub mod prompt_history;
 pub mod provider_mark;
 pub mod scroller;
 pub mod sheet;

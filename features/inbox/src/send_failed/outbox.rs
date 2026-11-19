@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use opencode_kit::client::Write;
 use opencode_kit::model::{Delivery, InboxItem, Message, Transcript};
-use session_view::composer::history::Entry;
+use opencode_ui::prompt_history::Entry;
 
 pub(super) use super::machine::Operation;
 use super::store::{self, Forward, Mail, Store};
@@ -468,7 +468,7 @@ fn remove_from_outbox(host: &mut dyn SendFailedHost, id: &str, action: AfterChec
             }
         }
     }
-    if !session_view::style::touch_controls() {
+    if !opencode_ui::style::touch_controls() {
         host.composer_mut().focused = true;
     }
 }

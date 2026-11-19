@@ -8,7 +8,7 @@ use std::cell::Cell;
 
 use opencode_i18n::t;
 use rune::{El, Icon, TextStyle, Tx, col, el, icon, row, text};
-use session_view::palette::Pal;
+use opencode_ui::palette::Pal;
 
 use crate::host::SettingsHost;
 

@@ -6,8 +6,8 @@ use rune::{Align, Cx, El, Key, KeyEvent, Link, LinkPaint, Spring, TextStyle, Tra
 #[allow(deprecated)]
 use rune_kit::{ButtonSize, ButtonVariant};
 use rune_theme_opencode::provider_icons;
-use session_view::dialog::DialogSize;
-use session_view::palette::{Pal, kit};
+use opencode_ui::dialog::DialogSize;
+use opencode_ui::palette::{Pal, kit};
 
 use crate::ui::{self, BODY, Fit};
 use crate::{ConnectHost, ModalEvent};

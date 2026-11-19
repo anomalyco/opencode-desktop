@@ -7,8 +7,8 @@ use opencode_i18n::t;
 use opencode_ui::keymap::Bind;
 use opencode_ui::popup::PopupHost;
 use rune::{Color, El, Tx, col, row, text};
-use session_view::palette::Pal;
-use session_view::style::UI;
+use opencode_ui::palette::Pal;
+use opencode_ui::style::UI;
 
 use super::{choice, header, page_with, select};
 use crate::host::SettingsHost;
@@ -72,7 +72,7 @@ fn toggle_terminal_mark(s: &mut dyn SettingsHost, id: &'static str) {
 
 pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
     let st = s.settings();
-    let alternate = Bind::SubmitAlternate.chord().map_or_else(String::new, session_view::keymap::sentence);
+    let alternate = Bind::SubmitAlternate.chord().map_or_else(String::new, opencode_ui::keymap::base::sentence);
     let mut rows = vec![
         (
             "settings-tab-layout",

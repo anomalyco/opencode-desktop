@@ -3,7 +3,8 @@
 pub use opencode_feature_switcher::project::*;
 
 use opencode_kit::model::Project;
-use opencode_kit::servers::{ServerConn, ServerKey};
+use opencode_kit::servers::ServerKey;
+use opencode_servers::ServerConn;
 use rune::machine::Attempt;
 use rune::{El, KeyEvent, Tx};
 use session_view::palette::Pal;
@@ -146,7 +147,7 @@ impl ProjectSwitcherHost for App {
         let mut out = Vec::new();
         for e in all.into_iter().filter(|e| e.conn.http().is_some()) {
             let key = e.key();
-            if opencode_kit::servers::health::is_failed(crate::servers::health::get(&key).as_ref()) {
+            if opencode_servers::health::is_failed(crate::servers::health::get(&key).as_ref()) {
                 continue;
             }
             let kind = match &e.conn {

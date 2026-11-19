@@ -9,14 +9,13 @@ use std::sync::Arc;
 
 use opencode_kit::client::PathAttachment;
 use opencode_kit::model::{Attachment, PromptComment, Transcript};
-use opencode_kit::servers::tabs::ClosedTab;
+use opencode_servers::tabs::ClosedTab;
 use opencode_kit::servers::{ServerKey, TabKey};
 use opencode_storage::{FlushReason, Lookup, Storage};
 use rune::{TextEdit, Tx};
 use serde_json::{Map, Value};
-use session_view::composer::mode::Mode;
-use session_view::disclosure::Disclosures;
-use session_view::jump::Ends;
+use opencode_ui::composer_mode::Mode;
+use opencode_ui::scroller::Place;
 
 use crate::{ContextFile, OrganizeState, Restore, RestoreRoute, RestoreTab, StorageNotice, places};
 
@@ -226,14 +225,26 @@ pub trait RestoreHost: opencode_kernel::AppEnv {
     /// Inserts a decoded boot preview or offline copy transcript into memory.
     fn insert_transcript(&mut self, _id: String, _transcript: Transcript) {}
 
-    /// Timeline row disclosure state (`session_view::disclosure::Disclosures`).
-    fn expanded(&self) -> &Disclosures;
-    /// Mutable timeline row disclosure state.
-    fn expanded_mut(&mut self) -> &mut Disclosures;
-    /// Timeline scroll/place tracking (`session_view::jump::Ends`).
-    fn ends(&self) -> &Ends;
-    /// Mutable timeline scroll/place tracking.
-    fn ends_mut(&mut self) -> &mut Ends;
+    /// Restores toggled timeline disclosure rows (`session_view::disclosure::Disclosures::restore`).
+    fn restore_expanded(&mut self, _touched: Vec<(String, bool)>) {}
+    /// Returns every reader-toggled timeline disclosure row (`session_view::disclosure::Disclosures::touched`).
+    fn touched_expanded(&self) -> Vec<(String, bool)> { Vec::new() }
+    /// Restores saved timeline scroll places (`session_view::jump::Ends::restore`).
+    fn restore_places(&mut self, _places: Vec<Place>) {}
+    /// Marks session `id`'s saved place as due on reopen (`session_view::jump::Ends::reopen`).
+    fn reopen_place(&mut self, _id: &str) {}
+    /// Whether session `id` has a saved place waiting to land (`session_view::jump::Ends::due`).
+    fn place_due(&self, _id: &str) -> bool { false }
+    /// Row key of session `id`'s pending saved place (`session_view::jump::Ends::due_row`).
+    fn place_due_row(&self, _id: &str) -> Option<&str> { None }
+    /// Lands session `id`'s pending saved place (`session_view::jump::Ends::land`).
+    fn land_place(&mut self, _id: &str, _tx: &mut Tx) {}
+    /// Advances the wait timer for session `id`'s pending place (`session_view::jump::Ends::wait`).
+    fn wait_place(&mut self, _id: &str, _now: f64) -> bool { false }
+    /// Current saved scroll place `(row, at)` for session `id` (`session_view::jump::Ends::place`).
+    fn timeline_place(&self, _id: &str) -> Option<(String, f32)> { None }
+    /// Persisted scroll places for `sessions` (`session_view::jump::Ends::places`).
+    fn timeline_places(&self, _sessions: &[&str]) -> Vec<Place> { Vec::new() }
 
     /// Whether session `id`'s projected timeline currently contains `row`
     /// (`session_view::timeline::has_row`).

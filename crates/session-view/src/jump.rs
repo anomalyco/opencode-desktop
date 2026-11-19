@@ -68,15 +68,7 @@ pub struct Ends {
     held: std::cell::RefCell<HashMap<String, (String, f32)>>,
 }
 
-/// Where a timeline stood, to keep across a restart: its session, the first row showing and how
-/// far below the viewport's top that row's top stood, and whether that was more than a screen up.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Place {
-    pub session: String,
-    pub row: String,
-    pub at: f32,
-    pub far: bool,
-}
+pub use opencode_ui::scroller::Place;
 
 impl Ends {
     /// Whether session `id`'s timeline stands more than a screen up, where Jump to latest shows.

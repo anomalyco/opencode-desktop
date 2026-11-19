@@ -11,8 +11,8 @@ mod models;
 use rune::{El, TextStyle, Tx, col, icon, row, spacer, text};
 use rune_kit::ButtonVariant;
 use rune_theme_opencode::icons as ic;
-use session_view::palette::{Pal, kit};
-use session_view::pickers::Model;
+use opencode_kit::model::Model;
+use opencode_ui::palette::{Pal, kit};
 
 use crate::catalog::{self, ProviderInfo};
 use crate::dialog::{self, Body, CONSOLE, Dialog, Event, Frame, Step};
@@ -128,7 +128,7 @@ pub fn body<H: ConnectHost + 'static>(s: &H, p: &Pal, frame: Frame) -> El {
     // with a plain `overflow-y-auto` box's bar.
     let body = col().w_full().child(content.w_full());
     let pad = if console && frame != Frame::Accounts { 16.0 } else { 0.0 };
-    let inner = session_view::scroller::scroller("connect-content").build::<H>(p, col().w_full().shrink().min_h(0.0).pb(pad), body);
+    let inner = opencode_ui::scroller::scroller("connect-content").build::<H>(p, col().w_full().shrink().min_h(0.0).pb(pad), body);
     let (px, pb) = if frame == Frame::Accounts { (6.0, 6.0) } else { (8.0, if console { 0.0 } else { 8.0 }) };
     col().key("connect-body").w_full().grow(1.0).shrink().min_h(0.0).px(px).pb(pb).child(inner)
 }

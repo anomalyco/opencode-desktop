@@ -3,22 +3,15 @@
 //! every 10 s while any server has an endpoint, and a `retry` that probes all of them now and
 //! answers once each has. Every probe carries its slot's attempt; an answer for another is stale.
 
+use opencode_kit::servers::key::ServerKey;
+pub use opencode_kit::servers::probe::ProbeResult;
 use rune::machine::{Attempt, Effects};
 
-use super::key::ServerKey;
-use super::plugin_server::PluginStage;
-use super::registry::{HttpBase, ServerConn};
+use crate::plugin_server::{PluginStage, PluginStatus};
+use crate::registry::{HttpBase, ServerConn};
 
 /// `SERVER_HEALTH_POLL_MS` (`health-machine.ts:5`).
 pub const SERVER_HEALTH_POLL_MS: u64 = 10_000;
-
-/// The answer of one `/api/info` probe (`ServerProbeResult`, `:7-11`).
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum ProbeResult {
-    Healthy { version: Option<String>, hostname: Option<String> },
-    Unauthorized,
-    Unreachable,
-}
 
 /// What the app knows of a server's health (`ServerHealth`, `:13-23`).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -50,7 +43,7 @@ impl Input {
     pub fn of(conn: &ServerConn) -> Input {
         let key = conn.key();
         match (conn, conn.http()) {
-            (ServerConn::Plugin { status: super::plugin_server::PluginStatus::Stage(stage), .. }, _) => Input::Staged { key, stage: *stage },
+            (ServerConn::Plugin { status: PluginStatus::Stage(stage), .. }, _) => Input::Staged { key, stage: *stage },
             (_, Some(http)) => Input::Endpoint { key, http: http.clone(), managed: conn.managed() },
             (_, None) => Input::Staged { key, stage: PluginStage::Failed },
         }

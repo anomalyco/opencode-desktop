@@ -334,3 +334,22 @@ impl Storage {
         self.inner.backend.send(cmd);
     }
 }
+
+/// A storage-thread operation executed against the host's [`Storage`] instance (now when open,
+/// or queued until storage finishes opening).
+pub type StorageOp = Box<dyn FnOnce(&Storage) + Send>;
+
+static RUNNER: std::sync::OnceLock<fn(StorageOp)> = std::sync::OnceLock::new();
+
+/// Registers the host's process-wide [`Storage`] runner. Call once during startup before feature
+/// crates queue direct storage operations; subsequent calls are ignored.
+pub fn configure_runner(run: fn(StorageOp)) {
+    RUNNER.get_or_init(|| run);
+}
+
+/// Runs `op` against the host's [`Storage`] (no-op if [`configure_runner`] was not called).
+pub fn with_storage(op: StorageOp) {
+    if let Some(run) = RUNNER.get() {
+        run(op);
+    }
+}

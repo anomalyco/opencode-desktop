@@ -2,12 +2,12 @@
 //! (`settings/servers/machine.ts`, ported). Every Settings surface reads [`availability`] rather
 //! than its own predicate; [`step`] fences Retry to the server the page shows.
 
+use opencode_kit::servers::key::ServerKey;
 use rune::machine::{Attempt, Effects};
 
-use super::health::{Health, ProbeResult};
-use super::key::ServerKey;
-use super::plugin_server::{PluginStage, PluginStatus};
-use super::registry::ServerConn;
+use crate::health::{Health, ProbeResult};
+use crate::plugin_server::{PluginStage, PluginStatus};
+use crate::registry::ServerConn;
 
 /// Longer than a health probe can take, so a Retry whose probe never answers still enables
 /// again (`SERVER_RETRY_TIMEOUT_MS`, `machine.ts:5-6`).

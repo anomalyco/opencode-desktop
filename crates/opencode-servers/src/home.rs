@@ -2,9 +2,8 @@
 //! which server Home focuses and which of its used projects is selected, checked against the
 //! servers Home lists, with the selected project's worktree listing demand beside it.
 
+use opencode_kit::servers::key::ServerKey;
 use rune::machine::{Attempt, Effects};
-
-use super::key::ServerKey;
 
 /// `layout.home.selection` (`HomeProjectSelection`).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]

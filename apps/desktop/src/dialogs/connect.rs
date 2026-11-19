@@ -42,7 +42,8 @@ impl ConnectHost for App {
     }
 
     fn auth_host(&self) -> AuthHost {
-        use opencode_kit::servers::{ServerConn, registry::loopback_origin};
+        use opencode_kit::servers::loopback_origin;
+        use opencode_servers::ServerConn;
         let key = crate::servers::runtime::active(self);
         if key.is_sidecar() {
             return AuthHost::Local;

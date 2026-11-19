@@ -104,7 +104,7 @@ pub(crate) fn take_boot_preview(host: &mut dyn RestoreHost, server: &ServerKey, 
 
 /// The turn the shown session's place stands in, when it's read up from its end.
 fn place_turn(host: &dyn RestoreHost, id: &str, messages: &[Message]) -> Option<usize> {
-    let (row, _) = host.ends().place(id)?;
+    let (row, _) = host.timeline_place(id)?;
     host.timeline_row_message(id, &row).map(|at| turn_of(messages, at))
 }
 

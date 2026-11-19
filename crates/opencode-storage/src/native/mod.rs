@@ -92,7 +92,7 @@ impl StorageConfig {
     /// The app's database ([`crate::AppStorage`]); none without a data folder (state in memory).
     pub fn app(app: crate::AppStorage) -> Option<StorageConfig> {
         let data = app.data?;
-        let context = opencode_kit::servers::migration::Context { sidecar: app.sidecar, ..Default::default() };
+        let context = opencode_servers::migration::Context { sidecar: app.sidecar, ..Default::default() };
         let mut import = ImportConfig::new(&data).context(context).groups(&app.groups);
         if let Some(updates) = app.updates {
             import = import.updates_dir(updates);

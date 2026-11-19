@@ -6,8 +6,8 @@
 use rune::{Color, Cx, El, Key, KeyEvent, Spring, TextStyle, Transition, Tx, col, el, icon, row, spacer, text};
 use rune_kit::TextInput;
 use rune_theme_opencode::icons as ic;
-use session_view::dialog::DialogSize;
-use session_view::palette::{Pal, kit};
+use opencode_ui::dialog::DialogSize;
+use opencode_ui::palette::{Pal, kit};
 
 use crate::catalog;
 use crate::dialog::{self, BackTarget, Event, Frame};
@@ -405,7 +405,7 @@ fn build_picker_frame(p: &Pal, field: El, sections: Vec<El>) -> El {
         .gap(2.0)
         .child(search)
         // No bar, as Desktop hides it (`[scrollbar-width:none]`, `providers/connect/dialog.tsx:338`).
-        .child(session_view::scroller::scroller("connect-list").hidden(col().w_full().shrink().min_h(0.0).clip_fade(0.0, 0.0, 0.0, 40.0), list))
+        .child(opencode_ui::scroller::scroller("connect-list").hidden(col().w_full().shrink().min_h(0.0).clip_fade(0.0, 0.0, 0.0, 40.0), list))
 }
 
 fn provider_row<H: ConnectHost + 'static>(p: &Pal, r: &Row, active: bool) -> El {

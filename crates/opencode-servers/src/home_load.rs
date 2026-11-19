@@ -2,9 +2,8 @@
 //! transition for transition). The list itself lives in the caller's per-server cache; this owns
 //! only the phase. A list already shown stays on screen while its server is away.
 
+use opencode_kit::servers::key::ServerKey;
 use rune::machine::{Attempt, Effects};
-
-use super::key::ServerKey;
 
 /// A cached list younger than this shows without a refetch (`HOME_SESSIONS_STALE_MS`, `:3-4`).
 pub const HOME_SESSIONS_STALE_MS: u64 = 30_000;
