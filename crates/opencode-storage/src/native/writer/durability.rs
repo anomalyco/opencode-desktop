@@ -74,15 +74,6 @@ impl WalFile {
     }
 }
 
-fn unsynced_wal_bytes(wal_bytes: u64, base_bytes: u64) -> u64 {
-    if wal_bytes >= base_bytes {
-        wal_bytes - base_bytes
-    } else {
-        // The WAL wrapped/truncated below the previous base; every current byte is new.
-        wal_bytes
-    }
-}
-
 /// Whether the dirty WAL holds any `synchronous = OFF` commits waiting for a sync or checkpoint.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum WalSync {
@@ -185,11 +176,15 @@ fn wal_step(seq: &mut Seq, state: &mut Wal, event: WalEvent) -> Effects<WalEffec
                 Wal::Dirty { boot_stale, sync: WalSync::Synced { base_bytes }, .. } => (boot_stale, now, base_bytes),
                 Wal::Clean => (false, now, 0),
             };
+            // If `-wal` wrapped or truncated below the previous sync baseline, every byte now in
+            // `-wal` belongs to the new cycle; reset `base_bytes` so growth past the old baseline
+            // does not drop the unsynced byte count back to zero.
+            let base_bytes = if wal_bytes < base_bytes { 0 } else { base_bytes };
             let attempt = seq.next();
             let boot_stale = prev_boot || boot;
             // Stay Unsynced until PassiveCheckpointed or WalSynced confirms durability.
             *state = Wal::Dirty { attempt, boot_stale, sync: WalSync::Unsynced { since, base_bytes } };
-            if now.saturating_duration_since(since) >= UNSYNCED_FOR || unsynced_wal_bytes(wal_bytes, base_bytes) >= UNSYNCED_BYTES {
+            if now.saturating_duration_since(since) >= UNSYNCED_FOR || wal_bytes - base_bytes >= UNSYNCED_BYTES {
                 Effects::two(WalEffect::PassiveCheckpoint, WalEffect::ArmTimer { attempt, delay_ms: IDLE_CHECKPOINT_MS })
             } else {
                 Effects::one(WalEffect::ArmTimer { attempt, delay_ms: IDLE_CHECKPOINT_MS })
