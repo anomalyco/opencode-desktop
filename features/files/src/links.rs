@@ -356,7 +356,7 @@ pub(crate) fn finish_file_link(host: &mut dyn FilesHost, sid: &str, path: &str, 
                 && (markdown::is_markdown(path) || ws.html.contains_key(path) || ws.tables.contains_key(path))
             {
                 ws.close_preview(path);
-                ws.md.entry(path.to_owned()).or_default().rendered = Some(false);
+                ws.md.entry(path.to_owned()).or_default().mode.step(markdown::PreviewModeEvent::ShowSource);
             }
             false
         }

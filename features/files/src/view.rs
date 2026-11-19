@@ -133,7 +133,7 @@ pub fn files_sidebar<H: FilesHost + 'static>(
         |s: &mut H, ev: &KeyEvent, tx: &mut Tx| on_filter_key(s, ev, tx),
     );
 
-    let list_area = if !ws.ready {
+    let list_area = if !ws.tree_load.is_ready() {
         col()
             .key("files-tree-loading")
             .w_full()

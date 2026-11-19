@@ -11,7 +11,10 @@ use crate::data::{
     fetch_live_dir, fetch_live_find, file_tab_key, load_fixture_workspace, parse_path_and_line,
     rank_file_query, try_fetch_live_dir,
 };
-use crate::{FilesHost, FilesJob, FilesReply, code_paths, delimited, html, narrow, video, watch};
+use crate::{
+    FilesHost, FilesJob, FilesReply, TreeLoadEffect, TreeLoadEvent, code_paths, delimited, html,
+    narrow, video, watch,
+};
 
 /// Executes a [`FilesJob`] off the UI thread against the live [`Server`].
 pub fn execute_job(server: &Server, job: FilesJob) -> FilesReply {
@@ -40,7 +43,7 @@ pub fn apply_reply(host: &mut dyn FilesHost, reply: FilesReply, tx: &mut Tx) {
 }
 
 pub fn ensure_workspace_files(host: &mut dyn FilesHost, session_id: &str) {
-    if host.files().sessions.get(session_id).is_some_and(|w| w.ready) {
+    if host.files().sessions.get(session_id).is_some_and(|w| w.tree_load.is_ready()) {
         return;
     }
     let Some(srv) = host.live_server().cloned() else {
@@ -60,7 +63,7 @@ pub fn ensure_workspace_files(host: &mut dyn FilesHost, session_id: &str) {
                 .entry(path.clone())
                 .or_insert_with(|| wrap.doc(&path, &text));
         }
-        ws.ready = true;
+        ws.tree_load.step(TreeLoadEvent::Loaded);
         ws.rebuild_tree();
         return;
     };
@@ -77,18 +80,19 @@ pub fn ensure_workspace_files(host: &mut dyn FilesHost, session_id: &str) {
         .files()
         .sessions
         .get(session_id)
-        .is_some_and(|w| w.listed_dirs.contains(""))
+        .is_some_and(|w| !w.tree_load.is_idle())
     {
         return;
     }
     let pane = host.files_mut();
     let ws = pane.sessions.entry(session_id.to_owned()).or_default();
-    ws.listed_dirs.insert(String::new());
-    let sid = session_id.to_owned();
-    pane.dir_fetch.request((sid, directory), move |(sid, dir)| {
-        let entries = fetch_live_dir(&srv, &dir, "");
-        (sid, String::new(), entries)
-    });
+    if ws.tree_load.step(TreeLoadEvent::RequestLive) == TreeLoadEffect::FetchRoot {
+        let sid = session_id.to_owned();
+        pane.dir_fetch.request((sid, directory), move |(sid, dir)| {
+            let entries = fetch_live_dir(&srv, &dir, "");
+            (sid, String::new(), entries)
+        });
+    }
 }
 
 pub fn toggle_workspace_dir(host: &mut dyn FilesHost, dir_path: &str) {

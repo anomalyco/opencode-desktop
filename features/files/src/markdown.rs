@@ -33,11 +33,56 @@ pub static READ_ICON: Icon = Icon {
     body: r#"<path d="M3 3.5H13M3 6.5H10M3 9.5H13M3 12.5H9" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" fill="none"/>"#,
 };
 
+/// How a previewable file is displayed (`packages/gui-plugins/src/file/artifact-view-machine.ts`
+/// `ArtifactMode`, plus `Auto` for Rune's [`RENDER_LIMIT`] size cap before the user picks a mode).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum PreviewMode {
+    /// Default before any user toggle: preview for SVGs and files up to [`RENDER_LIMIT`], source above it.
+    #[default]
+    Auto,
+    /// User explicitly chose the rendered preview.
+    Preview,
+    /// User explicitly chose the source view (or followed a line link into it).
+    Source,
+}
+
+/// Events driving [`PreviewMode`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PreviewModeEvent {
+    /// Switch to the opposite of the currently resolved display (`currently_preview`).
+    Toggle { currently_preview: bool },
+    /// Force source view (for example when following a link to specific line numbers).
+    ShowSource,
+}
+
+impl PreviewMode {
+    pub fn shows_preview(self, default_preview: bool) -> bool {
+        match self {
+            Self::Auto => default_preview,
+            Self::Preview => true,
+            Self::Source => false,
+        }
+    }
+
+    pub fn is_forced_source(self) -> bool {
+        matches!(self, Self::Source)
+    }
+
+    /// Transitions to the next mode; returns whether the resolved mode is now preview.
+    pub fn step(&mut self, event: PreviewModeEvent) -> bool {
+        *self = match event {
+            PreviewModeEvent::Toggle { currently_preview: true } | PreviewModeEvent::ShowSource => Self::Source,
+            PreviewModeEvent::Toggle { currently_preview: false } => Self::Preview,
+        };
+        matches!(*self, Self::Preview)
+    }
+}
+
 /// A Markdown file's view: rendered or source, and its matches in the rendered text.
 #[derive(Default)]
 pub struct MdView {
-    /// Kit's pick, rendered (`true`) or source; none is rendered up to [`RENDER_LIMIT`].
-    pub rendered: Option<bool>,
+    /// Kit's pick, rendered (`Preview`) or source (`Source`); `Auto` is rendered up to [`RENDER_LIMIT`].
+    pub mode: PreviewMode,
     applied: String,
     pub matches: Vec<Vec<Range<usize>>>,
     pub active: usize,
@@ -135,10 +180,10 @@ pub fn shows_rendered(ws: &SessionFiles, path: &str) -> bool {
     {
         return false;
     }
+    let default_preview = svg || size <= RENDER_LIMIT;
     ws.md
         .get(path)
-        .and_then(|m| m.rendered)
-        .unwrap_or(svg || size <= RENDER_LIMIT)
+        .map_or(default_preview, |m| m.mode.shows_preview(default_preview))
 }
 
 pub fn scroll_key(sid: &str, path: &str) -> String {
@@ -281,7 +326,7 @@ pub fn rendered<H: FilesHost + 'static>(
 pub fn toggle_rendered(host: &mut dyn FilesHost, sid: &str, path: &str, tx: &mut Tx) {
     tx.instant();
     let Some(ws) = host.files_mut().sessions.get_mut(sid) else { return };
-    let next = !shows_rendered(ws, path);
+    let currently_preview = shows_rendered(ws, path);
     if let Some(doc) = ws.docs.get_mut(path) {
         doc.set_find_open(false);
     }
@@ -294,7 +339,12 @@ pub fn toggle_rendered(host: &mut dyn FilesHost, sid: &str, path: &str, tx: &mut
     if let Some(drawing) = ws.shown_diagram(path) {
         ws.diagram_find.forget(&drawing);
     }
-    ws.md.entry(path.to_owned()).or_default().rendered = Some(next);
+    let next = ws
+        .md
+        .entry(path.to_owned())
+        .or_default()
+        .mode
+        .step(PreviewModeEvent::Toggle { currently_preview });
     if next && let Some(d) = ws.docs.get_mut(path) {
         d.set_selection(None);
     }
