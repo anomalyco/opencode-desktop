@@ -5,7 +5,7 @@ pub use opencode_feature_history::message_nav::*;
 
 use std::rc::Rc;
 
-use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration, Phase};
+use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration, Phase, Slot};
 use opencode_kit::model::Transcript;
 use rune::{KeyEvent, LiveRegion, Tx};
 use session_view::timeline::Projection;
@@ -13,6 +13,8 @@ use session_view::timeline::Projection;
 use crate::keymap::Bind;
 use crate::pickers::PickerHost as _;
 use crate::{App, Route, Source};
+
+pub(crate) static JUMP: Slot<JumpState> = Slot::new();
 
 impl MessageNavHost for App {
     fn message_nav(&self) -> &MessageNav {
@@ -24,11 +26,11 @@ impl MessageNavHost for App {
     }
 
     fn jump(&self) -> &JumpState {
-        &self.dialogs.jump
+        self.kernel.slots.get(&JUMP)
     }
 
     fn jump_mut(&mut self) -> &mut JumpState {
-        &mut self.dialogs.jump
+        self.kernel.slots.get_mut(&JUMP)
     }
 
     fn displayed_session_id(&self) -> Option<&str> {
@@ -93,7 +95,7 @@ impl MessageNavHost for App {
         // Replacing an open or dispatching palette inherits its focus-return origin
         // (`packages/ui/src/context/dialog-machine.ts:5-8,166-181`,
         // `packages/app/src/session/commands/use-session-commands.tsx:286-292`).
-        let restore = self.composer.focused || self.dialogs.switcher.restore_composer();
+        let restore = self.composer.focused || self.kernel.slots.get(&crate::switcher::SWITCHER).restore_composer();
         self.close_fork_dialog(false);
         self.close_picker(false);
         self.close_switcher(false);
@@ -218,12 +220,15 @@ impl Feature<App> for HistoryFeature {
             .bind_id(Bind::MessageNext.id())
             .when(|s| s.active_session_id().is_some()),
         );
+        builder.register_slot(&JUMP);
+        builder.register_slot(&crate::fork::FORK);
+        builder.register_slot(&crate::rewind::REWIND);
         builder.register_overlay(
             OverlayRegistration::<App>::new(crate::fork::FORK_OVERLAY_ID)
                 .with_z(300)
                 .with_key_priority(200)
                 .with_render(|s, cx| {
-                    if s.dialogs.fork.is_open() {
+                    if s.kernel.slots.get(&crate::fork::FORK).is_open() {
                         let p = crate::palette::pal(s.dark(cx));
                         crate::fork::view(s, p, cx).into()
                     } else {
@@ -238,7 +243,7 @@ impl Feature<App> for HistoryFeature {
                 .with_z(310)
                 .with_key_priority(210)
                 .with_render(|s, cx| {
-                    if s.dialogs.jump.open() {
+                    if s.kernel.slots.get(&JUMP).open() {
                         let p = crate::palette::pal(s.dark(cx));
                         jump::view(s, p, cx).into()
                     } else {

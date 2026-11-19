@@ -159,7 +159,7 @@ pub fn build() -> Kernel<App> {
     b.register_escape_layer(EscapeLayer::new(
         "escape.toast",
         30,
-        |s| s.dialogs.toast.current().is_some_and(|t| t.persistent),
+        |s| s.toast.current().is_some_and(|t| t.persistent),
         |s, ev, tx| {
             crate::status_toast::key(s, ev, tx);
         },

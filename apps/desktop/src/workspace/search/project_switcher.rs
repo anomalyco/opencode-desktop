@@ -11,13 +11,15 @@ use session_view::palette::Pal;
 use crate::pickers::PickerHost as _;
 use crate::{App, Route};
 
+pub(crate) static PROJECT_SWITCHER: opencode_kernel::Slot<ProjectSwitcher> = opencode_kernel::Slot::new();
+
 impl ProjectSwitcherHost for App {
     fn project_switcher(&self) -> &ProjectSwitcher {
-        &self.dialogs.project_switcher
+        self.kernel.slots.get(&PROJECT_SWITCHER)
     }
 
     fn project_switcher_mut(&mut self) -> &mut ProjectSwitcher {
-        &mut self.dialogs.project_switcher
+        self.kernel.slots.get_mut(&PROJECT_SWITCHER)
     }
 
     fn project(&self, id: &str) -> Option<&Project> {
@@ -228,7 +230,7 @@ impl ProjectSwitcherHost for App {
         // `dialog-machine.ts:20-27,167-181,229-253`, `new-session/location/dialog.tsx:52-64`,
         // `new-session/screen.tsx:24,41-42`).
         let restore = self.composer.focused
-            || self.dialogs.switcher.restore_composer()
+            || self.kernel.slots.get(&crate::switcher::SWITCHER).restore_composer()
             || self.composer_ext.pickers.open().is_some();
         self.close_picker(false);
         self.close_switcher(false);

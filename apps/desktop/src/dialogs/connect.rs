@@ -2,7 +2,7 @@
 
 pub use opencode_feature_connect::*;
 
-use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration};
+use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration, Slot};
 use opencode_kit::integration::Integration;
 use rune::Tx;
 use rune::machine::Attempt;
@@ -13,13 +13,15 @@ use crate::App;
 use crate::jobs::Apply;
 use crate::pickers::PickerHost as _;
 
+pub(crate) static CONNECT: Slot<Connect> = Slot::new();
+
 impl ConnectHost for App {
     fn connect(&self) -> &Connect {
-        &self.dialogs.connect
+        self.kernel.slots.get(&CONNECT)
     }
 
     fn connect_mut(&mut self) -> &mut Connect {
-        &mut self.dialogs.connect
+        self.kernel.slots.get_mut(&CONNECT)
     }
 
     fn catalogs(&self) -> &Catalogs {
@@ -200,6 +202,7 @@ impl Feature<App> for ConnectFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder.register_slot(&CONNECT);
         builder.add_command(
             CommandEntry::<App>::from_key(
                 "provider.connect",

@@ -50,7 +50,7 @@ impl SuggestionsHost for App {
     }
 
     fn history_key_blocked(&self) -> bool {
-        self.composer_ext.add.open() || self.composer_ext.pickers.open().is_some() || self.dialogs.switcher.is_open() || self.settings.open
+        self.composer_ext.add.open() || self.composer_ext.pickers.open().is_some() || self.kernel.slots.get(&crate::switcher::SWITCHER).is_open() || self.settings.open
     }
 
     fn composer_has_attachments_or_quotes(&self) -> bool {

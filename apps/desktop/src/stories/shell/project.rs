@@ -39,7 +39,7 @@ pub const SWITCHER_KEYS: &[Trigger] = &[
         key: 'w',
         label: "Drill into lumen worktrees",
         run: |s, tx| {
-            if !s.dialogs.project_switcher.is_open() {
+            if !s.kernel.slots.get(&crate::project_switcher::PROJECT_SWITCHER).is_open() {
                 s.open_project_switcher();
             }
             if let Some(id) = s.projects.iter().find(|p| p.name == "lumen").map(|p| p.id.clone()) {
@@ -69,10 +69,10 @@ fn switcher_story(s: &mut App, _: &mut Play<App>) {
     match *s.fixture_run.variant {
         1 => {
             s.open_project_switcher();
-            s.dialogs.project_switcher.search.focused = false;
+            s.kernel.slots.get_mut(&crate::project_switcher::PROJECT_SWITCHER).search.focused = false;
             if let Some(id) = s.projects.iter().find(|p| p.name == "lumen").map(|p| p.id.clone()) {
                 s.drill_project_worktrees(&id, &mut Tx::default());
-                s.dialogs.project_switcher.search.focused = false;
+                s.kernel.slots.get_mut(&crate::project_switcher::PROJECT_SWITCHER).search.focused = false;
             }
         }
         2 => {
@@ -93,7 +93,7 @@ fn switcher_story(s: &mut App, _: &mut Play<App>) {
                 s.hide_project(&id, &mut Tx::default());
             }
             s.open_project_switcher();
-            s.dialogs.project_switcher.search.focused = false;
+            s.kernel.slots.get_mut(&crate::project_switcher::PROJECT_SWITCHER).search.focused = false;
         }
     }
 }

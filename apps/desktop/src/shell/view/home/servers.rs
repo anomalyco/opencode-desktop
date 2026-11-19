@@ -71,7 +71,7 @@ fn hairline(p: &Pal) -> El {
 fn server_row(s: &App, p: &Pal, v: &ServerView, selected: bool, collapsed: bool) -> El {
     let key = v.key.clone();
     let menu = menu_key(&key);
-    let menu_open = s.dialogs.popup.open_at(&menu);
+    let menu_open = s.popup.open_at(&menu);
     let healthy = v.healthy();
     let auth = v.sign_in_required();
     let incompatible = v.incompatible();

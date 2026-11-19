@@ -22,7 +22,7 @@ pub use super::location_card::Location;
 /// project's worktrees a slash, the worktree glyph and its name, muted until hovered or open.
 /// `collapse` is the header's fit: 1 hides the worktree's name, 2 the project's too.
 pub fn trigger(s: &App, p: &Pal, project: Option<&opencode_kit::model::Project>, name: &str, worktree: Option<&str>, collapse: u8) -> El {
-    let open = s.dialogs.popup.open_at(TRIGGER);
+    let open = s.popup.open_at(TRIGGER);
     let ink = if open { p.text } else { p.muted };
     let label = match worktree {
         Some(w) => format!("{name} / {w}"),

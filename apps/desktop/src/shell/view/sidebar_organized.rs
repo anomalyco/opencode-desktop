@@ -168,7 +168,7 @@ fn project(s: &App, p: &Pal, proj: &model::Project, index: usize) -> El {
     let key = project_key(s, &proj.id);
     let open = s.project_state.organize_expanded.contains(&key);
     let menu = format!("so-menu-{}", proj.id);
-    let menu_open = s.dialogs.popup.open_at(&menu);
+    let menu_open = s.popup.open_at(&menu);
     let (id, menu_id, ctx_id, new_dir, drag_id, layout_id) = (key, proj.id.clone(), proj.id.clone(), proj.directory.clone(), proj.id.clone(), proj.id.clone());
     let (anchor, ctx_anchor) = (menu.clone(), menu.clone());
     let actions = row()

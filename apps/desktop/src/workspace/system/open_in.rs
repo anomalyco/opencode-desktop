@@ -151,7 +151,7 @@ pub fn button(s: &App, p: &Pal, key: &'static str, rel: &str) -> Option<El> {
             open_current(s, &rel_main, false, false);
         })
         .child(mark);
-    let open = s.dialogs.popup.open_at(&chevron_key);
+    let open = s.popup.open_at(&chevron_key);
     let menu_anchor = chevron_key.clone();
     let chev = el()
         .key(chevron_key)

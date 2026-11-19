@@ -72,8 +72,9 @@ pub fn init_palette(s: &mut App) {
     let mut tx = rune::Tx::default();
     s.open_file_search(&mut tx);
     if s.fixture_run.variant == 1 {
-        s.dialogs.switcher.search = TextEdit::new("stream.ts:15");
-        s.dialogs.switcher.search.focused = true;
+        let sw = s.kernel.slots.get_mut(&crate::switcher::SWITCHER);
+        sw.search = TextEdit::new("stream.ts:15");
+        sw.search.focused = true;
         s.poll_switcher(&mut tx, false);
     }
 }
@@ -87,7 +88,7 @@ fn view_files_card(s: &App, p: &Pal) -> El {
 }
 
 fn view_palette_card(s: &App, p: &Pal) -> El {
-    if !s.dialogs.switcher.is_open() {
+    if !s.kernel.slots.get(&crate::switcher::SWITCHER).is_open() {
         return rune::col().w(480.0);
     }
     crate::switcher::dialog(s, p, 480.0, 480.0)

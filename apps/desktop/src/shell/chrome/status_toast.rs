@@ -59,11 +59,11 @@ impl ToastHost for App {
     type CustomAction = DesktopToastAction;
 
     fn toast(&self) -> &StatusToast {
-        &self.dialogs.toast
+        &self.toast
     }
 
     fn toast_mut(&mut self) -> &mut StatusToast {
-        &mut self.dialogs.toast
+        &mut self.toast
     }
 
     fn clock(&self) -> f64 {

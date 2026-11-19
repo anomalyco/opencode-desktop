@@ -3,7 +3,7 @@
 
 pub use opencode_feature_workspace_tools::new_worktree::*;
 
-use opencode_kernel::{CommandEntry, Feature, KernelBuilder, Phase};
+use opencode_kernel::{CommandEntry, Feature, KernelBuilder, Phase, Slot};
 use opencode_kit::client::{Prompt, Request, Write};
 use opencode_kit::model::Project;
 use rune::{El, KeyEvent, Tx};
@@ -12,13 +12,15 @@ use session_view::palette::Pal;
 use crate::keymap::Bind;
 use crate::{App, Route, Source};
 
+static NEW_WORKTREE: Slot<NewWorktree> = Slot::new();
+
 impl NewWorktreeHost for App {
     fn new_worktree(&self) -> &NewWorktree {
-        &self.dialogs.new_worktree
+        self.kernel.slots.get(&NEW_WORKTREE)
     }
 
     fn new_worktree_mut(&mut self) -> &mut NewWorktree {
-        &mut self.dialogs.new_worktree
+        self.kernel.slots.get_mut(&NEW_WORKTREE)
     }
 
     fn draft_id(&self) -> Option<&str> {
@@ -65,7 +67,7 @@ impl NewWorktreeHost for App {
     }
 
     fn project_switcher_open(&self) -> bool {
-        self.dialogs.project_switcher.is_open()
+        self.kernel.slots.get(&crate::project_switcher::PROJECT_SWITCHER).is_open()
     }
 
     fn is_stage(&self) -> bool {
@@ -229,6 +231,7 @@ impl Feature<App> for WorkspaceToolsFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder.register_slot(&NEW_WORKTREE);
         builder.add_command(
             CommandEntry::<App>::from_key(
                 "session.location.select",

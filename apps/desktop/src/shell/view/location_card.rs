@@ -37,7 +37,7 @@ enum Changes {
 /// folder's, and its project root's for a folder on none.
 pub(super) fn open_card(s: &mut App, tx: &mut Tx) {
     tx.instant();
-    if s.dialogs.popup.open_at(TRIGGER) {
+    if s.popup.open_at(TRIGGER) {
         return popup::dismiss(s, tx);
     }
     let crate::Route::Session { id, .. } = &*s.route else { return };
@@ -85,7 +85,7 @@ pub(super) fn open_card(s: &mut App, tx: &mut Tx) {
 
 /// Draws the open card again with what it's learned.
 fn reshow(s: &mut App, tx: &mut Tx) {
-    if s.dialogs.popup.open_at(TRIGGER)
+    if s.popup.open_at(TRIGGER)
         && let crate::Route::Session { id, .. } = &*s.route
         && let Some(info) = s.session(id).cloned()
     {

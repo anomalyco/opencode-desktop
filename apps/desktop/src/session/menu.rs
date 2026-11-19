@@ -2,7 +2,7 @@
 
 pub use opencode_feature_session_menu::*;
 
-use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration, Phase};
+use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration, Phase, Slot};
 use opencode_kit::client::{Server, Write};
 use opencode_kit::model::{SessionInfo, Transcript};
 use opencode_kit::servers::ServerKey;
@@ -25,13 +25,15 @@ pub fn on_dialog(e: El, t: Target) -> El {
     opencode_feature_session_menu::on_dialog::<App>(e, t)
 }
 
+pub(crate) static MENUS: Slot<Menus> = Slot::new();
+
 impl SessionMenuHost for App {
     fn menus(&self) -> &Menus {
-        &self.dialogs.menus
+        self.kernel.slots.get(&MENUS)
     }
 
     fn menus_mut(&mut self) -> &mut Menus {
-        &mut self.dialogs.menus
+        self.kernel.slots.get_mut(&MENUS)
     }
 
     fn sessions(&self) -> &[SessionInfo] {
@@ -305,6 +307,7 @@ impl Feature<App> for SessionMenuFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder.register_slot(&MENUS);
         builder.add_command(
             CommandEntry::<App>::from_key(
                 "rename",

@@ -326,15 +326,15 @@ impl CoverVisit {
 /// A dialog shows over the window (`plugin.dialogs.active()`): a cover offers no sign-in then.
 pub fn dialog_shows(app: &App) -> bool {
     app.plugins.dialog_open()
-        || app.dialogs.switcher.is_open()
-        || app.dialogs.project_switcher.is_open()
-        || app.dialogs.fork.is_open()
-        || app.dialogs.jump.open()
-        || app.dialogs.menus.confirming().is_some()
-        || app.dialogs.connect.is_modal_open()
-        || app.dialogs.mcp.open.is_some()
+        || app.kernel.slots.get(&crate::switcher::SWITCHER).is_open()
+        || app.kernel.slots.get(&crate::project_switcher::PROJECT_SWITCHER).is_open()
+        || app.kernel.slots.get(&crate::fork::FORK).is_open()
+        || app.kernel.slots.get(&crate::message_nav::JUMP).open()
+        || app.kernel.slots.get(&crate::session_menu::MENUS).confirming().is_some()
+        || app.kernel.slots.get(&crate::connect::CONNECT).is_modal_open()
+        || app.kernel.slots.get(&crate::mcp::MCP).open.is_some()
         || crate::servers::dialog::is_open(app)
-        || app.dialogs.remote_picker.is_open()
+        || app.kernel.slots.get(&crate::projects::REMOTE_PICKER).is_open()
 }
 
 /// The plugin cover over the routed session or draft tab (`PluginServerCover`): drawn by the

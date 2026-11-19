@@ -86,7 +86,7 @@ fn strip(s: &App, p: &Pal, strip_key: &str, sessions: &[&SessionInfo], pins: Opt
         let mut item = TabItem::new(info.id.as_str(), crate::tabs::tab_title(&info.title))
             .status(status(s, &info.id, muted))
             .closable(false)
-            .marked(s.dialogs.menus.on.as_ref() == Some(&target))
+            .marked(s.kernel.slots.get(&crate::session_menu::MENUS).on.as_ref() == Some(&target))
             .avatar(crate::icons::badge(s, p, s.project_for_session(info), &info.title));
         // Desktop's faint trailing "Muted" label (`TabNavItem`'s `label`); the kit's tab has no
         // trailing label, so it reads under the title.
@@ -162,11 +162,11 @@ fn open_menu(s: &mut App, server: &opencode_kit::servers::ServerKey, id: &str, p
         .separator()
         .item(Item::new("delete", format!("{}\u{2026}", t!("common.delete"))).danger(true));
     s.finish_rename(true);
-    s.dialogs.menus.on = Some(target.clone());
+    s.kernel.slots.get_mut(&crate::session_menu::MENUS).on = Some(target.clone());
     tx.instant();
     let pin = key(server.as_str(), id);
     popup::open(s, menu, press, tx, move |s: &mut App, picked, tx| {
-        s.dialogs.menus.on = None;
+        s.kernel.slots.get_mut(&crate::session_menu::MENUS).on = None;
         tx.instant();
         let visible = || pinned_keys(s);
         match picked {

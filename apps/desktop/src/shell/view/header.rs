@@ -190,7 +190,7 @@ fn header_title(s: &App, p: &Pal, info: &SessionInfo) -> Vec<El> {
         return vec![text(title_of(info)).key("title").role("heading").level(1).font(CRUMB).color(p.text).truncate_fade().px(4.0).py(6.0).shrink().min_w(0.0).dir(rune::Direction::Auto)];
     }
     let target = Target::on(crate::servers::runtime::active(s), &info.id, Spot::Header);
-    let marked = s.dialogs.menus.on.as_ref() == Some(&target);
+    let marked = s.kernel.slots.get(&crate::session_menu::MENUS).on.as_ref() == Some(&target);
     let dots_target = target.clone();
     let title = match crate::session_menu_view::field(s, p, &target, CRUMB) {
         Some(field) => row().key("title").h(28.0).px(4.0).center_y().min_w(0.0).shrink().child(field),

@@ -2,20 +2,22 @@
 
 pub use opencode_feature_usage::*;
 
-use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration};
+use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration, Slot};
 use rune::Tx;
 use serde_json::Value;
 
 use crate::App;
 use crate::pickers::PickerHost as _;
 
+static USAGE: Slot<Usage> = Slot::new();
+
 impl UsageHost for App {
     fn usage(&self) -> &Usage {
-        &self.dialogs.usage
+        self.kernel.slots.get(&USAGE)
     }
 
     fn usage_mut(&mut self) -> &mut Usage {
-        &mut self.dialogs.usage
+        self.kernel.slots.get_mut(&USAGE)
     }
 
     fn composer_directory(&self) -> String {
@@ -114,6 +116,7 @@ impl Feature<App> for UsageFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder.register_slot(&USAGE);
         builder.add_command(
             CommandEntry::<App>::from_key(
                 "usage.view",
@@ -241,7 +244,7 @@ mod stories {
             6 => (Load::SignedOut, None, false),
             _ => (Load::Ready(info(vec![anthropic(123.14), pool(394.57)], true)), None, false),
         };
-        s.dialogs.usage.open = Some(Open {
+        s.kernel.slots.get_mut(&super::USAGE).open = Some(Open {
             directory: s.composer_directory(),
             model,
             credits,

@@ -96,7 +96,7 @@ impl PanelsHost for App {
     }
 
     fn popup_holds_focus(&self) -> bool {
-        self.dialogs.popup.holds_focus()
+        self.popup.holds_focus()
     }
 
     fn plugin_field_focused(&self, plugin: &str) -> bool {

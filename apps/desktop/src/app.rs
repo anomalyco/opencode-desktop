@@ -12,17 +12,17 @@ use serde_json::Value;
 
 use crate::pickers::PickerHost as _;
 use crate::shell::app_state::{
-    AppearanceState, ComposerExt, DiagState, DialogStates, FixtureRun, PlatformServices,
-    QueueState, ShellGestures, TimelineFx, WorkspacePanes,
+    AppearanceState, ComposerExt, DiagState, FixtureRun, PlatformServices, QueueState,
+    ShellGestures, TimelineFx, WorkspacePanes,
 };
 use crate::tabs::Tab;
 use crate::{
     Route, appearance, background, commands, connect, context_window, demo, dictation, dirs, egg,
     events, files, find, fulltext, history, home_search, inbox_model, jobs, keymap, knobs, launch,
-    layout_state, model_prefs, open_in, permission, plugin_host, projects, prompt_history,
+    layout_state, model_prefs, open_in, permission, plugin_host, popup, projects, prompt_history,
     question, recent_page, restore, send_failed, servers, session_catalog, session_pages,
-    session_status, settings, shortcuts, slash, stop, subagents, switcher, tabs, telemetry,
-    turn_diffs, view, wall_ms, windows,
+    session_status, settings, shortcuts, slash, status_toast, stop, subagents, switcher, tabs,
+    telemetry, turn_diffs, view, wall_ms, windows,
 };
 
 // A static, not a const: a const's bytes are copied into every codegen unit that names it.
@@ -151,8 +151,10 @@ pub struct App {
     pub fixture_run: FixtureRun,
     /// Diagnostics, debug bar, live knobs, frame recorder, and motion log state.
     pub diag: DiagState,
-    /// Modal dialogs, popovers, switchers, menus, toasts, and onboarding tips.
-    pub dialogs: DialogStates,
+    /// The drawn menu or picker open now (off macOS).
+    pub popup: rune::Tracked<Box<popup::Popup>>,
+    /// Window status toast stack.
+    pub toast: rune::Tracked<status_toast::StatusToast>,
     /// Side/bottom workspace surfaces, panes, external openers, and client MCP hub.
     pub workspace_panes: WorkspacePanes,
     /// Shell gestures: tab drag/preview/reopen, pinch zoom, sidebar resize, and Home return tab.

@@ -2,7 +2,7 @@
 
 pub use opencode_feature_mcp::*;
 
-use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration};
+use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration, Slot};
 use opencode_kit::integration::McpServer;
 use rune::machine::Attempt;
 use rune::{KeyEvent, Tx};
@@ -12,13 +12,15 @@ use crate::jobs::Apply;
 use crate::keymap::Bind;
 use crate::pickers::PickerHost as _;
 
+pub(crate) static MCP: Slot<Mcp> = Slot::new();
+
 impl McpHost for App {
     fn mcp(&self) -> &Mcp {
-        &self.dialogs.mcp
+        self.kernel.slots.get(&MCP)
     }
 
     fn mcp_mut(&mut self) -> &mut Mcp {
-        &mut self.dialogs.mcp
+        self.kernel.slots.get_mut(&MCP)
     }
 
     fn active_directory(&self) -> String {
@@ -37,7 +39,7 @@ impl McpHost for App {
     }
 
     fn can_toggle_shortcut(&self) -> bool {
-        !self.dialogs.connect.is_modal_open()
+        !self.kernel.slots.get(&crate::connect::CONNECT).is_modal_open()
     }
 
     fn before_dialog_open(&mut self) {
@@ -47,7 +49,8 @@ impl McpHost for App {
 
     fn auto_focus_composer(&mut self, tx: &mut Tx) {
         if crate::auto_focus_composer(tx) {
-            self.composer.focused = self.has_composer() && !self.settings.open && self.dialogs.mcp.open.is_none() && self.dialogs.mcp.sign_in.is_none();
+            let mcp = self.kernel.slots.get(&MCP);
+            self.composer.focused = self.has_composer() && !self.settings.open && mcp.open.is_none() && mcp.sign_in.is_none();
         }
     }
 
@@ -125,6 +128,7 @@ impl Feature<App> for McpFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder.register_slot(&MCP);
         builder.add_command(
             CommandEntry::<App>::from_key(
                 "mcp.toggle",
@@ -167,7 +171,7 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
             .map(|i| format!("at frame {i}: invalid_grant from https://auth.example.com/token"))
             .collect::<Vec<_>>()
             .join("\n");
-        s.dialogs.mcp.sign_in = Some(sign_in::SignIn::failed_auth_preview(
+        s.mcp_mut().sign_in = Some(sign_in::SignIn::failed_auth_preview(
             String::new(),
             "linear".into(),
             "linear".into(),

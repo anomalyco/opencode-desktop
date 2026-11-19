@@ -10,13 +10,15 @@ use rune::Tx;
 
 use crate::{App, Source};
 
+pub(crate) static REWIND: opencode_kernel::Slot<RewindState> = opencode_kernel::Slot::new();
+
 impl RewindHost for App {
     fn rewind(&self) -> &RewindState {
-        &self.dialogs.rewind
+        self.kernel.slots.get(&REWIND)
     }
 
     fn rewind_mut(&mut self) -> &mut RewindState {
-        &mut self.dialogs.rewind
+        self.kernel.slots.get_mut(&REWIND)
     }
 
     fn session(&self, session: &str) -> Option<&SessionInfo> {
@@ -113,7 +115,7 @@ impl RewindHost for App {
     }
 
     fn dismiss_rewound_toast(&mut self, session: &str) {
-        if let Some(e) = self.dialogs.toast.current()
+        if let Some(e) = self.toast.current()
             && matches!(&e.action, Some(crate::status_toast::ToastAction::Custom(crate::status_toast::DesktopToastAction::UndoRewind(u))) if u.session == session)
         {
             crate::status_toast::dismiss(self);
@@ -121,7 +123,7 @@ impl RewindHost for App {
     }
 
     fn popup_open_at(&self, anchor: &str) -> bool {
-        self.dialogs.popup.open_at(anchor)
+        self.popup.open_at(anchor)
     }
 
     fn dismiss_popup(&mut self, tx: &mut Tx) {

@@ -9,14 +9,12 @@ use std::collections::{HashMap, VecDeque};
 use serde_json::Value;
 
 use crate::{
-    add_menu, agent_rows, appearance, attachments, background, browser, connect, copied,
-    deep_links, demo, diagnostics, diagram, dictation, disclosure, files, find, fork, glitch,
-    jump, language, line_comments, line_reveal, mcp, mentions, message_nav, motion_log,
-    new_session, new_worktree, notifications, open_in, open_story, panels, pickers, pinch,
-    plugin_host, popup, project_switcher, projects, prompt_history, queue, quote, reconnect,
-    review, rewind, rune_mcp, served, session_menu, session_state, status_toast, stories, submit,
-    suggestions, switcher, tabs, terminal, text_rendering, tips, todos, tool_open, undo, updater,
-    usage, view, working,
+    add_menu, agent_rows, appearance, attachments, background, browser, copied, deep_links, demo,
+    diagnostics, diagram, dictation, disclosure, files, find, glitch, jump, language,
+    line_comments, line_reveal, mentions, message_nav, motion_log, new_session, notifications,
+    open_in, open_story, panels, pickers, pinch, plugin_host, prompt_history, queue, quote,
+    reconnect, review, rune_mcp, served, session_state, stories, submit, suggestions, tabs,
+    terminal, text_rendering, todos, tool_open, undo, updater, view, working,
 };
 
 /// Fixture playback, demo script, and storybook playground state.
@@ -49,32 +47,6 @@ pub struct DiagState {
     pub(crate) motion_events: rune::Tracked<motion_log::Events>,
     /// The frame diagnostics every window reports to.
     pub diagnostics: rune::Tracked<diagnostics::Diagnostics>,
-}
-
-/// Modal dialogs, popovers, command/project switchers, menus, toasts, and onboarding tips.
-#[derive(Default)]
-pub struct DialogStates {
-    pub usage: rune::Tracked<usage::Usage>,
-    /// Session menus, the title being renamed and Delete's confirmation.
-    pub menus: rune::Tracked<Box<session_menu::Menus>>,
-    /// The drawn menu or picker open now (off macOS).
-    pub popup: rune::Tracked<Box<popup::Popup>>,
-    pub switcher: rune::Tracked<Box<switcher::Switcher>>,
-    pub project_switcher: rune::Tracked<project_switcher::ProjectSwitcher>,
-    /// A server's folder picker, while one is open (`projects::remote_picker`).
-    pub remote_picker: rune::Tracked<projects::remote_picker::Picker>,
-    /// The connect dialog (`connect`).
-    pub connect: rune::Tracked<Box<connect::Connect>>,
-    /// The MCP servers' toggles and the MCPs dialog (`mcp`).
-    pub mcp: rune::Tracked<Box<mcp::Mcp>>,
-    pub fork: rune::Tracked<Box<fork::ForkState>>,
-    pub jump: rune::Tracked<message_nav::jump::JumpState>,
-    pub rewind: rune::Tracked<rewind::RewindState>,
-    pub toast: rune::Tracked<status_toast::StatusToast>,
-    /// The paced one-time tips (`tips.rs`).
-    pub tips: rune::Tracked<tips::Tips>,
-    /// Drafts that start in a new worktree, worktree lists and the branch picker (`new_worktree.rs`).
-    pub new_worktree: rune::Tracked<Box<new_worktree::NewWorktree>>,
 }
 
 /// Side/bottom workspace surfaces, panes, external openers, and client MCP hub.

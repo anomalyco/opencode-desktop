@@ -278,7 +278,7 @@ impl session_view::TimelineHost for App {
         self.timeline_fx.find.row_hits(row_key)
     }
     fn user_menu_open_on(&self, id: &str) -> bool {
-        self.dialogs.rewind.menu_open_on(id)
+        self.kernel.slots.get(&crate::rewind::REWIND).menu_open_on(id)
     }
     fn quote_more_open(&self, id: &str) -> bool {
         self.composer_ext.quote.more.contains(id)

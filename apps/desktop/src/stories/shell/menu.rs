@@ -26,8 +26,8 @@ fn last_prompt(s: &App) -> Option<String> {
 fn is_open(s: &App) -> bool {
     match *s.fixture_run.variant {
         0 => s.composer_ext.add.open(),
-        1 => s.dialogs.rewind.menu.is_some() && s.dialogs.popup.is_open(),
-        4 => s.dialogs.popup.is_open(),
+        1 => s.kernel.slots.get(&crate::rewind::REWIND).menu.is_some() && s.popup.is_open(),
+        4 => s.popup.is_open(),
         2 => s.shells.activity.is_open(),
         _ => *s.timeline_fx.todo_open,
     }
