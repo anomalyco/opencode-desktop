@@ -123,6 +123,14 @@ pub fn build() -> Kernel<App> {
     b.with_feature(&crate::new_worktree::WorkspaceToolsFeature);
     b.with_feature(&crate::plugin_host::PluginHostFeature);
     b.register_overlay(
+        OverlayRegistration::<App>::new("overlay.pickers")
+            .with_render(crate::overlays::layer::SURFACE_POPOVER, |s, cx| {
+                let p = crate::palette::pal(s.dark(cx));
+                session_view::pickers::view::layer(s, p)
+            })
+            .above("narrow.sheet"),
+    );
+    b.register_overlay(
         OverlayRegistration::<App>::new("overlay.diagram")
             .with_render(crate::overlays::layer::MEDIA_LIGHTBOX, |s, cx| {
                 let p = crate::palette::pal(s.dark(cx));

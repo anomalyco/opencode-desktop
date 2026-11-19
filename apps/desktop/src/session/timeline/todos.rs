@@ -120,6 +120,30 @@ impl Feature<App> for TimelineExtrasFeature {
             .register_slot(&crate::agent_rows::AGENT_ROWS)
             .register_slot(&crate::question::QUESTION)
             .register_slot(&crate::permission::PERMISSION_SENT);
+        builder.register_overlay(
+            opencode_kernel::OverlayRegistration::<App>::new("overlay.todos")
+                .with_render(crate::overlays::layer::SURFACE_POPOVER, |s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    if let crate::Route::Session { id, .. } = &*s.route
+                        && let Some(panel) = panel(s, p, id)
+                    {
+                        let dismiss = rune::el()
+                            .key("todo-dismiss")
+                            .absolute(0.0, 0.0)
+                            .w_full()
+                            .h_full()
+                            .transition(rune::Transition::none())
+                            .on_background_press_tx(|s: &mut App, tx: &mut Tx| {
+                                tx.instant();
+                                *s.kernel.slots.get_mut(&TODO_OPEN) = false;
+                            });
+                        vec![dismiss, panel]
+                    } else {
+                        Vec::new()
+                    }
+                })
+                .above("overlay.subagents"),
+        );
         builder.register_escape_layer(
             EscapeLayer::<App>::new(
                 "escape.todo",

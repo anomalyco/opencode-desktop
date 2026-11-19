@@ -5,6 +5,8 @@ use opencode_kit::servers::ServerKey;
 use rune::TextEdit;
 use rune_kit::{ButtonVariant, TextInput};
 
+pub const OVERLAY_ID: &str = "dialog.home_browse";
+
 pub(crate) use crate::projects::home::Browser;
 
 enum Event {
@@ -21,8 +23,15 @@ fn step(state: &mut Browser, event: Event) {
     };
 }
 
+pub(crate) fn close(s: &mut App, tx: &mut Tx) {
+    step(&mut s.kernel.slots.get_mut(&crate::projects::HOME_STATE).browser, Event::Close);
+    opencode_kernel::AppOverlays::on_overlay_closed(s, OVERLAY_ID);
+    tx.instant();
+}
+
 pub(crate) fn open(s: &mut App, tx: &mut Tx) {
     step(&mut s.kernel.slots.get_mut(&crate::projects::HOME_STATE).browser, Event::Browse);
+    opencode_kernel::AppOverlays::on_overlay_opened(s, OVERLAY_ID, None);
     tx.instant();
     tx.focus("browse-query", false);
 }
@@ -34,6 +43,7 @@ pub(crate) fn history(s: &mut App, key: &ServerKey, project: &model::Project, tx
         rows.into_iter().map(|i| (i.id.clone(), title_of(i).to_owned())).collect()
     }).unwrap_or_default();
     step(&mut s.kernel.slots.get_mut(&crate::projects::HOME_STATE).browser, Event::Project(key.clone(), project.clone(), sessions));
+    opencode_kernel::AppOverlays::on_overlay_opened(s, OVERLAY_ID, None);
     tx.instant();
     tx.focus("browse-query", false);
 }
@@ -74,14 +84,14 @@ pub(crate) fn view(s: &App, p: &Pal, cx: &rune::Cx<App>) -> Vec<El> {
             let (key, dir) = (server.clone(), project.directory.clone());
             list = list.child(option(p, "browse-back".into(), t!("project.browse.back").into()).on_press_tx(open))
                 .child(option(p, "browse-new".into(), t!("project.browse.newSession").into()).on_press_tx(move |s: &mut App, tx| {
-                    step(&mut s.kernel.slots.get_mut(&crate::projects::HOME_STATE).browser, Event::Close);
+                    close(s, tx);
                     runtime::switch(s, &key);
                     s.new_session_in(&dir, tx);
                 }));
             for (id, title) in sessions.iter().filter(|(_, title)| title.to_lowercase().contains(&query)) {
                 let (server, id) = (server.clone(), id.clone());
                 list = list.child(option(p, format!("browse-{id}"), title.clone()).on_press_tx(move |s: &mut App, tx| {
-                    step(&mut s.kernel.slots.get_mut(&crate::projects::HOME_STATE).browser, Event::Close);
+                    close(s, tx);
                     runtime::switch(s, &server);
                     s.open(&id, tx);
                 }));
@@ -96,7 +106,7 @@ pub(crate) fn view(s: &App, p: &Pal, cx: &rune::Cx<App>) -> Vec<El> {
     let viewport = col().w_full().min_h(0.0).shrink().clip_soft(0.0);
     let scroll = session_view::scroller::scroller("browse-projects-scroll").build::<App>(p, viewport, list.label(hint));
     let card = col().role("dialog").label_static(t!("project.browse.title")).padding(16.0).gap(10.0).radius(8.0).fill(p.layer1).elevate(p.overlay)
-        .modal_tx(true, |s: &mut App, tx| { step(&mut s.kernel.slots.get_mut(&crate::projects::HOME_STATE).browser, Event::Close); tx.instant(); })
+        .modal_tx(true, close)
         .child(text(t!("project.browse.title")).font(UI_MED).color(p.text)).child(field).child(scroll);
     widgets::sized_modal("browse-projects", p, widgets::DialogSize::Normal, widgets::Fit::Anchored, widgets::dialog_window(cx, *s.zoom), card)
 }

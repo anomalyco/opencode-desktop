@@ -16,7 +16,6 @@ pub(crate) fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     const _: () = assert!(crate::overlays::key_band::ALL.len() == 4);
     let overlays = s.kernel.overlay_dispatcher.clone();
     if crate::popup::key(s, ev, tx)
-        || crate::narrow::key(s, ev, tx)
         || overlays.handle_key_band(crate::overlays::key_band::POPUP, s, ev, tx)
         || overlays.handle_key_band(crate::overlays::key_band::MODAL, s, ev, tx)
         || crate::glitch::key(s, ev, tx)

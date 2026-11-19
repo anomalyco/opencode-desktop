@@ -194,6 +194,30 @@ impl Feature<App> for SubagentsFeature {
             .after("escape.tool_step"),
         );
         builder.register_slot(&SHELLS);
+        builder.register_overlay(
+            opencode_kernel::OverlayRegistration::<App>::new("overlay.subagents")
+                .with_render(crate::overlays::layer::SURFACE_POPOVER, |s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    if let crate::Route::Session { id, .. } = &*s.route
+                        && let Some(panel) = panel(s, p, id)
+                    {
+                        let dismiss = rune::el()
+                            .key("activity-dismiss")
+                            .absolute(0.0, 0.0)
+                            .w_full()
+                            .h_full()
+                            .transition(rune::Transition::none())
+                            .on_background_press_tx(|s: &mut App, tx: &mut Tx| {
+                                tx.instant();
+                                shells::set_open(s, false);
+                            });
+                        vec![dismiss, panel]
+                    } else {
+                        Vec::new()
+                    }
+                })
+                .above("overlay.pickers"),
+        );
         builder.register_escape_layer(
             EscapeLayer::<App>::new(
                 "escape.activity",

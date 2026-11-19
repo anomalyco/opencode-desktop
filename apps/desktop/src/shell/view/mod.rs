@@ -126,37 +126,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
         }
         None => shell(s, cx),
     };
-    inner = inner.children(crate::narrow::sheet::layer(s, p, cx));
-    inner = inner.children(session_view::pickers::view::layer(s, p));
-    if let Route::Session { id, .. } = &*s.route
-        && let Some(panel) = crate::subagents::panel(s, p, id)
-    {
-        inner = inner.child(el().key("activity-dismiss").absolute(0.0, 0.0).w_full().h_full().transition(rune::Transition::none())
-            .on_background_press_tx(|s: &mut App, tx: &mut Tx| {
-                tx.instant();
-                crate::subagents::shells::set_open(s, false);
-            }))
-            .child(panel);
-    }
-    if let Route::Session { id, .. } = &*s.route
-        && let Some(panel) = crate::todos::panel(s, p, id)
-    {
-        inner = inner.child(el().key("todo-dismiss").absolute(0.0, 0.0).w_full().h_full().transition(rune::Transition::none())
-            .on_background_press_tx(|s: &mut App, tx: &mut Tx| {
-                tx.instant();
-                *s.kernel.slots.get_mut(&crate::todos::TODO_OPEN) = false;
-            }))
-            .child(panel);
-    }
-    inner = inner.children(crate::mentions::view(s, p, cx));
-    inner = inner.children(crate::slash::commands_view(s, p, cx));
-    inner = inner.children(crate::suggestions::history::view(s, p, cx));
-    inner = inner.children(crate::add_menu::menu(s, p));
-    inner = inner.children(home::browse::view(s, p, cx));
-    inner = inner.children(crate::new_worktree::picker(s, p).into_iter().flatten());
-    if let Some(pop) = home::home_projects_popover(s, p) {
-        inner = inner.children(pop);
-    }
+    inner = inner.children(s.kernel.overlay_dispatcher.render_layer(crate::overlays::layer::SURFACE_POPOVER, s, cx));
     inner = inner.children(s.kernel.overlay_dispatcher.render_layer(crate::overlays::layer::SWITCHER, s, cx));
     inner = inner.children(s.kernel.overlay_dispatcher.render_layer(crate::overlays::layer::MEDIA_LIGHTBOX, s, cx));
     inner = inner.children(session_view::tools::details_overlay(s, p, cx));

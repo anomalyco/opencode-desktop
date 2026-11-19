@@ -512,6 +512,23 @@ impl Feature<App> for ProjectsFeature {
             )
             .when(|s| s.active_session_id().and_then(|id| s.session(id)).is_some_and(|i| !i.project.is_empty())),
         );
+        builder.register_overlay(
+            OverlayRegistration::<App>::new(crate::view::home::browse::OVERLAY_ID)
+                .with_render(crate::overlays::layer::SURFACE_POPOVER, |s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    crate::view::home::browse::view(s, p, cx)
+                })
+                .above("overlay.add_menu")
+                .with_dismiss(crate::view::home::browse::close),
+        );
+        builder.register_overlay(
+            OverlayRegistration::<App>::new("overlay.home_projects")
+                .with_render(crate::overlays::layer::SURFACE_POPOVER, |s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    crate::view::home::home_projects_popover(s, p).into_iter().flatten().collect()
+                })
+                .above("overlay.worktree_picker"),
+        );
         builder.register_escape_layer(EscapeLayer::new(
             "escape.home_menu",
             crate::overlays::escape_band::PAGE_POPOVER,
