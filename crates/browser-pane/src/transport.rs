@@ -186,16 +186,22 @@ pub(crate) fn spawn_and_attach(engine: &Installed, sock: &Path, profile: &Path, 
             return link.set(EngineStatus::Failed(Fault::Stopped.into()));
         }
     }
+    let pid = child.id();
     link.shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::ProcessSpawned {
         generation: link.generation,
-        pid: child.id(),
+        pid,
     });
     let link = link.clone();
     std::thread::Builder::new()
         .name("opencode-browser-watch".into())
         .spawn(move || {
             let code = wait_for_end(&mut child);
+            link.shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::ProcessExited {
+                generation: link.generation,
+                pid,
+            });
             lost(&link, code);
+            drop(child);
         })
         .ok();
 }

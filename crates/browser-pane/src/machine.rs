@@ -34,12 +34,22 @@ pub(crate) enum LiveStage {
 /// Phase of the engine sidecar connection protected by [`crate::client::BrowserHost::shared`].
 ///
 /// Replaces separate `status`, `outbox`, `engine` (PID), `early`, and `conn_gen` primitives so
-/// a disconnected host cannot carry a live outbox, child PID, or unconsumed early opens, and a
-/// stale connection generation cannot overwrite a newer one.
+/// a disconnected host cannot carry a live outbox or unconsumed early opens, can retain a child
+/// PID only in `HungDetached` (until the process exits or Retry kills it), and a stale connection
+/// generation cannot overwrite a newer one.
 pub(crate) enum EnginePhase {
     /// No live outbox: absent, downloading, spawning before attach, lost/failed, shut down, or a
     /// mock preview tab (`EngineStatus::Ready` without a sidecar).
     Disconnected(EngineStatus),
+    /// Disconnected via `Shutdown` or `Unprepare` while hung, with our spawned child process still
+    /// potentially alive until its watcher reports exit (`ProcessExited`) or Retry kills it (`EndHung`).
+    #[cfg(feature = "engine")]
+    HungDetached {
+        /// Connection generation that spawned `pid`, so a stale watcher from an earlier engine
+        /// cannot clear a newer engine's PID even if the OS recycles it.
+        spawn_gen: u64,
+        pid: u32,
+    },
     /// Connected to a sidecar over its Unix socket.
     #[cfg(feature = "engine")]
     Connected {
@@ -79,6 +89,8 @@ pub(crate) enum EngineEvent {
     #[cfg(feature = "engine")]
     ProcessSpawned { generation: u64, pid: u32 },
     #[cfg(feature = "engine")]
+    ProcessExited { generation: u64, pid: u32 },
+    #[cfg(feature = "engine")]
     LinkStatus { generation: u64, status: EngineStatus },
     #[cfg(feature = "engine")]
     InstallStatus(EngineStatus),
@@ -115,6 +127,8 @@ impl SharedEngine {
         match &self.phase {
             EnginePhase::Disconnected(s) => s.clone(),
             #[cfg(feature = "engine")]
+            EnginePhase::HungDetached { .. } => EngineStatus::Failed(crate::installer::Fault::Hung.into()),
+            #[cfg(feature = "engine")]
             EnginePhase::Connected { stage, .. } => match stage {
                 LiveStage::Connecting => EngineStatus::Connecting,
                 LiveStage::Ready => EngineStatus::Ready,
@@ -128,6 +142,8 @@ impl SharedEngine {
         match &self.phase {
             EnginePhase::Disconnected(_) => false,
             #[cfg(feature = "engine")]
+            EnginePhase::HungDetached { .. } => false,
+            #[cfg(feature = "engine")]
             EnginePhase::Connected { .. } => true,
             EnginePhase::Captured { .. } => true,
         }
@@ -136,6 +152,8 @@ impl SharedEngine {
     pub(crate) fn outbox(&self) -> Option<&Sender<HostMsg>> {
         match &self.phase {
             EnginePhase::Disconnected(_) => None,
+            #[cfg(feature = "engine")]
+            EnginePhase::HungDetached { .. } => None,
             #[cfg(feature = "engine")]
             EnginePhase::Connected { outbox, .. } => Some(outbox),
             EnginePhase::Captured { outbox, .. } => Some(outbox),
@@ -151,6 +169,8 @@ impl SharedEngine {
         match &mut self.phase {
             #[cfg(feature = "engine")]
             EnginePhase::Connected { early, .. } => std::mem::take(early),
+            #[cfg(feature = "engine")]
+            EnginePhase::HungDetached { .. } => HashMap::new(),
             EnginePhase::Disconnected(_) | EnginePhase::Captured { .. } => HashMap::new(),
         }
     }
@@ -179,20 +199,44 @@ impl SharedEngine {
                     *status = EngineStatus::Ready;
                     EngineEffect::ReadyApplied
                 }
+                #[cfg(feature = "engine")]
+                EnginePhase::HungDetached { .. } => EngineEffect::None,
                 EnginePhase::Disconnected(_) => EngineEffect::None,
             },
             EngineEvent::Shutdown => {
+                #[cfg(feature = "engine")]
+                let prev_gen = self.generation;
                 self.generation = self.generation.wrapping_add(1);
-                let next = match self.status() {
-                    EngineStatus::Ready | EngineStatus::Connecting => EngineStatus::Installed,
-                    other => other,
-                };
-                let outbox = match std::mem::replace(&mut self.phase, EnginePhase::Disconnected(next)) {
+                let prev = std::mem::replace(&mut self.phase, EnginePhase::Disconnected(EngineStatus::Unsupported));
+                let (next_phase, outbox) = match prev {
                     #[cfg(feature = "engine")]
-                    EnginePhase::Connected { outbox, .. } => Some(outbox),
-                    EnginePhase::Captured { outbox, .. } => Some(outbox),
-                    EnginePhase::Disconnected(_) => None,
+                    EnginePhase::Connected { stage: LiveStage::Hung { .. }, outbox, pid: Some(pid), .. } => {
+                        (EnginePhase::HungDetached { spawn_gen: prev_gen, pid }, Some(outbox))
+                    }
+                    #[cfg(feature = "engine")]
+                    EnginePhase::Connected { stage: LiveStage::Hung { .. }, outbox, pid: None, .. } => {
+                        (EnginePhase::Disconnected(EngineStatus::Failed(crate::installer::Fault::Hung.into())), Some(outbox))
+                    }
+                    #[cfg(feature = "engine")]
+                    EnginePhase::Connected { outbox, .. } => (EnginePhase::Disconnected(EngineStatus::Installed), Some(outbox)),
+                    #[cfg(feature = "engine")]
+                    detached @ EnginePhase::HungDetached { .. } => (detached, None),
+                    EnginePhase::Captured { status, outbox } => {
+                        let next = match status {
+                            EngineStatus::Ready | EngineStatus::Connecting => EngineStatus::Installed,
+                            other => other,
+                        };
+                        (EnginePhase::Disconnected(next), Some(outbox))
+                    }
+                    EnginePhase::Disconnected(status) => {
+                        let next = match status {
+                            EngineStatus::Ready | EngineStatus::Connecting => EngineStatus::Installed,
+                            other => other,
+                        };
+                        (EnginePhase::Disconnected(next), None)
+                    }
                 };
+                self.phase = next_phase;
                 EngineEffect::Shutdown { outbox }
             }
             #[cfg(feature = "engine")]
@@ -209,6 +253,11 @@ impl SharedEngine {
                     self.phase = EnginePhase::Disconnected(EngineStatus::Failed(crate::installer::Fault::Hung.into()));
                     EngineEffect::EndHung { kill_pid }
                 }
+                EnginePhase::HungDetached { pid, .. } => {
+                    let kill_pid = Some(*pid);
+                    self.phase = EnginePhase::Disconnected(EngineStatus::Failed(crate::installer::Fault::Hung.into()));
+                    EngineEffect::EndHung { kill_pid }
+                }
                 EnginePhase::Disconnected(s) if s.is_hung() => EngineEffect::EndHung { kill_pid: None },
                 EnginePhase::Captured { status, .. } if status.is_hung() => {
                     self.phase = EnginePhase::Disconnected(EngineStatus::Failed(crate::installer::Fault::Hung.into()));
@@ -221,15 +270,27 @@ impl SharedEngine {
                 if !self.is_connected() {
                     return EngineEffect::None;
                 }
+                let prev_gen = self.generation;
                 self.generation = self.generation.wrapping_add(1);
-                let next = match self.status() {
-                    EngineStatus::Ready | EngineStatus::Connecting => EngineStatus::Installed,
-                    other => other,
+                let prev = std::mem::replace(&mut self.phase, EnginePhase::Disconnected(EngineStatus::Unsupported));
+                let (next_phase, outbox) = match prev {
+                    EnginePhase::Connected { stage: LiveStage::Hung { .. }, outbox, pid: Some(pid), .. } => {
+                        (EnginePhase::HungDetached { spawn_gen: prev_gen, pid }, Some(outbox))
+                    }
+                    EnginePhase::Connected { stage: LiveStage::Hung { .. }, outbox, pid: None, .. } => {
+                        (EnginePhase::Disconnected(EngineStatus::Failed(crate::installer::Fault::Hung.into())), Some(outbox))
+                    }
+                    EnginePhase::Connected { outbox, .. } => (EnginePhase::Disconnected(EngineStatus::Installed), Some(outbox)),
+                    EnginePhase::Captured { status, outbox } => {
+                        let next = match status {
+                            EngineStatus::Ready | EngineStatus::Connecting => EngineStatus::Installed,
+                            other => other,
+                        };
+                        (EnginePhase::Disconnected(next), Some(outbox))
+                    }
+                    detached @ (EnginePhase::Disconnected(_) | EnginePhase::HungDetached { .. }) => (detached, None),
                 };
-                let outbox = match std::mem::replace(&mut self.phase, EnginePhase::Disconnected(next)) {
-                    EnginePhase::Connected { outbox, .. } | EnginePhase::Captured { outbox, .. } => Some(outbox),
-                    EnginePhase::Disconnected(_) => None,
-                };
+                self.phase = next_phase;
                 EngineEffect::Shutdown { outbox }
             }
             #[cfg(feature = "engine")]
@@ -246,6 +307,19 @@ impl SharedEngine {
                     && let EnginePhase::Connected { pid: slot, .. } = &mut self.phase
                 {
                     *slot = Some(pid);
+                }
+                EngineEffect::None
+            }
+            #[cfg(feature = "engine")]
+            EngineEvent::ProcessExited { generation, pid } => {
+                match &mut self.phase {
+                    EnginePhase::Connected { pid: slot, .. } if self.generation == generation && *slot == Some(pid) => {
+                        *slot = None;
+                    }
+                    EnginePhase::HungDetached { spawn_gen, pid: hung_pid } if *spawn_gen == generation && *hung_pid == pid => {
+                        self.phase = EnginePhase::Disconnected(EngineStatus::Failed(crate::installer::Fault::Hung.into()));
+                    }
+                    _ => {}
                 }
                 EngineEffect::None
             }
