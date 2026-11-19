@@ -423,6 +423,10 @@ pub(crate) enum UpdateCheck {
 
 #[cfg(feature = "engine")]
 impl UpdateCheck {
+    pub(crate) fn is_pending(self) -> bool {
+        self == Self::Pending
+    }
+
     pub(crate) fn step(&mut self, has_tabs: bool, ready: bool) -> bool {
         if *self == Self::Pending && has_tabs && ready {
             *self = Self::Started;

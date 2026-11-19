@@ -95,7 +95,11 @@ impl BrowserHost {
     /// downloads beside it, quietly, for its next start. Once a run; before that page, the
     /// installer and the updater do nothing at all (no request, timer or thread).
     pub(crate) fn check_for_update_once(&mut self) {
-        if !self.update_check.step(!self.tabs.is_empty(), self.status() == EngineStatus::Ready) {
+        let has_tabs = !self.tabs.is_empty();
+        if !self.update_check.is_pending() || !has_tabs {
+            return;
+        }
+        if !self.update_check.step(has_tabs, self.status() == EngineStatus::Ready) {
             return;
         }
         self.prefetch.start(Mode::Update, self.shared.clone(), self.waker.clone());
