@@ -513,6 +513,12 @@ fn plugin_watched_stamp(app: &App) -> u64 {
         editor_focus ^= eh.finish();
     }
     editor_focus.hash(&mut h);
+    // Lazily created signals (`Store`, `Contracts`, `editor`, `Browser.Changed`) register via
+    // `RefCell` without bumping `epoch()`; hashing each plugin's signal count ensures
+    // `fire_watched` baselines new signals before their first real mutation arrives.
+    for p in &app.plugins.list {
+        (p.half.id.as_ref(), p.half.signals.borrow().len()).hash(&mut h);
+    }
     h.finish()
 }
 
