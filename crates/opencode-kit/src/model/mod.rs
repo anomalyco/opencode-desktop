@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use serde_json::Value;
 
 mod attachment;
+mod catalog;
 mod compaction;
 mod inbox;
 mod notice;
@@ -19,6 +20,7 @@ mod transcript;
 pub mod turn;
 
 pub use attachment::{Attachment, base64_decode, media_hash, parse_attachment, prompt_extras_generation, set_user_files, user_files};
+pub use catalog::{AttachmentInput, Model};
 pub(crate) use attachment::extras_changed;
 use attachment::parse_attachments;
 pub use compaction::{Compaction, CompactionStatus, background_compaction};

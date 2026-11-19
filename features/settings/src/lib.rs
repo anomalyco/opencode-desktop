@@ -26,7 +26,7 @@ use opencode_ui::popup::PopupHost;
 use rune::{Color, Direction, El, Key, KeyEvent, Shadow, TextStyle, Tx, col, row, rule, text};
 use rune_kit::Switch;
 use serde_json::{Value, json};
-use session_view::palette::{Pal, kit};
+use opencode_ui::palette::{Pal, kit};
 
 pub use host::{
     AboutInfo, CommandItem, HttpServer, PluginPageMeta, PluginSearchItem, PluginServerInfo, ProviderRow, ServerEntry, ServerKind, SettingsConfig, SettingsHost, build_channel,
@@ -62,7 +62,7 @@ pub struct Settings {
     pub auto_accept: bool,
     /// Projects whose own Auto-accept permissions overrides that default, by project id.
     pub project_auto_accept: BTreeMap<String, bool>,
-    /// Desktop's colour theme id (`session_view::themes`); `oc-2` is OpenCode's own.
+    /// Desktop's colour theme id (`opencode_ui::themes`); `oc-2` is OpenCode's own.
     pub theme: String,
     pub reduce_motion: ReduceMotion,
     /// Appearance › Text rendering: how Rune rasterises text ([`TextRenderer`]).
@@ -126,7 +126,7 @@ pub struct Settings {
     /// Preferences › Timeline: what of a turn's work shows (`general.timelineDetail`), the
     /// column (`timelineWidth`), where background work shows (`backgroundActivity`) and
     /// whether a finished turn lists its changed files (`showTurnDiffs`).
-    pub timeline_detail: session_view::detail::Detail,
+    pub timeline_detail: opencode_ui::detail::Detail,
     pub timeline_width: TimelineWidth,
     pub background_activity: BackgroundActivity,
     pub turn_diffs: bool,
@@ -145,7 +145,7 @@ impl Default for Settings {
             notify: NotifyKinds::default(),
             auto_accept: false,
             project_auto_accept: BTreeMap::new(),
-            theme: session_view::themes::DEFAULT.into(),
+            theme: opencode_ui::themes::DEFAULT.into(),
             reduce_motion: ReduceMotion::default(),
             text_renderer: TextRenderer::default(),
             terminal_font: 3,
@@ -175,7 +175,7 @@ impl Default for Settings {
             sounds: Sounds::default(),
             keybinds: BTreeMap::new(),
             keep_screen_active: false,
-            timeline_detail: session_view::detail::Detail::default(),
+            timeline_detail: opencode_ui::detail::Detail::default(),
             timeline_width: TimelineWidth::default(),
             background_activity: BackgroundActivity::default(),
             turn_diffs: false,
@@ -288,7 +288,7 @@ impl Settings {
                 .map(|m| m.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned()))).collect())
                 .unwrap_or_default(),
             keep_screen_active: v["keepScreenActive"].as_bool().unwrap_or(false),
-            timeline_detail: session_view::detail::Detail::from_json(&v["timelineDetail"]),
+            timeline_detail: opencode_ui::detail::Detail::from_json(&v["timelineDetail"]),
             timeline_width: TimelineWidth::parse(v["timelineWidth"].as_str()),
             background_activity: BackgroundActivity::parse(v["backgroundActivity"].as_str()),
             turn_diffs: v["showTurnDiffs"].as_bool().unwrap_or(false),
@@ -335,8 +335,8 @@ fn theme_id(id: &str) -> String {
     if id.contains(':') {
         return id.to_owned();
     }
-    let all = session_view::themes::all();
-    all.get(session_view::themes::index(id)).map_or_else(|| session_view::themes::DEFAULT.to_owned(), |t| t.id.clone())
+    let all = opencode_ui::themes::all();
+    all.get(opencode_ui::themes::index(id)).map_or_else(|| opencode_ui::themes::DEFAULT.to_owned(), |t| t.id.clone())
 }
 
 /// The preferences, from memory (the boot packet before the first frame): Desktop's

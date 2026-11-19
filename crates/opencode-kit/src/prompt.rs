@@ -249,3 +249,31 @@ impl Prompt {
         body
     }
 }
+
+/// Appends `Attached file:` lines for path-referenced attachments.
+pub fn path_lines(text: &str, refs: &[PathAttachment]) -> String {
+    let lines = refs.iter().map(|r| format!("Attached file: `{}`", r.path));
+    (!text.trim().is_empty())
+        .then(|| text.to_owned())
+        .into_iter()
+        .chain(lines)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Inline [`model::Attachment`]s as `PromptInput.FileAttachment` values: a `media:` ref, or the
+/// bytes themselves, shared, which go as a `data:` URL when the request is built on the write lane.
+pub fn attachment_inputs(files: &[model::Attachment]) -> Vec<FileInput> {
+    files
+        .iter()
+        .map(|f| match &f.media {
+            Some(hash) => FileInput {
+                uri: format!("media:{hash}"),
+                name: f.name.clone(),
+                mime: Some(f.mime.clone()),
+                ..Default::default()
+            },
+            None => FileInput::inline(&f.name, &f.mime, f.bytes.clone()),
+        })
+        .collect()
+}

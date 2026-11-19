@@ -4,8 +4,8 @@
 use rune::{Color, Cx, El, Icon, TextStyle, Transition, col, el, icon, row, text};
 use rune_kit::{Badge, Button, ButtonVariant, Loader};
 use rune_theme_opencode::provider_icons;
-use session_view::dialog::DialogSize;
-use session_view::palette::{Elevate as _, Pal, kit};
+use opencode_ui::dialog::DialogSize;
+use opencode_ui::palette::{Elevate as _, Pal, kit};
 
 use crate::ConnectHost;
 
@@ -66,7 +66,7 @@ pub(crate) fn provider_mark(id: &str, color: Color) -> El {
     let mark = [id, bare].into_iter().filter(|i| *i != "synthetic").find_map(provider_icons::named);
     match mark {
         Some(m) => icon(m, 16.0).color(color),
-        None => icon(&session_view::pickers::mark::CUSTOM, 16.0),
+        None => icon(&opencode_ui::provider_mark::CUSTOM, 16.0),
     }
 }
 

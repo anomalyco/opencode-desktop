@@ -19,7 +19,7 @@ use rune::{Align, El, Tx, col, el, icon, row, rule, text};
 use rune_kit::ButtonVariant;
 use rune_theme_opencode::icons as ic;
 use serde_json::Value;
-use session_view::palette::{Pal, kit};
+use opencode_ui::palette::{Pal, kit};
 
 use super::{ghost_menu_button, header_with, page_with};
 use crate::host::{HttpServer, SettingsHost};

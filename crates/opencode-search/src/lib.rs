@@ -8,6 +8,7 @@ pub mod file_rank;
 mod fold;
 pub mod fulltext;
 pub mod fuzzysort;
+pub mod model_search;
 pub mod path_index;
 pub mod query;
 mod slab;

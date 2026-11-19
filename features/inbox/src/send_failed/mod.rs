@@ -11,7 +11,7 @@ use opencode_kit::client::{PathAttachment, Prompt, Server, Write};
 use opencode_kit::model::{Attachment, Delivery, Inbox, InboxItem, Message, ModelRef, PromptComment, Transcript};
 use opencode_kit::wire_error::WireError;
 use rune::TextEdit;
-use session_view::composer::history::Entry;
+use opencode_ui::prompt_history::Entry;
 
 pub mod machine;
 pub mod outbox;

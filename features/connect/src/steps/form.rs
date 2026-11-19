@@ -5,7 +5,7 @@ use opencode_kit::integration::FieldKind;
 use rune::{El, TextEdit, Tx, col, row, text};
 use rune_kit::{ButtonVariant, Checkbox, RadioItem, TextInput};
 use rune_theme_opencode::icons as ic;
-use session_view::palette::{Pal, kit};
+use opencode_ui::palette::{Pal, kit};
 
 use super::{auth, current, input};
 use crate::form::{self, FieldError, Issue};

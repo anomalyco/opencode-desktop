@@ -16,7 +16,7 @@ use opencode_ui::popup::{self, Item, Menu, MenuButton as _, PopupHost};
 use rune::{Align, El, TextStyle, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
 use serde_json::Value;
-use session_view::palette::Pal;
+use opencode_ui::palette::Pal;
 
 pub use self::delete::{Effect, Event, Inspection, Machine, Phase, Preflight, Run, Scope, Skip, Target};
 pub use self::dialog::dialog;
@@ -512,7 +512,7 @@ pub fn relative_time(now: i64, then: i64) -> String {
         _ => {
             let (at, today) = (rune::LocalTime::at(then), rune::LocalTime::at(now));
             let style = if at.year == today.year { opencode_i18n::date::Style::MonthDay } else { opencode_i18n::date::Style::MonthDayYear };
-            opencode_i18n::date::format(style, session_view::turn_errors::moment(at))
+            opencode_i18n::date::format(style, opencode_ui::style::moment(at))
         }
     }
 }

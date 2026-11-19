@@ -10,7 +10,7 @@ use opencode_ui::widgets;
 use rune::{Align, El, Tx, row, text};
 use rune_kit::ButtonVariant;
 use rune_theme_opencode::icons as ic;
-use session_view::palette::{Pal, kit};
+use opencode_ui::palette::{Pal, kit};
 
 use super::inventory::{self, Kind};
 use crate::host::SettingsHost;

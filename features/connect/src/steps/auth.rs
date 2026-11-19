@@ -4,7 +4,7 @@
 use rune::{El, TextStyle, Tx, col, el, icon, row, spacer, text};
 use rune_kit::{ButtonVariant, TextInput};
 use rune_theme_opencode::icons as ic;
-use session_view::palette::{Pal, kit};
+use opencode_ui::palette::{Pal, kit};
 
 use super::{current, input, provider_id, step_text};
 use crate::machine::{self as conn, Event as Input, State as Conn};
@@ -320,7 +320,7 @@ pub(super) fn command<H: ConnectHost + 'static>(s: &H, p: &Pal) -> El {
         // `max-h-60 overflow-auto`: a plain box's bar (`providers/connect/dialog.tsx:751`).
         let viewport = col().w_full().max_h(240.0).px(12.0).py(8.0).radius(6.0).fill(p.layer3);
         e = e.child(
-            session_view::scroller::scroller("connect-command-output")
+            opencode_ui::scroller::scroller("connect-command-output")
                 .stick_bottom()
                 .build::<H>(p, viewport, text(output).font(MONO).color(p.text).wrap().selectable(true)),
         );

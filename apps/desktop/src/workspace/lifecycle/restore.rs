@@ -12,11 +12,10 @@ use opencode_kit::model::{Attachment, PromptComment, Transcript};
 use opencode_servers::tabs::{ClosedTab, WindowDoc};
 use opencode_kit::servers::{ServerKey, TabKey};
 use opencode_storage::{FlushReason, Lookup, Storage};
+use opencode_ui::composer_mode::Mode;
+use opencode_ui::scroller::Place;
 use rune::{TextEdit, Tx};
 use serde_json::{Map, Value};
-use session_view::composer::mode::Mode;
-use session_view::disclosure::Disclosures;
-use session_view::jump::Ends;
 
 use crate::{App, Route};
 
@@ -387,20 +386,44 @@ impl RestoreHost for App {
         self.transcripts.insert(id, transcript);
     }
 
-    fn expanded(&self) -> &Disclosures {
-        &self.timeline_fx.expanded
+    fn restore_expanded(&mut self, touched: Vec<(String, bool)>) {
+        self.timeline_fx.expanded.restore(touched);
     }
 
-    fn expanded_mut(&mut self) -> &mut Disclosures {
-        &mut self.timeline_fx.expanded
+    fn touched_expanded(&self) -> Vec<(String, bool)> {
+        self.timeline_fx.expanded.touched().map(|(k, v)| (k.clone(), v)).collect()
     }
 
-    fn ends(&self) -> &Ends {
-        &self.timeline_fx.ends
+    fn restore_places(&mut self, places: Vec<Place>) {
+        self.timeline_fx.ends.restore(places);
     }
 
-    fn ends_mut(&mut self) -> &mut Ends {
-        &mut self.timeline_fx.ends
+    fn reopen_place(&mut self, id: &str) {
+        self.timeline_fx.ends.reopen(id);
+    }
+
+    fn place_due(&self, id: &str) -> bool {
+        self.timeline_fx.ends.due(id)
+    }
+
+    fn place_due_row(&self, id: &str) -> Option<&str> {
+        self.timeline_fx.ends.due_row(id)
+    }
+
+    fn land_place(&mut self, id: &str, tx: &mut Tx) {
+        self.timeline_fx.ends.land(id, tx);
+    }
+
+    fn wait_place(&mut self, id: &str, now: f64) -> bool {
+        self.timeline_fx.ends.wait(id, now)
+    }
+
+    fn timeline_place(&self, id: &str) -> Option<(String, f32)> {
+        self.timeline_fx.ends.place(id)
+    }
+
+    fn timeline_places(&self, sessions: &[&str]) -> Vec<Place> {
+        self.timeline_fx.ends.places(sessions.iter().copied())
     }
 
     fn timeline_has_row(&self, id: &str, row: &str) -> bool {

@@ -7,7 +7,7 @@ use opencode_kit::path;
 use opencode_ui::widgets::{self, DialogSize, Fit, dialog_window, sized};
 use rune::{Color, Cx, El, TextStyle, Tx, col, el, row, spacer, text};
 use rune_kit::ButtonVariant;
-use session_view::palette::{Elevate as _, Pal, kit};
+use opencode_ui::palette::{Elevate as _, Pal, kit};
 
 use super::delete::{Event, Phase, Scope};
 use super::{dispatch, messages};
@@ -102,7 +102,7 @@ pub fn dialog<H: SettingsHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> Vec<El> 
         .build(k)
         .key("worktree-delete-confirm");
     let delete = if p.dark && p.theme == 0 && can_delete {
-        delete.fill(session_view::dock::flat(Color::WHITE.alpha(0.06), p.layer1))
+        delete.fill(opencode_ui::palette::flat(Color::WHITE.alpha(0.06), p.layer1))
     } else {
         delete
     };

@@ -18,8 +18,8 @@ use opencode_kit::wire_error::WireError;
 use opencode_ui::keymap::Section as KeymapSection;
 use rune::{Chord, El, Icon, Tx, el, icon};
 use rune_theme_opencode::icons as ic;
-use session_view::palette::Pal;
-use session_view::pickers::Model;
+use opencode_ui::palette::Pal;
+use opencode_kit::model::Model;
 
 use crate::Settings;
 use crate::jobs::SettingsJob;
@@ -244,9 +244,9 @@ pub trait SettingsHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback +
     }
     fn set_theme(&mut self, id: &str, tx: &mut Tx) {
         tx.instant();
-        let all = session_view::themes::all();
-        let resolved = all.get(session_view::themes::index(id)).map_or_else(|| session_view::themes::DEFAULT.to_owned(), |t| t.id.clone());
-        session_view::themes::set_active(&resolved);
+        let all = opencode_ui::themes::all();
+        let resolved = all.get(opencode_ui::themes::index(id)).map_or_else(|| opencode_ui::themes::DEFAULT.to_owned(), |t| t.id.clone());
+        opencode_ui::themes::set_active(&resolved);
         let before = self.settings().to_json();
         self.settings_mut().theme = resolved;
         crate::persist_settings_diff(self.persists(), &before, self.settings());

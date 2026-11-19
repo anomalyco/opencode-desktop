@@ -12,7 +12,7 @@ use rune::Tx;
 
 use crate::{MentionsHost, title_of};
 
-pub use session_view::user_parts::{
+pub use opencode_kit::mention::{
     mention_bubble as bubble, mention_kind_of as kind_of,
 };
 
