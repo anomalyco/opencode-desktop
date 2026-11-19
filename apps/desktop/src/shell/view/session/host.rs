@@ -47,7 +47,7 @@ impl session_view::TimelineHost for App {
         crate::status_toast::fail(self, opencode_i18n::t!("common.requestFailed"), reason);
     }
     fn output_save_reporter(&mut self) -> Box<dyn FnOnce(String) + Send> {
-        let (send, _) = self.kernel.slots.slot::<crate::app::OutputErrors>().0.get_or_insert_with(std::sync::mpsc::channel);
+        let (send, _) = self.kernel.slots.get_mut(&crate::app::OUTPUT_ERRORS).0.get_or_insert_with(std::sync::mpsc::channel);
         let (send, wake) = (send.clone(), self.waker.as_ref().cloned());
         Box::new(move |why| { if send.send(why).is_ok() && let Some(wake) = wake { wake(); } })
     }

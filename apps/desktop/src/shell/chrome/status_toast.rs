@@ -98,11 +98,11 @@ impl ToastHost for App {
     }
 
     fn announce(&mut self, words: String, region: LiveRegion) {
-        self.kernel.slots.slot::<crate::speech::Speech>().say(words, region);
+        self.kernel.slots.get_mut(&crate::speech::SPEECH).say(words, region);
     }
 
     fn announce_urgent(&mut self) {
-        self.kernel.slots.slot::<crate::speech::Speech>().urgent();
+        self.kernel.slots.get_mut(&crate::speech::SPEECH).urgent();
     }
 
     fn on_focus_taken(&mut self) {
@@ -240,7 +240,7 @@ pub fn crash_notice(
         },
         None,
     );
-    s.kernel.slots.slot::<crate::speech::Speech>().urgent();
+    s.kernel.slots.get_mut(&crate::speech::SPEECH).urgent();
     id
 }
 

@@ -16,10 +16,13 @@ impl App {
     /// whose parents the app holds up to `id` (`resolveRoot`); read once per frame for every
     /// session, so it walks the list a level at a time instead of each session up its parents.
     pub fn session_cost(&self, id: &str) -> f64 {
-        if self.sessions.len() >= 512
-            && let Some(cat) = self.kernel.slots.get::<crate::session_catalog::Catalog>()
-        {
-            return cat.lookup(&self.sessions, id).map_or(0.0, |(_, cost)| cost);
+        if self.sessions.len() >= 512 {
+            return self
+                .kernel
+                .slots
+                .untracked(&crate::session_catalog::CATALOG)
+                .lookup(&self.sessions, id)
+                .map_or(0.0, |(_, cost)| cost);
         }
         let Some(info) = self.session(id) else { return 0.0 };
         if info.parent.is_some() {

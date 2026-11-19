@@ -31,7 +31,7 @@ pub use overlay::{
     OverlayRegistration, OverlayRenderFn, OverlayStack, OverlayState,
 };
 pub use scheduler::{CloseFn, LifecycleScheduler, Phase, RestFn, SetupFn, SystemFn, VisibilityFn};
-pub use slots::StateSlots;
+pub use slots::{Slot, StateSlots};
 
 /// Shell kernel uniting every decoupling registry for host state `S`.
 pub struct Kernel<S> {
@@ -220,9 +220,15 @@ impl<S> KernelBuilder<S> {
         self
     }
 
-    /// Seeds a typed state slot before the window starts.
-    pub fn insert_slot<T: 'static>(&mut self, val: T) -> &mut Self {
-        self.kernel.slots.insert(val);
+    /// Registers a tracked state slot seeded with `T::default()` before the window starts.
+    pub fn register_slot<T: Default + 'static>(&mut self, slot: &'static Slot<T>) -> &mut Self {
+        self.kernel.slots.insert(slot, T::default());
+        self
+    }
+
+    /// Registers a tracked state slot seeded with `val` before the window starts.
+    pub fn register_slot_with<T: 'static>(&mut self, slot: &'static Slot<T>, val: T) -> &mut Self {
+        self.kernel.slots.insert(slot, val);
         self
     }
 

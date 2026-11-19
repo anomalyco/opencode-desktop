@@ -4,9 +4,9 @@ pub use opencode_feature_restore::*;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 
-use opencode_kernel::{Feature, KernelBuilder};
+use opencode_kernel::{Feature, KernelBuilder, Slot};
 use opencode_kit::client::PathAttachment;
 use opencode_kit::model::{Attachment, PromptComment, Transcript};
 use opencode_kit::servers::tabs::{ClosedTab, WindowDoc};
@@ -20,7 +20,7 @@ use session_view::jump::Ends;
 
 use crate::{App, Route};
 
-static EMPTY_PLACES: LazyLock<places::Kept> = LazyLock::new(places::Kept::default);
+static KEPT_PLACES: Slot<places::Kept> = Slot::new();
 
 /// The draft key for a desktop [`Route`]: a session's id, or a draft tab's.
 pub fn draft_key(route: &Route) -> Option<String> {
@@ -56,11 +56,11 @@ impl RestoreHost for App {
     }
 
     fn kept_places(&self) -> &places::Kept {
-        self.kernel.slots.get::<places::Kept>().unwrap_or(&EMPTY_PLACES)
+        self.kernel.slots.get(&KEPT_PLACES)
     }
 
     fn kept_places_mut(&mut self) -> &mut places::Kept {
-        self.kernel.slots.slot::<places::Kept>()
+        self.kernel.slots.get_mut(&KEPT_PLACES)
     }
 
     fn window_id(&self) -> &str {
@@ -543,7 +543,7 @@ impl RestoreHost for App {
 
     fn note_skipped_restore(&mut self, server: ServerKey, session_id: String, title: String) {
         crate::crash_notice::note_skipped(
-            self.kernel.slots.slot::<crate::crash_notice::State>(),
+            self.kernel.slots.get_mut(&crate::crash_notice::CRASH_NOTICE),
             server,
             session_id,
             title,
@@ -695,5 +695,7 @@ impl Feature<App> for RestoreFeature {
         "feature.restore"
     }
 
-    fn register(&self, _builder: &mut KernelBuilder<App>) {}
+    fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder.register_slot(&KEPT_PLACES);
+    }
 }

@@ -185,10 +185,15 @@ pub fn build() -> Kernel<App> {
         SurfaceDescriptor::new("browser", SurfaceKind::Browser, "Browser")
             .with_multi_instance(true),
     );
-    let mut kernel = b.build();
-    kernel.slots.insert(crate::app::ViewRuns::default());
-    kernel.slots.insert(crate::session_catalog::Catalog::default());
-    kernel
+    b.register_slot(&crate::app::VIEW_RUNS)
+        .register_slot(&crate::app::OUTPUT_ERRORS)
+        .register_slot(&crate::session_catalog::CATALOG)
+        .register_slot(&crate::events::TAIL_CHANGE)
+        .register_slot(&crate::events::STREAM_GAPS)
+        .register_slot(&crate::speech::SPEECH)
+        .register_slot(&crate::crash_notice::CRASH_NOTICE)
+        .register_slot(&crate::servers::dialog::DIALOG);
+    b.build()
 }
 
 /// Core shell and subsystem lifecycle polls registered at explicit `tick::order` positions so
@@ -296,8 +301,9 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
         while let Some(why) = s
             .kernel
             .slots
-            .get::<crate::app::OutputErrors>()
-            .and_then(|e| e.0.as_ref())
+            .untracked(&crate::app::OUTPUT_ERRORS)
+            .0
+            .as_ref()
             .and_then(|(_, rx)| rx.try_recv().ok())
         {
             crate::status_toast::fail(s, opencode_i18n::t!("common.requestFailed"), why);

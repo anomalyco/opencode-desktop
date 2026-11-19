@@ -77,6 +77,8 @@ pub struct Speech {
     mode: Mode,
 }
 
+pub(crate) static SPEECH: opencode_kernel::Slot<Speech> = opencode_kernel::Slot::new();
+
 #[derive(Debug, Default)]
 enum Mode {
     #[default]
@@ -324,7 +326,7 @@ pub fn step(turn: Turn, heard: Heard) -> (Turn, Option<Say>) {
 pub fn event(app: &mut App, ty: &str, data: &Value, sid: &str) {
     if matches!(ty, "permission.asked" | "form.created") && open_root(app).is_some_and(|r| r == app.root_of(sid)) {
         let key = if ty == "permission.asked" { session_view::dock::permission::PERMISSION_FOCUS } else { "q-opt-0" };
-        app.kernel.slots.slot::<Speech>().focus_dock = Some(key);
+        app.kernel.slots.get_mut(&SPEECH).focus_dock = Some(key);
     }
     if !listening(app) {
         return;
@@ -333,7 +335,7 @@ pub fn event(app: &mut App, ty: &str, data: &Value, sid: &str) {
         eprintln!("speech: {ty} session {sid:?} open {:?}", open_root(app));
     }
     let Some(heard) = hear(app, ty, data, sid) else { return };
-    if let Mode::Listening(l) = &mut app.kernel.slots.slot::<Speech>().mode {
+    if let Mode::Listening(l) = &mut app.kernel.slots.get_mut(&SPEECH).mode {
         let (turn, say) = step(std::mem::take(&mut l.turn), heard);
         l.turn = turn;
         l.queued.extend(say);
@@ -351,14 +353,15 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
 
 /// Whether an assistive client read the window at the last poll.
 pub fn listening(app: &App) -> bool {
-    app.kernel.slots.get::<Speech>().is_some_and(|sp| matches!(sp.mode, Mode::Listening(_)))
+    matches!(app.kernel.slots.get(&SPEECH).mode, Mode::Listening(_))
 }
 
 fn poll_inner(app: &mut App, tx: &mut Tx) {
     // The dock is built with the next commit, or once a covered window builds again; focus
     // waits for its card however long that or its motion takes, and goes to it only from the
     // prompt it replaces or from nowhere.
-    if let Some(key) = app.kernel.slots.slot::<Speech>().focus_dock.take()
+    if app.kernel.slots.untracked(&SPEECH).focus_dock.is_some()
+        && let Some(key) = app.kernel.slots.get_mut(&SPEECH).focus_dock.take()
         && matches!(tx.focused(), None | Some("prompt"))
     {
         tx.focus_when_shown(key, tx.focus_visible());
@@ -366,13 +369,13 @@ fn poll_inner(app: &mut App, tx: &mut Tx) {
     let is_listening = tx.assistive_technology();
     if !is_listening {
         if listening(app) {
-            app.kernel.slots.slot::<Speech>().mode.step(ModeEvent::Assistive(false));
+            app.kernel.slots.get_mut(&SPEECH).mode.step(ModeEvent::Assistive(false));
         }
         return;
     }
-    app.kernel.slots.slot::<Speech>().mode.step(ModeEvent::Assistive(true));
+    app.kernel.slots.get_mut(&SPEECH).mode.step(ModeEvent::Assistive(true));
     let shown = dock_request(app);
-    if let Mode::Listening(l) = &mut app.kernel.slots.slot::<Speech>().mode
+    if let Mode::Listening(l) = &mut app.kernel.slots.get_mut(&SPEECH).mode
         && shown.as_ref().map(|(id, _, _)| id) != l.dock.as_ref()
     {
         if let Some((_, words, focus)) = &shown {
@@ -384,7 +387,7 @@ fn poll_inner(app: &mut App, tx: &mut Tx) {
         l.dock = shown.map(|(id, _, _)| id);
     }
     terminal_output(app, tx);
-    let queued = match &mut app.kernel.slots.slot::<Speech>().mode {
+    let queued = match &mut app.kernel.slots.get_mut(&SPEECH).mode {
         Mode::Listening(l) => std::mem::take(&mut l.queued),
         Mode::Silent => Vec::new(),
     };
@@ -396,7 +399,7 @@ fn poll_inner(app: &mut App, tx: &mut Tx) {
         }
         tx.announce(words, how);
     }
-    if let Mode::Listening(l) = &mut app.kernel.slots.slot::<Speech>().mode {
+    if let Mode::Listening(l) = &mut app.kernel.slots.get_mut(&SPEECH).mode {
         l.in_prompt = tx.focused().is_none_or(|k| k == "prompt");
     }
 }
@@ -409,14 +412,14 @@ fn poll_inner(app: &mut App, tx: &mut Tx) {
 fn terminal_output(app: &mut App, tx: &mut Tx) {
     let focused = tx.focused() == Some(crate::terminal::grid::SCREEN_KEY);
     let Some((wk, id)) = app.terminal_focus().filter(|_| focused) else {
-        if let Mode::Listening(l) = &mut app.kernel.slots.slot::<Speech>().mode {
+        if let Mode::Listening(l) = &mut app.kernel.slots.get_mut(&SPEECH).mode {
             l.terminal.step(OutputEvent::Blurred);
         }
         return;
     };
     let Some(snap) = app.workspace_panes.terminal.workspaces.get(&wk).and_then(|ws| ws.tabs.iter().find(|t| t.id == id)).map(|t| t.session.snapshot()) else { return };
     let now = *app.clock;
-    if let Mode::Listening(l) = &mut app.kernel.slots.slot::<Speech>().mode {
+    if let Mode::Listening(l) = &mut app.kernel.slots.get_mut(&SPEECH).mode {
         match l.terminal.step(OutputEvent::Poll { terminal: (wk, id), snap: &snap, now }) {
             Some(OutputEffect::WakeAt(at)) => tx.wake_at(at),
             Some(OutputEffect::Say(words)) => l.queued.push(Say { words, how: LiveRegion::Polite }),
@@ -433,7 +436,7 @@ pub fn terminal_key(app: &mut App, wk: &str, id: &str) {
     }
     let Some(snap) = app.workspace_panes.terminal.workspaces.get(wk).and_then(|ws| ws.tabs.iter().find(|t| t.id == id)).map(|t| t.session.snapshot()) else { return };
     let cursor_row = snap.screen_rows.get(usize::from(snap.cursor.row)).map(|r| r.id);
-    if let Mode::Listening(l) = &mut app.kernel.slots.slot::<Speech>().mode {
+    if let Mode::Listening(l) = &mut app.kernel.slots.get_mut(&SPEECH).mode {
         l.terminal.step(OutputEvent::Key { wk, id, cursor_row });
     }
 }
@@ -475,7 +478,7 @@ fn hear(app: &App, ty: &str, data: &Value, sid: &str) -> Option<Heard> {
         }
         "session.tool.called" if open => {
             let id = data["id"].as_str().unwrap_or("");
-            let name = data["name"].as_str().or_else(|| app.kernel.slots.get::<Speech>().and_then(|sp| sp.tool_name(sid, id)))?;
+            let name = data["name"].as_str().or_else(|| app.kernel.slots.untracked(&SPEECH).tool_name(sid, id))?;
             Heard::Tool { session, step: crate::agent_rows::step_of(name, &data["input"]), now: *app.clock }
         }
         "session.execution.succeeded" if open => Heard::Succeeded { session, reply: first_sentence(app, sid) },

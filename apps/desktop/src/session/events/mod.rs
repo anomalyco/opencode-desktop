@@ -129,11 +129,15 @@ pub(crate) enum TailChange {
     Page,
 }
 
+pub(crate) static TAIL_CHANGE: opencode_kernel::Slot<TailChange> = opencode_kernel::Slot::new();
+
 /// Each session's assistant steps that were open when its event stream dropped: their text grows
 /// again only from whole text (`Transcript::apply_caught`, the catching-up barrier). Stored in
 /// `App::kernel.slots`.
 #[derive(Default)]
 pub(crate) struct StreamGaps(pub(crate) HashMap<String, HashSet<String>>);
+
+pub(crate) static STREAM_GAPS: opencode_kernel::Slot<StreamGaps> = opencode_kernel::Slot::new();
 
 pub struct StreamEvent {
     pub ty: String,
@@ -222,7 +226,7 @@ impl App {
 
     pub(crate) fn react_live(&mut self, e: &StreamEvent) -> bool {
         let ty = e.ty.as_str();
-        if !matches!(self.kernel.slots.get::<TailChange>(), Some(TailChange::Page))
+        if !matches!(self.kernel.slots.untracked(&TAIL_CHANGE), TailChange::Page)
             && let Some(id) = e.data["sessionID"].as_str()
             && self.showing_here(id)
         {
@@ -236,10 +240,10 @@ impl App {
                 && (ty.starts_with("session.text.") || ty.starts_with("session.reasoning.") || ty.starts_with("session.tool.")
                     || matches!(ty, "session.synthetic" | "session.user.message" | "session.prompted" | "session.inbox.delivered")
                     || (ty == "session.inbox.enqueued" && self.waiting_finish(id, &e.data)));
-            let is_none = !matches!(self.kernel.slots.get::<TailChange>(), Some(TailChange::Live { .. } | TailChange::Page));
+            let is_none = !matches!(self.kernel.slots.untracked(&TAIL_CHANGE), TailChange::Live { .. } | TailChange::Page);
             if from.is_some() || (live && is_none) {
                 let route = (*self.route).clone();
-                *self.kernel.slots.slot::<TailChange>() = TailChange::Live { route, from };
+                *self.kernel.slots.get_mut(&TAIL_CHANGE) = TailChange::Live { route, from };
             }
         }
         self.react(e)
@@ -259,13 +263,13 @@ impl App {
     }
 
     pub(crate) fn tail_page(&mut self, sid: &str) {
-        if self.showing_here(sid) { *self.kernel.slots.slot::<TailChange>() = TailChange::Page; }
+        if self.showing_here(sid) { *self.kernel.slots.get_mut(&TAIL_CHANGE) = TailChange::Page; }
     }
 
     pub(crate) fn finish_tail_change(&mut self, tx: &mut Tx) {
-        let Some(TailChange::Live { route, from }) = self.kernel.slots.get_mut::<TailChange>().map(std::mem::take) else { return };
+        let TailChange::Live { route, from } = std::mem::take(self.kernel.slots.get_mut(&TAIL_CHANGE)) else { return };
         let Route::Session { id, .. } = &route else { return };
-        let has_gap = self.kernel.slots.get::<StreamGaps>().is_some_and(|g| g.0.contains_key(id));
+        let has_gap = self.kernel.slots.untracked(&STREAM_GAPS).0.contains_key(id);
         if *self.route != route || !self.timeline_fx.ends.at_end(id) || self.timeline_fx.ends.due(id) || has_gap { return; }
         let stack = format!("scroll-{id}/timeline");
         if !session_view::TimelineHost::smooth_timeline(self) {
@@ -296,9 +300,9 @@ impl App {
         }
         let len = self.transcripts.get(&sid).map_or(0, |t| t.messages.len());
         if let Some(t) = self.transcript_edits.get_mut(&mut self.transcripts, &sid) {
-            let (changed, reread) = if let Some(gaps) = self.kernel.slots.get_mut::<StreamGaps>()
-                && let Some(gapped) = gaps.0.get_mut(&sid)
-            {
+            let (changed, reread) = if self.kernel.slots.untracked(&STREAM_GAPS).0.contains_key(&sid) {
+                let gaps = self.kernel.slots.get_mut(&STREAM_GAPS);
+                let Some(gapped) = gaps.0.get_mut(&sid) else { unreachable!("checked contains_key") };
                 let res = t.apply_caught(ty, data, now, gapped);
                 if gapped.is_empty() {
                     gaps.0.remove(&sid);

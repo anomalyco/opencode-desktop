@@ -41,10 +41,14 @@ pub enum Source {
 #[derive(Default)]
 pub(crate) struct OutputErrors(pub(crate) Option<(Sender<String>, Receiver<String>)>);
 
+pub(crate) static OUTPUT_ERRORS: opencode_kernel::Slot<OutputErrors> = opencode_kernel::Slot::new();
+
 /// Kernel state slot counting how many times the root view has run; compared against `PolledRuns`
 /// in `tick.rs` so polls know whether derived state may have moved.
 #[derive(Default)]
 pub(crate) struct ViewRuns(pub(crate) std::cell::Cell<u64>);
+
+pub(crate) static VIEW_RUNS: opencode_kernel::Slot<ViewRuns> = opencode_kernel::Slot::new();
 
 #[derive(Default)]
 pub struct App {
@@ -226,11 +230,11 @@ impl App {
     }
 
     pub(crate) fn view_runs(&self) -> u64 {
-        self.kernel.slots.get::<ViewRuns>().map_or(0, |r| r.0.get())
+        self.kernel.slots.try_untracked(&VIEW_RUNS).map_or(0, |r| r.0.get())
     }
 
     pub(crate) fn bump_view_runs(&self) {
-        if let Some(r) = self.kernel.slots.get::<ViewRuns>() {
+        if let Some(r) = self.kernel.slots.try_untracked(&VIEW_RUNS) {
             r.0.set(r.0.get().wrapping_add(1));
         }
     }
@@ -541,10 +545,13 @@ impl App {
     }
 
     pub fn session(&self, id: &str) -> Option<&SessionInfo> {
-        if self.sessions.len() >= 512
-            && let Some(cat) = self.kernel.slots.get::<session_catalog::Catalog>()
-        {
-            return cat.lookup(&self.sessions, id).map(|(i, _)| &self.sessions[i]);
+        if self.sessions.len() >= 512 {
+            return self
+                .kernel
+                .slots
+                .untracked(&session_catalog::CATALOG)
+                .lookup(&self.sessions, id)
+                .map(|(i, _)| &self.sessions[i]);
         }
         self.sessions.iter().find(|s| s.id == id)
     }

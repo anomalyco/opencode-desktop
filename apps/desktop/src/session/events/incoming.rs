@@ -190,7 +190,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             let t = s.transcripts.entry(session.clone()).or_insert_with(|| Transcript { session: session.clone(), messages: vec![] });
             attachments::reconcile(&mut s.composer_ext.attach.echoes, t, &messages);
             let delivered: Vec<String> = messages.iter().map(|m| m.id().to_owned()).collect();
-            match s.kernel.slots.get_mut::<crate::events::StreamGaps>().and_then(|g| g.0.get_mut(&session)) {
+            match s.kernel.slots.get_mut(&crate::events::STREAM_GAPS).0.get_mut(&session) {
                 Some(gapped) => t.merge_caught(messages, gapped),
                 None => t.merge(messages),
             }

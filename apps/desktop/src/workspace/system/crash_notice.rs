@@ -116,17 +116,19 @@ pub fn step(state: &mut State, event: Event) -> Option<Effect> {
     }
 }
 
+pub(crate) static CRASH_NOTICE: opencode_kernel::Slot<State> = opencode_kernel::Slot::new();
+
 pub fn note_skipped(state: &mut State, server: ServerKey, id: String, title: String) {
     let _ = step(state, Event::SkippedOnRestore(SkippedSession { server, id, title }));
 }
 
 pub fn toast_closed(s: &mut App, id: u64) {
-    let _ = step(s.kernel.slots.slot::<State>(), Event::ToastClosed { id });
+    let _ = step(s.kernel.slots.get_mut(&CRASH_NOTICE), Event::ToastClosed { id });
 }
 
 pub fn open_anyway(s: &mut App, id: u64, tx: &mut Tx) {
     if let Some(Effect::OpenSession { server, id: sid, toast_id }) =
-        step(s.kernel.slots.slot::<State>(), Event::OpenAnyway { id })
+        step(s.kernel.slots.get_mut(&CRASH_NOTICE), Event::OpenAnyway { id })
     {
         crate::status_toast::dismiss_id(s, toast_id);
         crate::servers::runtime::switch(s, &server);
@@ -135,20 +137,20 @@ pub fn open_anyway(s: &mut App, id: u64, tx: &mut Tx) {
 }
 
 pub fn poll(s: &mut App) -> bool {
-    if !matches!(s.kernel.slots.get::<State>(), None | Some(State::Waiting | State::WaitingSkipped(_))) {
+    if !matches!(s.kernel.slots.untracked(&CRASH_NOTICE), State::Waiting | State::WaitingSkipped(_)) {
         return false;
     }
     if !crate::storage::is_ready() {
         return false;
     }
-    let missing_title = match s.kernel.slots.get::<State>() {
-        Some(State::WaitingSkipped(sk)) if sk.title.trim().is_empty() => Some((sk.server.clone(), sk.id.clone())),
+    let missing_title = match s.kernel.slots.untracked(&CRASH_NOTICE) {
+        State::WaitingSkipped(sk) if sk.title.trim().is_empty() => Some((sk.server.clone(), sk.id.clone())),
         _ => None,
     };
     if let Some((server, id)) = missing_title {
         match lookup_session_title(s, &server, &id) {
             Some(found) => {
-                if let State::WaitingSkipped(sk) = s.kernel.slots.slot::<State>() {
+                if let State::WaitingSkipped(sk) = s.kernel.slots.get_mut(&CRASH_NOTICE) {
                     sk.title = found;
                 }
             }
@@ -163,7 +165,7 @@ pub fn poll(s: &mut App) -> bool {
     };
     let restored = crate::storage::drafts_replayed() && !s.tabs.is_empty();
     let Some(Effect::Show { reason, restored, skipped }) =
-        step(s.kernel.slots.slot::<State>(), Event::Outcome { previous, restored })
+        step(s.kernel.slots.get_mut(&CRASH_NOTICE), Event::Outcome { previous, restored })
     else {
         return false;
     };
@@ -190,7 +192,7 @@ pub fn poll(s: &mut App) -> bool {
         vec![NativeButton::ExportLogs]
     };
     let id = crate::status_toast::crash_notice(s, title, description, restored_line, buttons);
-    let _ = step(s.kernel.slots.slot::<State>(), Event::ToastBound { id });
+    let _ = step(s.kernel.slots.get_mut(&CRASH_NOTICE), Event::ToastBound { id });
     true
 }
 
