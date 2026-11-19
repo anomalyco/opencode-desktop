@@ -123,17 +123,95 @@ pub enum Notice {
     NotSaving { full: bool, why: String },
 }
 
-/// The notice owed to the windows, and whether the first frame showed a held file's stand-in.
-struct Told {
-    owed: Option<Notice>,
-    held: bool,
-    /// Whether an existing draft journal from the previous run attached and replayed cleanly.
-    drafts_replayed: bool,
-    /// Whether the windows were last told writes fail (and of which kind: the disk full or not).
-    failing: Option<bool>,
+/// Hand-over of a boot-time storage notice (and whether drafts replayed) to the first window.
+enum BootNotice {
+    /// Before stage B adopts, and the boot packet was not held.
+    Booting,
+    /// The first frame showed a held file's stand-in; its notice has not been taken yet.
+    HeldOwed(Notice),
+    /// The first frame showed a held file's stand-in; its notice was already taken.
+    HeldTold,
+    /// Stage B adopted and owes the first window one notice (never coincides with replayed drafts).
+    Owed(Notice),
+    /// Stage B adopted with no boot notice left; no existing draft journal replayed.
+    Settled,
+    /// Stage B adopted cleanly after replaying an existing draft journal; no boot notice owed.
+    DraftsReplayed,
 }
 
-static TOLD: Mutex<Told> = Mutex::new(Told { owed: None, held: false, drafts_replayed: false, failing: None });
+enum BootNoticeEvent {
+    Held(Notice),
+    Adopted { opened: Opened, held_by_another_copy: bool },
+    Take,
+}
+
+impl BootNotice {
+    fn drafts_replayed(&self) -> bool { matches!(self, Self::DraftsReplayed) }
+
+    fn step(&mut self, event: BootNoticeEvent) -> Option<Notice> {
+        match (std::mem::replace(self, Self::Settled), event) {
+            (Self::Booting, BootNoticeEvent::Held(notice)) => { *self = Self::HeldOwed(notice); None }
+            (Self::Booting, BootNoticeEvent::Adopted { opened, .. }) => {
+                *self = match opened {
+                    Opened::Memory(why) => Self::Owed(Notice::Memory(why)),
+                    Opened::InUse => Self::Owed(Notice::InUse),
+                    Opened::Fresh(kept) => Self::Owed(Notice::Damaged(kept.display().to_string())),
+                    Opened::Saving { drafts_replayed: true } => Self::DraftsReplayed,
+                    Opened::Saving { drafts_replayed: false } => Self::Settled,
+                };
+                None
+            }
+            (held @ (Self::HeldOwed(_) | Self::HeldTold), BootNoticeEvent::Adopted { opened, held_by_another_copy }) => {
+                let kept_notice = match held { Self::HeldOwed(n) => Some(n), _ => None };
+                *self = match opened {
+                    // Held for another copy finishing a save ("OpenCode is finishing a save"), and the file
+                    // changed under it: now it says this window won't save.
+                    Opened::Memory(_) if held_by_another_copy => Self::Owed(Notice::InUse),
+                    // The first frame's notice already says nothing is saved.
+                    Opened::Memory(_) => kept_notice.map_or(Self::Settled, Self::Owed),
+                    // In its own words, over a held frame's notice that blames another program.
+                    Opened::InUse => Self::Owed(Notice::InUse),
+                    Opened::Fresh(kept) => Self::Owed(Notice::Damaged(kept.display().to_string())),
+                    Opened::Saving { .. } => Self::Owed(Notice::Saving),
+                };
+                None
+            }
+            (Self::HeldOwed(n), BootNoticeEvent::Take) => { *self = Self::HeldTold; Some(n) }
+            (Self::Owed(n), BootNoticeEvent::Take) => { *self = Self::Settled; Some(n) }
+            (state, _) => { *self = state; None }
+        }
+    }
+}
+
+/// What the windows were last told about ongoing database writes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WriteStatus { Saving, Failed, DiskFull }
+
+impl WriteStatus {
+    fn step(&mut self, trouble: Option<opencode_storage::WriteTrouble>) -> Option<Notice> {
+        let next = match &trouble {
+            None => Self::Saving,
+            Some(opencode_storage::WriteTrouble::Failed(_)) => Self::Failed,
+            Some(opencode_storage::WriteTrouble::DiskFull) => Self::DiskFull,
+        };
+        if next == *self { return None; }
+        let was = std::mem::replace(self, next);
+        match trouble {
+            Some(opencode_storage::WriteTrouble::DiskFull) => Some(Notice::NotSaving { full: true, why: String::new() }),
+            Some(opencode_storage::WriteTrouble::Failed(why)) => Some(Notice::NotSaving { full: false, why }),
+            None if was != Self::Saving => Some(Notice::Saving),
+            None => None,
+        }
+    }
+}
+
+/// The boot-time notice hand-over and ongoing write status owed to the windows.
+struct Told {
+    boot: BootNotice,
+    writes: WriteStatus,
+}
+
+static TOLD: Mutex<Told> = Mutex::new(Told { boot: BootNotice::Booting, writes: WriteStatus::Saving });
 
 fn told() -> MutexGuard<'static, Told> {
     TOLD.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -151,13 +229,12 @@ fn step(phase: Phase, event: Event) -> (Phase, Option<Effect>) {
             // The UI thread holds the boot packet (it waited for it here, if it had to).
             rune::marks::mark("storage.boot");
             if boot.source.held() {
-                let mut t = told();
-                t.held = true;
-                t.owed = Some(match boot.source {
+                let notice = match boot.source {
                     opencode_storage::BootSource::Checkpoint | opencode_storage::BootSource::Denied if opencode_storage::held_by_another_copy() => Notice::Waiting,
                     opencode_storage::BootSource::Checkpoint => Notice::Checkpoint,
                     _ => Notice::FirstRun,
-                });
+                };
+                told().boot.step(BootNoticeEvent::Held(notice));
             }
             (Phase::Booted { boot, opening, queued: Queued::default() }, None)
         }
@@ -242,22 +319,9 @@ fn send(event: Event) {
         let (next, mut effect) = step(phase, event);
         // Before the lock goes: a window that sees the storage ready sees why it's in memory too.
         if let Some(Effect::Adopt(_, _, opened, _)) = &mut effect {
-            let mut t = told();
             let was_opened = std::mem::replace(opened, Opened::Saving { drafts_replayed: false });
-            t.drafts_replayed = matches!((&was_opened, t.held), (Opened::Saving { drafts_replayed: true }, false));
-            t.owed = match (was_opened, t.held) {
-                // Held for another copy finishing a save ("OpenCode is finishing a save"), and the file
-                // changed under it: now it says this window won't save.
-                (Opened::Memory(_), true) if opencode_storage::held_by_another_copy() => Some(Notice::InUse),
-                // The first frame's notice already says nothing is saved.
-                (Opened::Memory(_), true) => t.owed.take(),
-                (Opened::Memory(why), false) => Some(Notice::Memory(why)),
-                // In its own words, over a held frame's notice that blames another program.
-                (Opened::InUse, _) => Some(Notice::InUse),
-                (Opened::Fresh(kept), _) => Some(Notice::Damaged(kept.display().to_string())),
-                (Opened::Saving { .. }, true) => Some(Notice::Saving),
-                (Opened::Saving { .. }, false) => None,
-            };
+            let held_by_another_copy = matches!(was_opened, Opened::Memory(_)) && opencode_storage::held_by_another_copy();
+            told().boot.step(BootNoticeEvent::Adopted { opened: was_opened, held_by_another_copy });
         }
         #[cfg(not(target_arch = "wasm32"))]
         if let Phase::Booted { boot, .. } = &next {
@@ -299,22 +363,11 @@ fn joined(opening: Opening) {
 /// A run in memory by design (headless, fixtures) has nothing to tell.
 pub fn take_notice() -> Option<Notice> {
     let mut t = told();
-    if let Some(n) = t.owed.take() {
+    if let Some(n) = t.boot.step(BootNoticeEvent::Take) {
         return Some(n);
     }
     // Writes that start or stop failing, told once each way (by the first window to poll).
-    let trouble = opencode_storage::write_trouble();
-    let failing = trouble.as_ref().map(|w| matches!(w, opencode_storage::WriteTrouble::DiskFull));
-    if failing == t.failing {
-        return None;
-    }
-    let was = std::mem::replace(&mut t.failing, failing);
-    match trouble {
-        Some(opencode_storage::WriteTrouble::DiskFull) => Some(Notice::NotSaving { full: true, why: String::new() }),
-        Some(opencode_storage::WriteTrouble::Failed(why)) => Some(Notice::NotSaving { full: false, why }),
-        None if was.is_some() => Some(Notice::Saving),
-        None => None,
-    }
+    t.writes.step(opencode_storage::write_trouble())
 }
 
 /// This process is the app's one instance: the open may take the database's lock now (the
@@ -329,7 +382,7 @@ pub fn claimed() {
 
 /// True when an existing draft journal from the previous run attached and replayed cleanly.
 pub fn drafts_replayed() -> bool {
-    told().drafts_replayed
+    told().boot.drafts_replayed()
 }
 
 pub(crate) fn wake_all() {
