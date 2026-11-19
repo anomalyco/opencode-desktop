@@ -31,7 +31,6 @@ members = [
     "features/timeline-extras",
     "features/tips",
     "features/updater",
-    "features/usage",
     "features/workspace-tools",
     "crates/authenticode",
     "crates/browser-pane",

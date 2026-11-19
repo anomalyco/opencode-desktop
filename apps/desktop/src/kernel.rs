@@ -116,7 +116,6 @@ pub fn build() -> Kernel<App> {
     b.with_feature(&crate::surfaces::terminal::TerminalSurfaceFeature);
     b.with_feature(&crate::todos::TimelineExtrasFeature);
     b.with_feature(&crate::tips::TipsFeature);
-    b.with_feature(&crate::usage::UsageFeature);
     b.with_feature(&crate::new_worktree::WorkspaceToolsFeature);
     b.with_feature(&crate::plugin_host::PluginHostFeature);
     b.register_overlay(
@@ -187,7 +186,8 @@ pub fn build() -> Kernel<App> {
         .register_slot(&crate::events::STREAM_GAPS)
         .register_slot(&crate::speech::SPEECH)
         .register_slot(&crate::crash_notice::CRASH_NOTICE)
-        .register_slot(&crate::servers::dialog::DIALOG);
+        .register_slot(&crate::servers::dialog::DIALOG)
+        .register_slot(&crate::model_picker::budget::PICKER_BUDGETS);
     b.build()
 }
 

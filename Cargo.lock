@@ -3331,7 +3331,6 @@ dependencies = [
  "opencode-feature-timeline-extras",
  "opencode-feature-tips",
  "opencode-feature-updater",
- "opencode-feature-usage",
  "opencode-feature-workspace-tools",
  "opencode-i18n",
  "opencode-kernel",
@@ -3784,19 +3783,6 @@ dependencies = [
  "ureq-web",
  "win-install",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "opencode-feature-usage"
-version = "0.0.1"
-dependencies = [
- "opencode-i18n",
- "opencode-kernel",
- "opencode-kit",
- "opencode-ui",
- "rune",
- "rune-kit",
- "serde_json",
 ]
 
 [[package]]
