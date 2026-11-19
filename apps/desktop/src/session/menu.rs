@@ -394,11 +394,15 @@ impl Feature<App> for SessionMenuFeature {
                 |s, _, _| preferences::poll(s),
             )
             .after("session_menu.unread");
-        builder.schedule(
-            crate::tick::stage::DERIVE_COMPOSER,
-            "session_menu.poll_rename",
-            |s, now, tx| poll_rename(s, now, tx),
-        );
+        // Precaution: `mentions.poll` (`refresh_suggestions` -> `mention_items`) reads `sessions`,
+        // which `session_menu.poll_rename` (and downstream `poll_delete`) mutates on timeout.
+        builder
+            .schedule(
+                crate::tick::stage::DERIVE_COMPOSER,
+                "session_menu.poll_rename",
+                |s, now, tx| poll_rename(s, now, tx),
+            )
+            .after("mentions.poll");
         // Known/precaution: shares `menus` and `sessions` with `session_menu.poll_rename`.
         builder
             .schedule(
