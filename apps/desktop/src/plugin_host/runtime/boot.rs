@@ -50,7 +50,6 @@ pub(crate) enum BootEvent {
     Start { later: Vec<sources::Found>, doze: Doze },
     Doze,
     FirstFrame,
-    ReadFolders,
     FoldersLoaded,
 }
 
@@ -123,10 +122,6 @@ impl Boot {
                 }
                 effects
             }
-            (Self::Started { folders: folders @ Folders::Unread, .. }, BootEvent::ReadFolders) => {
-                *folders = Folders::Reading;
-                vec![BootEffect::ReadFolders]
-            }
             (Self::Started { folders, .. }, BootEvent::FoldersLoaded) => {
                 *folders = Folders::Read;
                 Vec::new()
@@ -154,8 +149,8 @@ pub fn setup(app: &mut App, waker: Waker) {
     // The servers added by address are in the registry from launch, their health checked.
     crate::servers::refresh(app);
     // The built-ins this launch's first screen shows start now, the rest after its first frame
-    // (`first_screen`); a headless run and a hot build (no first-frame hook) start them all.
-    let first = (!crate::headless() && !cfg!(feature = "hot")).then(|| first_screen::plugins(app));
+    // (`first_screen`); a headless run (no first-frame hook) starts them all.
+    let first = (!crate::headless()).then(|| first_screen::plugins(app));
     let (now, later): (Vec<_>, Vec<_>) = sources::builtins()
         .into_iter()
         .partition(|f| first.as_ref().is_none_or(|ids| ids.contains(&f.manifest.id.as_str())));
@@ -190,12 +185,6 @@ pub fn setup(app: &mut App, waker: Waker) {
         if !start_now {
             start_later(app);
         }
-    } else if cfg!(feature = "hot") {
-        // A hot build has no first-frame hook.
-        if app.plugins.boot.step(BootEvent::ReadFolders).contains(&BootEffect::ReadFolders) {
-            spawn_read_folders(app);
-        }
-        start_later(app);
     }
 }
 

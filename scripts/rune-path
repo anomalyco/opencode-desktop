@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Prints the path of Rune's scripts/NAME from the checkout this repo is pinned to (the rev in the
-# root Cargo.toml), so scripts/mac-app and scripts/rune-hot always run the matching version.
+# root Cargo.toml), so scripts/mac-app always runs the matching version.
 #   scripts/rune-path mac-app
 # RUNE=/path/to/rune uses a local checkout instead.
 set -euo pipefail

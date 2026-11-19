@@ -131,7 +131,7 @@ pub fn apply_app_icon() {
 }
 
 /// Initial server target: `--server` if passed, otherwise `:4096` (plus `service.json` discovery
-/// immediately when `on_ready` won't run, such as `--live --snap` or `hot` builds).
+/// immediately when `on_ready` won't run, such as `--live --snap`).
 pub fn initial_server() -> Server {
     let explicit = crate::arg("--server");
     // This connection is also cloned by restore, prefetch and reconnect. Negotiating media
@@ -146,7 +146,6 @@ pub fn initial_server() -> Server {
 }
 
 /// `main`, for runs that call `on_ready`: the server reads wait for it.
-#[cfg_attr(feature = "hot", allow(dead_code))]
 pub fn defer() {
     DEFERRED.store(true, Ordering::Relaxed);
 }

@@ -1,8 +1,8 @@
 //! Launch order. A window's first frame draws while the window is created, so a windowed live
 //! run reads only local files before it (saved tabs, zoom, route and drafts). `on_ready` then
 //! starts the first server reads; when they land, the event stream, the open session's page and
-//! the prefetch start (`boot::connect`). Headless runs and hot builds have no `on_ready`: they
-//! read the server before the first frame, as a snapshot needs, and connect from `setup`.
+//! the prefetch start (`boot::connect`). Headless runs have no `on_ready`: they read the server
+//! before the first frame, as a snapshot needs, and connect from `setup`.
 
 mod boot;
 #[cfg(target_os = "windows")]
@@ -294,7 +294,6 @@ pub fn inbox_waker(handle: rune::AppHandle<App>) -> rune::Waker {
 }
 
 /// `on_ready`, after the first frame: starts the probe, Beta tab read and first server reads once.
-#[cfg_attr(feature = "hot", allow(dead_code))]
 pub fn ready(s: &mut App, tx: &mut Tx) -> bool {
     if s.live() {
         s.launch.network_change = (*s.waker).clone().and_then(network::subscribe);

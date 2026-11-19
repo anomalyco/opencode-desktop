@@ -207,7 +207,7 @@ pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
     )
 }
 
-#[cfg(not(any(target_arch = "wasm32", feature = "hot")))]
+#[cfg(not(target_arch = "wasm32"))]
 thread_local! {
     /// The launch's frame diagnostics, for `quit_last` to drain.
     static QUIT_DIAGNOSTICS: std::cell::RefCell<Option<diagnostics::Diagnostics>> = const { std::cell::RefCell::new(None) };
@@ -218,7 +218,7 @@ thread_local! {
 /// (it must exist before this process ends), the launch trace, then a training build's profile.
 /// Rune's fast exit raises every thread to normal priority before the process ends itself, so an
 /// idle one can't hold it.
-#[cfg(not(any(target_arch = "wasm32", feature = "hot")))]
+#[cfg(not(target_arch = "wasm32"))]
 fn quit_last() {
     // Landed and closed: the file's lock goes before the update helper takes over.
     storage::close();
@@ -304,61 +304,56 @@ pub fn run_native() {
     // driver loads beside the launch's: the first frame came 8 ms and the first input 15 ms later
     // (p50, visible desktop), for a hand-over ~50 ms sooner that nobody sees.
     telemetry::startup("launch.icon", launch::apply_app_icon);
-    #[cfg(feature = "hot")]
-    rune_app(AppSpec { families: appearance::launch_families(), ..spec(App::hot) }).run();
-    #[cfg(not(feature = "hot"))]
-    {
-        let diagnostics = diagnostics::Diagnostics::default();
-        if !headless() {
-            launch::defer();
-            rune::marks::mark("windows.launch");
-            // Quitting ends the process right after `quit_last`: no window, GPU device or allocation
-            // is torn down (on Windows that was the graphics drivers' detach, hundreds of ms).
-            QUIT_DIAGNOSTICS.with(|d| *d.borrow_mut() = Some(diagnostics.clone()));
-            rune::fast_exit(quit_last);
-            // Every window saved at the last quit, each with its own tabs (`windows`).
-            windows::launch(diagnostics);
-            quit_last();
-            return;
-        }
-        // The harness's `--realtime` probes launch as a window does: the server's first reads
-        // wait for `on_ready`, which only a realtime run calls (after its first frame).
-        if harness_writes() && std::env::args().any(|a| a == "--realtime") {
-            launch::defer();
-        }
-        let app = rune_app(AppSpec { families: appearance::launch_families(), ..spec(App::new) });
-        let handle = app.handle();
-        let mut motion_log = motion_log::Log::default();
-        let (encoded, drawn) = (diagnostics.clone(), diagnostics.clone());
-        let app = app
-            .on_ready(move |_| {
-                storage::presented();
-                let wake = launch::inbox_waker(handle.clone());
-                handle.update_if(move |s, tx| { s.launch.inbox_wake = Some(wake); launch::ready(s, tx) });
-            })
-            .on_frame_encoded(move |f| {
-                encoded.encoded(f);
-                telemetry::encoded(f);
-                files::trace::frame(f);
-            })
-            .on_frame_drawn(move |rt| {
-                drawn.drawn(rt);
-                if let Some(frame) = telemetry::last_frame() { telemetry::drawn(rt.state.painted_session(), frame); }
-                motion_log.frame(rt);
-            })
-            .on_close(|s, _| {
-                let scheduler = s.kernel.scheduler.clone();
-                scheduler.run_close(s);
-                s.save_on_close();
-            })
-            .on_rest(App::rest);
-        app.run();
-        storage::close();
-        diagnostics.shutdown();
-        // A headless run's marks too (`--launch-trace`): the harness's realtime probes, such as the
-        // browser engine's timing.
-        launch::trace::finish(1);
+    let diagnostics = diagnostics::Diagnostics::default();
+    if !headless() {
+        launch::defer();
+        rune::marks::mark("windows.launch");
+        // Quitting ends the process right after `quit_last`: no window, GPU device or allocation
+        // is torn down (on Windows that was the graphics drivers' detach, hundreds of ms).
+        QUIT_DIAGNOSTICS.with(|d| *d.borrow_mut() = Some(diagnostics.clone()));
+        rune::fast_exit(quit_last);
+        // Every window saved at the last quit, each with its own tabs (`windows`).
+        windows::launch(diagnostics);
+        quit_last();
+        return;
     }
+    // The harness's `--realtime` probes launch as a window does: the server's first reads
+    // wait for `on_ready`, which only a realtime run calls (after its first frame).
+    if harness_writes() && std::env::args().any(|a| a == "--realtime") {
+        launch::defer();
+    }
+    let app = rune_app(AppSpec { families: appearance::launch_families(), ..spec(App::new) });
+    let handle = app.handle();
+    let mut motion_log = motion_log::Log::default();
+    let (encoded, drawn) = (diagnostics.clone(), diagnostics.clone());
+    let app = app
+        .on_ready(move |_| {
+            storage::presented();
+            let wake = launch::inbox_waker(handle.clone());
+            handle.update_if(move |s, tx| { s.launch.inbox_wake = Some(wake); launch::ready(s, tx) });
+        })
+        .on_frame_encoded(move |f| {
+            encoded.encoded(f);
+            telemetry::encoded(f);
+            files::trace::frame(f);
+        })
+        .on_frame_drawn(move |rt| {
+            drawn.drawn(rt);
+            if let Some(frame) = telemetry::last_frame() { telemetry::drawn(rt.state.painted_session(), frame); }
+            motion_log.frame(rt);
+        })
+        .on_close(|s, _| {
+            let scheduler = s.kernel.scheduler.clone();
+            scheduler.run_close(s);
+            s.save_on_close();
+        })
+        .on_rest(App::rest);
+    app.run();
+    storage::close();
+    diagnostics.shutdown();
+    // A headless run's marks too (`--launch-trace`): the harness's realtime probes, such as the
+    // browser engine's timing.
+    launch::trace::finish(1);
 }
 
 /// Narrow host boundary for `apps/web` (`wasm32`): exposes only the bootstrap, poll, lifecycle,
