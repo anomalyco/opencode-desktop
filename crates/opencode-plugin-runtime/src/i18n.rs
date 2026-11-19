@@ -355,10 +355,13 @@ fn compact(v: f64) -> String {
     format!("{sign}{digits}{}", UNITS[k])
 }
 
-/// `$1,234.50`, with the language's separators: `$0.01` from 0.005, `$10.00` from 9.995.
+/// `$1,234.50`, with the language's separators and currency pattern for USD (`$1,234.50`,
+/// `1.234,50 $`, `1 234,50 $US`): `$0.01` from 0.005, `$10.00` from 9.995.
 fn currency(v: f64, code: &str, fraction: u8) -> String {
+    if code == "USD" {
+        return opencode_i18n::t!("intl.currency.usd", value = opencode_i18n::fraction_digits(v, fraction, fraction));
+    }
     let symbol = match code {
-        "USD" => "$",
         "EUR" => "€",
         "GBP" => "£",
         "JPY" => "¥",
@@ -397,6 +400,10 @@ fn scaled(v: f64, fraction: i32) -> u128 {
 
 fn date(ms: i64, style: spec::DateStyle) -> String {
     use opencode_i18n::date::Style as S;
+    let local = rune::LocalTime::at(ms);
+    if style == spec::DateStyle::TimeZone {
+        return opencode_i18n::date::zone(local.offset);
+    }
     let style = match style {
         spec::DateStyle::Time => S::Time,
         spec::DateStyle::MonthDay => S::MonthDay,
@@ -405,8 +412,8 @@ fn date(ms: i64, style: spec::DateStyle) -> String {
         spec::DateStyle::MonthDayTime => S::MonthDayTime,
         spec::DateStyle::MonthDayYearTime => S::MonthDayYearTime,
         spec::DateStyle::MonthDayTimeZone => S::MonthDayTimeZone,
+        spec::DateStyle::TimeZone => unreachable!(),
     };
-    let local = rune::LocalTime::at(ms);
     let secs = ms.div_euclid(1000) + i64::from(local.offset);
     let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
     let (year, month, day) = civil(days);

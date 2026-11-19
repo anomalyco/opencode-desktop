@@ -389,7 +389,8 @@
       { "value": "dateTime", "doc": "Medium date and short time: `Nov 3, 2026, 3:45 PM`." },
       { "value": "monthDayTime", "doc": "Month, day and time: `Nov 3, 3:45 PM`." },
       { "value": "monthDayYearTime", "doc": "Month, day, year and time: `Nov 3, 2026, 3:45 PM`." },
-      { "value": "monthDayTimeZone", "doc": "Month, day, time and the zone's offset: `Nov 3, 3:45 PM GMT-7`." }
+      { "value": "monthDayTimeZone", "doc": "Month, day, time and the zone's offset: `Nov 3, 3:45 PM GMT-7`." },
+      { "value": "timeZone", "since": "1.5", "doc": "The local time zone's short offset at that moment: `GMT-7`, `GMT+5:30`, `UTC`." }
     ] },
     { "name": "TimeUnit", "rust": true, "doc": "A unit of relative time.", "values": [
       { "value": "second", "doc": "Seconds." },

@@ -746,6 +746,8 @@ string_enum! {
         MonthDayYearTime = "monthDayYearTime",
         /// Month, day, time and the zone's offset: `Nov 3, 3:45 PM GMT-7`.
         MonthDayTimeZone = "monthDayTimeZone",
+        /// The local time zone's short offset at that moment: `GMT-7`, `GMT+5:30`, `UTC`.
+        TimeZone = "timeZone",
     }
 }
 

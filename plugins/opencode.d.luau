@@ -220,7 +220,7 @@ export type TextDirection = "ltr" | "rtl"
 export type PluralCategory = "zero" | "one" | "two" | "few" | "many" | "other"
 
 --- A date and time format, as the app writes dates.
-export type DateStyle = "time" | "monthDay" | "monthDayYear" | "dateTime" | "monthDayTime" | "monthDayYearTime" | "monthDayTimeZone"
+export type DateStyle = "time" | "monthDay" | "monthDayYear" | "dateTime" | "monthDayTime" | "monthDayYearTime" | "monthDayTimeZone" | "timeZone"
 
 --- A unit of relative time.
 export type TimeUnit = "second" | "minute" | "hour" | "day" | "week" | "month" | "year"
