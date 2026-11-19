@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use opencode_kit::client::PathAttachment;
 use opencode_kit::model::{Attachment, PromptComment, Transcript};
-use opencode_kit::servers::tabs::ClosedTab;
+use opencode_servers::tabs::ClosedTab;
 use opencode_kit::servers::{ServerKey, TabKey};
 use opencode_storage::{FlushReason, Lookup, Storage};
 use rune::{TextEdit, Tx};

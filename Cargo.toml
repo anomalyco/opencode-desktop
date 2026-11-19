@@ -46,6 +46,7 @@ members = [
     "crates/opencode-plugin-spec",
     "crates/opencode-runtime",
     "crates/opencode-search",
+    "crates/opencode-servers",
     "crates/opencode-storage",
     "crates/opencode-ui",
     "crates/otlp-lite",

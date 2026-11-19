@@ -115,7 +115,7 @@ impl SwitcherHost for App {
     }
 
     fn server_health_failed(&self, key: &ServerKey) -> bool {
-        opencode_kit::servers::health::is_failed(crate::servers::health::get(key).as_ref())
+        opencode_servers::health::is_failed(crate::servers::health::get(key).as_ref())
     }
 
     fn remote_server_seeds(&mut self, _archived: bool) -> Vec<RemoteSeed> {

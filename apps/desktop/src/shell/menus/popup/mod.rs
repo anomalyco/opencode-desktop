@@ -2,7 +2,7 @@
 
 pub mod context;
 
-use opencode_kit::servers::health::Indicator;
+use opencode_ui::popup::Indicator;
 use rune::El;
 use rune_knobs::Knobs;
 use session_view::palette::Pal;
@@ -54,7 +54,7 @@ impl opencode_ui::popup::PopupHost for App {
     }
 
     fn status_indicator(&self, p: &Pal, indicator: Indicator) -> El {
-        crate::servers::indicator::mark(p, indicator)
+        crate::servers::indicator::mark_ui(p, indicator)
     }
 
     fn hairline(&self) -> f32 {

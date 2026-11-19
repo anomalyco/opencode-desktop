@@ -427,8 +427,8 @@ pub fn server_row(app: &App, p: &Pal, key: &str, rec: &crate::plugin_host::Serve
 
 /// A server's health as plugins read it (`ServerHealth`, `toPluginHealth`): it has no stages,
 /// so a server that isn't ready, or not checked yet, has none.
-pub fn health_data(health: Option<&opencode_kit::servers::health::Health>) -> Data {
-    use opencode_kit::servers::health::{Health, ProbeResult};
+pub fn health_data(health: Option<&opencode_servers::health::Health>) -> Data {
+    use opencode_servers::health::{Health, ProbeResult};
     match health {
         Some(Health::Probe(ProbeResult::Healthy { version, .. })) => map([("healthy", Data::Bool(true)), ("version", version.clone().map_or(Data::Nil, Data::String))]),
         Some(Health::Checking { managed: true }) => map([("healthy", Data::Bool(false)), ("checking", Data::Bool(true))]),

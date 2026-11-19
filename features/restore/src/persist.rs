@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 use opencode_kit::servers::key::Route as Page;
-use opencode_kit::servers::tabs::ClosedTab;
+use opencode_servers::tabs::ClosedTab;
 use opencode_kit::servers::TabKey;
 use serde_json::{Value, json};
 use session_view::composer::mode::Mode;

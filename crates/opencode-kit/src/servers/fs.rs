@@ -7,8 +7,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use super::probe::{RequestError, get_json};
-use super::registry::HttpBase;
+use super::probe::{HttpBase, RequestError, get_json};
 
 /// What an entry is (`FileSystemEntry.type`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

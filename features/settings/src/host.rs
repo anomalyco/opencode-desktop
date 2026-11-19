@@ -10,9 +10,10 @@ use std::sync::OnceLock;
 
 use opencode_kit::integration::{Integration, McpServer};
 use opencode_kit::model::{Project, SessionInfo};
-use opencode_kit::servers::health::Health;
-use opencode_kit::servers::settings::Availability;
-use opencode_kit::servers::{ServerConn, ServerKey};
+use opencode_kit::servers::ServerKey;
+use opencode_servers::ServerConn;
+use opencode_servers::health::Health;
+use opencode_servers::settings::Availability;
 use opencode_kit::wire_error::WireError;
 use opencode_ui::keymap::Section as KeymapSection;
 use rune::{Chord, El, Icon, Tx, el, icon};

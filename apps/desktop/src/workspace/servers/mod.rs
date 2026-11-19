@@ -134,7 +134,7 @@ fn save(list: &[Server]) {
 /// thread only.
 pub fn check(url: &str, password: Option<&str>, timeout: Duration) -> Health {
     use opencode_kit::servers::probe::{RequestError, info};
-    let http = opencode_kit::servers::registry::HttpBase { url: url.to_owned(), password: password.map(str::to_owned) };
+    let http = opencode_kit::servers::HttpBase { url: url.to_owned(), password: password.map(str::to_owned) };
     match info(&http, timeout) {
         Ok(_) => Health::Healthy,
         Err(RequestError::Status(401)) => Health::Unauthorized,

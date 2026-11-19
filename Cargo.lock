@@ -3342,6 +3342,7 @@ dependencies = [
  "opencode-plugin-spec",
  "opencode-runtime",
  "opencode-search",
+ "opencode-servers",
  "opencode-storage",
  "opencode-ui",
  "procwatch",
@@ -3628,6 +3629,7 @@ dependencies = [
  "opencode-platform",
  "opencode-runtime",
  "opencode-search",
+ "opencode-servers",
  "opencode-ui",
  "rune",
  "rune-kit",
@@ -3643,6 +3645,7 @@ dependencies = [
  "opencode-kernel",
  "opencode-kit",
  "opencode-runtime",
+ "opencode-servers",
  "opencode-storage",
  "opencode-ui",
  "rune",
@@ -3691,6 +3694,7 @@ dependencies = [
  "opencode-platform",
  "opencode-runtime",
  "opencode-search",
+ "opencode-servers",
  "opencode-ui",
  "rune",
  "rune-kit",
@@ -3931,6 +3935,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "opencode-servers"
+version = "0.0.1"
+dependencies = [
+ "opencode-kit",
+ "rune",
+ "serde_json",
+]
+
+[[package]]
 name = "opencode-storage"
 version = "0.0.1"
 dependencies = [
@@ -3941,6 +3954,7 @@ dependencies = [
  "memmap2",
  "opencode-kit",
  "opencode-search",
+ "opencode-servers",
  "rune",
  "rusqlite",
  "serde",

@@ -3,7 +3,7 @@
 //! "Can't reach <server>", Retry and Edit server.
 
 use opencode_i18n::t;
-use opencode_kit::servers::settings::{self, RetryEffect, RetryEvent};
+use opencode_servers::settings::{self, RetryEffect, RetryEvent};
 use opencode_ui::popup::PopupHost;
 use opencode_ui::widgets;
 use rune::machine::Attempt;

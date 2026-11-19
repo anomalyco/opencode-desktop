@@ -1,11 +1,27 @@
 //! Pure, host-independent menu data types ([`Menu`], [`Item`]) and native [`PopupMenu`]
 //! conversion.
 
-use opencode_kit::servers::health::Indicator;
 use rune::{Align, Icon, PopupItem, PopupMenu, Side, TextStyle};
 use crate::popover::{self, MENU};
 
 use super::{GROUP, MAX_H, MIN_W};
+
+/// The status mark a server menu row shows (`ServerHealthIndicator`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Indicator {
+    /// 6×6 dot, `icon-success-base`.
+    Healthy,
+    /// 6×6 dot, `icon-critical-base`.
+    Unreachable,
+    /// 6×6 dot, `v2-icon-icon-faint`.
+    Unknown,
+    /// 12 px `lock`, `v2-icon-icon-muted`.
+    Auth,
+    /// 12 px spinner.
+    Connecting,
+    /// `warning`, `icon-warning-base`.
+    Incompatible,
+}
 
 /// One choice. Enabled, unchecked and in the text colour unless set.
 #[derive(Clone, Debug, PartialEq)]

@@ -25,8 +25,9 @@ use std::sync::mpsc::Receiver;
 
 use opencode_kit::client::{Incoming, Server};
 use opencode_kit::model::Project;
-use opencode_kit::servers::health::Health;
-use opencode_kit::servers::{ServerConn, ServerKey, controllers};
+use opencode_kit::servers::ServerKey;
+use opencode_servers::health::Health;
+use opencode_servers::{ServerConn, controllers};
 use rune::Tx;
 use rune::machine::Attempt;
 
@@ -137,7 +138,7 @@ pub fn label(key: &ServerKey) -> String {
 /// app's own.
 pub fn tag(key: &ServerKey) -> Option<String> {
     let all = RUNTIME.with_borrow(|r| r.listed.len());
-    opencode_kit::servers::registry::server_tag(all, key.is_sidecar(), || label(key))
+    opencode_servers::registry::server_tag(all, key.is_sidecar(), || label(key))
 }
 
 /// Server `key`'s health (`global.servers.health[key]`).
@@ -212,7 +213,7 @@ fn apply(r: &mut Runtime, fx: rune::machine::Effects<controllers::Effect>, own: 
 
 /// A health probe answered (`health.reported`): a server that rejects its credentials stops its
 /// connection, and starts it again once a probe with the same credentials answers.
-pub fn reported(probe: &opencode_kit::servers::health::Probe) {
+pub fn reported(probe: &opencode_servers::health::Probe) {
     let Some(own) = own_server() else { return };
     RUNTIME.with_borrow_mut(|r| {
         let event = controllers::Event::HealthReported { key: probe.key.clone(), auth: probe.auth.clone(), result: probe.result.clone() };

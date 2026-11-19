@@ -3,8 +3,9 @@ use crate::popup::MenuButton as _;
 use crate::popup::{self, Item, Menu};
 use crate::projects::home::{self as home_state, ServerView};
 use opencode_i18n::t;
-use opencode_kit::servers::health::Indicator;
-use opencode_kit::servers::{ServerConn, ServerKey};
+use opencode_kit::servers::ServerKey;
+use opencode_servers::ServerConn;
+use opencode_servers::health::Indicator;
 
 // ---------------------------------------------------------------------------------------------
 // Home's projects grouped by server (`home/projects/view.tsx:276-511`, `view.css`,
@@ -57,7 +58,7 @@ fn projects_of(s: &App, v: &ServerView) -> Vec<model::Project> {
 }
 
 fn same_dir(a: &str, b: &str) -> bool {
-    opencode_kit::servers::home::comparable_path(a) == opencode_kit::servers::home::comparable_path(b)
+    opencode_servers::home::comparable_path(a) == opencode_servers::home::comparable_path(b)
 }
 
 /// `mx-3 h-px bg-v2-border-border-base`.
@@ -162,7 +163,7 @@ fn server_row(s: &App, p: &Pal, v: &ServerView, selected: bool, collapsed: bool)
     if auth {
         r = r.help(t!("server.status.authentication"));
     } else if incompatible {
-        let version = opencode_kit::servers::health::version(v.health.as_ref()).unwrap_or("1").to_owned();
+        let version = opencode_servers::health::version(v.health.as_ref()).unwrap_or("1").to_owned();
         r = r.help(t!("server.row.incompatible", version = version));
     }
     r

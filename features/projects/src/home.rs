@@ -15,10 +15,11 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
 use opencode_kit::model::Project;
-use opencode_kit::servers::health::{self as server_health, Health, ProbeResult};
-use opencode_kit::servers::home::{self as machine, Selection};
-use opencode_kit::servers::home_load::{self, Connection, Target, Timer, Unavailable};
-use opencode_kit::servers::{ServerConn, ServerKey};
+use opencode_kit::servers::ServerKey;
+use opencode_servers::ServerConn;
+use opencode_servers::health::{self as server_health, Health, ProbeResult};
+use opencode_servers::home::{self as machine, Selection};
+use opencode_servers::home_load::{self, Connection, Target, Timer, Unavailable};
 use opencode_platform::storage;
 use rune::machine::{Attempt, Effects};
 use rune::{TextEdit, Tx};

@@ -28,7 +28,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use opencode_i18n::t;
 use opencode_kit::servers::key::Route as Page;
-use opencode_kit::servers::tabs::WindowDoc;
+use opencode_servers::tabs::WindowDoc;
 use opencode_kit::servers::{ServerKey, TabKey};
 use opencode_storage::FlushReason;
 use opencode_ui::toast;
