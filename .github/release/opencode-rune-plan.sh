@@ -68,7 +68,7 @@ if [ "$EVENT" = schedule ] && [ "$CHANNEL" = dev ]; then
   elif [ -n "$last" ]; then
     files=$(gh api "repos/$GITHUB_REPOSITORY/compare/$last...$SHA" --jq '.files[]?.filename' || true)
     count=$(grep -c . <<< "$files" || true)
-    app='^(apps/desktop/|apps/installer/|crates/|plugins/|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|\.cargo/|\.github/workflows/release\.yml$|\.github/release/)'
+    app='^(apps/desktop/|apps/installer/|crates/|features/|vendor/|plugins/|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|\.cargo/|\.github/workflows/release\.yml$|\.github/release/)'
     # The compare API lists at most 300 files: more is a change worth a build.
     if [ "$count" -gt 0 ] && [ "$count" -lt 300 ] && ! grep -Eq "$app" <<< "$files"; then
       reason="no app file changed between ${last:0:9} and ${SHA:0:9}."
