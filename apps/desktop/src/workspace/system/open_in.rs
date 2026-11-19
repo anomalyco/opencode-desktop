@@ -2,7 +2,7 @@
 
 pub use opencode_feature_open_in::*;
 
-use opencode_kernel::{Feature, KernelBuilder, Phase};
+use opencode_kernel::{Feature, KernelBuilder};
 use rune::{Align, Anim, Cursor, El, PointerPress, Tx, el, icon, row};
 use rune_kit::Loader;
 use rune_theme_opencode::icons as ic;
@@ -203,11 +203,9 @@ impl Feature<App> for OpenInFeature {
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
         builder.add_setup("open_in.waker", |s, w| s.workspace_panes.open_in.set_waker(w));
-        builder.add_system_ordered(
-            Phase::Ingest,
-            crate::tick::order::ingest::OPEN_IN,
-            "open_in.poll",
-            |s, _, _| poll(s),
-        );
+        // Precaution: shares `dialogs.toast` with `inbox.sends`.
+        builder
+            .schedule(crate::tick::stage::INGEST_PAGES, "open_in.poll", |s, _, _| poll(s))
+            .after("inbox.sends");
     }
 }

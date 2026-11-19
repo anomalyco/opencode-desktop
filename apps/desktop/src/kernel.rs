@@ -6,7 +6,7 @@
 
 use opencode_kernel::{
     AppEnv, AppFeedback, AppOverlays, EscapeLayer, Kernel, KernelBuilder, OverlayEntry,
-    OverlayEvent, OverlayKind, OverlayRegistration, Phase, SurfaceDescriptor, SurfaceKind,
+    OverlayEvent, OverlayKind, OverlayRegistration, SurfaceDescriptor, SurfaceKind,
 };
 
 use crate::{App, Route};
@@ -87,6 +87,7 @@ impl AppOverlays for App {
 /// Builds a window's kernel with all decoupled features and core surfaces registered.
 pub fn build() -> Kernel<App> {
     let mut b = KernelBuilder::new();
+    b.add_stages(crate::tick::stage::ALL);
     register_core_systems(&mut b);
     b.with_feature(&crate::surfaces::egg::EggFeature);
     #[cfg(feature = "office")]
@@ -191,11 +192,11 @@ pub fn build() -> Kernel<App> {
     kernel
 }
 
-/// Core shell and subsystem lifecycle polls registered at explicit `tick::order` positions so
-/// exact four-phase execution order (`Ingest` -> `Derive` -> `React` -> `Persist`) never depends
-/// on feature registration order.
+/// Core shell and subsystem lifecycle polls registered into declared [`crate::tick::stage`]
+/// barriers with explicit `after` dependencies so execution order never depends on feature
+/// registration order.
 fn register_core_systems(b: &mut KernelBuilder<App>) {
-    use crate::tick::order::{derive, ingest, persist, react};
+    use crate::tick::stage;
 
     b.add_visibility("status_toast.visibility", |s, shown, tx| {
         crate::status_toast::visibility(s, shown, tx);
@@ -203,39 +204,60 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
 
     // ── Phase 1: Ingest ──────────────────────────────────────────────────────────────────────────
     // Another window changed the session data this one shows.
-    b.add_system_ordered(Phase::Ingest, ingest::WINDOWS_PEER_BEHIND, "windows.peer.behind", |s, _, _| {
+    b.schedule(stage::INGEST_HYDRATE, "windows.peer.behind", |s, _, _| {
         crate::windows::peer::behind(s)
     });
-    b.add_system_ordered(Phase::Ingest, ingest::RESTORE_PLACES, "restore.places", |s, now, tx| {
+    b.schedule(stage::INGEST_HYDRATE, "restore.places", |s, now, tx| {
         s.poll_places(now, tx)
     });
-    b.add_system_ordered(Phase::Ingest, ingest::RESTORE_UNDO, "restore.undo", |s, now, tx| {
+    // Precaution: both `restore.places` and `restore.undo` write to restore state and storage.
+    b.schedule(stage::INGEST_HYDRATE, "restore.undo", |s, now, tx| {
         s.poll_undo(now, tx);
         false
-    });
-    b.add_system_ordered(Phase::Ingest, ingest::RECONNECT_AUDIT, "reconnect.audit", |s, _, _| {
+    })
+    .after("restore.places");
+    b.schedule(stage::INGEST_HYDRATE, "reconnect.audit", |s, _, _| {
         crate::reconnect::audit(s);
         false
     });
-    b.add_system_ordered(Phase::Ingest, ingest::POPUP, "popup.poll", |s, _, tx| {
+    b.schedule(stage::INGEST_HYDRATE, "popup.poll", |s, _, tx| {
         crate::popup::poll(s, tx);
         false
     });
+
     // The servers the window isn't checked out on: their launches, replies and streams.
-    b.add_system_ordered(Phase::Ingest, ingest::SERVERS_RUNTIME, "servers.runtime", |s, _, tx| {
+    b.schedule(stage::INGEST_SERVERS, "servers.runtime", |s, _, tx| {
         crate::servers::runtime::poll(s, tx)
     });
-    b.add_system_ordered(Phase::Ingest, ingest::SERVERS_HEALTH, "servers.health", |s, _, tx| {
+    // Known: `servers.runtime::sync` creates controllers before `servers.health` calls `runtime::reported`.
+    b.schedule(stage::INGEST_SERVERS, "servers.health", |s, _, tx| {
         crate::servers::health::poll(s, tx)
-    });
-    b.add_system_ordered(Phase::Ingest, ingest::PROJECTS_HOME, "projects.home", |s, _, tx| {
+    })
+    .after("servers.runtime");
+    // Known/precaution: reads `checkout`, `servers::runtime::sidecar_stamp`, and listed server state.
+    b.schedule(stage::INGEST_SERVERS, "projects.home", |s, _, tx| {
         crate::projects::home::poll(s, tx)
-    });
-    b.add_system_ordered(Phase::Ingest, ingest::PROJECT_SWITCHER, "project_switcher.poll", |s, _, _| {
+    })
+    .after("servers.health");
+    // Precaution: reads listed server projects/worktrees; `projects.home` can open a project dir.
+    b.schedule(stage::INGEST_SERVERS, "project_switcher.poll", |s, _, _| {
         crate::project_switcher::poll(s)
-    });
+    })
+    .after("projects.home");
+    // Precaution: `launch.poll` mutates `source`, `tabs`, `route`, `sessions`, `projects`, and `transcripts`.
+    b.schedule(stage::INGEST_SERVERS, "launch.poll", |s, _, tx| {
+        crate::launch::poll(s, tx)
+    })
+    .after("dictation.poll");
+    // Known: `launch.trace` observes `rune::marks` emitted by `launch.poll`.
+    b.schedule(stage::INGEST_SERVERS, "launch.trace", |_, _, tx| {
+        crate::launch::trace::poll(tx);
+        false
+    })
+    .after("launch.poll");
+
     // A project's image the icon worker found (or lost): the tiles that read the icons draw again.
-    b.add_system_ordered(Phase::Ingest, ingest::APPEARANCE_ICONS, "appearance.icons", |s, _, _| {
+    b.schedule(stage::INGEST_LOCAL, "appearance.icons", |s, _, _| {
         if rune::Tracked::untracked(&s.appearance_state.icons).take_found() {
             rune::Tracked::touch(&s.appearance_state.icons);
             true
@@ -243,32 +265,34 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
             false
         }
     });
-    b.add_system_ordered(Phase::Ingest, ingest::LAUNCH, "launch.poll", |s, _, tx| {
-        crate::launch::poll(s, tx)
-    });
-    b.add_system_ordered(Phase::Ingest, ingest::LAUNCH_TRACE, "launch.trace", |_, _, tx| {
-        crate::launch::trace::poll(tx);
-        false
-    });
-    b.add_system_ordered(Phase::Ingest, ingest::GLITCH, "glitch.poll", |s, _, tx| {
+    b.schedule(stage::INGEST_LOCAL, "glitch.poll", |s, _, tx| {
         crate::glitch::poll(s, tx)
     });
-    b.add_system_ordered(Phase::Ingest, ingest::APPEARANCE, "appearance.poll", |s, _, _| {
+    // Precaution: `egg.poll` reads `reduced_motion`, which `appearance.poll` updates.
+    b.schedule(stage::INGEST_LOCAL, "appearance.poll", |s, _, _| {
         crate::appearance::poll(s)
-    });
-    b.add_system_ordered(Phase::Ingest, ingest::TEXT_RENDERING, "text_rendering.poll", |s, _, tx| {
+    })
+    .after("egg.poll");
+    b.schedule(stage::INGEST_LOCAL, "text_rendering.poll", |s, _, tx| {
         crate::text_rendering::poll(s, tx);
         false
     });
-    b.add_system_ordered(Phase::Ingest, ingest::LANGUAGE, "language.poll", |s, _, tx| {
+    // Precaution: `updater.poll` reads `I18N` via `t!("common.requestFailed")` before locale changes.
+    b.schedule(stage::INGEST_LOCAL, "language.poll", |s, _, tx| {
         crate::language::poll(s, tx)
-    });
-    b.add_system_ordered(Phase::Ingest, ingest::SPEECH, "speech.poll", |s, _, tx| {
+    })
+    .after("updater.poll");
+
+    // Precaution: `notifications.poll` can change `route` or answer `pending`/`requests` read by `speech.poll`.
+    b.schedule(stage::INGEST_DISPATCH, "speech.poll", |s, _, tx| {
         crate::speech::poll(s, tx)
-    });
+    })
+    .after("notifications.poll");
     // A shortcut from the composer that moved the keyboard into the side region (its command
     // may run a frame later) leaves the selected tab's label muted (`FocusMode::Quiet`).
-    b.add_system_ordered(Phase::Ingest, ingest::PANELS_SYNC_COMPOSER, "panels.sync_composer", |s, _, _| {
+    // Known: `egg.poll` (in `INGEST_LOCAL`) and `notifications.poll` can focus the composer;
+    // precaution: `speech.poll` adjusts focus before composer focus sync.
+    b.schedule(stage::INGEST_DISPATCH, "panels.sync_composer", |s, _, _| {
         let composing = s.composer.focused;
         let in_terminal = !composing
             && s.workspace_panes.side.focus.is_armed()
@@ -280,17 +304,24 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
             s.workspace_panes.side.focus.sync_composer(composing, in_terminal);
         }
         false
-    });
-    b.add_system_ordered(Phase::Ingest, ingest::DEEP_LINKS, "deep_links.drain", |s, _, tx| {
+    })
+    .after("speech.poll");
+    // Known: requires `launch.poll` (`INGEST_SERVERS`) for `Source::Live { writes: Some(_) }`;
+    // precaution: mutates `settings.open`, `route`, `tabs`, `projects`, and `composer.focused`.
+    b.schedule(stage::INGEST_DISPATCH, "deep_links.drain", |s, _, tx| {
         crate::deep_links::drain(s, tx)
-    });
-    b.add_system_ordered(Phase::Ingest, ingest::TURN_ERRORS, "turn_errors.poll", |s, _, tx| {
+    })
+    .after("panels.sync_composer");
+
+    b.schedule(stage::INGEST_SESSION_PRE, "turn_errors.poll", |s, _, tx| {
         crate::turn_errors::poll(s, tx)
     });
-    b.add_system_ordered(Phase::Ingest, ingest::SESSION_PAGES, "session_pages.poll", |s, _, tx| {
+
+    b.schedule(stage::INGEST_PAGES, "session_pages.poll", |s, _, tx| {
         s.poll_pages(tx)
     });
-    b.add_system_ordered(Phase::Ingest, ingest::APP_OUTPUT_ERRORS, "app.output_errors", |s, _, _| {
+    // Precaution: both `session_pages.poll` and `app.output_errors` push toasts via `dialogs.toast`.
+    b.schedule(stage::INGEST_PAGES, "app.output_errors", |s, _, _| {
         let mut changed = false;
         while let Some(why) = s
             .kernel
@@ -303,63 +334,83 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
             changed = true;
         }
         changed
-    });
-    b.add_system_ordered(Phase::Ingest, ingest::CONTEXT_WINDOW, "context_window.poll", |s, _, _| {
+    })
+    .after("session_pages.poll");
+    // Known: `session_pages.poll` updates `pages.first_read_done` and calls `context_window_landed`.
+    b.schedule(stage::INGEST_PAGES, "context_window.poll", |s, _, _| {
         s.poll_context_window()
-    });
-    b.add_system_ordered(Phase::Ingest, ingest::INBOX_SENDS, "inbox.sends", |s, _, _| {
+    })
+    .after("session_pages.poll");
+    // Precaution: shares `dialogs.toast` with `app.output_errors`.
+    b.schedule(stage::INGEST_PAGES, "inbox.sends", |s, _, _| {
         s.poll_sends()
-    });
-    b.add_system_ordered(Phase::Ingest, ingest::INBOX_OUTBOX, "inbox.outbox", |s, _, tx| {
+    })
+    .after("app.output_errors");
+    // Known: `inbox.sends` (`take_mail`/receipts) unblocks `pump_outbox`.
+    b.schedule(stage::INGEST_PAGES, "inbox.outbox", |s, _, tx| {
         s.tick_outbox(tx)
-    });
-    b.add_system_ordered(Phase::Ingest, ingest::JOBS, "jobs.poll", |s, _, tx| s.poll_jobs(tx));
-    b.add_system_ordered(Phase::Ingest, ingest::TICK_STREAM, "tick.stream", crate::tick::poll_stream);
-    b.add_system_ordered(Phase::Ingest, ingest::TICK_SUBMIT, "tick.submit", |s, _, tx| {
+    })
+    .after("inbox.sends");
+    // Precaution: `jobs.poll` executes arbitrary `Apply` closures that can touch any `App` state.
+    b.schedule(stage::INGEST_PAGES, "jobs.poll", |s, _, tx| s.poll_jobs(tx))
+        .after_all(&["context_window.poll", "inbox.outbox", "open_in.poll"]);
+
+    b.schedule(stage::INGEST_STREAM, "tick.stream", crate::tick::poll_stream);
+    // Known: `tick.submit` commits staged reverts and mutates `composer`/`inboxes`/`transcripts`/`route`.
+    b.schedule(stage::INGEST_STREAM, "tick.submit", |s, _, tx| {
         crate::tick::poll_submit(s, tx)
-    });
+    })
+    .after("history.jump");
 
     // ── Phase 2: Derive ──────────────────────────────────────────────────────────────────────────
-    b.add_system_ordered(Phase::Derive, derive::WORKING_SYNC, "working.sync", |s, _, _| {
+    b.schedule(stage::DERIVE_TIMELINE, "working.sync", |s, _, _| {
         crate::working::sync(s)
     });
-    b.add_system_ordered(Phase::Derive, derive::TIMELINE_DOCK_MORPH, "timeline.dock_morph", |s, _, tx| {
+    b.schedule(stage::DERIVE_TIMELINE, "timeline.dock_morph", |s, _, tx| {
         let asked = s.take_asked_dock_face();
         if s.dock_face() != asked {
             s.morph(tx);
         }
         false
     });
-    b.add_system_ordered(Phase::Derive, derive::DISCLOSURE, "disclosure.poll", crate::disclosure::poll);
-    b.add_system_ordered(Phase::Derive, derive::TIMELINE_PROJECTION, "timeline.projection", |s, _, tx| {
+    // Known: `subagents.shells::followed` reads `expanded` before `disclosure.poll` drops closed folds.
+    b.schedule(stage::DERIVE_TIMELINE, "disclosure.poll", crate::disclosure::poll)
+        .after("subagents.shells");
+    // Known: `projection.rs` reads `expanded` updated by `disclosure.poll`.
+    b.schedule(stage::DERIVE_TIMELINE, "timeline.projection", |s, _, tx| {
         session_view::timeline::projection_poll(s, tx)
-    });
-    b.add_system_ordered(Phase::Derive, derive::LINE_REVEAL, "line_reveal.poll", |s, now, tx| {
+    })
+    .after("disclosure.poll");
+    b.schedule(stage::DERIVE_TIMELINE, "line_reveal.poll", |s, now, tx| {
         crate::line_reveal::poll(s, now, tx)
     });
-    b.add_system_ordered(Phase::Derive, derive::COPIED, "copied.poll", crate::copied::poll);
-    b.add_system_ordered(Phase::Derive, derive::DIAGRAM, "diagram.poll", crate::diagram::poll);
-    b.add_system_ordered(Phase::Derive, derive::TIMELINE_IMAGES, "timeline.images", |s, now, tx| {
+    b.schedule(stage::DERIVE_TIMELINE, "copied.poll", crate::copied::poll);
+    b.schedule(stage::DERIVE_TIMELINE, "diagram.poll", crate::diagram::poll);
+    b.schedule(stage::DERIVE_TIMELINE, "timeline.images", |s, now, tx| {
         session_view::images::poll(s, now, tx)
     });
-    b.add_system_ordered(Phase::Derive, derive::MODEL_PICKER_HOVER, "model_picker.hover", |s, now, tx| {
+    b.schedule(stage::DERIVE_TIMELINE, "model_picker.hover", |s, now, tx| {
         crate::model_picker::hover::poll(s, now, tx)
     });
-    b.add_system_ordered(Phase::Derive, derive::BACKGROUND, "background.poll", |s, _, tx| {
+    b.schedule(stage::DERIVE_TIMELINE, "background.poll", |s, _, tx| {
         crate::background::poll(s, tx)
     });
+
     // Ingest local answers before settling the list: its rows, highlight and empty state must
     // all see the same sources. Previously a full-text landing changed the rows after this poll.
-    b.add_system_ordered(Phase::Derive, derive::SWITCHER, "switcher.poll", |s, now, tx| {
+    // Known: `poll_fulltext` reads `home_search` updated by `workspace_tools.home_search`.
+    b.schedule(stage::DERIVE_SEARCH, "switcher.poll", |s, now, tx| {
         let local_answers = s.poll_session_search(now, tx) | s.poll_fulltext();
         s.poll_switcher(tx, local_answers)
-    });
-    b.add_system_ordered(Phase::Derive, derive::MENTIONS, "mentions.poll", |s, _, tx| {
+    })
+    .after("workspace_tools.home_search");
+
+    b.schedule(stage::DERIVE_COMPOSER, "mentions.poll", |s, _, tx| {
         s.poll_mentions(tx)
     });
 
     // ── Phase 3: React ───────────────────────────────────────────────────────────────────────────
-    b.add_system_ordered(Phase::React, react::COMPOSER_ATTACH, "composer_input.attach", |s, _, _| {
+    b.schedule(stage::REACT_PANELS, "composer_input.attach", |s, _, _| {
         if s.composer_ext.attach.poll() {
             rune::Tracked::touch(&s.composer_ext.attach);
             true
@@ -367,40 +418,59 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
             false
         }
     });
-    b.add_system_ordered(Phase::React, react::PANELS, "panels.poll", |s, _, tx| {
+    b.schedule(stage::REACT_PANELS, "panels.poll", |s, _, tx| {
         s.poll_panels(tx)
     });
-    b.add_system_ordered(Phase::React, react::TURN_DIFFS, "turn_diffs.poll", |s, _, _| {
+    // Precaution: `panels.poll` (`review`, plugins) and `workspace_tools.rune_mcp` (`tools::execute`)
+    // can mutate `source`/session state before turn diffs start.
+    b.schedule(stage::REACT_PANELS, "turn_diffs.poll", |s, _, _| {
         s.poll_turn_diffs()
-    });
-    b.add_system_ordered(Phase::React, react::RECONNECT, "reconnect.poll", |s, _, tx| {
+    })
+    .after("workspace_tools.rune_mcp");
+
+    b.schedule(stage::REACT_STATUS, "reconnect.poll", |s, _, tx| {
         crate::reconnect::poll(s, tx)
     });
-    b.add_system_ordered(Phase::React, react::SESSION_STATE, "session_state.poll", |s, _, tx| {
+    // Known: `reconnect.poll` calls `session_state::reconnected` mutating `services.session_states`.
+    b.schedule(stage::REACT_STATUS, "session_state.poll", |s, _, tx| {
         crate::session_state::poll(s, tx)
-    });
-    b.add_system_ordered(Phase::React, react::STATUS_TOAST, "status_toast.poll", |s, now, tx| {
+    })
+    .after("reconnect.poll");
+    // Known: `tips.poll` can push a toast polled here, and closing an undo-delete toast calls
+    // `undo::toast_closed` -> `send_delete` before `REACT_SHELL`.
+    b.schedule(stage::REACT_STATUS, "status_toast.poll", |s, now, tx| {
         crate::status_toast::poll(s, now, tx)
-    });
-    b.add_system_ordered(Phase::React, react::LAYOUT_STATE, "layout_state.poll", |s, now, tx| {
+    })
+    .after("tips.poll");
+
+    b.schedule(stage::REACT_SHELL, "layout_state.poll", |s, now, tx| {
         crate::layout_state::poll(s, now, tx)
     });
-    b.add_system_ordered(Phase::React, react::INBOX_MODEL, "inbox_model.poll", |s, now, tx| {
+    // Known/precaution: reads `tab_layout()` and `narrow` settled by `layout_state.poll` -> `narrow.poll`.
+    b.schedule(stage::REACT_SHELL, "inbox_model.poll", |s, now, tx| {
         crate::inbox_model::poll(s, now, tx)
-    });
-    b.add_system_ordered(Phase::React, react::TAB_PREVIEW, "tab_preview.poll", |s, now, tx| {
+    })
+    .after("narrow.poll");
+    // Known: reads `narrow()` and `tab_layout()` settled by `layout_state.poll` -> `narrow.poll`.
+    b.schedule(stage::REACT_SHELL, "tab_preview.poll", |s, now, tx| {
         crate::view::tab_preview::poll(s, now, tx)
-    });
-    b.add_system_ordered(Phase::React, react::SESSION_STATUS, "session_status.poll", |s, now, tx| {
+    })
+    .after("narrow.poll");
+    // Known: reads `tab_layout()` and `settings.open` settled by `layout_state.poll` -> `narrow.poll`.
+    b.schedule(stage::REACT_SHELL, "session_status.poll", |s, now, tx| {
         crate::session_status::poll(s, now, tx)
-    });
+    })
+    .after("narrow.poll");
     // Each draft keeps its own composer in any window, saved or not (`restore::show_draft`).
-    b.add_system_ordered(Phase::React, react::RESTORE_SHOW_DRAFT, "restore.show_draft", |s, _, _| {
+    // Known: runs after `status_toast.poll` (`REACT_STATUS`) and `narrow.poll` settle `route`,
+    // and after `composer_input.attach` (`REACT_PANELS`).
+    b.schedule(stage::REACT_SHELL, "restore.show_draft", |s, _, _| {
         s.show_draft()
-    });
+    })
+    .after("narrow.poll");
 
     // ── Phase 4: Persist ─────────────────────────────────────────────────────────────────────────
-    b.add_system_ordered(Phase::Persist, persist::RESTORE_PERSIST, "restore.persist", |s, _, tx| {
+    b.schedule(stage::PERSIST_FLUSH, "restore.persist", |s, _, tx| {
         if !s.persists() {
             return false;
         }
@@ -413,10 +483,12 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
         changed |= s.poll_copies(tx);
         changed
     });
-    b.add_system_ordered(Phase::Persist, persist::ANNOTATIONS_SAVED, "annotations.poll_saved", |s, _, _| {
+    b.schedule(stage::PERSIST_FLUSH, "annotations.poll_saved", |s, _, _| {
         s.persists() && crate::line_comments::poll_saved(s)
     });
-    b.add_system_ordered(Phase::Persist, persist::WINDOWS_PERSIST, "windows.persist", |s, _, _| {
+    // Known: `restore.persist` runs `hydrate_restore` mutating `tabs`/`route`/`window` before
+    // window, taskbar, and jump-list persistence.
+    b.schedule(stage::PERSIST_FLUSH, "windows.persist", |s, _, _| {
         if !s.persists() {
             return false;
         }
@@ -432,5 +504,6 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
             *s.appearance_state.framed = rune_mac::remember_frame("OpenCodeRuneMain");
         }
         false
-    });
+    })
+    .after("restore.persist");
 }

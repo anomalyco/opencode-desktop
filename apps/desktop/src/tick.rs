@@ -1,10 +1,11 @@
-//! Four-phase per-frame tick (`poll`), canonical system order (`order`), one-time window `setup`,
-//! and `visibility` lifecycle hooks.
+//! Four-phase per-frame tick (`poll`), declared scheduler stages (`stage`), one-time window
+//! `setup`, and `visibility` lifecycle hooks.
 //!
 //! Decoupled feature and subsystem polls run through `s.kernel.scheduler` in explicit phases
-//! (`Ingest`, `Derive`, `React`, `Persist`) ordered by [`order`], matching the pre-refactor
-//! `poll` sequence (`31a59a9:apps/desktop/src/main.rs`) independently of feature registration order.
+//! (`Ingest`, `Derive`, `React`, `Persist`), ordered by declared [`stage`] barriers and explicit
+//! `after` edges independently of feature registration order.
 
+use opencode_kernel::{Phase, Stage};
 use opencode_kit::model::Delivery;
 use rune::{Tx, Waker};
 
@@ -13,112 +14,63 @@ use crate::{
     wall_ms, windows,
 };
 
-/// Canonical per-frame poll order within each scheduler phase, spaced by 10, matching the
-/// pre-refactor `poll` sequence (`31a59a9:apps/desktop/src/main.rs`).
-pub(crate) mod order {
-    pub(crate) mod ingest {
-        pub const WINDOWS_PEER_BEHIND: u16 = 10;
-        pub const SESSION_MENU_UNREAD: u16 = 20;
-        pub const SESSION_MENU_PREFERENCES: u16 = 30;
-        pub const RESTORE_PLACES: u16 = 40;
-        pub const RESTORE_UNDO: u16 = 50;
-        pub const RECONNECT_AUDIT: u16 = 60;
-        pub const POPUP: u16 = 70;
-        pub const SERVERS_RUNTIME: u16 = 80;
-        pub const SERVERS_HEALTH: u16 = 90;
-        pub const PROJECTS_HOME: u16 = 100;
-        pub const PROJECT_SWITCHER: u16 = 110;
-        pub const APPEARANCE_ICONS: u16 = 120;
-        pub const DICTATION: u16 = 130;
-        pub const LAUNCH: u16 = 140;
-        pub const LAUNCH_TRACE: u16 = 150;
-        pub const UPDATER: u16 = 160;
-        #[cfg(feature = "office")]
-        pub const OFFICE: u16 = 170;
-        pub const GLITCH: u16 = 180;
-        pub const EGG: u16 = 190;
-        pub const APPEARANCE: u16 = 200;
-        pub const TEXT_RENDERING: u16 = 210;
-        pub const LANGUAGE: u16 = 220;
-        pub const SETTINGS_SEARCH: u16 = 230;
-        pub const SETTINGS_SERVERS_UNAVAILABLE: u16 = 240;
-        pub const NOTIFICATIONS: u16 = 250;
-        pub const SPEECH: u16 = 260;
-        pub const PANELS_SYNC_COMPOSER: u16 = 270;
-        pub const DEEP_LINKS: u16 = 280;
-        pub const QUOTE: u16 = 290;
-        pub const LINE_COMMENTS: u16 = 300;
-        pub const HISTORY_MESSAGE_NAV: u16 = 310;
-        pub const TURN_ERRORS: u16 = 320;
-        pub const COMPOSER_DROPZONE: u16 = 330;
-        pub const SESSION_PAGES: u16 = 340;
-        pub const APP_OUTPUT_ERRORS: u16 = 350;
-        pub const CONTEXT_WINDOW: u16 = 360;
-        pub const INBOX_SENDS: u16 = 370;
-        pub const INBOX_OUTBOX: u16 = 380;
-        pub const OPEN_IN: u16 = 390;
-        pub const JOBS: u16 = 400;
-        pub const FILES_REPLY_LINKS: u16 = 410;
-        pub const TICK_STREAM: u16 = 420;
-        pub const HISTORY_REWIND: u16 = 430;
-        pub const HISTORY_FORK: u16 = 440;
-        pub const HISTORY_JUMP: u16 = 450;
-        pub const TICK_SUBMIT: u16 = 460;
-    }
+/// Declared execution stages within each scheduler phase, in execution order.
+pub(crate) mod stage {
+    use super::{Phase, Stage};
 
-    pub(crate) mod derive {
-        pub const WORKING_SYNC: u16 = 10;
-        pub const SUBAGENTS_SHELLS: u16 = 20;
-        pub const TIMELINE_TODOS: u16 = 30;
-        pub const SETTINGS_WORKTREES: u16 = 40;
-        pub const TIMELINE_DOCK_MORPH: u16 = 50;
-        pub const DISCLOSURE: u16 = 60;
-        pub const TIMELINE_PROJECTION: u16 = 70;
-        pub const LINE_REVEAL: u16 = 80;
-        pub const COPIED: u16 = 90;
-        pub const DIAGRAM: u16 = 100;
-        pub const TIMELINE_IMAGES: u16 = 110;
-        pub const MODEL_PICKER_HOVER: u16 = 120;
-        pub const TIMELINE_AGENT_ROWS: u16 = 130;
-        pub const BACKGROUND: u16 = 140;
-        pub const FIND: u16 = 150;
-        pub const HOME_SEARCH: u16 = 160;
-        pub const SWITCHER: u16 = 170;
-        pub const MENTIONS: u16 = 180;
-        pub const COMPOSER_COMMANDS: u16 = 190;
-        pub const COMPOSER_SUGGESTIONS: u16 = 200;
-        pub const SESSION_MENU_RENAME: u16 = 210;
-        pub const BRANCH_PICKER: u16 = 220;
-        pub const SESSION_MENU_DELETE: u16 = 230;
-        pub const COMPOSER_UPLOADS: u16 = 240;
-    }
+    // ── Phase 1: Ingest ──────────────────────────────────────────────────────────────────────────
+    /// Pre-server storage hydration, peer-dirty check, pre-stream restore/audit, popup settle.
+    pub const INGEST_HYDRATE: Stage = Stage::new(Phase::Ingest, "ingest.hydrate");
+    /// Server checkout/background, health probes, Home/project-switcher sync, dictation, launch.
+    pub const INGEST_SERVERS: Stage = Stage::new(Phase::Ingest, "ingest.servers");
+    /// Local OS/appearance/language/surface workers and settings timers.
+    pub const INGEST_LOCAL: Stage = Stage::new(Phase::Ingest, "ingest.local");
+    /// Notification clicks, screen-reader speech, composer-focus sync, deep-link drain.
+    pub const INGEST_DISPATCH: Stage = Stage::new(Phase::Ingest, "ingest.dispatch");
+    /// Pre-page/pre-stream session input and indicator polls.
+    pub const INGEST_SESSION_PRE: Stage = Stage::new(Phase::Ingest, "ingest.session_pre");
+    /// Page loads, context window, inbox send receipts/outbox, output errors, open-in, jobs.
+    pub const INGEST_PAGES: Stage = Stage::new(Phase::Ingest, "ingest.pages");
+    /// Live SSE/WS & fixture playback stream drain, post-stream history timers, held submits.
+    pub const INGEST_STREAM: Stage = Stage::new(Phase::Ingest, "ingest.stream");
 
-    pub(crate) mod react {
-        pub const COMPOSER_ATTACH: u16 = 10;
-        pub const PANELS: u16 = 20;
-        pub const RUNE_MCP: u16 = 30;
-        pub const TURN_DIFFS: u16 = 40;
-        pub const SETTINGS_PROJECT: u16 = 50;
-        pub const SETTINGS_ABOUT: u16 = 60;
-        pub const SETTINGS_PROJECTS: u16 = 70;
-        pub const RECONNECT: u16 = 80;
-        pub const SESSION_STATE: u16 = 90;
-        pub const TIPS: u16 = 100;
-        pub const STATUS_TOAST: u16 = 110;
-        pub const LAYOUT_STATE: u16 = 120;
-        pub const NARROW: u16 = 130;
-        pub const INBOX_MODEL: u16 = 140;
-        pub const TAB_PREVIEW: u16 = 150;
-        pub const SESSION_STATUS: u16 = 160;
-        pub const RESTORE_SHOW_DRAFT: u16 = 170;
-    }
+    // ── Phase 2: Derive ──────────────────────────────────────────────────────────────────────────
+    /// Timeline disclosures, projections, animations, find, pickers, worktrees.
+    pub const DERIVE_TIMELINE: Stage = Stage::new(Phase::Derive, "derive.timeline");
+    /// Home session search and command/session switcher.
+    pub const DERIVE_SEARCH: Stage = Stage::new(Phase::Derive, "derive.search");
+    /// Composer completions/suggestions, session menu rename/delete, branch picker, uploads.
+    pub const DERIVE_COMPOSER: Stage = Stage::new(Phase::Derive, "derive.composer");
 
-    pub(crate) mod persist {
-        pub const UPDATER_OWED: u16 = 10;
-        pub const RESTORE_PERSIST: u16 = 20;
-        pub const ANNOTATIONS_SAVED: u16 = 30;
-        pub const WINDOWS_PERSIST: u16 = 40;
-    }
+    // ── Phase 3: React ───────────────────────────────────────────────────────────────────────────
+    /// Attachment polling, side/bottom panels & plugins, MCP tool sync, turn diffs.
+    pub const REACT_PANELS: Stage = Stage::new(Phase::React, "react.panels");
+    /// Settings page reactions, server reconnect/session resolution, tips, status toasts.
+    pub const REACT_STATUS: Stage = Stage::new(Phase::React, "react.status");
+    /// Layout/narrow transitions, sidebar inbox, tab preview, pending-request reads, draft swap.
+    pub const REACT_SHELL: Stage = Stage::new(Phase::React, "react.shell");
+
+    // ── Phase 4: Persist ─────────────────────────────────────────────────────────────────────────
+    /// Startup profile lock, restore hydration/persistence, saved comments, window/OS persistence.
+    pub const PERSIST_FLUSH: Stage = Stage::new(Phase::Persist, "persist.flush");
+
+    /// All desktop scheduler stages in execution order.
+    pub const ALL: &[Stage] = &[
+        INGEST_HYDRATE,
+        INGEST_SERVERS,
+        INGEST_LOCAL,
+        INGEST_DISPATCH,
+        INGEST_SESSION_PRE,
+        INGEST_PAGES,
+        INGEST_STREAM,
+        DERIVE_TIMELINE,
+        DERIVE_SEARCH,
+        DERIVE_COMPOSER,
+        REACT_PANELS,
+        REACT_STATUS,
+        REACT_SHELL,
+        PERSIST_FLUSH,
+    ];
 }
 
 /// Per-frame tick handoff slot carrying the pre-stream `dock_face` snapshot from `tick.stream`

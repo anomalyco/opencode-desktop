@@ -4,7 +4,7 @@ pub use opencode_feature_find::*;
 
 use std::borrow::Cow;
 
-use opencode_kernel::{CommandEntry, EscapeLayer, Feature, KernelBuilder, Phase};
+use opencode_kernel::{CommandEntry, EscapeLayer, Feature, KernelBuilder};
 use opencode_kit::model::Transcript;
 use rune::{KeyEvent, Tx};
 use session_view::disclosure::Disclosures;
@@ -166,11 +166,9 @@ impl Feature<App> for FindFeature {
             },
         ));
         builder.add_setup("find.waker", |s, w| setup(s, w));
-        builder.add_system_ordered(
-            Phase::Derive,
-            crate::tick::order::derive::FIND,
-            "find.poll",
-            |s, _, tx| poll(s, tx),
-        );
+        // Known: `find::matches` reads and writes `expanded` and reads timeline projection.
+        builder
+            .schedule(crate::tick::stage::DERIVE_TIMELINE, "find.poll", |s, _, tx| poll(s, tx))
+            .after("timeline.projection");
     }
 }

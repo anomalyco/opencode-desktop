@@ -4,7 +4,7 @@ pub use opencode_feature_dictation::*;
 
 use std::path::PathBuf;
 
-use opencode_kernel::{Feature, KernelBuilder, Phase};
+use opencode_kernel::{Feature, KernelBuilder};
 use rune::{KeyEvent, TextEdit, Tx, Waker};
 
 use crate::App;
@@ -52,12 +52,13 @@ impl Feature<App> for DictationFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
-        builder.add_system_ordered(
-            Phase::Ingest,
-            crate::tick::order::ingest::DICTATION,
-            "dictation.poll",
-            |s, now, tx| poll(s, now, tx),
-        );
+        // Precaution: dictation can call `App::submit`, mutating `route`/`tabs`/`sessions`/`projects`
+        // read by `projects.home` and `project_switcher.poll`.
+        builder
+            .schedule(crate::tick::stage::INGEST_SERVERS, "dictation.poll", |s, now, tx| {
+                poll(s, now, tx)
+            })
+            .after("project_switcher.poll");
     }
 }
 

@@ -5,7 +5,7 @@ pub use opencode_feature_history::message_nav::*;
 
 use std::rc::Rc;
 
-use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration, Phase};
+use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration};
 use opencode_kit::model::Transcript;
 use rune::{KeyEvent, LiveRegion, Tx};
 use session_view::timeline::Projection;
@@ -248,29 +248,30 @@ impl Feature<App> for HistoryFeature {
                 .with_key(|s, ev, tx| s.jump_key(ev, tx))
                 .with_dismiss(|s, _| jump::close(s, true)),
         );
-        builder.add_system_ordered(
-            Phase::Ingest,
-            crate::tick::order::ingest::HISTORY_MESSAGE_NAV,
+        builder.schedule(
+            crate::tick::stage::INGEST_SESSION_PRE,
             "history.message_nav",
             |s, _, tx| poll(s, tx),
         );
-        builder.add_system_ordered(
-            Phase::Ingest,
-            crate::tick::order::ingest::HISTORY_REWIND,
-            "history.rewind",
-            |s, _, tx| crate::rewind::revert_timeouts(s, tx),
-        );
-        builder.add_system_ordered(
-            Phase::Ingest,
-            crate::tick::order::ingest::HISTORY_FORK,
-            "history.fork",
-            |s, _, tx| crate::fork::poll(s, tx),
-        );
-        builder.add_system_ordered(
-            Phase::Ingest,
-            crate::tick::order::ingest::HISTORY_JUMP,
-            "history.jump",
-            |s, _, tx| jump::poll(s, tx),
-        );
+        // Known: `tick.stream` delivers revert settlements/events before timeout checks.
+        builder
+            .schedule(crate::tick::stage::INGEST_STREAM, "history.rewind", |s, _, tx| {
+                crate::rewind::revert_timeouts(s, tx)
+            })
+            .after("tick.stream");
+        // Known: runs after `tick.stream` for fork settlements; precaution: shares `sessions` and
+        // `dialogs.toast` with `history.rewind`.
+        builder
+            .schedule(crate::tick::stage::INGEST_STREAM, "history.fork", |s, _, tx| {
+                crate::fork::poll(s, tx)
+            })
+            .after("history.rewind");
+        // Known: reads `prompt_ids` (depends on `session.revert` from `history.rewind`) and
+        // `displayed_session_id` (which `history.fork` can update).
+        builder
+            .schedule(crate::tick::stage::INGEST_STREAM, "history.jump", |s, _, tx| {
+                jump::poll(s, tx)
+            })
+            .after("history.fork");
     }
 }

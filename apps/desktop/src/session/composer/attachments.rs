@@ -5,7 +5,7 @@ pub use opencode_feature_composer_input::attachments::*;
 
 use std::path::Path;
 
-use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration, Phase};
+use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration};
 use opencode_kit::client::{PathAttachment, Server};
 use rune::{El, Tx};
 use session_view::palette::Pal;
@@ -238,29 +238,35 @@ impl Feature<App> for ComposerInputFeature {
         );
         builder.add_setup("composer_input.attach_waker", |s, waker| s.composer_ext.attach.set_waker(waker));
         builder.add_setup("composer_input.slash_waker", |s, waker| s.composer_ext.add.slash.set_waker(waker));
-        builder.add_system_ordered(
-            Phase::Ingest,
-            crate::tick::order::ingest::COMPOSER_DROPZONE,
+        builder.schedule(
+            crate::tick::stage::INGEST_SESSION_PRE,
             "composer_input.dropzone",
             |s, _, tx| crate::dropzone::poll(s, tx),
         );
-        builder.add_system_ordered(
-            Phase::Derive,
-            crate::tick::order::derive::COMPOSER_COMMANDS,
-            "composer_input.commands",
-            |s, _, tx| s.poll_commands(tx),
-        );
-        builder.add_system_ordered(
-            Phase::Derive,
-            crate::tick::order::derive::COMPOSER_SUGGESTIONS,
-            "composer_input.suggestions",
-            |s, _, tx| s.poll_suggestions(tx),
-        );
-        builder.add_system_ordered(
-            Phase::Derive,
-            crate::tick::order::derive::COMPOSER_UPLOADS,
-            "composer_input.uploads",
-            |s, _, tx| s.poll_uploads(tx),
-        );
+        // Known: shares `composer_ext.suggest` with `mentions.poll`.
+        builder
+            .schedule(
+                crate::tick::stage::DERIVE_COMPOSER,
+                "composer_input.commands",
+                |s, _, tx| s.poll_commands(tx),
+            )
+            .after("mentions.poll");
+        // Known: shares `composer_ext.suggest` with `composer_input.commands` (and reads
+        // `search.focused` finalized in `DERIVE_SEARCH`).
+        builder
+            .schedule(
+                crate::tick::stage::DERIVE_COMPOSER,
+                "composer_input.suggestions",
+                |s, _, tx| s.poll_suggestions(tx),
+            )
+            .after("composer_input.commands");
+        // Precaution: shares `dialogs.toast` with `session_menu.poll_delete`.
+        builder
+            .schedule(
+                crate::tick::stage::DERIVE_COMPOSER,
+                "composer_input.uploads",
+                |s, _, tx| s.poll_uploads(tx),
+            )
+            .after("session_menu.poll_delete");
     }
 }

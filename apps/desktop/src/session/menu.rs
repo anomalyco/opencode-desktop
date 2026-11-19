@@ -2,7 +2,7 @@
 
 pub use opencode_feature_session_menu::*;
 
-use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration, Phase};
+use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration};
 use opencode_kit::client::{Server, Write};
 use opencode_kit::model::{SessionInfo, Transcript};
 use opencode_kit::servers::ServerKey;
@@ -381,29 +381,31 @@ impl Feature<App> for SessionMenuFeature {
                 })
                 .with_dismiss(|s, tx| close_rename_dialog(s, tx)),
         );
-        builder.add_system_ordered(
-            Phase::Ingest,
-            crate::tick::order::ingest::SESSION_MENU_UNREAD,
+        builder.schedule(
+            crate::tick::stage::INGEST_HYDRATE,
             "session_menu.unread",
             |s, _, _| unread::poll(s),
         );
-        builder.add_system_ordered(
-            Phase::Ingest,
-            crate::tick::order::ingest::SESSION_MENU_PREFERENCES,
-            "session_menu.preferences",
-            |s, _, _| preferences::poll(s),
-        );
-        builder.add_system_ordered(
-            Phase::Derive,
-            crate::tick::order::derive::SESSION_MENU_RENAME,
+        // Precaution: both hydrate through `Tracked<Menus>` and `storage`.
+        builder
+            .schedule(
+                crate::tick::stage::INGEST_HYDRATE,
+                "session_menu.preferences",
+                |s, _, _| preferences::poll(s),
+            )
+            .after("session_menu.unread");
+        builder.schedule(
+            crate::tick::stage::DERIVE_COMPOSER,
             "session_menu.poll_rename",
             |s, now, tx| poll_rename(s, now, tx),
         );
-        builder.add_system_ordered(
-            Phase::Derive,
-            crate::tick::order::derive::SESSION_MENU_DELETE,
-            "session_menu.poll_delete",
-            |s, now, tx| poll_delete(s, now, tx),
-        );
+        // Known/precaution: shares `menus` and `sessions` with `session_menu.poll_rename`.
+        builder
+            .schedule(
+                crate::tick::stage::DERIVE_COMPOSER,
+                "session_menu.poll_delete",
+                |s, now, tx| poll_delete(s, now, tx),
+            )
+            .after("session_menu.poll_rename");
     }
 }

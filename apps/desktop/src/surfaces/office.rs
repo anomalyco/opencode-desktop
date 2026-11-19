@@ -2,7 +2,7 @@
 
 pub use opencode_feature_office::*;
 
-use opencode_kernel::{Feature, KernelBuilder, Phase, SurfaceDescriptor, SurfaceKind};
+use opencode_kernel::{Feature, KernelBuilder, SurfaceDescriptor, SurfaceKind};
 
 use crate::App;
 
@@ -25,12 +25,10 @@ impl Feature<App> for OfficeFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
-        builder.add_system_ordered(
-            Phase::Ingest,
-            crate::tick::order::ingest::OFFICE,
-            "office.poll",
-            |s, _, tx| poll(s, tx),
-        );
+        // Precaution: both `updater.poll` and `office.poll` can push toasts via `dialogs.toast`.
+        builder
+            .schedule(crate::tick::stage::INGEST_LOCAL, "office.poll", |s, _, tx| poll(s, tx))
+            .after("updater.poll");
         builder.add_surface(
             SurfaceDescriptor::new("office", SurfaceKind::Office, "Office Preview")
                 .with_extensions(&["docx", "xlsx", "pptx"])

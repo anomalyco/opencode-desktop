@@ -3,7 +3,7 @@
 
 pub use opencode_feature_timeline_extras::todos::*;
 
-use opencode_kernel::{CommandEntry, CommandTitle, EscapeLayer, Feature, KernelBuilder, Phase};
+use opencode_kernel::{CommandEntry, CommandTitle, EscapeLayer, Feature, KernelBuilder};
 use opencode_kit::model::Transcript;
 use rune::{El, Tx};
 use rune_knobs::Knobs;
@@ -120,15 +120,9 @@ impl Feature<App> for TimelineExtrasFeature {
                 *s.timeline_fx.todo_open = false;
             },
         ));
-        builder.add_system_ordered(
-            Phase::Derive,
-            crate::tick::order::derive::TIMELINE_TODOS,
-            "timeline_extras.todos",
-            sync,
-        );
-        builder.add_system_ordered(
-            Phase::Derive,
-            crate::tick::order::derive::TIMELINE_AGENT_ROWS,
+        builder.schedule(crate::tick::stage::DERIVE_TIMELINE, "timeline_extras.todos", sync);
+        builder.schedule(
+            crate::tick::stage::DERIVE_TIMELINE,
             "timeline_extras.agent_rows",
             |s, _, tx| crate::agent_rows::poll(s, tx),
         );

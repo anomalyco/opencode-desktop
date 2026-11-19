@@ -30,7 +30,10 @@ pub use overlay::{
     OverlayDispatcher, OverlayEffect, OverlayEntry, OverlayEvent, OverlayKeyFn, OverlayKind,
     OverlayRegistration, OverlayRenderFn, OverlayStack, OverlayState,
 };
-pub use scheduler::{CloseFn, LifecycleScheduler, Phase, RestFn, SetupFn, SystemFn, VisibilityFn};
+pub use scheduler::{
+    CloseFn, LifecycleScheduler, Phase, RestFn, Scheduled, SetupFn, Stage, System, SystemFn,
+    VisibilityFn,
+};
 pub use slots::StateSlots;
 
 /// Shell kernel uniting every decoupling registry for host state `S`.
@@ -148,21 +151,33 @@ impl<S> KernelBuilder<S> {
         self
     }
 
-    /// Registers a per-tick system in `phase` at the end of the phase (`u16::MAX`).
-    pub fn add_system(&mut self, phase: Phase, name: &'static str, f: SystemFn<S>) -> &mut Self {
-        self.kernel.scheduler.add_system(phase, name, f);
+    /// Declares a named execution stage inside `stage.phase`.
+    pub fn add_stage(&mut self, stage: Stage) -> &mut Self {
+        self.kernel.scheduler.add_stage(stage);
         self
     }
 
-    /// Registers a per-tick system in `phase` at an explicit ascending `order`.
-    pub fn add_system_ordered(
-        &mut self,
-        phase: Phase,
-        order: u16,
-        name: &'static str,
-        f: SystemFn<S>,
-    ) -> &mut Self {
-        self.kernel.scheduler.add_system_ordered(phase, order, name, f);
+    /// Declares multiple execution stages in order.
+    pub fn add_stages(&mut self, stages: &[Stage]) -> &mut Self {
+        self.kernel.scheduler.add_stages(stages);
+        self
+    }
+
+    /// Registers a per-tick system targeting a declared [`Stage`], returning a [`Scheduled`]
+    /// handle for chaining explicit `after` edges.
+    pub fn schedule(&mut self, stage: Stage, name: &'static str, run: SystemFn<S>) -> Scheduled<'_, S> {
+        self.kernel.scheduler.schedule(stage, name, run)
+    }
+
+    /// Registers a pre-built [`System`] targeting a declared [`Stage`].
+    pub fn schedule_system(&mut self, system: System<S>) -> &mut Self {
+        self.kernel.scheduler.schedule_system(system);
+        self
+    }
+
+    /// Registers a per-tick system in `phase` at the end of the phase.
+    pub fn add_system(&mut self, phase: Phase, name: &'static str, f: SystemFn<S>) -> &mut Self {
+        self.kernel.scheduler.add_system(phase, name, f);
         self
     }
 
@@ -226,8 +241,9 @@ impl<S> KernelBuilder<S> {
         self
     }
 
-    /// Finishes building and returns the assembled [`Kernel`].
-    pub fn build(self) -> Kernel<S> {
+    /// Finalizes and validates the tick schedule and returns the assembled [`Kernel`].
+    pub fn build(mut self) -> Kernel<S> {
+        self.kernel.scheduler.resolve();
         self.kernel
     }
 }

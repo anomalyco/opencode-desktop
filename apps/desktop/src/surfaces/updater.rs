@@ -11,7 +11,7 @@ pub use opencode_feature_updater::{
 #[cfg(not(target_arch = "wasm32"))]
 pub use opencode_feature_updater::{finish_quit, installs_on_quit};
 
-use opencode_kernel::{Feature, KernelBuilder, Phase};
+use opencode_kernel::{Feature, KernelBuilder};
 
 use crate::App;
 
@@ -77,21 +77,11 @@ impl Feature<App> for UpdaterFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
-        builder.add_system_ordered(
-            Phase::Ingest,
-            crate::tick::order::ingest::UPDATER,
-            "updater.poll",
-            |s, _, tx| poll(s, tx),
-        );
-        builder.add_system_ordered(
-            Phase::Persist,
-            crate::tick::order::persist::UPDATER_OWED,
-            "updater.poll_owed",
-            |s, _, _| {
-                poll_owed(s);
-                false
-            },
-        );
+        builder.schedule(crate::tick::stage::INGEST_LOCAL, "updater.poll", |s, _, tx| poll(s, tx));
+        builder.schedule(crate::tick::stage::PERSIST_FLUSH, "updater.poll_owed", |s, _, _| {
+            poll_owed(s);
+            false
+        });
         builder.add_close("updater.closing", |s| s.services.updater.closing());
     }
 }
