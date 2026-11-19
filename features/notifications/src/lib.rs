@@ -56,11 +56,55 @@ pub trait Sink {
     fn remove(&mut self, id: &str);
 }
 
+/// Notification sink initialization lifecycle.
+#[derive(Default)]
+enum SinkState {
+    /// System notification support has not been probed yet.
+    #[default]
+    Uninitialized,
+    /// Probed (or explicitly cleared) with no active notification sink.
+    Unavailable,
+    /// Connected to the system notification center or a custom sink.
+    Ready(Box<dyn Sink>),
+}
+
+enum SinkEvent {
+    Probe { available: bool },
+    Install(Option<Box<dyn Sink>>),
+}
+
+enum SinkEffect {
+    None,
+    ConnectSystem,
+}
+
+fn step_sink(state: &mut SinkState, event: SinkEvent) -> SinkEffect {
+    match event {
+        SinkEvent::Probe { available } => {
+            if !matches!(state, SinkState::Uninitialized) {
+                return SinkEffect::None;
+            }
+            if available {
+                *state = SinkState::Ready(Box::new(System));
+                SinkEffect::ConnectSystem
+            } else {
+                *state = SinkState::Unavailable;
+                SinkEffect::None
+            }
+        }
+        SinkEvent::Install(sink) => {
+            *state = match sink {
+                Some(sink) => SinkState::Ready(sink),
+                None => SinkState::Unavailable,
+            };
+            SinkEffect::None
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct Notifier {
-    sink: Option<Box<dyn Sink>>,
-    /// Whether this run looked for the system's notifications yet.
-    tried: bool,
+    state: SinkState,
 }
 
 /// Clicks from any thread, for whichever window they're for ([`actions::take`]).
@@ -101,13 +145,12 @@ impl Coordinator {
 impl Notifier {
     /// Whether this window posts to the system's notifications.
     pub fn shows(&self) -> bool {
-        self.sink.is_some()
+        matches!(self.state, SinkState::Ready(_))
     }
 
     /// Replaces the notification sink directly (for custom platform sinks or harnesses).
     pub fn set_sink(&mut self, sink: Option<Box<dyn Sink>>) {
-        self.sink = sink;
-        self.tried = true;
+        step_sink(&mut self.state, SinkEvent::Install(sink));
     }
 
     /// A click on a notification, from any thread: it waits for its window's poll.
@@ -119,7 +162,7 @@ impl Notifier {
     }
 
     fn post(&mut self, note: Note, server: &str, host_focused: bool) {
-        let Some(sink) = self.sink.as_mut() else {
+        let SinkState::Ready(sink) = &mut self.state else {
             return;
         };
         if host_focused || sink.focused() {
@@ -140,7 +183,7 @@ impl Notifier {
 
     /// Takes notification `id` out of the system's list, if this run posted it.
     fn take_out(&mut self, id: &str) {
-        let Some(sink) = self.sink.as_mut() else {
+        let SinkState::Ready(sink) = &mut self.state else {
             return;
         };
         COORDINATOR.with_borrow_mut(|c| {
@@ -167,7 +210,7 @@ pub fn seen(host: &mut dyn NotificationsHost, session: &str) {
 /// The app quits: the requests of its own server end with it, so their notifications go.
 pub fn quitting(host: &mut dyn NotificationsHost) {
     let own_base = host.own_server_base();
-    let Some(sink) = host.notifier_mut().sink.as_mut() else {
+    let SinkState::Ready(sink) = &mut host.notifier_mut().state else {
         return;
     };
     let own = ServerKey::sidecar();
@@ -250,7 +293,7 @@ fn request(ty: &str, data: &Value, sid: &str) -> Option<(Kind, &'static str, Str
 /// `claim` receives whether this window decided to post and returns `true` when this window won
 /// the per-event claim across windows (e.g. `StreamEvent::take(&e.notice, want)`).
 pub fn notify_event(host: &mut dyn NotificationsHost, ty: &str, data: &Value, sid: &str, claim: &mut dyn FnMut(bool) -> bool) -> bool {
-    if host.notifier().sink.is_none() {
+    if !host.notifier().shows() {
         return false;
     }
     if matches!(ty, "permission.asked" | "form.created") {
@@ -303,9 +346,11 @@ pub fn on_action(host: &mut dyn NotificationsHost, click: &mut rune_notify::Clic
 /// Opens clicked notifications' sessions, and connects the system the first time a live window
 /// polls.
 pub fn poll(host: &mut dyn NotificationsHost, tx: &mut Tx) -> bool {
-    if !host.notifier().tried && host.persists() {
-        host.notifier_mut().tried = true;
-        install(host);
+    if matches!(host.notifier().state, SinkState::Uninitialized) && host.persists() {
+        let available = rune_notify::available();
+        if matches!(step_sink(&mut host.notifier_mut().state, SinkEvent::Probe { available }), SinkEffect::ConnectSystem) {
+            connect_system(host);
+        }
     }
     let mut opened = false;
     for mut click in actions::take(host) {
@@ -345,15 +390,11 @@ fn click_server(own_base: Option<&str>, from: &str) -> ServerKey {
     ServerKey::new(from)
 }
 
-fn install(host: &mut dyn NotificationsHost) {
-    if !rune_notify::available() {
-        return;
-    }
+fn connect_system(host: &dyn NotificationsHost) {
     if let Some(waker) = host.waker() {
         WAKERS.lock().unwrap_or_else(|e| e.into_inner()).push(waker);
     }
     rune_notify::on_click(Notifier::click);
-    host.notifier_mut().sink = Some(Box::new(System));
 }
 
 struct System;
