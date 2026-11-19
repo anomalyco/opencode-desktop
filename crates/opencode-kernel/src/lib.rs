@@ -175,12 +175,6 @@ impl<S> KernelBuilder<S> {
         self
     }
 
-    /// Registers a per-tick system in `phase` at the end of the phase.
-    pub fn add_system(&mut self, phase: Phase, name: &'static str, f: SystemFn<S>) -> &mut Self {
-        self.kernel.scheduler.add_system(phase, name, f);
-        self
-    }
-
     /// Registers a one-time window setup hook.
     pub fn add_setup(&mut self, name: &'static str, f: SetupFn<S>) -> &mut Self {
         self.kernel.scheduler.add_setup(name, f);

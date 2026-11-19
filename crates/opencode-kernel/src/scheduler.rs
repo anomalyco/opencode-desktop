@@ -184,7 +184,6 @@ impl<S> Copy for CloseEntry<S> {}
 struct Schedule<S> {
     stages: [Vec<&'static str>; 4],
     pending: Vec<System<S>>,
-    unordered: [Vec<SystemEntry<S>>; 4],
     phases: [Vec<SystemEntry<S>>; 4],
     resolved: bool,
     setup: Vec<SetupEntry<S>>,
@@ -198,7 +197,6 @@ impl<S> Default for Schedule<S> {
         Self {
             stages: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
             pending: Vec::new(),
-            unordered: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
             phases: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
             resolved: true,
             setup: Vec::new(),
@@ -214,7 +212,6 @@ impl<S> Clone for Schedule<S> {
         Self {
             stages: self.stages.clone(),
             pending: self.pending.clone(),
-            unordered: self.unordered.clone(),
             phases: self.phases.clone(),
             resolved: self.resolved,
             setup: self.setup.clone(),
@@ -290,13 +287,6 @@ impl<S> LifecycleScheduler<S> {
         sched.resolved = false;
     }
 
-    /// Registers a per-tick system in `phase` at the end of the phase.
-    pub fn add_system(&mut self, phase: Phase, name: &'static str, f: SystemFn<S>) {
-        let sched = self.schedule_mut();
-        sched.unordered[phase.index()].push(SystemEntry { stage: "", name, run: f });
-        sched.resolved = false;
-    }
-
     /// Validates all declared stages, system names, and `after` edges, and resolves every phase
     /// into a deterministic, registration-order-independent execution list.
     ///
@@ -329,7 +319,7 @@ impl<S> LifecycleScheduler<S> {
             }
         }
 
-        // 2. Validate unique system names (across staged + legacy unordered systems) and declared stages.
+        // 2. Validate unique system names and declared stages.
         let mut by_name: HashMap<&'static str, usize> = HashMap::with_capacity(sched.pending.len());
         let mut ranks: Vec<usize> = Vec::with_capacity(sched.pending.len());
         for (idx, sys) in sched.pending.iter().enumerate() {
@@ -345,16 +335,6 @@ impl<S> LifecycleScheduler<S> {
                 sys.name
             );
             ranks.push(rank);
-        }
-        let mut unordered_names: HashSet<&'static str> = HashSet::new();
-        for phase in Phase::ALL {
-            for entry in &sched.unordered[phase.index()] {
-                assert!(
-                    !by_name.contains_key(entry.name) && unordered_names.insert(entry.name),
-                    "scheduler: duplicate system name '{}'",
-                    entry.name
-                );
-            }
         }
 
         // 3. Validate all `after` edges and build intra-stage DAG adjacency lists.
@@ -439,7 +419,6 @@ impl<S> LifecycleScheduler<S> {
                     );
                 }
             }
-            out.extend_from_slice(&sched.unordered[phase.index()]);
         }
         sched.resolved = true;
     }
@@ -466,19 +445,6 @@ impl<S> LifecycleScheduler<S> {
 
     /// Runs every system registered in `phase`. Returns `true` if any system reported a change.
     pub fn run_phase(&self, phase: Phase, state: &mut S, now: f64, tx: &mut rune::Tx) -> bool {
-        self.run_phase_with(phase, state, now, tx, |_, _| {})
-    }
-
-    /// Runs every system registered in `phase`, calling `on_step(state, system_changed)` after
-    /// each system returns. Returns `true` if any system reported a change.
-    pub fn run_phase_with(
-        &self,
-        phase: Phase,
-        state: &mut S,
-        now: f64,
-        tx: &mut rune::Tx,
-        mut on_step: impl FnMut(&mut S, bool),
-    ) -> bool {
         let Some(inner) = self.inner.as_deref() else { return false };
         assert!(
             inner.resolved,
@@ -486,11 +452,9 @@ impl<S> LifecycleScheduler<S> {
         );
         let mut changed = false;
         for system in &inner.phases[phase.index()] {
-            let step_changed = (system.run)(state, now, tx);
-            if step_changed {
+            if (system.run)(state, now, tx) {
                 changed = true;
             }
-            on_step(state, step_changed);
         }
         changed
     }
