@@ -184,6 +184,34 @@ pub struct Link {
     local: ServerData,
 }
 
+impl Link {
+    /// Version stamp of this server's `projects`, `sessions`, and `recent_page` cells, whether
+    /// held in a shared [`ServerPeer`] vault or stashed locally before joining.
+    pub(crate) fn home_data_stamp(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let hash_data = |data: &ServerData| {
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            (
+                Tracked::id(&data.projects),
+                Tracked::version(&data.projects),
+                Tracked::id(&data.sessions),
+                Tracked::version(&data.sessions),
+                Tracked::id(&data.recent_page),
+                Tracked::version(&data.recent_page),
+            )
+                .hash(&mut h);
+            h.finish()
+        };
+        match &self.peer {
+            Some(peer) => {
+                let vault = peer.vault.borrow();
+                if vault.at == At::Home { hash_data(&vault.data) } else { 0 }
+            }
+            None => hash_data(&self.local),
+        }
+    }
+}
+
 thread_local! {
     static TOKENS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }

@@ -209,6 +209,36 @@ impl ProjectsHost for App {
         crate::plugin_host::server_sources::pending_sources().is_empty()
     }
 
+    fn home_sync_stamp(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        use rune::Tracked;
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        crate::servers::version().hash(&mut h);
+        crate::servers::runtime::version().hash(&mut h);
+        crate::servers::runtime::sidecar_stamp().hash(&mut h);
+        crate::plugin_host::server_sources::version().hash(&mut h);
+        crate::servers::health::version().hash(&mut h);
+        opencode_i18n::I18N.locale().hash(&mut h);
+        match Tracked::untracked(&self.source) {
+            Source::Live { server, .. } => (true, server.base.as_str()).hash(&mut h),
+            Source::Fixture => (false, "").hash(&mut h),
+        }
+        (
+            (Tracked::id(&self.projects), Tracked::version(&self.projects)),
+            (Tracked::id(&self.sessions), Tracked::version(&self.sessions)),
+            (Tracked::id(&self.recent_page), Tracked::version(&self.recent_page)),
+            Tracked::untracked(&self.project_state).home_sync_stamp(),
+            Tracked::untracked(&self.launch).connected_stamp(),
+            (
+                self.kernel.slots.cell_id(&crate::new_worktree::NEW_WORKTREE),
+                self.kernel.slots.version(&crate::new_worktree::NEW_WORKTREE),
+            ),
+            Tracked::untracked(&self.checkout).home_data_stamp(),
+        )
+            .hash(&mut h);
+        h.finish()
+    }
+
     fn can_write(&self) -> bool {
         App::can_write(self)
     }
@@ -500,6 +530,12 @@ impl Feature<App> for ProjectsFeature {
                 })
                 .with_dismiss(|s, tx| remote_picker::close(s, tx)),
         );
+        // Known/precaution: reads `checkout`, `servers::runtime::sidecar_stamp`, and listed server state.
+        builder
+            .schedule(crate::tick::stage::INGEST_SERVERS, "projects.home", |s, _, tx| {
+                home::poll(s, tx)
+            })
+            .after("servers.health");
     }
 }
 

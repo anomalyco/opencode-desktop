@@ -124,6 +124,11 @@ impl LivePaths {
         }
     }
 
+    /// Whether a background index build is in flight.
+    pub fn is_building(&self) -> bool {
+        matches!(self.state, PathsState::Building { .. })
+    }
+
     /// Lands a built index: true when the answers change.
     pub fn poll(&mut self) -> bool {
         let Some((generation, index)) = self.worker.take() else {

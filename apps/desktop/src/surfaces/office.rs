@@ -4,7 +4,7 @@ pub use opencode_feature_office::{
     OfficeCompositor, OfficeEnv, configure, pages, poll, sheet,
 };
 
-use opencode_kernel::{Feature, KernelBuilder, Phase};
+use opencode_kernel::{Feature, KernelBuilder};
 
 use crate::App;
 
@@ -70,11 +70,9 @@ impl Feature<App> for OfficeFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
-        builder.add_system_ordered(
-            Phase::Ingest,
-            crate::tick::order::ingest::OFFICE,
-            "office.poll",
-            |s, _, tx| poll(s, tx),
-        );
+        // Precaution: both `updater.poll` and `office.poll` can push toasts via `App::toast`.
+        builder
+            .schedule(crate::tick::stage::INGEST_LOCAL, "office.poll", |s, _, tx| poll(s, tx))
+            .after("updater.poll");
     }
 }

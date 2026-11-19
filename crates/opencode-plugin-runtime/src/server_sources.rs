@@ -144,10 +144,10 @@ impl Registry {
         self.sources.iter().filter(|s| !s.state.complete()).map(|s| (s.plugin.clone(), s.id.clone())).collect()
     }
 
-    /// A hash of every source's list, for `Servers.Changed`.
+    /// A hash of every source's list and display order, for `Servers.Changed` and Home sync.
     pub fn version(&self) -> u64 {
         let mut h = std::hash::DefaultHasher::new();
-        self.sources.iter().for_each(|s| (&s.plugin, &s.id, &s.state).hash(&mut h));
+        self.sources.iter().for_each(|s| (&s.plugin, &s.id, s.order, &s.state).hash(&mut h));
         h.finish()
     }
 

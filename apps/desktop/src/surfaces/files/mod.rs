@@ -9,7 +9,7 @@ mod stories;
 use std::collections::HashSet;
 use std::rc::Rc;
 
-use opencode_kernel::{Feature, KernelBuilder, Phase, Slot};
+use opencode_kernel::{Feature, KernelBuilder, Slot};
 use opencode_kit::client::Server;
 use opencode_kit::wire_error::WireError;
 use opencode_ui::popup::Menu;
@@ -420,11 +420,18 @@ impl Feature<App> for FilesFeature {
     fn register(&self, builder: &mut KernelBuilder<App>) {
         builder.register_slot(&FILES);
         builder.add_setup("files.waker", |s, w| s.kernel.slots.get_mut(&FILES).set_waker(w));
-        builder.add_system_ordered(
-            Phase::Ingest,
-            crate::tick::order::ingest::FILES_REPLY_LINKS,
-            "files.reply_links",
-            |s, _, tx| poll_reply_links(s, tx),
-        );
+        // Precaution: reads `active_session_id()`, which `jobs.poll` closures may mutate.
+        builder
+            .schedule(crate::tick::stage::INGEST_PAGES, "files.reply_links", |s, _, tx| {
+                poll_reply_links(s, tx)
+            })
+            .after("jobs.poll");
+        // Known/precaution: `files.poll` (`finish_file_link`) can open a side tab mutating
+        // `panels::SIDE`, while `review.poll` reads `side_open()` (`should_refresh_on_poll`).
+        builder
+            .schedule(crate::tick::stage::REACT_PANELS, "files.poll", |s, _, tx| {
+                crate::plugin_host::native::files::poll(s, tx)
+            })
+            .after("review.poll");
     }
 }

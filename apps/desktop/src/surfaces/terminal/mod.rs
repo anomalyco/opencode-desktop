@@ -435,5 +435,12 @@ impl Feature<App> for TerminalSurfaceFeature {
                 })
                 .with_dismiss(|s, tx| paste::answer_paste(s, false, tx)),
         );
+        // Known: `terminal.poll` reads `panels::SIDE` (`side_tab_visible`, `terminal_focus`)
+        // for mount and `?1004` focus reports after `files.poll` (`finish_file_link`) opens side tabs.
+        builder
+            .schedule(crate::tick::stage::REACT_PANELS, "terminal.poll", |s, _, tx| {
+                crate::plugin_host::native::terminal::poll(s, tx)
+            })
+            .after("files.poll");
     }
 }

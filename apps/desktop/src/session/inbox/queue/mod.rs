@@ -326,9 +326,24 @@ impl Feature<App> for InboxFeature {
                 crate::stop::key(s, ev, tx);
             },
         ));
-        // `poll_sends` and `tick_outbox` run in `Phase::Ingest` right before `incoming::poll`,
-        // `queue_timers` stays right after `incoming::poll` in `tick.rs`, and `listen_outbox`
-        // runs immediately after `storage::on_ready` in `tick::setup`.
+        // Precaution: shares `App::toast` with `app.output_errors`.
+        builder
+            .schedule(crate::tick::stage::INGEST_PAGES, "inbox.sends", |s, _, _| s.poll_sends())
+            .after("app.output_errors")
+            .per_server(|s, _, _| {
+                s.poll_sends();
+                false
+            });
+        // Known: `inbox.sends` (`take_mail`/receipts) unblocks `pump_outbox`.
+        builder
+            .schedule(crate::tick::stage::INGEST_PAGES, "inbox.outbox", |s, _, tx| {
+                s.tick_outbox(tx)
+            })
+            .after("inbox.sends")
+            .per_server(|s, _, tx| {
+                s.tick_outbox(tx);
+                false
+            });
     }
 }
 

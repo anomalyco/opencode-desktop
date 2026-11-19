@@ -80,6 +80,23 @@ pub struct ProjectsState {
 }
 
 impl ProjectsState {
+    /// Hash of the fields read by [`home::sync`] (`used`, `organize_order`, `organize_expanded`),
+    /// so Home's sync stamp does not churn when per-server swaps restore identical values.
+    pub fn home_sync_stamp(&self) -> u64 {
+        let mut h = DefaultHasher::new();
+        self.used.hash(&mut h);
+        self.organize_order.hash(&mut h);
+        self.organize_expanded.len().hash(&mut h);
+        let mut expanded_xor = 0u64;
+        for k in &self.organize_expanded {
+            let mut eh = DefaultHasher::new();
+            k.hash(&mut eh);
+            expanded_xor ^= eh.finish();
+        }
+        expanded_xor.hash(&mut h);
+        h.finish()
+    }
+
     /// The organized sidebar's open projects, sorted, so saved JSON and stamps do not depend on
     /// `HashSet` iteration order.
     pub fn sorted_organize_expanded(&self) -> Vec<&String> {

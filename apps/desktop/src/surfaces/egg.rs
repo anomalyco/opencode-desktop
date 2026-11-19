@@ -2,7 +2,7 @@
 
 pub use opencode_feature_egg::*;
 
-use opencode_kernel::{CommandEntry, Feature, KernelBuilder, Phase, Slot};
+use opencode_kernel::{CommandEntry, Feature, KernelBuilder, Slot};
 
 use crate::{App, Route};
 
@@ -51,12 +51,9 @@ impl Feature<App> for EggFeature {
             )
             .when(|s| can_play_command(s)),
         );
-        builder.add_system_ordered(
-            Phase::Ingest,
-            crate::tick::order::ingest::EGG,
-            "egg.poll",
-            |s, now, tx| poll(s, now, tx),
-        );
+        builder.schedule(crate::tick::stage::INGEST_LOCAL, "egg.poll", |s, now, tx| {
+            poll(s, now, tx)
+        });
         builder.add_visibility("egg.visibility", |s, shown, tx| visibility(s, shown, tx));
     }
 }

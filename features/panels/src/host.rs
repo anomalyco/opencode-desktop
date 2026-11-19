@@ -107,6 +107,11 @@ pub trait PanelsHost: opencode_kernel::AppEnv {
     fn plugin_surfaces_version(&self) -> u64 {
         0
     }
+    /// Stamp of host inputs that can affect stored-tab rekeying or transient tab pruning
+    /// (active session, plugin surfaces, side state, native panels, sessions, projects, debug).
+    fn panel_tabs_stamp(&self) -> u64 {
+        self.plugin_surfaces_version()
+    }
     /// Every registered panel provider (sorted by `(order, plugin)` by [`crate::state::all_panels`]).
     fn panel_providers(&self) -> Vec<PanelRegistration> {
         Vec::new()
@@ -178,16 +183,6 @@ pub trait PanelsHost: opencode_kernel::AppEnv {
         false
     }
 
-    /// Polls native panel views embedded by plugins (e.g. review diffs, browser, terminal).
-    fn poll_native_panels(&mut self, tx: &mut Tx) -> bool {
-        let _ = tx;
-        false
-    }
-    /// Polls plugin VMs and pending surface updates.
-    fn poll_plugins(&mut self, fresh: bool, tx: &mut Tx) -> bool {
-        let _ = (fresh, tx);
-        false
-    }
     /// Forwards an IME event to the active native panel surface.
     fn handle_panel_ime(&mut self, ime: &Ime) -> bool {
         let _ = ime;

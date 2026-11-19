@@ -218,6 +218,25 @@ impl Launch {
     pub fn forget(&mut self, server: &str) {
         self.phases.remove(server);
     }
+
+    /// Order-independent hash of which servers are currently in [`Phase::Connected`]
+    /// (the only `Launch` predicate read by `projects::home::sync`).
+    pub(crate) fn connected_stamp(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut count = 0usize;
+        let mut xor = 0u64;
+        for (id, phase) in &self.phases {
+            if matches!(phase, Phase::Connected) {
+                count += 1;
+                let mut eh = std::collections::hash_map::DefaultHasher::new();
+                id.hash(&mut eh);
+                xor ^= eh.finish();
+            }
+        }
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        (count, xor).hash(&mut h);
+        h.finish()
+    }
 }
 
 /// A story's window whose server didn't answer; `checking` while a Retry the person pressed is
@@ -455,7 +474,9 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     last_exit::poll_debug_drill();
     let now = *s.clock;
     if s.live() && crate::attended() {
-        step(s, LaunchEvent::Tick { now }, tx);
+        if window_phase(s).is_some_and(|p| matches!(p, Phase::Offline { retry_at, .. } if now + 1e-3 >= *retry_at)) {
+            step(s, LaunchEvent::Tick { now }, tx);
+        }
         if window_phase(s).is_some_and(|p| matches!(p, Phase::Offline { retry_at, .. } if retry_at.is_infinite()))
             && matches!(
                 crate::servers::health::get(crate::servers::runtime::active(s)),

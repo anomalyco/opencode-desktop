@@ -40,11 +40,6 @@ pub fn nodes() -> Vec<HostNode> {
     ]
 }
 
-/// Lands what the engines read, and reads again what file events made stale.
-pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
-    crate::review::poll(app, tx) | files::poll(app, tx) | terminal::poll(app, tx) | browser::poll(app, tx)
-}
-
 /// IME for the native view that has the keyboard: the terminal's, else the page's.
 pub fn on_ime(app: &mut App, ime: &rune::Ime) -> bool {
     terminal::ime(app, ime) || browser::ime(app, ime)

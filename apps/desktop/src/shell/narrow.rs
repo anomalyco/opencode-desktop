@@ -2,7 +2,7 @@
 
 pub use opencode_feature_narrow::*;
 
-use opencode_kernel::{Feature, KernelBuilder, Phase};
+use opencode_kernel::{Feature, KernelBuilder};
 use opencode_plugin_spec::PanelMobileKind;
 use rune::{El, PointerPress, Tx};
 use session_view::palette::Pal;
@@ -233,11 +233,9 @@ impl Feature<App> for NarrowFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
-        builder.add_system_ordered(
-            Phase::React,
-            crate::tick::order::react::NARROW,
-            "narrow.poll",
-            |s, now, tx| poll(s, now, tx),
-        );
+        // Precaution: layout and narrow machines coordinate sidebar/tab layout transitions.
+        builder
+            .schedule(crate::tick::stage::REACT_SHELL, "narrow.poll", |s, now, tx| poll(s, now, tx))
+            .after("layout_state.poll");
     }
 }

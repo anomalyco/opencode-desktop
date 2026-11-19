@@ -375,7 +375,7 @@ $adapterRs = @'
 
 pub use opencode_feature___SNAKE__::*;
 
-use opencode_kernel::{Feature, KernelBuilder, Phase, Slot};
+use opencode_kernel::{Feature, KernelBuilder, Slot};
 
 use crate::App;
 
@@ -401,7 +401,9 @@ impl Feature<App> for __PASCAL__Feature {
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
         builder.register_slot(&__UPPER__);
-        builder.add_system(Phase::Ingest, "__ID__.poll", |s, _, tx| poll(s, tx));
+        // Pick the stage matching this poll's inputs/consumers and chain `.after("<dep>")` if it
+        // shares state with another system in the same stage.
+        builder.schedule(crate::tick::stage::INGEST_LOCAL, "__ID__.poll", |s, _, tx| poll(s, tx));
         // Register commands, modal overlays, or Escape layers here without editing central switchboards:
         // builder.add_command(opencode_kernel::CommandEntry::<App>::from_key(...));
         // builder.register_overlay(opencode_kernel::OverlayRegistration::<App>::dialog(...));

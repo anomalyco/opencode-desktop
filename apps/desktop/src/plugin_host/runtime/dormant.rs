@@ -403,7 +403,8 @@ pub fn listens(app: &App, ty: &str) -> bool {
 /// Each turn: one dormant plugin starts, none while input waits; a near one at once, others only
 /// once the window has had no input for [`crate::idle::AFTER`]. Asks to be woken when idle time comes.
 pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
-    let asked = std::mem::take(app.plugins.dormant.asked.get_mut());
+    // Borrowed through `&App`, so taking an empty queue does not mark the plugin host changed.
+    let asked = std::mem::take(&mut *app.plugins.dormant.asked.borrow_mut());
     for (id, to) in asked {
         if let Some(a) = app.plugins.dormant.asleep.get_mut(&id) {
             a.wait = a.wait.max(to);

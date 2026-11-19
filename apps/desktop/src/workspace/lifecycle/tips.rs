@@ -2,7 +2,7 @@
 
 pub use opencode_feature_tips::*;
 
-use opencode_kernel::{Feature, KernelBuilder, Phase, Slot};
+use opencode_kernel::{Feature, KernelBuilder, Slot};
 
 use crate::App;
 
@@ -64,12 +64,10 @@ impl Feature<App> for TipsFeature {
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
         builder.register_slot(&TIPS);
-        builder.add_system_ordered(
-            Phase::React,
-            crate::tick::order::react::TIPS,
-            "tips.poll",
-            |s, _, tx| poll(s, tx),
-        );
+        // Known: reads `reconnect::down` via `is_connected()`.
+        builder
+            .schedule(crate::tick::stage::REACT_STATUS, "tips.poll", |s, _, tx| poll(s, tx))
+            .after("reconnect.poll");
     }
 }
 

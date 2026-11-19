@@ -99,12 +99,13 @@ pub fn ask(plugin: &Rc<str>, request: Request) {
 
 /// Queues `request` from plugin `plugin` directly onto `app`'s host (outside [`enter`]).
 pub fn ask_in(app: &mut App, plugin: &Rc<str>, request: Request) {
-    app.plugins.pending_requests.get_mut().push((plugin.clone(), request));
+    app.plugins.pending_requests.borrow_mut().push((plugin.clone(), request));
 }
 
 /// Takes what plugins asked `app` for since the last call.
 pub fn take_asked(app: &mut App) -> Vec<(Rc<str>, Request)> {
-    std::mem::take(app.plugins.pending_requests.get_mut())
+    // Borrowed through `&App`, so taking an empty queue does not mark the plugin host changed.
+    std::mem::take(&mut *app.plugins.pending_requests.borrow_mut())
 }
 
 /// Something a render read, whose change means the render must run again.
