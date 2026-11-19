@@ -5,7 +5,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{self, Sender};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::Duration;
 
 use base64::Engine as _;
@@ -67,7 +67,7 @@ impl Link {
         if !self.current() {
             return;
         }
-        *self.status.lock().unwrap() = status;
+        *self.status.lock().unwrap_or_else(PoisonError::into_inner) = status;
         self.wake();
     }
 
@@ -114,7 +114,7 @@ fn chromium_locale(id: &str) -> &str {
 /// Starts the engine and connects to it as soon as it listens (it says so on its output), on
 /// the calling thread.
 pub(crate) fn spawn_and_attach(engine: &Installed, sock: &Path, profile: &Path, mach_service: Option<String>, link: &Link) {
-    let _ = std::fs::remove_file(sock);
+    std::fs::remove_file(sock).ok();
     // This app has no engine running (its socket didn't answer), so a held profile is an
     // engine on its way out, most likely the shared one from before per-app engines.
     profile::wait_until_free(profile, profile::UNLOCK_WAIT);
@@ -130,10 +130,17 @@ pub(crate) fn spawn_and_attach(engine: &Installed, sock: &Path, profile: &Path, 
     };
     let Some(stdout) = child.stdout.take() else { return link.set(EngineStatus::Failed(Fault::Exited(None).into())) };
     let (said, heard) = mpsc::channel();
-    let _ = std::thread::Builder::new().name("opencode-browser-listen".into()).spawn(move || {
-        let mut line = String::new();
-        let _ = said.send(BufReader::new(stdout).read_line(&mut line).is_ok_and(|n| n > 0) && line.trim() == "listening");
-    });
+    if std::thread::Builder::new()
+        .name("opencode-browser-listen".into())
+        .spawn(move || {
+            let mut line = String::new();
+            said.send(BufReader::new(stdout).read_line(&mut line).is_ok_and(|n| n > 0) && line.trim() == "listening").ok();
+        })
+        .is_err()
+    {
+        child.kill().ok();
+        return link.set(EngineStatus::Failed(Fault::Launch("no thread to start it on".to_owned()).into()));
+    }
     match heard.recv_timeout(LISTEN_TIMEOUT) {
         Ok(true) => {}
         // It ended before it listened: its exit code says whether its files are damaged.
@@ -146,7 +153,7 @@ pub(crate) fn spawn_and_attach(engine: &Installed, sock: &Path, profile: &Path, 
         }
         // It didn't listen in time: Retry ends it and starts a new one.
         Err(_) => {
-            let _ = child.kill();
+            child.kill().ok();
             return link.set(EngineStatus::Failed(Fault::Hung.into()));
         }
     }
@@ -154,17 +161,20 @@ pub(crate) fn spawn_and_attach(engine: &Installed, sock: &Path, profile: &Path, 
     match UnixStream::connect(sock) {
         Ok(stream) => wire_stream(stream, mach_service, link),
         Err(_) => {
-            let _ = child.kill();
+            child.kill().ok();
             return link.set(EngineStatus::Failed(Fault::Stopped.into()));
         }
     }
-    *link.engine.lock().unwrap() = Some(child.id());
+    *link.engine.lock().unwrap_or_else(PoisonError::into_inner) = Some(child.id());
     let link = link.clone();
-    let _ = std::thread::Builder::new().name("opencode-browser-watch".into()).spawn(move || {
-        let code = wait_for_end(&mut child);
-        *link.engine.lock().unwrap() = None;
-        lost(&link, code);
-    });
+    std::thread::Builder::new()
+        .name("opencode-browser-watch".into())
+        .spawn(move || {
+            let code = wait_for_end(&mut child);
+            *link.engine.lock().unwrap_or_else(PoisonError::into_inner) = None;
+            lost(&link, code);
+        })
+        .ok();
 }
 
 /// Why the OS refused to start the engine: its files are damaged (the program is gone or isn't
@@ -201,7 +211,7 @@ fn exit_fault(child: &mut Child) -> Fault {
         .flatten()
         .map(|c| c as u32);
     if code.is_none() {
-        let _ = child.kill();
+        child.kill().ok();
     }
     if let Some(code) = code {
         eprintln!("browser engine: ended while starting with exit code {code:#010x}");
@@ -241,7 +251,7 @@ fn wait_for_end(child: &mut Child) -> Option<u32> {
 /// Ends the engine this app started, at once (Retry, when it stopped answering). The watcher
 /// still holds the engine's own handle, so its pid is still the engine's.
 pub(crate) fn end_engine(engine: &Mutex<Option<u32>>) {
-    if let Some(pid) = engine.lock().unwrap().take() {
+    if let Some(pid) = engine.lock().unwrap_or_else(PoisonError::into_inner).take() {
         proc::kill(pid);
     }
 }
@@ -271,18 +281,18 @@ mod proc {
                     let at = GetThreadTimes(thread, &mut created, &mut a, &mut b, &mut c).map(|_| (u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime));
                     match (at, first) {
                         (Ok(at), Some((best, old))) if at < best => {
-                            let _ = CloseHandle(old);
+                            CloseHandle(old).ok();
                             first = Some((at, thread));
                         }
                         (Ok(at), None) => first = Some((at, thread)),
                         _ => {
-                            let _ = CloseHandle(thread);
+                            CloseHandle(thread).ok();
                         }
                     }
                 }
                 more = Thread32Next(snap, &mut entry).is_ok();
             }
-            let _ = CloseHandle(snap);
+            CloseHandle(snap).ok();
             first.map(|(_, thread)| thread)
         }
     }
@@ -296,7 +306,7 @@ mod proc {
             WaitForSingleObject(thread, INFINITE);
             let mut code = 0u32;
             let got = GetExitCodeThread(thread, &mut code).is_ok();
-            let _ = CloseHandle(thread);
+            CloseHandle(thread).ok();
             got.then_some(code)
         }
     }
@@ -327,8 +337,8 @@ mod proc {
         // SAFETY: the handle is closed before returning.
         unsafe {
             if let Ok(process) = OpenProcess(PROCESS_TERMINATE, false, pid) {
-                let _ = TerminateProcess(process, 1);
-                let _ = CloseHandle(process);
+                TerminateProcess(process, 1).ok();
+                CloseHandle(process).ok();
             }
         }
     }
@@ -352,12 +362,12 @@ fn lost(link: &Link, code: Option<u32>) {
         eprintln!("browser engine: ended with exit code {code:#010x}");
     }
     let fault = if code.is_some_and(out_of_memory) { Fault::OutOfMemory } else { Fault::Stopped };
-    if link.outbox.lock().unwrap().take().is_some() {
+    if link.outbox.lock().unwrap_or_else(PoisonError::into_inner).take().is_some() {
         rune::marks::mark("browser.engine.lost");
-        let _ = std::fs::remove_file(&link.sock);
+        std::fs::remove_file(&link.sock).ok();
         return link.set(EngineStatus::Failed(fault.into()));
     }
-    let stopped = matches!(&*link.status.lock().unwrap(), EngineStatus::Failed(f) if f.fault == Fault::Stopped);
+    let stopped = matches!(&*link.status.lock().unwrap_or_else(PoisonError::into_inner), EngineStatus::Failed(f) if f.fault == Fault::Stopped);
     if fault == Fault::OutOfMemory && stopped {
         link.set(EngineStatus::Failed(fault.into()));
     }
@@ -409,7 +419,7 @@ struct Answers {
 
 impl Answers {
     fn ask(&self) {
-        let mut a = self.asked.lock().unwrap();
+        let mut a = self.asked.lock().unwrap_or_else(PoisonError::into_inner);
         if a.since.is_none() {
             a.since = Some(Instant::now());
             self.changed.notify_all();
@@ -418,13 +428,13 @@ impl Answers {
 
     /// Any message answers; one after the pane said the engine isn't responding takes that back.
     fn heard(&self, link: &Link) {
-        let mut a = self.asked.lock().unwrap();
+        let mut a = self.asked.lock().unwrap_or_else(PoisonError::into_inner);
         if a.since.is_none() && a.hung.is_none() {
             return;
         }
         a.since = None;
         if let Some(before) = a.hung.take() {
-            let mut status = link.status.lock().unwrap();
+            let mut status = link.status.lock().unwrap_or_else(PoisonError::into_inner);
             if status.is_hung() {
                 *status = before;
             }
@@ -435,29 +445,29 @@ impl Answers {
     }
 
     fn end(&self) {
-        self.asked.lock().unwrap().over = true;
+        self.asked.lock().unwrap_or_else(PoisonError::into_inner).over = true;
         self.changed.notify_all();
     }
 
     /// Sleeps until a request is asked, then until it's answered or its deadline passes: the
     /// thread only runs while the app waits on the engine.
     fn watch(&self, link: &Link) {
-        let mut a = self.asked.lock().unwrap();
+        let mut a = self.asked.lock().unwrap_or_else(PoisonError::into_inner);
         loop {
             if a.over {
                 return;
             }
             let Some(since) = a.since.filter(|_| a.hung.is_none()) else {
-                a = self.changed.wait(a).unwrap();
+                a = self.changed.wait(a).unwrap_or_else(PoisonError::into_inner);
                 continue;
             };
             let left = ANSWER_DEADLINE.saturating_sub(since.elapsed());
             if !left.is_zero() {
-                a = self.changed.wait_timeout(a, left).unwrap().0;
+                a = self.changed.wait_timeout(a, left).unwrap_or_else(PoisonError::into_inner).0;
                 continue;
             }
             rune::marks::mark("browser.engine.hung");
-            let mut status = link.status.lock().unwrap();
+            let mut status = link.status.lock().unwrap_or_else(PoisonError::into_inner);
             a.hung = Some(std::mem::replace(&mut *status, EngineStatus::Failed(Fault::Hung.into())));
             drop(status);
             link.wake();
@@ -470,18 +480,18 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
         return;
     };
     let (tx, rx) = mpsc::channel::<HostMsg>();
-    let _ = tx.send(HostMsg::Hello { mach_service, pid: std::process::id() });
-    let mut early = link.early.lock().unwrap();
+    tx.send(HostMsg::Hello { mach_service, pid: std::process::id() }).ok();
+    let mut early = link.early.lock().unwrap_or_else(PoisonError::into_inner);
     for (id, open) in &link.opens {
         if let HostMsg::OpenTab { url, width_pt, height_pt, scale, .. } = open {
             early.insert(*id, (url.clone(), (*width_pt, *height_pt, *scale)));
         }
-        let _ = tx.send(open.clone());
+        tx.send(open.clone()).ok();
     }
     // Linux: frame reads and failures go to this connection only, never to a later engine's.
     #[cfg(target_os = "linux")]
     let frames_tx = tx.clone();
-    *link.outbox.lock().unwrap() = Some(tx);
+    *link.outbox.lock().unwrap_or_else(PoisonError::into_inner) = Some(tx);
     drop(early);
     // Connected: the app's next turn sends the tabs that wait (`flush_pending_opens`).
     link.set(EngineStatus::Connecting);
@@ -502,7 +512,7 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
                     if writer.write_all(line.as_bytes()).is_err() {
                         break;
                     }
-                    let _ = writer.flush();
+                    writer.flush().ok();
                     if expects_answer(&msg) {
                         asked.ask();
                     }
@@ -567,7 +577,7 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
                     EngineMsg::DmabufFrame { tab_id, frame_id, pool, slot } => {
                         frames.step(crate::dmabuf::Frames::Dmabuf);
                         paint_event(PaintEvent::Frame);
-                        let surface = link.surfaces.lock().unwrap().get(&tab_id).cloned();
+                        let surface = link.surfaces.lock().unwrap_or_else(PoisonError::into_inner).get(&tab_id).cloned();
                         pools.show(surface.as_ref(), tab_id, frame_id, pool, slot);
                         continue;
                     }
@@ -583,12 +593,12 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
                 // On reconnect the engine repaints immediately after TabList. Give those paints
                 // their destination before the UI thread has a chance to adopt the restored tabs.
                 if let EngineMsg::TabList { tabs } = &msg {
-                    let mut surfaces = link.surfaces.lock().unwrap();
+                    let mut surfaces = link.surfaces.lock().unwrap_or_else(PoisonError::into_inner);
                     for tab in tabs {
-                        surfaces.entry(tab.tab_id).or_insert_with(TabSurface::new);
+                        surfaces.entry(tab.tab_id).or_default();
                     }
                 }
-                let _ = link.inbox_tx.send(msg);
+                link.inbox_tx.send(msg).ok();
                 link.wake();
             }
             answers.end();
@@ -608,7 +618,7 @@ struct WirePaint<'a> {
 
 impl WirePaint<'_> {
     fn push(self, surfaces: &Surfaces) {
-        let surface = surfaces.lock().unwrap().get(&self.tab_id).cloned();
+        let surface = surfaces.lock().unwrap_or_else(PoisonError::into_inner).get(&self.tab_id).cloned();
         if let Some(surface) = surface && let Some(bytes) = decode_frame(self.width, self.height, self.bgra_b64) {
             frame::push_bgra(&surface, self.width, self.height, bytes, self.frame_id);
             paint_event(PaintEvent::Frame);
@@ -639,7 +649,7 @@ impl PaintTrace {
 
 pub(crate) fn paint_event(event: PaintEvent) {
     static TRACE: Mutex<PaintTrace> = Mutex::new(PaintTrace::Start);
-    let mut trace = TRACE.lock().unwrap();
+    let mut trace = TRACE.lock().unwrap_or_else(PoisonError::into_inner);
     for mark in trace.step(event) {
         rune::marks::mark(mark);
     }
@@ -660,11 +670,11 @@ fn decode_frame(width: u32, height: u32, encoded: &str) -> Option<Vec<u8>> {
 
 #[cfg(windows)]
 fn push_shared(surfaces: &Surfaces, tab_id: u64, frame_id: u64, width: u32, height: u32, texture: String, release_fence: String) {
-    let surface = surfaces.lock().unwrap().get(&tab_id).cloned();
+    let surface = surfaces.lock().unwrap_or_else(PoisonError::into_inner).get(&tab_id).cloned();
     if let Some(surface) = surface {
         let frame = rune::native_surface::windows::SharedTexture::named(texture, width, height)
             .release_fence(release_fence, frame_id);
-        let _ = surface.push_shared(frame, frame_id);
+        surface.push_shared(frame, frame_id).ok();
     }
 }
 

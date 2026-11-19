@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::ffi::{CString, c_char, c_void};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
 
 use rune::NativeSurface;
@@ -24,6 +24,8 @@ const MACH_RCV_MSG: i32 = 0x0000_0002;
 const MACH_RCV_TIMEOUT: i32 = 0x0000_0100;
 const TASK_BOOTSTRAP_PORT: i32 = 4;
 
+// Mach IPC C FFI bindings.
+#[allow(unsafe_code)]
 unsafe extern "C" {
     fn mach_task_self() -> MachPort;
     fn task_get_special_port(task: MachPort, which: i32, port: *mut MachPort) -> KernReturn;
@@ -54,12 +56,16 @@ unsafe extern "C" {
     ) -> KernReturn;
 }
 
+// IOSurface framework C FFI bindings.
+#[allow(unsafe_code)]
 #[link(name = "IOSurface", kind = "framework")]
 unsafe extern "C" {
     fn IOSurfaceCreateMachPort(buffer: *const c_void) -> MachPort;
     fn IOSurfaceLookupFromMachPort(port: MachPort) -> *mut c_void;
 }
 
+// CoreFoundation C FFI bindings.
+#[allow(unsafe_code)]
 #[link(name = "CoreFoundation", kind = "framework")]
 unsafe extern "C" {
     fn CFRelease(cf: *const c_void);
@@ -112,8 +118,11 @@ struct FrameRecvMsg {
     trailer_b: [u8; 32],
 }
 
+// Calls Mach task_get_special_port FFI.
+#[allow(unsafe_code)]
 fn bootstrap_port() -> Result<MachPort, String> {
     let mut bp: MachPort = 0;
+    // SAFETY: `mach_task_self()` returns this task's port and `&mut bp` is a valid writable `MachPort`.
     let kr = unsafe { task_get_special_port(mach_task_self(), TASK_BOOTSTRAP_PORT, &mut bp) };
     if kr == 0 {
         Ok(bp)
@@ -130,6 +139,8 @@ pub struct MachReceiver {
 }
 
 impl MachReceiver {
+    // Allocates a Mach receive port and receives IOSurface frames via FFI.
+    #[allow(unsafe_code)]
     pub fn start(
         surfaces: Arc<Mutex<HashMap<u64, NativeSurface>>>,
         unique_tag: u64,
@@ -142,6 +153,8 @@ impl MachReceiver {
         let c_name = CString::new(service_name.as_str()).map_err(|e| e.to_string())?;
         let bp = bootstrap_port()?;
         let mut recv_port: MachPort = 0;
+        // SAFETY: `&mut recv_port` is a valid writable `MachPort`, `bp` is this task's bootstrap
+        // port, and `c_name` is a live NUL-terminated C string.
         unsafe {
             let task = mach_task_self();
             let kr = mach_port_allocate(task, MACH_PORT_RIGHT_RECEIVE, &mut recv_port);
@@ -166,6 +179,10 @@ impl MachReceiver {
             .spawn(move || {
                 while !stop_flag.load(Ordering::Relaxed) {
                     let mut rmsg = FrameRecvMsg::default();
+                    // SAFETY: `FrameRecvMsg` is `#[repr(C)]` starting with `msg.header` and
+                    // consists only of integer/byte fields, so `&mut rmsg.msg.header` points to a
+                    // writable `size_of::<FrameRecvMsg>()`-byte buffer; `recv_port` stays live
+                    // until `Drop` joins this thread.
                     let kr = unsafe {
                         mach_msg(
                             &mut rmsg.msg.header,
@@ -197,13 +214,19 @@ impl MachReceiver {
                             ColorInfo::default(),
                         )
                     };
+                    // SAFETY: `io_surface` is a non-null owned `IOSurfaceRef` returned by
+                    // `IOSurfaceLookupFromMachPort`, and `from_iosurface` retained its own reference.
                     unsafe {
                         CFRelease(io_surface);
                     }
                     if let Ok(pb) = pb_res {
-                        let surface = surfaces.lock().unwrap().get(&rmsg.msg.tab_id).cloned();
+                        let surface = surfaces
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .get(&rmsg.msg.tab_id)
+                            .cloned();
                         if let Some(surface) = surface {
-                            let _ = surface.push(pb, rmsg.msg.frame_id);
+                            surface.push(pb, rmsg.msg.frame_id).ok();
                         }
                     }
                 }
@@ -215,12 +238,16 @@ impl MachReceiver {
 }
 
 impl Drop for MachReceiver {
+    // Releases owned Mach port rights via FFI.
+    #[allow(unsafe_code)]
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
         if let Some(h) = self.handle.take() {
-            let _ = h.join();
+            h.join().ok();
         }
         if self.recv_port != 0 {
+            // SAFETY: `self.handle` has been joined so no thread uses `self.recv_port`; this
+            // releases the send and receive rights created in `start`.
             unsafe {
                 let task = mach_task_self();
                 let _ = mach_port_deallocate(task, self.recv_port);
@@ -232,10 +259,13 @@ impl Drop for MachReceiver {
 }
 
 /// Looks up a registered `MachReceiver` service name in the user's bootstrap namespace.
+#[allow(unsafe_code)] // Calls Mach bootstrap_look_up FFI.
 pub fn lookup_service(service_name: &str) -> Result<MachPort, String> {
     let c_name = CString::new(service_name).map_err(|e| e.to_string())?;
     let bp = bootstrap_port()?;
     let mut port: MachPort = 0;
+    // SAFETY: `bp` is this task's bootstrap port, `c_name` is a live NUL-terminated C string, and
+    // `&mut port` is a valid writable `MachPort`.
     let kr = unsafe { bootstrap_look_up(bp, c_name.as_ptr(), &mut port) };
     if kr == 0 && port != 0 {
         Ok(port)
@@ -248,6 +278,7 @@ pub fn lookup_service(service_name: &str) -> Result<MachPort, String> {
 ///
 /// # Safety
 /// `io_surface` must be a valid `IOSurfaceRef`.
+#[allow(unsafe_code)] // Creates and sends a Mach IOSurface port right via FFI.
 pub unsafe fn send_iosurface_frame(
     remote_port: MachPort,
     tab_id: u64,
@@ -259,6 +290,7 @@ pub unsafe fn send_iosurface_frame(
     if remote_port == 0 || io_surface.is_null() {
         return false;
     }
+    // SAFETY: the caller guarantees `io_surface` is a valid `IOSurfaceRef`, checked non-null above.
     let surface_port = unsafe { IOSurfaceCreateMachPort(io_surface) };
     if surface_port == 0 {
         return false;
@@ -285,6 +317,8 @@ pub unsafe fn send_iosurface_frame(
         width,
         height,
     };
+    // SAFETY: `FrameSendMsg` is `#[repr(C)]` starting with `header`, `msgh_size` equals its byte
+    // size, and `surface_port` is a valid send right created above.
     let kr = unsafe {
         mach_msg(
             &mut msg.header,

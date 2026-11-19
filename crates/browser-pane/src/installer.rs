@@ -299,7 +299,7 @@ static HOME: std::sync::OnceLock<rune::dirs::AppDirs> = std::sync::OnceLock::new
 /// Sets the engine's folders, once, before any page opens.
 #[cfg(feature = "engine")]
 pub fn set_home(dirs: rune::dirs::AppDirs) {
-    let _ = HOME.set(dirs);
+    HOME.set(dirs).ok();
 }
 
 #[cfg(feature = "engine")]
@@ -408,7 +408,7 @@ pub(crate) fn remove_old(root: &Path, keep: Version) {
         };
         let trash = root.join(format!(".{v}.old-{}", std::process::id()));
         if std::fs::rename(&dir, &trash).is_ok() {
-            let _ = std::fs::remove_dir_all(&trash);
+            std::fs::remove_dir_all(&trash).ok();
         }
     }
     sweep_unpacking(root);
@@ -435,7 +435,7 @@ pub(crate) fn sweep_unpacking(root: &Path) {
             pid.parse::<u32>().ok()
         });
         if pid.is_some_and(|pid| pid != std::process::id() && !crate::background::pid_alive(pid)) {
-            let _ = std::fs::remove_dir_all(entry.path());
+            std::fs::remove_dir_all(entry.path()).ok();
         }
     }
 }
@@ -465,7 +465,7 @@ pub fn try_socket_path() -> Result<PathBuf, &'static str> {
     }
     #[cfg(not(target_os = "linux"))]
     {
-        let _ = create_private_dir(dirs.cache());
+        create_private_dir(dirs.cache()).ok();
         fit_socket(dirs.cache().join(name))
     }
 }
@@ -611,6 +611,6 @@ pub(crate) fn err_write(err: &std::io::Error) -> Fault {
 pub(crate) fn discard(root: &Path, version: Version) {
     let trash = root.join(format!(".{version}.old-{}", std::process::id()));
     if std::fs::rename(root.join(version.to_string()), &trash).is_ok() {
-        let _ = std::fs::remove_dir_all(&trash);
+        std::fs::remove_dir_all(&trash).ok();
     }
 }

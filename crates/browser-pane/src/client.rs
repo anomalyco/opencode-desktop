@@ -3,7 +3,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use rune::{Ime, Key, KeyEvent, Waker};
 use serde_json::Value;
@@ -262,7 +262,7 @@ impl BrowserHost {
         #[cfg(feature = "engine")]
         {
             h.last_polled_status = EngineStatus::Unchecked;
-            *h.status.lock().unwrap() = EngineStatus::Unchecked;
+            *h.status.lock().unwrap_or_else(PoisonError::into_inner) = EngineStatus::Unchecked;
         }
         h
     }
@@ -283,7 +283,7 @@ impl BrowserHost {
     }
 
     pub fn status(&self) -> EngineStatus {
-        self.status.lock().unwrap().clone()
+        self.status.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
 
     pub fn tabs(&self) -> &[BrowserTab] {
@@ -311,7 +311,7 @@ impl BrowserHost {
         if let Some(w) = &self.waker {
             frame::wake_window(&surface, w);
         }
-        self.surfaces.lock().unwrap().insert(id, surface.clone());
+        self.surfaces.lock().unwrap_or_else(PoisonError::into_inner).insert(id, surface.clone());
         self.tabs.push(BrowserTab {
             id,
             url: url.to_owned(),
@@ -335,7 +335,7 @@ impl BrowserHost {
         });
         self.focused_tab = Some(id);
         self.last_polled_status = status.clone();
-        *self.status.lock().unwrap() = status;
+        *self.status.lock().unwrap_or_else(PoisonError::into_inner) = status;
         id
     }
 
@@ -377,13 +377,13 @@ impl BrowserHost {
     /// Sends every message to the returned receiver instead of an engine (tests).
     pub fn capture_sent(&mut self) -> Receiver<HostMsg> {
         let (tx, rx) = mpsc::channel();
-        *self.outbox.lock().unwrap() = Some(tx);
+        *self.outbox.lock().unwrap_or_else(PoisonError::into_inner) = Some(tx);
         rx
     }
 
     pub fn set_mock_status(&mut self, status: EngineStatus) {
         self.last_polled_status = status.clone();
-        *self.status.lock().unwrap() = status;
+        *self.status.lock().unwrap_or_else(PoisonError::into_inner) = status;
     }
 
     pub fn open_tab(&mut self, raw_url: &str) -> u64 {
@@ -404,7 +404,7 @@ impl BrowserHost {
         if let Some(w) = &self.waker {
             frame::wake_window(&surface, w);
         }
-        self.surfaces.lock().unwrap().insert(id, surface.clone());
+        self.surfaces.lock().unwrap_or_else(PoisonError::into_inner).insert(id, surface.clone());
         self.site_zoom.prepare();
         let ((width_pt, height_pt), scale) = self.last_viewport;
         self.tabs.push(BrowserTab {
@@ -469,7 +469,7 @@ impl BrowserHost {
         if let Some(pos) = self.tabs.iter().position(|t| t.id == id) {
             let removed = self.tabs.remove(pos);
             removed.surface.clear();
-            self.surfaces.lock().unwrap().remove(&id);
+            self.surfaces.lock().unwrap_or_else(PoisonError::into_inner).remove(&id);
             self.pending_opens.retain(|(tid, _)| *tid != id);
             self.send(HostMsg::CloseTab { tab_id: id });
             if self.focused_tab == Some(id) {
@@ -668,11 +668,11 @@ impl BrowserHost {
         if !self.is_connected() {
             return;
         }
-        let ready = *self.status.lock().unwrap() == EngineStatus::Ready;
+        let ready = *self.status.lock().unwrap_or_else(PoisonError::into_inner) == EngineStatus::Ready;
         let engine_policy = self.engine_policy;
         // Those the connect sent already (`transport::Link::opens`): one closed meanwhile closes;
         // one given another address or laid out at another size meanwhile gets them.
-        let early = std::mem::take(&mut *self.early.lock().unwrap());
+        let early = std::mem::take(&mut *self.early.lock().unwrap_or_else(PoisonError::into_inner));
         for (&tab_id, (sent_url, sent_size)) in &early {
             let pending_url = self.pending_opens.iter().find(|(id, _)| *id == tab_id).map(|(_, u)| u.clone());
             let (size, roots_to_send, nav_url) = {
@@ -782,7 +782,7 @@ impl BrowserHost {
         if let Ok(msg) = self.inbox_rx.try_recv() {
             self.held.borrow_mut().push_back(msg);
         }
-        self.held.borrow().is_empty() && self.pending_opens.is_empty() && *self.status.lock().unwrap() == self.last_polled_status
+        self.held.borrow().is_empty() && self.pending_opens.is_empty() && *self.status.lock().unwrap_or_else(PoisonError::into_inner) == self.last_polled_status
     }
 
     pub fn poll(&mut self) -> bool {
@@ -801,7 +801,7 @@ impl BrowserHost {
                         t.files.clear();
                     }
                     rune::marks::mark("browser.engine.ready");
-                    *self.status.lock().unwrap() = EngineStatus::Ready;
+                    *self.status.lock().unwrap_or_else(PoisonError::into_inner) = EngineStatus::Ready;
                     // Before any page loads, so the first draws in the app's scheme.
                     match self.color_scheme.load(std::sync::atomic::Ordering::Relaxed) {
                         0 => {}
@@ -852,7 +852,7 @@ impl BrowserHost {
                     if let Some(pos) = self.tabs.iter().position(|t| t.id == tab_id) {
                         let removed = self.tabs.remove(pos);
                         removed.surface.clear();
-                        self.surfaces.lock().unwrap().remove(&tab_id);
+                        self.surfaces.lock().unwrap_or_else(PoisonError::into_inner).remove(&tab_id);
                         if self.focused_tab == Some(tab_id) {
                             self.focused_tab = self.tabs.last().map(|t| t.id);
                         }
@@ -911,7 +911,7 @@ impl BrowserHost {
             self.ensure_connected();
         }
         {
-            let guard = self.status.lock().unwrap();
+            let guard = self.status.lock().unwrap_or_else(PoisonError::into_inner);
             if *guard != self.last_polled_status {
                 self.last_polled_status = guard.clone();
                 changed = true;
@@ -943,11 +943,11 @@ impl BrowserHost {
         self.conn_gen.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         #[cfg(feature = "engine")]
         if let Ok(sock) = self.engine_socket() {
-            let _ = std::fs::remove_file(sock);
+            std::fs::remove_file(sock).ok();
         }
         self.send(HostMsg::Shutdown);
-        *self.outbox.lock().unwrap() = None;
-        let mut status = self.status.lock().unwrap();
+        *self.outbox.lock().unwrap_or_else(PoisonError::into_inner) = None;
+        let mut status = self.status.lock().unwrap_or_else(PoisonError::into_inner);
         if *status == EngineStatus::Ready || *status == EngineStatus::Connecting {
             *status = EngineStatus::Installed;
         }
@@ -1006,12 +1006,12 @@ impl BrowserHost {
     }
 
     pub(crate) fn is_connected(&self) -> bool {
-        self.outbox.lock().unwrap().is_some()
+        self.outbox.lock().unwrap_or_else(PoisonError::into_inner).is_some()
     }
 
     pub(crate) fn send(&self, msg: HostMsg) {
-        if let Some(tx) = self.outbox.lock().unwrap().as_ref() {
-            let _ = tx.send(msg);
+        if let Some(tx) = self.outbox.lock().unwrap_or_else(PoisonError::into_inner).as_ref() {
+            tx.send(msg).ok();
         }
     }
 
@@ -1052,7 +1052,7 @@ impl BrowserHost {
             }
             return changed;
         }
-        let surface = self.surfaces.lock().unwrap().entry(snap.tab_id).or_insert_with(TabSurface::new).clone();
+        let surface = self.surfaces.lock().unwrap_or_else(PoisonError::into_inner).entry(snap.tab_id).or_default().clone();
         if let Some(w) = &self.waker {
             frame::wake_window(&surface, w);
         }

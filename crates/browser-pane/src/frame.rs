@@ -7,7 +7,7 @@ pub use rune::NativeSurface as TabSurface;
 
 pub(crate) fn preview() -> TabSurface {
     let surface = NativeSurface::new();
-    let _ = surface.push_bytes(rune::native_surface::synthetic(640, 360, 0), 1);
+    surface.push_bytes(rune::native_surface::synthetic(640, 360, 0), 1).ok();
     surface
 }
 
@@ -23,5 +23,5 @@ pub(crate) fn draw(page: El, surface: &TabSurface) -> El {
 pub(crate) fn push_bgra(surface: &TabSurface, width: u32, height: u32, bgra: Vec<u8>, frame_id: u64) {
     use rune::native_surface::{ByteFrame, ColorInfo, Format};
     let frame = ByteFrame { width, height, format: Format::Bgra, color: ColorInfo::default(), planes: [bgra, Vec::new()] };
-    let _ = surface.push_bytes(frame, frame_id);
+    surface.push_bytes(frame, frame_id).ok();
 }

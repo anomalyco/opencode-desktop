@@ -8,7 +8,7 @@
 
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::Duration;
 use rune::time::Instant;
 
@@ -119,7 +119,7 @@ impl Prefetch {
 
 
     fn event(&self, event: Event) -> Option<Effect> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         let (next, effect) = step(*state, event);
         *state = next;
         if effect == Some(Effect::Nudge) {
@@ -129,13 +129,13 @@ impl Prefetch {
     }
 
     fn state(&self) -> State {
-        *self.state.lock().unwrap()
+        *self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Waits `for_`, or until the job hurries or stops.
     fn wait(&self, for_: Duration) {
-        let state = self.state.lock().unwrap();
-        let _ = self.nudge.wait_timeout_while(state, for_, |s| matches!(s, State::Running(Mode::Update)));
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        self.nudge.wait_timeout_while(state, for_, |s| matches!(s, State::Running(Mode::Update))).ok();
     }
 }
 
@@ -243,12 +243,12 @@ impl Job {
             return Err(Cut::Failed(Fault::NoSpace { need, free }));
         }
         let staging = root.join(format!(".{}.staging-{}-{}", release.version, std::process::id(), STAGING_SEQ.fetch_add(1, Ordering::Relaxed)));
-        let _ = std::fs::remove_dir_all(&staging);
+        std::fs::remove_dir_all(&staging).ok();
         std::fs::create_dir_all(&staging).map_err(|e| Cut::Failed(err_write(&e)))?;
         let result = self.fetch_into(release, &partial, &staging, low);
         if matches!(result, Err(Cut::Rejected(_))) {
             // Bytes that don't check out never resume: the next try starts over.
-            let _ = std::fs::remove_file(&partial);
+            std::fs::remove_file(&partial).ok();
         }
         let done = result.and_then(|()| {
             let dest = root.join(release.version.to_string());
@@ -265,9 +265,9 @@ impl Job {
             }
         });
         if done.is_ok() {
-            let _ = std::fs::remove_file(&partial);
+            std::fs::remove_file(&partial).ok();
         }
-        let _ = std::fs::remove_dir_all(&staging);
+        std::fs::remove_dir_all(&staging).ok();
         done
     }
 
@@ -278,7 +278,7 @@ impl Job {
             if update {
                 return;
             }
-            *self.status.lock().unwrap() = EngineStatus::Downloading { downloaded_bytes, total_bytes: Some(total) };
+            *self.status.lock().unwrap_or_else(PoisonError::into_inner) = EngineStatus::Downloading { downloaded_bytes, total_bytes: Some(total) };
             if self.urgent() || last_wake.elapsed() >= QUIET_WAKE || downloaded_bytes == total {
                 last_wake = Instant::now();
                 self.wake();
@@ -388,7 +388,7 @@ fn unzip(archive: &Path, staging: &Path) -> Result<(), Cut> {
 }
 
 fn set(status: &Mutex<EngineStatus>, waker: Option<&Waker>, next: EngineStatus) {
-    *status.lock().unwrap() = next;
+    *status.lock().unwrap_or_else(PoisonError::into_inner) = next;
     if let Some(w) = waker {
         w();
     }

@@ -38,7 +38,7 @@ impl Verifier {
     pub(crate) fn file(&self, path: &Path) {
         let code = path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("exe") || e.eq_ignore_ascii_case("dll"));
         if let Some(queue) = self.queue.as_ref().filter(|_| code) {
-            let _ = queue.send(path.to_owned());
+            queue.send(path.to_owned()).ok();
         }
     }
 

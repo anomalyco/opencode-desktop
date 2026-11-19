@@ -6,7 +6,7 @@
 //! cargo run -p browser-pane --features engine --example load_timing -- URL…
 //! ```
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use browser_pane::{BrowserHost, EngineStatus};
@@ -20,7 +20,7 @@ fn main() {
     let mut id = None;
     for url in &urls {
         let t0 = Instant::now();
-        *first_frame.lock().unwrap() = None;
+        *first_frame.lock().unwrap_or_else(PoisonError::into_inner) = None;
         let tab = match id {
             None => host.open_tab(url),
             Some(id) => {
@@ -30,8 +30,12 @@ fn main() {
         };
         id = Some(tab);
         let mark = first_frame.clone();
-        host.tab(tab).unwrap().surface.set_waker(Arc::new(move || {
-            mark.lock().unwrap().get_or_insert_with(Instant::now);
+        let Some(t) = host.tab(tab) else {
+            eprintln!("{url}: tab {tab} was closed");
+            break;
+        };
+        t.surface.set_waker(Arc::new(move || {
+            mark.lock().unwrap_or_else(PoisonError::into_inner).get_or_insert_with(Instant::now);
         }));
         let mut ready = None;
         let mut seen_loading = false;
@@ -40,7 +44,10 @@ fn main() {
             if ready.is_none() && host.status() == EngineStatus::Ready && start.elapsed() > Duration::ZERO {
                 ready = Some(t0.elapsed());
             }
-            let t = host.tab(tab).unwrap();
+            let Some(t) = host.tab(tab) else {
+                eprintln!("{url}: tab {tab} closed while loading");
+                break t0.elapsed();
+            };
             seen_loading |= t.loading;
             if seen_loading && !t.loading {
                 break t0.elapsed();
@@ -51,7 +58,7 @@ fn main() {
             std::thread::sleep(Duration::from_millis(2));
         };
         std::thread::sleep(Duration::from_millis(300));
-        let frame = first_frame.lock().unwrap().map(|f| f - t0);
+        let frame = first_frame.lock().unwrap_or_else(PoisonError::into_inner).map(|f| f - t0);
         println!("{url}: first frame {frame:?}, loading done {done:?}");
     }
     host.shutdown_sidecar();
