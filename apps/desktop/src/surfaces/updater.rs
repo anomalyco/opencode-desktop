@@ -77,11 +77,21 @@ impl Feature<App> for UpdaterFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
-        builder.add_system(Phase::Ingest, "updater.poll", |s, _, tx| poll(s, tx));
-        builder.add_system(Phase::Persist, "updater.poll_owed", |s, _, _| {
-            poll_owed(s);
-            false
-        });
+        builder.add_system_ordered(
+            Phase::Ingest,
+            crate::tick::order::ingest::UPDATER,
+            "updater.poll",
+            |s, _, tx| poll(s, tx),
+        );
+        builder.add_system_ordered(
+            Phase::Persist,
+            crate::tick::order::persist::UPDATER_OWED,
+            "updater.poll_owed",
+            |s, _, _| {
+                poll_owed(s);
+                false
+            },
+        );
         builder.add_close("updater.closing", |s| s.services.updater.closing());
     }
 }

@@ -166,6 +166,11 @@ impl Feature<App> for FindFeature {
             },
         ));
         builder.add_setup("find.waker", |s, w| setup(s, w));
-        builder.add_system(Phase::Derive, "find.poll", |s, _, tx| poll(s, tx));
+        builder.add_system_ordered(
+            Phase::Derive,
+            crate::tick::order::derive::FIND,
+            "find.poll",
+            |s, _, tx| poll(s, tx),
+        );
     }
 }

@@ -52,7 +52,12 @@ impl Feature<App> for DictationFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
-        builder.add_system(Phase::Ingest, "dictation.poll", |s, now, tx| poll(s, now, tx));
+        builder.add_system_ordered(
+            Phase::Ingest,
+            crate::tick::order::ingest::DICTATION,
+            "dictation.poll",
+            |s, now, tx| poll(s, now, tx),
+        );
     }
 }
 

@@ -248,9 +248,29 @@ impl Feature<App> for HistoryFeature {
                 .with_key(|s, ev, tx| s.jump_key(ev, tx))
                 .with_dismiss(|s, _| jump::close(s, true)),
         );
-        builder.add_system(Phase::Derive, "history.message_nav", |s, _, tx| poll(s, tx));
-        builder.add_system(Phase::Derive, "history.rewind", |s, _, tx| crate::rewind::revert_timeouts(s, tx));
-        builder.add_system(Phase::Derive, "history.fork", |s, _, tx| crate::fork::poll(s, tx));
-        builder.add_system(Phase::Derive, "history.jump", |s, _, tx| jump::poll(s, tx));
+        builder.add_system_ordered(
+            Phase::Ingest,
+            crate::tick::order::ingest::HISTORY_MESSAGE_NAV,
+            "history.message_nav",
+            |s, _, tx| poll(s, tx),
+        );
+        builder.add_system_ordered(
+            Phase::Ingest,
+            crate::tick::order::ingest::HISTORY_REWIND,
+            "history.rewind",
+            |s, _, tx| crate::rewind::revert_timeouts(s, tx),
+        );
+        builder.add_system_ordered(
+            Phase::Ingest,
+            crate::tick::order::ingest::HISTORY_FORK,
+            "history.fork",
+            |s, _, tx| crate::fork::poll(s, tx),
+        );
+        builder.add_system_ordered(
+            Phase::Ingest,
+            crate::tick::order::ingest::HISTORY_JUMP,
+            "history.jump",
+            |s, _, tx| jump::poll(s, tx),
+        );
     }
 }

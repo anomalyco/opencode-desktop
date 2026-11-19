@@ -11,6 +11,7 @@ pub mod demo;
 pub mod demo_script;
 pub mod fixture_ids;
 pub mod open;
+mod order;
 pub mod scenes;
 #[cfg(feature = "stories")]
 pub mod shell;
@@ -158,91 +159,10 @@ register!(STORY_LIST: Story = [
     Story::session("Timeline/Copy tick", COPY_KEYS).knobs(&[crate::copied::GROUP]),
 ]);
 
-/// The storybook's order, which module paths don't give: a story's group first, then where it sits
-/// in the group. A story not named here goes after these, by module path.
-const ORDER: &[&str] = &[
-    "Composer/Composer",
-    "Composer/Grows a line",
-    "Composer/Queue dock",
-    "Composer/Dictation",
-    "Composer/History",
-    "Composer/Pickers",
-    "Pickers/Model picker",
-    "Composer/Mentions",
-    "Composer/Subagents capsule, 30 running",
-    "Composer/Todo pill",
-    "Composer/New session",
-    "Question dock/Question",
-    "Question dock/Custom answer",
-    "Question dock/Morph",
-    "Question dock/Under a queue",
-    "Sidebar/Rename and menus",
-    "Sidebar/Project icons",
-    "Sidebar/Peek",
-    "Home/Session search",
-    "Home/No server",
-    "Components/Odometer",
-    "Components/Toast",
-    "Header/Session header",
-    "Header/Ticking",
-    "Header/Title change",
-    "Header/Narrow window",
-    "Timeline/Remote prompt",
-    "Timeline/Send",
-    "Timeline/Long prompt",
-    "Timeline/Streaming text",
-    "Timeline/Generative UI",
-    "Timeline/Diagram streaming",
-    "Timeline/Diagram full size",
-    "Timeline/Tool rows",
-    "Timeline/Long tool group",
-    "Timeline/Tool row fold",
-    "Timeline/Selection",
-    "Timeline/Find",
-    "Timeline/Quote",
-    "Timeline/Rewind",
-    "Timeline/Fork",
-    "Timeline/Question answers",
-    "Timeline/Compaction",
-    "Timeline/Working",
-    "Timeline/Streaming line growth",
-    "Timeline/Stop",
-    "Timeline/Steer and Pending",
-    "Timeline/Sends behind waiting steers",
-    "Timeline/Move to background",
-    "Timeline/Subagent",
-    "Timeline/Subagent rows",
-    "Timeline/Steered subagent",
-    "Timeline/Subagent starting",
-    "Timeline/Images",
-    "Timeline/Jump to latest",
-    "Timeline/Fade into composer",
-    "Timeline/Scroll bar",
-    "Timeline/Frosted surfaces",
-    "Timeline/Turn actions",
-    "Timeline/Copy tick",
-    "Timeline/Errors",
-    "Timeline/Retry",
-    "Timeline/Notices",
-    "Navigation/Back and forward",
-    "Side panel/Side region",
-    "Browser/Pane",
-    "Browser/Engine install",
-    "Terminal/Pane",
-    "Review/Changes",
-    "Review/Inline diff",
-    "Files/Pane",
-    "Files/Quick open (⌘P)",
-    "Files/Markdown file",
-    "Projects/Open project",
-    "Projects/Project switcher",
-    "Dev/Rewind",
-];
-
 /// Every story, in the storybook's order.
 pub fn stories() -> &'static [Story] {
     static ALL: OnceLock<Vec<Story>> = OnceLock::new();
-    ALL.get_or_init(|| ordered(collect(&STORY_LIST), ORDER, |st| st.path))
+    ALL.get_or_init(|| ordered(collect(&STORY_LIST), order::ORDER, |st| st.path))
 }
 
 /// `items` with those named in `order` first, in that order; the rest keep their place after them.

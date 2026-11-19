@@ -46,10 +46,12 @@ impl Feature<App> for EggFeature {
             )
             .when(|s| can_play_command(s)),
         );
-        builder.add_system(Phase::React, "egg.poll", |s, now, tx| {
-            let changed = poll(s, now, tx);
-            s.note_tick_change(changed)
-        });
+        builder.add_system_ordered(
+            Phase::Ingest,
+            crate::tick::order::ingest::EGG,
+            "egg.poll",
+            |s, now, tx| poll(s, now, tx),
+        );
         builder.add_visibility("egg.visibility", |s, shown, tx| visibility(s, shown, tx));
         builder.add_surface(SurfaceDescriptor::new("egg", SurfaceKind::Custom("egg"), "Wordmark Egg"));
     }
