@@ -22,24 +22,24 @@ pub struct Prompt {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum State {
+pub enum State<T = ()> {
     Closed { last: u32 },
-    Loading { attempt: u32 },
-    Failed { attempt: u32 },
-    Ready { attempt: u32, history: Vec<Prompt>, failed: bool },
-    Opening { attempt: u32, history: Vec<Prompt>, target: String, due: f64 },
+    Loading { attempt: u32, open: T },
+    Failed { attempt: u32, open: T },
+    Ready { attempt: u32, history: Vec<Prompt>, failed: bool, open: T },
+    Opening { attempt: u32, history: Vec<Prompt>, target: String, due: f64, open: T },
 }
 
-impl Default for State {
+impl<T> Default for State<T> {
     fn default() -> Self {
         State::Closed { last: 0 }
     }
 }
 
 #[derive(Clone, Debug)]
-pub enum Event {
-    /// The dialog opened (`startJumpToMessage`).
-    Start,
+pub enum Event<T = ()> {
+    /// The dialog opened (`startJumpToMessage`), carrying open-only dialog state `T`.
+    Start(T),
     HistoryLoaded { attempt: u32, history: Vec<Prompt> },
     HistoryFailed { attempt: u32 },
     Retry,
@@ -51,23 +51,37 @@ pub enum Event {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum Effect {
+pub enum Effect<T = ()> {
     HistoryLoad { attempt: u32 },
     OpenLoad { attempt: u32, target: String },
-    Jump { id: String },
+    Jump { id: String, open: T },
     Cancel,
+    Closed(T),
 }
 
-impl State {
-    fn attempt(&self) -> u32 {
+impl<T> State<T> {
+    pub fn is_open(&self) -> bool {
+        !matches!(self, State::Closed { .. })
+    }
+
+    pub fn open_data(&self) -> Option<&T> {
         match self {
-            State::Closed { last } => *last,
-            State::Loading { attempt } | State::Failed { attempt } | State::Ready { attempt, .. } | State::Opening { attempt, .. } => *attempt,
+            State::Closed { .. } => None,
+            State::Loading { open, .. }
+            | State::Failed { open, .. }
+            | State::Ready { open, .. }
+            | State::Opening { open, .. } => Some(open),
         }
     }
 
-    pub fn is_open(&self) -> bool {
-        !matches!(self, State::Closed { .. })
+    pub fn open_data_mut(&mut self) -> Option<&mut T> {
+        match self {
+            State::Closed { .. } => None,
+            State::Loading { open, .. }
+            | State::Failed { open, .. }
+            | State::Ready { open, .. }
+            | State::Opening { open, .. } => Some(open),
+        }
     }
 
     /// `selectJumpHistory`.
@@ -95,55 +109,58 @@ impl State {
     }
 
     /// `transitionJumpToMessage`.
-    pub fn step(&mut self, event: Event) -> Effects<Effect> {
-        let attempt = self.attempt();
-        match (&*self, event) {
-            (State::Closed { last }, Event::Start) => {
+    pub fn step(&mut self, event: Event<T>) -> Effects<Effect<T>> {
+        let prev = std::mem::replace(self, State::Closed { last: 0 });
+        let (next, effects) = match (prev, event) {
+            (State::Closed { last }, Event::Start(open)) => {
                 let attempt = last + 1;
-                *self = State::Loading { attempt };
-                Effects::one(Effect::HistoryLoad { attempt })
+                (State::Loading { attempt, open }, Effects::one(Effect::HistoryLoad { attempt }))
             }
-            (State::Closed { .. }, _) => Effects::none(),
-            (_, Event::Start) => Effects::none(),
-            (_, Event::Disposed) => {
-                *self = State::Closed { last: attempt };
-                Effects::one(Effect::Cancel)
-            }
-            (State::Opening { .. }, Event::Selected { .. }) => Effects::none(),
+            (state @ State::Closed { .. }, _) => (state, Effects::none()),
+            (state, Event::Start(_)) => (state, Effects::none()),
+            (
+                State::Loading { attempt, open }
+                | State::Failed { attempt, open }
+                | State::Ready { attempt, open, .. }
+                | State::Opening { attempt, open, .. },
+                Event::Disposed,
+            ) => (State::Closed { last: attempt }, Effects::two(Effect::Cancel, Effect::Closed(open))),
+            (state @ State::Opening { .. }, Event::Selected { .. }) => (state, Effects::none()),
             // Rows beyond the loaded timeline only exist once the older history has loaded.
-            (_, Event::Selected { id, loaded: true, .. }) => {
-                *self = State::Closed { last: attempt };
-                Effects::two(Effect::Cancel, Effect::Jump { id })
-            }
-            (State::Ready { history, .. }, Event::Selected { id, loaded: false, now }) => {
+            (
+                State::Loading { attempt, open }
+                | State::Failed { attempt, open }
+                | State::Ready { attempt, open, .. },
+                Event::Selected { id, loaded: true, .. },
+            ) => (State::Closed { last: attempt }, Effects::two(Effect::Cancel, Effect::Jump { id, open })),
+            (State::Ready { attempt, history, open, .. }, Event::Selected { id, loaded: false, now }) => {
                 let attempt = attempt + 1;
-                *self = State::Opening { attempt, history: history.clone(), target: id.clone(), due: now + OPEN_SECS };
-                Effects::one(Effect::OpenLoad { attempt, target: id })
+                (
+                    State::Opening { attempt, history, target: id.clone(), due: now + OPEN_SECS, open },
+                    Effects::one(Effect::OpenLoad { attempt, target: id }),
+                )
             }
-            (_, Event::Selected { .. }) => Effects::none(),
-            (State::Failed { .. }, Event::Retry) => {
-                *self = State::Loading { attempt: attempt + 1 };
-                Effects::one(Effect::HistoryLoad { attempt: attempt + 1 })
+            (state, Event::Selected { .. }) => (state, Effects::none()),
+            (State::Failed { attempt, open }, Event::Retry) => {
+                let attempt = attempt + 1;
+                (State::Loading { attempt, open }, Effects::one(Effect::HistoryLoad { attempt }))
             }
-            (_, Event::Retry) => Effects::none(),
-            (State::Loading { .. }, Event::HistoryLoaded { attempt: a, history }) if a == attempt => {
-                *self = State::Ready { attempt, history, failed: false };
-                Effects::none()
+            (state, Event::Retry) => (state, Effects::none()),
+            (State::Loading { attempt, open }, Event::HistoryLoaded { attempt: a, history }) if a == attempt => {
+                (State::Ready { attempt, history, failed: false, open }, Effects::none())
             }
-            (State::Loading { .. }, Event::HistoryFailed { attempt: a }) if a == attempt => {
-                *self = State::Failed { attempt };
-                Effects::none()
+            (State::Loading { attempt, open }, Event::HistoryFailed { attempt: a }) if a == attempt => {
+                (State::Failed { attempt, open }, Effects::none())
             }
-            (State::Opening { target, .. }, Event::Opened { attempt: a }) if a == attempt => {
-                let id = target.clone();
-                *self = State::Closed { last: attempt };
-                Effects::one(Effect::Jump { id })
+            (State::Opening { attempt, target, open, .. }, Event::Opened { attempt: a }) if a == attempt => {
+                (State::Closed { last: attempt }, Effects::one(Effect::Jump { id: target, open }))
             }
-            (State::Opening { history, .. }, Event::OpenFailed { attempt: a }) if a == attempt => {
-                *self = State::Ready { attempt, history: history.clone(), failed: true };
-                Effects::none()
+            (State::Opening { attempt, history, open, .. }, Event::OpenFailed { attempt: a }) if a == attempt => {
+                (State::Ready { attempt, history, failed: true, open }, Effects::none())
             }
-            _ => Effects::none(),
-        }
+            (state, _) => (state, Effects::none()),
+        };
+        *self = next;
+        effects
     }
 }
