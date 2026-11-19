@@ -289,7 +289,7 @@ pub fn doze(app: &mut App, i: usize, record: Record, background: bool) {
 /// busy now: a process or run of it, power or a prompt it holds, its dialog or popover open. Not
 /// with another window open either, which may show it and shares its app half.
 pub fn sleep_unused(app: &mut App) {
-    if app.other_windows() || app.settings.open {
+    if app.other_windows() || app.settings_open() {
         return;
     }
     let running: Vec<(usize, String)> = app.plugins.list.iter().enumerate()
@@ -484,10 +484,10 @@ thread_local! {
 
 /// Whether session `session`'s side region is open on New tab (empty side strip, or adding a tab).
 fn session_shows_launchers(app: &App, session: &str) -> bool {
-    app.workspace_panes.side.sessions.get(session).is_some_and(|st| {
+    app.kernel.slots.get(&crate::panels::SIDE).sessions.get(session).is_some_and(|st| {
         st.visibility.open()
             && (!st.tab_state.tabs.all.iter().any(|k| st.tab_state.tabs.panes.get(k).copied().unwrap_or(crate::panels::SessionPane::Side) != crate::panels::SessionPane::Bottom)
-                || app.workspace_panes.side.adding.iter().any(|n| n.session_id == session))
+                || app.kernel.slots.get(&crate::panels::SIDE).adding.iter().any(|n| n.session_id == session))
     })
 }
 
@@ -496,7 +496,7 @@ fn session_shows_launchers(app: &App, session: &str) -> bool {
 /// the session, and the file viewers when it has a Files tab. A code block a plugin draws asks for
 /// it as it shows ([`want_now`]); a link handler answers when a link is opened.
 fn for_session(app: &App, session: &str) -> Vec<String> {
-    let side = app.workspace_panes.side.sessions.get(session);
+    let side = app.kernel.slots.get(&crate::panels::SIDE).sessions.get(session);
     let with_tabs: Vec<&str> = side.map(|side| side.tab_state.tabs.all.iter().filter_map(|k| crate::panels::tabs::split_panel_key(k).map(|(plugin, _)| plugin)).collect()).unwrap_or_default();
     let files = with_tabs.contains(&"file");
     let shows_launchers = session_shows_launchers(app, session);

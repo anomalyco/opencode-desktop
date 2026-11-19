@@ -31,7 +31,7 @@ struct Item<'a> {
 /// The rows (`rows` memo, `sidebar-customized.tsx:178-286`): the open tabs in their order, then
 /// the server's root sessions (and its subagents, when shown) that no tab holds.
 fn gather(s: &App, show_subagents: bool) -> (Vec<Row>, Vec<Item<'_>>) {
-    let current = if s.settings.open { None } else { s.current_tab() };
+    let current = if s.settings_open() { None } else { s.current_tab() };
     let here = crate::servers::runtime::active(s).clone();
     let mut rows = vec![];
     let mut items = vec![];
@@ -69,7 +69,7 @@ fn gather(s: &App, show_subagents: bool) -> (Vec<Row>, Vec<Item<'_>>) {
             server: here.as_str().to_owned(),
             project: project.map(|p| p.id.clone()),
             open: false,
-            active: !s.settings.open && *s.route == Route::here(info.id.clone()),
+            active: !s.settings_open() && *s.route == Route::here(info.id.clone()),
             parent: info.parent.as_deref().map(|p| super::state::key(here.as_str(), p)),
             status: m::status_of(s.tab_status(&info.id)),
             updated: s.recent_page.active_ms(info),

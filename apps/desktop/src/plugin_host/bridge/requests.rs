@@ -81,13 +81,13 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
             }
         }
         Request::DismissToast(handle) => {
-            if let Some(id) = app.dialogs.toast.id_for_handle(handle) {
+            if let Some(id) = app.toast.id_for_handle(handle) {
                 tx.instant();
                 crate::status_toast::dismiss_id(app, id);
             }
         }
         Request::UpdateToast { handle, variant, title, description, reveal, persistent, buttons } => {
-            let Some(entry) = app.dialogs.toast.by_handle_mut(handle) else { return };
+            let Some(entry) = app.toast.by_handle_mut(handle) else { return };
             entry.title = title;
             entry.description = Some(description.trim().to_owned()).filter(|d| !d.is_empty());
             entry.icon = (variant == "success").then_some(&rune_theme_opencode::icons::CIRCLE_CHECK);
@@ -107,7 +107,7 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
                 }
                 _ => app.toast_say(title, description),
             }
-            if let Some(e) = app.dialogs.toast.current_mut() {
+            if let Some(e) = app.toast.current_mut() {
                 if variant == "success" {
                     e.icon = Some(&rune_theme_opencode::icons::CIRCLE_CHECK);
                 }

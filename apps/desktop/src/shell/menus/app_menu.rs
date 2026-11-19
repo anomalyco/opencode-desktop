@@ -137,7 +137,7 @@ pub fn button(s: &App, p: &Pal) -> El {
 }
 
 fn glyph_button(s: &App, p: &Pal) -> El {
-    let open = s.dialogs.popup.open_at(KEY);
+    let open = s.popup.open_at(KEY);
     rune::el()
         .key(KEY)
         .role("button")
@@ -243,7 +243,7 @@ pub(crate) fn run(s: &mut App, act: Act, tx: &mut Tx) {
         Act::CloseWindow => s.close_window(tx),
         Act::Edit(key) => {
             // Back to the field focused as the menu opened, then the key (`windows-menu.tsx:69`).
-            if let Some(field) = s.dialogs.popup.remembered().map(str::to_owned) {
+            if let Some(field) = s.popup.remembered().map(str::to_owned) {
                 tx.focus(field, false);
             }
             tx.send_key(edit_key(key));

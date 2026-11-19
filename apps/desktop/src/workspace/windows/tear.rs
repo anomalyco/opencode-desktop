@@ -236,10 +236,10 @@ impl App {
     pub(crate) fn receive_tab(&mut self, tab: Tab, draft: (Option<String>, Option<crate::restore::Parked>), at: Option<[f32; 2]>, tx: &mut Tx) {
         let (text, parked) = draft;
         if let Some(text) = text {
-            self.restore.drafts.insert(tab.id.clone(), text);
+            self.kernel.slots.get_mut(&crate::restore::RESTORE).drafts.insert(tab.id.clone(), text);
         }
         if let Some(parked) = parked {
-            self.restore.parked.insert(tab.id.clone(), parked);
+            self.kernel.slots.get_mut(&crate::restore::RESTORE).parked.insert(tab.id.clone(), parked);
         }
         let slot = self.gestures.tab_drag.incoming_slot();
         self.gestures.tab_drag.set_incoming(None);
@@ -269,9 +269,10 @@ impl App {
         let Some(i) = self.tab_at(key) else { return };
         let shown = self.current_tab() == Some(self.tabs[i].uid());
         let id = self.tabs.remove(i).id;
-        self.restore.drafts.remove(&id);
-        self.restore.parked.remove(&id);
-        self.composer_ext.add.park(id, session_view::composer::mode::Mode::Normal);
+        let r = self.kernel.slots.get_mut(&crate::restore::RESTORE);
+        r.drafts.remove(&id);
+        r.parked.remove(&id);
+        self.kernel.slots.get_mut(&crate::add_menu::ADD_MENU).park(id, session_view::composer::mode::Mode::Normal);
         if shown {
             self.drop_shown_draft();
             match self.tabs.get(i).or_else(|| self.tabs.get(i.wrapping_sub(1))).map(Tab::uid) {

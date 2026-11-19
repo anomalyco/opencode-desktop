@@ -40,7 +40,7 @@ pub(crate) fn section_strip(s: &App, p: &Pal, key: &str, indices: &[usize], hide
 #[allow(clippy::too_many_arguments)]
 fn strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation, viewport: Option<f32>, trailing: Option<El>, indices: &[usize], hide_avatars: bool) -> El {
     // Every server's tabs mix in one strip, each named by its `Tab::uid`.
-    let current = if s.settings.open { None } else { s.current_tab() };
+    let current = if s.settings_open() { None } else { s.current_tab() };
     let vertical = orientation == TabOrientation::Vertical;
     let tabs: Vec<&crate::tabs::Tab> = indices.iter().filter_map(|&i| s.tabs.get(i)).collect();
     let uids: Vec<String> = tabs.iter().map(|t| t.uid()).collect();
@@ -52,7 +52,8 @@ fn strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation, viewport: Opt
         .zip(&uids)
         .map(|(t, uid)| {
             let target = target(s, t);
-            let keep = s.dialogs.menus.on.as_ref() == Some(&target) || s.dialogs.menus.renames(&target);
+            let menus = s.kernel.slots.get(&crate::session_menu::MENUS);
+            let keep = menus.on.as_ref() == Some(&target) || menus.renames(&target);
             TabSlot { id: uid.as_str().into(), pinned: false, two_line: false, keep }
         })
         .collect();
@@ -117,7 +118,7 @@ fn item<'a>(s: &'a App, p: &Pal, t: &'a crate::tabs::Tab, uid: String, index: us
     let draft = t.is_draft();
     let face = face(s, t);
     let target = target(s, t);
-    let marked = s.dialogs.menus.on.as_ref() == Some(&target);
+    let marked = s.kernel.slots.get(&crate::session_menu::MENUS).on.as_ref() == Some(&target);
     // No server badge or dot on the tab itself: only its preview names the server
     // (`tab-nav.tsx:158-164`).
     let id = uid.clone();

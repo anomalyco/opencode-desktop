@@ -121,7 +121,7 @@ pub fn stream_down(s: &mut App, e: opencode_kit::wire_error::WireError, tx: &mut
     let now = *s.clock;
     // What was mid-text when it dropped grows again only from whole text (the barrier).
     if !s.transcripts.is_empty() {
-        let gaps = &mut s.kernel.slots.slot::<crate::events::StreamGaps>().0;
+        let gaps = &mut s.kernel.slots.get_mut(&crate::events::STREAM_GAPS).0;
         for (sid, t) in s.transcripts.iter() {
             gaps.entry(sid.clone()).or_default().extend(t.open_steps());
         }

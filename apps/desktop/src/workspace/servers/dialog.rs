@@ -92,9 +92,11 @@ pub struct Dialog {
     pub password: TextEdit,
 }
 
+pub(crate) static DIALOG: opencode_kernel::Slot<Dialog> = opencode_kernel::Slot::new();
+
 /// Whether the Add/Edit server dialog is currently open.
 pub fn is_open(s: &App) -> bool {
-    s.kernel.slots.get::<Dialog>().is_some_and(|d| d.session.is_open())
+    s.kernel.slots.get(&DIALOG).session.is_open()
 }
 
 /// Opens Add server, or Edit server for saved server `url`.
@@ -105,7 +107,7 @@ pub fn open(s: &mut App, edit: Option<&str>, tx: &mut Tx) {
         None => Target::Add,
     };
     let state = State::new(target);
-    let d = s.kernel.slots.slot::<Dialog>();
+    let d = s.kernel.slots.get_mut(&DIALOG);
     d.link = TextEdit::new(&state.draft.link);
     d.url = TextEdit::new(&state.draft.url);
     d.name = TextEdit::new(&state.draft.name);
@@ -127,7 +129,7 @@ fn focus_primary(d: &mut Dialog, method: Method) {
 
 /// The list changed elsewhere: an edit follows its server, and closes once it's gone.
 pub fn sync(s: &mut App, tx: &mut Tx) {
-    let Some(url) = s.kernel.slots.get::<Dialog>().and_then(|d| d.session.state()).and_then(|st| match &st.target {
+    let Some(url) = s.kernel.slots.untracked(&DIALOG).session.state().and_then(|st| match &st.target {
         Target::Edit(current) => Some(current.url.clone()),
         Target::Add => None,
     }) else {
@@ -139,7 +141,7 @@ pub fn sync(s: &mut App, tx: &mut Tx) {
 
 fn dispatch(s: &mut App, event: Event, tx: &mut Tx) {
     let effects = {
-        let d = s.kernel.slots.slot::<Dialog>();
+        let d = s.kernel.slots.get_mut(&DIALOG);
         let Some(before) = d.session.state().map(|st| (st.method, st.draft.url.clone(), st.draft.link.clone())) else {
             return;
         };
@@ -180,13 +182,13 @@ fn run(s: &mut App, effect: Effect) {
             });
         }
         Effect::ConnectLink { attempt, link, preferred } => {
-            let last = s.kernel.slots.get::<Dialog>().and_then(|d| d.session.redeemed().cloned());
+            let last = s.kernel.slots.untracked(&DIALOG).session.redeemed().cloned();
             let deliver = s.deliverer();
             crate::plugin_host::tasks::run(move || {
                 let (event, redeemed) = pair(attempt, &link, preferred, last);
                 deliver(Box::new(move |s: &mut App, tx: &mut Tx| {
                     if let Some((code, paired)) = redeemed {
-                        s.kernel.slots.slot::<Dialog>().session.step(SessionEvent::Redeemed(code, paired));
+                        s.kernel.slots.get_mut(&DIALOG).session.step(SessionEvent::Redeemed(code, paired));
                     }
                     dispatch(s, event, tx);
                 }) as Apply);
@@ -204,7 +206,7 @@ fn run(s: &mut App, effect: Effect) {
         // Settings' per-server pages follow the server saved (`onServerChange` selects it).
         Effect::Save(Save::Add(mut server)) => {
             // Re-pairing an address already in the registry keeps its display name (#64139).
-            if let Some(state) = s.kernel.slots.get::<Dialog>().and_then(|d| d.session.state())
+            if let Some(state) = s.kernel.slots.untracked(&DIALOG).session.state()
                 && state.target == Target::Add && state.draft.name.trim().is_empty()
                 && let Some(existing) = super::list().into_iter().find(|e| e.url == server.http.url).and_then(|e| e.name) {
                 server.name = Some(existing);
@@ -219,7 +221,7 @@ fn run(s: &mut App, effect: Effect) {
             super::add(s, server);
         }
         Effect::Close { .. } => {
-            s.kernel.slots.slot::<Dialog>().session.step(SessionEvent::Close);
+            s.kernel.slots.get_mut(&DIALOG).session.step(SessionEvent::Close);
         }
     }
 }
@@ -227,7 +229,7 @@ fn run(s: &mut App, effect: Effect) {
 /// Settings' own server becomes the one saved at `url`.
 fn follow(s: &mut App, url: &str) {
     if let Some(key) = pairing::normalize(url).and_then(|u| opencode_servers::ServerConn::http_server(&u)).map(|c| c.key()) {
-        s.settings_pages.server.key = key;
+        s.kernel.slots.get_mut(&crate::settings::SETTINGS_PAGES).server.key = key;
     }
 }
 
@@ -265,7 +267,7 @@ fn pair(attempt: u64, value: &str, preferred: Option<String>, last: Option<(Stri
 
 fn close(s: &mut App, tx: &mut Tx) {
     dispatch(s, Event::Disposed, tx);
-    s.kernel.slots.slot::<Dialog>().session.step(SessionEvent::Close);
+    s.kernel.slots.get_mut(&DIALOG).session.step(SessionEvent::Close);
 }
 
 fn error_words(e: &Error) -> String {
@@ -281,7 +283,7 @@ fn error_words(e: &Error) -> String {
 /// The dialog, while it's open.
 #[allow(deprecated)]
 pub fn view(s: &App, p: &Pal, cx: &rune::Cx<App>) -> Vec<El> {
-    let Some(d) = s.kernel.slots.get::<Dialog>() else { return Vec::new() };
+    let d = s.kernel.slots.get(&DIALOG);
     let Some(state) = d.session.state() else { return Vec::new() };
     let v = machine::view(state);
     let k = kit(p);
@@ -313,19 +315,19 @@ pub fn view(s: &App, p: &Pal, cx: &rune::Cx<App>) -> Vec<El> {
     }
     let invalid = v.error.is_some();
     if state.method == Method::Password {
-        let mut g = vec![label(t!("dialog.server.add.url")), field("dialog-server-url", &d.url, t!("dialog.server.add.placeholder"), invalid, false, |s| &mut s.kernel.slots.slot::<Dialog>().url, Field::Url)];
+        let mut g = vec![label(t!("dialog.server.add.url")), field("dialog-server-url", &d.url, t!("dialog.server.add.placeholder"), invalid, false, |s| &mut s.kernel.slots.get_mut(&DIALOG).url, Field::Url)];
         g.extend(error);
         body = body.child(group(g));
     } else {
-        let mut g = vec![label(t!("server.connect.link")), field("dialog-server-link", &d.link, t!("server.connect.link.placeholder"), invalid, false, |s| &mut s.kernel.slots.slot::<Dialog>().link, Field::Link)];
+        let mut g = vec![label(t!("server.connect.link")), field("dialog-server-link", &d.link, t!("server.connect.link.placeholder"), invalid, false, |s| &mut s.kernel.slots.get_mut(&DIALOG).link, Field::Link)];
         g.extend(error);
         body = body.child(group(g));
     }
-    body = body.child(group(vec![label(t!("dialog.server.add.name")), field("dialog-server-name", &d.name, t!("dialog.server.add.namePlaceholder"), false, false, |s| &mut s.kernel.slots.slot::<Dialog>().name, Field::Name)]));
+    body = body.child(group(vec![label(t!("dialog.server.add.name")), field("dialog-server-name", &d.name, t!("dialog.server.add.namePlaceholder"), false, false, |s| &mut s.kernel.slots.get_mut(&DIALOG).name, Field::Name)]));
     if state.method == Method::Password {
         body = body.child(group(vec![
             label(t!("dialog.server.add.password")),
-            field("dialog-server-password", &d.password, t!("dialog.server.add.passwordPlaceholder"), false, true, |s| &mut s.kernel.slots.slot::<Dialog>().password, Field::Password),
+            field("dialog-server-password", &d.password, t!("dialog.server.add.passwordPlaceholder"), false, true, |s| &mut s.kernel.slots.get_mut(&DIALOG).password, Field::Password),
             hint(t!("server.connect.password.hint")),
         ]));
     }

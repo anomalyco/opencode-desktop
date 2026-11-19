@@ -4,7 +4,7 @@ pub use opencode_feature_subagents::*;
 
 use std::collections::HashSet;
 
-use opencode_kernel::{CommandEntry, EscapeLayer, Feature, KernelBuilder, Phase};
+use opencode_kernel::{CommandEntry, EscapeLayer, Feature, KernelBuilder, Phase, Slot};
 use opencode_kit::client::{Prompt, Write};
 use opencode_kit::model::{SessionInfo, Transcript};
 use rune::Tx;
@@ -14,13 +14,15 @@ use crate::jobs::Apply;
 use crate::keymap::Bind;
 use crate::{App, Source};
 
+pub(crate) static SHELLS: Slot<Shells> = Slot::new();
+
 impl SubagentsHost for App {
     fn shells(&self) -> &Shells {
-        &self.shells
+        self.kernel.slots.get(&SHELLS)
     }
 
     fn shells_mut(&mut self) -> &mut Shells {
-        &mut self.shells
+        self.kernel.slots.get_mut(&SHELLS)
     }
 
     fn session_info(&self, id: &str) -> Option<&SessionInfo> {
@@ -52,7 +54,7 @@ impl SubagentsHost for App {
     }
 
     fn composer_is_empty(&self) -> bool {
-        self.composer.text.trim().is_empty() && !self.composer_ext.attach.any() && !self.composer_ext.quote.any()
+        self.composer.text.trim().is_empty() && !self.composer_ext.attach.any() && !self.kernel.slots.get(&crate::quote::QUOTE).any()
     }
 
     fn shows_esc_keycap(&self) -> bool {
@@ -93,7 +95,7 @@ impl SubagentsHost for App {
     }
 
     fn on_activity_toggled(&mut self, _open: bool) {
-        *self.timeline_fx.todo_open = false;
+        *self.kernel.slots.get_mut(&crate::todos::TODO_OPEN) = false;
     }
 
     fn spawn_shell_request(&mut self, job: SubagentJob) {
@@ -188,10 +190,11 @@ impl Feature<App> for SubagentsFeature {
                 s.open_parent(tx);
             },
         ));
+        builder.register_slot(&SHELLS);
         builder.register_escape_layer(EscapeLayer::new(
             "escape.activity",
             60,
-            |s| s.shells.activity.is_open(),
+            |s| s.kernel.slots.get(&SHELLS).activity.is_open(),
             |s, _, tx| {
                 tx.instant();
                 shells::set_open(s, false);

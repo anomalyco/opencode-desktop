@@ -59,27 +59,28 @@ fn edited(s: &mut App, tx: &mut Tx) {
 impl App {
     /// A page whose composer shows, with no field, panel, menu or dialog that keys belong to.
     pub(crate) fn takes_stray_keys(&self) -> bool {
+        let menus = self.kernel.slots.get(&crate::session_menu::MENUS);
         self.has_composer()
-            && !self.settings.open
-            && !self.workspace_panes.side.focus.is_focused()
-            && !self.dialogs.switcher.is_open()
-            && !self.dialogs.project_switcher.is_open()
-            && !self.dialogs.fork.is_open()
-            && !self.dialogs.jump.open()
-            && !self.timeline_fx.find.input.focused
+            && !self.settings_open()
+            && !self.kernel.slots.get(&crate::panels::SIDE).focus.is_focused()
+            && !self.kernel.slots.get(&crate::switcher::SWITCHER).is_open()
+            && !self.kernel.slots.get(&crate::project_switcher::PROJECT_SWITCHER).is_open()
+            && !self.kernel.slots.get(&crate::fork::FORK).is_open()
+            && !self.kernel.slots.get(&crate::message_nav::JUMP).open()
+            && !self.kernel.slots.get(&crate::find::FIND).input.focused
             && !self.search.focused
             && !crate::plugin_host::field_focused(self)
-            && self.dialogs.menus.on.is_none()
-            && self.dialogs.menus.renaming().is_none()
-            && self.dialogs.menus.confirming().is_none()
+            && menus.on.is_none()
+            && menus.renaming().is_none()
+            && menus.confirming().is_none()
             && self.composer_ext.pickers.open().is_none()
-            && self.dialogs.rewind.menu.is_none()
-            && !self.dialogs.popup.is_open()
+            && self.kernel.slots.get(&crate::rewind::REWIND).menu.is_none()
+            && !self.popup.is_open()
             && !self.project_state.home_menu_open
-            && !self.shells.activity.is_open()
-            && !*self.timeline_fx.todo_open
-            && !self.dialogs.connect.is_modal_open()
-            && self.dialogs.mcp.open.is_none()
+            && !self.kernel.slots.get(&crate::subagents::SHELLS).activity.is_open()
+            && !*self.kernel.slots.get(&crate::todos::TODO_OPEN)
+            && !self.kernel.slots.get(&crate::connect::CONNECT).is_modal_open()
+            && self.kernel.slots.get(&crate::mcp::MCP).open.is_none()
             && !self.plugins.dialog_open()
             && !self.timeline_fx.diagram.is_open()
             && !self.question_shown()

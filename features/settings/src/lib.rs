@@ -46,9 +46,26 @@ pub const PROVIDER_REMOVAL_OVERLAY_ID: &str = "dialog.settings.provider_removal"
 /// Overlay stack identifier for Settings › Worktrees' delete confirmation.
 pub const WORKTREE_DELETE_OVERLAY_ID: &str = "dialog.settings.worktree_delete";
 
+/// Whether the Settings screen is open in this window (separate from persisted [`Settings`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SettingsScreen {
+    #[default]
+    Closed,
+    Open,
+}
+
+impl SettingsScreen {
+    pub fn is_open(self) -> bool {
+        matches!(self, Self::Open)
+    }
+
+    pub fn set_open(&mut self, open: bool) {
+        *self = if open { Self::Open } else { Self::Closed };
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Settings {
-    pub open: bool,
     /// The composer's agent picker (`general.showCustomAgents`); the agent still applies when it's hidden.
     pub show_agent: bool,
     pub scheme: Scheme,
@@ -135,7 +152,6 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Settings {
-            open: false,
             // Desktop shows the composer's agent picker by default (`settings/model.tsx:308`,
             // `showCustomAgents: true`).
             show_agent: true,
@@ -227,7 +243,6 @@ impl Settings {
     pub fn from_json(v: &Value) -> Settings {
         let d = Settings::default();
         Settings {
-            open: false,
             show_agent: v["showAgentPicker"].as_bool().unwrap_or(true),
             scheme: Scheme::ALL.into_iter().find(|s| Some(s.name()) == v["appearance"].as_str()).unwrap_or_default(),
             fold_user: v["foldUserMessages"].as_bool().unwrap_or(d.fold_user),
@@ -370,14 +385,14 @@ fn open_settings_inner(host: &mut dyn SettingsHost, page: pages::Page, return_fo
     host.before_settings_open();
     // Settings' per-server pages start on the server of the page it opens over
     // (`SettingsSurface.server`'s `sourceServer`).
-    let was_open = host.settings().open;
+    let was_open = host.settings_open();
     if !was_open {
         let desired = host.desired_server_key();
         host.settings_pages_mut().server.key = desired;
     }
     // What plugins show in Settings (their rows on Plugins, their own pages) draws from their VMs.
     host.wake_settings_plugins();
-    host.settings_mut().open = true;
+    host.set_settings_open(true);
     if !was_open {
         host.on_overlay_opened(OVERLAY_ID, return_focus);
     }
@@ -386,8 +401,8 @@ fn open_settings_inner(host: &mut dyn SettingsHost, page: pages::Page, return_fo
 
 /// Closes Settings, clears active search / shortcut capture / field focus, and notifies `OverlayStack`.
 pub fn close_settings(host: &mut dyn SettingsHost) {
-    let was_open = host.settings().open;
-    host.settings_mut().open = false;
+    let was_open = host.settings_open();
+    host.set_settings_open(false);
     search::clear(host);
     host.settings_pages_mut().shortcuts.capture = None;
     host.settings_pages_mut().blur_fields();
@@ -443,7 +458,7 @@ pub fn set_terminal_placement(host: &mut dyn SettingsHost, placement: DockPlacem
 /// Settings' keys: the shortcut being recorded takes every key; Escape steps back through
 /// search and then leaves; mod+f focuses the search (`settings.search.focus`).
 pub fn settings_key(host: &mut dyn SettingsHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if !host.settings().open {
+    if !host.settings_open() {
         return false;
     }
     if pages::shortcuts::key(host, ev, tx) || search::key(host, ev, tx) {
@@ -473,7 +488,7 @@ pub fn back_to_app(host: &mut dyn SettingsHost, tx: &mut Tx) {
 /// Opens Settings on Preferences or closes it when already open.
 pub fn toggle_settings(host: &mut dyn SettingsHost, tx: &mut Tx) {
     tx.instant();
-    if host.settings().open {
+    if host.settings_open() {
         close_settings(host);
     } else {
         open_settings_tx(host, pages::Page::General, tx);

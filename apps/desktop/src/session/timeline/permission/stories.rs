@@ -44,7 +44,7 @@ fn open(s: &mut App, _: &mut Play<App>) {
     s.finish_stream();
     s.settings.auto_accept = false;
     s.pending.clear();
-    s.permission_sent.0.clear();
+    s.kernel.slots.get_mut(&super::PERMISSION_SENT).0.clear();
     ask_soon(s);
 }
 

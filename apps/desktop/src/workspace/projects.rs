@@ -2,7 +2,7 @@
 
 pub use opencode_feature_projects::*;
 
-use opencode_kernel::{CommandEntry, EscapeLayer, Feature, KernelBuilder, OverlayRegistration};
+use opencode_kernel::{CommandEntry, EscapeLayer, Feature, KernelBuilder, OverlayRegistration, Slot};
 use opencode_kit::client::{Request, Server, Write};
 use opencode_kit::model::{LocationInfo, Project, SessionInfo, Transcript};
 use opencode_kit::servers::{Route as KitRoute, ServerKey};
@@ -18,6 +18,9 @@ use crate::keymap::Bind;
 use crate::pickers::PickerHost as _;
 use crate::{App, Route, Source};
 
+pub(crate) static REMOTE_PICKER: Slot<remote_picker::Picker> = Slot::new();
+pub(crate) static HOME_STATE: Slot<home::Home> = Slot::new();
+
 impl ProjectsHost for App {
     fn project_state(&self) -> &ProjectsState {
         &self.project_state
@@ -28,19 +31,19 @@ impl ProjectsHost for App {
     }
 
     fn home_state(&self) -> &home::Home {
-        &self.home_state
+        self.kernel.slots.get(&HOME_STATE)
     }
 
     fn home_state_mut(&mut self) -> &mut home::Home {
-        &mut self.home_state
+        self.kernel.slots.get_mut(&HOME_STATE)
     }
 
     fn remote_picker(&self) -> &remote_picker::Picker {
-        &self.dialogs.remote_picker
+        self.kernel.slots.get(&REMOTE_PICKER)
     }
 
     fn remote_picker_mut(&mut self) -> &mut remote_picker::Picker {
-        &mut self.dialogs.remote_picker
+        self.kernel.slots.get_mut(&REMOTE_PICKER)
     }
 
     fn projects(&self) -> &[Project] {
@@ -140,7 +143,7 @@ impl ProjectsHost for App {
     }
 
     fn settings_open(&self) -> bool {
-        self.settings.open
+        App::settings_open(self)
     }
 
     fn close_settings(&mut self) {
@@ -284,15 +287,15 @@ impl ProjectsHost for App {
         // returns focus to the composer before the command runs (`palette.ts:210-219`,
         // `dialog-machine.ts:20-27,167-181,229-253`, `workspaces/selection/picker.tsx:30-37,58-75`).
         let restore_composer = self.composer.focused
-            || self.dialogs.switcher.restore_composer()
+            || self.kernel.slots.get(&crate::switcher::SWITCHER).restore_composer()
             || self.composer_ext.pickers.open().is_some();
         self.close_picker(false);
         self.close_switcher(false);
         self.close_project_switcher(false);
-        self.settings.open = false;
-        self.dialogs.menus.on = None;
+        self.set_settings_open(false);
+        self.kernel.slots.get_mut(&crate::session_menu::MENUS).on = None;
         crate::subagents::shells::set_open(self, false);
-        *self.timeline_fx.todo_open = false;
+        *self.kernel.slots.get_mut(&crate::todos::TODO_OPEN) = false;
         restore_composer
     }
 
@@ -454,6 +457,9 @@ impl Feature<App> for ProjectsFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder
+            .register_slot(&REMOTE_PICKER)
+            .register_slot(&HOME_STATE);
         #[cfg(not(target_arch = "wasm32"))]
         builder.add_command(
             CommandEntry::<App>::from_key(

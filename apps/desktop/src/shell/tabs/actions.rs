@@ -25,7 +25,7 @@ impl App {
                 list.push(tab.to_json());
                 (list, info)
             });
-            list.extend(self.restore.unread_tabs.iter().cloned());
+            list.extend(self.kernel.slots.get(&crate::restore::RESTORE).unread_tabs.iter().cloned());
             crate::windows::store::save(&self.window, "tabs", &Value::Array(list));
             crate::windows::store::save(&self.window, "tabs.info", &Value::Object(info));
         }
@@ -116,7 +116,7 @@ impl App {
             crate::view::home::browse::open(self, tx);
             return true;
         }
-        if self.route == Route::Home && !self.settings.open {
+        if self.route == Route::Home && !self.settings_open() {
             if let Some(uid) = self.gestures.home_return_tab.take()
                 && self.tabs.iter().any(|tab| tab.uid() == uid)
             {
@@ -137,8 +137,9 @@ impl App {
         // (`panels::view::region_card`), and land at once again after.
         if self.side_open()
             && let Some(crate::panels::EdgeFlightEffect::WakeAfter(after)) = self
-                .workspace_panes
-                .side
+                .kernel
+                .slots
+                .get_mut(&crate::panels::SIDE)
                 .edge_flight
                 .step(crate::panels::EdgeFlightEvent::Started { now: *self.clock })
         {
@@ -268,9 +269,10 @@ impl App {
             // An empty one just goes.
             TabKind::Draft => {
                 self.forget_draft_history(&id);
-                self.restore.drafts.remove(&id);
-                self.restore.parked.remove(&id);
-                self.composer_ext.add.park(id.clone(), session_view::composer::mode::Mode::Normal);
+                let r = self.kernel.slots.get_mut(&crate::restore::RESTORE);
+                r.drafts.remove(&id);
+                r.parked.remove(&id);
+                self.kernel.slots.get_mut(&crate::add_menu::ADD_MENU).park(id.clone(), session_view::composer::mode::Mode::Normal);
                 if shown {
                     self.drop_shown_draft();
                 }
@@ -295,7 +297,7 @@ impl App {
     pub(crate) fn reopen_tab(&mut self, tx: &mut Tx) {
         // The side panel's tab when it closed since the last titlebar tab (`reopensSideTab`,
         // `use-session-commands.tsx:129-136`), wherever focus is.
-        let side = self.active_session_id().and_then(|sid| self.workspace_panes.side.sessions.get(sid)).and_then(|s| s.closed.first()).map(|c| c.closed_ms);
+        let side = self.active_session_id().and_then(|sid| self.kernel.slots.get(&crate::panels::SIDE).sessions.get(sid)).and_then(|s| s.closed.first()).map(|c| c.closed_ms);
         if side.is_some_and(|side| self.gestures.tab_closed_ms.is_none_or(|tab| side >= tab)) && self.reopen_closed_side_tab(None, tx) {
             return;
         }
@@ -354,7 +356,7 @@ impl App {
             return self.tabs.iter().map(Tab::uid).collect();
         }
         let sections = self.inbox_sections();
-        let shelf = if self.restore.inbox.working_expanded { sections.working.len() } else { 0 };
+        let shelf = if self.kernel.slots.get(&crate::restore::RESTORE).inbox.working_expanded { sections.working.len() } else { 0 };
         let listed = sections.current.len() + sections.needs.len() + sections.unread.len() + sections.recent.len();
         sections.rows().take(listed + shelf).map(|e| e.session.id.clone()).collect()
     }
@@ -362,7 +364,7 @@ impl App {
     /// The tab, or inbox row, the open page belongs to.
     fn nav_current(&self) -> Option<String> {
         match (&*self.route, self.tab_layout()) {
-            (Route::Session { id, server }, crate::layout_state::TabLayout::Inbox) if !self.settings.open => Some(tabs::session_uid(server, self.root_of(id))),
+            (Route::Session { id, server }, crate::layout_state::TabLayout::Inbox) if !self.settings_open() => Some(tabs::session_uid(server, self.root_of(id))),
             _ => self.current_tab(),
         }
     }

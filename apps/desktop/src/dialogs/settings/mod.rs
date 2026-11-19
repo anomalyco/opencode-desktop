@@ -113,6 +113,9 @@ fn trace_about_wordmark(now: f64, letters: &str) {
     });
 }
 
+pub(crate) static SETTINGS_SCREEN: opencode_kernel::Slot<SettingsScreen> = opencode_kernel::Slot::new();
+pub(crate) static SETTINGS_PAGES: opencode_kernel::Slot<pages::State> = opencode_kernel::Slot::new();
+
 impl SettingsHost for App {
     fn settings(&self) -> &Settings {
         &self.settings
@@ -122,12 +125,20 @@ impl SettingsHost for App {
         &mut self.settings
     }
 
+    fn settings_open(&self) -> bool {
+        App::settings_open(self)
+    }
+
+    fn set_settings_open(&mut self, open: bool) {
+        App::set_settings_open(self, open);
+    }
+
     fn settings_pages(&self) -> &pages::State {
-        &self.settings_pages
+        self.kernel.slots.get(&SETTINGS_PAGES)
     }
 
     fn settings_pages_mut(&mut self) -> &mut pages::State {
-        &mut self.settings_pages
+        self.kernel.slots.get_mut(&SETTINGS_PAGES)
     }
 
     fn can_write(&self) -> bool {
@@ -217,10 +228,11 @@ impl SettingsHost for App {
     }
 
     fn about_info(&self) -> AboutInfo {
-        let version = if self.services.updater.version.is_empty() {
+        let updater = self.kernel.slots.get(&crate::updater::UPDATER);
+        let version = if updater.version.is_empty() {
             crate::updater::build_version().to_owned()
         } else {
-            self.services.updater.version.clone()
+            updater.version.clone()
         };
         AboutInfo { version, other_contributors: about_other_contributors(self) }
     }
@@ -595,6 +607,14 @@ impl SettingsHost for App {
 }
 
 impl App {
+    pub fn settings_open(&self) -> bool {
+        self.kernel.slots.get(&SETTINGS_SCREEN).is_open()
+    }
+
+    pub fn set_settings_open(&mut self, open: bool) {
+        self.kernel.slots.get_mut(&SETTINGS_SCREEN).set_open(open);
+    }
+
     pub fn dark(&self, cx: &rune::Cx<App>) -> bool {
         self.settings.is_dark(cx.system_contrast().map(|c| c.window), cx.system_dark())
     }
@@ -679,6 +699,9 @@ impl Feature<App> for SettingsFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder
+            .register_slot(&SETTINGS_SCREEN)
+            .register_slot(&SETTINGS_PAGES);
         builder.add_command(
             CommandEntry::<App>::from_key(
                 "settings",
@@ -703,7 +726,7 @@ impl Feature<App> for SettingsFeature {
                     pages::worktrees::dialog(s, p, cx)
                 })
                 .with_dismiss(|s, tx| {
-                    let attempt = match &s.settings_pages.worktrees.delete.phase {
+                    let attempt = match &s.kernel.slots.get(&SETTINGS_PAGES).worktrees.delete.phase {
                         pages::worktrees::Phase::ConfirmingOne { attempt, .. }
                         | pages::worktrees::Phase::ConfirmingMany { attempt, .. } => Some(*attempt),
                         _ => None,
@@ -724,7 +747,7 @@ impl Feature<App> for SettingsFeature {
             OverlayRegistration::<App>::new(PROVIDER_REMOVAL_OVERLAY_ID)
                 .with_z(500)
                 .with_render(|s, cx| {
-                    if s.settings.open {
+                    if s.settings_open() {
                         let p = crate::palette::pal(s.dark(cx));
                         pages::providers::confirmation(s, p, cx)
                     } else {

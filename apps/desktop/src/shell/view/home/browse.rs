@@ -22,7 +22,7 @@ fn step(state: &mut Browser, event: Event) {
 }
 
 pub(crate) fn open(s: &mut App, tx: &mut Tx) {
-    step(&mut s.home_state.browser, Event::Browse);
+    step(&mut s.kernel.slots.get_mut(&crate::projects::HOME_STATE).browser, Event::Browse);
     tx.instant();
     tx.focus("browse-query", false);
 }
@@ -33,7 +33,7 @@ pub(crate) fn history(s: &mut App, key: &ServerKey, project: &model::Project, tx
         rows.sort_by_key(|i| std::cmp::Reverse(s.recent_page.active_ms(i)));
         rows.into_iter().map(|i| (i.id.clone(), title_of(i).to_owned())).collect()
     }).unwrap_or_default();
-    step(&mut s.home_state.browser, Event::Project(key.clone(), project.clone(), sessions));
+    step(&mut s.kernel.slots.get_mut(&crate::projects::HOME_STATE).browser, Event::Project(key.clone(), project.clone(), sessions));
     tx.instant();
     tx.focus("browse-query", false);
 }
@@ -46,7 +46,8 @@ fn option(p: &Pal, key: String, label: String) -> El {
 pub(crate) fn view(s: &App, p: &Pal, cx: &rune::Cx<App>) -> Vec<El> {
     let kit = crate::palette::kit(p);
     let mut list = col().w_full().gap(2.0).role("listbox");
-    let (edit, hint) = match &s.home_state.browser {
+    let home = s.kernel.slots.get(&crate::projects::HOME_STATE);
+    let (edit, hint) = match &home.browser {
         Browser::Closed => return vec![],
         Browser::Projects(edit) => {
             let query = edit.text.to_lowercase();
@@ -58,11 +59,11 @@ pub(crate) fn view(s: &App, p: &Pal, cx: &rune::Cx<App>) -> Vec<El> {
                 }
                 list
             };
-            if s.home_state.servers.is_empty() {
+            if home.servers.is_empty() {
                 list = add(list, runtime::active(s), s.used_projects());
             } else {
-                for server in &s.home_state.servers {
-                    if s.home_state.servers.len() > 1 { list = list.child(text(server.label.clone()).font(UI_SMALL).color(p.muted)); }
+                for server in &home.servers {
+                    if home.servers.len() > 1 { list = list.child(text(server.label.clone()).font(UI_SMALL).color(p.muted)); }
                     list = add(list, &server.key, server.projects.iter().collect());
                 }
             }
@@ -73,14 +74,14 @@ pub(crate) fn view(s: &App, p: &Pal, cx: &rune::Cx<App>) -> Vec<El> {
             let (key, dir) = (server.clone(), project.directory.clone());
             list = list.child(option(p, "browse-back".into(), t!("project.browse.back").into()).on_press_tx(open))
                 .child(option(p, "browse-new".into(), t!("project.browse.newSession").into()).on_press_tx(move |s: &mut App, tx| {
-                    step(&mut s.home_state.browser, Event::Close);
+                    step(&mut s.kernel.slots.get_mut(&crate::projects::HOME_STATE).browser, Event::Close);
                     runtime::switch(s, &key);
                     s.new_session_in(&dir, tx);
                 }));
             for (id, title) in sessions.iter().filter(|(_, title)| title.to_lowercase().contains(&query)) {
                 let (server, id) = (server.clone(), id.clone());
                 list = list.child(option(p, format!("browse-{id}"), title.clone()).on_press_tx(move |s: &mut App, tx| {
-                    step(&mut s.home_state.browser, Event::Close);
+                    step(&mut s.kernel.slots.get_mut(&crate::projects::HOME_STATE).browser, Event::Close);
                     runtime::switch(s, &server);
                     s.open(&id, tx);
                 }));
@@ -88,14 +89,14 @@ pub(crate) fn view(s: &App, p: &Pal, cx: &rune::Cx<App>) -> Vec<El> {
             (search, t!("home.sessions.search.placeholder.scoped", scope = &project.name))
         }
     };
-    let field = TextInput::new(edit).width(None).placeholder(hint.clone()).label(hint.clone()).on_edit(|s: &mut App| match &mut s.home_state.browser {
+    let field = TextInput::new(edit).width(None).placeholder(hint.clone()).label(hint.clone()).on_edit(|s: &mut App| match &mut s.kernel.slots.get_mut(&crate::projects::HOME_STATE).browser {
         Browser::Projects(edit) | Browser::History { search: edit, .. } => edit,
         Browser::Closed => unreachable!("browser field is mounted while open"),
     }).build(kit).key("browse-query");
     let viewport = col().w_full().min_h(0.0).shrink().clip_soft(0.0);
     let scroll = session_view::scroller::scroller("browse-projects-scroll").build::<App>(p, viewport, list.label(hint));
     let card = col().role("dialog").label_static(t!("project.browse.title")).padding(16.0).gap(10.0).radius(8.0).fill(p.layer1).elevate(p.overlay)
-        .modal_tx(true, |s: &mut App, tx| { step(&mut s.home_state.browser, Event::Close); tx.instant(); })
+        .modal_tx(true, |s: &mut App, tx| { step(&mut s.kernel.slots.get_mut(&crate::projects::HOME_STATE).browser, Event::Close); tx.instant(); })
         .child(text(t!("project.browse.title")).font(UI_MED).color(p.text)).child(field).child(scroll);
     widgets::sized_modal("browse-projects", p, widgets::DialogSize::Normal, widgets::Fit::Anchored, widgets::dialog_window(cx, *s.zoom), card)
 }
@@ -104,9 +105,10 @@ enum Start<'a> { Loading, Add, Reconnect, New(&'a model::Project) }
 
 fn target(s: &App) -> Start<'_> {
     let server = runtime::active(s);
-    let view = s.home_state.servers.iter().find(|v| v.key == *server);
+    let home = s.kernel.slots.get(&crate::projects::HOME_STATE);
+    let view = home.servers.iter().find(|v| v.key == *server);
     if view.is_some_and(|v| v.failed() || v.sign_in_required()) { return Start::Reconnect; }
-    let preferred = s.home_state.last_project.as_ref().filter(|(key, _)| key == server);
+    let preferred = home.last_project.as_ref().filter(|(key, _)| key == server);
     if let Some(p) = preferred.and_then(|(_, dir)| s.used_projects().into_iter().find(|p| p.directory == *dir)).or_else(|| s.home_selected()).or_else(|| s.last_used_project()).or_else(|| s.used_projects().into_iter().next()) {
         return Start::New(p);
     }
@@ -127,7 +129,7 @@ pub(super) fn landing(s: &App, p: &Pal) -> El {
     let label = match target { Start::Loading => t!("common.loading"), Start::Add => t!("session.new.project.add"), Start::Reconnect => t!("project.start.reconnect"), Start::New(_) => t!("command.session.new") };
     let kit = crate::palette::kit(p);
     let key = runtime::active(s);
-    let server = s.home_state.servers.iter().find(|v| v.key == *key).map(|v| v.label.as_str()).unwrap_or(key.as_str());
+    let server = s.kernel.slots.get(&crate::projects::HOME_STATE).servers.iter().find(|v| v.key == *key).map(|v| v.label.as_str()).unwrap_or(key.as_str());
     let caption = match target { Start::New(p) => format!("{} · {server}", p.name), _ => server.to_owned() };
     col().key("project-landing").w_full().h_full().grow(1.0).center().gap(12.0)
         .child(widgets::button(label, ButtonVariant::Neutral).disabled(matches!(target, Start::Loading)).on_press_tx(start).build(kit))

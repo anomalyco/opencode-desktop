@@ -36,8 +36,9 @@ fn show(s: &mut App, variant: usize, tx: &mut Tx) {
         1 => s.open_command_search(tx),
         _ => {
             s.open_switcher();
-            s.dialogs.switcher.search = TextEdit::new("toggle");
-            s.dialogs.switcher.search.focused = true;
+            let sw = s.kernel.slots.get_mut(&crate::switcher::SWITCHER);
+            sw.search = TextEdit::new("toggle");
+            sw.search.focused = true;
         }
     }
 }

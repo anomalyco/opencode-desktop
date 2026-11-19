@@ -10,13 +10,15 @@ use serde_json::Value;
 use crate::stories::{Trigger, emit, replay};
 use crate::{App, knobs};
 
+pub(crate) static QUESTION: opencode_kernel::Slot<Dock> = opencode_kernel::Slot::new();
+
 impl QuestionHost for App {
     fn question_dock(&self) -> &Dock {
-        &self.question
+        self.kernel.slots.get(&QUESTION)
     }
 
     fn question_dock_mut(&mut self) -> &mut Dock {
-        &mut self.question
+        self.kernel.slots.get_mut(&QUESTION)
     }
 
     fn knobs(&self) -> &Knobs {

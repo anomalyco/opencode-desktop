@@ -35,8 +35,8 @@ const PALETTE_KEYS: &[Trigger] = &[replay(setup_palette)];
 pub fn init_files(s: &mut App) {
     crate::open_scene(s);
     s.finish_stream();
-    s.workspace_panes.side = Default::default();
-    s.workspace_panes.files = Default::default();
+    *s.kernel.slots.get_mut(&crate::panels::SIDE) = Default::default();
+    *s.kernel.slots.get_mut(&super::FILES) = Default::default();
     let Some(sid) = s.active_session_id().map(str::to_owned) else { return };
     s.ensure_session_review(&sid);
     let mut tx = rune::Tx::default();
@@ -46,7 +46,7 @@ pub fn init_files(s: &mut App) {
         }
         1 => {
             s.open_workspace_file("src/net/backoff.ts", false, None, &mut tx);
-            if let Some(ws) = s.workspace_panes.files.sessions.get_mut(&sid)
+            if let Some(ws) = s.kernel.slots.get_mut(&super::FILES).sessions.get_mut(&sid)
                 && let Some(doc) = ws.docs.get_mut("src/net/backoff.ts")
             {
                 doc.set_find_open(true);
@@ -68,12 +68,13 @@ fn setup_files(s: &mut App, _play: &mut Play<'_, App>) {
 pub fn init_palette(s: &mut App) {
     crate::open_scene(s);
     s.finish_stream();
-    s.workspace_panes.files = Default::default();
+    *s.kernel.slots.get_mut(&super::FILES) = Default::default();
     let mut tx = rune::Tx::default();
     s.open_file_search(&mut tx);
     if s.fixture_run.variant == 1 {
-        s.dialogs.switcher.search = TextEdit::new("stream.ts:15");
-        s.dialogs.switcher.search.focused = true;
+        let sw = s.kernel.slots.get_mut(&crate::switcher::SWITCHER);
+        sw.search = TextEdit::new("stream.ts:15");
+        sw.search.focused = true;
         s.poll_switcher(&mut tx, false);
     }
 }
@@ -87,7 +88,7 @@ fn view_files_card(s: &App, p: &Pal) -> El {
 }
 
 fn view_palette_card(s: &App, p: &Pal) -> El {
-    if !s.dialogs.switcher.is_open() {
+    if !s.kernel.slots.get(&crate::switcher::SWITCHER).is_open() {
         return rune::col().w(480.0);
     }
     crate::switcher::dialog(s, p, 480.0, 480.0)

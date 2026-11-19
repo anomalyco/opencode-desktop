@@ -125,14 +125,15 @@ impl App {
 
     /// Active browser tab ID in `sid`'s side panel, if a browser tab is currently active there.
     pub fn active_browser_tab_for_session(&self, sid: &str) -> Option<u64> {
-        let st = self.workspace_panes.side.sessions.get(sid)?;
+        let side = self.kernel.slots.get(&crate::panels::SIDE);
+        let st = side.sessions.get(sid)?;
         let act = st.tab_state.tabs.active.as_deref()?;
         let (plugin, tid) = split_panel_key(act)?;
         if plugin != PLUGIN {
             return None;
         }
         let pane = crate::panels::tabs::session_tab_pane(&st.tab_state.tabs, act);
-        if self.workspace_panes.side.adding.iter().any(|n| n.session_id == sid && n.pane == pane && n.over.as_deref() == Some(act)) {
+        if side.adding.iter().any(|n| n.session_id == sid && n.pane == pane && n.over.as_deref() == Some(act)) {
             return None;
         }
         tid.parse::<u64>().ok()
@@ -154,9 +155,10 @@ impl App {
         }
         let sid = self.active_session_id()?;
         let key = panel_key(PLUGIN, &self.active_browser_tab_id()?.to_string());
-        let st = self.workspace_panes.side.sessions.get(sid)?;
+        let side = self.kernel.slots.get(&crate::panels::SIDE);
+        let st = side.sessions.get(sid)?;
         let pane = crate::panels::tabs::session_tab_pane(&st.tab_state.tabs, &key);
-        let in_pane = self.workspace_panes.side.focus.is_focused() && self.workspace_panes.side.active_pane_focus == pane;
+        let in_pane = side.focus.is_focused() && side.active_pane_focus == pane;
         (field || in_pane).then_some(pane)
     }
 
@@ -165,9 +167,10 @@ impl App {
     pub fn focus_browser_page(&mut self, id: u64) {
         let Some(sid) = self.browser_tab_session(id).map(str::to_owned) else { return };
         let key = panel_key(PLUGIN, &id.to_string());
-        let Some(st) = self.workspace_panes.side.sessions.get(&sid) else { return };
-        self.workspace_panes.side.active_pane_focus = crate::panels::tabs::session_tab_pane(&st.tab_state.tabs, &key);
-        self.workspace_panes.side.focus.focus();
+        let side = self.kernel.slots.get_mut(&crate::panels::SIDE);
+        let Some(st) = side.sessions.get(&sid) else { return };
+        side.active_pane_focus = crate::panels::tabs::session_tab_pane(&st.tab_state.tabs, &key);
+        side.focus.focus();
         self.composer.focused = false;
     }
 
@@ -275,7 +278,7 @@ impl App {
     }
 
     pub fn close_browser_tab_for_session(&mut self, sid: &str, id: u64, tx: &mut Tx) {
-        let (composer, side) = (self.composer.focused, self.workspace_panes.side.focus.mode());
+        let (composer, side) = (self.composer.focused, self.kernel.slots.get(&crate::panels::SIDE).focus.mode());
         let key = panel_key(PLUGIN, &id.to_string());
         let routed = self.active_session_id() == Some(sid);
         if routed {
@@ -293,10 +296,11 @@ impl App {
         // so one press too many doesn't close the session.
         self.composer.focused = composer;
         if routed && side.is_focused() && !self.side_open() {
-            self.workspace_panes.side.focus.blur();
-            self.workspace_panes.side.close_guard.step(crate::panels::CloseTabGuardEvent::Emptied);
+            let s = self.kernel.slots.get_mut(&crate::panels::SIDE);
+            s.focus.blur();
+            s.close_guard.step(crate::panels::CloseTabGuardEvent::Emptied);
         } else {
-            self.workspace_panes.side.focus.restore(side);
+            self.kernel.slots.get_mut(&crate::panels::SIDE).focus.restore(side);
         }
     }
 

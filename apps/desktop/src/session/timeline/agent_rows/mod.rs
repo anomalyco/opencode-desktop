@@ -11,13 +11,15 @@ use serde_json::Value;
 
 use crate::App;
 
+pub(crate) static AGENT_ROWS: opencode_kernel::Slot<Live> = opencode_kernel::Slot::new();
+
 impl AgentRowsHost for App {
     fn agent_rows(&self) -> &Live {
-        &self.timeline_fx.agent_rows
+        self.kernel.slots.get(&AGENT_ROWS)
     }
 
     fn agent_rows_mut(&mut self) -> &mut Live {
-        &mut self.timeline_fx.agent_rows
+        self.kernel.slots.get_mut(&AGENT_ROWS)
     }
 
     fn session_info(&self, id: &str) -> Option<&SessionInfo> {

@@ -441,9 +441,9 @@ pub mod web_api {
     }
 
     pub fn dismiss_touch_keyboard(s: &mut App) -> bool {
-        let changed = s.composer.focused || s.composer_ext.suggest.search.focused;
+        let changed = s.composer.focused || s.kernel.slots.get(&crate::suggestions::SUGGEST).search.focused;
         s.composer.focused = false;
-        s.composer_ext.suggest.search.focused = false;
+        s.kernel.slots.get_mut(&crate::suggestions::SUGGEST).search.focused = false;
         changed
     }
 
@@ -467,6 +467,6 @@ pub mod web_api {
     }
 
     pub fn settings_open(s: &App) -> bool {
-        s.settings.open
+        s.settings_open()
     }
 }

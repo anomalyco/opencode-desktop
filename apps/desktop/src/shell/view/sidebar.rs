@@ -163,7 +163,7 @@ fn surface_width(s: &App) -> f32 {
 /// share it, Home, Search sessions and New session, then the tabs (or the inbox).
 fn contents(s: &App, p: &Pal, top: f32) -> El {
     let chrome = chrome();
-    let home = s.route == Route::Home && !s.settings.open;
+    let home = s.route == Route::Home && !s.settings_open();
     let new = || action_row(p, "new", &ic::EDIT, t!("command.session.new"), &crate::keymap::Bind::TabNew.label(), false)
         .matched(super::titlebar::NAV_NEW).matched_crop().motion(GLIDE)
         .on_press_tx(|s: &mut App, tx: &mut Tx| s.new_session(tx))
@@ -213,7 +213,7 @@ fn contents(s: &App, p: &Pal, top: f32) -> El {
                 )
                 .child(
                     if s.project_navigation() {
-                        action_row(p, "sidebar-settings", &ic::SETTINGS_GEAR, t!("sidebar.settings"), &crate::keymap::Bind::Settings.label(), s.settings.open)
+                        action_row(p, "sidebar-settings", &ic::SETTINGS_GEAR, t!("sidebar.settings"), &crate::keymap::Bind::Settings.label(), s.settings_open())
                             .on_press_tx(|s: &mut App, tx| s.toggle_settings(tx))
                     } else { new() },
                 ),
@@ -273,12 +273,12 @@ pub(crate) fn peek(s: &App) -> Vec<El> {
 
 /// A menu or a rename holds an open peek.
 fn held(s: &App) -> bool {
-    s.dialogs.popup.is_open() || s.dialogs.menus.renaming().is_some()
+    s.popup.is_open() || s.kernel.slots.get(&crate::session_menu::MENUS).renaming().is_some()
 }
 
 /// Nothing holds the pointer elsewhere: no drag, resize or menu.
 fn can_peek(s: &App) -> bool {
-    !s.dialogs.popup.is_open() && s.gestures.tab_drag.dragging().is_none() && matches!(*s.gestures.sidebar_drag, Resize::Idle) && s.dialogs.menus.confirming().is_none()
+    !s.popup.is_open() && s.gestures.tab_drag.dragging().is_none() && matches!(*s.gestures.sidebar_drag, Resize::Idle) && s.kernel.slots.get(&crate::session_menu::MENUS).confirming().is_none()
 }
 
 /// `packages/ui/src/components/resize-handle-machine.ts`. Rune owns pointer capture

@@ -140,7 +140,7 @@ impl App {
         }
         let Some(handle) = super::handle(&self.window.id) else { return };
         let k = self.settings.notify;
-        let announced = k.permissions && k.questions && self.services.notify.shows();
+        let announced = k.permissions && k.questions && self.kernel.slots.get(&crate::notifications::NOTIFIER).shows();
         let event = Event::Polled { summary: self.taskbar_summary(), focused: rune_notify::app_focused(), announced };
         self.step_taskbar(&handle, event);
     }

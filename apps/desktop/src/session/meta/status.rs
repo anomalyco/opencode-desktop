@@ -172,7 +172,7 @@ impl App {
                 Some(Pending::Permission { .. }) => false,
                 None => !id.starts_with("per"),
             };
-            if !form && (self.permission_sent.busy(id) || self.auto_accepts(session)) {
+            if !form && (self.kernel.slots.get(&crate::permission::PERMISSION_SENT).busy(id) || self.auto_accepts(session)) {
                 continue;
             }
             let slot = if form { &mut found.1 } else { &mut found.0 };
@@ -245,7 +245,7 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     // the unread dot once the Inbox, its tab or the stream brings them. Settings, where the
     // layout switches to the Inbox, reads them ahead, so the Inbox's first load has settled when
     // it shows and the active tab flies into its card rather than the Inbox showing its loader.
-    if layout == TabLayout::Inbox || s.settings.open {
+    if layout == TabLayout::Inbox || s.settings_open() {
         let working: Vec<String> = s
             .sessions
             .iter()

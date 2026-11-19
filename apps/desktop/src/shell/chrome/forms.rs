@@ -16,7 +16,7 @@ impl App {
 
     pub(crate) fn add_pending(&mut self, p: Pending) -> bool {
         // An answered permission: a re-read before the server drops it doesn't bring it back.
-        if self.permission_sent.replied(p.id()) {
+        if self.kernel.slots.get(&crate::permission::PERMISSION_SENT).replied(p.id()) {
             return false;
         }
         let mut changed = self.requests.insert((p.session().to_owned(), p.id().to_owned()));
@@ -32,13 +32,13 @@ impl App {
     pub(crate) fn forget(&mut self, id: &str) {
         self.pending.retain(|p| p.id() != id);
         self.requests.retain(|(_, r)| r != id);
-        self.question.forget(id);
-        self.permission_sent.0.remove(id);
+        self.kernel.slots.get_mut(&crate::question::QUESTION).forget(id);
+        self.kernel.slots.get_mut(&crate::permission::PERMISSION_SENT).0.remove(id);
         crate::notifications::answered(self, id);
     }
 
     pub fn typed_mut(&mut self, form: &str, key: &str) -> &mut TextEdit {
-        self.question.typed_mut(form, key)
+        self.kernel.slots.get_mut(&crate::question::QUESTION).typed_mut(form, key)
     }
 
     /// The answer to send, or None while a required field is empty.
@@ -46,7 +46,7 @@ impl App {
         let Some(Pending::Form { fields, .. }) = self.pending.iter().find(|p| p.id() == id) else {
             return None;
         };
-        self.question.answer(id, fields)
+        self.kernel.slots.get(&crate::question::QUESTION).answer(id, fields)
     }
 
     pub fn submit_form(&mut self, id: &str) {

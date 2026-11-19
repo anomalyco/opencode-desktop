@@ -57,11 +57,11 @@ impl ToastHost for App {
     type CustomAction = DesktopToastAction;
 
     fn toast(&self) -> &StatusToast {
-        &self.dialogs.toast
+        &self.toast
     }
 
     fn toast_mut(&mut self) -> &mut StatusToast {
-        &mut self.dialogs.toast
+        &mut self.toast
     }
 
     fn clock(&self) -> f64 {
@@ -77,7 +77,7 @@ impl ToastHost for App {
     }
 
     fn composer_clearance(&self) -> ComposerClearance {
-        if self.settings.open {
+        if self.settings_open() {
             return ComposerClearance::None;
         }
         match &*self.route {
@@ -96,11 +96,11 @@ impl ToastHost for App {
     }
 
     fn announce(&mut self, words: String, region: LiveRegion) {
-        self.kernel.slots.slot::<crate::speech::Speech>().say(words, region);
+        self.kernel.slots.get_mut(&crate::speech::SPEECH).say(words, region);
     }
 
     fn announce_urgent(&mut self) {
-        self.kernel.slots.slot::<crate::speech::Speech>().urgent();
+        self.kernel.slots.get_mut(&crate::speech::SPEECH).urgent();
     }
 
     fn on_focus_taken(&mut self) {
@@ -238,7 +238,7 @@ pub fn crash_notice(
         },
         None,
     );
-    s.kernel.slots.slot::<crate::speech::Speech>().urgent();
+    s.kernel.slots.get_mut(&crate::speech::SPEECH).urgent();
     id
 }
 

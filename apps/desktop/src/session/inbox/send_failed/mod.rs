@@ -119,17 +119,17 @@ impl SendFailedHost for App {
     }
 
     fn composer_quotes(&self) -> Vec<PromptComment> {
-        self.composer_ext.quote.quotes()
+        self.kernel.slots.get(&crate::quote::QUOTE).quotes()
     }
 
     fn composer_has_quotes(&self) -> bool {
-        self.composer_ext.quote.any()
+        self.kernel.slots.get(&crate::quote::QUOTE).any()
     }
 
     fn clear_composer_attachments_and_quotes(&mut self) {
         self.composer_ext.attach.files.clear();
         self.composer_ext.attach.paths.clear();
-        let _ = self.composer_ext.quote.take();
+        let _ = self.kernel.slots.get_mut(&crate::quote::QUOTE).take();
     }
 
     fn add_composer_file(&mut self, file: Attachment) {
@@ -141,7 +141,7 @@ impl SendFailedHost for App {
     }
 
     fn push_composer_quote(&mut self, quote: PromptComment) {
-        self.composer_ext.quote.push(quote);
+        self.kernel.slots.get_mut(&crate::quote::QUOTE).push(quote);
     }
 
     fn retain_echoes_without(&mut self, id: &str) {
