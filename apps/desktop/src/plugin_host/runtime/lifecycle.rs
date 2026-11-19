@@ -216,7 +216,7 @@ pub fn poll(app: &mut App, fresh: bool, tx: &mut Tx) -> bool {
     let asked = app.plugins.asked.replace(false);
     let mut changed = false;
     changed |= dormant::poll(app, tx);
-    if app.plugins.later.is_empty() {
+    if app.plugins.boot.later().is_empty() {
         dormant::save(app);
     }
     changed |= app_half::poll(app, now, tx);

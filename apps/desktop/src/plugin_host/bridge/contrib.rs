@@ -36,7 +36,7 @@ static MCP_TOOLS_GENERATION: AtomicU64 = AtomicU64::new(0);
 pub fn sync(app: &App) {
     // A window whose plugins never started (`--no-plugins`) has none to list, and mustn't empty
     // the lists the process's other windows share.
-    if !app.plugins.started {
+    if !app.plugins.boot.is_started() {
         return;
     }
     let all: Vec<CodeAction> = app.plugins.listed().flat_map(|(_, p)| p.half.contribs.borrow().code_block_actions.iter().map(|c| CodeAction { key: c.key, label: c.spec.title.clone(), icon: resolve("", &c.spec.icon), languages: c.spec.languages.clone() }).collect::<Vec<_>>()).collect();

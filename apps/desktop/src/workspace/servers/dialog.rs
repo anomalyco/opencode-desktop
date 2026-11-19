@@ -20,22 +20,81 @@ use crate::jobs::Apply;
 use crate::palette::{Pal, kit};
 use opencode_i18n::t;
 
-/// The open form and its fields.
+/// The dialog's open session: `state` and any redeemed pairing token live only while open, so
+/// closing drops both and any late link-redeem completion is ignored.
 #[derive(Default)]
-pub struct Dialog {
-    pub state: Option<State>,
-    pub link: TextEdit,
-    pub url: TextEdit,
-    pub name: TextEdit,
-    pub password: TextEdit,
+enum Session {
+    #[default]
+    Closed,
+    Open(Box<Open>),
+}
+
+struct Open {
+    state: State,
     /// The code of the last link this form redeemed and what it got: the code is spent, so a retry
     /// after a failed check reuses its token (`useRedeemPairing`).
     redeemed: Option<(String, pairing::Pairing)>,
 }
 
+enum SessionEvent {
+    Open(State),
+    Step(Event),
+    Redeemed(String, pairing::Pairing),
+    Close,
+}
+
+impl Session {
+    fn is_open(&self) -> bool {
+        matches!(self, Self::Open(_))
+    }
+
+    fn state(&self) -> Option<&State> {
+        match self {
+            Self::Closed => None,
+            Self::Open(open) => Some(&open.state),
+        }
+    }
+
+    fn redeemed(&self) -> Option<&(String, pairing::Pairing)> {
+        match self {
+            Self::Closed => None,
+            Self::Open(open) => open.redeemed.as_ref(),
+        }
+    }
+
+    fn step(&mut self, event: SessionEvent) -> Option<Vec<Effect>> {
+        match (self, event) {
+            (session, SessionEvent::Open(state)) => {
+                *session = Self::Open(Box::new(Open { state, redeemed: None }));
+                None
+            }
+            (Self::Open(open), SessionEvent::Step(ev)) => Some(open.state.step(ev)),
+            (Self::Open(open), SessionEvent::Redeemed(code, paired)) => {
+                open.redeemed = Some((code, paired));
+                None
+            }
+            (session, SessionEvent::Close) => {
+                *session = Self::Closed;
+                None
+            }
+            (Self::Closed, _) => None,
+        }
+    }
+}
+
+/// The open form and its fields.
+#[derive(Default)]
+pub struct Dialog {
+    session: Session,
+    pub link: TextEdit,
+    pub url: TextEdit,
+    pub name: TextEdit,
+    pub password: TextEdit,
+}
+
 /// Whether the Add/Edit server dialog is currently open.
 pub fn is_open(s: &App) -> bool {
-    s.kernel.slots.get::<Dialog>().is_some_and(|d| d.state.is_some())
+    s.kernel.slots.get::<Dialog>().is_some_and(|d| d.session.is_open())
 }
 
 /// Opens Add server, or Edit server for saved server `url`.
@@ -51,9 +110,8 @@ pub fn open(s: &mut App, edit: Option<&str>, tx: &mut Tx) {
     d.url = TextEdit::new(&state.draft.url);
     d.name = TextEdit::new(&state.draft.name);
     d.password = TextEdit::new(&state.draft.password);
-    d.redeemed = None;
     focus_primary(d, state.method);
-    d.state = Some(state);
+    d.session.step(SessionEvent::Open(state));
 }
 
 fn original(server: &super::Server) -> Original {
@@ -69,7 +127,7 @@ fn focus_primary(d: &mut Dialog, method: Method) {
 
 /// The list changed elsewhere: an edit follows its server, and closes once it's gone.
 pub fn sync(s: &mut App, tx: &mut Tx) {
-    let Some(url) = s.kernel.slots.get::<Dialog>().and_then(|d| d.state.as_ref()).and_then(|st| match &st.target {
+    let Some(url) = s.kernel.slots.get::<Dialog>().and_then(|d| d.session.state()).and_then(|st| match &st.target {
         Target::Edit(current) => Some(current.url.clone()),
         Target::Add => None,
     }) else {
@@ -82,20 +140,23 @@ pub fn sync(s: &mut App, tx: &mut Tx) {
 fn dispatch(s: &mut App, event: Event, tx: &mut Tx) {
     let effects = {
         let d = s.kernel.slots.slot::<Dialog>();
-        let Some(state) = d.state.as_mut() else { return };
-        let before = (state.method, state.draft.url.clone(), state.draft.link.clone());
-        let effects = state.step(event);
+        let Some(before) = d.session.state().map(|st| (st.method, st.draft.url.clone(), st.draft.link.clone())) else {
+            return;
+        };
+        let Some(effects) = d.session.step(SessionEvent::Step(event)) else { return };
         // The machine moved an address from the link field to the address field.
-        let (method, url, link) = (state.method, state.draft.url.clone(), state.draft.link.clone());
-        if before != (method, url.clone(), link.clone()) {
-            if d.url.text != url {
-                d.url = TextEdit::new(&url);
-            }
-            if d.link.text != link {
-                d.link = TextEdit::new(&link);
-            }
-            if before.0 != method {
-                focus_primary(d, method);
+        if let Some(state) = d.session.state() {
+            let (method, url, link) = (state.method, state.draft.url.clone(), state.draft.link.clone());
+            if before != (method, url.clone(), link.clone()) {
+                if d.url.text != url {
+                    d.url = TextEdit::new(&url);
+                }
+                if d.link.text != link {
+                    d.link = TextEdit::new(&link);
+                }
+                if before.0 != method {
+                    focus_primary(d, method);
+                }
             }
         }
         effects
@@ -119,13 +180,13 @@ fn run(s: &mut App, effect: Effect) {
             });
         }
         Effect::ConnectLink { attempt, link, preferred } => {
-            let last = s.kernel.slots.get::<Dialog>().and_then(|d| d.redeemed.clone());
+            let last = s.kernel.slots.get::<Dialog>().and_then(|d| d.session.redeemed().cloned());
             let deliver = s.deliverer();
             crate::plugin_host::tasks::run(move || {
                 let (event, redeemed) = pair(attempt, &link, preferred, last);
                 deliver(Box::new(move |s: &mut App, tx: &mut Tx| {
-                    if let Some(r) = redeemed {
-                        s.kernel.slots.slot::<Dialog>().redeemed = Some(r);
+                    if let Some((code, paired)) = redeemed {
+                        s.kernel.slots.slot::<Dialog>().session.step(SessionEvent::Redeemed(code, paired));
                     }
                     dispatch(s, event, tx);
                 }) as Apply);
@@ -143,7 +204,7 @@ fn run(s: &mut App, effect: Effect) {
         // Settings' per-server pages follow the server saved (`onServerChange` selects it).
         Effect::Save(Save::Add(mut server)) => {
             // Re-pairing an address already in the registry keeps its display name (#64139).
-            if let Some(state) = s.kernel.slots.get::<Dialog>().and_then(|d| d.state.as_ref())
+            if let Some(state) = s.kernel.slots.get::<Dialog>().and_then(|d| d.session.state())
                 && state.target == Target::Add && state.draft.name.trim().is_empty()
                 && let Some(existing) = super::list().into_iter().find(|e| e.url == server.http.url).and_then(|e| e.name) {
                 server.name = Some(existing);
@@ -157,7 +218,9 @@ fn run(s: &mut App, effect: Effect) {
             super::remove(&original);
             super::add(s, server);
         }
-        Effect::Close { .. } => s.kernel.slots.slot::<Dialog>().state = None,
+        Effect::Close { .. } => {
+            s.kernel.slots.slot::<Dialog>().session.step(SessionEvent::Close);
+        }
     }
 }
 
@@ -202,7 +265,7 @@ fn pair(attempt: u64, value: &str, preferred: Option<String>, last: Option<(Stri
 
 fn close(s: &mut App, tx: &mut Tx) {
     dispatch(s, Event::Disposed, tx);
-    s.kernel.slots.slot::<Dialog>().state = None;
+    s.kernel.slots.slot::<Dialog>().session.step(SessionEvent::Close);
 }
 
 fn error_words(e: &Error) -> String {
@@ -219,7 +282,7 @@ fn error_words(e: &Error) -> String {
 #[allow(deprecated)]
 pub fn view(s: &App, p: &Pal, cx: &rune::Cx<App>) -> Vec<El> {
     let Some(d) = s.kernel.slots.get::<Dialog>() else { return Vec::new() };
-    let Some(state) = d.state.as_ref() else { return Vec::new() };
+    let Some(state) = d.session.state() else { return Vec::new() };
     let v = machine::view(state);
     let k = kit(p);
     let token = |name: &str, fallback| session_view::palette::token(p.dark, name).unwrap_or(fallback);

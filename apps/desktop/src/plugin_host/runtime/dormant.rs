@@ -104,33 +104,108 @@ pub struct Asleep {
     wait: Wait,
 }
 
+/// The built-ins' recorded contributions, as this window has read and updated them.
+#[derive(Default)]
+enum Records {
+    #[default]
+    Unread,
+    Clean {
+        records: BTreeMap<String, Record>,
+        /// The database had no records: an older build's file may be in the cache folder.
+        old_file: bool,
+    },
+    Dirty {
+        records: BTreeMap<String, Record>,
+        /// The database had no records: an older build's file may be in the cache folder.
+        old_file: bool,
+    },
+}
+
+enum RecordsEvent {
+    Loaded(Option<BTreeMap<String, Record>>),
+    Note { id: String, record: Record },
+    Save,
+}
+
+enum RecordsEffect {
+    Write { json: String, forget_old_file: bool },
+}
+
+impl Records {
+    fn is_dirty(&self) -> bool {
+        matches!(self, Self::Dirty { .. })
+    }
+
+    fn get(&self, id: &str) -> Option<&Record> {
+        match self {
+            Self::Unread => None,
+            Self::Clean { records, .. } | Self::Dirty { records, .. } => records.get(id),
+        }
+    }
+
+    fn step(&mut self, event: RecordsEvent) -> Option<RecordsEffect> {
+        match (std::mem::take(self), event) {
+            (Self::Unread, RecordsEvent::Loaded(found)) => {
+                *self = Self::Clean { old_file: found.is_none(), records: found.unwrap_or_default() };
+                None
+            }
+            (Self::Clean { mut records, old_file }, RecordsEvent::Note { id, record }) => {
+                if records.get(&id) != Some(&record) {
+                    records.insert(id, record);
+                    *self = Self::Dirty { records, old_file };
+                } else {
+                    *self = Self::Clean { records, old_file };
+                }
+                None
+            }
+            (Self::Dirty { mut records, old_file }, RecordsEvent::Note { id, record }) => {
+                if records.get(&id) != Some(&record) {
+                    records.insert(id, record);
+                }
+                *self = Self::Dirty { records, old_file };
+                None
+            }
+            (Self::Dirty { records, old_file }, RecordsEvent::Save) => {
+                match serde_json::to_string(&File { version: VERSION, plugins: records.clone() }) {
+                    Ok(json) => {
+                        *self = Self::Clean { records, old_file: false };
+                        Some(RecordsEffect::Write { json, forget_old_file: old_file })
+                    }
+                    Err(_) => {
+                        *self = Self::Clean { records, old_file };
+                        None
+                    }
+                }
+            }
+            (state, _) => {
+                *self = state;
+                None
+            }
+        }
+    }
+}
+
 /// The window's dormant plugins and the records file as this window read it.
 #[derive(Default)]
 pub struct Dormant {
     pub asleep: BTreeMap<String, Asleep>,
     /// Every record read or made this launch; written back when one changed.
-    records: BTreeMap<String, Record>,
-    read: bool,
-    dirty: bool,
-    /// The database had no records: an older build's file may be in the cache folder.
-    old_file: bool,
+    records: Records,
     /// Events kept for a plugin that started, handed to it at the next poll.
     pub catch_up: BTreeMap<String, Vec<(String, serde_json::Value)>>,
 }
 
 impl Dormant {
-    fn read(&mut self) {
-        if !self.read {
-            self.read = true;
+    fn ensure_read(&mut self) {
+        if matches!(self.records, Records::Unread) {
             let found = read_file();
-            self.old_file = found.is_none();
-            self.records = found.unwrap_or_default();
+            self.records.step(RecordsEvent::Loaded(found));
         }
     }
 
     /// The record of built-in `id` for `hash`, in the current language.
     pub fn record(&mut self, id: &str, hash: &str) -> Option<Record> {
-        self.read();
+        self.ensure_read();
         let locale = opencode_i18n::locale().id();
         self.records.get(id).filter(|r| r.hash == hash && r.locale == locale).cloned()
     }
@@ -175,25 +250,21 @@ pub fn note_started(app: &mut App, i: usize) {
         events: p.half.events.borrow().iter().map(|(_, prefix, _)| prefix.clone()).collect(),
     };
     let d = &mut app.plugins.dormant;
-    d.read();
-    if d.records.get(&id) != Some(&record) {
-        d.records.insert(id, record);
-        d.dirty = true;
-    }
+    d.ensure_read();
+    d.records.step(RecordsEvent::Note { id, record });
 }
 
 /// Writes the records back, when one changed (the storage's writer commits it off the app's thread).
 pub fn save(app: &mut App) {
     // Read before it's taken: a write to the host rebuilds every region showing it.
-    if !app.plugins.dormant.dirty {
+    if !app.plugins.dormant.records.is_dirty() {
         return;
     }
-    let d = &mut app.plugins.dormant;
-    d.dirty = false;
-    let Ok(json) = serde_json::to_string(&File { version: VERSION, plugins: d.records.clone() }) else { return };
-    crate::storage::set(RECORDS.0, RECORDS.1, json);
-    if std::mem::take(&mut d.old_file) {
-        forget_old_file();
+    if let Some(RecordsEffect::Write { json, forget_old_file: clean_old }) = app.plugins.dormant.records.step(RecordsEvent::Save) {
+        crate::storage::set(RECORDS.0, RECORDS.1, json);
+        if clean_old {
+            forget_old_file();
+        }
     }
 }
 
