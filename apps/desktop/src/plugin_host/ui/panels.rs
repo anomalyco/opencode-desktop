@@ -262,7 +262,7 @@ pub fn render(app: &App, p: &Pal, ctx: &PanelViewCtx) -> El {
     if let (true, Some(nested), Data::Map(fields)) = (ctx.mobile, more.nested(), &mut data)
         && more.drawn_view() == Some(crate::panels::panel_key(ctx.plugin, &all[k].spec.id).as_str())
     {
-        fields.insert("drawer".to_owned(), nested.data.clone());
+        fields.insert("drawer".to_owned(), crate::plugin_host::services::json_to_data(&nested.data));
     }
     let instance = if all[k].list.is_some() { ctx.tab.id.as_str() } else { "" };
     let suffix = if ctx.mobile { ":mobile" } else { "" };

@@ -3557,8 +3557,8 @@ dependencies = [
  "opencode-ui",
  "rune",
  "rune-kit",
- "rune-luau",
  "rune-theme-opencode",
+ "serde_json",
 ]
 
 [[package]]
@@ -3584,7 +3584,6 @@ dependencies = [
  "opencode-kernel",
  "opencode-ui",
  "rune",
- "rune-luau",
  "rune-theme-opencode",
  "ureq",
  "ureq-web",
@@ -3782,7 +3781,6 @@ dependencies = [
  "opencode-platform",
  "opencode-storage",
  "rune",
- "rune-luau",
  "serde",
  "serde_json",
  "sha2",
