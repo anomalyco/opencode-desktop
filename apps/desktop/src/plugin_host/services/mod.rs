@@ -41,6 +41,7 @@ use crate::App;
 
 pub use i18n::locale_changed;
 pub use session::session_version;
+pub(crate) use session::CachedUsage;
 pub use store::store_version;
 pub use ui::panel_state as ui_panel_state;
 pub use watch::fire_watched;

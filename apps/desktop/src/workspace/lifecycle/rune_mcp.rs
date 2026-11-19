@@ -108,7 +108,7 @@ impl RuneMcpHost for App {
     }
 
     fn expire_plugin_calls(&mut self, tx: &mut Tx) -> bool {
-        crate::plugin_host::commands::expire_calls(tx)
+        crate::plugin_host::commands::expire_calls(self, tx)
     }
 }
 

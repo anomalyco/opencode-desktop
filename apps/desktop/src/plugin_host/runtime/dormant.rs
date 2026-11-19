@@ -193,6 +193,8 @@ pub struct Dormant {
     records: Records,
     /// Events kept for a plugin that started, handed to it at the next poll.
     pub catch_up: BTreeMap<String, Vec<(String, serde_json::Value)>>,
+    /// Wake requests queued by views of this window since the last poll.
+    asked: std::cell::RefCell<Vec<(String, Wait)>>,
 }
 
 impl Dormant {
@@ -434,11 +436,12 @@ pub fn wake_launchers(app: &mut App) -> bool {
 /// time. Called from views, so it only marks and nudges the window's waker for the next poll.
 pub fn want(app: &App, id: &str) {
     if wants(app, id, Wait::Idle) {
-        let first = ASKED.with_borrow_mut(|w| {
+        let first = {
+            let mut w = app.plugins.dormant.asked.borrow_mut();
             let empty = w.is_empty();
-            push_once(w, id, Wait::Idle);
+            push_once(&mut w, id, Wait::Idle);
             empty
-        });
+        };
         if first && let Some(wake) = &*app.waker {
             wake();
         }
@@ -450,11 +453,12 @@ pub fn want(app: &App, id: &str) {
 /// without it for one frame at most.
 pub fn want_now(app: &App, id: &str) {
     if wants(app, id, Wait::Next) {
-        let first = ASKED.with_borrow_mut(|w| {
+        let first = {
+            let mut w = app.plugins.dormant.asked.borrow_mut();
             let empty = w.is_empty();
-            push_once(w, id, Wait::Next);
+            push_once(&mut w, id, Wait::Next);
             empty
-        });
+        };
         if first && let Some(wake) = &*app.waker {
             wake();
         }
@@ -475,11 +479,6 @@ fn push_once(list: &mut Vec<(String, Wait)>, id: &str, to: Wait) {
         Some((_, w)) => *w = (*w).max(to),
         None => list.push((id.to_owned(), to)),
     }
-}
-
-thread_local! {
-    /// What views asked of dormant plugins since the last poll, which carries it out.
-    static ASKED: std::cell::RefCell<Vec<(String, Wait)>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// Whether session `session`'s side region is open on New tab (empty side strip, or adding a tab).
@@ -528,8 +527,9 @@ pub fn wake_for_route(app: &mut App, session: &str) {
 /// A session row was hovered or highlighted: what a session's screen draws starts ahead of the
 /// click, one per turn ([`poll`]).
 pub fn near_session(app: &App, session: &str) {
+    let mut asked = app.plugins.dormant.asked.borrow_mut();
     for id in for_session(app, session) {
-        ASKED.with_borrow_mut(|n| push_once(n, &id, Wait::Next));
+        push_once(&mut asked, &id, Wait::Next);
     }
 }
 
@@ -551,7 +551,8 @@ pub fn listens(app: &App, ty: &str) -> bool {
 /// Each turn: one dormant plugin starts, none while input waits; a near one at once, others only
 /// once the window has had no input for [`crate::idle::AFTER`]. Asks to be woken when idle time comes.
 pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
-    for (id, to) in ASKED.with_borrow_mut(std::mem::take) {
+    let asked = std::mem::take(app.plugins.dormant.asked.get_mut());
+    for (id, to) in asked {
         if let Some(a) = app.plugins.dormant.asleep.get_mut(&id) {
             a.wait = a.wait.max(to);
         }

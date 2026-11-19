@@ -14,7 +14,6 @@ use crate::App;
 
 thread_local! {
     static APP: Cell<*const App> = const { Cell::new(std::ptr::null()) };
-    static ASKED: RefCell<Vec<(Rc<str>, Request)>> = const { RefCell::new(Vec::new()) };
     static READS: RefCell<Option<Vec<Dep>>> = const { RefCell::new(None) };
     static PLUGIN: RefCell<Option<Rc<str>>> = const { RefCell::new(None) };
 }
@@ -110,14 +109,19 @@ pub enum Request {
     Redraw,
 }
 
-/// Queues `request` from plugin `plugin`.
+/// Queues `request` from plugin `plugin` onto the active window's host.
 pub fn ask(plugin: &Rc<str>, request: Request) {
-    ASKED.with_borrow_mut(|q| q.push((plugin.clone(), request)));
+    with_app(|app| app.plugins.pending_requests.borrow_mut().push((plugin.clone(), request)));
 }
 
-/// Takes what plugins asked for since the last call.
-pub fn take_asked() -> Vec<(Rc<str>, Request)> {
-    ASKED.with_borrow_mut(std::mem::take)
+/// Queues `request` from plugin `plugin` directly onto `app`'s host (outside [`enter`]).
+pub fn ask_in(app: &mut App, plugin: &Rc<str>, request: Request) {
+    app.plugins.pending_requests.get_mut().push((plugin.clone(), request));
+}
+
+/// Takes what plugins asked `app` for since the last call.
+pub fn take_asked(app: &mut App) -> Vec<(Rc<str>, Request)> {
+    std::mem::take(app.plugins.pending_requests.get_mut())
 }
 
 /// Something a render read, whose change means the render must run again.
@@ -212,14 +216,9 @@ pub fn recording<R>(f: impl FnOnce() -> R) -> (R, Vec<Dep>) {
     (out, reads)
 }
 
-thread_local! {
-    /// Each reactive answer by its key ([`answer`]), with what it was asked on.
-    static ANSWERS: RefCell<std::collections::HashMap<String, Answer>> = RefCell::default();
-}
-
 /// A reactive function's last answer: the script's version it was asked at, what the call read
 /// and how that read then.
-struct Answer {
+pub(crate) struct Answer {
     asked: (Option<u64>, u64, u64),
     reads: Vec<Dep>,
     read: u64,
@@ -231,13 +230,13 @@ struct Answer {
 /// under `key` while the script hasn't run since and nothing that call read changed, so a list
 /// built every frame enters no VM.
 pub fn answer(app: &App, asked: (Option<u64>, u64, u64), key: String, ask: impl FnOnce() -> rune_luau::Data) -> rune_luau::Data {
-    let hit = ANSWERS.with_borrow(|c| c.get(&key).filter(|a| a.asked == asked && stamp(app, &a.reads) == a.read).map(|a| a.value.clone()));
+    let hit = app.plugins.command_answers.borrow().get(&key).filter(|a| a.asked == asked && stamp(app, &a.reads) == a.read).map(|a| a.value.clone());
     if let Some(value) = hit {
         return value;
     }
     let (value, reads) = recording(|| enter(app, ask));
     let read = stamp(app, &reads);
-    ANSWERS.with_borrow_mut(|c| c.insert(key, Answer { asked, reads, read, value: value.clone() }));
+    app.plugins.command_answers.borrow_mut().insert(key, Answer { asked, reads, read, value: value.clone() });
     value
 }
 

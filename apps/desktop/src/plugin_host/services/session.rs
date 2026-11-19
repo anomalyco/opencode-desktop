@@ -70,19 +70,15 @@ impl Stamp {
 }
 
 #[derive(PartialEq, Eq)]
-struct UsageInputs {
+pub(crate) struct UsageInputs {
     server: opencode_kit::servers::ServerKey,
     transcripts: Stamp,
     window: Stamp,
     revert: Option<String>,
 }
 
-thread_local! {
-    /// Each session's step with usage, by its place, and what it was read from: the transcripts'
-    /// and the context windows' versions and the staged revert. Every poll asks; a long session
-    /// without usage would be read through each time.
-    static LAST_USAGE: std::cell::RefCell<std::collections::HashMap<String, (UsageInputs, Option<usize>)>> = Default::default();
-}
+/// Each session's last step with token usage, and the inputs it was read from.
+pub(crate) type CachedUsage = (UsageInputs, Option<usize>);
 
 /// Session `id`'s step whose tokens fill the context window (`session_view::usage`).
 fn last_usage<'a>(app: &'a App, id: &str) -> Option<(&'a opencode_kit::model::Assistant, &'a opencode_kit::model::Tokens)> {
@@ -94,14 +90,11 @@ fn last_usage<'a>(app: &'a App, id: &str) -> Option<(&'a opencode_kit::model::As
         window: Stamp::of(&app.context_windows),
         revert: info.revert.clone(),
     };
-    let at = LAST_USAGE.with_borrow_mut(|kept| match kept.get(id) {
-        Some((k, at)) if *k == key => *at,
-        _ => {
-            let at = session_view::usage::last_with_usage_at(t, info.revert.as_deref(), |m| app.holds(id, m));
-            kept.insert(id.to_owned(), (key, at));
-            at
-        }
-    });
+    if let Some((_, at)) = app.plugins.last_usage.borrow().get(id).filter(|(k, _)| *k == key) {
+        return session_view::usage::at(t, (*at)?);
+    }
+    let at = session_view::usage::last_with_usage_at(t, info.revert.as_deref(), |m| app.holds(id, m));
+    app.plugins.last_usage.borrow_mut().insert(id.to_owned(), (key, at));
     session_view::usage::at(t, at?)
 }
 

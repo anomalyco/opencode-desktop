@@ -36,7 +36,7 @@ pub use ui::{panels, surfaces};
 pub(crate) use ui::editors;
 
 use std::cell::{Cell, RefCell};
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
 
 use opencode_plugin_spec::Manifest;
@@ -208,6 +208,25 @@ pub struct PluginMetrics {
     pub memo_hit_rate: f64,
 }
 
+/// The pane's display scale while a panel renders (`PanelViewCtx.env_scale`), defaulting to `1.0`.
+pub(crate) struct PanelScale(Cell<f32>);
+
+impl Default for PanelScale {
+    fn default() -> Self {
+        Self(Cell::new(1.0))
+    }
+}
+
+impl PanelScale {
+    pub(crate) fn get(&self) -> f32 {
+        self.0.get()
+    }
+
+    pub(crate) fn replace(&self, scale: f32) -> f32 {
+        self.0.replace(scale)
+    }
+}
+
 /// The window's plugin host (`WindowPluginHost`).
 #[derive(Default)]
 pub struct PluginHost {
@@ -243,6 +262,22 @@ pub struct PluginHost {
     pub force_focus: bool,
     /// A UI entry without a transaction asked for something: the next poll carries it out.
     pub asked: Cell<bool>,
+    /// Actions plugins queued for this window during a VM entry, carried out by `requests::carry_out`.
+    pub(crate) pending_requests: RefCell<Vec<(Rc<str>, cx::Request)>>,
+    /// Per-window memo cache for reactive command flags (`cx::answer`).
+    pub(crate) command_answers: RefCell<HashMap<String, cx::Answer>>,
+    /// Per-window memo cache for panel listing callbacks (`panels::answer`).
+    pub(crate) panel_answers: RefCell<HashMap<String, panels::AnswerEntry>>,
+    /// Per-window memo cache for instance panel tab lists (`panels::listed`).
+    pub(crate) panel_listed: RefCell<HashMap<(String, String, String), panels::Listed>>,
+    /// Per-window cache of each session's last step with token usage (`services::session`).
+    pub(crate) last_usage: RefCell<HashMap<String, services::CachedUsage>>,
+    /// Display scale of the panel currently rendering (`ui.terminalSurface`, `ui.browserSurface`).
+    pub(crate) panel_scale: PanelScale,
+    /// In-flight MCP tool calls owned by this window's plugin VMs, with their deadlines.
+    pub(crate) mcp_calls: RefCell<HashMap<u64, (opencode_kit::client_mcp::McpCall, rune::time::Instant)>>,
+    /// Next MCP tool call id for this window.
+    pub(crate) next_mcp_call: Cell<u64>,
     /// Server events plugins listen for, waiting for the next poll.
     events: RefCell<Vec<(String, serde_json::Value)>>,
     watcher: Option<runtime::hot::Watcher>,

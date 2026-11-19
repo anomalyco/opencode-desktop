@@ -16,7 +16,7 @@ use crate::palette::Pal;
 use crate::panels::{ClosedPanelTab, ClosedTabInfo, PanelLauncherDesc, PanelRegistration, PanelSessionCtx, PanelTabDesc, PanelViewCtx, SessionPane};
 use crate::plugin_host::icons::{intern, resolve};
 use crate::plugin_host::services::map;
-use crate::plugin_host::{Plugin, commands, cx, dormant, epoch, native};
+use crate::plugin_host::{Plugin, commands, cx, dormant, epoch};
 
 /// One panel of a plugin: its spec and the functions it handed over.
 struct Panel {
@@ -33,14 +33,7 @@ struct Panel {
     restore: Option<Function>,
 }
 
-type AnswerEntry = (u64, Option<Data>, Vec<cx::Dep>);
-
-thread_local! {
-    /// The last answer of each listing function (`list`, `tabTitle`, `isWide`, a menu item's
-    /// `when`, `opened` and `detail`), with what it read: the side region resolves every frame,
-    /// so an answer whose reads didn't change costs no VM call.
-    static ANSWERS: std::cell::RefCell<std::collections::HashMap<String, AnswerEntry>> = std::cell::RefCell::default();
-}
+pub(crate) type AnswerEntry = (u64, Option<Data>, Vec<cx::Dep>);
 
 /// `f(args)` of plugin `i`, the last answer while nothing it read changed.
 pub(crate) fn answer(app: &App, i: usize, key: &str, f: &Function, args: impl mlua::IntoLuaMulti) -> Option<Data> {
@@ -53,7 +46,7 @@ pub(crate) fn answer(app: &App, i: usize, key: &str, f: &Function, args: impl ml
         h.finish()
     };
     let key = format!("{}:{key}", p.half.id);
-    if let Some(found) = ANSWERS.with_borrow(|a| a.get(&key).filter(|(v, _, deps)| *v == base(deps)).map(|(_, d, _)| d.clone())) {
+    if let Some(found) = app.plugins.panel_answers.borrow().get(&key).filter(|(v, _, deps)| *v == base(deps)).map(|(_, d, _)| d.clone()) {
         return found;
     }
     let t0 = crate::files::trace::on().then(rune::time::Instant::now);
@@ -62,7 +55,7 @@ pub(crate) fn answer(app: &App, i: usize, key: &str, f: &Function, args: impl ml
         crate::files::trace::luau(&p.half.id, "answer", &key, "", t0.elapsed().as_micros() as u64);
     }
     let v = base(&deps);
-    ANSWERS.with_borrow_mut(|a| a.insert(key, (v, out.clone(), deps)));
+    app.plugins.panel_answers.borrow_mut().insert(key, (v, out.clone(), deps));
     out
 }
 
@@ -167,15 +160,9 @@ pub fn list(app: &App, ctx: &PanelSessionCtx) -> Vec<PanelTabDesc> {
     out
 }
 
-thread_local! {
-    /// Each instance panel's last `list` answer, by plugin, panel and session, with what it was
-    /// asked on: the strip is built every frame, and an unchanged frame enters no VM.
-    static LISTED: std::cell::RefCell<std::collections::HashMap<(String, String, String), Listed>> = std::cell::RefCell::default();
-}
-
 /// An instance panel's `list` answer and what it was asked on: the script's version, the open
 /// tabs, and what the call read (`cx::Dep`) as it read it.
-struct Listed {
+pub(crate) struct Listed {
     asked: u64,
     reads: Vec<cx::Dep>,
     read: u64,
@@ -191,7 +178,7 @@ fn listed(app: &App, owner: &Plugin, list: &Function, plugin: &str, panel: &str,
     std::hash::Hash::hash(&(owner.half.surface_version(Some(script)), open), &mut h);
     let asked = std::hash::Hasher::finish(&h);
     let key = (plugin.to_owned(), panel.to_owned(), session.to_owned());
-    let hit = LISTED.with_borrow(|c| c.get(&key).filter(|l| l.asked == asked && cx::stamp(app, &l.reads) == l.read).map(|l| l.tabs.clone()));
+    let hit = app.plugins.panel_listed.borrow().get(&key).filter(|l| l.asked == asked && cx::stamp(app, &l.reads) == l.read).map(|l| l.tabs.clone());
     if let Some(tabs) = hit {
         return tabs;
     }
@@ -202,7 +189,7 @@ fn listed(app: &App, owner: &Plugin, list: &Function, plugin: &str, panel: &str,
     }
     let tabs: Vec<PanelTab> = answer.and_then(|d| d.decode().ok()).unwrap_or_default();
     let read = cx::stamp(app, &reads);
-    LISTED.with_borrow_mut(|c| c.insert(key, Listed { asked, reads, read, tabs: tabs.clone() }));
+    app.plugins.panel_listed.borrow_mut().insert(key, Listed { asked, reads, read, tabs: tabs.clone() });
     tabs
 }
 
@@ -255,7 +242,13 @@ pub fn render(app: &App, p: &Pal, ctx: &PanelViewCtx) -> El {
     let Some(k) = owner(&all, &ctx.tab.id) else { return rune::el() };
     let Some(f) = &all[k].render else { return rune::el() };
     let placement = if ctx.mobile { "mobile" } else { "side" };
-    native::terminal::SCALE.set(ctx.env_scale);
+    struct RestoreScale<'a>(&'a crate::plugin_host::PanelScale, f32);
+    impl Drop for RestoreScale<'_> {
+        fn drop(&mut self) {
+            self.0.replace(self.1);
+        }
+    }
+    let _restore_scale = RestoreScale(&app.plugins.panel_scale, app.plugins.panel_scale.replace(ctx.env_scale));
     let mut data = props(app, &all[k], ctx.session_id, &ctx.tab.id, ctx.visible, placement, ctx.pane_size);
     // The nested view it opened in the More drawer (`Layout:OpenDrawerView`).
     let more = &app.layout.narrow.more;

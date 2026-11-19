@@ -38,7 +38,13 @@ pub fn render(app: &App, p: &Pal, i: usize, surface: &str, f: &Function, props: 
     if chrome && half.failed.borrow().contains(surface) {
         return el();
     }
-    FAILED.set(false);
+    struct RestoreFailed(bool);
+    impl Drop for RestoreFailed {
+        fn drop(&mut self) {
+            FAILED.set(self.0);
+        }
+    }
+    let restore_failed = RestoreFailed(FAILED.replace(false));
     app.plugins.dark.set(p.dark);
     let reads = half.reads.borrow().get(surface).cloned().unwrap_or_default();
     let mut h = std::hash::DefaultHasher::new();
@@ -51,7 +57,9 @@ pub fn render(app: &App, p: &Pal, i: usize, surface: &str, f: &Function, props: 
     let t0 = crate::files::trace::on().then(rune::time::Instant::now);
     let id = half.id.clone();
     let (built, read) = cx::recording(|| cx::rendering_as(&id, || cx::enter(app, || script.render_fn::<App>(surface, version, p.dark, f, props))));
-    if chrome && FAILED.replace(false) {
+    let failed = FAILED.get();
+    drop(restore_failed);
+    if chrome && failed {
         half.failed.borrow_mut().insert(surface.to_owned());
         return el();
     }
@@ -575,9 +583,14 @@ pub fn code_block(app: &App, p: &Pal, language: &str, key: &str, code: &str, str
         // Not the contract's: what the host's own view draws from, so a memo of it moves too.
         ("revision", Data::Integer(version as i64)),
     ]);
-    NATIVE.set(Some(native));
+    struct RestoreNative(Option<El>);
+    impl Drop for RestoreNative {
+        fn drop(&mut self) {
+            NATIVE.set(self.0.take());
+        }
+    }
+    let _restore_native = RestoreNative(NATIVE.replace(Some(native)));
     let built = render(app, p, i, &format!("code:{}:{key}", spec.id), &f, props);
-    NATIVE.take();
     Some(built)
 }
 

@@ -509,7 +509,7 @@ fn flyout_row(a: &mut NodeArgs) -> Result<El, String> {
     let target = flyout::Row { id: popover, row: key.clone(), side, data };
     // Steps the popover's flyout (`flyout-machine.ts`) with the event `make` builds for this row.
     let ask = std::rc::Rc::new(move |app: &mut App, tx: &mut Tx, make: &dyn Fn(flyout::Row) -> FlyoutEvent| {
-        cx::ask(&plugin, cx::Request::Flyout(make(target.clone())));
+        cx::ask_in(app, &plugin, cx::Request::Flyout(make(target.clone())));
         requests::carry_out(app, tx);
     });
     let (hover, moved, press) = (ask.clone(), ask.clone(), ask);

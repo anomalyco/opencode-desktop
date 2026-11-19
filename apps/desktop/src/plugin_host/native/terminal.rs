@@ -14,12 +14,6 @@ use super::super::services::{map, method, with_app};
 use super::{handle_field, object, p};
 use crate::App;
 
-thread_local! {
-    /// The device pixels a point of the pane a panel renders in (`PanelViewCtx.env_scale`), set as
-    /// the panel renders: the shell's grid is sized in pixels too.
-    pub static SCALE: std::cell::Cell<f32> = const { std::cell::Cell::new(1.0) };
-}
-
 /// The `Terminal` service.
 pub fn build(lua: &Lua, vmx: &std::rc::Rc<super::super::vm::Vmx>, t: &Table) -> mlua::Result<()> {
     method(lua, t, "List", |lua, (sid, open): (String, Vec<String>)| {
@@ -210,7 +204,7 @@ pub fn view(a: &mut NodeArgs) -> Result<El, String> {
         let id = handle_field(a, "session", "Id").unwrap_or_default();
         cx::read(Dep::TerminalScreen(sid.clone()));
         let size = (a.number("width").unwrap_or(0.0) as f32, a.number("height").unwrap_or(0.0) as f32);
-        Ok(crate::terminal::surface(app, &pal, &sid, &id, size, SCALE.get(), a.flag("focused")))
+        Ok(crate::terminal::surface(app, &pal, &sid, &id, size, app.plugins.panel_scale.get(), a.flag("focused")))
     })
     .ok_or_else(|| "ui.terminalSurface draws only in a render".to_owned())?
 }
