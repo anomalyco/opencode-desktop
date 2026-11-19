@@ -43,6 +43,11 @@ impl VtCore {
                 .and_then(|s| s.chars().next())
                 .map_or(0, |c| c.to_ascii_lowercase() as u32)
         });
+        // SAFETY: `self.key_encoder`, `self.key_event`, and `self.term` were created in
+        // `VtCore::new` and are freed only in `Drop`. `opt_alt` matches `GhosttyOptionAsAlt`,
+        // `utf8_bytes` stays alive through `ghostty_key_encoder_encode` (and `key_event` is
+        // overwritten on every call and never dereferences `utf8` on free), and `buf`/`written`
+        // are valid writable stack storage.
         unsafe {
             ffi::ghostty_key_encoder_setopt_from_terminal(self.key_encoder, self.term);
             // Taking the terminal's options resets Option-as-Alt to Ghostty's default (off), and on
@@ -121,6 +126,10 @@ impl VtCore {
             padding_right: 0,
             padding_left: 0,
         };
+        // SAFETY: `self.mouse_encoder`, `self.mouse_event`, and `self.term` were created in
+        // `VtCore::new` and are freed only in `Drop`. `size` has its `size` field initialized and
+        // non-zero cell dimensions for `GHOSTTY_MOUSE_ENCODER_OPT_SIZE`, and `buf`/`written` are
+        // valid writable stack storage.
         unsafe {
             ffi::ghostty_mouse_encoder_setopt_from_terminal(self.mouse_encoder, self.term);
             ffi::ghostty_mouse_encoder_setopt(
@@ -174,6 +183,8 @@ impl VtCore {
         let mut mutable_in = text.as_bytes().to_vec();
         let mut out = vec![0u8; mutable_in.len() + 32];
         let mut written = 0usize;
+        // SAFETY: `mutable_in` and `out` are distinct writable heap buffers of the passed
+        // lengths (`ghostty_paste_encode` mutates `data` in place), and `&mut written` is valid.
         let rc = unsafe {
             ffi::ghostty_paste_encode(
                 mutable_in.as_mut_ptr().cast::<c_char>(),
@@ -187,6 +198,8 @@ impl VtCore {
         if rc == GHOSTTY_OUT_OF_SPACE && written > out.len() {
             let mut retry_in = text.as_bytes().to_vec();
             out.resize(written + 16, 0);
+            // SAFETY: `retry_in` and the resized `out` are distinct writable heap buffers of the
+            // passed lengths, and `&mut written` is a valid out-pointer.
             if unsafe {
                 ffi::ghostty_paste_encode(
                     retry_in.as_mut_ptr().cast::<c_char>(),
@@ -211,6 +224,7 @@ impl VtCore {
     }
 
     pub fn is_paste_safe(text: &str) -> bool {
+        // SAFETY: `str::as_ptr` is always non-null and valid for `text.len()` readable bytes.
         unsafe { ffi::ghostty_paste_is_safe(text.as_ptr().cast::<c_char>(), text.len()) }
     }
 
@@ -223,6 +237,8 @@ impl VtCore {
     pub fn serialize_vt_capped(&self, max_scrollback: usize) -> Vec<u8> {
         let mut sb = GhosttyTerminalScrollbar::default();
         let cols = self.cb.size.columns.max(1);
+        // SAFETY: `self.term` was created in `VtCore::new` and is freed only in `Drop`, and
+        // `&mut sb` matches `GhosttyTerminalScrollbar*` for `GHOSTTY_TERMINAL_DATA_SCROLLBAR`.
         let ok = unsafe {
             ffi::ghostty_terminal_get(
                 self.term,
@@ -236,6 +252,7 @@ impl VtCore {
             let end_row = sb.total.saturating_sub(1) as u32;
             let mut sref = GhosttyGridRef::default();
             let mut eref = GhosttyGridRef::default();
+            // SAFETY: `self.term` is live and `sref` is initialized with `size_of::<GhosttyGridRef>()`.
             let ok_s = unsafe {
                 ffi::ghostty_terminal_grid_ref(
                     self.term,
@@ -243,6 +260,7 @@ impl VtCore {
                     &mut sref,
                 ) == GHOSTTY_SUCCESS
             };
+            // SAFETY: `self.term` is live and `eref` is initialized with `size_of::<GhosttyGridRef>()`.
             let ok_e = unsafe {
                 ffi::ghostty_terminal_grid_ref(
                     self.term,
@@ -275,6 +293,11 @@ impl VtCore {
 
     fn format_with(&self, opts: GhosttyFormatterTerminalOptions) -> Vec<u8> {
         let mut fmt: GhosttyFormatter = std::ptr::null_mut();
+        // SAFETY: `self.term` is live (and outlives `fmt`, which is freed before return),
+        // `opts.selection` is either null or a live `GhosttySelection` with fresh grid refs from
+        // `self.term` with no intervening mutation, and `NULL` selects the default allocator.
+        // On success with non-null `ptr`, `ptr` owns `len` bytes from the default allocator that
+        // are copied before releasing once via `ghostty_free(NULL, ptr, len)`.
         unsafe {
             if ffi::ghostty_formatter_terminal_new(std::ptr::null(), &mut fmt, self.term, opts)
                 != GHOSTTY_SUCCESS

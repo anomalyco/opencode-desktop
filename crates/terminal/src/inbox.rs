@@ -34,7 +34,7 @@ impl Inbox {
         match &self.waker {
             Some(w) => w.notify(),
             None => {
-                let _ = self.tx.send(WorkerCmd::Nudge);
+                self.tx.send(WorkerCmd::Nudge).ok();
             }
         }
     }
@@ -58,7 +58,7 @@ impl SocketWait {
     }
 
     pub(crate) fn notify(&self) {
-        let _ = self.poller.notify();
+        self.poller.notify().ok();
     }
 
     /// Starts watching `socket` (non-blocking from here on).
@@ -70,7 +70,7 @@ impl SocketWait {
     }
 
     pub(crate) fn forget(&self, socket: &std::net::TcpStream) {
-        let _ = self.poller.delete(socket);
+        self.poller.delete(socket).ok();
     }
 
     /// Sleeps until the socket is readable (or writable, with `write`), a notify, or `timeout`.
@@ -79,7 +79,7 @@ impl SocketWait {
             return;
         }
         let mut events = polling::Events::new();
-        let _ = self.poller.wait(&mut events, timeout);
+        self.poller.wait(&mut events, timeout).ok();
     }
 }
 
@@ -136,6 +136,11 @@ fn set_timer(delay: std::time::Duration, f: impl FnOnce() + 'static) {
     use wasm_bindgen::JsCast;
     let callback = wasm_bindgen::closure::Closure::once_into_js(f);
     if let Some(window) = web_sys::window() {
-        let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(callback.unchecked_ref(), delay.as_millis().min(i32::MAX as u128) as i32);
+        window
+            .set_timeout_with_callback_and_timeout_and_arguments_0(
+                callback.unchecked_ref(),
+                delay.as_millis().min(i32::MAX as u128) as i32,
+            )
+            .ok();
     }
 }

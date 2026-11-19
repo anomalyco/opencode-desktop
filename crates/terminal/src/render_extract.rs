@@ -23,6 +23,8 @@ impl VtCore {
     /// Updates `GhosttyRenderState` and produces an immutable [`TerminalSnapshot`].
     /// Clean rows (`dirty == false`) and scrolled scrollback rows reuse their `Arc<TerminalRow>`.
     pub fn snapshot(&mut self) -> Arc<TerminalSnapshot> {
+        // SAFETY: `self.render_state` and `self.term` were created in `VtCore::new` and are freed
+        // only in `Drop`; `&mut self` ensures exclusive access during the update.
         unsafe {
             let _ = ffi::ghostty_render_state_update(self.render_state, self.term);
         }
@@ -37,6 +39,9 @@ impl VtCore {
         let mut mouse_tracking = false;
         let mut kitty_flags: u8 = 0;
 
+        // SAFETY: `self.render_state`, `self.row_iter`, and `self.term` were created in
+        // `VtCore::new` and are freed only in `Drop`; every out-pointer matches its key's C type
+        // (`colors` and `cursor_raw` have their `size` fields set via `Default`).
         unsafe {
             let _ = ffi::ghostty_render_state_get(
                 self.render_state,
@@ -96,9 +101,13 @@ impl VtCore {
         let mut screen_rows = Vec::with_capacity(usize::from(rows));
 
         let mut row_idx = 0usize;
+        // SAFETY: `self.row_iter` was populated above from `self.render_state` with no
+        // intervening render-state update.
         while unsafe { ffi::ghostty_render_state_row_iterator_next(self.row_iter) } {
             let mut row_id = GhosttyRenderStateRowId::default();
             let mut row_dirty = true;
+            // SAFETY: `self.row_iter` is positioned on a row (`next` returned `true`) and each
+            // out-pointer matches its key's C type (`GhosttyRenderStateRowId*`, `bool*`).
             unsafe {
                 let _ = ffi::ghostty_render_state_row_get(
                     self.row_iter,
@@ -139,6 +148,7 @@ impl VtCore {
             row_idx += 1;
         }
 
+        // SAFETY: `self.render_state` was created in `VtCore::new` and is freed only in `Drop`.
         unsafe {
             let _ = ffi::ghostty_render_state_clean(self.render_state);
         }
@@ -218,6 +228,9 @@ impl VtCore {
             start_x: 0,
             end_x: 0,
         };
+        // SAFETY: `extract_current_row` is called only while `self.row_iter` is positioned on a
+        // row of the current render state; `self.row_cells` is pre-allocated in `VtCore::new`,
+        // `sel_raw.size` is initialized, and every out-pointer matches its key's C type.
         let has_row_sel = unsafe {
             let _ = ffi::ghostty_render_state_row_get(
                 self.row_iter,
@@ -250,6 +263,8 @@ impl VtCore {
         };
 
         let mut col = 0u16;
+        // SAFETY: `self.row_cells` was populated above from `self.row_iter` for the current row
+        // with no intervening render-state update.
         while unsafe { ffi::ghostty_render_state_row_cells_next(self.row_cells) } {
             let selected = has_row_sel && col >= sel_raw.start_x && col <= sel_raw.end_x;
             let mut raw_cell: GhosttyCell = 0;
@@ -260,6 +275,9 @@ impl VtCore {
             let mut bg_rgb = GhosttyColorRgb::default();
             let mut fg_rgb = GhosttyColorRgb::default();
 
+            // SAFETY: `self.row_cells` is positioned on a cell (`next` returned `true`) and every
+            // out-pointer matches its key's C type (`GhosttyCell*`, `c_int*`, `bool*`, `u32*`,
+            // `GhosttyColorRgb*`).
             let (has_bg, has_fg) = unsafe {
                 let _ = ffi::ghostty_render_state_row_cells_get(
                     self.row_cells,
@@ -316,6 +334,8 @@ impl VtCore {
 
             if has_styling {
                 let mut style = GhosttyStyle::default();
+                // SAFETY: `self.row_cells` is positioned on a cell and `style` has its `size`
+                // field set via `Default` for `GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_STYLE`.
                 unsafe {
                     let _ = ffi::ghostty_render_state_row_cells_get(
                         self.row_cells,
@@ -363,6 +383,8 @@ impl VtCore {
             let grapheme = if grapheme_len > 0 && !flags.contains(CellFlags::WIDE_SPACER_TAIL) {
                 let mut small = [0u8; 15];
                 let mut buf = GhosttyBuffer { ptr: small.as_mut_ptr(), cap: small.len(), len: 0 };
+                // SAFETY: `self.row_cells` is positioned on a cell and `buf.ptr` points to
+                // `buf.cap` writable bytes on the stack (`small`).
                 let mut rc = unsafe {
                     ffi::ghostty_render_state_row_cells_get(
                         self.row_cells,
@@ -374,6 +396,8 @@ impl VtCore {
                 if rc == GHOSTTY_OUT_OF_SPACE {
                     big.resize(buf.len, 0);
                     buf = GhosttyBuffer { ptr: big.as_mut_ptr(), cap: big.len(), len: 0 };
+                    // SAFETY: `self.row_cells` is positioned on the same cell and `buf.ptr`
+                    // points to `buf.cap` writable bytes owned by `big`.
                     rc = unsafe {
                         ffi::ghostty_render_state_row_cells_get(
                             self.row_cells,
@@ -458,6 +482,8 @@ impl VtCore {
 }
 
 fn resolve_style_color(c: GhosttyStyleColor, colors: &GhosttyRenderStateColors) -> Option<Rgb> {
+    // SAFETY: `c` was populated by `libghostty-vt` from a zeroed `GhosttyStyle`, and `c.tag`
+    // selects the active variant (`rgb` or `palette`) of the `#[repr(C)]` POD union `c.value`.
     unsafe {
         match c.tag {
             GHOSTTY_STYLE_COLOR_RGB => Some(Rgb::from_ffi(c.value.rgb)),

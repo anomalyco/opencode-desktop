@@ -125,6 +125,8 @@ impl TerminalTheme {
     /// program's `38;5;196` is the red it asked for.
     pub(crate) fn full_palette_ffi(&self) -> [GhosttyColorRgb; 256] {
         let mut out = [GhosttyColorRgb::default(); 256];
+        // SAFETY: `out` is a valid, aligned 256-element `GhosttyColorRgb` array as required by
+        // `ghostty_color_palette_default`.
         unsafe { ffi::ghostty_color_palette_default(out.as_mut_ptr()) };
         for (i, c) in self.ansi_base.iter().enumerate() {
             out[i] = c.to_ffi();

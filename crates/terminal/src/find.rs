@@ -15,18 +15,26 @@ impl VtCore {
         self.mutated_since_snapshot = true;
         let Some(needle) = needle.filter(|n| !n.is_empty()) else {
             if !self.search.is_null() {
+                // SAFETY: `self.search` is a live handle created by `ghostty_search_new` (freed
+                // only in `Drop`), `&mut self` serializes access with `self.term`, and `NULL`
+                // clears the needle for `GHOSTTY_SEARCH_OPT_NEEDLE`.
                 unsafe { ffi::ghostty_search_set(self.search, GHOSTTY_SEARCH_OPT_NEEDLE, std::ptr::null()) };
             }
             self.finding = false;
             return;
         };
         if self.search.is_null()
+            // SAFETY: `self.term` was created in `VtCore::new` and is freed only in `Drop`;
+            // `&mut self.search` is a valid out-pointer and `NULL` selects the default allocator.
             && unsafe { ffi::ghostty_search_new(std::ptr::null(), &mut self.search, self.term) } != GHOSTTY_SUCCESS
         {
             self.search = std::ptr::null_mut();
             return;
         }
         let s = GhosttyString { ptr: needle.as_ptr(), len: needle.len() };
+        // SAFETY: `self.search` is non-null (created above or earlier), `&mut self` serializes
+        // access with `self.term`, and `s` points to `needle`'s live bytes which
+        // `ghostty_search_set` copies before returning.
         unsafe { ffi::ghostty_search_set(self.search, GHOSTTY_SEARCH_OPT_NEEDLE, (&s as *const GhosttyString).cast()) };
         self.finding = true;
         // The newest match is the one to show first, as a find bar opened at the prompt does.
@@ -40,6 +48,8 @@ impl VtCore {
             return;
         }
         let opt = if older { GHOSTTY_SEARCH_OPT_SELECT_NEXT } else { GHOSTTY_SEARCH_OPT_SELECT_PREV };
+        // SAFETY: `self.finding` is only true once `self.search` is non-null, `&mut self`
+        // serializes access with `self.term`, and the select options require a `NULL` value.
         unsafe { ffi::ghostty_search_set(self.search, opt, std::ptr::null()) };
         self.mutated_since_snapshot = true;
     }
@@ -50,10 +60,14 @@ impl VtCore {
         if !self.finding {
             return None;
         }
+        // SAFETY: `self.finding` guarantees `self.search` is non-null and bound to live
+        // `self.term`; `&mut self` serializes access with the terminal.
         unsafe { ffi::ghostty_search_run(self.search) };
         let mut total = 0usize;
         let mut index = 0usize;
         let mut selected = GhosttySelection::default();
+        // SAFETY: `self.search` is non-null and each out-pointer matches its key's documented
+        // C type (`size_t*`, `size_t*`, sized `GhosttySelection*`).
         let (has_index, has_selected) = unsafe {
             ffi::ghostty_search_get(self.search, GHOSTTY_SEARCH_DATA_TOTAL_MATCHES, (&mut total as *mut usize).cast());
             (
@@ -64,10 +78,14 @@ impl VtCore {
         };
         let mut buf = GhosttySelectionBuffer { ptr: std::ptr::null_mut(), cap: 0, len: 0 };
         let mut matches = Vec::new();
+        // SAFETY: `self.search` is non-null; `ptr = NULL, cap = 0` queries the required entry
+        // count into `buf.len` for `GHOSTTY_SEARCH_DATA_VIEWPORT_MATCHES`.
         let rc = unsafe { ffi::ghostty_search_get(self.search, GHOSTTY_SEARCH_DATA_VIEWPORT_MATCHES, (&mut buf as *mut GhosttySelectionBuffer).cast::<c_void>()) };
         if rc == GHOSTTY_OUT_OF_SPACE && buf.len > 0 {
             matches = vec![GhosttySelection::default(); buf.len];
             buf = GhosttySelectionBuffer { ptr: matches.as_mut_ptr(), cap: matches.len(), len: 0 };
+            // SAFETY: `self.search` is non-null and `buf.ptr` points to `buf.cap` initialized
+            // `GhosttySelection` entries owned by `matches`.
             if unsafe { ffi::ghostty_search_get(self.search, GHOSTTY_SEARCH_DATA_VIEWPORT_MATCHES, (&mut buf as *mut GhosttySelectionBuffer).cast::<c_void>()) } == GHOSTTY_SUCCESS {
                 matches.truncate(buf.len);
             } else {
@@ -76,6 +94,8 @@ impl VtCore {
         }
         let point = |r: &GhosttyGridRef| {
             let mut out = GhosttyPointCoordinate::default();
+            // SAFETY: `self.term` is live, `r` is an untracked grid ref from `selected` or
+            // `matches` with no intervening terminal mutation, and `&mut out` is a valid out-ptr.
             (unsafe { ffi::ghostty_terminal_point_from_grid_ref(self.term, r, GHOSTTY_POINT_TAG_VIEWPORT, &mut out) } == GHOSTTY_SUCCESS).then_some(out)
         };
         let chosen = has_selected.then(|| (point(&selected.start), point(&selected.end))).filter(|(a, b)| a.is_some() && b.is_some());

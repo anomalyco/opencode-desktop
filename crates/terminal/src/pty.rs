@@ -281,7 +281,7 @@ impl TerminalSession {
             if !cfg!(target_arch = "wasm32") && now.saturating_sub(last) >= SHOWN_AGAIN.as_nanos() as u64 {
                 let (tx, rx) = mpsc::channel();
                 if self.inbox.send(WorkerCmd::Show(tx)) {
-                    let _ = rx.recv_timeout(SHOW_WAIT);
+                    rx.recv_timeout(SHOW_WAIT).ok();
                     // The fresh snapshot is this read's.
                     self.shared.handoff.read();
                 }
@@ -581,7 +581,7 @@ impl Screen {
         if self.publish == Publish::Behind {
             self.woke(shared, waker);
         }
-        let _ = reply.send(());
+        reply.send(()).ok();
     }
 }
 
@@ -638,13 +638,15 @@ pub(crate) fn apply_worker_cmd(
         }
         WorkerCmd::Persist(reply) => {
             let snap = shared.snapshot.lock().clone();
-            let _ = reply.send(PersistedTerminal {
-                buffer: core.serialize_vt_capped(MAX_PERSIST_SCROLLBACK),
-                cols: snap.cols,
-                rows: snap.rows,
-                scroll_y: snap.scrollbar.offset,
-                cursor: shared.cursor.load(Ordering::Acquire),
-            });
+            reply
+                .send(PersistedTerminal {
+                    buffer: core.serialize_vt_capped(MAX_PERSIST_SCROLLBACK),
+                    cols: snap.cols,
+                    rows: snap.rows,
+                    scroll_y: snap.scrollbar.offset,
+                    cursor: shared.cursor.load(Ordering::Acquire),
+                })
+                .ok();
         }
         WorkerCmd::Output(chunk) => {
             shared.cursor.fetch_add(chunk.len() as i64, Ordering::AcqRel);
@@ -665,10 +667,10 @@ pub(crate) fn apply_worker_cmd(
             *dirty = true;
         }
         WorkerCmd::LinkAt { col, row, reply } => {
-            let _ = reply.send(core.hyperlink_at(col, row));
+            reply.send(core.hyperlink_at(col, row)).ok();
         }
         WorkerCmd::SelectionHtml(reply) => {
-            let _ = reply.send(core.selected_html());
+            reply.send(core.selected_html()).ok();
         }
         WorkerCmd::ClearScrollback => {
             core.feed(b"\x1b[3J");

@@ -22,6 +22,18 @@ fn fail(msg: &str) -> ! {
     std::process::exit(1);
 }
 
+fn cargo_env(name: &str) -> String {
+    std::env::var_os(name)
+        .and_then(|v| v.into_string().ok())
+        .unwrap_or_else(|| fail(&format!("terminal build: {name} is not set or not valid UTF-8")))
+}
+
+fn cargo_out_dir() -> PathBuf {
+    std::env::var_os("OUT_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| fail("terminal build: OUT_DIR is not set"))
+}
+
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=build_support.rs");
@@ -35,8 +47,8 @@ fn main() {
         println!("cargo:rerun-if-env-changed={var}");
     }
 
-    let target = std::env::var("TARGET").expect("TARGET");
-    let host = std::env::var("HOST").expect("HOST");
+    let target = cargo_env("TARGET");
+    let host = cargo_env("HOST");
 
     if let Some(raw) = std::env::var_os("GHOSTTY_VT_LIB").filter(|s| !s.is_empty()) {
         let lib = resolve_lib_override(Path::new(&raw)).unwrap_or_else(|e| fail(&e));
@@ -47,7 +59,7 @@ fn main() {
     let cache_root = default_cache_root();
     let archive_name = static_lib_filename(&target);
     if let Some(src_dir) = std::env::var_os("GHOSTTY_SOURCE_DIR").filter(|s| !s.is_empty()) {
-        let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
+        let out_dir = cargo_out_dir();
         let dest = out_dir.join("override-build").join(archive_name);
         let _lock = CacheLock::acquire(&cache_root.join(".build.lock"))
             .unwrap_or_else(|e| fail(&e));
@@ -83,7 +95,7 @@ fn default_cache_root() -> PathBuf {
     if let Some(home) = std::env::var_os("HOME").filter(|s| !s.is_empty()) {
         return PathBuf::from(home).join(".cache").join("seer").join("ghostty-vt");
     }
-    PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR")).join("ghostty-vt-cache")
+    cargo_out_dir().join("ghostty-vt-cache")
 }
 
 fn static_lib_filename(target: &str) -> &'static str {
@@ -118,7 +130,7 @@ fn emit_link(archive: &Path, target: &str) {
         dir.to_path_buf()
     } else {
         // Custom filename via GHOSTTY_VT_LIB: stage as `$OUT_DIR/libghostty-vt.a` for Apple/Unix `ld`.
-        let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
+        let out_dir = cargo_out_dir();
         let staged = out_dir.join("libghostty-vt.a");
         fs::copy(archive, &staged)
             .unwrap_or_else(|e| fail(&format!("terminal build: copy override failed ({e})")));
@@ -156,7 +168,7 @@ fn build_cold(cache_root: &Path, host: &str, target: &str, dest: &Path) -> Resul
         extract_tar(&tarball, &src_dir, true)?;
         build_from_source(&src_dir, cache_root, host, target, dest)
     })();
-    let _ = fs::remove_dir_all(&work_dir);
+    fs::remove_dir_all(&work_dir).ok();
     result
 }
 
@@ -239,7 +251,7 @@ fn build_from_source(
         }
         publish_atomic(&built, dest)
     })();
-    let _ = fs::remove_dir_all(&scratch);
+    fs::remove_dir_all(&scratch).ok();
     result
 }
 
@@ -302,7 +314,7 @@ fn publish_atomic(built: &Path, dest: &Path) -> Result<(), String> {
         )
     })?;
     fs::rename(&tmp, dest).map_err(|e| {
-        let _ = fs::remove_file(&tmp);
+        fs::remove_file(&tmp).ok();
         format!(
             "terminal build: failed to move archive into `{}` ({e})",
             dest.display()
@@ -379,7 +391,7 @@ fn resolve_or_bootstrap_zig(cache_root: &Path, host: &str) -> Result<PathBuf, St
             )
         })
     })();
-    let _ = fs::remove_dir_all(&stage);
+    fs::remove_dir_all(&stage).ok();
     res?;
     Ok(zig_bin)
 }
@@ -518,6 +530,8 @@ fn zig_target(target: &str) -> Result<&'static str, String> {
     }
 }
 
+// Build script has no config::now() or injected clock; wall time disambiguates scratch paths across runs.
+#[allow(clippy::disallowed_methods)]
 fn unique_suffix() -> String {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)

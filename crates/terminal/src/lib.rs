@@ -17,6 +17,7 @@ pub mod persistent_pty;
 mod publish;
 pub mod pty;
 mod render_extract;
+mod selection;
 pub mod theme;
 pub mod types;
 

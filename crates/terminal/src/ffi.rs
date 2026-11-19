@@ -125,6 +125,8 @@ pub struct GhosttyStyle {
 
 impl Default for GhosttyStyle {
     fn default() -> Self {
+        // SAFETY: `GhosttyStyle` is a `#[repr(C)]` POD struct of integers, bools, and C unions
+        // for which all-zeros is a valid bit pattern.
         let mut s: Self = unsafe { std::mem::zeroed() };
         s.size = std::mem::size_of::<Self>();
         s
@@ -159,6 +161,8 @@ pub struct GhosttyPoint {
 
 impl GhosttyPoint {
     pub fn new(tag: c_int, x: u16, y: u32) -> Self {
+        // SAFETY: `GhosttyPoint` is a `#[repr(C)]` POD struct of integers and a C union for
+        // which all-zeros is a valid bit pattern.
         let mut p: Self = unsafe { std::mem::zeroed() };
         p.tag = tag;
         p.value.coordinate = GhosttyPointCoordinate { x, y };
@@ -503,6 +507,8 @@ pub struct GhosttyRenderStateCursor {
 
 impl Default for GhosttyRenderStateCursor {
     fn default() -> Self {
+        // SAFETY: `GhosttyRenderStateCursor` is a `#[repr(C)]` POD struct of integers and bools
+        // for which all-zeros is a valid bit pattern.
         let mut c: Self = unsafe { std::mem::zeroed() };
         c.size = std::mem::size_of::<Self>();
         c
@@ -522,6 +528,8 @@ pub struct GhosttyRenderStateColors {
 
 impl Default for GhosttyRenderStateColors {
     fn default() -> Self {
+        // SAFETY: `GhosttyRenderStateColors` is a `#[repr(C)]` POD struct of integers and bools
+        // for which all-zeros is a valid bit pattern.
         let mut c: Self = unsafe { std::mem::zeroed() };
         c.size = std::mem::size_of::<Self>();
         c

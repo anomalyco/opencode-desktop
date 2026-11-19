@@ -109,7 +109,7 @@ pub(crate) fn run_persistent_worker(
         Err(_) => return errored(&mut conn, &shared, &waker),
     };
     // A keystroke is a few bytes: send it now, not after the last one's ACK (Nagle).
-    let _ = tcp(&ws).set_nodelay(true);
+    tcp(&ws).set_nodelay(true).ok();
     if wait.watch(tcp(&ws)).is_err() {
         return finish(&shared, &waker, failed(Failure::Failed));
     }
@@ -133,9 +133,9 @@ pub(crate) fn run_persistent_worker(
     match end {
         Some(status) => finish(&shared, &waker, status),
         None => {
-            let _ = tcp(&ws).set_nonblocking(false);
-            let _ = ws.close(None);
-            let _ = ws.flush();
+            tcp(&ws).set_nonblocking(false).ok();
+            ws.close(None).ok();
+            ws.flush().ok();
         }
     }
 }
