@@ -19,14 +19,62 @@ use wasm_bindgen_futures::JsFuture;
 use super::{ClientMcpOptions, Conn, McpCall, Outbox, Shared, handle_frame, lock, outbound_message, transition};
 use crate::client::{Server, encode_component};
 
+/// WebSocket lifecycle from the page's event listeners (`onopen`, `onclose`, `onerror`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum SocketState {
+    /// Dialed; waiting for `onopen` (or a connect failure via `onerror`/`onclose`).
+    #[default]
+    Connecting,
+    /// `onopen` fired and the socket is live.
+    Open,
+    /// Closed before `onopen` ever fired.
+    Failed,
+    /// Closed after `onopen` fired; any buffered `frames` still drain before `run` exits.
+    Closed,
+}
+
+enum SocketEvent {
+    Open,
+    Close,
+    Message(String),
+}
+
 /// What the socket's listeners have handed the task since it last looked.
 #[derive(Default)]
 struct Events {
-    open: bool,
-    closed: bool,
+    state: SocketState,
     frames: VecDeque<String>,
     /// Resolves the task's current wait.
     wake: Option<js_sys::Function>,
+}
+
+impl Events {
+    fn step(&mut self, event: SocketEvent) -> Option<js_sys::Function> {
+        match event {
+            SocketEvent::Open => {
+                if self.state == SocketState::Connecting {
+                    self.state = SocketState::Open;
+                }
+            }
+            SocketEvent::Close => {
+                self.state = match self.state {
+                    SocketState::Connecting | SocketState::Failed => SocketState::Failed,
+                    SocketState::Open | SocketState::Closed => SocketState::Closed,
+                };
+            }
+            SocketEvent::Message(frame) => {
+                self.frames.push_back(frame);
+            }
+        }
+        self.wake.take()
+    }
+}
+
+fn dispatch(events: &Rc<RefCell<Events>>, event: SocketEvent) {
+    let wake = events.borrow_mut().step(event);
+    if let Some(wake) = wake {
+        drop(wake.call0(&JsValue::NULL));
+    }
 }
 
 thread_local! {
@@ -99,20 +147,13 @@ pub(super) fn start(server: Server, options: ClientMcpOptions, calls: Sender<Mcp
 async fn serve(url: &str, options: &ClientMcpOptions, calls: &Sender<McpCall>, waker: &Waker, shared: &Shared) -> (bool, bool) {
     let Ok(ws) = web_sys::WebSocket::new(url) else { return (false, false) };
     let events = Rc::new(RefCell::new(Events::default()));
-    let notify = |events: &Rc<RefCell<Events>>, change: &dyn Fn(&mut Events)| {
-        let mut e = events.borrow_mut();
-        change(&mut e);
-        if let Some(wake) = e.wake.take() {
-            let _ = wake.call0(&JsValue::NULL);
-        }
-    };
-    let on_open = { let events = events.clone(); Closure::<dyn FnMut()>::new(move || notify(&events, &|e| e.open = true)) };
-    let on_close = { let events = events.clone(); Closure::<dyn FnMut()>::new(move || notify(&events, &|e| e.closed = true)) };
+    let on_open = { let events = events.clone(); Closure::<dyn FnMut()>::new(move || dispatch(&events, SocketEvent::Open)) };
+    let on_close = { let events = events.clone(); Closure::<dyn FnMut()>::new(move || dispatch(&events, SocketEvent::Close)) };
     let on_message = {
         let events = events.clone();
         Closure::<dyn FnMut(web_sys::MessageEvent)>::new(move |m: web_sys::MessageEvent| {
             if let Some(text) = m.data().as_string() {
-                notify(&events, &|e| e.frames.push_back(text.clone()));
+                dispatch(&events, SocketEvent::Message(text));
             }
         })
     };
@@ -136,9 +177,15 @@ async fn serve(url: &str, options: &ClientMcpOptions, calls: &Sender<McpCall>, w
 
 async fn run(ws: &web_sys::WebSocket, events: &Rc<RefCell<Events>>, bell: u64, options: &ClientMcpOptions, calls: &Sender<McpCall>, waker: &Waker, shared: &Shared) -> (bool, bool) {
     let dialed = rune::time::Instant::now();
-    while !events.borrow().open {
-        if events.borrow().closed || dialed.elapsed() > super::CONNECT_TIMEOUT {
-            return (false, false);
+    loop {
+        match events.borrow().state {
+            SocketState::Open | SocketState::Closed => break,
+            SocketState::Failed => return (false, false),
+            SocketState::Connecting => {
+                if dialed.elapsed() > super::CONNECT_TIMEOUT {
+                    return (false, false);
+                }
+            }
         }
         wait(events, Some(1000)).await;
     }
@@ -165,7 +212,7 @@ async fn run(ws: &web_sys::WebSocket, events: &Rc<RefCell<Events>>, bell: u64, o
                 return (initialized, true);
             }
         }
-        if events.borrow().closed {
+        if matches!(events.borrow().state, SocketState::Closed | SocketState::Failed) {
             return (initialized, false);
         }
         // Idle, nothing but the socket or the app's outbox (its bell) wakes the task: no timer.
