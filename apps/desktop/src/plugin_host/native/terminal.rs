@@ -175,7 +175,7 @@ pub fn screen_version(app: &App, session: &str) -> u64 {
         });
     }
     let now = *app.clock;
-    (now < app.workspace_panes.terminal.bell_until, app.workspace_panes.terminal.cursor_lit(now), app.composer.focused, app.workspace_panes.side.focus.is_focused(), format!("{:?}", app.workspace_panes.side.active_pane_focus)).hash(&mut h);
+    (app.workspace_panes.terminal.bell.is_ringing(now), app.workspace_panes.terminal.cursor_lit(now), app.composer.focused, app.workspace_panes.side.focus.is_focused(), format!("{:?}", app.workspace_panes.side.active_pane_focus)).hash(&mut h);
     crate::terminal::rename_stamp(app, &mut h);
     h.finish()
 }

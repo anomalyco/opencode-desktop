@@ -36,7 +36,7 @@ pub struct Row {
 }
 
 pub fn groups(host: &dyn ConnectHost) -> Vec<(&'static str, Vec<Row>)> {
-    let open = host.connect().open.as_ref();
+    let open = host.connect().dialog();
     let query = open.map_or(String::new(), |o| o.search.text.trim().to_owned());
     let fold = ui::search_fold();
     let list = catalog::integrations(host, crate::connect_dir(host)).unwrap_or_default();
@@ -76,7 +76,7 @@ fn rows(host: &dyn ConnectHost) -> Vec<String> {
 /// ↑ ↓ and ↵ in the list.
 pub fn picker_key(host: &mut dyn ConnectHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
     let ids = rows(host);
-    let Some(open) = host.connect_mut().open.as_mut() else { return false };
+    let Some(open) = host.connect_mut().dialog_mut() else { return false };
     match ev.key {
         Key::Down | Key::Up if !ids.is_empty() => {
             let at = open.active.as_ref().and_then(|a| ids.iter().position(|i| i == a));
@@ -103,7 +103,7 @@ pub fn picker_key(host: &mut dyn ConnectHost, ev: &KeyEvent, tx: &mut Tx) -> boo
 
 /// The dialog's name: the list's, or the step's title.
 pub fn title(host: &dyn ConnectHost) -> String {
-    let Some(open) = &host.connect().open else { return String::new() };
+    let Some(open) = host.connect().dialog() else { return String::new() };
     let Some(p) = &open.dialog.provider else { return opencode_i18n::t!("dialog.provider.title").into() };
     let name = step_name(host, &p.id);
     match dialog::body(&open.dialog) {
@@ -131,13 +131,13 @@ fn navigate(host: &mut dyn ConnectHost, target: BackTarget, tx: &mut Tx) {
 
 fn clear_active(host: &mut dyn ConnectHost, tx: &mut Tx) {
     tx.instant();
-    if let Some(o) = host.connect_mut().open.as_mut() {
+    if let Some(o) = host.connect_mut().dialog_mut() {
         o.active = None;
     }
 }
 
 fn set_active_on_hover(host: &mut dyn ConnectHost, id: &str, inside: bool, tx: &mut Tx) {
-    if inside && let Some(o) = host.connect_mut().open.as_mut() {
+    if inside && let Some(o) = host.connect_mut().dialog_mut() {
         tx.instant();
         o.active = Some(id.to_owned());
     }
@@ -155,7 +155,7 @@ fn remote_label(host: &dyn ConnectHost, p: &Pal, id: &str) -> Option<El> {
     if id != dialog::CONSOLE {
         return None;
     }
-    let AuthHost::Remote(name) = &host.connect().open.as_ref()?.auth_host else { return None };
+    let AuthHost::Remote(name) = &host.connect().dialog()?.auth_host else { return None };
     let label = opencode_i18n::t!("provider.connect.remote.label", server = name);
     Some(
         row()
@@ -173,7 +173,7 @@ fn remote_label(host: &dyn ConnectHost, p: &Pal, id: &str) -> Option<El> {
 
 /// The Connect provider dialog modal layer (`DialogSize::Normal`, anchored fit).
 pub fn layer<H: ConnectHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> Vec<El> {
-    if s.connect().open.is_none() {
+    if !s.connect().is_open() {
         return Vec::new();
     }
     let win = ui::dialog_window(s, cx);
@@ -182,7 +182,7 @@ pub fn layer<H: ConnectHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> Vec<El> {
 
 /// Builds the Connect provider dialog modal sized for `win`.
 pub fn dialog<H: ConnectHost + 'static>(s: &H, p: &Pal, win: [f32; 2]) -> Vec<El> {
-    let Some(open) = &s.connect().open else { return Vec::new() };
+    let Some(open) = s.connect().dialog() else { return Vec::new() };
     let frame = dialog::frame(&open.dialog);
     let authorizing = open.dialog.provider.as_ref().and_then(|p| p.step.connect()).is_some_and(crate::machine::authorizing);
     let label = title(s);

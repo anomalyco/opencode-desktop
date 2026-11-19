@@ -331,7 +331,7 @@ pub fn dialog_shows(app: &App) -> bool {
         || app.dialogs.fork.is_open()
         || app.dialogs.jump.open()
         || app.dialogs.menus.confirming().is_some()
-        || app.dialogs.connect.open.is_some()
+        || app.dialogs.connect.is_modal_open()
         || app.dialogs.mcp.open.is_some()
         || crate::servers::dialog::is_open(app)
         || app.dialogs.remote_picker.is_open()

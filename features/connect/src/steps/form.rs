@@ -18,7 +18,7 @@ fn form_input(host: &mut dyn ConnectHost, i: form::Input, tx: &mut Tx) {
 }
 
 fn submit_continue(host: &mut dyn ConnectHost, tx: &mut Tx) {
-    let pre = host.connect().open.as_ref().and_then(|o| {
+    let pre = host.connect().dialog().and_then(|o| {
         let Conn::Form(_, f) = o.dialog.provider.as_ref()?.step.connect()? else { return None };
         match f.step.kind {
             form::Kind::Text { .. } => Some(form::Input::TextChanged(o.field.text.clone())),
@@ -33,22 +33,22 @@ fn submit_continue(host: &mut dyn ConnectHost, tx: &mut Tx) {
 }
 
 fn add_custom(host: &mut dyn ConnectHost, tx: &mut Tx) {
-    let text = host.connect().open.as_ref().map(|o| o.field.text.clone()).unwrap_or_default();
+    let text = host.connect().dialog().map(|o| o.field.text.clone()).unwrap_or_default();
     form_input(host, form::Input::CustomChanged(text), tx);
     form_input(host, form::Input::CustomAdded, tx);
-    if let Some(o) = host.connect_mut().open.as_mut() {
+    if let Some(o) = host.connect_mut().dialog_mut() {
         o.field = TextEdit::new("");
         o.field.focused = true;
     }
 }
 
 fn sync_custom_field(host: &mut dyn ConnectHost, tx: &mut Tx) {
-    let text = host.connect().open.as_ref().map(|o| o.field.text.clone()).unwrap_or_default();
+    let text = host.connect().dialog().map(|o| o.field.text.clone()).unwrap_or_default();
     form_input(host, form::Input::CustomChanged(text), tx);
 }
 
 fn sync_text_field(host: &mut dyn ConnectHost, tx: &mut Tx) {
-    let text = host.connect().open.as_ref().map(|o| o.field.text.clone()).unwrap_or_default();
+    let text = host.connect().dialog().map(|o| o.field.text.clone()).unwrap_or_default();
     form_input(host, form::Input::TextChanged(text), tx);
 }
 
@@ -119,7 +119,7 @@ fn external<H: ConnectHost + 'static>(p: &Pal, f: &form::Form, url: &str, browse
 }
 
 fn multiselect<H: ConnectHost + 'static>(s: &H, p: &Pal, f: &form::Form, picked: &[String], _custom: &str) -> El {
-    let Some(open) = s.connect().open.as_ref() else { return col() };
+    let Some(open) = s.connect().dialog() else { return col() };
     let mut options = f.options();
     let extra: Vec<String> = picked.iter().filter(|v| !options.iter().any(|o| o.0 == **v)).cloned().collect();
     options.extend(extra.into_iter().map(|v| (v.clone(), v, None)));
@@ -168,7 +168,7 @@ fn multiselect<H: ConnectHost + 'static>(s: &H, p: &Pal, f: &form::Form, picked:
 }
 
 fn choice<H: ConnectHost + 'static>(s: &H, p: &Pal, f: &form::Form) -> El {
-    let Some(open) = s.connect().open.as_ref() else { return col() };
+    let Some(open) = s.connect().dialog() else { return col() };
     let selected = f.selected();
     let mut radios = col().key("connect-radios").w_full().gap(12.0);
     for (value, label, description) in f.options() {
@@ -218,7 +218,7 @@ fn choice<H: ConnectHost + 'static>(s: &H, p: &Pal, f: &form::Form) -> El {
 }
 
 fn text_step<H: ConnectHost + 'static>(s: &H, p: &Pal, f: &form::Form) -> El {
-    let Some(open) = s.connect().open.as_ref() else { return col() };
+    let Some(open) = s.connect().dialog() else { return col() };
     let field = TextInput::new(&open.field)
         .placeholder(f.step.field.placeholder.clone().unwrap_or_default())
         .label(f.title())

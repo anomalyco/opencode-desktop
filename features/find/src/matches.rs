@@ -13,17 +13,15 @@ use crate::{Find, FindHost};
 
 impl Find {
     pub(crate) fn results(&self) -> Option<&Results> {
-        match &self.answer {
+        match &self.open()?.answer {
             Answer::None => None,
-            Answer::Partial { results, .. } | Answer::Complete { results, .. } => {
-                self.is_open().then_some(results).map(|r| &**r)
-            }
+            Answer::Partial { results, .. } | Answer::Complete { results, .. } => Some(results),
         }
     }
 
     /// The query the matches are for.
     pub(crate) fn answered(&self) -> Option<&str> {
-        match &self.answer {
+        match &self.open()?.answer {
             Answer::None => None,
             Answer::Partial { query, .. } | Answer::Complete { query, .. } => Some(query),
         }

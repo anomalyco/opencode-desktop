@@ -3,13 +3,15 @@
 
 use std::cell::Cell;
 use std::sync::atomic::Ordering;
-use std::time::Duration;
 
 use opencode_kit::client::Server;
 use rune::Tx;
 use terminal::{SessionStatus, TerminalConfig, TerminalSession, VtEvent};
 
-use crate::{PaintedTheme, TerminalSurfaceHost, TerminalTab, grid, mount, ops, panel_key, persist, side_ops};
+use crate::{
+    BellEffect, BellEvent, BlinkEffect, BlinkEvent, FocusClaimEffect, FocusClaimEvent, PaintedTheme,
+    TerminalSurfaceHost, TerminalTab, grid, mount, ops, panel_key, persist, side_ops,
+};
 
 /// Steps each session terminal's [`mount::Mount`]: a failed one leaves once it doesn't show,
 /// and showing it again, or the server reconnecting, attaches it anew. Quiet (and free of
@@ -81,10 +83,15 @@ fn attach_terminal(host: &mut dyn TerminalSurfaceHost, srv: Server, wk: &str, id
 /// Drains worker updates, visual bell flashes, exited/recovered PTYs, and phase-locked cursor blink edges.
 /// Zero heap allocations and `false` return on idle frames so `idle_poll` stays silent.
 pub fn poll_terminal(host: &mut dyn TerminalSurfaceHost, tx: &mut Tx) -> bool {
-    if host.terminal().claim_focus {
-        host.terminal_mut().claim_focus = false;
-        if tx.focused() != Some(grid::SCREEN_KEY) {
-            tx.focus(grid::SCREEN_KEY, tx.focus_visible());
+    if host.terminal().focus_claim.is_pending() {
+        for effect in host.terminal_mut().focus_claim.step(FocusClaimEvent::Poll) {
+            match effect {
+                FocusClaimEffect::FocusScreen => {
+                    if tx.focused() != Some(grid::SCREEN_KEY) {
+                        tx.focus(grid::SCREEN_KEY, tx.focus_visible());
+                    }
+                }
+            }
         }
     }
     if host.poll_story_variant() {
@@ -160,8 +167,12 @@ pub fn poll_terminal(host: &mut dyn TerminalSurfaceHost, tx: &mut Tx) -> bool {
             persist::queue_terminal_save(host);
         }
         if bell {
-            host.terminal_mut().bell_until = now + 0.14;
-            tx.wake_after(Duration::from_millis(145));
+            for effect in host.terminal_mut().bell.step(BellEvent::Rang { now }) {
+                match effect {
+                    BellEffect::Wake(after) => tx.wake_after(after),
+                    BellEffect::Expired => changed = true,
+                }
+            }
         }
     }
 
@@ -182,15 +193,19 @@ pub fn poll_terminal(host: &mut dyn TerminalSurfaceHost, tx: &mut Tx) -> bool {
     }
 
     let now = host.clock();
-    if host.terminal().bell_until > 0.0 && now >= host.terminal().bell_until {
-        host.terminal_mut().bell_until = 0.0;
-        changed = true;
+    if host.terminal().bell.expired(now) {
+        for effect in host.terminal_mut().bell.step(BellEvent::Tick { now }) {
+            match effect {
+                BellEffect::Wake(after) => tx.wake_after(after),
+                BellEffect::Expired => changed = true,
+            }
+        }
     }
 
     let visible_and_focused = if host.terminal().workspaces.is_empty() {
         false
     } else if host.is_story_stage() {
-        host.terminal().story_focused
+        host.terminal().story.is_focused()
     } else {
         side_ops::terminal_focus(host).is_some()
     };
@@ -215,14 +230,16 @@ pub fn poll_terminal(host: &mut dyn TerminalSurfaceHost, tx: &mut Tx) -> bool {
         };
 
         if blinks {
-            let lit = host.terminal().cursor_lit(now);
-            if lit != host.terminal().last_blink_lit {
-                host.terminal_mut().last_blink_lit = lit;
-                changed = true;
+            if host.terminal().blink.flips_at(now) {
+                for effect in host.terminal_mut().blink.step(BlinkEvent::Tick { now }) {
+                    match effect {
+                        BlinkEffect::Redraw => changed = true,
+                        BlinkEffect::Wake(after) => tx.wake_after(after),
+                    }
+                }
+            } else {
+                tx.wake_after(host.terminal().blink.next_edge(now));
             }
-            let dt = (now - host.terminal().blink_epoch).max(0.0);
-            let rem = (0.5 - (dt % 0.5)).clamp(0.01, 0.5);
-            tx.wake_after(Duration::from_secs_f64(rem));
         }
     }
 

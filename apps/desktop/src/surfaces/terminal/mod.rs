@@ -80,7 +80,7 @@ impl TerminalSurfaceHost for App {
 
     fn poll_story_variant(&mut self) -> bool {
         if self.fixture_run.stage.is_some()
-            && self.workspace_panes.terminal.story_built_variant.is_some_and(|v| v != *self.fixture_run.variant)
+            && self.workspace_panes.terminal.story.needs_rebuild(*self.fixture_run.variant)
         {
             story::init_story(self);
             return true;

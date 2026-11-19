@@ -87,8 +87,7 @@ pub(super) fn step_text(p: &Pal, words: String) -> El {
 
 pub(super) fn current(host: &dyn ConnectHost) -> &Conn {
     host.connect()
-        .open
-        .as_ref()
+        .dialog()
         .and_then(|o| o.dialog.provider.as_ref())
         .and_then(|p| p.step.connect())
         .unwrap_or(&Conn::Disposed)
@@ -96,15 +95,14 @@ pub(super) fn current(host: &dyn ConnectHost) -> &Conn {
 
 pub(super) fn provider_id(host: &dyn ConnectHost) -> String {
     host.connect()
-        .open
-        .as_ref()
+        .dialog()
         .and_then(|o| o.dialog.provider.as_ref())
         .map(|p| p.id.clone())
         .unwrap_or_default()
 }
 
 pub fn body<H: ConnectHost + 'static>(s: &H, p: &Pal, frame: Frame) -> El {
-    let Some(open) = s.connect().open.as_ref() else { return col() };
+    let Some(open) = s.connect().dialog() else { return col() };
     let d = &open.dialog;
     let Some(provider) = d.provider.as_ref() else { return col() };
     let console = provider.id == CONSOLE;
@@ -251,7 +249,7 @@ fn build_console_sign_in_layout(p: &Pal, failed: bool, code: Option<String>, cop
 }
 
 fn copy_link(host: &mut dyn ConnectHost, tx: &mut Tx) {
-    let Some((session, auth)) = host.connect().open.as_ref().and_then(|o| {
+    let Some((session, auth)) = host.connect().dialog().and_then(|o| {
         let auth = o.dialog.provider.as_ref().and_then(|p| p.step.connect()).and_then(conn::authorization).cloned()?;
         Some((o.dialog.session, auth))
     }) else {

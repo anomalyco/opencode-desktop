@@ -10,39 +10,34 @@ use session_view::dialog::DialogSize;
 use session_view::palette::{Pal, kit};
 
 use crate::ui::{self, BODY, Fit};
-use crate::{ConnectHost, WELCOME_OVERLAY_ID};
+use crate::{ConnectHost, ModalEvent};
 
 /// `text-[20px] font-[530] leading-7 tracking-[-0.3px]`.
 const TITLE: TextStyle = TextStyle::new(20.0, 530.0).lh(28.0).tracking(-0.3);
 const USAGE_URL: &str = "https://chatgpt.com/settings/usage";
 
-/// Shows the welcome after a connect that earned it, unless it was ever shown.
+/// Shows the welcome after a connect that earned it, unless it was ever shown or another modal is open.
 /// Returns `true` when the welcome dialog opened.
 pub fn open(host: &mut dyn ConnectHost, tx: &mut Tx) -> bool {
-    if host.chatgpt_welcome_seen() {
+    if host.chatgpt_welcome_seen() || host.connect().is_modal_open() {
         return false;
     }
-    host.mark_chatgpt_welcome_seen();
-    host.connect_mut().welcome = true;
-    let return_focus = tx.focused().map(str::to_owned);
-    host.on_overlay_opened(WELCOME_OVERLAY_ID, return_focus);
+    crate::apply_modal(host, ModalEvent::OpenWelcome, tx);
     true
 }
 
 /// Closes the ChatGPT plan welcome dialog, notifies `OverlayStack`, and restores composer focus.
 pub fn close(host: &mut dyn ConnectHost, tx: &mut Tx) {
-    if !host.connect().welcome {
+    if !host.connect().is_welcome_open() {
         return;
     }
     tx.instant();
-    host.connect_mut().welcome = false;
-    host.on_overlay_closed(WELCOME_OVERLAY_ID);
-    host.auto_focus_composer(tx);
+    crate::apply_modal(host, ModalEvent::CloseWelcome, tx);
 }
 
 /// Esc and Enter close it, Enter as the focused Got it does.
 pub fn key(host: &mut dyn ConnectHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if !host.connect().welcome {
+    if !host.connect().is_welcome_open() {
         return false;
     }
     if matches!(ev.key, Key::Escape | Key::Enter) {
@@ -53,7 +48,7 @@ pub fn key(host: &mut dyn ConnectHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
 
 /// The ChatGPT plan welcome modal layer (`DialogSize::Normal`, content fit).
 pub fn layer<H: ConnectHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> Vec<El> {
-    if !s.connect().welcome {
+    if !s.connect().is_welcome_open() {
         return Vec::new();
     }
     let win = ui::dialog_window(s, cx);
@@ -64,7 +59,7 @@ pub fn layer<H: ConnectHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> Vec<El> {
 /// Got it is `button-v2` at size large: 32 tall, 15 in, which rune-kit's older `Large` keeps.
 #[allow(deprecated)]
 pub fn dialog<H: ConnectHost + 'static>(s: &H, p: &Pal, win: [f32; 2]) -> Vec<El> {
-    if !s.connect().welcome {
+    if !s.connect().is_welcome_open() {
         return Vec::new();
     }
     let confirm = ui::button(t!("provider.connect.chatgptWelcome.confirm"), ButtonVariant::Contrast)
