@@ -178,6 +178,11 @@ impl SharedEngine {
     pub(crate) fn step(&mut self, event: EngineEvent) -> EngineEffect {
         match event {
             EngineEvent::MockStatus(next) => {
+                // Accepted difference from the old separate `status`/`outbox` locks, which only
+                // overwrote `status` and left `outbox` intact: turning `Connected` into
+                // `Disconnected` is safe because `MockStatus` is only called by `set_mock_status`,
+                // `insert_mock_tab`, and `with_socket` (stories, fixtures, and fresh hosts), never
+                // on a live sidecar connection.
                 self.phase = match std::mem::replace(&mut self.phase, EnginePhase::Disconnected(EngineStatus::Unsupported)) {
                     EnginePhase::Captured { outbox, .. } => EnginePhase::Captured { status: next, outbox },
                     _ => EnginePhase::Disconnected(next),
