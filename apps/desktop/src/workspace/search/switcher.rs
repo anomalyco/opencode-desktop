@@ -234,7 +234,7 @@ impl SwitcherHost for App {
     fn before_switcher_open(&mut self) -> bool {
         // The palette lists the commands a plugin offers as their `enabled` and `hidden` say.
         crate::plugin_host::dormant::wake_kind(self, "commands", &["enabled", "hidden"]);
-        let restore = self.composer.focused || (self.dialogs.project_switcher.open && self.dialogs.project_switcher.restore_composer());
+        let restore = self.composer.focused || self.dialogs.project_switcher.restore_composer();
         self.close_picker(false);
         self.close_project_switcher(false);
         self.project_state.home_menu_open = false;
@@ -447,7 +447,7 @@ impl Feature<App> for SwitcherFeature {
                 .with_z(110)
                 .with_key_priority(310)
                 .with_render(|s, cx| {
-                    if s.dialogs.project_switcher.open {
+                    if s.dialogs.project_switcher.is_open() {
                         let p = crate::palette::pal(s.dark(cx));
                         project::view(s, p, cx).into()
                     } else {

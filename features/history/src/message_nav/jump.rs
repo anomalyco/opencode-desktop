@@ -42,14 +42,19 @@ pub struct HistoryReply {
     pub result: Result<Vec<Prompt>, String>,
 }
 
+/// Open-only dialog context carried inside [`State`] while the Jump to message dialog is open
+/// (`dialog-jump-to-message.tsx`, `jump-to-message.tsx`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct OpenDialog {
+    session: String,
+    active: Option<String>,
+    restore_composer: bool,
+}
+
 #[derive(Default)]
 pub struct JumpState {
-    machine: State,
+    machine: State<OpenDialog>,
     pub search: TextEdit,
-    active: Option<String>,
-    /// The session the dialog lists, and whether the composer had focus when it opened.
-    session: String,
-    restore_composer: bool,
 }
 
 impl JumpState {
@@ -66,11 +71,21 @@ impl JumpState {
     }
 
     pub fn session(&self) -> &str {
-        &self.session
+        self.machine.open_data().map_or("", |d| d.session.as_str())
     }
 
     pub fn restore_composer(&self) -> bool {
-        self.restore_composer
+        self.machine.open_data().is_some_and(|d| d.restore_composer)
+    }
+
+    fn active(&self) -> Option<&str> {
+        self.machine.open_data().and_then(|d| d.active.as_deref())
+    }
+
+    fn set_active(&mut self, next: Option<String>) {
+        if let Some(d) = self.machine.open_data_mut() {
+            d.active = next;
+        }
     }
 }
 
@@ -87,7 +102,7 @@ pub fn open(host: &mut dyn MessageNavHost, tx: &mut Tx) -> bool {
     };
     tx.instant();
     let was_open = host.jump().open();
-    let prev_restore = host.jump().restore_composer;
+    let prev_restore = host.jump().restore_composer();
     if was_open {
         close(host, false);
     }
@@ -96,15 +111,13 @@ pub fn open(host: &mut dyn MessageNavHost, tx: &mut Tx) -> bool {
     let return_focus = tx.focused().map(str::to_owned);
     {
         let j = host.jump_mut();
-        j.restore_composer = restore;
-        j.session = sid;
         j.search = TextEdit::new("");
         j.search.focused = true;
     }
     host.on_overlay_opened(JUMP_OVERLAY_ID, return_focus);
-    step_jump(host, Event::Start, tx);
+    step_jump(host, Event::Start(OpenDialog { session: sid, active: None, restore_composer: restore }), tx);
     let first = rows(host).first().map(|r| r.prompt.id.clone());
-    host.jump_mut().active = first;
+    host.jump_mut().set_active(first);
     true
 }
 
@@ -113,36 +126,44 @@ pub fn close(host: &mut dyn MessageNavHost, restore_focus: bool) {
     if !host.jump().open() {
         return;
     }
-    drop(host.jump_mut().machine.step(Event::Disposed));
-    leave(host, restore_focus);
+    let effects = host.jump_mut().machine.step(Event::Disposed);
+    let restore_composer = effects
+        .into_iter()
+        .find_map(|effect| match effect {
+            Effect::Closed(open) => Some(open.restore_composer),
+            _ => None,
+        })
+        .unwrap_or(false);
+    leave(host, restore_focus, restore_composer);
 }
 
-fn leave(host: &mut dyn MessageNavHost, restore_focus: bool) {
-    let restore = {
+fn leave(host: &mut dyn MessageNavHost, restore_focus: bool, restore_composer: bool) {
+    {
         let j = host.jump_mut();
         j.search.focused = false;
         j.search.cancel_composition();
-        j.restore_composer
-    };
+    }
     host.on_overlay_closed(JUMP_OVERLAY_ID);
     if restore_focus {
-        host.restore_composer_focus(restore);
+        host.restore_composer_focus(restore_composer);
     }
 }
 
-fn step_jump(host: &mut dyn MessageNavHost, event: Event, tx: &mut Tx) {
+fn step_jump(host: &mut dyn MessageNavHost, event: Event<OpenDialog>, tx: &mut Tx) {
     let effects = host.jump_mut().machine.step(event);
     for effect in effects {
         match effect {
             Effect::HistoryLoad { attempt } => load_history(host, attempt, tx),
             Effect::OpenLoad { .. } => {
-                let sid = host.jump().session.clone();
+                let sid = host.jump().session().to_owned();
                 host.read_toward_place(&sid, tx);
             }
-            Effect::Jump { id } => {
-                leave(host, true);
-                let sid = host.jump().session.clone();
-                super::jump_to(host, &sid, &id, tx);
+            Effect::Jump { id, open } => {
+                leave(host, true, open.restore_composer);
+                super::jump_to(host, &open.session, &id, tx);
+            }
+            Effect::Closed(open) => {
+                leave(host, false, open.restore_composer);
             }
             // A read already on its way lands with an attempt the machine no longer takes.
             Effect::Cancel => {}
@@ -153,7 +174,7 @@ fn step_jump(host: &mut dyn MessageNavHost, event: Event, tx: &mut Tx) {
 /// Older prompts for the picker only: paging them into the timeline would move the reader.
 /// A session whose first page holds all of it has none.
 fn load_history(host: &mut dyn MessageNavHost, attempt: u32, tx: &mut Tx) {
-    let sid = host.jump().session.clone();
+    let sid = host.jump().session().to_owned();
     if host.all_pages_loaded(&sid) || !host.is_live() {
         step_jump(host, Event::HistoryLoaded { attempt, history: Vec::new() }, tx);
         return;
@@ -174,21 +195,27 @@ pub fn fetch_history(server: &Server, request: &HistoryRequest) -> HistoryReply 
 
 /// Applies a completed [`HistoryReply`] back onto `host` on the UI thread.
 pub fn apply_history_reply(host: &mut dyn MessageNavHost, reply: HistoryReply, tx: &mut Tx) {
+    if !host.jump().open() {
+        return;
+    }
     let event = match reply.result {
         Ok(history) => Event::HistoryLoaded { attempt: reply.attempt, history },
         Err(_) => Event::HistoryFailed { attempt: reply.attempt },
     };
     step_jump(host, event, tx);
-    if host.jump().active.is_none() {
+    if host.jump().open() && host.jump().active().is_none() {
         let first = rows(host).first().map(|r| r.prompt.id.clone());
-        host.jump_mut().active = first;
+        host.jump_mut().set_active(first);
     }
 }
 
 /// Every prompt the dialog can list: the older history, then the timeline's own, which
 /// win by id; none with no words, none still waiting to send, none past a revert.
 pub fn prompts(host: &dyn MessageNavHost) -> Vec<Prompt> {
-    let sid = &host.jump().session;
+    let Some(open) = host.jump().machine.open_data() else {
+        return Vec::new();
+    };
+    let sid = open.session.as_str();
     let mut all: Vec<Prompt> = host.jump().machine.history().to_vec();
     let shown = super::prompt_ids(host, sid);
     if let Some(t) = host.transcript(sid) {
@@ -237,8 +264,11 @@ fn rows(host: &dyn MessageNavHost) -> Vec<Row> {
 }
 
 fn choose(host: &mut dyn MessageNavHost, id: &str, tx: &mut Tx) {
+    if !host.jump().open() {
+        return;
+    }
     tx.instant();
-    let sid = host.jump().session.clone();
+    let sid = host.jump().session().to_owned();
     let loaded = host
         .transcript(&sid)
         .is_some_and(|t| t.messages.iter().any(|m| matches!(m, Message::User { id: x, .. } if x == id)));
@@ -263,7 +293,7 @@ pub fn key(host: &mut dyn MessageNavHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
             tx.instant();
             let list = rows(host);
             if !list.is_empty() {
-                let cur = host.jump().active.as_ref().and_then(|id| list.iter().position(|r| &r.prompt.id == id));
+                let cur = host.jump().active().and_then(|id| list.iter().position(|r| r.prompt.id == id));
                 let next = cycle(list.len(), cur, if ev.key == Key::Down { 1 } else { -1 });
                 let id = list[next].prompt.id.clone();
                 if next == 0 {
@@ -271,7 +301,7 @@ pub fn key(host: &mut dyn MessageNavHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
                 } else {
                     tx.scroll_into_view_in("jump-scroll", format!("jump-row-{id}"));
                 }
-                host.jump_mut().active = Some(id);
+                host.jump_mut().set_active(Some(id));
             }
             true
         }
@@ -279,9 +309,8 @@ pub fn key(host: &mut dyn MessageNavHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
             let list = rows(host);
             let chosen = host
                 .jump()
-                .active
-                .as_ref()
-                .and_then(|id| list.iter().find(|r| &r.prompt.id == id))
+                .active()
+                .and_then(|id| list.iter().find(|r| r.prompt.id == id))
                 .or_else(|| list.first())
                 .map(|r| r.prompt.id.clone());
             if let Some(id) = chosen {
@@ -350,7 +379,7 @@ pub fn poll(host: &mut dyn MessageNavHost, tx: &mut Tx) -> bool {
     if !host.jump().open() {
         return false;
     }
-    let sid = host.jump().session.clone();
+    let sid = host.jump().session().to_owned();
     if host.displayed_session_id().or_else(|| host.active_session_id()) != Some(sid.as_str()) {
         close(host, false);
         return true;
@@ -382,7 +411,7 @@ pub fn poll(host: &mut dyn MessageNavHost, tx: &mut Tx) -> bool {
 fn on_query_change(host: &mut dyn MessageNavHost, tx: &mut Tx) {
     tx.instant();
     let first = rows(host).first().map(|r| r.prompt.id.clone());
-    host.jump_mut().active = first;
+    host.jump_mut().set_active(first);
 }
 
 fn key_or_shortcut(host: &mut dyn MessageNavHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
@@ -397,15 +426,15 @@ fn clear_search(host: &mut dyn MessageNavHost, tx: &mut Tx) {
         j.search.focused = true;
     }
     let first = rows(host).first().map(|r| r.prompt.id.clone());
-    host.jump_mut().active = first;
+    host.jump_mut().set_active(first);
 }
 
 fn on_row_hover(host: &mut dyn MessageNavHost, id: &str, inside: bool, tx: &mut Tx) {
-    if host.jump().machine.opening() {
+    if !host.jump().open() || host.jump().machine.opening() {
         return;
     }
     tx.instant();
-    host.jump_mut().active = inside.then(|| id.to_owned());
+    host.jump_mut().set_active(inside.then(|| id.to_owned()));
 }
 
 fn on_retry(host: &mut dyn MessageNavHost, tx: &mut Tx) {
@@ -550,7 +579,7 @@ pub fn view<H: MessageNavHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> [El; 2] 
     let any = !prompts(host).is_empty();
     let opening = host.jump().machine.opening();
     let status = host.jump().machine.status().map(|k| opencode_i18n::I18N.text(k));
-    let active = host.jump().active.as_ref().filter(|id| list_rows.iter().any(|r| &r.prompt.id == *id));
+    let active = host.jump().active().filter(|id| list_rows.iter().any(|r| r.prompt.id == *id));
     let query = host.jump().search.text.trim().to_owned();
     let typed = !host.jump().search.text.is_empty();
     let now_ms = host.now_ms();
@@ -578,7 +607,7 @@ pub fn view<H: MessageNavHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> [El; 2] 
     } else {
         let mut el = col().key("jump-results").w_full().px(6.0).pb(6.0).gap(ROW_GAP);
         for r in &list_rows {
-            let is_active = active == Some(&r.prompt.id);
+            let is_active = active == Some(r.prompt.id.as_str());
             let (pick, hover_id) = (r.prompt.id.clone(), r.prompt.id.clone());
             let item = row_shell(p, r, &query, is_active, now_ms)
                 .on_hover_change(move |s: &mut H, inside, tx: &mut Tx| on_row_hover(s, &hover_id, inside, tx))

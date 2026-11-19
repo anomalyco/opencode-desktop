@@ -14,20 +14,12 @@ use crate::tabs::{
 use crate::{ClosedTabInfo, SessionPane};
 
 use super::{
-    FocusMode, NewTabEntry, SideMenu, Visibility, all_panels, find_panel, panes_shown, resolve_side_region,
-    session_side_mut, shown_new_tab, side_open, side_stored_open,
+    BackgroundOpenEvent, CloseTabGuardEvent, NewTabEntry, SavedKeyboardFocus, SideMenu, Visibility, all_panels,
+    find_panel, panes_shown, resolve_side_region, session_side_mut, shown_new_tab, side_open, side_stored_open,
 };
 
-/// Saved keyboard focus state for [`begin_keeping_keyboard`] / [`end_keeping_keyboard`].
-#[derive(Clone, Copy, Debug)]
-pub struct SavedKeyboardFocus {
-    pub composer_focused: bool,
-    pub side_focus: FocusMode,
-    pub active_pane_focus: SessionPane,
-}
-
-/// Begins a background open (`background_open = true`) and snapshots current keyboard focus.
-pub fn begin_keeping_keyboard(host: &mut dyn PanelsHost) -> SavedKeyboardFocus {
+/// Begins a background open (`BackgroundOpen::Active`) and snapshots current keyboard focus.
+pub fn begin_keeping_keyboard(host: &mut dyn PanelsHost) {
     let composer_focused = host.composer_focused();
     let side = host.side_mut();
     let saved = SavedKeyboardFocus {
@@ -35,18 +27,20 @@ pub fn begin_keeping_keyboard(host: &mut dyn PanelsHost) -> SavedKeyboardFocus {
         side_focus: side.focus.mode(),
         active_pane_focus: side.active_pane_focus,
     };
-    side.background_open = true;
-    saved
+    side.background_open.step(BackgroundOpenEvent::Begin(saved));
 }
 
-/// Restores the focus snapshot saved by [`begin_keeping_keyboard`] and clears `background_open`.
-pub fn end_keeping_keyboard(host: &mut dyn PanelsHost, saved: SavedKeyboardFocus) {
-    {
+/// Ends the active background open and restores the focus snapshot saved by [`begin_keeping_keyboard`].
+pub fn end_keeping_keyboard(host: &mut dyn PanelsHost) {
+    let saved = {
         let side = host.side_mut();
-        side.background_open = false;
+        let Some(saved) = side.background_open.step(BackgroundOpenEvent::End) else {
+            return;
+        };
         side.focus.restore(saved.side_focus);
         side.active_pane_focus = saved.active_pane_focus;
-    }
+        saved
+    };
     host.set_composer_focused(saved.composer_focused);
 }
 
@@ -54,9 +48,9 @@ pub fn end_keeping_keyboard(host: &mut dyn PanelsHost, saved: SavedKeyboardFocus
 /// the keyboard where it was: now, and when the tab's panel hears at the next poll that it
 /// was selected, as a restored tab's does.
 pub fn keeping_keyboard<H: PanelsHost, R>(host: &mut H, open: impl FnOnce(&mut H) -> R) -> R {
-    let saved = begin_keeping_keyboard(host);
+    begin_keeping_keyboard(host);
     let out = open(host);
-    end_keeping_keyboard(host, saved);
+    end_keeping_keyboard(host);
     out
 }
 
@@ -98,6 +92,7 @@ pub fn open_side_new_tab(host: &mut dyn PanelsHost, pane: SessionPane) -> String
         side.chosen_new_tab.insert(pane, id.clone());
         side.focus.focus();
         side.active_pane_focus = pane;
+        side.close_guard.step(CloseTabGuardEvent::RegionOpened);
         let st = side.sessions.entry(sid).or_default();
         if pane == SessionPane::Bottom {
             st.bottom_open = true;
@@ -150,6 +145,7 @@ pub fn toggle_side_region(host: &mut dyn PanelsHost, tx: &mut Tx) {
         side.sessions.entry(sid.clone()).or_default().visibility.step(true);
         side.focus.focus();
         side.active_pane_focus = SessionPane::Side;
+        side.close_guard.step(CloseTabGuardEvent::RegionOpened);
     }
     // Opening moves focus into it (`panels.tsx` `toggle`): the prompt gives up the keyboard
     // below, and without this nothing had it, so a reader heard nothing.
@@ -213,6 +209,7 @@ pub fn toggle_bottom_region(host: &mut dyn PanelsHost) {
     if st.bottom_open {
         side.focus.focus();
         side.active_pane_focus = SessionPane::Bottom;
+        side.close_guard.step(CloseTabGuardEvent::RegionOpened);
     } else {
         side.focus.blur();
     }
@@ -247,6 +244,7 @@ pub fn open_side_tab_for_session(
         .map(|p| p.default_pane);
     let pane_choice = target_pane.or(default_pane);
 
+    let is_active = host.active_session_id() == Some(session_id);
     {
         let side = host.side_mut();
         let st = side.sessions.entry(session_id.to_owned()).or_default();
@@ -264,6 +262,9 @@ pub fn open_side_tab_for_session(
         side.adding.retain(|n| !(n.session_id == session_id && n.pane == actual_pane));
         side.focus.focus();
         side.active_pane_focus = actual_pane;
+        if is_active && !side.background_open.is_active() {
+            side.close_guard.step(CloseTabGuardEvent::RegionOpened);
+        }
     }
 
     if let Some((plugin, tab_id)) = split_panel_key(key)
@@ -308,6 +309,7 @@ pub fn show_side_tab(host: &mut dyn PanelsHost, session_id: &str, key: &str, tar
         .map(|p| p.home_pane(host));
     let prefix = split_panel_key(key).map(|(pl, _)| format!("{pl}:")).unwrap_or_default();
 
+    let is_active = host.active_session_id() == Some(session_id);
     {
         let side = host.side_mut();
         let st = side.sessions.entry(session_id.to_owned()).or_default();
@@ -326,6 +328,9 @@ pub fn show_side_tab(host: &mut dyn PanelsHost, session_id: &str, key: &str, tar
             st.visibility.step(true);
         }
         side.adding.retain(|n| !(n.session_id == session_id && n.pane == pane));
+        if is_active && !side.background_open.is_active() {
+            side.close_guard.step(CloseTabGuardEvent::RegionOpened);
+        }
     }
 
     if let Some((plugin, tab_id)) = split_panel_key(key)
@@ -365,6 +370,7 @@ pub fn select_side_tab(host: &mut dyn PanelsHost, key: &str, tx: &mut Tx) {
         side.adding.retain(|n| !(n.session_id == sid && n.pane == p));
         side.focus.focus();
         side.active_pane_focus = p;
+        side.close_guard.step(CloseTabGuardEvent::RegionOpened);
         p
     };
     // A tab picked past the strip's edge, by a key or a click on its visible part, scrolls
@@ -384,7 +390,9 @@ pub fn select_side_tab(host: &mut dyn PanelsHost, key: &str, tx: &mut Tx) {
 pub fn move_side_tab(host: &mut dyn PanelsHost, key: &str, pane: SessionPane, before: Option<&str>, tx: &mut Tx) {
     let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
     tx.instant();
-    let st = session_side_mut(host, &sid);
+    let side = host.side_mut();
+    side.close_guard.step(CloseTabGuardEvent::RegionOpened);
+    let st = side.sessions.entry(sid).or_default();
     st.tab_state.tabs = move_session_tab(&st.tab_state.tabs, key, pane, before);
     if pane == SessionPane::Bottom {
         st.bottom_open = true;
@@ -514,6 +522,7 @@ pub fn reopen_closed_side_tab(host: &mut dyn PanelsHost, key: Option<&str>, tx: 
     let Some(closed) = take_closed_tab(&mut session_side_mut(host, &sid).closed, key) else {
         return false;
     };
+    host.side_mut().close_guard.step(CloseTabGuardEvent::RegionOpened);
     if side_open(host) {
         tx.instant();
     }

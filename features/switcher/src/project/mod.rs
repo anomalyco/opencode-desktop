@@ -120,22 +120,94 @@ pub enum StepMode {
     Branches { project: String, server: Option<ServerKey>, direct: bool, directory: String, list: branches::List },
 }
 
-#[derive(Default)]
-pub struct ProjectSwitcher {
-    pub open: bool,
-    pub search: TextEdit,
+/// State that exists only while the project/worktree/branch switcher dialog is open
+/// (`new-session/location/dialog.tsx`, `new-session/location/machine.ts`).
+#[derive(Clone, Debug)]
+pub struct OpenState {
     pub mode: StepMode,
     /// The steps to step back through, innermost last.
-    history: Vec<location::Frame>,
-    pub(crate) branch_requests: Seq,
+    pub(crate) history: Vec<location::Frame>,
     /// The lit row: the first until one's chosen, which holds while the step lists it
     /// (`dialog.tsx:212-217`); typing keeps it.
-    active: Highlight,
+    pub(crate) active: Highlight,
     /// The pointer's last point on a row: only a pointer that moved takes one (`dialog.tsx:395-399`).
-    pointer: Option<[f32; 2]>,
-    restore_composer: bool,
+    pub(crate) pointer: Option<[f32; 2]>,
+    pub(crate) restore_composer: bool,
     /// Every ready server's projects, when more than one is listed (`servers.rs`).
     pub(crate) servers: Vec<servers::Listed>,
+}
+
+/// Modal lifecycle of [`ProjectSwitcher`]: step, history, highlight, pointer, focus-return origin,
+/// and listed servers live only while the dialog is open (`new-session/location/dialog.tsx`).
+#[derive(Clone, Debug, Default)]
+pub enum ProjectSwitcherState {
+    #[default]
+    Closed,
+    Open(Box<OpenState>),
+}
+
+pub(crate) enum LifecycleEvent {
+    Open { restore_composer: bool, servers: Vec<servers::Listed> },
+    Close,
+}
+
+impl ProjectSwitcherState {
+    pub fn is_open(&self) -> bool {
+        matches!(self, Self::Open(_))
+    }
+
+    pub fn mode(&self) -> Option<&StepMode> {
+        match self {
+            Self::Open(open) => Some(&open.mode),
+            Self::Closed => None,
+        }
+    }
+
+    pub(crate) fn open_state(&self) -> Option<&OpenState> {
+        match self {
+            Self::Open(open) => Some(open),
+            Self::Closed => None,
+        }
+    }
+
+    pub(crate) fn open_state_mut(&mut self) -> Option<&mut OpenState> {
+        match self {
+            Self::Open(open) => Some(open),
+            Self::Closed => None,
+        }
+    }
+
+    /// Transitions between `Closed` and `Open`, returning the open state's `restore_composer`
+    /// flag when closing from `Open`.
+    pub(crate) fn step(&mut self, event: LifecycleEvent) -> Option<bool> {
+        match event {
+            LifecycleEvent::Open { restore_composer, servers } => {
+                if self.is_open() {
+                    return None;
+                }
+                *self = Self::Open(Box::new(OpenState {
+                    mode: StepMode::Projects,
+                    history: Vec::new(),
+                    active: Highlight::default(),
+                    pointer: None,
+                    restore_composer,
+                    servers,
+                }));
+                None
+            }
+            LifecycleEvent::Close => match std::mem::take(self) {
+                Self::Open(open) => Some(open.restore_composer),
+                Self::Closed => None,
+            },
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct ProjectSwitcher {
+    pub state: ProjectSwitcherState,
+    pub search: TextEdit,
+    pub(crate) branch_requests: Seq,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -168,16 +240,29 @@ pub(super) fn matches_query(q: &str, fields: &[&str]) -> bool {
 }
 
 impl ProjectSwitcher {
+    pub fn is_open(&self) -> bool {
+        self.state.is_open()
+    }
+
+    pub fn mode(&self) -> Option<&StepMode> {
+        self.state.mode()
+    }
+
     pub fn activate(&mut self, key: String) {
-        self.active.set(key);
+        if let Some(open) = self.state.open_state_mut() {
+            open.active.set(key);
+        }
     }
 
     /// The pointer moved on row `key` to `at`: it takes the row only when it moved.
     pub(crate) fn point(&mut self, key: &str, at: [f32; 2]) -> bool {
-        if self.pointer.replace(at) == Some(at) || self.active.pointed(key) {
+        let Some(open) = self.state.open_state_mut() else {
+            return false;
+        };
+        if open.pointer.replace(at) == Some(at) || open.active.pointed(key) {
             return false;
         }
-        self.active.step(HighlightEvent::Pointer(key.to_owned()));
+        open.active.step(HighlightEvent::Pointer(key.to_owned()));
         true
     }
 
@@ -186,18 +271,25 @@ impl ProjectSwitcher {
     }
 
     pub fn restore_composer(&self) -> bool {
-        self.restore_composer
+        self.state.open_state().is_some_and(|open| open.restore_composer)
+    }
+
+    pub(crate) fn servers(&self) -> &[servers::Listed] {
+        self.state.open_state().map_or(&[], |open| open.servers.as_slice())
     }
 }
 
 pub fn rows(host: &dyn ProjectSwitcherHost) -> Vec<SwitcherRow> {
     let ps = host.project_switcher();
+    let Some(open) = ps.state.open_state() else {
+        return Vec::new();
+    };
     let q = ps.query();
-    if let StepMode::Branches { list, .. } = &ps.mode {
+    if let StepMode::Branches { list, .. } = &open.mode {
         return branches::rows(list, q);
     }
-    if !ps.servers.is_empty() {
-        return match &ps.mode {
+    if !open.servers.is_empty() {
+        return match &open.mode {
             StepMode::Worktrees { project, server, .. } => {
                 let server = server.clone().unwrap_or_else(|| host.active_server());
                 branches::worktree_rows(host, servers::worktree_rows(host, &server, project), q)
@@ -206,7 +298,7 @@ pub fn rows(host: &dyn ProjectSwitcherHost) -> Vec<SwitcherRow> {
             mode => servers::project_rows(host, q, *mode == StepMode::Others),
         };
     }
-    match &ps.mode {
+    match &open.mode {
         StepMode::Branches { list, .. } => branches::rows(list, q),
         StepMode::Servers => Vec::new(),
         StepMode::Worktrees { project: pid, .. } => {
@@ -275,12 +367,13 @@ pub fn rows(host: &dyn ProjectSwitcherHost) -> Vec<SwitcherRow> {
 }
 
 pub fn active(host: &dyn ProjectSwitcherHost, rows: &[SwitcherRow]) -> Option<String> {
-    host.project_switcher().active.resolve(rows.iter().map(|r| r.key.as_str()))
+    let open = host.project_switcher().state.open_state()?;
+    open.active.resolve(rows.iter().map(|r| r.key.as_str()))
 }
 
 pub fn toggle(host: &mut dyn ProjectSwitcherHost, tx: &mut Tx) {
     tx.instant();
-    if host.project_switcher().open {
+    if host.project_switcher().is_open() {
         close(host, true);
         return;
     }
@@ -300,23 +393,17 @@ pub fn open(host: &mut dyn ProjectSwitcherHost) {
 }
 
 pub fn open_with_focus(host: &mut dyn ProjectSwitcherHost, return_focus: Option<String>) {
-    if host.project_switcher().open {
+    if host.project_switcher().is_open() {
         return;
     }
     let restore = host.before_project_switcher_open();
+    let listed = host.read_listed_servers(None);
     {
         let ps = host.project_switcher_mut();
-        ps.open = true;
-        ps.restore_composer = restore;
-        ps.mode = StepMode::Projects;
-        ps.history.clear();
+        ps.state.step(LifecycleEvent::Open { restore_composer: restore, servers: listed });
         ps.search = TextEdit::new("");
         ps.search.focused = true;
-        ps.active.clear();
-        ps.pointer = None;
     }
-    let listed = servers::read(host);
-    host.project_switcher_mut().servers = listed;
     host.on_overlay_opened(PROJECT_OVERLAY_ID, return_focus);
 }
 
@@ -328,28 +415,28 @@ pub fn open_worktrees(host: &mut dyn ProjectSwitcherHost, project: &str, tx: &mu
     host.list_worktrees_on(None, project);
     tx.instant();
     let base = host.draft_base().map(str::to_owned);
-    let ps = host.project_switcher_mut();
-    ps.history = vec![location::Frame {
-        mode: StepMode::Projects,
-        query: String::new(),
-        active: Some(format!("project:{project}")),
-    }];
-    ps.mode = StepMode::Worktrees { project: project.to_owned(), server: None, direct: true, base };
+    if let Some(open) = host.project_switcher_mut().state.open_state_mut() {
+        open.history = vec![location::Frame {
+            mode: StepMode::Projects,
+            query: String::new(),
+            active: Some(format!("project:{project}")),
+        }];
+        open.mode = StepMode::Worktrees { project: project.to_owned(), server: None, direct: true, base };
+    }
 }
 
 pub fn close(host: &mut dyn ProjectSwitcherHost, restore: bool) {
-    if !host.project_switcher().open {
+    if !host.project_switcher().is_open() {
         return;
     }
     let should_restore = {
         let ps = host.project_switcher_mut();
-        ps.open = false;
+        let Some(restore_composer) = ps.state.step(LifecycleEvent::Close) else {
+            return;
+        };
         ps.search.focused = false;
         ps.search.cancel_composition();
-        ps.mode = StepMode::Projects;
-        ps.history.clear();
-        ps.servers.clear();
-        restore && ps.restore_composer
+        restore && restore_composer
     };
     host.after_project_switcher_close(should_restore);
     host.on_overlay_closed(PROJECT_OVERLAY_ID);
@@ -357,7 +444,7 @@ pub fn close(host: &mut dyn ProjectSwitcherHost, restore: bool) {
 
 /// Steps into `project_id`'s worktrees (a Git project's), asking the server for them.
 pub fn drill_worktrees(host: &mut dyn ProjectSwitcherHost, project_id: &str, tx: &mut Tx) {
-    if !drillable(host, project_id) {
+    if !host.project_switcher().is_open() || !drillable(host, project_id) {
         return;
     }
     host.list_worktrees_on(None, project_id);
@@ -368,7 +455,7 @@ pub fn drill_worktrees(host: &mut dyn ProjectSwitcherHost, project_id: &str, tx:
 /// A row's chevron: steps into `project_id`'s worktrees on `server`; `key` is lit again on
 /// the way back.
 pub(crate) fn drill_server_worktrees(host: &mut dyn ProjectSwitcherHost, server: Option<ServerKey>, project_id: &str, key: String, tx: &mut Tx) {
-    if server.is_none() && !drillable(host, project_id) {
+    if !host.project_switcher().is_open() || (server.is_none() && !drillable(host, project_id)) {
         return;
     }
     host.list_worktrees_on(server.as_ref(), project_id);
@@ -381,9 +468,15 @@ pub fn back(host: &mut dyn ProjectSwitcherHost, tx: &mut Tx) {
 
 /// Runs `event` through the step machine and its effects; true when it took the key.
 pub(super) fn location_event(host: &mut dyn ProjectSwitcherHost, event: location::Event, tx: &mut Tx) -> bool {
+    if !host.project_switcher().is_open() {
+        return false;
+    }
     let (effects, handled) = {
         let ps = host.project_switcher_mut();
-        location::step(&mut ps.mode, &ps.search.text, &mut ps.history, event)
+        let Some(open) = ps.state.open_state_mut() else {
+            return false;
+        };
+        location::step(&mut open.mode, &ps.search.text, &mut open.history, event)
     };
     for effect in effects {
         tx.instant();
@@ -396,10 +489,12 @@ pub(super) fn location_event(host: &mut dyn ProjectSwitcherHost, event: location
             }
             location::Effect::Focus(lit) => {
                 let ps = host.project_switcher_mut();
-                ps.search.focused = true;
-                match lit {
-                    Some(key) => ps.active.set(key),
-                    None => ps.active.clear(),
+                if let Some(open) = ps.state.open_state_mut() {
+                    ps.search.focused = true;
+                    match lit {
+                        Some(key) => open.active.set(key),
+                        None => open.active.clear(),
+                    }
                 }
             }
             location::Effect::Close => close(host, true),
@@ -420,8 +515,8 @@ pub(super) fn location_event(host: &mut dyn ProjectSwitcherHost, event: location
 pub fn choose(host: &mut dyn ProjectSwitcherHost, key: &str, tx: &mut Tx) {
     let Some(row) = rows(host).into_iter().find(|r| r.key == key) else { return };
     let worktree = matches!(row.kind, RowKind::Worktree { main: false, .. });
-    let base = match &host.project_switcher().mode {
-        StepMode::Worktrees { base, .. } => base.clone(),
+    let base = match host.project_switcher().mode() {
+        Some(StepMode::Worktrees { base, .. }) => base.clone(),
         _ => None,
     };
     let active_server = host.active_server();
@@ -459,7 +554,7 @@ fn choose_here(host: &mut dyn ProjectSwitcherHost, row: SwitcherRow, worktree: b
             location_event(host, location::Event::Others { active: lit }, tx);
         }
         // With several servers Add project asks which one first (`choosesServer`).
-        RowKind::Add if !host.project_switcher().servers.is_empty() => {
+        RowKind::Add if !host.project_switcher().servers().is_empty() => {
             location_event(host, location::Event::Servers { active: Some("+add".into()) }, tx);
         }
         RowKind::Add => {
@@ -501,7 +596,7 @@ fn choose_here(host: &mut dyn ProjectSwitcherHost, row: SwitcherRow, worktree: b
 }
 
 pub fn key(host: &mut dyn ProjectSwitcherHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if !host.project_switcher().open {
+    if !host.project_switcher().is_open() {
         return false;
     }
     if host.project_switcher().search.is_composing() {
@@ -528,7 +623,7 @@ pub fn key(host: &mut dyn ProjectSwitcherHost, ev: &KeyEvent, tx: &mut Tx) -> bo
             choose(host, "base", tx);
             return true;
         }
-        let multi = !host.project_switcher().servers.is_empty();
+        let multi = !host.project_switcher().servers().is_empty();
         let lit = active(host, &list_rows).and_then(|a| list_rows.into_iter().find(|r| r.key == a)).map(|r| match r.kind {
             RowKind::Project { id, drillable: d, server: Some(server), .. } => location::Lit::Project { drillable: d, key: r.key, id, server: Some(server) },
             RowKind::Project { id, .. } => location::Lit::Project { drillable: drillable(host, &id), key: r.key, id, server: None },

@@ -65,7 +65,7 @@ impl NewWorktreeHost for App {
     }
 
     fn project_switcher_open(&self) -> bool {
-        self.dialogs.project_switcher.open
+        self.dialogs.project_switcher.is_open()
     }
 
     fn is_stage(&self) -> bool {

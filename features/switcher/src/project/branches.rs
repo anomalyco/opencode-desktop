@@ -62,7 +62,7 @@ pub(super) fn checkout<'a>(host: &'a dyn ProjectSwitcherHost, server: Option<&Se
     if let Some(key) = server.filter(|k| **k != host.active_server()) {
         return host
             .project_switcher()
-            .servers
+            .servers()
             .iter()
             .find(|l| &l.key == key)?
             .checkout_branch
@@ -74,7 +74,7 @@ pub(super) fn checkout<'a>(host: &'a dyn ProjectSwitcherHost, server: Option<&Se
 }
 
 pub(super) fn worktree_rows(host: &dyn ProjectSwitcherHost, mut rows: Vec<SwitcherRow>, q: &str) -> Vec<SwitcherRow> {
-    let StepMode::Worktrees { base, .. } = &host.project_switcher().mode else { return rows };
+    let Some(StepMode::Worktrees { base, .. }) = host.project_switcher().mode() else { return rows };
     if let Some(SwitcherRow { kind: RowKind::Worktree { project_id, directory, server, main: true }, .. }) = rows.first()
         && project_git(project_id)
     {
@@ -112,21 +112,27 @@ pub fn open_git_location(host: &mut dyn ProjectSwitcherHost, base: bool, tx: &mu
     host.close_branch_picker(tx);
     open_worktrees(host, &id, tx);
     if base {
-        host.project_switcher_mut().mode = StepMode::Branches {
-            project: id,
-            server: None,
-            directory,
-            direct: true,
-            list: List::Idle,
-        };
+        if let Some(open) = host.project_switcher_mut().state.open_state_mut() {
+            open.mode = StepMode::Branches {
+                project: id,
+                server: None,
+                directory,
+                direct: true,
+                list: List::Idle,
+            };
+        }
         search(host, tx);
     }
 }
 
 pub(super) fn search(host: &mut dyn ProjectSwitcherHost, tx: &mut Tx) {
+    if !matches!(host.project_switcher().mode(), Some(StepMode::Branches { .. })) {
+        return;
+    }
     let (id, directory, server, query) = {
         let ps = host.project_switcher_mut();
-        let StepMode::Branches { directory, server, list, .. } = &mut ps.mode else { return };
+        let Some(open) = ps.state.open_state_mut() else { return };
+        let StepMode::Branches { directory, server, list, .. } = &mut open.mode else { return };
         let Some(id) = list.step(&mut ps.branch_requests, Event::Search) else { return };
         (id, directory.clone(), server.clone(), ps.search.text.clone())
     };
@@ -138,8 +144,13 @@ pub(super) fn search(host: &mut dyn ProjectSwitcherHost, tx: &mut Tx) {
 
 /// Installs an asynchronous branch-search answer for `id` if it matches the active attempt.
 pub fn apply_answer(host: &mut dyn ProjectSwitcherHost, id: Attempt, result: Option<Vec<String>>) {
+    if !matches!(host.project_switcher().mode(), Some(StepMode::Branches { .. })) {
+        return;
+    }
     let ps = host.project_switcher_mut();
-    if let StepMode::Branches { list, .. } = &mut ps.mode {
+    if let Some(open) = ps.state.open_state_mut()
+        && let StepMode::Branches { list, .. } = &mut open.mode
+    {
         list.step(&mut ps.branch_requests, Event::Answer(id, result));
     }
 }

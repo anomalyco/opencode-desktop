@@ -51,8 +51,8 @@ impl Listed {
 /// The ready servers that aren't down, read through the host when more than one is listed
 /// (`controller.ts:48-64`); none with one server.
 pub fn read(host: &mut dyn ProjectSwitcherHost) -> Vec<Listed> {
-    let drilled = match &host.project_switcher().mode {
-        StepMode::Worktrees { project, .. } | StepMode::Branches { project, .. } => Some(project.clone()),
+    let drilled = match host.project_switcher().mode() {
+        Some(StepMode::Worktrees { project, .. } | StepMode::Branches { project, .. }) => Some(project.clone()),
         _ => None,
     };
     host.read_listed_servers(drilled.as_deref())
@@ -60,23 +60,25 @@ pub fn read(host: &mut dyn ProjectSwitcherHost) -> Vec<Listed> {
 
 /// Each poll while the dialog is open: what each server lists now.
 pub fn poll(host: &mut dyn ProjectSwitcherHost) -> bool {
-    if !host.project_switcher().open || host.project_switcher().servers.is_empty() {
+    if host.project_switcher().servers().is_empty() {
         return false;
     }
     let next = read(host);
-    let ps = host.project_switcher_mut();
-    let changed = next.len() != ps.servers.len()
-        || next.iter().zip(&ps.servers).any(|(a, b)| {
+    let Some(open) = host.project_switcher_mut().state.open_state_mut() else {
+        return false;
+    };
+    let changed = next.len() != open.servers.len()
+        || next.iter().zip(&open.servers).any(|(a, b)| {
             a.key != b.key || a.used.len() != b.used.len() || a.others.len() != b.others.len() || a.worktrees != b.worktrees || a.checkout_branch != b.checkout_branch
         });
-    ps.servers = next;
+    open.servers = next;
     changed
 }
 
 /// The server step's rows (`serverEntries`).
 pub fn server_rows(host: &dyn ProjectSwitcherHost, q: &str) -> Vec<SwitcherRow> {
     host.project_switcher()
-        .servers
+        .servers()
         .iter()
         .filter(|l| matches_query(q, &[&l.name]))
         .map(|l| SwitcherRow {
@@ -92,7 +94,7 @@ pub fn server_rows(host: &dyn ProjectSwitcherHost, q: &str) -> Vec<SwitcherRow> 
 /// The projects step across servers, or the other projects (`projectEntries`).
 pub fn project_rows(host: &dyn ProjectSwitcherHost, q: &str, others: bool) -> Vec<SwitcherRow> {
     let mut all: Vec<(&Listed, &Project, bool)> = Vec::new();
-    for l in &host.project_switcher().servers {
+    for l in host.project_switcher().servers() {
         all.extend(l.used.iter().map(|p| (l, p, true)));
         all.extend(l.others.iter().map(|p| (l, p, false)));
     }
@@ -141,7 +143,7 @@ pub fn project_rows(host: &dyn ProjectSwitcherHost, q: &str, others: bool) -> Ve
 
 /// A drilled project's checkout, New worktree and worktrees, on its server.
 pub fn worktree_rows(host: &dyn ProjectSwitcherHost, server: &ServerKey, pid: &str) -> Vec<SwitcherRow> {
-    let Some(l) = host.project_switcher().servers.iter().find(|l| l.key == *server) else { return Vec::new() };
+    let Some(l) = host.project_switcher().servers().iter().find(|l| l.key == *server) else { return Vec::new() };
     let Some(project) = l.project(pid) else { return Vec::new() };
     let (id, root) = (project.id.clone(), project.directory.clone());
     let at = Some(server.clone());
@@ -171,13 +173,13 @@ pub fn worktree_rows(host: &dyn ProjectSwitcherHost, server: &ServerKey, pid: &s
 
 /// A project of `server`'s: the dialog's project for the badge and the worktree check.
 pub fn project<'a>(host: &'a dyn ProjectSwitcherHost, server: &ServerKey, id: &str) -> Option<&'a Project> {
-    host.project_switcher().servers.iter().find(|l| l.key == *server).and_then(|l| l.project(id))
+    host.project_switcher().servers().iter().find(|l| l.key == *server).and_then(|l| l.project(id))
 }
 
 /// `ServerTag`: a subtle badge with the server's icon and name, for any server but the app's own
 /// (`dialog.tsx:540-552`, `.new-session-location-tag`).
 pub fn tag(host: &dyn ProjectSwitcherHost, p: &Pal, server: &ServerKey) -> Option<El> {
-    let l = host.project_switcher().servers.iter().find(|l| l.key == *server).filter(|l| l.kind != Kind::Current)?;
+    let l = host.project_switcher().servers().iter().find(|l| l.key == *server).filter(|l| l.kind != Kind::Current)?;
     Some(
         row()
             .key("tag")
@@ -204,5 +206,5 @@ pub fn glyph(kind: Kind) -> &'static Icon {
 
 /// The server's kind, for its row's glyph.
 pub fn kind(host: &dyn ProjectSwitcherHost, server: &ServerKey) -> Kind {
-    host.project_switcher().servers.iter().find(|l| l.key == *server).map_or(Kind::Current, |l| l.kind)
+    host.project_switcher().servers().iter().find(|l| l.key == *server).map_or(Kind::Current, |l| l.kind)
 }

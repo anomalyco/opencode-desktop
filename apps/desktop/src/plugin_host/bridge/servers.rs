@@ -327,7 +327,7 @@ impl CoverVisit {
 pub fn dialog_shows(app: &App) -> bool {
     app.plugins.dialog_open()
         || app.dialogs.switcher.is_open()
-        || app.dialogs.project_switcher.open
+        || app.dialogs.project_switcher.is_open()
         || app.dialogs.fork.is_open()
         || app.dialogs.jump.open()
         || app.dialogs.menus.confirming().is_some()

@@ -9,9 +9,10 @@ use crate::SessionPane;
 use crate::closing::{Effect, Event};
 use crate::host::PanelsHost;
 use crate::state::{
-    ResolvedEntry, ResolvedRegion, SideMenu, all_panels, bottom_open, close_side_tab, dismiss_side_new_tab,
-    open_side_new_tab, reopen_closed_side_tab, resolve_side_region, select_side_tab, shown_new_tab, side_open,
-    sync_empty_side, toggle_bottom_region, toggle_side_region,
+    CloseTabGuardEffect, CloseTabGuardEvent, EdgeFlightEffect, EdgeFlightEvent, ResolvedEntry, ResolvedRegion,
+    SideMenu, all_panels, bottom_open, close_side_tab, dismiss_side_new_tab, open_side_new_tab,
+    reopen_closed_side_tab, resolve_side_region, select_side_tab, shown_new_tab, side_open, sync_empty_side,
+    toggle_bottom_region, toggle_side_region,
 };
 use crate::tabs::{SessionTabs, panel_key};
 
@@ -80,6 +81,14 @@ pub(crate) fn run_closing(effects: Vec<Effect>, tx: &mut Tx) -> bool {
 /// have moved. Otherwise those checks are skipped: nothing they read changed.
 pub fn poll_panels(host: &mut dyn PanelsHost, fresh: bool, tx: &mut Tx) -> bool {
     let mut changed = false;
+    if host.side().edge_flight.is_flying() {
+        let now = host.clock();
+        if host.side().edge_flight.due(now)
+            && host.side_mut().edge_flight.step(EdgeFlightEvent::Tick { now }) == Some(EdgeFlightEffect::Redraw)
+        {
+            changed = true;
+        }
+    }
     if let Some(sid) = host.side().closing.session().map(str::to_owned) {
         let shut = side_region_shut(host, &sid, None);
         let clock = host.clock();
@@ -152,11 +161,15 @@ pub fn panels_ime(host: &mut dyn PanelsHost, ime: &Ime) -> bool {
 pub fn panels_key(host: &mut dyn PanelsHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
     let is_close_key = Bind::TabClose.matches_tx(ev, tx);
 
-    if host.side().emptied_guard {
-        if is_close_key {
+    if host.side().close_guard.is_armed() {
+        let event = CloseTabGuardEvent::KeyDown { is_close: is_close_key };
+        let (next, effect) = host.side().close_guard.next(event);
+        if next != host.side().close_guard {
+            host.side_mut().close_guard.step(event);
+        }
+        if effect == CloseTabGuardEffect::Swallow {
             return true;
         }
-        host.side_mut().emptied_guard = false;
     }
 
     if ev.key == Key::Escape && host.side().menu.is_open() {
@@ -217,7 +230,7 @@ pub fn panels_key(host: &mut dyn PanelsHost, ev: &KeyEvent, tx: &mut Tx) -> bool
             tx.instant();
             dismiss_side_new_tab(host, &nt.id);
             if !side_open(host) {
-                host.side_mut().emptied_guard = true;
+                host.side_mut().close_guard.step(CloseTabGuardEvent::Emptied);
             }
             return true;
         }
@@ -227,17 +240,17 @@ pub fn panels_key(host: &mut dyn PanelsHost, ev: &KeyEvent, tx: &mut Tx) -> bool
                 .unwrap_or(false);
             if is_pinned && pane != SessionPane::Bottom {
                 toggle_side_region(host, tx);
-                host.side_mut().emptied_guard = true;
+                host.side_mut().close_guard.step(CloseTabGuardEvent::Emptied);
                 return true;
             }
             close_side_tab(host, &act_key, tx);
             if !side_open(host) && pane != SessionPane::Bottom {
-                host.side_mut().emptied_guard = true;
+                host.side_mut().close_guard.step(CloseTabGuardEvent::Emptied);
             }
             return true;
         }
         toggle_side_region(host, tx);
-        host.side_mut().emptied_guard = true;
+        host.side_mut().close_guard.step(CloseTabGuardEvent::Emptied);
         return true;
     }
 

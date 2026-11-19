@@ -63,7 +63,7 @@ impl App {
             && !self.settings.open
             && !self.workspace_panes.side.focus.is_focused()
             && !self.dialogs.switcher.is_open()
-            && !self.dialogs.project_switcher.open
+            && !self.dialogs.project_switcher.is_open()
             && !self.dialogs.fork.is_open()
             && !self.dialogs.jump.open()
             && !self.timeline_fx.find.input.focused

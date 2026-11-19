@@ -135,9 +135,14 @@ impl App {
         }
         // The side region's contents glide with its edge while the sidebar's flight moves it
         // (`panels::view::region_card`), and land at once again after.
-        if self.side_open() {
-            self.workspace_panes.side.edge_flight = Some(*self.clock + crate::panels::view::SIDE_FLIGHT);
-            tx.wake_after(std::time::Duration::from_secs_f64(crate::panels::view::SIDE_FLIGHT + 0.01));
+        if self.side_open()
+            && let Some(crate::panels::EdgeFlightEffect::WakeAfter(after)) = self
+                .workspace_panes
+                .side
+                .edge_flight
+                .step(crate::panels::EdgeFlightEvent::Started { now: *self.clock })
+        {
+            tx.wake_after(after);
         }
         *self.sidebar_open = !*self.sidebar_open;
         let event = if *self.sidebar_open { crate::layout_state::PeekEvent::DockOpened } else { crate::layout_state::PeekEvent::DockClosed };
