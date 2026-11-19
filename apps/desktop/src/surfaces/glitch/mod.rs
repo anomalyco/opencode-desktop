@@ -23,35 +23,125 @@ use crate::{App, Route, Source};
 
 mod story;
 
+#[derive(Default)]
+enum State {
+    #[default]
+    Detached,
+    /// Attached to the window (`tx.record_rewind(Some(&rewind))`): recording frames.
+    Recording { rewind: Rewind },
+    /// Attached and frozen: scrubber overlays the window over the captured clip.
+    Scrubbing { rewind: Rewind, scrub: Box<Scrub> },
+}
+
+enum Event {
+    Setting(bool),
+    Freeze,
+    Close,
+}
+
+enum Effect {
+    Record(Option<Rewind>),
+    /// Only closing an open scrubber on detach needs a frame.
+    Redraw,
+    BlurInputs,
+}
+
+impl State {
+    fn is_attached(&self) -> bool {
+        !matches!(self, Self::Detached)
+    }
+
+    fn is_scrubbing(&self) -> bool {
+        matches!(self, Self::Scrubbing { .. })
+    }
+
+    fn step(&mut self, event: Event) -> Vec<Effect> {
+        match (std::mem::take(self), event) {
+            (Self::Detached, Event::Setting(true)) => {
+                let rewind = Rewind::new();
+                let handle = rewind.clone();
+                *self = Self::Recording { rewind };
+                vec![Effect::Record(Some(handle))]
+            }
+            (Self::Recording { .. }, Event::Setting(false)) => {
+                *self = Self::Detached;
+                vec![Effect::Record(None)]
+            }
+            (Self::Scrubbing { mut scrub, .. }, Event::Setting(false)) => {
+                scrub.close();
+                *self = Self::Detached;
+                // Attaching shows nothing new; only closing an open scrubber needs a frame.
+                vec![Effect::Record(None), Effect::Redraw]
+            }
+            (Self::Recording { rewind }, Event::Freeze) => {
+                let mut scrub = Box::new(Scrub::default());
+                scrub.open(&rewind);
+                *self = Self::Scrubbing { rewind, scrub };
+                vec![Effect::BlurInputs]
+            }
+            (Self::Scrubbing { rewind, mut scrub }, Event::Freeze) => {
+                scrub.open(&rewind);
+                *self = Self::Scrubbing { rewind, scrub };
+                vec![Effect::BlurInputs]
+            }
+            (Self::Scrubbing { rewind, mut scrub }, Event::Close) => {
+                scrub.close();
+                *self = Self::Recording { rewind };
+                Vec::new()
+            }
+            (state, _) => {
+                *self = state;
+                Vec::new()
+            }
+        }
+    }
+}
+
+#[derive(Default)]
 pub struct Glitch {
-    pub rewind: Rewind,
-    pub scrub: Scrub,
-    /// The recorder is attached to the window.
-    attached: bool,
+    state: State,
+    /// Closed fallback handed to `Scrub::view`'s lens only if a stale UI callback fires after close.
+    closed_scrub: Scrub,
     /// Where the Dev › Rewind story's card sits (`story.rs`).
     pub demo_y: f32,
 }
 
-impl Default for Glitch {
-    fn default() -> Self {
-        Glitch { rewind: Rewind::new(), scrub: Scrub::default(), attached: false, demo_y: 0.0 }
+impl Glitch {
+    pub(super) fn is_attached(&self) -> bool {
+        self.state.is_attached()
+    }
+
+    pub(super) fn is_scrubbing(&self) -> bool {
+        self.state.is_scrubbing()
+    }
+
+    pub(super) fn close_scrubber(&mut self) {
+        self.state.step(Event::Close);
+    }
+
+    pub(super) fn scrub_mut(&mut self) -> Option<&mut Scrub> {
+        match &mut self.state {
+            State::Scrubbing { scrub, .. } => Some(scrub),
+            State::Detached | State::Recording { .. } => None,
+        }
     }
 }
 
 /// Attaches the recorder while the setting is on, and lets it go when it's turned off.
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     let want = s.settings.record_glitches;
-    if want == s.diag.glitch.attached {
+    if want == s.diag.glitch.is_attached() {
         return false;
     }
-    s.diag.glitch.attached = want;
-    tx.record_rewind(want.then_some(&s.diag.glitch.rewind));
-    // Attaching shows nothing new; only closing an open scrubber needs a frame.
-    let open = s.diag.glitch.scrub.is_open();
-    if !want {
-        s.diag.glitch.scrub.close();
+    let mut redraw = false;
+    for effect in s.diag.glitch.state.step(Event::Setting(want)) {
+        match effect {
+            Effect::Record(rewind) => tx.record_rewind(rewind.as_ref()),
+            Effect::Redraw => redraw = true,
+            Effect::BlurInputs => {}
+        }
     }
-    !want && open
+    redraw
 }
 
 fn is_chord(ev: &KeyEvent) -> bool {
@@ -60,20 +150,26 @@ fn is_chord(ev: &KeyEvent) -> bool {
 
 /// ⌘⇧⌥R freezes the window (and closes the scrubber again); while it's open, it takes every key.
 pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if s.diag.glitch.scrub.is_open() {
+    if s.diag.glitch.is_scrubbing() {
         if is_chord(ev) {
-            s.diag.glitch.scrub.close();
+            s.diag.glitch.close_scrubber();
             return true;
         }
-        if let Keyed::Send(sent) = s.diag.glitch.scrub.key(ev) {
-            send(s, sent, tx);
+        let outcome = match &mut s.diag.glitch.state {
+            State::Scrubbing { scrub, .. } => scrub.key(ev),
+            State::Detached | State::Recording { .. } => return false,
+        };
+        match outcome {
+            Keyed::Closed => s.diag.glitch.close_scrubber(),
+            Keyed::Send(sent) => send(s, sent, tx),
+            _ => {}
         }
         return true;
     }
     if !is_chord(ev) {
         return false;
     }
-    if !s.diag.glitch.attached {
+    if !s.diag.glitch.is_attached() {
         crate::status_toast::say(s, "Rewind is off", "Turn on Rewind in Settings › Developer.");
         return true;
     }
@@ -83,21 +179,38 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 
 /// Stops recording and opens the scrubber on the last frame.
 pub fn freeze(s: &mut App) {
-    s.composer.focused = false;
-    s.search.focused = false;
-    let rewind = s.diag.glitch.rewind.clone();
-    s.diag.glitch.scrub.open(&rewind);
+    if !s.diag.glitch.is_attached() {
+        return;
+    }
+    for effect in s.diag.glitch.state.step(Event::Freeze) {
+        if let Effect::BlurInputs = effect {
+            s.composer.focused = false;
+            s.search.focused = false;
+        }
+    }
+}
+
+fn scrub_lens(s: &mut App) -> &mut Scrub {
+    let g = &mut *s.diag.glitch;
+    match &mut g.state {
+        State::Scrubbing { scrub, .. } => scrub,
+        State::Detached | State::Recording { .. } => &mut g.closed_scrub,
+    }
 }
 
 /// The app's view, paused while the scrubber shows, with the scrubber over it. The app is wrapped
 /// the same way either way, so nothing in it changes path when the scrubber opens.
 pub fn wrap(s: &App, app: El) -> El {
+    let (scale, overlay) = match &s.diag.glitch.state {
+        State::Scrubbing { scrub, .. } => (0.0, scrub.view(scrub_lens, send)),
+        State::Detached | State::Recording { .. } => (1.0, rune::el()),
+    };
     rune::el()
         .w_full()
         .h_full()
         .center()
-        .child(app.time_scale(if s.diag.glitch.scrub.is_open() { 0.0 } else { 1.0 }))
-        .child(s.diag.glitch.scrub.view(|s: &mut App| &mut s.diag.glitch.scrub, send))
+        .child(app.time_scale(scale))
+        .child(overlay)
 }
 
 /// Where a bundle goes: `<data dir>/rune-opencode/glitches/<ms>`, or the temp folder in tests
@@ -207,7 +320,7 @@ fn send(s: &mut App, sent: Sent, _: &mut Tx) {
 }
 
 fn close(s: &mut App, session: &str) {
-    s.diag.glitch.scrub.close();
+    s.diag.glitch.close_scrubber();
     let title = s.sessions.iter().find(|i| i.id == session).map(|i| i.title.clone()).filter(|t| !t.is_empty());
     *s.diag.status = format!("Sent to {}", title.as_deref().unwrap_or("the session"));
 }

@@ -17,7 +17,7 @@ const REST: f32 = 180.0;
 const BLIP: f32 = 18.0;
 
 fn open(s: &mut App, p: &mut Play<App>) {
-    s.diag.glitch.scrub.close();
+    s.diag.glitch.close_scrubber();
     s.settings.record_glitches = true;
     s.diag.glitch.demo_y = 40.0;
     crate::stories::watch(s, stage);
@@ -43,9 +43,10 @@ fn open(s: &mut App, p: &mut Play<App>) {
 
 /// Shows the frame `d` frames from the first jump.
 fn step_to(s: &mut App, d: i32) {
-    let Some(clip) = s.diag.glitch.scrub.clip().cloned() else { return };
+    let Some(scrub) = s.diag.glitch.scrub_mut() else { return };
+    let Some(clip) = scrub.clip().cloned() else { return };
     let Some(k) = (0..clip.len()).find(|&k| clip.has_jump(k)) else { return };
-    s.diag.glitch.scrub.seek((k as i32 + d).max(0) as usize, false);
+    scrub.seek((k as i32 + d).max(0) as usize, false);
 }
 
 /// Freezes the window on the first jump, with the stretch after it selected.
@@ -56,11 +57,12 @@ fn freeze_on_jump(s: &mut App) {
 
 /// Selects the eight frames after the first jump, with Kit's note.
 fn select_jump(s: &mut App) {
-    let Some(clip) = s.diag.glitch.scrub.clip().cloned() else { return };
+    let Some(scrub) = s.diag.glitch.scrub_mut() else { return };
+    let Some(clip) = scrub.clip().cloned() else { return };
     let Some(k) = (0..clip.len()).find(|&k| clip.has_jump(k)) else { return };
-    s.diag.glitch.scrub.seek(k + 8, false);
-    s.diag.glitch.scrub.seek(k, true);
-    s.diag.glitch.scrub.set_note("The Working card blips down a line right after it lands");
+    scrub.seek(k + 8, false);
+    scrub.seek(k, true);
+    scrub.set_note("The Working card blips down a line right after it lands");
 }
 
 fn stage(s: &App, p: &Pal) -> El {
