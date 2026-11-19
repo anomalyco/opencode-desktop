@@ -134,8 +134,7 @@ pub fn key_terminal(host: &mut dyn TerminalSurfaceHost, ev: &KeyEvent, tx: &mut 
         let rows = tab.session.snapshot().rows.max(1);
         input::dispatch_key(
             &tab.session,
-            tab.stream.as_ref(),
-            tab.fixture_shell.then_some(ws.directory.as_str()),
+            tab.backend.fixture_stream().map(|st| (st, ws.directory.as_str())),
             ev,
             rows,
             option_meta,

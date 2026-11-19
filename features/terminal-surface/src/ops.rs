@@ -11,8 +11,9 @@ use rune::{Tx, Waker};
 use terminal::{RestoreState, TerminalConfig, TerminalSession};
 
 use crate::{
-    HoverLink, TerminalJob, TerminalReply, TerminalSurfaceHost, TerminalTab, TerminalWorkspace, dir_name, grid,
-    integration, links, mount, panel_key, persist, rename, side_ops, workspace_key,
+    FocusClaimEvent, HoverLink, StoryStageEvent, TabBackend, TerminalJob, TerminalReply, TerminalSurfaceHost,
+    TerminalTab, TerminalWorkspace, dir_name, grid, integration, links, mount, panel_key, persist, rename, side_ops,
+    workspace_key,
 };
 
 pub fn server_id_str(host: &dyn TerminalSurfaceHost) -> &str {
@@ -131,8 +132,8 @@ pub fn focus_terminal_surface(host: &mut dyn TerminalSurfaceHost) {
     }
     let now = host.clock();
     let pane = host.terminal_mut();
-    pane.story_focused = true;
-    pane.claim_focus = true;
+    pane.story.step(StoryStageEvent::Focus);
+    drop(pane.focus_claim.step(FocusClaimEvent::Request));
     pane.reset_blink(now);
 }
 
@@ -303,7 +304,7 @@ pub fn new_terminal_in(host: &mut dyn TerminalSurfaceHost, ws_key: &str) -> Opti
     } else {
         prompt
     };
-    let id = insert_stream_terminal(
+    let id = insert_stream_with(
         host,
         ws_key,
         &format!("term_{num}"),
@@ -318,10 +319,8 @@ pub fn new_terminal_in(host: &mut dyn TerminalSurfaceHost, ws_key: &str) -> Opti
             cursor: None,
         }),
         b"",
+        TabBackend::FixtureShell,
     )?;
-    if let Some(tab) = terminal_tab_mut(host, ws_key, &id) {
-        tab.fixture_shell = true;
-    }
     focus_terminal_surface(host);
     persist::queue_terminal_save(host);
     Some(id)
@@ -494,8 +493,7 @@ pub fn persistent_tab(
         id: info.id,
         title: info.title,
         session,
-        stream: None,
-        fixture_shell: false,
+        backend: TabBackend::PersistentPty,
         scroll_px_accum: 0.0,
         drag: mount::TextDrag::Idle,
         mount: mount::Mount::Live { connection: host.terminal().connections },
@@ -519,6 +517,21 @@ pub fn insert_stream_terminal(
     restore: Option<RestoreState>,
     initial_bytes: &[u8],
 ) -> Option<String> {
+    insert_stream_with(host, ws_key, id, title, title_number, config, restore, initial_bytes, TabBackend::Stream)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn insert_stream_with(
+    host: &mut dyn TerminalSurfaceHost,
+    ws_key: &str,
+    id: &str,
+    title: &str,
+    title_number: usize,
+    config: TerminalConfig,
+    restore: Option<RestoreState>,
+    initial_bytes: &[u8],
+    wrap: fn(terminal::StreamHandle) -> TabBackend,
+) -> Option<String> {
     let (_, directory) = terminal_session_dir(host, ws_key);
     let connection = host.terminal().connections;
     let waker = terminal_waker(host);
@@ -538,8 +551,7 @@ pub fn insert_stream_terminal(
         title_number,
         custom_title: false,
         session,
-        stream: Some(handle),
-        fixture_shell: false,
+        backend: wrap(handle),
         scroll_px_accum: 0.0,
         drag: mount::TextDrag::Idle,
         mount: mount::Mount::Live { connection },

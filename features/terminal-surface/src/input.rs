@@ -19,11 +19,9 @@ pub enum KeyOutcome {
     Paste,
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn dispatch_key(
     session: &TerminalSession,
-    stream: Option<&StreamHandle>,
-    fixture_dir: Option<&str>,
+    fixture: Option<(&StreamHandle, &str)>,
     ev: &KeyEvent,
     viewport_rows: u16,
     option_meta: bool,
@@ -79,7 +77,7 @@ pub fn dispatch_key(
             text: Some(text.to_owned()),
             unshifted_codepoint: Some(base),
         });
-        if let (Some(dir), Some(st)) = (fixture_dir, stream) {
+        if let Some((st, dir)) = fixture {
             echo_fixture_key(st, &KeyEvent { key: ev.key.clone(), mods: rune::Mods::default() }, dir_name(dir));
         }
         return KeyOutcome::ConsumedResetBlink;
@@ -189,7 +187,7 @@ pub fn dispatch_key(
     }
     session.send_key(ki);
 
-    if let (Some(dir), Some(st)) = (fixture_dir, stream) {
+    if let Some((st, dir)) = fixture {
         echo_fixture_key(st, ev, dir_name(dir));
     }
 
@@ -248,9 +246,7 @@ pub fn dispatch_ime(tab: &mut TerminalTab, ime: &Ime) -> bool {
             } else {
                 session.write_bytes(text.as_bytes().to_vec());
             }
-            if tab.fixture_shell
-                && let Some(st) = &tab.stream
-            {
+            if let Some(st) = tab.backend.fixture_stream() {
                 st.feed(text.as_bytes());
             }
             true

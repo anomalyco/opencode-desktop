@@ -26,10 +26,11 @@ use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::time::Duration;
 
 use opencode_kit::client::Server;
 use opencode_kit::persistent_pty::PersistentPtyInfo;
-use rune::machine::Attempt;
+use rune::machine::{Attempt, Effects};
 use rune::{Drag, KeyEvent, PointerPress, TextEdit, TextStyle, Tx};
 use rune_knobs::{Group, Knob, Knobs};
 use serde_json::Value;
@@ -169,14 +170,205 @@ pub struct PaintedTheme {
     pub generation: u64,
 }
 
+/// What feeds a terminal tab's VT emulator: a live server persistent PTY, a recorded/story byte
+/// stream, or a local fixture shell that echoes input back into its stream.
+pub enum TabBackend {
+    /// Connected to a persistent PTY on the server (`TerminalSession::spawn_persistent_pty`).
+    PersistentPty,
+    /// Fed by an in-process byte stream (Storybook stages, offline hydrated recordings).
+    Stream(StreamHandle),
+    /// Fixture-mode echo shell backed by an in-process byte stream.
+    FixtureShell(StreamHandle),
+}
+
+impl TabBackend {
+    pub fn stream(&self) -> Option<&StreamHandle> {
+        match self {
+            Self::PersistentPty => None,
+            Self::Stream(handle) | Self::FixtureShell(handle) => Some(handle),
+        }
+    }
+
+    pub fn fixture_stream(&self) -> Option<&StreamHandle> {
+        match self {
+            Self::FixtureShell(handle) => Some(handle),
+            Self::PersistentPty | Self::Stream(_) => None,
+        }
+    }
+}
+
+/// Visual bell flash along the top edge of the terminal pane.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum Bell {
+    #[default]
+    Quiet,
+    Ringing { until: f64 },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum BellEvent {
+    Rang { now: f64 },
+    Tick { now: f64 },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BellEffect {
+    Wake(Duration),
+    Expired,
+}
+
+impl Bell {
+    pub fn is_ringing(self, now: f64) -> bool { matches!(self, Self::Ringing { until } if now < until) }
+    pub fn expired(self, now: f64) -> bool { matches!(self, Self::Ringing { until } if now >= until) }
+
+    pub fn step(&mut self, event: BellEvent) -> Effects<BellEffect> {
+        match (*self, event) {
+            (_, BellEvent::Rang { now }) => {
+                *self = Self::Ringing { until: now + 0.14 };
+                Effects::one(BellEffect::Wake(Duration::from_millis(145)))
+            }
+            (Self::Ringing { until }, BellEvent::Tick { now }) if now >= until => {
+                *self = Self::Quiet;
+                Effects::one(BellEffect::Expired)
+            }
+            _ => Effects::none(),
+        }
+    }
+}
+
+/// Phase-locked cursor blink: `epoch` anchors the 0.5 s cadence; the variant records the last
+/// phase observed by polling so each half-period edge triggers one redraw.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum CursorBlink {
+    Lit { epoch: f64 },
+    Dim { epoch: f64 },
+}
+
+impl Default for CursorBlink {
+    fn default() -> Self { Self::Lit { epoch: 0.0 } }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum BlinkEvent {
+    Reset { now: f64 },
+    Tick { now: f64 },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BlinkEffect {
+    Redraw,
+    Wake(Duration),
+}
+
+impl CursorBlink {
+    pub fn epoch(self) -> f64 {
+        match self { Self::Lit { epoch } | Self::Dim { epoch } => epoch }
+    }
+
+    pub fn is_lit(self, clock: f64) -> bool { ((clock - self.epoch()).max(0.0) % 1.0) < 0.5 }
+
+    pub fn next_edge(self, clock: f64) -> Duration {
+        let dt = (clock - self.epoch()).max(0.0);
+        Duration::from_secs_f64((0.5 - (dt % 0.5)).clamp(0.01, 0.5))
+    }
+
+    pub fn flips_at(self, now: f64) -> bool { self.is_lit(now) != matches!(self, Self::Lit { .. }) }
+
+    pub fn step(&mut self, event: BlinkEvent) -> Effects<BlinkEffect> {
+        match event {
+            BlinkEvent::Reset { now } => {
+                *self = Self::Lit { epoch: now };
+                Effects::none()
+            }
+            BlinkEvent::Tick { now } => {
+                let epoch = self.epoch();
+                let next = if self.is_lit(now) { Self::Lit { epoch } } else { Self::Dim { epoch } };
+                let flipped = next != *self;
+                *self = next;
+                let wake = self.next_edge(now);
+                if flipped { Effects::two(BlinkEffect::Redraw, BlinkEffect::Wake(wake)) } else { Effects::one(BlinkEffect::Wake(wake)) }
+            }
+        }
+    }
+}
+
+/// Storybook stage state for `"Terminal/Pane"` (`Inactive` still treats focus as `true` for other stories).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum StoryStage {
+    #[default]
+    Inactive,
+    Focused { variant: usize },
+    Blurred { variant: usize },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StoryStageEvent {
+    Build { variant: usize },
+    Focus,
+    Blur,
+}
+
+impl StoryStage {
+    pub fn is_focused(self) -> bool { !matches!(self, Self::Blurred { .. }) }
+
+    pub fn needs_rebuild(self, variant: usize) -> bool {
+        matches!(self, Self::Focused { variant: built } | Self::Blurred { variant: built } if built != variant)
+    }
+
+    pub fn step(&mut self, event: StoryStageEvent) {
+        *self = match (*self, event) {
+            (_, StoryStageEvent::Build { variant }) => Self::Focused { variant },
+            (Self::Blurred { variant }, StoryStageEvent::Focus) => Self::Focused { variant },
+            (Self::Focused { variant }, StoryStageEvent::Blur) => Self::Blurred { variant },
+            (same, _) => same,
+        };
+    }
+}
+
+/// Pending keyboard-focus handoff to `grid::SCREEN_KEY` (`gui-plugins/src/terminal/focus-machine.ts`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FocusClaim {
+    #[default]
+    Idle,
+    Pending,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FocusClaimEvent {
+    Request,
+    Poll,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FocusClaimEffect {
+    FocusScreen,
+}
+
+impl FocusClaim {
+    pub fn is_pending(self) -> bool { matches!(self, Self::Pending) }
+
+    pub fn step(&mut self, event: FocusClaimEvent) -> Effects<FocusClaimEffect> {
+        match (*self, event) {
+            (_, FocusClaimEvent::Request) => {
+                *self = Self::Pending;
+                Effects::none()
+            }
+            (Self::Pending, FocusClaimEvent::Poll) => {
+                *self = Self::Idle;
+                Effects::one(FocusClaimEffect::FocusScreen)
+            }
+            (Self::Idle, FocusClaimEvent::Poll) => Effects::none(),
+        }
+    }
+}
+
 pub struct TerminalTab {
     pub id: String,
     pub title: String,
     pub title_number: usize,
     pub custom_title: bool,
     pub session: TerminalSession,
-    pub stream: Option<StreamHandle>,
-    pub fixture_shell: bool,
+    pub backend: TabBackend,
     pub scroll_px_accum: f32,
     pub drag: mount::TextDrag,
     /// Whether it has an attachment (`surface-machine.ts`).
@@ -248,17 +440,15 @@ pub struct TerminalPane {
     /// Whether the saved workspaces were taken in.
     pub saved: persist::Saved,
     pub lru_order: Vec<String>,
-    pub blink_epoch: f64,
-    pub bell_until: f64,
-    pub last_blink_lit: bool,
+    pub blink: CursorBlink,
+    pub bell: Bell,
     /// The appearance and theme (`Pal::theme`, `themes::generation`) the open terminals were last painted in.
     pub last_theme: Option<PaintedTheme>,
     /// The appearance the window last drew in, resolved from the System setting; state
     /// updates have no `Cx` to ask.
     pub painted_dark: Cell<Option<bool>>,
     pub dirty_flag: Arc<AtomicBool>,
-    pub story_focused: bool,
-    pub story_built_variant: Option<usize>,
+    pub story: StoryStage,
     /// The tab whose title is a field (`TerminalTabLabel`'s inline rename).
     pub renaming: rename::Renames,
     /// The server's connections so far: each reconnect starts the next (`machine.ts` `connections`).
@@ -267,7 +457,7 @@ pub struct TerminalPane {
     pub spare_field: TextEdit,
     /// The terminal took the keyboard (opened, toggled, clicked): keyboard focus goes to its
     /// viewport on the next poll, so Tab and F6 there are the viewport's and never trapped.
-    pub claim_focus: bool,
+    pub focus_claim: FocusClaim,
     /// A paste waiting for the user to say it may run (`paste`).
     pub pending_paste: Option<paste::Pending>,
     /// Each server's own shell (by its address), once a terminal with marks needed it;
@@ -282,18 +472,16 @@ impl Default for TerminalPane {
             stored: HashMap::new(),
             saved: persist::Saved::default(),
             lru_order: Vec::new(),
-            blink_epoch: 0.0,
-            bell_until: 0.0,
-            last_blink_lit: true,
+            blink: CursorBlink::default(),
+            bell: Bell::default(),
             last_theme: None,
             painted_dark: Cell::new(None),
             dirty_flag: Arc::new(AtomicBool::new(false)),
-            story_focused: true,
-            story_built_variant: None,
+            story: StoryStage::default(),
             renaming: rename::Renames::default(),
             connections: 0,
             spare_field: TextEdit::default(),
-            claim_focus: false,
+            focus_claim: FocusClaim::default(),
             pending_paste: None,
             server_shells: RefCell::new(HashMap::new()),
         }
@@ -302,13 +490,11 @@ impl Default for TerminalPane {
 
 impl TerminalPane {
     pub fn cursor_lit(&self, clock: f64) -> bool {
-        let dt = (clock - self.blink_epoch).max(0.0);
-        (dt % 1.0) < 0.5
+        self.blink.is_lit(clock)
     }
 
     pub fn reset_blink(&mut self, clock: f64) {
-        self.blink_epoch = clock;
-        self.last_blink_lit = true;
+        drop(self.blink.step(BlinkEvent::Reset { now: clock }));
     }
 
     pub(crate) fn touch_lru(&mut self, key: &str) {

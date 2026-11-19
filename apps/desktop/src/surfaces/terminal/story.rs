@@ -10,7 +10,7 @@ use super::streams::{
     BUILD_BURST, BUILD_STREAM, COLORS_UNICODE_STREAM, HTOP_STREAM, HTOP_TICK_STREAM,
     cat_lines_stream,
 };
-use super::{TERMINAL_KNOBS, theme_from_pal};
+use super::{StoryStageEvent, TERMINAL_KNOBS, theme_from_pal};
 use crate::App;
 use crate::palette::{Pal, pal};
 use crate::stories::{Story, Trigger, replay, stage};
@@ -69,8 +69,7 @@ pub fn init_story(s: &mut App) {
     s.finish_stream();
     s.workspace_panes.terminal.workspaces.clear();
     s.workspace_panes.terminal.lru_order.clear();
-    s.workspace_panes.terminal.story_focused = true;
-    s.workspace_panes.terminal.story_built_variant = Some(*s.fixture_run.variant);
+    s.workspace_panes.terminal.story.step(StoryStageEvent::Build { variant: *s.fixture_run.variant });
     s.workspace_panes.terminal.reset_blink(*s.clock);
 
     let theme = theme_from_pal(pal(s.terminal_dark()));
@@ -153,7 +152,7 @@ fn stream_update(s: &mut App, _play: &mut Play<'_, App>) {
     if let Some(ws) = s.workspace_panes.terminal.workspaces.get(STORY_WS)
         && let Some(active) = ws.active.as_deref()
         && let Some(tab) = ws.tabs.iter().find(|t| t.id == active)
-        && let Some(stream) = &tab.stream
+        && let Some(stream) = tab.backend.stream()
     {
         stream.feed(payload);
     }
@@ -199,7 +198,7 @@ pub fn view_card(s: &App, p: &Pal) -> El {
         None,
         (card_w, card_h),
         2.0,
-        s.workspace_panes.terminal.story_focused,
+        s.workspace_panes.terminal.story.is_focused(),
         true,
     );
     col()

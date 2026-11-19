@@ -233,7 +233,7 @@ pub fn render_terminal_pane<H: TerminalSurfaceHost + 'static>(
         _ => None,
     };
     let find_bar = find::bar::<H>(p, ws_key, tab, &snap);
-    let bell = s.clock() < pane.bell_until;
+    let bell = pane.bell.is_ringing(s.clock());
     pane_shell(p, viewport, find_bar, failure, bell)
 }
 

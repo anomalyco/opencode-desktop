@@ -16,7 +16,7 @@ use rune::{Cx, El, Family, TextStyle, Tx, col, el, row, spacer, text};
 use rune_kit::ButtonVariant;
 use opencode_ui::palette::{Elevate as _, Pal, kit};
 
-use crate::{TerminalSurfaceHost, ops};
+use crate::{FocusClaimEvent, TerminalSurfaceHost, ops};
 
 /// `dialog-title`: 15 on 20 at 530, as the session delete confirmation's.
 const TITLE: TextStyle = TextStyle::new(15.0, 530.0).lh(20.0).tracking(-0.13);
@@ -89,9 +89,7 @@ pub fn paste_into_terminal(host: &mut dyn TerminalSurfaceHost, ws: &str, tab: &s
         Paste::Send(text) => {
             if let Some(t) = ops::terminal_tab_mut(host, ws, tab) {
                 t.session.paste(text.clone());
-                if t.fixture_shell
-                    && let Some(st) = &t.stream
-                {
+                if let Some(st) = t.backend.fixture_stream() {
                     st.feed(text.as_bytes());
                 }
             }
@@ -111,7 +109,7 @@ pub fn answer_paste(host: &mut dyn TerminalSurfaceHost, send: bool, tx: &mut Tx)
     if send && let Some(t) = ops::terminal_tab_mut(host, &p.ws, &p.tab) {
         t.session.paste(without_last_break(&p.text).to_owned());
     }
-    host.terminal_mut().claim_focus = true;
+    drop(host.terminal_mut().focus_claim.step(FocusClaimEvent::Request));
 }
 
 /// The question a paste that would run commands asks, over the window (the session delete

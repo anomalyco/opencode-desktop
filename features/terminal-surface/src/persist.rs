@@ -14,7 +14,8 @@ use serde_json::{Value, json};
 use terminal::{RestoreState, SessionPersistHandle, TerminalConfig, TerminalSession};
 
 use crate::{
-    HoverLink, MAX_TERMINAL_WORKSPACES, TerminalSurfaceHost, TerminalTab, TerminalWorkspace, mount, ops, workspace_key,
+    HoverLink, MAX_TERMINAL_WORKSPACES, TabBackend, TerminalSurfaceHost, TerminalTab, TerminalWorkspace, mount, ops,
+    workspace_key,
 };
 
 /// The storage namespace the workspaces live in (Desktop's terminal plugin's), one row each.
@@ -494,8 +495,7 @@ pub fn ensure_terminal_workspace_hydrated(host: &mut dyn TerminalSurfaceHost, ws
                 title_number: item.title_number,
                 custom_title: item.custom_title,
                 session,
-                stream: Some(handle),
-                fixture_shell: false,
+                backend: TabBackend::Stream(handle),
                 scroll_px_accum: 0.0,
                 drag: mount::TextDrag::Idle,
                 mount: mount::Mount::Live { connection: 0 },
