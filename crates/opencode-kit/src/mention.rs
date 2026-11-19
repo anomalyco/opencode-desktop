@@ -191,3 +191,231 @@ pub fn session_tokens(text: &str) -> Vec<(Range<usize>, &str)> {
     out
 }
 
+/// The kind of a composer pill by its id (`agent:`, `skill:`, `file:`, `reference:`, `session:`).
+pub fn mention_kind_of(id: &str) -> Option<MentionKind> {
+    Some(match id.split_once(':')?.0 {
+        "agent" => MentionKind::Agent,
+        "skill" => MentionKind::Skill,
+        "file" => MentionKind::File,
+        "reference" => MentionKind::Directory,
+        "session" => MentionKind::Session,
+        _ => return None,
+    })
+}
+
+/// A session id short enough for a chip: `ses_` and its first eight characters.
+pub fn short_session_id(id: &str) -> &str {
+    let end = id.char_indices().nth(12).map_or(id.len(), |(i, _)| i);
+    &id[..end]
+}
+
+/// The `on_link` id a session badge reports, and back.
+pub fn session_link(id: &str) -> String {
+    format!("session:{id}")
+}
+
+pub fn session_of_link(link: &str) -> Option<&str> {
+    link.strip_prefix("session:")
+}
+
+/// What a session id in a reply stands for, as the host knows it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct SessionRef {
+    /// Its title; empty when the session has none yet.
+    pub title: String,
+    /// The title of the session that started it, for a subagent (`Some("")` when that one isn't loaded).
+    pub parent: Option<String>,
+    pub busy: bool,
+    /// When it last changed, in milliseconds (0: unknown).
+    pub updated: i64,
+}
+
+impl SessionRef {
+    pub fn child(&self) -> bool {
+        self.parent.is_some()
+    }
+
+    /// The chip's words: its title, or its short id while it has none.
+    pub fn label<'a>(&'a self, id: &'a str) -> &'a str {
+        if self.title.trim().is_empty() { short_session_id(id) } else { self.title.trim() }
+    }
+}
+
+/// How many letters follow `ses_` in a full session id: 26 from a server, fewer in fixtures.
+const ID_BODY: std::ops::RangeInclusive<usize> = 20..=32;
+
+/// Whether `c` may sit right before an id: anything but a word, a path, a URL or a mention.
+fn opens_session_id(c: Option<char>) -> bool {
+    c.is_none_or(|c| !(c.is_alphanumeric() || matches!(c, '_' | '/' | ':' | '@' | '-' | '.' | '=' | '#' | '\\')))
+}
+
+/// The full session id starting at byte `at` of `s`, when one does and nothing joins it on.
+fn session_id_at(s: &str, at: usize) -> Option<Range<usize>> {
+    let rest = s.get(at..)?.strip_prefix("ses_")?;
+    let body = rest.bytes().take_while(u8::is_ascii_alphanumeric).count();
+    let after = rest[body..].chars().next();
+    (ID_BODY.contains(&body) && after.is_none_or(|c| c != '_' && c != '-' && c != '/') && opens_session_id(s[..at].chars().next_back())).then(|| at..at + 4 + body)
+}
+
+/// Every session id in Markdown `src` that becomes a chip: `(bytes to replace, id)`. A bare id
+/// replaces itself; an inline code span holding only an id replaces the span, backticks and all.
+/// Ids in fenced code, in a link's words or address, or joined to a path or a word stay.
+pub fn find_session_ids(src: &str) -> Vec<(Range<usize>, &str)> {
+    let mut out = Vec::new();
+    if !src.contains("ses_") {
+        return out;
+    }
+    let mut fence: Option<(char, usize)> = None;
+    let mut line_start = 0;
+    for line in src.split_inclusive('\n') {
+        let at = line_start;
+        line_start += line.len();
+        let trimmed = line.trim_start_matches(' ');
+        let indent = line.len() - trimmed.len();
+        let run = |c: char| trimmed.chars().take_while(|&x| x == c).count();
+        if let Some((c, n)) = fence {
+            if indent < 4 && run(c) >= n && trimmed[run(c)..].trim().is_empty() {
+                fence = None;
+            }
+            continue;
+        }
+        if indent < 4 && (run('`') >= 3 || run('~') >= 3) {
+            let c = if run('`') >= 3 { '`' } else { '~' };
+            fence = Some((c, run(c)));
+            continue;
+        }
+        inline_session_ids(src, at, at + line.len(), &mut out);
+    }
+    out
+}
+
+/// [`find_session_ids`] within one line, `src[from..to]`, skipping code spans other than lone ids and links.
+fn inline_session_ids<'a>(src: &'a str, from: usize, to: usize, out: &mut Vec<(Range<usize>, &'a str)>) {
+    let b = src.as_bytes();
+    let (mut i, mut brackets) = (from, 0usize);
+    while i < to {
+        match b[i] {
+            b'\\' => i += 2,
+            b'`' => {
+                let n = b[i..to].iter().take_while(|&&c| c == b'`').count();
+                let ticks = &src[i..i + n];
+                let Some(close) = src[i + n..to].find(ticks).map(|c| i + n + c) else {
+                    i += n;
+                    continue;
+                };
+                let inner = &src[i + n..close];
+                let lone = inner.trim();
+                if brackets == 0 && session_id_at(lone, 0).is_some_and(|r| r.end == lone.len()) && opens_session_id(src[..i].chars().next_back()) {
+                    let lead = i + n + inner.len() - inner.trim_start().len();
+                    out.push((i..close + n, &src[lead..lead + lone.len()]));
+                }
+                i = close + n;
+            }
+            b'[' => {
+                brackets += 1;
+                i += 1;
+            }
+            b']' => {
+                brackets = brackets.saturating_sub(1);
+                i += 1;
+                // A link's address: `](…)` up to its closing parenthesis.
+                if b.get(i) == Some(&b'(') {
+                    i = src[i..to].find(')').map_or(to, |c| i + c + 1);
+                }
+            }
+            b'<' if src[i..to].starts_with("<http") => i = src[i..to].find('>').map_or(to, |c| i + c + 1),
+            b's' if brackets == 0 => match session_id_at(src, i).filter(|r| r.end <= to) {
+                Some(r) => {
+                    out.push((r.clone(), &src[r.clone()]));
+                    i = r.end;
+                }
+                None => i += 1,
+            },
+            _ => i += 1,
+        }
+    }
+}
+
+/// Every full session id in plain text `src` (a prompt), by [`find_session_ids`]'s rules for a bare id.
+pub fn plain_session_ids(src: &str) -> Vec<(Range<usize>, &str)> {
+    let mut out = Vec::new();
+    let mut from = 0;
+    while let Some(i) = src[from..].find("ses_") {
+        let at = from + i;
+        match session_id_at(src, at) {
+            Some(r) => {
+                from = r.end;
+                out.push((r.clone(), &src[r]));
+            }
+            None => from = at + 4,
+        }
+    }
+    out
+}
+
+/// The recorded mentions still on an `@` in `body`, minus any over an `@session:` token, and
+/// recorded session mentions once the text has tokens. Those come from a local echo of the
+/// text as typed (a session pill reading `@SEER`), so on the server's copy their offsets can
+/// land inside a token and cut it (p279); the token is the truth.
+pub fn recorded_mentions<'a>(body: &'a str, mentions: &'a [UserMention]) -> impl Iterator<Item = &'a UserMention> + 'a {
+    let tokens = session_tokens(body);
+    mentions.iter().filter(move |m| {
+        let stale = !tokens.is_empty() && m.kind == MentionKind::Session;
+        let cuts = tokens.iter().any(|(r, _)| m.range.start < r.end && r.start < m.range.end);
+        !stale && !cuts && body.get(m.range.clone()).is_some_and(|t| t.starts_with('@'))
+    })
+}
+
+/// One badge in a bubble's shown text; `session` is the id a session mention opens.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BubbleMark {
+    pub range: Range<usize>,
+    pub kind: MentionKind,
+    pub session: Option<String>,
+    /// The session's title, when known.
+    pub title: Option<String>,
+}
+
+type RawMark<'a> = (Range<usize>, MentionKind, Option<(&'a str, Option<String>)>);
+
+/// A bubble's text and badges: the message's [`recorded_mentions`], and each `@session:<id>`
+/// token as one badge reading the session's title, or its short id when `title` (which names a
+/// session by id) doesn't know it.
+pub fn bubble_marks(body: &str, mentions: &[UserMention], title: impl Fn(&str) -> Option<String>) -> (String, Vec<BubbleMark>) {
+    let mut marks: Vec<RawMark<'_>> =
+        recorded_mentions(body, mentions).map(|m| (m.range.clone(), m.kind, None)).collect();
+    for (r, id) in session_tokens(body) {
+        marks.push((r, MentionKind::Session, Some((id, title(id).filter(|t| !t.trim().is_empty())))));
+    }
+    // A session id pasted as it is reads as its badge too, once its title is known.
+    for (r, id) in plain_session_ids(body) {
+        if let Some(t) = title(id).filter(|t| !t.trim().is_empty()) {
+            marks.push((r, MentionKind::Session, Some((id, Some(t)))));
+        }
+    }
+    marks.sort_by_key(|(r, _, _)| r.start);
+    let (mut out, mut ranges, mut at) = (String::with_capacity(body.len()), Vec::new(), 0);
+    for (r, kind, session) in marks {
+        if r.start < at {
+            continue;
+        }
+        out.push_str(&body[at..r.start]);
+        let start = out.len();
+        match &session {
+            Some((id, t)) => out.push_str(t.as_deref().unwrap_or_else(|| short_session_id(id))),
+            None => out.push_str(&body[r.clone()]),
+        }
+        let (session, title) = session.map_or((None, None), |(id, t)| (Some(id.to_owned()), t));
+        ranges.push(BubbleMark { range: start..out.len(), kind, session, title });
+        at = r.end;
+    }
+    out.push_str(&body[at..]);
+    (out, ranges)
+}
+
+/// [`bubble_marks`] as the shown text and each badge's bytes and kind.
+pub fn mention_bubble(body: &str, mentions: &[UserMention], title: impl Fn(&str) -> Option<String>) -> (String, Vec<(Range<usize>, MentionKind)>) {
+    let (text, marks) = bubble_marks(body, mentions, title);
+    (text, marks.into_iter().map(|m| (m.range, m.kind)).collect())
+}
+

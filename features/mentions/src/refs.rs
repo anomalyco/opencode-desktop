@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use opencode_kit::client::Request;
 use rune::{Icon, PointerPress, Tx};
 use rune_theme_opencode::icons::OUTLINE_COPY;
-use session_view::session_chips::SessionRef;
+use opencode_kit::mention::SessionRef;
 
 use crate::{MentionsHost, title_of};
 

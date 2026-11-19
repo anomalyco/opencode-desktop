@@ -12,8 +12,8 @@ use rune::{El, Tx, col, el, icon, row, text};
 use rune_kit::Switch;
 use rune_theme_opencode::icons as ic;
 use serde_json::{Value, json};
-use session_view::palette::{Pal, kit};
-use session_view::pickers::Model;
+use opencode_ui::palette::{Pal, kit};
+use opencode_kit::model::Model;
 
 use super::{NAME, NAME_REGULAR, catalog, header_with, page};
 use crate::host::SettingsHost;
@@ -78,7 +78,7 @@ fn groups(s: &dyn SettingsHost) -> Vec<(String, Vec<&Model>)> {
     let mut models: Vec<&Model> = s
         .models()
         .iter()
-        .filter(|m| query.is_empty() || session_view::pickers::search::score(&query, &[m.group.as_str(), m.name.as_str(), m.id.as_str()]).is_some())
+        .filter(|m| query.is_empty() || opencode_search::model_search::score(&query, &[m.group.as_str(), m.name.as_str(), m.id.as_str()]).is_some())
         .collect();
     let rank = |m: &Model| match POPULAR.iter().position(|p| *p == m.provider) {
         Some(at) => (at, String::new()),
@@ -145,7 +145,7 @@ fn search<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {
         .hover(p.layer2)
         .child(el().pl(16.0).child(icon(&ic::MAGNIFYING_GLASS, 14.0).color(p.icon_muted)))
         .child(
-            session_view::style::field(&s.settings_pages().search, NAME_REGULAR)
+            opencode_ui::style::field(&s.settings_pages().search, NAME_REGULAR)
                 .key("settings-models-input")
                 .single_line()
                 .grow(1.0)

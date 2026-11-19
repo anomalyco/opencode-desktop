@@ -185,3 +185,13 @@ fn measure<S: 'static>(key: Rc<str>, slot: usize) -> impl Fn(&mut S, [f32; 4], &
 fn overflowing([view, content]: [f32; 2]) -> bool {
     view > 0.0 && content - view > 0.5
 }
+
+/// Where a timeline stood, to keep across a restart: its session, the first row showing and how
+/// far below the viewport's top that row's top stood, and whether that was more than a screen up.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Place {
+    pub session: String,
+    pub row: String,
+    pub at: f32,
+    pub far: bool,
+}

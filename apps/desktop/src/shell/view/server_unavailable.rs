@@ -4,7 +4,7 @@
 //! plugin server's own cover (`PluginServerCover`) is the plugin host's.
 
 use opencode_kit::servers::ServerKey;
-use opencode_kit::servers::health::{self, Health};
+use opencode_servers::health::{self, Health};
 use rune::{El, Tx, col, icon, text};
 use rune_theme_opencode::icons as ic;
 
@@ -131,7 +131,7 @@ pub fn signed_out_status(p: &Pal, server: &ServerKey) -> El {
 
 /// The `servers.json` address of server `key`, when it was added by address.
 fn saved_url(key: &ServerKey) -> Option<String> {
-    crate::servers::list().into_iter().find(|x| opencode_kit::servers::ServerConn::http_server(&x.url).is_some_and(|c| c.key() == *key)).map(|x| x.url)
+    crate::servers::list().into_iter().find(|x| opencode_servers::ServerConn::http_server(&x.url).is_some_and(|c| c.key() == *key)).map(|x| x.url)
 }
 
 /// `SessionNotFoundPanel`: the server's name and the session's id, and Close tab.

@@ -203,7 +203,7 @@ fn sessions_column(s: &App, p: &Pal, selected: Option<&model::Project>, tier: Ti
     }
     // The focused server's list phase (`load-machine.ts`): placeholder rows while it connects, a
     // notice while it can't be reached, signs us out or is too old, or its list failed.
-    use opencode_kit::servers::home_load::{Failure, ListView, Unavailable};
+    use opencode_servers::home_load::{Failure, ListView, Unavailable};
     let list = match crate::projects::home::list_view(s) {
         ListView::Ready { .. } => list,
         ListView::Loading { skeleton } => {

@@ -10,7 +10,7 @@ use rune::machine::Effects;
 use rune::{Color, Cx, El, Key, KeyEvent, TextEdit, Tx, col, el, icon, row, spacer, text};
 use rune_kit::ButtonVariant;
 use rune_theme_opencode::icons as ic;
-use session_view::palette::{Pal, kit};
+use opencode_ui::palette::{Pal, kit};
 
 use super::{BODY, NAME, catalog, header_with, page, section};
 use crate::PROVIDER_REMOVAL_OVERLAY_ID;

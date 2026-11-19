@@ -28,12 +28,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use opencode_i18n::t;
 use opencode_kit::servers::key::Route as Page;
-use opencode_kit::servers::tabs::WindowDoc;
+use opencode_servers::tabs::WindowDoc;
 use opencode_kit::servers::{ServerKey, TabKey};
 use opencode_storage::FlushReason;
 use opencode_ui::toast;
 use serde_json::Value;
-use session_view::composer::mode::Mode;
+use opencode_ui::composer_mode::Mode;
 
 pub use copies::{Copies, ask_copy, poll_copies};
 pub use doc::{load_window_raw, read_window, read_window_json, save_window_draft, save_window_key, window_drafts};

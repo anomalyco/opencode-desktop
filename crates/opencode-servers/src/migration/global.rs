@@ -2,11 +2,11 @@
 //! `tabs.json`'s zoom and used projects, `servers.json`'s list) to the `opencode.global.dat` keys
 //! Desktop keeps them under (`server`, `layout`, `sidebar.inbox`, `sidebar.organize`), and back.
 
+use opencode_kit::servers::key::ServerKey;
 use serde_json::{Map, Value, json};
 
 use super::{Context, is_server_url};
-use crate::servers::key::ServerKey;
-use crate::servers::registry::{ServerConn, http_from_json, http_to_json};
+use crate::registry::{ServerConn, http_from_json, http_to_json};
 
 /// The shared files as the old app read them.
 #[derive(Clone, Copy, Debug, Default)]

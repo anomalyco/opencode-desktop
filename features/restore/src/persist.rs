@@ -9,10 +9,10 @@ use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 use opencode_kit::servers::key::Route as Page;
-use opencode_kit::servers::tabs::ClosedTab;
+use opencode_servers::tabs::ClosedTab;
 use opencode_kit::servers::TabKey;
 use serde_json::{Value, json};
-use session_view::composer::mode::Mode;
+use opencode_ui::composer_mode::Mode;
 
 use crate::state::organize_expanded_sorted;
 use crate::{GLOBAL, RestoreHost, RestoreRoute, doc, draft_doc, hydrate_restore, hydrated, parked, show_draft, undo};

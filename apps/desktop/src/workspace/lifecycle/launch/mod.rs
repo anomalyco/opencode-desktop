@@ -440,7 +440,7 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
         if window_phase(s).is_some_and(|p| matches!(p, Phase::Offline { retry_at, .. } if retry_at.is_infinite()))
             && matches!(
                 crate::servers::health::get(crate::servers::runtime::active(s)),
-                Some(opencode_kit::servers::health::Health::Probe(opencode_kit::servers::health::ProbeResult::Healthy { .. }))
+                Some(opencode_servers::health::Health::Probe(opencode_servers::health::ProbeResult::Healthy { .. }))
             )
         {
             step(s, LaunchEvent::Answering, tx);

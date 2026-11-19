@@ -202,7 +202,7 @@ fn probed(s: &mut App, tx: &mut Tx) -> bool {
         Some(Cover::SignedOut) => Probe::SignedOut,
         Some(Cover::Incompatible) => Probe::Incompatible,
         None if crate::launch::offline(s) || unavailable::unreachable(&key) => Probe::Unreachable,
-        None if crate::servers::health::get(&key).is_some_and(|h| opencode_kit::servers::health::is_healthy(Some(&h))) => Probe::Answering,
+        None if crate::servers::health::get(&key).is_some_and(|h| opencode_servers::health::is_healthy(Some(&h))) => Probe::Answering,
         None => Probe::Unknown,
     };
     let server = key.as_str().to_owned();

@@ -13,6 +13,7 @@ rune.workspace = true
 rune-kit = { workspace = true, features = ["markdown", "mermaid"] }
 rune-knobs.workspace = true
 rune-theme-opencode.workspace = true
+serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true
 
 [lints]

@@ -4,7 +4,7 @@
 use opencode_i18n::t;
 use opencode_ui::popup::PopupHost;
 use rune::{El, Tx, col};
-use session_view::palette::Pal;
+use opencode_ui::palette::Pal;
 
 use super::{header, page, select};
 use crate::host::SettingsHost;

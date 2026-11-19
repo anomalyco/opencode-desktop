@@ -13,8 +13,9 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{Receiver, Sender, channel};
 
-use opencode_kit::servers::health::{self, Effect, Event, Health, Indicator, Input, ProbeResult};
-use opencode_kit::servers::{ServerConn, ServerKey};
+use opencode_kit::servers::ServerKey;
+use opencode_servers::ServerConn;
+use opencode_servers::health::{self, Effect, Event, Health, Indicator, Input, ProbeResult};
 use rune::Tx;
 use rune::machine::Attempt;
 

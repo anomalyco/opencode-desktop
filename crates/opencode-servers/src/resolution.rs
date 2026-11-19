@@ -8,10 +8,10 @@
 //! unresolved target, or the route unmounts. A timeout keeps the attempt, as the request it gave
 //! up on may still answer.
 
+use opencode_kit::servers::key::ServerKey;
 use rune::machine::{Attempt, Effects};
 
-use super::health::{Health, ProbeResult};
-use super::key::ServerKey;
+use crate::health::{Health, ProbeResult};
 
 /// `SESSION_RESOLUTION_TIMEOUT_MS` (`resolution-machine.ts:5-6`).
 pub const SESSION_RESOLUTION_TIMEOUT_MS: u64 = 30_000;

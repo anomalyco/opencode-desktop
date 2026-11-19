@@ -8,7 +8,7 @@ use opencode_i18n::t;
 use opencode_ui::popup::{self, Item, Menu, MenuButton as _, PopupHost};
 use rune::{Color, Drag, El, Icon, Phase, PointerButton, Tx, col, icon, row, text};
 use rune_theme_opencode::icons as ic;
-use session_view::palette::Pal;
+use opencode_ui::palette::Pal;
 
 use crate::host::SettingsHost;
 use crate::pages::{self, Page};
@@ -61,7 +61,7 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, (width, heigh
     let content = pages::view(s, p);
     // The whole screen scrolls with no bar, as Desktop hides it.
     let screen = |inner: El| {
-        session_view::scroller::scroller("settings").hidden(
+        opencode_ui::scroller::scroller("settings").hidden(
             col()
                 .role("region")
                 .label_static(t!("command.category.settings"))
@@ -149,7 +149,7 @@ fn nav<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, width: f32, height
         let items = group.iter().fold(col().key(format!("settings-nav-group-{g}")).w_full().gap(4.0), |c, page| c.child(nav_item(s, p, page)));
         list = list.child(items);
     }
-    let groups = session_view::scroller::scroller("settings-nav-groups")
+    let groups = opencode_ui::scroller::scroller("settings-nav-groups")
         .build::<H>(p, col().w_full().shrink().min_h(0.0).scroll_fade(rune::ScrollFade::feather(24.0)), list);
     nav.child(col().key("settings-nav-room").w_full().max_h(room).child(groups))
 }
@@ -163,7 +163,7 @@ fn press_nav_item(host: &mut dyn SettingsHost, to: &Page, tx: &mut Tx) {
 }
 
 fn drag_nav_item(host: &mut dyn SettingsHost, to: &Page, d: &Drag, tx: &mut Tx) {
-    let mouse = tx.button() == PointerButton::Primary && !session_view::style::touch_controls();
+    let mouse = tx.button() == PointerButton::Primary && !opencode_ui::style::touch_controls();
     if d.phase == Phase::Down && mouse && (&host.settings_pages().page != to || search::active(host)) {
         pages::open_page(host, to.clone(), tx);
     } else {

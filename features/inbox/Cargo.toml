@@ -17,7 +17,6 @@ opencode-ui = { path = "../../crates/opencode-ui" }
 rune.workspace = true
 rune-theme-opencode.workspace = true
 serde_json.workspace = true
-session-view = { path = "../../crates/session-view" }
 
 [lints]
 workspace = true

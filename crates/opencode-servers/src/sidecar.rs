@@ -4,9 +4,8 @@
 //! arrive while an attempt runs wait for that attempt, so windows that start or reconnect
 //! together run one `ensure`.
 
+use opencode_kit::servers::HttpBase;
 use rune::machine::{Attempt, Effects};
-
-use super::registry::HttpBase;
 
 /// `initial` may adopt a service a probe found; `reconnect` always ensures one (`ConnectMode`, `:8-9`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

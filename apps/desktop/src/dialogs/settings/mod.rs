@@ -9,9 +9,10 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration, Phase};
 use opencode_kit::integration::{Integration, McpServer};
 use opencode_kit::model::{Project, SessionInfo};
-use opencode_kit::servers::health::Health;
-use opencode_kit::servers::plugin_server::{PluginStage, PluginStatus};
-use opencode_kit::servers::{ServerConn, ServerKey};
+use opencode_kit::servers::ServerKey;
+use opencode_servers::ServerConn;
+use opencode_servers::health::Health;
+use opencode_servers::plugin_server::{PluginStage, PluginStatus};
 use opencode_kit::wire_error::WireError;
 use rune::{El, KeyEvent, Tx};
 use session_view::palette::Pal;
@@ -45,7 +46,7 @@ fn make_server_entry(
     source: Option<Option<PluginStage>>,
 ) -> ServerEntry {
     let health = crate::servers::health::get(&key);
-    let availability = opencode_kit::servers::settings::availability(opencode_kit::servers::settings::Input {
+    let availability = opencode_servers::settings::availability(opencode_servers::settings::Input {
         connection: connection.as_ref(),
         source,
         health: health.as_ref(),

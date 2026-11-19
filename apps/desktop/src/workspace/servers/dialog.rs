@@ -226,7 +226,7 @@ fn run(s: &mut App, effect: Effect) {
 
 /// Settings' own server becomes the one saved at `url`.
 fn follow(s: &mut App, url: &str) {
-    if let Some(key) = pairing::normalize(url).and_then(|u| opencode_kit::servers::ServerConn::http_server(&u)).map(|c| c.key()) {
+    if let Some(key) = pairing::normalize(url).and_then(|u| opencode_servers::ServerConn::http_server(&u)).map(|c| c.key()) {
         s.settings_pages.server.key = key;
     }
 }

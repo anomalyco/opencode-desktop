@@ -4,11 +4,11 @@
 //! the controllers themselves (a server's peer: its event stream, worker and data), keyed by
 //! `(ServerKey, Attempt)`; this machine says when to create and dispose them.
 
+use opencode_kit::servers::key::ServerKey;
 use rune::machine::{Attempt, Effects};
 
-use super::health::ProbeResult;
-use super::key::ServerKey;
-use super::registry::{Credentials, ServerConn};
+use crate::health::ProbeResult;
+use crate::registry::{Credentials, ServerConn};
 
 /// One server's controller (`ServerControllerState`, `machine.ts:15-39`). `Starting` lasts only
 /// until the caller reports the controller it created.

@@ -3342,6 +3342,7 @@ dependencies = [
  "opencode-plugin-spec",
  "opencode-runtime",
  "opencode-search",
+ "opencode-servers",
  "opencode-storage",
  "opencode-ui",
  "procwatch",
@@ -3415,11 +3416,11 @@ dependencies = [
  "opencode-i18n",
  "opencode-kernel",
  "opencode-kit",
+ "opencode-ui",
  "rune",
  "rune-kit",
  "rune-theme-opencode",
  "serde_json",
- "session-view",
 ]
 
 [[package]]
@@ -3515,7 +3516,6 @@ dependencies = [
  "rune",
  "rune-theme-opencode",
  "serde_json",
- "session-view",
 ]
 
 [[package]]
@@ -3541,10 +3541,10 @@ dependencies = [
  "opencode-kernel",
  "opencode-kit",
  "opencode-search",
+ "opencode-ui",
  "rune",
  "rune-theme-opencode",
  "serde_json",
- "session-view",
 ]
 
 [[package]]
@@ -3628,6 +3628,7 @@ dependencies = [
  "opencode-platform",
  "opencode-runtime",
  "opencode-search",
+ "opencode-servers",
  "opencode-ui",
  "rune",
  "rune-kit",
@@ -3643,12 +3644,12 @@ dependencies = [
  "opencode-kernel",
  "opencode-kit",
  "opencode-runtime",
+ "opencode-servers",
  "opencode-storage",
  "opencode-ui",
  "rune",
  "serde",
  "serde_json",
- "session-view",
 ]
 
 [[package]]
@@ -3691,12 +3692,12 @@ dependencies = [
  "opencode-platform",
  "opencode-runtime",
  "opencode-search",
+ "opencode-servers",
  "opencode-ui",
  "rune",
  "rune-kit",
  "rune-theme-opencode",
  "serde_json",
- "session-view",
 ]
 
 [[package]]
@@ -3863,7 +3864,6 @@ name = "opencode-platform"
 version = "0.0.1"
 dependencies = [
  "opencode-kit",
- "opencode-storage",
  "otlp-lite",
  "rune",
  "serde",
@@ -3932,6 +3932,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "opencode-servers"
+version = "0.0.1"
+dependencies = [
+ "opencode-kit",
+ "rune",
+ "serde_json",
+]
+
+[[package]]
 name = "opencode-storage"
 version = "0.0.1"
 dependencies = [
@@ -3942,6 +3951,7 @@ dependencies = [
  "memmap2",
  "opencode-kit",
  "opencode-search",
+ "opencode-servers",
  "rune",
  "rusqlite",
  "serde",
@@ -3964,6 +3974,7 @@ dependencies = [
  "rune-kit",
  "rune-knobs",
  "rune-theme-opencode",
+ "serde",
  "serde_json",
 ]
 
@@ -5397,6 +5408,7 @@ dependencies = [
  "image",
  "opencode-i18n",
  "opencode-kit",
+ "opencode-search",
  "opencode-ui",
  "rune",
  "rune-kit",

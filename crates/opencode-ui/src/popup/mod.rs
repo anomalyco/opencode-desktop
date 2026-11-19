@@ -10,7 +10,6 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use opencode_kit::servers::health::Indicator;
 use rune::{El, TextEdit, TextStyle, Tx};
 use rune_knobs::Knobs;
 use crate::palette::Pal;
@@ -28,7 +27,7 @@ pub mod trigger;
 mod view;
 
 pub use keys::key;
-pub use menu::{Item, Menu};
+pub use menu::{Indicator, Item, Menu};
 pub use rune::{Align, PopupAnchor, PopupItem, PopupMenu, Side};
 pub use state::{dismiss, open, open_drawn, open_searchable, poll};
 pub use trigger::{MenuButton, menu_button};
