@@ -147,16 +147,22 @@ extern "C" fn callback(user: *mut c_void, queue: Queue, buffer: *mut QueueBuffer
         wake.notify_one();
         return;
     }
-    // SAFETY: the queue's buffer, `FRAMES` stereo f32 frames long, ours until enqueued.
-    let out = unsafe { std::slice::from_raw_parts_mut((*buffer).data.cast::<f32>(), FRAMES as usize * 2) };
+    // SAFETY: the queue's buffer has capacity `FRAMES * 8` bytes (`FRAMES * 2` `f32`s) and is ours
+    // until enqueued; `MaybeUninit<f32>` avoids assuming `AudioQueueAllocateBuffer` initialized it.
+    let out = unsafe {
+        std::slice::from_raw_parts_mut(
+            (*buffer).data.cast::<std::mem::MaybeUninit<f32>>(),
+            FRAMES as usize * 2,
+        )
+    };
     for frame in out.chunks_exact_mut(2) {
         if r.used == 128 {
             let r = &mut *r;
             r.engine.quantum(&mut r.quantum.0, &mut r.quantum.1);
             r.used = 0;
         }
-        frame[0] = r.quantum.0[r.used];
-        frame[1] = r.quantum.1[r.used];
+        frame[0].write(r.quantum.0[r.used]);
+        frame[1].write(r.quantum.1[r.used]);
         r.used += 1;
     }
     // SAFETY: as above; the buffer goes back to its own queue, full.
