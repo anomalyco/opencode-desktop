@@ -43,7 +43,6 @@ opencode-code-view = { path = "../../crates/opencode-code-view" }
 opencode-feature-annotations = { path = "../../features/annotations" }
 opencode-feature-composer-input = { path = "../../features/composer-input" }
 opencode-feature-connect = { path = "../../features/connect" }
-opencode-feature-dictation = { path = "../../features/dictation" }
 opencode-feature-egg = { path = "../../features/egg" }
 opencode-feature-files = { path = "../../features/files" }
 opencode-feature-find = { path = "../../features/find" }
@@ -75,7 +74,6 @@ browser-pane = { path = "../../crates/browser-pane" }
 crc32fast = "1"
 flate2 = "1"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
-hex-client = { path = "../../crates/hex-client" }
 rune-mac.workspace = true
 rune-notify.workspace = true
 opencode-i18n = { path = "../../crates/opencode-i18n" }
@@ -112,7 +110,9 @@ win-install = { path = "../../crates/win-install" }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Random ids and passwords for plugins (System:RandomId, the askpass token).
 getrandom = "0.3"
+hex-client = { path = "../../crates/hex-client" }
 mimalloc = { version = "0.1", default-features = false }
+opencode-feature-dictation = { path = "../../features/dictation" }
 opencode-feature-updater = { path = "../../features/updater" }
 rune = { workspace = true, features = ["native-file-dialog", "metal-backend", "tooling", "keys-overlay"] }
 ureq = { workspace = true, features = ["rustls"] }

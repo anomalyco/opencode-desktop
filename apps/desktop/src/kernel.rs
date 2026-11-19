@@ -96,6 +96,7 @@ pub fn build() -> Kernel<App> {
     b.with_feature(&crate::line_comments::AnnotationsFeature);
     b.with_feature(&crate::attachments::ComposerInputFeature);
     b.with_feature(&crate::connect::ConnectFeature);
+    #[cfg(not(target_arch = "wasm32"))]
     b.with_feature(&crate::dictation::DictationFeature);
     b.with_feature(&crate::files::FilesFeature);
     b.with_feature(&crate::find::FindFeature);
@@ -229,7 +230,7 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
     b.schedule(stage::INGEST_SERVERS, "launch.poll", |s, _, tx| {
         crate::launch::poll(s, tx)
     })
-    .after("dictation.poll")
+    .after(if cfg!(target_arch = "wasm32") { "project_switcher.poll" } else { "dictation.poll" })
     .per_server(|s, _, tx| {
         crate::launch::poll(s, tx);
         false
