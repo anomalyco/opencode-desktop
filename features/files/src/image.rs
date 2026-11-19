@@ -10,17 +10,82 @@ use opencode_ui::palette::{Pal, kit};
 
 use crate::{FilesHost, FilesPane, SessionFiles};
 
+/// Decode lifecycle of a picture file: while `next` decodes on a reload, `previous` stays visible
+/// so replacing a picture never flashes blank; once landed, only the decoded image remains.
+enum Decode {
+    Decoding { next: Image, previous: Option<Image> },
+    Landed(Image),
+}
+
+enum DecodeEvent {
+    CarryPrevious(Option<Image>),
+    CheckReady,
+}
+
+enum DecodeEffect {
+    None,
+    Landed,
+}
+
+impl Decode {
+    fn new(image: Image) -> Self {
+        if image.is_ready() {
+            Self::Landed(image)
+        } else {
+            Self::Decoding { next: image, previous: None }
+        }
+    }
+
+    fn shown(&self) -> &Image {
+        match self {
+            Self::Landed(image) => image,
+            Self::Decoding { next, previous } => {
+                if next.is_ready() {
+                    next
+                } else {
+                    previous.as_ref().unwrap_or(next)
+                }
+            }
+        }
+    }
+
+    fn lands(&self) -> bool {
+        matches!(self, Self::Decoding { next, .. } if next.is_ready())
+    }
+
+    fn step(&mut self, event: DecodeEvent) -> DecodeEffect {
+        match event {
+            DecodeEvent::CarryPrevious(prev) => {
+                if let Self::Decoding { next, previous } = self
+                    && !next.is_ready()
+                {
+                    *previous = prev;
+                }
+                DecodeEffect::None
+            }
+            DecodeEvent::CheckReady => {
+                let ready = match self {
+                    Self::Decoding { next, .. } if next.is_ready() => Some(next.clone()),
+                    _ => None,
+                };
+                if let Some(image) = ready {
+                    *self = Self::Landed(image);
+                    DecodeEffect::Landed
+                } else {
+                    DecodeEffect::None
+                }
+            }
+        }
+    }
+}
+
 /// A picture file's decoded image and its zoom.
 pub struct FileImage {
-    pub image: Image,
-    /// Shown while `image` decodes on a reload, so replacing a picture never flashes blank.
-    previous: Option<Image>,
+    decode: Decode,
     pub zoom: StageZoom,
     svg: bool,
     /// The file's size in bytes.
     bytes: u64,
-    /// Its decode has finished and a view has run since.
-    landed: bool,
 }
 
 /// What Desktop shows as a picture, by extension (`util/src/artifact.ts`): a format the image
@@ -47,33 +112,25 @@ fn extension(path: &str) -> Option<String> {
 
 impl FileImage {
     pub fn new(cache: &ImageCache, bytes: Vec<u8>, svg: bool) -> FileImage {
-        let image = cache.load(bytes.clone());
-        let landed = image.is_ready();
+        let len = bytes.len() as u64;
+        let decode = Decode::new(cache.load(bytes));
         FileImage {
-            bytes: bytes.len() as u64,
-            image,
-            previous: None,
+            bytes: len,
+            decode,
             zoom: StageZoom::default(),
             svg,
-            landed,
         }
     }
 
     /// Keeps `old`'s zoom and decoded pixels until the reloaded image finishes decoding.
     pub fn carry_from(&mut self, old: FileImage) {
-        if !self.image.is_ready() {
-            self.previous = old.shown_ready().cloned();
-        }
+        self.decode.step(DecodeEvent::CarryPrevious(old.shown_ready().cloned()));
         self.zoom = old.zoom;
     }
 
     /// The decoded handle currently shown (the new one once ready, else the previous revision's).
     pub fn shown(&self) -> &Image {
-        if self.image.is_ready() {
-            &self.image
-        } else {
-            self.previous.as_ref().unwrap_or(&self.image)
-        }
+        self.decode.shown()
     }
 
     fn shown_ready(&self) -> Option<&Image> {
@@ -99,17 +156,12 @@ impl FileImage {
 
     /// Whether `landed` would report the picture decoded: polls write the files only then.
     pub fn lands(&self) -> bool {
-        !self.landed && self.image.is_ready()
+        self.decode.lands()
     }
 
     /// True once, when the decode finishes.
     pub fn landed(&mut self) -> bool {
-        if self.landed || !self.image.is_ready() {
-            return false;
-        }
-        self.previous = None;
-        self.landed = true;
-        true
+        matches!(self.decode.step(DecodeEvent::CheckReady), DecodeEffect::Landed)
     }
 
     /// Decoded and drawable; a file that failed shows as binary.
