@@ -264,10 +264,15 @@ impl Backend {
         if !parked_work {
             return FlushReport { clean: true, ..FlushReport::default() };
         }
-        let Some(tx) = self.sender() else { return FlushReport { clean: true, ..FlushReport::default() } };
+        // `parked_work` was true (a running writer or dirty WAL), so failing to spawn or reach the
+        // writer means durability is unconfirmed; never return `clean: true` so `close()` keeps
+        // the draft journal intact.
+        let Some(tx) = self.sender() else {
+            return FlushReport { clean: false, micros: micros(started), ..FlushReport::default() };
+        };
         let (reply, answer) = mpsc::sync_channel(1);
         if tx.send(writer::Msg::Flush { reason, started, reply }).is_err() {
-            return FlushReport { clean: true, ..FlushReport::default() };
+            return FlushReport { clean: false, micros: micros(started), ..FlushReport::default() };
         }
         self.urgent.fetch_add(1, Ordering::Release);
         answer.recv_timeout(deadline).unwrap_or(FlushReport { timed_out: true, micros: micros(started), ..FlushReport::default() })
