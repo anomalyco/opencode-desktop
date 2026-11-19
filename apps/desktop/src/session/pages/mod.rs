@@ -53,13 +53,16 @@ impl State {
 
     /// `App::rest`: the reader's cache keeps only the pages of sessions `keep` says are shown.
     pub fn rest(&self, keep: &dyn Fn(&str) -> bool) {
-        if let Some(pool) = &self.pool { pool.shared.0.lock().unwrap_or_else(PoisonError::into_inner).ready.retain(|p| keep(&p.key.id)); }
+        if let Some(pool) = &self.pool && let QueueState::Running(q) = &mut *pool.shared.0.lock().unwrap_or_else(PoisonError::into_inner) {
+            q.ready.retain(|p| keep(&p.key.id));
+        }
     }
 
     /// The user messages of the pages in the reader's cache, which a tab shows when it opens.
     pub fn user_message_ids(&self) -> Vec<String> {
         let Some(pool) = &self.pool else { return Vec::new() };
-        let q = pool.shared.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let guard = pool.shared.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let QueueState::Running(q) = &*guard else { return Vec::new() };
         q.ready.iter().flat_map(|p| p.messages.iter()).filter_map(|m| match m { Message::User { id, .. } => Some(id.clone()), _ => None }).collect()
     }
 
@@ -132,6 +135,25 @@ pub struct Page {
 #[derive(Clone, PartialEq, Eq)]
 struct Job { key: Key, cursor: Option<String>, limit: usize, foreground: bool }
 
+/// Whether the open lane's reads are getting answers, or since when they began failing.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum LaneHealth { #[default] Healthy, Stalled { since: Instant } }
+enum LaneHealthEvent { TransientFailure(Instant), Answered, Forgiven }
+
+impl LaneHealth {
+    fn step(&mut self, event: LaneHealthEvent) {
+        match (*self, event) {
+            (Self::Healthy, LaneHealthEvent::TransientFailure(since)) => *self = Self::Stalled { since },
+            (Self::Stalled { .. }, LaneHealthEvent::TransientFailure(_)) => {}
+            (_, LaneHealthEvent::Answered | LaneHealthEvent::Forgiven) => *self = Self::Healthy,
+        }
+    }
+
+    fn stalled_for(self, now: Instant) -> Option<Duration> {
+        match self { Self::Healthy => None, Self::Stalled { since } => Some(now.saturating_duration_since(since)) }
+    }
+}
+
 #[derive(Default)]
 struct Queue {
     jobs: VecDeque<Job>,
@@ -139,11 +161,30 @@ struct Queue {
     ready: VecDeque<Arc<Page>>,
     failed: HashMap<Key, Instant>,
     /// When the open lane's reads began failing to get an answer; cleared by one that does.
-    stalled: Option<Instant>,
-    stopped: bool,
+    health: LaneHealth,
 }
 
-type Shared = Arc<(Mutex<Queue>, Condvar)>;
+/// Lifecycle of the shared reader queue: running until [`Pages`] drops.
+enum QueueState { Running(Box<Queue>), Stopped }
+enum QueueEvent { Stop, Health(LaneHealthEvent) }
+
+impl Default for QueueState { fn default() -> Self { Self::Running(Box::default()) } }
+
+impl QueueState {
+    fn is_running(&self) -> bool { matches!(self, Self::Running(_)) }
+    fn step(&mut self, event: QueueEvent) -> Option<Box<Queue>> {
+        match (self, event) {
+            (state @ Self::Running(_), QueueEvent::Stop) => match std::mem::replace(state, Self::Stopped) {
+                Self::Running(old) => Some(old),
+                Self::Stopped => None,
+            },
+            (Self::Running(q), QueueEvent::Health(ev)) => { q.health.step(ev); None }
+            (Self::Stopped, _) => None,
+        }
+    }
+}
+
+type Shared = Arc<(Mutex<QueueState>, Condvar)>;
 pub type Fetch = Arc<dyn Fn(&str) -> Result<Value, opencode_kit::wire_error::WireError> + Send + Sync>;
 pub type PageResult = Result<Arc<Page>, (Key, opencode_kit::wire_error::WireError)>;
 
@@ -161,8 +202,8 @@ pub struct Pages {
 
 impl Drop for Pages {
     fn drop(&mut self) {
-        self.shared.0.lock().unwrap_or_else(PoisonError::into_inner).stopped = true;
-        self.shared.1.notify_all();
+        let old = { let mut g = self.shared.0.lock().unwrap_or_else(PoisonError::into_inner); let old = g.step(QueueEvent::Stop); self.shared.1.notify_all(); old };
+        drop(old);
     }
 }
 
@@ -172,7 +213,7 @@ impl Pages {
         let (send, results) = channel();
         let mut q = Queue::default();
         q.ready.extend(ready);
-        (Self { shared: Arc::new((Mutex::new(q), Condvar::new())), results, wake: None, server: String::new(), #[cfg(target_arch = "wasm32")] lanes: None }, send)
+        (Self { shared: Arc::new((Mutex::new(QueueState::Running(Box::new(q))), Condvar::new())), results, wake: None, server: String::new(), #[cfg(target_arch = "wasm32")] lanes: None }, send)
     }
     pub fn live(server: Server, wake: Waker) -> Self {
         let base = server.base.clone();
@@ -185,7 +226,7 @@ impl Pages {
     }
 
     pub fn new(fetch: Fetch, wake: Waker) -> Self {
-        let shared = Arc::new((Mutex::new(Queue::default()), Condvar::new()));
+        let shared = Arc::new((Mutex::new(QueueState::default()), Condvar::new()));
         let (out, results) = channel();
         #[cfg(target_arch = "wasm32")]
         return Self { shared, results, wake: Some(wake.clone()), server: String::new(), lanes: Some((fetch, out, wake)) };
@@ -204,17 +245,21 @@ impl Pages {
 
     /// How long the open lane has gone without an answer from the server, if it has.
     pub fn stalled_for(&self) -> Option<Duration> {
-        self.shared.0.lock().unwrap_or_else(PoisonError::into_inner).stalled.map(|at| now().saturating_duration_since(at))
+        match &*self.shared.0.lock().unwrap_or_else(PoisonError::into_inner) {
+            QueueState::Running(q) => q.health.stalled_for(now()),
+            QueueState::Stopped => None,
+        }
     }
 
     /// Starts the silence over, as when the event stream comes back.
     pub fn forgive(&self) {
-        self.shared.0.lock().unwrap_or_else(PoisonError::into_inner).stalled = None;
+        self.shared.0.lock().unwrap_or_else(PoisonError::into_inner).step(QueueEvent::Health(LaneHealthEvent::Forgiven));
     }
 
     /// Memory is ready before the worker wakes the app, so a click racing that wake can paint.
     pub fn peek(&self, id: &str) -> Option<Arc<Page>> {
-        let mut q = self.shared.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut guard = self.shared.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let QueueState::Running(q) = &mut *guard else { return None };
         let at = q.ready.iter().position(|p| p.key.id == id)?;
         let page = q.ready.remove(at)?;
         q.ready.push_back(page.clone());
@@ -231,7 +276,8 @@ impl Pages {
     }
 
     fn enqueue(&self, job: Job) {
-        let mut q = self.shared.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut guard = self.shared.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let QueueState::Running(q) = &mut *guard else { return };
         q.failed.retain(|_, until| *until > Instant::now());
         if !job.foreground && q.failed.contains_key(&job.key) { return; }
         if job.cursor.is_none() && !job.foreground && q.ready.iter().any(|p| p.key == job.key) { return; }
@@ -250,9 +296,9 @@ impl Pages {
             q.jobs.push_back(job);
         }
         self.shared.1.notify_all();
+        drop(guard);
         #[cfg(target_arch = "wasm32")]
         if let Some((fetch, out, wake)) = self.lanes.clone() {
-            drop(q);
             let shared = self.shared.clone();
             rune::task::spawn("session-pages", move || {
                 let images = rune::ImageCache::new(wake.clone());
@@ -279,12 +325,12 @@ fn worker(q: Shared, fetch: Fetch, out: Sender<PageResult>, wake: Waker, foregro
         let job = {
             let mut state = q.0.lock().unwrap_or_else(PoisonError::into_inner);
             loop {
-                if state.stopped { return; }
+                let QueueState::Running(inner) = &mut *state else { return };
                 // Newest hover first; foreground has its own lane and never queues behind history.
-                if let Some(i) = state.jobs.iter().rposition(|j| j.foreground == foreground)
-                    && let Some(job) = state.jobs.remove(i)
+                if let Some(i) = inner.jobs.iter().rposition(|j| j.foreground == foreground)
+                    && let Some(job) = inner.jobs.remove(i)
                 {
-                    state.active.insert((job.key.clone(), job.cursor.clone()));
+                    inner.active.insert((job.key.clone(), job.cursor.clone()));
                     break job;
                 }
                 state = q.1.wait(state).unwrap_or_else(PoisonError::into_inner);
@@ -298,10 +344,10 @@ fn worker(q: Shared, fetch: Fetch, out: Sender<PageResult>, wake: Waker, foregro
 #[cfg(target_arch = "wasm32")]
 fn take_now(q: &Shared, foreground: bool) -> Option<Job> {
     let mut state = q.0.lock().unwrap_or_else(PoisonError::into_inner);
-    if state.stopped { return None; }
-    let i = state.jobs.iter().rposition(|j| j.foreground == foreground)?;
-    let job = state.jobs.remove(i)?;
-    state.active.insert((job.key.clone(), job.cursor.clone()));
+    let QueueState::Running(inner) = &mut *state else { return None };
+    let i = inner.jobs.iter().rposition(|j| j.foreground == foreground)?;
+    let job = inner.jobs.remove(i)?;
+    inner.active.insert((job.key.clone(), job.cursor.clone()));
     Some(job)
 }
 
@@ -329,11 +375,13 @@ fn read(q: &Shared, fetch: &Fetch, out: &Sender<PageResult>, wake: &Waker, image
             });
             if !page.history {
                 let mut state = q.0.lock().unwrap_or_else(PoisonError::into_inner);
-                if state.ready.iter().all(|p| p.key.id != page.key.id || p.key.updated <= page.key.updated) {
-                    state.ready.retain(|p| p.key.id != page.key.id);
-                    state.ready.push_back(page.clone());
-                    while state.ready.len() > ENTRIES || state.ready.iter().map(|p| p.bytes).sum::<usize>() > MEMORY_BYTES {
-                        state.ready.pop_front();
+                if let QueueState::Running(inner) = &mut *state
+                    && inner.ready.iter().all(|p| p.key.id != page.key.id || p.key.updated <= page.key.updated)
+                {
+                    inner.ready.retain(|p| p.key.id != page.key.id);
+                    inner.ready.push_back(page.clone());
+                    while inner.ready.len() > ENTRIES || inner.ready.iter().map(|p| p.bytes).sum::<usize>() > MEMORY_BYTES {
+                        inner.ready.pop_front();
                     }
                 }
             }
@@ -356,14 +404,14 @@ fn read(q: &Shared, fetch: &Fetch, out: &Sender<PageResult>, wake: &Waker, image
             let Err(error) = &answer else { break };
             if !foreground || !error.transient() { break; }
             eprintln!("opencode-rune: session read failed, retrying: {error}");
-            q.0.lock().unwrap_or_else(PoisonError::into_inner).stalled.get_or_insert_with(now);
+            q.0.lock().unwrap_or_else(PoisonError::into_inner).step(QueueEvent::Health(LaneHealthEvent::TransientFailure(now())));
             wake();
             if !pause(q, backoff(attempt)) { return false; }
             start = Instant::now();
             crate::telemetry::take_read();
             answer = fetch(&path);
         }
-        if answer.is_ok() { q.0.lock().unwrap_or_else(PoisonError::into_inner).stalled = None; }
+        if answer.is_ok() { q.0.lock().unwrap_or_else(PoisonError::into_inner).step(QueueEvent::Health(LaneHealthEvent::Answered)); }
         match answer {
             Ok(value) => {
                 if first { rune::marks::mark("session.read.received"); }
@@ -376,11 +424,11 @@ fn read(q: &Shared, fetch: &Fetch, out: &Sender<PageResult>, wake: &Waker, image
                 publish(&value, read);
             }
             Err(error) => {
-                q.0.lock().unwrap_or_else(PoisonError::into_inner).failed.insert(job.key.clone(), Instant::now() + Duration::from_secs(30));
+                if let QueueState::Running(inner) = &mut *q.0.lock().unwrap_or_else(PoisonError::into_inner) { inner.failed.insert(job.key.clone(), Instant::now() + Duration::from_secs(30)); }
                 if out.send(Err((job.key.clone(), error))).is_ok() { wake(); }
             }
         }
-        q.0.lock().unwrap_or_else(PoisonError::into_inner).active.remove(&(job.key, job.cursor));
+        if let QueueState::Running(inner) = &mut *q.0.lock().unwrap_or_else(PoisonError::into_inner) { inner.active.remove(&(job.key, job.cursor)); }
     }
     true
 }
@@ -395,10 +443,10 @@ fn backoff(attempt: u32) -> Duration {
 fn pause(q: &Shared, total: Duration) -> bool {
     let until = Instant::now() + total;
     while Instant::now() < until {
-        if q.0.lock().unwrap_or_else(PoisonError::into_inner).stopped { return false; }
+        if !q.0.lock().unwrap_or_else(PoisonError::into_inner).is_running() { return false; }
         rune::task::sleep(Duration::from_millis(10).min(until - Instant::now()));
     }
-    !q.0.lock().unwrap_or_else(PoisonError::into_inner).stopped
+    q.0.lock().unwrap_or_else(PoisonError::into_inner).is_running()
 }
 
 impl crate::App {
