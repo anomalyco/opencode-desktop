@@ -247,7 +247,7 @@ pub fn rendered<H: FilesHost + 'static>(
     );
     let body = memo(
         format!("md-body-{sid}-{path}"),
-        (doc.keys_rev, doc.rev, p.dark, find_ver, paths.map(|c| c.rev)),
+        (doc.keys_rev, doc.rev, p.theme, p.generation, p.dark, opencode_i18n::locale().id(), find_ver, paths.map(|c| c.rev)),
         || {
             let src = doc.text();
             let marks: Vec<(&[Range<usize>], rune_kit::Highlight)> = find
