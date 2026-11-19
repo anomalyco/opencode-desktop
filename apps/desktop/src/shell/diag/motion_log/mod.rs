@@ -303,11 +303,11 @@ impl Feed {
                 paths.push((m.id, path.to_owned(), key.map(str::to_owned)));
             }
         }
-        let events = &rt.state.motion_events;
+        let events = &rt.state.diag.motion_events;
         let events = (events.seq != self.event_seq).then(|| (events.seq, events.recent.iter().cloned().collect()));
-        self.event_seq = rt.state.motion_events.seq;
+        self.event_seq = rt.state.diag.motion_events.seq;
         self.seq += 1;
-        let at_end = match &*rt.state.route { Route::Session { id, .. } => rt.state.ends.at_end(id), _ => false };
+        let at_end = match &*rt.state.route { Route::Session { id, .. } => rt.state.timeline_fx.ends.at_end(id), _ => false };
         let window = Window { size: rt.viewport, zoom: *rt.state.zoom, at_end };
         Frame { seq: self.seq, els, paths, reset, window, input, load: rt.settled, events, ms }
     }

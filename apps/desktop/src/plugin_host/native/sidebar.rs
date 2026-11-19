@@ -103,7 +103,7 @@ impl PanelSidebar {
 
 fn toggle(s: &mut App, tx: &mut Tx) {
     tx.instant();
-    s.panel_sidebar.toggle();
+    s.workspace_panes.panel_sidebar.toggle();
     crate::plugin_host::bump();
 }
 
@@ -126,7 +126,7 @@ pub fn view(a: &mut NodeArgs) -> Result<El, String> {
     let default = a.number("width").map_or(DEFAULT_W, |n| n as f32);
     let mut children = std::mem::take(&mut a.children).into_iter();
     let (side, main) = (children.next().unwrap_or_else(el), children.next().unwrap_or_else(el));
-    let st = &app.panel_sidebar;
+    let st = &app.workspace_panes.panel_sidebar;
     // Files' Open file launcher keeps the tree open, its toggle disabled.
     let locked = a.flag("locked");
     let opened = st.opened || locked;
@@ -169,7 +169,7 @@ fn handle(p: &crate::palette::Pal, width: f32, min: f32, max: f32, dragging: boo
         .hover_motion(rune::Anim::INSTANT, rune::Anim::INSTANT)
         .on_double_press_tx(|s: &mut App, tx: &mut Tx| {
             tx.instant();
-            s.panel_sidebar.step(ResizeEvent::Reset);
+            s.workspace_panes.panel_sidebar.step(ResizeEvent::Reset);
         })
         .on_drag(move |s: &mut App, d: &mut Drag, tx: &mut Tx| {
             tx.instant();
@@ -178,7 +178,7 @@ fn handle(p: &crate::palette::Pal, width: f32, min: f32, max: f32, dragging: boo
                 Phase::Move => ResizeEvent::Move { dx: d.dx, min, max },
                 Phase::Up => ResizeEvent::Up { cancelled: d.cancelled() },
             };
-            s.panel_sidebar.step(event);
+            s.workspace_panes.panel_sidebar.step(event);
         })
         .child(pill)
 }

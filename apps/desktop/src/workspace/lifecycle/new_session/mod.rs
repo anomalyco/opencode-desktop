@@ -208,7 +208,7 @@ impl App {
         let directory = self.draft_dir().to_owned();
         let draft = self.show_start(id, &directory, tx);
         if self.live() {
-            self.starts.starts.insert(id.to_owned(), Start::Creating { directory, draft, created: false });
+            self.queue.starts.starts.insert(id.to_owned(), Start::Creating { directory, draft, created: false });
         }
     }
 
@@ -232,7 +232,7 @@ impl App {
                 return false;
             }
             let draft = self.show_start(id, &directory, tx);
-            self.starts.starts.insert(id.to_owned(), Start::Creating { directory, draft, created: false });
+            self.queue.starts.starts.insert(id.to_owned(), Start::Creating { directory, draft, created: false });
             return true;
         }
         // Its row first: a start that has to wait keeps its words in the outbox from now on.
@@ -246,16 +246,16 @@ impl App {
         }
         let draft = self.show_start(id, &directory, tx);
         let now = *self.clock;
-        let effects = self.starts.step(id, Event::Begin { place, draft, held, toggling, now: now });
+        let effects = self.queue.starts.step(id, Event::Begin { place, draft, held, toggling, now: now });
         self.start_effects(id, effects, tx);
         true
     }
 
     /// One of the folder `directory`'s MCP toggles ended (`mcp::mcp_settled`).
     pub(crate) fn start_mcp_settled(&mut self, directory: &str, toggle: Attempt, ok: bool, tx: &mut Tx) {
-        let waiting: Vec<String> = self.starts.starts.iter().filter(|(_, s)| matches!(s, Start::Mcp { directory: d, .. } if d == directory)).map(|(id, _)| id.clone()).collect();
+        let waiting: Vec<String> = self.queue.starts.starts.iter().filter(|(_, s)| matches!(s, Start::Mcp { directory: d, .. } if d == directory)).map(|(id, _)| id.clone()).collect();
         for id in waiting {
-            let effects = self.starts.step(&id, Event::McpSettled { directory: directory.to_owned(), toggle, ok });
+            let effects = self.queue.starts.step(&id, Event::McpSettled { directory: directory.to_owned(), toggle, ok });
             self.start_effects(&id, effects, tx);
         }
     }
@@ -263,14 +263,14 @@ impl App {
     /// Each frame: a phase past its time rolls its start back.
     pub(crate) fn start_timers(&mut self, tx: &mut Tx) {
         let now = *self.clock;
-        if self.starts.due().is_some_and(|d| now + 1e-9 >= d) {
-            let ids: Vec<String> = self.starts.starts.keys().cloned().collect();
+        if self.queue.starts.due().is_some_and(|d| now + 1e-9 >= d) {
+            let ids: Vec<String> = self.queue.starts.starts.keys().cloned().collect();
             for id in ids {
-                let effects = self.starts.step(&id, Event::Tick { now: now });
+                let effects = self.queue.starts.step(&id, Event::Tick { now: now });
                 self.start_effects(&id, effects, tx);
             }
         }
-        if let Some(due) = self.starts.due().filter(|d| d.is_finite()) {
+        if let Some(due) = self.queue.starts.due().filter(|d| d.is_finite()) {
             tx.wake_after(std::time::Duration::from_secs_f64((due - now).max(0.0)));
         }
     }
@@ -290,7 +290,7 @@ impl App {
                                     s.worktree_updated(&project);
                                 }
                                 let now = *s.clock;
-                                let effects = s.starts.step(&session, Event::WorktreeMade { attempt, result, now: now });
+                                let effects = s.queue.starts.step(&session, Event::WorktreeMade { attempt, result, now: now });
                                 s.start_effects(&session, effects, tx);
                             });
                         })
@@ -320,7 +320,7 @@ impl App {
     /// `Incoming::Created` for a start: the server has the session and its prompt. It takes the
     /// server's details and reads what opening it would have.
     pub(crate) fn started(&mut self, mut info: SessionInfo, tx: &mut Tx) {
-        if !matches!(self.starts.step(&info.id, Event::Created).first(), Some(Effect::Promote)) {
+        if !matches!(self.queue.starts.step(&info.id, Event::Created).first(), Some(Effect::Promote)) {
             return;
         }
         let id = info.id.clone();
@@ -340,7 +340,7 @@ impl App {
     /// made), and the new-session page comes back with the prompt in its composer. False when
     /// `session` isn't starting.
     pub(crate) fn start_failed(&mut self, session: &str, prompt: &str, error: &opencode_kit::wire_error::WireError, tx: &mut Tx) -> bool {
-        let effects = self.starts.step(session, Event::Failed);
+        let effects = self.queue.starts.step(session, Event::Failed);
         let Some(Effect::Rollback { directory, draft, worktree, .. }) = effects.into_iter().next() else { return false };
         let held = Some(Held { id: prompt.to_owned() });
         let why = Why::Failed { title: FAILED, message: crate::errors::said(self, "", error) };

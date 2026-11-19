@@ -91,11 +91,11 @@ pub fn queue(s: &mut App, id: &str, reply: &str, pace: Pace, words: usize) {
 fn open(s: &mut App, _: &mut Play<App>) {
     s.finish_stream();
     let id = sid(s);
-    let pace = match *s.variant {
+    let pace = match *s.fixture_run.variant {
         1 => Pace::Steady(20.0),
         2 => Pace::Burst,
         3 => Pace::Bursty,
-        _ => Pace::Steady(f64::from(s.knobs.get(&SPEED))),
+        _ => Pace::Steady(f64::from(s.diag.knobs.get(&SPEED))),
     };
     queue(s, &id, "msg_zzstreampace", pace, usize::MAX);
 }

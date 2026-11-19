@@ -16,7 +16,7 @@ const INSTANT: Anim = Anim::INSTANT;
 /// Page `tab_id`'s surface, `scale` device pixels a point, or the engine's state while it can't
 /// show pages; `None` when the engine is ready and the page isn't open.
 pub fn surface(s: &App, p: &Pal, tab_id: u64, scale: f32) -> Option<El> {
-    Some(match s.browser.host.status() {
+    Some(match s.workspace_panes.browser.host.status() {
         EngineStatus::Unsupported => unsupported(p),
         // The background download, when the pane opens on it, shows here and goes on.
         EngineStatus::Downloading { downloaded_bytes, total_bytes } => {
@@ -75,7 +75,7 @@ pub fn surface(s: &App, p: &Pal, tab_id: u64, scale: f32) -> Option<El> {
                     .child(text(opencode_i18n::t!("rune.home.noServer.retryShort")).font(UI_MED).color(p.text))
             })),
         EngineStatus::Unchecked | EngineStatus::Installed | EngineStatus::Connecting | EngineStatus::Ready => {
-            let tab = s.browser.host.tab(tab_id)?;
+            let tab = s.workspace_panes.browser.host.tab(tab_id)?;
             // `embeds.View`: the page on the pane's base background, 10 pt corners where it meets
             // the pane's edge.
             col()
@@ -86,7 +86,7 @@ pub fn surface(s: &App, p: &Pal, tab_id: u64, scale: f32) -> Option<El> {
                 .fill(p.bg_base)
                 // The page lays out in window points at the window's scale, whatever the app's zoom:
                 // `scale` is the view's, the window's times the zoom.
-                .child(s.browser.host.surface_el("browser-surface", tab.id, scale / *s.zoom, *s.zoom, |app: &mut App| &mut app.browser.host, App::focus_browser_page))
+                .child(s.workspace_panes.browser.host.surface_el("browser-surface", tab.id, scale / *s.zoom, *s.zoom, |app: &mut App| &mut app.workspace_panes.browser.host, App::focus_browser_page))
         }
     })
 }

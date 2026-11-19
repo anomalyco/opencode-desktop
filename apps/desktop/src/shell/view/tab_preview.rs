@@ -134,7 +134,7 @@ impl App {
         let shown = self.previewed().map(str::to_owned);
         // A draft has no session, so it never takes the card (`!props.session`).
         let draft = self.tab(id).is_some_and(crate::tabs::Tab::is_draft);
-        let p = &mut *self.tab_preview;
+        let p = &mut *self.gestures.tab_preview;
         if !inside {
             // Leaving the tab cancels its opening, and the pointer off the tab and its card
             // closes it (`onHoverOutside`, `closeDelay` 0).
@@ -156,21 +156,21 @@ impl App {
 
     /// Over a side tab: the pointer's height, which the card follows.
     pub(crate) fn preview_pointer(&mut self, id: &str, local_y: f32, window_y: f32, tx: &mut Tx) {
-        if !matches!(&self.tab_preview.state, State::Open { tab, .. } if tab == id) {
+        if !matches!(&self.gestures.tab_preview.state, State::Open { tab, .. } if tab == id) {
             tx.live_only();
             return;
         }
         let at = (window_y, window_y - local_y);
-        step(&mut self.tab_preview.state, Event::Pointer { tab: id, at }, tx.clock());
+        step(&mut self.gestures.tab_preview.state, Event::Pointer { tab: id, at }, tx.clock());
         tx.instant();
     }
 
     /// What keeps tab `id`'s card away (`previewBlocked`): a drag or press in the strip, its
     /// rename, its menu.
     fn preview_blocked(&self, id: &str) -> bool {
-        self.tab_drag.phase() != rune_kit::shell::TabDragPhase::Idle
-            || self.menus.renaming().is_some_and(|t| self.names(&t, id))
-            || self.menus.on.as_ref().is_some_and(|t| self.names(t, id))
+        self.gestures.tab_drag.phase() != rune_kit::shell::TabDragPhase::Idle
+            || self.dialogs.menus.renaming().is_some_and(|t| self.names(&t, id))
+            || self.dialogs.menus.on.as_ref().is_some_and(|t| self.names(t, id))
     }
 
     /// Whether a menu or rename target is tab `id` (`Tab::uid`).
@@ -186,49 +186,49 @@ impl App {
 
     /// The tab whose card shows now.
     fn previewed(&self) -> Option<&str> {
-        let State::Open { tab, .. } = &self.tab_preview.state else { return None };
+        let State::Open { tab, .. } = &self.gestures.tab_preview.state else { return None };
         (self.preview_open(tab) && self.tab_layout() != crate::layout_state::TabLayout::Inbox).then_some(tab.as_str())
     }
 
     fn expire_preview(&mut self, now: f64) {
-        if let State::Warm { attempt, until, .. } = self.tab_preview.state
+        if let State::Warm { attempt, until, .. } = self.gestures.tab_preview.state
             && now + 1e-9 >= until
         {
-            step(&mut self.tab_preview.state, Event::WarmExpired { attempt }, now);
+            step(&mut self.gestures.tab_preview.state, Event::WarmExpired { attempt }, now);
         }
     }
 
     /// The card's opening comes due, a menu takes the tab, and the preview hears whether the
     /// card is open (`createComputed` over `open() && !previewBlocked()`).
     fn settle_preview(&mut self, now: f64, tx: &mut Tx) {
-        if let Card::Waiting { tab, at } = &self.tab_preview.card {
+        if let Card::Waiting { tab, at } = &self.gestures.tab_preview.card {
             if now + 1e-3 < *at {
                 tx.wake_at(*at);
             } else {
                 // The card asks to open; a blocked tab refuses, and the card doesn't ask again
                 // until the pointer comes back (`if (value && previewBlocked()) return`).
                 let tab = tab.clone();
-                self.tab_preview.card = if self.preview_blocked(&tab) { Card::Resting { tab } } else { Card::Asked { tab } };
+                self.gestures.tab_preview.card = if self.preview_blocked(&tab) { Card::Resting { tab } } else { Card::Asked { tab } };
             }
         }
         // Its menu opening closes the tab's card (`if (open) setPopoverOpen(false)`).
-        if let Card::Asked { tab } = &self.tab_preview.card
-            && self.menus.on.as_ref().is_some_and(|t| self.names(t, tab))
+        if let Card::Asked { tab } = &self.gestures.tab_preview.card
+            && self.dialogs.menus.on.as_ref().is_some_and(|t| self.names(t, tab))
         {
-            self.tab_preview.card = Card::Resting { tab: tab.clone() };
+            self.gestures.tab_preview.card = Card::Resting { tab: tab.clone() };
         }
-        let open = match &self.tab_preview.card {
+        let open = match &self.gestures.tab_preview.card {
             Card::Asked { tab } if self.preview_open(tab) => Some(tab.clone()),
             _ => None,
         };
         // Every poll comes here: the preview is written only when the card opens or closes.
-        match (&self.tab_preview.state, open) {
+        match (&self.gestures.tab_preview.state, open) {
             (State::Open { tab, .. }, None) => {
                 let tab = tab.clone();
-                step(&mut self.tab_preview.state, Event::Closed(&tab), now);
+                step(&mut self.gestures.tab_preview.state, Event::Closed(&tab), now);
             }
             (State::Open { tab: shown, .. }, Some(tab)) if *shown == tab => {}
-            (_, Some(tab)) => step(&mut self.tab_preview.state, Event::Opened(&tab), now),
+            (_, Some(tab)) => step(&mut self.gestures.tab_preview.state, Event::Opened(&tab), now),
             _ => {}
         }
     }
@@ -281,7 +281,7 @@ pub(crate) fn view(s: &App, p: &Pal) -> Option<El> {
         )
         .child(row().key("row").w_full().min_w(0.0).child(text(detail).key("detail").font(PROJECT).color(p.muted).wrap().grow(1.0).shrink().min_w(0.0)))
         .children(server.map(|name| text(name).key("server").font(SERVER).color(p.muted).w_full().truncate()));
-    let pointer = match &s.tab_preview.state {
+    let pointer = match &s.gestures.tab_preview.state {
         State::Open { pointer, .. } => *pointer,
         _ => None,
     };

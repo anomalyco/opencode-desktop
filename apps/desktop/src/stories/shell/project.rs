@@ -39,7 +39,7 @@ pub const SWITCHER_KEYS: &[Trigger] = &[
         key: 'w',
         label: "Drill into lumen worktrees",
         run: |s, tx| {
-            if !s.project_switcher.open {
+            if !s.dialogs.project_switcher.open {
                 s.open_project_switcher();
             }
             if let Some(id) = s.projects.iter().find(|p| p.name == "lumen").map(|p| p.id.clone()) {
@@ -52,7 +52,7 @@ pub const SWITCHER_KEYS: &[Trigger] = &[
 fn open_story(s: &mut App, _: &mut Play<App>) {
     s.finish_stream();
     s.close_project_switcher(false);
-    if s.variant == 1 {
+    if s.fixture_run.variant == 1 {
         s.open_project_dir("/Users/demo/code/orbit", true, &mut Tx::default());
     } else {
         s.open_draft_tab();
@@ -66,13 +66,13 @@ fn switcher_story(s: &mut App, _: &mut Play<App>) {
     s.close_project_switcher(false);
     s.project_state.home_menu_open = false;
     s.clear_home_project(&mut Tx::default());
-    match *s.variant {
+    match *s.fixture_run.variant {
         1 => {
             s.open_project_switcher();
-            s.project_switcher.search.focused = false;
+            s.dialogs.project_switcher.search.focused = false;
             if let Some(id) = s.projects.iter().find(|p| p.name == "lumen").map(|p| p.id.clone()) {
                 s.drill_project_worktrees(&id, &mut Tx::default());
-                s.project_switcher.search.focused = false;
+                s.dialogs.project_switcher.search.focused = false;
             }
         }
         2 => {
@@ -93,13 +93,13 @@ fn switcher_story(s: &mut App, _: &mut Play<App>) {
                 s.hide_project(&id, &mut Tx::default());
             }
             s.open_project_switcher();
-            s.project_switcher.search.focused = false;
+            s.dialogs.project_switcher.search.focused = false;
         }
     }
 }
 
 fn story_view(s: &App, p: &Pal) -> El {
-    let panel_w = if s.route == Route::Home && s.variant == 3 { 900.0 } else { 720.0 };
+    let panel_w = if s.route == Route::Home && s.fixture_run.variant == 3 { 900.0 } else { 720.0 };
     let page = match &*s.route {
         Route::Draft(_) => view::draft_page(s, p, panel_w),
         Route::Session { id, .. } => view::session_page(s, p, id),

@@ -43,10 +43,10 @@ impl App {
         self.close_message_menu();
         self.close_fork_dialog(false);
         crate::subagents::shells::set_open(self, false);
-        *self.todo_open = false;
+        *self.timeline_fx.todo_open = false;
         if self.route != Route::here(id.to_owned()) {
             // Read scrolled up, it comes back where it was read; otherwise on its end.
-            self.ends.reopen(id);
+            self.timeline_fx.ends.reopen(id);
         }
         *self.route = Route::here(id.to_owned());
         crate::narrow::follow_route(self, tx);
@@ -60,7 +60,7 @@ impl App {
         // keys stay with the storybook.
         if !crate::auto_focus_composer(tx) {
             self.composer.focused = false;
-        } else if root == id && self.stage.is_none() && !self.dock_shown() {
+        } else if root == id && self.fixture_run.stage.is_none() && !self.dock_shown() {
             self.composer.focused = true;
         }
         // Viewing it reads it, and its tab, locally.
@@ -81,7 +81,7 @@ impl App {
         session_view::jump::settle(self, tx);
         match &*self.source {
             // A session still starting has nothing to read yet (`new_session.rs`).
-            Source::Live { .. } if self.starts.has(id) => {}
+            Source::Live { .. } if self.queue.starts.has(id) => {}
             Source::Live { requests: Some(r), .. } => {
                 if !self.pages.has_pool() { let _ = r.send(Request::Session(id.to_owned())); }
                 let _ = r.send(Request::Inbox(id.to_owned()));
@@ -136,32 +136,32 @@ impl App {
     }
 
     pub(crate) fn start_stream_if_due(&mut self, id: &str) {
-        let stream = &self.fixture["stream"];
+        let stream = &self.fixture_run.fixture["stream"];
         if stream["session"].as_str() != Some(id) || stream["played"].as_bool() == Some(true) || flag("--no-stream") {
             return;
         }
         let at = *self.clock;
         for e in stream["events"].as_array().into_iter().flatten() {
             let t = at + e["t"].as_f64().unwrap_or(0.0);
-            self.playback.push_back((t, e["type"].as_str().unwrap_or("").to_owned(), e["data"].clone()));
+            self.fixture_run.playback.push_back((t, e["type"].as_str().unwrap_or("").to_owned(), e["data"].clone()));
         }
-        self.fixture["stream"]["played"] = true.into();
+        self.fixture_run.fixture["stream"]["played"] = true.into();
         self.wake_at_playback();
     }
 
     /// Applies the fixture's streaming turn at once (the finished session).
     pub(crate) fn finish_stream(&mut self) {
-        let events = self.fixture["stream"]["events"].as_array().cloned().unwrap_or_default();
+        let events = self.fixture_run.fixture["stream"]["events"].as_array().cloned().unwrap_or_default();
         for e in events {
             self.apply_event(e["type"].as_str().unwrap_or(""), &e["data"]);
         }
-        self.fixture["stream"]["played"] = true.into();
+        self.fixture_run.fixture["stream"]["played"] = true.into();
     }
 
     /// Windowed runs sleep between frames; a timer wakes the window for each event.
     pub(crate) fn wake_at_playback(&self) {
         let Some(w) = (*self.waker).clone() else { return };
-        let times: Vec<f64> = self.playback.iter().map(|e| e.0 - *self.clock).collect();
+        let times: Vec<f64> = self.fixture_run.playback.iter().map(|e| e.0 - *self.clock).collect();
         wake_each(w, times.into_iter(), rune::time::Instant::now());
     }
 }

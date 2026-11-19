@@ -33,27 +33,27 @@ impl QueueHost for App {
     }
 
     fn queue_ops(&self) -> &HashMap<String, machine::Queue> {
-        &self.queue_ops
+        &self.queue.ops
     }
 
     fn queue_ops_mut(&mut self) -> &mut HashMap<String, machine::Queue> {
-        &mut self.queue_ops
+        &mut self.queue.ops
     }
 
     fn queue_drag(&self) -> &drag::Drag {
-        &self.queue_drag
+        &self.queue.drag
     }
 
     fn queue_drag_mut(&mut self) -> &mut drag::Drag {
-        &mut self.queue_drag
+        &mut self.queue.drag
     }
 
     fn queue_runs(&self) -> &run::Runs {
-        &self.queue_runs
+        &self.queue.runs
     }
 
     fn queue_runs_mut(&mut self) -> &mut run::Runs {
-        &mut self.queue_runs
+        &mut self.queue.runs
     }
 
     fn is_fixture(&self) -> bool {
@@ -81,44 +81,44 @@ impl QueueHost for App {
     }
 
     fn composer_files(&self) -> &[Attachment] {
-        &self.attach.files
+        &self.composer_ext.attach.files
     }
 
     fn take_composer_files(&mut self) -> Vec<Attachment> {
-        std::mem::take(&mut self.attach.files)
+        std::mem::take(&mut self.composer_ext.attach.files)
     }
 
     fn composer_paths(&self) -> &[PathAttachment] {
-        &self.attach.paths
+        &self.composer_ext.attach.paths
     }
 
     fn extend_composer_paths(&mut self, paths: Vec<PathAttachment>) {
-        self.attach.paths.extend(paths);
+        self.composer_ext.attach.paths.extend(paths);
     }
 
     fn extend_composer_attachments(&mut self, files: Vec<Attachment>, paths: Vec<PathAttachment>) {
-        self.attach.files.extend(files);
-        self.attach.paths.extend(paths);
+        self.composer_ext.attach.files.extend(files);
+        self.composer_ext.attach.paths.extend(paths);
     }
 
     fn set_composer_attachments(&mut self, files: Vec<Attachment>, paths: Vec<PathAttachment>) {
-        self.attach.files = files;
-        self.attach.paths = paths;
+        self.composer_ext.attach.files = files;
+        self.composer_ext.attach.paths = paths;
     }
 
     fn composer_shell(&self) -> bool {
-        self.add.shell()
+        self.composer_ext.add.shell()
     }
 
     fn sync_composer_shell(&mut self, shell: bool) {
-        if shell != self.add.shell() {
+        if shell != self.composer_ext.add.shell() {
             use session_view::composer::mode::{Event, Mode};
             self.composer_mode(Event::Synced(if shell { Mode::Shell } else { Mode::Normal }));
         }
     }
 
     fn take_composer_comments(&mut self) -> Vec<PromptComment> {
-        self.quote.take()
+        self.composer_ext.quote.take()
     }
 
     fn clear_line_comments(&mut self, session: &str) {
@@ -321,8 +321,9 @@ impl Feature<App> for InboxFeature {
                 crate::stop::key(s, ev, tx);
             },
         ));
-        // `poll_sends`, `tick_outbox`, and `queue_timers` stay ordered around `incoming::poll` in
-        // `tick.rs`, and `listen_outbox` runs immediately after `storage::on_ready` in `tick::setup`.
+        // `poll_sends` and `tick_outbox` run in `Phase::Ingest` right before `incoming::poll`,
+        // `queue_timers` stays right after `incoming::poll` in `tick.rs`, and `listen_outbox`
+        // runs immediately after `storage::on_ready` in `tick::setup`.
     }
 }
 
@@ -337,7 +338,7 @@ pub fn scene(s: &mut App, n: usize, ask: bool) {
         s.inboxes.entry(id.clone()).or_default().upsert(item);
     }
     if ask {
-        let q = s.fixture["question"].clone();
+        let q = s.fixture_run.fixture["question"].clone();
         s.apply_event("form.created", &q);
     }
 }
@@ -355,9 +356,9 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
     ("queue-question-3", |s| scene(s, 3, true)),
     ("queue-question-morph", |s| {
         scene(s, 1, true);
-        let q = s.fixture["question"].clone();
+        let q = s.fixture_run.fixture["question"].clone();
         let replied = serde_json::json!({ "id": q["id"], "sessionID": q["sessionID"] });
-        *s.playback = [(1.5, "form.replied".into(), replied), (2.5, "form.created".into(), q)].into();
+        *s.fixture_run.playback = [(1.5, "form.replied".into(), replied), (2.5, "form.created".into(), q)].into();
     }),
 ]);
 

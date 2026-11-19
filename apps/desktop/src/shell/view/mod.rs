@@ -59,7 +59,7 @@ pub(crate) const GLIDE: Spring = rune::tok::motion::GLIDE;
 /// window's points over the zoom at its scale times the zoom (`Cx::zoom`), as Chromium folds a
 /// page zoom into the device scale, so every size, border, icon and motion is the zoomed one.
 pub fn app(s: &App, cx: &mut Cx<App>) -> El {
-    s.view_runs.set(s.view_runs.get().wrapping_add(1));
+    s.bump_view_runs();
     cx.zoom(*s.zoom);
     session_view::scroller::set_device_scale(cx.env().scale);
     // A system contrast theme paints the app in its colours alone, whatever theme is picked.
@@ -69,18 +69,18 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     }
     // macOS's Increase Contrast keeps the theme and draws its highlights as edges.
     crate::themes::set_raised_contrast(cx.system_increased_contrast());
-    s.motion.note_system(cx.system_reduced_motion());
+    s.appearance_state.motion.note_system(cx.system_reduced_motion());
     let p = pal(s.dark(cx));
     // Pages draw in the app's scheme, as Desktop's follow its `nativeTheme.themeSource`.
-    s.browser.host.set_color_scheme(s.dark(cx));
+    s.workspace_panes.browser.host.set_color_scheme(s.dark(cx));
     // Desktop's `(max-width: 767px)`: the shell's width, read once it crosses or while narrow.
     let width = cx.layout_with("zoom", move |r| r[2].min(crate::narrow::machine::BREAKPOINT));
     let was_narrow = s.layout.narrow.is_narrow();
-    let narrow = width.is_some_and(|w| s.layout.narrow.measure(w)) && s.stage.is_none();
+    let narrow = width.is_some_and(|w| s.layout.narrow.measure(w)) && s.fixture_run.stage.is_none();
     if was_narrow != narrow {
         let reading = narrow.then(|| s.active_session_id()).flatten()
-            .filter(|id| !s.ends.due(id) && s.displayed_session(id) == Some(*id) && !s.settings.open)
-            .and_then(|id| s.ends.recall.screen_place(id).map(|(key, y)| (id.to_owned(), key, y)));
+            .filter(|id| !s.timeline_fx.ends.due(id) && s.displayed_session(id) == Some(*id) && !s.settings.open)
+            .and_then(|id| s.timeline_fx.ends.recall.screen_place(id).map(|(key, y)| (id.to_owned(), key, y)));
         *s.layout.narrow.reading.borrow_mut() = reading;
     }
     // A narrow window keeps top tabs' titlebar row in every layout, its tabs in a drawer.
@@ -119,9 +119,9 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     crate::icons::prepare(s, cx);
     crate::diagram::prepare(s);
     crate::files::link_tip::prepare(s);
-    let mut inner = match *s.stage {
+    let mut inner = match *s.fixture_run.stage {
         Some(st) => {
-            cx.reduced_motion(*s.reduced_motion);
+            cx.reduced_motion(*s.appearance_state.reduced_motion);
             crate::stories::page(s, p, st)
         }
         None => shell(s, cx),
@@ -144,7 +144,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
         inner = inner.child(el().key("todo-dismiss").absolute(0.0, 0.0).w_full().h_full().transition(rune::Transition::none())
             .on_background_press_tx(|s: &mut App, tx: &mut Tx| {
                 tx.instant();
-                *s.todo_open = false;
+                *s.timeline_fx.todo_open = false;
             }))
             .child(panel);
     }
@@ -205,7 +205,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
 fn shell(s: &App, cx: &mut Cx<App>) -> El {
     let p = pal(s.dark(cx));
     cx.time_scale(crate::knobs::time_scale(s));
-    cx.reduced_motion(*s.reduced_motion);
+    cx.reduced_motion(*s.appearance_state.reduced_motion);
     cx.time_scale(crate::knobs::time_scale(s));
     let w = *s.sidebar_w;
     let side_tabs = s.shows_sidebar();
@@ -220,7 +220,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     } else {
         0.0
     };
-    let need_panel_sz = (!s.settings.open && matches!(*s.route, Route::Draft(_) | Route::Home)) || s.attach.drop.present();
+    let need_panel_sz = (!s.settings.open && matches!(*s.route, Route::Draft(_) | Route::Home)) || s.composer_ext.attach.drop.present();
     let panel_sz = if need_panel_sz {
         cx.layout_size("panel").map_or((0.0, 0.0), |[w, h]| (w, h))
     } else {
@@ -278,8 +278,8 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         .key("panel")
         .role("main")
         .on_background_press(|s: &mut App| {
-            s.side.focus.blur();
-            s.side.menu.close();
+            s.workspace_panes.side.focus.blur();
+            s.workspace_panes.side.menu.close();
         })
         // Files dropped anywhere on the page attach, as in Desktop; a timeline image
         // dragged out of the page attaches only on the composer.

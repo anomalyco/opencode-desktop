@@ -45,9 +45,9 @@ pub fn view(s: &App, _: &Pal) -> El {
 
 fn column(s: &App, p: &Pal, name: &str) -> El {
     let jump = page(p, "jump").child(
-        row().pin(Some(0.0), None, Some(0.0), Some(16.0)).center().child(crate::jump::face(p, s.knobs.get(&crate::knobs::CAPSULE_RADIUS))),
+        row().pin(Some(0.0), None, Some(0.0), Some(16.0)).center().child(crate::jump::face(p, s.diag.knobs.get(&crate::knobs::CAPSULE_RADIUS))),
     );
-    let drop = page(p, "drop").child(crate::dropzone::layer(p, (W, H), if DRAGGING.get() { crate::dropzone::Dropzone::Over } else { crate::dropzone::Dropzone::Idle }, crate::dropzone::label(s.attachment_input()), *s.reduced_motion));
+    let drop = page(p, "drop").child(crate::dropzone::layer(p, (W, H), if DRAGGING.get() { crate::dropzone::Dropzone::Over } else { crate::dropzone::Dropzone::Idle }, crate::dropzone::label(s.attachment_input()), *s.appearance_state.reduced_motion));
     col().key(format!("frosted-{name}")).gap(12.0).child(jump).child(drop)
 }
 

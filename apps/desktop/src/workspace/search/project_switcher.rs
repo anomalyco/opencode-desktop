@@ -13,11 +13,11 @@ use crate::{App, Route};
 
 impl ProjectSwitcherHost for App {
     fn project_switcher(&self) -> &ProjectSwitcher {
-        &self.project_switcher
+        &self.dialogs.project_switcher
     }
 
     fn project_switcher_mut(&mut self) -> &mut ProjectSwitcher {
-        &mut self.project_switcher
+        &mut self.dialogs.project_switcher
     }
 
     fn project(&self, id: &str) -> Option<&Project> {
@@ -41,7 +41,7 @@ impl ProjectSwitcherHost for App {
     }
 
     fn is_stage(&self) -> bool {
-        self.stage.is_some()
+        self.fixture_run.stage.is_some()
     }
 
     fn open_draft_tab(&mut self) {
@@ -53,7 +53,7 @@ impl ProjectSwitcherHost for App {
     }
 
     fn auto_focus_composer(&mut self, tx: &mut Tx) {
-        if self.stage.is_none() && crate::auto_focus_composer(tx) {
+        if self.fixture_run.stage.is_none() && crate::auto_focus_composer(tx) {
             self.composer.focused = true;
         }
     }
@@ -224,8 +224,8 @@ impl ProjectSwitcherHost for App {
 
     fn before_project_switcher_open(&mut self) -> bool {
         let restore = self.composer.focused
-            || self.switcher.restore_composer()
-            || self.pickers.open().is_some();
+            || self.dialogs.switcher.restore_composer()
+            || self.composer_ext.pickers.open().is_some();
         self.close_picker(false);
         self.close_switcher(false);
         self.project_state.home_menu_open = false;
@@ -236,7 +236,7 @@ impl ProjectSwitcherHost for App {
     }
 
     fn after_project_switcher_close(&mut self, restore_composer: bool) {
-        if restore_composer && self.stage.is_none() {
+        if restore_composer && self.fixture_run.stage.is_none() {
             self.composer.focused = true;
         }
     }

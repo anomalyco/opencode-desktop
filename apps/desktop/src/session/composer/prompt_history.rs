@@ -9,8 +9,8 @@ impl App {
     /// Runs `send`, and records the prompt in the composer if that sent it (the composer is
     /// empty afterwards). A send that failed or waits leaves the text, and records nothing.
     pub fn record_sent(&mut self, send: impl FnOnce(&mut App)) {
-        let (entry, shell) = PromptHistory::capture(&self.composer, self.add.shell());
+        let (entry, shell) = PromptHistory::capture(&self.composer, self.composer_ext.add.shell());
         send(self);
-        self.prompts.record_if_sent(&self.composer, entry, shell);
+        self.composer_ext.prompts.record_if_sent(&self.composer, entry, shell);
     }
 }

@@ -13,11 +13,11 @@ use crate::App;
 
 impl DropzoneHost for App {
     fn dropzone(&self) -> Dropzone {
-        self.attach.drop
+        self.composer_ext.attach.drop
     }
 
     fn dropzone_mut(&mut self) -> &mut Dropzone {
-        &mut self.attach.drop
+        &mut self.composer_ext.attach.drop
     }
 
     fn attachment_input(&self) -> AttachmentInput {
@@ -48,6 +48,6 @@ pub fn overlay(s: &App, p: &Pal, size: (f32, f32)) -> El {
 impl App {
     /// What the selected model reads natively besides text.
     pub fn attachment_input(&self) -> AttachmentInput {
-        self.pickers.attachment_input(&self.selection().model)
+        self.composer_ext.pickers.attachment_input(&self.selection().model)
     }
 }

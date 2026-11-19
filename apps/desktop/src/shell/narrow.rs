@@ -25,7 +25,7 @@ impl NarrowHost for App {
     }
 
     fn stage_active(&self) -> bool {
-        self.stage.is_some()
+        self.fixture_run.stage.is_some()
     }
 
     fn layout_has_sidebar(&self) -> bool {
@@ -111,7 +111,7 @@ impl NarrowHost for App {
                 (provider, &fallback)
             }
             None => {
-                let stored = self.side.sessions.get(session_id).map(|st| &st.tab_state.tabs);
+                let stored = self.workspace_panes.side.sessions.get(session_id).map(|st| &st.tab_state.tabs);
                 let active = stored.and_then(|t| t.active.clone()).filter(|k| k.starts_with(&format!("{view}:")));
                 match active
                     .as_deref()
@@ -137,7 +137,7 @@ impl NarrowHost for App {
             env_scale: 1.0,
             tab,
             visible: true,
-            focused: self.side.focus.is_focused(),
+            focused: self.workspace_panes.side.focus.is_focused(),
             mobile: true,
         };
         provider.render(self, p, &ctx)
@@ -147,7 +147,7 @@ impl NarrowHost for App {
         if view == "terminal:main" {
             let wk = self.terminal_workspace_key_for_session(session_id);
             self.ensure_terminal_workspace_hydrated(&wk);
-            let empty = self.terminal.workspaces.get(&wk).is_none_or(|w| w.tabs.is_empty() && w.failure.is_none());
+            let empty = self.workspace_panes.terminal.workspaces.get(&wk).is_none_or(|w| w.tabs.is_empty() && w.failure.is_none());
             if empty && self.live_terminals().is_some_and(|(_, observer)| !observer) {
                 self.create_terminal_tab(None, tx);
             }
@@ -156,8 +156,8 @@ impl NarrowHost for App {
 
     fn sync_narrow_review_wrap(&mut self) {
         let wrap = self.settings.mobile_diff_wrap;
-        if self.review.sessions.values().any(|sr| sr.narrow.wraps_otherwise(wrap)) {
-            for sr in self.review.sessions.values_mut() {
+        if self.workspace_panes.review.sessions.values().any(|sr| sr.narrow.wraps_otherwise(wrap)) {
+            for sr in self.workspace_panes.review.sessions.values_mut() {
                 sr.narrow.set_wrap(wrap);
             }
         }
@@ -233,6 +233,9 @@ impl Feature<App> for NarrowFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
-        builder.add_system(Phase::React, "narrow.poll", |s, now, tx| poll(s, now, tx));
+        builder.add_system(Phase::React, "narrow.poll", |s, now, tx| {
+            let changed = poll(s, now, tx);
+            s.note_tick_change(changed)
+        });
     }
 }

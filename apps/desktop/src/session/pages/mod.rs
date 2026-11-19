@@ -405,7 +405,7 @@ impl crate::App {
     pub fn begin_open(&mut self, id: &str, tx: &mut rune::Tx) {
         self.close_picker(false);
         crate::subagents::shells::set_open(self, false);
-        *self.todo_open = false;
+        *self.timeline_fx.todo_open = false;
         let from = self.opening.as_ref().filter(|o| !o.loading()).map_or_else(|| (*self.route).clone(), |o| o.from.clone());
         *self.opening = Some(Opening::new(id, from, self.transcripts.contains_key(id), *self.clock));
         self.open_now(id, tx);
@@ -421,7 +421,7 @@ impl crate::App {
             return false;
         }
         let id = opening.id.clone();
-        let ready = opening.received() && self.transcripts.get(&id).is_some_and(|t| self.attach.transcript_ready(t));
+        let ready = opening.received() && self.transcripts.get(&id).is_some_and(|t| self.composer_ext.attach.transcript_ready(t));
         if ready {
             *self.opening = None;
             // Mount the finished transcript at its end, or where it was read, without
@@ -459,7 +459,7 @@ impl crate::App {
     }
 
     pub(crate) fn page_key(&self, id: &str) -> Key {
-        let updated = self.session(id).or_else(|| self.switcher.loaded.iter().find(|s| s.id == id))
+        let updated = self.session(id).or_else(|| self.dialogs.switcher.loaded.iter().find(|s| s.id == id))
             .map_or(0, |s| s.updated.max(s.busy.unwrap_or(0)).max(s.idle.unwrap_or(0)));
         Key { id: id.to_owned(), updated }
     }
@@ -528,7 +528,7 @@ impl crate::App {
         // A page this window read goes into the server's copy, for its other windows too.
         crate::windows::peer::touch(self);
         if let Some(o) = &mut *self.opening && o.id == page.key.id && !page.history { o.step(OpenEvent::Received); }
-        self.attach.adopt(&page.images);
+        self.composer_ext.attach.adopt(&page.images);
         let id = &page.key.id;
         let stale = self.page_key(id).updated > page.key.updated;
         let added = page.messages.iter().filter(|m| !self.transcripts.get(id).is_some_and(|t| t.messages.iter().any(|old| old.id() == m.id()))).count();
@@ -537,7 +537,7 @@ impl crate::App {
         let mut messages = page.messages.clone();
         // Memory and older history must never rewind a live delta or local echo.
         if page.history || stale { messages.retain(|m| !t.messages.iter().any(|old| old.id() == m.id())); }
-        crate::attachments::reconcile(&mut self.attach.echoes, t, &messages);
+        crate::attachments::reconcile(&mut self.composer_ext.attach.echoes, t, &messages);
         let delivered: Vec<_> = messages.iter().map(|m| m.id().to_owned()).collect();
         // The latest page landing on a boot preview it doesn't reach: the preview was the
         // place's turn (`restore::preview`), and the messages between it and the page are still
@@ -583,7 +583,7 @@ impl crate::App {
         // A place coming back whose row this page brought lands in this commit
         // (`session_view::returning`); one still further up waits on for the next.
         if !self.land_place(id, tx) {
-            self.ends.progress(id);
+            self.timeline_fx.ends.progress(id);
         }
         if page.history {
             // A page that added nothing ends it too, so a server that keeps handing out cursors
@@ -643,7 +643,7 @@ impl crate::App {
                     changed |= crate::session_state::missing(self, &key.id, tx);
                 }
                 Err((key, error)) if self.opening.as_ref().is_some_and(|o| o.id == key.id) => {
-                    *self.status = error.to_string();
+                    *self.diag.status = error.to_string();
                     // What the timeline's loading row says: why, from the typed error (`crate::errors`).
                     let server = crate::servers::runtime::label(crate::servers::runtime::active(self));
                     let why = crate::errors::UserError::from_wire("Couldn't load this session", &server, &error).description().replace('\n', " ");

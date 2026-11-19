@@ -260,7 +260,7 @@ impl App {
         let Some(TailChange::Live { route, from }) = self.kernel.slots.get_mut::<TailChange>().map(std::mem::take) else { return };
         let Route::Session { id, .. } = &route else { return };
         let has_gap = self.kernel.slots.get::<StreamGaps>().is_some_and(|g| g.0.contains_key(id));
-        if *self.route != route || !self.ends.at_end(id) || self.ends.due(id) || has_gap { return; }
+        if *self.route != route || !self.timeline_fx.ends.at_end(id) || self.timeline_fx.ends.due(id) || has_gap { return; }
         let stack = format!("scroll-{id}/timeline");
         if !session_view::TimelineHost::smooth_timeline(self) {
             // The shipped live-row growth and reordering stay on in either presentation.
@@ -431,7 +431,7 @@ impl App {
     pub(crate) fn react(&mut self, e: &StreamEvent) -> bool {
         let (ty, data, done) = (e.ty.as_str(), &e.data, &e.done);
         let sid = data["sessionID"].as_str().unwrap_or("").to_owned();
-        if matches!(*self.source, Source::Fixture) { self.served.record(ty, data); }
+        if matches!(*self.source, Source::Fixture) { self.fixture_run.served.record(ty, data); }
         crate::plugin_host::server_event(self, ty, data);
         let mut changed = self.note_agent(ty, data, &sid);
         changed |= done.status | self.status_landed(ty, data, &sid);

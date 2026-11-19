@@ -59,7 +59,7 @@ fn open(s: &mut App, tx: &mut Play<App>) {
 }
 
 fn ask(s: &mut App, tx: &mut Tx) {
-    for (ty, d) in asked(*s.variant) {
+    for (ty, d) in asked(*s.fixture_run.variant) {
         emit(s, ty, d, tx);
     }
 }
@@ -67,7 +67,7 @@ fn ask(s: &mut App, tx: &mut Tx) {
 /// A pending question's answer comes back (or it's dismissed) and the step ends.
 fn answer(s: &mut App, tx: &mut Tx) {
     if s.question_shown() {
-        for (ty, d) in answered(*s.variant) {
+        for (ty, d) in answered(*s.fixture_run.variant) {
             emit(s, ty, d, tx);
         }
     }
@@ -154,27 +154,27 @@ const UNDER_QUEUE_KEYS: &[Trigger] = &[
 ];
 
 fn form(s: &App, keep: &[usize]) -> Value {
-    let mut q = s.fixture["question"].clone();
+    let mut q = s.fixture_run.fixture["question"].clone();
     let fields = q["fields"].as_array().cloned().unwrap_or_default();
     q["fields"] = keep.iter().filter_map(|i| fields.get(*i).cloned()).collect();
     q
 }
 
 fn replied(s: &App) -> Value {
-    let q = &s.fixture["question"];
+    let q = &s.fixture_run.fixture["question"];
     json!({ "id": q["id"], "sessionID": q["sessionID"] })
 }
 
 fn question_open(s: &mut App, _: &mut Play<App>) {
     s.finish_stream();
-    let q = match *s.variant {
+    let q = match *s.fixture_run.variant {
         1 => form(s, &[0, 1]),
         2 => form(s, &[1]),
         3 => long(s),
         _ => form(s, &[0]),
     };
     s.apply_event("form.created", &q);
-    if s.variant == 4 {
+    if s.fixture_run.variant == 4 {
         s.question_type("Fake clock, but keep one slow test on real timers");
     }
 }
@@ -184,13 +184,13 @@ fn custom_open(s: &mut App, _: &mut Play<App>) {
     let q = form(s, &[0, 1]);
     s.apply_event("form.created", &q);
     s.question_last();
-    let text = match *s.variant {
+    let text = match *s.fixture_run.variant {
         1 | 2 => "Fake clock for the loop, but keep one slow end-to-end test on real timers so a regression in the scheduler still shows up somewhere",
         3 => "",
         _ => "All of them",
     };
     s.question_type(text);
-    if matches!(*s.variant, 2 | 3) {
+    if matches!(*s.fixture_run.variant, 2 | 3) {
         s.question_leave_field();
     }
 }

@@ -67,20 +67,20 @@ fn story_card_size(zoom: f32) -> (f32, f32) {
 pub fn init_story(s: &mut App) {
     crate::open_scene(s);
     s.finish_stream();
-    s.terminal.workspaces.clear();
-    s.terminal.lru_order.clear();
-    s.terminal.story_focused = true;
-    s.terminal.story_built_variant = Some(*s.variant);
-    s.terminal.reset_blink(*s.clock);
+    s.workspace_panes.terminal.workspaces.clear();
+    s.workspace_panes.terminal.lru_order.clear();
+    s.workspace_panes.terminal.story_focused = true;
+    s.workspace_panes.terminal.story_built_variant = Some(*s.fixture_run.variant);
+    s.workspace_panes.terminal.reset_blink(*s.clock);
 
     let theme = theme_from_pal(pal(s.terminal_dark()));
-    let (choice, style) = terminal_font_style(&s.knobs);
+    let (choice, style) = terminal_font_style(&s.diag.knobs);
     let (cw, ch) = cell_metrics(choice, style);
     let (card_w, card_h) = story_card_size(*s.zoom);
     let cols = (((card_w - 32.0) / cw).floor() as u16).clamp(36, 200);
     let rows = (((card_h - 54.0) / ch).floor() as u16).clamp(8, 80);
 
-    let (title, bytes): (&str, Vec<u8>) = match *s.variant {
+    let (title, bytes): (&str, Vec<u8>) = match *s.fixture_run.variant {
         1 => ("htop", HTOP_STREAM.to_vec()),
         2 => ("Colors & Unicode", COLORS_UNICODE_STREAM.to_vec()),
         3 => ("build.log", cat_lines_stream(1_500)),
@@ -91,7 +91,7 @@ pub fn init_story(s: &mut App) {
         buffer: bytes,
         cols: Some(cols),
         rows: Some(rows),
-        scroll_y: (s.variant == 3).then_some(720),
+        scroll_y: (s.fixture_run.variant == 3).then_some(720),
         cursor: None,
     };
 
@@ -112,7 +112,7 @@ pub fn init_story(s: &mut App) {
         b"",
     );
 
-    if s.variant == 0 {
+    if s.fixture_run.variant == 0 {
         let log_restore = RestoreState {
             buffer: b"\x1b[32mINFO\x1b[0m listening on http://127.0.0.1:4096\r\n".to_vec(),
             cols: Some(cols),
@@ -145,12 +145,12 @@ fn setup_story(s: &mut App, _play: &mut Play<'_, App>) {
 }
 
 fn stream_update(s: &mut App, _play: &mut Play<'_, App>) {
-    let payload = if s.variant == 1 {
+    let payload = if s.fixture_run.variant == 1 {
         HTOP_TICK_STREAM
     } else {
         BUILD_BURST
     };
-    if let Some(ws) = s.terminal.workspaces.get(STORY_WS)
+    if let Some(ws) = s.workspace_panes.terminal.workspaces.get(STORY_WS)
         && let Some(active) = ws.active.as_deref()
         && let Some(tab) = ws.tabs.iter().find(|t| t.id == active)
         && let Some(stream) = &tab.stream
@@ -160,7 +160,7 @@ fn stream_update(s: &mut App, _play: &mut Play<'_, App>) {
 }
 
 fn scroll_up(s: &mut App, _play: &mut Play<'_, App>) {
-    if let Some(ws) = s.terminal.workspaces.get(STORY_WS)
+    if let Some(ws) = s.workspace_panes.terminal.workspaces.get(STORY_WS)
         && let Some(active) = ws.active.as_deref()
         && let Some(tab) = ws.tabs.iter().find(|t| t.id == active)
     {
@@ -169,7 +169,7 @@ fn scroll_up(s: &mut App, _play: &mut Play<'_, App>) {
 }
 
 fn scroll_bottom(s: &mut App, _play: &mut Play<'_, App>) {
-    if let Some(ws) = s.terminal.workspaces.get(STORY_WS)
+    if let Some(ws) = s.workspace_panes.terminal.workspaces.get(STORY_WS)
         && let Some(active) = ws.active.as_deref()
         && let Some(tab) = ws.tabs.iter().find(|t| t.id == active)
     {
@@ -180,7 +180,7 @@ fn scroll_bottom(s: &mut App, _play: &mut Play<'_, App>) {
 /// A three-line script pasted into the story's shell, which hasn't asked for bracketed paste:
 /// the terminal asks before it runs (`paste.rs`).
 fn paste_script(s: &mut App, play: &mut Play<'_, App>) {
-    let Some(tab) = s.terminal.workspaces.get(STORY_WS).and_then(|ws| ws.active.clone()) else { return };
+    let Some(tab) = s.workspace_panes.terminal.workspaces.get(STORY_WS).and_then(|ws| ws.active.clone()) else { return };
     let script = "git fetch origin\r\ngit reset --hard origin/main\r\ncargo build --release\r\n".to_owned();
     s.paste_into_terminal(STORY_WS, &tab, script, play);
 }
@@ -190,7 +190,7 @@ fn new_tab(s: &mut App, _play: &mut Play<'_, App>) {
 }
 
 pub fn view_card(s: &App, p: &Pal) -> El {
-    s.terminal.painted_dark.set(Some(p.dark));
+    s.workspace_panes.terminal.painted_dark.set(Some(p.dark));
     let (card_w, card_h) = story_card_size(*s.zoom);
     let inner = render_terminal_pane(
         s,
@@ -199,7 +199,7 @@ pub fn view_card(s: &App, p: &Pal) -> El {
         None,
         (card_w, card_h),
         2.0,
-        s.terminal.story_focused,
+        s.workspace_panes.terminal.story_focused,
         true,
     );
     col()

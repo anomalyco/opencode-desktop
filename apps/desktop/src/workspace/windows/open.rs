@@ -58,7 +58,7 @@ impl App {
         self.restore.drafts.extend(seed.drafts);
         self.restore.parked.extend(seed.parked);
         for id in seed.shell {
-            self.add.park(id, Mode::Shell);
+            self.composer_ext.add.park(id, Mode::Shell);
         }
         *self.route = seed.route;
         // Before the window's first turn: the page's server's copy comes in for this, and goes back.
@@ -72,9 +72,9 @@ impl App {
     /// Draft `id`'s mode, the open one's from the composer.
     pub(crate) fn draft_mode(&self, id: &str) -> Mode {
         if self.restore.shown.as_deref() == Some(id) {
-            return self.add.mode;
+            return self.composer_ext.add.mode;
         }
-        self.add.parked().find(|(k, _)| *k == id).map_or(Mode::Normal, |(_, m)| m)
+        self.composer_ext.add.parked().find(|(k, _)| *k == id).map_or(Mode::Normal, |(_, m)| m)
     }
 
     /// The composer words kept for tab `id`, the open one's from the composer.
@@ -171,7 +171,7 @@ pub(super) fn open(s: &App, w: Window, frame: Option<Frame>, inactive: bool) -> 
         ids.push(w.id.clone());
         store::save_ids(&ids);
     }
-    let spec = window(w, frame, &s.diagnostics);
+    let spec = window(w, frame, &s.diag.diagnostics);
     Some(rune::open_window(if inactive { spec.inactive() } else { spec }))
 }
 
@@ -184,7 +184,7 @@ fn window(mut w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics:
     let app_diagnostics = diagnostics.clone();
     let app = crate::rune_app(AppSpec { families: crate::appearance::launch_families(), ..crate::spec(App::new) }).init(move || {
         let mut app = App::new_in(w);
-        *app.diagnostics = app_diagnostics;
+        *app.diag.diagnostics = app_diagnostics;
         app
     });
     let handle = app.handle();

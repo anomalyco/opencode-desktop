@@ -500,7 +500,7 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
         Err(e) => {
             let shown = step(s, LaunchEvent::Landed { reached, refused, now }, tx);
             if shown {
-                s.status = e.into();
+                s.diag.status = e.into();
             }
             shown
         }

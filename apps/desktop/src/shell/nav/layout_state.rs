@@ -265,7 +265,7 @@ impl App {
             return;
         }
         self.change_settings(|s| s.tab_layout = layout);
-        self.tab_drag.cancel();
+        self.gestures.tab_drag.cancel();
         self.finish_rename(true);
         self.layout.peek_event(PeekEvent::Disabled, *self.clock);
         // The Inbox shows its cards in the switch's own frame when it can, so the active
@@ -307,7 +307,7 @@ impl App {
 
 /// Runs out the machines' deadlines on the poll clock, and wakes for the next one.
 pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
-    let dwell = f64::from(s.knobs.get(&crate::view::PEEK_DELAY));
+    let dwell = f64::from(s.diag.knobs.get(&crate::view::PEEK_DELAY));
     let due = |at: Option<f64>| at.is_some_and(|at| now + 1e-9 >= at);
     // Every poll comes here: the shell is borrowed to write only when something changes it, so
     // regions that read it stay reused.

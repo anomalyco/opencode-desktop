@@ -20,7 +20,7 @@ pub const KEYS: &[Trigger] = &[
 ];
 
 fn open(s: &mut App, _: &mut Play<App>) {
-    s.settings.theme = THEMES[s.variant.min(THEMES.len() - 1)].into();
+    s.settings.theme = THEMES[s.fixture_run.variant.min(THEMES.len() - 1)].into();
 }
 
 fn next(s: &mut App, tx: &mut Tx) {

@@ -58,7 +58,7 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
         crate::open_scene(s);
         s.finish_stream();
         let list: Vec<_> = (1..=40).map(|n| json!({ "name": format!("task-{n:02}"), "description": format!("Run task {n} of the build") })).collect();
-        s.add.slash.commands = crate::slash::commands(&json!(list));
+        s.composer_ext.add.slash.commands = crate::slash::commands(&json!(list));
         *s.composer = TextEdit::new("");
         s.composer.focused = true;
         s.composer.insert("/");

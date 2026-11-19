@@ -200,7 +200,7 @@ impl SettingsHost for App {
     }
 
     fn text_rendering_fallback_reason(&self) -> Option<&'static str> {
-        match *self.text_rendering {
+        match *self.appearance_state.text_rendering {
             crate::text_rendering::Rendering::FellBack { reason, .. } if !reason.is_empty() => Some(reason),
             _ => None,
         }
@@ -215,10 +215,10 @@ impl SettingsHost for App {
     }
 
     fn about_info(&self) -> AboutInfo {
-        let version = if self.updater.version.is_empty() {
+        let version = if self.services.updater.version.is_empty() {
             crate::updater::build_version().to_owned()
         } else {
-            self.updater.version.clone()
+            self.services.updater.version.clone()
         };
         AboutInfo { version, other_contributors: about_other_contributors(self) }
     }
@@ -256,15 +256,15 @@ impl SettingsHost for App {
     }
 
     fn models(&self) -> &[Model] {
-        &self.pickers.models
+        &self.composer_ext.pickers.models
     }
 
     fn model_visible(&self, model: &Model) -> bool {
-        self.pickers.visible(model)
+        self.composer_ext.pickers.visible(model)
     }
 
     fn set_model_visibility(&mut self, key: &str, visible: bool) {
-        self.pickers.prefs.set_visibility([key], visible);
+        self.composer_ext.pickers.prefs.set_visibility([key], visible);
     }
 
     fn sync_mcp(&mut self, dir: &str) {
@@ -393,7 +393,7 @@ impl SettingsHost for App {
     }
 
     fn project_avatar_image(&self, p: &Pal, project: &Project, size: f32) -> El {
-        self.icons.view(&crate::icons::palette(p), project, size)
+        self.appearance_state.icons.view(&crate::icons::palette(p), project, size)
     }
 
     fn reveal_label(&self) -> &'static str {
@@ -661,7 +661,7 @@ impl App {
     /// Sets the window's zoom to `level` (Appearance › Zoom), clamped as the zoom keys clamp it.
     pub fn set_zoom_level(&mut self, level: f32) {
         *self.zoom = level.clamp(crate::shortcuts::ZOOM_MIN, crate::shortcuts::ZOOM_MAX);
-        self.zoom_pinch.leveled();
+        self.gestures.zoom_pinch.leveled();
         if self.persists() {
             crate::tabs::save_zoom(*self.zoom);
         }

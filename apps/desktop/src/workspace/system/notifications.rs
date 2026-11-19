@@ -16,11 +16,11 @@ use crate::App;
 
 impl NotificationsHost for App {
     fn notifier(&self) -> &Notifier {
-        &self.notify
+        &self.services.notify
     }
 
     fn notifier_mut(&mut self) -> &mut Notifier {
-        &mut self.notify
+        &mut self.services.notify
     }
 
     fn notification_prefs(&self) -> Kinds {

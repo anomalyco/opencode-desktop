@@ -40,6 +40,6 @@ pub(crate) fn draft_page(s: &App, p: &Pal, width: f32) -> El {
         .child(above)
         .child(col().key("draft-column").w_full().px(24.0).center().child(content))
         .child(el().key("below").grow(0.7))
-        .children(s.debug.then(|| status_bar(s, p, None)))
+        .children(s.diag.debug.then(|| status_bar(s, p, None)))
         .children(crate::egg::view::over(s, p))
 }

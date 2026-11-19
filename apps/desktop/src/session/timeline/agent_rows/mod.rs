@@ -13,11 +13,11 @@ use crate::App;
 
 impl AgentRowsHost for App {
     fn agent_rows(&self) -> &Live {
-        &self.agent_rows
+        &self.timeline_fx.agent_rows
     }
 
     fn agent_rows_mut(&mut self) -> &mut Live {
-        &mut self.agent_rows
+        &mut self.timeline_fx.agent_rows
     }
 
     fn session_info(&self, id: &str) -> Option<&SessionInfo> {

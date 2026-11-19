@@ -241,7 +241,7 @@ fn terminal_output(app: &mut App, tx: &mut Tx) {
         app.kernel.slots.slot::<Speech>().terminal = Output::default();
         return;
     };
-    let Some(snap) = app.terminal.workspaces.get(&wk).and_then(|ws| ws.tabs.iter().find(|t| t.id == id)).map(|t| t.session.snapshot()) else { return };
+    let Some(snap) = app.workspace_panes.terminal.workspaces.get(&wk).and_then(|ws| ws.tabs.iter().find(|t| t.id == id)).map(|t| t.session.snapshot()) else { return };
     let now = *app.clock;
     let out = &mut app.kernel.slots.slot::<Speech>().terminal;
     let here = Some((wk, id));
@@ -285,7 +285,7 @@ pub fn terminal_key(app: &mut App, wk: &str, id: &str) {
     if !listening(app) {
         return;
     }
-    let Some(snap) = app.terminal.workspaces.get(wk).and_then(|ws| ws.tabs.iter().find(|t| t.id == id)).map(|t| t.session.snapshot()) else { return };
+    let Some(snap) = app.workspace_panes.terminal.workspaces.get(wk).and_then(|ws| ws.tabs.iter().find(|t| t.id == id)).map(|t| t.session.snapshot()) else { return };
     let out = &mut app.kernel.slots.slot::<Speech>().terminal;
     out.typed = true;
     if let Some(row) = snap.screen_rows.get(usize::from(snap.cursor.row))

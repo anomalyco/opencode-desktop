@@ -12,7 +12,7 @@ impl App {
         // back to the queue (Return) or steers (the other delivery) instead of a new send
         // (`composer/model.ts:540-560`).
         if let Route::Session { id, .. } = &*self.route
-            && let Some(q) = self.queue_ops.get(id)
+            && let Some(q) = self.queue.ops.get(id)
         {
             if q.undoing() {
                 return;
@@ -36,15 +36,15 @@ impl App {
         // Held, not dropped, while the session still opens (`submit.rs`).
         if self.hold_submit(alternate) { return; }
         if crate::dictation::submit(self, alternate) { return; }
-        if self.add.shell() {
+        if self.composer_ext.add.shell() {
             return self.submit_shell(alternate, tx);
         }
         if !alternate && self.retry_restored() { return; }
         let wire = self.mention_wire();
-        if wire.text.is_empty() && !self.attach.any() && !self.quote.any() {
+        if wire.text.is_empty() && !self.composer_ext.attach.any() && !self.composer_ext.quote.any() {
             return;
         }
-        if !self.attach.uploads.is_empty() {
+        if !self.composer_ext.attach.uploads.is_empty() {
             crate::status_toast::say(self, opencode_i18n::t!("rune.send.uploading.title"), opencode_i18n::t!("rune.send.uploading.description"));
             return;
         }
@@ -54,8 +54,8 @@ impl App {
         }
         let command = self.slash_command(&wire.text);
         // Commands take no path attachments or quotes; they wait in the composer for the next prompt.
-        let refs = if command.is_none() { std::mem::take(&mut self.attach.paths) } else { Vec::new() };
-        let quotes = if command.is_none() { self.quote.quotes() } else { Vec::new() };
+        let refs = if command.is_none() { std::mem::take(&mut self.composer_ext.attach.paths) } else { Vec::new() };
+        let quotes = if command.is_none() { self.composer_ext.quote.quotes() } else { Vec::new() };
         // A file comment attaches its lines (`request.ts:186-207`), before the file context.
         let directory = self.composer_directory();
         let commented = quotes.iter().filter_map(|c| c.file()).map(|f| {
@@ -71,7 +71,7 @@ impl App {
             }
         };
         // A prompt of only quotes leaves from its first quote's chip; any other from its words.
-        let from = match self.quote.items.first() {
+        let from = match self.composer_ext.quote.items.first() {
             Some(q) if wire.display.trim().is_empty() => format!("{}/card/title", crate::quote_cards::chip_key(q.key)),
             _ => "prompt".to_owned(),
         };
@@ -80,7 +80,7 @@ impl App {
         let prompt = Prompt {
             id: Some(opencode_kit::client::message_id()),
             text: text.clone(),
-            files: wire.files.into_iter().chain(context).chain(attachments::inputs(&self.attach.files)).collect(),
+            files: wire.files.into_iter().chain(context).chain(attachments::inputs(&self.composer_ext.attach.files)).collect(),
             agents: wire.agents,
             skills: wire.skills,
             display_text: Some(wire.display.clone()),
@@ -129,13 +129,13 @@ impl App {
         let local = match &*self.source {
             Source::Live { .. } => {
                 let local = prompt.id.clone().unwrap_or_default();
-                let sent = crate::send_failed::Sent::new(&id, &local, crate::prompt_history::Entry::of(&self.composer), self.attach.files.clone(), prompt.attachments.clone(), false).with_prompt(&prompt);
+                let sent = crate::send_failed::Sent::new(&id, &local, crate::prompt_history::Entry::of(&self.composer), self.composer_ext.attach.files.clone(), prompt.attachments.clone(), false).with_prompt(&prompt);
                 let staged = self.session(&id).and_then(|i| i.revert.as_ref()).is_some();
-                let journal = matches!(*self.source, Source::Live {allow_send:true,..}) && self.stage.is_none();
+                let journal = matches!(*self.source, Source::Live {allow_send:true,..}) && self.fixture_run.stage.is_none();
                 if starting && journal {
                     // The start runs its phases and hands the prompt to the outbox (`new_session`).
                     let paths=sent.paths.clone();
-                    if !self.begin_start(&id, sent, prompt, tx) {self.attach.paths.extend(paths);return;}
+                    if !self.begin_start(&id, sent, prompt, tx) {self.composer_ext.attach.paths.extend(paths);return;}
                 } else {
                     let w = if starting {
                         self.start_write(id.clone(), prompt)
@@ -147,12 +147,12 @@ impl App {
                     if journal {
                         let paths=sent.paths.clone();
                         rune::marks::mark("send.enqueue");
-                        if !self.enqueue_prompt(sent,w) {self.attach.paths.extend(paths);return;}
+                        if !self.enqueue_prompt(sent,w) {self.composer_ext.attach.paths.extend(paths);return;}
                         rune::marks::mark("send.enqueued");
                     } else {
-                        if !self.write(w) {self.attach.paths.extend(sent.paths);return;}
+                        if !self.write(w) {self.composer_ext.attach.paths.extend(sent.paths);return;}
                         self.unsent.note(sent);
-                        self.attach.echoes.push((id.clone(), local.clone(), text.clone()));
+                        self.composer_ext.attach.echoes.push((id.clone(), local.clone(), text.clone()));
                     }
                     if starting {
                         self.start(&id, tx);
@@ -169,16 +169,16 @@ impl App {
                 }
                 self.commit_staged_revert(&id);
                 let selection = self.selection();
-                *self.sends += 1;
-                let reply = format!("msg_zzzzreply{:04}", *self.sends);
+                *self.queue.sends += 1;
+                let reply = format!("msg_zzzzreply{:04}", *self.queue.sends);
                 let at = *self.clock;
                 self.serve_choice(&id, &prompt, at);
-                for e in self.fixture["reply"].as_array().cloned().unwrap_or_default() {
+                for e in self.fixture_run.fixture["reply"].as_array().cloned().unwrap_or_default() {
                     let mut d = e["data"].clone();
                     d["sessionID"] = id.clone().into();
                     d["assistantMessageID"] = reply.clone().into();
                     if let Some(call) = d["id"].as_str() {
-                        d["id"] = format!("{call}-{:04}", *self.sends).into();
+                        d["id"] = format!("{call}-{:04}", *self.queue.sends).into();
                     }
                     if e["type"] == "session.step.started" {
                         d["agent"] = selection.agent.clone().into();
@@ -186,7 +186,7 @@ impl App {
                     }
                     self.schedule(at + e["t"].as_f64().unwrap_or(0.0), e["type"].as_str().unwrap_or(""), d);
                 }
-                let sent = format!("msg_zzzzsent{:04}", *self.sends);
+                let sent = format!("msg_zzzzsent{:04}", *self.queue.sends);
                 // A server admits every prompt to its inbox as a steer, then delivers it once
                 // the run takes it up, as a live one does.
                 let item = serde_json::json!({ "type": "user", "delivery": "steer", "payload": { "text": text, "metadata": { "displayText": wire.display } } });
@@ -198,11 +198,11 @@ impl App {
         };
         // A prompt sent while a stop settles runs next, so its Working shows.
         self.stops.forget(&id);
-        opencode_kit::model::set_user_files(&local, std::mem::take(&mut self.attach.files));
+        opencode_kit::model::set_user_files(&local, std::mem::take(&mut self.composer_ext.attach.files));
         opencode_kit::mention::set_user_path_attachments(&local, refs);
         self.echo_wire_mentions(&local, wire.marks);
         opencode_kit::model::set_user_comments(&local, quotes);
-        self.quote.take();
+        self.composer_ext.quote.take();
         // Like the TUI, sent comments go with the prompt (`submit.ts:413-417`).
         self.clear_line_comments(&id);
         session_view::composer::land(self, &id, &local, &from, tx);
@@ -219,27 +219,27 @@ impl App {
     /// the send went (`quote::editor`). The id it went out under, `None` when nothing went, or
     /// `Some(None)` when it went with no id to wait on (a fixture's).
     pub(crate) fn send_quote(&mut self, key: u64, tx: &mut Tx) -> Option<Option<String>> {
-        let quote = self.quote.items.iter().find(|q| q.key == key)?.clone();
+        let quote = self.composer_ext.quote.items.iter().find(|q| q.key == key)?.clone();
         let before = self.newest_send(None);
         // What the composer holds steps aside while the quote goes on its own.
         let composer = std::mem::replace(&mut *self.composer, TextEdit::new(""));
-        let others: Vec<_> = self.quote.items.iter().filter(|q| q.key != key).cloned().collect();
-        self.quote.items = vec![quote.clone()];
-        let files = std::mem::take(&mut self.attach.files);
-        let paths = std::mem::take(&mut self.attach.paths);
-        let context = std::mem::take(&mut self.attach.context);
-        let comment = std::mem::take(&mut self.quote.comment);
+        let others: Vec<_> = self.composer_ext.quote.items.iter().filter(|q| q.key != key).cloned().collect();
+        self.composer_ext.quote.items = vec![quote.clone()];
+        let files = std::mem::take(&mut self.composer_ext.attach.files);
+        let paths = std::mem::take(&mut self.composer_ext.attach.paths);
+        let context = std::mem::take(&mut self.composer_ext.attach.context);
+        let comment = std::mem::take(&mut self.composer_ext.quote.comment);
         self.send_prompt(true, tx);
-        let went = self.quote.items.is_empty();
+        let went = self.composer_ext.quote.items.is_empty();
         *self.composer = composer;
-        self.attach.files = files;
-        self.attach.paths = paths;
-        self.attach.context = context;
-        self.quote.comment = comment;
-        self.quote.items = others;
+        self.composer_ext.attach.files = files;
+        self.composer_ext.attach.paths = paths;
+        self.composer_ext.attach.context = context;
+        self.composer_ext.quote.comment = comment;
+        self.composer_ext.quote.items = others;
         // In its place, until its send settles.
-        let at = self.quote.items.iter().position(|q| q.key > key).unwrap_or(self.quote.items.len());
-        self.quote.items.insert(at, quote);
+        let at = self.composer_ext.quote.items.iter().position(|q| q.key > key).unwrap_or(self.composer_ext.quote.items.len());
+        self.composer_ext.quote.items.insert(at, quote);
         went.then(|| self.newest_send(before.as_deref()))
     }
 
@@ -252,9 +252,9 @@ impl App {
 
     /// Queues a write to the server; false (with a status line) when this build can't write.
     pub fn write(&mut self, w: Write) -> bool {
-        if self.stage.is_some() {
+        if self.fixture_run.stage.is_some() {
             // A story's answers go nowhere; it acts as if they were sent.
-            *self.status = "Storybook: not sent".into();
+            *self.diag.status = "Storybook: not sent".into();
             return true;
         }
         match &*self.source {

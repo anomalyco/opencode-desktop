@@ -21,8 +21,8 @@ impl FulltextHost for App {
 
     fn surface_query(&self, which: Surface) -> &str {
         match which {
-            Surface::Palette if self.switcher.is_open() && self.switcher.mode != crate::switcher::SwitcherMode::Commands => {
-                self.switcher.query()
+            Surface::Palette if self.dialogs.switcher.is_open() && self.dialogs.switcher.mode != crate::switcher::SwitcherMode::Commands => {
+                self.dialogs.switcher.query()
             }
             Surface::Home if self.home_search_open() => self.search.text.as_str(),
             _ => "",
@@ -34,7 +34,7 @@ impl FulltextHost for App {
     }
 
     fn palette_archived(&self) -> bool {
-        self.switcher.mode == crate::switcher::SwitcherMode::Archived
+        self.dialogs.switcher.mode == crate::switcher::SwitcherMode::Archived
     }
 
     fn home_selected_id(&self) -> Option<String> {

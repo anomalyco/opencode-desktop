@@ -49,7 +49,7 @@ fn select_words(_: &mut App, tx: &mut Tx) {
 
 /// Variant Top quotes the first prompt, Bottom the last.
 fn bottom(s: &App) -> bool {
-    *s.variant == 1
+    *s.fixture_run.variant == 1
 }
 
 fn scrolls_away(s: &mut App, tx: &mut Play<App>) {

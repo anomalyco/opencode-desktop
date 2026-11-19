@@ -27,11 +27,11 @@ pub fn on_dialog(e: El, t: Target) -> El {
 
 impl SessionMenuHost for App {
     fn menus(&self) -> &Menus {
-        &self.menus
+        &self.dialogs.menus
     }
 
     fn menus_mut(&mut self) -> &mut Menus {
-        &mut self.menus
+        &mut self.dialogs.menus
     }
 
     fn sessions(&self) -> &[SessionInfo] {
@@ -72,11 +72,11 @@ impl SessionMenuHost for App {
     }
 
     fn side_focused(&self) -> bool {
-        self.side.focus.is_focused()
+        self.workspace_panes.side.focus.is_focused()
     }
 
     fn stage_active(&self) -> bool {
-        self.stage.is_some()
+        self.fixture_run.stage.is_some()
     }
 
     fn active_server(&self) -> ServerKey {
@@ -202,7 +202,7 @@ impl SessionMenuHost for App {
         self.forget_history(|_, x| gone.iter().any(|g| g == x));
         let open_gone = matches!(&*self.route, Route::Session { id: open, server: on } if on == server && gone.contains(open));
         self.tabs.retain(|t| t.is_draft() || t.server != *server || !gone.contains(&t.id));
-        self.closed.remove(|id| gone.iter().any(|g| g == id));
+        self.gestures.closed.remove(|id| gone.iter().any(|g| g == id));
         if open_gone {
             *self.route = Route::Home;
         }

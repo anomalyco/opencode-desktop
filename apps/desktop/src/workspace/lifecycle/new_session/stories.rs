@@ -29,9 +29,9 @@ fn send(s: &mut App, tx: &mut Tx) {
 fn fail(s: &mut App, tx: &mut Tx) {
     let Route::Session { id, .. } = (*s.route).clone() else { return };
     let Some(Message::User { id: prompt, text }) = s.transcripts.get(&id).and_then(|t| t.messages.iter().find(|m| matches!(m, Message::User { .. }))).cloned() else { return };
-    s.playback.retain(|e| e.2["sessionID"] != id.as_str());
+    s.fixture_run.playback.retain(|e| e.2["sessionID"] != id.as_str());
     let directory = s.draft_dir().to_owned();
-    s.starts.starts.insert(id.clone(), super::Start::Creating { directory, draft: None, created: false });
+    s.queue.starts.starts.insert(id.clone(), super::Start::Creating { directory, draft: None, created: false });
     s.unsent.note(crate::send_failed::Sent::new(&id, &prompt, crate::prompt_history::Entry::of(&rune::TextEdit::new(&text)), vec![], vec![], false));
     s.start_failed(&id, &prompt, &opencode_kit::wire_error::WireError::new("POST", "/api/session", opencode_kit::wire_error::WireKind::Unreachable("Connection refused".into())), tx);
 }
@@ -65,7 +65,7 @@ fn start_scene(s: &mut App, worktree: bool) {
     } else {
         super::Start::Creating { directory, draft: None, created: false }
     };
-    s.starts.starts.insert(id, start);
+    s.queue.starts.starts.insert(id, start);
 }
 
 rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [

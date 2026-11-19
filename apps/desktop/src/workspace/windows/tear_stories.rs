@@ -41,7 +41,7 @@ pub(crate) fn incoming(s: &App) -> Option<Tab> {
 /// A point `share` of the way along the strip, across its middle.
 pub(crate) fn along(s: &App, share: f32) -> Option<[f32; 2]> {
     let r = s.window.strip?;
-    Some(if s.variant == 1 { [r[0] + r[2] / 2.0, r[1] + share * r[3]] } else { [r[0] + share * r[2], r[1] + r[3] / 2.0] })
+    Some(if s.fixture_run.variant == 1 { [r[0] + r[2] / 2.0, r[1] + share * r[3]] } else { [r[0] + share * r[2], r[1] + r[3] / 2.0] })
 }
 
 fn arrive(s: &mut App, tx: &mut Play<App>) {
@@ -57,12 +57,12 @@ fn arrive(s: &mut App, tx: &mut Play<App>) {
 }
 
 fn let_go(s: &mut App, tx: &mut Play<App>) {
-    let (Some(tab), Some(at)) = (incoming(s), s.tab_drag.incoming_slot().and(along(s, 0.3))) else { return };
+    let (Some(tab), Some(at)) = (incoming(s), s.gestures.tab_drag.incoming_slot().and(along(s, 0.3))) else { return };
     s.receive_tab(tab, (None, None), Some(at), tx);
 }
 
 fn view(s: &App, p: &Pal) -> El {
-    let side = s.variant == 1;
+    let side = s.fixture_run.variant == 1;
     let orientation = if side { TabOrientation::Vertical } else { TabOrientation::Horizontal };
     let strip = crate::view::tab_strip(s, p, "story-tabs", orientation, (!side).then_some(640.0), None);
     let frame = col().key("story-strip").fill(p.bg_deep).radius(10.0).padding(8.0);

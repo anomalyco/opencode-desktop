@@ -15,11 +15,11 @@ use crate::pickers::PickerHost as _;
 
 impl ConnectHost for App {
     fn connect(&self) -> &Connect {
-        &self.connect
+        &self.dialogs.connect
     }
 
     fn connect_mut(&mut self) -> &mut Connect {
-        &mut self.connect
+        &mut self.dialogs.connect
     }
 
     fn catalogs(&self) -> &Catalogs {
@@ -74,31 +74,31 @@ impl ConnectHost for App {
     }
 
     fn models(&self) -> &[Model] {
-        &self.pickers.models
+        &self.composer_ext.pickers.models
     }
 
     fn load_providers(&mut self, list: &Value) {
-        self.pickers.load_providers(list);
+        self.composer_ext.pickers.load_providers(list);
     }
 
     fn load_config(&mut self, list: &Value) {
-        self.pickers.load_config(list);
+        self.composer_ext.pickers.load_config(list);
     }
 
     fn load_models(&mut self, list: &Value) {
-        self.pickers.load_models(list);
+        self.composer_ext.pickers.load_models(list);
     }
 
     fn load_agents(&mut self, list: &Value) {
-        self.pickers.load_agents(list);
+        self.composer_ext.pickers.load_agents(list);
     }
 
     fn reveal_models(&mut self, keys: &[String]) {
-        self.pickers.prefs.set_visibility(keys.iter().map(String::as_str), true);
+        self.composer_ext.pickers.prefs.set_visibility(keys.iter().map(String::as_str), true);
     }
 
     fn apply_connected_model(&mut self, key: &str, scope: Option<&str>, tx: &mut Tx) {
-        let Some(m) = self.pickers.models.iter().find(|m| m.key == key).cloned() else { return };
+        let Some(m) = self.composer_ext.pickers.models.iter().find(|m| m.key == key).cloned() else { return };
         if scope.is_none() {
             self.close_settings();
             self.new_session(tx);
@@ -106,8 +106,8 @@ impl ConnectHost for App {
         let scope = scope.map(str::to_owned).unwrap_or_else(|| crate::pickers::PickerHost::picker_scope(self));
         let mut selection = self.selection();
         selection.model = opencode_kit::model::ModelRef { id: m.id, provider: m.provider, variant: String::new() };
-        self.pickers.prefs.picked(key);
-        self.pickers.selections.insert(scope, selection);
+        self.composer_ext.pickers.prefs.picked(key);
+        self.composer_ext.pickers.selections.insert(scope, selection);
     }
 
     fn next_picker_reads_generation(&mut self) -> Attempt {
@@ -120,7 +120,7 @@ impl ConnectHost for App {
 
     fn before_dialog_open(&mut self) {
         self.close_picker(false);
-        self.pickers.close_manage();
+        self.composer_ext.pickers.close_manage();
         self.composer.focused = false;
     }
 
@@ -259,8 +259,8 @@ mod scenes {
 
     /// 25 models from Drive, the first of them picked.
     fn long_models(s: &mut App) {
-        s.pickers.models.retain(|m| m.provider != "drive");
-        s.pickers.models.extend((1..=25).map(|i| crate::pickers::Model {
+        s.composer_ext.pickers.models.retain(|m| m.provider != "drive");
+        s.composer_ext.pickers.models.extend((1..=25).map(|i| crate::pickers::Model {
             key: format!("drive:model-{i}"),
             id: format!("model-{i}"),
             provider: "drive".into(),

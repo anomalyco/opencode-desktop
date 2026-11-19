@@ -93,7 +93,7 @@ fn ticking(s: &mut App, tx: &mut Play<App>) {
     tx.after(0.2, |s, tx| {
         crate::stories::timeline::agent::spawn(s, tx);
         let now = *s.now_ms;
-        let parent = s.fixture["open"].as_str().map(str::to_owned);
+        let parent = s.fixture_run.fixture["open"].as_str().map(str::to_owned);
         if let Some(c) = s.sessions.iter_mut().rev().find(|x| x.parent.is_some() && x.parent == parent) {
             c.created = now - 7_500;
         }

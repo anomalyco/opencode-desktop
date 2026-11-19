@@ -79,8 +79,8 @@ fn stored(log: &[(String, Value)], app: &[Part]) -> Vec<Part> {
 impl crate::App {
     /// Queues a fixture event at `at`, keeping `playback` ordered by time.
     pub(crate) fn schedule(&mut self, at: f64, ty: impl Into<String>, data: Value) {
-        let i = self.playback.iter().position(|e| e.0 > at).unwrap_or(self.playback.len());
-        self.playback.insert(i, (at, ty.into(), data));
+        let i = self.fixture_run.playback.iter().position(|e| e.0 > at).unwrap_or(self.fixture_run.playback.len());
+        self.fixture_run.playback.insert(i, (at, ty.into(), data));
     }
 
     /// A live app re-reads the open session after each step starts (`events.rs`); the fixture
@@ -92,7 +92,7 @@ impl crate::App {
     /// `POST /api/session/:id/background`: each blocking call returns, as a live server's does
     /// once its job moves to the background, and the job runs on unseen.
     pub(crate) fn fixture_background(&mut self, sid: &str, parts: &[String]) {
-        self.background.fixture_moves.push(sid.to_owned());
+        self.appearance_state.background.fixture_moves.push(sid.to_owned());
         let Some(Message::Assistant(a)) = self.transcripts.get(sid).and_then(|t| t.messages.iter().rev().find(|m| matches!(m, Message::Assistant(a) if a.completed.is_none()))) else { return };
         let at = *self.clock + 0.05;
         let moves: Vec<Value> = a
@@ -115,7 +115,7 @@ impl crate::App {
 
     pub(crate) fn show_fixture_page(&mut self, sid: &str, tx: &mut rune::Tx) {
         let Some(t) = self.transcripts.get(sid) else { return };
-        let messages = self.served.page(t);
+        let messages = self.fixture_run.served.page(t);
         let page = crate::session_pages::Page { key: self.page_key(sid), messages, cursor: None, stubs: Vec::new(), asked: 0, history: false, images: Vec::new(), bytes: 0, read: Default::default() };
         self.show_page(&page, tx);
     }

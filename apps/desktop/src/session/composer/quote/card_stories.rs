@@ -46,8 +46,8 @@ fn quotes(variant: usize) -> Vec<PromptComment> {
 
 fn open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
-    for q in quotes(*s.variant) {
-        s.quote.push(q);
+    for q in quotes(*s.fixture_run.variant) {
+        s.composer_ext.quote.push(q);
     }
     *s.composer = TextEdit::new(ASK);
     prompt(s, tx);
@@ -57,7 +57,7 @@ fn open(s: &mut App, tx: &mut Play<App>) {
 fn prompt(s: &mut App, tx: &mut Tx) {
     let n = s.transcripts.get(&sid(s)).map_or(0, |t| t.messages.len());
     let id = format!("msg_zzzzquotecards{n:04}");
-    opencode_kit::model::set_user_comments(&id, quotes(*s.variant));
+    opencode_kit::model::set_user_comments(&id, quotes(*s.fixture_run.variant));
     emit(s, "session.prompted", json!({ "messageID": id, "text": ASK }), tx);
 }
 

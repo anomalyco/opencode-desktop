@@ -87,9 +87,9 @@ pub(crate) fn play(s: &mut App, word: f64) {
 
 fn open(s: &mut App, _: &mut Play<App>) {
     s.finish_stream();
-    let reveal = Reveal::ALL[(*s.variant / 2).min(3)];
-    s.knobs.set(&NEW_LINE_REVEAL, reveal.knob());
-    play(s, if *s.variant % 2 == 1 { FAST } else { SLOW });
+    let reveal = Reveal::ALL[(*s.fixture_run.variant / 2).min(3)];
+    s.diag.knobs.set(&NEW_LINE_REVEAL, reveal.knob());
+    play(s, if *s.fixture_run.variant % 2 == 1 { FAST } else { SLOW });
 }
 
 rune_register::register!(crate::stories::STORY_LIST: Story = [

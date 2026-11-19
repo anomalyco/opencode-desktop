@@ -353,7 +353,7 @@ fn list_row(s: &App, p: &Pal, ses: &SessionInfo, nav_ids: &std::rc::Rc<Vec<Strin
     let hover_id = id.clone();
     let nav = nav_ids.clone();
     let target = Target::on(crate::servers::runtime::active(s), &ses.id, Spot::Row);
-    let marked = s.menus.on.as_ref() == Some(&target);
+    let marked = s.dialogs.menus.on.as_ref() == Some(&target);
     let stacked = tier == Tier::Narrow && show_project;
     let parts = Parts::of(s, p, ses, labels_w, show_project, stacked, ROW_GAP);
     let mut r = row()
@@ -646,8 +646,8 @@ mod no_server_story {
         s.sessions.clear();
         s.tabs.clear();
         s.projects.clear();
-        crate::launch::story_offline(s, s.variant == 1);
-        s.launch.story_addr = (s.variant == 2).then(|| "http://127.0.0.1:14096".to_owned());
+        crate::launch::story_offline(s, s.fixture_run.variant == 1);
+        s.launch.story_addr = (s.fixture_run.variant == 2).then(|| "http://127.0.0.1:14096".to_owned());
     }
 
     fn open(s: &mut App, tx: &mut Play<App>) {
@@ -673,6 +673,6 @@ mod no_server_story {
 
     rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
         ("no-server", setup),
-        ("no-server-remote", |s| { *s.variant = 2; setup(s) }),
+        ("no-server-remote", |s| { *s.fixture_run.variant = 2; setup(s) }),
     ]);
 }

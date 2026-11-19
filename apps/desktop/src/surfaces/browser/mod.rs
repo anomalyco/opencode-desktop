@@ -68,7 +68,7 @@ pub fn external_url(url: &str) -> Option<&str> {
 impl App {
     /// The page browser tab `id` shows, when the default browser can open it.
     pub fn browser_tab_external_url(&self, id: u64) -> Option<String> {
-        external_url(&self.browser.host.tab(id)?.url).map(str::to_owned)
+        external_url(&self.workspace_panes.browser.host.tab(id)?.url).map(str::to_owned)
     }
 
     /// Opens browser tab `id`'s page in the default browser.
@@ -79,12 +79,12 @@ impl App {
     }
 
     pub fn setup_browser(&mut self, waker: Waker) {
-        self.browser.host.set_waker(waker);
-        self.browser.host.set_shell_shortcut(claims_app_shortcut);
+        self.workspace_panes.browser.host.set_waker(waker);
+        self.workspace_panes.browser.host.set_shell_shortcut(claims_app_shortcut);
         // The levels live in the app's state (`plugin.browser`, Desktop's browser plugin namespace),
         // in memory once the storage is up; a change goes behind like any other.
         if self.persists() {
-            self.browser.host.remember_site_zoom(browser_pane::ZoomStore {
+            self.workspace_panes.browser.host.remember_site_zoom(browser_pane::ZoomStore {
                 read: Box::new(|| crate::storage::text("plugin.browser", "rune.siteZoom").map(|t| t.to_string())),
                 write: Box::new(|levels| crate::storage::set("plugin.browser", "rune.siteZoom", levels)),
             });
@@ -94,12 +94,12 @@ impl App {
     /// No engine drives live tabs in this build: they show the unsupported card and have no address
     /// bar to focus. Mock tabs (headless, tests, stories) still work.
     pub(crate) fn browser_unsupported(&self) -> bool {
-        !self.use_mock_browser() && self.browser.host.status() == EngineStatus::Unsupported
+        !self.use_mock_browser() && self.workspace_panes.browser.host.status() == EngineStatus::Unsupported
     }
 
     pub(crate) fn use_mock_browser(&self) -> bool {
-        (crate::headless() || self.stage.is_some())
-            && !self.browser.host.has_socket_override()
+        (crate::headless() || self.fixture_run.stage.is_some())
+            && !self.workspace_panes.browser.host.has_socket_override()
             && std::env::var_os("OPENCODE_BROWSER_LIVE_TEST").as_deref() != Some(std::ffi::OsStr::new("1"))
     }
 
@@ -122,14 +122,14 @@ impl App {
 
     /// Active browser tab ID in `sid`'s side panel, if a browser tab is currently active there.
     pub fn active_browser_tab_for_session(&self, sid: &str) -> Option<u64> {
-        let st = self.side.sessions.get(sid)?;
+        let st = self.workspace_panes.side.sessions.get(sid)?;
         let act = st.tab_state.tabs.active.as_deref()?;
         let (plugin, tid) = split_panel_key(act)?;
         if plugin != PLUGIN {
             return None;
         }
         let pane = crate::panels::tabs::session_tab_pane(&st.tab_state.tabs, act);
-        if self.side.adding.iter().any(|n| n.session_id == sid && n.pane == pane && n.over.as_deref() == Some(act)) {
+        if self.workspace_panes.side.adding.iter().any(|n| n.session_id == sid && n.pane == pane && n.over.as_deref() == Some(act)) {
             return None;
         }
         tid.parse::<u64>().ok()
@@ -139,8 +139,8 @@ impl App {
     /// else the host's focused tab.
     pub fn default_browser_tab_for_session(&self, sid: &str) -> Option<u64> {
         self.active_browser_tab_for_session(sid)
-            .or_else(|| self.browser.session_tabs.get(sid)?.iter().rev().copied().find(|&id| self.browser.host.tab(id).is_some()))
-            .or_else(|| self.browser.host.focused_tab_id())
+            .or_else(|| self.workspace_panes.browser.session_tabs.get(sid)?.iter().rev().copied().find(|&id| self.workspace_panes.browser.host.tab(id).is_some()))
+            .or_else(|| self.workspace_panes.browser.host.focused_tab_id())
     }
 
     /// The pane of the routed session's selected browser tab while the keyboard is in it: its
@@ -151,9 +151,9 @@ impl App {
         }
         let sid = self.active_session_id()?;
         let key = panel_key(PLUGIN, &self.active_browser_tab_id()?.to_string());
-        let st = self.side.sessions.get(sid)?;
+        let st = self.workspace_panes.side.sessions.get(sid)?;
         let pane = crate::panels::tabs::session_tab_pane(&st.tab_state.tabs, &key);
-        let in_pane = self.side.focus.is_focused() && self.side.active_pane_focus == pane;
+        let in_pane = self.workspace_panes.side.focus.is_focused() && self.workspace_panes.side.active_pane_focus == pane;
         (field || in_pane).then_some(pane)
     }
 
@@ -162,9 +162,9 @@ impl App {
     pub fn focus_browser_page(&mut self, id: u64) {
         let Some(sid) = self.browser_tab_session(id).map(str::to_owned) else { return };
         let key = panel_key(PLUGIN, &id.to_string());
-        let Some(st) = self.side.sessions.get(&sid) else { return };
-        self.side.active_pane_focus = crate::panels::tabs::session_tab_pane(&st.tab_state.tabs, &key);
-        self.side.focus.focus();
+        let Some(st) = self.workspace_panes.side.sessions.get(&sid) else { return };
+        self.workspace_panes.side.active_pane_focus = crate::panels::tabs::session_tab_pane(&st.tab_state.tabs, &key);
+        self.workspace_panes.side.focus.focus();
         self.composer.focused = false;
     }
 
@@ -208,17 +208,17 @@ impl App {
             let refused = browser_pane::refusal(&candidate, &roots);
             let resolved = if refused.is_some() { "about:blank".into() } else { candidate };
             let title = if resolved == "about:blank" { String::new() } else { bare_url(&resolved) };
-            let id = self.browser.host.insert_mock_tab(&resolved, &title, EngineStatus::Ready);
-            self.browser.host.set_mock_history(id, false, false);
+            let id = self.workspace_panes.browser.host.insert_mock_tab(&resolved, &title, EngineStatus::Ready);
+            self.workspace_panes.browser.host.set_mock_history(id, false, false);
             if let Some(why) = refused {
-                self.browser.host.set_mock_refusal(id, why.code());
+                self.workspace_panes.browser.host.set_mock_refusal(id, why.code());
             }
             id
         } else {
-            self.browser.host.open_tab_with_roots(url, roots, from_address)
+            self.workspace_panes.browser.host.open_tab_with_roots(url, roots, from_address)
         };
         if let Some(sid) = sid {
-            self.browser.session_tabs.entry(sid.to_owned()).or_default().push(id);
+            self.workspace_panes.browser.session_tabs.entry(sid.to_owned()).or_default().push(id);
             let key = panel_key(PLUGIN, &id.to_string());
             if steal_focus {
                 self.open_side_tab_for_session(sid, &key, target_pane, false, false);
@@ -236,15 +236,15 @@ impl App {
         let resolved = browser_pane::resolve_address(url);
         if self.use_mock_browser() {
             if let Some(why) = browser_pane::refusal(&resolved, &roots) {
-                self.browser.host.set_mock_refusal(id, why.code());
+                self.workspace_panes.browser.host.set_mock_refusal(id, why.code());
                 return;
             }
             let title = if resolved == "about:blank" { String::new() } else { bare_url(&resolved) };
-            self.browser.host.set_mock_page(id, &resolved, &title);
+            self.workspace_panes.browser.host.set_mock_page(id, &resolved, &title);
             return;
         }
-        self.browser.host.set_tab_policy(id, roots);
-        self.browser.host.navigate_with_policy(id, &resolved, false);
+        self.workspace_panes.browser.host.set_tab_policy(id, roots);
+        self.workspace_panes.browser.host.navigate_with_policy(id, &resolved, false);
     }
 
     pub fn register_existing_browser_tab(&mut self, id: u64) {
@@ -254,7 +254,7 @@ impl App {
     }
 
     pub fn register_existing_browser_tab_for_session(&mut self, sid: &str, id: u64, steal_focus: bool) {
-        let vec = self.browser.session_tabs.entry(sid.to_owned()).or_default();
+        let vec = self.workspace_panes.browser.session_tabs.entry(sid.to_owned()).or_default();
         if !vec.contains(&id) {
             vec.push(id);
         }
@@ -268,11 +268,11 @@ impl App {
 
     /// The session page `id` belongs to.
     pub fn browser_tab_session(&self, id: u64) -> Option<&str> {
-        self.browser.session_tabs.iter().find(|(_, ids)| ids.contains(&id)).map(|(sid, _)| sid.as_str())
+        self.workspace_panes.browser.session_tabs.iter().find(|(_, ids)| ids.contains(&id)).map(|(sid, _)| sid.as_str())
     }
 
     pub fn close_browser_tab_for_session(&mut self, sid: &str, id: u64, tx: &mut Tx) {
-        let (composer, side) = (self.composer.focused, self.side.focus.mode());
+        let (composer, side) = (self.composer.focused, self.workspace_panes.side.focus.mode());
         let key = panel_key(PLUGIN, &id.to_string());
         let routed = self.active_session_id() == Some(sid);
         if routed {
@@ -290,39 +290,39 @@ impl App {
         // so one press too many doesn't close the session.
         self.composer.focused = composer;
         if routed && side.is_focused() && !self.side_open() {
-            self.side.focus.blur();
-            self.side.emptied_guard = true;
+            self.workspace_panes.side.focus.blur();
+            self.workspace_panes.side.emptied_guard = true;
         } else {
-            self.side.focus.restore(side);
+            self.workspace_panes.side.focus.restore(side);
         }
     }
 
     /// Page `id`'s tab left its strip: the page closes.
     pub fn forget_browser_tab(&mut self, id: u64) {
-        for ids in self.browser.session_tabs.values_mut() {
+        for ids in self.workspace_panes.browser.session_tabs.values_mut() {
             ids.retain(|&x| x != id);
         }
-        if self.browser.host.tab(id).is_some() {
-            self.browser.host.close_tab(id);
+        if self.workspace_panes.browser.host.tab(id).is_some() {
+            self.workspace_panes.browser.host.close_tab(id);
         }
     }
 
     pub fn start_browser_install(&mut self) {
-        self.browser.host.start_install();
+        self.workspace_panes.browser.host.start_install();
     }
 
     /// The engine's messages and the page the engine paints: the
     /// routed session's selected one. True when what the pane shows changed.
     pub fn poll_browser(&mut self) -> bool {
         // Every poll comes here: the pane is written only when the engine has something.
-        let mut changed = !self.browser.host.quiet() && self.browser.host.poll();
+        let mut changed = !self.workspace_panes.browser.host.quiet() && self.workspace_panes.browser.host.poll();
         // The engine paints only its focused tab, so the page on screen must be that tab (after a
         // session switch, say, which shows another session's page without selecting it).
         if self.side_open()
             && let Some(id) = self.active_browser_tab_id()
-            && self.browser.host.focused_tab_id() != Some(id)
+            && self.workspace_panes.browser.host.focused_tab_id() != Some(id)
         {
-            self.browser.host.focus_tab(id);
+            self.workspace_panes.browser.host.focus_tab(id);
             changed = true;
         }
         changed

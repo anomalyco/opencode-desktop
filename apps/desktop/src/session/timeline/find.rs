@@ -15,11 +15,11 @@ use crate::{App, Route};
 
 impl FindHost for App {
     fn find(&self) -> &Find {
-        &self.find
+        &self.timeline_fx.find
     }
 
     fn find_mut(&mut self) -> &mut Find {
-        &mut self.find
+        &mut self.timeline_fx.find
     }
 
     fn is_home(&self) -> bool {
@@ -51,11 +51,11 @@ impl FindHost for App {
     }
 
     fn expanded(&self) -> &Disclosures {
-        &self.expanded
+        &self.timeline_fx.expanded
     }
 
     fn expanded_mut(&mut self) -> &mut Disclosures {
-        &mut self.expanded
+        &mut self.timeline_fx.expanded
     }
 
     fn fold_user_messages(&self) -> bool {
@@ -67,15 +67,15 @@ impl FindHost for App {
     }
 
     fn visible_timeline_rows(&self, session: &str) -> Vec<String> {
-        self.ends.recall.marks(session).visible()
+        self.timeline_fx.ends.recall.marks(session).visible()
     }
 
     fn timeline_view_rect(&self) -> Option<[f32; 4]> {
-        self.message_nav.view
+        self.timeline_fx.message_nav.view
     }
 
     fn timeline_page_rect(&self) -> Option<[f32; 4]> {
-        self.message_nav.page
+        self.timeline_fx.message_nav.page
     }
 
     fn is_narrow(&self) -> bool {
@@ -156,7 +156,7 @@ impl Feature<App> for FindFeature {
         builder.register_escape_layer(EscapeLayer::new(
             "escape.find",
             40,
-            |s| s.find.is_open() && matches!(*s.route, Route::Session { .. }),
+            |s| s.timeline_fx.find.is_open() && matches!(*s.route, Route::Session { .. }),
             |s, ev, tx| {
                 dismiss_key(s, ev, tx);
             },

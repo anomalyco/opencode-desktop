@@ -32,32 +32,32 @@ pub const VARIANTS: &[(&str, usize)] = &[
 
 /// The model list open on `query`, as if typed.
 fn search(s: &mut App, query: &str) {
-    if s.pickers.open().is_some() { s.close_picker(false); }
+    if s.composer_ext.pickers.open().is_some() { s.close_picker(false); }
     s.open_picker(Kind::Model);
-    s.pickers.search = TextEdit::new(query);
-    s.pickers.search.focused = true;
+    s.composer_ext.pickers.search = TextEdit::new(query);
+    s.composer_ext.pickers.search.focused = true;
 }
 
 fn open(s: &mut App, _: &mut Play<App>) {
     s.finish_stream();
     s.settings.show_agent = true;
-    if s.variant == 1 {
+    if s.fixture_run.variant == 1 {
         for (kind, key) in [(Kind::Agent, "plan"), (Kind::Model, "openai:gpt-6-astra"), (Kind::Effort, "low")] {
             s.open_picker(kind);
             s.choose_picker(key);
         }
         s.composer.focused = false;
-    } else if s.variant == 2 {
-        s.pickers.prefs = Default::default();
+    } else if s.fixture_run.variant == 2 {
+        s.composer_ext.pickers.prefs = Default::default();
         for key in ["google:gemini-4-argon", "openai:gpt-6-astra", "anthropic:claude-opus-5-5"] {
             s.open_picker(Kind::Model);
             s.choose_picker(key);
         }
-        s.pickers.prefs.toggle_favorite("openai:gpt-6-astra");
+        s.composer_ext.pickers.prefs.toggle_favorite("openai:gpt-6-astra");
         s.open_picker(Kind::Model);
-    } else if s.variant == 3 {
+    } else if s.fixture_run.variant == 3 {
         search(s, "gemiin");
-    } else if s.variant == 4 {
+    } else if s.fixture_run.variant == 4 {
         search(s, "zzzz");
     } else {
         s.open_picker(Kind::Model);

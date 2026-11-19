@@ -6,7 +6,8 @@
 
 use opencode_kernel::{
     AppEnv, AppFeedback, AppOverlays, CommandEntry, EscapeLayer, Kernel, KernelBuilder,
-    OverlayEntry, OverlayEvent, OverlayKind, OverlayRegistration, SurfaceDescriptor, SurfaceKind,
+    OverlayEntry, OverlayEvent, OverlayKind, OverlayRegistration, Phase, SurfaceDescriptor,
+    SurfaceKind,
 };
 
 use crate::{App, Route};
@@ -29,7 +30,7 @@ impl AppEnv for App {
     }
 
     fn reduced_motion(&self) -> bool {
-        *self.reduced_motion
+        *self.appearance_state.reduced_motion
     }
 
     fn is_live(&self) -> bool {
@@ -87,6 +88,7 @@ impl AppOverlays for App {
 /// Builds a window's kernel with all decoupled features and core surfaces registered.
 pub fn build() -> Kernel<App> {
     let mut b = KernelBuilder::new();
+    register_pre_feature_systems(&mut b);
     b.with_feature(&crate::surfaces::egg::EggFeature);
     #[cfg(feature = "office")]
     b.with_feature(&crate::surfaces::office::OfficeFeature);
@@ -119,6 +121,7 @@ pub fn build() -> Kernel<App> {
     b.with_feature(&crate::usage::UsageFeature);
     b.with_feature(&crate::new_worktree::WorkspaceToolsFeature);
     b.with_feature(&crate::plugin_host::PluginHostFeature);
+    register_post_feature_systems(&mut b);
     b.register_overlay(
         OverlayRegistration::<App>::new("overlay.diagram")
             .with_z(170)
@@ -158,7 +161,7 @@ pub fn build() -> Kernel<App> {
     b.register_escape_layer(EscapeLayer::new(
         "escape.toast",
         30,
-        |s| s.toast.current().is_some_and(|t| t.persistent),
+        |s| s.dialogs.toast.current().is_some_and(|t| t.persistent),
         |s, ev, tx| {
             crate::status_toast::key(s, ev, tx);
         },
@@ -189,5 +192,218 @@ pub fn build() -> Kernel<App> {
         SurfaceDescriptor::new("browser", SurfaceKind::Browser, "Browser")
             .with_multi_instance(true),
     );
-    b.build()
+    let mut kernel = b.build();
+    kernel.slots.insert(crate::app::ViewRuns::default());
+    kernel.slots.insert(crate::session_catalog::Catalog::default());
+    kernel
+}
+
+/// Core ingest and visibility systems that must execute before decoupled feature systems.
+fn register_pre_feature_systems(b: &mut KernelBuilder<App>) {
+    b.add_visibility("status_toast.visibility", |s, shown, tx| {
+        crate::status_toast::visibility(s, shown, tx);
+    });
+    // Another window changed the session data this one shows.
+    b.add_system(Phase::Ingest, "windows.peer.behind", |s, _, _| {
+        let changed = crate::windows::peer::behind(s);
+        s.note_tick_change(changed)
+    });
+    b.add_system(Phase::Ingest, "restore.places", |s, now, tx| {
+        let changed = s.poll_places(now, tx);
+        s.note_tick_change(changed)
+    });
+    b.add_system(Phase::Ingest, "restore.undo", |s, now, tx| {
+        s.poll_undo(now, tx);
+        false
+    });
+    b.add_system(Phase::Ingest, "reconnect.audit", |s, _, _| {
+        crate::reconnect::audit(s);
+        false
+    });
+    b.add_system(Phase::Ingest, "popup.poll", |s, _, tx| {
+        crate::popup::poll(s, tx);
+        false
+    });
+    // The servers the window isn't checked out on: their launches, replies and streams.
+    b.add_system(Phase::Ingest, "servers.runtime", |s, _, tx| {
+        let changed = crate::servers::runtime::poll(s, tx);
+        s.note_tick_change(changed)
+    });
+    b.add_system(Phase::Ingest, "servers.health", |s, _, tx| {
+        let changed = crate::servers::health::poll(s, tx);
+        s.note_tick_change(changed)
+    });
+    b.add_system(Phase::Ingest, "projects.home", |s, _, tx| {
+        let fresh = s.tick_fresh();
+        crate::projects::home::poll(s, fresh, tx)
+    });
+    b.add_system(Phase::Ingest, "project_switcher.poll", |s, _, _| {
+        crate::project_switcher::poll(s)
+    });
+    // A project's image the icon worker found (or lost): the tiles that read the icons draw again.
+    b.add_system(Phase::Ingest, "appearance.icons", |s, _, _| {
+        if rune::Tracked::untracked(&s.appearance_state.icons).take_found() {
+            rune::Tracked::touch(&s.appearance_state.icons);
+            true
+        } else {
+            false
+        }
+    });
+    b.add_system(Phase::Ingest, "launch.poll", |s, _, tx| crate::launch::poll(s, tx));
+    b.add_system(Phase::Ingest, "launch.trace", |_, _, tx| {
+        crate::launch::trace::poll(tx);
+        false
+    });
+}
+
+/// Core shell and subsystem lifecycle polls registered after decoupled feature systems,
+/// preserving exact four-phase execution order (`Ingest` -> `Derive` -> `React` -> `Persist`).
+fn register_post_feature_systems(b: &mut KernelBuilder<App>) {
+    // ── Phase 1: Ingest (post-feature, before live/playback stream dispatch) ────────────────────
+    b.add_system(Phase::Ingest, "glitch.poll", |s, _, tx| crate::glitch::poll(s, tx));
+    b.add_system(Phase::Ingest, "appearance.poll", |s, _, _| crate::appearance::poll(s));
+    b.add_system(Phase::Ingest, "text_rendering.poll", |s, _, tx| {
+        crate::text_rendering::poll(s, tx);
+        false
+    });
+    b.add_system(Phase::Ingest, "language.poll", |s, _, tx| crate::language::poll(s, tx));
+    b.add_system(Phase::Ingest, "speech.poll", |s, _, tx| crate::speech::poll(s, tx));
+    // A shortcut from the composer that moved the keyboard into the side region (its command
+    // may run a frame later) leaves the selected tab's label muted (`FocusMode::Quiet`).
+    b.add_system(Phase::Ingest, "panels.sync_composer", |s, _, _| {
+        let composing = s.composer.focused;
+        let in_terminal = !composing
+            && s.workspace_panes.side.focus.is_armed()
+            && s.workspace_panes.side.focus.is_focused()
+            && s.terminal_focus().is_some();
+        let sync = crate::panels::SideFocusEvent::SyncComposer { composing, in_terminal };
+        // Written only when it changes: a write to the side state rebuilds every region reading it.
+        if s.workspace_panes.side.focus.would_change(sync) {
+            s.workspace_panes.side.focus.sync_composer(composing, in_terminal);
+        }
+        false
+    });
+    b.add_system(Phase::Ingest, "deep_links.drain", |s, _, tx| crate::deep_links::drain(s, tx));
+    b.add_system(Phase::Ingest, "turn_errors.poll", |s, _, tx| crate::turn_errors::poll(s, tx));
+    b.add_system(Phase::Ingest, "session_pages.poll", |s, _, tx| s.poll_pages(tx));
+    b.add_system(Phase::Ingest, "app.output_errors", |s, _, _| {
+        let mut changed = false;
+        while let Some(why) = s
+            .kernel
+            .slots
+            .get::<crate::app::OutputErrors>()
+            .and_then(|e| e.0.as_ref())
+            .and_then(|(_, rx)| rx.try_recv().ok())
+        {
+            crate::status_toast::fail(s, opencode_i18n::t!("common.requestFailed"), why);
+            changed = true;
+        }
+        changed
+    });
+    b.add_system(Phase::Ingest, "context_window.poll", |s, _, _| s.poll_context_window());
+    b.add_system(Phase::Ingest, "inbox.sends", |s, _, _| s.poll_sends());
+    b.add_system(Phase::Ingest, "inbox.outbox", |s, _, tx| s.tick_outbox(tx));
+    b.add_system(Phase::Ingest, "jobs.poll", |s, _, tx| s.poll_jobs(tx));
+
+    // ── Phase 2: Derive (post-feature) ──────────────────────────────────────────────────────────
+    b.add_system(Phase::Derive, "working.sync", |s, _, _| crate::working::sync(s));
+    b.add_system(Phase::Derive, "timeline.dock_morph", |s, _, tx| {
+        let asked = s.take_asked_dock_face();
+        if s.dock_face() != asked {
+            s.morph(tx);
+        }
+        false
+    });
+    b.add_system(Phase::Derive, "disclosure.poll", |s, now, tx| crate::disclosure::poll(s, now, tx));
+    b.add_system(Phase::Derive, "timeline.projection", |s, _, tx| {
+        session_view::timeline::projection_poll(s, tx)
+    });
+    b.add_system(Phase::Derive, "line_reveal.poll", |s, now, tx| {
+        crate::line_reveal::poll(s, now, tx)
+    });
+    b.add_system(Phase::Derive, "copied.poll", |s, now, tx| crate::copied::poll(s, now, tx));
+    b.add_system(Phase::Derive, "diagram.poll", |s, now, tx| crate::diagram::poll(s, now, tx));
+    b.add_system(Phase::Derive, "timeline.images", |s, now, tx| {
+        session_view::images::poll(s, now, tx)
+    });
+    b.add_system(Phase::Derive, "model_picker.hover", |s, now, tx| {
+        crate::model_picker::hover::poll(s, now, tx)
+    });
+    b.add_system(Phase::Derive, "background.poll", |s, _, tx| crate::background::poll(s, tx));
+    // Ingest local answers before settling the list: its rows, highlight and empty state must
+    // all see the same sources. Previously a full-text landing changed the rows after this poll.
+    b.add_system(Phase::Derive, "switcher.poll", |s, now, tx| {
+        let local_answers = s.poll_session_search(now, tx) | s.poll_fulltext();
+        s.poll_switcher(tx, local_answers)
+    });
+    b.add_system(Phase::Derive, "mentions.poll", |s, _, tx| s.poll_mentions(tx));
+
+    // ── Phase 3: React (post-feature) ───────────────────────────────────────────────────────────
+    b.add_system(Phase::React, "composer_input.attach", |s, _, _| {
+        if s.composer_ext.attach.poll() {
+            rune::Tracked::touch(&s.composer_ext.attach);
+            s.note_tick_change(true)
+        } else {
+            false
+        }
+    });
+    b.add_system(Phase::React, "panels.poll", |s, _, tx| {
+        let fresh = s.tick_fresh();
+        s.poll_panels(fresh, tx)
+    });
+    b.add_system(Phase::React, "turn_diffs.poll", |s, _, _| s.poll_turn_diffs());
+    b.add_system(Phase::React, "reconnect.poll", |s, _, tx| crate::reconnect::poll(s, tx));
+    b.add_system(Phase::React, "session_state.poll", |s, _, tx| crate::session_state::poll(s, tx));
+    b.add_system(Phase::React, "status_toast.poll", |s, now, tx| {
+        crate::status_toast::poll(s, now, tx)
+    });
+    b.add_system(Phase::React, "layout_state.poll", |s, now, tx| {
+        crate::layout_state::poll(s, now, tx)
+    });
+    b.add_system(Phase::React, "inbox_model.poll", |s, now, tx| {
+        crate::inbox_model::poll(s, now, tx)
+    });
+    b.add_system(Phase::React, "tab_preview.poll", |s, now, tx| {
+        crate::view::tab_preview::poll(s, now, tx)
+    });
+    b.add_system(Phase::React, "session_status.poll", |s, now, tx| {
+        crate::session_status::poll(s, now, tx)
+    });
+    // Each draft keeps its own composer in any window, saved or not (`restore::show_draft`).
+    b.add_system(Phase::React, "restore.show_draft", |s, _, _| s.show_draft());
+
+    // ── Phase 4: Persist (post-feature) ─────────────────────────────────────────────────────────
+    b.add_system(Phase::Persist, "restore.persist", |s, _, tx| {
+        if !s.persists() {
+            return false;
+        }
+        let mut changed = false;
+        changed |= s.tell_storage_notice();
+        changed |= s.hydrate_restore();
+        changed |= crate::crash_notice::poll(s);
+        s.poll_restore();
+        s.poll_preview(false);
+        changed |= s.poll_copies(tx);
+        changed
+    });
+    b.add_system(Phase::Persist, "annotations.poll_saved", |s, _, _| {
+        s.persists() && crate::line_comments::poll_saved(s)
+    });
+    b.add_system(Phase::Persist, "windows.persist", |s, _, _| {
+        if !s.persists() {
+            return false;
+        }
+        crate::windows::reopen::poll(s);
+        crate::windows::reopen::poll_asked(s);
+        s.composer_ext.prompts.hydrate((*s.waker).clone());
+        s.poll_window();
+        s.poll_taskbar();
+        crate::jump_list::poll(s);
+        // A window with its own id saves its frame itself (`windows`), as AppKit's one autosave
+        // name can't tell windows apart; a hot build's one window isn't among them.
+        if !*s.appearance_state.framed && (s.window.id.is_empty() || cfg!(feature = "hot")) {
+            *s.appearance_state.framed = rune_mac::remember_frame("OpenCodeRuneMain");
+        }
+        false
+    });
 }

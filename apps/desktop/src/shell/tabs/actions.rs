@@ -112,7 +112,7 @@ impl App {
             return true;
         }
         if self.route == Route::Home && !self.settings.open {
-            if let Some(uid) = self.home_return_tab.take()
+            if let Some(uid) = self.gestures.home_return_tab.take()
                 && self.tabs.iter().any(|tab| tab.uid() == uid)
             {
                 self.select_tab(&uid, tx);
@@ -131,7 +131,7 @@ impl App {
         // The side region's contents glide with its edge while the sidebar's flight moves it
         // (`panels::view::region_card`), and land at once again after.
         if self.side_open() {
-            self.side.edge_flight = Some(*self.clock + crate::panels::view::SIDE_FLIGHT);
+            self.workspace_panes.side.edge_flight = Some(*self.clock + crate::panels::view::SIDE_FLIGHT);
             tx.wake_after(std::time::Duration::from_secs_f64(crate::panels::view::SIDE_FLIGHT + 0.01));
         }
         *self.sidebar_open = !*self.sidebar_open;
@@ -177,7 +177,7 @@ impl App {
         *self.route = Route::Draft(id.clone());
         let _ = self.show_draft();
         self.apply_default_destination();
-        self.composer.focused = self.stage.is_none() && !session_view::style::touch_controls();
+        self.composer.focused = self.fixture_run.stage.is_none() && !session_view::style::touch_controls();
         self.save_tabs();
         id
     }
@@ -198,7 +198,7 @@ impl App {
         let _ = self.show_draft();
         if !crate::auto_focus_composer(tx) {
             self.composer.focused = false;
-        } else if self.stage.is_none() {
+        } else if self.fixture_run.stage.is_none() {
             self.composer.focused = true;
         }
         tx.settle();
@@ -240,8 +240,8 @@ impl App {
                 // while it works against that server.
                 crate::servers::runtime::with_server(self, &server, |s| s.forget_history(|s, x| s.root_of(x) == id));
                 let prompted = crate::servers::runtime::with_server(self, &server, |s| s.prompted(&id)).unwrap_or(false);
-                self.closed.push(ClosedTab { tab, index: i, prompted });
-                *self.tab_closed_ms = Some(*self.now_ms);
+                self.gestures.closed.push(ClosedTab { tab, index: i, prompted });
+                *self.gestures.tab_closed_ms = Some(*self.now_ms);
             }
             // A draft with something in it is kept, words, files and all, and can be reopened
             // (⇧⌘T, or the toast's Undo); Desktop disposes of it (`disposeTab`).
@@ -251,8 +251,8 @@ impl App {
                     self.park_shown_draft();
                 }
                 let now = *self.now_ms;
-                self.closed.push_draft(ClosedTab { tab, index: i, prompted: false }, now);
-                *self.tab_closed_ms = Some(now);
+                self.gestures.closed.push_draft(ClosedTab { tab, index: i, prompted: false }, now);
+                *self.gestures.tab_closed_ms = Some(now);
                 crate::undo::offer(self, opencode_i18n::t!("rune.undo.draftClosed"), crate::undo::Undoable::DraftTab { draft: id.clone() });
             }
             // An empty one just goes.
@@ -260,7 +260,7 @@ impl App {
                 self.forget_draft_history(&id);
                 self.restore.drafts.remove(&id);
                 self.restore.parked.remove(&id);
-                self.add.park(id.clone(), session_view::composer::mode::Mode::Normal);
+                self.composer_ext.add.park(id.clone(), session_view::composer::mode::Mode::Normal);
                 if shown {
                     self.drop_shown_draft();
                 }
@@ -285,8 +285,8 @@ impl App {
     pub(crate) fn reopen_tab(&mut self, tx: &mut Tx) {
         // The side panel's tab when it closed since the last titlebar tab (`reopensSideTab`,
         // `use-session-commands.tsx:129-136`), wherever focus is.
-        let side = self.active_session_id().and_then(|sid| self.side.sessions.get(sid)).and_then(|s| s.closed.first()).map(|c| c.closed_ms);
-        if side.is_some_and(|side| self.tab_closed_ms.is_none_or(|tab| side >= tab)) && self.reopen_closed_side_tab(None, tx) {
+        let side = self.active_session_id().and_then(|sid| self.workspace_panes.side.sessions.get(sid)).and_then(|s| s.closed.first()).map(|c| c.closed_ms);
+        if side.is_some_and(|side| self.gestures.tab_closed_ms.is_none_or(|tab| side >= tab)) && self.reopen_closed_side_tab(None, tx) {
             return;
         }
         self.reopen_closed(None, false, tx);
@@ -295,7 +295,7 @@ impl App {
     /// Reopens closed tab `target` (or the newest), at its old index or, with `append`, at the
     /// end as "Recently closed" does (`reopenClosedTab`).
     pub(crate) fn reopen_closed(&mut self, target: Option<&str>, append: bool, tx: &mut Tx) {
-        let Some(entry) = self.closed.take(&self.tabs, target) else { return };
+        let Some(entry) = self.gestures.closed.take(&self.tabs, target) else { return };
         let at = if append { self.tabs.len() } else { entry.index.min(self.tabs.len()) };
         let (id, uid, draft) = (entry.tab.id.clone(), entry.tab.uid(), entry.tab.is_draft());
         crate::servers::runtime::switch(self, &entry.tab.server);

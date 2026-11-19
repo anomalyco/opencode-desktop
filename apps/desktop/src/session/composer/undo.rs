@@ -116,25 +116,25 @@ pub fn offer(s: &mut App, title: &str, what: Undoable) {
         return commit(s, what, &mut Tx::default());
     }
     let toast = crate::status_toast::undoable(s, title);
-    let _ = s.undos.step(Event::Offered { toast, what });
+    let _ = s.composer_ext.undos.step(Event::Offered { toast, what });
 }
 
 /// Toast `toast`'s Undo.
 pub fn pressed(s: &mut App, toast: u64, tx: &mut Tx) {
-    let Some(Effect::Run(what)) = s.undos.step(Event::UndoPressed(toast)) else { return };
+    let Some(Effect::Run(what)) = s.composer_ext.undos.step(Event::UndoPressed(toast)) else { return };
     run(s, what, tx);
 }
 
 /// Toast `toast` went: what it held back is done now (the next poll wakes for its answer).
 pub fn toast_closed(s: &mut App, toast: u64) {
-    if let Some(Effect::Commit(what)) = s.undos.step(Event::ToastClosed(toast)) {
+    if let Some(Effect::Commit(what)) = s.composer_ext.undos.step(Event::ToastClosed(toast)) {
         commit(s, what, &mut Tx::default());
     }
 }
 
 /// The app quits: everything still waiting on its toast is done now.
 pub fn commit_all(s: &mut App) {
-    let toasts: Vec<u64> = s.undos.offers.iter().filter(|o| o.what.deferred()).map(|o| o.toast).collect();
+    let toasts: Vec<u64> = s.composer_ext.undos.offers.iter().filter(|o| o.what.deferred()).map(|o| o.toast).collect();
     for toast in toasts {
         toast_closed(s, toast);
     }

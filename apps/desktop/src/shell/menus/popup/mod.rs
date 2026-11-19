@@ -25,15 +25,15 @@ pub fn surface(p: &Pal, menu: &Menu, active: Option<usize>) -> El {
 
 impl opencode_ui::popup::PopupHost for App {
     fn popup(&self) -> &Popup {
-        &self.popup
+        &self.dialogs.popup
     }
 
     fn popup_mut(&mut self) -> &mut Popup {
-        &mut self.popup
+        &mut self.dialogs.popup
     }
 
     fn knobs(&self) -> &Knobs {
-        &self.knobs
+        &self.diag.knobs
     }
 
     fn clock(&self) -> f64 {

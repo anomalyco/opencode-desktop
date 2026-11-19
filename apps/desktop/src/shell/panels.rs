@@ -16,11 +16,11 @@ use crate::{App, Route};
 
 impl PanelsHost for App {
     fn side(&self) -> &SideState {
-        &self.side
+        &self.workspace_panes.side
     }
 
     fn side_mut(&mut self) -> &mut SideState {
-        &mut self.side
+        &mut self.workspace_panes.side
     }
 
     fn session_directory(&self, sid: &str) -> Option<&str> {
@@ -51,7 +51,7 @@ impl PanelsHost for App {
     }
 
     fn stage_active(&self) -> bool {
-        self.stage.is_some()
+        self.fixture_run.stage.is_some()
     }
 
     fn sidebar_shown_w(&self) -> f32 {
@@ -80,7 +80,7 @@ impl PanelsHost for App {
     }
 
     fn knobs(&self) -> &Knobs {
-        &self.knobs
+        &self.diag.knobs
     }
 
     fn composer_focused(&self) -> bool {
@@ -96,7 +96,7 @@ impl PanelsHost for App {
     }
 
     fn popup_holds_focus(&self) -> bool {
-        self.popup.holds_focus()
+        self.dialogs.popup.holds_focus()
     }
 
     fn plugin_field_focused(&self, plugin: &str) -> bool {
@@ -201,13 +201,13 @@ impl PanelsHost for App {
 
     fn on_side_tab_selected(&mut self, key: &str) {
         if !key.starts_with("file:") {
-            self.files.filter.focused = false;
+            self.workspace_panes.files.filter.focused = false;
         }
     }
 
     fn on_side_tab_closing(&mut self, session_id: &str, key: &str) {
         if let Some(path) = key.strip_prefix("file:").and_then(crate::files::data::file_tab_path) {
-            if let Some(ws) = self.files.sessions.get_mut(session_id) {
+            if let Some(ws) = self.workspace_panes.files.sessions.get_mut(session_id) {
                 ws.close_preview(&path);
             }
             crate::files::watch::unwatch(self, session_id, &path);

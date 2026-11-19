@@ -234,7 +234,7 @@ impl App {
 
     /// Whether step `step`'s view is what the side region shows now.
     pub fn tool_step_showing(&self, step: &str) -> bool {
-        self.tool_open.as_ref().is_some_and(|o| o.step == step && self.showing(o))
+        self.workspace_panes.tool_open.as_ref().is_some_and(|o| o.step == step && self.showing(o))
     }
 
     fn showing(&self, o: &Opened) -> bool {
@@ -254,7 +254,7 @@ impl App {
         }
         let Some(sid) = self.active_session_id().map(str::to_owned) else { return };
         // A chain of steps opened one after another still goes back to where it began.
-        let before = match self.tool_open.take().filter(|o| self.showing(o)) {
+        let before = match self.workspace_panes.tool_open.take().filter(|o| self.showing(o)) {
             Some(o) => o.before,
             None if self.side_open() => self.resolve_side_region().and_then(|r| r.active.clone()),
             None => None,
@@ -267,8 +267,8 @@ impl App {
             }
         };
         // Focus stays in the timeline, as a link's click leaves it.
-        self.side.focus.blur();
-        *self.tool_open = Some(Opened { session: sid, step: step.to_owned(), tab, before });
+        self.workspace_panes.side.focus.blur();
+        *self.workspace_panes.tool_open = Some(Opened { session: sid, step: step.to_owned(), tab, before });
     }
 
     /// Opens Changes at `path`'s change, or Files at its line when Changes doesn't list it.
@@ -276,7 +276,7 @@ impl App {
     fn open_change(&mut self, sid: &str, path: &str, anchor: Option<&Anchor>, tx: &mut Tx) -> String {
         self.show_side_tab(sid, REVIEW_KEY, None);
         self.ensure_session_review(sid);
-        let Some(sr) = self.review.sessions.get_mut(sid) else { return REVIEW_KEY.to_owned() };
+        let Some(sr) = self.workspace_panes.review.sessions.get_mut(sid) else { return REVIEW_KEY.to_owned() };
         if let crate::review::Load::Loading { focus } = &mut sr.load {
             *focus = Some((path.to_owned(), anchor.cloned()));
             return REVIEW_KEY.to_owned();
@@ -297,11 +297,11 @@ impl App {
     /// Esc while a step's view shows: puts the side region back. True when it did.
     /// A tool step's view is open in the side region (the escape stack's `ToolStep` layer).
     pub(crate) fn tool_view_open(&self) -> bool {
-        self.tool_open.as_ref().is_some_and(|o| self.showing(o))
+        self.workspace_panes.tool_open.as_ref().is_some_and(|o| self.showing(o))
     }
 
     pub fn dismiss_tool_step(&mut self, tx: &mut Tx) -> bool {
-        let Some(o) = self.tool_open.take() else { return false };
+        let Some(o) = self.workspace_panes.tool_open.take() else { return false };
         if !self.showing(&o) {
             return false;
         }
@@ -310,11 +310,11 @@ impl App {
         match o.before {
             Some(tab) => {
                 self.select_side_tab(&tab, tx);
-                self.side.focus.blur();
+                self.workspace_panes.side.focus.blur();
             }
             None => {
                 self.session_side_mut(&o.session).visibility.step(false);
-                self.side.focus.blur();
+                self.workspace_panes.side.focus.blur();
             }
         }
         true

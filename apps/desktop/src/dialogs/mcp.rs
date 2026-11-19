@@ -14,11 +14,11 @@ use crate::pickers::PickerHost as _;
 
 impl McpHost for App {
     fn mcp(&self) -> &Mcp {
-        &self.mcp
+        &self.dialogs.mcp
     }
 
     fn mcp_mut(&mut self) -> &mut Mcp {
-        &mut self.mcp
+        &mut self.dialogs.mcp
     }
 
     fn active_directory(&self) -> String {
@@ -37,7 +37,7 @@ impl McpHost for App {
     }
 
     fn can_toggle_shortcut(&self) -> bool {
-        self.connect.open.is_none()
+        self.dialogs.connect.open.is_none()
     }
 
     fn before_dialog_open(&mut self) {
@@ -47,7 +47,7 @@ impl McpHost for App {
 
     fn auto_focus_composer(&mut self, tx: &mut Tx) {
         if crate::auto_focus_composer(tx) {
-            self.composer.focused = self.has_composer() && !self.settings.open && self.mcp.open.is_none() && self.mcp.sign_in.is_none();
+            self.composer.focused = self.has_composer() && !self.settings.open && self.dialogs.mcp.open.is_none() && self.dialogs.mcp.sign_in.is_none();
         }
     }
 
@@ -162,7 +162,7 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
             .map(|i| format!("at frame {i}: invalid_grant from https://auth.example.com/token"))
             .collect::<Vec<_>>()
             .join("\n");
-        s.mcp.sign_in = Some(sign_in::SignIn::failed_auth_preview(
+        s.dialogs.mcp.sign_in = Some(sign_in::SignIn::failed_auth_preview(
             String::new(),
             "linear".into(),
             "linear".into(),

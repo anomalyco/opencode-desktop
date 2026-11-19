@@ -48,7 +48,7 @@ fn error_open(s: &mut App, tx: &mut Play<App>) {
         prompt(s, "Tidy up the reconnect backoff", tx);
         let resets = "2026-11-01T07:00:00.000Z";
         let body = format!(r#"{{"error":{{"type":"budget_exceeded","message":"Budget reached","metadata":{{"resetsAt":"{resets}"}}}}}}"#);
-        let error = match *s.variant {
+        let error = match *s.fixture_run.variant {
             0 => json!({ "type": "provider", "message": "Bad Request: The model `claude-opus-9` does not exist or you do not have access to it." }),
             1 => json!({ "type": "provider", "message": r#"{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"# }),
             2 => json!({ "type": "provider.free-limit", "message": "Free limit reached", "retryAfterMs": 4 * 3_600_000 }),
@@ -70,7 +70,7 @@ fn retry_open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
     tx.after(0.3, |s, tx| {
         prompt(s, "Run the migration again", tx);
-        let (wait, message) = match *s.variant {
+        let (wait, message) = match *s.fixture_run.variant {
             1 => (12_000, "You exceeded your current quota for gemini-3-pro, please check your plan and billing details."),
             2 => (0, RATE),
             _ => (8_000, RATE),
@@ -88,7 +88,7 @@ fn notice(s: &mut App, n: usize, ty: &str, data: Value, tx: &mut Tx) {
 fn notice_open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
     tx.after(0.3, |s, tx| {
-        let v = *s.variant;
+        let v = *s.fixture_run.variant;
         let model = |id: &str, variant: &str| json!({ "id": id, "providerID": "anthropic", "variant": variant });
         if v == 7 {
             return background(s, tx);

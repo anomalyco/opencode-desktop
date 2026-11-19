@@ -366,7 +366,7 @@ pub fn focused(app: &mut App, plugin: &str, session: &str, tab: &str, restored: 
     let Some(f) = &all[k].on_focus else { return };
     let mut data = props(app, &all, k, session, tab, true, "side", (0.0, 0.0));
     if let Data::Map(m) = &mut data {
-        m.insert("restored".into(), Data::Bool(restored || app.side.background_open));
+        m.insert("restored".into(), Data::Bool(restored || app.workspace_panes.side.background_open));
     }
     if let Some(script) = app.plugins.list[i].script() {
         cx::with_app(app, || script.spawn_fn(f, data, None).ok());

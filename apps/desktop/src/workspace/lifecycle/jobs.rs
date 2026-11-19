@@ -92,7 +92,7 @@ impl App {
 
     /// Whether this window may change the server: live, with a person at it, not read-only.
     pub(crate) fn can_write(&self) -> bool {
-        matches!(*self.source, Source::Live { allow_send: true, .. }) && self.stage.is_none()
+        matches!(*self.source, Source::Live { allow_send: true, .. }) && self.fixture_run.stage.is_none()
     }
 
     /// Lands finished server jobs on the checked-out server half (`servers::runtime::background`).

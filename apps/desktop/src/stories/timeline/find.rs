@@ -18,7 +18,7 @@ const VARIANTS: &[(&str, usize)] = &[("Matches", 0), ("Stepping", 1), ("No match
 
 fn open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
-    if s.variant == 3 {
+    if s.fixture_run.variant == 3 {
         let sid = crate::stories::sid(s);
         if let Some(t) = s.transcripts.get_mut(&sid) {
             t.messages.push(opencode_kit::model::Message::User {
@@ -30,28 +30,28 @@ fn open(s: &mut App, tx: &mut Play<App>) {
     s.open_find(tx);
     // Leave input unfocused on replay so single-letter story triggers (R, N, P, C) work;
     // clicking the field focuses it for live typing.
-    let q = match *s.variant {
+    let q = match *s.fixture_run.variant {
         2 => "notpresent",
         3 => "interface change",
         _ => "stream",
     };
-    s.find.input = TextEdit::new(q);
-    s.find.input.focused = false;
+    s.timeline_fx.find.input = TextEdit::new(q);
+    s.timeline_fx.find.input.focused = false;
     s.composer.focused = false;
     crate::find::typed(s, tx);
-    if s.variant == 1 {
+    if s.fixture_run.variant == 1 {
         tx.after(0.45, |s, tx| s.step_find(1, tx));
         tx.after(1.15, |s, tx| s.step_find(1, tx));
     }
 }
 
 fn toggle(s: &mut App, tx: &mut Play<App>) {
-    if s.find.is_open() {
+    if s.timeline_fx.find.is_open() {
         s.close_find(tx);
     } else {
         s.open_find(tx);
-        s.find.input = TextEdit::new("stream");
-        s.find.input.focused = false;
+        s.timeline_fx.find.input = TextEdit::new("stream");
+        s.timeline_fx.find.input.focused = false;
         crate::find::typed(s, tx);
     }
 }

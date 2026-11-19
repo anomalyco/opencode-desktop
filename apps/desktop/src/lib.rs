@@ -435,9 +435,9 @@ pub mod web_api {
     }
 
     pub fn dismiss_touch_keyboard(s: &mut App) -> bool {
-        let changed = s.composer.focused || s.suggest.search.focused;
+        let changed = s.composer.focused || s.composer_ext.suggest.search.focused;
         s.composer.focused = false;
-        s.suggest.search.focused = false;
+        s.composer_ext.suggest.search.focused = false;
         changed
     }
 

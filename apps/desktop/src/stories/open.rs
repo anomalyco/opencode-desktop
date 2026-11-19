@@ -39,8 +39,8 @@ pub fn setup(s: &mut App, at: usize) {
     s.pages.set(pages);
     s.transcripts.remove(TARGET);
     *s.opening = None;
-    s.attach = Default::default();
-    s.attach.fixture_media(MEDIA, prefetched.then(|| png.clone()));
+    s.composer_ext.attach = Default::default();
+    s.composer_ext.attach.fixture_media(MEDIA, prefetched.then(|| png.clone()));
     *s.route = Route::here("ses_open_previous".into());
     s.transcripts.insert("ses_open_previous".into(), Transcript { session:"ses_open_previous".into(), messages:vec![Message::User { id:"story_previous".into(), text:"Keep this session visible while the dashboard review gets ready.".into() }] });
     if !s.sessions.iter().any(|i| i.id == TARGET) {
@@ -52,7 +52,7 @@ pub fn setup(s: &mut App, at: usize) {
     }
     s.sessions.iter_mut().find(|i| i.id == TARGET).unwrap().parent = (at == 3).then(|| "ses_open_previous".into());
     s.composer.focused = false;
-    *s.open_demo = Some(Demo { page, send, png, at, before:false });
+    *s.fixture_run.open_demo = Some(Demo { page, send, png, at, before:false });
 }
 
 /// A Session opening story's setup: the click lands 0.75 s in.
@@ -60,15 +60,15 @@ fn open_at<const AT: usize>(s: &mut App, tx: &mut Play<App>) { open(s, AT, tx) }
 
 fn open(s: &mut App, at: usize, tx: &mut Play<App>) {
     setup(s, at);
-    if let Some(d) = s.open_demo.as_mut() {
-        d.before = s.variant == 1;
+    if let Some(d) = s.fixture_run.open_demo.as_mut() {
+        d.before = s.fixture_run.variant == 1;
     }
     tx.after(0.75, click);
 }
 
 fn click(s: &mut App, tx: &mut Play<App>) {
     tx.clear();
-    let Some(d) = s.open_demo.as_ref() else { return };
+    let Some(d) = s.fixture_run.open_demo.as_ref() else { return };
     let (at, before) = (d.at, d.before);
     if before { s.open_now(TARGET, tx); s.open_page(TARGET, tx); } else { s.open(TARGET, tx); }
     if !matches!(at, 1 | 3) {
@@ -79,10 +79,10 @@ fn click(s: &mut App, tx: &mut Play<App>) {
 
 /// The page arriving, then its picture: the O trigger's later steps.
 pub(crate) fn arrive(s: &mut App, picture: bool) {
+    let Some(d) = s.fixture_run.open_demo.as_ref() else { return };
     if picture {
-        s.attach.fixture_media(MEDIA, Some(s.open_demo.as_ref().unwrap().png.clone()));
+        s.composer_ext.attach.fixture_media(MEDIA, Some(d.png.clone()));
     } else {
-        let d = s.open_demo.as_ref().unwrap();
         let _ = d.send.send(Ok(d.page.clone()));
     }
 }
@@ -96,7 +96,7 @@ fn pixels(s: &mut App, _: &mut Play<App>) {
 }
 
 pub fn view(s: &App, p: &Pal) -> El {
-    let Some(d) = s.open_demo.as_ref() else { return col() };
+    let Some(d) = s.fixture_run.open_demo.as_ref() else { return col() };
     let Route::Session { id, .. } = &*s.route else { return col() };
     let label = if d.before { "Immediate transcript" } else { "Type while the transcript loads" };
     col().key("opening-stage").w_full().h_full()

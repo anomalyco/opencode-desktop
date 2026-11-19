@@ -326,15 +326,15 @@ impl CoverVisit {
 /// A dialog shows over the window (`plugin.dialogs.active()`): a cover offers no sign-in then.
 pub fn dialog_shows(app: &App) -> bool {
     app.plugins.dialog_open()
-        || app.switcher.is_open()
-        || app.project_switcher.open
-        || app.fork.is_open()
-        || app.jump.open()
-        || app.menus.confirming().is_some()
-        || app.connect.open.is_some()
-        || app.mcp.open.is_some()
+        || app.dialogs.switcher.is_open()
+        || app.dialogs.project_switcher.open
+        || app.dialogs.fork.is_open()
+        || app.dialogs.jump.open()
+        || app.dialogs.menus.confirming().is_some()
+        || app.dialogs.connect.open.is_some()
+        || app.dialogs.mcp.open.is_some()
         || crate::servers::dialog::is_open(app)
-        || app.remote_picker.is_open()
+        || app.dialogs.remote_picker.is_open()
 }
 
 /// The plugin cover over the routed session or draft tab (`PluginServerCover`): drawn by the

@@ -113,7 +113,7 @@ fn observe(app: &App, plugin: &str, name: &str) -> Option<(u64, Data)> {
             let id = app.active_session_id();
             Some((hash((id, id.is_some_and(|id| app.session(id).is_some()))), id.map_or(Data::Nil, |id| session_data(app, id))))
         }
-        "Models.Changed" => Some((hash((app.pickers.models.len(), app.pickers.limits.len(), app.pickers.paid.len())), Data::Nil)),
+        "Models.Changed" => Some((hash((app.composer_ext.pickers.models.len(), app.composer_ext.pickers.limits.len(), app.composer_ext.pickers.paid.len())), Data::Nil)),
         "Theme.Changed" => {
             let p = crate::palette::pal(app.plugins.dark.get());
             Some((hash((p.theme, p.generation, p.dark)), map([("scheme", Data::String(if p.dark { "dark" } else { "light" }.into()))])))
@@ -131,7 +131,7 @@ fn observe(app: &App, plugin: &str, name: &str) -> Option<(u64, Data)> {
             let focused = !app.plugins.window_blurred.get();
             Some((u64::from(focused), Data::Bool(focused)))
         }
-        "Updater.StateChanged" => Some((app.updater.revision(), crate::updater::state_data(app))),
+        "Updater.StateChanged" => Some((app.services.updater.revision(), crate::updater::state_data(app))),
         n => {
             let editor = |suffix: &str| n.strip_prefix("editor.").and_then(|s| s.strip_suffix(suffix)).and_then(|s| s.parse::<usize>().ok());
             if let Some(index) = editor(".FocusChanged") {

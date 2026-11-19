@@ -61,27 +61,27 @@ impl App {
     pub(crate) fn takes_stray_keys(&self) -> bool {
         self.has_composer()
             && !self.settings.open
-            && !self.side.focus.is_focused()
-            && !self.switcher.is_open()
-            && !self.project_switcher.open
-            && !self.fork.is_open()
-            && !self.jump.open()
-            && !self.find.input.focused
+            && !self.workspace_panes.side.focus.is_focused()
+            && !self.dialogs.switcher.is_open()
+            && !self.dialogs.project_switcher.open
+            && !self.dialogs.fork.is_open()
+            && !self.dialogs.jump.open()
+            && !self.timeline_fx.find.input.focused
             && !self.search.focused
             && !crate::plugin_host::field_focused(self)
-            && self.menus.on.is_none()
-            && self.menus.renaming().is_none()
-            && self.menus.confirming().is_none()
-            && self.pickers.open().is_none()
-            && self.rewind.menu.is_none()
-            && !self.popup.is_open()
+            && self.dialogs.menus.on.is_none()
+            && self.dialogs.menus.renaming().is_none()
+            && self.dialogs.menus.confirming().is_none()
+            && self.composer_ext.pickers.open().is_none()
+            && self.dialogs.rewind.menu.is_none()
+            && !self.dialogs.popup.is_open()
             && !self.project_state.home_menu_open
             && !self.shells.activity.is_open()
-            && !*self.todo_open
-            && self.connect.open.is_none()
-            && self.mcp.open.is_none()
+            && !*self.timeline_fx.todo_open
+            && self.dialogs.connect.open.is_none()
+            && self.dialogs.mcp.open.is_none()
             && !self.plugins.dialog_open()
-            && !self.diagram.is_open()
+            && !self.timeline_fx.diagram.is_open()
             && !self.question_shown()
             && !self.dock_shown()
     }

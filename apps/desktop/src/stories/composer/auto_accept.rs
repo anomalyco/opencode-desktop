@@ -29,7 +29,7 @@ fn open(s: &mut App, _: &mut Play<App>) {
         message: String::new(),
         input: Vec::new(),
     });
-    s.settings.auto_accept = s.variant == 1;
+    s.settings.auto_accept = s.fixture_run.variant == 1;
     if s.settings.auto_accept {
         s.auto_answer("per_story_auto");
     }

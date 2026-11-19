@@ -140,7 +140,7 @@ impl App {
             return;
         }
         // The fixture and the storybook answer as a server would, a little later.
-        let fixture = self.stage.is_some() || matches!(*self.source, Source::Fixture);
+        let fixture = self.fixture_run.stage.is_some() || matches!(*self.source, Source::Fixture);
         let now = *self.now_ms;
         for effect in self.stops.step(&sid, Event::Pressed { now: now }) {
             let Effect::Interrupt(attempt) = effect else { continue };
@@ -167,7 +167,7 @@ impl App {
     /// run ends.
     fn fixture_interrupt(&mut self, sid: &str) {
         let on_the_way = *self.clock + ON_THE_WAY_SECS;
-        self.playback.retain(|(at, _, d)| *at <= on_the_way || d["sessionID"].as_str() != Some(sid));
+        self.fixture_run.playback.retain(|(at, _, d)| *at <= on_the_way || d["sessionID"].as_str() != Some(sid));
         let at = *self.clock + FIXTURE_SECS;
         let open = self.transcripts.get(sid).and_then(|t| match t.messages.last() {
             Some(Message::Assistant(a)) if a.completed.is_none() => Some(a.id.clone()),

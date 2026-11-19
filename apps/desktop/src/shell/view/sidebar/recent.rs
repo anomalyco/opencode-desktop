@@ -86,7 +86,7 @@ fn strip(s: &App, p: &Pal, strip_key: &str, sessions: &[&SessionInfo], pins: Opt
         let mut item = TabItem::new(info.id.as_str(), crate::tabs::tab_title(&info.title))
             .status(status(s, &info.id, muted))
             .closable(false)
-            .marked(s.menus.on.as_ref() == Some(&target))
+            .marked(s.dialogs.menus.on.as_ref() == Some(&target))
             .avatar(crate::icons::badge(s, p, s.project_for_session(info), &info.title));
         // Desktop's faint trailing "Muted" label (`TabNavItem`'s `label`); the kit's tab has no
         // trailing label, so it reads under the title.
@@ -115,7 +115,7 @@ fn strip(s: &App, p: &Pal, strip_key: &str, sessions: &[&SessionInfo], pins: Opt
         })
         // A row opens as the mouse button goes down (`TabNavItem`'s `onMouseDown`), which takes
         // the strip's press tracking; only the pins reorder.
-        .drag_state(&s.tab_drag, |s: &mut App| &mut s.tab_drag)
+        .drag_state(&s.gestures.tab_drag, |s: &mut App| &mut s.gestures.tab_drag)
         .select_on_drag_start(!session_view::style::touch_controls());
     if let Some(visible) = pins {
         let server = here.as_str().to_owned();
@@ -162,11 +162,11 @@ fn open_menu(s: &mut App, server: &opencode_kit::servers::ServerKey, id: &str, p
         .separator()
         .item(Item::new("delete", format!("{}\u{2026}", t!("common.delete"))).danger(true));
     s.finish_rename(true);
-    s.menus.on = Some(target.clone());
+    s.dialogs.menus.on = Some(target.clone());
     tx.instant();
     let pin = key(server.as_str(), id);
     popup::open(s, menu, press, tx, move |s: &mut App, picked, tx| {
-        s.menus.on = None;
+        s.dialogs.menus.on = None;
         tx.instant();
         let visible = || pinned_keys(s);
         match picked {

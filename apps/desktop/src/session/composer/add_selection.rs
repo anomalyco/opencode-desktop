@@ -17,7 +17,7 @@ impl App {
     fn selected_lines(&self) -> Option<(String, Option<(u32, u32)>)> {
         let (session, path) = self.active_file_tab()?;
         let path = path?;
-        let lines = self.files.sessions.get(&session).and_then(|w| w.docs.get(&path)).and_then(|d| d.selection()).map(|s| s.ordered());
+        let lines = self.workspace_panes.files.sessions.get(&session).and_then(|w| w.docs.get(&path)).and_then(|d| d.selection()).map(|s| s.ordered());
         Some((path, lines))
     }
 
@@ -34,15 +34,15 @@ impl App {
         tx.instant();
         let file = ContextFile { path, start, end };
         // One card per file and range (`contextItemKey`).
-        if !self.attach.context.contains(&file) {
-            self.attach.context.push(file);
+        if !self.composer_ext.attach.context.contains(&file) {
+            self.composer_ext.attach.context.push(file);
         }
     }
 }
 
 /// The context cards, after the quotes and before the attachments, each with its hover remove.
 pub fn chips(s: &App, p: &Pal) -> Vec<El> {
-    s.attach.context.iter().map(|f| chip(p, f)).collect()
+    s.composer_ext.attach.context.iter().map(|f| chip(p, f)).collect()
 }
 
 fn chip(p: &Pal, f: &ContextFile) -> El {
@@ -51,12 +51,12 @@ fn chip(p: &Pal, f: &ContextFile) -> El {
     let label = format!("{}{lines}", session_view::composer::attachments::type_label(name));
     let card = session_view::composer::attachments::context_card(p, name, icon(rune_theme_opencode::file_icons::file(&f.path), 12.0), label).help(f.path.clone());
     let gone = f.clone();
-    let remove = remove_button(p, name, 160.0, move |s: &mut App| s.attach.context.retain(|c| *c != gone));
+    let remove = remove_button(p, name, 160.0, move |s: &mut App| s.composer_ext.attach.context.retain(|c| *c != gone));
     el().key(format!("context-{}:{}-{}", f.path, f.start, f.end)).hover_group().child(card).child(remove)
 }
 
 /// The cards as the next prompt's files, leaving the composer without them.
 pub fn take(s: &mut App) -> Vec<opencode_kit::client::FileInput> {
     let directory = s.composer_directory();
-    std::mem::take(&mut s.attach.context).iter().map(|f| crate::mentions::context_input(&directory, &f.path, f.start, f.end)).collect()
+    std::mem::take(&mut s.composer_ext.attach.context).iter().map(|f| crate::mentions::context_input(&directory, &f.path, f.start, f.end)).collect()
 }

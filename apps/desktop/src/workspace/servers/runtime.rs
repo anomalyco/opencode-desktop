@@ -280,9 +280,9 @@ impl Half {
     fn swap(&mut self, s: &mut App) {
         use std::mem::swap;
         swap(&mut self.source, &mut s.source);
-        swap(&mut self.media, &mut s.attach.store);
-        if s.attach.waker.is_none() && let Some(wake) = s.waker.as_ref() {
-            s.attach.set_waker(wake.clone());
+        swap(&mut self.media, &mut s.composer_ext.attach.store);
+        if s.composer_ext.attach.waker.is_none() && let Some(wake) = s.waker.as_ref() {
+            s.composer_ext.attach.set_waker(wake.clone());
         }
         swap(&mut self.inbox, &mut s.inbox);
         swap(&mut self.pages, &mut s.pages);
@@ -292,7 +292,7 @@ impl Half {
         swap(&mut self.request_reads, &mut s.request_reads);
         swap(&mut self.used, &mut s.project_state.used);
         swap(&mut self.branches, &mut s.sidebar_inbox.branches);
-        let (a, b) = (&mut self.pickers, &mut s.pickers);
+        let (a, b) = (&mut self.pickers, &mut s.composer_ext.pickers);
         swap(&mut a.models, &mut b.models);
         swap(&mut a.providers, &mut b.providers);
         swap(&mut a.provider_order, &mut b.provider_order);
@@ -579,7 +579,7 @@ fn refit(s: &mut App) {
         with_server(s, &key, peer::leave_server);
         s.checkout.parked.retain(|(k, ..)| *k != key);
         s.launch.forget(key.as_str());
-        s.server_links.forget(key.as_str());
+        s.services.server_links.forget(key.as_str());
     }
     let key = s.checkout.active.clone();
     let probing_own = key.is_sidecar() && matches!(s.launch.phase(key.as_str()), Some(crate::launch::Phase::Probing { .. }));

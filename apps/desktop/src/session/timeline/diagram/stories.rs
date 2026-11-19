@@ -52,13 +52,13 @@ pub fn add(s: &mut App) {
         t.messages.push(Message::User { id: ASK_ID.into(), text: ASK.into() });
     }
     stream(s, REPLY_ID, &reply(), 0.0);
-    while let Some((_, ty, data)) = s.playback.pop_front() {
+    while let Some((_, ty, data)) = s.fixture_run.playback.pop_front() {
         s.apply_event(&ty, &data);
     }
 }
 
 fn again(s: &mut App, tx: &mut Play<App>) {
-    s.diagram = Default::default();
+    s.timeline_fx.diagram = Default::default();
     finish(s, tx);
     add(s);
 }
@@ -71,7 +71,7 @@ fn open(s: &mut App, tx: &mut Play<App>) {
 fn pinch(_: &mut App, tx: &mut Play<App>) {
     for i in 0..30 {
         tx.after(i as f64 / 60.0, |s, tx| {
-            let [w, h] = s.diagram.fit.get().win;
+            let [w, h] = s.timeline_fx.diagram.fit.get().win;
             super::lightbox::pinch(s, 1.03, w * 0.6, h * 0.45);
             tx.instant();
         });

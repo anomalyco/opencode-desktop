@@ -30,23 +30,23 @@ impl TodosHost for App {
     }
 
     fn knobs(&self) -> &Knobs {
-        &self.knobs
+        &self.diag.knobs
     }
 
     fn todo_open(&self) -> bool {
-        *self.todo_open
+        *self.timeline_fx.todo_open
     }
 
     fn set_todo_open(&mut self, open: bool) {
-        *self.todo_open = open;
+        *self.timeline_fx.todo_open = open;
     }
 
     fn todo_ticks(&self) -> &Ticks {
-        &self.todo_ticks
+        &self.timeline_fx.todo_ticks
     }
 
     fn todo_ticks_mut(&mut self) -> &mut Ticks {
-        &mut self.todo_ticks
+        &mut self.timeline_fx.todo_ticks
     }
 
     fn on_todo_toggled(&mut self, _open: bool) {
@@ -110,10 +110,10 @@ impl Feature<App> for TimelineExtrasFeature {
         builder.register_escape_layer(EscapeLayer::new(
             "escape.todo",
             50,
-            |s| *s.todo_open,
+            |s| *s.timeline_fx.todo_open,
             |s, _, tx| {
                 tx.instant();
-                *s.todo_open = false;
+                *s.timeline_fx.todo_open = false;
             },
         ));
         builder.add_system(Phase::Derive, "timeline_extras.todos", |s, now, tx| sync(s, now, tx));

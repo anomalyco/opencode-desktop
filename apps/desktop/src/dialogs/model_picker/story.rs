@@ -37,9 +37,9 @@ fn open(s: &mut App, _: &mut Play<App>) {
         model("gemini-4-carbon", "console-google", "Gemini 4 Carbon"),
         model("grok-5", "xai", "Grok 5"),
     ]);
-    s.pickers.load_live(&models, &serde_json::json!([{"id": "build"}]));
+    s.composer_ext.pickers.load_live(&models, &serde_json::json!([{"id": "build"}]));
     // What the group headers say: `/api/provider`'s names, not the ids `/api/model` gives.
-    s.pickers.load_providers(&serde_json::json!([
+    s.composer_ext.pickers.load_providers(&serde_json::json!([
         { "id": "opencode", "name": "Anomaly / OpenCode" },
         { "id": "github-copilot", "name": "GitHub Copilot" },
         { "id": "openai", "name": "OpenAI" },
@@ -48,30 +48,30 @@ fn open(s: &mut App, _: &mut Play<App>) {
         { "id": "console-google", "name": "Anomaly / Google" },
         { "id": "xai", "name": "xAI" },
     ]));
-    s.pickers.prefs = Default::default();
+    s.composer_ext.pickers.prefs = Default::default();
     s.open_picker(Kind::Model);
-    s.pickers.stage_effort(CURRENT, "xhigh");
+    s.composer_ext.pickers.stage_effort(CURRENT, "xhigh");
     s.choose_picker(CURRENT);
-    s.pickers.prefs.recent = ["console-openai-test:gpt-6.1-terra", "openai:gpt-6-astra", "xai:grok-5"].map(str::to_owned).to_vec();
-    if s.variant == 2 {
-        s.pickers.prefs.favorites = vec!["openai:gpt-6-astra".to_owned()];
+    s.composer_ext.pickers.prefs.recent = ["console-openai-test:gpt-6.1-terra", "openai:gpt-6-astra", "xai:grok-5"].map(str::to_owned).to_vec();
+    if s.fixture_run.variant == 2 {
+        s.composer_ext.pickers.prefs.favorites = vec!["openai:gpt-6-astra".to_owned()];
     }
     s.composer.focused = false;
-    if s.variant == 3 {
-        s.fixture["usage_limits"] = serde_json::json!({"workspace":{"name":"Acme","usageURL":"https://example.com/usage"},
+    if s.fixture_run.variant == 3 {
+        s.fixture_run.fixture["usage_limits"] = serde_json::json!({"workspace":{"name":"Acme","usageURL":"https://example.com/usage"},
             "budgets":[{"id":"team", "limit":100, "spent":28, "coverage":"all", "resetsAt":1796083200000_i64}]});
     }
     s.open_picker(Kind::Model);
-    if s.variant == 1 {
+    if s.fixture_run.variant == 1 {
         s.toggle_effort_flyout(CURRENT);
     }
-    if s.variant == 3 {
-        s.pickers.activate(CURRENT.into());
+    if s.fixture_run.variant == 3 {
+        s.composer_ext.pickers.activate(CURRENT.into());
         s.picker_key(&rune::KeyEvent { key: rune::Key::Right, mods: Default::default() }, &mut rune::Tx::default());
     }
-    if s.variant == 4 {
+    if s.fixture_run.variant == 4 {
         s.close_picker(false);
-        s.pickers.open_manage();
+        s.composer_ext.pickers.open_manage();
     }
 }
 

@@ -23,7 +23,7 @@ pub const SLOW: Knob = Knob::choice("Slow motion (0.25x)", &["Off", "On"], 0).ab
 
 /// What the window's animation clock runs at, from Speed and Slow motion.
 pub fn time_scale(s: &App) -> f32 {
-    s.knobs.get(&SPEED) * if s.knobs.get(&SLOW) > 0.5 { 0.25 } else { 1.0 }
+    s.diag.knobs.get(&SPEED) * if s.diag.knobs.get(&SLOW) > 0.5 { 0.25 } else { 1.0 }
 }
 
 rune_register::slice!(pub GROUP_LIST: Group);
@@ -56,7 +56,7 @@ pub fn groups() -> &'static [Group] {
 pub fn apply_preset(s: &mut App, name: &str) {
     let g = groups().iter().find(|g| g.name == "Question dock").expect("Question dock knobs");
     let name = if name.eq_ignore_ascii_case("desktop") { "Default" } else { name };
-    s.knobs.apply(g, name);
+    s.diag.knobs.apply(g, name);
 }
 
 /// Sets one knob from `--knob <name>=<value>`: `name` is its key (`Sources`) or its panel label,
@@ -67,14 +67,14 @@ pub fn apply_arg(s: &mut App, pair: &str) {
     let Some(knob) = found else { return };
     let v = knob.labels.iter().position(|l| l.eq_ignore_ascii_case(value)).map(|i| i as f32).or_else(|| value.parse().ok());
     if let Some(v) = v {
-        s.knobs.set(knob, v);
+        s.diag.knobs.set(knob, v);
     }
 }
 
 /// ⌘⇧K toggles the layer; Esc closes it.
 pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     let ours = crate::keymap::Bind::Knobs.matches_tx(ev, tx) || (ev.key == rune::Key::Escape && !ev.mods.alt && !ev.mods.ctrl);
-    if !ours || !rune_knobs::key(&mut s.knobs, ev) {
+    if !ours || !rune_knobs::key(&mut s.diag.knobs, ev) {
         return false;
     }
     tx.instant();
@@ -82,6 +82,6 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 }
 
 pub fn layer(s: &App) -> El {
-    rune_knobs::layer(&s.knobs, groups(), rune_knobs::Style::dark(), |s: &mut App| &mut s.knobs)
+    rune_knobs::layer(&s.diag.knobs, groups(), rune_knobs::Style::dark(), |s: &mut App| &mut s.diag.knobs)
 }
 

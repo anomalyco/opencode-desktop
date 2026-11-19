@@ -343,11 +343,11 @@ impl App {
     pub(crate) fn set_media_fetch(&mut self) {
         let Source::Live { server, .. } = &*self.source else { return };
         let media = server.clone();
-        self.attach.set_fetch(std::sync::Arc::new(move |hash: &str| media.media(hash).map_err(|e| e.to_string())));
+        self.composer_ext.attach.set_fetch(std::sync::Arc::new(move |hash: &str| media.media(hash).map_err(|e| e.to_string())));
         // Markdown images read through the server as Desktop's `readLocalImage` does; web
         // images and link favicons come from the web, as the browser fetches them for Desktop.
         let files = server.clone();
-        self.attach.markdown.set_fetch(
+        self.composer_ext.attach.markdown.set_fetch(
             std::sync::Arc::new(move |directory: &str, path: &str| {
                 let encoded = crate::review::data::encode_fs_path(path);
                 files

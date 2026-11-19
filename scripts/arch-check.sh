@@ -20,7 +20,7 @@ from collections import defaultdict
 
 # Ratchet ceiling for fields on `pub struct App` in apps/desktop/src/app.rs.
 # Only lower this number; new features must use opencode-kernel StateSlots or Luau plugins.
-APP_FIELD_CEILING = 142
+APP_FIELD_CEILING = 65
 DESKTOP_ROOT_MAX_FILES = 10
 HARD_LINE_CAP = 800
 FEATURE_UNSAFE_ALLOWLIST = {"egg", "office", "open-in", "updater"}

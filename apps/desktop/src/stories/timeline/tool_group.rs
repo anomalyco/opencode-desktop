@@ -59,7 +59,7 @@ fn flip(s: &mut App, tx: &mut Tx) {
 
 /// Scrolls the open group's twentieth step to the middle of the timeline, under its stuck header.
 fn scroll(s: &mut App, tx: &mut Tx) {
-    if s.expanded.contains(GROUP) {
+    if s.timeline_fx.expanded.contains(GROUP) {
         tx.scroll_key_to("tool-call_fold_20", 160.0);
     }
 }
@@ -108,7 +108,7 @@ const TOUR_GROUPS: &[&str] = &["c-call_list_tour", "c-call_webfetch_tour", "c-ca
 fn tour(s: &mut App, group: Option<&str>, open: &[&str]) {
     *s.route = crate::Route::here(crate::stories::fixture_ids::TOUR.into());
     let groups: Vec<&str> = group.map_or_else(|| TOUR_GROUPS.to_vec(), |g| vec![g]);
-    s.expanded.extend(groups.iter().chain(open).map(|k| (*k).to_owned()));
+    s.timeline_fx.expanded.extend(groups.iter().chain(open).map(|k| (*k).to_owned()));
     let Some(first) = group.and_then(|g| g.strip_prefix("c-")) else { return };
     if let Some(t) = s.transcripts.get_mut(crate::stories::fixture_ids::TOUR)
         && let Some(at) = t.messages.iter().position(|m| matches!(m, Message::Assistant(a) if a.parts.iter().any(|p| matches!(p, Part::Tool { id, .. } if id == first))))
@@ -138,7 +138,7 @@ fn tour_running(s: &mut App) {
     ];
     t.messages.push(Message::Assistant(Assistant { id: "msg_zztourlive".into(), parts, ..Default::default() }));
     s.running.insert(crate::stories::fixture_ids::TOUR.into());
-    s.expanded.extend(["c-call_live_shell".to_owned(), "tool:call_live_shell".to_owned()]);
+    s.timeline_fx.expanded.extend(["c-call_live_shell".to_owned(), "tool:call_live_shell".to_owned()]);
 }
 
 /// The tour's shell with a command that wraps over several lines, as in Kit's capture of a

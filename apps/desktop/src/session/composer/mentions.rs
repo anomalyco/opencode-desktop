@@ -15,19 +15,19 @@ use crate::{App, Route, Source};
 
 impl MentionsHost for App {
     fn mentions(&self) -> &Mentions {
-        &self.mentions
+        &self.composer_ext.mentions
     }
 
     fn mentions_mut(&mut self) -> &mut Mentions {
-        &mut self.mentions
+        &mut self.composer_ext.mentions
     }
 
     fn session_refs(&self) -> &refs::Lookups {
-        &self.session_refs
+        &self.composer_ext.session_refs
     }
 
     fn session_refs_mut(&mut self) -> &mut refs::Lookups {
-        &mut self.session_refs
+        &mut self.composer_ext.session_refs
     }
 
     fn composer(&self) -> &TextEdit {
@@ -130,11 +130,11 @@ impl MentionsHost for App {
     }
 
     fn mention_query(&self) -> Option<&str> {
-        self.suggest.state.context().map(|l| l.query.as_str())
+        self.composer_ext.suggest.state.context().map(|l| l.query.as_str())
     }
 
     fn mention_active(&self) -> Option<&str> {
-        self.suggest.state.context().and_then(|l| l.active.id())
+        self.composer_ext.suggest.state.context().and_then(|l| l.active.id())
     }
 
     fn refresh_suggestions(&mut self, tx: &mut Tx) {
@@ -150,7 +150,7 @@ impl MentionsHost for App {
     }
 
     fn suggest_search_mut(&mut self) -> &mut TextEdit {
-        &mut self.suggest.search
+        &mut self.composer_ext.suggest.search
     }
 
     fn suggest_query(&mut self, tx: &mut Tx) {
@@ -264,7 +264,7 @@ impl Feature<App> for MentionsFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
-        builder.add_setup("mentions.waker", |s, w| s.mentions.set_waker(w));
+        builder.add_setup("mentions.waker", |s, w| s.composer_ext.mentions.set_waker(w));
     }
 }
 
@@ -300,7 +300,7 @@ mod chip_stories {
             t.messages.push(Message::User { id: ASK.into(), text: "Did the review pass?".into() });
         }
         crate::genui::demo::stream(s, REPLY, &words(), 0.0);
-        while let Some((_, ty, data)) = s.playback.pop_front() {
+        while let Some((_, ty, data)) = s.fixture_run.playback.pop_front() {
             s.apply_event(&ty, &data);
         }
     }
