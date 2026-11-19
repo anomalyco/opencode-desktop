@@ -6,7 +6,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::PoisonError;
 
-use crate::client::BrowserHost;
+use crate::client::{BrowserHost, EngineEffect, EngineEvent};
 use crate::installer::{self, EngineStatus, Fault};
 #[cfg(target_os = "macos")]
 use crate::mach_pipe::MachReceiver;
@@ -33,9 +33,11 @@ impl BrowserHost {
     /// Queued tabs open once it's ready (`poll`).
     pub fn start_install(&mut self) {
         // One that stopped answering is ended: its pages open again in a new one.
-        if self.status().is_hung() {
-            *self.outbox.lock().unwrap_or_else(PoisonError::into_inner) = None;
-            crate::transport::end_engine(&self.engine);
+        let end_hung = self.shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::EndHung);
+        if let EngineEffect::EndHung { kill_pid } = end_hung {
+            if let Some(pid) = kill_pid {
+                crate::transport::kill_pid(pid);
+            }
             if let Ok(sock) = self.engine_socket() {
                 std::fs::remove_file(sock).ok();
             }
@@ -65,13 +67,7 @@ impl BrowserHost {
         if self.keep_engine {
             return;
         }
-        let (opened, prepared, outbox, conn_gen, status) = (
-            self.opened.clone(),
-            self.prepared.clone(),
-            self.outbox.clone(),
-            self.conn_gen.clone(),
-            self.status.clone(),
-        );
+        let (opened, prepared, shared) = (self.opened.clone(), self.prepared.clone(), self.shared.clone());
         let sock = self.engine_socket().ok();
         let tabs = opened.load(Ordering::Relaxed);
         std::thread::Builder::new()
@@ -79,18 +75,13 @@ impl BrowserHost {
             .spawn(move || {
                 std::thread::sleep(hold);
                 if prepared.load(Ordering::Relaxed) == call && opened.load(Ordering::Relaxed) == tabs {
-                    let mut outbox = outbox.lock().unwrap_or_else(PoisonError::into_inner);
-                    if let Some(tx) = outbox.take() {
-                        conn_gen.fetch_add(1, Ordering::Relaxed);
+                    let effect = shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::Unprepare);
+                    if let EngineEffect::Shutdown { outbox: Some(tx) } = effect {
                         if let Some(sock) = sock {
                             std::fs::remove_file(sock).ok();
                         }
                         rune::marks::mark("browser.engine.unprepared");
                         tx.send(crate::protocol::HostMsg::Shutdown).ok();
-                        let mut st = status.lock().unwrap_or_else(PoisonError::into_inner);
-                        if *st == EngineStatus::Ready || *st == EngineStatus::Connecting {
-                            *st = EngineStatus::Installed;
-                        }
                     }
                 }
             })
@@ -101,11 +92,10 @@ impl BrowserHost {
     /// downloads beside it, quietly, for its next start. Once a run; before that page, the
     /// installer and the updater do nothing at all (no request, timer or thread).
     pub(crate) fn check_for_update_once(&mut self) {
-        if self.update_checked || self.tabs.is_empty() || self.status() != EngineStatus::Ready {
+        if !self.update_check.step(!self.tabs.is_empty(), self.status() == EngineStatus::Ready) {
             return;
         }
-        self.update_checked = true;
-        self.prefetch.start(Mode::Update, self.status.clone(), self.waker.clone());
+        self.prefetch.start(Mode::Update, self.shared.clone(), self.waker.clone());
     }
 
     fn ensure_mach_receiver(&mut self) -> Option<String> {
@@ -142,34 +132,35 @@ impl BrowserHost {
     /// Hands the connect to a thread: this app's running engine (a UI hot reload), else the
     /// installed one, started, else a download that a page waits for.
     fn connect(&mut self, start: Start) {
-        *self.status.lock().unwrap_or_else(PoisonError::into_inner) = EngineStatus::Connecting;
+        let EngineEffect::Generation(generation) = self.shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::BeginConnect) else {
+            return;
+        };
         let mach_service = self.ensure_mach_receiver();
         let sock = match self.engine_socket() {
             Ok(path) => path,
             Err(err) => {
-                *self.status.lock().unwrap_or_else(PoisonError::into_inner) = EngineStatus::Failed(Fault::Dirs(err).into());
+                self.shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::LinkStatus {
+                    generation,
+                    status: EngineStatus::Failed(Fault::Dirs(err).into()),
+                });
                 return;
             }
         };
-        let generation = self.conn_gen.fetch_add(1, std::sync::atomic::Ordering::Relaxed).wrapping_add(1);
         let profile = profile::for_spawn(self.profile_dir.as_deref());
         let link = Link {
             generation,
-            conn_gen: self.conn_gen.clone(),
-            status: self.status.clone(),
-            outbox: self.outbox.clone(),
+            shared: self.shared.clone(),
             inbox_tx: self.inbox_tx.clone(),
             surfaces: self.surfaces.clone(),
             waker: self.waker.clone(),
-            engine: self.engine.clone(),
             sock: sock.clone(),
             opens: self.pending_open_msgs(),
-            early: self.early.clone(),
         };
         let prefetch = self.prefetch.clone();
         let spawned = std::thread::Builder::new().name("opencode-browser-connect".into()).spawn(move || {
             if let Ok(stream) = UnixStream::connect(&sock) {
-                return wire_stream(stream, mach_service, &link);
+                wire_stream(stream, mach_service, &link);
+                return;
             }
             let Some(profile) = profile else {
                 return link.set(EngineStatus::Failed(Fault::Dirs(installer::NO_DIRS).into()));
@@ -178,7 +169,7 @@ impl BrowserHost {
                 if start == Start::Only {
                     return link.set(EngineStatus::NotInstalled);
                 }
-                return prefetch.start(Mode::Urgent, link.status.clone(), link.waker.clone());
+                return prefetch.start(Mode::Urgent, link.shared.clone(), link.waker.clone());
             };
             rune::marks::mark("browser.engine.spawn");
             spawn_and_attach(&engine, &sock, &profile, mach_service, &link);
@@ -192,7 +183,10 @@ impl BrowserHost {
             }
         });
         if spawned.is_err() {
-            *self.status.lock().unwrap_or_else(PoisonError::into_inner) = EngineStatus::Failed(Fault::Launch("no thread to start it on".to_owned()).into());
+            self.shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::LinkStatus {
+                generation,
+                status: EngineStatus::Failed(Fault::Launch("no thread to start it on".to_owned()).into()),
+            });
         }
     }
 }
