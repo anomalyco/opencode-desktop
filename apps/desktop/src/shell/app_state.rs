@@ -107,6 +107,7 @@ pub struct AppearanceState {
     /// The locale this window's view last built in (`language`).
     pub language: rune::Tracked<language::Applied>,
     /// Whether AppKit is saving the window frame yet (`rune_mac::remember_frame`).
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub(crate) framed: rune::Tracked<bool>,
     pub icons: rune::Tracked<project_icon::Icons>,
 }

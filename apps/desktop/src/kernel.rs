@@ -457,6 +457,7 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
         crate::jump_list::poll(s);
         // A window with its own id saves its frame itself (`windows`), as AppKit's one autosave
         // name can't tell windows apart.
+        #[cfg(not(target_arch = "wasm32"))]
         if !*s.appearance_state.framed && s.window.id.is_empty() {
             *s.appearance_state.framed = rune_mac::remember_frame("OpenCodeRuneMain");
         }
