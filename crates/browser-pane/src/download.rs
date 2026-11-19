@@ -146,7 +146,7 @@ impl<'a> Body<'a> {
                 Err(_) => return Err(self.cut.take().unwrap_or_else(|| Cut::Failed(self.interrupted()))),
             }
         }
-        let _ = self.partial.flush();
+        self.partial.flush().ok();
         if self.have != self.total {
             return Err(Cut::Rejected(Fault::Corrupt));
         }
@@ -160,7 +160,7 @@ impl<'a> Body<'a> {
     }
 
     fn fail(&mut self, cut: Cut) -> std::io::Error {
-        let _ = self.partial.flush();
+        self.partial.flush().ok();
         self.cut = Some(cut);
         std::io::Error::other("engine download cut short")
     }

@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 use std::os::fd::OwnedFd;
 use std::sync::mpsc::Sender;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use rune::native_surface::linux::{DRM_FORMAT_ARGB8888, Dmabuf, DmabufBuffer, DmabufPlane, import_target};
 
@@ -44,7 +44,7 @@ fn step(state: &mut Import, event: ImportEvent) -> bool {
 /// The render node an engine started now copies its frames on, when this app imports dmabufs:
 /// the GPU Rune draws the window on.
 pub(crate) fn device() -> Option<String> {
-    if *IMPORT.lock().unwrap() == Import::Failed {
+    if *IMPORT.lock().unwrap_or_else(PoisonError::into_inner) == Import::Failed {
         return None;
     }
     let target = import_target()?;
@@ -53,10 +53,10 @@ pub(crate) fn device() -> Option<String> {
 
 /// Tells the engine on `tx` that its dmabufs can't be shown, once per app.
 fn fail(tx: &Sender<HostMsg>, reason: String) {
-    if step(&mut IMPORT.lock().unwrap(), ImportEvent::Failed) {
+    if step(&mut IMPORT.lock().unwrap_or_else(PoisonError::into_inner), ImportEvent::Failed) {
         eprintln!("browser: can't show the engine's dmabufs ({reason}); asking for bgra");
     }
-    let _ = tx.send(HostMsg::DmabufFailed { reason });
+    tx.send(HostMsg::DmabufFailed { reason }).ok();
 }
 
 /// How the engine's frames have been arriving, so the change is logged once.
@@ -120,7 +120,7 @@ impl Pools {
         let tx = self.tx.clone();
         // A tab the app already closed reads nothing: its buffer is free at once.
         let Some(surface) = surface else {
-            let _ = tx.send(HostMsg::FrameRead { tab_id, pool, frame_id });
+            tx.send(HostMsg::FrameRead { tab_id, pool, frame_id }).ok();
             return;
         };
         let Some(buffer) = self.tabs.get(&tab_id).filter(|(id, _)| *id == pool).and_then(|(_, b)| b.get(slot as usize)) else {
@@ -128,7 +128,7 @@ impl Pools {
         };
         let frame = Dmabuf::new(buffer.clone()).on_read(move |read| match read {
             Ok(()) => {
-                let _ = tx.send(HostMsg::FrameRead { tab_id, pool, frame_id });
+                tx.send(HostMsg::FrameRead { tab_id, pool, frame_id }).ok();
             }
             Err(reason) => fail(&tx, reason),
         });

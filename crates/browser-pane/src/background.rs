@@ -69,7 +69,7 @@ mod imp {
         let mode = if background { THREAD_MODE_BACKGROUND_BEGIN } else { THREAD_MODE_BACKGROUND_END };
         // SAFETY: the pseudo-handle names the calling thread; background mode also lowers its
         // I/O and memory priority, and only the thread itself may enter or leave it.
-        let _ = unsafe { SetThreadPriority(GetCurrentThread(), mode) };
+        unsafe { SetThreadPriority(GetCurrentThread(), mode) }.ok();
     }
 
     pub(super) fn pid_alive(pid: u32) -> bool {
@@ -80,7 +80,7 @@ mod imp {
             let Ok(process) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else { return false };
             let mut code = 0u32;
             let running = GetExitCodeProcess(process, &mut code).is_err() || code == STILL_ACTIVE.0 as u32;
-            let _ = CloseHandle(process);
+            CloseHandle(process).ok();
             running
         }
     }
@@ -126,6 +126,7 @@ mod imp {
     pub(super) fn free_space(dir: &std::path::Path) -> Option<u64> {
         use std::os::unix::ffi::OsStrExt;
         let path = std::ffi::CString::new(dir.as_os_str().as_bytes()).ok()?;
+        // SAFETY: `libc::statvfs` is a C POD struct whose all-zero bit pattern is valid; `statvfs` initializes it below.
         let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
         // SAFETY: `path` is NUL-terminated and `stat` is ours to fill.
         (unsafe { libc::statvfs(path.as_ptr(), &mut stat) } == 0).then(|| stat.f_bavail as u64 * stat.f_frsize as u64)
