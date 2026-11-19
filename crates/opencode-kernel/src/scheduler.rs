@@ -58,6 +58,7 @@ pub struct System<S> {
     name: &'static str,
     after: Vec<&'static str>,
     run: SystemFn<S>,
+    per_server: Option<SystemFn<S>>,
 }
 
 impl<S> Clone for System<S> {
@@ -67,6 +68,7 @@ impl<S> Clone for System<S> {
             name: self.name,
             after: self.after.clone(),
             run: self.run,
+            per_server: self.per_server,
         }
     }
 }
@@ -74,7 +76,7 @@ impl<S> Clone for System<S> {
 impl<S> System<S> {
     /// Creates a system targeting `stage` with unique identifier `name`.
     pub fn new(stage: Stage, name: &'static str, run: SystemFn<S>) -> Self {
-        Self { stage, name, after: Vec::new(), run }
+        Self { stage, name, after: Vec::new(), run, per_server: None }
     }
 
     /// Declares that this system must execute after system `dep`.
@@ -89,6 +91,13 @@ impl<S> System<S> {
     /// Declares that this system must execute after every system in `deps`.
     pub fn after_all(mut self, deps: &[&'static str]) -> Self {
         self.after.extend_from_slice(deps);
+        self
+    }
+
+    /// Marks this system as also running during background per-server ticks
+    /// ([`LifecycleScheduler::run_per_server`]) in the resolved global schedule order.
+    pub fn per_server(mut self, run: SystemFn<S>) -> Self {
+        self.per_server = Some(run);
         self
     }
 }
@@ -111,6 +120,13 @@ impl<S> Scheduled<'_, S> {
     /// Declares that this system must execute after every system in `deps`.
     pub fn after_all(self, deps: &[&'static str]) -> Self {
         self.system.after.extend_from_slice(deps);
+        self
+    }
+
+    /// Marks this system as also running during background per-server ticks
+    /// ([`LifecycleScheduler::run_per_server`]) in the resolved global schedule order.
+    pub fn per_server(self, run: SystemFn<S>) -> Self {
+        self.system.per_server = Some(run);
         self
     }
 }
@@ -185,6 +201,7 @@ struct Schedule<S> {
     stages: [Vec<&'static str>; 4],
     pending: Vec<System<S>>,
     phases: [Vec<SystemEntry<S>>; 4],
+    per_server: Vec<SystemEntry<S>>,
     resolved: bool,
     setup: Vec<SetupEntry<S>>,
     rest: Vec<RestEntry<S>>,
@@ -198,6 +215,7 @@ impl<S> Default for Schedule<S> {
             stages: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
             pending: Vec::new(),
             phases: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
+            per_server: Vec::new(),
             resolved: true,
             setup: Vec::new(),
             rest: Vec::new(),
@@ -213,6 +231,7 @@ impl<S> Clone for Schedule<S> {
             stages: self.stages.clone(),
             pending: self.pending.clone(),
             phases: self.phases.clone(),
+            per_server: self.per_server.clone(),
             resolved: self.resolved,
             setup: self.setup.clone(),
             rest: self.rest.clone(),
@@ -379,6 +398,7 @@ impl<S> LifecycleScheduler<S> {
         for (idx, &rank) in ranks.iter().enumerate() {
             stage_buckets[rank].push(idx);
         }
+        sched.per_server.clear();
         for phase in Phase::ALL {
             let out = &mut sched.phases[phase.index()];
             out.clear();
@@ -396,6 +416,9 @@ impl<S> LifecycleScheduler<S> {
                     let idx = by_name[name];
                     let sys = &sched.pending[idx];
                     out.push(SystemEntry { stage: stage_name, name: sys.name, run: sys.run });
+                    if let Some(bg_run) = sys.per_server {
+                        sched.per_server.push(SystemEntry { stage: stage_name, name: sys.name, run: bg_run });
+                    }
                     emitted += 1;
                     for &next_idx in &outgoing[idx] {
                         in_degree[next_idx] -= 1;
@@ -468,6 +491,23 @@ impl<S> LifecycleScheduler<S> {
         changed
     }
 
+    /// Runs every system marked with [`Scheduled::per_server`] in the global resolved schedule
+    /// order across all phases. Returns `true` if any per-server callback reported a change.
+    pub fn run_per_server(&self, state: &mut S, now: f64, tx: &mut rune::Tx) -> bool {
+        let Some(inner) = self.inner.as_deref() else { return false };
+        assert!(
+            inner.resolved,
+            "LifecycleScheduler: schedule has unresolved registrations; call resolve() or KernelBuilder::build() before running"
+        );
+        let mut changed = false;
+        for system in &inner.per_server {
+            if (system.run)(state, now, tx) {
+                changed = true;
+            }
+        }
+        changed
+    }
+
     /// Runs all registered setup hooks in registration order.
     pub fn run_setup(&self, state: &mut S, waker: rune::Waker) {
         let Some(inner) = self.inner.as_deref() else { return };
@@ -517,6 +557,15 @@ impl<S> LifecycleScheduler<S> {
             .as_deref()
             .into_iter()
             .flat_map(move |s| s.phases[phase.index()].iter().map(|entry| (entry.stage, entry.name)))
+    }
+
+    /// Iterates the resolved names of systems marked with [`Scheduled::per_server`], in
+    /// execution order.
+    pub fn per_server_names(&self) -> impl Iterator<Item = &'static str> + '_ {
+        if let Some(inner) = self.inner.as_deref() {
+            assert!(inner.resolved, "LifecycleScheduler: call resolve() before inspecting systems");
+        }
+        self.inner.as_deref().into_iter().flat_map(|s| s.per_server.iter().map(|entry| entry.name))
     }
 
     /// Iterates the names of registered setup hooks.

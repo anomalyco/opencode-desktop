@@ -324,13 +324,21 @@ impl Feature<App> for InboxFeature {
         // Precaution: shares `dialogs.toast` with `app.output_errors`.
         builder
             .schedule(crate::tick::stage::INGEST_PAGES, "inbox.sends", |s, _, _| s.poll_sends())
-            .after("app.output_errors");
+            .after("app.output_errors")
+            .per_server(|s, _, _| {
+                s.poll_sends();
+                false
+            });
         // Known: `inbox.sends` (`take_mail`/receipts) unblocks `pump_outbox`.
         builder
             .schedule(crate::tick::stage::INGEST_PAGES, "inbox.outbox", |s, _, tx| {
                 s.tick_outbox(tx)
             })
-            .after("inbox.sends");
+            .after("inbox.sends")
+            .per_server(|s, _, tx| {
+                s.tick_outbox(tx);
+                false
+            });
     }
 }
 

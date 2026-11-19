@@ -566,24 +566,13 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     changed || s.sidebar_inbox.redraw
 }
 
-/// A server the window isn't checked out on: its launch, page loads, sends, jobs, replies and
-/// stream events. True when its tabs' marks or titles changed.
+/// A server the window isn't checked out on: runs every system marked `.per_server(...)` in the
+/// global resolved schedule order. True when its tabs' marks, titles, or inbox branches changed.
 fn background(s: &mut App, tx: &mut Tx) -> bool {
     let before = marks(s);
-    crate::launch::poll(s, tx);
-    s.poll_pages(tx);
-    s.poll_sends();
-    s.tick_outbox(tx);
-    s.poll_server_jobs(tx);
-    crate::incoming::poll(s, tx);
-    crate::stop::poll(s, *s.clock, tx);
-    crate::session_state::poll(s, tx);
-    let now = *s.clock;
-    // Its running tabs' and rows' questions and permissions, so their marks say they wait on
-    // you rather than work (Desktop syncs every server's requests).
-    crate::session_status::poll(s, now, tx);
-    let branches = crate::inbox_model::poll_branches(s, now, tx);
-    before != marks(s) || branches
+    let scheduler = s.kernel.scheduler.clone();
+    let redraw = scheduler.run_per_server(s, *s.clock, tx);
+    before != marks(s) || redraw
 }
 
 fn marks(s: &App) -> Vec<(Option<TabStatus>, String)> {

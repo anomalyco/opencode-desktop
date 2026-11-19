@@ -421,5 +421,11 @@ impl Feature<App> for FilesFeature {
                 poll_reply_links(s, tx)
             })
             .after("jobs.poll");
+        // Precaution: `panels.poll` reconciles side tabs before native panel polls run.
+        builder
+            .schedule(crate::tick::stage::REACT_PANELS, "files.poll", |s, _, tx| {
+                crate::plugin_host::native::files::poll(s, tx)
+            })
+            .after("panels.poll");
     }
 }

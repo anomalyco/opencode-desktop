@@ -183,16 +183,6 @@ pub trait PanelsHost: opencode_kernel::AppEnv {
         false
     }
 
-    /// Polls native panel views embedded by plugins (e.g. review diffs, browser, terminal).
-    fn poll_native_panels(&mut self, tx: &mut Tx) -> bool {
-        let _ = tx;
-        false
-    }
-    /// Polls plugin VMs and pending surface updates.
-    fn poll_plugins(&mut self, tx: &mut Tx) -> bool {
-        let _ = tx;
-        false
-    }
     /// Forwards an IME event to the active native panel surface.
     fn handle_panel_ime(&mut self, ime: &Ime) -> bool {
         let _ = ime;

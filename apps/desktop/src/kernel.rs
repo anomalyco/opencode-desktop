@@ -229,7 +229,11 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
     b.schedule(stage::INGEST_SERVERS, "launch.poll", |s, _, tx| {
         crate::launch::poll(s, tx)
     })
-    .after("dictation.poll");
+    .after("dictation.poll")
+    .per_server(|s, _, tx| {
+        crate::launch::poll(s, tx);
+        false
+    });
     // Known: `launch.trace` observes `rune::marks` emitted by `launch.poll`.
     b.schedule(stage::INGEST_SERVERS, "launch.trace", |_, _, tx| {
         crate::launch::trace::poll(tx);
@@ -282,6 +286,10 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
 
     b.schedule(stage::INGEST_PAGES, "session_pages.poll", |s, _, tx| {
         s.poll_pages(tx)
+    })
+    .per_server(|s, _, tx| {
+        s.poll_pages(tx);
+        false
     });
     // Precaution: both `session_pages.poll` and `app.output_errors` push toasts via `dialogs.toast`.
     b.schedule(stage::INGEST_PAGES, "app.output_errors", |s, _, _| {
@@ -306,9 +314,19 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
     .after("session_pages.poll");
     // Precaution: `jobs.poll` executes arbitrary `Apply` closures that can touch any `App` state.
     b.schedule(stage::INGEST_PAGES, "jobs.poll", |s, _, tx| s.poll_jobs(tx))
-        .after_all(&["context_window.poll", "inbox.outbox", "open_in.poll"]);
+        .after_all(&["context_window.poll", "inbox.outbox", "open_in.poll"])
+        .per_server(|s, _, tx| {
+            s.poll_server_jobs(tx);
+            false
+        });
 
-    b.schedule(stage::INGEST_STREAM, "tick.stream", crate::tick::poll_stream);
+    b.schedule(stage::INGEST_STREAM, "tick.stream", crate::tick::poll_stream).per_server(
+        |s, now, tx| {
+            crate::incoming::poll(s, tx);
+            crate::stop::poll(s, now, tx);
+            false
+        },
+    );
     // Known: `tick.submit` commits staged reverts and mutates `composer`/`inboxes`/`transcripts`/`route`.
     b.schedule(stage::INGEST_STREAM, "tick.submit", |s, _, tx| {
         crate::tick::poll_submit(s, tx)
@@ -350,8 +368,17 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
     });
 
     // ── Phase 3: React ───────────────────────────────────────────────────────────────────────────
-    // Precaution: `panels.poll` (`review`, plugins) and `workspace_tools.rune_mcp` (`tools::execute`)
-    // can mutate `source`/session state before turn diffs start.
+    // Precaution: `browser.poll` fires `Browser.Picked` into plugins; run after review/files/terminal.
+    b.schedule(stage::REACT_PANELS, "browser.poll", |s, _, tx| {
+        crate::plugin_host::native::browser::poll(s, tx)
+    })
+    .after_all(&["review.poll", "files.poll", "terminal.poll"]);
+    // Known: `plugin_watched_stamp` hashes `workspace_panes.{review,browser}` and `browser.poll`
+    // completes CDP promises / fires `Browser.Picked` before plugin VMs poll.
+    b.schedule(stage::REACT_PANELS, "plugin_host.poll", |s, _, tx| s.poll_plugins(tx))
+        .after("browser.poll");
+    // Precaution: `plugin_host.poll` and `workspace_tools.rune_mcp` (`tools::execute`) can mutate
+    // `source`/session state before turn diffs start.
     b.schedule(stage::REACT_PANELS, "turn_diffs.poll", |s, _, _| {
         s.poll_turn_diffs()
     })
@@ -364,7 +391,11 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
     b.schedule(stage::REACT_STATUS, "session_state.poll", |s, _, tx| {
         crate::session_state::poll(s, tx)
     })
-    .after("reconnect.poll");
+    .after("reconnect.poll")
+    .per_server(|s, _, tx| {
+        crate::session_state::poll(s, tx);
+        false
+    });
     // Known: `tips.poll` can push a toast polled here, and closing an undo-delete toast calls
     // `undo::toast_closed` -> `send_delete` before `REACT_SHELL`.
     b.schedule(stage::REACT_STATUS, "status_toast.poll", |s, now, tx| {
@@ -379,7 +410,8 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
     b.schedule(stage::REACT_SHELL, "inbox_model.poll", |s, now, tx| {
         crate::inbox_model::poll(s, now, tx)
     })
-    .after("narrow.poll");
+    .after("narrow.poll")
+    .per_server(crate::inbox_model::poll_branches);
     // Known: reads `narrow()` and `tab_layout()` settled by `layout_state.poll` -> `narrow.poll`.
     b.schedule(stage::REACT_SHELL, "tab_preview.poll", |s, now, tx| {
         crate::view::tab_preview::poll(s, now, tx)
@@ -389,7 +421,11 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
     b.schedule(stage::REACT_SHELL, "session_status.poll", |s, now, tx| {
         crate::session_status::poll(s, now, tx)
     })
-    .after("narrow.poll");
+    .after("narrow.poll")
+    .per_server(|s, now, tx| {
+        crate::session_status::poll(s, now, tx);
+        false
+    });
 
     // ── Phase 4: Persist ─────────────────────────────────────────────────────────────────────────
     // Known: `restore.persist` runs `hydrate_restore` mutating `tabs`/`route`/`window` before

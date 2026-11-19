@@ -185,5 +185,9 @@ impl Feature<App> for ReviewFeature {
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
         builder.add_setup("review.waker", |s, w| s.workspace_panes.review.set_waker(w));
+        // Precaution: `panels.poll` reconciles side tabs before native panel polls run.
+        builder
+            .schedule(crate::tick::stage::REACT_PANELS, "review.poll", |s, _, tx| poll(s, tx))
+            .after("panels.poll");
     }
 }

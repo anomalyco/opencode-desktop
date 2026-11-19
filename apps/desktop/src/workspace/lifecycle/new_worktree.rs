@@ -264,13 +264,13 @@ impl Feature<App> for WorkspaceToolsFeature {
             "workspace_tools.branch_picker",
             |s, now, tx| s.poll_branch_picker(now, tx),
         );
-        // Known: reads `mcp_tools_generation` updated by `panels.poll` -> `plugin_host::poll`.
+        // Known: reads `mcp_tools_generation` updated by `plugin_host.poll` (`contrib::sync`).
         builder
             .schedule(
                 crate::tick::stage::REACT_PANELS,
                 "workspace_tools.rune_mcp",
                 |s, _, tx| crate::rune_mcp::poll(s, tx),
             )
-            .after("panels.poll");
+            .after("plugin_host.poll");
     }
 }

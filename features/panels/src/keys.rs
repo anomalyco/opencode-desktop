@@ -85,7 +85,7 @@ fn tabs_check_stamp(host: &dyn PanelsHost) -> u64 {
 }
 
 /// Polls panel animations, stored-tab rekeying/pruning (when any tab/panel input moved),
-/// empty-side New tab sync, native panels, and plugins.
+/// and empty-side New tab sync. Native panels and plugins run as their own scheduled systems.
 pub fn poll_panels(host: &mut dyn PanelsHost, tx: &mut Tx) -> bool {
     let mut changed = false;
     if host.side().edge_flight.is_flying() {
@@ -161,10 +161,6 @@ pub fn poll_panels(host: &mut dyn PanelsHost, tx: &mut Tx) -> bool {
     }
     // A strip its last tab left (a terminal that exited) shows a New tab, as Desktop's does.
     changed |= sync_empty_side(host);
-    // The native views Luau panels place (Review's diffs).
-    changed |= host.poll_native_panels(tx);
-    // The plugins: what came due, finished or arrived for them. At rest it enters no VM.
-    changed |= host.poll_plugins(tx);
     changed
 }
 

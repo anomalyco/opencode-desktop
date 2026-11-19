@@ -195,21 +195,6 @@ impl PanelsHost for App {
         crate::plugin_host::dormant::wake_launchers(self)
     }
 
-    fn poll_native_panels(&mut self, tx: &mut Tx) -> bool {
-        crate::plugin_host::native::poll(self, tx)
-    }
-
-    fn poll_plugins(&mut self, tx: &mut Tx) -> bool {
-        let stamp = plugin_watched_stamp(self);
-        let watched_changed = {
-            let seen = self.kernel.slots.slot::<PluginWatchedStamp>();
-            let changed = seen.0 != Some(stamp);
-            seen.0 = Some(stamp);
-            changed
-        };
-        crate::plugin_host::poll(self, watched_changed, tx)
-    }
-
     fn handle_panel_ime(&mut self, ime: &Ime) -> bool {
         crate::plugin_host::native::on_ime(self, ime)
     }
@@ -411,6 +396,17 @@ impl App {
 
     pub fn poll_panels(&mut self, tx: &mut Tx) -> bool {
         poll_panels(self, tx)
+    }
+
+    pub(crate) fn poll_plugins(&mut self, tx: &mut Tx) -> bool {
+        let stamp = plugin_watched_stamp(self);
+        let watched_changed = {
+            let seen = self.kernel.slots.slot::<PluginWatchedStamp>();
+            let changed = seen.0 != Some(stamp);
+            seen.0 = Some(stamp);
+            changed
+        };
+        crate::plugin_host::poll(self, watched_changed, tx)
     }
 
     pub fn panels_ime(&mut self, ime: &Ime) -> bool {

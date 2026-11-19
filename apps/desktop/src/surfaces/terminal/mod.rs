@@ -434,5 +434,11 @@ impl Feature<App> for TerminalSurfaceFeature {
             SurfaceDescriptor::new("terminal", SurfaceKind::Terminal, "Terminal")
                 .with_multi_instance(true),
         );
+        // Precaution: `panels.poll` reconciles side tabs before native panel polls run.
+        builder
+            .schedule(crate::tick::stage::REACT_PANELS, "terminal.poll", |s, _, tx| {
+                crate::plugin_host::native::terminal::poll(s, tx)
+            })
+            .after("panels.poll");
     }
 }
