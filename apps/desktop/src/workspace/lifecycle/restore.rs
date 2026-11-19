@@ -20,6 +20,7 @@ use session_view::jump::Ends;
 
 use crate::{App, Route};
 
+pub(crate) static RESTORE: Slot<Restore> = Slot::new();
 static KEPT_PLACES: Slot<places::Kept> = Slot::new();
 
 /// The draft key for a desktop [`Route`]: a session's id, or a draft tab's.
@@ -48,11 +49,11 @@ fn from_restore_route(route: RestoreRoute) -> Route {
 
 impl RestoreHost for App {
     fn restore(&self) -> &Restore {
-        &self.restore
+        self.kernel.slots.get(&RESTORE)
     }
 
     fn restore_mut(&mut self) -> &mut Restore {
-        &mut self.restore
+        self.kernel.slots.get_mut(&RESTORE)
     }
 
     fn kept_places(&self) -> &places::Kept {
@@ -255,11 +256,11 @@ impl RestoreHost for App {
     }
 
     fn last_project(&self) -> Option<(&ServerKey, &str)> {
-        self.home_state.last_project.as_ref().map(|(s, d)| (s, d.as_str()))
+        self.kernel.slots.get(&crate::projects::HOME_STATE).last_project.as_ref().map(|(s, d)| (s, d.as_str()))
     }
 
     fn set_last_project(&mut self, project: Option<(ServerKey, String)>) {
-        self.home_state.last_project = project;
+        self.kernel.slots.get_mut(&crate::projects::HOME_STATE).last_project = project;
     }
 
     fn sidebar_open(&self) -> bool {
@@ -334,16 +335,16 @@ impl RestoreHost for App {
     }
 
     fn settings_page_id(&self) -> &str {
-        self.settings_pages.page.id()
+        self.kernel.slots.get(&crate::settings::SETTINGS_PAGES).page.id()
     }
 
     fn open_restored_settings(&mut self, tab: &str) {
         self.settings.open = true;
-        self.settings_pages.page = crate::settings::pages::Page::parse(tab);
+        self.kernel.slots.get_mut(&crate::settings::SETTINGS_PAGES).page = crate::settings::pages::Page::parse(tab);
     }
 
     fn reopen_settings_page(&mut self, tx: &mut Tx) {
-        let page = std::mem::take(&mut self.settings_pages.page);
+        let page = std::mem::take(&mut self.kernel.slots.get_mut(&crate::settings::SETTINGS_PAGES).page);
         self.open_settings_page(page, tx);
     }
 
@@ -696,6 +697,8 @@ impl Feature<App> for RestoreFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
-        builder.register_slot(&KEPT_PLACES);
+        builder
+            .register_slot(&RESTORE)
+            .register_slot(&KEPT_PLACES);
     }
 }

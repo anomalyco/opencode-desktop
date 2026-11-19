@@ -14,6 +14,7 @@ use crate::jobs::Apply;
 use crate::pickers::PickerHost as _;
 
 pub(crate) static CONNECT: Slot<Connect> = Slot::new();
+static CATALOGS: Slot<Catalogs> = Slot::new();
 
 impl ConnectHost for App {
     fn connect(&self) -> &Connect {
@@ -25,11 +26,11 @@ impl ConnectHost for App {
     }
 
     fn catalogs(&self) -> &Catalogs {
-        &self.catalogs
+        self.kernel.slots.get(&CATALOGS)
     }
 
     fn catalogs_mut(&mut self) -> &mut Catalogs {
-        &mut self.catalogs
+        self.kernel.slots.get_mut(&CATALOGS)
     }
 
     fn active_directory(&self) -> String {
@@ -202,7 +203,9 @@ impl Feature<App> for ConnectFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
-        builder.register_slot(&CONNECT);
+        builder
+            .register_slot(&CONNECT)
+            .register_slot(&CATALOGS);
         builder.add_command(
             CommandEntry::<App>::from_key(
                 "provider.connect",

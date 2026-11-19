@@ -13,13 +13,15 @@ use rune::machine::Attempt;
 use crate::question::reply::Action;
 use crate::{App, Route, Source};
 
+pub(crate) static PERMISSION_SENT: opencode_kernel::Slot<Sent> = opencode_kernel::Slot::new();
+
 impl PermissionHost for App {
     fn permission_sent(&self) -> &Sent {
-        &self.permission_sent
+        self.kernel.slots.get(&PERMISSION_SENT)
     }
 
     fn permission_sent_mut(&mut self) -> &mut Sent {
-        &mut self.permission_sent
+        self.kernel.slots.get_mut(&PERMISSION_SENT)
     }
 
     fn pending_session(&self, id: &str) -> Option<String> {

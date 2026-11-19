@@ -40,7 +40,7 @@ impl session_view::TimelineHost for App {
         plugin_host::surfaces::code_block(self, p, language, key, code, streaming, version, native)
     }
     fn shell_output(&self, shell: &str) -> Option<&str> {
-        self.shells.follow.output(shell)
+        self.kernel.slots.get(&crate::subagents::SHELLS).follow.output(shell)
     }
 
     fn output_save_failed(&mut self, reason: String) {
@@ -52,7 +52,7 @@ impl session_view::TimelineHost for App {
         Box::new(move |why| { if send.send(why).is_ok() && let Some(wake) = wake { wake(); } })
     }
     fn shell_output_version(&self) -> u64 {
-        self.shells.follow.version()
+        self.kernel.slots.get(&crate::subagents::SHELLS).follow.version()
     }
     fn turn_diffs(&self) -> bool {
         self.settings.turn_diffs

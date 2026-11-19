@@ -17,12 +17,11 @@ use crate::shell::app_state::{
 };
 use crate::tabs::Tab;
 use crate::{
-    Route, appearance, background, commands, connect, context_window, demo, dictation, dirs, egg,
-    events, files, find, fulltext, history, home_search, inbox_model, jobs, keymap, knobs, launch,
-    layout_state, model_prefs, open_in, permission, plugin_host, popup, projects, prompt_history,
-    question, recent_page, restore, send_failed, servers, session_catalog, session_pages,
-    session_status, settings, shortcuts, slash, status_toast, stop, subagents, switcher, tabs,
-    telemetry, turn_diffs, view, wall_ms, windows,
+    Route, appearance, background, commands, context_window, demo, dictation, dirs, events, files,
+    find, history, inbox_model, jobs, keymap, knobs, launch, layout_state, model_prefs, open_in,
+    plugin_host, popup, projects, prompt_history, recent_page, restore, send_failed, servers,
+    session_catalog, session_pages, session_status, settings, shortcuts, slash, status_toast, stop,
+    switcher, tabs, telemetry, turn_diffs, view, wall_ms, windows,
 };
 
 // A static, not a const: a const's bytes are copied into every codegen unit that names it.
@@ -67,8 +66,6 @@ pub struct App {
     pub recent_page: rune::Tracked<recent_page::Page>,
     pub recent_reload: recent_page::Reload,
     pub(crate) session_search: switcher::search_index::SessionSearch,
-    /// The palette's and Home's questions to the message text kept on this device.
-    pub(crate) fulltext: fulltext::Surfaces,
     pub route: rune::Tracked<Route>,
     /// Where ⌘[ and ⌘] go (`history.rs`).
     pub nav: rune::Tracked<history::History>,
@@ -100,8 +97,6 @@ pub struct App {
     pub inboxes: rune::Tracked<HashMap<String, Inbox>>,
     /// This window's place in its server's peer (`windows::peer`).
     pub store: rune::Tracked<Box<windows::peer::Link>>,
-    /// The question dock's place and in-progress answers for the forms it shows.
-    pub question: rune::Tracked<question::Dock>,
     /// Where a new draft starts, and where paths resolve off a session: the folder last picked.
     /// The open draft's own folder is `App::draft_dir`.
     pub default_dir: rune::Tracked<String>,
@@ -111,27 +106,10 @@ pub struct App {
     pub sidebar_w: rune::Tracked<f32>,
     pub composer: rune::Tracked<TextEdit>,
     pub search: rune::Tracked<TextEdit>,
-    pub home_search: rune::Tracked<Box<home_search::HomeSearch>>,
-    /// The new-session wordmark's Easter egg (`egg`): nothing until the pointer comes near its "e".
-    /// Untracked: its frames step and draw without the view running; `egg::poll` says when the
-    /// view must.
-    pub egg: egg::Egg,
     pub project_state: rune::Tracked<Box<projects::ProjectsState>>,
-    /// Home across servers: its selection, its servers and its list's phase (`projects::home`).
-    pub home_state: rune::Tracked<projects::home::Home>,
     pub settings: rune::Tracked<settings::Settings>,
-    /// Settings' Providers, Models and Extensions pages (`settings::pages`).
-    pub settings_pages: rune::Tracked<Box<settings::pages::State>>,
-    /// The integrations and providers it and Settings read, by folder.
-    pub catalogs: rune::Tracked<connect::catalog::Catalogs>,
     /// Server requests on their way back (`jobs`).
     pub(crate) jobs: rune::Tracked<jobs::Jobs>,
-    /// The open session and composer drafts, saved for the next launch.
-    pub restore: rune::Tracked<Box<restore::Restore>>,
-    /// Background shells, and the running-work list above the composer (`subagents::activity`).
-    pub shells: rune::Tracked<subagents::shells::Shells>,
-    /// Permission replies still on their way, to bring back if the server refuses one.
-    pub permission_sent: rune::Tracked<permission::Sent>,
     /// Prompts sent and not yet seen back, for rolling a failed one back (`send_failed.rs`).
     pub unsent: rune::Tracked<send_failed::Log>,
     /// Wall-clock milliseconds for relative times (fixture: its own fixed "now").
@@ -388,7 +366,7 @@ impl App {
         let server = servers::runtime::bind(self, server);
         let doc = telemetry::startup("launch.window_doc", || restore::read_window(self));
         let saved_tabs = doc.tabs.as_ref().map(|list| list.iter().map(|t| Tab::from_doc(t, doc.info(&t.key()))).collect());
-        self.restore.unread_tabs = doc.unread_tabs.clone();
+        self.kernel.slots.get_mut(&restore::RESTORE).unread_tabs = doc.unread_tabs.clone();
         // Desktop's tabs come into a fresh profile's first window only.
         let beta = self.window.fresh && server.base == DEFAULT_SERVER;
         match saved_tabs.or_else(|| (beta && !deferred).then(tabs::from_beta).flatten()) {

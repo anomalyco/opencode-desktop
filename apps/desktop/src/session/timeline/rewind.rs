@@ -161,8 +161,9 @@ impl App {
                 quotes: self.kernel.slots.get(&crate::quote::QUOTE).quotes(),
             };
         }
-        let text = self.restore.drafts.get(session).cloned().unwrap_or_default();
-        let parked = self.restore.parked.get(session).cloned().unwrap_or_default();
+        let r = self.kernel.slots.get(&crate::restore::RESTORE);
+        let text = r.drafts.get(session).cloned().unwrap_or_default();
+        let parked = r.parked.get(session).cloned().unwrap_or_default();
         let caret = parked.caret.filter(|&c| text.is_char_boundary(c)).unwrap_or(text.len());
         SavedDraft { entry: Entry { text, pills: parked.pills }, caret, files: parked.files, paths: parked.paths, quotes: parked.quotes }
     }

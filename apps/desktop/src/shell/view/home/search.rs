@@ -36,7 +36,7 @@ pub(super) fn field(s: &App, p: &Pal, selected: Option<&model::Project>, width: 
                 .placeholder(placeholder, p.faint)
                 .caret(p.text, p.selection).selection_style(p.field_selection)
                 .on_edit(|s: &mut App| &mut s.search)
-                .on_input_change(|s: &mut App, _: &mut Tx| s.home_search.query_changed())
+                .on_input_change(|s: &mut App, _: &mut Tx| s.kernel.slots.get_mut(&crate::home_search::HOME_SEARCH).query_changed())
                 // The window's command keys first, as from the composer: Alt+Home back to the tab.
                 .on_input_key(|s: &mut App, ev, tx| crate::keys::global(s, ev, tx) || s.home_search_key(ev, tx)),
         );
@@ -71,7 +71,8 @@ fn placeholder(s: &App, selected: Option<&model::Project>) -> String {
         return opencode_i18n::t!("home.sessions.search.placeholder.scoped", scope = proj.name);
     }
     let key = crate::projects::home::server(s);
-    match s.home_state.servers.iter().find(|v| v.key == key).filter(|_| s.home_state.servers.len() > 1) {
+    let servers = &s.kernel.slots.get(&crate::projects::HOME_STATE).servers;
+    match servers.iter().find(|v| v.key == key).filter(|_| servers.len() > 1) {
         Some(v) => opencode_i18n::t!("home.sessions.search.placeholder.scoped", scope = v.label),
         None => opencode_i18n::t!("home.sessions.search.placeholder").into(),
     }
@@ -180,7 +181,7 @@ fn result_row(s: &App, p: &Pal, ses: &SessionInfo, selected: bool, show_project:
         .hover(p.hover)
         .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
             if inside {
-                s.home_search.activate(hover_id.clone());
+                s.kernel.slots.get_mut(&crate::home_search::HOME_SEARCH).activate(hover_id.clone());
             }
             super::hover_session(s, &hover_id, inside, tx);
             if inside {
@@ -190,7 +191,7 @@ fn result_row(s: &App, p: &Pal, ses: &SessionInfo, selected: bool, show_project:
         .pointer_buttons([rune::PointerButton::Middle])
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             if s.session(&id).is_none()
-                && let Some(ses) = s.home_search.search.exact().filter(|x| x.id == id).cloned()
+                && let Some(ses) = s.kernel.slots.get(&crate::home_search::HOME_SEARCH).search.exact().filter(|x| x.id == id).cloned()
             {
                 s.sessions.push(ses);
             }

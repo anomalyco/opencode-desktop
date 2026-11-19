@@ -28,7 +28,7 @@ fn is_open(s: &App) -> bool {
         0 => s.kernel.slots.get(&crate::add_menu::ADD_MENU).open(),
         1 => s.kernel.slots.get(&crate::rewind::REWIND).menu.is_some() && s.popup.is_open(),
         4 => s.popup.is_open(),
-        2 => s.shells.activity.is_open(),
+        2 => s.kernel.slots.get(&crate::subagents::SHELLS).activity.is_open(),
         _ => *s.kernel.slots.get(&crate::todos::TODO_OPEN),
     }
 }

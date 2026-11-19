@@ -25,7 +25,7 @@ impl App {
                 list.push(tab.to_json());
                 (list, info)
             });
-            list.extend(self.restore.unread_tabs.iter().cloned());
+            list.extend(self.kernel.slots.get(&crate::restore::RESTORE).unread_tabs.iter().cloned());
             crate::windows::store::save(&self.window, "tabs", &Value::Array(list));
             crate::windows::store::save(&self.window, "tabs.info", &Value::Object(info));
         }
@@ -268,8 +268,9 @@ impl App {
             // An empty one just goes.
             TabKind::Draft => {
                 self.forget_draft_history(&id);
-                self.restore.drafts.remove(&id);
-                self.restore.parked.remove(&id);
+                let r = self.kernel.slots.get_mut(&crate::restore::RESTORE);
+                r.drafts.remove(&id);
+                r.parked.remove(&id);
                 self.kernel.slots.get_mut(&crate::add_menu::ADD_MENU).park(id.clone(), session_view::composer::mode::Mode::Normal);
                 if shown {
                     self.drop_shown_draft();
@@ -354,7 +355,7 @@ impl App {
             return self.tabs.iter().map(Tab::uid).collect();
         }
         let sections = self.inbox_sections();
-        let shelf = if self.restore.inbox.working_expanded { sections.working.len() } else { 0 };
+        let shelf = if self.kernel.slots.get(&crate::restore::RESTORE).inbox.working_expanded { sections.working.len() } else { 0 };
         let listed = sections.current.len() + sections.needs.len() + sections.unread.len() + sections.recent.len();
         sections.rows().take(listed + shelf).map(|e| e.session.id.clone()).collect()
     }

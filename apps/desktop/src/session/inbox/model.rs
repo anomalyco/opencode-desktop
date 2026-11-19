@@ -183,7 +183,7 @@ impl App {
 
     /// The groups the sidebar shows (`SidebarInbox`'s `sections`).
     pub fn inbox_sections(&self) -> Sections<'_> {
-        self.inbox_sections_with(self.restore.inbox.recent_expanded)
+        self.inbox_sections_with(self.kernel.slots.get(&crate::restore::RESTORE).inbox.recent_expanded)
     }
 
     /// [`App::inbox_sections`] with Recent shut or open (`expanded`) whatever the window's
@@ -216,14 +216,10 @@ impl App {
     }
 
     /// The Working shelf opens or shuts (`workingExpanded`).
-    pub fn toggle_inbox_working(&mut self) {
-        self.restore.inbox.working_expanded = !self.restore.inbox.working_expanded;
-    }
+    pub fn toggle_inbox_working(&mut self) { let w = &mut self.kernel.slots.get_mut(&crate::restore::RESTORE).inbox.working_expanded; *w = !*w; }
 
     /// Show more / Show less under Recent (`recentExpanded`).
-    pub fn toggle_inbox_recent(&mut self) {
-        self.restore.inbox.recent_expanded = !self.restore.inbox.recent_expanded;
-    }
+    pub fn toggle_inbox_recent(&mut self) { let r = &mut self.kernel.slots.get_mut(&crate::restore::RESTORE).inbox.recent_expanded; *r = !*r; }
 
     /// The server and session the inbox row `key` names (`Entry::key`): a session of the server
     /// the window works against when no row of another server has that key.
@@ -616,13 +612,14 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     // The new-session page names its folder's branch the same way (`NewSessionBranch`).
     let draft = matches!(*s.route, crate::Route::Draft(_)).then(|| s.draft_dir().to_owned());
     // So does a Home row under the pointer, as Desktop syncs a row's location on hover.
+    let hs = s.kernel.slots.get(&crate::home_search::HOME_SEARCH);
     let hovered = (s.route == crate::Route::Home)
-        .then(|| s.home_search.hovered.as_deref().and_then(|id| s.session(id).or_else(|| s.home_search.loaded.iter().find(|x| x.id == id))))
+        .then(|| hs.hovered.as_deref().and_then(|id| s.session(id).or_else(|| hs.loaded.iter().find(|x| x.id == id))))
         .flatten()
         .map(|i| i.directory.clone());
     let draft: Option<String> = draft.or(hovered);
     // Alt held on Home shows every row's location, so their branches load (`alt-hold.ts`).
-    let revealed: Vec<String> = if s.route == crate::Route::Home && s.home_search.alt_held {
+    let revealed: Vec<String> = if s.route == crate::Route::Home && hs.alt_held {
         s.home_sessions(None).iter().map(|i| i.directory.clone()).collect()
     } else {
         Vec::new()

@@ -114,9 +114,12 @@ impl Feature<App> for TimelineExtrasFeature {
             .bind_id(Bind::AutoAccept.id())
             .when(|s| s.active_session_id().is_some()),
         );
-        builder.register_slot(&TODO_OPEN);
-        builder.register_slot(&TODO_TICKS);
-        builder.register_slot(&crate::agent_rows::AGENT_ROWS);
+        builder
+            .register_slot(&TODO_OPEN)
+            .register_slot(&TODO_TICKS)
+            .register_slot(&crate::agent_rows::AGENT_ROWS)
+            .register_slot(&crate::question::QUESTION)
+            .register_slot(&crate::permission::PERMISSION_SENT);
         builder.register_escape_layer(EscapeLayer::new(
             "escape.todo",
             50,

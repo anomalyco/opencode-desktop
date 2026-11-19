@@ -140,7 +140,7 @@ pub fn bracket(ev: &KeyEvent, physical: Option<PhysicalKeyCode>) -> Option<bool>
 impl App {
     /// Notes where the app is, so a move made since the last look joins the history.
     pub fn sync_history(&mut self) {
-        let page = self.settings.open.then(|| self.settings_pages.page.clone());
+        let page = self.settings.open.then(|| self.kernel.slots.get(&crate::settings::SETTINGS_PAGES).page.clone());
         // Every poll comes here: the history is written only when the app moved.
         if !self.nav.holds(&self.route, &page) && (self.opening.is_none() || matches!(self.nav.cursor, Cursor::Idle(_))) {
             let now = Place { route: (*self.route).clone(), settings: page };

@@ -10,13 +10,15 @@ use opencode_storage::Storage;
 
 use crate::App;
 
+pub(crate) static FULLTEXT: opencode_kernel::Slot<Surfaces> = opencode_kernel::Slot::new();
+
 impl FulltextHost for App {
     fn fulltext(&self) -> &Surfaces {
-        &self.fulltext
+        self.kernel.slots.get(&FULLTEXT)
     }
 
     fn fulltext_mut(&mut self) -> &mut Surfaces {
-        &mut self.fulltext
+        self.kernel.slots.get_mut(&FULLTEXT)
     }
 
     fn surface_query(&self, which: Surface) -> &str {

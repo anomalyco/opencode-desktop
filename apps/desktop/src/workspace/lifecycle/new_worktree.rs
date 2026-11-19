@@ -231,7 +231,10 @@ impl Feature<App> for WorkspaceToolsFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
-        builder.register_slot(&NEW_WORKTREE);
+        builder
+            .register_slot(&NEW_WORKTREE)
+            .register_slot(&crate::fulltext::FULLTEXT)
+            .register_slot(&crate::home_search::HOME_SEARCH);
         builder.add_command(
             CommandEntry::<App>::from_key(
                 "session.location.select",
@@ -252,7 +255,7 @@ impl Feature<App> for WorkspaceToolsFeature {
             .bind_id(Bind::BranchChoose.id())
             .when(git_draft),
         );
-        builder.add_setup("workspace_tools.home_search_waker", |s, waker| s.home_search.set_waker(waker));
+        builder.add_setup("workspace_tools.home_search_waker", |s, waker| s.kernel.slots.get_mut(&crate::home_search::HOME_SEARCH).set_waker(waker));
         builder.add_setup("workspace_tools.rune_mcp", |s, waker| {
             s.setup_rune_mcp(waker);
             rune::marks::mark("mcp.setup");

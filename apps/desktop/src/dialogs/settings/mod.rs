@@ -112,6 +112,8 @@ fn trace_about_wordmark(now: f64, letters: &str) {
     });
 }
 
+pub(crate) static SETTINGS_PAGES: opencode_kernel::Slot<pages::State> = opencode_kernel::Slot::new();
+
 impl SettingsHost for App {
     fn settings(&self) -> &Settings {
         &self.settings
@@ -122,11 +124,11 @@ impl SettingsHost for App {
     }
 
     fn settings_pages(&self) -> &pages::State {
-        &self.settings_pages
+        self.kernel.slots.get(&SETTINGS_PAGES)
     }
 
     fn settings_pages_mut(&mut self) -> &mut pages::State {
-        &mut self.settings_pages
+        self.kernel.slots.get_mut(&SETTINGS_PAGES)
     }
 
     fn can_write(&self) -> bool {
@@ -703,6 +705,7 @@ impl Feature<App> for SettingsFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder.register_slot(&SETTINGS_PAGES);
         builder.add_command(
             CommandEntry::<App>::from_key(
                 "settings",
@@ -727,7 +730,7 @@ impl Feature<App> for SettingsFeature {
                     pages::worktrees::dialog(s, p, cx)
                 })
                 .with_dismiss(|s, tx| {
-                    let attempt = match &s.settings_pages.worktrees.delete.phase {
+                    let attempt = match &s.kernel.slots.get(&SETTINGS_PAGES).worktrees.delete.phase {
                         pages::worktrees::Phase::ConfirmingOne { attempt, .. }
                         | pages::worktrees::Phase::ConfirmingMany { attempt, .. } => Some(*attempt),
                         _ => None,

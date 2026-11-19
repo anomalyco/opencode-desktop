@@ -77,7 +77,7 @@ impl App {
             && self.kernel.slots.get(&crate::rewind::REWIND).menu.is_none()
             && !self.popup.is_open()
             && !self.project_state.home_menu_open
-            && !self.shells.activity.is_open()
+            && !self.kernel.slots.get(&crate::subagents::SHELLS).activity.is_open()
             && !*self.kernel.slots.get(&crate::todos::TODO_OPEN)
             && !self.kernel.slots.get(&crate::connect::CONNECT).is_modal_open()
             && self.kernel.slots.get(&crate::mcp::MCP).open.is_none()

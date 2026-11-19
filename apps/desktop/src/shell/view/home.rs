@@ -125,7 +125,7 @@ fn gutter_end(panel: f32, pad: f32) -> f32 {
 fn sessions_column(s: &App, p: &Pal, selected: Option<&model::Project>, tier: Tier, width: f32, window_h: f32) -> El {
     let show_project = selected.is_none();
     let can_create = selected.is_some() || !s.used_projects().is_empty();
-    let open = s.restore.inbox.home_automations;
+    let open = s.kernel.slots.get(&crate::restore::RESTORE).inbox.home_automations;
     let groups = s.home_groups(selected);
     let nav_ids = std::rc::Rc::new(groups.iter().flat_map(|g| g.shown_ids(open).map(str::to_owned)).collect::<Vec<_>>());
     // Each row: `ps-3 pe-3`, the 16 pt avatar and `gap-1.5` before its labels.
@@ -415,13 +415,13 @@ pub(super) fn opens_in_background(tx: &Tx) -> bool {
 pub(super) fn hover_session(s: &mut App, id: &str, inside: bool, tx: &mut Tx) {
     if inside {
         s.prefetch_session(id);
-        if s.home_search.hovered.as_deref() != Some(id) {
-            s.home_search.hovered = Some(id.to_owned());
+        if s.kernel.slots.get(&crate::home_search::HOME_SEARCH).hovered.as_deref() != Some(id) {
+            s.kernel.slots.get_mut(&crate::home_search::HOME_SEARCH).hovered = Some(id.to_owned());
             tx.instant();
             return;
         }
-    } else if s.home_search.hovered.as_deref() == Some(id) {
-        s.home_search.hovered = None;
+    } else if s.kernel.slots.get(&crate::home_search::HOME_SEARCH).hovered.as_deref() == Some(id) {
+        s.kernel.slots.get_mut(&crate::home_search::HOME_SEARCH).hovered = None;
         tx.instant();
         return;
     }
@@ -433,13 +433,13 @@ pub(super) fn hover_session(s: &mut App, id: &str, inside: bool, tx: &mut Tx) {
 pub(crate) fn home_modifiers(s: &mut App, mods: rune::Mods, tx: &mut Tx) {
     // The quote comment editor shows its alternate send while Mod is held.
     let quote = crate::quote::editor::modifiers(s, mods, tx);
-    if s.home_search.alt_held == mods.alt {
+    if s.kernel.slots.get(&crate::home_search::HOME_SEARCH).alt_held == mods.alt {
         if quote {
             return;
         }
         return tx.live_only();
     }
-    s.home_search.alt_held = mods.alt;
+    s.kernel.slots.get_mut(&crate::home_search::HOME_SEARCH).alt_held = mods.alt;
     tx.instant();
 }
 
@@ -489,9 +489,10 @@ impl Parts {
             return Parts { avatar, labels, project: project_el, ring: busy.then(|| activity_ring(p).key("ring")) };
         }
         // Shown while the row is hovered or Alt is held; it hides at once when the pointer moves to another row.
-        let hovered = s.home_search.hovered.as_deref();
-        let show = s.home_search.alt_held || hovered == Some(ses.id.as_str());
-        let instant_hide = !s.home_search.alt_held && hovered.is_some_and(|h| h != ses.id);
+        let hs = s.kernel.slots.get(&crate::home_search::HOME_SEARCH);
+        let hovered = hs.hovered.as_deref();
+        let show = hs.alt_held || hovered == Some(ses.id.as_str());
+        let instant_hide = !hs.alt_held && hovered.is_some_and(|h| h != ses.id);
         labels = labels.child(location(s, p, ses, labels_w, show, instant_hide));
         Parts { avatar, labels, project: project_el, ring: busy.then(|| activity_ring(p).key("ring")) }
     }

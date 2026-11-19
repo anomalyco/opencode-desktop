@@ -55,8 +55,9 @@ impl App {
     fn plant(&mut self, seed: Seed) {
         *self.default_dir = seed.default_dir;
         *self.tabs = seed.tabs;
-        self.restore.drafts.extend(seed.drafts);
-        self.restore.parked.extend(seed.parked);
+        let r = self.kernel.slots.get_mut(&crate::restore::RESTORE);
+        r.drafts.extend(seed.drafts);
+        r.parked.extend(seed.parked);
         for id in seed.shell {
             self.kernel.slots.get_mut(&crate::add_menu::ADD_MENU).park(id, Mode::Shell);
         }
@@ -71,7 +72,7 @@ impl App {
 
     /// Draft `id`'s mode, the open one's from the composer.
     pub(crate) fn draft_mode(&self, id: &str) -> Mode {
-        if self.restore.shown.as_deref() == Some(id) {
+        if self.kernel.slots.get(&crate::restore::RESTORE).shown.as_deref() == Some(id) {
             return self.kernel.slots.get(&crate::add_menu::ADD_MENU).mode;
         }
         self.kernel.slots.get(&crate::add_menu::ADD_MENU).parked().find(|(k, _)| *k == id).map_or(Mode::Normal, |(_, m)| m)
@@ -79,7 +80,8 @@ impl App {
 
     /// The composer words kept for tab `id`, the open one's from the composer.
     pub(crate) fn draft_text(&self, id: &str) -> Option<String> {
-        let text = if self.restore.shown.as_deref() == Some(id) { Some(self.composer.text.clone()) } else { self.restore.drafts.get(id).cloned() };
+        let r = self.kernel.slots.get(&crate::restore::RESTORE);
+        let text = if r.shown.as_deref() == Some(id) { Some(self.composer.text.clone()) } else { r.drafts.get(id).cloned() };
         text.filter(|t| !t.trim().is_empty())
     }
 }

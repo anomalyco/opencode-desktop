@@ -9,7 +9,7 @@ use rune::Play;
 use crate::App;
 use crate::stories::{Trigger, replay, sid};
 
-pub const KEYS: &[Trigger] = &[replay(open), Trigger { key: 'o', label: "Open or close the list", run: |s, _| { let next = !s.shells.activity.is_open(); crate::subagents::shells::set_open(s, next); } }];
+pub const KEYS: &[Trigger] = &[replay(open), Trigger { key: 'o', label: "Open or close the list", run: |s, _| { let next = !s.kernel.slots.get(&crate::subagents::SHELLS).activity.is_open(); crate::subagents::shells::set_open(s, next); } }];
 
 const TASKS: &[(&str, &str)] = &[
     ("general", "Slack messages prototype"),

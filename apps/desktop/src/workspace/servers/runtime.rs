@@ -384,8 +384,9 @@ impl App {
 /// a draft tab's, else Home's.
 pub fn desired(s: &App) -> ServerKey {
     // Settings' per-server pages work with Settings' own server while it's listed.
-    if s.settings.open && s.settings_pages.page.per_server() && listed().iter().any(|l| l.key == s.settings_pages.server.key) {
-        return s.settings_pages.server.key.clone();
+    let sp = s.kernel.slots.get(&crate::settings::SETTINGS_PAGES);
+    if s.settings.open && sp.page.per_server() && listed().iter().any(|l| l.key == sp.server.key) {
+        return sp.server.key.clone();
     }
     match &*s.route {
         Route::Session { server, .. } => server.clone(),

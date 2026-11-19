@@ -18,6 +18,7 @@ use crate::pickers::PickerHost as _;
 use crate::{App, Route, Source};
 
 pub(crate) static REMOTE_PICKER: Slot<remote_picker::Picker> = Slot::new();
+pub(crate) static HOME_STATE: Slot<home::Home> = Slot::new();
 
 impl ProjectsHost for App {
     fn project_state(&self) -> &ProjectsState {
@@ -29,11 +30,11 @@ impl ProjectsHost for App {
     }
 
     fn home_state(&self) -> &home::Home {
-        &self.home_state
+        self.kernel.slots.get(&HOME_STATE)
     }
 
     fn home_state_mut(&mut self) -> &mut home::Home {
-        &mut self.home_state
+        self.kernel.slots.get_mut(&HOME_STATE)
     }
 
     fn remote_picker(&self) -> &remote_picker::Picker {
@@ -460,7 +461,9 @@ impl Feature<App> for ProjectsFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
-        builder.register_slot(&REMOTE_PICKER);
+        builder
+            .register_slot(&REMOTE_PICKER)
+            .register_slot(&HOME_STATE);
         #[cfg(not(target_arch = "wasm32"))]
         builder.add_command(
             CommandEntry::<App>::from_key(

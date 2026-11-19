@@ -138,7 +138,7 @@ impl App {
             Tracked::version(&self.running),
             Tracked::version(&self.requests),
             Tracked::version(&self.pending),
-            Tracked::version(&self.permission_sent),
+            self.kernel.slots.version(&crate::permission::PERMISSION_SENT),
             Tracked::version(&self.inboxes),
             Tracked::version(&self.projects),
             Tracked::version(&self.settings),

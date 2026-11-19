@@ -521,8 +521,8 @@ impl App {
             "permission.replied" | "form.replied" | "form.cancelled" => {
                 let rid = if ty == "permission.replied" { &data["requestID"] } else { &data["id"] };
                 let rid = rid.as_str().unwrap_or("");
-                self.question.forget(rid);
-                self.permission_sent.0.remove(rid);
+                self.kernel.slots.get_mut(&crate::question::QUESTION).forget(rid);
+                self.kernel.slots.get_mut(&crate::permission::PERMISSION_SENT).0.remove(rid);
                 false
             }
             _ => false,

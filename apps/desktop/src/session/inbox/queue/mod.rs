@@ -131,9 +131,10 @@ impl QueueHost for App {
 
     fn merge_parked_draft(&mut self, session: &str, text: String, files: Vec<Attachment>, paths: Vec<PathAttachment>) {
         if let Some(key) = crate::restore::draft_key(&Route::here(session.into())) {
-            let draft = self.restore.drafts.entry(key.clone()).or_default();
+            let r = self.kernel.slots.get_mut(&crate::restore::RESTORE);
+            let draft = r.drafts.entry(key.clone()).or_default();
             *draft = machine::merged_text(draft, &text);
-            let parked = self.restore.parked.entry(key).or_default();
+            let parked = r.parked.entry(key).or_default();
             parked.files.extend(files);
             parked.paths.extend(paths);
         }

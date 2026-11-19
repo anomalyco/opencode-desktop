@@ -65,10 +65,10 @@ pub(crate) fn composer_in(s: &App, p: &Pal, scope: &str) -> El {
 
 impl session_view::dock::DockHost for App {
     fn dock(&self) -> &session_view::dock::Dock {
-        &self.question
+        self.kernel.slots.get(&crate::question::QUESTION)
     }
     fn dock_mut(&mut self) -> &mut session_view::dock::Dock {
-        &mut self.question
+        self.kernel.slots.get_mut(&crate::question::QUESTION)
     }
     fn dock_pending(&self, id: &str) -> Vec<opencode_kit::model::Pending> {
         self.pending_for(id).into_iter().cloned().collect()
@@ -95,7 +95,7 @@ impl session_view::dock::DockHost for App {
         self.pending.iter().any(|p| p.id() == id)
     }
     fn dock_busy(&self, id: &str) -> bool {
-        self.permission_sent.busy(id)
+        self.kernel.slots.get(&crate::permission::PERMISSION_SENT).busy(id)
     }
     fn dock_refocus(&self) -> bool {
         self.subagent_page().is_none()
