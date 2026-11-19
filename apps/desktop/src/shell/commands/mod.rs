@@ -90,27 +90,33 @@ impl App {
     }
 
     fn listing(&self, offered: bool) -> Vec<Command> {
-        self.kernel
+        let mut all: Vec<(i64, Command)> = self
+            .kernel
             .commands
             .iter_with_chords()
             .filter(|(c, _)| !offered || c.is_enabled(self))
             .map(|(c, chord)| {
                 let keys = c.bind_id.and_then(Bind::by_id);
-                Command {
-                    id: c.id,
-                    title: c.title_for(self),
-                    description: c.description_text().unwrap_or(""),
-                    slash: c.slash,
-                    keys,
-                    chord: if keys.is_some() { None } else { chord },
-                    section: c.section.and_then(parse_section),
-                    hidden: c.hidden,
-                    featured: false,
-                    run: Run::Fn(c.run),
-                }
+                (
+                    i64::from(c.order),
+                    Command {
+                        id: c.id,
+                        title: c.title_for(self),
+                        description: c.description_text().unwrap_or(""),
+                        slash: c.slash,
+                        keys,
+                        chord: if keys.is_some() { None } else { chord },
+                        section: c.section.and_then(parse_section),
+                        hidden: c.hidden,
+                        featured: false,
+                        run: Run::Fn(c.run),
+                    },
+                )
             })
-            .chain(crate::plugin_host::commands(self, offered))
-            .collect()
+            .chain(crate::plugin_host::commands(self, offered).into_iter().map(|(order, cmd)| (order.unwrap_or(i64::MAX), cmd)))
+            .collect();
+        all.sort_by_key(|(order, _)| *order);
+        all.into_iter().map(|(_, cmd)| cmd).collect()
     }
 
     pub fn run_command(&mut self, id: &str, tx: &mut Tx) {

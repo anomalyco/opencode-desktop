@@ -2898,6 +2898,7 @@ A command in the palette, with an optional keybind and slash command. Published 
 | `description` | `string?` | The palette's second line. |
 | `keywords` | `string?` | More words the palette matches, separated by spaces. |
 | `group` | `string?` | The palette category. |
+| `order` | `number?` | Palette order, ascending. Commands without an order are listed after ordered commands. Since 1.5. |
 | `section` | `CommandSection?` | The Settings › Shortcuts section. Defaults to `general`. |
 | `bind` | `string?` | The default keybind, such as `"mod+shift+t"`. |
 | `slash` | `CommandSlash?` | Also offers it as a slash command. |

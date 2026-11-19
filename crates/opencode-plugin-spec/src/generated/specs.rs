@@ -40,6 +40,8 @@ pub struct CommandSpec {
     pub keywords: Option<String>,
     /// The palette category.
     pub group: Option<String>,
+    /// Palette order, ascending. Commands without an order are listed after ordered commands.
+    pub order: Option<i64>,
     /// The Settings › Shortcuts section. Defaults to `general`.
     pub section: Option<CommandSection>,
     /// The default keybind, such as `"mod+shift+t"`.
@@ -59,7 +61,7 @@ pub struct CommandSpec {
     /// Offered only while a session is open.
     pub requires_session: Option<bool>,
 }
-impl_record!(CommandSpec, ["id", "title", "description", "keywords", "group", "section", "bind", "slash", "hidden", "suggested", "featured", "enabled", "editable", "requiresSession"], ["hidden", "enabled", "run"], []);
+impl_record!(CommandSpec, ["id", "title", "description", "keywords", "group", "order", "section", "bind", "slash", "hidden", "suggested", "featured", "enabled", "editable", "requiresSession"], ["hidden", "enabled", "run"], []);
 
 /// What Recently closed lists for a panel's closed tab.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

@@ -4226,6 +4226,8 @@ export type CommandSpec = {
     keywords: string?,
     --- The palette category.
     group: string?,
+    --- Palette order, ascending. Commands without an order are listed after ordered commands.
+    order: number?,
     --- The Settings › Shortcuts section. Defaults to `general`.
     section: CommandSection?,
     --- The default keybind, such as `"mod+shift+t"`.

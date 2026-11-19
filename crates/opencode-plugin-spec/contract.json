@@ -1326,6 +1326,7 @@
       { "name": "description", "type": "string?", "doc": "The palette's second line." },
       { "name": "keywords", "type": "string?", "doc": "More words the palette matches, separated by spaces." },
       { "name": "group", "type": "string?", "doc": "The palette category." },
+      { "name": "order", "type": "integer?", "since": "1.5", "doc": "Palette order, ascending. Commands without an order are listed after ordered commands." },
       { "name": "section", "type": "CommandSection?", "doc": "The Settings › Shortcuts section. Defaults to `general`." },
       { "name": "bind", "type": "string?", "doc": "The default keybind, such as `\"mod+shift+t\"`." },
       { "name": "slash", "type": "CommandSlash?", "doc": "Also offers it as a slash command." },

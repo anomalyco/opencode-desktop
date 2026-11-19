@@ -29,6 +29,7 @@ pub struct Cmd {
     pub slash: Option<&'static str>,
     pub slash_args: bool,
     pub keybind: Option<Keybind>,
+    pub order: Option<i64>,
     pub section: Option<Section>,
     pub hidden: bool,
     /// Among the palette's opening rows (`featured`, `palette.ts:160-165`).
@@ -54,6 +55,7 @@ pub fn all(app: &App) -> Vec<Cmd> {
             slash: s.slash.as_ref().map(|sl| intern(sl.name.trim_start_matches('/'))),
             slash_args: s.slash.as_ref().is_some_and(|sl| sl.arguments == Some(true)),
             keybind: s.bind.as_deref().and_then(|b| b.parse::<Keybind>().ok()).filter(|k| !k.chords().is_empty()),
+            order: s.order,
             section: s.section.map(section),
             hidden: flag(app, i, key, "hidden", hidden.as_ref(), s.hidden, false),
             featured: s.featured == Some(true),
@@ -431,23 +433,29 @@ pub fn slash_commands(app: &App) -> Vec<SlashCommand> {
     all(app).into_iter().filter(|c| offered(app, c)).filter_map(|c| Some(SlashCommand { id: c.id, name: c.slash?, title: c.title, description: c.description, args: c.slash_args })).collect()
 }
 
-/// The plugins' commands: the ones offered now (`only_offered`), or every one, as Settings ›
-/// Shortcuts lists them. Hidden ones come too, marked: the palette leaves them out.
-pub fn commands(app: &App, only_offered: bool) -> Vec<crate::commands::Command> {
+/// The plugins' commands with their optional palette order: the ones offered now (`only_offered`),
+/// or every one, as Settings › Shortcuts lists them. Hidden ones come too, marked: the palette
+/// leaves them out.
+pub fn commands(app: &App, only_offered: bool) -> Vec<(Option<i64>, crate::commands::Command)> {
     all(app)
         .into_iter()
         .filter(|c| !only_offered || offered(app, c))
-        .map(|c| crate::commands::Command {
-            id: c.id,
-            title: c.title,
-            description: c.description,
-            slash: c.slash,
-            keys: None,
-            chord: c.keybind.as_ref().and_then(|k| k.chords().first().copied()),
-            section: c.section,
-            hidden: c.hidden,
-            featured: c.featured,
-            run: crate::commands::Run::Plugin(c.id),
+        .map(|c| {
+            (
+                c.order,
+                crate::commands::Command {
+                    id: c.id,
+                    title: c.title,
+                    description: c.description,
+                    slash: c.slash,
+                    keys: None,
+                    chord: c.keybind.as_ref().and_then(|k| k.chords().first().copied()),
+                    section: c.section,
+                    hidden: c.hidden,
+                    featured: c.featured,
+                    run: crate::commands::Run::Plugin(c.id),
+                },
+            )
         })
         .collect()
 }
