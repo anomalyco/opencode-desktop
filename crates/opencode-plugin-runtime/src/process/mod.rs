@@ -13,6 +13,8 @@
 // Windows job objects and process handles; each block says what it relies on.
 #![allow(unsafe_code)]
 
+pub mod service;
+
 use std::io::{Read, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{Sender, channel};

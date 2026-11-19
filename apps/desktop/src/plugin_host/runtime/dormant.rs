@@ -319,9 +319,9 @@ fn busy(app: &App, i: usize, id: &str) -> bool {
         Overlay::Popover { plugin, .. } | Overlay::PillMenu { plugin, .. } => &**plugin == id,
         Overlay::Closed => false,
     };
-    !half.procs.borrow().is_empty() || !half.runs.borrow().is_empty() || !half.held.borrow().is_empty()
+    half.procs.is_busy() || !half.held.borrow().is_empty()
         || app.plugins.dialog.as_ref().is_some_and(|d| &*d.plugin == id) || overlay
-        || super::app_half::each(|a| (&*a.half.id == id).then(|| !a.half.procs.borrow().is_empty() || !a.half.runs.borrow().is_empty() || !a.half.held.borrow().is_empty())).into_iter().any(|b| b)
+        || super::app_half::each(|a| (&*a.half.id == id).then(|| a.half.procs.is_busy() || !a.half.held.borrow().is_empty())).into_iter().any(|b| b)
 }
 
 /// One window's dormant app half `id` is gone (it started, was turned off, or its window closed).

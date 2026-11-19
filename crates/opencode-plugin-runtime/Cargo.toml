@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 base64.workspace = true
 mlua = { git = "https://github.com/mlua-rs/mlua", rev = "a0ad4535fc72ba89967a931c5be57b162b5f0f3f", features = ["luau"] }
+opencode-i18n = { path = "../opencode-i18n" }
 opencode-kit = { path = "../opencode-kit" }
 opencode-platform = { path = "../opencode-platform" }
 opencode-plugin-spec = { path = "../opencode-plugin-spec" }
@@ -22,7 +23,11 @@ sha2 = "0.10"
 toml_edit = { version = "0.25", default-features = false, features = ["parse", "serde"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+getrandom = "0.3"
 notify = "8"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.3", features = ["wasm_js"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

@@ -5,10 +5,13 @@
 //! supervised child-process manager, display-sleep blocker, QR encoder, and Luau service helpers
 //! that have zero dependency on any specific application shell.
 
+pub mod askpass;
 pub mod catalogs;
 pub mod console;
+pub mod contracts;
 pub mod flyout;
 pub mod hot;
+pub mod i18n;
 pub mod icons;
 pub mod images;
 pub mod luau;
@@ -21,3 +24,10 @@ pub mod redraw;
 pub mod reveal;
 pub mod sources;
 pub mod tasks;
+
+/// Which half of a plugin.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    Window,
+    App,
+}

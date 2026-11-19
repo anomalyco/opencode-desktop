@@ -6,17 +6,13 @@ use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
 
-use mlua::{Function, RegistryKey, Value};
+use mlua::{Function, Value};
 use opencode_plugin_spec as spec;
 
-use crate::plugin_host::cx::Dep;
+pub use opencode_plugin_runtime::Kind;
+pub use opencode_plugin_runtime::luau::Resource;
 
-/// Which half of a plugin.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Kind {
-    Window,
-    App,
-}
+use crate::plugin_host::cx::Dep;
 
 /// One contribution: its decoded spec, the functions it handed over, and the VM they live in.
 pub struct Contrib<S> {
@@ -87,17 +83,11 @@ impl Contribs {
     }
 }
 
-/// A cached server read (`Server:Resource`): its ticket, and the answer's text and JSON as Luau
-/// values, made once per answer.
-#[derive(Default)]
-pub struct Resource {
-    pub ticket: crate::plugin_host::machines::Ticket,
-    pub value: Option<(i64, Rc<RegistryKey>, Rc<RegistryKey>)>,
-}
-
 pub struct Half {
     pub id: Rc<str>,
     pub kind: Kind,
+    /// Ownership token tracked by process-wide services (`askpass`) to prune entries when dropped.
+    pub token: Rc<()>,
     /// A migrated bundled half explicitly invalidates its surfaces; other 1.0 plugins keep the implicit redraw.
     pub owns_redraw: bool,
     /// The VM whose setup filled `made`, waiting for the host to adopt it.
@@ -116,12 +106,9 @@ pub struct Half {
     pub resources: RefCell<HashMap<String, Resource>>,
     /// What each surface read when it last ran, by surface id.
     pub reads: RefCell<HashMap<String, Vec<Dep>>>,
-    pub catalogs: RefCell<crate::plugin_host::Catalogs>,
-    /// Its processes, and the inbox their threads fill.
-    pub procs: RefCell<HashMap<u64, crate::plugin_host::services::process::Proc>>,
-    pub inbox: crate::plugin_host::services::process::Inbox,
-    /// `Process:RunAsync`'s processes, by VM, killed with the half.
-    pub runs: RefCell<Vec<(u64, crate::plugin_host::process::Control)>>,
+    pub catalogs: Rc<RefCell<crate::plugin_host::Catalogs>>,
+    /// Supervised processes (`Process:Spawn` and `Process:RunAsync`) owned by this half.
+    pub procs: Rc<opencode_plugin_runtime::process::service::Procs>,
     /// What the half holds of the host's process-wide services (display locks, prompt
     /// listeners), by VM, let go with the half.
     pub held: RefCell<Vec<(u64, crate::plugin_host::services::Held)>>,
@@ -140,6 +127,7 @@ impl Half {
         Rc::new(Half {
             id: id.into(),
             kind,
+            token: Rc::new(()),
             owns_redraw: super::redraw::explicit(tier, id),
             made: RefCell::default(),
             contribs: RefCell::default(),
@@ -149,10 +137,8 @@ impl Half {
             editors_made: Cell::new(0),
             resources: RefCell::default(),
             reads: RefCell::default(),
-            catalogs: RefCell::default(),
-            procs: RefCell::default(),
-            inbox: Default::default(),
-            runs: RefCell::default(),
+            catalogs: Rc::default(),
+            procs: Rc::default(),
             held: RefCell::default(),
             epoch: Cell::new(0),
             seen: RefCell::default(),

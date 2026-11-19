@@ -3877,9 +3877,11 @@ name = "opencode-plugin-runtime"
 version = "0.0.1"
 dependencies = [
  "base64 0.22.1",
+ "getrandom 0.3.4",
  "libc",
  "mlua",
  "notify",
+ "opencode-i18n",
  "opencode-kit",
  "opencode-platform",
  "opencode-plugin-spec",

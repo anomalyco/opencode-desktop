@@ -7,11 +7,12 @@ use std::rc::Rc;
 use mlua::{Lua, Table, Value};
 use rune::Tx;
 
-use super::{json_to_lua, lazy_signals, method, record, snapshot, with_app};
+use super::{lazy_signals, method, record, snapshot, with_app};
 use crate::App;
 use crate::plugin_host::cx::{self, Dep};
-use crate::plugin_host::machines::{Fetched, Item, Items, Ticket, TicketEffect, TicketEvent};
-use crate::plugin_host::plugin::Resource;
+use crate::plugin_host::machines::{Fetched, TicketEffect, TicketEvent};
+use opencode_plugin_runtime::luau::{resource_value, split_items, version_hash};
+pub use opencode_plugin_runtime::luau::encode_uri;
 use crate::plugin_host::vm::Vmx;
 
 pub fn build(lua: &Lua, vmx: &Rc<Vmx>, name: &str, t: &Table) -> mlua::Result<()> {
@@ -345,92 +346,6 @@ fn server(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     lazy_signals(lua, vmx, t, "Server", &["Connected"])
 }
 
-fn resource_value(lua: &Lua, r: &mut Resource) -> mlua::Result<Value> {
-    let (status, error) = match &r.ticket {
-        Ticket::Empty | Ticket::Loading { .. } => ("loading", None),
-        Ticket::Ready { .. } => ("ready", None),
-        Ticket::Failed { error, .. } => ("error", Some(error.as_str())),
-    };
-    let generation = r.ticket.body().map_or(0, |b| b.generation);
-    let out = record(lua, 5, |o| {
-        o.str(c"status", status);
-        o.opt_str(c"error", error);
-        o.num(c"generation", generation as f64);
-    })?;
-    let Some(body) = r.ticket.body() else {
-        out.raw_set("text", "")?;
-        return Ok(Value::Table(out));
-    };
-    // The answer's text and JSON (or its items) become Luau values once per answer, not once per
-    // read.
-    let (text, decoded) = match &r.value {
-        Some((g, text, decoded)) if *g == body.generation => (lua.registry_value::<Value>(text)?, lua.registry_value::<Value>(decoded)?),
-        _ => {
-            let text = Value::String(lua.create_string(&*body.text)?);
-            // A split answer keeps its items and the rest of it apart: `{ items, json }`.
-            let decoded = match &body.items {
-                Some(items) => {
-                    let both = lua.create_table_with_capacity(2, 0)?;
-                    both.raw_push(items_value(lua, &items.list)?)?;
-                    both.raw_push(json_to_lua(lua, &items.rest)?)?;
-                    Value::Table(both)
-                }
-                None => match serde_json::from_str::<serde_json::Value>(&body.text) {
-                    Ok(v) => json_to_lua(lua, &v)?,
-                    Err(_) => Value::Nil,
-                },
-            };
-            r.value = Some((body.generation, Rc::new(lua.create_registry_value(text.clone())?), Rc::new(lua.create_registry_value(decoded.clone())?)));
-            (text, decoded)
-        }
-    };
-    out.raw_set("text", text)?;
-    match (&body.items, decoded) {
-        (Some(_), Value::Table(both)) => {
-            out.raw_set("items", both.raw_get::<Value>(1)?)?;
-            out.raw_set("json", both.raw_get::<Value>(2)?)?;
-        }
-        (_, decoded) => out.raw_set("json", decoded)?,
-    }
-    Ok(Value::Table(out))
-}
-
-/// An answer's listed items (`{ "data": [...] }` or `[...]`), each with its `id`, `type`,
-/// `time.created` and JSON, and the rest of the answer; nil for an answer that lists none.
-fn split_items(text: &str) -> Option<Items> {
-    let mut v: serde_json::Value = serde_json::from_str(text).ok()?;
-    let list = match &mut v {
-        serde_json::Value::Array(list) => std::mem::take(list),
-        serde_json::Value::Object(o) => match o.shift_remove("data") {
-            Some(serde_json::Value::Array(list)) => list,
-            _ => return None,
-        },
-        _ => return None,
-    };
-    let list = list.iter().map(|m| Item {
-        id: m["id"].as_str().unwrap_or("").to_owned(),
-        kind: m["type"].as_str().unwrap_or("").to_owned(),
-        created: m["time"]["created"].as_f64(),
-        text: m.to_string(),
-    }).collect();
-    Some(Items { list, rest: v })
-}
-
-fn items_value(lua: &Lua, items: &[Item]) -> mlua::Result<Value> {
-    let list = lua.create_table_with_capacity(items.len(), 0)?;
-    for item in items {
-        list.raw_push(record(lua, 4, |e| {
-            e.str(c"id", &item.id);
-            e.str(c"kind", &item.kind);
-            if let Some(at) = item.created {
-                e.num(c"created", at);
-            }
-            e.str(c"text", &item.text);
-        })?)?;
-    }
-    Ok(Value::Table(list))
-}
-
 /// A cached read's key: its server's, then its path (`(ServerKey, path)`).
 fn resource_key(server: &opencode_kit::servers::ServerKey, path: &str) -> String {
     format!("{server}\n{path}")
@@ -446,32 +361,6 @@ fn land(app: &mut App, plugin: &str, key: &str, version: u64, answer: Result<Fet
     if r.ticket.generation() != before {
         tx.instant();
     }
-}
-/// A memo version off a Luau value.
-pub fn version_hash(v: &Value) -> u64 {
-    let mut h = std::hash::DefaultHasher::new();
-    match v {
-        Value::Boolean(b) => (1u8, b).hash(&mut h),
-        Value::Integer(i) => (2u8, (*i as f64).to_bits()).hash(&mut h),
-        Value::Number(n) => (2u8, n.to_bits()).hash(&mut h),
-        Value::String(s) => (3u8, s.as_bytes().to_vec()).hash(&mut h),
-        _ => 0u8.hash(&mut h),
-    }
-    h.finish()
-}
-
-/// `encodeURIComponent`.
-pub fn encode_uri(s: &str) -> String {
-    const HEX: &[u8; 16] = b"0123456789ABCDEF";
-    let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        if b.is_ascii_alphanumeric() || b"-_.!~*'()".contains(&b) {
-            out.push(b as char);
-        } else {
-            out.extend(['%', HEX[usize::from(b >> 4)] as char, HEX[usize::from(b & 15)] as char]);
-        }
-    }
-    out
 }
 
 fn servers(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {

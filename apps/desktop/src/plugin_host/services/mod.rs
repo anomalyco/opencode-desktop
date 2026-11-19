@@ -7,8 +7,6 @@
 //! Toast, Popover, Dialog, Menu, Layout, Links, Commands, Theme, App, System, Notifications,
 //! Workspace (files and downloads), Diagnostics (metrics) and I18n; LU-4 Power, Qr and Askpass.
 //! The rest answer with an error naming the package that brings them (see `PENDING`).
-// Records are built on the Lua stack through the C API; each block says what it relies on.
-#![allow(unsafe_code)]
 
 pub(super) mod app;
 pub mod askpass;
@@ -27,12 +25,14 @@ mod ui;
 mod updater;
 mod watch;
 
-use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 use mlua::{Function, Lua, MultiValue, Table, Value};
-use rune_luau::{Data, Host};
+use rune_luau::Host;
+
+pub use opencode_plugin_runtime::luau::{json_to_data, json_to_lua, map};
+pub(super) use opencode_plugin_runtime::luau::{method, record, snapshot};
 
 use super::cx::{self, Dep};
 use super::plugin::{Half, Kind};
@@ -143,158 +143,6 @@ pub fn asyncs(host: &Host<'_>, t: &Table, half: &Rc<Half>) -> mlua::Result<()> {
     updater::asyncs(host, t, half)?;
     super::native::asyncs(host, t)?;
     ui::asyncs(host, t, half)
-}
-
-/// Adds method `name` to service `t`: `f(lua, args)` without the `self` the colon passes. The
-/// arguments convert straight off the Lua stack, with no argument list in between.
-pub(super) fn method<A: mlua::FromLuaMulti, R: mlua::IntoLuaMulti>(lua: &Lua, t: &Table, name: &str, f: impl Fn(&Lua, A) -> mlua::Result<R> + 'static) -> mlua::Result<()> {
-    t.raw_set(name, lua.create_function(move |lua, (_, args): (Receiver, A)| f(lua, args))?)
-}
-
-/// A new table `fill` writes field by field straight on the Lua stack, for the records a render
-/// reads (a session, a model): one protected call, rather than a trip through mlua's handles per
-/// field.
-pub(super) fn record(lua: &Lua, fields: i32, fill: impl FnOnce(&mut Record)) -> mlua::Result<Table> {
-    // SAFETY: `fill` only pushes values and sets them into the table on top, which stays there.
-    unsafe {
-        lua.exec_raw::<Table>((), |state| {
-            mlua::ffi::lua_createtable(state, 0, fields);
-            fill(&mut Record { state });
-        })
-    }
-}
-
-/// The table [`record`] fills, on top of the stack.
-pub(super) struct Record {
-    state: *mut mlua::ffi::lua_State,
-}
-
-impl Record {
-    pub fn str(&mut self, key: &std::ffi::CStr, value: &str) {
-        // SAFETY: the table is on top; the value pushed above it is set and popped.
-        unsafe {
-            mlua::ffi::lua_pushlstring(self.state, value.as_ptr().cast(), value.len());
-            mlua::ffi::lua_rawsetfield(self.state, -2, key.as_ptr());
-        }
-    }
-
-    pub fn opt_str(&mut self, key: &std::ffi::CStr, value: Option<&str>) {
-        if let Some(v) = value {
-            self.str(key, v);
-        }
-    }
-
-    pub fn num(&mut self, key: &std::ffi::CStr, value: f64) {
-        // SAFETY: as in `str`.
-        unsafe {
-            mlua::ffi::lua_pushnumber(self.state, value);
-            mlua::ffi::lua_rawsetfield(self.state, -2, key.as_ptr());
-        }
-    }
-
-    pub fn bool(&mut self, key: &std::ffi::CStr, value: bool) {
-        // SAFETY: as in `str`.
-        unsafe {
-            mlua::ffi::lua_pushboolean(self.state, i32::from(value));
-            mlua::ffi::lua_rawsetfield(self.state, -2, key.as_ptr());
-        }
-    }
-
-    /// A nested record under `key`.
-    pub fn record(&mut self, key: &std::ffi::CStr, fields: i32, fill: impl FnOnce(&mut Record)) {
-        // SAFETY: the nested table is pushed, filled while on top, then set into ours.
-        unsafe {
-            mlua::ffi::lua_createtable(self.state, 0, fields);
-            fill(self);
-            mlua::ffi::lua_rawsetfield(self.state, -2, key.as_ptr());
-        }
-    }
-}
-
-/// The records this VM's renders read, as last built, by slot and by what they were built from:
-/// a render asks for the same session or server list every time it runs.
-#[derive(Default)]
-struct Snapshots(HashMap<String, (u64, mlua::RegistryKey)>);
-
-/// The record in `slot` built from `stamp`: `build` runs only when `stamp` moved, and the script
-/// gets its own deep copy of the kept table, which costs far less than building it again (no
-/// string is hashed and interned anew), so what it does to its copy stays its own.
-pub(super) fn snapshot(lua: &Lua, slot: &str, stamp: u64, build: impl FnOnce() -> mlua::Result<Value>) -> mlua::Result<Value> {
-    if lua.app_data_ref::<Snapshots>().is_none() {
-        lua.set_app_data(Snapshots::default());
-    }
-    let kept = lua.app_data_ref::<Snapshots>().and_then(|s| s.0.get(slot).filter(|(at, _)| *at == stamp).map(|(_, k)| lua.registry_value::<Table>(k)));
-    if let Some(kept) = kept {
-        return deep_copy(lua, &kept?).map(Value::Table);
-    }
-    let built = build()?;
-    let mut kept = lua.app_data_mut::<Snapshots>();
-    // A record that isn't a table (a session that doesn't exist) is cheap to make: none is kept.
-    let (Value::Table(t), Some(s)) = (&built, kept.as_mut()) else {
-        if let Some(s) = kept.as_mut() {
-            s.0.remove(slot);
-        }
-        return Ok(built);
-    };
-    if s.0.len() >= 256 {
-        s.0.clear();
-    }
-    s.0.insert(slot.to_owned(), (stamp, lua.create_registry_value(t)?));
-    drop(kept);
-    deep_copy(lua, t).map(Value::Table)
-}
-
-/// A copy of `t` and of every table under it (records nest a few levels at most).
-fn deep_copy(lua: &Lua, t: &Table) -> mlua::Result<Table> {
-    // SAFETY: `copy` pushes exactly one table over the argument, which is then removed.
-    unsafe {
-        lua.exec_raw::<Table>(t, |state| {
-            copy(state, -1, 0);
-            mlua::ffi::lua_remove(state, -2);
-        })
-    }
-}
-
-/// Pushes a copy of the table at `idx`, copying nested tables up to 8 levels down.
-unsafe fn copy(state: *mut mlua::ffi::lua_State, idx: std::os::raw::c_int, depth: usize) {
-    use mlua::ffi;
-    // SAFETY: each pass of the walk pushes a key and a value and leaves the stack as it found it.
-    unsafe {
-        let idx = ffi::lua_absindex(state, idx);
-        ffi::luaL_checkstack(state, 4, std::ptr::null());
-        ffi::lua_clonetable(state, idx);
-        if depth >= 8 {
-            return;
-        }
-        let clone = ffi::lua_gettop(state);
-        let mut iter = 0;
-        loop {
-            iter = ffi::lua_rawiter(state, clone, iter);
-            if iter < 0 {
-                break;
-            }
-            if ffi::lua_type(state, -1) == ffi::LUA_TTABLE {
-                copy(state, -1, depth + 1);
-                ffi::lua_remove(state, -2);
-                ffi::lua_rawset(state, clone);
-            } else {
-                ffi::lua_settop(state, -3);
-            }
-        }
-    }
-}
-
-/// The `self` a method call passes, skipped where it sits on the stack.
-struct Receiver;
-
-impl mlua::FromLua for Receiver {
-    fn from_lua(_: Value, _: &Lua) -> mlua::Result<Self> {
-        Ok(Receiver)
-    }
-
-    unsafe fn from_stack(_: std::os::raw::c_int, _: &mlua::state::RawLua) -> mlua::Result<Self> {
-        Ok(Receiver)
-    }
 }
 
 /// Adds the async function `name` (made in [`asyncs`]) as method `method` of `t`.
@@ -468,49 +316,6 @@ pub fn servers_version(app: &App) -> u64 {
     health.sort();
     health.hash(&mut h);
     h.finish()
-}
-
-/// A JSON value as a Luau value.
-pub fn json_to_lua(lua: &Lua, v: &serde_json::Value) -> mlua::Result<Value> {
-    use serde_json::Value as J;
-    Ok(match v {
-        J::Null => Value::Nil,
-        J::Bool(b) => Value::Boolean(*b),
-        J::Number(n) => Value::Number(n.as_f64().unwrap_or(0.0)),
-        J::String(s) => Value::String(lua.create_string(s)?),
-        J::Array(items) => {
-            let t = lua.create_table_with_capacity(items.len(), 0)?;
-            for (i, item) in items.iter().enumerate() {
-                t.raw_set(i + 1, json_to_lua(lua, item)?)?;
-            }
-            Value::Table(t)
-        }
-        J::Object(fields) => {
-            let t = lua.create_table_with_capacity(0, fields.len())?;
-            for (k, item) in fields {
-                t.raw_set(k.as_str(), json_to_lua(lua, item)?)?;
-            }
-            Value::Table(t)
-        }
-    })
-}
-
-/// A JSON value as [`Data`], for a completer.
-pub fn json_to_data(v: &serde_json::Value) -> Data {
-    use serde_json::Value as J;
-    match v {
-        J::Null => Data::Nil,
-        J::Bool(b) => Data::Bool(*b),
-        J::Number(n) => n.as_i64().map_or_else(|| Data::Number(n.as_f64().unwrap_or(0.0)), Data::Integer),
-        J::String(s) => Data::String(s.clone()),
-        J::Array(items) => Data::List(items.iter().map(json_to_data).collect()),
-        J::Object(fields) => Data::Map(fields.iter().map(|(k, v)| (k.clone(), json_to_data(v))).collect()),
-    }
-}
-
-/// A map of `Data` fields.
-pub fn map(fields: impl IntoIterator<Item = (&'static str, Data)>) -> Data {
-    Data::Map(fields.into_iter().filter(|(_, v)| *v != Data::Nil).map(|(k, v)| (k.to_owned(), v)).collect())
 }
 
 /// Runs `f` with the active entry's `&App`, or raises the error a binding raises without one.
