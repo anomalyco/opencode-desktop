@@ -62,31 +62,33 @@ fn open(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
         "pptx" => office_preview::Kind::Presentation,
         other => return Err(mlua::Error::runtime(format!("unknown OfficeKind {other:?}"))),
     };
-    let app = cx::app().ok_or_else(|| mlua::Error::runtime("Office:OpenAsync needs a window"))?;
-    let waker = (*app.waker).clone();
-    let opened = move |bytes: Result<Vec<u8>, String>| {
-        let bytes = match bytes {
-            Ok(bytes) => bytes,
-            Err(e) => return done.complete(answer(0, "unreadable", Some(&e))),
+    cx::with_app(|app| {
+        let waker = (*app.waker).clone();
+        let opened = move |bytes: Result<Vec<u8>, String>| {
+            let bytes = match bytes {
+                Ok(bytes) => bytes,
+                Err(e) => return done.complete(answer(0, "unreadable", Some(&e))),
+            };
+            let size = bytes.len();
+            if bytes.starts_with(ZIP) {
+                registry::open(kind, bytes, size, waker, done);
+            } else {
+                done.complete(answer(size, if bytes.starts_with(COMPOUND) { "compound" } else { "other" }, None));
+            }
         };
-        let size = bytes.len();
-        if bytes.starts_with(ZIP) {
-            registry::open(kind, bytes, size, waker, done);
-        } else {
-            done.complete(answer(size, if bytes.starts_with(COMPOUND) { "compound" } else { "other" }, None));
+        if !app.live() {
+            let file = std::path::Path::new(&directory).join(&path);
+            let bytes = std::fs::read(&file).map_err(|e| format!("{}: {e}", file.display()));
+            opened(bytes);
+            return;
         }
-    };
-    if !app.live() {
-        let file = std::path::Path::new(&directory).join(&path);
-        let bytes = std::fs::read(&file).map_err(|e| format!("{}: {e}", file.display()));
-        opened(bytes);
-        return Ok(());
-    }
-    let url = format!("/api/fs/read/{}?location%5Bdirectory%5D={}", crate::review::data::encode_fs_path(&relative(&path, &directory)), crate::switcher::encode(&directory));
-    app.job(move |srv| {
-        let bytes = srv.get_bytes(&url).map_err(|e| e.to_string());
-        Box::new(move |_: &mut App, _: &mut rune::Tx| opened(bytes)) as crate::jobs::Apply
-    });
+        let url = format!("/api/fs/read/{}?location%5Bdirectory%5D={}", crate::review::data::encode_fs_path(&relative(&path, &directory)), crate::switcher::encode(&directory));
+        app.job(move |srv| {
+            let bytes = srv.get_bytes(&url).map_err(|e| e.to_string());
+            Box::new(move |_: &mut App, _: &mut rune::Tx| opened(bytes)) as crate::jobs::Apply
+        });
+    })
+    .ok_or_else(|| mlua::Error::runtime("Office:OpenAsync needs a window"))?;
     Ok(())
 }
 

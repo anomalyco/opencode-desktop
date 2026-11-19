@@ -1,6 +1,7 @@
 //! Plugin discovery, staged startup (first screen before first frame, dormant records, and
 //! one-per-turn deferred loading), plugin folder scanning, and tier adoption.
 
+pub(crate) use opencode_plugin_runtime::boot::{Boot, BootEffect, BootEvent, Doze};
 use opencode_plugin_spec::Manifest;
 use rune::{Tx, Waker};
 
@@ -9,127 +10,6 @@ use crate::App;
 use crate::plugin_host::{
     Half, Hot, Life, LifeEvent, Plugin, Tier, Trust, contrib, drive, process, servers, services, stores, tasks,
 };
-
-/// The plugin folders (`--plugin-dir`, overrides, installed plugins) of a window: not read yet,
-/// being read on a worker, or in.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) enum Folders {
-    #[default]
-    Unread,
-    Reading,
-    Read,
-}
-
-/// Whether the built-ins queued in `later` that have a record of this build still owe their
-/// after-frame doze (`doze_owed`).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) enum Doze {
-    #[default]
-    Done,
-    Owed,
-}
-
-/// Where a window's plugin host boot stands: unstarted, or started with its folder scan, deferred
-/// built-ins, and one-shot after-frame doze latch.
-#[derive(Default)]
-pub(crate) enum Boot {
-    #[default]
-    Unstarted,
-    Started {
-        /// Where reading the plugin folders stands.
-        folders: Folders,
-        /// Built-ins this launch's first screen doesn't show, started after its first frame.
-        later: Vec<sources::Found>,
-        /// The boot record knows the built-ins' records, and those of `later` that have one
-        /// haven't gone to sleep yet (`doze_owed`).
-        doze: Doze,
-    },
-}
-
-pub(crate) enum BootEvent {
-    Start { later: Vec<sources::Found>, doze: Doze },
-    Doze,
-    FirstFrame,
-    FoldersLoaded,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum BootEffect {
-    Doze,
-    StartLater,
-    ReadFolders,
-}
-
-impl Boot {
-    pub(crate) fn is_started(&self) -> bool {
-        matches!(self, Self::Started { .. })
-    }
-
-    pub(crate) fn later(&self) -> &[sources::Found] {
-        match self {
-            Self::Unstarted => &[],
-            Self::Started { later, .. } => later,
-        }
-    }
-
-    fn take_later(&mut self) -> Vec<sources::Found> {
-        match self {
-            Self::Unstarted => Vec::new(),
-            Self::Started { later, .. } => std::mem::take(later),
-        }
-    }
-
-    fn push_later(&mut self, found: sources::Found) {
-        if let Self::Started { later, .. } = self {
-            later.push(found);
-        }
-    }
-
-    fn extend_later(&mut self, found: Vec<sources::Found>) {
-        if let Self::Started { later, .. } = self {
-            later.extend(found);
-        }
-    }
-
-    fn set_later(&mut self, keep: Vec<sources::Found>) {
-        if let Self::Started { later, .. } = self {
-            *later = keep;
-        }
-    }
-
-    fn pop_front_later(&mut self) -> Option<sources::Found> {
-        match self {
-            Self::Started { later, .. } if !later.is_empty() => Some(later.remove(0)),
-            _ => None,
-        }
-    }
-
-    pub(crate) fn step(&mut self, event: BootEvent) -> Vec<BootEffect> {
-        match (self, event) {
-            (boot @ Self::Unstarted, BootEvent::Start { later, doze }) => {
-                *boot = Self::Started { folders: Folders::Unread, later, doze };
-                Vec::new()
-            }
-            (Self::Started { doze: doze @ Doze::Owed, .. }, BootEvent::Doze) => {
-                *doze = Doze::Done;
-                vec![BootEffect::Doze]
-            }
-            (Self::Started { folders, .. }, BootEvent::FirstFrame) => {
-                let mut effects = vec![BootEffect::StartLater];
-                if *folders == Folders::Unread {
-                    *folders = Folders::Reading;
-                    effects.push(BootEffect::ReadFolders);
-                }
-                effects
-            }
-            (Self::Started { folders, .. }, BootEvent::FoldersLoaded) => {
-                *folders = Folders::Read;
-                Vec::new()
-            }
-            _ => Vec::new(),
-        }
-    }
-}
 
 /// Discovers and starts the plugins once the window's waker exists (`--no-plugins` skips it).
 pub fn setup(app: &mut App, waker: Waker) {
@@ -510,13 +390,5 @@ fn folders_read(app: &mut App) {
 }
 
 fn runs_here(m: &Manifest) -> bool {
-    use opencode_plugin_spec::Platform;
-    let here = if cfg!(target_os = "windows") {
-        Platform::Windows
-    } else if cfg!(target_os = "macos") {
-        Platform::Macos
-    } else {
-        Platform::Linux
-    };
-    (m.os.is_empty() || m.os.contains(&here)) && (m.channels.is_empty() || m.channels.contains(&services::app::channel()))
+    opencode_plugin_runtime::boot::runs_here(m, services::app::channel())
 }

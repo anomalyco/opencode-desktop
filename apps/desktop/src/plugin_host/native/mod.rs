@@ -12,7 +12,6 @@ pub mod diff;
 pub mod files;
 pub mod icons;
 pub mod open_in;
-pub mod segmented;
 pub mod sidebar;
 pub mod terminal;
 pub mod tree;
@@ -35,16 +34,10 @@ pub fn nodes() -> Vec<HostNode> {
         HostNode::new("fileTree", tree::view),
         HostNode::new("panelSidebar", sidebar::view),
         HostNode::new("openInButton", open_in::view),
-        HostNode::new("segmented", segmented::view),
         HostNode::new("terminalSurface", terminal::view),
         HostNode::new("terminalTabLabel", terminal::label),
         HostNode::new("browserSurface", browser::view),
     ]
-}
-
-/// The app's icon named `name` (`ui.icon`'s names).
-pub(crate) fn icon(name: &str) -> &'static rune::Icon {
-    crate::plugin_host::icons::resolve("", name)
 }
 
 /// Lands what the engines read, and reads again what file events made stale.

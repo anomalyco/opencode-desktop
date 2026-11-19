@@ -36,7 +36,7 @@ pub use ui::{panels, surfaces};
 pub(crate) use ui::editors;
 
 use std::cell::{Cell, RefCell};
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
 
 use opencode_plugin_spec::Manifest;
@@ -49,7 +49,7 @@ pub use contrib::{
     code_block_actions, mcp_call, mcp_tools, mcp_tools_generation, menubar_items, open_link, run_menu_item,
     run_menubar, server_menu_items, settings_search,
 };
-pub use flyout::{Flyout, FlyoutEvent};
+pub use flyout::{Flyout, FlyoutEvent, Overlay};
 pub use machines::{Hot, HotEffect, Life, LifeEffect, LifeEvent, Trust, TrustEffect, TrustEvent};
 pub use plugin::Half;
 pub use reveal::reveal;
@@ -119,81 +119,6 @@ impl Plugin {
     }
 }
 
-/// What a plugin shows over the window: nothing, a popover it placed (with the list a
-/// `ui.flyoutRow` in it opened beside it), or a composer pill's menu (under the host's heading,
-/// above its pill). One at a time: opening one closes the other.
-#[derive(Default)]
-pub enum Overlay {
-    #[default]
-    Closed,
-    Popover {
-        plugin: Rc<str>,
-        id: String,
-        anchor: String,
-        side: rune::Side,
-        align: rune::Align,
-        gap: f32,
-        data: Data,
-        flyout: Box<Flyout>,
-        back: Option<String>,
-    },
-    PillMenu {
-        plugin: Rc<str>,
-        id: String,
-        anchor: String,
-        data: Data,
-    },
-}
-
-impl Overlay {
-    /// Whether plugin `plugin`'s popover `id` is open, on its own or as a row's list.
-    pub fn popover_open(&self, plugin: &str, id: &str) -> bool {
-        match self {
-            Overlay::Popover { plugin: p, id: i, flyout, .. } if &**p == plugin => {
-                i == id || flyout.list().is_some_and(|l| l.id == id)
-            }
-            _ => false,
-        }
-    }
-
-    /// The row of plugin `plugin`'s open popover whose list shows beside it.
-    pub fn flyout_row(&self, plugin: &str) -> Option<&str> {
-        match self {
-            Overlay::Popover { plugin: p, flyout, .. } if &**p == plugin => flyout.row(),
-            _ => None,
-        }
-    }
-
-    /// The list the open popover's flyout shows, whoever's popover it is.
-    pub fn flyout_list(&self) -> Option<&flyout::Row> {
-        match self {
-            Overlay::Popover { flyout, .. } => flyout.list(),
-            _ => None,
-        }
-    }
-
-    /// The open popover's flyout waits on the pointer's aim.
-    pub fn flyout_due(&self) -> bool {
-        matches!(self, Overlay::Popover { flyout, .. } if flyout.due().is_some())
-    }
-
-    /// Whether plugin `plugin`'s pill `id` has its menu open.
-    pub fn pill_open(&self, plugin: &str, id: &str) -> bool {
-        matches!(self, Overlay::PillMenu { plugin: p, id: i, .. } if &**p == plugin && i == id)
-    }
-
-    pub fn is_open(&self) -> bool {
-        !matches!(self, Overlay::Closed)
-    }
-
-    /// Closes what plugin `plugin` shows (it stopped).
-    pub fn close_for(&mut self, plugin: &str) {
-        if matches!(self, Overlay::Popover { plugin: p, .. } | Overlay::PillMenu { plugin: p, .. } if &**p == plugin) {
-            *self = Overlay::Closed;
-        }
-    }
-}
-
 /// The plugin dialog on screen.
 pub struct OpenDialog {
     pub plugin: Rc<str>,
@@ -206,6 +131,25 @@ pub struct PluginMetrics {
     pub memory_kb: f64,
     pub render_us: f64,
     pub memo_hit_rate: f64,
+}
+
+/// The pane's display scale while a panel renders (`PanelViewCtx.env_scale`), defaulting to `1.0`.
+pub(crate) struct PanelScale(Cell<f32>);
+
+impl Default for PanelScale {
+    fn default() -> Self {
+        Self(Cell::new(1.0))
+    }
+}
+
+impl PanelScale {
+    pub(crate) fn get(&self) -> f32 {
+        self.0.get()
+    }
+
+    pub(crate) fn replace(&self, scale: f32) -> f32 {
+        self.0.replace(scale)
+    }
 }
 
 /// The window's plugin host (`WindowPluginHost`).
@@ -243,6 +187,22 @@ pub struct PluginHost {
     pub force_focus: bool,
     /// A UI entry without a transaction asked for something: the next poll carries it out.
     pub asked: Cell<bool>,
+    /// Actions plugins queued for this window during a VM entry, carried out by `requests::carry_out`.
+    pub(crate) pending_requests: RefCell<Vec<(Rc<str>, cx::Request)>>,
+    /// Per-window memo cache for reactive command flags (`cx::answer`).
+    pub(crate) command_answers: RefCell<HashMap<String, cx::Answer>>,
+    /// Per-window memo cache for panel listing callbacks (`panels::answer`).
+    pub(crate) panel_answers: RefCell<HashMap<String, panels::AnswerEntry>>,
+    /// Per-window memo cache for instance panel tab lists (`panels::listed`).
+    pub(crate) panel_listed: RefCell<HashMap<(String, String, String), panels::Listed>>,
+    /// Per-window cache of each session's last step with token usage (`services::session`).
+    pub(crate) last_usage: RefCell<HashMap<String, services::CachedUsage>>,
+    /// Display scale of the panel currently rendering (`ui.terminalSurface`, `ui.browserSurface`).
+    pub(crate) panel_scale: PanelScale,
+    /// In-flight MCP tool calls owned by this window's plugin VMs, with their deadlines.
+    pub(crate) mcp_calls: RefCell<HashMap<u64, (opencode_kit::client_mcp::McpCall, rune::time::Instant)>>,
+    /// Next MCP tool call id for this window.
+    pub(crate) next_mcp_call: Cell<u64>,
     /// Server events plugins listen for, waiting for the next poll.
     events: RefCell<Vec<(String, serde_json::Value)>>,
     watcher: Option<runtime::hot::Watcher>,

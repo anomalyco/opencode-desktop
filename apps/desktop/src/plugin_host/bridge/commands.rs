@@ -17,7 +17,7 @@ use crate::plugin_host::{app_half, dormant, panels, plugin};
 /// Runs `f(args)` of plugin `i` as a task, then carries out what it asked for.
 pub fn spawn(app: &mut App, i: usize, f: &Function, args: impl IntoLuaMulti, tx: &mut Tx) {
     let Some(script) = app.plugins.list.get(i).and_then(|p| p.script()) else { return };
-    cx::with_app(app, || script.spawn_fn(f, args, Some(&mut *tx)).ok());
+    cx::enter(app, || script.spawn_fn(f, args, Some(&mut *tx)).ok());
     super::requests::carry_out(app, tx);
 }
 
@@ -104,18 +104,23 @@ pub fn run(app: &mut App, id: &str, input: Option<&str>, tx: &mut Tx) -> bool {
     };
     let Some(script) = app.plugins.list[i].script() else { return false };
     let Some(Ok(wrap)) = script.with_lua(|lua| wrapper(lua, "opencode.command", COMMAND)) else { return false };
-    DECLINED.set(false);
-    cx::with_app(app, || script.spawn_fn(&wrap, (f, input.map(str::to_owned)), Some(&mut *tx)).ok());
+    struct RestoreDeclined(bool);
+    impl Drop for RestoreDeclined {
+        fn drop(&mut self) {
+            DECLINED.set(self.0);
+        }
+    }
+    let restore = RestoreDeclined(DECLINED.replace(false));
+    cx::enter(app, || script.spawn_fn(&wrap, (f, input.map(str::to_owned)), Some(&mut *tx)).ok());
+    let declined = DECLINED.get();
+    drop(restore);
     super::requests::carry_out(app, tx);
-    !DECLINED.replace(false)
+    !declined
 }
 
 thread_local! {
     /// The command that just ran returned `false` before its first yield.
     static DECLINED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-    /// MCP calls whose tool's task hasn't returned yet, by call id, with when they give up.
-    static CALLS: std::cell::RefCell<std::collections::HashMap<u64, (McpCall, rune::time::Instant)>> = std::cell::RefCell::default();
-    static NEXT_CALL: std::cell::Cell<u64> = const { std::cell::Cell::new(1) };
 }
 
 /// Runs a command and notes whether it declined: its answer before it first yields.
@@ -177,7 +182,7 @@ fn wrapper(lua: &mlua::Lua, name: &str, source: &str) -> mlua::Result<Function> 
         lua.load(source).set_name(format!("={name}")).call(host)?
     } else {
         let host = lua.create_function(|lua, (id, ok, value): (u64, bool, mlua::Value)| {
-            let Some((call, _)) = CALLS.with_borrow_mut(|c| c.remove(&id)) else { return Ok(()) };
+            let Some((call, _)) = cx::with_app(|app| app.plugins.mcp_calls.borrow_mut().remove(&id)).flatten() else { return Ok(()) };
             call.respond(tool_result(lua, ok, value));
             Ok(())
         })?;
@@ -214,13 +219,12 @@ const TOOL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Answers the MCP calls whose tools ran past their time, and asks for a wake at the next
 /// deadline; true when one was answered.
-pub fn expire_calls(tx: &mut Tx) -> bool {
+pub fn expire_calls(app: &mut App, tx: &mut Tx) -> bool {
     let now = rune::time::Instant::now();
-    let late: Vec<McpCall> = CALLS.with_borrow_mut(|c| {
-        let ids: Vec<u64> = c.iter().filter(|(_, (_, at))| *at <= now).map(|(id, _)| *id).collect();
-        ids.into_iter().filter_map(|id| c.remove(&id)).map(|(call, _)| call).collect()
-    });
-    if let Some(next) = CALLS.with_borrow(|c| c.values().map(|(_, at)| *at).min()) {
+    let calls = app.plugins.mcp_calls.get_mut();
+    let ids: Vec<u64> = calls.iter().filter(|(_, (_, at))| *at <= now).map(|(id, _)| *id).collect();
+    let late: Vec<McpCall> = ids.into_iter().filter_map(|id| calls.remove(&id)).map(|(call, _)| call).collect();
+    if let Some(next) = calls.values().map(|(_, at)| *at).min() {
         tx.wake_after(next.saturating_duration_since(now));
     }
     let any = !late.is_empty();
@@ -327,7 +331,7 @@ pub fn open_link(app: &mut App, href: &str, tx: &mut Tx) -> bool {
     let link = map([("href", Data::String(href.to_owned()))]);
     for (i, _, matches, open) in handlers {
         let Some(script) = app.plugins.list[i].script() else { continue };
-        if cx::with_app(app, || script.eval_fn::<bool>(&matches, link.clone())).unwrap_or(false) {
+        if cx::enter(app, || script.eval_fn::<bool>(&matches, link.clone())).unwrap_or(false) {
             spawn(app, i, &open, link, tx);
             return true;
         }
@@ -372,15 +376,16 @@ pub fn mcp_call(app: &mut App, call: McpCall, session: &str, directory: &str, tx
     };
     let input = services::json_to_data(&call.arguments);
     let context = map([("sessionId", Data::String(session.to_owned())), ("directory", Data::String(directory.to_owned()))]);
-    let id = NEXT_CALL.replace(NEXT_CALL.get() + 1);
-    CALLS.with_borrow_mut(|c| c.insert(id, (call, rune::time::Instant::now() + TOOL_TIMEOUT)));
-    if let Err(e) = cx::with_app(app, || script.spawn_fn(&wrap, (f, id, input, context), Some(&mut *tx)))
-        && let Some((call, _)) = CALLS.with_borrow_mut(|c| c.remove(&id))
+    let id = app.plugins.next_mcp_call.get() + 1;
+    app.plugins.next_mcp_call.set(id);
+    app.plugins.mcp_calls.borrow_mut().insert(id, (call, rune::time::Instant::now() + TOOL_TIMEOUT));
+    if let Err(e) = cx::enter(app, || script.spawn_fn(&wrap, (f, id, input, context), Some(&mut *tx)))
+        && let Some((call, _)) = app.plugins.mcp_calls.borrow_mut().remove(&id)
     {
         call.respond(McpResult::error(e.message));
     }
     super::requests::carry_out(app, tx);
-    expire_calls(tx);
+    expire_calls(app, tx);
     None
 }
 
@@ -395,7 +400,7 @@ pub fn run_menubar(app: &mut App, key: &str, tx: &mut Tx) -> bool {
     dormant::wake_owners(app, |c| c.menubar_items.iter().any(|c| c.key == key));
     let found = app_half::each(|a| a.half.contribs.borrow().menubar_items.iter().find(|c| c.key == key).and_then(|c| c.f("run").cloned())).into_iter().next();
     let Some(f) = found else { return false };
-    app_half::each(|a| a.half.contribs.borrow().menubar_items.iter().any(|c| c.key == key).then(|| cx::with_app(app, || a.script.spawn_fn(&f, (), Some(&mut *tx)).ok())));
+    app_half::each(|a| a.half.contribs.borrow().menubar_items.iter().any(|c| c.key == key).then(|| cx::enter(app, || a.script.spawn_fn(&f, (), Some(&mut *tx)).ok())));
     super::requests::carry_out(app, tx);
     true
 }

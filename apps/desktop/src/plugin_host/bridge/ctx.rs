@@ -1,18 +1,16 @@
 //! The `ctx` a plugin half's setup receives: `GetService`, `CreateSignal`, `CreateEditor`,
 //! `BindHotState`, the `Add*` contribution methods of its half, and its `Disposing` signal.
-//! Each `Add*` decodes its spec with `Data::decode` into the contract's Rust record and keeps the
-//! spec's functions beside it.
+//! Spec decoding and contribution storage delegate to `opencode_plugin_runtime::contribs`.
 
-use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use mlua::{FromLua, Function, Lua, Table, Value};
-use opencode_plugin_spec::{self as spec, ContributionKind, Record};
+use opencode_plugin_runtime::contribs::allowed;
+use opencode_plugin_spec::{self as spec, ContributionKind};
 use rune_luau::Data;
-use serde::de::DeserializeOwned;
 
 use crate::plugin_host::icons::intern;
-use crate::plugin_host::plugin::{Contrib, Contribs, Kind};
+use crate::plugin_host::plugin::{Contribs, Kind};
 use crate::plugin_host::services;
 use crate::plugin_host::vm::Vmx;
 
@@ -63,72 +61,17 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, hot: &Table) -> mlua::Result<Table> {
     Ok(ctx)
 }
 
-/// Which half may add a kind (the contract's `halves`).
-fn allowed(kind: ContributionKind, half: Kind) -> bool {
-    use ContributionKind as K;
-    match kind {
-        K::MenubarItem => half == Kind::App,
-        K::ServerSource | K::McpTool => true,
-        _ => half == Kind::Window,
-    }
-}
-
 fn add(lua: &Lua, vmx: &Rc<Vmx>, kind: ContributionKind, t: &Table) -> mlua::Result<Value> {
-    use ContributionKind as K;
     let half = &vmx.half;
-    let id: String = t.raw_get::<Option<String>>(if kind == K::McpTool { "name" } else { "id" })?.unwrap_or_default();
+    let id: String = t.raw_get::<Option<String>>(if kind == ContributionKind::McpTool { "name" } else { "id" })?.unwrap_or_default();
     if id.is_empty() {
         return Err(mlua::Error::runtime(format!("{}: the spec needs an id", kind.method())));
     }
     let key = intern(&format!("{}.{id}", half.id));
-    vmx.with_contribs(|c| -> mlua::Result<()> {
-        match kind {
-            K::Command => push(lua, &mut c.commands, t, key, vmx),
-            K::Panel => push(lua, &mut c.panels, t, key, vmx),
-            K::Setting => push(lua, &mut c.settings, t, key, vmx),
-            K::SettingsPage => push(lua, &mut c.settings_pages, t, key, vmx),
-            K::MenuItem => push(lua, &mut c.menu_items, t, key, vmx),
-            K::MenubarItem => push(lua, &mut c.menubar_items, t, key, vmx),
-            K::LinkHandler => push(lua, &mut c.link_handlers, t, key, vmx),
-            K::TitlebarItem => push(lua, &mut c.titlebar_items, t, key, vmx),
-            K::ComposerPill => push(lua, &mut c.composer_pills, t, key, vmx),
-            K::CodeBlock => push(lua, &mut c.code_blocks, t, key, vmx),
-            K::CodeBlockAction => push(lua, &mut c.code_block_actions, t, key, vmx),
-            K::Slot => push(lua, &mut c.slots, t, key, vmx),
-            K::Theme => push(lua, &mut c.themes, t, key, vmx),
-            K::FileViewer => push(lua, &mut c.file_viewers, t, key, vmx),
-            K::ServerSource => push(lua, &mut c.server_sources, t, key, vmx),
-            K::Dialog => push(lua, &mut c.dialogs, t, key, vmx),
-            K::Popover => push(lua, &mut c.popovers, t, key, vmx),
-            K::McpTool => push(lua, &mut c.mcp_tools, t, key, vmx),
-        }
-    })?;
+    vmx.with_contribs(|c| c.add(lua, kind, t, key, &|msg| vmx.warn(msg)))?;
     half.epoch.set(half.epoch.get() + 1);
     crate::plugin_host::bump();
     contribution(lua, vmx, kind, id)
-}
-
-/// Decodes `t` as `S` (warning once per unknown key), keeps its functions, and replaces any
-/// earlier contribution with the same id.
-fn push<S: DeserializeOwned + Record>(lua: &Lua, list: &mut Vec<Contrib<S>>, t: &Table, key: &'static str, vmx: &Vmx) -> mlua::Result<()> {
-    let data = Data::from_lua(Value::Table(t.clone()), lua)?;
-    if let Data::Map(fields) = &data {
-        for name in fields.keys().filter(|k| !S::knows(k)) {
-            vmx.warn(&format!("{}: unknown key {name:?}", S::NAME));
-        }
-    }
-    let spec: S = data.decode().map_err(|e| mlua::Error::runtime(format!("{}: {e}", S::NAME)))?;
-    let mut fns = BTreeMap::new();
-    // A key that takes a value or a function (`enabled`) keeps only a function here; its value
-    // decoded into the spec.
-    for name in S::CALLBACKS {
-        if let Value::Function(f) = t.raw_get::<Value>(*name)? {
-            fns.insert(*name, f);
-        }
-    }
-    list.retain(|c| c.key != key);
-    list.push(Contrib { spec, fns, key });
-    Ok(())
 }
 
 /// The `Contribution` an `Add*` returns: `Withdraw` takes it out, `Refresh` redraws it.

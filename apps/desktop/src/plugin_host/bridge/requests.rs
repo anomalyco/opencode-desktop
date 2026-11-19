@@ -13,7 +13,7 @@ use crate::plugin_host::panels::tab_key;
 use crate::plugin_host::{FlyoutEvent, OpenDialog, Overlay, bump, services};
 
 pub fn carry_out(app: &mut App, tx: &mut Tx) {
-    let asked = cx::take_asked();
+    let asked = cx::take_asked(app);
     if asked.is_empty() {
         return;
     }

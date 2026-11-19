@@ -88,7 +88,7 @@ fn start_loaded(app: &mut App, i: usize) {
         .map_or_else(|| id.clone(), |n| n.to_string_lossy().into_owned());
     let sources = sources::scripts(&p.origin, &files, &folder, &manifest.entry);
     let options = vm::options(p.half.clone());
-    let script = cx::with_app(app, || Script::with_options(&id, sources, options));
+    let script = cx::enter(app, || Script::with_options(&id, sources, options));
     if let Some(w) = app.plugins.waker.clone() {
         script.set_waker(w);
     }
@@ -118,7 +118,7 @@ fn stop(app: &mut App, i: usize, script: Script) {
         let fire = half.fire.borrow().get(&vm).cloned();
         let signal = half.signals.borrow().get(&(vm, "ctx.Disposing".to_owned())).cloned();
         if let (Some(fire), Some(signal)) = (fire, signal) {
-            cx::with_app(app, || script.spawn_fn(&fire, signal, None).ok());
+            cx::enter(app, || script.spawn_fn(&fire, signal, None).ok());
         }
     }
     drop(script);
@@ -181,7 +181,7 @@ pub fn reload(app: &mut App, i: usize, prepared: Option<hot::Prepared>) {
     let p = &app.plugins.list[i];
     let Some(script) = p.script() else { return };
     let half = p.half.clone();
-    let result = cx::with_app(app, || script.reload_compiled(prepared.sources, prepared.compiled, prepared.compile));
+    let result = cx::enter(app, || script.reload_compiled(prepared.sources, prepared.compiled, prepared.compile));
     let vm = script.vm_id();
     let id = app.plugins.list[i].manifest.id.clone();
     let outcome = match result {
@@ -242,7 +242,7 @@ pub fn poll(app: &mut App, fresh: bool, tx: &mut Tx) -> bool {
             match effect {
                 HotEffect::Prewarm => {
                     if let Some(script) = app.plugins.list[i].script() {
-                        cx::with_app(app, || script.prewarm());
+                        cx::enter(app, || script.prewarm());
                     }
                 }
                 HotEffect::Swap(prepared) => reload(app, i, Some(*prepared)),
@@ -290,7 +290,7 @@ pub fn poll(app: &mut App, fresh: bool, tx: &mut Tx) -> bool {
         }
         let p = &app.plugins.list[i];
         let Some(script) = p.script() else { continue };
-        ran |= cx::with_app(app, || script.poll(now, tx));
+        ran |= cx::enter(app, || script.poll(now, tx));
         delivered |= ran;
         changed |= half.epoch.get() != before || (!half.owns_redraw && ran);
     }
@@ -318,7 +318,7 @@ fn fire_value(app: &App, i: usize, signal: mlua::Value, args: Data) -> bool {
         Data::List(items) => items,
         other => vec![other],
     };
-    cx::with_app(app, || {
+    cx::enter(app, || {
         let mut values = mlua::MultiValue::new();
         values.push_back(signal);
         let converted = script.with_lua(|lua| args.into_iter().map(|a| mlua::IntoLua::into_lua(a, lua)).collect::<mlua::Result<Vec<_>>>());

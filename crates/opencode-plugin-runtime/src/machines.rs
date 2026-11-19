@@ -384,3 +384,81 @@ impl Ticket {
         (self.body().map_or(0, |b| b.generation), matches!(self, Ticket::Loading { .. }))
     }
 }
+
+// ---- Project request (Layout:OpenProject) -----------------------------------------------------
+
+/// `PROJECT_REQUEST_TTL_MS` (`runtime/plugin/host-layout-machine.ts`).
+pub const PROJECT_REQUEST_TTL_MS: u64 = 30_000;
+
+/// `ProjectRequestState`; the timer's due time rides along while it waits (the app's clock).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum ProjectRequest {
+    #[default]
+    Idle,
+    Waiting { attempt: rune::machine::Attempt, server: String, title: String, due: f64 },
+}
+
+pub enum ProjectRequestEvent {
+    Request { server: String, title: String, listed: bool, now: f64 },
+    Listed { server: String },
+    Expire { attempt: rune::machine::Attempt },
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ProjectRequestEffect {
+    OpenPicker { server: String, title: String },
+    /// The app's clock time the expiry is due.
+    ScheduleExpire(f64),
+}
+
+impl ProjectRequest {
+    fn attempt(&self, last: rune::machine::Attempt) -> rune::machine::Attempt {
+        match self {
+            ProjectRequest::Idle => last,
+            ProjectRequest::Waiting { attempt, .. } => *attempt,
+        }
+    }
+
+    /// The server a waiting request needs listed (`selectWaitingProjectServer`).
+    pub fn waiting(&self) -> Option<&str> {
+        match self {
+            ProjectRequest::Waiting { server, .. } => Some(server),
+            ProjectRequest::Idle => None,
+        }
+    }
+}
+
+/// `transitionProjectRequest`; `last` is the attempt the idle state carries in Desktop's.
+pub fn step_project_request(state: &mut ProjectRequest, last: &mut rune::machine::Attempt, event: ProjectRequestEvent) -> Vec<ProjectRequestEffect> {
+    match event {
+        ProjectRequestEvent::Request { server, title, listed: true, .. } => {
+            *last = state.attempt(*last);
+            *state = ProjectRequest::Idle;
+            vec![ProjectRequestEffect::OpenPicker { server, title }]
+        }
+        ProjectRequestEvent::Request { server, title, listed: false, now } => {
+            let attempt = rune::machine::Attempt(state.attempt(*last).0 + 1);
+            *last = attempt;
+            let due = now + PROJECT_REQUEST_TTL_MS as f64 / 1000.0;
+            *state = ProjectRequest::Waiting { attempt, server, title, due };
+            vec![ProjectRequestEffect::ScheduleExpire(due)]
+        }
+        ProjectRequestEvent::Listed { server } => match std::mem::take(state) {
+            ProjectRequest::Waiting { attempt, server: waiting, title, .. } if waiting == server => {
+                *last = attempt;
+                vec![ProjectRequestEffect::OpenPicker { server, title }]
+            }
+            other => {
+                *state = other;
+                Vec::new()
+            }
+        },
+        ProjectRequestEvent::Expire { attempt } => {
+            if matches!(state, ProjectRequest::Waiting { attempt: a, .. } if *a == attempt) {
+                *last = attempt;
+                *state = ProjectRequest::Idle;
+            }
+            Vec::new()
+        }
+    }
+}

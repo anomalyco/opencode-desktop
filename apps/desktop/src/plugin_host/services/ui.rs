@@ -8,7 +8,7 @@ use mlua::{FromLua, Lua, MultiValue, Table, Value};
 use opencode_plugin_spec as spec;
 use rune_luau::{Completer, Data, Host};
 
-use super::{app_now, async_method, method};
+use super::{async_method, method, with_app};
 use crate::App;
 use crate::plugin_host::cx::{self, Dep, Request};
 use crate::plugin_host::plugin::Half;
@@ -50,7 +50,7 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, name: &str, t: &Table) -> mlua::Result<()
             })?;
             method(lua, t, "IsOpen", move |_, id: String| {
                 cx::read(Dep::Popover(p.clone(), id.clone()));
-                Ok(app_now("Popover:IsOpen")?.plugins.overlay.popover_open(&p, &id))
+                with_app("Popover:IsOpen", |app| Ok(app.plugins.overlay.popover_open(&p, &id)))
             })
         }
         "Dialog" => {
@@ -67,7 +67,7 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, name: &str, t: &Table) -> mlua::Result<()
             })?;
             method(lua, t, "IsOpen", move |_, id: String| {
                 cx::read(Dep::Dialog(p.clone(), id.clone()));
-                Ok(app_now("Dialog:IsOpen")?.plugins.dialog.as_ref().is_some_and(|o| o.plugin == p && o.id == id))
+                with_app("Dialog:IsOpen", |app| Ok(app.plugins.dialog.as_ref().is_some_and(|o| o.plugin == p && o.id == id)))
             })
         }
         "Menu" => async_method(lua, vmx, t, "OpenAsync", "Menu.OpenAsync"),
@@ -88,16 +88,17 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, name: &str, t: &Table) -> mlua::Result<()
         "Commands" => {
             let q = p.clone();
             method(lua, t, "Run", move |_, (id, input): (String, Option<String>)| {
-                let known = app_now("Commands:Run")?.catalog().iter().any(|c| c.id == id);
+                let known = with_app("Commands:Run", |app| Ok(app.catalog().iter().any(|c| c.id == id)))?;
                 if known {
                     cx::ask(&q, Request::RunCommand { id, input });
                 }
                 Ok(known)
             })?;
             method(lua, t, "Keybind", |_, id: String| {
-                let app = app_now("Commands:Keybind")?;
-                let chord = crate::keymap::overrides::command(&id).and_then(|k| k.chords().first().copied()).or_else(|| app.catalog().into_iter().find(|c| c.id == id).and_then(|c| c.chord));
-                Ok(chord.map(crate::keymap::label))
+                with_app("Commands:Keybind", |app| {
+                    let chord = crate::keymap::overrides::command(&id).and_then(|k| k.chords().first().copied()).or_else(|| app.catalog().into_iter().find(|c| c.id == id).and_then(|c| c.chord));
+                    Ok(chord.map(crate::keymap::label))
+                })
             })
         }
         _ => method(lua, t, "Notify", move |lua, spec: Value| {
@@ -198,9 +199,10 @@ fn layout(lua: &Lua, p: &Rc<str>, t: &Table) -> mlua::Result<()> {
     let q = p.clone();
     method(lua, t, "PanelState", move |_, (panel, session): (String, Option<String>)| {
         cx::read(Dep::Panel(q.clone(), panel.clone()));
-        let app = app_now("Layout:PanelState")?;
-        let session = session.as_deref().or(app.active_session_id()).unwrap_or_default();
-        Ok(["closed", "listed", "selected", "visible"][panel_state(app, &q, &panel, session) as usize])
+        with_app("Layout:PanelState", |app| {
+            let session = session.as_deref().or(app.active_session_id()).unwrap_or_default();
+            Ok(["closed", "listed", "selected", "visible"][panel_state(app, &q, &panel, session) as usize])
+        })
     })?;
     let q = p.clone();
     method(lua, t, "OpenSettings", move |_, page: Option<String>| {
@@ -231,31 +233,35 @@ fn layout(lua: &Lua, p: &Rc<str>, t: &Table) -> mlua::Result<()> {
     })?;
     method(lua, t, "Narrow", |_, ()| {
         cx::read(Dep::Narrow);
-        Ok(narrow(app_now("Layout:Narrow")?))
+        with_app("Layout:Narrow", |app| Ok(narrow(app)))
     })?;
     method(lua, t, "PanelSidebar", |lua, ()| {
         cx::read(Dep::Sidebar);
-        let s = &app_now("Layout:PanelSidebar")?.workspace_panes.panel_sidebar;
-        let width = s.width.unwrap_or(crate::plugin_host::native::sidebar::DEFAULT_W);
-        mlua::IntoLua::into_lua(super::map([("opened", Data::Bool(s.opened)), ("width", Data::Number(f64::from(width)))]), lua)
+        with_app("Layout:PanelSidebar", |app| {
+            let s = &app.workspace_panes.panel_sidebar;
+            let width = s.width.unwrap_or(crate::plugin_host::native::sidebar::DEFAULT_W);
+            mlua::IntoLua::into_lua(super::map([("opened", Data::Bool(s.opened)), ("width", Data::Number(f64::from(width)))]), lua)
+        })
     })?;
     method(lua, t, "RegionOpen", |_, session: Option<String>| {
         cx::read(Dep::Browser);
-        let app = app_now("Layout:RegionOpen")?;
-        let session = session.as_deref().or(app.active_session_id()).unwrap_or_default();
-        Ok(app.kernel.slots.get(&crate::panels::SIDE).sessions.get(session).is_some_and(|st| st.visibility.open()))
+        with_app("Layout:RegionOpen", |app| {
+            let session = session.as_deref().or(app.active_session_id()).unwrap_or_default();
+            Ok(app.kernel.slots.get(&crate::panels::SIDE).sessions.get(session).is_some_and(|st| st.visibility.open()))
+        })
     })?;
     method(lua, t, "RegionFocused", |_, ()| {
-        let app = app_now("Layout:RegionFocused")?;
-        Ok(app.kernel.slots.get(&crate::panels::SIDE).focus.is_focused() && !app.composer.focused && !app.popup.holds_focus())
+        with_app("Layout:RegionFocused", |app| Ok(app.kernel.slots.get(&crate::panels::SIDE).focus.is_focused() && !app.composer.focused && !app.popup.holds_focus()))
     })?;
     method(lua, t, "TogglePanelSidebar", |_, ()| {
-        app_now("Layout:TogglePanelSidebar")?.later(Box::new(|s: &mut App, tx: &mut rune::Tx| {
-            tx.instant();
-            s.workspace_panes.panel_sidebar.toggle();
-            crate::plugin_host::bump();
-        }));
-        Ok(())
+        with_app("Layout:TogglePanelSidebar", |app| {
+            app.later(Box::new(|s: &mut App, tx: &mut rune::Tx| {
+                tx.instant();
+                s.workspace_panes.panel_sidebar.toggle();
+                crate::plugin_host::bump();
+            }));
+            Ok(())
+        })
     })
 }
 
@@ -287,32 +293,34 @@ fn open_menu(lua: &Lua, p: &Rc<str>, a: MultiValue, done: Completer) -> mlua::Re
     if let Some(w) = s.width.filter(|w| *w > 0.0) {
         menu = menu.width(w as f32);
     }
-    let app = app_now("Menu:OpenAsync")?;
-    for e in s.items {
-        menu = match e.kind.unwrap_or_default() {
-            spec::MenuEntryKind::Separator => menu.separator(),
-            spec::MenuEntryKind::Group => menu.group(e.title.as_deref().unwrap_or_default()),
-            spec::MenuEntryKind::Item => {
-                let mut item = crate::popup::Item::new(e.id.as_deref().unwrap_or_default(), e.title.as_deref().unwrap_or_default());
-                let chord = match (&e.keys, &e.keybind) {
-                    (Some(keys), _) => keys.parse::<rune::Keybind>().ok().and_then(|k| k.chords().first().copied()),
-                    (None, Some(id)) => crate::keymap::command_chord(app, id),
-                    _ => None,
-                };
-                // Desktop's menus show a shortcut as neutral `Keybind` chips, a plus or minus at a
-                // letter key's width (`fullWidth`).
-                if let Some(chord) = chord {
-                    let caps = crate::keymap::caps(chord).into_iter().map(|c| match c.as_str() {
-                        "+" => "＋".to_owned(),
-                        "-" => "－".to_owned(),
-                        _ => c,
-                    });
-                    item = item.keycaps(caps.collect());
+    let menu = with_app("Menu:OpenAsync", |app| {
+        for e in s.items {
+            menu = match e.kind.unwrap_or_default() {
+                spec::MenuEntryKind::Separator => menu.separator(),
+                spec::MenuEntryKind::Group => menu.group(e.title.as_deref().unwrap_or_default()),
+                spec::MenuEntryKind::Item => {
+                    let mut item = crate::popup::Item::new(e.id.as_deref().unwrap_or_default(), e.title.as_deref().unwrap_or_default());
+                    let chord = match (&e.keys, &e.keybind) {
+                        (Some(keys), _) => keys.parse::<rune::Keybind>().ok().and_then(|k| k.chords().first().copied()),
+                        (None, Some(id)) => crate::keymap::command_chord(app, id),
+                        _ => None,
+                    };
+                    // Desktop's menus show a shortcut as neutral `Keybind` chips, a plus or minus at a
+                    // letter key's width (`fullWidth`).
+                    if let Some(chord) = chord {
+                        let caps = crate::keymap::caps(chord).into_iter().map(|c| match c.as_str() {
+                            "+" => "＋".to_owned(),
+                            "-" => "－".to_owned(),
+                            _ => c,
+                        });
+                        item = item.keycaps(caps.collect());
+                    }
+                    menu.item(item.enabled(e.enabled.unwrap_or(true)).checked(e.checked.unwrap_or(false)).danger(e.danger.unwrap_or(false)))
                 }
-                menu.item(item.enabled(e.enabled.unwrap_or(true)).checked(e.checked.unwrap_or(false)).danger(e.danger.unwrap_or(false)))
-            }
-        };
-    }
+            };
+        }
+        Ok(menu)
+    })?;
     cx::ask(p, Request::Menu { anchor: s.anchor_key, menu, done });
     Ok(())
 }

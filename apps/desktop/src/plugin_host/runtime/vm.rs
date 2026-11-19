@@ -8,8 +8,11 @@ use std::collections::HashSet;
 use std::rc::Rc;
 
 use mlua::{Function, Lua, Table};
-use rune::{Color, TextStyle, Tx};
+use rune::{TextStyle, Tx};
 use rune_luau::{Host, LogLevel, ScriptOptions};
+
+pub use opencode_plugin_runtime::theme::palette;
+use opencode_plugin_runtime::theme::shadows;
 
 use super::plugin::{Contribs, Half, Kind};
 use crate::App;
@@ -45,33 +48,6 @@ impl Vmx {
     }
 }
 
-const PLUGIN_MODULE: &str = r#"
-local hot = ...
-local function define(half)
-    return function(setup)
-        if type(setup) ~= "function" then
-            error(`plugin.define{if half == "window" then "Window" else "App"} needs a setup function`, 2)
-        end
-        return {
-            __half = half,
-            __setup = setup,
-            saveHotState = function()
-                if hot.save then
-                    return hot.save()
-                end
-                return nil
-            end,
-            loadHotState = function(state)
-                if hot.load and state ~= nil then
-                    hot.load(state)
-                end
-            end,
-        }
-    end
-end
-return { contract = CONTRACT, defineWindow = define("window"), defineApp = define("app") }
-"#;
-
 /// The options every plugin half's script runs with.
 pub fn options(half: Rc<Half>) -> ScriptOptions {
     let kind = half.kind;
@@ -98,12 +74,7 @@ pub fn options(half: Rc<Half>) -> ScriptOptions {
 
 fn setup(host: &Host<'_>, half: &Rc<Half>) -> mlua::Result<()> {
     let lua = host.lua();
-    let hot = lua.create_table()?;
-    let code = PLUGIN_MODULE.replace("CONTRACT", &format!("{:?}", opencode_plugin_spec::CONTRACT));
-    let plugin: Table = lua.load(code).set_name("=@opencode/plugin").call(hot.clone())?;
-    host.register_module("@opencode/plugin", plugin)?;
-    let ui: Table = lua.named_registry_value::<Table>("_REGISTEREDMODULES")?.raw_get("@rune/ui")?;
-    host.register_module("@opencode/ui", ui)?;
+    let hot = opencode_plugin_runtime::contribs::register_modules(host)?;
     let asyncs = lua.create_table()?;
     services::asyncs(host, &asyncs, half)?;
     let vmx = Rc::new(Vmx { half: half.clone(), vm: Cell::new(0), script_signal: host.script_signal()?, asyncs, warned: RefCell::default() });
@@ -116,12 +87,7 @@ fn setup(host: &Host<'_>, half: &Rc<Half>) -> mlua::Result<()> {
 fn start(lua: &Lua, module: &Table, vm: u64, kind: Kind) -> mlua::Result<()> {
     let vmx = lua.app_data_ref::<Rc<Vmx>>().map(|v| v.clone()).ok_or_else(|| mlua::Error::runtime("the plugin host isn't set up"))?;
     vmx.vm.set(vm);
-    let want = if kind == Kind::Window { "window" } else { "app" };
-    let half: Option<String> = module.raw_get("__half")?;
-    if half.as_deref() != Some(want) {
-        let define = if kind == Kind::Window { "defineWindow" } else { "defineApp" };
-        return Err(mlua::Error::runtime(format!("the module must return plugin.{define}(function(ctx) ... end)")));
-    }
+    opencode_plugin_runtime::contribs::verify_module_half(module, kind)?;
     let fire: Function = lua.load("return function(signal, ...) signal:Fire(...) end").call(())?;
     vmx.half.fire.borrow_mut().insert(vm, fire);
     *vmx.half.made.borrow_mut() = Some((vm, Contribs::default()));
@@ -136,7 +102,7 @@ fn start(lua: &Lua, module: &Table, vm: u64, kind: Kind) -> mlua::Result<()> {
 /// for, carried out in the same transaction.
 fn around(state: &mut dyn Any, mut tx: Option<&mut Tx>, run: &mut dyn FnMut(Option<&mut Tx>)) {
     let Some(app) = state.downcast_mut::<App>() else { return run(tx) };
-    cx::with_app(app, || run(tx.as_deref_mut()));
+    cx::enter(app, || run(tx.as_deref_mut()));
     match tx {
         Some(tx) => requests::carry_out(app, tx),
         None => app.plugins.asked.set(true),
@@ -145,74 +111,7 @@ fn around(state: &mut dyn Any, mut tx: Option<&mut Tx>, run: &mut dyn FnMut(Opti
 
 fn around_read(state: &dyn Any, run: &mut dyn FnMut()) {
     match state.downcast_ref::<App>() {
-        Some(app) => cx::with_app(app, run),
+        Some(app) => cx::enter(app, run),
         None => run(),
     }
-}
-
-/// The contract's semantic tokens, as this app paints them (and `text`, `selected`, the names
-/// rune-luau itself asks for: the default text and a selected row's fill). The text scale is
-/// Desktop's: `text-strong` .. `text-weaker` its `text-*` tokens (what plugin views such as
-/// the Context tab draw with), `text-muted` and `text-faint` its chrome's `text-text-*`.
-pub fn palette(name: &str, dark: bool) -> Option<Color> {
-    let p = crate::palette::pal(dark);
-    let desktop = |token: &str, fallback: Color| session_view::palette::token(dark, token).unwrap_or(fallback);
-    Some(match name {
-        "bg-base" => p.bg_base,
-        "bg-weak" => p.bg_deep,
-        "bg-strong" => p.layer2,
-        "surface-1" => p.layer1,
-        "surface-2" => p.layer2,
-        "surface-3" => p.layer3,
-        "surface-4" => p.q.layer4,
-        "surface-hover" => p.hover,
-        "surface-press" => p.pressed,
-        "surface-selected" | "selected" => p.row_active,
-        "text-strong" | "text" => desktop("text-strong", p.text),
-        "text-base" => desktop("text-base", p.muted),
-        "text-weak" => desktop("text-weak", p.faint),
-        "text-weaker" => desktop("text-weaker", p.icon_faint),
-        "text-chrome" => p.text,
-        "text-muted" => p.muted,
-        "text-faint" => p.faint,
-        "text-on-accent" | "icon-on-accent" => p.on_fill,
-        "text-interactive" => p.accent,
-        "icon-strong" => p.text,
-        "icon-base" => p.icon,
-        "icon-weak" => p.icon_muted,
-        "icon-weaker" => p.icon_faint,
-        "border-strong" => p.q.border_strong,
-        "border-base" => p.border,
-        "border-weak" => p.border_muted,
-        "border-focus" => p.v2.border_focus,
-        "accent" => p.bg_accent,
-        "accent-hover" => p.v2.icon_accent_hover,
-        "accent-subtle" => p.selection,
-        "status-success" => p.success,
-        "status-warning" => p.warning,
-        "status-danger" => p.danger,
-        "status-info" => p.info,
-        "avatar-orange" => p.avatars[0].0,
-        "avatar-yellow" => p.avatars[1].0,
-        "avatar-cyan" => p.avatars[2].0,
-        "avatar-green" => p.avatars[3].0,
-        "avatar-red" => p.avatars[4].0,
-        "avatar-pink" => p.avatars[5].0,
-        "avatar-blue" => p.avatars[6].0,
-        "avatar-purple" => p.avatars[7].0,
-        "avatar-text" => p.avatar_fg,
-        // `site-icon`'s inset ring: `alpha-dark-12` in both schemes.
-        "avatar-ring" => desktop("alpha-dark-12", p.border),
-        _ => return None,
-    })
-}
-
-fn shadows(name: &str, dark: bool) -> Option<Vec<rune::Shadow>> {
-    let p = crate::palette::pal(dark);
-    Some(match name {
-        "raised" => p.raised.to_vec(),
-        "floating" => p.floating.to_vec(),
-        "overlay" => p.overlay.to_vec(),
-        _ => return None,
-    })
 }

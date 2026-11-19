@@ -13,7 +13,7 @@ use rune_kit::diff::{DiffMode, FileStatus};
 use rune_luau::{Data, NodeArgs};
 
 use super::super::cx::{self, Dep};
-use super::super::services::{app_now, map, method, signal};
+use super::super::services::{map, method, signal, with_app};
 use super::super::vm::Vmx;
 use super::{handle_field, object, p};
 use crate::App;
@@ -49,126 +49,125 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     let v = vmx.clone();
     method(lua, t, "Open", move |lua, s: Value| {
         let s: spec::DiffOpenSpec = Data::from_lua(s, lua)?.decode().map_err(|e| mlua::Error::runtime(format!("DiffOpenSpec: {e}")))?;
-        let app = app_now("Diff:Open")?;
         let mode = ChangeMode::parse(s.source.as_str()).unwrap_or_default();
         let sid = s.session_id;
-        if !app.kernel.slots.get(&crate::review::REVIEW).has_read(&sid, mode) {
-            let id = sid.clone();
-            app.later(Box::new(move |s: &mut App, _: &mut Tx| s.set_session_change_mode(&id, mode)));
-        }
+        with_app("Diff:Open", |app| {
+            if !app.kernel.slots.get(&crate::review::REVIEW).has_read(&sid, mode) {
+                let id = sid.clone();
+                app.later(Box::new(move |s: &mut App, _: &mut Tx| s.set_session_change_mode(&id, mode)));
+            }
+            Ok(())
+        })?;
         document(lua, &v, &sid)
     })?;
     method(lua, t, "Mode", |_, ()| {
         cx::read(Dep::DiffMode);
-        Ok(if app_now("Diff:Mode")?.kernel.slots.get(&crate::review::REVIEW).diff_mode == DiffMode::Split { "split" } else { "unified" })
+        with_app("Diff:Mode", |app| Ok(if app.kernel.slots.get(&crate::review::REVIEW).diff_mode == DiffMode::Split { "split" } else { "unified" }))
     })?;
     method(lua, t, "SetMode", |_, mode: String| {
         let mode = if mode == "unified" { DiffMode::Unified } else { DiffMode::Split };
-        app_now("Diff:SetMode")?.later(Box::new(move |s: &mut App, tx: &mut Tx| {
-            tx.instant();
-            s.set_review_diff_mode(mode);
-        }));
-        Ok(())
+        with_app("Diff:SetMode", |app| {
+            app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
+                tx.instant();
+                s.set_review_diff_mode(mode);
+            }));
+            Ok(())
+        })
     })
+}
+
+fn read_diff<R>(sid: &str, what: &str, f: impl FnOnce(&App) -> mlua::Result<R>) -> mlua::Result<R> {
+    cx::read(Dep::Diff(sid.to_owned()));
+    with_app(what, f)
+}
+
+fn read_meta<R>(sid: &str, what: &str, f: impl FnOnce(&App) -> mlua::Result<R>) -> mlua::Result<R> {
+    cx::read(Dep::DiffMeta(sid.to_owned()));
+    with_app(what, f)
 }
 
 fn document(lua: &Lua, vmx: &Rc<Vmx>, sid: &str) -> mlua::Result<Table> {
     let m = lua.create_table()?;
-    let with = |sid: &str| {
-        let sid = sid.to_owned();
-        move |what: &str| -> mlua::Result<(&'static App, String)> {
-            cx::read(Dep::Diff(sid.clone()));
-            Ok((app_now(what)?, sid.clone()))
-        }
-    };
-    let with_meta = |sid: &str| {
-        let sid = sid.to_owned();
-        move |what: &str| -> mlua::Result<(&'static App, String)> {
-            cx::read(Dep::DiffMeta(sid.clone()));
-            Ok((app_now(what)?, sid.clone()))
-        }
-    };
     let sid_totals = sid.to_owned();
     method(lua, &m, "Totals", move |lua, ()| {
         cx::read(Dep::DiffTotals(sid_totals.clone()));
-        let app = app_now("DiffDocument:Totals")?;
-        let (files, added, removed) = app.kernel.slots.get(&crate::review::REVIEW).sessions.get(&sid_totals).map_or((0, 0, 0), |sr| {
-            let (a, d) = sr.totals();
-            (sr.root_count, a, d)
-        });
+        let (files, added, removed) = with_app("DiffDocument:Totals", |app| {
+            Ok(app.kernel.slots.get(&crate::review::REVIEW).sessions.get(&sid_totals).map_or((0, 0, 0), |sr| {
+                let (a, d) = sr.totals();
+                (sr.root_count, a, d)
+            }))
+        })?;
         lua_data(lua, map([("files", Data::Integer(files as i64)), ("added", Data::Integer(i64::from(added))), ("removed", Data::Integer(i64::from(removed)))]))
     })?;
-    let read = with(sid);
+    let id = sid.to_owned();
     method(lua, &m, "Files", move |lua, ()| {
-        let (app, sid) = read("DiffDocument:Files")?;
-        let files = app.kernel.slots.get(&crate::review::REVIEW).sessions.get(&sid).map_or_else(Vec::new, files);
+        let files = read_diff(&id, "DiffDocument:Files", |app| Ok(app.kernel.slots.get(&crate::review::REVIEW).sessions.get(&id).map_or_else(Vec::new, files)))?;
         lua_data(lua, Data::List(files))
     })?;
-    let read = with_meta(sid);
+    let id = sid.to_owned();
     method(lua, &m, "Source", move |_, ()| {
-        let (app, sid) = read("DiffDocument:Source")?;
-        Ok(app.kernel.slots.get(&crate::review::REVIEW).sessions.get(&sid).map_or(ChangeMode::Git, |sr| sr.mode).name())
+        read_meta(&id, "DiffDocument:Source", |app| Ok(app.kernel.slots.get(&crate::review::REVIEW).sessions.get(&id).map_or(ChangeMode::Git, |sr| sr.mode).name()))
     })?;
-    let read = with_meta(sid);
+    let id = sid.to_owned();
     method(lua, &m, "Sources", move |lua, ()| {
-        let (app, sid) = read("DiffDocument:Sources")?;
-        let modes = app.kernel.slots.get(&crate::review::REVIEW).sessions.get(&sid).map_or_else(|| vec![ChangeMode::Git, ChangeMode::Turn], SessionReview::available_modes);
+        let modes = read_meta(&id, "DiffDocument:Sources", |app| Ok(app.kernel.slots.get(&crate::review::REVIEW).sessions.get(&id).map_or_else(|| vec![ChangeMode::Git, ChangeMode::Turn], SessionReview::available_modes)))?;
         lua_data(lua, Data::List(modes.into_iter().map(|m| Data::String(m.name().into())).collect()))
     })?;
-    let read = with_meta(sid);
+    let id = sid.to_owned();
     method(lua, &m, "Status", move |_, ()| {
-        let (app, sid) = read("DiffDocument:Status")?;
-        Ok(status(app.kernel.slots.get(&crate::review::REVIEW).sessions.get(&sid)))
+        read_meta(&id, "DiffDocument:Status", |app| Ok(status(app.kernel.slots.get(&crate::review::REVIEW).sessions.get(&id))))
     })?;
-    let read = with_meta(sid);
+    let id = sid.to_owned();
     method(lua, &m, "Error", move |_, ()| {
-        let (app, sid) = read("DiffDocument:Error")?;
-        Ok(app.kernel.slots.get(&crate::review::REVIEW).sessions.get(&sid).and_then(|sr| sr.load.failed().map(str::to_owned)))
+        read_meta(&id, "DiffDocument:Error", |app| Ok(app.kernel.slots.get(&crate::review::REVIEW).sessions.get(&id).and_then(|sr| sr.load.failed().map(str::to_owned))))
     })?;
-    let read = with_meta(sid);
+    let id = sid.to_owned();
     method(lua, &m, "Loading", move |_, ()| {
-        let (app, sid) = read("DiffDocument:Loading")?;
-        Ok(status(app.kernel.slots.get(&crate::review::REVIEW).sessions.get(&sid)) == "loading")
+        read_meta(&id, "DiffDocument:Loading", |app| Ok(status(app.kernel.slots.get(&crate::review::REVIEW).sessions.get(&id)) == "loading"))
     })?;
-    let read = with(sid);
+    let id = sid.to_owned();
     method(lua, &m, "Version", move |_, ()| {
-        let (app, sid) = read("DiffDocument:Version")?;
-        Ok(app.kernel.slots.get(&crate::review::REVIEW).sessions.get(&sid).map_or(0, |sr| sr.stamp) as f64)
+        read_diff(&id, "DiffDocument:Version", |app| Ok(app.kernel.slots.get(&crate::review::REVIEW).sessions.get(&id).map_or(0, |sr| sr.stamp) as f64))
     })?;
-    let read = with_meta(sid);
+    let id = sid.to_owned();
     method(lua, &m, "Active", move |_, ()| {
-        let (app, sid) = read("DiffDocument:Active")?;
-        Ok(app.kernel.slots.get(&crate::review::REVIEW).sessions.get(&sid).and_then(|sr| sr.active_path.clone()))
+        read_meta(&id, "DiffDocument:Active", |app| Ok(app.kernel.slots.get(&crate::review::REVIEW).sessions.get(&id).and_then(|sr| sr.active_path.clone())))
     })?;
     let id = sid.to_owned();
     method(lua, &m, "Focus", move |_, path: String| {
         let id = id.clone();
-        app_now("DiffDocument:Focus")?.later(Box::new(move |s: &mut App, tx: &mut Tx| {
-            tx.instant();
-            if let Some(sr) = s.kernel.slots.get_mut(&crate::review::REVIEW).sessions.get_mut(&id) {
-                sr.show(&path);
-                sr.tree.reveal(&path, tx);
-            }
-        }));
-        Ok(())
+        with_app("DiffDocument:Focus", |app| {
+            app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
+                tx.instant();
+                if let Some(sr) = s.kernel.slots.get_mut(&crate::review::REVIEW).sessions.get_mut(&id) {
+                    sr.show(&path);
+                    sr.tree.reveal(&path, tx);
+                }
+            }));
+            Ok(())
+        })
     })?;
     let id = sid.to_owned();
     method(lua, &m, "SetSource", move |_, (source, _message): (String, Option<String>)| {
         let (id, mode) = (id.clone(), ChangeMode::parse(&source).ok_or_else(|| mlua::Error::runtime(format!("DiffDocument:SetSource: no source {source:?}")))?);
-        app_now("DiffDocument:SetSource")?.later(Box::new(move |s: &mut App, tx: &mut Tx| {
-            tx.instant();
-            s.set_session_change_mode(&id, mode);
-        }));
-        Ok(())
+        with_app("DiffDocument:SetSource", |app| {
+            app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
+                tx.instant();
+                s.set_session_change_mode(&id, mode);
+            }));
+            Ok(())
+        })
     })?;
     let id = sid.to_owned();
     method(lua, &m, "Retry", move |_, ()| {
         let id = id.clone();
-        app_now("DiffDocument:Retry")?.later(Box::new(move |s: &mut App, _: &mut Tx| {
-            s.kernel.slots.get_mut(&crate::review::REVIEW).revision += 1;
-            s.ensure_session_review(&id);
-        }));
-        Ok(())
+        with_app("DiffDocument:Retry", |app| {
+            app.later(Box::new(move |s: &mut App, _: &mut Tx| {
+                s.kernel.slots.get_mut(&crate::review::REVIEW).revision += 1;
+                s.ensure_session_review(&id);
+            }));
+            Ok(())
+        })
     })?;
     let id = sid.to_owned();
     method(lua, &m, "Tree", move |lua, ()| object(lua, "FileTreeModel", &[("kind", Value::String(lua.create_string("diff")?)), ("sessionId", Value::String(lua.create_string(&id)?))], super::tree::methods(lua)?))?;
@@ -278,83 +277,85 @@ pub fn narrow_version(app: &App, session: &str) -> (Vec<String>, u64) {
 /// `ui.diffView`: the preview of `file`, else every file one under another; with `list`, the
 /// narrow Changes view, its children at its header's start.
 pub fn view(a: &mut NodeArgs) -> Result<El, String> {
-    let app = cx::app().ok_or("ui.diffView draws only in a render")?;
-    let pal = p(a);
-    let sid = handle_field(a, "diff", "sessionId").ok_or("ui.diffView needs a diff from Diff:Open")?;
-    let mode = if a.string("mode") == Some("unified") { DiffMode::Unified } else { DiffMode::Split };
-    let expand = if a.flag("expand") { ExpandMode::Expand } else { ExpandMode::Collapse };
-    let file = a.string("file").map(str::to_owned);
-    if a.flag("list") {
-        // Its rows are built here, not as they lay out: what they show is read here.
-        cx::read(Dep::NarrowReview(sid.clone()));
-        let title = if a.children.is_empty() { rune::el() } else { a.children.remove(0) };
-        let notes = crate::line_comments::host::Notes::new(&sid, crate::line_comments::Surface::Narrow)
-            as Rc<dyn crate::code_view::notes::LineNotes<App>>;
-        return Ok(crate::review::mobile::view(app, &pal, &sid, title, Some(notes)));
-    }
-    cx::read(Dep::Diff(sid.clone()));
-    let sr = app.kernel.slots.get(&crate::review::REVIEW).sessions.get(&sid);
-    let shown = sr.and_then(|sr| sr.diffs.only().and_then(|f| sr.diffs.files().get(f)).map(|f| f.path().to_owned()));
-    let stale_file = file.is_some() && file != shown && sr.is_some_and(|sr| file.as_deref().and_then(|f| sr.diffs.file_index(f)).is_some());
-    if mode != app.kernel.slots.get(&crate::review::REVIEW).diff_mode || expand != app.kernel.slots.get(&crate::review::REVIEW).expand_mode || stale_file {
-        let id = sid.clone();
-        app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
-            tx.instant();
-            s.set_review_diff_mode(mode);
-            s.set_review_expand_mode(expand);
-            if let (Some(path), Some(sr)) = (file, s.kernel.slots.get_mut(&crate::review::REVIEW).sessions.get_mut(&id)) {
-                sr.show(&path);
-            }
-        }));
-    }
-    let (get, get_mut) = (sid.clone(), sid.clone());
-    let viewer = DiffViewer::new(
-        format!("review-diff-{sid}"),
-        move |s: &App| {
-            let review = s.kernel.slots.get(&crate::review::REVIEW);
-            review.sessions.get(&get).map_or(&review.empty_diffs, |r| &r.diffs)
-        },
-        move |s: &mut App| {
-            let review = s.kernel.slots.get_mut(&crate::review::REVIEW);
-            match review.sessions.get_mut(&get_mut) {
-                Some(r) => &mut r.diffs,
-                None => &mut review.empty_diffs,
-            }
-        },
-    )
-    .on_fetch_text(|s: &mut App, f: usize| s.request_review_file_text(f))
-    .notes(crate::line_comments::host::Notes::new(&sid, crate::line_comments::Surface::Review))
-    .build(app, &pal);
-    let bar = sr.filter(|sr| sr.diffs.find_open()).map(|sr| {
-        let d = &sr.diffs;
-        let bar = FindBar {
-            key: "review-find-bar",
-            // Under the sticky file header (--session-title-height), 4 up.
-            top: crate::code_view::HEADER_H - 4.0,
-            edit: diff_find_input,
-            changed: |s, sid, tx| {
+    cx::with_app(|app| {
+        let pal = p(a);
+        let sid = handle_field(a, "diff", "sessionId").ok_or("ui.diffView needs a diff from Diff:Open")?;
+        let mode = if a.string("mode") == Some("unified") { DiffMode::Unified } else { DiffMode::Split };
+        let expand = if a.flag("expand") { ExpandMode::Expand } else { ExpandMode::Collapse };
+        let file = a.string("file").map(str::to_owned);
+        if a.flag("list") {
+            // Its rows are built here, not as they lay out: what they show is read here.
+            cx::read(Dep::NarrowReview(sid.clone()));
+            let title = if a.children.is_empty() { rune::el() } else { a.children.remove(0) };
+            let notes = crate::line_comments::host::Notes::new(&sid, crate::line_comments::Surface::Narrow)
+                as Rc<dyn crate::code_view::notes::LineNotes<App>>;
+            return Ok(crate::review::mobile::view(app, &pal, &sid, title, Some(notes)));
+        }
+        cx::read(Dep::Diff(sid.clone()));
+        let sr = app.kernel.slots.get(&crate::review::REVIEW).sessions.get(&sid);
+        let shown = sr.and_then(|sr| sr.diffs.only().and_then(|f| sr.diffs.files().get(f)).map(|f| f.path().to_owned()));
+        let stale_file = file.is_some() && file != shown && sr.is_some_and(|sr| file.as_deref().and_then(|f| sr.diffs.file_index(f)).is_some());
+        if mode != app.kernel.slots.get(&crate::review::REVIEW).diff_mode || expand != app.kernel.slots.get(&crate::review::REVIEW).expand_mode || stale_file {
+            let id = sid.clone();
+            app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
-                if let Some(sr) = s.kernel.slots.get_mut(&crate::review::REVIEW).sessions.get_mut(sid) {
-                    sr.diffs.sync_find_query();
+                s.set_review_diff_mode(mode);
+                s.set_review_expand_mode(expand);
+                if let (Some(path), Some(sr)) = (file, s.kernel.slots.get_mut(&crate::review::REVIEW).sessions.get_mut(&id)) {
+                    sr.show(&path);
+                }
+            }));
+        }
+        let (get, get_mut) = (sid.clone(), sid.clone());
+        let viewer = DiffViewer::new(
+            format!("review-diff-{sid}"),
+            move |s: &App| {
+                let review = s.kernel.slots.get(&crate::review::REVIEW);
+                review.sessions.get(&get).map_or(&review.empty_diffs, |r| &r.diffs)
+            },
+            move |s: &mut App| {
+                let review = s.kernel.slots.get_mut(&crate::review::REVIEW);
+                match review.sessions.get_mut(&get_mut) {
+                    Some(r) => &mut r.diffs,
+                    None => &mut review.empty_diffs,
                 }
             },
-            step: |s, sid, forward, tx| {
-                if let Some(sr) = s.kernel.slots.get_mut(&crate::review::REVIEW).sessions.get_mut(sid) {
-                    sr.diffs.sync_find_query();
-                    sr.diffs.step_find(forward, tx);
-                }
-            },
-            close: |s, sid, tx| {
-                tx.instant();
-                if let Some(sr) = s.kernel.slots.get_mut(&crate::review::REVIEW).sessions.get_mut(sid) {
-                    sr.diffs.set_find_open(false);
-                }
-            },
-            target: sid.clone(),
-        };
-        find_bar(&pal, &d.find.input, d.find_count(), d.find_index(), app.settings.spellcheck, bar)
-    });
-    Ok(col().w_full().grow(1.0).min_h(0.0).child(over(viewer, bar)))
+        )
+        .on_fetch_text(|s: &mut App, f: usize| s.request_review_file_text(f))
+        .notes(crate::line_comments::host::Notes::new(&sid, crate::line_comments::Surface::Review))
+        .build(app, &pal);
+        let bar = sr.filter(|sr| sr.diffs.find_open()).map(|sr| {
+            let d = &sr.diffs;
+            let bar = FindBar {
+                key: "review-find-bar",
+                // Under the sticky file header (--session-title-height), 4 up.
+                top: crate::code_view::HEADER_H - 4.0,
+                edit: diff_find_input,
+                changed: |s, sid, tx| {
+                    tx.instant();
+                    if let Some(sr) = s.kernel.slots.get_mut(&crate::review::REVIEW).sessions.get_mut(sid) {
+                        sr.diffs.sync_find_query();
+                    }
+                },
+                step: |s, sid, forward, tx| {
+                    if let Some(sr) = s.kernel.slots.get_mut(&crate::review::REVIEW).sessions.get_mut(sid) {
+                        sr.diffs.sync_find_query();
+                        sr.diffs.step_find(forward, tx);
+                    }
+                },
+                close: |s, sid, tx| {
+                    tx.instant();
+                    if let Some(sr) = s.kernel.slots.get_mut(&crate::review::REVIEW).sessions.get_mut(sid) {
+                        sr.diffs.set_find_open(false);
+                    }
+                },
+                target: sid.clone(),
+            };
+            find_bar(&pal, &d.find.input, d.find_count(), d.find_index(), app.settings.spellcheck, bar)
+        });
+        Ok(col().w_full().grow(1.0).min_h(0.0).child(over(viewer, bar)))
+    })
+    .ok_or_else(|| "ui.diffView draws only in a render".to_owned())?
 }
 
 /// Session `sid`'s diff find field.

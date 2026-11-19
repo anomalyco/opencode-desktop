@@ -15,7 +15,7 @@ use rune_luau::{Data, NodeArgs, Press};
 use rune_theme_opencode::tree_icons;
 
 use super::super::cx::{self, Dep};
-use super::super::services::{app_now, method};
+use super::super::services::{method, with_app};
 use super::{handle_field, p, string_map};
 use crate::App;
 use crate::palette::Pal;
@@ -36,17 +36,19 @@ pub fn methods(lua: &Lua) -> mlua::Result<Table> {
             lua.create_function(move |_, (this, path): (Table, String)| {
                 let sid: String = this.raw_get("sessionId")?;
                 let workspace = is_workspace(&this);
-                app_now("FileTreeModel")?.later(Box::new(move |s: &mut App, tx: &mut Tx| {
-                    tx.instant();
-                    if workspace {
-                        if s.kernel.slots.get(&crate::files::FILES).sessions.get(&sid).is_some_and(|w| w.expanded_dirs.contains(&path)) != open {
-                            s.toggle_workspace_dir(&path);
+                with_app("FileTreeModel", |app| {
+                    app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
+                        tx.instant();
+                        if workspace {
+                            if s.kernel.slots.get(&crate::files::FILES).sessions.get(&sid).is_some_and(|w| w.expanded_dirs.contains(&path)) != open {
+                                s.toggle_workspace_dir(&path);
+                            }
+                        } else {
+                            s.expand_review_dir(&sid, &path, open);
                         }
-                    } else {
-                        s.expand_review_dir(&sid, &path, open);
-                    }
-                }));
-                Ok(())
+                    }));
+                    Ok(())
+                })
             })?,
         )?;
     }
@@ -55,50 +57,56 @@ pub fn methods(lua: &Lua) -> mlua::Result<Table> {
         lua.create_function(|_, (this, path): (Table, String)| {
             let sid: String = this.raw_get("sessionId")?;
             let workspace = is_workspace(&this);
-            app_now("FileTreeModel:Reveal")?.later(Box::new(move |s: &mut App, tx: &mut Tx| {
-                if workspace {
-                    if let Some(w) = s.kernel.slots.get_mut(&crate::files::FILES).sessions.get_mut(&sid) {
-                        let parts: Vec<&str> = path.split('/').collect();
-                        (1..parts.len()).for_each(|i| {
-                            w.expanded_dirs.insert(parts[..i].join("/"));
-                        });
-                        w.rebuild_tree();
-                        w.tree.select(&path);
+            with_app("FileTreeModel:Reveal", |app| {
+                app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
+                    if workspace {
+                        if let Some(w) = s.kernel.slots.get_mut(&crate::files::FILES).sessions.get_mut(&sid) {
+                            let parts: Vec<&str> = path.split('/').collect();
+                            (1..parts.len()).for_each(|i| {
+                                w.expanded_dirs.insert(parts[..i].join("/"));
+                            });
+                            w.rebuild_tree();
+                            w.tree.select(&path);
+                        }
+                    } else if let Some(sr) = s.kernel.slots.get_mut(&crate::review::REVIEW).sessions.get_mut(&sid) {
+                        sr.tree.reveal(&path, tx);
+                        sr.stamp += 1;
                     }
-                } else if let Some(sr) = s.kernel.slots.get_mut(&crate::review::REVIEW).sessions.get_mut(&sid) {
-                    sr.tree.reveal(&path, tx);
-                    sr.stamp += 1;
-                }
-            }));
-            Ok(())
+                }));
+                Ok(())
+            })
         })?,
     )?;
     m.raw_set(
         "Version",
         lua.create_function(|_, this: Table| {
             let sid: String = this.raw_get("sessionId")?;
-            let app = app_now("FileTreeModel:Version")?;
-            if is_workspace(&this) {
-                cx::read(Dep::FilesTree(sid.clone()));
-                return Ok((super::files::tree_version(app, &sid) >> 11) as f64);
-            }
-            cx::read(Dep::DiffTree(sid.clone()));
-            Ok((super::diff::tree_version(app, &sid) >> 11) as f64)
+            let workspace = is_workspace(&this);
+            with_app("FileTreeModel:Version", |app| {
+                if workspace {
+                    cx::read(Dep::FilesTree(sid.clone()));
+                    return Ok((super::files::tree_version(app, &sid) >> 11) as f64);
+                }
+                cx::read(Dep::DiffTree(sid.clone()));
+                Ok((super::diff::tree_version(app, &sid) >> 11) as f64)
+            })
         })?,
     )?;
     m.raw_set(
         "Find",
         lua.create_function(|lua, (this, query): (Table, String)| {
             let sid: String = this.raw_get("sessionId")?;
-            let app = app_now("FileTreeModel:Find")?;
-            let found = if is_workspace(&this) {
-                cx::read(Dep::FilesTree(sid.clone()));
-                app.filtered_files(&sid, &query)
-            } else {
-                cx::read(Dep::DiffTree(sid.clone()));
-                let all: Vec<String> = app.kernel.slots.get(&crate::review::REVIEW).sessions.get(&sid).map(|r| r.meta.iter().map(|m| m.path.clone()).collect()).unwrap_or_default();
-                filter_review_files(&all, &query)
-            };
+            let workspace = is_workspace(&this);
+            let found = with_app("FileTreeModel:Find", |app| {
+                Ok(if workspace {
+                    cx::read(Dep::FilesTree(sid.clone()));
+                    app.filtered_files(&sid, &query)
+                } else {
+                    cx::read(Dep::DiffTree(sid.clone()));
+                    let all: Vec<String> = app.kernel.slots.get(&crate::review::REVIEW).sessions.get(&sid).map(|r| r.meta.iter().map(|m| m.path.clone()).collect()).unwrap_or_default();
+                    filter_review_files(&all, &query)
+                })
+            })?;
             lua.create_sequence_from(found)
         })?,
     )?;
@@ -116,18 +124,20 @@ fn is_workspace(this: &Table) -> bool {
 
 /// `ui.fileTree`.
 pub fn view(a: &mut NodeArgs) -> Result<El, String> {
-    let app = cx::app().ok_or("ui.fileTree draws only in a render")?;
-    let pal = p(a);
-    let sid = handle_field(a, "tree", "sessionId").ok_or("ui.fileTree needs a tree from DiffDocument:Tree or Workspace:OpenTree")?;
-    let kinds = Rc::new(string_map(a.data("kinds")));
-    let selected = a.string("selectedPath").map(str::to_owned);
-    let highlighted = a.string("highlightedPath").map(str::to_owned);
-    let filter = a.string("filter").unwrap_or_default().trim().to_owned();
-    if handle_field(a, "tree", "kind").as_deref() == Some("workspace") {
-        return Ok(workspace(app, &pal, a, &sid, kinds, selected, &filter));
-    }
-    let pick = a.press_later("onSelect");
-    Ok(if filter.is_empty() { change_tree(app, &pal, &sid, kinds, selected, pick) } else { filtered(app, &pal, &sid, &filter, kinds, selected, highlighted, pick) })
+    cx::with_app(|app| {
+        let pal = p(a);
+        let sid = handle_field(a, "tree", "sessionId").ok_or("ui.fileTree needs a tree from DiffDocument:Tree or Workspace:OpenTree")?;
+        let kinds = Rc::new(string_map(a.data("kinds")));
+        let selected = a.string("selectedPath").map(str::to_owned);
+        let highlighted = a.string("highlightedPath").map(str::to_owned);
+        let filter = a.string("filter").unwrap_or_default().trim().to_owned();
+        if handle_field(a, "tree", "kind").as_deref() == Some("workspace") {
+            return Ok(workspace(app, &pal, a, &sid, kinds, selected, &filter));
+        }
+        let pick = a.press_later("onSelect");
+        Ok(if filter.is_empty() { change_tree(app, &pal, &sid, kinds, selected, pick) } else { filtered(app, &pal, &sid, &filter, kinds, selected, highlighted, pick) })
+    })
+    .ok_or_else(|| "ui.fileTree draws only in a render".to_owned())?
 }
 
 /// A workspace's tree, or with `filter` the files the server and the tree find; with `narrow`,

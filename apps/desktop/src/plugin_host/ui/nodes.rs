@@ -1,10 +1,9 @@
-//! The contract's `ui.*` nodes beyond rune-luau's own (`row`, `col`, `box`, `text`, `spacer`,
-//! `virtualList`): the app's controls and content, built by the same code the app draws its own
-//! with, so a plugin's button or settings row is the app's to the pixel. The native views
-//! (terminal, browser, code, diff, tree) are `native`'s.
+//! Desktop-specific contract `ui.*` host nodes (`shimmer`, `switch`, `field`, `pill`,
+//! `settingsRow`, `settingsList`, `flyoutRow`, `dialogHeader`, `markdown`, `genUi`, `image`,
+//! `video`). `App`-independent UI primitives live in `opencode_plugin_runtime::ui_nodes`.
 
-use rune::{El, TextStyle, Tx, col, el, row, text};
-use rune_kit::{ButtonVariant, Loader};
+use opencode_plugin_runtime::ui_nodes::{self, dir, named_icon, text_style};
+use rune::{El, TextStyle, Tx, el, row, text};
 use rune_luau::{Data, HostNode, NodeArgs};
 
 use crate::App;
@@ -12,30 +11,24 @@ use crate::palette::{Pal, kit, pal};
 use crate::plugin_host::{FlyoutEvent, bump, cx, flyout, key_pressed, native, requests, services, submitted};
 
 pub fn all() -> Vec<HostNode> {
-    let mut all = vec![
-        HostNode::new("divider", divider),
-        HostNode::new("icon", icon),
+    let mut all = ui_nodes::base_nodes(
+        |id| cx::with_app(|app| crate::keymap::command_chord(app, id)).flatten(),
+        |command| cx::with_app(|app| app.catalog().into_iter().find(|c| c.id == command).and_then(|c| c.chord)).flatten(),
+    );
+    all.extend([
         HostNode::new("image", services::images::node),
         HostNode::new("video", services::images::video_node),
-        HostNode::new("metric", metric),
         HostNode::new("shimmer", shimmer),
-        HostNode::new("keybind", keybind),
-        HostNode::new("button", button),
-        HostNode::new("iconButton", icon_button),
         HostNode::new("switch", switch),
-        HostNode::new("radio", radio),
         HostNode::new("field", field),
-        HostNode::new("loader", |a| Ok(Loader::new().size(a.number("size").unwrap_or(16.0) as f32).build(kit(&p(a))))),
-        HostNode::new("serverIndicator", server_indicator),
         HostNode::new("pill", pill),
         HostNode::new("settingsRow", settings_row),
         HostNode::new("settingsList", settings_list),
         HostNode::new("flyoutRow", flyout_row),
         HostNode::new("dialogHeader", dialog_header),
         HostNode::new("markdown", markdown),
-        HostNode::new("progressCircle", progress_circle),
         HostNode::new("genUi", gen_ui),
-    ];
+    ]);
     all.extend(native::nodes());
     #[cfg(feature = "office")]
     all.extend(super::office_nodes::all());
@@ -53,156 +46,15 @@ fn gen_ui(a: &mut NodeArgs) -> Result<El, String> {
     Ok(session_view::genui::standalone::<App>(&p(a), a.string("source").unwrap_or_default(), width, a.flag("streaming")).unwrap_or_else(el))
 }
 
-/// Icon `name`: the rendering plugin's own (`icons/<name>.svg`), else the host's or the app's.
-fn named_icon(name: &str) -> &'static rune::Icon {
-    crate::plugin_host::icons::resolve(cx::rendering().as_deref().unwrap_or_default(), name)
-}
-
 fn p(a: &NodeArgs) -> Pal {
     *pal(a.dark())
 }
 
-/// The text style the props describe, from `base`.
-fn style(a: &NodeArgs, base: TextStyle) -> TextStyle {
-    let mut s = base;
-    if let Some(n) = a.number("size") {
-        s.size = n as f32;
-    }
-    s.weight = match a.string("weight") {
-        Some("regular") => 440.0,
-        Some("medium") => 530.0,
-        Some("semibold") => 600.0,
-        Some("bold") => 700.0,
-        _ => a.number("weight").map_or(s.weight, |w| w as f32),
-    };
-    if let Some(n) = a.number("lineHeight") {
-        s = s.lh(n as f32);
-    }
-    if let Some(n) = a.number("tracking") {
-        s = s.tracking(n as f32);
-    }
-    s
-}
-
-/// A 1 px rule laid out as Chromium lays out a 1px CSS border: one device pixel at 1x, 1.25x and
-/// 1.5x, two at 2x (`rune::rule`), so a box that holds one ends where Desktop's does.
-fn divider(a: &mut NodeArgs) -> Result<El, String> {
-    let c = a.color("color").unwrap_or(p(a).border_muted);
-    Ok(if a.flag("vertical") { el().h_full().border_sides([0.0, 0.0, 0.0, 1.0], c).border_layout() } else { rune::rule(1.0, c).w_full() })
-}
-
-fn icon(a: &mut NodeArgs) -> Result<El, String> {
-    let name = a.content().unwrap_or_default().to_owned();
-    let size = a.number("size").unwrap_or(16.0) as f32;
-    let pal = p(a);
-    let color = a.color("color").unwrap_or(match a.string("tone") {
-        Some("success") => pal.success,
-        Some("warning") => pal.warning,
-        Some("danger") => pal.danger,
-        _ => pal.icon,
-    });
-    Ok(rune::icon(named_icon(&name), size).color(color))
-}
-
-/// A number whose changed digits roll (`session_view::odometer`), or plain text.
-fn metric(a: &mut NodeArgs) -> Result<El, String> {
-    let value = a.number("value").unwrap_or(0.0);
-    let words = a.string("text").unwrap_or_default().to_owned();
-    let mut font = style(a, TextStyle::new(13.0, 440.0));
-    if a.get("tabular").is_none() || a.flag("tabular") {
-        font = font.features("\"tnum\"");
-    }
-    let color = a.color("color").unwrap_or(p(a).text);
-    let animate = a.get("animate").is_none() || a.flag("animate");
-    if !animate {
-        return Ok(text(words).font(font).color(color));
-    }
-    let key = a.string("key").unwrap_or("metric").to_owned();
-    Ok(session_view::odometer::odometer_end(format!("luau:{key}"), words, value, font, color))
-}
-
 fn shimmer(a: &mut NodeArgs) -> Result<El, String> {
     let words = a.content().unwrap_or_default().to_owned();
-    let font = style(a, TextStyle::new(13.0, 440.0));
+    let font = text_style(a, TextStyle::new(13.0, 440.0));
     let pal = p(a);
-    let app = cx::app().ok_or("ui.shimmer draws only in a render")?;
-    Ok(session_view::working::shimmer(app, &pal, &words, font, *app.clock))
-}
-
-fn keybind(a: &mut NodeArgs) -> Result<El, String> {
-    let label = match (a.string("keys"), a.string("command")) {
-        (Some(keys), _) => keys.parse::<rune::Keybind>().ok().and_then(|k| k.chords().first().copied()).map(crate::keymap::label).unwrap_or_else(|| keys.to_owned()),
-        (None, Some(command)) => crate::keymap::overrides::command(command)
-            .and_then(|k| k.chords().first().copied())
-            .or_else(|| cx::app().and_then(|app| app.catalog().into_iter().find(|c| c.id == command).and_then(|c| c.chord)))
-            .map(crate::keymap::label)
-            .unwrap_or_default(),
-        _ => String::new(),
-    };
-    Ok(crate::keymap::view::chips(&p(a), vec![label]))
-}
-
-fn variant(name: Option<&str>) -> ButtonVariant {
-    match name {
-        Some("contrast") => ButtonVariant::Contrast,
-        Some("primary") => ButtonVariant::Submit,
-        Some("ghost") => ButtonVariant::Ghost,
-        Some("ghost-muted") => ButtonVariant::GhostMuted,
-        Some("outline") => ButtonVariant::Outline,
-        Some("danger") => ButtonVariant::Danger,
-        _ => ButtonVariant::Neutral,
-    }
-}
-
-#[allow(deprecated)]
-fn button(a: &mut NodeArgs) -> Result<El, String> {
-    let pal = p(a);
-    let k = kit(&pal);
-    let words = a.string("text").unwrap_or_default().to_owned();
-    let (disabled, loading) = (a.flag("disabled"), a.flag("loading"));
-    let small = a.string("size") == Some("small");
-    // Desktop's button sizes (`button.css`): small 24 tall, normal 28, large 32 with 15 a side.
-    #[allow(deprecated)]
-    let size = match a.string("size") {
-        Some("small") => rune_kit::ButtonSize::Small,
-        Some("large") => rune_kit::ButtonSize::Large,
-        _ => rune_kit::ButtonSize::Normal,
-    };
-    let v = if loading && !small { ButtonVariant::Loading } else { variant(a.string("variant")) };
-    let mut b = crate::widgets::button(words.clone(), v).size(size).disabled(disabled);
-    if let Some(lead) = a.string("icon") {
-        b = b.icon(named_icon(lead));
-    }
-    if loading && small {
-        // `<Loader class="size-3.5" />` before the label, in the label's color.
-        let spinner = Loader::new().size(14.0).build(k);
-        b = b.label_with(move |style, ink| row().gap(4.0).center_y().child(spinner).child(text(words).font(style).color(ink)));
-    } else if loading {
-        // Desktop's `variant="loading"` button holds only `<Loader />`.
-        let spinner = Loader::new().size(16.0).build(k);
-        b = b.label_with(move |_, _| spinner);
-    }
-    let el = b.build(k);
-    Ok(if disabled || loading { el } else { a.on_press(el, "onPress") })
-}
-
-fn icon_button(a: &mut NodeArgs) -> Result<El, String> {
-    let pal = p(a);
-    let name = a.string("icon").unwrap_or_default().to_owned();
-    let small = a.string("size") == Some("small");
-    let side = if small { 24.0 } else { 28.0 };
-    let pressed = a.flag("pressed");
-    let mut b = row().role("button").size(side, side).center().radius(6.0).hover(pal.hover).press(pal.pressed).hover_motion(rune::Anim::INSTANT, rune::Anim::INSTANT);
-    if pressed {
-        b = b.fill(pal.pressed);
-    }
-    // ghost-muted draws its icon in icon-muted, icon-base while pressed (`icon-button.css`).
-    let ink = a.color("color").unwrap_or(if a.string("variant") == Some("ghost-muted") && !pressed { pal.icon_muted } else { pal.icon });
-    let mut b = b.child(rune::icon(named_icon(&name), 16.0).color(ink));
-    if let Some(chord) = a.string("keybind").and_then(|id| cx::app().and_then(|app| crate::keymap::command_chord(app, id))) {
-        b = b.help_keys(crate::keymap::caps(chord));
-    }
-    Ok(if a.flag("disabled") { b.layer_opacity(0.5) } else { a.on_press(b, "onPress") })
+    cx::with_app(|app| session_view::working::shimmer(app, &pal, &words, font, *app.clock)).ok_or_else(|| "ui.shimmer draws only in a render".into())
 }
 
 fn switch(a: &mut NodeArgs) -> Result<El, String> {
@@ -215,18 +67,6 @@ fn switch(a: &mut NodeArgs) -> Result<El, String> {
     Ok(a.on_press_with(s, "onChange", vec![("checked", Data::Bool(!checked))]))
 }
 
-fn radio(a: &mut NodeArgs) -> Result<El, String> {
-    let pal = p(a);
-    let checked = a.flag("checked");
-    // A description's tone is Desktop's `state-fg-*` (`data-tone` on a status line).
-    let tone = match a.string("tone") {
-        Some(t @ ("success" | "warning" | "danger")) => session_view::palette::token(pal.dark, &format!("state-fg-{t}")),
-        _ => None,
-    };
-    let r = super::widgets::radio(kit(&pal), a.string("text").unwrap_or_default(), a.string("description").unwrap_or_default(), checked, a.flag("disabled"), tone, a.number("lineHeight").unwrap_or(20.0) as f32);
-    Ok(if a.flag("disabled") { r } else { a.on_press_with(r, "onChange", vec![("checked", Data::Bool(true))]) })
-}
-
 /// Desktop's `TextInput` over the plugin's editor (`ctx:CreateEditor`). Enter fires the
 /// editor's `Submitted` signal.
 fn field(a: &mut NodeArgs) -> Result<El, String> {
@@ -235,84 +75,49 @@ fn field(a: &mut NodeArgs) -> Result<El, String> {
     let index = index as usize;
     // The field draws its editor's text, caret and focus: the render runs again as they change.
     cx::read(cx::Dep::Editor(plugin.as_str().into(), index));
-    let app = cx::app().ok_or("ui.field draws only in a render")?;
-    let editors = app.plugins.editors.borrow();
-    let Some(edit) = editors.get(&(plugin.clone(), index)) else { return Ok(el()) };
-    if a.string("variant") == Some("filter") {
-        return Ok(filter_field(a, edit, plugin, index));
-    }
-    if a.string("variant") == Some("bare") {
-        return Ok(bare_field(a, edit, plugin, index));
-    }
-    let edit_plugin = plugin.clone();
-    let mut input = rune_kit::TextInput::new(edit)
-        .placeholder(a.string("placeholder").unwrap_or_default().to_owned())
-        .invalid(a.flag("invalid"))
-        .disabled(a.flag("disabled"));
-    // A read-only field draws as usual and takes no edit.
-    if !a.flag("readOnly") {
-        input = input.on_edit(move |app: &mut App| {
-            super::editors::note_side_field(app, &edit_plugin);
-            super::editors::get_mut(app, &edit_plugin, index)
-        });
-    }
-    if a.string("w") == Some("full") {
-        input = input.width(None);
-    }
-    if a.string("size") == Some("large") {
-        input = input.large();
-    }
-    if a.flag("secure") {
-        input = input.secure();
-    }
-    if let Some(w) = a.number("w").filter(|w| *w > 0.0) {
-        input = input.width(Some(w as f32));
-    } else if a.string("w") == Some("full") {
-        input = input.width(None);
-    }
-    // The node's `dir` reaches the value, not just the frame: `auto` starts an Arabic name at the right.
-    // A plugin's field reads the way its text does unless it says otherwise (`dir="auto"`); a
-    // secret reads left to right.
-    input = input.dir(dir(a).unwrap_or(if a.flag("secure") { rune::Direction::Ltr } else { rune::Direction::Auto }));
-    input = input.on_submit(move |app: &mut App, tx: &mut Tx| submitted(app, &plugin, index, tx));
-    Ok(input.build(kit(&p(a))))
-}
-
-/// HTML's `dir` on a text input (`dir="auto"` on Desktop's name fields).
-fn dir(a: &NodeArgs) -> Option<rune::Direction> {
-    match a.string("dir")? {
-        "ltr" => Some(rune::Direction::Ltr),
-        "rtl" => Some(rune::Direction::Rtl),
-        "auto" => Some(rune::Direction::Auto),
-        _ => None,
-    }
-}
-
-/// Desktop's `ServerHealthIndicator` (`servers/registry/row.tsx`) as a plugin row's
-/// `ServerRow.Indicator`: a lock while it waits for sign-in, a spinner while it connects, a
-/// warning when incompatible, else a 6-point dot (green once healthy, red when unreachable,
-/// faint when unknown).
-fn server_indicator(a: &mut NodeArgs) -> Result<El, String> {
-    let pal = p(a);
-    let health = a.data("health");
-    let field = |k: &str| health.as_ref().map(|h| h.get(k).clone()).unwrap_or(Data::Nil);
-    let slot = || row().w(6.0).h(14.0).center();
-    if a.flag("auth") {
-        return Ok(slot().role("status").child(rune::icon(named_icon("lock"), 12.0).color(pal.icon_muted)));
-    }
-    if a.flag("connecting") || field("checking") == Data::Bool(true) {
-        return Ok(slot().role("status").child(Loader::new().size(12.0).build(kit(&pal))));
-    }
-    if field("incompatible") == Data::Bool(true) {
-        return Ok(rune::icon(named_icon("warning"), 16.0).color(pal.v1_icon_warning));
-    }
-    // Desktop's v1 status colours, as the host's own server rows draw them.
-    let color = match field("healthy") {
-        Data::Bool(true) => crate::widgets::status_ink(&pal, "connected"),
-        Data::Bool(false) => crate::widgets::status_ink(&pal, "failed"),
-        _ => pal.icon_faint,
-    };
-    Ok(el().size(6.0, 6.0).my(3.5).radius(3.0).fill(color))
+    cx::with_app(|app| {
+        let editors = app.plugins.editors.borrow();
+        let Some(edit) = editors.get(&(plugin.clone(), index)) else { return Ok(el()) };
+        if a.string("variant") == Some("filter") {
+            return Ok(filter_field(a, edit, plugin, index));
+        }
+        if a.string("variant") == Some("bare") {
+            return Ok(bare_field(a, edit, plugin, index));
+        }
+        let edit_plugin = plugin.clone();
+        let mut input = rune_kit::TextInput::new(edit)
+            .placeholder(a.string("placeholder").unwrap_or_default().to_owned())
+            .invalid(a.flag("invalid"))
+            .disabled(a.flag("disabled"));
+        // A read-only field draws as usual and takes no edit.
+        if !a.flag("readOnly") {
+            input = input.on_edit(move |app: &mut App| {
+                super::editors::note_side_field(app, &edit_plugin);
+                super::editors::get_mut(app, &edit_plugin, index)
+            });
+        }
+        if a.string("w") == Some("full") {
+            input = input.width(None);
+        }
+        if a.string("size") == Some("large") {
+            input = input.large();
+        }
+        if a.flag("secure") {
+            input = input.secure();
+        }
+        if let Some(w) = a.number("w").filter(|w| *w > 0.0) {
+            input = input.width(Some(w as f32));
+        } else if a.string("w") == Some("full") {
+            input = input.width(None);
+        }
+        // The node's `dir` reaches the value, not just the frame: `auto` starts an Arabic name at the right.
+        // A plugin's field reads the way its text does unless it says otherwise (`dir="auto"`); a
+        // secret reads left to right.
+        input = input.dir(dir(a).unwrap_or(if a.flag("secure") { rune::Direction::Ltr } else { rune::Direction::Auto }));
+        input = input.on_submit(move |app: &mut App, tx: &mut Tx| submitted(app, &plugin, index, tx));
+        Ok(input.build(kit(&p(a))))
+    })
+    .ok_or_else(|| "ui.field draws only in a render".to_owned())?
 }
 
 /// The `bare` variant: the text, caret and selection alone at 13 / 440 (tracking -0.04), on no
@@ -421,10 +226,12 @@ fn filter_field(a: &NodeArgs, edit: &rune::TextEdit, plugin: String, index: usiz
 
 fn pill(a: &mut NodeArgs) -> Result<El, String> {
     let pal = p(a);
-    let app = cx::app().ok_or("ui.pill draws only in a render")?;
     let words = a.string("text").unwrap_or_default().to_owned();
     let key = a.string("key").unwrap_or("pill").to_owned();
-    let mut chip = crate::subagents::chip(app, &pal, &key, words.clone(), a.flag("pressed")).shrink().min_w(0.0);
+    let mut chip = cx::with_app(|app| crate::subagents::chip(app, &pal, &key, words.clone(), a.flag("pressed")))
+        .ok_or("ui.pill draws only in a render")?
+        .shrink()
+        .min_w(0.0);
     if let Some(name) = a.string("icon") {
         let ink = match a.string("tone") {
             Some(t @ ("success" | "warning" | "danger")) => session_view::palette::token(pal.dark, &format!("state-fg-{t}")).unwrap_or(pal.icon_muted),
@@ -441,7 +248,7 @@ fn settings_row(a: &mut NodeArgs) -> Result<El, String> {
     let id = a.string("id").unwrap_or_default().to_owned();
     let control = if a.children.is_empty() { el() } else { a.children.remove(0) };
     let row = crate::settings::setting(&pal, &id, a.string("title").unwrap_or_default(), a.string("description").unwrap_or_default(), control);
-    let lit = cx::app().and_then(|app| crate::settings::search::reveal_of(app, &id));
+    let lit = cx::with_app(|app| crate::settings::search::reveal_of(app, &id)).flatten();
     Ok(crate::settings::pages::revealed(&pal, lit, 20.0, row))
 }
 
@@ -468,7 +275,7 @@ fn flyout_row(a: &mut NodeArgs) -> Result<El, String> {
     let plugin = cx::rendering();
     let expanded = plugin.as_ref().is_some_and(|plugin| {
         cx::read(cx::Dep::Flyout(plugin.clone()));
-        cx::app().and_then(|app| app.plugins.overlay.flyout_row(plugin)) == Some(key.as_str())
+        cx::with_app(|app| app.plugins.overlay.flyout_row(plugin) == Some(key.as_str())).unwrap_or(false)
     });
     let mut r = row()
         .role("button")
@@ -506,7 +313,7 @@ fn flyout_row(a: &mut NodeArgs) -> Result<El, String> {
     let target = flyout::Row { id: popover, row: key.clone(), side, data };
     // Steps the popover's flyout (`flyout-machine.ts`) with the event `make` builds for this row.
     let ask = std::rc::Rc::new(move |app: &mut App, tx: &mut Tx, make: &dyn Fn(flyout::Row) -> FlyoutEvent| {
-        cx::ask(&plugin, cx::Request::Flyout(make(target.clone())));
+        cx::ask_in(app, &plugin, cx::Request::Flyout(make(target.clone())));
         requests::carry_out(app, tx);
     });
     let (hover, moved, press) = (ask.clone(), ask.clone(), ask);
@@ -545,30 +352,8 @@ fn flyout_row(a: &mut NodeArgs) -> Result<El, String> {
         .on_press_tx(move |app: &mut App, tx: &mut Tx| press(app, tx, &FlyoutEvent::Activated)))
 }
 
-/// `ui.dialogHeader` (`dialog.css`): `dialog-header` 16 in, its `dialog-title-group` (the title
-/// 15 on 20 at 530, tracking -0.13; the description 13 on 20 at 440 in `text-muted`, 4 under it,
-/// both wrapping anywhere) and the 20 pt close button, 2 up and 2 out at the end, lit on hover,
-/// which closes this plugin's dialog as Esc does.
 fn dialog_header(a: &mut NodeArgs) -> Result<El, String> {
-    let pal = p(a);
-    let title = a.string("title").unwrap_or_default().to_owned();
-    let mut group = col().key("dialog-title-group").grow(1.0).shrink().min_w(0.0).gap(4.0)
-        .child(text(title).font(TextStyle::new(15.0, 530.0).lh(20.0).tracking(-0.13)).color(pal.text).wrap_anywhere().w_full());
-    if let Some(description) = a.string("description") {
-        group = group.child(text(description.to_owned()).font(crate::widgets::BODY).color(pal.muted).wrap_anywhere().w_full());
-    }
-    let mut header = row().key("dialog-header").w_full().padding(16.0).child(group);
-    if !a.flag("hideClose") {
-        let label = a.string("closeLabel").map_or_else(|| opencode_i18n::t!("common.close").to_owned(), str::to_owned);
-        header = header.child(
-            el().key("dialog-close-button").role("button").label(label).size(20.0, 20.0).mt(-2.0).mr(-2.0).radius(4.0).center()
-                .hover(pal.hover)
-                .hover_motion(rune::Anim::INSTANT, rune::Anim::INSTANT)
-                .on_press_tx(|s: &mut App, tx: &mut Tx| requests::dismiss_dialog(s, tx))
-                .child(rune::icon(&crate::widgets::DIALOG_CLOSE, 16.0).color(pal.icon_muted)),
-        );
-    }
-    Ok(header)
+    ui_nodes::dialog_header(a, |close| close.on_press_tx(|s: &mut App, tx: &mut Tx| requests::dismiss_dialog(s, tx)))
 }
 
 fn markdown(a: &mut NodeArgs) -> Result<El, String> {
@@ -582,57 +367,4 @@ fn markdown(a: &mut NodeArgs) -> Result<El, String> {
     }
     let none: Vec<(&[std::ops::Range<usize>], rune_kit::Highlight)> = Vec::new();
     Ok(session_view::style::markdown_styled::<App, _>(&pal, &source, 0.0, a.flag("streaming"), md, none, Vec::new(), None, &[], None, None))
-}
-
-/// The app's `ProgressCircle`: a track and the arc from twelve o'clock, clockwise; `compact` a
-/// 14-unit ring with a 1.5 stroke, `indicator` a 16-unit one with an overlay over its track.
-fn progress_circle(a: &mut NodeArgs) -> Result<El, String> {
-    let pal = p(a);
-    let indicator = a.string("appearance") == Some("indicator");
-    let view: f32 = if indicator { 16.0 } else { 14.0 };
-    let stroke = a.number("strokeWidth").map_or(if indicator { 3.0 } else { 1.5 }, |s| s as f32);
-    let size = a.number("size").map_or(view, |s| s as f32);
-    let percent = a.number("percentage").unwrap_or(0.0).clamp(0.0, 100.0).round() as u32;
-    let (track, arc) = ring_icons(view, stroke, percent);
-    let icon = |id: u32| crate::plugin_host::icons::icon(id);
-    let place = |e: El| e.pin(Some(0.0), Some(0.0), None, None);
-    let mut out = el().size(size, size);
-    if let Some(track) = icon(track) {
-        out = out.child(place(rune::icon(track, size).color(a.color("track").unwrap_or(pal.q.layer4))));
-        if let (true, Some(overlay)) = (indicator, a.color("overlay")) {
-            out = out.child(place(rune::icon(track, size).color(overlay)));
-        }
-    }
-    if let Some(arc) = arc.and_then(icon) {
-        out = out.child(place(rune::icon(arc, size).color(a.color("progress").unwrap_or(pal.icon))));
-    }
-    Ok(out)
-}
-
-/// The ring's track and arc icons (`None` for an empty arc), interned once per look and percent.
-fn ring_icons(view: f32, stroke: f32, percent: u32) -> (u32, Option<u32>) {
-    type RingCache = std::collections::HashMap<(u32, u32, u32), (u32, Option<u32>)>;
-    thread_local! {
-        static RINGS: std::cell::RefCell<RingCache> = std::cell::RefCell::default();
-    }
-    let key = (view.to_bits(), stroke.to_bits(), percent);
-    if let Some(found) = RINGS.with_borrow(|r| r.get(&key).copied()) {
-        return found;
-    }
-    let (c, r) = (view / 2.0, view / 2.0 - stroke / 2.0);
-    let circle = format!(r#"<circle cx="{c}" cy="{c}" r="{r}" stroke="currentColor" stroke-width="{stroke}"/>"#);
-    let arc = match percent {
-        0 => None,
-        100 => Some(circle.clone()),
-        _ => {
-            let angle = percent as f32 / 100.0 * std::f32::consts::TAU;
-            let (x, y) = (c + r * angle.sin(), c - r * angle.cos());
-            Some(format!(r#"<path d="M{c} {top}A{r} {r} 0 {large} 1 {x:.3} {y:.3}" stroke="currentColor" stroke-width="{stroke}"/>"#, top = c - r, large = u8::from(percent > 50)))
-        }
-    };
-    let intern = crate::plugin_host::icons::intern_icon;
-    let track = intern("luau", &format!("ring-track-{view}-{stroke}"), &circle, view);
-    let arc = arc.map(|a| intern("luau", &format!("ring-arc-{view}-{stroke}-{percent}"), &a, view));
-    RINGS.with_borrow_mut(|r| r.insert(key, (track, arc)));
-    (track, arc)
 }

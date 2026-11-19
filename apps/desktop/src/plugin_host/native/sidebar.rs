@@ -118,41 +118,43 @@ pub fn key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 
 /// `ui.panelSidebar(props, { sidebar, main })`.
 pub fn view(a: &mut NodeArgs) -> Result<El, String> {
-    let app = crate::plugin_host::cx::app().ok_or("ui.panelSidebar draws only in a render")?;
-    let pal = p(a);
-    let id = a.string("id").unwrap_or("panel").to_owned();
-    let min = a.number("minWidth").map_or(MIN_W, |n| n as f32);
-    let max = a.number("maxWidth").map_or(MAX_W, |n| n as f32).max(min);
-    let default = a.number("width").map_or(DEFAULT_W, |n| n as f32);
-    let mut children = std::mem::take(&mut a.children).into_iter();
-    let (side, main) = (children.next().unwrap_or_else(el), children.next().unwrap_or_else(el));
-    let st = &app.workspace_panes.panel_sidebar;
-    // Files' Open file launcher keeps the tree open, its toggle disabled.
-    let locked = a.flag("locked");
-    let opened = st.opened || locked;
-    let w = st.width.unwrap_or(default).clamp(min, max);
-    let mut body = row().key(format!("{id}-body")).w_full().grow(1.0).min_h(0.0);
-    if opened {
-        // `session-review-v2-sidebar`: its width holds its 1 pt `border-base` end edge, which takes
-        // its room from the contents (`border-right`, border-box), so the tree ends inside it.
-        body = body.child(col().key(format!("{id}-sidebar")).w(w).h_full().fill(pal.bg_base).border_sides([0.0, 1.0, 0.0, 0.0], pal.border).border_layout().child(side));
-    }
-    body = body.child(col().key(format!("{id}-main")).grow(1.0).min_w(0.0).h_full().child(main));
-    // The resize handle lies over the edge, above the content beside it.
-    if opened {
-        let dragging = st.resize != Resize::Idle;
-        let resize_inputs = ((pal.theme, pal.generation, pal.dark), w.to_bits(), min.to_bits(), max.to_bits(), dragging);
-        body = body.child(rune::memo(format!("{id}-sidebar-resize"), resize_inputs, || handle(&pal, w, min, max, dragging)));
-    }
-    let toggle_key = crate::plugin_host::icons::intern(&format!("{id}-tree-toggle"));
-    Ok(col()
-        .key(format!("{id}-panel"))
-        .w_full()
-        .grow(1.0)
-        .min_h(0.0)
-        .fill(pal.bg_base)
-        .child(body)
-        .child(chrome::sidebar_toggle(&pal, toggle_key, opened, locked, toggle)))
+    crate::plugin_host::cx::with_app(|app| {
+        let pal = p(a);
+        let id = a.string("id").unwrap_or("panel").to_owned();
+        let min = a.number("minWidth").map_or(MIN_W, |n| n as f32);
+        let max = a.number("maxWidth").map_or(MAX_W, |n| n as f32).max(min);
+        let default = a.number("width").map_or(DEFAULT_W, |n| n as f32);
+        let mut children = std::mem::take(&mut a.children).into_iter();
+        let (side, main) = (children.next().unwrap_or_else(el), children.next().unwrap_or_else(el));
+        let st = &app.workspace_panes.panel_sidebar;
+        // Files' Open file launcher keeps the tree open, its toggle disabled.
+        let locked = a.flag("locked");
+        let opened = st.opened || locked;
+        let w = st.width.unwrap_or(default).clamp(min, max);
+        let mut body = row().key(format!("{id}-body")).w_full().grow(1.0).min_h(0.0);
+        if opened {
+            // `session-review-v2-sidebar`: its width holds its 1 pt `border-base` end edge, which takes
+            // its room from the contents (`border-right`, border-box), so the tree ends inside it.
+            body = body.child(col().key(format!("{id}-sidebar")).w(w).h_full().fill(pal.bg_base).border_sides([0.0, 1.0, 0.0, 0.0], pal.border).border_layout().child(side));
+        }
+        body = body.child(col().key(format!("{id}-main")).grow(1.0).min_w(0.0).h_full().child(main));
+        // The resize handle lies over the edge, above the content beside it.
+        if opened {
+            let dragging = st.resize != Resize::Idle;
+            let resize_inputs = ((pal.theme, pal.generation, pal.dark), w.to_bits(), min.to_bits(), max.to_bits(), dragging);
+            body = body.child(rune::memo(format!("{id}-sidebar-resize"), resize_inputs, || handle(&pal, w, min, max, dragging)));
+        }
+        let toggle_key = crate::plugin_host::icons::intern(&format!("{id}-tree-toggle"));
+        col()
+            .key(format!("{id}-panel"))
+            .w_full()
+            .grow(1.0)
+            .min_h(0.0)
+            .fill(pal.bg_base)
+            .child(body)
+            .child(chrome::sidebar_toggle(&pal, toggle_key, opened, locked, toggle))
+    })
+    .ok_or_else(|| "ui.panelSidebar draws only in a render".into())
 }
 
 /// Desktop's `ResizeHandle` over the sidebar's end edge: 8 pt wide, centred on the edge, its

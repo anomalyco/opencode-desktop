@@ -34,7 +34,7 @@ pub fn ensure(app: &App, tier: Tier, manifest: &Manifest, files: &[(String, Stri
     let half = Half::new(&manifest.id, Kind::App, tier);
     *half.catalogs.borrow_mut() = catalogs;
     super::sources::intern_icons(&manifest.id, files);
-    let script = cx::with_app(app, || Script::with_options(&format!("{}@app", manifest.id), sources, vm::options(half.clone())));
+    let script = cx::enter(app, || Script::with_options(&format!("{}@app", manifest.id), sources, vm::options(half.clone())));
     if let Some(w) = app.plugins.waker.clone() {
         script.set_waker(w);
     }
@@ -77,7 +77,7 @@ pub fn poll(app: &App, now: f64, tx: &mut Tx) -> bool {
                         rune_luau::Data::List(items) => items,
                         other => vec![other],
                     };
-                    cx::with_app(app, || {
+                    cx::enter(app, || {
                         let values = a.script.with_lua(|lua| {
                             let mut v = mlua::MultiValue::new();
                             v.push_back(signal.clone());
@@ -92,7 +92,7 @@ pub fn poll(app: &App, now: f64, tx: &mut Tx) -> bool {
                     });
                 }
             }
-            let ran = cx::with_app(app, || a.script.poll(now, tx));
+            let ran = cx::enter(app, || a.script.poll(now, tx));
             changed || before != a.half.epoch.get() || (!a.half.owns_redraw && ran)
         })
     })

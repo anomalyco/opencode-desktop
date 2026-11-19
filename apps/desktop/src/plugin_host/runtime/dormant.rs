@@ -25,165 +25,20 @@
 //! whose record doesn't match (an update that changed it, another language, a first launch) starts
 //! after the first frame as before, and records itself.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::BTreeMap;
 use std::time::Duration;
 
+pub use opencode_plugin_runtime::dormant::{Asleep, Record, Wait, Why};
+use opencode_plugin_runtime::dormant::{Records, RecordsEffect, RecordsEvent, contribs_of, parse_records, record_kinds};
 use opencode_plugin_spec as spec;
 use rune::Tx;
-use serde::{Deserialize, Serialize};
 
-use super::plugin::{Contrib, Contribs};
+use super::plugin::Contribs;
 use crate::App;
-use crate::plugin_host::{Life, LifeEvent, Overlay, PluginHost, Tier, bump, drive, icons, tasks};
+use crate::plugin_host::{Life, LifeEvent, Overlay, PluginHost, Tier, bump, drive, tasks};
 
 /// Server events kept for one dormant plugin; the oldest go first past it.
 const KEPT_EVENTS: usize = 256;
-
-/// One recorded contribution: its key (`<plugin>.<id>`), its spec and the names of the functions it
-/// handed over (`run`, `enabled`, `when`, ...).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-struct Entry {
-    key: String,
-    spec: serde_json::Value,
-    fns: Vec<String>,
-}
-
-/// What a plugin contributed when it last started, and what it was keyed by.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct Record {
-    /// Its files' hash (`sources::files_hash`).
-    hash: String,
-    /// The interface language its strings were made in.
-    locale: String,
-    /// Its window half's contributions by kind (`commands`, `panels`, ...).
-    window: BTreeMap<String, Vec<Entry>>,
-    /// Its app half's: app menu rows and MCP tools.
-    app: BTreeMap<String, Vec<Entry>>,
-    /// The server event prefixes its window half listened for (`Server:OnEvent`).
-    pub events: Vec<String>,
-}
-
-#[derive(Default, Serialize, Deserialize)]
-struct File {
-    version: u32,
-    plugins: BTreeMap<String, Record>,
-}
-
-const VERSION: u32 = 1;
-
-/// Why a dormant plugin starts: its first use, the next turn after it was asked for, or idle time.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Why {
-    Use,
-    Near,
-    Idle,
-}
-
-/// When a dormant plugin starts if nothing uses it first: at its first use only; in idle time (a
-/// background duty, or a surface asked something only its VM answers); or at the next turn (a
-/// session it draws is near, or a surface shows its part now). It only moves later in the list.
-///
-/// ```text
-/// FirstUse ─ want ▶ Idle ─ want_now / near ▶ Next
-/// FirstUse ─────────── want_now / near ───▶ Next
-/// ```
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Wait {
-    #[default]
-    FirstUse,
-    Idle,
-    Next,
-}
-
-/// A dormant plugin's side of the host: its record, the server events kept for it, and when it
-/// starts unless used first.
-#[derive(Default)]
-pub struct Asleep {
-    pub record: Record,
-    events: VecDeque<(String, serde_json::Value)>,
-    wait: Wait,
-}
-
-/// The built-ins' recorded contributions, as this window has read and updated them.
-#[derive(Default)]
-enum Records {
-    #[default]
-    Unread,
-    Clean {
-        records: BTreeMap<String, Record>,
-        /// The database had no records: an older build's file may be in the cache folder.
-        old_file: bool,
-    },
-    Dirty {
-        records: BTreeMap<String, Record>,
-        /// The database had no records: an older build's file may be in the cache folder.
-        old_file: bool,
-    },
-}
-
-enum RecordsEvent {
-    Loaded(Option<BTreeMap<String, Record>>),
-    Note { id: String, record: Record },
-    Save,
-}
-
-enum RecordsEffect {
-    Write { json: String, forget_old_file: bool },
-}
-
-impl Records {
-    fn is_dirty(&self) -> bool {
-        matches!(self, Self::Dirty { .. })
-    }
-
-    fn get(&self, id: &str) -> Option<&Record> {
-        match self {
-            Self::Unread => None,
-            Self::Clean { records, .. } | Self::Dirty { records, .. } => records.get(id),
-        }
-    }
-
-    fn step(&mut self, event: RecordsEvent) -> Option<RecordsEffect> {
-        match (std::mem::take(self), event) {
-            (Self::Unread, RecordsEvent::Loaded(found)) => {
-                *self = Self::Clean { old_file: found.is_none(), records: found.unwrap_or_default() };
-                None
-            }
-            (Self::Clean { mut records, old_file }, RecordsEvent::Note { id, record }) => {
-                if records.get(&id) != Some(&record) {
-                    records.insert(id, record);
-                    *self = Self::Dirty { records, old_file };
-                } else {
-                    *self = Self::Clean { records, old_file };
-                }
-                None
-            }
-            (Self::Dirty { mut records, old_file }, RecordsEvent::Note { id, record }) => {
-                if records.get(&id) != Some(&record) {
-                    records.insert(id, record);
-                }
-                *self = Self::Dirty { records, old_file };
-                None
-            }
-            (Self::Dirty { records, old_file }, RecordsEvent::Save) => {
-                match serde_json::to_string(&File { version: VERSION, plugins: records.clone() }) {
-                    Ok(json) => {
-                        *self = Self::Clean { records, old_file: false };
-                        Some(RecordsEffect::Write { json, forget_old_file: old_file })
-                    }
-                    Err(_) => {
-                        *self = Self::Clean { records, old_file };
-                        None
-                    }
-                }
-            }
-            (state, _) => {
-                *self = state;
-                None
-            }
-        }
-    }
-}
 
 /// The window's dormant plugins and the records file as this window read it.
 #[derive(Default)]
@@ -193,11 +48,13 @@ pub struct Dormant {
     records: Records,
     /// Events kept for a plugin that started, handed to it at the next poll.
     pub catch_up: BTreeMap<String, Vec<(String, serde_json::Value)>>,
+    /// Wake requests queued by views of this window since the last poll.
+    asked: std::cell::RefCell<Vec<(String, Wait)>>,
 }
 
 impl Dormant {
     fn ensure_read(&mut self) {
-        if matches!(self.records, Records::Unread) {
+        if self.records.is_unread() {
             let found = read_file();
             self.records.step(RecordsEvent::Loaded(found));
         }
@@ -218,10 +75,7 @@ const RECORDS: (&str, &str) = (crate::storage::DEV, "plugins.contributions");
 /// version. Before the first frame this is the boot packet's, so it reads no file.
 fn read_file() -> Option<BTreeMap<String, Record>> {
     let text = crate::storage::text(RECORDS.0, RECORDS.1)?;
-    match serde_json::from_str::<File>(&text) {
-        Ok(f) if f.version == VERSION => Some(f.plugins),
-        _ => Some(BTreeMap::new()),
-    }
+    Some(parse_records(&text))
 }
 
 /// The file a build before the records were in the database kept beside it, and its leftover: they
@@ -317,9 +171,9 @@ fn busy(app: &App, i: usize, id: &str) -> bool {
         Overlay::Popover { plugin, .. } | Overlay::PillMenu { plugin, .. } => &**plugin == id,
         Overlay::Closed => false,
     };
-    !half.procs.borrow().is_empty() || !half.runs.borrow().is_empty() || !half.held.borrow().is_empty()
+    half.procs.is_busy() || !half.held.borrow().is_empty()
         || app.plugins.dialog.as_ref().is_some_and(|d| &*d.plugin == id) || overlay
-        || super::app_half::each(|a| (&*a.half.id == id).then(|| !a.half.procs.borrow().is_empty() || !a.half.runs.borrow().is_empty() || !a.half.held.borrow().is_empty())).into_iter().any(|b| b)
+        || super::app_half::each(|a| (&*a.half.id == id).then(|| a.half.procs.is_busy() || !a.half.held.borrow().is_empty())).into_iter().any(|b| b)
 }
 
 /// One window's dormant app half `id` is gone (it started, was turned off, or its window closed).
@@ -434,11 +288,12 @@ pub fn wake_launchers(app: &mut App) -> bool {
 /// time. Called from views, so it only marks and nudges the window's waker for the next poll.
 pub fn want(app: &App, id: &str) {
     if wants(app, id, Wait::Idle) {
-        let first = ASKED.with_borrow_mut(|w| {
+        let first = {
+            let mut w = app.plugins.dormant.asked.borrow_mut();
             let empty = w.is_empty();
-            push_once(w, id, Wait::Idle);
+            push_once(&mut w, id, Wait::Idle);
             empty
-        });
+        };
         if first && let Some(wake) = &*app.waker {
             wake();
         }
@@ -450,11 +305,12 @@ pub fn want(app: &App, id: &str) {
 /// without it for one frame at most.
 pub fn want_now(app: &App, id: &str) {
     if wants(app, id, Wait::Next) {
-        let first = ASKED.with_borrow_mut(|w| {
+        let first = {
+            let mut w = app.plugins.dormant.asked.borrow_mut();
             let empty = w.is_empty();
-            push_once(w, id, Wait::Next);
+            push_once(&mut w, id, Wait::Next);
             empty
-        });
+        };
         if first && let Some(wake) = &*app.waker {
             wake();
         }
@@ -475,11 +331,6 @@ fn push_once(list: &mut Vec<(String, Wait)>, id: &str, to: Wait) {
         Some((_, w)) => *w = (*w).max(to),
         None => list.push((id.to_owned(), to)),
     }
-}
-
-thread_local! {
-    /// What views asked of dormant plugins since the last poll, which carries it out.
-    static ASKED: std::cell::RefCell<Vec<(String, Wait)>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// Whether session `session`'s side region is open on New tab (empty side strip, or adding a tab).
@@ -528,8 +379,9 @@ pub fn wake_for_route(app: &mut App, session: &str) {
 /// A session row was hovered or highlighted: what a session's screen draws starts ahead of the
 /// click, one per turn ([`poll`]).
 pub fn near_session(app: &App, session: &str) {
+    let mut asked = app.plugins.dormant.asked.borrow_mut();
     for id in for_session(app, session) {
-        ASKED.with_borrow_mut(|n| push_once(n, &id, Wait::Next));
+        push_once(&mut asked, &id, Wait::Next);
     }
 }
 
@@ -551,7 +403,8 @@ pub fn listens(app: &App, ty: &str) -> bool {
 /// Each turn: one dormant plugin starts, none while input waits; a near one at once, others only
 /// once the window has had no input for [`crate::idle::AFTER`]. Asks to be woken when idle time comes.
 pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
-    for (id, to) in ASKED.with_borrow_mut(std::mem::take) {
+    let asked = std::mem::take(app.plugins.dormant.asked.get_mut());
+    for (id, to) in asked {
         if let Some(a) = app.plugins.dormant.asleep.get_mut(&id) {
             a.wait = a.wait.max(to);
         }
@@ -596,75 +449,5 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
 pub fn locale_changed(app: &mut App) {
     for a in app.plugins.dormant.asleep.values_mut() {
         a.wait = a.wait.max(Wait::Idle);
-    }
-}
-
-// ---- Records and contributions ----------------------------------------------------------------
-
-macro_rules! kinds {
-    ($m:ident) => {
-        $m! {
-            commands: CommandSpec,
-            panels: PanelSpec,
-            settings: SettingSpec,
-            settings_pages: SettingsPageSpec,
-            menu_items: MenuItemSpec,
-            menubar_items: MenubarItemSpec,
-            link_handlers: LinkHandlerSpec,
-            titlebar_items: TitlebarItemSpec,
-            composer_pills: ComposerPillSpec,
-            code_blocks: CodeBlockSpec,
-            code_block_actions: CodeBlockActionSpec,
-            slots: SlotSpec,
-            themes: ThemeSpec,
-            file_viewers: FileViewerSpec,
-            server_sources: ServerSourceSpec,
-            dialogs: DialogSpec,
-            popovers: PopoverSpec,
-            mcp_tools: McpToolSpec,
-        }
-    };
-}
-
-/// `contribs`' kinds as record entries (`only`: just those kinds; empty: all).
-fn record_kinds(contribs: &Contribs, only: &[&str]) -> BTreeMap<String, Vec<Entry>> {
-    fn entries<S: Serialize>(list: &[Contrib<S>]) -> Vec<Entry> {
-        list.iter().filter_map(|c| Some(Entry { key: c.key.to_owned(), spec: without_nulls(serde_json::to_value(&c.spec).ok()?), fns: c.fns.keys().map(|k| (*k).to_owned()).collect() })).collect()
-    }
-    let mut out = BTreeMap::new();
-    macro_rules! put {
-        ($($field:ident: $ty:ident,)*) => {
-            $(
-                if (only.is_empty() || only.contains(&stringify!($field))) && !contribs.$field.is_empty() {
-                    out.insert(stringify!($field).to_owned(), entries(&contribs.$field));
-                }
-            )*
-        };
-    }
-    kinds!(put);
-    out
-}
-
-/// Contributions as a record lists them: their specs and keys, no functions.
-fn contribs_of(kinds: &BTreeMap<String, Vec<Entry>>) -> Contribs {
-    fn list<S: serde::de::DeserializeOwned>(kinds: &BTreeMap<String, Vec<Entry>>, kind: &str) -> Vec<Contrib<S>> {
-        kinds.get(kind).into_iter().flatten().filter_map(|e| Some(Contrib { spec: serde_json::from_value(e.spec.clone()).ok()?, fns: Default::default(), key: icons::intern(&e.key) })).collect()
-    }
-    let mut c = Contribs::default();
-    macro_rules! take {
-        ($($field:ident: $ty:ident,)*) => {
-            $( c.$field = list::<spec::$ty>(kinds, stringify!($field)); )*
-        };
-    }
-    kinds!(take);
-    c
-}
-
-/// `value` without its null fields, at any depth: a spec's options that are none.
-fn without_nulls(value: serde_json::Value) -> serde_json::Value {
-    match value {
-        serde_json::Value::Object(map) => map.into_iter().filter(|(_, v)| !v.is_null()).map(|(k, v)| (k, without_nulls(v))).collect::<serde_json::Map<_, _>>().into(),
-        serde_json::Value::Array(items) => items.into_iter().map(without_nulls).collect::<Vec<_>>().into(),
-        other => other,
     }
 }

@@ -15,7 +15,7 @@ use rune_luau::{Completer, Data, Host, NodeArgs};
 mod viewport;
 
 use super::super::cx::{self, Dep};
-use super::super::services::{app_now, json_to_data, lazy_signals, map, method};
+use super::super::services::{json_to_data, lazy_signals, map, method, with_app};
 use super::super::vm::Vmx;
 use super::{handle_field, object, p};
 use crate::App;
@@ -31,11 +31,12 @@ const PREPARE_HOLD_MAX_S: f64 = 60.0;
 pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     method(lua, t, "Tabs", |lua, sid: Option<String>| {
         cx::read(Dep::Browser);
-        let app = app_now("Browser:Tabs")?;
-        let ids: Vec<u64> = match sid {
-            Some(sid) => app.workspace_panes.browser.session_tabs.get(&sid).map(|ids| ids.iter().copied().filter(|&id| app.workspace_panes.browser.host.tab(id).is_some()).collect()).unwrap_or_default(),
-            None => app.workspace_panes.browser.host.tabs().iter().map(|t| t.id).collect(),
-        };
+        let ids: Vec<u64> = with_app("Browser:Tabs", |app| {
+            Ok(match sid {
+                Some(sid) => app.workspace_panes.browser.session_tabs.get(&sid).map(|ids| ids.iter().copied().filter(|&id| app.workspace_panes.browser.host.tab(id).is_some()).collect()).unwrap_or_default(),
+                None => app.workspace_panes.browser.host.tabs().iter().map(|t| t.id).collect(),
+            })
+        })?;
         let out = lua.create_table()?;
         for (n, id) in ids.into_iter().enumerate() {
             out.raw_set(n + 1, tab(lua, id)?)?;
@@ -44,43 +45,46 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     })?;
     method(lua, t, "Get", |lua, id: String| {
         cx::read(Dep::Browser);
-        let app = app_now("Browser:Get")?;
-        match id.parse::<u64>().ok().filter(|&id| app.workspace_panes.browser.host.tab(id).is_some()) {
+        let found = with_app("Browser:Get", |app| Ok(id.parse::<u64>().ok().filter(|&id| app.workspace_panes.browser.host.tab(id).is_some())))?;
+        match found {
             Some(id) => Ok(Value::Table(tab(lua, id)?)),
             None => Ok(Value::Nil),
         }
     })?;
     method(lua, t, "List", |lua, (_sid, open): (String, Vec<String>)| {
         cx::read(Dep::Browser);
-        let app = app_now("Browser:List")?;
-        let rows = open
-            .iter()
-            .map(|raw| {
-                let page = raw.parse::<u64>().ok().and_then(|id| app.workspace_panes.browser.host.tab(id));
-                map([
-                    ("id", Data::String(raw.clone())),
-                    ("url", Data::String(page.map(|t| t.url.clone()).filter(|u| u != "about:blank").unwrap_or_default())),
-                    ("title", Data::String(page.map(|t| t.title.clone()).unwrap_or_default())),
-                    ("open", Data::Bool(page.is_some())),
-                ])
-            })
-            .collect();
+        let rows = with_app("Browser:List", |app| {
+            Ok(open
+                .iter()
+                .map(|raw| {
+                    let page = raw.parse::<u64>().ok().and_then(|id| app.workspace_panes.browser.host.tab(id));
+                    map([
+                        ("id", Data::String(raw.clone())),
+                        ("url", Data::String(page.map(|t| t.url.clone()).filter(|u| u != "about:blank").unwrap_or_default())),
+                        ("title", Data::String(page.map(|t| t.title.clone()).unwrap_or_default())),
+                        ("open", Data::Bool(page.is_some())),
+                    ])
+                })
+                .collect())
+        })?;
         super::diff::lua_data(lua, Data::List(rows))
     })?;
     method(lua, t, "Active", |lua, sid: String| {
         cx::read(Dep::Browser);
-        let app = app_now("Browser:Active")?;
-        match app.default_browser_tab_for_session(&sid).filter(|&id| app.workspace_panes.browser.host.tab(id).is_some()) {
+        let found = with_app("Browser:Active", |app| Ok(app.default_browser_tab_for_session(&sid).filter(|&id| app.workspace_panes.browser.host.tab(id).is_some())))?;
+        match found {
             Some(id) => Ok(Value::Table(tab(lua, id)?)),
             None => Ok(Value::Nil),
         }
     })?;
     method(lua, t, "Selected", |lua, sid: Option<String>| {
         cx::read(Dep::Browser);
-        let app = app_now("Browser:Selected")?;
-        let Some(sid) = sid.or_else(|| app.active_session_id().map(str::to_owned)) else { return Ok(Value::Nil) };
-        let open = app.kernel.slots.get(&crate::panels::SIDE).sessions.get(&sid).is_some_and(|st| st.visibility.open()) && !app.narrow();
-        match app.active_browser_tab_for_session(&sid).filter(|&id| open && app.workspace_panes.browser.host.tab(id).is_some()) {
+        let found = with_app("Browser:Selected", |app| {
+            let Some(sid) = sid.or_else(|| app.active_session_id().map(str::to_owned)) else { return Ok(None) };
+            let open = app.kernel.slots.get(&crate::panels::SIDE).sessions.get(&sid).is_some_and(|st| st.visibility.open()) && !app.narrow();
+            Ok(app.active_browser_tab_for_session(&sid).filter(|&id| open && app.workspace_panes.browser.host.tab(id).is_some()))
+        })?;
+        match found {
             Some(id) => Ok(Value::Table(tab(lua, id)?)),
             None => Ok(Value::Nil),
         }
@@ -88,48 +92,54 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     let plugin = vmx.half.id.clone();
     method(lua, t, "Focused", move |lua, ()| {
         cx::read(Dep::Browser);
-        let app = app_now("Browser:Focused")?;
-        let field = super::super::editors::plugin_focused(app, &plugin);
-        match app.focused_browser_pane(field).and(app.active_browser_tab_id()) {
+        let found = with_app("Browser:Focused", |app| {
+            let field = super::super::editors::plugin_focused(app, &plugin);
+            Ok(app.focused_browser_pane(field).and(app.active_browser_tab_id()))
+        })?;
+        match found {
             Some(id) => Ok(Value::Table(tab(lua, id)?)),
             None => Ok(Value::Nil),
         }
     })?;
     method(lua, t, "Available", |_, ()| {
         cx::read(Dep::Browser);
-        Ok(!app_now("Browser:Available")?.browser_unsupported())
+        with_app("Browser:Available", |app| Ok(!app.browser_unsupported()))
     })?;
     method(lua, t, "Engine", |lua, ()| {
         cx::read(Dep::Browser);
-        let app = app_now("Browser:Engine")?;
-        let (state, message) = engine(app);
-        mlua::IntoLua::into_lua(
-            map([
-                ("state", Data::String(state.into())),
-                ("message", message.map_or(Data::Nil, Data::String)),
-                ("downloads", Data::Bool(app.workspace_panes.browser.host.engine_downloads())),
-                ("policy", Data::Bool(app.workspace_panes.browser.host.engine_policy())),
-            ]),
-            lua,
-        )
+        with_app("Browser:Engine", |app| {
+            let (state, message) = engine(app);
+            mlua::IntoLua::into_lua(
+                map([
+                    ("state", Data::String(state.into())),
+                    ("message", message.map_or(Data::Nil, Data::String)),
+                    ("downloads", Data::Bool(app.workspace_panes.browser.host.engine_downloads())),
+                    ("policy", Data::Bool(app.workspace_panes.browser.host.engine_policy())),
+                ]),
+                lua,
+            )
+        })
     })?;
     method(lua, t, "NormalizeUrl", |_, (url, sid): (String, Option<String>)| {
-        let app = app_now("Browser:NormalizeUrl")?;
-        let roots = if app.workspace_panes.browser.host.has_live_sidecar() && !app.workspace_panes.browser.host.engine_policy() {
-            Vec::new()
-        } else {
-            app.browser_file_roots(sid.as_deref())
-        };
+        let roots = with_app("Browser:NormalizeUrl", |app| {
+            Ok(if app.workspace_panes.browser.host.has_live_sidecar() && !app.workspace_panes.browser.host.engine_policy() {
+                Vec::new()
+            } else {
+                app.browser_file_roots(sid.as_deref())
+            })
+        })?;
         browser_pane::normalize_url(&url, &roots).map_err(mlua::Error::runtime)
     })?;
     method(lua, t, "Prepare", |_, seconds: Option<f64>| {
         let hold = Duration::from_secs_f64(seconds.unwrap_or(PREPARE_HOLD_S).clamp(1.0, PREPARE_HOLD_MAX_S));
-        app_now("Browser:Prepare")?.later(Box::new(move |s: &mut App, _: &mut Tx| {
-            if !s.use_mock_browser() && !s.browser_unsupported() {
-                s.workspace_panes.browser.host.prepare(hold);
-            }
-        }));
-        Ok(())
+        with_app("Browser:Prepare", |app| {
+            app.later(Box::new(move |s: &mut App, _: &mut Tx| {
+                if !s.use_mock_browser() && !s.browser_unsupported() {
+                    s.workspace_panes.browser.host.prepare(hold);
+                }
+            }));
+            Ok(())
+        })
     })?;
     let raw: Function = vmx.asyncs.raw_get("Browser.OpenAsync")?;
     let open: Function = lua.load("local raw = ... return function(self, spec) local id = raw(spec) return if id then self:Get(id) else nil end").set_name("=Browser:OpenAsync").call(raw)?;
@@ -140,18 +150,20 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
 /// The `Composer` service.
 pub fn composer(lua: &Lua, t: &Table) -> mlua::Result<()> {
     method(lua, t, "InsertPill", |_, (id, label): (String, String)| {
-        app_now("Composer:InsertPill")?.later(Box::new(move |s: &mut App, tx: &mut Tx| {
-            tx.instant();
-            if !s.composer.text.is_empty() && !s.composer.text.ends_with(char::is_whitespace) {
+        with_app("Composer:InsertPill", |app| {
+            app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
+                tx.instant();
+                if !s.composer.text.is_empty() && !s.composer.text.ends_with(char::is_whitespace) {
+                    s.composer.insert(" ");
+                }
+                s.composer.insert_pill(id, &label);
                 s.composer.insert(" ");
-            }
-            s.composer.insert_pill(id, &label);
-            s.composer.insert(" ");
-            s.composer.focused = true;
-            s.kernel.slots.get_mut(&crate::panels::SIDE).focus.blur();
-            super::super::blur_fields(s);
-        }));
-        Ok(())
+                s.composer.focused = true;
+                s.kernel.slots.get_mut(&crate::panels::SIDE).focus.blur();
+                super::super::blur_fields(s);
+            }));
+            Ok(())
+        })
     })
 }
 
@@ -179,42 +191,44 @@ fn file_json(f: &browser_pane::DownloadFile) -> serde_json::Value {
 fn read_file(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
     const MAX: u64 = 5 * 1024 * 1024;
     let (id, file_id): (String, String) = mlua::FromLuaMulti::from_lua_multi(a, lua)?;
-    app_now("BrowserTab:ReadFileAsync")?.later(Box::new(move |s: &mut App, _: &mut Tx| {
-        let failed = |message: String| map([("error", Data::String(message))]);
-        let tab = id.parse::<u64>().ok().and_then(|id| s.workspace_panes.browser.host.tab(id));
-        let tab_id = id.parse::<u64>().unwrap_or_default();
-        let Some(file) = tab.and_then(|t| t.files.iter().find(|f| f.id == file_id)).cloned() else {
-            return done.complete(failed(format!("No downloaded file {file_id} in browser tab {id}: list them with browser_files")));
-        };
-        match file.state {
-            browser_pane::DownloadState::Pending => return done.complete(failed(format!("{} is still downloading: check browser_files again", file.name))),
-            browser_pane::DownloadState::Failed => return done.complete(failed(format!("{} didn't download ({})", file.name, file.error.as_deref().unwrap_or("failed")))),
-            browser_pane::DownloadState::Completed => {}
-        }
-        // Opened only where the engine keeps downloads, never at a path the engine merely named.
-        let Some(path) = s.workspace_panes.browser.host.download_path(tab_id, &file) else {
-            return done.complete(failed(format!("Couldn't read {}: it isn't in the browser's downloads folder", file.name)));
-        };
-        rune_luau::spawn_blocking(move || {
-            use base64::Engine as _;
-            use std::io::Read as _;
-            let mut bytes = Vec::new();
-            let read = std::fs::File::open(&path).and_then(|f| f.take(MAX + 1).read_to_end(&mut bytes));
-            if let Err(e) = read {
-                return done.complete(failed(format!("Couldn't read {}: {e}", file.name)));
-            }
-            if bytes.len() as u64 > MAX {
-                return done.complete(failed(format!("{} is over the 5 MiB limit", file.name)));
-            }
-            let size = Data::Integer(bytes.len() as i64);
-            let body = match String::from_utf8(bytes) {
-                Ok(text) => ("text", Data::String(text)),
-                Err(e) => ("base64", Data::String(base64::engine::general_purpose::STANDARD.encode(e.into_bytes()))),
+    with_app("BrowserTab:ReadFileAsync", |app| {
+        app.later(Box::new(move |s: &mut App, _: &mut Tx| {
+            let failed = |message: String| map([("error", Data::String(message))]);
+            let tab = id.parse::<u64>().ok().and_then(|id| s.workspace_panes.browser.host.tab(id));
+            let tab_id = id.parse::<u64>().unwrap_or_default();
+            let Some(file) = tab.and_then(|t| t.files.iter().find(|f| f.id == file_id)).cloned() else {
+                return done.complete(failed(format!("No downloaded file {file_id} in browser tab {id}: list them with browser_files")));
             };
-            done.complete(map([("name", Data::String(file.name)), ("mime", Data::String(file.mime)), ("bytes", size), body]));
-        });
-    }));
-    Ok(())
+            match file.state {
+                browser_pane::DownloadState::Pending => return done.complete(failed(format!("{} is still downloading: check browser_files again", file.name))),
+                browser_pane::DownloadState::Failed => return done.complete(failed(format!("{} didn't download ({})", file.name, file.error.as_deref().unwrap_or("failed")))),
+                browser_pane::DownloadState::Completed => {}
+            }
+            // Opened only where the engine keeps downloads, never at a path the engine merely named.
+            let Some(path) = s.workspace_panes.browser.host.download_path(tab_id, &file) else {
+                return done.complete(failed(format!("Couldn't read {}: it isn't in the browser's downloads folder", file.name)));
+            };
+            rune_luau::spawn_blocking(move || {
+                use base64::Engine as _;
+                use std::io::Read as _;
+                let mut bytes = Vec::new();
+                let read = std::fs::File::open(&path).and_then(|f| f.take(MAX + 1).read_to_end(&mut bytes));
+                if let Err(e) = read {
+                    return done.complete(failed(format!("Couldn't read {}: {e}", file.name)));
+                }
+                if bytes.len() as u64 > MAX {
+                    return done.complete(failed(format!("{} is over the 5 MiB limit", file.name)));
+                }
+                let size = Data::Integer(bytes.len() as i64);
+                let body = match String::from_utf8(bytes) {
+                    Ok(text) => ("text", Data::String(text)),
+                    Err(e) => ("base64", Data::String(base64::engine::general_purpose::STANDARD.encode(e.into_bytes()))),
+                };
+                done.complete(map([("name", Data::String(file.name)), ("mime", Data::String(file.mime)), ("bytes", size), body]));
+            });
+        }));
+        Ok(())
+    })
 }
 
 /// Opens the page on the next poll, in a new tab of its session's side region, and answers with
@@ -222,17 +236,19 @@ fn read_file(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
 fn open(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
     let (spec,): (Value,) = mlua::FromLuaMulti::from_lua_multi(a, lua)?;
     let spec: opencode_plugin_spec::BrowserOpenSpec = mlua::FromLua::from_lua(spec, lua).and_then(|d: Data| d.decode().map_err(mlua::Error::runtime))?;
-    app_now("Browser:OpenAsync")?.later(Box::new(move |s: &mut App, tx: &mut Tx| {
-        if s.browser_unsupported() {
-            return done.complete(Data::Nil);
-        }
-        tx.instant();
-        let sid = spec.session_id.or_else(|| s.active_session_id().map(str::to_owned));
-        let url = if spec.url.trim().is_empty() { "about:blank" } else { spec.url.as_str() };
-        let id = s.open_new_browser_tab_for_session(sid.as_deref(), url, None, spec.background != Some(true));
-        done.complete(Data::String(id.to_string()));
-    }));
-    Ok(())
+    with_app("Browser:OpenAsync", |app| {
+        app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
+            if s.browser_unsupported() {
+                return done.complete(Data::Nil);
+            }
+            tx.instant();
+            let sid = spec.session_id.or_else(|| s.active_session_id().map(str::to_owned));
+            let url = if spec.url.trim().is_empty() { "about:blank" } else { spec.url.as_str() };
+            let id = s.open_new_browser_tab_for_session(sid.as_deref(), url, None, spec.background != Some(true));
+            done.complete(Data::String(id.to_string()));
+        }));
+        Ok(())
+    })
 }
 
 /// Sends the allow-listed DevTools command on the next poll; `poll` answers it with `{ result }`,
@@ -243,42 +259,46 @@ fn devtools(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
         serde_json::Value::Object(o) => serde_json::Value::Object(o),
         _ => serde_json::json!({}),
     };
-    app_now("BrowserTab:DevtoolsAsync")?.later(Box::new(move |s: &mut App, _: &mut Tx| {
-        let failed = |message: String| map([("error", Data::String(message))]);
-        let Some(id) = id.parse::<u64>().ok().filter(|&id| s.workspace_panes.browser.host.tab(id).is_some()) else {
-            return done.complete(failed(format!("No browser tab with tabID {id}")));
-        };
-        if !s.workspace_panes.browser.host.has_live_sidecar() {
-            return done.complete(failed(not_running(&s.workspace_panes.browser.host.status())));
-        }
-        match s.workspace_panes.browser.host.send_cdp(id, cdp, params, target) {
-            Ok(request) => {
-                s.workspace_panes.browser.devtools.insert(request, (done, Instant::now() + DEVTOOLS_TIMEOUT));
+    with_app("BrowserTab:DevtoolsAsync", |app| {
+        app.later(Box::new(move |s: &mut App, _: &mut Tx| {
+            let failed = |message: String| map([("error", Data::String(message))]);
+            let Some(id) = id.parse::<u64>().ok().filter(|&id| s.workspace_panes.browser.host.tab(id).is_some()) else {
+                return done.complete(failed(format!("No browser tab with tabID {id}")));
+            };
+            if !s.workspace_panes.browser.host.has_live_sidecar() {
+                return done.complete(failed(not_running(&s.workspace_panes.browser.host.status())));
             }
-            Err(err) => done.complete(failed(err)),
-        }
-    }));
-    Ok(())
+            match s.workspace_panes.browser.host.send_cdp(id, cdp, params, target) {
+                Ok(request) => {
+                    s.workspace_panes.browser.devtools.insert(request, (done, Instant::now() + DEVTOOLS_TIMEOUT));
+                }
+                Err(err) => done.complete(failed(err)),
+            }
+        }));
+        Ok(())
+    })
 }
 
 fn site_cookies(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
     let (id,): (String,) = mlua::FromLuaMulti::from_lua_multi(a, lua)?;
-    app_now("BrowserTab:SiteCookiesAsync")?.later(Box::new(move |s: &mut App, _: &mut Tx| {
-        let failed = |message: String| map([("error", Data::String(message))]);
-        let Some(id) = id.parse::<u64>().ok().filter(|&id| s.workspace_panes.browser.host.tab(id).is_some()) else {
-            return done.complete(failed(format!("No browser tab with tabID {id}")));
-        };
-        if !s.workspace_panes.browser.host.has_live_sidecar() {
-            return done.complete(failed(not_running(&s.workspace_panes.browser.host.status())));
-        }
-        match s.workspace_panes.browser.host.site_cookies(id) {
-            Ok(request) => {
-                s.workspace_panes.browser.devtools.insert(request, (done, Instant::now() + DEVTOOLS_TIMEOUT));
+    with_app("BrowserTab:SiteCookiesAsync", |app| {
+        app.later(Box::new(move |s: &mut App, _: &mut Tx| {
+            let failed = |message: String| map([("error", Data::String(message))]);
+            let Some(id) = id.parse::<u64>().ok().filter(|&id| s.workspace_panes.browser.host.tab(id).is_some()) else {
+                return done.complete(failed(format!("No browser tab with tabID {id}")));
+            };
+            if !s.workspace_panes.browser.host.has_live_sidecar() {
+                return done.complete(failed(not_running(&s.workspace_panes.browser.host.status())));
             }
-            Err(err) => done.complete(failed(err)),
-        }
-    }));
-    Ok(())
+            match s.workspace_panes.browser.host.site_cookies(id) {
+                Ok(request) => {
+                    s.workspace_panes.browser.devtools.insert(request, (done, Instant::now() + DEVTOOLS_TIMEOUT));
+                }
+                Err(err) => done.complete(failed(err)),
+            }
+        }));
+        Ok(())
+    })
 }
 
 fn clear_site(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
@@ -287,35 +307,37 @@ fn clear_site(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
         .app_data_ref::<std::rc::Rc<Vmx>>()
         .is_some_and(|vmx| &*vmx.half.id == "browser");
     let (tool_sid, in_flight) = super::super::commands::current_tool_scope(lua);
-    app_now("BrowserTab:ClearSiteAsync")?.later(Box::new(move |s: &mut App, _: &mut Tx| {
-        let failed = |message: String| map([("error", Data::String(message))]);
-        let Some(id) = id.parse::<u64>().ok().filter(|&id| s.workspace_panes.browser.host.tab(id).is_some()) else {
-            return done.complete(failed(format!("No browser tab with tabID {id}")));
-        };
-        let Some(owner) = s.browser_tab_session(id) else {
-            return done.complete(failed(format!("Browser tab {id} does not belong to an open session.")));
-        };
-        let allowed = match &tool_sid {
-            Some(caller) => caller.as_deref() == Some(owner),
-            None => {
-                s.active_session_id() == Some(owner)
-                    && (is_builtin_browser || in_flight.iter().all(|sid| sid == owner))
+    with_app("BrowserTab:ClearSiteAsync", |app| {
+        app.later(Box::new(move |s: &mut App, _: &mut Tx| {
+            let failed = |message: String| map([("error", Data::String(message))]);
+            let Some(id) = id.parse::<u64>().ok().filter(|&id| s.workspace_panes.browser.host.tab(id).is_some()) else {
+                return done.complete(failed(format!("No browser tab with tabID {id}")));
+            };
+            let Some(owner) = s.browser_tab_session(id) else {
+                return done.complete(failed(format!("Browser tab {id} does not belong to an open session.")));
+            };
+            let allowed = match &tool_sid {
+                Some(caller) => caller.as_deref() == Some(owner),
+                None => {
+                    s.active_session_id() == Some(owner)
+                        && (is_builtin_browser || in_flight.iter().all(|sid| sid == owner))
+                }
+            };
+            if !allowed {
+                return done.complete(failed(format!("Browser tab {id} belongs to another session.")));
             }
-        };
-        if !allowed {
-            return done.complete(failed(format!("Browser tab {id} belongs to another session.")));
-        }
-        if !s.workspace_panes.browser.host.has_live_sidecar() {
-            return done.complete(failed(not_running(&s.workspace_panes.browser.host.status())));
-        }
-        match s.workspace_panes.browser.host.clear_site(id) {
-            Ok(request) => {
-                s.workspace_panes.browser.devtools.insert(request, (done, Instant::now() + DEVTOOLS_TIMEOUT));
+            if !s.workspace_panes.browser.host.has_live_sidecar() {
+                return done.complete(failed(not_running(&s.workspace_panes.browser.host.status())));
             }
-            Err(err) => done.complete(failed(err)),
-        }
-    }));
-    Ok(())
+            match s.workspace_panes.browser.host.clear_site(id) {
+                Ok(request) => {
+                    s.workspace_panes.browser.devtools.insert(request, (done, Instant::now() + DEVTOOLS_TIMEOUT));
+                }
+                Err(err) => done.complete(failed(err)),
+            }
+        }));
+        Ok(())
+    })
 }
 
 /// Why the engine can't take a DevTools call now.
@@ -363,60 +385,64 @@ fn id_of(this: &Table) -> mlua::Result<u64> {
 /// Queues `f` for page `this` on the next poll, if it's still open then.
 fn later(this: &Table, what: &str, f: impl FnOnce(&mut App, u64, &mut Tx) + Send + 'static) -> mlua::Result<()> {
     let id = id_of(this)?;
-    app_now(what)?.later(Box::new(move |s: &mut App, tx: &mut Tx| {
-        if s.workspace_panes.browser.host.tab(id).is_some() {
-            tx.instant();
-            f(s, id, tx);
-        }
-    }));
-    Ok(())
+    with_app(what, |app| {
+        app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
+            if s.workspace_panes.browser.host.tab(id).is_some() {
+                tx.instant();
+                f(s, id, tx);
+            }
+        }));
+        Ok(())
+    })
+}
+
+fn read_tab<R>(this: &Table, what: &str, f: impl FnOnce(&App, u64) -> mlua::Result<R>) -> mlua::Result<R> {
+    cx::read(Dep::Browser);
+    let id = id_of(this)?;
+    with_app(what, |app| f(app, id))
 }
 
 fn tab_methods(lua: &Lua) -> mlua::Result<Table> {
     let m = lua.create_table()?;
-    let read = |this: &Table, what: &str| -> mlua::Result<(&'static App, u64)> {
-        cx::read(Dep::Browser);
-        Ok((app_now(what)?, id_of(this)?))
-    };
-    m.raw_set("IsOpen", lua.create_function(move |_, this: Table| read(&this, "BrowserTab:IsOpen").map(|(app, id)| app.workspace_panes.browser.host.tab(id).is_some()))?)?;
+    m.raw_set("IsOpen", lua.create_function(|_, this: Table| read_tab(&this, "BrowserTab:IsOpen", |app, id| Ok(app.workspace_panes.browser.host.tab(id).is_some())))?)?;
     m.raw_set(
         "Url",
-        lua.create_function(move |_, this: Table| read(&this, "BrowserTab:Url").map(|(app, id)| app.workspace_panes.browser.host.tab(id).map(|t| t.url.clone()).unwrap_or_default()))?,
+        lua.create_function(|_, this: Table| read_tab(&this, "BrowserTab:Url", |app, id| Ok(app.workspace_panes.browser.host.tab(id).map(|t| t.url.clone()).unwrap_or_default())))?,
     )?;
     m.raw_set(
         "Title",
-        lua.create_function(move |_, this: Table| read(&this, "BrowserTab:Title").map(|(app, id)| app.workspace_panes.browser.host.tab(id).map(|t| t.title.clone()).unwrap_or_default()))?,
+        lua.create_function(|_, this: Table| read_tab(&this, "BrowserTab:Title", |app, id| Ok(app.workspace_panes.browser.host.tab(id).map(|t| t.title.clone()).unwrap_or_default())))?,
     )?;
     for (name, field) in [("Loading", 0), ("CanGoBack", 1), ("CanGoForward", 2), ("Inspecting", 3)] {
         m.raw_set(
             name,
             lua.create_function(move |_, this: Table| {
-                let (app, id) = read(&this, "BrowserTab")?;
-                Ok(app.workspace_panes.browser.host.tab(id).is_some_and(|t| [t.loading, t.can_go_back, t.can_go_forward, t.inspecting][field]))
+                read_tab(&this, "BrowserTab", |app, id| Ok(app.workspace_panes.browser.host.tab(id).is_some_and(|t| [t.loading, t.can_go_back, t.can_go_forward, t.inspecting][field])))
             })?,
         )?;
     }
     m.raw_set(
         "LoadError",
-        lua.create_function(move |_, this: Table| read(&this, "BrowserTab:LoadError").map(|(app, id)| app.workspace_panes.browser.host.tab(id).and_then(|t| t.load_error.clone())))?,
+        lua.create_function(|_, this: Table| read_tab(&this, "BrowserTab:LoadError", |app, id| Ok(app.workspace_panes.browser.host.tab(id).and_then(|t| t.load_error.clone()))))?,
     )?;
     m.raw_set(
         "Refusal",
-        lua.create_function(move |_, this: Table| read(&this, "BrowserTab:Refusal").map(|(app, id)| app.workspace_panes.browser.host.tab(id).and_then(|t| t.refusal.clone())))?,
+        lua.create_function(|_, this: Table| read_tab(&this, "BrowserTab:Refusal", |app, id| Ok(app.workspace_panes.browser.host.tab(id).and_then(|t| t.refusal.clone()))))?,
     )?;
     m.raw_set(
         "Rejected",
-        lua.create_function(move |_, this: Table| read(&this, "BrowserTab:Rejected").map(|(app, id)| app.workspace_panes.browser.host.tab(id).map_or(0i64, |t| t.rejected as i64)))?,
+        lua.create_function(|_, this: Table| read_tab(&this, "BrowserTab:Rejected", |app, id| Ok(app.workspace_panes.browser.host.tab(id).map_or(0i64, |t| t.rejected as i64))))?,
     )?;
     m.raw_set(
         "Files",
-        lua.create_function(move |lua, this: Table| {
-            let (app, id) = read(&this, "BrowserTab:Files")?;
-            let files = app.workspace_panes.browser.host.tab(id).map(|t| t.files.iter().map(|f| json_to_data(&file_json(f))).collect()).unwrap_or_default();
+        lua.create_function(|lua, this: Table| {
+            let files = read_tab(&this, "BrowserTab:Files", |app, id| {
+                Ok(app.workspace_panes.browser.host.tab(id).map(|t| t.files.iter().map(|f| json_to_data(&file_json(f))).collect()).unwrap_or_default())
+            })?;
             mlua::IntoLua::into_lua(Data::List(files), lua)
         })?,
     )?;
-    m.raw_set("Zoom", lua.create_function(move |_, this: Table| read(&this, "BrowserTab:Zoom").map(|(app, id)| app.workspace_panes.browser.host.tab(id).map_or(1.0, |t| t.zoom)))?)?;
+    m.raw_set("Zoom", lua.create_function(|_, this: Table| read_tab(&this, "BrowserTab:Zoom", |app, id| Ok(app.workspace_panes.browser.host.tab(id).map_or(1.0, |t| t.zoom))))?)?;
     viewport::methods(lua, &m)?;
     m.raw_set(
         "Navigate",
@@ -467,9 +493,11 @@ fn tab_methods(lua: &Lua) -> mlua::Result<Table> {
     m.raw_set(
         "Highlight",
         lua.create_function(|_, (this, node): (Table, Option<f64>)| {
-            let app = app_now("BrowserTab:Highlight")?;
-            app.workspace_panes.browser.host.highlight_node(id_of(&this)?, node.map(|n| n as i64));
-            Ok(())
+            let id = id_of(&this)?;
+            with_app("BrowserTab:Highlight", |app| {
+                app.workspace_panes.browser.host.highlight_node(id, node.map(|n| n as i64));
+                Ok(())
+            })
         })?,
     )?;
     m.raw_set(
@@ -572,14 +600,16 @@ pub fn pages(app: &App) -> Vec<(String, u64)> {
 
 /// `ui.browserSurface`: page `tab` filling the rest of the pane, or the engine's state.
 pub fn view(a: &mut NodeArgs) -> Result<El, String> {
-    let app = cx::app().ok_or("ui.browserSurface draws only in a render")?;
-    cx::read(Dep::Browser);
-    let id = handle_field(a, "tab", "Id").and_then(|s| s.parse::<u64>().ok()).ok_or("ui.browserSurface needs a page from the Browser service")?;
-    let pal = p(a);
-    let surface = crate::browser::view::surface(app, &pal, id, super::terminal::SCALE.get()).unwrap_or_else(|| col().key("browser-no-page").grow(1.0).w_full());
-    let surface = viewport::frame(a, app, id, surface);
-    // The node's key lands on this frame, so the page and the engine's states keep their own.
-    Ok(col().grow(1.0).min_h(0.0).w_full().child(surface))
+    cx::with_app(|app| {
+        cx::read(Dep::Browser);
+        let id = handle_field(a, "tab", "Id").and_then(|s| s.parse::<u64>().ok()).ok_or("ui.browserSurface needs a page from the Browser service")?;
+        let pal = p(a);
+        let surface = crate::browser::view::surface(app, &pal, id, app.plugins.panel_scale.get()).unwrap_or_else(|| col().key("browser-no-page").grow(1.0).w_full());
+        let surface = viewport::frame(a, app, id, surface);
+        // The node's key lands on this frame, so the page and the engine's states keep their own.
+        Ok(col().grow(1.0).min_h(0.0).w_full().child(surface))
+    })
+    .ok_or_else(|| "ui.browserSurface draws only in a render".to_owned())?
 }
 
 /// The engine's messages, DevTools answers and picks.

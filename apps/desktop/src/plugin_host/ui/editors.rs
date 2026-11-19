@@ -15,7 +15,7 @@ use crate::plugin_host::{bump, cx};
 pub type Editors = RefCell<HashMap<(String, usize), TextEdit>>;
 
 fn with<R>(f: impl FnOnce(&Editors) -> R) -> Option<R> {
-    cx::app().map(|app| f(&app.plugins.editors))
+    cx::with_app(|app| f(&app.plugins.editors))
 }
 
 /// Makes field `index` of `plugin` if this window has none yet.
