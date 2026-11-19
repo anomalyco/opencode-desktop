@@ -12,28 +12,11 @@ use std::rc::Rc;
 
 use crate::App;
 
+pub use opencode_plugin_runtime::ui_nodes::{rendering, rendering_as};
+
 thread_local! {
     static APP: Cell<*const App> = const { Cell::new(std::ptr::null()) };
     static READS: RefCell<Option<Vec<Dep>>> = const { RefCell::new(None) };
-    static PLUGIN: RefCell<Option<Rc<str>>> = const { RefCell::new(None) };
-}
-
-/// Runs `f` as plugin `plugin`'s render: nodes that act for their plugin (`ui.flyoutRow`)
-/// read it with [`rendering`].
-pub fn rendering_as<R>(plugin: &Rc<str>, f: impl FnOnce() -> R) -> R {
-    struct Restore(Option<Rc<str>>);
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            PLUGIN.set(self.0.take());
-        }
-    }
-    let _restore = Restore(PLUGIN.replace(Some(plugin.clone())));
-    f()
-}
-
-/// The plugin whose render runs now.
-pub fn rendering() -> Option<Rc<str>> {
-    PLUGIN.with_borrow(Clone::clone)
 }
 
 /// Runs `f` with `app` reachable from the bindings via [`with_app`]. Nests: an inner call

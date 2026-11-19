@@ -7,4 +7,3 @@ mod office_nodes;
 pub mod panels;
 pub mod surfaces;
 pub(crate) mod view;
-mod widgets;

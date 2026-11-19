@@ -13,9 +13,11 @@ opencode-i18n = { path = "../opencode-i18n" }
 opencode-kit = { path = "../opencode-kit" }
 opencode-platform = { path = "../opencode-platform" }
 opencode-plugin-spec = { path = "../opencode-plugin-spec" }
+opencode-ui = { path = "../opencode-ui" }
 # The pairing QR code's encoder (Qr service), without its image or SVG renderers.
 qrcode = { version = "0.14", default-features = false }
 rune.workspace = true
+rune-kit.workspace = true
 rune-luau = { workspace = true, features = ["serde"] }
 rune-theme-opencode.workspace = true
 serde = { version = "1", features = ["derive"] }
