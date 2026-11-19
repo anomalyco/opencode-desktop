@@ -139,11 +139,15 @@ jobs:
         include:
           - { arch: arm64, host: blacksmith-6vcpu-macos-26 }
           - { arch: x64, host: macos-26-intel }
-    runs-on: ${{ matrix.host }}
+    # Cross-build x86_64-apple-darwin on fast Apple Silicon (like build-windows cross-builds arm64);
+    # verify-macos still runs on matrix.host (macos-26-intel for x64) for real native verification.
+    runs-on: blacksmith-6vcpu-macos-26
     timeout-minutes: 120
     env:
       OPENCODE_RUNE_VERSION: ${{ needs.plan.outputs.release-version }}
       OPENCODE_RUNE_BUILD_CHANNEL: ${{ needs.plan.outputs.release-channel }}
+      OPENCODE_RUNE_TARGET: ${{ matrix.arch == 'x64' && 'x86_64-apple-darwin' || 'aarch64-apple-darwin' }}
+      OPENCODE_RUNE_PROFILE: ${{ needs.plan.outputs.channel == 'stable' && 'release' || 'release-thin' }}
     outputs: &arch-digests
       digest-x64: ${{ steps.digest.outputs.digest-x64 }}
       digest-arm64: ${{ steps.digest.outputs.digest-arm64 }}
@@ -153,9 +157,20 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      # rust-toolchain.toml picks the toolchain.
+      # rust-toolchain.toml picks the toolchain; x64 cross-builds on the arm64 runner.
       - name: Rust toolchain
-        run: rustup toolchain install
+        run: |
+          rustup toolchain install
+          [ "${{ matrix.arch }}" = arm64 ] || rustup target add x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: macos-${{ matrix.arch }}-${{ env.OPENCODE_RUNE_PROFILE }}
+          save-if: ${{ github.ref == 'refs/heads/dev' }}
+      # The terminal's libghostty-vt, and the Zig that builds it, live outside target/.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/seer/ghostty-vt
+          key: ghostty-vt-macos-${{ matrix.arch }}-${{ hashFiles('crates/terminal/build.rs', 'crates/terminal/build_support.rs') }}
       - name: Install NASM for the x86 video decoder
         if: matrix.arch == 'x64'
         run: brew install nasm
@@ -164,7 +179,9 @@ jobs:
           apps/desktop/scripts/set-crate-version.sh "$PWD" "$OPENCODE_RUNE_VERSION"
           mkdir -p "$RUNNER_TEMP/app" "$RUNNER_TEMP/macos"
           apps/desktop/scripts/build-app.sh "$RUNNER_TEMP/app"
-          OPENCODE_RUNE_SMOKE_HEADLESS=1 apps/desktop/scripts/smoke-app.sh "$RUNNER_TEMP/app/OpenCode (Rune).app"
+          if [ "${{ matrix.arch }}" = arm64 ]; then
+            OPENCODE_RUNE_SMOKE_HEADLESS=1 apps/desktop/scripts/smoke-app.sh "$RUNNER_TEMP/app/OpenCode (Rune).app"
+          fi
           /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$RUNNER_TEMP/app/OpenCode (Rune).app" "$RUNNER_TEMP/macos/OpenCode-Rune.app.zip"
       - id: upload
         uses: ./.github/release/upload
@@ -195,6 +212,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends clang cmake pkg-config nasm libfontconfig1-dev libxkbcommon-dev libwayland-dev libx11-dev libxcb1-dev libdbus-1-dev libudev-dev libssl-dev rpm squashfs-tools
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: linux-${{ matrix.arch }}
+          save-if: ${{ github.ref == 'refs/heads/dev' }}
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/seer/ghostty-vt
+          key: ghostty-vt-linux-${{ matrix.arch }}-${{ hashFiles('crates/terminal/build.rs', 'crates/terminal/build_support.rs') }}
       - name: Build and package desktop
         run: |
           apps/desktop/scripts/set-crate-version.sh "$PWD" "$OPENCODE_RUNE_VERSION"
