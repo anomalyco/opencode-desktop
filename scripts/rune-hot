@@ -1,5 +1,0 @@
-#!/usr/bin/env bash
-# Rune's scripts/rune-hot from the pinned checkout (see scripts/rune-path); same flags:
-#   scripts/rune-hot --manifest apps/desktop/Cargo.toml --patch 'src/shell/view/**/*.rs' -- ARGS
-set -euo pipefail
-exec "$("$(dirname "$0")/rune-path" rune-hot)" "$@"

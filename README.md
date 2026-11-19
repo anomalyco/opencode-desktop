@@ -11,7 +11,7 @@ Native desktop client (macOS, Windows, and Linux) and `wasm32`/WebGPU browser cl
    ```
    OpenCode (Rune) discovers `http://127.0.0.1:4096` or `~/.config/opencode/service.json` automatically (`--server <url>` or `OPENCODE_SERVER_URL` overrides it) and never starts a server on its own.
 
-For the fastest local or mesh edit-compile-run loop (`dev-fast` profile, skipping `office` and standalone `stories` modules, with Luau hot reload), run `scripts/dev-fast.sh` (macOS/Linux) or `pwsh scripts/dev-fast.ps1` (Windows). See [docs/fast-builds.md](docs/fast-builds.md) for all Cargo profiles, `sccache`, and fast linkers.
+For fast local or mesh iteration (`scripts/dev-fast.sh` on macOS/Linux, `pwsh scripts/dev-fast.ps1` on Windows, with Luau `--plugin-hot`), see [docs/fast-builds.md](docs/fast-builds.md) (profiles, `sccache`, and fast linkers).
 
 To scaffold a new plugin (`plugins/<id>/`) or Rust feature crate (`features/<id>/`), run `scripts/new-feature.sh` (or `pwsh scripts/new-feature.ps1` on Windows); see [ARCHITECTURE.md](ARCHITECTURE.md) for lane rules and wiring steps.
 

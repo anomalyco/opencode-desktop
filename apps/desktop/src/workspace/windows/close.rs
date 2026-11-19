@@ -60,7 +60,7 @@ impl App {
     pub(crate) fn close_window(&mut self, tx: &mut Tx) {
         match close_window(self.other_windows(), cfg!(target_os = "macos")) {
             CloseWindow::Close => tx.close_window(),
-            // A run without the window list (hot builds, headless) has nothing to hide with.
+            // A run without the window list (headless) has nothing to hide with.
             CloseWindow::Hide => match self.app_handle() {
                 Some(app) => {
                     self.window.hidden = true;

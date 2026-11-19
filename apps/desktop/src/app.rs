@@ -297,13 +297,6 @@ impl App {
         Self::new_window(if harness_writes() { windows::first_saved() } else { windows::Window::unsaved() })
     }
 
-    /// A hot build's one window: the profile's first window, whose tabs and page it reads and
-    /// saves as the app's own first window does.
-    #[cfg(feature = "hot")]
-    pub(crate) fn hot() -> App {
-        Self::new_window(windows::first_saved())
-    }
-
     /// `new`, for window `window`: its own tabs and page.
     pub(crate) fn new_window(window: windows::Window) -> App {
         rune::marks::mark("state.load");

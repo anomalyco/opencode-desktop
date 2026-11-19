@@ -34,8 +34,15 @@ Application code only. This repo has no automated tests of any kind, and none ge
   - `scripts/folder-shape.sh`: enforces prefix-family subfolders and folder breadth (`> 40` warn, `> 60` error).
   - `scripts/dialog-size.sh`: every dialog takes an `opencode_ui::dialog::DialogSize` preset (re-exported as `session_view::dialog::DialogSize`; `Normal` 480 × 368, `Large` 720 × 600, `XLarge` 880 × 680; `opencode_ui::widgets::{sized, sized_modal}`, re-exported as `crate::widgets` in `apps/desktop`), never its own width or height.
   - `scripts/clippy.sh`: zero clippy diagnostics (`-D warnings`) across the workspace and each feature set that compiles different code.
-- Fast local loop & profiles: `scripts/dev-fast.sh` / `pwsh scripts/dev-fast.ps1` (see [`docs/fast-builds.md`](docs/fast-builds.md)); macOS `.app` install via `apps/desktop/scripts/dev.sh` (`apps/desktop/scripts/bundle.sh` / `scripts/mac-app`); guarded hot-reload wrapper via `apps/desktop/scripts/hot.sh` (`scripts/rune-hot` with `--patch 'src/shell/view/**/*.rs'`; see [`docs/fast-builds.md`](docs/fast-builds.md) for current lib+bin Subsecond limitations).
+- Fast local loop & profiles: `scripts/dev-fast.sh` / `pwsh scripts/dev-fast.ps1` with Luau `--plugin-hot` (see [`docs/fast-builds.md`](docs/fast-builds.md)); macOS `.app` install via `apps/desktop/scripts/dev.sh` (`apps/desktop/scripts/bundle.sh` / `scripts/mac-app`).
 - Keep personal paths (`/Users/<real-name>`), tailnet hostnames (`*.ts.net`, except `*.example.ts.net`), real session IDs, and credentials out of code, scripts, and commits.
+
+## Official app
+
+The official OpenCode desktop app (`https://github.com/anomalyco/opencode`, mostly `packages/app`, `packages/ui`, and `packages/desktop`) is the reference for behaviour.
+
+- **Match it:** when behaviour here differs from it, or a change here would alter what a user sees, read the official source, match it, and cite the file in a comment (e.g. `packages/app/...`).
+- **Don't copy bugs:** keep a difference only where the official behaviour is plainly a bug; use judgement and say so in a comment at the site.
 
 ## Explicit state machines
 
@@ -46,5 +53,5 @@ No implicit state machines. Any behaviour with modes or phases is an explicit st
   - One `enum State` whose variants carry only the data valid in that state, so illegal states can't be represented.
   - One transition function, `step(&mut State, Event) -> Effects`. Effects (I/O, timers, redraws, focus moves) are returned for the caller to run, not performed inside the transition.
   - Timers and async completions arrive as events.
-- **Official machines:** when the official OpenCode app has a machine for the same behaviour (`packages/app` / `packages/ui` `*-machine.ts`), match its states and transitions, and cite it in a comment.
+- **Official machines:** when the official app has a `*-machine.ts` for the same behaviour, match its states and transitions following the rule above.
 - **Touched code:** if you touch code that contains an implicit state machine, convert it in the same change.

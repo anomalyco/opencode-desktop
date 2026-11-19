@@ -1,6 +1,7 @@
 # OpenCode (Rune) (`apps/desktop`)
 
 - `cargo run -p opencode-desktop -- --live` runs against a local OpenCode server (`http://127.0.0.1:4096` or `~/.config/opencode/service.json`; override with `--server URL` or `OPENCODE_SERVER_URL`).
+- For fast local iteration (`scripts/dev-fast.sh` / `pwsh scripts/dev-fast.ps1` with Luau `--plugin-hot`), see [`docs/fast-builds.md`](../../docs/fast-builds.md).
 - `apps/desktop/scripts/dev.sh` builds (dev profile with optimized dependencies; `--release` for release), installs `~/Applications/OpenCode (Rune).app`, and relaunches it with `--live` when the binary changes.
 - `cargo run -p opencode-desktop -- --fixture apps/desktop/assets/fixture.json --scene session` runs offline against the bundled fixture.
 
@@ -15,9 +16,3 @@ Use these; don't draw your own. When one lacks what you need, extend it in its m
 | A lit row (pointer or keys) | `popover::lit` (`p.row_active`) |
 | A group's title | `popover::group_header` |
 | A shortcut at a row's end | `popover::hint` (11 pt at 530, faint) |
-
-## Hot editing
-
-- `apps/desktop/scripts/hot.sh` opens a debug window on the live server (`:4096`) via `scripts/rune-hot` with `--patch 'src/shell/view/**/*.rs'`. App flags pass through (`--read-only`, `--server URL`).
-- Edits outside `apps/desktop/src/shell/view/` (including `crates/opencode-ui/src/palette.rs`, `features/*`, and other crates) rebuild and restart the app, reopening the same tabs and zoom. Requires Dioxus CLI (`dx`) 0.7.10 in `~/.cargo/bin/dx`.
-- Note: Subsecond 0.7.10 only live-patches the tip binary crate (`src/main.rs`), whereas `apps/desktop` now builds a shared `[lib]` (`src/lib.rs`) plus thin `[[bin]]` wrapper; for fast UI iteration today, prefer Luau `--plugin-hot` or `scripts/dev-fast.sh` / `pwsh scripts/dev-fast.ps1`.

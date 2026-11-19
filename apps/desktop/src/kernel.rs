@@ -394,8 +394,8 @@ fn register_post_feature_systems(b: &mut KernelBuilder<App>) {
         s.poll_taskbar();
         crate::jump_list::poll(s);
         // A window with its own id saves its frame itself (`windows`), as AppKit's one autosave
-        // name can't tell windows apart; a hot build's one window isn't among them.
-        if !*s.appearance_state.framed && (s.window.id.is_empty() || cfg!(feature = "hot")) {
+        // name can't tell windows apart.
+        if !*s.appearance_state.framed && s.window.id.is_empty() {
             *s.appearance_state.framed = rune_mac::remember_frame("OpenCodeRuneMain");
         }
         false
