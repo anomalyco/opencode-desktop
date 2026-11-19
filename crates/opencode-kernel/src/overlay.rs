@@ -328,20 +328,57 @@ impl<S> OverlayRegistration<S> {
     }
 }
 
+struct DispatchTable<S> {
+    entries: Vec<OverlayRegistration<S>>,
+    render_bands: Vec<(u16, u16)>,
+    key_bands: Vec<(u16, u16)>,
+    rendered: Vec<OverlayRegistration<S>>,
+    keyed: Vec<OverlayRegistration<S>>,
+    escape_layers: Vec<EscapeLayer<S>>,
+    resolved: bool,
+}
+
+impl<S> Default for DispatchTable<S> {
+    fn default() -> Self {
+        Self {
+            entries: Vec::new(),
+            render_bands: Vec::new(),
+            key_bands: Vec::new(),
+            rendered: Vec::new(),
+            keyed: Vec::new(),
+            escape_layers: Vec::new(),
+            resolved: true,
+        }
+    }
+}
+
+impl<S> Clone for DispatchTable<S> {
+    fn clone(&self) -> Self {
+        Self {
+            entries: self.entries.clone(),
+            render_bands: self.render_bands.clone(),
+            key_bands: self.key_bands.clone(),
+            rendered: self.rendered.clone(),
+            keyed: self.keyed.clone(),
+            escape_layers: self.escape_layers.clone(),
+            resolved: self.resolved,
+        }
+    }
+}
+
 /// Registry mapping overlay IDs to host dismiss, key-dispatch, and render callbacks, plus
 /// priority-ordered dismissible page Escape layers.
 ///
-/// Cloning is O(1) (shared immutable handler lists once built), allowing a host that embeds
+/// Cloning is O(1) (shared immutable handler lists once resolved), allowing a host that embeds
 /// [`crate::Kernel<S>`] inside `S` to clone the dispatcher handle before passing `&mut S` into a
 /// registered callback without borrow conflicts.
 pub struct OverlayDispatcher<S> {
-    inner: Option<Arc<Vec<OverlayRegistration<S>>>>,
-    escape_layers: Option<Arc<Vec<EscapeLayer<S>>>>,
+    inner: Option<Arc<DispatchTable<S>>>,
 }
 
 impl<S> Clone for OverlayDispatcher<S> {
     fn clone(&self) -> Self {
-        Self { inner: self.inner.clone(), escape_layers: self.escape_layers.clone() }
+        Self { inner: self.inner.clone() }
     }
 }
 
@@ -351,57 +388,141 @@ impl<S> Default for OverlayDispatcher<S> {
     }
 }
 
+fn validate_bands(kind: &str, bands: &[(u16, u16)]) {
+    let mut sorted = bands.to_vec();
+    for &(min, max) in &sorted {
+        assert!(min <= max, "overlay dispatcher: inverted {kind} band ({min}..={max})");
+    }
+    sorted.sort_unstable();
+    for pair in sorted.windows(2) {
+        let (a_min, a_max) = pair[0];
+        let (b_min, b_max) = pair[1];
+        assert!(
+            a_max < b_min,
+            "overlay dispatcher: overlapping {kind} bands ({a_min}..={a_max}) and ({b_min}..={b_max})"
+        );
+    }
+}
+
 impl<S> OverlayDispatcher<S> {
     /// Creates an empty overlay dispatcher with no registered handlers.
     pub const fn new() -> Self {
-        Self { inner: None, escape_layers: None }
+        Self { inner: None }
     }
 
-    fn entries_mut(&mut self) -> &mut Vec<OverlayRegistration<S>> {
-        Arc::make_mut(self.inner.get_or_insert_with(|| Arc::new(Vec::new())))
+    fn table_mut(&mut self) -> &mut DispatchTable<S> {
+        Arc::make_mut(self.inner.get_or_insert_with(|| Arc::new(DispatchTable::default())))
     }
 
-    fn escape_layers_mut(&mut self) -> &mut Vec<EscapeLayer<S>> {
-        Arc::make_mut(self.escape_layers.get_or_insert_with(|| Arc::new(Vec::new())))
+    /// Declares the inclusive `z_order` bands the host renders. When non-empty, [`Self::resolve`]
+    /// panics if any overlay with a render callback falls outside these bands.
+    pub fn add_render_bands(&mut self, bands: &[(u16, u16)]) {
+        let table = self.table_mut();
+        table.render_bands.extend_from_slice(bands);
+        table.resolved = false;
     }
 
-    /// Registers a dismissible page Escape layer, replacing any prior layer with the same `id`,
-    /// keeping layers ordered descending by `priority` (highest priority dismisses first).
-    pub fn register_escape_layer(&mut self, layer: EscapeLayer<S>) {
-        let layers = self.escape_layers_mut();
-        if let Some(existing) = layers.iter_mut().find(|entry| entry.id == layer.id) {
-            *existing = layer;
-        } else {
-            layers.push(layer);
+    /// Declares the inclusive `key_priority` bands the host dispatches. When non-empty,
+    /// [`Self::resolve`] panics if any overlay with a key callback falls outside these bands.
+    pub fn add_key_bands(&mut self, bands: &[(u16, u16)]) {
+        let table = self.table_mut();
+        table.key_bands.extend_from_slice(bands);
+        table.resolved = false;
+    }
+
+    /// Validates all registered overlays, bands, and Escape layers and pre-sorts render, key, and
+    /// Escape dispatch lists so per-frame and per-key calls allocate and sort nothing.
+    pub fn resolve(&mut self) {
+        let Some(inner) = self.inner.as_mut() else { return };
+        let table = Arc::make_mut(inner);
+        if table.resolved {
+            return;
         }
-        layers.sort_by_key(|layer| std::cmp::Reverse(layer.priority));
+        validate_bands("render", &table.render_bands);
+        validate_bands("key", &table.key_bands);
+
+        let mut seen_overlays = std::collections::HashSet::with_capacity(table.entries.len());
+        for entry in &table.entries {
+            assert!(
+                seen_overlays.insert(entry.id),
+                "overlay dispatcher: duplicate overlay id '{}'",
+                entry.id
+            );
+            if entry.render.is_some() && !table.render_bands.is_empty() {
+                assert!(
+                    table.render_bands.iter().any(|&(min, max)| entry.z_order >= min && entry.z_order <= max),
+                    "overlay dispatcher: overlay '{}' render z_order {} is not covered by any declared render band {:?}",
+                    entry.id,
+                    entry.z_order,
+                    table.render_bands
+                );
+            }
+            if entry.on_key.is_some() && !table.key_bands.is_empty() {
+                assert!(
+                    table.key_bands.iter().any(|&(min, max)| entry.key_priority >= min && entry.key_priority <= max),
+                    "overlay dispatcher: overlay '{}' key_priority {} is not covered by any declared key band {:?}",
+                    entry.id,
+                    entry.key_priority,
+                    table.key_bands
+                );
+            }
+        }
+
+        let mut seen_escape = std::collections::HashSet::with_capacity(table.escape_layers.len());
+        for layer in &table.escape_layers {
+            assert!(
+                seen_escape.insert(layer.id),
+                "overlay dispatcher: duplicate escape layer id '{}'",
+                layer.id
+            );
+        }
+
+        table.rendered = table.entries.iter().copied().filter(|e| e.render.is_some()).collect();
+        table.rendered.sort_by_key(|e| e.z_order);
+
+        table.keyed = table.entries.iter().copied().filter(|e| e.on_key.is_some()).collect();
+        table.keyed.sort_by_key(|e| e.key_priority);
+
+        table.escape_layers.sort_by_key(|layer| std::cmp::Reverse(layer.priority));
+        table.resolved = true;
+    }
+
+    /// Registers a dismissible page Escape layer. Duplicate IDs panic on [`Self::resolve`].
+    pub fn register_escape_layer(&mut self, layer: EscapeLayer<S>) {
+        let table = self.table_mut();
+        table.escape_layers.push(layer);
+        table.resolved = false;
     }
 
     /// Removes a registered Escape layer by `id`, returning `true` if one was removed.
     pub fn unregister_escape_layer(&mut self, id: &str) -> bool {
-        let Some(layers) = self.escape_layers.as_mut().map(Arc::make_mut) else {
+        let Some(table) = self.inner.as_mut().map(Arc::make_mut) else {
             return false;
         };
-        let Some(index) = layers.iter().position(|entry| entry.id == id) else {
+        let Some(index) = table.escape_layers.iter().position(|entry| entry.id == id) else {
             return false;
         };
-        layers.remove(index);
+        table.escape_layers.remove(index);
         true
     }
 
     /// Registered Escape layers in descending priority order (topmost layer first).
     pub fn escape_layers(&self) -> &[EscapeLayer<S>] {
-        self.escape_layers.as_deref().map_or(&[], Vec::as_slice)
+        self.inner.as_deref().map_or(&[], |t| t.escape_layers.as_slice())
     }
 
     /// Dismisses the highest-priority registered Escape layer whose `is_open` predicate returns
     /// `true`, invoking its `on_escape` callback and returning `true`. Returns `false` when no
     /// registered layer is open.
     pub fn handle_escape(&self, state: &mut S, ev: &rune::KeyEvent, tx: &mut rune::Tx) -> bool {
-        let Some(layers) = self.escape_layers.as_deref() else {
+        let Some(table) = self.inner.as_deref() else {
             return false;
         };
-        for layer in layers {
+        assert!(
+            table.resolved,
+            "OverlayDispatcher: unresolved registrations; call resolve() or KernelBuilder::build() before dispatching"
+        );
+        for layer in &table.escape_layers {
             if (layer.is_open)(state) {
                 (layer.on_escape)(state, ev, tx);
                 return true;
@@ -410,46 +531,47 @@ impl<S> OverlayDispatcher<S> {
         false
     }
 
-    /// Registers a full overlay descriptor (render, key, dismiss, z-order), replacing any prior entry for `reg.id`.
+    /// Registers a full overlay descriptor (render, key, dismiss, z-order). Duplicate IDs panic on [`Self::resolve`].
     pub fn register_overlay(&mut self, reg: OverlayRegistration<S>) {
-        let entries = self.entries_mut();
-        if let Some(existing) = entries.iter_mut().find(|entry| entry.id == reg.id) {
-            *existing = reg;
-            return;
-        }
-        entries.push(reg);
+        let table = self.table_mut();
+        table.entries.push(reg);
+        table.resolved = false;
     }
 
     /// Registers a dismiss callback for overlay `id`, preserving any existing render/key handlers for `id`.
     pub fn register(&mut self, id: &'static str, on_dismiss: OverlayDismissFn<S>) {
-        let entries = self.entries_mut();
-        if let Some(existing) = entries.iter_mut().find(|entry| entry.id == id) {
+        let table = self.table_mut();
+        if let Some(existing) = table.entries.iter_mut().find(|entry| entry.id == id) {
             existing.on_dismiss = Some(on_dismiss);
+            table.resolved = false;
             return;
         }
-        entries.push(OverlayRegistration::new(id).with_dismiss(on_dismiss));
+        table.entries.push(OverlayRegistration::new(id).with_dismiss(on_dismiss));
+        table.resolved = false;
     }
 
     /// Removes the registration for `id`, returning its dismiss callback if present.
     pub fn unregister(&mut self, id: &str) -> Option<OverlayDismissFn<S>> {
-        let entries = self.inner.as_mut().map(Arc::make_mut)?;
-        let index = entries.iter().position(|entry| entry.id == id)?;
-        entries.remove(index).on_dismiss
+        let table = self.inner.as_mut().map(Arc::make_mut)?;
+        let index = table.entries.iter().position(|entry| entry.id == id)?;
+        let removed = table.entries.remove(index);
+        table.resolved = false;
+        removed.on_dismiss
     }
 
     /// Looks up the dismiss callback registered for `id`.
     pub fn get(&self, id: &str) -> Option<OverlayDismissFn<S>> {
-        self.inner.as_deref()?.iter().find(|entry| entry.id == id).and_then(|entry| entry.on_dismiss)
+        self.inner.as_deref()?.entries.iter().find(|entry| entry.id == id).and_then(|entry| entry.on_dismiss)
     }
 
     /// Returns `true` if a registration exists for `id`.
     pub fn contains(&self, id: &str) -> bool {
-        self.inner.as_deref().is_some_and(|list| list.iter().any(|entry| entry.id == id))
+        self.inner.as_deref().is_some_and(|t| t.entries.iter().any(|entry| entry.id == id))
     }
 
     /// Number of registered overlays.
     pub fn len(&self) -> usize {
-        self.inner.as_deref().map_or(0, Vec::len)
+        self.inner.as_deref().map_or(0, |t| t.entries.len())
     }
 
     /// Returns `true` when no overlays are registered.
@@ -459,7 +581,7 @@ impl<S> OverlayDispatcher<S> {
 
     /// Iterates registered overlay IDs in registration order.
     pub fn ids(&self) -> impl Iterator<Item = &'static str> + '_ {
-        self.inner.as_deref().into_iter().flat_map(|entries| entries.iter().map(|entry| entry.id))
+        self.inner.as_deref().into_iter().flat_map(|t| t.entries.iter().map(|entry| entry.id))
     }
 
     /// Invokes the dismiss callback registered for `id`, returning `true` if one was found.
@@ -471,8 +593,8 @@ impl<S> OverlayDispatcher<S> {
         true
     }
 
-    /// Dispatches a key event across registered overlay key handlers whose `key_priority` falls in
-    /// `min_prio..=max_prio`, sorted ascending by `key_priority`. Returns `true` if any overlay consumed it.
+    /// Dispatches a key event across pre-sorted overlay key handlers whose `key_priority` falls
+    /// in `min_prio..=max_prio` (ascending). Returns `true` if any overlay consumed it.
     pub fn handle_key_band(
         &self,
         state: &mut S,
@@ -481,41 +603,49 @@ impl<S> OverlayDispatcher<S> {
         min_prio: u16,
         max_prio: u16,
     ) -> bool {
-        let Some(entries) = self.inner.as_deref() else {
+        let Some(table) = self.inner.as_deref() else {
             return false;
         };
-        let mut matched: Vec<(u16, OverlayKeyFn<S>)> = entries
-            .iter()
-            .filter_map(|e| {
-                let f = e.on_key?;
-                (e.key_priority >= min_prio && e.key_priority <= max_prio).then_some((e.key_priority, f))
-            })
-            .collect();
-        matched.sort_by_key(|(prio, _)| *prio);
-        for (_, on_key) in matched {
-            if on_key(state, ev, tx) {
+        assert!(
+            table.resolved,
+            "OverlayDispatcher: unresolved registrations; call resolve() or KernelBuilder::build() before dispatching"
+        );
+        for entry in &table.keyed {
+            if entry.key_priority < min_prio {
+                continue;
+            }
+            if entry.key_priority > max_prio {
+                break;
+            }
+            if let Some(on_key) = entry.on_key
+                && on_key(state, ev, tx)
+            {
                 return true;
             }
         }
         false
     }
 
-    /// Renders all registered overlays whose `z_order` falls in `min_z..=max_z`, sorted ascending by `z_order`.
+    /// Renders all pre-sorted registered overlays whose `z_order` falls in `min_z..=max_z` (ascending).
     pub fn render_band(&self, state: &S, cx: &mut rune::Cx<S>, min_z: u16, max_z: u16) -> Vec<rune::El> {
-        let Some(entries) = self.inner.as_deref() else {
+        let Some(table) = self.inner.as_deref() else {
             return Vec::new();
         };
-        let mut matched: Vec<(u16, OverlayRenderFn<S>)> = entries
-            .iter()
-            .filter_map(|e| {
-                let f = e.render?;
-                (e.z_order >= min_z && e.z_order <= max_z).then_some((e.z_order, f))
-            })
-            .collect();
-        matched.sort_by_key(|(z, _)| *z);
+        assert!(
+            table.resolved,
+            "OverlayDispatcher: unresolved registrations; call resolve() or KernelBuilder::build() before rendering"
+        );
         let mut out = Vec::new();
-        for (_, render) in matched {
-            out.extend(render(state, cx));
+        for entry in &table.rendered {
+            if entry.z_order < min_z {
+                continue;
+            }
+            if entry.z_order > max_z {
+                break;
+            }
+            if let Some(render) = entry.render {
+                out.extend(render(state, cx));
+            }
         }
         out
     }

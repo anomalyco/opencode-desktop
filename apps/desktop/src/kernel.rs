@@ -87,6 +87,8 @@ impl AppOverlays for App {
 pub fn build() -> Kernel<App> {
     let mut b = KernelBuilder::new();
     b.add_stages(crate::tick::stage::ALL);
+    b.add_overlay_render_bands(&[(100, 199), (200, 299), (300, 599), (600, 699)]);
+    b.add_overlay_key_bands(&[(0, 160), (190, 299), (300, 499)]);
     register_core_systems(&mut b);
     b.with_feature(&crate::surfaces::egg::EggFeature);
     #[cfg(feature = "office")]

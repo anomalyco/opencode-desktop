@@ -195,6 +195,18 @@ impl<S> KernelBuilder<S> {
         self
     }
 
+    /// Declares the inclusive `z_order` bands rendered by the host.
+    pub fn add_overlay_render_bands(&mut self, bands: &[(u16, u16)]) -> &mut Self {
+        self.kernel.overlay_dispatcher.add_render_bands(bands);
+        self
+    }
+
+    /// Declares the inclusive `key_priority` bands dispatched by the host.
+    pub fn add_overlay_key_bands(&mut self, bands: &[(u16, u16)]) -> &mut Self {
+        self.kernel.overlay_dispatcher.add_key_bands(bands);
+        self
+    }
+
     /// Registers a full overlay descriptor (render, key dispatch, Escape dismiss, z-order).
     pub fn register_overlay(&mut self, reg: OverlayRegistration<S>) -> &mut Self {
         self.kernel.overlay_dispatcher.register_overlay(reg);
@@ -225,9 +237,10 @@ impl<S> KernelBuilder<S> {
         self
     }
 
-    /// Finalizes and validates the tick schedule and returns the assembled [`Kernel`].
+    /// Finalizes and validates the tick schedule and overlay dispatcher and returns the assembled [`Kernel`].
     pub fn build(mut self) -> Kernel<S> {
         self.kernel.scheduler.resolve();
+        self.kernel.overlay_dispatcher.resolve();
         self.kernel
     }
 }
