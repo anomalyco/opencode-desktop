@@ -6,9 +6,12 @@
 //! that have zero dependency on any specific application shell.
 
 pub mod askpass;
+pub mod boot;
 pub mod catalogs;
 pub mod console;
 pub mod contracts;
+pub mod contribs;
+pub mod dormant;
 pub mod flyout;
 pub mod hot;
 pub mod i18n;
@@ -22,12 +25,8 @@ pub mod process;
 pub mod qr;
 pub mod redraw;
 pub mod reveal;
+pub mod server_sources;
 pub mod sources;
 pub mod tasks;
 
-/// Which half of a plugin.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Kind {
-    Window,
-    App,
-}
+pub use contribs::Kind;

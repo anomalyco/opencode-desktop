@@ -3,85 +3,15 @@
 //! The bindings hold it as `Rc<Half>`; the host holds the same `Rc` beside the script.
 
 use std::cell::{Cell, RefCell};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use mlua::{Function, Value};
-use opencode_plugin_spec as spec;
 
-pub use opencode_plugin_runtime::Kind;
+pub use opencode_plugin_runtime::contribs::{Contrib, Contribs, Kind};
 pub use opencode_plugin_runtime::luau::Resource;
 
 use crate::plugin_host::cx::Dep;
-
-/// One contribution: its decoded spec, the functions it handed over, and the VM they live in.
-pub struct Contrib<S> {
-    pub spec: S,
-    pub fns: BTreeMap<&'static str, Function>,
-    /// `<plugin>.<id>`, interned: how the app's lists name it.
-    pub key: &'static str,
-}
-
-impl<S> Contrib<S> {
-    pub fn f(&self, name: &str) -> Option<&Function> {
-        self.fns.get(name)
-    }
-}
-
-/// What a setup contributed, by kind.
-#[derive(Default)]
-pub struct Contribs {
-    pub commands: Vec<Contrib<spec::CommandSpec>>,
-    pub panels: Vec<Contrib<spec::PanelSpec>>,
-    pub settings: Vec<Contrib<spec::SettingSpec>>,
-    pub settings_pages: Vec<Contrib<spec::SettingsPageSpec>>,
-    pub menu_items: Vec<Contrib<spec::MenuItemSpec>>,
-    pub menubar_items: Vec<Contrib<spec::MenubarItemSpec>>,
-    pub link_handlers: Vec<Contrib<spec::LinkHandlerSpec>>,
-    pub titlebar_items: Vec<Contrib<spec::TitlebarItemSpec>>,
-    pub composer_pills: Vec<Contrib<spec::ComposerPillSpec>>,
-    pub code_blocks: Vec<Contrib<spec::CodeBlockSpec>>,
-    pub code_block_actions: Vec<Contrib<spec::CodeBlockActionSpec>>,
-    pub slots: Vec<Contrib<spec::SlotSpec>>,
-    pub themes: Vec<Contrib<spec::ThemeSpec>>,
-    pub file_viewers: Vec<Contrib<spec::FileViewerSpec>>,
-    pub server_sources: Vec<Contrib<spec::ServerSourceSpec>>,
-    pub dialogs: Vec<Contrib<spec::DialogSpec>>,
-    pub popovers: Vec<Contrib<spec::PopoverSpec>>,
-    pub mcp_tools: Vec<Contrib<spec::McpToolSpec>>,
-}
-
-impl Contribs {
-    /// Takes contribution `kind`/`id` out (`Contribution:Withdraw`). True when it was there.
-    pub fn withdraw(&mut self, kind: spec::ContributionKind, id: &str) -> bool {
-        use spec::ContributionKind as K;
-        fn drop_id<S>(list: &mut Vec<Contrib<S>>, id: &str, of: impl Fn(&S) -> &str) -> bool {
-            let before = list.len();
-            list.retain(|c| of(&c.spec) != id);
-            list.len() != before
-        }
-        match kind {
-            K::Command => drop_id(&mut self.commands, id, |s| &s.id),
-            K::Panel => drop_id(&mut self.panels, id, |s| &s.id),
-            K::Setting => drop_id(&mut self.settings, id, |s| &s.id),
-            K::SettingsPage => drop_id(&mut self.settings_pages, id, |s| &s.id),
-            K::MenuItem => drop_id(&mut self.menu_items, id, |s| &s.id),
-            K::MenubarItem => drop_id(&mut self.menubar_items, id, |s| &s.id),
-            K::LinkHandler => drop_id(&mut self.link_handlers, id, |s| &s.id),
-            K::TitlebarItem => drop_id(&mut self.titlebar_items, id, |s| &s.id),
-            K::ComposerPill => drop_id(&mut self.composer_pills, id, |s| &s.id),
-            K::CodeBlock => drop_id(&mut self.code_blocks, id, |s| &s.id),
-            K::CodeBlockAction => drop_id(&mut self.code_block_actions, id, |s| &s.id),
-            K::Slot => drop_id(&mut self.slots, id, |s| &s.id),
-            K::Theme => drop_id(&mut self.themes, id, |s| &s.id),
-            K::FileViewer => drop_id(&mut self.file_viewers, id, |s| &s.id),
-            K::ServerSource => drop_id(&mut self.server_sources, id, |s| &s.id),
-            K::Dialog => drop_id(&mut self.dialogs, id, |s| &s.id),
-            K::Popover => drop_id(&mut self.popovers, id, |s| &s.id),
-            K::McpTool => drop_id(&mut self.mcp_tools, id, |s| &s.name),
-        }
-    }
-}
 
 pub struct Half {
     pub id: Rc<str>,

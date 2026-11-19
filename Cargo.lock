@@ -3889,6 +3889,7 @@ dependencies = [
  "rune",
  "rune-luau",
  "rune-theme-opencode",
+ "serde",
  "serde_json",
  "sha2",
  "toml_edit",

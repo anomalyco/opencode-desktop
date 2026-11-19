@@ -15,23 +15,7 @@ use rune::machine::Attempt;
 
 use crate::App;
 
-/// One server a server source listed.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct ServerRec {
-    pub source: String,
-    pub id: String,
-    pub name: String,
-    /// Its kind's badge (`WSL`, `SSH`).
-    pub label: String,
-    pub state: ServerState,
-    pub url: String,
-    pub password: String,
-    /// It joins the app's servers rather than only showing in Settings.
-    pub listed: bool,
-    /// Its plugin keeps it reachable (an SSH tunnel): a check of its new address shows the
-    /// connecting spinner (`ServerEntry.managed`).
-    pub managed: bool,
-}
+pub use opencode_plugin_runtime::server_sources::ServerRec;
 
 /// A server in the registry with what the app knows of it.
 #[derive(Clone, Debug)]

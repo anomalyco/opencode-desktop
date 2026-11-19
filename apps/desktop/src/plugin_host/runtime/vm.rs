@@ -45,33 +45,6 @@ impl Vmx {
     }
 }
 
-const PLUGIN_MODULE: &str = r#"
-local hot = ...
-local function define(half)
-    return function(setup)
-        if type(setup) ~= "function" then
-            error(`plugin.define{if half == "window" then "Window" else "App"} needs a setup function`, 2)
-        end
-        return {
-            __half = half,
-            __setup = setup,
-            saveHotState = function()
-                if hot.save then
-                    return hot.save()
-                end
-                return nil
-            end,
-            loadHotState = function(state)
-                if hot.load and state ~= nil then
-                    hot.load(state)
-                end
-            end,
-        }
-    end
-end
-return { contract = CONTRACT, defineWindow = define("window"), defineApp = define("app") }
-"#;
-
 /// The options every plugin half's script runs with.
 pub fn options(half: Rc<Half>) -> ScriptOptions {
     let kind = half.kind;
@@ -98,12 +71,7 @@ pub fn options(half: Rc<Half>) -> ScriptOptions {
 
 fn setup(host: &Host<'_>, half: &Rc<Half>) -> mlua::Result<()> {
     let lua = host.lua();
-    let hot = lua.create_table()?;
-    let code = PLUGIN_MODULE.replace("CONTRACT", &format!("{:?}", opencode_plugin_spec::CONTRACT));
-    let plugin: Table = lua.load(code).set_name("=@opencode/plugin").call(hot.clone())?;
-    host.register_module("@opencode/plugin", plugin)?;
-    let ui: Table = lua.named_registry_value::<Table>("_REGISTEREDMODULES")?.raw_get("@rune/ui")?;
-    host.register_module("@opencode/ui", ui)?;
+    let hot = opencode_plugin_runtime::contribs::register_modules(host)?;
     let asyncs = lua.create_table()?;
     services::asyncs(host, &asyncs, half)?;
     let vmx = Rc::new(Vmx { half: half.clone(), vm: Cell::new(0), script_signal: host.script_signal()?, asyncs, warned: RefCell::default() });
@@ -116,12 +84,7 @@ fn setup(host: &Host<'_>, half: &Rc<Half>) -> mlua::Result<()> {
 fn start(lua: &Lua, module: &Table, vm: u64, kind: Kind) -> mlua::Result<()> {
     let vmx = lua.app_data_ref::<Rc<Vmx>>().map(|v| v.clone()).ok_or_else(|| mlua::Error::runtime("the plugin host isn't set up"))?;
     vmx.vm.set(vm);
-    let want = if kind == Kind::Window { "window" } else { "app" };
-    let half: Option<String> = module.raw_get("__half")?;
-    if half.as_deref() != Some(want) {
-        let define = if kind == Kind::Window { "defineWindow" } else { "defineApp" };
-        return Err(mlua::Error::runtime(format!("the module must return plugin.{define}(function(ctx) ... end)")));
-    }
+    opencode_plugin_runtime::contribs::verify_module_half(module, kind)?;
     let fire: Function = lua.load("return function(signal, ...) signal:Fire(...) end").call(())?;
     vmx.half.fire.borrow_mut().insert(vm, fire);
     *vmx.half.made.borrow_mut() = Some((vm, Contribs::default()));

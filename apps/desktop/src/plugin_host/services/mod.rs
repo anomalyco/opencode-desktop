@@ -56,14 +56,7 @@ const WINDOW_ONLY: &[&str] = &["Popover", "Dialog", "Menu", "Layout", "Links", "
 /// App-half-only services.
 const APP_ONLY: &[&str] = &["Askpass"];
 
-/// What a half holds of a process-wide service, let go when the half goes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Held {
-    /// A `Power:KeepAwake` lock.
-    Power(u64),
-    /// An `Askpass:Listen` endpoint.
-    Askpass(u64),
-}
+pub use opencode_plugin_runtime::contribs::Held;
 
 /// Lets go of what a half's VMs other than `keep_vm` started or hold: processes, display locks
 /// and prompt endpoints (the half turned off, failed or reloaded).
