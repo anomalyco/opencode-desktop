@@ -76,8 +76,10 @@ impl BrowserHost {
             .spawn(move || {
                 std::thread::sleep(hold);
                 if prepared.load(Ordering::Relaxed) == call && opened.load(Ordering::Relaxed) == tabs {
-                    let effect = shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::Unprepare);
-                    if let EngineEffect::Shutdown { outbox: Some(tx) } = effect {
+                    // Hold `shared` across `remove_file` so a concurrent `open_tab` cannot observe
+                    // the disconnected state and connect to the shutting-down engine's socket.
+                    let mut shared = shared.lock().unwrap_or_else(PoisonError::into_inner);
+                    if let EngineEffect::Shutdown { outbox: Some(tx) } = shared.step(EngineEvent::Unprepare) {
                         if let Some(sock) = sock {
                             std::fs::remove_file(sock).ok();
                         }
