@@ -22,7 +22,7 @@ pub mod store;
 pub mod view;
 
 pub use machine::{AfterCheck, Phase, SLOW_SEND, SlowSend};
-pub use opencode_platform::storage::StorageOp;
+pub use opencode_storage::StorageOp;
 pub use opencode_runtime::SendResult;
 pub use outbox::{
     enqueue_prepared, enqueue_prompt, listen_outbox, open_outbox, outbox_action, pump_outbox, release_prepared, restore_draft, retry_restored, show_outbox, tick_outbox,
@@ -67,9 +67,9 @@ pub trait SendFailedHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback
     fn peer_token(&self) -> u64 {
         0
     }
-    /// Runs a storage-thread outbox operation (defaults to [`opencode_platform::storage`] process storage).
+    /// Runs a storage-thread outbox operation (defaults to [`opencode_storage`] process runner).
     fn with_storage(&self, op: StorageOp) {
-        opencode_platform::storage::with_storage(op);
+        opencode_storage::with_storage(op);
     }
     /// Active route's draft document key, cleared in the same transaction as the first outbox row.
     fn active_draft_document(&self) -> Option<String> {

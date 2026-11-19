@@ -3863,7 +3863,6 @@ name = "opencode-platform"
 version = "0.0.1"
 dependencies = [
  "opencode-kit",
- "opencode-storage",
  "otlp-lite",
  "rune",
  "serde",

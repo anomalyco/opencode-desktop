@@ -205,7 +205,6 @@ flowchart TB
   CV --> KIT
   PR --> PLAT
   PR --> SPEC
-  PLAT --> STOR
   STOR --> KIT
   STOR --> SEARCH
   UI --> KIT
