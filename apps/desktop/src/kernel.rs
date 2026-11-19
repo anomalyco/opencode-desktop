@@ -383,14 +383,19 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
 
     // ── Phase 3: React ───────────────────────────────────────────────────────────────────────────
     // Precaution: `browser.poll` fires `Browser.Picked` into plugins; run after review/files/terminal.
+    #[cfg(not(target_arch = "wasm32"))]
     b.schedule(stage::REACT_PANELS, "browser.poll", |s, _, tx| {
         crate::plugin_host::native::browser::poll(s, tx)
     })
     .after_all(&["review.poll", "files.poll", "terminal.poll"]);
     // Known: `plugin_watched_stamp` hashes `review::REVIEW` and `workspace_panes.browser` and `browser.poll`
     // completes CDP promises / fires `Browser.Picked` before plugin VMs poll.
+    #[cfg(not(target_arch = "wasm32"))]
     b.schedule(stage::REACT_PANELS, "plugin_host.poll", |s, _, tx| s.poll_plugins(tx))
         .after("browser.poll");
+    #[cfg(target_arch = "wasm32")]
+    b.schedule(stage::REACT_PANELS, "plugin_host.poll", |s, _, tx| s.poll_plugins(tx))
+        .after_all(&["review.poll", "files.poll", "terminal.poll"]);
     // Precaution: `plugin_host.poll` and `workspace_tools.rune_mcp` (`tools::execute`) can mutate
     // `source`/session state before turn diffs start.
     b.schedule(stage::REACT_PANELS, "turn_diffs.poll", |s, _, _| {

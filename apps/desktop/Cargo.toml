@@ -68,7 +68,6 @@ opencode-feature-workspace-tools = { path = "../../features/workspace-tools" }
 opencode-kernel = { path = "../../crates/opencode-kernel" }
 opencode-platform = { path = "../../crates/opencode-platform" }
 opencode-servers = { path = "../../crates/opencode-servers" }
-browser-pane = { path = "../../crates/browser-pane" }
 crc32fast = "1"
 flate2 = "1"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
@@ -100,6 +99,7 @@ terminal = { path = "../../crates/terminal" }
 # release builds too, as before Rune #834: the harnesses run release builds; `keys-overlay` keeps `--pointer`
 # and `--keys` there (Rune #857). Not in a page, where they would only add to the module.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+browser-pane = { path = "../../crates/browser-pane" }
 # Random ids and passwords for plugins (System:RandomId, the askpass token).
 getrandom = "0.3"
 hex-client = { path = "../../crates/hex-client" }
