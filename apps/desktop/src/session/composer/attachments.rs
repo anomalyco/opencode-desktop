@@ -11,6 +11,7 @@ use rune::{El, Tx};
 use session_view::palette::Pal;
 
 use crate::keymap::Bind;
+use crate::pickers::{Kind, PickerHost as _};
 use crate::{App, Source};
 
 /// `App`-specialized upload toast wrapper.
@@ -104,6 +105,10 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
     }),
 ]);
 
+fn agent_shown(s: &App) -> bool {
+    s.has_composer() && s.picker_show_agent()
+}
+
 /// Kernel feature registration for composer attachments, dropzone, slash commands, and suggestions.
 pub struct ComposerInputFeature;
 
@@ -113,37 +118,115 @@ impl Feature<App> for ComposerInputFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
-        // The composer's modes (`composer/model.ts:579-599`).
+        // The composer's commands, after the session's, as Desktop registers them (`composer/commands.tsx:111-161`,
+        // mounted after `use-session-commands.tsx`): a palette query lists them in that order.
         builder.add_command(
-            CommandEntry::<App>::from_key("prompt.mode.toggle", opencode_i18n::key!("command.prompt.mode.toggle"), |s, tx| {
-                tx.animated();
-                if s.composer_ext.add.shell() { s.exit_shell() } else { s.enter_shell(tx) }
-            })
-            .bind_id(Bind::PromptModeToggle.id())
-            .order(470)
+            CommandEntry::<App>::from_key(
+                "model",
+                opencode_i18n::key!("command.model.choose"),
+                crate::commands::order::MODEL,
+                |s, _| s.open_picker(Kind::Model),
+            )
+            .describe(opencode_i18n::key!("command.model.choose.description"))
+            .slash("model")
+            .bind_id(Bind::Model.id())
             .when(App::has_composer),
         );
         builder.add_command(
-            CommandEntry::<App>::from_key("prompt.mode.shell", opencode_i18n::key!("command.prompt.mode.shell"), |s, tx| {
-                tx.instant();
-                s.enter_shell(tx);
-            })
-            .order(480)
+            CommandEntry::<App>::from_key(
+                "variant",
+                opencode_i18n::key!("command.model.variant.cycle"),
+                crate::commands::order::VARIANT,
+                |s, tx| s.cycle_picker(Kind::Effort, false, tx),
+            )
+            .describe(opencode_i18n::key!("command.model.variant.cycle.description"))
+            .bind_id(Bind::Variant.id())
+            .when(|s| s.has_composer() && s.has_effort()),
+        );
+        // Offered while the agent shows, as Desktop's `disabled: !local.agent.visible()` (`composer/commands.tsx:145-161`).
+        builder.add_command(
+            CommandEntry::<App>::from_key(
+                "agent",
+                opencode_i18n::key!("command.agent.cycle"),
+                crate::commands::order::AGENT,
+                |s, tx| s.cycle_picker(Kind::Agent, false, tx),
+            )
+            .describe(opencode_i18n::key!("command.agent.cycle.description"))
+            .slash("agent")
+            .bind_id(Bind::Agent.id())
+            .when(agent_shown),
+        );
+        builder.add_command(
+            CommandEntry::<App>::from_key(
+                "agent-back",
+                opencode_i18n::key!("command.agent.cycle.reverse"),
+                crate::commands::order::AGENT_BACK,
+                |s, tx| s.cycle_picker(Kind::Agent, true, tx),
+            )
+            .describe(opencode_i18n::key!("command.agent.cycle.reverse.description"))
+            .bind_id(Bind::AgentBack.id())
+            .when(agent_shown),
+        );
+        builder.add_command(
+            CommandEntry::<App>::from_key(
+                "focus",
+                opencode_i18n::key!("command.input.focus"),
+                crate::commands::order::FOCUS,
+                |s, tx| {
+                    s.focus_composer(tx);
+                },
+            )
+            .bind_id(Bind::FocusInput.id())
+            .when(App::has_composer),
+        );
+        // The composer's modes (`composer/model.ts:579-599`).
+        builder.add_command(
+            CommandEntry::<App>::from_key(
+                "prompt.mode.toggle",
+                opencode_i18n::key!("command.prompt.mode.toggle"),
+                crate::commands::order::PROMPT_MODE_TOGGLE,
+                |s, tx| {
+                    tx.animated();
+                    if s.composer_ext.add.shell() { s.exit_shell() } else { s.enter_shell(tx) }
+                },
+            )
+            .bind_id(Bind::PromptModeToggle.id())
+            .when(App::has_composer),
+        );
+        builder.add_command(
+            CommandEntry::<App>::from_key(
+                "prompt.mode.shell",
+                opencode_i18n::key!("command.prompt.mode.shell"),
+                crate::commands::order::PROMPT_MODE_SHELL,
+                |s, tx| {
+                    tx.instant();
+                    s.enter_shell(tx);
+                },
+            )
             .when(|s| s.has_composer() && !s.composer_ext.add.shell()),
         );
         builder.add_command(
-            CommandEntry::<App>::from_key("prompt.mode.normal", opencode_i18n::key!("command.prompt.mode.normal"), |s, tx| {
-                tx.instant();
-                s.exit_shell();
-            })
-            .order(490)
+            CommandEntry::<App>::from_key(
+                "prompt.mode.normal",
+                opencode_i18n::key!("command.prompt.mode.normal"),
+                crate::commands::order::PROMPT_MODE_NORMAL,
+                |s, tx| {
+                    tx.instant();
+                    s.exit_shell();
+                },
+            )
             .when(|s| s.has_composer() && s.composer_ext.add.shell()),
         );
         builder.add_command(
-            CommandEntry::<App>::from_key("context.addSelection", opencode_i18n::key!("command.context.addSelection"), |s, tx| s.add_selection(tx))
-                .describe(opencode_i18n::key!("command.context.addSelection.description"))
-                .bind_id(Bind::AddSelection.id())
-                .when(App::can_add_selection),
+            CommandEntry::<App>::from_key(
+                "context.addSelection",
+                opencode_i18n::key!("command.context.addSelection"),
+                crate::commands::order::CONTEXT_ADD_SELECTION,
+                |s, tx| s.add_selection(tx),
+            )
+            .describe(opencode_i18n::key!("command.context.addSelection.description"))
+            .bind_id(Bind::AddSelection.id())
+            .when(App::can_add_selection),
         );
         builder.register_overlay(
             OverlayRegistration::<App>::new("overlay.attachments.viewer")

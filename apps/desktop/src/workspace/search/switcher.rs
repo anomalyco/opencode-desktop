@@ -385,28 +385,44 @@ impl Feature<App> for SwitcherFeature {
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
         builder.add_command(
-            CommandEntry::<App>::from_key("select-project", opencode_i18n::key!("session.new.project.search"), |s, tx| s.toggle_project_switcher(tx))
-                .bind_id(Bind::SelectProject.id())
-                .order(90),
+            CommandEntry::<App>::from_key(
+                "select-project",
+                opencode_i18n::key!("session.new.project.search"),
+                crate::commands::order::SELECT_PROJECT,
+                |s, tx| s.toggle_project_switcher(tx),
+            )
+            .bind_id(Bind::SelectProject.id()),
         );
         builder.add_command(
-            CommandEntry::<App>::from_key("sessions", opencode_i18n::key!("command.session.search"), |s, tx| s.open_session_search(tx))
-                .bind_id(Bind::SessionSearch.id())
-                .order(120),
+            CommandEntry::<App>::from_key(
+                "sessions",
+                opencode_i18n::key!("command.session.search"),
+                crate::commands::order::SESSIONS,
+                |s, tx| s.open_session_search(tx),
+            )
+            .bind_id(Bind::SessionSearch.id()),
         );
         builder.add_command(
-            CommandEntry::<App>::from_key(crate::commands::SEARCH, opencode_i18n::key!("command.commands.search"), |s, tx| s.open_command_search(tx))
-                .bind_id(Bind::CommandSearch.id())
-                .order(130),
+            CommandEntry::<App>::from_key(
+                crate::commands::SEARCH,
+                opencode_i18n::key!("command.commands.search"),
+                crate::commands::order::COMMANDS,
+                |s, tx| s.open_command_search(tx),
+            )
+            .bind_id(Bind::CommandSearch.id()),
         );
         // Desktop's `file.open` (`use-session-commands.tsx:551-558`): Ctrl+P's search, as `/open`.
         builder.add_command(
-            CommandEntry::<App>::from_key("file.open", opencode_i18n::key!("command.file.open"), |s, tx| s.open_file_search(tx))
-                .describe(opencode_i18n::key!("palette.search.placeholder"))
-                .bind_id(Bind::FileOpen.id())
-                .slash("open")
-                .order(220)
-                .when(App::in_root_session),
+            CommandEntry::<App>::from_key(
+                "file.open",
+                opencode_i18n::key!("command.file.open"),
+                crate::commands::order::FILE_OPEN,
+                |s, tx| s.open_file_search(tx),
+            )
+            .describe(opencode_i18n::key!("palette.search.placeholder"))
+            .bind_id(Bind::FileOpen.id())
+            .slash("open")
+            .when(App::in_root_session),
         );
         builder.register_overlay(
             OverlayRegistration::<App>::new(OVERLAY_ID)

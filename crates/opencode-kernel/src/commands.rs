@@ -45,7 +45,7 @@ pub struct CommandEntry<S> {
     pub bind_id: Option<&'static str>,
     pub section: Option<&'static str>,
     pub hidden: bool,
-    /// Ascending palette display order (ties preserve registration order; defaults to `u16::MAX`).
+    /// Explicit ascending palette display order (ties preserve registration order).
     pub order: u16,
     /// Dynamic title resolver evaluated against live host state, overriding [`Self::title`].
     pub titled: Option<fn(&S) -> CommandTitle>,
@@ -81,8 +81,13 @@ fn always_enabled<S>(_: &S) -> bool {
 }
 
 impl<S> CommandEntry<S> {
-    /// Creates an enabled command with a localized or static title.
-    pub fn new(id: &'static str, title: impl Into<CommandTitle>, run: fn(&mut S, &mut rune::Tx)) -> Self {
+    /// Creates an enabled command with a localized or static title and explicit palette `order`.
+    pub fn new(
+        id: &'static str,
+        title: impl Into<CommandTitle>,
+        order: u16,
+        run: fn(&mut S, &mut rune::Tx),
+    ) -> Self {
         Self {
             id,
             title: title.into(),
@@ -92,15 +97,20 @@ impl<S> CommandEntry<S> {
             bind_id: None,
             section: None,
             hidden: false,
-            order: u16::MAX,
+            order,
             titled: None,
             enabled: always_enabled,
             run,
         }
     }
 
-    /// Const constructor backed by an `opencode-i18n` key.
-    pub const fn from_key(id: &'static str, title: opencode_i18n::Key, run: fn(&mut S, &mut rune::Tx)) -> Self {
+    /// Const constructor backed by an `opencode-i18n` key and explicit palette `order`.
+    pub const fn from_key(
+        id: &'static str,
+        title: opencode_i18n::Key,
+        order: u16,
+        run: fn(&mut S, &mut rune::Tx),
+    ) -> Self {
         Self {
             id,
             title: CommandTitle::Key(title),
@@ -110,15 +120,20 @@ impl<S> CommandEntry<S> {
             bind_id: None,
             section: None,
             hidden: false,
-            order: u16::MAX,
+            order,
             titled: None,
             enabled: always_enabled,
             run,
         }
     }
 
-    /// Const constructor backed by a static string.
-    pub const fn from_static(id: &'static str, title: &'static str, run: fn(&mut S, &mut rune::Tx)) -> Self {
+    /// Const constructor backed by a static string and explicit palette `order`.
+    pub const fn from_static(
+        id: &'static str,
+        title: &'static str,
+        order: u16,
+        run: fn(&mut S, &mut rune::Tx),
+    ) -> Self {
         Self {
             id,
             title: CommandTitle::Static(title),
@@ -128,7 +143,7 @@ impl<S> CommandEntry<S> {
             bind_id: None,
             section: None,
             hidden: false,
-            order: u16::MAX,
+            order,
             titled: None,
             enabled: always_enabled,
             run,
@@ -168,12 +183,6 @@ impl<S> CommandEntry<S> {
     /// Marks the command as hidden from default palette listings while staying invokable.
     pub const fn hidden(mut self) -> Self {
         self.hidden = true;
-        self
-    }
-
-    /// Sets the command's ascending palette display order (defaults to `u16::MAX`).
-    pub const fn order(mut self, order: u16) -> Self {
-        self.order = order;
         self
     }
 
@@ -247,27 +256,18 @@ impl<S> CommandRegistry<S> {
         }
     }
 
-    /// Registers a command, replacing any existing entry with the same `id` in place.
+    /// Registers a command in ascending [`CommandEntry::order`] (ties preserve registration
+    /// order), replacing any existing entry with the same `id`.
     pub fn register(&mut self, entry: CommandEntry<S>) {
         let parsed = entry.parsed_keybind();
-        if let Some(&idx) = self.by_id.get(entry.id) {
-            if let Some(old_slash) = self.entries[idx].slash {
-                self.by_slash.remove(old_slash);
-            }
-            if let Some(slash) = entry.slash {
-                self.by_slash.insert(slash, idx);
-            }
-            self.entries[idx] = entry;
-            self.keybinds[idx] = parsed;
-            return;
+        if let Some(&old_idx) = self.by_id.get(entry.id) {
+            self.entries.remove(old_idx);
+            self.keybinds.remove(old_idx);
         }
-        let idx = self.entries.len();
-        self.by_id.insert(entry.id, idx);
-        if let Some(slash) = entry.slash {
-            self.by_slash.insert(slash, idx);
-        }
-        self.entries.push(entry);
-        self.keybinds.push(parsed);
+        let idx = self.entries.partition_point(|existing| existing.order <= entry.order);
+        self.entries.insert(idx, entry);
+        self.keybinds.insert(idx, parsed);
+        self.rebuild_indices();
     }
 
     /// Removes a command by id, returning it if it was registered.
@@ -316,12 +316,14 @@ impl<S> CommandRegistry<S> {
         true
     }
 
-    /// Iterates all registered commands in registration order.
+    /// Iterates all registered commands in ascending [`CommandEntry::order`] (ties preserve
+    /// registration order).
     pub fn iter(&self) -> std::slice::Iter<'_, CommandEntry<S>> {
         self.entries.iter()
     }
 
-    /// Iterates registered commands together with their cached default first chord.
+    /// Iterates registered commands in ascending [`CommandEntry::order`] together with their
+    /// cached default first chord.
     pub fn iter_with_chords(&self) -> impl Iterator<Item = (&CommandEntry<S>, Option<rune::Chord>)> {
         self.entries
             .iter()
@@ -329,47 +331,45 @@ impl<S> CommandRegistry<S> {
             .map(|(entry, kb)| (entry, kb.as_ref().and_then(|k| k.chords().first().copied())))
     }
 
-    /// Finds the first enabled command associated with host keymap `bind_id`.
+    /// Finds the first command associated with host keymap `bind_id`, returning it when enabled.
     pub fn find_bind(&self, bind_id: &str, state: &S) -> Option<CommandEntry<S>> {
-        self.entries
-            .iter()
-            .find(|entry| entry.bind_id == Some(bind_id) && entry.is_enabled(state))
-            .copied()
+        let entry = self.entries.iter().find(|entry| entry.bind_id == Some(bind_id))?;
+        entry.is_enabled(state).then_some(*entry)
     }
 
-    /// Finds the first enabled command matching `ev` against its default keybind.
+    /// Finds the first command matching `ev` against its default [`CommandEntry::keybind`],
+    /// returning `None` if it is disabled or if no command matches.
     pub fn find_key(&self, state: &S, ev: &rune::KeyEvent, tx: &rune::Tx) -> Option<CommandEntry<S>> {
-        self.find_key_with(state, ev, tx, |_| None)
+        self.find_default_key(state, ev, tx, |_| false)
     }
 
-    /// Finds the first enabled command matching `ev`, letting the host supply keybind overrides
-    /// (returning `Some(override_kb)` to replace or unbind the command's default keybind).
-    /// Commands linked to a host keymap binding via [`CommandEntry::bind_id`] are skipped here.
-    pub fn find_key_with<'a>(
-        &'a self,
+    /// Finds the first command whose default [`CommandEntry::keybind`] matches `ev`, skipping
+    /// commands linked to a host keymap binding ([`CommandEntry::bind_id`]) and commands for
+    /// which `has_override` returns `true` (those are dispatched by the host's override table).
+    ///
+    /// If the first matching command is disabled, returns `None` rather than firing a second
+    /// command on the same chord.
+    pub fn find_default_key(
+        &self,
         state: &S,
         ev: &rune::KeyEvent,
         tx: &rune::Tx,
-        override_for: impl Fn(&str) -> Option<&'a rune::Keybind>,
+        has_override: impl Fn(&str) -> bool,
     ) -> Option<CommandEntry<S>> {
         let plain = !(ev.mods.cmd || ev.mods.ctrl || ev.mods.alt || ev.mods.logo);
         if plain && tx.focused().is_some() {
             return None;
         }
-        self.entries
+        let (entry, _) = self
+            .entries
             .iter()
             .zip(self.keybinds.iter())
             .find(|(entry, default_kb)| {
-                if entry.bind_id.is_some() || !entry.is_enabled(state) {
-                    return false;
-                }
-                let kb = match override_for(entry.id) {
-                    Some(over) => Some(over),
-                    None => default_kb.as_ref(),
-                };
-                kb.is_some_and(|kb| kb.matches_tx(ev, tx))
-            })
-            .map(|(entry, _)| *entry)
+                entry.bind_id.is_none()
+                    && !has_override(entry.id)
+                    && default_kb.as_ref().is_some_and(|kb| kb.matches_tx(ev, tx))
+            })?;
+        entry.is_enabled(state).then_some(*entry)
     }
 
     /// Iterates registered commands currently enabled for `state`.

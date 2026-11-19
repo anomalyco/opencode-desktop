@@ -1,91 +1,23 @@
-//! The app's commands, one list that ⌘K, ⇧⌘P and the composer's `/` all read, as Desktop's
-//! `command.register` feeds its palette and slash popover (`shell/commands/command.tsx`,
-//! `session/commands/use-session-commands.tsx`, `composer/commands.tsx`).
+//! The app's commands, one registry (`s.kernel.commands`) that ⌘K, ⇧⌘P, Settings › Shortcuts,
+//! and the composer's `/` all read, as Desktop's `command.register` feeds its palette and slash
+//! popover (`shell/commands/command.tsx`, `session/commands/use-session-commands.tsx`,
+//! `composer/commands.tsx`).
 //!
-//! A feature registers its commands in `Feature::register` via
-//! `builder.add_command(CommandEntry::...)` (`s.kernel.commands`); core shell/window commands live
-//! below in `COMMANDS`. Titles and descriptions are catalog keys, read in the current language as
-//! the list is made. Panels with a `.command(…)` join the list on their own (`App::commands`).
+//! Features register their commands in `Feature::register` via
+//! `builder.add_command(CommandEntry::from_key(id, key, order::..., run)...)`; core shell and
+//! window commands register in [`register_shell_commands`]. Titles and descriptions are catalog
+//! keys, read in the current language as the list is made.
 
+pub mod order;
 pub mod type_to_compose;
 
-use crate::pickers::PickerHost as _;
-use rune::{KeyEvent, Tx};
-use rune_register::{collect, slice};
-
-use crate::keymap::{Bind, Section};
-use crate::pickers::Kind;
-use crate::App;
+use opencode_kernel::{CommandEntry, KernelBuilder};
 use opencode_kit::client::Write;
+use rune::{KeyEvent, Tx};
 
-slice!(pub COMMANDS: Cmd);
-
-/// One registered core shell command (`CommandOption`).
-#[derive(Clone, Copy)]
-pub struct Cmd {
-    pub id: &'static str,
-    pub title: opencode_i18n::Key,
-    pub description: Option<opencode_i18n::Key>,
-    /// The `/name` that runs it from the composer.
-    pub slash: Option<&'static str>,
-    /// Its keymap command, whose chord the palette draws (`⇧⌘T`, `Ctrl+Shift+T`).
-    pub keys: Option<Bind>,
-    /// Listed only while this holds (Desktop's `disabled`).
-    pub enabled: fn(&App) -> bool,
-    /// Its group in Settings › Shortcuts when Desktop's id would place it elsewhere (`groupFor`).
-    pub section: Option<Section>,
-    /// Kept out of the palette, as Desktop's `hidden` commands are (`command.tsx:148`), while its
-    /// keys and Settings › Shortcuts still have it.
-    pub hidden: bool,
-    /// Ascending palette display order (shared with kernel feature commands).
-    pub order: u16,
-    pub run: fn(&mut App, &mut Tx),
-}
-
-fn always(_: &App) -> bool {
-    true
-}
-
-impl Cmd {
-    pub const fn new(id: &'static str, title: opencode_i18n::Key, run: fn(&mut App, &mut Tx)) -> Cmd {
-        Cmd { id, title, description: None, slash: None, keys: None, enabled: always, section: None, hidden: false, order: u16::MAX, run }
-    }
-
-    pub const fn hidden(mut self) -> Cmd {
-        self.hidden = true;
-        self
-    }
-
-    pub const fn section(mut self, section: Section) -> Cmd {
-        self.section = Some(section);
-        self
-    }
-
-    pub const fn describe(mut self, description: opencode_i18n::Key) -> Cmd {
-        self.description = Some(description);
-        self
-    }
-
-    pub const fn slash(mut self, name: &'static str) -> Cmd {
-        self.slash = Some(name);
-        self
-    }
-
-    pub const fn keys(mut self, keys: Bind) -> Cmd {
-        self.keys = Some(keys);
-        self
-    }
-
-    pub const fn order(mut self, order: u16) -> Cmd {
-        self.order = order;
-        self
-    }
-
-    pub const fn when(mut self, enabled: fn(&App) -> bool) -> Cmd {
-        self.enabled = enabled;
-        self
-    }
-}
+use crate::App;
+use crate::keymap::{Bind, Section};
+use crate::pickers::PickerHost as _;
 
 /// How a listed command runs: its own function, or a plugin's command.
 #[derive(Clone, Copy, Debug)]
@@ -102,7 +34,8 @@ pub struct Command {
     pub description: &'static str,
     pub slash: Option<&'static str>,
     pub keys: Option<Bind>,
-    /// A plugin command's chord, drawn when it has no keymap entry.
+    /// A command's default chord when it has no static keymap entry (for example a plugin or
+    /// `.keybind(...)` feature command).
     pub chord: Option<rune::Chord>,
     /// Its Settings › Shortcuts group, when it names one.
     pub section: Option<Section>,
@@ -140,7 +73,7 @@ fn parse_section(name: &str) -> Option<Section> {
 }
 
 impl App {
-    /// Every enabled command: the registered ones, the kernel features', then the plugins'.
+    /// Every enabled command: built-ins in canonical palette order, then plugins.
     pub fn commands(&self) -> Vec<Command> {
         self.listing(true)
     }
@@ -157,56 +90,30 @@ impl App {
     }
 
     fn listing(&self, offered: bool) -> Vec<Command> {
-        let own = collect(&COMMANDS).into_iter().filter(|c| !offered || (c.enabled)(self)).map(|c| {
-            (
-                c.order,
-                Command {
-                    id: c.id,
-                    title: opencode_i18n::I18N.text(c.title),
-                    description: c.description.map_or("", |d| opencode_i18n::I18N.text(d)),
-                    slash: c.slash,
-                    keys: c.keys,
-                    chord: None,
-                    section: c.section,
-                    hidden: c.hidden,
-                    featured: false,
-                    run: Run::Fn(c.run),
-                },
-            )
-        });
-        let kernel = self
-            .kernel
+        self.kernel
             .commands
             .iter_with_chords()
             .filter(|(c, _)| !offered || c.is_enabled(self))
             .map(|(c, chord)| {
                 let keys = c.bind_id.and_then(Bind::by_id);
-                (
-                    c.order,
-                    Command {
-                        id: c.id,
-                        title: c.title_for(self),
-                        description: c.description_text().unwrap_or(""),
-                        slash: c.slash,
-                        keys,
-                        chord: if keys.is_some() { None } else { chord },
-                        section: c.section.and_then(parse_section),
-                        hidden: c.hidden,
-                        featured: false,
-                        run: Run::Fn(c.run),
-                    },
-                )
-            });
-        let mut combined: Vec<(u16, Command)> = own.chain(kernel).collect();
-        combined.sort_by_key(|(order, _)| *order);
-        combined.into_iter().map(|(_, c)| c).chain(crate::plugin_host::commands(self, offered)).collect()
+                Command {
+                    id: c.id,
+                    title: c.title_for(self),
+                    description: c.description_text().unwrap_or(""),
+                    slash: c.slash,
+                    keys,
+                    chord: if keys.is_some() { None } else { chord },
+                    section: c.section.and_then(parse_section),
+                    hidden: c.hidden,
+                    featured: false,
+                    run: Run::Fn(c.run),
+                }
+            })
+            .chain(crate::plugin_host::commands(self, offered))
+            .collect()
     }
 
     pub fn run_command(&mut self, id: &str, tx: &mut Tx) {
-        if let Some(c) = collect(&COMMANDS).into_iter().find(|c| c.id == id && (c.enabled)(self)) {
-            (c.run)(self, tx);
-            return;
-        }
         if let Some(entry) = self.kernel.commands.get(id).copied().filter(|e| e.is_enabled(self)) {
             (entry.run)(self, tx);
             return;
@@ -245,18 +152,13 @@ impl App {
     }
 }
 
-/// Runs the enabled command bound to `bind` (core `COMMANDS` or kernel `CommandRegistry`),
-/// returning `true` if one ran.
+/// Runs the enabled command bound to `bind` in `s.kernel.commands`, returning `true` if one ran.
 pub fn run_bind(s: &mut App, bind: Bind, tx: &mut Tx) -> bool {
-    if let Some(cmd) = collect(&COMMANDS).into_iter().find(|c| c.keys == Some(bind) && (c.enabled)(s)) {
-        (cmd.run)(s, tx);
-        return true;
-    }
-    if let Some(entry) = s.kernel.commands.find_bind(bind.id(), s) {
-        (entry.run)(s, tx);
-        return true;
-    }
-    false
+    let Some(entry) = s.kernel.commands.find_bind(bind.id(), s) else {
+        return false;
+    };
+    (entry.run)(s, tx);
+    true
 }
 
 /// Keymap-bound commands dispatched ahead of plugin shortcuts (`commands::key`).
@@ -269,31 +171,35 @@ const KEY_BINDS: [Bind; 6] = [
     Bind::MessageNext,
 ];
 
-/// ⌃L, as Desktop binds `input.focus` (a focused panel, the terminal's clear screen, takes it
-/// first); ⇧⌘L adds the open file's selected lines; ⇧⌘X switches the composer's shell mode;
-/// message jump/navigation; plus any shortcut-bound kernel commands registered by features.
-/// Each declines its key where the command is disabled.
+/// Dispatches the six keymap-bound commands ahead of plugin shortcuts (`KEY_BINDS`), plus any
+/// kernel command with a default `.keybind(...)` that has no Settings › Shortcuts override.
+///
+/// Key dispatch rule for duplicate chords (matching pre-`6a8c7eb` behaviour):
+/// - User overrides for non-table commands (`overrides::commands()`) are dispatched once, earlier
+///   in `App::shortcut`, by `settings::pages::shortcuts::run_bound`. The first matching override
+///   decides: if its command is disabled or unknown, `run_bound` declines the key and
+///   `commands::key` never re-dispatches `overrides::command(id)` or fires a fallback default
+///   `.keybind(...)` for that chord.
+/// - Among `KEY_BINDS`, the first matching `Bind` decides (as in `shortcuts::run`); if its
+///   command is disabled, no second `KEY_BINDS` entry fires for the same key.
+/// - Among un-overridden default `.keybind(...)` commands, the first matching command decides; if
+///   it is disabled, no second default command fires for the same key.
 pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    for bind in KEY_BINDS {
-        if bind.matches_tx(ev, tx) && run_bind(s, bind, tx) {
-            return true;
-        }
+    if let Some(bind) = KEY_BINDS.into_iter().find(|b| b.matches_tx(ev, tx)) {
+        return run_bind(s, bind, tx);
     }
-    // Closure coerces `Option<&'static Keybind>` to `&'a Keybind` so `s.kernel.commands` is not borrowed for `'static`.
-    #[allow(clippy::redundant_closure)]
+    if crate::keymap::overrides::commands().iter().any(|(_, kb)| kb.matches_tx(ev, tx)) {
+        return false;
+    }
     if let Some(entry) = s
         .kernel
         .commands
-        .find_key_with(s, ev, tx, |id| crate::keymap::overrides::command(id))
+        .find_default_key(s, ev, tx, |id| crate::keymap::overrides::command(id).is_some())
     {
         (entry.run)(s, tx);
         return true;
     }
     false
-}
-
-fn agent_shown(s: &App) -> bool {
-    s.has_composer() && s.picker_show_agent()
 }
 
 fn is_live(s: &App) -> bool {
@@ -321,99 +227,139 @@ fn has_sidebar(s: &App) -> bool {
     s.shows_sidebar()
 }
 
-rune_register::register!(COMMANDS: Cmd = [
+/// Registers core shell, navigation, tab, zoom, and window commands into `b`.
+pub fn register_shell_commands(b: &mut KernelBuilder<App>) {
     // `session.new` has no keybind of its own; it runs `tab.new` (`use-session-commands.tsx:446-451`).
-    Cmd::new("new", opencode_i18n::key!("command.session.new"), |s, tx| s.new_session(tx)).slash("new").section(Section::Session).order(10),
+    b.add_command(
+        CommandEntry::<App>::from_key("new", opencode_i18n::key!("command.session.new"), order::NEW, |s, tx| s.new_session(tx))
+            .slash("new")
+            .section("session"),
+    );
     // `titlebar.tsx:428-434`: hidden from the palette; its key and Settings keep it.
-    Cmd::new("home", opencode_i18n::key!("home.title"), |s, tx| s.go_home(tx)).keys(Bind::Home).hidden().order(20),
+    b.add_command(
+        CommandEntry::<App>::from_key("home", opencode_i18n::key!("home.title"), order::HOME, |s, tx| s.go_home(tx))
+            .bind_id(Bind::Home.id())
+            .hidden(),
+    );
     // `titlebar.tsx:148-160`.
-    Cmd::new("back", opencode_i18n::key!("common.goBack"), |s, tx| {
-        s.navigate(false, tx);
-    })
-    .keys(Bind::GoBack)
-    .order(30),
-    Cmd::new("forward", opencode_i18n::key!("common.goForward"), |s, tx| {
-        s.navigate(true, tx);
-    })
-    .keys(Bind::GoForward)
-    .order(40),
-    Cmd::new("sidebar", opencode_i18n::key!("command.sidebar.toggle"), toggle_sidebar).keys(Bind::Sidebar).order(60).when(has_sidebar),
-    Cmd::new("reload", opencode_i18n::key!("command.config.reload"), reload)
-        .describe(opencode_i18n::key!("command.config.reload.description"))
-        .slash("reload")
-        .order(140)
-        .when(is_live),
-    Cmd::new("compact", opencode_i18n::key!("command.session.compact"), compact)
-        .describe(opencode_i18n::key!("command.session.compact.description"))
-        .slash("compact")
-        .section(Section::Session)
-        .order(150)
-        .when(App::in_root_session),
-    Cmd::new("copy-session", opencode_i18n::key!("command.session.copyID"), |s, tx| {
-        let id = s.active_session_id().map(str::to_owned);
-        s.copy_id(id, tx);
-    })
-    .section(Section::Session)
-    .order(230)
-    .when(|s| s.active_session_id().is_some()),
-    // The composer's commands, after the session's, as Desktop registers them (`composer/commands.tsx:111-161`,
-    // mounted after `use-session-commands.tsx`): a palette query lists them in that order.
-    Cmd::new("model", opencode_i18n::key!("command.model.choose"), |s, _| s.open_picker(Kind::Model))
-        .describe(opencode_i18n::key!("command.model.choose.description"))
-        .slash("model")
-        .keys(Bind::Model)
-        .order(300)
-        .when(App::has_composer),
-    Cmd::new("variant", opencode_i18n::key!("command.model.variant.cycle"), |s, tx| s.cycle_picker(Kind::Effort, false, tx))
-        .describe(opencode_i18n::key!("command.model.variant.cycle.description"))
-        .keys(Bind::Variant)
-        .order(310)
-        .when(|s| s.has_composer() && s.has_effort()),
-    // Offered while the agent shows, as Desktop's `disabled: !local.agent.visible()` (`composer/commands.tsx:145-161`).
-    Cmd::new("agent", opencode_i18n::key!("command.agent.cycle"), |s, tx| s.cycle_picker(Kind::Agent, false, tx))
-        .describe(opencode_i18n::key!("command.agent.cycle.description"))
-        .slash("agent")
-        .keys(Bind::Agent)
-        .order(320)
-        .when(agent_shown),
-    Cmd::new("agent-back", opencode_i18n::key!("command.agent.cycle.reverse"), |s, tx| s.cycle_picker(Kind::Agent, true, tx))
-        .describe(opencode_i18n::key!("command.agent.cycle.reverse.description"))
-        .keys(Bind::AgentBack)
-        .order(330)
-        .when(agent_shown),
-    Cmd::new("focus", opencode_i18n::key!("command.input.focus"), |s, tx| {
-        s.focus_composer(tx);
-    })
-    .keys(Bind::FocusInput)
-    .order(350)
-    .when(App::has_composer),
-    Cmd::new("next-tab", opencode_i18n::key!("command.session.next"), |s, tx| s.select_adjacent(1, tx)).keys(Bind::SessionNext).order(360),
-    Cmd::new("previous-tab", opencode_i18n::key!("command.session.previous"), |s, tx| s.select_adjacent(-1, tx)).keys(Bind::SessionPrev).order(370),
-    Cmd::new("previous-unread", opencode_i18n::key!("command.session.previous.unseen"), |s, tx| s.select_unread(-1, tx)).keys(Bind::UnseenPrev).order(380),
-    Cmd::new("next-unread", opencode_i18n::key!("command.session.next.unseen"), |s, tx| s.select_unread(1, tx)).keys(Bind::UnseenNext).order(390),
-    Cmd::new("close-tab", opencode_i18n::key!("command.tab.close"), |s, tx| {
-        if let Some(id) = s.current_tab() {
-            s.close_tab(&id, tx);
-        }
-    })
-    .keys(Bind::TabClose)
-    .when(|s| s.current_tab().is_some())
-    // `titlebar.tsx:453-458`.
-    .hidden()
-    .order(400),
+    b.add_command(
+        CommandEntry::<App>::from_key("back", opencode_i18n::key!("common.goBack"), order::BACK, |s, tx| {
+            s.navigate(false, tx);
+        })
+        .bind_id(Bind::GoBack.id()),
+    );
+    b.add_command(
+        CommandEntry::<App>::from_key("forward", opencode_i18n::key!("common.goForward"), order::FORWARD, |s, tx| {
+            s.navigate(true, tx);
+        })
+        .bind_id(Bind::GoForward.id()),
+    );
+    b.add_command(
+        CommandEntry::<App>::from_key("sidebar", opencode_i18n::key!("command.sidebar.toggle"), order::SIDEBAR, toggle_sidebar)
+            .bind_id(Bind::Sidebar.id())
+            .when(has_sidebar),
+    );
+    b.add_command(
+        CommandEntry::<App>::from_key("reload", opencode_i18n::key!("command.config.reload"), order::RELOAD, reload)
+            .describe(opencode_i18n::key!("command.config.reload.description"))
+            .slash("reload")
+            .when(is_live),
+    );
+    b.add_command(
+        CommandEntry::<App>::from_key("compact", opencode_i18n::key!("command.session.compact"), order::COMPACT, compact)
+            .describe(opencode_i18n::key!("command.session.compact.description"))
+            .slash("compact")
+            .section("session")
+            .when(App::in_root_session),
+    );
+    b.add_command(
+        CommandEntry::<App>::from_key("next-tab", opencode_i18n::key!("command.session.next"), order::NEXT_TAB, |s, tx| {
+            s.select_adjacent(1, tx);
+        })
+        .bind_id(Bind::SessionNext.id()),
+    );
+    b.add_command(
+        CommandEntry::<App>::from_key("previous-tab", opencode_i18n::key!("command.session.previous"), order::PREVIOUS_TAB, |s, tx| {
+            s.select_adjacent(-1, tx);
+        })
+        .bind_id(Bind::SessionPrev.id()),
+    );
+    b.add_command(
+        CommandEntry::<App>::from_key(
+            "previous-unread",
+            opencode_i18n::key!("command.session.previous.unseen"),
+            order::PREVIOUS_UNREAD,
+            |s, tx| s.select_unread(-1, tx),
+        )
+        .bind_id(Bind::UnseenPrev.id()),
+    );
+    b.add_command(
+        CommandEntry::<App>::from_key(
+            "next-unread",
+            opencode_i18n::key!("command.session.next.unseen"),
+            order::NEXT_UNREAD,
+            |s, tx| s.select_unread(1, tx),
+        )
+        .bind_id(Bind::UnseenNext.id()),
+    );
+    b.add_command(
+        CommandEntry::<App>::from_key("close-tab", opencode_i18n::key!("command.tab.close"), order::CLOSE_TAB, |s, tx| {
+            if let Some(id) = s.current_tab() {
+                s.close_tab(&id, tx);
+            }
+        })
+        .bind_id(Bind::TabClose.id())
+        .when(|s| s.current_tab().is_some())
+        // `titlebar.tsx:453-458`.
+        .hidden(),
+    );
     // `titlebar.tsx:480-486`: the same close, listed.
-    Cmd::new("close-session-tab", opencode_i18n::key!("command.tab.closeSession"), |s, tx| {
-        if let Some(id) = s.current_tab() {
-            s.close_tab(&id, tx);
-        }
-    })
-    .keys(Bind::TabCloseSession)
-    .order(410)
-    .when(|s| s.current_tab().is_some()),
-    Cmd::new("reopen-tab", opencode_i18n::key!("command.tab.reopenClosed"), |s, tx| s.reopen_tab(tx)).keys(Bind::TabReopen).order(420),
+    b.add_command(
+        CommandEntry::<App>::from_key(
+            "close-session-tab",
+            opencode_i18n::key!("command.tab.closeSession"),
+            order::CLOSE_SESSION_TAB,
+            |s, tx| {
+                if let Some(id) = s.current_tab() {
+                    s.close_tab(&id, tx);
+                }
+            },
+        )
+        .bind_id(Bind::TabCloseSession.id())
+        .when(|s| s.current_tab().is_some()),
+    );
+    b.add_command(
+        CommandEntry::<App>::from_key("reopen-tab", opencode_i18n::key!("command.tab.reopenClosed"), order::REOPEN_TAB, |s, tx| {
+            s.reopen_tab(tx);
+        })
+        .bind_id(Bind::TabReopen.id()),
+    );
     // Beyond Desktop, which forgets a closed window: the newest one kept opens again.
-    Cmd::new("reopen-window", opencode_i18n::key!("rune.command.window.reopenClosed"), |s, _| crate::windows::reopen::reopen_newest(s)).order(430),
-    Cmd::new("zoom-in", opencode_i18n::key!("desktop.menu.zoomIn"), |s, tx| s.zoom_by(1, tx)).keys(Bind::ZoomIn).order(440),
-    Cmd::new("zoom-out", opencode_i18n::key!("desktop.menu.zoomOut"), |s, tx| s.zoom_by(-1, tx)).keys(Bind::ZoomOut).order(450),
-    Cmd::new("zoom-reset", opencode_i18n::key!("desktop.menu.actualSize"), |s, tx| s.zoom_by(0, tx)).keys(Bind::ZoomReset).order(460),
-]);
+    #[cfg(not(target_arch = "wasm32"))]
+    b.add_command(CommandEntry::<App>::from_key(
+        "reopen-window",
+        opencode_i18n::key!("rune.command.window.reopenClosed"),
+        order::REOPEN_WINDOW,
+        |s, _| crate::windows::reopen::reopen_newest(s),
+    ));
+    b.add_command(
+        CommandEntry::<App>::from_key("zoom-in", opencode_i18n::key!("desktop.menu.zoomIn"), order::ZOOM_IN, |s, tx| s.zoom_by(1, tx))
+            .bind_id(Bind::ZoomIn.id()),
+    );
+    b.add_command(
+        CommandEntry::<App>::from_key("zoom-out", opencode_i18n::key!("desktop.menu.zoomOut"), order::ZOOM_OUT, |s, tx| s.zoom_by(-1, tx))
+            .bind_id(Bind::ZoomOut.id()),
+    );
+    b.add_command(
+        CommandEntry::<App>::from_key("zoom-reset", opencode_i18n::key!("desktop.menu.actualSize"), order::ZOOM_RESET, |s, tx| s.zoom_by(0, tx))
+            .bind_id(Bind::ZoomReset.id()),
+    );
+    // Desktop's `logs.export` (`shell/commands/desktop.tsx`), beside the app menu's Export Logs….
+    #[cfg(not(target_arch = "wasm32"))]
+    b.add_command(CommandEntry::<App>::from_key(
+        "logs.export",
+        opencode_i18n::key!("command.logs.export"),
+        order::LOGS_EXPORT,
+        |s, _| s.export_logs(),
+    ));
+}

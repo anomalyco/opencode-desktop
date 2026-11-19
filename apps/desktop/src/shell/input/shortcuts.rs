@@ -13,7 +13,7 @@ use crate::keymap::Bind;
 
 #[derive(Clone, Copy)]
 enum Target {
-    /// Dispatches through the registered `COMMANDS` entry carrying the same `Bind`.
+    /// Dispatches through the registered kernel command carrying the same `Bind`.
     Command,
     /// Key-only shortcut (or one whose global shortcut semantics differ from palette visibility,
     /// such as `AutoAccept` working outside a session and `TabClose` closing an empty window).
