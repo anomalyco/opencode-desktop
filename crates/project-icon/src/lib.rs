@@ -131,14 +131,86 @@ impl Inner {
     }
 }
 
+/// Cached source identity and decoded image (`icon` never exists without its `Key`).
+type CachedIcon = (Key, Option<Shown>);
+
+/// Lookup lifecycle for one project-icon cache entry (`found`).
 #[derive(Default)]
-struct Found {
-    checked: Option<Instant>,
-    pending: bool,
-    /// The server URL this was resolved with (its length and ends).
-    server: (usize, u64),
-    key: Option<Key>,
-    icon: Option<Shown>,
+enum Found {
+    #[default]
+    Unchecked,
+    /// Worker lookup is in flight for `server`, keeping any prior `cached` icon visible.
+    Checking { server: (usize, u64), cached: Option<CachedIcon> },
+    /// Last lookup completed at `checked` for `server`.
+    Settled { checked: Instant, server: (usize, u64), cached: Option<CachedIcon> },
+}
+
+enum FoundEvent {
+    Check { stamp: (usize, u64), now: Instant },
+    Settled { done: Option<(Key, Option<Shown>)>, now: Instant },
+}
+
+enum FoundEffect {
+    None,
+    Run { previous: Option<Key> },
+    Settled { changed: bool },
+}
+
+impl Found {
+    fn icon(&self) -> Option<&Shown> {
+        match self {
+            Self::Unchecked => None,
+            Self::Checking { cached, .. } | Self::Settled { cached, .. } => {
+                cached.as_ref().and_then(|(_, icon)| icon.as_ref())
+            }
+        }
+    }
+
+    fn step(&mut self, event: FoundEvent) -> FoundEffect {
+        match (std::mem::take(self), event) {
+            (Self::Unchecked, FoundEvent::Check { stamp, .. }) => {
+                *self = Self::Checking { server: stamp, cached: None };
+                FoundEffect::Run { previous: None }
+            }
+            (prev @ Self::Checking { .. }, FoundEvent::Check { .. }) => {
+                *self = prev;
+                FoundEffect::None
+            }
+            (Self::Settled { checked, server, cached }, FoundEvent::Check { stamp, now }) => {
+                if now.saturating_duration_since(checked) > RECHECK || server != stamp {
+                    let previous = cached.as_ref().map(|(k, _)| k.clone());
+                    *self = Self::Checking { server: stamp, cached };
+                    FoundEffect::Run { previous }
+                } else {
+                    *self = Self::Settled { checked, server, cached };
+                    FoundEffect::None
+                }
+            }
+            (prev, FoundEvent::Settled { done, now }) => {
+                let (server, cached) = match prev {
+                    Self::Unchecked => ((0, 0), None),
+                    Self::Checking { server, cached } | Self::Settled { server, cached, .. } => (server, cached),
+                };
+                match done {
+                    // The same source as before: keep its pixels.
+                    Some((key, None)) if cached.as_ref().is_some_and(|(k, _)| *k == key) => {
+                        *self = Self::Settled { checked: now, server, cached };
+                        FoundEffect::Settled { changed: false }
+                    }
+                    Some((key, shown)) => {
+                        let changed = shown.is_some() || cached.as_ref().is_some_and(|(_, i)| i.is_some());
+                        *self = Self::Settled { checked: now, server, cached: Some((key, shown)) };
+                        FoundEffect::Settled { changed }
+                    }
+                    None => {
+                        let changed = cached.is_some_and(|(_, i)| i.is_some());
+                        *self = Self::Settled { checked: now, server, cached: None };
+                        FoundEffect::Settled { changed }
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -242,13 +314,17 @@ impl Icons {
             let job = {
                 let mut found = inner.found.lock().unwrap_or_else(PoisonError::into_inner);
                 let f = found.entry(entry.clone()).or_default();
-                let stale = f.checked.is_none_or(|t| t.elapsed() > RECHECK) || f.server != stamp;
-                (stale && !f.pending).then(|| {
-                    f.pending = true;
-                    f.server = stamp;
-                    let previous = f.key.clone();
-                    Job { entry: entry.clone(), dir, name: p.name.to_owned(), server: server.map(str::to_owned), repo: !self.no_repo, previous }
-                })
+                match f.step(FoundEvent::Check { stamp, now: Instant::now() }) {
+                    FoundEffect::Run { previous } => Some(Job {
+                        entry: entry.clone(),
+                        dir,
+                        name: p.name.to_owned(),
+                        server: server.map(str::to_owned),
+                        repo: !self.no_repo,
+                        previous,
+                    }),
+                    FoundEffect::None | FoundEffect::Settled { .. } => None,
+                }
             };
             if let Some(job) = job {
                 if self.sync {
@@ -262,7 +338,7 @@ impl Icons {
                 }
             }
             let found = inner.found.lock().unwrap_or_else(PoisonError::into_inner);
-            found.get(&entry)?.icon.clone().filter(|s| match s {
+            found.get(&entry)?.icon().cloned().filter(|s| match s {
                 Shown::Tile(i, _) | Shown::Mark(i, _) => i.is_ready() && i.error().is_none(),
                 Shown::Vector(..) => true,
             })
@@ -423,22 +499,7 @@ impl Icons {
 fn settle(found: &Mutex<HashMap<String, Found>>, dir: &str, done: Option<(Key, Option<Shown>)>) -> bool {
     let mut found = found.lock().unwrap_or_else(PoisonError::into_inner);
     let f = found.entry(dir.to_owned()).or_default();
-    f.pending = false;
-    f.checked = Some(Instant::now());
-    match done {
-        // The same source as before: keep its pixels.
-        Some((key, None)) if f.key.as_ref() == Some(&key) => false,
-        Some((key, shown)) => {
-            let moved = shown.is_some() || f.icon.is_some();
-            f.key = Some(key);
-            f.icon = shown;
-            moved
-        }
-        None => {
-            f.key = None;
-            f.icon.take().is_some()
-        }
-    }
+    matches!(f.step(FoundEvent::Settled { done, now: Instant::now() }), FoundEffect::Settled { changed: true })
 }
 
 /// Desktop's `box-shadow: inset 0 0 0 0.5px` (`project-avatar.css`): a ring just inside the tile,
