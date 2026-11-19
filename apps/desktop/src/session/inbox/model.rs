@@ -307,8 +307,7 @@ pub struct SidebarInbox {
     /// The newest archived root sessions (the list leaves them out): the Archived button shows
     /// while there are any.
     pub archived: Vec<SessionInfo>,
-    archived_asked: bool,
-    archived_landed: Arc<Mutex<Option<Vec<SessionInfo>>>>,
+    archived_fetch: ArchivedFetch,
     pub branches: Branches,
     /// The root sessions of each server the window isn't checked out on, in listing order, as of
     /// its last checkout (`snap`).
@@ -317,7 +316,6 @@ pub struct SidebarInbox {
     pub(crate) redraw: bool,
     /// The first load, which shows Desktop's loader in the inbox's place.
     settle: Settle,
-    heard: Heard,
     /// The rows in order, as last read (`inbox_order`), and the reading whose folders went
     /// to the branch reads.
     pub(crate) order: crate::inbox_order::Kept,
@@ -330,24 +328,91 @@ pub struct SidebarInbox {
 /// it for good (`INBOX_SETTLE_TIMEOUT_MS`).
 const SETTLE_TIMEOUT_MS: i64 = 10_000;
 
-/// The inbox's first load (`inbox-settle-machine.ts`): it settles once the session list is in and
-/// every working root's requests are read, or when the timeout passes; once settled it stays
-/// settled, so a session starting later never blanks it.
-#[derive(Clone, Debug, Default)]
-enum Settle {
-    /// Before the inbox first shows; what's heard counts already.
-    #[default]
-    Idle,
-    Loading { since: i64 },
-    Settled,
+/// Whether the reveal timer (`SETTLE_TIMEOUT_MS`) has started (`timerArmed` in `inbox-settle-machine.ts`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum RevealTimer { #[default] Unarmed, Armed { since: i64 } }
+
+/// The inbox's first load (`packages/app/src/shell/titlebar/inbox-settle-machine.ts`): settles
+/// once the session list is in and every working root's requests are read, or when the timeout
+/// passes; once settled it stays settled, so a session starting later never blanks it. Unlike
+/// Desktop, `session_status::RequestReads` owns pending-request fetches, so `heard` lives only
+/// in `Loading` and drops on settle (and there is no `Disposed` variant).
+#[derive(Clone, Debug)]
+enum Settle { Loading { timer: RevealTimer, heard: Heard }, Settled }
+impl Default for Settle {
+    fn default() -> Self { Self::Loading { timer: RevealTimer::Unarmed, heard: Heard::default() } }
 }
 
-/// What the first load waits on, as it arrives: the session list, and which sessions' pending
-/// requests are read.
+enum SettleEvent<'a> { HeardSessions, HeardPending(&'a str), Sync { live: bool, working: &'a [String], now: i64 } }
+enum SettleEffect { None, PendingAdded, WakeAfter(Duration), Settled }
+
+impl Settle {
+    fn step(&mut self, event: SettleEvent<'_>) -> SettleEffect {
+        match (self, event) {
+            (Self::Loading { heard, .. }, SettleEvent::HeardSessions) => { heard.sessions = true; SettleEffect::None }
+            (Self::Loading { heard, .. }, SettleEvent::HeardPending(s)) => {
+                if heard.read.insert(s.to_owned()) { SettleEffect::PendingAdded } else { SettleEffect::None }
+            }
+            (state @ Self::Loading { .. }, SettleEvent::Sync { live, working, now }) => {
+                let Self::Loading { timer, heard } = state else { unreachable!() };
+                let since = match *timer {
+                    RevealTimer::Unarmed if !live => { *state = Self::Settled; return SettleEffect::Settled; }
+                    RevealTimer::Unarmed => { *timer = RevealTimer::Armed { since: now }; now }
+                    RevealTimer::Armed { since } => since,
+                };
+                if !(heard.sessions && working.iter().all(|id| heard.read.contains(id))) && now - since < SETTLE_TIMEOUT_MS {
+                    return SettleEffect::WakeAfter(Duration::from_millis((since + SETTLE_TIMEOUT_MS - now).max(1) as u64));
+                }
+                *state = Self::Settled;
+                SettleEffect::Settled
+            }
+            (Self::Settled, _) => SettleEffect::None,
+        }
+    }
+}
+
+/// What the first load waits on: the session list, and which sessions' pending requests are read.
 #[derive(Clone, Debug, Default)]
-struct Heard {
-    sessions: bool,
-    read: HashSet<String>,
+struct Heard { sessions: bool, read: HashSet<String> }
+
+type ArchivedSlot = Arc<Mutex<Option<Result<Vec<SessionInfo>, ()>>>>;
+
+/// One-shot fetch of the newest archived root sessions (`ARCHIVED_LIMIT`): mirrors [`Branches`]'s
+/// bounded backoff retries (`BRANCH_RETRY_LIMIT`) on failure before resting as `Failed`.
+#[derive(Default)]
+enum ArchivedFetch { #[default] Idle, Loading { failures: u32, landed: ArchivedSlot }, Retrying { failures: u32, due: f64 }, Loaded, Failed }
+enum ArchivedEvent { Poll { now: f64 }, Landed { result: Result<Vec<SessionInfo>, ()>, now: f64 }, SpawnFailed }
+enum ArchivedEffect { Spawn(ArchivedSlot), WakeAfter(Duration), Loaded(Vec<SessionInfo>) }
+
+impl ArchivedFetch {
+    fn begin(&mut self, failures: u32) -> Option<ArchivedEffect> {
+        let slot: ArchivedSlot = Arc::new(Mutex::new(None));
+        *self = Self::Loading { failures, landed: Arc::clone(&slot) };
+        Some(ArchivedEffect::Spawn(slot))
+    }
+
+    fn step(&mut self, event: ArchivedEvent) -> Option<ArchivedEffect> {
+        match (std::mem::take(self), event) {
+            (Self::Idle, ArchivedEvent::Poll { .. }) => self.begin(0),
+            (Self::Retrying { failures, due }, ArchivedEvent::Poll { now }) if due <= now + 1e-9 => self.begin(failures),
+            (Self::Retrying { failures, due }, ArchivedEvent::Poll { now }) => {
+                *self = Self::Retrying { failures, due };
+                Some(ArchivedEffect::WakeAfter(Duration::from_secs_f64((due - now).max(0.0))))
+            }
+            (Self::Loading { failures, .. }, ArchivedEvent::Landed { result, now }) => match result {
+                Ok(list) => { *self = Self::Loaded; Some(ArchivedEffect::Loaded(list)) }
+                Err(()) if failures >= BRANCH_RETRY_LIMIT => { *self = Self::Failed; None }
+                Err(()) => {
+                    let delay = (BRANCH_RETRY_DELAY * f64::from(1u32 << failures)).min(BRANCH_RETRY_MAX_DELAY);
+                    *self = Self::Retrying { failures: failures + 1, due: now + delay };
+                    Some(ArchivedEffect::WakeAfter(Duration::from_secs_f64(delay)))
+                }
+            },
+            (Self::Loading { failures: 0, .. }, ArchivedEvent::SpawnFailed) => { *self = Self::Idle; None }
+            (Self::Loading { failures, .. }, ArchivedEvent::SpawnFailed) => { *self = Self::Retrying { failures, due: 0.0 }; None }
+            (state, _) => { *self = state; None }
+        }
+    }
 }
 
 /// Branch lookups each run git on the server, so a few at a time (`BRANCH_BATCH`).
@@ -509,49 +574,27 @@ impl SidebarInbox {
     }
 
     /// Whether the inbox still shows its loader.
-    pub fn loading(&self) -> bool {
-        matches!(self.settle, Settle::Idle | Settle::Loading { .. })
-    }
+    pub fn loading(&self) -> bool { matches!(self.settle, Settle::Loading { .. }) }
 
     /// The server's session list arrived.
-    pub fn heard_sessions(&mut self) {
-        self.heard.sessions = true;
-    }
+    pub fn heard_sessions(&mut self) { self.settle.step(SettleEvent::HeardSessions); }
 
-    pub fn settled(&self) -> bool {
-        matches!(self.settle, Settle::Settled)
-    }
+    pub fn settled(&self) -> bool { matches!(self.settle, Settle::Settled) }
 
     /// A session's pending requests arrived.
     pub fn heard_pending(&mut self, session: &str) -> bool {
-        !self.settled() && self.heard.read.insert(session.to_owned())
+        matches!(self.settle.step(SettleEvent::HeardPending(session)), SettleEffect::PendingAdded)
     }
 
     /// Starts or finishes the first load at `now` (wall ms), waiting on the requests of the
     /// `working` roots: a source with nothing to wait for (a fixture) settles at once. True when
     /// the loader goes.
     fn settle(&mut self, live: bool, working: &[String], now: i64, tx: &mut Tx) -> bool {
-        let since = match self.settle {
-            Settle::Settled => return false,
-            Settle::Idle if !live => {
-                self.settle = Settle::Settled;
-                return true;
-            }
-            Settle::Idle => {
-                self.settle = Settle::Loading { since: now };
-                now
-            }
-            Settle::Loading { since } => since,
-        };
-        let h = &self.heard;
-        let ready = h.sessions && working.iter().all(|id| h.read.contains(id));
-        if !ready && now - since < SETTLE_TIMEOUT_MS {
-            tx.wake_after(Duration::from_millis((since + SETTLE_TIMEOUT_MS - now).max(1) as u64));
-            return false;
+        match self.settle.step(SettleEvent::Sync { live, working, now }) {
+            SettleEffect::WakeAfter(after) => { tx.wake_after(after); false }
+            SettleEffect::Settled => true,
+            SettleEffect::None | SettleEffect::PendingAdded => false,
         }
-        self.heard = Heard::default();
-        self.settle = Settle::Settled;
-        true
     }
 }
 
@@ -559,6 +602,7 @@ impl SidebarInbox {
 /// and the shown rows' branches load. True when the sidebar should draw again.
 /// The first load's settling, now rather than at the next poll.
 pub fn settle_now(s: &mut App, tx: &mut Tx) -> bool {
+    if s.sidebar_inbox.settled() { return false; }
     let live = s.live();
     let working: Vec<String> = s.sessions.iter().filter(|i| i.parent.is_none() && s.has_live_family(&i.id)).map(|i| i.id.clone()).collect();
     s.sidebar_inbox.settle(live, &working, *s.now_ms, tx)
@@ -604,7 +648,7 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         s.sidebar_inbox.redraw = false;
         changed = true;
     }
-    changed |= load_archived(s);
+    changed |= load_archived(s, now, tx);
     let order = s.inbox_order();
     let working = order.rows.iter().any(|r| r.working);
     // The rows' folders go to the branch reads once per reading of the rows, not every poll.
@@ -627,29 +671,34 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed
 }
 
-/// Reads the newest archived root sessions once (`ARCHIVED_LIMIT`), and takes them in. True
-/// when they land.
-fn load_archived(s: &mut App) -> bool {
-    let inbox = &mut *s.sidebar_inbox;
-    if let Some(list) = inbox.archived_landed.lock().unwrap_or_else(|e| e.into_inner()).take() {
-        inbox.archived = list;
-        return true;
+/// Reads the newest archived root sessions once (`ARCHIVED_LIMIT`), retrying on failure with
+/// bounded backoff, and takes them in. True when they land.
+fn load_archived(s: &mut App, now: f64, tx: &mut Tx) -> bool {
+    let landed = match &s.sidebar_inbox.archived_fetch {
+        ArchivedFetch::Loading { landed, .. } => landed.lock().unwrap_or_else(|e| e.into_inner()).take(),
+        _ => None,
+    };
+    if let Some(result) = landed {
+        return match s.sidebar_inbox.archived_fetch.step(ArchivedEvent::Landed { result, now }) {
+            Some(ArchivedEffect::Loaded(list)) => { s.sidebar_inbox.archived = list; true }
+            Some(ArchivedEffect::WakeAfter(after)) => { tx.wake_after(after); false }
+            _ => false,
+        };
     }
+    if !matches!(s.sidebar_inbox.archived_fetch, ArchivedFetch::Idle | ArchivedFetch::Retrying { .. }) { return false; }
     let Source::Live { server, .. } = &*s.source else { return false };
-    if std::mem::replace(&mut inbox.archived_asked, true) {
-        return false;
-    }
-    let (server, landed, wake) = (server.clone(), Arc::clone(&inbox.archived_landed), (*s.waker).clone());
-    if rune::task::spawn("inbox-archived", move || {
-        let Ok(v) = server.get("/api/session?parentID=null&archived=true&limit=50") else { return };
-        *landed.lock().unwrap_or_else(|e| e.into_inner()) = Some(opencode_kit::model::parse_sessions(&v));
-        if let Some(w) = wake {
-            w();
+    let server = server.clone();
+    match s.sidebar_inbox.archived_fetch.step(ArchivedEvent::Poll { now }) {
+        Some(ArchivedEffect::Spawn(slot)) => {
+            let wake = (*s.waker).clone();
+            if rune::task::spawn("inbox-archived", move || {
+                let result = server.get("/api/session?parentID=null&archived=true&limit=50").map(|v| opencode_kit::model::parse_sessions(&v)).map_err(|_| ());
+                *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(result);
+                if let Some(w) = wake { w(); }
+            }).is_err() { s.sidebar_inbox.archived_fetch.step(ArchivedEvent::SpawnFailed); }
         }
-    })
-    .is_err()
-    {
-        inbox.archived_asked = false;
+        Some(ArchivedEffect::WakeAfter(after)) => tx.wake_after(after),
+        _ => {}
     }
     false
 }
