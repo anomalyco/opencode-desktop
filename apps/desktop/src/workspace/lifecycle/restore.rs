@@ -595,11 +595,6 @@ impl App {
         hydrate_restore(self)
     }
 
-    #[allow(dead_code)]
-    pub fn hydrated(&self) -> bool {
-        hydrated(self)
-    }
-
     pub fn resume_settings_page(&mut self) {
         resume_settings_page(self);
     }
@@ -656,22 +651,12 @@ impl App {
         land_upload(self, key, r);
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn restore_places(&mut self) {
-        restore_places(self);
-    }
-
     pub(crate) fn land_place(&mut self, id: &str, tx: &mut Tx) -> bool {
         land_place(self, id, tx)
     }
 
     pub(crate) fn poll_places(&mut self, now: f64, tx: &mut Tx) -> bool {
         poll_places(self, now, tx)
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn ask_copy(&mut self, server: &ServerKey, id: &str) {
-        ask_copy(self, server, id);
     }
 
     pub(crate) fn poll_copies(&mut self, tx: &mut Tx) -> bool {

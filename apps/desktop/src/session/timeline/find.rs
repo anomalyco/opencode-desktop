@@ -131,11 +131,6 @@ impl App {
     pub fn step_find(&mut self, delta: i32, tx: &mut Tx) {
         step(self, delta, tx);
     }
-
-    #[allow(dead_code)]
-    pub(crate) fn sync_find_index(&mut self) {
-        sync_index(self);
-    }
 }
 
 /// Kernel feature registration for session timeline Find.

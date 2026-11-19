@@ -431,11 +431,6 @@ impl App {
         apply_project_opened(self, location, projects, session, tx);
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn refresh_projects(&self) {
-        refresh_projects(self);
-    }
-
     pub fn home_selected(&self) -> Option<&Project> {
         home::selected(self)
     }

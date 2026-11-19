@@ -2,8 +2,6 @@
 //! (`appearance.tabLayout`), a switch between layouts while its flights run, and the collapsed
 //! sidebar's hover peek (`sidebar-peek-machine.ts`). One tab store (`App::tabs`, `App::route`)
 //! backs every layout; these say only how it shows. Both machines run on `App::clock`.
-// Until the shell draws top tabs and the inbox, parts of this go unread.
-#![allow(dead_code)]
 
 use std::time::Duration;
 

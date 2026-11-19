@@ -43,7 +43,6 @@ pub const FLAG_PANIC: u8 = 3;
 
 /// Why the previous process ended, recorded only when that process observed the cause itself.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum Reason {
     OutOfMemory,
     StackOverflow,
@@ -52,7 +51,6 @@ pub enum Reason {
 
 /// What `<data>/last-exit.bin` held from the previous session when this one opened it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum Previous {
     /// First launch, unreadable record, or the previous session quit cleanly (`tag = 0`).
     Clean,
@@ -85,7 +83,6 @@ pub enum State {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum Event {
     Opened { seq: u64, previous: Previous },
     TakePrevious,

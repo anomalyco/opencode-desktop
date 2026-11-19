@@ -298,10 +298,6 @@ impl App {
         key(self, ev, tx)
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn composer_draft(&self) -> machine::Draft {
-        composer_draft(self)
-    }
 }
 
 /// Kernel feature registration for the session prompt queue and durable prompt outbox.

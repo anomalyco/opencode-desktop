@@ -18,7 +18,6 @@ pub use opencode_ui::popup::{
 };
 
 /// `menu` as a drawn surface, row `active` lit (specialized to [`App`] for storybook previews).
-#[allow(dead_code)]
 pub fn surface(p: &Pal, menu: &Menu, active: Option<usize>) -> El {
     opencode_ui::popup::surface::<App>(p, menu, active)
 }
