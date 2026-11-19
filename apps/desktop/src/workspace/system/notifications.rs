@@ -1,5 +1,10 @@
 //! Desktop host adapter for `opencode-feature-notifications` (`features/notifications`).
+//!
+//! `rune-notify` is a no-op (`available() == false`) on `wasm32` (it uses Notification Center on
+//! macOS and Windows toasts on Windows, not the browser Notifications API), so the feature crate
+//! and `rune-notify` are omitted on `wasm32`.
 
+#[cfg(not(target_arch = "wasm32"))]
 #[allow(unused_imports)]
 pub use opencode_feature_notifications::{
     Ask, CAP, Choice, Coordinator, Kind, Kinds, Note, NotificationReply, NotificationsHost,
@@ -7,15 +12,43 @@ pub use opencode_feature_notifications::{
     poll, quitting, seen,
 };
 
+#[cfg(not(target_arch = "wasm32"))]
 use opencode_kernel::{Feature, KernelBuilder, Slot};
+#[cfg(not(target_arch = "wasm32"))]
 use opencode_kit::client::Server;
+#[cfg(not(target_arch = "wasm32"))]
 use opencode_kit::servers::ServerKey;
+#[cfg(not(target_arch = "wasm32"))]
 use rune::Tx;
 
 use crate::App;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) static NOTIFIER: Slot<Notifier> = Slot::new();
 
+/// Whether this window posts to system notifications (always `false` on `wasm32`).
+pub(crate) fn shows(s: &App) -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        s.kernel.slots.get(&NOTIFIER).shows()
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = s;
+        false
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn answered(_: &mut App, _: &str) {}
+
+#[cfg(target_arch = "wasm32")]
+pub fn seen(_: &mut App, _: &str) {}
+
+#[cfg(target_arch = "wasm32")]
+pub fn quitting(_: &mut App) {}
+
+#[cfg(not(target_arch = "wasm32"))]
 impl NotificationsHost for App {
     fn notifier(&self) -> &Notifier {
         self.kernel.slots.get(&NOTIFIER)
@@ -124,10 +157,14 @@ impl NotificationsHost for App {
 
 /// Posts the notification event `e` calls for, if any (from `App::react`).
 pub fn event(app: &mut App, e: &crate::events::StreamEvent, sid: &str) {
+    #[cfg(not(target_arch = "wasm32"))]
     notify_event(app, &e.ty, &e.data, sid, &mut |want| crate::events::StreamEvent::take(&e.notice, want));
+    #[cfg(target_arch = "wasm32")]
+    let _ = (app, e, sid);
 }
 
 /// A notification's link, opened with the app (`deep_links`).
+#[cfg(not(target_arch = "wasm32"))]
 pub fn clicked(_: &mut App, click: &rune_notify::Click) {
     opencode_feature_notifications::clicked(click);
 }
@@ -140,6 +177,7 @@ pub fn identify() {
 
 /// Settles Windows toast registration and starts serving toast activations off the UI thread.
 pub fn settle_identity() {
+    #[cfg(not(target_arch = "wasm32"))]
     opencode_feature_notifications::settle_identity(&crate::launch::product(), crate::headless());
 }
 
@@ -163,8 +201,10 @@ impl App {
 }
 
 /// Kernel feature registration for system notifications and actionable toasts.
+#[cfg(not(target_arch = "wasm32"))]
 pub struct NotificationsFeature;
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Feature<App> for NotificationsFeature {
     fn id(&self) -> &'static str {
         "feature.notifications"

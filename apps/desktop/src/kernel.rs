@@ -105,6 +105,7 @@ pub fn build() -> Kernel<App> {
     b.with_feature(&crate::mcp::McpFeature);
     b.with_feature(&crate::mentions::MentionsFeature);
     b.with_feature(&crate::narrow::NarrowFeature);
+    #[cfg(not(target_arch = "wasm32"))]
     b.with_feature(&crate::notifications::NotificationsFeature);
     #[cfg(not(target_arch = "wasm32"))]
     b.with_feature(&crate::open_in::OpenInFeature);
@@ -274,10 +275,13 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
     let _ = language_poll;
 
     // Precaution: `notifications.poll` can change `route` or answer `pending`/`requests` read by `speech.poll`.
-    b.schedule(stage::INGEST_DISPATCH, "speech.poll", |s, _, tx| {
+    let speech_poll = b.schedule(stage::INGEST_DISPATCH, "speech.poll", |s, _, tx| {
         crate::speech::poll(s, tx)
-    })
-    .after("notifications.poll");
+    });
+    #[cfg(not(target_arch = "wasm32"))]
+    speech_poll.after("notifications.poll");
+    #[cfg(target_arch = "wasm32")]
+    let _ = speech_poll;
     // Known: requires `launch.poll` (`INGEST_SERVERS`) for `Source::Live { writes: Some(_) }`;
     // precaution: mutates `settings_open`, `route`, `tabs`, `projects`, and `composer.focused`.
     b.schedule(stage::INGEST_DISPATCH, "deep_links.drain", |s, _, tx| {

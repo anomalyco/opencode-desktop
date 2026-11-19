@@ -51,7 +51,6 @@ opencode-feature-inbox = { path = "../../features/inbox" }
 opencode-feature-mcp = { path = "../../features/mcp" }
 opencode-feature-mentions = { path = "../../features/mentions" }
 opencode-feature-narrow = { path = "../../features/narrow" }
-opencode-feature-notifications = { path = "../../features/notifications" }
 opencode-feature-office = { path = "../../features/office", optional = true }
 opencode-feature-panels = { path = "../../features/panels" }
 opencode-feature-projects = { path = "../../features/projects" }
@@ -74,7 +73,6 @@ crc32fast = "1"
 flate2 = "1"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 rune-mac.workspace = true
-rune-notify.workspace = true
 opencode-i18n = { path = "../../crates/opencode-i18n" }
 opencode-kit = { path = "../../crates/opencode-kit" }
 opencode-runtime = { path = "../../crates/opencode-runtime" }
@@ -112,9 +110,11 @@ getrandom = "0.3"
 hex-client = { path = "../../crates/hex-client" }
 mimalloc = { version = "0.1", default-features = false }
 opencode-feature-dictation = { path = "../../features/dictation" }
+opencode-feature-notifications = { path = "../../features/notifications" }
 opencode-feature-open-in = { path = "../../features/open-in" }
 opencode-feature-updater = { path = "../../features/updater" }
 rune = { workspace = true, features = ["native-file-dialog", "metal-backend", "tooling", "keys-overlay"] }
+rune-notify.workspace = true
 ureq = { workspace = true, features = ["rustls"] }
 
 # Browser (`wasm32`) equivalents used by desktop's own cross-target modules (ureq-web, audio

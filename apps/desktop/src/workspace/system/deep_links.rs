@@ -82,6 +82,7 @@ impl DeepLinks {
 }
 
 /// `App::on_open_url`.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn open(s: &mut App, url: &str, tx: &mut Tx) {
     if let Some(click) = rune_notify::click_from_url(url) {
         crate::notifications::clicked(s, &click);
@@ -121,6 +122,10 @@ pub fn open(s: &mut App, url: &str, tx: &mut Tx) {
     }
 }
 
+/// `App::on_open_url`: browsers deliver query parameters via `apps/web`, never OS URL schemes.
+#[cfg(target_arch = "wasm32")]
+pub fn open(_: &mut App, _: &str, _: &mut Tx) {}
+
 /// Opens the links waiting for a server once it connects (from `poll`).
 pub fn drain(s: &mut App, tx: &mut Tx) -> bool {
     if !s.services.deep_links.is_waiting() {
@@ -136,6 +141,7 @@ fn run(s: &mut App, effects: Effects<DeepLinkEffect>, tx: &mut Tx) -> bool {
     let mut changed = false;
     for effect in effects {
         match effect {
+            #[cfg(not(target_arch = "wasm32"))]
             DeepLinkEffect::Focus if s.live() => rune_notify::bring_to_front(),
             DeepLinkEffect::Focus => {}
             DeepLinkEffect::Open { server, dir } => {
@@ -151,6 +157,7 @@ fn run(s: &mut App, effects: Effects<DeepLinkEffect>, tx: &mut Tx) -> bool {
 }
 
 /// The server a link opens on: the app's own (a folder on this machine).
+#[cfg(not(target_arch = "wasm32"))]
 fn server_of(_: &App) -> Option<ServerId> {
     Some(opencode_kit::servers::ServerKey::SIDECAR.to_owned())
 }
@@ -163,6 +170,7 @@ fn ready_servers(s: &mut App) -> Vec<ServerId> {
 }
 
 /// The folder an `open?project=<folder>` link on the app's scheme `own` names.
+#[cfg(not(target_arch = "wasm32"))]
 fn project(url: &str, own: &str) -> Option<String> {
     let (scheme, rest) = url.trim().split_once("://")?;
     if !scheme.eq_ignore_ascii_case(own) {
@@ -177,6 +185,7 @@ fn project(url: &str, own: &str) -> Option<String> {
 }
 
 /// The jump list's entries (`jump_list`), besides `open?project=`.
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, PartialEq, Eq)]
 enum Jump {
     NewWindow,
@@ -185,6 +194,7 @@ enum Jump {
     Session(String),
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn jump(url: &str, own: &str) -> Option<Jump> {
     let (scheme, rest) = url.trim().split_once("://")?;
     if !scheme.eq_ignore_ascii_case(own) {
@@ -203,6 +213,7 @@ fn jump(url: &str, own: &str) -> Option<Jump> {
 }
 
 /// The window a `<own>://console/authorized?window=<id>` link names.
+#[cfg(not(target_arch = "wasm32"))]
 fn console_return(url: &str, own: &str) -> Option<String> {
     let (scheme, rest) = url.trim().split_once("://")?;
     if !scheme.eq_ignore_ascii_case(own) {
@@ -217,6 +228,7 @@ fn console_return(url: &str, own: &str) -> Option<String> {
 }
 
 /// A query value: `%XX` escapes and `+` for a space, as `URLSearchParams` reads it.
+#[cfg(not(target_arch = "wasm32"))]
 fn unpercent(s: &str) -> String {
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
