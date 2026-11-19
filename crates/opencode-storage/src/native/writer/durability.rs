@@ -54,19 +54,41 @@ impl WalFile {
     }
 
     fn len(&mut self, conn: &Connection) -> u64 {
-        self.get_or_open(conn).and_then(|f| f.metadata().ok()).map_or(0, |m| m.len())
+        if let Some(len) = self.get_or_open(conn).and_then(|f| f.metadata().ok()).map(|m| m.len()) {
+            return len;
+        }
+        // Fallback when `-wal` cannot be opened for write: `metadata` reads live NTFS FCB size
+        // without needing write permission.
+        conn.path().and_then(|p| std::fs::metadata(format!("{p}-wal")).ok()).map_or(0, |m| m.len())
+    }
+
+    fn sync_all(&mut self, conn: &Connection) -> Option<u64> {
+        let file = self.get_or_open(conn)?;
+        file.sync_all().ok()?;
+        Some(file.metadata().ok().map_or(0, |m| m.len()))
+    }
+}
+
+fn unsynced_wal_bytes(wal_bytes: u64, base_bytes: u64) -> u64 {
+    if wal_bytes >= base_bytes {
+        wal_bytes - base_bytes
+    } else {
+        // The WAL wrapped/truncated below the previous base; every current byte is new.
+        wal_bytes
     }
 }
 
 /// Whether the dirty WAL holds any `synchronous = OFF` commits waiting for a sync or checkpoint.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum WalSync {
-    /// Every committed frame in the WAL has been synced (or came from open, NORMAL/FULL,
-    /// `sync_wal`, or a `PASSIVE` checkpoint).
-    Synced,
-    /// At least one unsynced (`synchronous = OFF`) commit landed at `since` and has not been
-    /// synced or checkpointed yet.
-    Unsynced { since: Instant },
+    /// Every committed frame in the WAL has been synced (via `sync_wal`, a completed `PASSIVE`
+    /// checkpoint, or a synced commit). `base_bytes` is the `-wal` length when synced (0 after a
+    /// completed `PASSIVE` checkpoint, since the next commit restarts `-wal` from 0).
+    Synced { base_bytes: u64 },
+    /// At least one unsynced commit landed at `since` and has not been synced or checkpointed yet.
+    /// `base_bytes` is the `-wal` length at the previous sync so unsynced growth is bounded past
+    /// `UNSYNCED_BYTES` without syncing on every commit when the WAL stays above 16 MiB.
+    Unsynced { since: Instant, base_bytes: u64 },
 }
 
 /// The writer's WAL checkpoint and sync-deadline state.
@@ -96,8 +118,15 @@ pub(super) enum WalEvent {
     Committed { boot: bool },
     /// An unsynced (`synchronous = OFF`) commit landed; `wal_bytes` is the `-wal` file length.
     UnsyncedCommitted { boot: bool, now: Instant, wal_bytes: u64 },
-    /// `sync_wal` successfully synced `-wal` to disk (`File::sync_data`).
-    WalSynced,
+    /// `PRAGMA wal_checkpoint(PASSIVE)` checkpointed every frame in the WAL (`busy == 0`,
+    /// `log >= 0`, `checkpointed >= log`).
+    PassiveCheckpointed,
+    /// `PRAGMA wal_checkpoint(PASSIVE)` errored, was busy, or left frames uncheckpointed.
+    PassiveCheckpointIncomplete { now: Instant },
+    /// `sync_wal` successfully synced `-wal` to disk (`File::sync_all`) at `wal_bytes`.
+    WalSynced { wal_bytes: u64 },
+    /// `sync_wal` could not open or sync `-wal`; data stays unsynced until a later sync succeeds.
+    WalSyncFailed { now: Instant },
     TimerFired { attempt: Attempt },
     QuitRequested,
     Checkpointed,
@@ -110,6 +139,8 @@ pub(super) enum WalEffect {
     CancelTimer,
     /// Run `PRAGMA wal_checkpoint(PASSIVE)` to bound unsynced frames while writes keep coming.
     PassiveCheckpoint,
+    /// Sync `<db>-wal` directly (`File::sync_all`) when a checkpoint could not complete.
+    SyncWal,
     /// Rebuild the boot record first when `rebuild_boot`, then `PRAGMA wal_checkpoint(TRUNCATE)`.
     Checkpoint { rebuild_boot: bool },
 }
@@ -119,7 +150,7 @@ fn wal_step(seq: &mut Seq, state: &mut Wal, event: WalEvent) -> Effects<WalEffec
         // Every commit pushes the quiet period back.
         (s, WalEvent::Committed { boot }) => {
             let (prev_boot, sync) = match s {
-                Wal::Clean => (false, WalSync::Synced),
+                Wal::Clean => (false, WalSync::Synced { base_bytes: 0 }),
                 Wal::Dirty { boot_stale, sync, .. } => (boot_stale, sync),
             };
             let attempt = seq.next();
@@ -127,23 +158,43 @@ fn wal_step(seq: &mut Seq, state: &mut Wal, event: WalEvent) -> Effects<WalEffec
             Effects::one(WalEffect::ArmTimer { attempt, delay_ms: IDLE_CHECKPOINT_MS })
         }
         (s, WalEvent::UnsyncedCommitted { boot, now, wal_bytes }) => {
-            let (prev_boot, since) = match s {
-                Wal::Dirty { boot_stale, sync: WalSync::Unsynced { since }, .. } => (boot_stale, since),
-                Wal::Dirty { boot_stale, sync: WalSync::Synced, .. } => (boot_stale, now),
-                Wal::Clean => (false, now),
+            let (prev_boot, since, base_bytes) = match s {
+                Wal::Dirty { boot_stale, sync: WalSync::Unsynced { since, base_bytes }, .. } => (boot_stale, since, base_bytes),
+                Wal::Dirty { boot_stale, sync: WalSync::Synced { base_bytes }, .. } => (boot_stale, now, base_bytes),
+                Wal::Clean => (false, now, 0),
             };
             let attempt = seq.next();
             let boot_stale = prev_boot || boot;
-            if now.saturating_duration_since(since) >= UNSYNCED_FOR || wal_bytes >= UNSYNCED_BYTES {
-                *state = Wal::Dirty { attempt, boot_stale, sync: WalSync::Synced };
+            // Stay Unsynced until PassiveCheckpointed or WalSynced confirms durability.
+            *state = Wal::Dirty { attempt, boot_stale, sync: WalSync::Unsynced { since, base_bytes } };
+            if now.saturating_duration_since(since) >= UNSYNCED_FOR || unsynced_wal_bytes(wal_bytes, base_bytes) >= UNSYNCED_BYTES {
                 Effects::two(WalEffect::PassiveCheckpoint, WalEffect::ArmTimer { attempt, delay_ms: IDLE_CHECKPOINT_MS })
             } else {
-                *state = Wal::Dirty { attempt, boot_stale, sync: WalSync::Unsynced { since } };
                 Effects::one(WalEffect::ArmTimer { attempt, delay_ms: IDLE_CHECKPOINT_MS })
             }
         }
-        (Wal::Dirty { attempt, boot_stale, .. }, WalEvent::WalSynced) => {
-            *state = Wal::Dirty { attempt, boot_stale, sync: WalSync::Synced };
+        (Wal::Dirty { attempt, boot_stale, .. }, WalEvent::PassiveCheckpointed) => {
+            *state = Wal::Dirty { attempt, boot_stale, sync: WalSync::Synced { base_bytes: 0 } };
+            Effects::none()
+        }
+        (Wal::Dirty { attempt, boot_stale, sync }, WalEvent::PassiveCheckpointIncomplete { now }) => {
+            let sync = match sync {
+                WalSync::Unsynced { since, base_bytes } => WalSync::Unsynced { since, base_bytes },
+                WalSync::Synced { base_bytes } => WalSync::Unsynced { since: now, base_bytes },
+            };
+            *state = Wal::Dirty { attempt, boot_stale, sync };
+            Effects::one(WalEffect::SyncWal)
+        }
+        (Wal::Dirty { attempt, boot_stale, .. }, WalEvent::WalSynced { wal_bytes }) => {
+            *state = Wal::Dirty { attempt, boot_stale, sync: WalSync::Synced { base_bytes: wal_bytes } };
+            Effects::none()
+        }
+        (Wal::Dirty { attempt, boot_stale, sync }, WalEvent::WalSyncFailed { now }) => {
+            let sync = match sync {
+                WalSync::Unsynced { since, base_bytes } => WalSync::Unsynced { since, base_bytes },
+                WalSync::Synced { base_bytes } => WalSync::Unsynced { since: now, base_bytes },
+            };
+            *state = Wal::Dirty { attempt, boot_stale, sync };
             Effects::none()
         }
         (Wal::Dirty { attempt, boot_stale, .. }, WalEvent::TimerFired { attempt: fired }) if attempt == fired => {
@@ -192,10 +243,8 @@ impl Writer {
     /// The WAL's frames to the disk (what `synchronous = FULL` does at each commit), through a
     /// handle of its own kept open; a failed sync waits for the next checkpoint's.
     pub(super) fn sync_wal(&mut self) {
-        if let Some(f) = self.wal_file.get_or_open(&self.conn)
-            && f.sync_data().is_ok()
-        {
-            self.wal_event(WalEvent::WalSynced);
+        if let Some(wal_bytes) = self.wal_file.sync_all(&self.conn) {
+            self.wal_event(WalEvent::WalSynced { wal_bytes });
         }
         rune::marks::mark("outbox.synced");
     }
@@ -363,7 +412,24 @@ impl Writer {
                     self.timers.insert("wal", None);
                 }
                 WalEffect::PassiveCheckpoint => {
-                    self.conn.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |_| Ok(())).ok();
+                    // SQLite's PASSIVE checkpoint can return busy == 0 even when a reader blocked
+                    // progress (checkpointed < log), so require all logged frames to be checkpointed.
+                    let complete = matches!(
+                        self.conn.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))),
+                        Ok((0, log, ckpt)) if log >= 0 && ckpt >= log
+                    );
+                    let event = if complete { WalEvent::PassiveCheckpointed } else { WalEvent::PassiveCheckpointIncomplete { now: Instant::now() } };
+                    queue.extend(wal_step(&mut self.seq, &mut self.wal, event));
+                }
+                WalEffect::SyncWal => {
+                    let event = match self.wal_file.sync_all(&self.conn) {
+                        Some(wal_bytes) => {
+                            rune::marks::mark("wal.synced");
+                            WalEvent::WalSynced { wal_bytes }
+                        }
+                        None => WalEvent::WalSyncFailed { now: Instant::now() },
+                    };
+                    queue.extend(wal_step(&mut self.seq, &mut self.wal, event));
                 }
                 WalEffect::Checkpoint { rebuild_boot } => {
                     // The record goes current in the transaction right before the checkpoint, so

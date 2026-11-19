@@ -144,7 +144,7 @@ impl Writer {
     pub(crate) fn new(conn: Connection, cache: Arc<Mutex<Cache>>, clock: fn() -> i64, deferred: Deferred, wal_dirty: bool, journal: OpenJournal, created: bool) -> Writer {
         let mut seq = Seq::default();
         let boot_stale = journal == OpenJournal::Reserved;
-        let wal = if wal_dirty || boot_stale { Wal::Dirty { attempt: seq.next(), boot_stale, sync: WalSync::Synced } } else { Wal::Clean };
+        let wal = if wal_dirty || boot_stale { Wal::Dirty { attempt: seq.next(), boot_stale, sync: WalSync::Synced { base_bytes: 0 } } } else { Wal::Clean };
         Writer {
             conn,
             cache,
