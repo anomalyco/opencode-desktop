@@ -14,6 +14,8 @@ pub fn session_id() -> String {
 }
 
 fn now_ms() -> u64 {
+    // opencode-kit sits below opencode-platform; rune::time::SystemTime is wasm32-safe for timestamped IDs.
+    #[allow(clippy::disallowed_methods)]
     rune::time::SystemTime::now().duration_since(rune::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }
 
@@ -23,10 +25,10 @@ pub(super) fn message_id_at(ms: u64) -> String {
 
 pub(super) fn id_at(prefix: &str, ms: u64, descending: bool) -> String {
     use std::hash::{BuildHasher, Hasher};
-    use std::sync::Mutex;
+    use std::sync::{Mutex, PoisonError};
     static LAST: Mutex<(u64, u64)> = Mutex::new((0, 0));
     let counter = {
-        let mut last = LAST.lock().unwrap();
+        let mut last = LAST.lock().unwrap_or_else(PoisonError::into_inner);
         if last.0 != ms {
             *last = (ms, 0);
         }

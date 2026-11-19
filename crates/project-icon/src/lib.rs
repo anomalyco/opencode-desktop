@@ -27,7 +27,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use rune::task::Queue;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime};
 use rune::time::Instant;
 
@@ -83,6 +83,8 @@ const RECHECK: Duration = Duration::from_secs(120);
 /// Repo icons' pixels per side: 16 pt at 2× is the 32 px mip; the full level covers 32 pt.
 const PX: u32 = 64;
 
+type MarkKey = (String, bool, usize, u32, (Style, i32, i32), Finish);
+
 #[derive(Default)]
 pub struct Icons {
     waker: Option<Waker>,
@@ -92,7 +94,7 @@ pub struct Icons {
     look: Cell<Look>,
     finish: Cell<Finish>,
     inner: RefCell<Option<Inner>>,
-    marks: RefCell<HashMap<(String, bool, usize, u32, (Style, i32, i32), Finish), Image>>,
+    marks: RefCell<HashMap<MarkKey, Image>>,
     lights: RefCell<HashMap<(Finish, bool, u32, u32), Image>>,
     vectors: RefCell<HashMap<(u64, u32), Image>>,
     unread: RefCell<unread::Tiles>,
@@ -238,7 +240,7 @@ impl Icons {
         let entry = if server.is_some() { format!("{dir}\n{stamp:?}") } else { dir.clone() };
         self.with(|inner| {
             let job = {
-                let mut found = inner.found.lock().unwrap();
+                let mut found = inner.found.lock().unwrap_or_else(PoisonError::into_inner);
                 let f = found.entry(entry.clone()).or_default();
                 let stale = f.checked.is_none_or(|t| t.elapsed() > RECHECK) || f.server != stamp;
                 (stale && !f.pending).then(|| {
@@ -252,14 +254,14 @@ impl Icons {
                 if self.sync {
                     let done = run(&inner.cache, &job);
                     if let Some((_, Some(Shown::Tile(i, _) | Shown::Mark(i, _)))) = &done {
-                        let _ = i.wait();
+                        i.wait().ok();
                     }
                     settle(&inner.found, &entry, done);
                 } else {
-                    let _ = inner.jobs().send(job);
+                    inner.jobs().send(job).ok();
                 }
             }
-            let found = inner.found.lock().unwrap();
+            let found = inner.found.lock().unwrap_or_else(PoisonError::into_inner);
             found.get(&entry)?.icon.clone().filter(|s| match s {
                 Shown::Tile(i, _) | Shown::Mark(i, _) => i.is_ready() && i.error().is_none(),
                 Shown::Vector(..) => true,
@@ -274,7 +276,7 @@ impl Icons {
         }
         let img = self.with(|inner| inner.cache.svg(bytes.clone(), size_pt, self.scale()));
         if self.sync {
-            let _ = img.wait();
+            img.wait().ok();
         }
         self.vectors.borrow_mut().insert((hash, px), img.clone());
         img
@@ -304,7 +306,7 @@ impl Icons {
         let img = cached.unwrap_or_else(|| {
             let img = self.with(|inner| inner.cache.rgba(px, px, finish::light(finish, image, size_pt, px)));
             if self.sync {
-                let _ = img.wait();
+                img.wait().ok();
             }
             self.lights.borrow_mut().insert(key, img.clone());
             img
@@ -368,7 +370,7 @@ impl Icons {
             let rgba = if lit_body { finish::body(pal, variant, finish, px) } else { styles::draw(pal, seed, variant, &look, size_pt, px) };
             let img = self.with(|inner| inner.cache.rgba(px, px, rgba));
             if self.sync {
-                let _ = img.wait();
+                img.wait().ok();
             }
             self.marks.borrow_mut().insert(key, img.clone());
             img
@@ -419,7 +421,7 @@ impl Icons {
 
 /// Records what the lookup found for `dir`; true when what its tile shows changed.
 fn settle(found: &Mutex<HashMap<String, Found>>, dir: &str, done: Option<(Key, Option<Shown>)>) -> bool {
-    let mut found = found.lock().unwrap();
+    let mut found = found.lock().unwrap_or_else(PoisonError::into_inner);
     let f = found.entry(dir.to_owned()).or_default();
     f.pending = false;
     f.checked = Some(Instant::now());
@@ -512,6 +514,6 @@ fn finish(cache: &ImageCache, buf: Buf, trim: bool) -> Shown {
 fn raster(cache: &ImageCache, buf: Buf, mark: bool) -> Shown {
     let rgba = buf.resize(PX, PX).to_rgba8();
     let image = cache.rgba(PX, PX, rgba.as_slice());
-    let src = Arc::new(image::RgbaImage::from_raw(PX, PX, rgba).expect("64 px project tile"));
+    let src = Arc::new(image::RgbaImage::from_raw(PX, PX, rgba).unwrap_or_else(|| image::RgbaImage::new(PX, PX)));
     if mark { Shown::Mark(image, src) } else { Shown::Tile(image, src) }
 }

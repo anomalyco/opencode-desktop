@@ -383,8 +383,10 @@ pub fn turn_words((turn, turns): (usize, usize), more: bool, text: &str) -> Stri
 /// for its turn heading. Counted once per transcript as it stands (its session, length and last
 /// message), not per row build.
 pub fn turn_of(t: &Transcript, message: usize) -> (usize, usize) {
+    type TurnsKey = (String, usize, Option<String>);
+    type TurnsCache = (Option<TurnsKey>, Vec<usize>);
     thread_local! {
-        static TURNS: std::cell::RefCell<(Option<(String, usize, Option<String>)>, Vec<usize>)> = const { std::cell::RefCell::new((None, Vec::new())) };
+        static TURNS: std::cell::RefCell<TurnsCache> = const { std::cell::RefCell::new((None, Vec::new())) };
     }
     let last = t.messages.last().map(|m| m.id());
     TURNS.with(|c| {
@@ -429,8 +431,8 @@ impl Shown {
         self.rows.len() + self.lane.is_some() as usize
     }
 
-    fn get(&self, i: usize) -> &RowSpec {
-        self.rows.get(i).or(self.lane.as_deref()).expect("a timeline row")
+    fn get(&self, i: usize) -> Option<&RowSpec> {
+        self.rows.get(i).or_else(|| (i == self.rows.len()).then_some(self.lane.as_deref()).flatten())
     }
 }
 
@@ -480,14 +482,14 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
     if t.is_some() {
         let (marks, keys) = (marks.clone(), specs.clone());
         stack = stack.on_visible_rows(move |_: &mut S, shown| {
-            marks.shown((shown.start.min(keys.len())..shown.end.min(keys.len())).map(|i| keys.get(i).key.clone()));
+            marks.shown((shown.start.min(keys.len())..shown.end.min(keys.len())).filter_map(|i| keys.get(i).map(|r| r.key.clone())));
             false
         });
     }
     // Eager construction is the benchmark and regression-test reference.
     if eager && let Some(t) = t {
         stack = stack.virtualize(80.0)
-            .children((0..specs.len()).map(|i| specs.get(i)).map(|r| marks.row(&r.key, r.build(s, p, t, e.word_fade).key(r.key.clone()))));
+            .children((0..specs.len()).filter_map(|i| specs.get(i)).map(|r| marks.row(&r.key, r.build(s, p, t, e.word_fade).key(r.key.clone()))));
     } else if t.is_some() {
         let keys = specs.clone();
         let id = id.to_owned();
@@ -500,11 +502,11 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
         stack = stack.virtual_rows(
             n,
             80.0,
-            move |_: &S, i| keys.get(i).key.clone().into(),
+            move |_: &S, i| keys.get(i).map_or_else(|| "".into(), |r| r.key.clone().into()),
             move |s: &S, i| {
                 // Rows build after this returns, maybe beside another timeline's.
                 crate::style::set_sticky_top(sticky);
-                let r = specs.get(i);
+                let Some(r) = specs.get(i) else { return col() };
                 marks.row(&r.key, s.with_transcript(&id, |t| r.build(s, &p, t, e.word_fade)).unwrap_or_else(col))
             },
         ).virtual_rows_version(version);

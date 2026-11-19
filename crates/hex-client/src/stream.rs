@@ -283,13 +283,14 @@ impl Hex {
     }
 
     pub fn cancel_stream(&self, s: &Stream) {
-        let _ = self.stream_call(
+        self.stream_call(
             &format!("/streams/{}/cancel", s.id),
             Some(s),
             "application/json",
             b"",
             Duration::from_secs(5),
-        );
+        )
+        .ok();
     }
 }
 

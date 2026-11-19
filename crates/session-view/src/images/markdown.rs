@@ -88,6 +88,8 @@ fn step(state: Fetcher, event: FetcherEvent) -> Fetcher {
     }
 }
 
+type FetchedEntry = (Source, Result<(Image, Arc<[u8]>), String>);
+
 /// The pictures markdown in replies shows, shared by every reply's view (`Rc`, so a view's
 /// closures can hold it).
 #[derive(Default)]
@@ -96,7 +98,7 @@ pub struct MdStore {
     cache: RefCell<Option<Arc<ImageCache>>>,
     slots: RefCell<HashMap<Source, Slot>>,
     /// What the readers fetched, already decoding (or a failure), waiting for the view.
-    fetched: Arc<Mutex<Vec<(Source, Result<(Image, Arc<[u8]>), String>)>>>,
+    fetched: Arc<Mutex<Vec<FetchedEntry>>>,
     /// A fetch or decode finished since the host last polled: the view must run again.
     landed: Arc<AtomicBool>,
     /// Counts fetches and decodes that finished, for the rows that draw pictures to rebuild.
@@ -273,7 +275,7 @@ impl MdStore {
         let jobs = rune::task::queue("markdown-media", move |source| {
             let (fetch, waker, cache) = (fetch.clone(), waker.clone(), cache.clone());
             let (fetched, landed, version) = (fetched.clone(), landed.clone(), version.clone());
-            let _ = rune::task::spawn("markdown-media-read", move || {
+            rune::task::spawn("markdown-media-read", move || {
                 let bytes = match &source {
                     Source::File { directory, path } => (fetch.files)(directory, path),
                     Source::Web(url) => (fetch.web)(url),
@@ -286,7 +288,8 @@ impl MdStore {
                 version.fetch_add(1, Ordering::AcqRel);
                 landed.store(true, Ordering::Release);
                 waker();
-            });
+            })
+            .ok();
             std::ops::ControlFlow::Continue(())
         });
         self.send(FetcherEvent::Start(jobs.clone()));

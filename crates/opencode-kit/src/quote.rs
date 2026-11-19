@@ -4,7 +4,7 @@
 //! comment also attaches its lines as a file.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use serde_json::Value;
 
@@ -253,17 +253,17 @@ fn store() -> &'static Mutex<HashMap<String, Arc<[PromptComment]>>> {
 
 /// Keeps only the user messages `keep` says are still held (`model::retain_user_messages`).
 pub(crate) fn retain_user_comments(keep: &dyn Fn(&str) -> bool) {
-    store().lock().unwrap().retain(|id, _| keep(id));
+    store().lock().unwrap_or_else(PoisonError::into_inner).retain(|id, _| keep(id));
 }
 
 /// The comments on user message `id` (empty when it has none).
 pub fn user_comments(id: &str) -> Arc<[PromptComment]> {
-    store().lock().unwrap().get(id).cloned().unwrap_or_else(|| Arc::from([]))
+    store().lock().unwrap_or_else(PoisonError::into_inner).get(id).cloned().unwrap_or_else(|| Arc::from([]))
 }
 
 /// Records the comments on user message `id`, as a local echo of a sent prompt has them.
 pub fn set_user_comments(id: &str, comments: Vec<PromptComment>) {
-    let mut store = store().lock().unwrap();
+    let mut store = store().lock().unwrap_or_else(PoisonError::into_inner);
     if store.get(id).map_or(comments.is_empty(), |old| old.as_ref() == comments.as_slice()) { return; }
     crate::model::extras_changed();
     if comments.is_empty() {

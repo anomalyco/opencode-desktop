@@ -15,7 +15,7 @@ pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
     // A narrow window picks from drawers (`composer.tsx:192`, `editor.tsx:1126`); a project
     // keeps its menu.
     if crate::style::narrow() && s.pickers().open().is_some_and(|k| k != Kind::Project) {
-        let win_h = rune::memo::layout_with("zoom", |r| r[3]).map_or(800.0, |h| h);
+        let win_h = rune::memo::layout_with("zoom", |r| r[3]).unwrap_or(800.0);
         return super::drawer::layer(s, p, win_h);
     }
     match s.pickers().open() {
@@ -140,7 +140,7 @@ pub fn effort_trigger<S: PickerHost>(s: &S, p: &Pal, variant: &str, chevron: boo
 
 /// The open menu (agent, effort or project), above its trigger.
 pub fn picker<S: PickerHost>(s: &S, p: &Pal) -> El {
-    let kind = s.pickers().open().unwrap();
+    let Some(kind) = s.pickers().open() else { return el() };
     let active = s.picker_active();
     let selected = s.picker_current(kind);
     let items = s.picker_items();

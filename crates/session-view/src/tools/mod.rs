@@ -327,6 +327,8 @@ pub enum Press {
 /// button, the call's own `action` and the host's side-panel button, shown while the tool is
 /// hovered (Desktop's `basic-tool-action`). Wrap it with [`disclosure`] or [`still`], which
 /// make the tool the hover group those buttons follow.
+// Public tool trigger builder kept stable for callers across apps and features.
+#[allow(clippy::too_many_arguments)]
 pub fn trigger<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call, d: Display, t: Trigger, press: Press, action: Option<El>) -> El {
     let id = format!("tool-{}", c.id);
     let gap = if t.compact { 6.0 } else { 8.0 };
@@ -416,7 +418,7 @@ pub fn field<'a>(v: &'a Value, k: &str) -> Option<&'a str> {
 }
 
 /// A call's path: `filePath`, else `path`.
-pub fn path<'a>(input: &'a Value) -> Option<&'a str> {
+pub fn path(input: &Value) -> Option<&str> {
     field(input, "filePath").or_else(|| field(input, "path"))
 }
 

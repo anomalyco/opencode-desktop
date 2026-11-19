@@ -103,7 +103,7 @@ struct Armed(Socket);
 impl Drop for Armed {
     fn drop(&mut self) {
         if let Some(p) = poller() {
-            let _ = p.delete(&self.0);
+            p.delete(&self.0).ok();
         }
     }
 }
@@ -167,8 +167,9 @@ impl Server {
             ring();
             return;
         }
-        b.started = true;
-        let _ = std::thread::Builder::new().name("opencode-reach".into()).spawn(run);
+        if std::thread::Builder::new().name("opencode-reach".into()).spawn(run).is_ok() {
+            b.started = true;
+        }
     }
 
     /// Whether the watcher's last try at this server's address ran its whole tick without
@@ -212,7 +213,7 @@ fn run() {
         b = resolve(b);
         let woken = look(&mut b, tick);
         // Every address left tried every other tick: the odd one is skipped.
-        let ticks = if !b.entries.is_empty() && b.entries.iter().all(|e| e.reach.slow(started)) && tick % 2 == 0 { 2 } else { 1 };
+        let ticks = if !b.entries.is_empty() && b.entries.iter().all(|e| e.reach.slow(started)) && tick.is_multiple_of(2) { 2 } else { 1 };
         tick += ticks;
         drop(b);
         for w in woken {
@@ -257,7 +258,7 @@ fn sleep(b: MutexGuard<'static, Book>, wait: Option<Duration>) -> (MutexGuard<'s
     };
     drop(b);
     let mut events = Events::new();
-    let _ = p.wait(&mut events, wait);
+    p.wait(&mut events, wait).ok();
     (book(), !events.is_empty())
 }
 
@@ -275,7 +276,7 @@ fn connected_early(b: &mut Book) -> Vec<Waker> {
             e.attempt = Try::Failed;
         } else if let Some(p) = poller() {
             // Woken for something else: watch it again (a poller's interest lasts one event).
-            let _ = p.modify(&armed.0, Event::writable(0));
+            p.modify(&armed.0, Event::writable(0)).ok();
         }
         true
     });
@@ -395,11 +396,11 @@ fn start(addr: SocketAddr) -> Try {
         return Try::Failed;
     }
     keep_trying(&sock);
-    let _ = sock.connect(&addr.into());
+    sock.connect(&addr.into()).ok();
     if let Some(p) = poller() {
         // SAFETY: `Armed` deletes it from the poller before the socket closes.
         #[allow(unsafe_code)]
-        let _ = unsafe { p.add(&sock, Event::writable(0)) };
+        unsafe { p.add(&sock, Event::writable(0)) }.ok();
     }
     Try::Pending(Armed(sock))
 }

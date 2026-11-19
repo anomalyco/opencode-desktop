@@ -341,12 +341,14 @@ pub fn open_motion(s: &mut Host, tx: &mut Play<Host>) {
     for (i, more) in crate::fixture::MOTION_STREAM.iter().enumerate() {
         tx.after(0.6 + 0.5 * i as f64, move |s, _| stream(s, more));
     }
-    tx.after(3.0, |s, tx| crate::disclosure::toggle_group::<Host>("c-prt_m1".into())(s, &mut **tx));
-    tx.after(4.2, |s, tx| crate::disclosure::toggle_group::<Host>("c-prt_m1".into())(s, &mut **tx));
+    tx.after(3.0, |s, tx| crate::disclosure::toggle_group::<Host>("c-prt_m1".into())(s, tx));
+    tx.after(4.2, |s, tx| crate::disclosure::toggle_group::<Host>("c-prt_m1".into())(s, tx));
     tx.after(5.2, |s, _| arrive(s));
 }
 
-pub const SCENES: &[(&str, fn(&mut Host))] = &[
+pub type Scene = (&'static str, fn(&mut Host));
+
+pub const SCENES: &[Scene] = &[
     ("read-only", |s| s.reload(false)),
     ("composer", |s| s.open_composer()),
     ("Session view/Motion", start_motion),

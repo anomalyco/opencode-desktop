@@ -94,9 +94,9 @@ async fn events(server: &Server, idle: Duration, inbox: &Sender<Incoming>, wake:
     init.set_method("GET");
     init.set_signal(Some(&abort.signal()));
     let headers = web_sys::Headers::new().map_err(|_| page("no Headers"))?;
-    let _ = headers.set("Accept", "text/event-stream");
+    headers.set("Accept", "text/event-stream").ok();
     if let Some(a) = &server.auth {
-        let _ = headers.set("Authorization", a);
+        headers.set("Authorization", a).ok();
     }
     init.set_headers(&headers);
     let request = web_sys::Request::new_with_str_and_init(&format!("{}/api/event", server.base), &init).map_err(|_| page("bad request"))?;
@@ -184,8 +184,8 @@ async fn with_idle(promise: js_sys::Promise, idle: Duration, abort: &web_sys::Ab
 async fn sleep(wait: Duration) {
     let promise = js_sys::Promise::new(&mut |resolve, _| {
         if let Some(window) = web_sys::window() {
-            let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, wait.as_millis() as i32);
+            window.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, wait.as_millis() as i32).ok();
         }
     });
-    let _ = JsFuture::from(promise).await;
+    JsFuture::from(promise).await.ok();
 }

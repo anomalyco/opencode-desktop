@@ -112,7 +112,7 @@ fn user_file_store() -> &'static Mutex<HashMap<String, Arc<[Attachment]>>> {
 
 /// Keeps only the user messages `keep` says are still held (`model::retain_user_messages`).
 pub(crate) fn retain_user_files(keep: &dyn Fn(&str) -> bool) {
-    user_file_store().lock().unwrap().retain(|id, _| keep(id));
+    user_file_store().lock().unwrap_or_else(std::sync::PoisonError::into_inner).retain(|id, _| keep(id));
 }
 
 /// Moves whenever a prompt's files, comments or path attachments change: what a prompt's row
@@ -131,12 +131,12 @@ pub(crate) fn extras_changed() {
 
 /// The files on user message `id` (empty when it has none).
 pub fn user_files(id: &str) -> Arc<[Attachment]> {
-    user_file_store().lock().unwrap().get(id).cloned().unwrap_or_else(|| Arc::from([]))
+    user_file_store().lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(id).cloned().unwrap_or_else(|| Arc::from([]))
 }
 
 /// Records the files on user message `id`, as a local echo of a sent prompt has them.
 pub fn set_user_files(id: &str, files: Vec<Attachment>) {
-    let mut store = user_file_store().lock().unwrap();
+    let mut store = user_file_store().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     // A cached page and its refresh describe the same immutable prompt. Preserve the bytes'
     // identity so clients can keep already-decoded images while the refresh is parsed.
     if store.get(id).is_some_and(|old| old.as_ref() == files.as_slice()) { return; }

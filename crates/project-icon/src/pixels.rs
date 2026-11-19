@@ -115,11 +115,11 @@ impl Buf {
         if b.w == w && b.h == h {
             return b;
         }
-        let flat: Vec<f32> = b.px.iter().flatten().copied().collect();
-        let img: ImageBuffer<Rgba<f32>, Vec<f32>> = ImageBuffer::from_raw(b.w, b.h, flat).expect("buffer size");
+        let img: ImageBuffer<Rgba<f32>, Vec<f32>> =
+            ImageBuffer::from_fn(b.w, b.h, |x, y| Rgba(b.px.get((y * b.w + x) as usize).copied().unwrap_or_default()));
         let out = image::imageops::resize(&img, w, h, FilterType::Lanczos3);
         let raw = out.into_raw();
-        let px = raw.chunks_exact(4).map(|c| {
+        let px = raw.as_chunks::<4>().0.iter().map(|c| {
             let a = c[3].clamp(0.0, 1.0);
             [c[0].clamp(0.0, a), c[1].clamp(0.0, a), c[2].clamp(0.0, a), a]
         });

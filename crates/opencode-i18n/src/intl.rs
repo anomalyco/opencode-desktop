@@ -88,7 +88,7 @@ pub(crate) fn relative_category(n: u64) -> PluralCategory {
 fn category(table: &str, n: u64) -> PluralCategory {
     let at = match n {
         0..200 => n as usize,
-        _ if n % 1_000_000 == 0 => 200,
+        _ if n.is_multiple_of(1_000_000) => 200,
         _ => 100 + (n % 100) as usize,
     };
     match table.as_bytes().get(at) {

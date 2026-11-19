@@ -28,6 +28,6 @@ pub(crate) fn get(path: &Path) -> io::Result<&'static File> {
     let file = std::fs::OpenOptions::new().read(true).write(true).open(path)?;
     // Its first callers (the journal's reservation and attach) both run on the open's thread, so
     // no second first open can race this one and be dropped.
-    let _ = FILE.set((path.to_path_buf(), file));
+    FILE.set((path.to_path_buf(), file)).ok();
     FILE.get().map(|(_, f)| f).ok_or_else(|| io::Error::other("the database's descriptor"))
 }

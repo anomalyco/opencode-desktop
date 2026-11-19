@@ -75,7 +75,7 @@ pub fn verify() {
     let at = Instant::now();
     let all: Vec<Arc<Stream>> = STREAMS.lock().unwrap_or_else(|e| e.into_inner()).iter().filter_map(Weak::upgrade).collect();
     for s in all {
-        let _ = std::thread::Builder::new().name("opencode-verify".into()).spawn(move || check(&s, at));
+        std::thread::Builder::new().name("opencode-verify".into()).spawn(move || check(&s, at)).ok();
     }
 }
 
@@ -110,5 +110,5 @@ fn answers(server: &Server) -> Result<(), WireError> {
 fn replace(s: &Arc<Stream>) {
     let epoch = s.epoch.fetch_add(1, Ordering::AcqRel) + 1;
     let s = s.clone();
-    let _ = std::thread::Builder::new().name("opencode-events".into()).spawn(move || super::worker::run_stream(&s, epoch, true));
+    std::thread::Builder::new().name("opencode-events".into()).spawn(move || super::worker::run_stream(&s, epoch, true)).ok();
 }

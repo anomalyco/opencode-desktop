@@ -60,7 +60,7 @@ pub fn parse_inbox_item(v: &Value) -> Option<InboxItem> {
         set_user_comments(&s(id), comments);
     }
     let delivery = Delivery::parse(&item["delivery"])?;
-    inbox_payload_store().lock().unwrap().insert(s(id), payload.clone());
+    inbox_payload_store().lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(s(id), payload.clone());
     Some(InboxItem { id: s(id), text, delivery, files: parse_attachments(&payload["files"]) })
 }
 
@@ -73,7 +73,7 @@ fn inbox_payload_store() -> &'static Mutex<HashMap<String, Value>> {
 
 /// The payload of inbox item `id`, once listed or admitted.
 pub fn inbox_payload(id: &str) -> Option<Value> {
-    inbox_payload_store().lock().unwrap().get(id).cloned()
+    inbox_payload_store().lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(id).cloned()
 }
 
 /// What [`Inbox::apply`] did.
@@ -237,7 +237,7 @@ impl Inbox {
         let changed = match ty {
             "session.inbox.enqueued" => match parse_inbox_item(d) {
                 Some(item) => {
-                    let same = self.items.iter().any(|i| *i == item);
+                    let same = self.items.contains(&item);
                     self.upsert(item);
                     !same
                 }

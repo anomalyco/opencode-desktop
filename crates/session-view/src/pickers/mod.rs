@@ -165,6 +165,7 @@ pub struct Pickers {
     pub prefs: ModelPrefs,
     /// Manage models, while it's open.
     pub manage: Option<manage::Manage>,
+    manage_scratch: TextEdit,
 }
 
 /// `items` with each group's rows together, groups in the order they first appear: the server
@@ -179,10 +180,19 @@ fn grouped(mut items: Vec<Item>) -> Vec<Item> {
 }
 
 fn wall_ms() -> i64 {
+    // session-view does not depend on opencode-platform; rune::time::SystemTime is wasm32-safe for model release age checks.
+    #[allow(clippy::disallowed_methods)]
     rune::time::SystemTime::now().duration_since(rune::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }
 
 impl Pickers {
+    pub(crate) fn manage_search_mut(&mut self) -> &mut TextEdit {
+        match &mut self.manage {
+            Some(m) => &mut m.search,
+            None => &mut self.manage_scratch,
+        }
+    }
+
     /// Which picker overlay is currently open (`None` when `State::Closed`).
     pub fn open(&self) -> Option<Kind> {
         self.menu.kind()
@@ -262,7 +272,7 @@ impl Pickers {
     /// "provider/model" or `{ providerID, model, variant }` (`configured.ts`).
     pub fn load_config(&mut self, config: &Value) {
         let list = config.as_array().or_else(|| config["data"].as_array());
-        let last = list.into_iter().flatten().filter(|e| e["type"] == "document" && !e["info"]["model"].is_null()).last();
+        let last = list.into_iter().flatten().rfind(|e| e["type"] == "document" && !e["info"]["model"].is_null());
         self.configured = last.map(|e| &e["info"]["model"]).and_then(|m| match m.as_str() {
             Some(s) => s.split_once('/').map(|(provider, id)| ModelRef { id: id.to_owned(), provider: provider.to_owned(), variant: String::new() }),
             None => Some(ModelRef {

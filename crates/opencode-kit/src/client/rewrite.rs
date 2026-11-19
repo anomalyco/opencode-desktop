@@ -165,10 +165,10 @@ impl Server {
         progress(Progress::Committed);
         // An answer can be lost after the server admitted the steer: its receipt decides, so the
         // edit never both goes out and comes back to the composer.
-        if let Err(e) = self.admit(session, id, &with_delivery(admission, "steer")) {
-            if !self.holds_prompt(session, id) {
-                return Err(e);
-            }
+        if let Err(e) = self.admit(session, id, &with_delivery(admission, "steer"))
+            && !self.holds_prompt(session, id)
+        {
+            return Err(e);
         }
         progress(Progress::Admitted);
         // Cancelling is a no-op once the original is gone, so one retry is safe.

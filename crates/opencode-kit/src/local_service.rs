@@ -189,6 +189,8 @@ pub fn discover_local_server(default: &Server) -> Server {
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
+        // Public standalone discovery API; opencode-kit has no app config.rs layer.
+        #[allow(clippy::disallowed_methods)]
         let explicit_env_url = std::env::var("OPENCODE_SERVER_URL").ok().is_some_and(|v| !v.trim().is_empty());
         discover_with_service(default, explicit_env_url, read_local_service())
     }

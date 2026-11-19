@@ -40,9 +40,12 @@ pub const LIMIT: i64 = 250;
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Coverage { Partial, Complete }
 
+type OnceReply = Box<dyn FnOnce(u64, Result<Vec<Hit>, StorageError>) + Send>;
+type LiveReply = Box<dyn Fn(u64, Result<(Coverage, Vec<Hit>), StorageError>) + Send>;
+
 enum Reply {
-    Once(Box<dyn FnOnce(u64, Result<Vec<Hit>, StorageError>) + Send>),
-    Live(Box<dyn Fn(u64, Result<(Coverage, Vec<Hit>), StorageError>) + Send>),
+    Once(OnceReply),
+    Live(LiveReply),
 }
 
 pub(crate) struct Query {

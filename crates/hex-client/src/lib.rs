@@ -194,7 +194,7 @@ impl Hex {
     }
 
     pub fn cancel(&self, c: &Capture) {
-        let _ = self.call(&format!("/dictations/{}/cancel", c.id), Some(&c.owner), None, Duration::from_secs(5));
+        self.call(&format!("/dictations/{}/cancel", c.id), Some(&c.owner), None, Duration::from_secs(5)).ok();
     }
 
     /// The words so far of a capture started with partials, as (`stable`, which won't change,

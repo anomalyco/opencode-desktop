@@ -26,7 +26,7 @@ static DOWNLOADS: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::O
 
 /// Where ordinary file downloads go, set once at startup. Session export uses a save dialog.
 pub fn set_download_dir(dir: Option<std::path::PathBuf>) {
-    let _ = DOWNLOADS.set(dir);
+    DOWNLOADS.set(dir).ok();
 }
 
 /// Writes `json` as `name` in the Downloads folder [`set_download_dir`] named; returns its path.
@@ -54,6 +54,6 @@ pub fn save_download(name: &str, json: &str) -> Result<String, String> {
     link.set_href(&url);
     link.set_download(name);
     link.click();
-    let _ = web_sys::Url::revoke_object_url(&url);
+    web_sys::Url::revoke_object_url(&url).ok();
     Ok(name.to_owned())
 }

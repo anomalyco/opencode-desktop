@@ -82,7 +82,7 @@ impl Drop for Mic {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Release);
         if let Some(w) = self.worker.take() {
-            let _ = w.join();
+            w.join().ok();
         }
     }
 }
@@ -90,20 +90,20 @@ impl Drop for Mic {
 /// The capture thread: opens, says so, then records until `stop`.
 fn record(stop: &AtomicBool, heard: &Mutex<Heard>, ready: &SyncSender<Result<(), Problem>>) {
     // Balanced when the thread ends.
-    let _ = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+    unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.ok().ok();
     let opened = match open() {
         Ok(o) => o,
         Err(p) => {
-            let _ = ready.send(Err(p));
+            ready.send(Err(p)).ok();
             return;
         }
     };
-    let _ = ready.send(Ok(()));
+    ready.send(Ok(())).ok();
     let mut convert = Resample::new(opened.format.rate);
     if let Err(why) = capture(&opened, stop, heard, &mut convert) {
         heard.lock().unwrap_or_else(PoisonError::into_inner).failed = Some(why);
     }
-    let _ = unsafe { opened.client.Stop() };
+    unsafe { opened.client.Stop() }.ok();
 }
 
 struct Opened {
@@ -117,7 +117,7 @@ struct Event(HANDLE);
 
 impl Drop for Event {
     fn drop(&mut self) {
-        let _ = unsafe { CloseHandle(self.0) };
+        unsafe { CloseHandle(self.0) }.ok();
     }
 }
 
