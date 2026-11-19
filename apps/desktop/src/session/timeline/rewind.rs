@@ -64,7 +64,7 @@ impl RewindHost for App {
     }
 
     fn resolve_skill_id(&self, name_or_id: &str) -> Option<&str> {
-        self.composer_ext.mentions.skills.iter().find(|sk| sk.id == name_or_id || sk.name == name_or_id).map(|sk| sk.id.as_str())
+        self.kernel.slots.get(&crate::mentions::MENTIONS).skills.iter().find(|sk| sk.id == name_or_id || sk.name == name_or_id).map(|sk| sk.id.as_str())
     }
 
     fn stop_running_family(&mut self, session: &str) -> Vec<String> {
@@ -158,7 +158,7 @@ impl App {
                 caret: self.composer.range().1.min(self.composer.text.len()),
                 files: self.composer_ext.attach.files.clone(),
                 paths: self.composer_ext.attach.paths.clone(),
-                quotes: self.composer_ext.quote.quotes(),
+                quotes: self.kernel.slots.get(&crate::quote::QUOTE).quotes(),
             };
         }
         let text = self.restore.drafts.get(session).cloned().unwrap_or_default();
@@ -189,9 +189,9 @@ impl App {
         self.composer.focused = focused;
         self.composer_ext.attach.files = draft.files;
         self.composer_ext.attach.paths = draft.paths;
-        let _ = self.composer_ext.quote.take();
+        let _ = self.kernel.slots.get_mut(&crate::quote::QUOTE).take();
         for q in draft.quotes {
-            self.composer_ext.quote.push(q);
+            self.kernel.slots.get_mut(&crate::quote::QUOTE).push(q);
         }
     }
 

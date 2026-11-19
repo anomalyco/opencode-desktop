@@ -430,7 +430,7 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
         }
         crate::windows::reopen::poll(s);
         crate::windows::reopen::poll_asked(s);
-        s.composer_ext.prompts.hydrate((*s.waker).clone());
+        s.kernel.slots.get_mut(&crate::prompt_history::PROMPTS).hydrate((*s.waker).clone());
         s.poll_window();
         s.poll_taskbar();
         crate::jump_list::poll(s);

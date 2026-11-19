@@ -187,7 +187,7 @@ impl Feature<App> for ComposerInputFeature {
                 crate::commands::order::PROMPT_MODE_TOGGLE,
                 |s, tx| {
                     tx.animated();
-                    if s.composer_ext.add.shell() { s.exit_shell() } else { s.enter_shell(tx) }
+                    if s.kernel.slots.get(&crate::add_menu::ADD_MENU).shell() { s.exit_shell() } else { s.enter_shell(tx) }
                 },
             )
             .bind_id(Bind::PromptModeToggle.id())
@@ -203,7 +203,7 @@ impl Feature<App> for ComposerInputFeature {
                     s.enter_shell(tx);
                 },
             )
-            .when(|s| s.has_composer() && !s.composer_ext.add.shell()),
+            .when(|s| s.has_composer() && !s.kernel.slots.get(&crate::add_menu::ADD_MENU).shell()),
         );
         builder.add_command(
             CommandEntry::<App>::from_key(
@@ -215,7 +215,7 @@ impl Feature<App> for ComposerInputFeature {
                     s.exit_shell();
                 },
             )
-            .when(|s| s.has_composer() && s.composer_ext.add.shell()),
+            .when(|s| s.has_composer() && s.kernel.slots.get(&crate::add_menu::ADD_MENU).shell()),
         );
         builder.add_command(
             CommandEntry::<App>::from_key(
@@ -236,8 +236,12 @@ impl Feature<App> for ComposerInputFeature {
                     viewer(s, p, cx)
                 }),
         );
+        builder
+            .register_slot(&crate::prompt_history::PROMPTS)
+            .register_slot(&crate::suggestions::SUGGEST)
+            .register_slot(&crate::add_menu::ADD_MENU);
         builder.add_setup("composer_input.attach_waker", |s, waker| s.composer_ext.attach.set_waker(waker));
-        builder.add_setup("composer_input.slash_waker", |s, waker| s.composer_ext.add.slash.set_waker(waker));
+        builder.add_setup("composer_input.slash_waker", |s, waker| s.kernel.slots.get_mut(&crate::add_menu::ADD_MENU).slash.set_waker(waker));
         builder.add_system_ordered(
             Phase::Ingest,
             crate::tick::order::ingest::COMPOSER_DROPZONE,

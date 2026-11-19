@@ -58,7 +58,7 @@ impl App {
         self.restore.drafts.extend(seed.drafts);
         self.restore.parked.extend(seed.parked);
         for id in seed.shell {
-            self.composer_ext.add.park(id, Mode::Shell);
+            self.kernel.slots.get_mut(&crate::add_menu::ADD_MENU).park(id, Mode::Shell);
         }
         *self.route = seed.route;
         // Before the window's first turn: the page's server's copy comes in for this, and goes back.
@@ -72,9 +72,9 @@ impl App {
     /// Draft `id`'s mode, the open one's from the composer.
     pub(crate) fn draft_mode(&self, id: &str) -> Mode {
         if self.restore.shown.as_deref() == Some(id) {
-            return self.composer_ext.add.mode;
+            return self.kernel.slots.get(&crate::add_menu::ADD_MENU).mode;
         }
-        self.composer_ext.add.parked().find(|(k, _)| *k == id).map_or(Mode::Normal, |(_, m)| m)
+        self.kernel.slots.get(&crate::add_menu::ADD_MENU).parked().find(|(k, _)| *k == id).map_or(Mode::Normal, |(_, m)| m)
     }
 
     /// The composer words kept for tab `id`, the open one's from the composer.

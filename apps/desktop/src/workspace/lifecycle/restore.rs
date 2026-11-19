@@ -165,19 +165,19 @@ impl RestoreHost for App {
     }
 
     fn composer_mode(&self) -> Mode {
-        self.composer_ext.add.mode
+        self.kernel.slots.get(&crate::add_menu::ADD_MENU).mode
     }
 
     fn park_composer_mode(&mut self, key: String, mode: Mode) {
-        self.composer_ext.add.park(key, mode);
+        self.kernel.slots.get_mut(&crate::add_menu::ADD_MENU).park(key, mode);
     }
 
     fn swap_composer_mode_draft(&mut self, from: Option<&str>, to: Option<&str>) {
-        self.composer_ext.add.swap_draft(from, to);
+        self.kernel.slots.get_mut(&crate::add_menu::ADD_MENU).swap_draft(from, to);
     }
 
     fn parked_composer_modes(&self) -> Vec<(String, Mode)> {
-        self.composer_ext.add.parked().map(|(k, m)| (k.to_owned(), m)).collect()
+        self.kernel.slots.get(&crate::add_menu::ADD_MENU).parked().map(|(k, m)| (k.to_owned(), m)).collect()
     }
 
     fn attach_files(&self) -> &[Attachment] {
@@ -225,25 +225,25 @@ impl RestoreHost for App {
     }
 
     fn quote_any(&self) -> bool {
-        self.composer_ext.quote.any()
+        self.kernel.slots.get(&crate::quote::QUOTE).any()
     }
 
     fn quote_revision(&self) -> u64 {
         let mut h = DefaultHasher::new();
-        self.composer_ext.quote.revision().hash(&mut h);
+        self.kernel.slots.get(&crate::quote::QUOTE).revision().hash(&mut h);
         h.finish()
     }
 
     fn quote_comments(&self) -> Vec<&PromptComment> {
-        self.composer_ext.quote.items.iter().map(|q| &q.comment).collect()
+        self.kernel.slots.get(&crate::quote::QUOTE).items.iter().map(|q| &q.comment).collect()
     }
 
     fn take_quotes(&mut self) -> Vec<PromptComment> {
-        self.composer_ext.quote.take()
+        self.kernel.slots.get_mut(&crate::quote::QUOTE).take()
     }
 
     fn push_quote(&mut self, comment: PromptComment) {
-        self.composer_ext.quote.push(comment);
+        self.kernel.slots.get_mut(&crate::quote::QUOTE).push(comment);
     }
 
     fn leave_queue_edits(&mut self) {

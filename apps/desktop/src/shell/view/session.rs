@@ -56,7 +56,7 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El, with_header: bo
                 let head = with_header.then(|| header(s, p, s.session(shown).or(saved.as_ref()), t));
                 // Previous and Next message read the prompt in view from where it lies (`message_nav`).
                 session_view::timeline_area(s, p, shown, t, pills, head).on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| {
-                    s.timeline_fx.message_nav.view = Some(r);
+                    s.kernel.slots.get_mut(&crate::message_nav::MESSAGE_NAV).view = Some(r);
                     if let Some((id, row, y)) = s.layout.narrow.reading.borrow_mut().take()
                         && s.narrow() && s.active_session_id() == Some(id.as_str()) && !s.timeline_fx.ends.due(&id)
                     {
@@ -80,7 +80,7 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El, with_header: bo
     };
     let mut page = page
         .on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| {
-            s.timeline_fx.message_nav.page = Some(r);
+            s.kernel.slots.get_mut(&crate::message_nav::MESSAGE_NAV).page = Some(r);
             tx.live_only();
         })
         // Only held content belongs to the tab we left. In particular a completed size

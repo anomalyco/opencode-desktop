@@ -144,7 +144,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
         inner = inner.child(el().key("todo-dismiss").absolute(0.0, 0.0).w_full().h_full().transition(rune::Transition::none())
             .on_background_press_tx(|s: &mut App, tx: &mut Tx| {
                 tx.instant();
-                *s.timeline_fx.todo_open = false;
+                *s.kernel.slots.get_mut(&crate::todos::TODO_OPEN) = false;
             }))
             .child(panel);
     }

@@ -256,7 +256,7 @@ impl session_view::TimelineHost for App {
         self.pages.more_above(session)
     }
     fn watch_scroll_top(&self, session: &str) -> Option<Box<dyn Fn(rune::ScrollPos)>> {
-        let (pages, nav) = (self.pages.watch_top(session), self.timeline_fx.message_nav.watch());
+        let (pages, nav) = (self.pages.watch_top(session), self.kernel.slots.get(&crate::message_nav::MESSAGE_NAV).watch());
         Some(Box::new(move |at| {
             pages(at);
             nav(at);
@@ -266,25 +266,25 @@ impl session_view::TimelineHost for App {
         quote::selection_changed(s, change, tx);
     }
     fn find_row_version(&self, row_key: &str) -> u64 {
-        self.timeline_fx.find.row_version(row_key)
+        self.kernel.slots.get(&crate::find::FIND).row_version(row_key)
     }
     fn find_text_highlights(&self, p: &palette::Pal, row_key: &str) -> Vec<rune::TextHighlight> {
-        self.timeline_fx.find.text_highlights(p, row_key)
+        self.kernel.slots.get(&crate::find::FIND).text_highlights(p, row_key)
     }
     fn find_markdown_highlights(&self, p: &palette::Pal, row_key: &str) -> Vec<(&[std::ops::Range<usize>], rune_kit::Highlight)> {
-        self.timeline_fx.find.markdown_highlights(p, row_key)
+        self.kernel.slots.get(&crate::find::FIND).markdown_highlights(p, row_key)
     }
     fn find_row_hits(&self, row_key: &str) -> Option<(&[Vec<std::ops::Range<usize>>], Option<usize>)> {
-        self.timeline_fx.find.row_hits(row_key)
+        self.kernel.slots.get(&crate::find::FIND).row_hits(row_key)
     }
     fn user_menu_open_on(&self, id: &str) -> bool {
         self.kernel.slots.get(&crate::rewind::REWIND).menu_open_on(id)
     }
     fn quote_more_open(&self, id: &str) -> bool {
-        self.composer_ext.quote.more.contains(id)
+        self.kernel.slots.get(&crate::quote::QUOTE).more.contains(id)
     }
     fn open_quote_more(&mut self, id: String) {
-        self.composer_ext.quote.more.insert(id);
+        self.kernel.slots.get_mut(&crate::quote::QUOTE).more.insert(id);
     }
     fn user_menu(&self, p: &palette::Pal, session: &str, id: &str, _body: &str, pending: bool) -> Option<rune::El> {
         rewind::user_menu(self, p, session, id, pending)

@@ -14,15 +14,16 @@ use crate::keymap::Bind;
 use crate::pickers::PickerHost as _;
 use crate::{App, Route, Source};
 
+pub(crate) static MESSAGE_NAV: Slot<MessageNav> = Slot::new();
 pub(crate) static JUMP: Slot<JumpState> = Slot::new();
 
 impl MessageNavHost for App {
     fn message_nav(&self) -> &MessageNav {
-        &self.timeline_fx.message_nav
+        self.kernel.slots.get(&MESSAGE_NAV)
     }
 
     fn message_nav_mut(&mut self) -> &mut MessageNav {
-        &mut self.timeline_fx.message_nav
+        self.kernel.slots.get_mut(&MESSAGE_NAV)
     }
 
     fn jump(&self) -> &JumpState {
@@ -220,6 +221,7 @@ impl Feature<App> for HistoryFeature {
             .bind_id(Bind::MessageNext.id())
             .when(|s| s.active_session_id().is_some()),
         );
+        builder.register_slot(&MESSAGE_NAV);
         builder.register_slot(&JUMP);
         builder.register_slot(&crate::fork::FORK);
         builder.register_slot(&crate::rewind::REWIND);

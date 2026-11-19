@@ -461,7 +461,7 @@ impl crate::App {
     pub fn begin_open(&mut self, id: &str, tx: &mut rune::Tx) {
         self.close_picker(false);
         crate::subagents::shells::set_open(self, false);
-        *self.timeline_fx.todo_open = false;
+        *self.kernel.slots.get_mut(&crate::todos::TODO_OPEN) = false;
         let from = self.opening.as_ref().filter(|o| !o.loading()).map_or_else(|| (*self.route).clone(), |o| o.from.clone());
         *self.opening = Some(Opening::new(id, from, self.transcripts.contains_key(id), *self.clock));
         self.open_now(id, tx);

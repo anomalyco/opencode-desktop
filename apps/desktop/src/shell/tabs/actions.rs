@@ -270,7 +270,7 @@ impl App {
                 self.forget_draft_history(&id);
                 self.restore.drafts.remove(&id);
                 self.restore.parked.remove(&id);
-                self.composer_ext.add.park(id.clone(), session_view::composer::mode::Mode::Normal);
+                self.kernel.slots.get_mut(&crate::add_menu::ADD_MENU).park(id.clone(), session_view::composer::mode::Mode::Normal);
                 if shown {
                     self.drop_shown_draft();
                 }

@@ -446,7 +446,7 @@ pub fn dep_version(app: &App, dep: &Dep) -> u64 {
         Dep::TerminalScreen(session) => super::native::terminal::screen_version(app, session).hash(&mut h),
         Dep::Sidebar => (app.workspace_panes.panel_sidebar.opened, app.workspace_panes.panel_sidebar.width.map(f32::to_bits)).hash(&mut h),
         Dep::Plugin(id) => app.plugins.list.iter().find(|p| p.half.id == *id).map(|p| p.half.surface_version(p.script())).hash(&mut h),
-        Dep::Updater => app.services.updater.revision().hash(&mut h),
+        Dep::Updater => app.kernel.slots.get(&crate::updater::UPDATER).revision().hash(&mut h),
         Dep::Image(plugin, id) => app.plugins.shared.images.borrow().get(plugin, *id).map(crate::plugin_host::images::load::Load::status).hash(&mut h),
         Dep::Video(plugin, url) => app.plugins.shared.images.borrow().video_failed(plugin, url).hash(&mut h),
         #[cfg(feature = "office")]

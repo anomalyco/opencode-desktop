@@ -271,7 +271,7 @@ impl App {
         let id = self.tabs.remove(i).id;
         self.restore.drafts.remove(&id);
         self.restore.parked.remove(&id);
-        self.composer_ext.add.park(id, session_view::composer::mode::Mode::Normal);
+        self.kernel.slots.get_mut(&crate::add_menu::ADD_MENU).park(id, session_view::composer::mode::Mode::Normal);
         if shown {
             self.drop_shown_draft();
             match self.tabs.get(i).or_else(|| self.tabs.get(i.wrapping_sub(1))).map(Tab::uid) {

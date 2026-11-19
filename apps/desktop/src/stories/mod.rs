@@ -293,9 +293,9 @@ fn fresh(real: &App) -> App {
     if let Some(waker) = (*w.waker).clone() {
         w.composer_ext.attach.set_waker(waker.clone());
         w.appearance_state.icons.set_waker(waker.clone());
-        w.composer_ext.mentions.set_waker(waker.clone());
+        w.kernel.slots.get_mut(&crate::mentions::MENTIONS).set_waker(waker.clone());
         w.kernel.slots.get_mut(&crate::switcher::SWITCHER).set_waker(waker.clone());
-        w.composer_ext.add.slash.set_waker(waker);
+        w.kernel.slots.get_mut(&crate::add_menu::ADD_MENU).slash.set_waker(waker);
     }
     open_scene(&mut w);
     w

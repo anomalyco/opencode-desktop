@@ -330,8 +330,8 @@ impl App {
     pub(crate) fn load_fixture(&mut self, src: &str) {
         let v: Value = serde_json::from_str(src).unwrap_or_else(|e| panic!("fixture JSON: {e}"));
         self.composer_ext.pickers.load(&v);
-        self.composer_ext.mentions.load(&v);
-        self.composer_ext.add.slash.commands = slash::commands(&v["commands"]);
+        self.kernel.slots.get_mut(&crate::mentions::MENTIONS).load(&v);
+        self.kernel.slots.get_mut(&crate::add_menu::ADD_MENU).slash.commands = slash::commands(&v["commands"]);
         *self.fixture_run.base_ms = v["now"].as_i64().unwrap_or(0);
         *self.now_ms = *self.fixture_run.base_ms;
         *self.projects = opencode_kit::model::parse_projects(&v["projects"]);
@@ -414,7 +414,7 @@ impl App {
             self.workspace_panes.files.wrap = files::markdown::WrapPrefs::load(self);
             *self.workspace_panes.panel_sidebar = plugin_host::native::sidebar::PanelSidebar::load();
         }
-        *self.composer_ext.prompts = prompt_history::PromptHistory::load(attended());
+        *self.kernel.slots.get_mut(&prompt_history::PROMPTS) = prompt_history::PromptHistory::load(attended());
         self.composer_ext.pickers.prefs = model_prefs::load();
         telemetry::startup("launch.restore_ui", || self.restore_ui(&doc, &server.base));
         *self.fixture_run.base_ms = wall_ms();

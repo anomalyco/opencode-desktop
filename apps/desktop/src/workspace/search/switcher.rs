@@ -243,7 +243,7 @@ impl SwitcherHost for App {
         self.kernel.slots.get_mut(&crate::session_menu::MENUS).edit.focused = false;
         self.composer.focused = false;
         self.search.focused = false;
-        self.timeline_fx.find.input.focused = false;
+        self.kernel.slots.get_mut(&crate::find::FIND).input.focused = false;
         restore
     }
 

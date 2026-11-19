@@ -272,7 +272,7 @@ pub fn version(app: &App, session: &str) -> DiffVersion {
 /// and the session's line comments.
 pub fn narrow_version(app: &App, session: &str) -> (Vec<String>, u64) {
     let open = app.workspace_panes.review.sessions.get(session).map(|sr| sr.narrow.open_paths()).unwrap_or_default();
-    (open, app.composer_ext.line_comments.version(session))
+    (open, app.kernel.slots.get(&crate::line_comments::LINE_COMMENTS).version(session))
 }
 
 /// `ui.diffView`: the preview of `file`, else every file one under another; with `list`, the

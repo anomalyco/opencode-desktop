@@ -4,7 +4,7 @@ pub use opencode_feature_annotations::line_comments::*;
 
 use std::rc::Rc;
 
-use opencode_kernel::{EscapeLayer, Feature, KernelBuilder, Phase};
+use opencode_kernel::{EscapeLayer, Feature, KernelBuilder, Phase, Slot};
 use opencode_kit::model::CommentOrigin;
 use opencode_ui::popup::Menu;
 use rune::{El, Tx};
@@ -13,13 +13,15 @@ use serde_json::Value;
 use crate::App;
 use crate::quote::comment::{Config, FieldEvent};
 
+pub(crate) static LINE_COMMENTS: Slot<LineComments> = Slot::new();
+
 impl LineCommentsHost for App {
     fn line_comments(&self) -> &LineComments {
-        &self.composer_ext.line_comments
+        self.kernel.slots.get(&LINE_COMMENTS)
     }
 
     fn line_comments_mut(&mut self) -> &mut LineComments {
-        &mut self.composer_ext.line_comments
+        self.kernel.slots.get_mut(&LINE_COMMENTS)
     }
 
     fn view_selection(&self, spot: &Spot) -> Option<Range> {
@@ -236,10 +238,13 @@ impl Feature<App> for AnnotationsFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder
+            .register_slot(&crate::quote::QUOTE)
+            .register_slot(&LINE_COMMENTS);
         builder.register_escape_layer(EscapeLayer::new(
             "escape.quote",
             100,
-            |s| s.composer_ext.quote.offered(),
+            |s| s.kernel.slots.get(&crate::quote::QUOTE).offered(),
             |s, _, tx| {
                 tx.instant();
                 crate::quote::dismiss(s, tx);
@@ -248,7 +253,7 @@ impl Feature<App> for AnnotationsFeature {
         builder.register_escape_layer(EscapeLayer::new(
             "escape.comment_selection",
             110,
-            |s| matches!(s.composer_ext.line_comments.selection, selection::State::Settling { .. } | selection::State::Shown(_)),
+            |s| matches!(s.kernel.slots.get(&LINE_COMMENTS).selection, selection::State::Settling { .. } | selection::State::Shown(_)),
             |s, _, tx| {
                 selection::dispatch(s, selection::Event::Clear, tx);
             },

@@ -96,7 +96,7 @@ pub fn call(s: &mut App, tx: &mut Tx) {
         }
         a.parts.push(part);
     }
-    s.timeline_fx.agent_rows.called.insert(id, *s.now_ms);
+    s.kernel.slots.get_mut(&super::AGENT_ROWS).called.insert(id, *s.now_ms);
     if k == 0 {
         emit(s, "session.execution.started", json!({ "sessionID": CHILD }), tx);
     } else {
@@ -111,7 +111,7 @@ fn advance(s: &mut App, tx: &mut Tx) {
     }
     let k = calls(s).saturating_sub(1);
     let steps = CALLS[k.min(CALLS.len() - 1)].2;
-    let since = s.timeline_fx.agent_rows.called.get(&format!("call_story_steer_{k}")).map_or(0, |at| *s.now_ms - at);
+    let since = s.kernel.slots.get(&super::AGENT_ROWS).called.get(&format!("call_story_steer_{k}")).map_or(0, |at| *s.now_ms - at);
     let (name, field, value) = steps[(since as f64 / 1000.0 / STEP) as usize % steps.len()];
     let mut input = json!({});
     input[field] = value.into();

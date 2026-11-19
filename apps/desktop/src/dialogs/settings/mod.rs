@@ -216,10 +216,11 @@ impl SettingsHost for App {
     }
 
     fn about_info(&self) -> AboutInfo {
-        let version = if self.services.updater.version.is_empty() {
+        let updater = self.kernel.slots.get(&crate::updater::UPDATER);
+        let version = if updater.version.is_empty() {
             crate::updater::build_version().to_owned()
         } else {
-            self.services.updater.version.clone()
+            updater.version.clone()
         };
         AboutInfo { version, other_contributors: about_other_contributors(self) }
     }

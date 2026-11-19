@@ -20,13 +20,15 @@ pub mod history {
     }
 }
 
+pub(crate) static SUGGEST: opencode_kernel::Slot<Suggest> = opencode_kernel::Slot::new();
+
 impl SuggestionsHost for App {
     fn suggest(&self) -> &Suggest {
-        &self.composer_ext.suggest
+        self.kernel.slots.get(&SUGGEST)
     }
 
     fn suggest_mut(&mut self) -> &mut Suggest {
-        &mut self.composer_ext.suggest
+        self.kernel.slots.get_mut(&SUGGEST)
     }
 
     fn composer(&self) -> &TextEdit {
@@ -38,11 +40,11 @@ impl SuggestionsHost for App {
     }
 
     fn prompts(&self) -> &PromptHistory {
-        &self.composer_ext.prompts
+        self.kernel.slots.get(&crate::prompt_history::PROMPTS)
     }
 
     fn shell_mode(&self) -> bool {
-        self.composer_ext.add.shell()
+        self.kernel.slots.get(&crate::add_menu::ADD_MENU).shell()
     }
 
     fn has_composer(&self) -> bool {
@@ -50,11 +52,14 @@ impl SuggestionsHost for App {
     }
 
     fn history_key_blocked(&self) -> bool {
-        self.composer_ext.add.open() || self.composer_ext.pickers.open().is_some() || self.kernel.slots.get(&crate::switcher::SWITCHER).is_open() || self.settings.open
+        self.kernel.slots.get(&crate::add_menu::ADD_MENU).open()
+            || self.composer_ext.pickers.open().is_some()
+            || self.kernel.slots.get(&crate::switcher::SWITCHER).is_open()
+            || self.settings.open
     }
 
     fn composer_has_attachments_or_quotes(&self) -> bool {
-        self.composer_ext.attach.any() || self.composer_ext.quote.any()
+        self.composer_ext.attach.any() || self.kernel.slots.get(&crate::quote::QUOTE).any()
     }
 
     fn auto_focus_composer(&self, tx: &Tx) -> bool {
@@ -62,7 +67,7 @@ impl SuggestionsHost for App {
     }
 
     fn mention_suggestion_ids(&self, query: &str) -> Vec<String> {
-        let stale = !matches!(*self.source, crate::Source::Fixture) && self.composer_ext.mentions.search.files_stale(query);
+        let stale = !matches!(*self.source, crate::Source::Fixture) && self.kernel.slots.get(&crate::mentions::MENTIONS).search.files_stale(query);
         self.mention_items()
             .into_iter()
             .filter(|i| !(stale && i.kind == crate::mentions::Kind::File && !i.recent))
@@ -75,7 +80,7 @@ impl SuggestionsHost for App {
     }
 
     fn mention_whitespace_empty(&self, query: &str) -> bool {
-        !self.composer_ext.mentions.search.sessions_pending(query, self.mention_server()) && self.mention_items().is_empty()
+        !self.kernel.slots.get(&crate::mentions::MENTIONS).search.sessions_pending(query, self.mention_server()) && self.mention_items().is_empty()
     }
 
     fn pick_mention(&mut self, key: &str) {
@@ -91,7 +96,7 @@ impl SuggestionsHost for App {
     }
 
     fn close_mention_search(&mut self) {
-        let m = &mut *self.composer_ext.mentions;
+        let m = self.kernel.slots.get_mut(&crate::mentions::MENTIONS);
         crate::mentions::search::step(&mut m.seq, &mut m.search, crate::mentions::search::Event::Closed);
     }
 

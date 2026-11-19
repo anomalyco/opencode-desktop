@@ -52,7 +52,7 @@ impl SubagentsHost for App {
     }
 
     fn composer_is_empty(&self) -> bool {
-        self.composer.text.trim().is_empty() && !self.composer_ext.attach.any() && !self.composer_ext.quote.any()
+        self.composer.text.trim().is_empty() && !self.composer_ext.attach.any() && !self.kernel.slots.get(&crate::quote::QUOTE).any()
     }
 
     fn shows_esc_keycap(&self) -> bool {
@@ -93,7 +93,7 @@ impl SubagentsHost for App {
     }
 
     fn on_activity_toggled(&mut self, _open: bool) {
-        *self.timeline_fx.todo_open = false;
+        *self.kernel.slots.get_mut(&crate::todos::TODO_OPEN) = false;
     }
 
     fn spawn_shell_request(&mut self, job: SubagentJob) {

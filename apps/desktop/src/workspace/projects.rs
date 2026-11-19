@@ -293,7 +293,7 @@ impl ProjectsHost for App {
         self.settings.open = false;
         self.kernel.slots.get_mut(&crate::session_menu::MENUS).on = None;
         crate::subagents::shells::set_open(self, false);
-        *self.timeline_fx.todo_open = false;
+        *self.kernel.slots.get_mut(&crate::todos::TODO_OPEN) = false;
         restore_composer
     }
 

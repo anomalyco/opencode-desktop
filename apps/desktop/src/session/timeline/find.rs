@@ -4,7 +4,7 @@ pub use opencode_feature_find::*;
 
 use std::borrow::Cow;
 
-use opencode_kernel::{CommandEntry, EscapeLayer, Feature, KernelBuilder, Phase};
+use opencode_kernel::{CommandEntry, EscapeLayer, Feature, KernelBuilder, Phase, Slot};
 use opencode_kit::model::Transcript;
 use rune::{KeyEvent, Tx};
 use session_view::disclosure::Disclosures;
@@ -13,13 +13,15 @@ use crate::keymap::Bind;
 use crate::pickers::PickerHost;
 use crate::{App, Route};
 
+pub(crate) static FIND: Slot<Find> = Slot::new();
+
 impl FindHost for App {
     fn find(&self) -> &Find {
-        &self.timeline_fx.find
+        self.kernel.slots.get(&FIND)
     }
 
     fn find_mut(&mut self) -> &mut Find {
-        &mut self.timeline_fx.find
+        self.kernel.slots.get_mut(&FIND)
     }
 
     fn is_home(&self) -> bool {
@@ -71,11 +73,11 @@ impl FindHost for App {
     }
 
     fn timeline_view_rect(&self) -> Option<[f32; 4]> {
-        self.timeline_fx.message_nav.view
+        self.kernel.slots.get(&crate::message_nav::MESSAGE_NAV).view
     }
 
     fn timeline_page_rect(&self) -> Option<[f32; 4]> {
-        self.timeline_fx.message_nav.page
+        self.kernel.slots.get(&crate::message_nav::MESSAGE_NAV).page
     }
 
     fn is_narrow(&self) -> bool {
@@ -147,6 +149,7 @@ impl Feature<App> for FindFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder.register_slot(&FIND);
         builder.add_command(
             CommandEntry::<App>::from_key(
                 "find",
@@ -160,7 +163,7 @@ impl Feature<App> for FindFeature {
         builder.register_escape_layer(EscapeLayer::new(
             "escape.find",
             40,
-            |s| s.timeline_fx.find.is_open() && matches!(*s.route, Route::Session { .. }),
+            |s| s.kernel.slots.get(&FIND).is_open() && matches!(*s.route, Route::Session { .. }),
             |s, ev, tx| {
                 dismiss_key(s, ev, tx);
             },

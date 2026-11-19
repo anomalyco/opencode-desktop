@@ -33,7 +33,7 @@ impl Delivery {
 
 pub(in crate::shell::view) fn bar(s: &App, p: &Pal) -> Option<El> {
     if !mounted(s) { return None; }
-    let shell = s.composer_ext.add.shell();
+    let shell = s.kernel.slots.get(&crate::add_menu::ADD_MENU).shell();
     // `h-14` under its 1 pt rule, `px-2`; the page's `p-px` root (`view::shell`) keeps it 1 pt in.
     let mut bar = row().key("composer-touch-bar").w_full().min_h(57.0).h(57.0).pt(1.0).px(8.0).gap(4.0).center_y()
         .fill(p.bg_base).border_sides([1.0, 0.0, 0.0, 0.0], p.border);

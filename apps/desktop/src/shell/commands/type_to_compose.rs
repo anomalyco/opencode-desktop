@@ -67,7 +67,7 @@ impl App {
             && !self.kernel.slots.get(&crate::project_switcher::PROJECT_SWITCHER).is_open()
             && !self.kernel.slots.get(&crate::fork::FORK).is_open()
             && !self.kernel.slots.get(&crate::message_nav::JUMP).open()
-            && !self.timeline_fx.find.input.focused
+            && !self.kernel.slots.get(&crate::find::FIND).input.focused
             && !self.search.focused
             && !crate::plugin_host::field_focused(self)
             && menus.on.is_none()
@@ -78,7 +78,7 @@ impl App {
             && !self.popup.is_open()
             && !self.project_state.home_menu_open
             && !self.shells.activity.is_open()
-            && !*self.timeline_fx.todo_open
+            && !*self.kernel.slots.get(&crate::todos::TODO_OPEN)
             && !self.kernel.slots.get(&crate::connect::CONNECT).is_modal_open()
             && self.kernel.slots.get(&crate::mcp::MCP).open.is_none()
             && !self.plugins.dialog_open()
