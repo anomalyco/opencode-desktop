@@ -434,11 +434,12 @@ impl Feature<App> for TerminalSurfaceFeature {
             SurfaceDescriptor::new("terminal", SurfaceKind::Terminal, "Terminal")
                 .with_multi_instance(true),
         );
-        // Precaution: `panels.poll` reconciles side tabs before native panel polls run.
+        // Known: `terminal.poll` reads `workspace_panes.side` (`side_tab_visible`, `terminal_focus`)
+        // for mount and `?1004` focus reports after `files.poll` (`finish_file_link`) opens side tabs.
         builder
             .schedule(crate::tick::stage::REACT_PANELS, "terminal.poll", |s, _, tx| {
                 crate::plugin_host::native::terminal::poll(s, tx)
             })
-            .after("panels.poll");
+            .after("files.poll");
     }
 }
