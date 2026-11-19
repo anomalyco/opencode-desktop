@@ -260,6 +260,7 @@ impl Writer {
     /// A Tier 0 write: committed and synced (`synchronous = FULL`) before it returns.
     pub(super) fn durable(&mut self, boot: bool, f: impl FnOnce(&Connection, i64) -> rusqlite::Result<()>) -> Result<(), StorageError> {
         let now = (self.clock)();
+        let changes_before = self.conn.total_changes();
         let result = (|| {
             self.conn.execute_batch(DURABLE)?;
             let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
@@ -270,8 +271,13 @@ impl Writer {
         self.conn.execute_batch(SYNCED).ok();
         match result {
             Ok(()) => {
-                let wal_bytes = self.wal_file.len(&self.conn);
-                self.wal_event(WalEvent::DurableCommitted { boot, wal_bytes });
+                // SQLite's `sqlite3PagerCommitPhaseOne` returns early without writing WAL frames
+                // or calling `xSync` when a transaction modifies zero rows; do not clear
+                // `WalSync::Unsynced` for a no-op commit that never synced `-wal`.
+                if self.conn.total_changes() != changes_before {
+                    let wal_bytes = self.wal_file.len(&self.conn);
+                    self.wal_event(WalEvent::DurableCommitted { boot, wal_bytes });
+                }
                 Ok(())
             }
             Err(e) => Err(StorageError(e.to_string())),
