@@ -89,23 +89,27 @@ impl Feature<App> for TimelineExtrasFeature {
     fn register(&self, builder: &mut KernelBuilder<App>) {
         // `use-session-commands.tsx:711-722`: its title says what it will do.
         builder.add_command(
-            CommandEntry::<App>::from_key("auto-accept", opencode_i18n::key!("command.permissions.autoaccept.enable"), |s, tx| s.toggle_auto_accept(tx))
-                .titled(|s| {
-                    CommandTitle::Key(match (
-                        s.auto_accepting(),
-                        matches!(*s.route, Route::Session { .. })
-                            && s.active_session_id()
-                                .and_then(|id| s.session(id).and_then(|i| s.project_for_session(i)))
-                                .is_some(),
-                    ) {
-                        (true, _) => opencode_i18n::key!("command.permissions.autoaccept.disable"),
-                        (false, true) => opencode_i18n::key!("command.permissions.autoaccept.project"),
-                        (false, false) => opencode_i18n::key!("command.permissions.autoaccept.enable"),
-                    })
+            CommandEntry::<App>::from_key(
+                "auto-accept",
+                opencode_i18n::key!("command.permissions.autoaccept.enable"),
+                crate::commands::order::AUTO_ACCEPT,
+                |s, tx| s.toggle_auto_accept(tx),
+            )
+            .titled(|s| {
+                CommandTitle::Key(match (
+                    s.auto_accepting(),
+                    matches!(*s.route, Route::Session { .. })
+                        && s.active_session_id()
+                            .and_then(|id| s.session(id).and_then(|i| s.project_for_session(i)))
+                            .is_some(),
+                ) {
+                    (true, _) => opencode_i18n::key!("command.permissions.autoaccept.disable"),
+                    (false, true) => opencode_i18n::key!("command.permissions.autoaccept.project"),
+                    (false, false) => opencode_i18n::key!("command.permissions.autoaccept.enable"),
                 })
-                .bind_id(Bind::AutoAccept.id())
-                .order(50)
-                .when(|s| s.active_session_id().is_some()),
+            })
+            .bind_id(Bind::AutoAccept.id())
+            .when(|s| s.active_session_id().is_some()),
         );
         builder.register_escape_layer(EscapeLayer::new(
             "escape.todo",

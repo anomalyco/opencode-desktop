@@ -137,59 +137,83 @@ impl Feature<App> for HistoryFeature {
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
         builder.add_command(
-            CommandEntry::<App>::from_key("undo", opencode_i18n::key!("command.session.undo"), |s, tx| {
-                s.undo_last(tx);
-            })
+            CommandEntry::<App>::from_key(
+                "undo",
+                opencode_i18n::key!("command.session.undo"),
+                crate::commands::order::UNDO,
+                |s, tx| {
+                    s.undo_last(tx);
+                },
+            )
             .describe(opencode_i18n::key!("command.session.undo.description"))
             .slash("undo")
             .section("session")
-            .order(160)
             .when(App::can_undo_session),
         );
         builder.add_command(
-            CommandEntry::<App>::from_key("redo", opencode_i18n::key!("command.session.redo"), |s, tx| {
-                s.redo_revert(tx);
-            })
+            CommandEntry::<App>::from_key(
+                "redo",
+                opencode_i18n::key!("command.session.redo"),
+                crate::commands::order::REDO,
+                |s, tx| {
+                    s.redo_revert(tx);
+                },
+            )
             .describe(opencode_i18n::key!("command.session.redo.description"))
             .slash("redo")
             .section("session")
-            .order(170)
             .when(App::can_redo_session),
         );
         builder.add_command(
-            CommandEntry::<App>::from_key("fork", opencode_i18n::key!("command.session.fork"), |s, tx| {
-                s.open_fork_dialog(tx);
-            })
+            CommandEntry::<App>::from_key(
+                "fork",
+                opencode_i18n::key!("command.session.fork"),
+                crate::commands::order::FORK,
+                |s, tx| {
+                    s.open_fork_dialog(tx);
+                },
+            )
             .describe(opencode_i18n::key!("command.session.fork.description"))
             .slash("fork")
             .section("session")
-            .order(180)
             .when(App::can_fork_session),
         );
         // `use-session-commands.tsx:674-681`, before the message keys as Desktop registers it.
         builder.add_command(
-            CommandEntry::<App>::from_key("session.jumpToMessage", opencode_i18n::key!("dialog.jump.title"), |s, tx| {
-                s.open_jump_dialog(tx);
-            })
+            CommandEntry::<App>::from_key(
+                "session.jumpToMessage",
+                opencode_i18n::key!("dialog.jump.title"),
+                crate::commands::order::SESSION_JUMP_TO_MESSAGE,
+                |s, tx| {
+                    s.open_jump_dialog(tx);
+                },
+            )
             .describe(opencode_i18n::key!("command.session.jumpToMessage.description"))
             .bind_id(Bind::JumpToMessage.id())
-            .order(270)
             .when(|s| s.active_session_id().is_some()),
         );
         // `use-session-commands.tsx:636-653`: offered over any open session.
         builder.add_command(
-            CommandEntry::<App>::from_key("message.previous", opencode_i18n::key!("command.message.previous"), |s, tx| s.navigate_message(-1, tx))
-                .describe(opencode_i18n::key!("command.message.previous.description"))
-                .bind_id(Bind::MessagePrev.id())
-                .order(280)
-                .when(|s| s.active_session_id().is_some()),
+            CommandEntry::<App>::from_key(
+                "message.previous",
+                opencode_i18n::key!("command.message.previous"),
+                crate::commands::order::MESSAGE_PREVIOUS,
+                |s, tx| s.navigate_message(-1, tx),
+            )
+            .describe(opencode_i18n::key!("command.message.previous.description"))
+            .bind_id(Bind::MessagePrev.id())
+            .when(|s| s.active_session_id().is_some()),
         );
         builder.add_command(
-            CommandEntry::<App>::from_key("message.next", opencode_i18n::key!("command.message.next"), |s, tx| s.navigate_message(1, tx))
-                .describe(opencode_i18n::key!("command.message.next.description"))
-                .bind_id(Bind::MessageNext.id())
-                .order(290)
-                .when(|s| s.active_session_id().is_some()),
+            CommandEntry::<App>::from_key(
+                "message.next",
+                opencode_i18n::key!("command.message.next"),
+                crate::commands::order::MESSAGE_NEXT,
+                |s, tx| s.navigate_message(1, tx),
+            )
+            .describe(opencode_i18n::key!("command.message.next.description"))
+            .bind_id(Bind::MessageNext.id())
+            .when(|s| s.active_session_id().is_some()),
         );
         builder.register_overlay(
             OverlayRegistration::<App>::new(crate::fork::FORK_OVERLAY_ID)

@@ -126,10 +126,15 @@ impl Feature<App> for McpFeature {
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
         builder.add_command(
-            CommandEntry::<App>::from_key("mcp.toggle", opencode_i18n::key!("command.mcp.toggle"), |s, tx| s.toggle_mcp_dialog(tx))
-                .describe(opencode_i18n::key!("command.mcp.toggle.description"))
-                .slash("mcp")
-                .bind_id(Bind::McpToggle.id()),
+            CommandEntry::<App>::from_key(
+                "mcp.toggle",
+                opencode_i18n::key!("command.mcp.toggle"),
+                crate::commands::order::MCP_TOGGLE,
+                |s, tx| s.toggle_mcp_dialog(tx),
+            )
+            .describe(opencode_i18n::key!("command.mcp.toggle.description"))
+            .slash("mcp")
+            .bind_id(Bind::McpToggle.id()),
         );
         builder.register_overlay(
             OverlayRegistration::<App>::new(OVERLAY_ID)

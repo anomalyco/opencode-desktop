@@ -450,10 +450,14 @@ impl Feature<App> for PanelsFeature {
     fn register(&self, builder: &mut KernelBuilder<App>) {
         // After Copy project ID and before the message keys, as Desktop registers it (`use-session-commands.tsx:610`).
         builder.add_command(
-            CommandEntry::<App>::from_key("side", opencode_i18n::key!("command.review.toggle"), |s, tx| s.toggle_side_region(tx))
-                .bind_id(Bind::SideToggle.id())
-                .order(260)
-                .when(App::in_root_session),
+            CommandEntry::<App>::from_key(
+                "side",
+                opencode_i18n::key!("command.review.toggle"),
+                crate::commands::order::SIDE,
+                |s, tx| s.toggle_side_region(tx),
+            )
+            .bind_id(Bind::SideToggle.id())
+            .when(App::in_root_session),
         );
     }
 }

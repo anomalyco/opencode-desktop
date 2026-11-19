@@ -12,6 +12,7 @@ use rune::{El, FileDialogOptions, Tx};
 use serde_json::Value;
 use session_view::palette::Pal;
 
+#[cfg(not(target_arch = "wasm32"))]
 use crate::keymap::Bind;
 use crate::pickers::PickerHost as _;
 use crate::{App, Route, Source};
@@ -454,17 +455,26 @@ impl Feature<App> for ProjectsFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        #[cfg(not(target_arch = "wasm32"))]
         builder.add_command(
-            CommandEntry::<App>::from_key("open-project", opencode_i18n::key!("command.project.open"), |s, tx| s.open_project_dialog(tx))
-                .bind_id(Bind::OpenProject.id())
-                .order(80),
+            CommandEntry::<App>::from_key(
+                "open-project",
+                opencode_i18n::key!("command.project.open"),
+                crate::commands::order::OPEN_PROJECT,
+                |s, tx| s.open_project_dialog(tx),
+            )
+            .bind_id(Bind::OpenProject.id()),
         );
         builder.add_command(
-            CommandEntry::<App>::from_key("copy-project", opencode_i18n::key!("command.project.copyID"), |s, tx| {
-                let id = s.active_session_id().and_then(|id| s.session(id)).map(|i| i.project.clone());
-                s.copy_id(id, tx);
-            })
-            .order(250)
+            CommandEntry::<App>::from_key(
+                "copy-project",
+                opencode_i18n::key!("command.project.copyID"),
+                crate::commands::order::COPY_PROJECT,
+                |s, tx| {
+                    let id = s.active_session_id().and_then(|id| s.session(id)).map(|i| i.project.clone());
+                    s.copy_id(id, tx);
+                },
+            )
             .when(|s| s.active_session_id().and_then(|id| s.session(id)).is_some_and(|i| !i.project.is_empty())),
         );
         builder.register_escape_layer(EscapeLayer::new(

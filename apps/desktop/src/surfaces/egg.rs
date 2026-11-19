@@ -38,8 +38,13 @@ impl Feature<App> for EggFeature {
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
         builder.add_command(
-            CommandEntry::from_key("egg.play", opencode_i18n::key!("rune.egg.play"), |s, tx| run_play_command(s, tx))
-                .when(|s| can_play_command(s)),
+            CommandEntry::from_key(
+                "egg.play",
+                opencode_i18n::key!("rune.egg.play"),
+                crate::commands::order::EGG_PLAY,
+                |s, tx| run_play_command(s, tx),
+            )
+            .when(|s| can_play_command(s)),
         );
         builder.add_system(Phase::React, "egg.poll", |s, now, tx| {
             let changed = poll(s, now, tx);

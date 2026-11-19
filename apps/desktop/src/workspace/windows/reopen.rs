@@ -178,6 +178,7 @@ pub fn poll(s: &App) {
 }
 
 /// The newest window kept to reopen, for Reopen closed window: read on the storage thread.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn reopen_newest(s: &App) {
     let wake = (*s.waker).clone();
     crate::storage::with_storage(move |st| {

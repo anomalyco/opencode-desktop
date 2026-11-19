@@ -306,34 +306,59 @@ impl Feature<App> for SessionMenuFeature {
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
         builder.add_command(
-            CommandEntry::<App>::from_key("rename", opencode_i18n::key!("command.session.rename"), |s, tx| {
-                let Some(id) = s.open_root_session() else { return };
-                tx.instant();
-                s.begin_rename(&Target::active(s, &id, Spot::Header));
-            })
+            CommandEntry::<App>::from_key(
+                "rename",
+                opencode_i18n::key!("command.session.rename"),
+                crate::commands::order::RENAME,
+                |s, tx| {
+                    let Some(id) = s.open_root_session() else { return };
+                    tx.instant();
+                    s.begin_rename(&Target::active(s, &id, Spot::Header));
+                },
+            )
             .bind_id(Bind::Rename.id())
-            .order(200)
             .when(App::in_root_session),
         );
         builder.add_command(
-            CommandEntry::<App>::from_key("export", opencode_i18n::key!("command.session.export"), |s, _| {
-                let Some(id) = s.open_root_session() else { return };
-                s.export_session_on(&crate::servers::runtime::current(), &id);
-            })
+            CommandEntry::<App>::from_key(
+                "export",
+                opencode_i18n::key!("command.session.export"),
+                crate::commands::order::EXPORT,
+                |s, _| {
+                    let Some(id) = s.open_root_session() else { return };
+                    s.export_session_on(&crate::servers::runtime::current(), &id);
+                },
+            )
             .describe(opencode_i18n::key!("command.session.export.description"))
             .slash("export")
             .section("session")
-            .order(210)
             .when(|s| s.open_root_session().is_some_and(|id| !s.exporting(crate::servers::runtime::active(s), &id))),
+        );
+        builder.add_command(
+            CommandEntry::<App>::from_key(
+                "copy-session",
+                opencode_i18n::key!("command.session.copyID"),
+                crate::commands::order::COPY_SESSION,
+                |s, tx| {
+                    let id = s.active_session_id().map(str::to_owned);
+                    s.copy_id(id, tx);
+                },
+            )
+            .section("session")
+            .when(|s| s.active_session_id().is_some()),
         );
         // Delete session (`message-timeline.tsx:268-277`): the open root session's confirmation.
         builder.add_command(
-            CommandEntry::<App>::from_key("session.delete", opencode_i18n::key!("command.session.delete"), |s, tx| {
-                let Some(id) = s.open_root_session() else { return };
-                tx.instant();
-                s.ask_delete(&id);
-            })
-            .order(240)
+            CommandEntry::<App>::from_key(
+                "session.delete",
+                opencode_i18n::key!("command.session.delete"),
+                crate::commands::order::SESSION_DELETE,
+                |s, tx| {
+                    let Some(id) = s.open_root_session() else { return };
+                    tx.instant();
+                    s.ask_delete(&id);
+                },
+            )
             .when(App::in_root_session),
         );
         builder.register_overlay(

@@ -230,16 +230,24 @@ impl Feature<App> for WorkspaceToolsFeature {
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
         builder.add_command(
-            CommandEntry::<App>::from_key("session.location.select", opencode_i18n::key!("session.location.worktree"), |s, tx| s.open_git_location(false, tx))
-                .bind_id(Bind::LocationSelect.id())
-                .order(100)
-                .when(git_draft),
+            CommandEntry::<App>::from_key(
+                "session.location.select",
+                opencode_i18n::key!("session.location.worktree"),
+                crate::commands::order::SESSION_LOCATION_SELECT,
+                |s, tx| s.open_git_location(false, tx),
+            )
+            .bind_id(Bind::LocationSelect.id())
+            .when(git_draft),
         );
         builder.add_command(
-            CommandEntry::<App>::from_key("session.branch.choose", opencode_i18n::key!("command.session.branch.choose"), |s, tx| s.open_git_location(true, tx))
-                .bind_id(Bind::BranchChoose.id())
-                .order(110)
-                .when(git_draft),
+            CommandEntry::<App>::from_key(
+                "session.branch.choose",
+                opencode_i18n::key!("command.session.branch.choose"),
+                crate::commands::order::SESSION_BRANCH_CHOOSE,
+                |s, tx| s.open_git_location(true, tx),
+            )
+            .bind_id(Bind::BranchChoose.id())
+            .when(git_draft),
         );
         builder.add_setup("workspace_tools.home_search_waker", |s, waker| s.home_search.set_waker(waker));
         builder.add_setup("workspace_tools.rune_mcp", |s, waker| {

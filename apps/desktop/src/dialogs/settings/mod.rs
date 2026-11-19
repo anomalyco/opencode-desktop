@@ -703,14 +703,19 @@ impl Feature<App> for SettingsFeature {
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
         builder.add_command(
-            CommandEntry::<App>::from_key("settings", opencode_i18n::key!("command.settings.open"), |s, tx| s.toggle_settings(tx))
-                .bind_id(Bind::Settings.id())
-                .order(70),
+            CommandEntry::<App>::from_key(
+                "settings",
+                opencode_i18n::key!("command.settings.open"),
+                crate::commands::order::SETTINGS,
+                |s, tx| s.toggle_settings(tx),
+            )
+            .bind_id(Bind::Settings.id()),
         );
         // Flips Text rendering from the palette, to compare renderers on the same screen.
         builder.add_command(CommandEntry::<App>::from_key(
             "text-rendering.cycle",
             opencode_i18n::key!("rune.textRendering.cycle"),
+            crate::commands::order::TEXT_RENDERING_CYCLE,
             |s, _| s.set_text_renderer(s.settings.text_renderer.cycle()),
         ));
         builder.register_overlay(
