@@ -13,17 +13,9 @@ on:
     paths:
       - "apps/desktop/**"
       - "apps/installer/**"
-      - "crates/browser-pane/**"
-      - "crates/hex-client/**"
-      - "crates/opencode-i18n/**"
-      - "crates/opencode-kit/**"
-      - "crates/opencode-plugin-spec/**"
-      - "crates/otlp-lite/**"
-      - "crates/project-icon/**"
-      - "crates/rune-parts/**"
-      - "crates/session-view/**"
-      - "crates/terminal/**"
-      - "crates/win-install/**"
+      - "crates/**"
+      - "features/**"
+      - "scripts/**"
       - "plugins/**"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -47,6 +39,22 @@ env:
   SEER_TEAM_ID: 5NZ4Q7NXJ4
 
 jobs:
+  guardrails:
+    if: >-
+      github.event.action != 'closed'
+      && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Rust toolchain
+        run: rustup toolchain install
+      - name: Run cheap guardrails
+        run: bash scripts/guardrails.sh
+
   plan:
     if: >-
       github.event.action != 'closed'
