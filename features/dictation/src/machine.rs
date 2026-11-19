@@ -7,7 +7,7 @@ use hex_client::{Cmd, Heard, Presence, Problem};
 use rune::machine::Attempt;
 
 use crate::watch::Backend;
-use crate::{Dictation, HOLD};
+use crate::{Dictation, FINISH_LIMIT, HOLD, PREPARING_AFTER};
 
 /// Where a dictation is, the machine every press, key and word from Hex goes through ([`step`]).
 /// A press goes `Idle` (or `Failed`) → `Starting` → `Listening` → `Finishing` → `Idle` with the
@@ -38,12 +38,45 @@ pub(crate) struct Words {
     pub(crate) tentative: String,
 }
 
-/// One recording: its attempt, when the press started it, and how to reach its Hex thread
-/// (`None` with the fake).
+/// Which backend drives an active recording.
+pub(crate) enum RecBackend {
+    /// In-process fake Hex for headless runs, scenes, fixtures, and storybook.
+    Fake,
+    /// Hex backend selected; waiting for its worker thread to attach via [`Event::ThreadStarted`].
+    Starting,
+    /// Live Hex thread with its command channel and whether it holds a window waker.
+    Hex { cmd: Sender<Cmd>, wakes: bool },
+}
+
+/// One recording: its attempt, when the press started it, and its backend transport.
 pub(crate) struct Rec {
     pub(crate) attempt: Attempt,
     pub(crate) since: f64,
-    pub(crate) cmd: Option<Sender<Cmd>>,
+    pub(crate) backend: RecBackend,
+}
+
+impl Rec {
+    pub(crate) fn is_fake(&self) -> bool {
+        matches!(self.backend, RecBackend::Fake)
+    }
+
+    pub(crate) fn wakes(&self) -> bool {
+        matches!(self.backend, RecBackend::Hex { wakes: true, .. })
+    }
+
+    pub(crate) fn cmd(&self) -> Option<&Sender<Cmd>> {
+        match &self.backend {
+            RecBackend::Hex { cmd, .. } => Some(cmd),
+            RecBackend::Fake | RecBackend::Starting => None,
+        }
+    }
+
+    pub(crate) fn into_cmd(self) -> Option<Sender<Cmd>> {
+        match self.backend {
+            RecBackend::Hex { cmd, .. } => Some(cmd),
+            RecBackend::Fake | RecBackend::Starting => None,
+        }
+    }
 }
 
 /// What reaches the machine.
@@ -56,18 +89,40 @@ pub(crate) enum Event {
     /// Send or ⏎ (`alternate` for ⌘⏎).
     Submit { now: f64, alternate: bool },
     Escape,
+    /// The Hex worker thread for `attempt` started, with its command channel and waker flag.
+    ThreadStarted { attempt: Attempt, cmd: Sender<Cmd>, wakes: bool },
+    /// A frame tick at `now`: marks slow starts and times out stalled finishes when no new
+    /// events arrived (`heard_empty`).
+    Tick { now: f64, heard_empty: bool },
+    /// Clears a failed dictation error back to idle.
+    DismissError,
+    /// Cancels any active recording and transitions to `Failed`.
+    Fail(Problem),
     /// Hex's thread (or the fake) heard something for `attempt`.
     Heard { attempt: Attempt, heard: Heard },
 }
 
 /// What the caller does about it.
 pub(crate) enum Effect {
-    /// Start a recording: the Hex thread for `attempt`, or the fake.
+    /// Start the Hex worker thread for `attempt`.
     Start(Attempt),
     /// Tell the recording's Hex thread to stop (finish) and hand over the words.
     Stop,
+    /// Cancel a recording's Hex thread after leaving an active phase.
+    Cancel(Sender<Cmd>),
     /// Put the words at the caret, then send them when `Some` (true for ⌘⏎).
     Words { words: String, send: Option<bool> },
+    /// Finish timed out: cancel the Hex thread if any and insert any partial words heard so far.
+    TimedOut { words: String, cancel: Option<Sender<Cmd>> },
+}
+
+/// Whether [`Event::Tick`] at `now` would transition `d` (lets `poll` skip mutating `Tracked`).
+pub(crate) fn tick_due(d: &Dictation, now: f64, heard_empty: bool) -> bool {
+    match &d.phase {
+        Phase::Starting { rec, slow: false, .. } => now - rec.since >= PREPARING_AFTER,
+        Phase::Finishing { stopped, .. } => heard_empty && now + 1e-9 >= stopped + FINISH_LIMIT,
+        _ => false,
+    }
 }
 
 /// Whether the machine took the event.
@@ -84,15 +139,19 @@ pub(crate) fn step(d: &mut Dictation, event: Event) -> (bool, Option<Effect>) {
                 return (true, None);
             }
             let attempt = d.seq.next();
-            let rec = Rec { attempt, since: now, cmd: None };
+            let fake = matches!(d.backend.get(), Some(Backend::Fake));
+            let rec = Rec {
+                attempt,
+                since: now,
+                backend: if fake { RecBackend::Fake } else { RecBackend::Starting },
+            };
             let hold = held.then_some(now);
-            let fake_ready = matches!(d.backend.get(), Some(Backend::Fake)) && d.prepare <= 0.0;
-            d.phase = if fake_ready {
+            d.phase = if fake && d.prepare <= 0.0 {
                 Phase::Listening { rec, heard: None, hold }
             } else {
                 Phase::Starting { rec, slow: false, hold }
             };
-            (true, Some(Effect::Start(attempt)))
+            (true, (!fake).then_some(Effect::Start(attempt)))
         }
         (Phase::Starting { rec, .. }, Event::Toggle { now, .. }) => finish(d, rec, None, now, None),
         (Phase::Listening { rec, heard, .. }, Event::Toggle { now, .. }) => finish(d, rec, heard, now, None),
@@ -116,11 +175,45 @@ pub(crate) fn step(d: &mut Dictation, event: Event) -> (bool, Option<Effect>) {
         }
         // A send clears what went wrong, as iOS's does, and goes ahead.
         (Phase::Failed(_), Event::Submit { .. }) => (false, None),
-        (phase @ (Phase::Starting { .. } | Phase::Listening { .. } | Phase::Finishing { .. }), Event::Escape) => {
+        (Phase::Failed(_), Event::DismissError) => (true, None),
+        (phase, Event::Fail(why)) => {
+            let cancel = match phase {
+                Phase::Starting { rec, .. } | Phase::Listening { rec, .. } | Phase::Finishing { rec, .. } => rec.into_cmd(),
+                Phase::Idle | Phase::Failed(_) => None,
+            };
+            d.phase = Phase::Failed(why);
+            (true, cancel.map(Effect::Cancel))
+        }
+        (Phase::Starting { rec, .. } | Phase::Listening { rec, .. } | Phase::Finishing { rec, .. }, Event::Escape) => {
+            (true, rec.into_cmd().map(Effect::Cancel))
+        }
+        (mut phase, Event::ThreadStarted { attempt, cmd, wakes }) => {
+            let matched = match &mut phase {
+                Phase::Starting { rec, .. } | Phase::Listening { rec, .. } | Phase::Finishing { rec, .. } if rec.attempt == attempt => {
+                    rec.backend = RecBackend::Hex { cmd, wakes };
+                    true
+                }
+                _ => false,
+            };
             d.phase = phase;
-            d.cancel_thread();
-            d.phase = Phase::Idle;
+            (matched, None)
+        }
+        (Phase::Starting { rec, slow: false, hold }, Event::Tick { now, .. }) if now - rec.since >= PREPARING_AFTER => {
+            d.phase = Phase::Starting { rec, slow: true, hold };
             (true, None)
+        }
+        (Phase::Finishing { rec, heard, stopped, .. }, Event::Tick { now, heard_empty: true }) if now + 1e-9 >= stopped + FINISH_LIMIT => {
+            let words = match heard {
+                Some(w) => format!("{}{}", w.stable, w.tentative),
+                None => String::new(),
+            };
+            let says = if words.trim().is_empty() {
+                opencode_i18n::t!("rune.dictation.timedOutEmpty")
+            } else {
+                opencode_i18n::t!("rune.dictation.timedOut")
+            };
+            d.phase = Phase::Failed(Problem { says: says.to_owned(), fix: None });
+            (true, Some(Effect::TimedOut { words, cancel: rec.into_cmd() }))
         }
         (phase, Event::Heard { attempt, heard }) => {
             if d_attempt(&phase) != Some(attempt) {
