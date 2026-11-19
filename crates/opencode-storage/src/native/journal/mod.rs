@@ -211,6 +211,23 @@ pub(crate) fn finish(saved: bool) {
     j.busy.store(false, Ordering::Release);
 }
 
+/// Whether the draft journal is closed and clean (or not attached), so `repage()` may safely drop
+/// and rewrite its pages without losing unsettled drafts.
+pub(crate) fn is_clean() -> bool {
+    let Some(j) = JOURNAL.get() else { return true };
+    if j.open.load(Ordering::Acquire) {
+        return false;
+    }
+    while j.busy.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_err() {
+        std::hint::spin_loop();
+    }
+    // SAFETY: the CAS loop acquired `busy` with `Acquire`, giving exclusive access to `j.inner` until `busy` is released below.
+    #[allow(unsafe_code)]
+    let clean = unsafe { &*j.inner.get() }.header.clean;
+    j.busy.store(false, Ordering::Release);
+    clean
+}
+
 impl Inner {
     fn write(&mut self, j: &Journal, key: &str, seq: u64, text: Option<&str>) {
         let at = text.and_then(|t| self.append(j, key, seq, t));

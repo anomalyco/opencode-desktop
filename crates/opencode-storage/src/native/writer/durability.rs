@@ -288,10 +288,13 @@ impl Writer {
         }
     }
 
+    fn has_pending(&self) -> bool {
+        wb::has_pending(&self.state) || wb::has_pending(&self.docs) || wb::has_pending(&self.windows) || wb::has_pending(&self.previews) || wb::has_pending(&self.caches)
+    }
+
     pub(super) fn flush(&mut self, reason: FlushReason, started: Instant) -> FlushReport {
         let quit = matches!(reason, FlushReason::Quit | FlushReason::SessionEnd | FlushReason::UpdateRestart);
-        let pending = wb::has_pending(&self.state) || wb::has_pending(&self.docs) || wb::has_pending(&self.windows) || wb::has_pending(&self.previews) || wb::has_pending(&self.caches);
-        if !pending && (!quit || self.wal.is_clean()) {
+        if !self.has_pending() && (!quit || self.wal.is_clean()) {
             return FlushReport { clean: true, micros: super::super::micros(started), ..FlushReport::default() };
         }
         self.written = 0;
@@ -320,6 +323,11 @@ impl Writer {
     /// pages. Rewritten with `VACUUM` under the rollback journal, so a kill midway leaves the old
     /// file; the boot record's raw read is kept only if its table's root is still page 2.
     pub(super) fn repage(&mut self) {
+        // Never drop `journal_meta` / `journal` or rewrite the file while unsaved rows, a dirty
+        // WAL, write trouble, or unsettled draft-journal entries remain.
+        if !self.wal.is_clean() || self.has_pending() || crate::write_trouble().is_some() || !super::super::journal::is_clean() {
+            return;
+        }
         let get = |pragma: &str| self.conn.query_row(&format!("PRAGMA {pragma}"), [], |r| r.get::<_, i64>(0)).unwrap_or(0);
         let (page, pages) = (get("page_size"), get("page_count"));
         if page <= REPAGE_TO || page * pages > REPAGE_MAX {
