@@ -1,61 +1,19 @@
 # OpenCode (Rune) (`rune-desktop`)
 
-`anomalyco/rune-desktop` houses **OpenCode (Rune)** (`apps/desktop`) and the shared Rust crates (`crates/*`) that any Rune app (including `anomalyco/seer`) can embed by git dependency.
+`anomalyco/rune-desktop` houses **OpenCode (Rune)** (`apps/desktop`, `apps/web`, `apps/installer`) and the shared Rust crates (`crates/*`) that any Rune app (including `anomalyco/seer`) can embed by git dependency.
 
 ## Layout (Progressive Disclosure)
 
-Start at the top and go deeper only when a feature needs lower-level control (see [`ARCHITECTURE.md`](ARCHITECTURE.md)):
+Start at the top and go deeper only when a feature needs lower-level control. See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the complete crate inventory, dependency graph, and "Which file do I touch?" wiring guide.
 
-- **`plugins/`** (Tier 1 — default for ~80% of features): Luau plugins compiled against `opencode-plugin-spec`, hot-reloaded in place with zero Rust edits.
-- **`features/`** (Tier 2 — decoupled Rust feature crates):
-  - `features/annotations` (`opencode-feature-annotations`): timeline/terminal quote toolbar, composer comment cards, floating quote-comment editor, and code/diff line comments.
-  - `features/composer-input` (`opencode-feature-composer-input`): composer attachments, remote upload runner/toast, file dropzone overlay, suggestions state machine, history popover, slash commands, and prompt history.
-  - `features/connect` (`opencode-feature-connect`): provider connect dialog, catalog sync, picker reads, and ChatGPT plan welcome.
-  - `features/dictation` (`opencode-feature-dictation`): Hex voice dictation state machine & polling.
-  - `features/egg` (`opencode-feature-egg`): new-session GPU wordmark & Brick Breaker Easter egg.
-  - `features/files` (`opencode-feature-files`): workspace file tree, file viewer, Markdown/HTML/table/Mermaid/image/video previews, link resolution, and file watcher engine.
-  - `features/find` (`opencode-feature-find`): session timeline Find state machine, incremental transcript search index, match highlighting, and find bar.
-  - `features/history` (`opencode-feature-history`): session timeline message navigation, Jump to message dialog, Rewind, and Fork from message dialog.
-  - `features/inbox` (`opencode-feature-inbox`): session prompt queue strip, drag/edit/rewrite state machines, durable prompt outbox, and delivery receipt checks.
-  - `features/mcp` (`opencode-feature-mcp`): MCP server toggle machine, MCPs dialog, and browser OAuth sign-in dialog.
-  - `features/mentions` (`opencode-feature-mentions`): composer `@` mentions popover, search state machine, badges, session chips, and wire encoding.
-  - `features/narrow` (`opencode-feature-narrow`): narrow-window (<768 px) layout mode, view switcher, tabs/More drawers, and draggable sheets.
-  - `features/notifications` (`opencode-feature-notifications`): system notifications, actionable permission/question toasts, coordinator, and activation helpers.
-  - `features/office` (`opencode-feature-office`): Word, Excel, and PowerPoint Vello preview engine.
-  - `features/open-in` (`opencode-feature-open-in`): external editor/terminal detection & launch.
-  - `features/panels` (`opencode-feature-panels`): session side, split, and bottom panel strip, drag/resize/closing state machines, launchers, menus, and persistence.
-  - `features/projects` (`opencode-feature-projects`): project tracking, Home across servers, session JSON import, sidebar organize/customize/recent state, and remote directory picker dialog.
-  - `features/restore` (`opencode-feature-restore`): window state restoration, composer drafts, blob attachments, timeline places, boot previews, offline transcript copies, and draft undo persistence.
-  - `features/review` (`opencode-feature-review`): review changes engine, untracked folder loader, narrow Changes view, and focus anchoring.
-  - `features/session-menu` (`opencode-feature-session-menu`): session right-click context menus, inline and dialog rename, undoable delete, export, and read/mute/hide preferences.
-  - `features/settings` (`opencode-feature-settings`): Settings two-pane shell, preferences persistence, search index, and all built-in settings pages.
-  - `features/subagents` (`opencode-feature-subagents`): running-work activity capsule, background shells state machine & output followers, and subagent reply bar.
-  - `features/switcher` (`opencode-feature-switcher`): command/file/session palette switcher, shared session search index, and project/worktree/branch switcher.
-  - `features/terminal-surface` (`opencode-feature-terminal-surface`): Ghostty-VT terminal pane, workspace tabs, persistence, shell integration, inline rename, find, links, and paste guard.
-  - `features/timeline-extras` (`opencode-feature-timeline-extras`): agent todo pill and list, permission/question reply state machines, live subagent step rows, permission auto-accept, and timeline capture fixtures.
-  - `features/tips` (`opencode-feature-tips`): paced one-time onboarding tip scheduler.
-  - `features/updater` (`opencode-feature-updater`): release feed, verification, and platform update engine.
-  - `features/usage` (`opencode-feature-usage`): usage limits parser, Usage dialog, and picker warnings.
-  - `features/workspace-tools` (`opencode-feature-workspace-tools`): new-worktree branch picker, per-folder `rune` client MCP hub, Home session search, and local full-text message search.
-- **`crates/`** (Tier 3 — kernel, platform, and embeddable libraries):
-  - `crates/opencode-code-view`: shared virtualized syntax-highlighted code & diff viewers plus review, delimited table, and label-find data models.
-  - `crates/opencode-kernel`: shell kernel registries (`StateSlots`, `OverlayStack`, `LifecycleScheduler`, `CommandRegistry`, `EventBus`, `Feature` / `SurfaceProvider`).
-  - `crates/opencode-search`: headless full-text, fuzzysort, path index, file ranking, and URL query primitives (`#![forbid(unsafe_code)]`).
-  - `crates/opencode-ui`: bottom-layer OpenCode UI design-system foundation (`palette`, `themes`, `style`, `dialog`, `scroller`, `odometer`, `sheet`, `popover`, `provider_mark`, `keymap`, `widgets`, `panel_chrome`, `popup`, `toast`; `#![forbid(unsafe_code)]`, zero dependency on `session-view`).
-  - `crates/opencode-platform`: OS and WASM platform helpers (wall clock, OTLP telemetry, askpass, HTTP fetch).
-  - `crates/opencode-plugin-runtime`: reusable App-independent Luau plugin runtime primitives (catalogs, console, flyout, hot reload, icons, images, machines, power, processes, QR, redraw, reveal, sources, tasks).
-  - `crates/session-view`: embeddable OpenCode session timeline built on `opencode-ui` (`TimelineHost` + focused capability sub-traits in `traits.rs`, `ViewState`, `examples/read_only.rs`). Keep it free of `opencode-desktop`-only window/tab/sidebar assumptions so Seer and other Rune apps can embed it directly.
-  - `crates/opencode-kit`: reusable OpenCode HTTP/SSE/WS client and session/transcript model. Keep it free of app-specific concepts.
-  - `crates/rune-parts`: ```` ```ui ```` outline catalog, parser, checker, and optional Rune `view` feature (`skills/rune-ui/SKILL.md`).
-  - `crates/browser-pane` + `apps/browser-engine` (excluded from workspace): embedded Chromium browser pane and its CEF sidecar.
-  - `crates/terminal`: Ghostty-VT terminal pane over OpenCode PTY WebSockets.
-  - `crates/project-icon`: procedural CPU-shaded project icons.
-  - `crates/hex-client`: local Hex voice dictation client.
-  - `crates/otlp-lite`: lightweight OTLP/HTTP trace and log exporter.
-- **`apps/`** (Tier 4 — host shells & installers):
-  - `apps/desktop` (`opencode-desktop`): the OpenCode (Rune) desktop client organized by domain (`shell/`, `session/`, `workspace/`, `surfaces/`, `dialogs/`, `plugin_host/`, `stories/`).
-  - `apps/web` (`opencode-web`): WASM / WebGPU browser host.
-  - `apps/installer`: Windows setup bootstrapper.
+- **`plugins/`** (Tier 1 — default): `--!strict` Luau plugins targeting `opencode-plugin-spec`, hot-reloaded in place with zero Rust edits.
+- **`features/`** (Tier 2): decoupled Rust feature crates (`opencode-feature-*`) with zero cross-feature dependencies and non-generic `&mut dyn *Host` boundaries. Scaffold new plugins or features with `scripts/new-feature.sh` (or `pwsh scripts/new-feature.ps1`).
+- **`crates/`** (Tier 3): shell kernel (`opencode-kernel`), bottom-layer UI design-system foundation (`opencode-ui`, zero `session-view` dependency), headless runtime (`opencode-runtime`), platform/storage/search/i18n/plugin-runtime libraries, and embeddable crates (`session-view` built on `opencode-ui`, `opencode-code-view`, `opencode-kit`, `rune-parts`, `terminal`, `browser-pane`, `office-preview`, `project-icon`, `hex-client`, `otlp-lite`). Keep `session-view` free of `opencode-desktop`-only window/tab/sidebar assumptions and `opencode-kit` free of app-specific concepts so Seer and other Rune apps can embed them directly.
+- **`apps/`** (Tier 4):
+  - `apps/desktop` (`opencode-desktop`): shared desktop library (`opencode_desktop`) plus thin native binary (`main.rs`), organized into root entry/wiring files and domain folders (`shell/`, `session/`, `workspace/`, `surfaces/`, `dialogs/`, `plugin_host/`, `stories/`). Legacy `App` fields are clustered in `shell/app_state.rs`; new feature state goes in `opencode_kernel::StateSlots` and modal dialogs, Escape layers, commands, and per-frame polls register in `Feature::register`.
+  - `apps/web` (`opencode-web`): thin `wasm32`/WebGPU browser entrypoint depending directly on `opencode-desktop` with zero duplicated `features/*` dependencies.
+  - `apps/installer` (`opencode-rune-setup`): Windows per-user setup bootstrapper.
+  - `apps/browser-engine` (`opencode-browser-engine`): standalone out-of-process CEF sidecar bundle, excluded from the Cargo workspace in root `Cargo.toml`.
 
 Rune comes from `anomalyco/rune` as a git dependency pinned in the root `Cargo.toml`. Pin only revs on Rune's `dev` branch; upstream fixes go to `anomalyco/rune` first, then bump the rev here.
 
@@ -70,9 +28,12 @@ Application code only. This repo has no automated tests of any kind, and none ge
 ## Working here
 
 - Keep `session-view`'s standalone example building: `cargo check -p session-view --examples`.
-- File size, folder shape & architecture guardrails: keep Rust files under 800 lines (1,500 hard cap, `scripts/file-size.sh`); keep prefix families in subfolders (`scripts/folder-shape.sh`); keep crate dependency direction and root breadth clean (`scripts/arch-check.sh`).
-- Dialog sizes: every dialog takes an `opencode_ui::dialog::DialogSize` preset (re-exported as `session_view::dialog::DialogSize`; normal 480, large 720 × 600, x-large 880 × 680; `widgets::sized` / `sized_modal` in the app), never its own width or height (`scripts/dialog-size.sh`).
-- Hot reload & local install: `apps/desktop/scripts/dev.sh` (`apps/desktop/scripts/bundle.sh` / `scripts/mac-app`) and `apps/desktop/scripts/hot.sh` (`scripts/rune-hot`).
+- Guardrails (full rule list in [`ARCHITECTURE.md`](ARCHITECTURE.md)):
+  - `scripts/arch-check.sh`: enforces downward crate layers, zero cycles, zero cross-feature deps, core/feature `#![forbid(unsafe_code)]`, `<= 10` root `.rs` files in `apps/desktop/src/`, `struct App` `<= 65` fields, `apps/web` depending on `opencode-desktop`, zero `#[test]`/`#[cfg(test)]`, hard `<= 800`-line cap in `apps/desktop/`, `features/`, and hand-written workspace `crates/`, and zero `use crate::*;` wildcards in `apps/desktop/src/`.
+  - `scripts/file-size.sh`: warns `> 800` and errors `> 1500` non-test lines across all `apps/`, `crates/`, and `features/`.
+  - `scripts/folder-shape.sh`: enforces prefix-family subfolders and folder breadth (`> 40` warn, `> 60` error).
+  - `scripts/dialog-size.sh`: every dialog takes an `opencode_ui::dialog::DialogSize` preset (re-exported as `session_view::dialog::DialogSize`; `Normal` 480 × 368, `Large` 720 × 600, `XLarge` 880 × 680; `opencode_ui::widgets::{sized, sized_modal}`, re-exported as `crate::widgets` in `apps/desktop`), never its own width or height.
+- Fast local loop & profiles: `scripts/dev-fast.sh` / `pwsh scripts/dev-fast.ps1` (see [`docs/fast-builds.md`](docs/fast-builds.md)); macOS `.app` install via `apps/desktop/scripts/dev.sh` (`apps/desktop/scripts/bundle.sh` / `scripts/mac-app`); live-patching via `apps/desktop/scripts/hot.sh` (`scripts/rune-hot`).
 - Keep personal paths (`/Users/<real-name>`), tailnet hostnames (`*.ts.net`, except `*.example.ts.net`), real session IDs, and credentials out of code, scripts, and commits.
 
 ## Explicit state machines

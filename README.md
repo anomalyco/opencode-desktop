@@ -1,6 +1,6 @@
 # OpenCode (Rune)
 
-Native macOS desktop client for OpenCode built on [Rune](https://github.com/anomalyco/rune), together with reusable Rust crates so any Rune app (such as Seer) can connect to an OpenCode server and embed live session timelines, ```` ```ui ```` outlines, terminals, or browser panes.
+Native desktop client (macOS, Windows, and Linux) and `wasm32`/WebGPU browser client for OpenCode built on [Rune](https://github.com/anomalyco/rune), together with reusable Rust crates so any Rune app (such as Seer) can connect to an OpenCode server and embed live session timelines, ```` ```ui ```` outlines, terminals, or browser panes.
 
 ## Quick start
 
@@ -11,14 +11,9 @@ Native macOS desktop client for OpenCode built on [Rune](https://github.com/anom
    ```
    OpenCode (Rune) discovers `http://127.0.0.1:4096` or `~/.config/opencode/service.json` automatically (`--server <url>` or `OPENCODE_SERVER_URL` overrides it) and never starts a server on its own.
 
-For the fastest local/mesh edit-compile-run loop (`dev-fast` profile, skipping Office/Vello and standalone story modules, Luau hot reload), run `scripts/dev-fast.sh` (macOS/Linux) or `pwsh scripts/dev-fast.ps1` (Windows). See [docs/fast-builds.md](docs/fast-builds.md) for the profile matrix, `sccache`, and fast linkers.
+For the fastest local or mesh edit-compile-run loop (`dev-fast` profile, skipping `office` and standalone `stories` modules, with Luau hot reload), run `scripts/dev-fast.sh` (macOS/Linux) or `pwsh scripts/dev-fast.ps1` (Windows). See [docs/fast-builds.md](docs/fast-builds.md) for all Cargo profiles, `sccache`, and fast linkers.
 
-To scaffold a new feature in the right lane (or `pwsh scripts/new-feature.ps1` on Windows):
-
-```sh
-scripts/new-feature.sh plugin <id>    # Lane A (default): Luau plugin, hot-reloaded with --plugin-hot
-scripts/new-feature.sh feature <id>   # Lane B: decoupled Rust feature crate
-```
+To scaffold a new plugin (`plugins/<id>/`) or Rust feature crate (`features/<id>/`), run `scripts/new-feature.sh` (or `pwsh scripts/new-feature.ps1` on Windows); see [ARCHITECTURE.md](ARCHITECTURE.md) for lane rules and wiring steps.
 
 To run the standalone embeddable timeline viewer and its interactive playground without a server:
 
@@ -26,75 +21,33 @@ To run the standalone embeddable timeline viewer and its interactive playground 
 cargo run -p session-view --example read_only
 ```
 
-To build and install `~/Applications/OpenCode (Rune).app` locally:
+To build and install `~/Applications/OpenCode (Rune).app` locally on macOS:
 
 ```sh
 apps/desktop/scripts/dev.sh            # dev profile (optimized dependencies)
 apps/desktop/scripts/dev.sh --release  # release profile
 ```
 
-A release build is what ships: the whole program optimised as one (fat LTO, one codegen unit) and, on
-Windows x64, with the profile-guided optimisation profile in `apps/desktop/pgo/`. Build and time it
-with `pwsh apps/desktop/scripts/release.ps1` (a plain `cargo build --release` leaves the profile out;
-it takes 25 to 60 minutes and about 10 GB for one rustc). `--profile release-quick` builds in minutes
-for iterating.
+To build and serve the browser target (`apps/web`) locally:
 
-For prebuilt `dev` and side-by-side pull-request `.dmg` builds, see [docs/trying-opencode-rune.md](docs/trying-opencode-rune.md). Releases: [docs/releasing.md](docs/releasing.md).
+```powershell
+pwsh scripts/web.ps1
+```
+
+A `release` build is what ships: fat LTO and one codegen unit, plus the profile-guided optimization profiles in `apps/desktop/pgo/` on Windows x64 (`pwsh apps/desktop/scripts/release.ps1`) and Apple Silicon macOS (`apps/desktop/scripts/build-app.sh`). A plain `cargo build --release` omits the PGO profile and takes 25–60 minutes and ~10 GB RAM for one `rustc`. Use `--profile release-quick` or `--profile release-thin` for faster optimized iteration (see [docs/fast-builds.md](docs/fast-builds.md)).
+
+For prebuilt `dev` and side-by-side pull-request builds, see [docs/trying-opencode-rune.md](docs/trying-opencode-rune.md). Releases across macOS, Windows, and Linux: [docs/releasing.md](docs/releasing.md).
 
 ## Workspace layout
 
-Organized by progressive disclosure across `51` library crates (`29` decoupled feature crates + `22` core crates, `0` cycles, `0` folder-shape exceptions, `<= 800` lines hard cap across `apps/desktop/` and `features/`; see [ARCHITECTURE.md](ARCHITECTURE.md)):
+Organized by progressive disclosure in four tiers (full crate inventory, dependency graph, and wiring guide in [ARCHITECTURE.md](ARCHITECTURE.md)):
 
-| Path | Crate / Scope | Purpose |
+| Tier | Path | Purpose |
 | --- | --- | --- |
-| `plugins/*` | Built-in Luau plugins | Default home for ~80% of UI features (panels, dialogs, commands, server sources); hot reloads without touching Rust |
-| `features/annotations` | `opencode-feature-annotations` | Timeline/terminal quote toolbar, composer comment cards, floating quote-comment editor, and code/diff line comments |
-| `features/composer-input` | `opencode-feature-composer-input` | Composer attachments, remote upload runner/toast, file dropzone overlay, suggestions state machine, history popover, slash commands, and prompt history |
-| `features/connect` | `opencode-feature-connect` | Provider and integration connect dialog, catalog sync, picker catalog reads, and ChatGPT plan welcome |
-| `features/dictation` | `opencode-feature-dictation` | Hex voice dictation state machine, availability polling, and composer insertion |
-| `features/egg` | `opencode-feature-egg` | New-session GPU wordmark & Brick Breaker Easter egg |
-| `features/files` | `opencode-feature-files` | Workspace file tree, file viewer, Markdown/HTML/table/Mermaid/image/video previews, link resolution, and file watcher engine |
-| `features/find` | `opencode-feature-find` | Session timeline Find (`Cmd/Ctrl+F`) state machine, incremental transcript search index, match highlighting, and find bar |
-| `features/history` | `opencode-feature-history` | Session timeline message navigation, Jump to message dialog, Rewind (`/undo`, `/redo`), and Fork from message dialog |
-| `features/inbox` | `opencode-feature-inbox` | Session prompt queue strip, drag/edit/rewrite state machines, durable prompt outbox, and delivery receipt checks |
-| `features/mcp` | `opencode-feature-mcp` | MCP server toggle machine, MCPs dialog, and browser OAuth sign-in dialog |
-| `features/mentions` | `opencode-feature-mentions` | Composer `@` mentions popover, search state machine, badges, session chips, and wire encoding |
-| `features/narrow` | `opencode-feature-narrow` | Narrow-window (<768 px) layout mode, view switcher, tabs/More drawers, and draggable sheets |
-| `features/notifications` | `opencode-feature-notifications` | System notifications, actionable permission/question toasts, coordinator, and activation helpers |
-| `features/office` | `opencode-feature-office` | Word, Excel, and PowerPoint Vello preview engine |
-| `features/open-in` | `opencode-feature-open-in` | External editor/terminal detection, launching, preferred app persistence, and URL opening |
-| `features/panels` | `opencode-feature-panels` | Session side, split, and bottom panel strip, drag/resize/closing state machines, launchers, menus, and persistence |
-| `features/projects` | `opencode-feature-projects` | Project tracking, Home across servers, session JSON import, sidebar organize/customize/recent state, and remote directory picker dialog |
-| `features/restore` | `opencode-feature-restore` | Window state restoration, composer drafts, blob attachments, timeline places, boot previews, offline transcript copies, and draft undo persistence |
-| `features/review` | `opencode-feature-review` | Review changes engine, untracked folder loader, narrow Changes view, and focus anchoring |
-| `features/session-menu` | `opencode-feature-session-menu` | Session right-click context menus, inline and dialog rename, undoable delete, export, and read/mute/hide preferences |
-| `features/settings` | `opencode-feature-settings` | Settings two-pane shell, preferences persistence, search index, and all built-in settings pages |
-| `features/subagents` | `opencode-feature-subagents` | Running-work activity capsule, background shells state machine & output followers, and subagent reply bar |
-| `features/switcher` | `opencode-feature-switcher` | Command/file/session palette switcher, shared session search index, and project/worktree/branch switcher |
-| `features/terminal-surface` | `opencode-feature-terminal-surface` | Ghostty-VT terminal pane, workspace tabs, persistence, shell integration, inline rename, find, links, and paste guard |
-| `features/timeline-extras` | `opencode-feature-timeline-extras` | Agent todo pill and list, permission/question reply state machines, live subagent step rows, permission auto-accept, and timeline capture fixtures |
-| `features/tips` | `opencode-feature-tips` | Paced one-time onboarding tip state machine and persistence |
-| `features/updater` | `opencode-feature-updater` | Release feed, verification, and platform update engine |
-| `features/usage` | `opencode-feature-usage` | Usage limits parser, Usage dialog, and model-picker budget warnings |
-| `features/workspace-tools` | `opencode-feature-workspace-tools` | New-worktree branch picker, per-folder `rune` client MCP hub, Home session search, and local full-text message search |
-| `crates/opencode-code-view` | `opencode-code-view` | Shared virtualized syntax-highlighted code and diff viewers plus review, delimited table, and label-find data models |
-| `crates/opencode-kernel` | `opencode-kernel` | Shell kernel registries (`StateSlots`, `OverlayStack`, `LifecycleScheduler`, `CommandRegistry`, `EventBus`) |
-| `crates/opencode-runtime` | `opencode-runtime` | Headless runtime primitives and explicit state machines (catalog, idle, pairing, server pool/form, window life/placement, fork/rewind/pages/queue/send) |
-| `crates/opencode-search` | `opencode-search` | Headless full-text, fuzzysort, path index, file ranking, and URL query primitives (`#![forbid(unsafe_code)]`) |
-| `crates/opencode-ui` | `opencode-ui` | Shared OpenCode UI primitives (`widgets`, dialog sizing helpers), shortcut keymap (`keymap`), file/review panel chrome (`panel_chrome`), popup/context menu engine (`popup`), and toast notification stack (`toast`) |
-| `crates/opencode-platform` | `opencode-platform` | Cross-platform OS/WASM utilities (wall clock, OTLP telemetry, askpass, HTTP fetch) |
-| `crates/opencode-plugin-runtime` | `opencode-plugin-runtime` | Reusable App-independent Luau plugin runtime primitives (catalogs, console, flyout, hot reload, icons, images, machines, power, processes, QR, redraw, reveal, sources, tasks) |
-| `crates/session-view` | `session-view` | Embeddable virtualized OpenCode session timeline view (Markdown, `ui` outlines, Mermaid, tool groups, subagent cards, images, scroll bar) |
-| `crates/opencode-kit` | `opencode-kit` | OpenCode HTTP/SSE/WebSocket client, local `service.json` discovery, and session/transcript model |
-| `crates/rune-parts` | `rune-parts` | Generative UI (```` ```ui ````) outline parser, catalog, checker, HTML renderer, and optional Rune element view (`features = ["view"]`) |
-| `crates/browser-pane` | `browser-pane` | Embeddable Chromium browser pane backed by the out-of-process `OpenCode Browser Engine` sidecar |
-| `crates/terminal` | `terminal` | Embeddable Ghostty-VT terminal pane over OpenCode PTY WebSockets |
-| `crates/project-icon` | `project-icon` | Procedural CPU-shaded project icons and custom icon loader |
-| `crates/hex-client` | `hex-client` | Local HTTP client for driving Hex voice dictation |
-| `crates/otlp-lite` | `otlp-lite` | Minimal OTLP/HTTP trace and log exporter (`serde_json` only) |
-| `apps/desktop` | `opencode-desktop` | **OpenCode (Rune)** native desktop client (`shell/`, `session/`, `workspace/`, `surfaces/`, `dialogs/`, `plugin_host/`, `stories/`) |
-| `apps/web` | `opencode-web` | WASM / WebGPU browser client |
-| `apps/browser-engine` | `opencode-browser-engine` | Standalone CEF sidecar bundle (`OpenCode Browser Engine.app`), excluded from the default Cargo workspace |
+| Tier 1 | `plugins/*` | Built-in `--!strict` Luau plugins (panels, dialogs, commands, server sources); hot reloads without touching Rust |
+| Tier 2 | `features/*` | Decoupled Rust feature crates (`opencode-feature-*`) with zero cross-feature dependencies and non-generic `&mut dyn *Host` boundaries |
+| Tier 3 | `crates/*` | Shell kernel (`opencode-kernel`), UI foundation (`opencode-ui`), headless runtime (`opencode-runtime`), platform/storage/search/i18n/plugin-runtime libraries, and embeddable crates (`session-view`, `opencode-code-view`, `opencode-kit`, `rune-parts`, `terminal`, `browser-pane`, `office-preview`, `project-icon`, `hex-client`, `otlp-lite`) |
+| Tier 4 | `apps/*` | Host shells and packaging: `apps/desktop` (`opencode-desktop` library + native binary), `apps/web` (`opencode-web` wasm32/WebGPU host), `apps/installer` (`opencode-rune-setup` Windows bootstrapper), and `apps/browser-engine` (`opencode-browser-engine` CEF sidecar, excluded from the Cargo workspace) |
 
 ### Embedding `session-view` in another Rune app
 
@@ -105,11 +58,11 @@ opencode-kit = { git = "https://github.com/anomalyco/rune-desktop", rev = "<rev>
 session-view = { git = "https://github.com/anomalyco/rune-desktop", rev = "<rev>" }
 ```
 
-Hold a `session_view::ViewState` on your app state, implement `session_view::TimelineHost` (using `session_view::delegate_view_state!` for the state accessors), and render `session_view::timeline::session_timeline`. See [`crates/session-view/examples/read_only.rs`](crates/session-view/examples/read_only.rs) for a complete minimal host.
+Hold a `session_view::ViewState` on your app state (calling `view.setup(waker, headless)` during setup), implement `session_view::TimelineHost` (using `session_view::delegate_view_state!` for the state accessors), drive `session_view::poll(s, now, tx)` each frame, and render `session_view::read_only(s, p, id, transcript)` or `session_view::timeline_area(s, p, id, transcript, pills, header)` alongside `session_view::overlays(s, p, cx)`. See [`crates/session-view/examples/read_only.rs`](crates/session-view/examples/read_only.rs) for a complete minimal host.
 
 ## Checks
 
-This repo has no automated tests (see `AGENTS.md`); verify changes by running the app.
+This repo has no automated tests (see [AGENTS.md](AGENTS.md)); verify changes by running the app and the guardrail scripts (rules detailed in [ARCHITECTURE.md](ARCHITECTURE.md)):
 
 ```sh
 scripts/file-size.sh
