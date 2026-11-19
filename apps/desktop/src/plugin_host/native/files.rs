@@ -10,42 +10,46 @@ use rune::{El, KeyEvent, Tx, col};
 use rune_luau::NodeArgs;
 
 use super::super::cx::{self, Dep};
-use super::super::services::{app_now, method};
+use super::super::services::{method, with_app};
 use super::{handle_field, object, p};
 use crate::App;
 
 /// `Workspace:OpenTree` and `Workspace:OpenDocument`.
 pub fn build(lua: &Lua, t: &Table) -> mlua::Result<()> {
     method(lua, t, "OpenTree", |lua, directory: String| {
-        let app = app_now("Workspace:OpenTree")?;
-        let sid = session_for(app, &directory).ok_or_else(|| mlua::Error::runtime(format!("Workspace:OpenTree: no session is open in {directory}")))?;
-        // Listed once its session's folder is known (an empty one would list the server's own).
-        if !app.workspace_panes.files.sessions.get(&sid).is_some_and(|w| w.ready) && app.session(&sid).is_some_and(|i| !i.directory.is_empty()) {
-            let id = sid.clone();
-            app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
-                tx.instant();
-                s.ensure_workspace_files(&id);
-            }));
-        }
+        let sid = with_app("Workspace:OpenTree", |app| {
+            let sid = session_for(app, &directory).ok_or_else(|| mlua::Error::runtime(format!("Workspace:OpenTree: no session is open in {directory}")))?;
+            // Listed once its session's folder is known (an empty one would list the server's own).
+            if !app.workspace_panes.files.sessions.get(&sid).is_some_and(|w| w.ready) && app.session(&sid).is_some_and(|i| !i.directory.is_empty()) {
+                let id = sid.clone();
+                app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
+                    tx.instant();
+                    s.ensure_workspace_files(&id);
+                }));
+            }
+            Ok(sid)
+        })?;
         let fields = [("kind", Value::String(lua.create_string("workspace")?)), ("sessionId", Value::String(lua.create_string(&sid)?)), ("Root", Value::String(lua.create_string(&directory)?))];
         object(lua, "FileTreeModel", &fields, super::tree::methods(lua)?)
     })?;
     method(lua, t, "OpenDocument", |lua, path: String| {
-        let app = app_now("Workspace:OpenDocument")?;
-        let sid = app.active_session_id().ok_or_else(|| mlua::Error::runtime("Workspace:OpenDocument: no session is open"))?.to_owned();
-        let path = crate::review::data::normalize_path(&path);
-        // A file not read yet, one still loading with no read running (its session's folder
-        // wasn't known), or one a failed refresh left stale, reads as it shows.
-        let doc = app.workspace_panes.files.sessions.get(&sid).and_then(|w| w.docs.get(&path));
-        let known = app.session(&sid).is_some_and(|i| !i.directory.is_empty());
-        let waiting = known && doc.is_some_and(|d| !d.ready()) && !app.workspace_panes.files.reads.running(&sid, &path) && !crate::files::video::is_video(&path);
-        if doc.is_none() || waiting || (known && app.workspace_panes.files.reads.stale(&sid, &path)) {
-            let (id, at) = (sid.clone(), path.clone());
-            app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
-                tx.instant();
-                s.ensure_file_loaded(&id, &at);
-            }));
-        }
+        let (sid, path) = with_app("Workspace:OpenDocument", |app| {
+            let sid = app.active_session_id().ok_or_else(|| mlua::Error::runtime("Workspace:OpenDocument: no session is open"))?.to_owned();
+            let path = crate::review::data::normalize_path(&path);
+            // A file not read yet, one still loading with no read running (its session's folder
+            // wasn't known), or one a failed refresh left stale, reads as it shows.
+            let doc = app.workspace_panes.files.sessions.get(&sid).and_then(|w| w.docs.get(&path));
+            let known = app.session(&sid).is_some_and(|i| !i.directory.is_empty());
+            let waiting = known && doc.is_some_and(|d| !d.ready()) && !app.workspace_panes.files.reads.running(&sid, &path) && !crate::files::video::is_video(&path);
+            if doc.is_none() || waiting || (known && app.workspace_panes.files.reads.stale(&sid, &path)) {
+                let (id, at) = (sid.clone(), path.clone());
+                app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
+                    tx.instant();
+                    s.ensure_file_loaded(&id, &at);
+                }));
+            }
+            Ok((sid, path))
+        })?;
         let fields = [("Path", Value::String(lua.create_string(&path)?)), ("sessionId", Value::String(lua.create_string(&sid)?))];
         object(lua, "CodeDocument", &fields, document(lua)?)
     })?;
@@ -57,45 +61,47 @@ pub fn build(lua: &Lua, t: &Table) -> mlua::Result<()> {
         });
         let preview = o.preview == Some(true);
         let path = crate::review::data::normalize_path(&path);
-        app_now("Workspace:OpenFile")?.later(Box::new(move |s: &mut App, tx: &mut Tx| {
-            tx.instant();
-            s.open_workspace_file_for_session(&sid, &path, preview, lines, false, tx);
-        }));
-        Ok(())
+        with_app("Workspace:OpenFile", |app| {
+            app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
+                tx.instant();
+                s.open_workspace_file_for_session(&sid, &path, preview, lines, false, tx);
+            }));
+            Ok(())
+        })
     })
+}
+
+fn read_doc<R>(this: &Table, what: &str, f: impl FnOnce(&App, &str, &str) -> mlua::Result<R>) -> mlua::Result<R> {
+    let (sid, path): (String, String) = (this.raw_get("sessionId")?, this.raw_get("Path")?);
+    cx::read(Dep::FilesDoc(sid.clone(), path.clone()));
+    with_app(what, |app| f(app, &sid, &path))
 }
 
 /// The methods of a `CodeDocument`.
 fn document(lua: &Lua) -> mlua::Result<Table> {
     let m = lua.create_table()?;
-    let read_doc = |this: &Table, what: &str| -> mlua::Result<(&'static App, String, String)> {
-        let (sid, path): (String, String) = (this.raw_get("sessionId")?, this.raw_get("Path")?);
-        cx::read(Dep::FilesDoc(sid.clone(), path.clone()));
-        Ok((app_now(what)?, sid, path))
-    };
     m.raw_set(
         "Version",
-        lua.create_function(move |_, this: Table| {
-            let (app, sid, path) = read_doc(&this, "CodeDocument:Version")?;
-            Ok((doc_version(app, &sid, &path) >> 11) as f64)
-        })?,
+        lua.create_function(|_, this: Table| read_doc(&this, "CodeDocument:Version", |app, sid, path| Ok((doc_version(app, sid, path) >> 11) as f64)))?,
     )?;
     m.raw_set(
         "Missing",
         lua.create_function(|_, this: Table| {
             let (sid, path): (String, String) = (this.raw_get("sessionId")?, this.raw_get("Path")?);
             cx::read(Dep::FilesMissing(sid.clone(), path.clone()));
-            let app = app_now("CodeDocument:Missing")?;
-            let doc = app.workspace_panes.files.sessions.get(&sid).and_then(|w| w.docs.get(&path));
-            Ok(doc.is_some_and(|d| d.missing()))
+            with_app("CodeDocument:Missing", |app| {
+                let doc = app.workspace_panes.files.sessions.get(&sid).and_then(|w| w.docs.get(&path));
+                Ok(doc.is_some_and(|d| d.missing()))
+            })
         })?,
     )?;
     m.raw_set(
         "Binary",
-        lua.create_function(move |_, this: Table| {
-            let (app, sid, path) = read_doc(&this, "CodeDocument:Binary")?;
-            let doc = app.workspace_panes.files.sessions.get(&sid).and_then(|w| w.docs.get(&path));
-            Ok(doc.is_some_and(|d| d.binary()))
+        lua.create_function(|_, this: Table| {
+            read_doc(&this, "CodeDocument:Binary", |app, sid, path| {
+                let doc = app.workspace_panes.files.sessions.get(sid).and_then(|w| w.docs.get(path));
+                Ok(doc.is_some_and(|d| d.binary()))
+            })
         })?,
     )?;
     m.raw_set(
@@ -103,15 +109,17 @@ fn document(lua: &Lua) -> mlua::Result<Table> {
         lua.create_function(|_, this: Table| {
             let (sid, path): (String, String) = (this.raw_get("sessionId")?, this.raw_get("Path")?);
             // Read again in place, as a change on disk reads it: the view keeps where it is.
-            app_now("CodeDocument:Reload")?.later(Box::new(move |s: &mut App, tx: &mut Tx| {
-                tx.instant();
-                if s.workspace_panes.files.sessions.get(&sid).is_some_and(|w| w.docs.contains_key(&path)) {
-                    crate::files::watch::reload(s, &sid, &path);
-                } else {
-                    s.ensure_file_loaded(&sid, &path);
-                }
-            }));
-            Ok(())
+            with_app("CodeDocument:Reload", |app| {
+                app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
+                    tx.instant();
+                    if s.workspace_panes.files.sessions.get(&sid).is_some_and(|w| w.docs.contains_key(&path)) {
+                        crate::files::watch::reload(s, &sid, &path);
+                    } else {
+                        s.ensure_file_loaded(&sid, &path);
+                    }
+                }));
+                Ok(())
+            })
         })?,
     )?;
     method(lua, &m, "Close", |_, _: mlua::MultiValue| Ok(()))?;
@@ -211,16 +219,18 @@ pub fn doc_version(app: &App, session: &str, path: &str) -> u64 {
 
 /// `ui.codeView`: the open file, its find bar and its code (or a Markdown file's rendered page).
 pub fn view(a: &mut NodeArgs) -> Result<El, String> {
-    let app = cx::app().ok_or("ui.codeView draws only in a render")?;
-    let pal = p(a);
-    let sid = handle_field(a, "doc", "sessionId").ok_or("ui.codeView needs a document from Workspace:OpenDocument")?;
-    let path = handle_field(a, "doc", "Path").unwrap_or_default();
-    cx::read(Dep::FilesDoc(sid.clone(), path.clone()));
-    let empty = crate::files::SessionFiles::default();
-    let ws = app.workspace_panes.files.sessions.get(&sid).unwrap_or(&empty);
-    let notes: std::rc::Rc<dyn crate::code_view::notes::LineNotes<App>> =
-        crate::line_comments::host::Notes::new(&sid, crate::line_comments::Surface::Files);
-    Ok(col().w_full().grow(1.0).min_h(0.0).child(crate::files::viewer::code_area(app, &pal, &sid, ws, &path, true, Some(notes))))
+    cx::with_app(|app| {
+        let pal = p(a);
+        let sid = handle_field(a, "doc", "sessionId").ok_or("ui.codeView needs a document from Workspace:OpenDocument")?;
+        let path = handle_field(a, "doc", "Path").unwrap_or_default();
+        cx::read(Dep::FilesDoc(sid.clone(), path.clone()));
+        let empty = crate::files::SessionFiles::default();
+        let ws = app.workspace_panes.files.sessions.get(&sid).unwrap_or(&empty);
+        let notes: std::rc::Rc<dyn crate::code_view::notes::LineNotes<App>> =
+            crate::line_comments::host::Notes::new(&sid, crate::line_comments::Surface::Files);
+        Ok(col().w_full().grow(1.0).min_h(0.0).child(crate::files::viewer::code_area(app, &pal, &sid, ws, &path, true, Some(notes))))
+    })
+    .ok_or_else(|| "ui.codeView draws only in a render".to_owned())?
 }
 
 /// Lands what the file engine read.

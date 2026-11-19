@@ -23,5 +23,5 @@ pub fn eval(app: &App, plugin: &str, source: &str) -> Result<String, String> {
         .find(|p| p.manifest.id == plugin)
         .and_then(crate::plugin_host::Plugin::script)
         .ok_or_else(|| format!("{plugin} isn't running in this window"))?;
-    super::cx::with_app(app, || opencode_plugin_runtime::console::eval_script(script, source))
+    super::cx::enter(app, || opencode_plugin_runtime::console::eval_script(script, source))
 }

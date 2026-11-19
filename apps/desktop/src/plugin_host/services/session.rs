@@ -7,7 +7,7 @@ use std::rc::Rc;
 use mlua::{Lua, Table, Value};
 use rune::Tx;
 
-use super::{app_now, json_to_lua, lazy_signals, method, record, snapshot};
+use super::{json_to_lua, lazy_signals, method, record, snapshot, with_app};
 use crate::App;
 use crate::plugin_host::cx::{self, Dep};
 use crate::plugin_host::machines::{Fetched, Item, Items, Ticket, TicketEffect, TicketEvent};
@@ -27,34 +27,34 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, name: &str, t: &Table) -> mlua::Result<()
 fn sessions(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     method(lua, t, "Get", |lua, id: String| {
         cx::read(Dep::Session(id.clone()));
-        session_value(lua, app_now("Sessions:Get")?, &id)
+        with_app("Sessions:Get", |app| session_value(lua, app, &id))
     })?;
     let window = vmx.half.kind == crate::plugin_host::plugin::Kind::Window;
     method(lua, t, "Routed", move |lua, ()| {
         cx::read(Dep::Routed);
-        let app = app_now("Sessions:Routed")?;
-        match app.active_session_id().filter(|_| window) {
+        with_app("Sessions:Routed", |app| match app.active_session_id().filter(|_| window) {
             Some(id) => {
                 cx::read(Dep::Session(id.to_owned()));
                 session_value(lua, app, id)
             }
             None => Ok(Value::Nil),
-        }
+        })
     })?;
     method(lua, t, "Open", |lua, ()| {
         cx::read(Dep::Sessions);
-        let app = app_now("Sessions:Open")?;
-        let list = lua.create_table()?;
-        let active = crate::servers::runtime::active(app).clone();
-        for tab in app.tabs.iter().filter(|t| t.kind == crate::tabs::TabKind::Session) {
-            // A tab of another server is what the window last read of it (its title and folder,
-            // its mark): the window works with one server at a time.
-            let value = if tab.server == active { session_value(lua, app, &tab.id)? } else { other_server_session(lua, app, tab)? };
-            if value != Value::Nil {
-                list.raw_push(value)?;
+        with_app("Sessions:Open", |app| {
+            let list = lua.create_table()?;
+            let active = crate::servers::runtime::active(app).clone();
+            for tab in app.tabs.iter().filter(|t| t.kind == crate::tabs::TabKind::Session) {
+                // A tab of another server is what the window last read of it (its title and folder,
+                // its mark): the window works with one server at a time.
+                let value = if tab.server == active { session_value(lua, app, &tab.id)? } else { other_server_session(lua, app, tab)? };
+                if value != Value::Nil {
+                    list.raw_push(value)?;
+                }
             }
-        }
-        Ok(list)
+            Ok(list)
+        })
     })?;
     lazy_signals(lua, vmx, t, "Sessions", &["Changed", "RoutedChanged"])
 }
@@ -251,24 +251,25 @@ pub fn model_version(app: &App, provider: &str, model: &str) -> u64 {
 
 fn models(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     method(lua, t, "Get", |lua, (provider, model): (String, String)| {
-        let app = app_now("Models:Get")?;
-        let key = format!("{provider}:{model}");
-        let mut h = std::hash::DefaultHasher::new();
-        (model_version(app, &provider, &model), app.composer_ext.pickers.models.iter().any(|m| m.provider == provider)).hash(&mut h);
-        // Each server has its own catalog.
-        let m = snapshot(lua, &format!("model:{}:{key}", server_id(crate::servers::runtime::active(app))), h.finish(), || {
-            let p = &app.composer_ext.pickers;
-            let listed = p.models.iter().find(|m| m.provider == provider && m.id == model);
-            let provider_name = p.providers.get(&provider).map(String::as_str).or_else(|| p.models.iter().any(|m| m.provider == provider).then_some(provider.as_str()));
-            record(lua, 4, |m| {
-                m.opt_str(c"providerName", provider_name);
-                m.opt_str(c"modelName", listed.map(|m| m.name.as_str()));
-                if let Some(l) = p.limits.get(&key) {
-                    m.num(c"contextLimit", *l as f64);
-                }
-                m.bool(c"paid", p.paid.contains(&key));
+        let m = with_app("Models:Get", |app| {
+            let key = format!("{provider}:{model}");
+            let mut h = std::hash::DefaultHasher::new();
+            (model_version(app, &provider, &model), app.composer_ext.pickers.models.iter().any(|m| m.provider == provider)).hash(&mut h);
+            // Each server has its own catalog.
+            snapshot(lua, &format!("model:{}:{key}", server_id(crate::servers::runtime::active(app))), h.finish(), || {
+                let p = &app.composer_ext.pickers;
+                let listed = p.models.iter().find(|m| m.provider == provider && m.id == model);
+                let provider_name = p.providers.get(&provider).map(String::as_str).or_else(|| p.models.iter().any(|m| m.provider == provider).then_some(provider.as_str()));
+                record(lua, 4, |m| {
+                    m.opt_str(c"providerName", provider_name);
+                    m.opt_str(c"modelName", listed.map(|m| m.name.as_str()));
+                    if let Some(l) = p.limits.get(&key) {
+                        m.num(c"contextLimit", *l as f64);
+                    }
+                    m.bool(c"paid", p.paid.contains(&key));
+                })
+                .map(Value::Table)
             })
-            .map(Value::Table)
         })?;
         cx::read(Dep::Model(provider, model));
         Ok(m)
@@ -281,29 +282,30 @@ fn server(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     let half = vmx.half.clone();
     method(lua, t, "Resource", move |lua, (path, version, items): (String, Value, Option<bool>)| {
         let items = items == Some(true);
-        let app = app_now("Server:Resource")?;
-        // Each server's reads are cached apart: a panel in a tab from another server reads that
-        // server's answer, never this one's.
-        let key = resource_key(crate::servers::runtime::active(app), &path);
-        cx::read(Dep::Resource(plugin.clone(), key.clone()));
-        let version = version_hash(&version);
-        let mut map = half.resources.borrow_mut();
-        let r = map.entry(key.clone()).or_default();
-        let (ticket, effects) = std::mem::take(&mut r.ticket).step(TicketEvent::Ask(version));
-        r.ticket = ticket;
-        for TicketEffect::Fetch(asked) in effects {
-            let (plugin, path, key) = (plugin.to_string(), path.clone(), key.clone());
-            app.job(move |srv| {
-                // A server still loading its plugins answers `/api/skill` with 503 for a while.
-                let answer = srv.get_text_ready(&path).map(|text| {
-                    // Split off the UI thread: a long list's JSON is too much to decode in a frame.
-                    let items = if items { split_items(&text) } else { None };
-                    Fetched { text, items }
-                }).map_err(|e| e.to_string());
-                Box::new(move |s: &mut App, tx: &mut Tx| land(s, &plugin, &key, asked, answer, tx)) as crate::jobs::Apply
-            });
-        }
-        resource_value(lua, r)
+        with_app("Server:Resource", |app| {
+            // Each server's reads are cached apart: a panel in a tab from another server reads that
+            // server's answer, never this one's.
+            let key = resource_key(crate::servers::runtime::active(app), &path);
+            cx::read(Dep::Resource(plugin.clone(), key.clone()));
+            let version = version_hash(&version);
+            let mut map = half.resources.borrow_mut();
+            let r = map.entry(key.clone()).or_default();
+            let (ticket, effects) = std::mem::take(&mut r.ticket).step(TicketEvent::Ask(version));
+            r.ticket = ticket;
+            for TicketEffect::Fetch(asked) in effects {
+                let (plugin, path, key) = (plugin.to_string(), path.clone(), key.clone());
+                app.job(move |srv| {
+                    // A server still loading its plugins answers `/api/skill` with 503 for a while.
+                    let answer = srv.get_text_ready(&path).map(|text| {
+                        // Split off the UI thread: a long list's JSON is too much to decode in a frame.
+                        let items = if items { split_items(&text) } else { None };
+                        Fetched { text, items }
+                    }).map_err(|e| e.to_string());
+                    Box::new(move |s: &mut App, tx: &mut Tx| land(s, &plugin, &key, asked, answer, tx)) as crate::jobs::Apply
+                });
+            }
+            resource_value(lua, r)
+        })
     })?;
     let half = vmx.half.clone();
     method(lua, t, "Invalidate", move |_, prefix: String| {
@@ -324,25 +326,27 @@ fn server(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     method(lua, t, "Version", move |_, ()| {
         cx::read(Dep::Server);
         cx::read(Dep::Servers);
-        let app = app_now("Server:Version")?;
-        let own = app.plugins.shared.facts.server_version.clone();
-        let active = crate::servers::runtime::active(app);
-        if !window || active.is_sidecar() {
-            return Ok(own);
-        }
-        Ok(opencode_kit::servers::health::version(crate::servers::health::get(active).as_ref()).map(str::to_owned))
+        with_app("Server:Version", |app| {
+            let own = app.plugins.shared.facts.server_version.clone();
+            let active = crate::servers::runtime::active(app);
+            if !window || active.is_sidecar() {
+                return Ok(own);
+            }
+            Ok(opencode_kit::servers::health::version(crate::servers::health::get(active).as_ref()).map(str::to_owned))
+        })
     })?;
     method(lua, t, "IsLocal", move |_, ()| {
         cx::read(Dep::Server);
-        let app = app_now("Server:IsLocal")?;
-        if !window {
-            return Ok(crate::servers::runtime::own_server().is_some_and(|s| s.is_local()));
-        }
-        Ok(matches!(&*app.source, crate::Source::Live { server, .. } if server.is_local()))
+        with_app("Server:IsLocal", |app| {
+            if !window {
+                return Ok(crate::servers::runtime::own_server().is_some_and(|s| s.is_local()));
+            }
+            Ok(matches!(&*app.source, crate::Source::Live { server, .. } if server.is_local()))
+        })
     })?;
     method(lua, t, "CanWrite", |_, ()| {
         cx::read(Dep::Server);
-        Ok(app_now("Server:CanWrite")?.can_write())
+        with_app("Server:CanWrite", |app| Ok(app.can_write()))
     })?;
     super::async_method(lua, vmx, t, "RequestAsync", "Server.RequestAsync")?;
     lazy_signals(lua, vmx, t, "Server", &["Connected"])
@@ -481,53 +485,53 @@ fn servers(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     let window = vmx.half.kind == crate::plugin_host::plugin::Kind::Window;
     method(lua, t, "List", move |lua, ()| {
         cx::read(Dep::Server);
-        let app = app_now("Servers:List")?;
         cx::read(Dep::Servers);
-        let active = crate::servers::runtime::active(app).clone();
-        let own = crate::servers::runtime::own_server().map(|s| s.base);
-        type ListedServer = (String, String, Option<String>, &'static str, bool, bool, Option<String>);
-        // (key, name, label, state, local, current, version) of each server the app lists: its
-        // own, the plugins' (ready or not) and those added by address.
-        let listed: Vec<ListedServer> = crate::settings::pages::servers::inventory::list(app)
-            .into_iter()
-            .filter(|x| !matches!(&x.kind, crate::settings::pages::servers::inventory::Kind::Plugin(rec) if !rec.listed))
-            .map(|x| {
-                use crate::settings::pages::servers::inventory::Kind;
-                let state = match &x.kind {
-                    Kind::Plugin(rec) => rec.state_name,
-                    _ => "ready",
-                };
-                let label = match &x.kind {
-                    Kind::Plugin(rec) if !rec.label.is_empty() => Some(rec.label.clone()),
-                    _ => None,
-                };
-                let local = x.key.is_sidecar() || x.connection.as_ref().is_some_and(|c| c.local(own.as_deref()));
-                let version = opencode_kit::servers::health::version(x.health.as_ref()).map(str::to_owned);
-                (server_id(&x.key), x.name.clone(), label, state, local, window && x.key == active, version)
+        with_app("Servers:List", |app| {
+            let active = crate::servers::runtime::active(app).clone();
+            let own = crate::servers::runtime::own_server().map(|s| s.base);
+            type ListedServer = (String, String, Option<String>, &'static str, bool, bool, Option<String>);
+            // (key, name, label, state, local, current, version) of each server the app lists: its
+            // own, the plugins' (ready or not) and those added by address.
+            let listed: Vec<ListedServer> = crate::settings::pages::servers::inventory::list(app)
+                .into_iter()
+                .filter(|x| !matches!(&x.kind, crate::settings::pages::servers::inventory::Kind::Plugin(rec) if !rec.listed))
+                .map(|x| {
+                    use crate::settings::pages::servers::inventory::Kind;
+                    let state = match &x.kind {
+                        Kind::Plugin(rec) => rec.state_name,
+                        _ => "ready",
+                    };
+                    let label = match &x.kind {
+                        Kind::Plugin(rec) if !rec.label.is_empty() => Some(rec.label.clone()),
+                        _ => None,
+                    };
+                    let local = x.key.is_sidecar() || x.connection.as_ref().is_some_and(|c| c.local(own.as_deref()));
+                    let version = opencode_kit::servers::health::version(x.health.as_ref()).map(str::to_owned);
+                    (server_id(&x.key), x.name.clone(), label, state, local, window && x.key == active, version)
+                })
+                .collect();
+            let mut h = std::hash::DefaultHasher::new();
+            listed.hash(&mut h);
+            snapshot(lua, "servers", h.finish(), || {
+                let list = lua.create_table_with_capacity(listed.len(), 0)?;
+                for (key, name, label, state, local, current, version) in &listed {
+                    list.raw_push(record(lua, 7, |e| {
+                        e.str(c"key", key);
+                        e.str(c"name", name);
+                        e.opt_str(c"label", label.as_deref());
+                        e.str(c"state", state);
+                        e.bool(c"isLocal", *local);
+                        e.bool(c"current", *current);
+                        e.opt_str(c"version", version.as_deref());
+                    })?)?;
+                }
+                Ok(Value::Table(list))
             })
-            .collect();
-        let mut h = std::hash::DefaultHasher::new();
-        listed.hash(&mut h);
-        snapshot(lua, "servers", h.finish(), || {
-            let list = lua.create_table_with_capacity(listed.len(), 0)?;
-            for (key, name, label, state, local, current, version) in &listed {
-                list.raw_push(record(lua, 7, |e| {
-                    e.str(c"key", key);
-                    e.str(c"name", name);
-                    e.opt_str(c"label", label.as_deref());
-                    e.str(c"state", state);
-                    e.bool(c"isLocal", *local);
-                    e.bool(c"current", *current);
-                    e.opt_str(c"version", version.as_deref());
-                })?)?;
-            }
-            Ok(Value::Table(list))
         })
     })?;
     method(lua, t, "Current", move |_, ()| {
         cx::read(Dep::Server);
-        let app = app_now("Servers:Current")?;
-        Ok(window.then(|| server_id(crate::servers::runtime::active(app))))
+        with_app("Servers:Current", |app| Ok(window.then(|| server_id(crate::servers::runtime::active(app)))))
     })?;
     method(lua, t, "Health", |lua, key: String| {
         cx::read(Dep::Servers);
@@ -546,7 +550,7 @@ fn servers(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
 
 fn theme(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     method(lua, t, "Current", |lua, ()| {
-        let dark = app_now("Theme:Current")?.plugins.dark.get();
+        let dark = with_app("Theme:Current", |app| Ok(app.plugins.dark.get()))?;
         let index = crate::palette::pal(dark).theme;
         let theme = session_view::themes::all().get(index);
         let mut h = std::hash::DefaultHasher::new();
@@ -560,9 +564,9 @@ fn theme(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
             .map(Value::Table)
         })
     })?;
-    method(lua, t, "IsDark", |_, ()| Ok(app_now("Theme:IsDark")?.plugins.dark.get()))?;
+    method(lua, t, "IsDark", |_, ()| with_app("Theme:IsDark", |app| Ok(app.plugins.dark.get())))?;
     method(lua, t, "Resolve", |_, color: String| {
-        let dark = app_now("Theme:Resolve")?.plugins.dark.get();
+        let dark = with_app("Theme:Resolve", |app| Ok(app.plugins.dark.get()))?;
         let c = if color.starts_with('#') { rune::color::hex(&color) } else { crate::plugin_host::vm::palette(&color, dark) };
         let c = c.unwrap_or(rune::Color::TRANSPARENT);
         let byte = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;

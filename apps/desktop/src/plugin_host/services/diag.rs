@@ -14,7 +14,7 @@ use mlua::{FromLua, IntoLua, Lua, MultiValue, Table, Value};
 use rune_luau::{Completer, Data, Host};
 use serde_json::{Value as Json, json};
 
-use super::{app_now, async_method, json_to_lua, map, method};
+use super::{async_method, json_to_lua, map, method, with_app};
 use crate::App;
 use crate::plugin_host::cx::{self, Dep, Request};
 use crate::plugin_host::plugin::Half;
@@ -33,14 +33,15 @@ pub fn debug_build() -> bool {
 pub fn build(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     let own = vmx.half.id.clone();
     method(lua, t, "Metrics", move |lua, plugin: Option<String>| {
-        let app = app_now("Diagnostics:Metrics")?;
-        let id = plugin.unwrap_or_else(|| own.to_string());
-        let Some(m) = app.plugins.metrics(&id).filter(|_| debug_build()) else { return Ok(Value::Nil) };
-        let out = lua.create_table()?;
-        out.raw_set("memoryKb", m.memory_kb)?;
-        out.raw_set("renderUs", m.render_us)?;
-        out.raw_set("memoHitRate", m.memo_hit_rate)?;
-        Ok(Value::Table(out))
+        with_app("Diagnostics:Metrics", |app| {
+            let id = plugin.unwrap_or_else(|| own.to_string());
+            let Some(m) = app.plugins.metrics(&id).filter(|_| debug_build()) else { return Ok(Value::Nil) };
+            let out = lua.create_table()?;
+            out.raw_set("memoryKb", m.memory_kb)?;
+            out.raw_set("renderUs", m.render_us)?;
+            out.raw_set("memoHitRate", m.memo_hit_rate)?;
+            Ok(Value::Table(out))
+        })
     })?;
     method(lua, t, "Memory", |lua, ()| {
         if !debug_build() {
@@ -49,22 +50,24 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
         json_to_lua(lua, &serde_json::from_str(&crate::plugin_host::memory::report()).unwrap_or(Json::Null))
     })?;
     method(lua, t, "Plugins", |lua, ()| {
-        let app = app_now("Diagnostics:Plugins")?;
-        let list = lua.create_table()?;
-        for (_, p) in app.plugins.running() {
-            list.raw_push(p.manifest.id.as_str())?;
-        }
-        Ok(list)
+        with_app("Diagnostics:Plugins", |app| {
+            let list = lua.create_table()?;
+            for (_, p) in app.plugins.running() {
+                list.raw_push(p.manifest.id.as_str())?;
+            }
+            Ok(list)
+        })
     })?;
     method(lua, t, "Get", |lua, name: String| {
         cx::read(Dep::Dev(name.clone()));
-        get(app_now("Diagnostics:Get")?, &name).into_lua(lua)
+        with_app("Diagnostics:Get", |app| get(app, &name).into_lua(lua))
     })?;
     let p = vmx.half.id.clone();
     method(lua, t, "Set", move |lua, (name, value): (String, Value)| {
         let value = Data::from_lua(value, lua)?;
         if name == "memoryLog" {
-            memory_log(matches!(value, Data::Bool(true)), *app_now("Diagnostics:Set")?.now_ms);
+            let now_ms = with_app("Diagnostics:Set", |app| Ok(*app.now_ms))?;
+            memory_log(matches!(value, Data::Bool(true)), now_ms);
             crate::plugin_host::bump();
             return Ok(());
         }
@@ -210,8 +213,8 @@ fn append(file: &Path, now: i64) -> std::io::Result<()> {
 /// `memory.json` and `manifest.json`, written last so a script can wait for it. The app is
 /// native, so its own process is measured rather than snapshotted.
 fn heap_snapshot(_: &Lua, _: MultiValue, done: Completer) -> mlua::Result<()> {
-    let app = cx::app().ok_or_else(|| mlua::Error::runtime("Diagnostics:HeapSnapshotAsync needs a window"))?;
-    let (server, started) = (crate::servers::runtime::own_server(), *app.now_ms);
+    let started = cx::with_app(|app| *app.now_ms).ok_or_else(|| mlua::Error::runtime("Diagnostics:HeapSnapshotAsync needs a window"))?;
+    let server = crate::servers::runtime::own_server();
     let failed = |e: String| map([("error", Data::String(e))]);
     let Some(directory) = crate::dirs::downloads().map(|d| d.join(format!("opencode-heap-{}", stamp(started)))) else {
         done.complete(failed("There is no downloads folder".into()));

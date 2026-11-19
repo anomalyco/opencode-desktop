@@ -125,8 +125,7 @@ fn shimmer(a: &mut NodeArgs) -> Result<El, String> {
     let words = a.content().unwrap_or_default().to_owned();
     let font = style(a, TextStyle::new(13.0, 440.0));
     let pal = p(a);
-    let app = cx::app().ok_or("ui.shimmer draws only in a render")?;
-    Ok(session_view::working::shimmer(app, &pal, &words, font, *app.clock))
+    cx::with_app(|app| session_view::working::shimmer(app, &pal, &words, font, *app.clock)).ok_or_else(|| "ui.shimmer draws only in a render".into())
 }
 
 fn keybind(a: &mut NodeArgs) -> Result<El, String> {
@@ -134,7 +133,7 @@ fn keybind(a: &mut NodeArgs) -> Result<El, String> {
         (Some(keys), _) => keys.parse::<rune::Keybind>().ok().and_then(|k| k.chords().first().copied()).map(crate::keymap::label).unwrap_or_else(|| keys.to_owned()),
         (None, Some(command)) => crate::keymap::overrides::command(command)
             .and_then(|k| k.chords().first().copied())
-            .or_else(|| cx::app().and_then(|app| app.catalog().into_iter().find(|c| c.id == command).and_then(|c| c.chord)))
+            .or_else(|| cx::with_app(|app| app.catalog().into_iter().find(|c| c.id == command).and_then(|c| c.chord)).flatten())
             .map(crate::keymap::label)
             .unwrap_or_default(),
         _ => String::new(),
@@ -199,7 +198,7 @@ fn icon_button(a: &mut NodeArgs) -> Result<El, String> {
     // ghost-muted draws its icon in icon-muted, icon-base while pressed (`icon-button.css`).
     let ink = a.color("color").unwrap_or(if a.string("variant") == Some("ghost-muted") && !pressed { pal.icon_muted } else { pal.icon });
     let mut b = b.child(rune::icon(named_icon(&name), 16.0).color(ink));
-    if let Some(chord) = a.string("keybind").and_then(|id| cx::app().and_then(|app| crate::keymap::command_chord(app, id))) {
+    if let Some(chord) = a.string("keybind").and_then(|id| cx::with_app(|app| crate::keymap::command_chord(app, id)).flatten()) {
         b = b.help_keys(crate::keymap::caps(chord));
     }
     Ok(if a.flag("disabled") { b.layer_opacity(0.5) } else { a.on_press(b, "onPress") })
@@ -235,47 +234,49 @@ fn field(a: &mut NodeArgs) -> Result<El, String> {
     let index = index as usize;
     // The field draws its editor's text, caret and focus: the render runs again as they change.
     cx::read(cx::Dep::Editor(plugin.as_str().into(), index));
-    let app = cx::app().ok_or("ui.field draws only in a render")?;
-    let editors = app.plugins.editors.borrow();
-    let Some(edit) = editors.get(&(plugin.clone(), index)) else { return Ok(el()) };
-    if a.string("variant") == Some("filter") {
-        return Ok(filter_field(a, edit, plugin, index));
-    }
-    if a.string("variant") == Some("bare") {
-        return Ok(bare_field(a, edit, plugin, index));
-    }
-    let edit_plugin = plugin.clone();
-    let mut input = rune_kit::TextInput::new(edit)
-        .placeholder(a.string("placeholder").unwrap_or_default().to_owned())
-        .invalid(a.flag("invalid"))
-        .disabled(a.flag("disabled"));
-    // A read-only field draws as usual and takes no edit.
-    if !a.flag("readOnly") {
-        input = input.on_edit(move |app: &mut App| {
-            super::editors::note_side_field(app, &edit_plugin);
-            super::editors::get_mut(app, &edit_plugin, index)
-        });
-    }
-    if a.string("w") == Some("full") {
-        input = input.width(None);
-    }
-    if a.string("size") == Some("large") {
-        input = input.large();
-    }
-    if a.flag("secure") {
-        input = input.secure();
-    }
-    if let Some(w) = a.number("w").filter(|w| *w > 0.0) {
-        input = input.width(Some(w as f32));
-    } else if a.string("w") == Some("full") {
-        input = input.width(None);
-    }
-    // The node's `dir` reaches the value, not just the frame: `auto` starts an Arabic name at the right.
-    // A plugin's field reads the way its text does unless it says otherwise (`dir="auto"`); a
-    // secret reads left to right.
-    input = input.dir(dir(a).unwrap_or(if a.flag("secure") { rune::Direction::Ltr } else { rune::Direction::Auto }));
-    input = input.on_submit(move |app: &mut App, tx: &mut Tx| submitted(app, &plugin, index, tx));
-    Ok(input.build(kit(&p(a))))
+    cx::with_app(|app| {
+        let editors = app.plugins.editors.borrow();
+        let Some(edit) = editors.get(&(plugin.clone(), index)) else { return Ok(el()) };
+        if a.string("variant") == Some("filter") {
+            return Ok(filter_field(a, edit, plugin, index));
+        }
+        if a.string("variant") == Some("bare") {
+            return Ok(bare_field(a, edit, plugin, index));
+        }
+        let edit_plugin = plugin.clone();
+        let mut input = rune_kit::TextInput::new(edit)
+            .placeholder(a.string("placeholder").unwrap_or_default().to_owned())
+            .invalid(a.flag("invalid"))
+            .disabled(a.flag("disabled"));
+        // A read-only field draws as usual and takes no edit.
+        if !a.flag("readOnly") {
+            input = input.on_edit(move |app: &mut App| {
+                super::editors::note_side_field(app, &edit_plugin);
+                super::editors::get_mut(app, &edit_plugin, index)
+            });
+        }
+        if a.string("w") == Some("full") {
+            input = input.width(None);
+        }
+        if a.string("size") == Some("large") {
+            input = input.large();
+        }
+        if a.flag("secure") {
+            input = input.secure();
+        }
+        if let Some(w) = a.number("w").filter(|w| *w > 0.0) {
+            input = input.width(Some(w as f32));
+        } else if a.string("w") == Some("full") {
+            input = input.width(None);
+        }
+        // The node's `dir` reaches the value, not just the frame: `auto` starts an Arabic name at the right.
+        // A plugin's field reads the way its text does unless it says otherwise (`dir="auto"`); a
+        // secret reads left to right.
+        input = input.dir(dir(a).unwrap_or(if a.flag("secure") { rune::Direction::Ltr } else { rune::Direction::Auto }));
+        input = input.on_submit(move |app: &mut App, tx: &mut Tx| submitted(app, &plugin, index, tx));
+        Ok(input.build(kit(&p(a))))
+    })
+    .ok_or_else(|| "ui.field draws only in a render".to_owned())?
 }
 
 /// HTML's `dir` on a text input (`dir="auto"` on Desktop's name fields).
@@ -421,10 +422,12 @@ fn filter_field(a: &NodeArgs, edit: &rune::TextEdit, plugin: String, index: usiz
 
 fn pill(a: &mut NodeArgs) -> Result<El, String> {
     let pal = p(a);
-    let app = cx::app().ok_or("ui.pill draws only in a render")?;
     let words = a.string("text").unwrap_or_default().to_owned();
     let key = a.string("key").unwrap_or("pill").to_owned();
-    let mut chip = crate::subagents::chip(app, &pal, &key, words.clone(), a.flag("pressed")).shrink().min_w(0.0);
+    let mut chip = cx::with_app(|app| crate::subagents::chip(app, &pal, &key, words.clone(), a.flag("pressed")))
+        .ok_or("ui.pill draws only in a render")?
+        .shrink()
+        .min_w(0.0);
     if let Some(name) = a.string("icon") {
         let ink = match a.string("tone") {
             Some(t @ ("success" | "warning" | "danger")) => session_view::palette::token(pal.dark, &format!("state-fg-{t}")).unwrap_or(pal.icon_muted),
@@ -441,7 +444,7 @@ fn settings_row(a: &mut NodeArgs) -> Result<El, String> {
     let id = a.string("id").unwrap_or_default().to_owned();
     let control = if a.children.is_empty() { el() } else { a.children.remove(0) };
     let row = crate::settings::setting(&pal, &id, a.string("title").unwrap_or_default(), a.string("description").unwrap_or_default(), control);
-    let lit = cx::app().and_then(|app| crate::settings::search::reveal_of(app, &id));
+    let lit = cx::with_app(|app| crate::settings::search::reveal_of(app, &id)).flatten();
     Ok(crate::settings::pages::revealed(&pal, lit, 20.0, row))
 }
 
@@ -468,7 +471,7 @@ fn flyout_row(a: &mut NodeArgs) -> Result<El, String> {
     let plugin = cx::rendering();
     let expanded = plugin.as_ref().is_some_and(|plugin| {
         cx::read(cx::Dep::Flyout(plugin.clone()));
-        cx::app().and_then(|app| app.plugins.overlay.flyout_row(plugin)) == Some(key.as_str())
+        cx::with_app(|app| app.plugins.overlay.flyout_row(plugin) == Some(key.as_str())).unwrap_or(false)
     });
     let mut r = row()
         .role("button")

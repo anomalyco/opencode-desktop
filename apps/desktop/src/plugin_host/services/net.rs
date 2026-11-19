@@ -23,9 +23,10 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, name: &str, t: &Table) -> mlua::Result<()
             // The apps that open a path, where the server the window works against shares this
             // machine's files (`session.server.local`); none on another machine's.
             method(lua, t, "OpenInApps", |lua, ()| {
-                let app = super::app_now("Workspace:OpenInApps")?;
-                let apps: Vec<Data> = if app.can_open_in() { app.workspace_panes.open_in.options().into_iter().map(|(id, name)| map([("id", Data::String(id.to_owned())), ("name", Data::String(name.to_owned()))])).collect() } else { Vec::new() };
-                mlua::IntoLua::into_lua(Data::List(apps), lua)
+                super::with_app("Workspace:OpenInApps", |app| {
+                    let apps: Vec<Data> = if app.can_open_in() { app.workspace_panes.open_in.options().into_iter().map(|(id, name)| map([("id", Data::String(id.to_owned())), ("name", Data::String(name.to_owned()))])).collect() } else { Vec::new() };
+                    mlua::IntoLua::into_lua(Data::List(apps), lua)
+                })
             })?;
             let q = vmx.half.id.clone();
             method(lua, t, "OpenIn", move |_, (app, path): (String, String)| {
@@ -61,48 +62,50 @@ fn request(lua: &Lua, a: MultiValue, done: Completer, app_half: bool) -> mlua::R
         Value::Nil => None,
         other => Some(Data::from_lua(other, lua)?.to_json()),
     };
-    let app = cx::app().ok_or_else(|| mlua::Error::runtime("Server:RequestAsync needs a window"))?;
-    // A window without a server (a fixture) runs no jobs: answer at once rather than never. A
-    // `local:` request goes to the app's own server, and without one it would wait on those jobs.
-    let local = path.starts_with("local:");
-    if !app.live() && (!local || crate::servers::runtime::own_server().is_none()) {
-        let error = if local { "This app has no local server" } else { "This window has no server" };
-        done.complete(map([("ok", Data::Bool(false)), ("status", Data::Integer(0)), ("text", Data::String(String::new())), ("error", Data::String(error.into()))]));
-        return Ok(());
-    }
-    let send = move |srv: &opencode_kit::client::Server, path: &str| {
-        let answer = if method.eq_ignore_ascii_case("GET") {
-            srv.get_text_ready(path).map(|text| (serde_json::from_str(&text).ok(), text)).map_err(|e| e.to_string())
-        } else {
-            let method = match method.to_ascii_uppercase().as_str() {
-                "PATCH" => "PATCH",
-                "PUT" => "PUT",
-                "DELETE" => "DELETE",
-                _ => "POST",
+    cx::with_app(|app| {
+        // A window without a server (a fixture) runs no jobs: answer at once rather than never. A
+        // `local:` request goes to the app's own server, and without one it would wait on those jobs.
+        let local = path.starts_with("local:");
+        if !app.live() && (!local || crate::servers::runtime::own_server().is_none()) {
+            let error = if local { "This app has no local server" } else { "This window has no server" };
+            done.complete(map([("ok", Data::Bool(false)), ("status", Data::Integer(0)), ("text", Data::String(String::new())), ("error", Data::String(error.into()))]));
+            return;
+        }
+        let send = move |srv: &opencode_kit::client::Server, path: &str| {
+            let answer = if method.eq_ignore_ascii_case("GET") {
+                srv.get_text_ready(path).map(|text| (serde_json::from_str(&text).ok(), text)).map_err(|e| e.to_string())
+            } else {
+                let method = match method.to_ascii_uppercase().as_str() {
+                    "PATCH" => "PATCH",
+                    "PUT" => "PUT",
+                    "DELETE" => "DELETE",
+                    _ => "POST",
+                };
+                srv.call_within(method, path, body, Duration::from_secs(600)).map(|v| {
+                    let text = v.to_string();
+                    (Some(v), text)
+                })
             };
-            srv.call_within(method, path, body, Duration::from_secs(600)).map(|v| {
-                let text = v.to_string();
-                (Some(v), text)
-            })
-        };
-        done.complete(match answer {
-            Ok((json, text)) => map([("ok", Data::Bool(true)), ("status", Data::Integer(200)), ("json", json.as_ref().map_or(Data::Nil, json_to_data)), ("text", Data::String(text))]),
-            Err(e) => map([("ok", Data::Bool(false)), ("status", Data::Integer(0)), ("text", Data::String(String::new())), ("error", Data::String(e))]),
-        });
-    };
-    match (path.strip_prefix("local:"), crate::servers::runtime::own_server()) {
-        (Some(local), Some(own)) => {
-            let local = local.to_owned();
-            crate::plugin_host::tasks::run(move || send(&own, &local));
-        }
-        (local, _) => {
-            let path = local.map_or(path.clone(), str::to_owned);
-            app.job(move |srv| {
-                send(srv, &path);
-                Box::new(|_: &mut App, _: &mut rune::Tx| {}) as crate::jobs::Apply
+            done.complete(match answer {
+                Ok((json, text)) => map([("ok", Data::Bool(true)), ("status", Data::Integer(200)), ("json", json.as_ref().map_or(Data::Nil, json_to_data)), ("text", Data::String(text))]),
+                Err(e) => map([("ok", Data::Bool(false)), ("status", Data::Integer(0)), ("text", Data::String(String::new())), ("error", Data::String(e))]),
             });
+        };
+        match (path.strip_prefix("local:"), crate::servers::runtime::own_server()) {
+            (Some(local), Some(own)) => {
+                let local = local.to_owned();
+                crate::plugin_host::tasks::run(move || send(&own, &local));
+            }
+            (local, _) => {
+                let path = local.map_or(path.clone(), str::to_owned);
+                app.job(move |srv| {
+                    send(srv, &path);
+                    Box::new(|_: &mut App, _: &mut rune::Tx| {}) as crate::jobs::Apply
+                });
+            }
         }
-    }
+    })
+    .ok_or_else(|| mlua::Error::runtime("Server:RequestAsync needs a window"))?;
     Ok(())
 }
 
@@ -175,7 +178,7 @@ fn read_file(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
 
 fn save_download(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
     let (name, content): (String, String) = args(lua, a)?;
-    let persists = cx::app().is_some_and(App::persists);
+    let persists = cx::with_app(App::persists).unwrap_or(false);
     let saved = if persists { opencode_kit::client::save_download(&name, &content) } else { Err("This window doesn't save files".to_owned()) };
     done.complete(match saved {
         Ok(path) => map([("path", Data::String(path))]),

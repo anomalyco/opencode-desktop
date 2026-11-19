@@ -125,7 +125,7 @@ fn listen(lua: &Lua, vmx: &Rc<Vmx>) -> mlua::Result<Value> {
     let id = NEXT.fetch_add(1, Ordering::Relaxed);
     let token = super::app::random_id();
     let shared = Arc::new(Shared::default());
-    let waker = super::app_now("Askpass:Listen").ok().and_then(|app| app.plugins.waker.clone());
+    let waker = crate::plugin_host::cx::with_app(|app| app.plugins.waker.clone()).flatten();
     let (s, t) = (shared.clone(), token.clone());
     std::thread::Builder::new()
         .name("plugin-askpass".into())

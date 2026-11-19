@@ -9,8 +9,8 @@ use super::p;
 use crate::plugin_host::icons::intern;
 
 pub fn view(a: &mut NodeArgs) -> Result<El, String> {
-    let app = crate::plugin_host::cx::app().ok_or("ui.openInButton draws only in a render")?;
     let key = intern(a.string("key").unwrap_or("open-in"));
     let path = a.string("path").unwrap_or_default().to_owned();
-    Ok(crate::open_in::button(app, &p(a), key, &path).unwrap_or_else(rune::el))
+    crate::plugin_host::cx::with_app(|app| crate::open_in::button(app, &p(a), key, &path).unwrap_or_else(rune::el))
+        .ok_or_else(|| "ui.openInButton draws only in a render".into())
 }

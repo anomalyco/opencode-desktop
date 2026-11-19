@@ -50,7 +50,7 @@ pub fn render(app: &App, p: &Pal, i: usize, surface: &str, f: &Function, props: 
     let trace_args = crate::files::trace::on().then(|| format!("{props:?}"));
     let t0 = crate::files::trace::on().then(rune::time::Instant::now);
     let id = half.id.clone();
-    let (built, read) = cx::recording(|| cx::rendering_as(&id, || cx::with_app(app, || script.render_fn::<App>(surface, version, p.dark, f, props))));
+    let (built, read) = cx::recording(|| cx::rendering_as(&id, || cx::enter(app, || script.render_fn::<App>(surface, version, p.dark, f, props))));
     if chrome && FAILED.replace(false) {
         half.failed.borrow_mut().insert(surface.to_owned());
         return el();
@@ -96,7 +96,7 @@ fn bench(app: &App, p: &Pal, script: &rune_luau::Script, surface: &str, f: &Func
         let mut times: Vec<f64> = (0..1000u64)
             .map(|n| {
                 let start = rune::time::Instant::now();
-                let run = || cx::with_app(app, || script.render_fn::<App>(&id, n ^ seed, p.dark, f, props.clone()));
+                let run = || cx::enter(app, || script.render_fn::<App>(&id, n ^ seed, p.dark, f, props.clone()));
                 let built = if warm { rune::memo::as_next_build(run) } else { run() };
                 let us = start.elapsed().as_secs_f64() * 1e6;
                 drop(built);
@@ -180,7 +180,7 @@ fn titlebar_pills(app: &App, p: &Pal, vertical: bool) -> Vec<El> {
         .into_iter()
         .filter_map(|(i, (key, show, run))| {
             let script = app.plugins.list[i].script()?;
-            let view: opencode_plugin_spec::TitlebarItemView = cx::with_app(app, || script.eval_fn::<Data>(show.as_ref()?, ()).ok())?.decode().ok()?;
+            let view: opencode_plugin_spec::TitlebarItemView = cx::enter(app, || script.eval_fn::<Data>(show.as_ref()?, ()).ok())?.decode().ok()?;
             let busy = view.busy == Some(true);
             let open = app.plugins.titlebar_hover == Some(key);
             let side = if vertical { 28.0 } else { 20.0 };
@@ -275,7 +275,7 @@ pub fn pill_views(app: &App, p: &Pal, session: &str) -> Vec<El> {
         .filter_map(|(i, (key, id, show, menu, run))| {
             let script = app.plugins.list[i].script()?;
             let props = map([("sessionId", Data::String(session.to_owned())), ("directory", Data::String(directory.clone()))]);
-            let view: opencode_plugin_spec::ComposerPillView = cx::with_app(app, || script.eval_fn::<Data>(show.as_ref()?, props.clone()).ok())?.decode().ok()?;
+            let view: opencode_plugin_spec::ComposerPillView = cx::enter(app, || script.eval_fn::<Data>(show.as_ref()?, props.clone()).ok())?.decode().ok()?;
             let anchor = format!("plugin-pill-{key}");
             let plugin = app.plugins.list[i].half.id.clone();
             let open = app.plugins.overlay.pill_open(&plugin, &id);
@@ -323,7 +323,7 @@ pub fn popover_view(app: &App, p: &Pal) -> Vec<El> {
         let pill = half.contribs.borrow().composer_pills.iter().find(|c| c.spec.id == *id).map(|c| (c.key, c.f("renderMenu").cloned(), c.f("show").cloned()));
         let Some((key, Some(menu), show)) = pill else { return Vec::new() };
         let script = app.plugins.list[i].script();
-        let view: Option<opencode_plugin_spec::ComposerPillView> = script.and_then(|s| cx::with_app(app, || s.eval_fn::<Data>(show.as_ref()?, data.clone()).ok())).and_then(|d| d.decode().ok());
+        let view: Option<opencode_plugin_spec::ComposerPillView> = script.and_then(|s| cx::enter(app, || s.eval_fn::<Data>(show.as_ref()?, data.clone()).ok())).and_then(|d| d.decode().ok());
         let content = render(app, p, i, &format!("pill:{id}"), &menu, data.clone());
         let heading = view.map(|v| v.title.unwrap_or(v.label)).unwrap_or_default();
         let head = text(heading.clone()).font(rune::TextStyle::new(11.0, 530.0).lh(12.0).tracking(0.05)).color(p.faint).wrap().max_lines(3).w_full();

@@ -88,7 +88,7 @@ fn spawn(lua: &Lua, vmx: &Rc<Vmx>, spec: Value) -> mlua::Result<Table> {
     let spec = decode(lua, spec)?;
     let id = NEXT.fetch_add(1, Ordering::Relaxed);
     let inbox = vmx.half.inbox.clone();
-    let waker = cx::app().and_then(|app| app.plugins.waker.clone());
+    let waker = cx::with_app(|app| app.plugins.waker.clone()).flatten();
     let control = supervisor::launch(spec, move |event| {
         if let Ok(mut q) = inbox.lock() {
             q.push((id, event));

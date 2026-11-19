@@ -1,5 +1,5 @@
-//! How a binding reaches the app. Every entry into a plugin's VM happens inside [`with_app`]:
-//! renders and queries read the window's `App` through [`app`]; what a binding wants changed
+//! How a binding reaches the app. Every entry into a plugin's VM happens inside [`enter`]:
+//! renders and queries read the window's `App` through [`with_app`]; what a binding wants changed
 //! (open a panel, show a toast) it queues with [`ask`], and the host carries the queue out with
 //! `&mut App` and the transaction as soon as the entry returns ([`super::requests::carry_out`]).
 //! A render also records what it read ([`read`]), so the host knows when to run it again.
@@ -22,10 +22,14 @@ thread_local! {
 /// Runs `f` as plugin `plugin`'s render: nodes that act for their plugin (`ui.flyoutRow`)
 /// read it with [`rendering`].
 pub fn rendering_as<R>(plugin: &Rc<str>, f: impl FnOnce() -> R) -> R {
-    let outer = PLUGIN.replace(Some(plugin.clone()));
-    let out = f();
-    PLUGIN.set(outer);
-    out
+    struct Restore(Option<Rc<str>>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            PLUGIN.set(self.0.take());
+        }
+    }
+    let _restore = Restore(PLUGIN.replace(Some(plugin.clone())));
+    f()
 }
 
 /// The plugin whose render runs now.
@@ -33,25 +37,36 @@ pub fn rendering() -> Option<Rc<str>> {
     PLUGIN.with_borrow(Clone::clone)
 }
 
-/// Runs `f` with `app` reachable from the bindings. Nests: an inner call restores the outer app.
-pub fn with_app<R>(app: &App, f: impl FnOnce() -> R) -> R {
+/// Runs `f` with `app` reachable from the bindings via [`with_app`]. Nests: an inner call
+/// restores the outer app on return or unwind.
+pub fn enter<R>(app: &App, f: impl FnOnce() -> R) -> R {
     struct Restore(*const App);
     impl Drop for Restore {
         fn drop(&mut self) {
             APP.set(self.0);
         }
     }
-    let _restore = Restore(APP.replace(app));
+    let _restore = Restore(APP.replace(std::ptr::from_ref(app)));
     f()
 }
 
-/// The app of the entry running now; `None` outside one.
-pub fn app<'a>() -> Option<&'a App> {
+/// Runs `f` with the active entry's `&App`, or returns `None` outside [`enter`].
+///
+/// The higher-ranked closure bound prevents the `&App` from escaping this call, so the shared
+/// borrow is guaranteed to end before the enclosing [`enter`] restores the pointer and releases
+/// its borrow.
+pub fn with_app<R>(f: impl FnOnce(&App) -> R) -> Option<R> {
     let p = APP.get();
-    // SAFETY: `with_app` sets the pointer from a live reference for exactly the span of its call
-    // and restores the previous one after it, and the bindings that read it run inside that span
-    // on this thread; nothing mutates the app while it is set.
-    (!p.is_null()).then(|| unsafe { &*p })
+    if p.is_null() {
+        return None;
+    }
+    // SAFETY: `p` is only ever written by `enter` from a live `&App` on this thread and restored
+    // by a stack-local `Drop` guard before `enter` returns (including on unwind). Because `enter`
+    // holds that shared `&App` borrow for its entire dynamic extent, no `&mut App` to the same
+    // `App` can coexist in safe code; and because `f` is higher-ranked (`for<'a> FnOnce(&'a App)
+    // -> R`), the reference cannot escape `with_app` and ends before `enter` returns.
+    let app = unsafe { &*p };
+    Some(f(app))
 }
 
 /// Something a plugin asked the app to do, carried out after the entry returns.
@@ -184,9 +199,16 @@ pub fn read(dep: Dep) {
 
 /// Runs `f`, returning what it read alongside its result. Nested recordings each get their own.
 pub fn recording<R>(f: impl FnOnce() -> R) -> (R, Vec<Dep>) {
-    let outer = READS.replace(Some(Vec::new()));
+    struct Restore(Option<Vec<Dep>>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            READS.set(self.0.take());
+        }
+    }
+    let mut restore = Restore(READS.replace(Some(Vec::new())));
     let out = f();
-    let reads = READS.replace(outer).unwrap_or_default();
+    let reads = READS.replace(restore.0.take()).unwrap_or_default();
+    std::mem::forget(restore);
     (out, reads)
 }
 
@@ -213,7 +235,7 @@ pub fn answer(app: &App, asked: (Option<u64>, u64, u64), key: String, ask: impl 
     if let Some(value) = hit {
         return value;
     }
-    let (value, reads) = recording(|| with_app(app, ask));
+    let (value, reads) = recording(|| enter(app, ask));
     let read = stamp(app, &reads);
     ANSWERS.with_borrow_mut(|c| c.insert(key, Answer { asked, reads, read, value: value.clone() }));
     value

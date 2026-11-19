@@ -57,7 +57,7 @@ pub(crate) fn answer(app: &App, i: usize, key: &str, f: &Function, args: impl ml
         return found;
     }
     let t0 = crate::files::trace::on().then(rune::time::Instant::now);
-    let (out, deps) = cx::recording(|| cx::with_app(app, || script.eval_fn::<Data>(f, args).ok()));
+    let (out, deps) = cx::recording(|| cx::enter(app, || script.eval_fn::<Data>(f, args).ok()));
     if let Some(t0) = t0 {
         crate::files::trace::luau(&p.half.id, "answer", &key, "", t0.elapsed().as_micros() as u64);
     }
@@ -196,7 +196,7 @@ fn listed(app: &App, owner: &Plugin, list: &Function, plugin: &str, panel: &str,
         return tabs;
     }
     let t0 = crate::files::trace::on().then(rune::time::Instant::now);
-    let (answer, reads) = cx::recording(|| cx::with_app(app, || script.eval_fn::<Data>(list, (session.to_owned(), open.to_vec())).ok()));
+    let (answer, reads) = cx::recording(|| cx::enter(app, || script.eval_fn::<Data>(list, (session.to_owned(), open.to_vec())).ok()));
     if let Some(t0) = t0 {
         crate::files::trace::luau(plugin, "list", &format!("{panel}:{session}"), &format!("{open:?}"), t0.elapsed().as_micros() as u64);
     }
@@ -371,7 +371,7 @@ pub fn focused(app: &mut App, plugin: &str, session: &str, tab: &str, restored: 
         m.insert("restored".into(), Data::Bool(restored || app.workspace_panes.side.background_open.is_active()));
     }
     if let Some(script) = app.plugins.list[i].script() {
-        cx::with_app(app, || script.spawn_fn(f, data, None).ok());
+        cx::enter(app, || script.spawn_fn(f, data, None).ok());
     }
     app.plugins.asked.set(true);
 }
@@ -393,7 +393,7 @@ pub fn closed_info(app: &App, plugin: &str, session: &str, tab: &PanelTabDesc) -
     let closed = match &all[k].closed_tab {
         Some(f) => {
             let props = props(app, &all[k], session, &tab.id, false, "side", (0.0, 0.0));
-            let answer = app.plugins.list[i].script().and_then(|s| cx::with_app(app, || s.eval_fn::<Data>(f, props).ok()));
+            let answer = app.plugins.list[i].script().and_then(|s| cx::enter(app, || s.eval_fn::<Data>(f, props).ok()));
             match answer.and_then(|d| d.decode::<opencode_plugin_spec::ClosedTab>().ok()) {
                 Some(c) => c,
                 None => return ClosedTabInfo::Deny,

@@ -17,7 +17,7 @@ use crate::plugin_host::{app_half, dormant, panels, plugin};
 /// Runs `f(args)` of plugin `i` as a task, then carries out what it asked for.
 pub fn spawn(app: &mut App, i: usize, f: &Function, args: impl IntoLuaMulti, tx: &mut Tx) {
     let Some(script) = app.plugins.list.get(i).and_then(|p| p.script()) else { return };
-    cx::with_app(app, || script.spawn_fn(f, args, Some(&mut *tx)).ok());
+    cx::enter(app, || script.spawn_fn(f, args, Some(&mut *tx)).ok());
     super::requests::carry_out(app, tx);
 }
 
@@ -105,7 +105,7 @@ pub fn run(app: &mut App, id: &str, input: Option<&str>, tx: &mut Tx) -> bool {
     let Some(script) = app.plugins.list[i].script() else { return false };
     let Some(Ok(wrap)) = script.with_lua(|lua| wrapper(lua, "opencode.command", COMMAND)) else { return false };
     DECLINED.set(false);
-    cx::with_app(app, || script.spawn_fn(&wrap, (f, input.map(str::to_owned)), Some(&mut *tx)).ok());
+    cx::enter(app, || script.spawn_fn(&wrap, (f, input.map(str::to_owned)), Some(&mut *tx)).ok());
     super::requests::carry_out(app, tx);
     !DECLINED.replace(false)
 }
@@ -327,7 +327,7 @@ pub fn open_link(app: &mut App, href: &str, tx: &mut Tx) -> bool {
     let link = map([("href", Data::String(href.to_owned()))]);
     for (i, _, matches, open) in handlers {
         let Some(script) = app.plugins.list[i].script() else { continue };
-        if cx::with_app(app, || script.eval_fn::<bool>(&matches, link.clone())).unwrap_or(false) {
+        if cx::enter(app, || script.eval_fn::<bool>(&matches, link.clone())).unwrap_or(false) {
             spawn(app, i, &open, link, tx);
             return true;
         }
@@ -374,7 +374,7 @@ pub fn mcp_call(app: &mut App, call: McpCall, session: &str, directory: &str, tx
     let context = map([("sessionId", Data::String(session.to_owned())), ("directory", Data::String(directory.to_owned()))]);
     let id = NEXT_CALL.replace(NEXT_CALL.get() + 1);
     CALLS.with_borrow_mut(|c| c.insert(id, (call, rune::time::Instant::now() + TOOL_TIMEOUT)));
-    if let Err(e) = cx::with_app(app, || script.spawn_fn(&wrap, (f, id, input, context), Some(&mut *tx)))
+    if let Err(e) = cx::enter(app, || script.spawn_fn(&wrap, (f, id, input, context), Some(&mut *tx)))
         && let Some((call, _)) = CALLS.with_borrow_mut(|c| c.remove(&id))
     {
         call.respond(McpResult::error(e.message));
@@ -395,7 +395,7 @@ pub fn run_menubar(app: &mut App, key: &str, tx: &mut Tx) -> bool {
     dormant::wake_owners(app, |c| c.menubar_items.iter().any(|c| c.key == key));
     let found = app_half::each(|a| a.half.contribs.borrow().menubar_items.iter().find(|c| c.key == key).and_then(|c| c.f("run").cloned())).into_iter().next();
     let Some(f) = found else { return false };
-    app_half::each(|a| a.half.contribs.borrow().menubar_items.iter().any(|c| c.key == key).then(|| cx::with_app(app, || a.script.spawn_fn(&f, (), Some(&mut *tx)).ok())));
+    app_half::each(|a| a.half.contribs.borrow().menubar_items.iter().any(|c| c.key == key).then(|| cx::enter(app, || a.script.spawn_fn(&f, (), Some(&mut *tx)).ok())));
     super::requests::carry_out(app, tx);
     true
 }

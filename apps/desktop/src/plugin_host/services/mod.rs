@@ -326,9 +326,7 @@ pub(super) fn lazy_signals(lua: &Lua, vmx: &Rc<Vmx>, t: &Table, service: &str, f
             }
             let s = signal(lua, &v, &format!("{service}.{key}"))?;
             // What it follows now is its first value: a change from here on fires it.
-            if let Some(app) = cx::app() {
-                watch::baseline(app, &v.half, &format!("{service}.{key}"));
-            }
+            cx::with_app(|app| watch::baseline(app, &v.half, &format!("{service}.{key}")));
             t.raw_set(key, &s)?;
             Ok(s)
         })?,
@@ -343,7 +341,7 @@ pub fn fire(app: &App, plugin: &super::Plugin, name: &str, args: impl Fn(&Lua) -
     let half = &plugin.half;
     let Some(signal) = half.signals.borrow().get(&(vm, name.to_owned())).cloned() else { return };
     let Some(fire) = half.fire.borrow().get(&vm).cloned() else { return };
-    cx::with_app(app, || {
+    cx::enter(app, || {
         let Some(Ok(mut values)) = script.with_lua(|lua| args(lua)) else { return };
         values.push_front(signal);
         script.spawn_fn(&fire, values, None).ok();
@@ -514,7 +512,7 @@ pub fn map(fields: impl IntoIterator<Item = (&'static str, Data)>) -> Data {
     Data::Map(fields.into_iter().filter(|(_, v)| *v != Data::Nil).map(|(k, v)| (k.to_owned(), v)).collect())
 }
 
-/// The app of the entry running now, or the error a binding raises without one.
-pub(super) fn app_now<'a>(what: &str) -> mlua::Result<&'a App> {
-    cx::app().ok_or_else(|| mlua::Error::runtime(format!("{what} can only be read while the plugin runs")))
+/// Runs `f` with the active entry's `&App`, or raises the error a binding raises without one.
+pub(super) fn with_app<R>(what: &str, f: impl FnOnce(&App) -> mlua::Result<R>) -> mlua::Result<R> {
+    cx::with_app(f).unwrap_or_else(|| Err(mlua::Error::runtime(format!("{what} can only be read while the plugin runs"))))
 }

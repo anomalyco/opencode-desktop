@@ -8,7 +8,7 @@ use std::rc::Rc;
 use mlua::{FromLua, Function, IntoLua, Lua, MultiValue, Table, Value, Variadic};
 use rune_luau::{Data, LogLevel};
 
-use super::{app_now, lazy_signals, method, signal};
+use super::{lazy_signals, method, signal, with_app};
 use crate::plugin_host::cx::{self, Dep};
 use crate::plugin_host::plugin::Kind;
 use crate::plugin_host::{console, vm::Vmx};
@@ -47,8 +47,7 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, name: &str, t: &Table) -> mlua::Result<()
             }
             method(lua, t, "Lines", |lua, ()| {
                 cx::read(Dep::Console);
-                let app = app_now("Console:Lines")?;
-                console::lines(app).into_lua(lua)
+                with_app("Console:Lines", |app| console::lines(app).into_lua(lua))
             })?;
             method(lua, t, "Clear", |_, ()| {
                 console::clear();
@@ -57,14 +56,15 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, name: &str, t: &Table) -> mlua::Result<()
             })?;
             let own = vmx.half.id.clone();
             method(lua, t, "Eval", move |lua, (plugin, source): (String, String)| {
-                let app = app_now("Console:Eval")?;
-                let result = if !super::diag::debug_build() {
-                    Err("The console's command bar runs in local and beta builds only".to_owned())
-                } else if *own == *plugin {
-                    console::eval_here(lua, &source)
-                } else {
-                    console::eval(app, &plugin, &source)
-                };
+                let result = with_app("Console:Eval", |app| {
+                    Ok(if !super::diag::debug_build() {
+                        Err("The console's command bar runs in local and beta builds only".to_owned())
+                    } else if *own == *plugin {
+                        console::eval_here(lua, &source)
+                    } else {
+                        console::eval(app, &plugin, &source)
+                    })
+                })?;
                 let out = lua.create_table()?;
                 out.raw_set("ok", result.is_ok())?;
                 match result {
@@ -124,7 +124,7 @@ fn value(lua: &Lua, vmx: &Rc<Vmx>, name: String, default: Value, per_session: bo
         // Each key's value as last parsed, by its version: a render reads it every time it runs.
         let parsed: Rc<std::cell::RefCell<ParsedCache>> = Rc::default();
         move |lua: &Lua, session: &str| -> mlua::Result<Value> {
-            let key: Rc<str> = if per_session { stores::key(&name, &scope_session(app_now("Store")?, session)).into() } else { name.clone() };
+            let key: Rc<str> = if per_session { with_app("Store", |app| Ok(stores::key(&name, &scope_session(app, session)).into()))? } else { name.clone() };
             cx::read(Dep::Store(plugin.clone(), key.clone()));
             let version = store_version(&plugin, &key);
             if let Some((v, data)) = parsed.borrow().get(&key)
@@ -146,7 +146,7 @@ fn value(lua: &Lua, vmx: &Rc<Vmx>, name: String, default: Value, per_session: bo
         let (plugin, ns, name) = (plugin.clone(), ns.clone(), name.clone());
         move |lua: &Lua, session: &str, value: Value| -> mlua::Result<()> {
             let json = Data::from_lua(value, lua)?.to_json().to_string();
-            let key = if per_session { stores::key(&name, &scope_session(app_now("Store")?, session)) } else { name.to_string() };
+            let key = if per_session { with_app("Store", |app| Ok(stores::key(&name, &scope_session(app, session))))? } else { name.to_string() };
             stores::set(&ns, &key, json);
             if per_session {
                 stores::touch(&plugin, &ns, &name, &key);

@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use mlua::{Lua, Table};
 
-use super::{app_now, lazy_signals, method};
+use super::{lazy_signals, method, with_app};
 use crate::plugin_host::cx::{self, Request};
 use crate::plugin_host::vm::Vmx;
 
@@ -49,7 +49,7 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, name: &str, t: &Table) -> mlua::Result<()
         cx::ask(&p, Request::Reveal(path));
         Ok(())
     })?;
-    method(lua, t, "Now", |_, ()| Ok(*app_now("System:Now")?.now_ms as f64))?;
+    method(lua, t, "Now", |_, ()| with_app("System:Now", |app| Ok(*app.now_ms as f64)))?;
     method(lua, t, "UtcOffset", |_, ms: f64| Ok(f64::from(rune::LocalTime::at(ms as i64).offset)))?;
     method(lua, t, "FreePort", |_, ()| Ok(std::net::TcpListener::bind("127.0.0.1:0").ok().and_then(|l| l.local_addr().ok()).map(|a| a.port())))?;
     method(lua, t, "RandomId", |_, ()| Ok(random_id()))

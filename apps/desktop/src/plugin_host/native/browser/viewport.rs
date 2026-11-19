@@ -1,6 +1,6 @@
 //! Native portion of the device preview. CEF receives the displayed surface's actual
 //! window-point bounds; the requested CSS dimensions travel separately in the protocol.
-use super::{App, Dep, El, Lua, NodeArgs, Table, app_now, col, cx, id_of, later};
+use super::{App, Dep, El, Lua, NodeArgs, Table, col, cx, id_of, later, with_app};
 use browser_pane::device::{Device, Profile};
 use rune::{Cursor, Drag, Phase, Tx, el};
 
@@ -9,26 +9,27 @@ pub(super) fn methods(lua: &Lua, m: &Table) -> mlua::Result<()> {
         "Viewport",
         lua.create_function(|lua, this: Table| {
             cx::read(Dep::Browser);
-            let app = app_now("BrowserTab:Viewport")?;
             let id = id_of(&this)?;
-            let Some(d) = app.workspace_panes.browser.host.tab(id).and_then(|t| t.device.as_ref()) else {
-                return Ok(None);
-            };
-            let value = lua.create_table()?;
-            value.set("width", d.width)?;
-            value.set("height", d.height)?;
-            value.set("scale", d.scale)?;
-            value.set("preset", d.preset.as_deref())?;
-            value.set(
-                "profile",
-                match d.profile {
-                    Profile::Phone => "phone",
-                    Profile::Tablet => "tablet",
-                    Profile::WindowsTablet => "windows_tablet",
-                    Profile::Desktop => "desktop",
-                },
-            )?;
-            Ok(Some(value))
+            with_app("BrowserTab:Viewport", |app| {
+                let Some(d) = app.workspace_panes.browser.host.tab(id).and_then(|t| t.device.as_ref()) else {
+                    return Ok(None);
+                };
+                let value = lua.create_table()?;
+                value.set("width", d.width)?;
+                value.set("height", d.height)?;
+                value.set("scale", d.scale)?;
+                value.set("preset", d.preset.as_deref())?;
+                value.set(
+                    "profile",
+                    match d.profile {
+                        Profile::Phone => "phone",
+                        Profile::Tablet => "tablet",
+                        Profile::WindowsTablet => "windows_tablet",
+                        Profile::Desktop => "desktop",
+                    },
+                )?;
+                Ok(Some(value))
+            })
         })?,
     )?;
     m.raw_set(

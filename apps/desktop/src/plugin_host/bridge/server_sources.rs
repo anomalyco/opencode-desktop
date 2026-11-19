@@ -171,7 +171,7 @@ pub fn call(app: &mut App, key: &str, name: &str, settle: Option<Settle>, tx: &m
     let window = app.plugins.running().find_map(|(i, pl)| (pl.manifest.id == plugin).then(|| source_fn(&pl.half, &rec.source, name).map(|f| (i, f))).flatten());
     if let Some((i, f)) = window {
         if let Some(script) = app.plugins.list[i].script() {
-            super::cx::with_app(app, || run(script, &f, &rec.id, settle, tx));
+            super::cx::enter(app, || run(script, &f, &rec.id, settle, tx));
         }
         super::requests::carry_out(app, tx);
         return true;
@@ -182,7 +182,7 @@ pub fn call(app: &mut App, key: &str, name: &str, settle: Option<Settle>, tx: &m
             return None;
         }
         let f = source_fn(&a.half, &rec.source, name)?;
-        super::cx::with_app(app, || run(&a.script, &f, &rec.id, settle.take(), tx));
+        super::cx::enter(app, || run(&a.script, &f, &rec.id, settle.take(), tx));
         Some(())
     });
     super::requests::carry_out(app, tx);
