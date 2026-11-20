@@ -72,17 +72,17 @@ wrap_scheme_handler_factory! {
                     };
                     let entry = rel == *document && browser_initiated && self.grant.take_entry();
                     match open_verified_file(root, pin, document, &rel, entry, home.as_deref()) {
-                        OpenOutcome::Opened { mut file, verified_rel, size } => {
+                        OpenOutcome::Opened { file, verified_rel, size } => {
                             if self.grant.is_revoked() {
                                 return None;
                             }
                             let range = parse_range(range_header.as_deref(), size);
-                            let (status, status_text, content_range, remaining) = match &range {
+                            let (status, status_text, content_range, advertised_len) = match &range {
                                 RangeSpec::Full { length } => (200, "OK", None, *length),
-                                RangeSpec::Partial { start, length, content_range, .. } => {
-                                    if !head_only && file.seek(SeekFrom::Start(*start)).is_err() {
-                                        return None;
-                                    }
+                                RangeSpec::Partial { length, content_range, .. } => {
+                                    // CEF's `StreamReaderURLLoader` calls `skip(start)` itself when
+                                    // a `Range` header is present; keep the handle at offset 0 so
+                                    // `skip()` positions it exactly once.
                                     (206, "Partial Content", Some(content_range.clone()), *length)
                                 }
                                 RangeSpec::Unsatisfiable { content_range } => {
@@ -92,12 +92,14 @@ wrap_scheme_handler_factory! {
                             let (mime, charset) = mime_for_path(&verified_rel);
                             let state = LocalState {
                                 file: (!head_only && status != 416).then_some(file),
+                                head_only,
                                 status,
                                 status_text,
                                 mime,
                                 charset,
-                                length: remaining,
-                                remaining: if head_only || status == 416 { 0 } else { remaining },
+                                file_size: size,
+                                advertised_len,
+                                remaining: if head_only || status == 416 { 0 } else { size },
                                 content_range,
                             };
                             Some(LocalFileResourceHandler::new(self.grant.clone(), Arc::new(Mutex::new(state))))
@@ -152,11 +154,13 @@ wrap_scheme_handler_factory! {
 
 struct LocalState {
     file: Option<File>,
+    head_only: bool,
     status: i32,
     status_text: &'static str,
     mime: &'static str,
     charset: Option<&'static str>,
-    length: u64,
+    file_size: u64,
+    advertised_len: u64,
     remaining: u64,
     content_range: Option<String>,
 }
@@ -194,9 +198,17 @@ wrap_resource_handler! {
             if let Some(cs) = st.charset {
                 resp.set_charset(Some(&CefString::from(cs)));
             }
-            set_preview_security_headers(resp, false, Some(st.length), st.content_range.as_deref());
+            set_preview_security_headers(resp, false, Some(st.advertised_len), st.content_range.as_deref());
             if let Some(len) = response_length {
-                *len = i64::try_from(st.remaining).unwrap_or(-1);
+                // Report full file length on 200/206 so CEF's Range bounds check matches the file;
+                // `read()` immediately returns 0 on HEAD / 416.
+                *len = if st.status == 416 {
+                    0
+                } else if st.head_only {
+                    i64::try_from(st.advertised_len).unwrap_or(0)
+                } else {
+                    i64::try_from(st.file_size).unwrap_or(-1)
+                };
             }
         }
 
@@ -207,11 +219,17 @@ wrap_resource_handler! {
             _callback: Option<&mut ResourceSkipCallback>,
         ) -> ::std::os::raw::c_int {
             let mut st = self.state.lock().unwrap();
-            if bytes_to_skip < 0 || self.grant.is_revoked() {
+            if bytes_to_skip < 0 || self.grant.is_revoked() || st.status == 416 {
                 if let Some(s) = bytes_skipped {
                     *s = -2;
                 }
                 return 0;
+            }
+            if st.head_only {
+                if let Some(s) = bytes_skipped {
+                    *s = bytes_to_skip;
+                }
+                return 1;
             }
             let skip = (bytes_to_skip as u64).min(st.remaining);
             if let Some(file) = st.file.as_mut()
@@ -222,7 +240,7 @@ wrap_resource_handler! {
                 }
                 return 0;
             }
-            st.remaining -= skip;
+            st.remaining = st.advertised_len;
             if let Some(s) = bytes_skipped {
                 *s = skip as i64;
             }
@@ -342,12 +360,32 @@ wrap_resource_handler! {
                 st.content_range.as_deref(),
             );
             if let Some(len) = response_length {
-                *len = if self.proxy.head_only || st.status == 416 {
+                *len = if st.status == 416 {
                     0
                 } else {
                     st.content_length.and_then(|n| i64::try_from(n).ok()).unwrap_or(-1)
                 };
             }
+        }
+
+        fn skip(
+            &self,
+            bytes_to_skip: i64,
+            bytes_skipped: Option<&mut i64>,
+            _callback: Option<&mut ResourceSkipCallback>,
+        ) -> ::std::os::raw::c_int {
+            let st = self.proxy.state.lock().unwrap();
+            if bytes_to_skip < 0 || st.canceled || self.proxy.grant.is_revoked() || st.status == 416 {
+                if let Some(s) = bytes_skipped {
+                    *s = -2;
+                }
+                return 0;
+            }
+            // Remote `/api/fs/read/*` already served the exact requested byte slice for `206`.
+            if let Some(s) = bytes_skipped {
+                *s = bytes_to_skip;
+            }
+            1
         }
 
         fn read(
