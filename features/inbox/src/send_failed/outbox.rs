@@ -451,9 +451,6 @@ pub fn pump_outbox(host: &mut dyn SendFailedHost) -> bool {
     let Some(prompt) = prompt else {
         return false;
     };
-    if !host.prompt_gate_ready(&session) {
-        return false;
-    }
     let by = host.peer_token();
     let now = host.clock();
     super::step_send(host, &id, Event::Send { by, now });

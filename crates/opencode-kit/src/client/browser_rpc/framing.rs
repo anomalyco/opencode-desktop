@@ -1,7 +1,7 @@
 //! Strict bounded HTTP/1.1 request-head parser, anti-smuggling validator, `CONNECT` authority
 //! parser, and forwarded-header sanitizer for [`super::tunnel_proxy::TunnelProxy`].
 
-use std::io::{BufReader, ErrorKind, Read};
+use std::io::{BufReader, ErrorKind, Read, Write};
 use std::net::TcpStream;
 
 use rune::time::Instant;
@@ -12,6 +12,7 @@ const MAX_HEADERS: usize = 128;
 pub(super) struct ParsedHead {
     pub method: String,
     pub target: String,
+    pub version: String,
     pub headers: Vec<(String, String)>,
 }
 
@@ -108,7 +109,7 @@ pub(super) fn read_http_head(
         }
         headers.push((k.to_owned(), v.trim().to_owned()));
     }
-    Ok(ParsedHead { method, target, headers })
+    Ok(ParsedHead { method, target, version: version.to_owned(), headers })
 }
 
 pub(super) fn parse_content_length(req: &ParsedHead, reject_body: bool) -> Result<u64, &'static str> {
@@ -201,7 +202,7 @@ pub(super) fn parse_proxy_url(raw: &str) -> Option<ProxyUrl> {
         };
         (host.to_owned(), port)
     } else if let Some((h, p)) = authority.rsplit_once(':') {
-        if p.is_empty() || !p.bytes().all(|b| b.is_ascii_digit()) {
+        if h.contains(':') || p.is_empty() || !p.bytes().all(|b| b.is_ascii_digit()) {
             return None;
         }
         let port = p.parse::<u16>().ok()?;
@@ -300,4 +301,18 @@ fn is_http_token(s: &str) -> bool {
 
 fn has_ctl(s: &str, allow_htab: bool) -> bool {
     s.bytes().any(|b| b == 0x7f || (b < 0x20 && !(allow_htab && b == b'\t')))
+}
+
+pub(super) fn write_status(stream: &mut TcpStream, status: &str) -> std::io::Result<()> {
+    let resp = format!("HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+    stream.write_all(resp.as_bytes())
+}
+
+pub(super) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    let mut diff = a.len() ^ b.len();
+    for (i, &expected) in b.iter().enumerate() {
+        let got = a.get(i).copied().unwrap_or(0);
+        diff |= usize::from(got ^ expected);
+    }
+    diff == 0
 }

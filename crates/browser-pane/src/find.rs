@@ -105,10 +105,6 @@ impl crate::BrowserHost {
         self.caps.remote_proxy()
     }
 
-    pub fn engine_caps_known(&self) -> bool {
-        !matches!(self.caps, crate::machine::EngineCaps::Unknown)
-    }
-
     pub fn engine_agent_tools(&self) -> bool {
         self.caps.agent_tools()
     }

@@ -59,11 +59,6 @@ pub enum Incoming {
     /// A `Write::Tracked` write's outcome, under the ticket it was sent with: `Ok(Some(session))`
     /// for a fork (the session it made), `Ok(None)` for any other write, or the raw error.
     Settled { ticket: Ticket, result: Result<Option<SessionInfo>, WireError> },
-    /// A brand-new session (`Write::Start` / `StartAs` / `StartInNewWorktree`) was just created on
-    /// the server and is waiting (`<= 1 s`) for the UI's `BuiltinPromptGate` before posting its
-    /// first prompt.
-    #[cfg(not(target_arch = "wasm32"))]
-    PromptGate { session: String, directory: String, release: std::sync::mpsc::Sender<()> },
 }
 
 /// Which machine asked for a tracked write, for which session, at which attempt: the write's

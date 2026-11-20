@@ -61,14 +61,14 @@ fn message(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             reconnect::back(s);
             // Terminals that failed under the old connection attach again (`server.connected`).
             s.kernel.slots.get_mut(&crate::terminal::TERMINAL).connections += 1;
-            let active_server = crate::servers::runtime::active(s).clone();
-            crate::settings::pages::extensions::on_server_reconnected(s, &active_server);
-            #[cfg(not(target_arch = "wasm32"))]
-            crate::surfaces::browser::rpc::on_sse_connected(s, &active_server);
             s.pump_outbox();
             s.stream_back();
             s.check_sends();
             s.resync_view();
+            let active_server = crate::servers::runtime::active(s).clone();
+            crate::settings::pages::extensions::on_server_reconnected(s, &active_server);
+            #[cfg(not(target_arch = "wasm32"))]
+            crate::surfaces::browser::rpc::on_sse_connected(s, &active_server);
             // A restarted server forgets its file watches (`server.connected` in Desktop), and a
             // change made meanwhile went unreported.
             crate::files::watch::connected(s);
@@ -292,11 +292,6 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             s.apply_project_opened(location, projects, session, tx);
         }
         Incoming::Settled { ticket, result } => settled(s, ticket, result, tx),
-        #[cfg(not(target_arch = "wasm32"))]
-        Incoming::PromptGate { session, directory, release } => {
-            crate::surfaces::browser::rpc::hold_start_gate(s, &session, &directory, release);
-            return false;
-        }
         Incoming::Created(info) if s.queue.starts.has(&info.id) => {
             s.started(info, tx);
         }
