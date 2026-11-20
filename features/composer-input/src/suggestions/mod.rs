@@ -424,7 +424,8 @@ fn keys(ev: &KeyEvent) -> machine::Key {
     if let Some(step) = session_view::popover::nav_step(ev, true) {
         return K::Step(step);
     }
-    if opencode_ui::keymap::Bind::Stop.matches(ev) {
+    // `prompt.stop`'s other keys (^G) cancel the list; its Escape stays Escape.
+    if ev.key != Key::Escape && opencode_ui::keymap::Bind::Stop.matches(ev) {
         return K::Cancel;
     }
     match &ev.key {

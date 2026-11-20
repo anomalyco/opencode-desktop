@@ -186,10 +186,13 @@ impl App {
     }
 }
 
-/// Whether Escape stops the open session's run: the composer has focus while it runs or its stop
-/// settles (the escape stack's `Run` layer).
+/// Whether Escape stops the open session's run: it is one of `prompt.stop`'s keys, and the composer
+/// has focus while it runs or its stop settles (the escape stack's `Run` layer).
 pub fn escape_stops(s: &App) -> bool {
     let Route::Session { id, .. } = &*s.route else { return false };
+    if !session_view::composer::is_stop_shortcut(&rune::KeyEvent { key: rune::Key::Escape, mods: rune::Mods::default() }) {
+        return false;
+    }
     s.composer.focused && (s.busy(id) || s.stopping(id))
 }
 

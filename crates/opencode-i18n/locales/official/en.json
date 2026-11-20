@@ -48,6 +48,7 @@
   "command.prompt.mode.normal": "Prompt",
   "command.prompt.mode.shell": "Shell",
   "command.prompt.mode.toggle": "Toggle shell mode",
+  "command.prompt.stop": "Stop session",
   "command.provider.connect": "Connect an integration",
   "command.provider.connect.description": "Sign in to OpenCode Go, OpenCode Console, or another model provider",
   "command.review.toggle": "Toggle review",

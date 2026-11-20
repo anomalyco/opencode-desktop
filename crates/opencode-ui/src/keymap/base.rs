@@ -14,7 +14,7 @@ pub enum Bind {
     QuestionBack,
     /// The question dock's Next or Submit.
     QuestionAdvance,
-    /// Stops the running session from the composer (Esc does too).
+    /// Stops the running session from the composer.
     Stop,
     /// A popover's next and previous row, besides ↑ ↓.
     PopoverNext,
@@ -100,7 +100,7 @@ static TABLE: LazyLock<[Keybind; 17]> = LazyLock::new(|| {
         Keybind::new("mod+[").on(Windows, "alt+left").on(Linux, "alt+left"),
         // ⌃↩ also moves on, on macOS.
         Keybind::new("mod+enter, ctrl+enter, mod+shift+enter, ctrl+shift+enter"),
-        Keybind::new("ctrl+g"),
+        Keybind::new("escape, ctrl+g"),
         // Emacs-style rows on macOS only: off macOS Ctrl+N and Ctrl+P are the app's New session
         // and Open file, which Desktop's window-wide keymap takes before a popover sees them.
         Keybind::new("ctrl+n, ctrl+shift+n").on(Windows, "none").on(Linux, "none"),
