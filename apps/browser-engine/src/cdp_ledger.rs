@@ -189,6 +189,27 @@ pub(crate) fn tab_has_extension_frame(
     false
 }
 
+/// Validates a `HostMsg::CdpCall` against readiness, child `sessionId`, extension frames, and `check_cdp`.
+pub(crate) fn check_raw_cdp_call_allowed(
+    tab_ready: bool,
+    browser: &cef::Browser,
+    snap: &std::sync::Mutex<crate::wire::TabSnapshot>,
+    method: &str,
+    params: &Value,
+    session_id: Option<&str>,
+) -> Result<(), String> {
+    if !tab_ready {
+        return Err("browser.context.initializing".into());
+    }
+    if session_id.is_some() {
+        return Err("DevTools CdpCall does not permit targeting a child sessionId.".into());
+    }
+    if tab_has_extension_frame(browser, snap) {
+        return Err("DevTools calls are not permitted on tabs containing extension documents.".into());
+    }
+    browser_policy::check_cdp(method, params, true)
+}
+
 /// Validates a `HostMsg::TypedCdpCall` against readiness, extension frames, `check_typed_cdp`,
 /// and the engine-authoritative `EngineCdpLedger`.
 pub(crate) fn check_typed_call_allowed(

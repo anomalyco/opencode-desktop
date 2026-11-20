@@ -834,34 +834,14 @@ impl EngineManager {
             }
             HostMsg::CdpCall { tab_id, request_id, method, params, session_id } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
-                    if !self.contexts.is_tab_ready(tab_id) {
-                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                            tab_id,
-                            request_id,
-                            ok: false,
-                            result: json!({ "message": "browser.context.initializing" }),
-                        });
-                        return true;
-                    }
-                    if session_id.is_some() {
-                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                            tab_id,
-                            request_id,
-                            ok: false,
-                            result: json!({ "message": "DevTools CdpCall does not permit targeting a child sessionId." }),
-                        });
-                        return true;
-                    }
-                    if crate::cdp_ledger::tab_has_extension_frame(&t.browser, &t.snap) {
-                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                            tab_id,
-                            request_id,
-                            ok: false,
-                            result: json!({ "message": "DevTools calls are not permitted on tabs containing extension documents." }),
-                        });
-                        return true;
-                    }
-                    if let Err(err) = browser_policy::check_cdp(&method, &params, true) {
+                    if let Err(err) = crate::cdp_ledger::check_raw_cdp_call_allowed(
+                        self.contexts.is_tab_ready(tab_id),
+                        &t.browser,
+                        &t.snap,
+                        &method,
+                        &params,
+                        session_id.as_deref(),
+                    ) {
                         let _ = self.out_tx.send(EngineMsg::CdpResponse {
                             tab_id,
                             request_id,
