@@ -247,7 +247,6 @@ pub fn check_cdp(method: &str, params: &serde_json::Value, engine_has_policy: bo
         | "DOM.enable"
         | "DOM.getDocument"
         | "DOM.describeNode"
-        | "DOM.resolveNode"
         | "DOM.getBoxModel"
         | "DOM.getContentQuads"
         | "DOM.scrollIntoViewIfNeeded"
@@ -262,18 +261,23 @@ pub fn check_cdp(method: &str, params: &serde_json::Value, engine_has_policy: bo
         | "Page.captureScreenshot"
         | "Page.handleJavaScriptDialog"
         | "Runtime.releaseObject" => Ok(()),
-        "Runtime.evaluate" | "Runtime.callFunctionOn" => check_runtime_params(method, params),
+        "DOM.resolveNode" | "Runtime.evaluate" | "Runtime.callFunctionOn" => {
+            check_runtime_params(method, params)
+        }
         "Input.dispatchKeyEvent" => check_key_params(params),
         _ => Err(format!("DevTools method '{method}' is not permitted in the built-in browser.")),
     }
 }
 
 fn check_runtime_params(method: &str, params: &serde_json::Value) -> Result<(), String> {
-    if let Some(v) = params.get("includeCommandLineAPI")
-        && !v.is_null()
-        && v != &serde_json::Value::Bool(false)
-    {
+    if params.get("includeCommandLineAPI").is_some_and(|v| !v.is_null() && v != &serde_json::Value::Bool(false)) {
         return Err(format!("DevTools method '{method}' cannot enable includeCommandLineAPI."));
+    }
+    // Reject explicit V8 execution-context targeting so agents cannot enter extension isolated worlds.
+    for field in ["contextId", "executionContextId", "uniqueContextId"] {
+        if params.get(field).is_some_and(|v| !v.is_null()) {
+            return Err(format!("DevTools method '{method}' cannot target explicit execution contexts ('{field}')."));
+        }
     }
     Ok(())
 }
