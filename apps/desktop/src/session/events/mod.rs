@@ -462,6 +462,9 @@ impl App {
         if ty.starts_with("shell.") {
             changed |= crate::subagents::shells::event(self, ty, data);
         }
+        if ty == "experimental.job.updated" {
+            changed |= crate::subagents::jobs::event(self, ty, data);
+        }
         if ty.starts_with("session.revert.") && !sid.is_empty() {
             changed |= done.revert | self.revert_landed(ty, data, &sid);
         }

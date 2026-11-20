@@ -497,7 +497,17 @@ fn notice(w: &mut W, n: &Notice) {
             w.s(t);
         }
         NoticeKind::Idle => w.0.push(7),
-        NoticeKind::Job { id, description } => { w.0.push(8); w.s(id); w.s(description); }
+        NoticeKind::Job { id, description, script: None } => { w.0.push(8); w.s(id); w.s(description); }
+        NoticeKind::Job { id, description, script: Some(outcome) } => {
+            w.0.push(9);
+            w.s(id);
+            w.s(description);
+            w.0.push(match outcome {
+                Outcome::Completed => 0,
+                Outcome::Error => 1,
+                Outcome::Cancelled => 2,
+            });
+        }
     }
 }
 
@@ -524,7 +534,16 @@ fn read_notice(r: &mut R<'_>) -> Option<Notice> {
         }),
         6 => NoticeKind::Text(r.s()?),
         7 => NoticeKind::Idle,
-        8 => NoticeKind::Job { id: r.s()?, description: r.s()? },
+        8 => NoticeKind::Job { id: r.s()?, description: r.s()?, script: None },
+        9 => NoticeKind::Job {
+            id: r.s()?,
+            description: r.s()?,
+            script: Some(match r.u8()? {
+                0 => Outcome::Completed,
+                1 => Outcome::Error,
+                _ => Outcome::Cancelled,
+            }),
+        },
         _ => return None,
     };
     Some(Notice { id, kind })

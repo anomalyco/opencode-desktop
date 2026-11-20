@@ -18,7 +18,8 @@ use opencode_kit::model::{Assistant, Message, Part, ToolStatus};
 use rune::Tx;
 use serde_json::Value;
 
-use crate::activity::{self, Activity, Effect, EndInfo, EndStatus, Event, Timer, Work};
+use crate::activity::{self, Activity, Effect, EndInfo, EndStatus, Event, Kind, Timer, Work};
+use crate::jobs::{self, Job, Jobs};
 use crate::shells::follow::Followers;
 use crate::shells::tail::{Page, TailEffect, TailEvent};
 use crate::{SubagentsHost, running_subagents};
@@ -54,7 +55,19 @@ pub enum SubagentRequest {
     ReadPanelOutput { id: String, directory: String, attempt: u64, cursor: u64 },
     ReadFollowOutput { id: String, directory: String, generation: u64, attempt: u64, cursor: u64 },
     LoadEnded { id: String, directory: String, attempt: u64 },
-    Stop { attempt: u64, key: String, directory: String, subagent: bool },
+    Stop { attempt: u64, target: StopTarget },
+    /// The running jobs of `session`'s tree (`GET /api/experimental/job`).
+    ListJobs { attempt: u64, session: String },
+}
+
+/// What a Stop ends.
+#[derive(Clone, Debug)]
+pub enum StopTarget {
+    Shell { id: String, directory: String },
+    /// A subagent stops with everything its tree still runs: its run, while it runs, and its
+    /// tree's jobs (`region.tsx`'s `stop`).
+    Subagent { session: String, interrupt: bool, jobs: Vec<String> },
+    Script { job: String },
 }
 
 /// Result of a [`SubagentRequest`], applied on the UI thread by [`apply_reply`].
@@ -65,6 +78,7 @@ pub enum SubagentReply {
     FollowOutput { id: String, generation: u64, attempt: u64, page: Result<Page, bool> },
     Ended { attempt: u64, info: Option<EndInfo> },
     Stopped { attempt: u64, ok: bool },
+    Jobs { attempt: u64, jobs: Option<Vec<Job>> },
     None,
 }
 
@@ -83,6 +97,8 @@ pub struct Shells {
     pub activity: Activity,
     /// The timeline consoles' followers.
     pub follow: Followers,
+    /// The open session tree's running background jobs.
+    pub jobs: Jobs,
     /// The work the machine last heard of, so a change is told to it once.
     work: Work,
     timers: Vec<(i64, Due)>,
@@ -114,27 +130,28 @@ impl Shells {
 }
 
 /// The running shells of session `id` in the capsule, oldest first: those no running call of its
-/// current turn holds (by shell id, or by command before the call names one).
+/// current turn holds (by shell id, or by command before the call names one). A running script
+/// holds the shells it started and hasn't finished (`requests/background.ts`).
 pub fn running_for<'a>(host: &'a dyn SubagentsHost, id: &str) -> Vec<&'a Shell> {
-    let held: Vec<(Option<&str>, &str)> = host
-        .transcript(id)
-        .and_then(|t| t.open_reply())
-        .map_or_else(Vec::new, |a| {
-            a.parts
-                .iter()
-                .filter_map(|p| match p {
-                    Part::Tool { name, status: ToolStatus::Running, input, metadata, .. } if name == "shell" => {
-                        Some((metadata["shellID"].as_str(), input["command"].as_str().unwrap_or("")))
-                    }
-                    _ => None,
-                })
-                .collect()
-        });
+    let reply = host.transcript(id).and_then(|t| t.open_reply());
+    let running = || reply.into_iter().flat_map(|a| a.parts.iter()).filter_map(|p| match p {
+        Part::Tool { name, status: ToolStatus::Running, input, metadata, .. } => Some((name.as_str(), input, metadata)),
+        _ => None,
+    });
+    let held: Vec<(Option<&str>, &str)> = running()
+        .filter(|(name, ..)| *name == "shell")
+        .map(|(_, input, metadata)| (metadata["shellID"].as_str(), input["command"].as_str().unwrap_or("")))
+        .collect();
+    let scripts: Vec<(i64, Vec<&str>)> = running()
+        .filter(|(name, ..)| *name == "execute")
+        .map(|(_, _, metadata)| (opencode_kit::model::tool_ran(metadata).unwrap_or(0), jobs::script_shell_commands(metadata)))
+        .collect();
+    let by_script = |sh: &Shell| scripts.iter().any(|(started, commands)| sh.started >= *started && commands.contains(&sh.command.as_str()));
     let mut out: Vec<&Shell> = host
         .shells()
         .running
         .iter()
-        .filter(|sh| sh.session == id && !held.iter().any(|(sid, cmd)| *sid == Some(sh.id.as_str()) || (!cmd.is_empty() && *cmd == sh.command)))
+        .filter(|sh| sh.session == id && !held.iter().any(|(sid, cmd)| *sid == Some(sh.id.as_str()) || (!cmd.is_empty() && *cmd == sh.command)) && !by_script(sh))
         .collect();
     out.sort_by(|a, b| (a.started, &a.id).cmp(&(b.started, &b.id)));
     out
@@ -146,6 +163,7 @@ pub fn work(host: &dyn SubagentsHost) -> Work {
     Work {
         enabled: host.background_activity_enabled(),
         subagents: running_subagents(host, id).into_iter().map(|r| r.session).collect(),
+        scripts: jobs::scripts(host, id).into_iter().map(|j| j.id).collect(),
         shells: running_for(host, id).into_iter().map(|sh| sh.id.clone()).collect(),
     }
 }
@@ -258,13 +276,21 @@ pub fn execute_request(srv: &Server, request: SubagentRequest) -> SubagentReply 
             });
             SubagentReply::Ended { attempt, info }
         }
-        SubagentRequest::Stop { attempt, key, directory, subagent } => {
-            let ok = if subagent {
-                srv.interrupt(&key).is_ok()
-            } else {
-                srv.write("DELETE", &format!("/api/shell/{}?{}", encode_component(&key), location(&directory)), None).is_ok()
+        SubagentRequest::Stop { attempt, target } => {
+            let cancel = |job: &str| srv.write("POST", &format!("/api/experimental/job/{}/cancel", encode_component(job)), None).is_ok();
+            let ok = match target {
+                StopTarget::Shell { id, directory } => srv.write("DELETE", &format!("/api/shell/{}?{}", encode_component(&id), location(&directory)), None).is_ok(),
+                StopTarget::Subagent { session, interrupt, jobs } => {
+                    let interrupted = !interrupt || srv.interrupt(&session).is_ok();
+                    jobs.iter().fold(interrupted, |ok, job| cancel(job) && ok)
+                }
+                StopTarget::Script { job } => cancel(&job),
             };
             SubagentReply::Stopped { attempt, ok }
+        }
+        SubagentRequest::ListJobs { attempt, session } => {
+            let path = format!("/api/experimental/job?sessionID={}&descendants=true&status=running", encode_component(&session));
+            SubagentReply::Jobs { attempt, jobs: srv.get(&path).ok().map(|v| jobs::parse_list(&v)) }
         }
     }
 }
@@ -295,6 +321,7 @@ pub fn apply_reply(host: &mut dyn SubagentsHost, reply: SubagentReply) {
             }
             dispatch(host, Event::StopSettled { attempt, stopped: ok, now });
         }
+        SubagentReply::Jobs { attempt, jobs } => jobs::listed(host, attempt, jobs),
         SubagentReply::None => {}
     }
 }
@@ -338,7 +365,8 @@ pub fn poll(host: &mut dyn SubagentsHost, tx: &mut Tx) -> bool {
         tx.wake_after(Duration::from_millis((next - now).max(0) as u64));
     }
     // The list's run times tick on whole seconds while it's open over running work.
-    if host.shells().activity.is_open() && (!host.shells().work.shells.is_empty() || !host.shells().work.subagents.is_empty()) {
+    let work = &host.shells().work;
+    if host.shells().activity.is_open() && (!work.shells.is_empty() || !work.scripts.is_empty() || !work.subagents.is_empty()) {
         let second = now.div_euclid(1000);
         tx.wake_after(Duration::from_millis(((second + 1) * 1000 - now).max(0) as u64));
         if host.shells().ticked != second {
@@ -446,9 +474,19 @@ fn run(host: &mut dyn SubagentsHost, effect: Effect) {
             let directory = host.shells().activity.shown().map(|(sh, ..)| sh.directory.clone()).unwrap_or_default();
             send_request(host, SubagentRequest::LoadEnded { id, directory, attempt });
         }
-        Effect::RunStop { attempt, key, subagent } => {
-            let directory = host.shells().running.iter().find(|r| r.id == key).map(|r| r.directory.clone()).unwrap_or_default();
-            send_request(host, SubagentRequest::Stop { attempt, key, directory, subagent });
+        Effect::RunStop { attempt, key, kind } => {
+            let target = match kind {
+                Kind::Shell => {
+                    let directory = host.shells().running.iter().find(|r| r.id == key).map(|r| r.directory.clone()).unwrap_or_default();
+                    StopTarget::Shell { id: key, directory }
+                }
+                Kind::Subagent => {
+                    let jobs = jobs::owned_by(host, &key).map(|j| j.id.clone()).collect();
+                    StopTarget::Subagent { interrupt: host.running_sessions().contains(&key), session: key, jobs }
+                }
+                Kind::Script => StopTarget::Script { job: key },
+            };
+            send_request(host, SubagentRequest::Stop { attempt, target });
         }
     }
 }
