@@ -27,6 +27,7 @@ pub mod extensions;
 mod fd_lines;
 pub mod find;
 mod frame;
+pub mod history;
 pub mod installer;
 mod keys;
 #[cfg(all(feature = "engine", target_os = "macos"))]
@@ -35,6 +36,7 @@ mod machine;
 pub use browser_policy as policy;
 #[cfg(feature = "engine")]
 mod prefetch;
+pub mod preview;
 #[cfg(feature = "engine")]
 pub mod profile;
 pub mod prompts;
@@ -45,6 +47,7 @@ mod site_zoom;
 #[cfg(feature = "engine")]
 mod source;
 mod surface;
+pub mod tools;
 #[cfg(feature = "engine")]
 mod transport;
 #[cfg(feature = "engine")]
@@ -53,8 +56,7 @@ mod trust;
 mod unpack;
 
 pub use address::{bare_url, host_of, resolve_address};
-pub use client::BrowserHost;
-pub use client::BrowserTab;
+pub use client::{BrowserHost, BrowserTab, CdpEvent};
 pub use extensions::{
     ExtensionLifecycleEvent, ExtensionOpenRequest, FILTER_READY_DEADLINE, FilterGateState,
     OpenExtensionPopup, POPUP_MAX_H, POPUP_MAX_W, POPUP_MIN_H, POPUP_MIN_W, PopupAnchor,
@@ -71,9 +73,11 @@ pub use policy::{
 pub use profile::shared_profile_dir;
 pub use protocol::CursorKind;
 pub use protocol::{
-    AuthChallenge, ContextMenuCommand, DialogKind, DownloadFile, DownloadState,
+    AuthChallenge, ContextKind, ContextMenuCommand, DialogKind, DownloadFile, DownloadState,
     ExtensionActionSnapshot, PageContextMenu, PageDialog, PermissionKind, PermissionPrompt,
+    PreviewKindTag, PreviewSpec, RemoteProxyConfig,
 };
+pub use preview::{PreviewFetchRequest, PreviewResponder};
 pub use protocol::PickedElement;
-pub use prompts::{PermissionDecision, PermissionStore, SiteDecision, SitePermissions, SiteSetting};
+pub use prompts::{PermissionDecision, PermissionStore, SiteDecision, SitePermissions, SiteSetting, TabDriver};
 pub use site_zoom::ZoomStore;

@@ -13,6 +13,7 @@
 //!   Negotiate; agent-driven tabs cancel immediately and emit `AuthAgentRequired` (`sign_in_required`).
 //! - Native file choosers on agent-driven tabs are cancelled immediately (`FileChooserBlocked`).
 
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -31,7 +32,8 @@ use cef::{
 
 use crate::output::Output;
 use crate::wire::{
-    AuthChallenge, DialogKind, EngineMsg, PageDialog, PermissionKind, PermissionPrompt, TabSnapshot,
+    AuthChallenge, DialogKind, EngineMsg, PageDialog, PermissionKind, PermissionPrompt,
+    RemoteProxyConfig, TabSnapshot,
 };
 
 /// Shared across all tabs in the engine: whether the connected app handles prompts (`Hello.prompts`)
@@ -65,15 +67,81 @@ enum HeldPermission {
 #[derive(Default)]
 pub struct TabPrompts {
     pub agent_driven: AtomicBool,
+    pub proxy: Mutex<Option<RemoteProxyConfig>>,
     dialogs: Mutex<Vec<(PageDialog, JsdialogCallback)>>,
     permissions: Mutex<Vec<HeldPermission>>,
     auth: Mutex<Vec<(AuthChallenge, AuthCallback)>>,
     pending_top_url: Mutex<Option<String>>,
+    /// Tracks in-flight (pre-commit) `chrome-extension://` sub-frame navigations keyed by CEF
+    /// frame identifier until commit, cancel/error, main-frame nav, or renderer crash — NO
+    /// time-out that fails open (`review-rd274.md` Round-4 ruling).
+    pending_ext_subframes: Mutex<HashSet<String>>,
+    /// Tracks extension frames observed via real CDP `frameId` (`devtools_frame_token`) in
+    /// `TabCdpObserver::on_dev_tools_event` (`Page.frameNavigated` / `frameDetached`).
+    cdp_ext_frames: Mutex<HashSet<String>>,
 }
 
 impl TabPrompts {
     pub fn set_pending_top_url(&self, url: Option<String>) {
         *self.pending_top_url.lock().unwrap() = url;
+    }
+
+    pub fn pending_top_url(&self) -> Option<String> {
+        self.pending_top_url.lock().unwrap().clone()
+    }
+
+    pub fn mark_pending_ext_subframe(&self, frame_id: String) {
+        if !frame_id.is_empty() {
+            self.pending_ext_subframes.lock().unwrap().insert(frame_id);
+        }
+    }
+
+    pub fn clear_pending_ext_subframe(&self, frame_id: &str) {
+        if !frame_id.is_empty() {
+            self.pending_ext_subframes.lock().unwrap().remove(frame_id);
+        }
+    }
+
+    pub fn clear_all_ext_frame_tracking(&self) {
+        self.pending_ext_subframes.lock().unwrap().clear();
+        self.cdp_ext_frames.lock().unwrap().clear();
+    }
+
+    /// Retains only pending extension sub-frames whose `RenderFrameHost` is still alive and has
+    /// not yet committed as an extension scheme (zero fail-open TTL). Returns `true` if any
+    /// pre-commit extension sub-frame navigation is still in flight.
+    pub fn has_pending_ext_subframes(&self, live_frames: &HashMap<String, String>) -> bool {
+        let mut set = self.pending_ext_subframes.lock().unwrap();
+        set.retain(|id| {
+            live_frames
+                .get(id)
+                .is_some_and(|url| !crate::extensions::manifest::is_extension_scheme(url))
+        });
+        !set.is_empty()
+    }
+
+    pub fn has_any_pending_ext_subframes(&self) -> bool {
+        !self.pending_ext_subframes.lock().unwrap().is_empty()
+    }
+
+    pub fn set_cdp_ext_frame(&self, cdp_frame_id: &str, is_ext: bool) {
+        if cdp_frame_id.is_empty() {
+            return;
+        }
+        let mut set = self.cdp_ext_frames.lock().unwrap();
+        if is_ext {
+            set.insert(cdp_frame_id.to_owned());
+        } else {
+            set.remove(cdp_frame_id);
+        }
+    }
+
+    pub fn clear_cdp_ext_frames(&self) {
+        self.cdp_ext_frames.lock().unwrap().clear();
+    }
+
+    pub fn has_cdp_ext_frames(&self) -> bool {
+        !self.cdp_ext_frames.lock().unwrap().is_empty()
     }
 
     pub fn answer_dialog(&self, id: u64, accept: bool, text: &str) -> bool {
@@ -177,6 +245,7 @@ impl TabPrompts {
 
     pub fn reset_on_crash(&self, tab_id: u64, out_tx: &Output) {
         self.set_pending_top_url(None);
+        self.clear_all_ext_frame_tracking();
         let dialogs = std::mem::take(&mut *self.dialogs.lock().unwrap());
         let had_dialogs = !dialogs.is_empty();
         for (_, cb) in dialogs {
@@ -243,7 +312,19 @@ pub fn handle_auth_credentials(
     callback: Option<&mut AuthCallback>,
 ) -> i32 {
     if is_proxy != 0 {
-        return 0;
+        let Some(callback) = callback else { return 1 };
+        let scheme_str = scheme.map(CefString::to_string).unwrap_or_default();
+        let host_str = host.map(CefString::to_string).unwrap_or_default();
+        let realm_str = realm.map(CefString::to_string).unwrap_or_default();
+        if let Some(cfg) = prompts.proxy.lock().unwrap().as_ref()
+            && crate::context::proxy_matches_challenge(cfg, &scheme_str, &host_str, port, &realm_str)
+            && let (Some(u), Some(p)) = (&cfg.username, &cfg.password)
+        {
+            callback.cont(Some(&CefString::from(u.as_str())), Some(&CefString::from(p.as_str())));
+            return 1;
+        }
+        callback.cancel();
+        return 1;
     }
     let Some(callback) = callback else { return 1 };
     let scheme_str = scheme.map(CefString::to_string).unwrap_or_default();
@@ -330,9 +411,15 @@ pub fn origin_of(url: &str) -> Option<String> {
     None
 }
 
+/// Maximum URL byte length emitted in `EngineMsg::PopupBlocked` (prevents multi-MiB query
+/// exfiltration behind a truncated `short_host` popup notice).
+pub const MAX_POPUP_URL_BYTES: usize = 16_384;
+
 wrap_life_span_handler! {
     pub struct TabLifeSpanHandler {
         tab_id: u64,
+        is_preview: bool,
+        context_ready: Arc<AtomicBool>,
         out_tx: Output,
     }
 
@@ -353,6 +440,9 @@ wrap_life_span_handler! {
             _extra_info: Option<&mut Option<DictionaryValue>>,
             _no_javascript_access: Option<&mut ::std::os::raw::c_int>,
         ) -> ::std::os::raw::c_int {
+            if !self.context_ready.load(Ordering::Acquire) {
+                return 1;
+            }
             let raw = target_url.map(CefString::to_string).unwrap_or_default();
             let url = if raw.trim().is_empty() { "about:blank".to_owned() } else { raw };
             // Pop-ups are never permitted to open `file://` or non-HTTP(S) schemes (`chromium.ts:448-468`).
@@ -361,6 +451,23 @@ wrap_life_span_handler! {
                     tab_id: self.tab_id,
                     reason: why.code().to_owned(),
                 });
+                return 1;
+            }
+            // Preview tabs never auto-spawn pop-ups (even with user gesture); user-gesture http(s)
+            // links within the URL size cap surface as a blocked-popup notice, while non-gesture
+            // or oversized attempts emit `Refused`.
+            if self.is_preview {
+                if user_gesture != 0
+                    && url.len() <= MAX_POPUP_URL_BYTES
+                    && browser_policy::destination_origin(&url).is_some()
+                {
+                    let _ = self.out_tx.send(EngineMsg::PopupBlocked { tab_id: self.tab_id, url });
+                } else {
+                    let _ = self.out_tx.send(EngineMsg::Refused {
+                        tab_id: self.tab_id,
+                        reason: browser_policy::Refusal::Web.code().to_owned(),
+                    });
+                }
                 return 1;
             }
             if user_gesture != 0 {
@@ -402,6 +509,7 @@ wrap_jsdialog_handler! {
         tab_id: u64,
         shared: PromptShared,
         prompts: Arc<TabPrompts>,
+        preview: Option<Arc<crate::preview::PreviewGrant>>,
         out_tx: Output,
     }
 
@@ -475,6 +583,10 @@ impl TabDialogHandler {
             callback.cont(i32::from(kind == DialogKind::Leave), None);
             return 1;
         }
+        let origin = self
+            .preview
+            .as_ref()
+            .map_or(origin.clone(), |g| g.sanitize_reported_url(&origin));
         let id = self.shared.next_id();
         let dialog = PageDialog { id, kind, origin, message, default_text };
         self.prompts.dialogs.lock().unwrap().push((dialog.clone(), callback.clone()));
@@ -486,6 +598,7 @@ impl TabDialogHandler {
 wrap_permission_handler! {
     pub struct TabPermissionHandler {
         tab_id: u64,
+        is_preview: bool,
         shared: PromptShared,
         prompts: Arc<TabPrompts>,
         snap: Arc<Mutex<TabSnapshot>>,
@@ -502,6 +615,10 @@ wrap_permission_handler! {
             callback: Option<&mut MediaAccessCallback>,
         ) -> ::std::os::raw::c_int {
             let Some(callback) = callback else { return 1 };
+            if self.is_preview {
+                callback.cancel();
+                return 1;
+            }
             let audio = sys::cef_media_access_permission_types_t::CEF_MEDIA_PERMISSION_DEVICE_AUDIO_CAPTURE as u32;
             let video = sys::cef_media_access_permission_types_t::CEF_MEDIA_PERMISSION_DEVICE_VIDEO_CAPTURE as u32;
             let allowed_mask = audio | video;
@@ -560,6 +677,9 @@ wrap_permission_handler! {
                 callback.cont(sys::cef_permission_request_result_t::CEF_PERMISSION_RESULT_DENY.into());
                 1
             };
+            if self.is_preview {
+                return deny();
+            }
             use sys::cef_permission_request_types_t as P;
             let cam = P::CEF_PERMISSION_TYPE_CAMERA_STREAM as u32;
             let mic = P::CEF_PERMISSION_TYPE_MIC_STREAM as u32;
@@ -638,6 +758,7 @@ wrap_permission_handler! {
 wrap_dialog_handler! {
     pub struct TabFileDialogHandler {
         tab_id: u64,
+        is_preview: bool,
         prompts: Arc<TabPrompts>,
         out_tx: Output,
     }
@@ -654,7 +775,7 @@ wrap_dialog_handler! {
             _accept_descriptions: Option<&mut CefStringList>,
             callback: Option<&mut FileDialogCallback>,
         ) -> ::std::os::raw::c_int {
-            if self.prompts.agent_driven.load(Ordering::Relaxed) {
+            if self.is_preview || self.prompts.agent_driven.load(Ordering::Relaxed) {
                 if let Some(cb) = callback {
                     cb.cancel();
                 }

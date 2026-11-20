@@ -26,12 +26,88 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
     let mut out = Vec::new();
     let k = kit(p);
 
+    if tab.prompts.agent_driven && tab.prompts.blocked_guard_notice {
+        let notice = match tab.prompts.driver.as_ref() {
+            Some(browser_pane::TabDriver::Plugin(name)) => {
+                t!("rune.browser.prompt.controlled.plugin", name = name.as_str())
+            }
+            _ => t!("rune.browser.prompt.controlled.agent").to_owned(),
+        };
+        let can_reopen = !tab.url.is_empty()
+            && !tab.url.eq_ignore_ascii_case("about:blank")
+            && tab.refusal.as_deref() != Some("browser.proxy.required");
+        let mut actions = row().gap(4.0).center_y();
+        if can_reopen {
+            #[allow(deprecated)]
+            let reopen_btn = crate::widgets::button(
+                t!("rune.browser.prompt.controlled.openNewTab"),
+                ButtonVariant::Neutral,
+            )
+            .size(rune_kit::ButtonSize::Small)
+            .on_press(move |app: &mut App| {
+                if let Some((_, mut ctx)) = app.browser_context_for_opener(tab_id) {
+                    let url = app
+                        .workspace_panes
+                        .browser
+                        .host
+                        .tab(tab_id)
+                        .map(|t| t.url.clone())
+                        .unwrap_or_default();
+                    let proxy_ok = match &mut ctx {
+                        browser_pane::ContextKind::RemoteServer { server_id, proxy } => {
+                            *proxy = app.workspace_panes.browser.host.remote_proxy(server_id.trim()).cloned();
+                            proxy.is_some()
+                        }
+                        _ => true,
+                    };
+                    if proxy_ok && !url.is_empty() && !url.eq_ignore_ascii_case("about:blank") {
+                        let sid = app.browser_tab_session(tab_id).map(str::to_owned);
+                        app.open_new_browser_tab_with_context(sid.as_deref(), &url, None, true, false, ctx, None);
+                        app.workspace_panes.browser.host.dismiss_blocked_guard_notice(tab_id);
+                    }
+                }
+            })
+            .build(k)
+            .key("browser-controlled-open-new");
+            actions = actions.child(reopen_btn);
+        }
+        let close_btn = dismiss_icon_btn(p, "browser-controlled-dismiss", t!("common.close"), move |app: &mut App| {
+            app.workspace_panes.browser.host.dismiss_blocked_guard_notice(tab_id);
+        });
+        actions = actions.child(close_btn);
+        out.push(
+            col()
+                .key("browser-controlled-bar")
+                .w_full()
+                .child(
+                    row()
+                        .role("status")
+                        .w_full()
+                        .min_h(36.0)
+                        .px(12.0)
+                        .py(8.0)
+                        .gap(12.0)
+                        .center_y()
+                        .fill(p.layer1)
+                        .child(icon(&ic::WARNING, 14.0).color(p.icon_muted))
+                        .child(text(notice).font(UI_SMALL).color(p.text).grow(1.0).shrink().min_w(0.0).wrap())
+                        .child(actions),
+                )
+                .child(el().w_full().h(0.5).fill(p.border_muted)),
+        );
+    }
+
     if let Some((url, count, _armed)) = tab.prompts.popup.blocked() {
-        let host = short_host(url);
+        let isolated = tab.preview.is_some() || tab.context.is_isolated();
+        let dest = if isolated {
+            bounded_origin_url(url)
+        } else {
+            short_host(url)
+        };
         let msg = if count > 1 {
-            format!("{} ({count}) — {host}", t!("rune.browser.prompt.popup.blocked"))
-        } else if !host.is_empty() {
-            format!("{} — {host}", t!("rune.browser.prompt.popup.blocked"))
+            format!("{} ({count}) — {dest}", t!("rune.browser.prompt.popup.blocked"))
+        } else if !dest.is_empty() {
+            format!("{} — {dest}", t!("rune.browser.prompt.popup.blocked"))
         } else {
             t!("rune.browser.prompt.popup.blocked").to_owned()
         };
@@ -40,9 +116,13 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
             .size(rune_kit::ButtonSize::Small)
             .on_press(move |app: &mut App| {
                 // `take_blocked_popup_url` enforces the 500 ms activation delay.
-                if let Some(url) = app.workspace_panes.browser.host.take_blocked_popup_url(tab_id) {
+                if let Some(url) = app.workspace_panes.browser.host.take_blocked_popup_url(tab_id)
+                    && url.len() <= 16_384
+                    && browser_pane::policy::destination_origin(&url).is_some()
+                    && let Some((driver, ctx)) = app.browser_context_for_opener(tab_id)
+                {
                     let sid = app.browser_tab_session(tab_id).map(str::to_owned);
-                    app.open_new_browser_tab_for_session(sid.as_deref(), &url, None, true);
+                    app.open_new_browser_tab_with_context(sid.as_deref(), &url, None, true, false, ctx, driver);
                 }
             })
             .build(k)
@@ -75,7 +155,9 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
     if let Some(queued) = tab.prompts.permission.active() {
         let req_id = queued.request.id;
         let agent = queued.agent_driven;
-        let preview = queued.request.origin.to_ascii_lowercase().starts_with("oc-preview:");
+        let preview = tab.preview.is_some()
+            || tab.context.is_isolated()
+            || queued.request.origin.to_ascii_lowercase().starts_with("oc-preview:");
         let can_remember = !agent && !preview;
         let waiting = tab.prompts.permission.waiting_count();
         let sentence = permission_sentence(&queued.request.origin, &queued.request.kinds);
@@ -87,8 +169,14 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
             .gap(2.0)
             .child(text(sentence).font(UI_SMALL).color(p.text).wrap());
         if agent {
+            let driver_copy = match tab.prompts.driver.as_ref() {
+                Some(browser_pane::TabDriver::Plugin(name)) => {
+                    t!("rune.browser.prompt.perm.plugin", name = name.as_str())
+                }
+                _ => t!("rune.browser.prompt.perm.agent").to_owned(),
+            };
             msg_col = msg_col.child(
-                text(t!("rune.browser.prompt.perm.agent"))
+                text(driver_copy)
                     .font(UI_MED)
                     .color(p.text)
                     .wrap(),
@@ -481,6 +569,28 @@ fn modal_frame(
             }
         })
         .child(card)
+}
+
+/// Full-origin + bounded path display (max 96 chars) for blocked pop-ups from isolated/preview
+/// tabs so the user sees the complete scheme, host, and port before clicking Open.
+fn bounded_origin_url(url: &str) -> String {
+    let origin = browser_pane::policy::destination_origin(url);
+    let shown = origin.as_deref().unwrap_or(url);
+    let tail = origin
+        .as_deref()
+        .and_then(|o| url.get(o.len()..))
+        .unwrap_or("");
+    let full = if tail.is_empty() || tail == "/" {
+        shown.to_owned()
+    } else {
+        format!("{shown}{tail}")
+    };
+    if full.chars().count() > 96 {
+        let head: String = full.chars().take(95).collect();
+        format!("{head}…")
+    } else {
+        full
+    }
 }
 
 /// UTF-8 safe left-elided authority display (up to 64 characters, keeping the registrable tail).

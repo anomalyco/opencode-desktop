@@ -79,7 +79,7 @@ impl App {
             if let Some(&(_, b)) = hold.and_then(|h| h.get(&ses.id)) {
                 return b;
             }
-            match day(if ses.updated > 0 { ses.updated } else { ses.created }) {
+            match day(self.recent_page.active_ms(ses)) {
                 d if d == today => 0,
                 d if d == yesterday => 1,
                 _ => 2,

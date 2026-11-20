@@ -70,6 +70,8 @@ pub struct CommandItem {
     pub section: Option<KeymapSection>,
     pub chord: Option<Chord>,
     pub has_keys: bool,
+    /// The command whose keybind it shares (a plugin's `follows`).
+    pub follows: Option<&'static str>,
 }
 
 /// One plugin-contributed search row indexed by Settings search.

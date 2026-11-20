@@ -60,7 +60,17 @@ fn entries(s: &dyn SettingsHost) -> Vec<Entry> {
         if c.has_keys || out.iter().any(|e| e.id == c.id) {
             continue;
         }
-        let keybind = overrides::command(c.id).cloned().or_else(|| c.chord.map(Keybind::from)).unwrap_or_default();
+        let stored = overrides::command(c.id).cloned();
+        // What official lists, not what its code means to (`keybinds.tsx:171-185` with
+        // `command.tsx:367-376`): the list is read from the persisted command catalog, which keeps
+        // `follows` but not `hidden`, so a hidden command is listed (the updater's Check for
+        // Updates) and one that follows another's keybind isn't (the browser's Close browser tab),
+        // unless the user has bound it itself. Upstream's `if (opt.hidden) continue` over the
+        // catalog never fires: if upstream starts persisting `hidden`, skip hidden ones here too.
+        if c.follows.is_some() && stored.is_none() {
+            continue;
+        }
+        let keybind = stored.or_else(|| c.chord.map(Keybind::from)).unwrap_or_default();
         let section = c.section.unwrap_or_else(|| group_for(c.id));
         out.push(Entry { id: c.id.to_owned(), title: c.title, section, keybind });
     }

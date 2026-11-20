@@ -349,7 +349,15 @@ impl BrowserHost {
 
     /// Opens an options or extension page tab for a user click (never isolated, never agent-driven).
     pub fn open_extension_page_tab(&mut self, raw_url: &str) -> u64 {
-        self.open_tab_full(raw_url, Vec::new(), false, false, true, None)
+        self.open_tab_full(
+            raw_url,
+            Vec::new(),
+            crate::protocol::ContextKind::Default,
+            false,
+            false,
+            true,
+            None,
+        )
     }
 
     /// Live toolbar action snapshots for loaded extensions.
@@ -488,7 +496,15 @@ impl BrowserHost {
 
     /// Opens a managed pane tab answering an `EngineMsg::ExtensionOpenTab` request.
     pub fn answer_extension_open_tab(&mut self, request_id: u64, raw_url: &str, file_roots: Vec<String>) -> u64 {
-        self.open_tab_full(raw_url, file_roots, false, false, true, Some(request_id))
+        self.open_tab_full(
+            raw_url,
+            file_roots,
+            crate::protocol::ContextKind::Default,
+            false,
+            false,
+            true,
+            Some(request_id),
+        )
     }
 
     /// Refuses an `EngineMsg::ExtensionOpenTab` request cleanly.
@@ -694,7 +710,9 @@ impl BrowserHost {
                     scale,
                     focused: true,
                     file_roots: Vec::new(),
-                    isolated: false,
+                    context: crate::protocol::ContextKind::Default,
+                    preview: None,
+                    agent_driven: false,
                     allow_extension_pages: true,
                     is_popup: true,
                     ext_open_request_id: None,
@@ -720,6 +738,12 @@ impl BrowserHost {
                 false
             }
             EngineMsg::ExtensionOpenTab { request_id, ext_id, url, active } => {
+                // Bound pending extension tab-open requests (`review-rd274.md` binding condition).
+                const MAX_PENDING_EXT_OPENS: usize = 16;
+                if self.extensions.open_requests.len() >= MAX_PENDING_EXT_OPENS {
+                    self.send(HostMsg::CancelExtensionOpenTab { request_id });
+                    return false;
+                }
                 self.extensions
                     .open_requests
                     .push_back(ExtensionOpenRequest { request_id, ext_id, url, active });

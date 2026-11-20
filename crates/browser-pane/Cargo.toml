@@ -21,6 +21,7 @@ browser-extensions = { path = "../browser-extensions" }
 browser-policy = { path = "../browser-policy" }
 opencode-i18n = { path = "../opencode-i18n" }
 rune.workspace = true
+rusqlite = { version = "0.41", default-features = false, features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true
 sha2 = { version = "0.10", optional = true }

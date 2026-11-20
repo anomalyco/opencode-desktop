@@ -210,6 +210,18 @@ impl Link {
             None => hash_data(&self.local),
         }
     }
+
+    /// Whether this server's known session list contains `sid`.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn has_session(&self, sid: &str) -> bool {
+        match &self.peer {
+            Some(peer) => {
+                let vault = peer.vault.borrow();
+                vault.at == At::Home && vault.data.sessions.iter().any(|s| s.id == sid)
+            }
+            None => self.local.sessions.iter().any(|s| s.id == sid),
+        }
+    }
 }
 
 thread_local! {

@@ -65,8 +65,8 @@ fn menu(s: &App, query: &str) -> Menu {
         .iter()
         .filter(|i| i.parent.is_none() && !s.tabs.iter().any(|t| t.id == i.id) && !entries.iter().any(|e| e.tab.id == i.id) && matches(&i.title))
         .collect();
-    // Newest first (`compareSessionTime`).
-    recent.sort_by(|a, b| b.updated.cmp(&a.updated).then_with(|| a.id.cmp(&b.id)));
+    // Newest first (`compareSessionTime`), using clamped recency (`recent_page.active_ms`).
+    recent.sort_by(|a, b| s.recent_page.active_ms(b).cmp(&s.recent_page.active_ms(a)).then_with(|| a.id.cmp(&b.id)));
     let recent: Vec<Item> = recent.into_iter().take(LIMIT - closed.len()).map(|i| row("recent", &i.id, &i.title, &i.directory)).collect();
     let none = closed.is_empty() && recent.is_empty();
     let mut menu = Menu::new(opencode_i18n::t!("home.recentlyClosed")).width(WIDTH).rows_before_scroll(13.5);

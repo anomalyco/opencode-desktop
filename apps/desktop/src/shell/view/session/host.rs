@@ -173,6 +173,25 @@ impl session_view::TimelineHost for App {
     fn open_link(&mut self, url: &str, tx: &mut Tx) {
         self.open_reply_link(url, tx);
     }
+    fn open_file(&mut self, path: std::path::PathBuf) {
+        crate::open_in::reveal_abs(self, path.to_string_lossy().into_owned());
+    }
+    fn reveal_file(&mut self, path: &std::path::Path) -> bool {
+        let Ok(verified) = browser_policy::verify_local_path(&path.to_string_lossy()) else {
+            return false;
+        };
+        crate::open_in::reveal_abs(self, verified.path);
+        true
+    }
+    fn reply_link_menu(&mut self, url: &str, press: rune::PointerPress, tx: &mut Tx) -> bool {
+        crate::files::reply::menu(self, url, press, tx)
+    }
+    fn reply_video_source(&self, url: &str) -> Option<String> {
+        crate::files::reply::video(self, url)
+    }
+    fn load_reply_video(&mut self, url: &str, _tx: &mut Tx) -> Option<String> {
+        crate::files::reply::load_video(self, url)
+    }
     fn context_menu(&mut self, at: session_view::images::menu::MenuAt, press: rune::PointerPress, tx: &mut Tx) {
         popup::context::open(self, at, press, tx);
     }

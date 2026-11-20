@@ -355,6 +355,7 @@ impl SettingsHost for App {
                 section: c.section,
                 chord: c.chord,
                 has_keys: c.keys.is_some(),
+                follows: c.follows,
             })
             .collect()
     }

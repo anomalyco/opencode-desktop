@@ -34,7 +34,7 @@ export type Env = {
     epoch: (tab: BrowserTab) -> address.Epoch,
     visits: () -> { history.Visit },
     -- The system browser here can open the address.
-    reachable: (url: string) -> boolean,
+    reachable: (url: string, tab: BrowserTab?) -> boolean,
     -- Popover states.
     siteOpen: () -> boolean,
     optionsOpen: () -> boolean,
@@ -85,9 +85,39 @@ local function large(view: View, key: string, icon: string, tip: string, enabled
     return ui.iconButton(props :: any)
 end
 
+-- Preview kind for chrome markers (`local` | `remote` | `artifact` | nil).
+local function tabPreviewKind(tab: BrowserTab, url: string): string?
+    local tAny = tab :: any
+    if type(tAny.PreviewKind) == "function" then
+        local k = tAny:PreviewKind()
+        if type(k) == "string" and k ~= "" then
+            return k
+        end
+    end
+    local lower = string.lower(url)
+    if string.sub(lower, 1, 7) == "file://" then
+        return "local"
+    elseif string.sub(lower, 1, 12) == "workspace://" then
+        return "remote"
+    elseif string.sub(lower, 1, 11) == "artifact://" then
+        return "artifact"
+    end
+    return nil
+end
+
+local function previewLabelKey(kind: string): string
+    if kind == "remote" then
+        return "preview.workspace"
+    elseif kind == "artifact" then
+        return "preview.artifact"
+    end
+    return "site.file"
+end
+
 -- Site button inside the address bar: 20 square with 4 corners; keeps pressed overlay while open.
-local function siteButton(view: View, tip: string, expanded: boolean, press: () -> ()): ui.Node
-    local glyph = ui.icon("outline-sliders", { size = 16, color = if expanded then "icon-base" else "icon-weak" })
+-- Preview tabs show a folder glyph instead of sliders so users never mistake previews for live sites.
+local function siteButton(view: View, iconName: IconName, tip: string, expanded: boolean, press: () -> ()): ui.Node
+    local glyph = ui.icon(iconName, { size = 16, color = if expanded then "icon-base" else "icon-weak" })
     return ui.row({
         fill = if expanded then "surface-press" else nil,
         key = "browser-site",
@@ -155,22 +185,46 @@ end
 local function field(env: Env, view: View, tab: BrowserTab, bar: address.View, zoom: number, fieldWidth: number): ui.Node
     local url = tab:Url()
     local page = if url == "about:blank" then "" else url
+    local previewKind = tabPreviewKind(tab, bar.field)
     local site = bar.field ~= "" and not bar.editing
     local zoomed = page ~= "" and math.abs(zoom - 1) > 0.001
     local items: { ui.Node } = {}
     if site then
+        local siteIcon: IconName = if previewKind then "folder" else "outline-sliders"
+        local siteTip = if previewKind then env.I18n:T(previewLabelKey(previewKind)) else env.I18n:T("site.info")
         -- Site information opens 10 left of the button (`shift={-10}`), from a mark there.
         table.insert(items, ui.box({ key = "browser-site-frame" }, {
-            siteButton(view, env.I18n:T("site.info"), env.siteOpen(), function()
+            siteButton(view, siteIcon, siteTip, env.siteOpen(), function()
                 env.act("site", tab)
             end),
             ui.box({ key = "browser-site-anchor", pin = { left = -10, top = 0, bottom = 0 }, w = 1 }),
         }))
+        if previewKind then
+            table.insert(items, ui.row({
+                key = "browser-preview-badge",
+                h = 18,
+                px = 6,
+                radius = 4,
+                border = "border-base",
+                borderWidth = 0.5,
+                fill = "surface-2",
+                align = "center",
+            }, {
+                ui.text(env.I18n:T(previewLabelKey(previewKind)), {
+                    size = 11,
+                    weight = "medium",
+                    lineHeight = 14,
+                    noWrap = true,
+                    color = "text-muted",
+                }),
+            }))
+        end
     else
         table.insert(items, ui.icon("outline-globe", { size = 16, color = "icon-weak" }))
     end
     local body: { ui.Node } = {}
-    local textAvail = math.max(80, fieldWidth - 44 - (if zoomed then 48 else 0))
+    local badgeW = if site and previewKind then 108 else 0
+    local textAvail = math.max(80, fieldWidth - 44 - badgeW - (if zoomed then 48 else 0))
     if bar.editing then
         table.insert(body, ui.field({
             key = "browser-address-input",
@@ -178,15 +232,15 @@ local function field(env: Env, view: View, tab: BrowserTab, bar: address.View, z
             variant = "bare",
             dir = "ltr",
             placeholder = env.I18n:T("address.search"),
-            keys = { "ArrowUp", "ArrowDown", "Escape" },
+            keys = { "ArrowUp", "ArrowDown", "Tab", "Shift+Tab", "Escape", "Shift+Delete", "Shift+Backspace" },
             label = env.I18n:T("address.label"),
             grow = 1,
         }))
-        -- The suggestion Enter opens, after the typed text.
-        if bar.chosen and #bar.query <= address.HINT_MAX_LENGTH then
-            table.insert(body, ui.row({ pin = { left = 0, top = 0, bottom = 0 }, gap = 6, align = "center" }, {
+        -- Inline completion suffix after what the user typed (`address-machine.ts::completion`).
+        if bar.completion ~= "" and #bar.query <= address.HINT_MAX_LENGTH then
+            table.insert(body, ui.row({ key = "browser-address-completion", pin = { left = 0, top = 0, bottom = 0 }, gap = 0, align = "center" }, {
                 text(bar.query, "text-muted", { opacity = 0 }),
-                text(`- {history.bare(bar.chosen.url)}`, "text-muted", { truncate = true, shrink = true, minW = 0 }),
+                text(bar.completion, "text-muted", { truncate = true, shrink = true, minW = 0 }),
             }))
         end
     elseif bar.field ~= "" then
@@ -422,7 +476,7 @@ local function failed(env: Env, view: View, tab: BrowserTab, loadError: string):
     if info.kind == "insecure" and url ~= "" and url ~= "about:blank" then
         local _, rawHost = address.parts(url)
         local hostName = string.match(rawHost, "^%[[^%]]*%]") or string.match(rawHost, "^[^:]*") or rawHost
-        if address.loopback(hostName) and env.reachable(url) then
+        if address.loopback(hostName) and env.reachable(url, tab) then
             table.insert(actions, {
                 key = "browser-failed-external",
                 label = env.I18n:T("external.open"),
@@ -435,6 +489,112 @@ local function failed(env: Env, view: View, tab: BrowserTab, loadError: string):
     return failure.renderPage(view, env.I18n, info, actions)
 end
 
+local function omniboxRow(
+    env: Env,
+    view: View,
+    tab: BrowserTab,
+    n: number,
+    row: address.Row,
+    query: string,
+    width: number,
+    selected: boolean
+): ui.Node
+    local key = `browser-suggestion-{n}`
+    if row.type == "search" then
+        return ui.row({
+            key = key,
+            dir = "ltr",
+            role = "button",
+            label = `{row.text} - {env.I18n:T("address.search.web")}`,
+            w = "full",
+            h = 28,
+            px = 8,
+            gap = 8,
+            radius = 6,
+            align = "center",
+            fill = if selected then "surface-press" else nil,
+            hover = "surface-hover",
+            hoverTransition = "instant",
+            onPress = view:Handler(function()
+                env.act("go", tab, row.url)
+            end),
+        }, {
+            ui.icon("magnifying-glass", { size = 14, color = "icon-weak" }),
+            ui.row({ grow = 1, shrink = true, minW = 0, gap = 4, align = "center" }, {
+                text(row.text, "text-chrome", { truncate = true, shrink = true, minW = 0 }),
+                text("—", "text-muted"),
+                text(env.I18n:T("address.search.web"), "text-muted", { noWrap = true }),
+            }),
+        })
+    elseif row.type == "address" then
+        return ui.row({
+            key = key,
+            dir = "ltr",
+            role = "button",
+            label = row.text,
+            w = "full",
+            h = 28,
+            px = 8,
+            gap = 8,
+            radius = 6,
+            align = "center",
+            fill = if selected then "surface-press" else nil,
+            hover = "surface-hover",
+            hoverTransition = "instant",
+            onPress = view:Handler(function()
+                env.act("go", tab, row.url)
+            end),
+        }, {
+            ui.icon("outline-globe", { size = 16, color = "icon-weak" }),
+            ui.row({ grow = 1, shrink = true, minW = 0, gap = 4, align = "center" }, {
+                text(row.text, "text-chrome", { truncate = true, shrink = true, minW = 0 }),
+            }),
+        })
+    end
+    local page = row.page
+    local textW = math.max(0, width - 16 - 16 - 8 - 28)
+    local shownUrl = (string.gsub(history.bare(page.url), "^([^/?#]+)/$", "%1"))
+    local items: { ui.Node } = {}
+    if page.title ~= "" then
+        table.insert(items, marked(page.title, query, "text-chrome", { maxW = textW * 0.55, truncate = true, shrink = true, minW = 0 }))
+        table.insert(items, text("—", "text-muted"))
+    end
+    table.insert(items, marked(shownUrl, query, if page.title == "" then "text-chrome" else "text-muted", { grow = 1, truncate = true, shrink = true, minW = 0 }))
+    return ui.row({
+        key = key,
+        dir = "ltr",
+        role = "button",
+        label = if page.title ~= "" then page.title else page.url,
+        w = "full",
+        h = 28,
+        pl = 8,
+        pr = 4,
+        gap = 8,
+        radius = 6,
+        align = "center",
+        fill = if selected then "surface-press" else nil,
+        hover = "surface-hover",
+        hoverTransition = "instant",
+        onPress = view:Handler(function()
+            env.act("go", tab, row.url)
+        end),
+    }, {
+        ui.icon("outline-globe", { size = 16, color = "icon-weak" }),
+        ui.row({ grow = 1, shrink = true, minW = 0, gap = 4, align = "center" }, items),
+        ui.iconButton({
+            key = `browser-suggestion-forget-{n}`,
+            icon = "close",
+            variant = "ghost-muted",
+            size = "small",
+            label = env.I18n:T("common.delete"),
+            help = env.I18n:T("common.delete"),
+            onPress = view:Handler(function()
+                env.act("forget", tab, row.url)
+            end),
+        }),
+    })
+end
+
 -- The suggestions under the field (`browser-suggestions`).
 local function suggestions(env: Env, view: View, tab: BrowserTab, state: address.View, width: number): ui.Node?
     if not state.listed then
@@ -444,10 +604,8 @@ local function suggestions(env: Env, view: View, tab: BrowserTab, state: address
     local rightW = rightCount * 28 + math.max(0, rightCount - 1) * 4
     local fieldW = math.max(0, width - 24 - 92 - 8 - 8 - rightW)
     local rows: { ui.Node } = {}
-    for n, visit in state.suggestions do
-        table.insert(rows, panel.row(view, `browser-suggestion-{n}`, visit, state.query, fieldW, true, n == state.active, function()
-            env.act("go", tab, visit.url)
-        end))
+    for n, row in state.rows do
+        table.insert(rows, omniboxRow(env, view, tab, n, row, state.query, fieldW, n == state.active))
     end
     return ui.col({
         key = "browser-suggestions",

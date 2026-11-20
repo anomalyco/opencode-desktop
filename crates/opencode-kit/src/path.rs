@@ -17,6 +17,23 @@ pub fn basename(path: &str) -> &str {
     path[root..].rsplit(SEPARATORS).next().unwrap_or(path)
 }
 
+/// Movie types the desktop file viewer and chat recognize (util/src/artifact.ts).
+const VIDEO_EXTENSIONS: [&str; 6] = ["mp4", "m4v", "webm", "mov", "ogv", "mkv"];
+
+pub fn is_video(path: &str) -> bool {
+    basename(path).rsplit_once('.').is_some_and(|(stem, extension)| {
+        !stem.is_empty() && VIDEO_EXTENSIONS.iter().any(|e| extension.eq_ignore_ascii_case(e))
+    })
+}
+
+/// Cheap reject before parsing a reply a second time for standalone movie links.
+pub fn mentions_video(source: &str) -> bool {
+    source.match_indices('.').any(|(pos, _)| {
+        let tail = &source.as_bytes()[pos + 1..];
+        VIDEO_EXTENSIONS.iter().any(|e| tail.get(..e.len()).is_some_and(|t| t.eq_ignore_ascii_case(e.as_bytes())))
+    })
+}
+
 /// The folder `path` is in, without a trailing separator except on a root: `src/util`,
 /// `C:\repos`, `C:\`, `/`. Empty for a single segment or a root.
 pub fn parent(path: &str) -> &str {

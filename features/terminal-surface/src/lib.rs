@@ -14,6 +14,7 @@ pub mod menu;
 pub mod mount;
 pub mod narrow;
 pub mod ops;
+pub mod osc8;
 pub mod paste;
 pub mod persist;
 pub mod poll;
@@ -460,6 +461,8 @@ pub struct TerminalPane {
     pub focus_claim: FocusClaim,
     /// A paste waiting for the user to say it may run (`paste`).
     pub pending_paste: Option<paste::Pending>,
+    /// An OSC 8 hyperlink click waiting for target confirmation (`osc8`).
+    pub pending_osc8: Option<osc8::Pending>,
     /// Each server's own shell (by its address), once a terminal with marks needed it;
     /// `None` when it couldn't be told.
     pub server_shells: RefCell<HashMap<String, Option<String>>>,
@@ -483,6 +486,7 @@ impl Default for TerminalPane {
             spare_field: TextEdit::default(),
             focus_claim: FocusClaim::default(),
             pending_paste: None,
+            pending_osc8: None,
             server_shells: RefCell::new(HashMap::new()),
         }
     }
@@ -637,6 +641,12 @@ pub trait TerminalSurfaceHost: opencode_kernel::AppEnv + opencode_kernel::AppFee
     /// Opens a file or `file://` link clicked in terminal output for session `sid`.
     fn open_link(&mut self, sid: &str, href: &str, tx: &mut Tx) {
         let _ = (sid, href, tx);
+    }
+    /// Opens a web or app-scheme URL clicked in terminal output for session `sid` (routing
+    /// through browser URL policy & Settings > Browser `links` preference; `shift` forces
+    /// the OS default browser for valid `http(s)` URLs).
+    fn open_web_link(&mut self, sid: &str, href: &str, shift: bool, tx: &mut Tx) {
+        let _ = (sid, href, shift, tx);
     }
     /// Opens a right-click context menu at `press` and invokes `on_pick` when it closes.
     fn open_context_menu(

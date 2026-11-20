@@ -4411,6 +4411,8 @@ export type CommandSpec = {
     section: CommandSection?,
     --- The default keybind, such as `"mod+shift+t"`.
     bind: string?,
+    --- The id of the command whose keybind this one shares, such as `"tab.close"`: Settings > Shortcuts lists that one and leaves this one out, unless the user has bound this one itself (Desktop's `follows`).
+    follows: string?,
     --- Also offers it as a slash command.
     slash: CommandSlash?,
     --- Keeps it out of the palette. The keybind still works. A function makes it reactive: the host calls it as it lists commands, and again only once something it read changes. Keep it cheap, and don't yield.

@@ -420,7 +420,7 @@ impl App {
         // Projects by their latest session, then by activity.
         let latest: HashMap<&str, i64> = self.sessions.iter().fold(HashMap::new(), |mut m, s| {
             let e = m.entry(s.project.as_str()).or_insert(0);
-            *e = (*e).max(s.updated);
+            *e = (*e).max(self.recent_page.active_ms(s));
             m
         });
         let key = |p: &Project| latest.get(p.id.as_str()).copied().unwrap_or(0).max(p.active);

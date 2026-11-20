@@ -16,6 +16,8 @@
 
 pub mod crx;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod icon;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod integrity;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod manager;
@@ -104,6 +106,9 @@ pub enum UnsupportedCause {
     Startup,
     /// Manifest V2 extension refused by Chromium 156.
     ManifestV2,
+    /// Required permission invokes a dangerous native Chromium capability not policed by our host
+    /// (`debugger`, `nativeMessaging`, `downloads`, `proxy`, `management`).
+    DisallowedPermission,
 }
 
 /// Compatibility classification for UI badges and review dialogs (`profile/ipc.ts:49-53`).
@@ -116,7 +121,9 @@ pub struct ExtensionCompatibility {
     pub missing: Vec<ExtensionFeature>,
 }
 
-/// Broad access categories summarized in the permissions review (`profile/ipc.ts:63`).
+/// Broad access categories summarized in the permissions review (`profile/ipc.ts:63`, expanded in
+/// Rune Desktop to also surface `proxy`, `declarativeNetRequest*`, `management`,
+/// `externally_connectable`, and `web_accessible_resources`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ExtensionAccess {
@@ -125,6 +132,11 @@ pub enum ExtensionAccess {
     Cookies,
     Activity,
     Clipboard,
+    Proxy,
+    BlockRequests,
+    ManageExtensions,
+    ExternalConnect,
+    WebAccessible,
 }
 
 /// Reviewed permission & host grant snapshot stored with an approved install (`profile/ipc.ts:67-71`).
@@ -136,6 +148,10 @@ pub struct ReviewedGrants {
     pub hosts: Vec<String>,
     #[serde(default)]
     pub permissions: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub externally_connectable: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub web_accessible_resources: Vec<String>,
 }
 
 /// Summary of an installed extension for Settings › Browser › Extensions (`profile/ipc.ts:76-107`).
@@ -213,8 +229,8 @@ pub enum InstallFailure {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum InstallResult {
-    Installed { extension: ProfileExtension },
-    Review(InstallReview),
+    Installed { extension: Box<ProfileExtension> },
+    Review(Box<InstallReview>),
     Failed { reason: InstallFailure, message: Option<String> },
 }
 
