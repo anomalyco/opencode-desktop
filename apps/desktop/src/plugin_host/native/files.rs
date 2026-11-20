@@ -88,8 +88,14 @@ pub fn build(lua: &Lua, t: &Table) -> mlua::Result<()> {
                     crate::browser::preview::PreviewTarget::Preview { display_url, spec } => {
                         app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
                             tx.instant();
-                            let id = s.open_resolved_preview_tab(Some(&sid), &display_url, spec, None, true);
-                            s.workspace_panes.browser.host.set_agent_driven(id, true);
+                            s.open_resolved_preview_tab(
+                                Some(&sid),
+                                &display_url,
+                                spec,
+                                None,
+                                true,
+                                Some(browser_pane::TabDriver::Agent),
+                            );
                         }));
                         return Ok(());
                     }

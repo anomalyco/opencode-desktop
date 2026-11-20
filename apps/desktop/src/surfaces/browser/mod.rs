@@ -401,13 +401,16 @@ mod native {
             self.browser_context_for_session(None)
         }
 
-        /// Context and `agent_driven` flag inherited by a pop-up or "Open link/image in new tab"
+        /// Context and optional `TabDriver` inherited by a pop-up or "Open link/image in new tab"
         /// triggered from `opener_tab_id`:
         /// - Live `RemoteServer` opener -> same `RemoteServer` with current registered loopback proxy.
         /// - Live `Preview` / `Artifact` / `Private` opener -> fresh `ContextKind::Private`.
         /// - Live `Default` opener -> `ContextKind::Default` (never active server).
         /// - Already-closed opener -> `None` (refuse the open; NEVER downgrade to direct `Private`).
-        pub fn browser_context_for_opener(&self, opener_tab_id: u64) -> Option<(bool, browser_pane::ContextKind)> {
+        pub fn browser_context_for_opener(
+            &self,
+            opener_tab_id: u64,
+        ) -> Option<(Option<browser_pane::TabDriver>, browser_pane::ContextKind)> {
             let t = self.workspace_panes.browser.host.tab(opener_tab_id)?;
             let ctx = match &t.context {
                 browser_pane::ContextKind::RemoteServer { server_id, proxy } => {
@@ -434,7 +437,12 @@ mod native {
                     }
                 }
             };
-            Some((t.prompts.agent_driven, ctx))
+            let driver = if t.prompts.agent_driven {
+                Some(t.prompts.driver.clone().unwrap_or(browser_pane::TabDriver::Agent))
+            } else {
+                None
+            };
+            Some((driver, ctx))
         }
 
         pub fn open_new_browser_tab(&mut self, url: &str) -> u64 {
@@ -459,9 +467,38 @@ mod native {
             from_address: bool,
         ) -> u64 {
             let context = self.browser_context_for_session(sid);
-            self.open_new_browser_tab_with_context(sid, url, target_pane, steal_focus, from_address, context)
+            self.open_new_browser_tab_with_context(sid, url, target_pane, steal_focus, from_address, context, None)
         }
 
+        pub fn open_new_agent_browser_tab_for_session(
+            &mut self,
+            sid: Option<&str>,
+            url: &str,
+            target_pane: Option<SessionPane>,
+            steal_focus: bool,
+        ) -> u64 {
+            self.open_new_controlled_browser_tab_for_session(
+                sid,
+                url,
+                target_pane,
+                steal_focus,
+                browser_pane::TabDriver::Agent,
+            )
+        }
+
+        pub fn open_new_controlled_browser_tab_for_session(
+            &mut self,
+            sid: Option<&str>,
+            url: &str,
+            target_pane: Option<SessionPane>,
+            steal_focus: bool,
+            driver: browser_pane::TabDriver,
+        ) -> u64 {
+            let context = self.browser_context_for_session(sid);
+            self.open_new_browser_tab_with_context(sid, url, target_pane, steal_focus, false, context, Some(driver))
+        }
+
+        #[allow(clippy::too_many_arguments)]
         pub fn open_new_browser_tab_with_context(
             &mut self,
             sid: Option<&str>,
@@ -470,26 +507,15 @@ mod native {
             steal_focus: bool,
             from_address: bool,
             context: browser_pane::ContextKind,
+            driver: Option<browser_pane::TabDriver>,
         ) -> u64 {
-            self.open_new_browser_tab_with_options(sid, url, target_pane, steal_focus, from_address, context, false)
-        }
-
-        pub fn open_new_browser_tab_with_options(
-            &mut self,
-            sid: Option<&str>,
-            url: &str,
-            target_pane: Option<SessionPane>,
-            steal_focus: bool,
-            from_address: bool,
-            context: browser_pane::ContextKind,
-            agent: bool,
-        ) -> u64 {
+            let agent_driven = driver.is_some();
             let candidate = if from_address {
                 browser_pane::resolve_address(url)
             } else {
                 browser_pane::with_scheme(url)
             };
-            match self.resolve_preview_target(sid, &candidate, agent) {
+            match self.resolve_preview_target(sid, &candidate, agent_driven) {
                 super::preview::PreviewTarget::Preview { display_url, spec } => {
                     return self.open_resolved_preview_tab(
                         sid,
@@ -497,10 +523,15 @@ mod native {
                         spec,
                         target_pane,
                         steal_focus,
+                        driver,
                     );
                 }
                 super::preview::PreviewTarget::Refused(code) => {
-                    return self.open_refused_browser_tab(sid, code, target_pane, steal_focus);
+                    let id = self.open_refused_browser_tab(sid, code, target_pane, steal_focus);
+                    if let Some(driver) = driver {
+                        self.workspace_panes.browser.host.set_tab_driver(id, driver);
+                    }
+                    return id;
                 }
                 super::preview::PreviewTarget::NotPreview => {}
             }
@@ -516,8 +547,14 @@ mod native {
                 }
                 id
             } else {
-                self.workspace_panes.browser.host.open_tab_with_context(url, roots, context, from_address)
+                self.workspace_panes
+                    .browser
+                    .host
+                    .open_tab_with_context(url, roots, context, from_address, agent_driven)
             };
+            if let Some(driver) = driver {
+                self.workspace_panes.browser.host.set_tab_driver(id, driver);
+            }
             self.attach_browser_tab_to_session(sid, id, target_pane, steal_focus);
             id
         }
@@ -697,22 +734,20 @@ mod native {
             if self.workspace_panes.browser.host.has_popup_opens() {
                 let popups: Vec<_> = self.workspace_panes.browser.host.drain_popup_opens().collect();
                 for popup in popups {
-                    let Some((agent, opener_ctx)) = self.browser_context_for_opener(popup.opener_tab_id) else {
+                    let Some((driver, opener_ctx)) = self.browser_context_for_opener(popup.opener_tab_id) else {
                         // Opener closed before drain: refuse rather than downgrading to direct `Private`.
                         continue;
                     };
                     let sid = self.browser_tab_session(popup.opener_tab_id).map(str::to_owned);
-                    let new_id = self.open_new_browser_tab_with_context(
+                    let _new_id = self.open_new_browser_tab_with_context(
                         sid.as_deref(),
                         &popup.url,
                         None,
                         !popup.background,
                         false,
                         opener_ctx,
+                        driver,
                     );
-                    if agent {
-                        self.workspace_panes.browser.host.set_agent_driven(new_id, true);
-                    }
                     changed = true;
                 }
             }

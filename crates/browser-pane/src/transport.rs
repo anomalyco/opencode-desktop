@@ -591,10 +591,14 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
     tx.send(HostMsg::Hello { mach_service, pid: std::process::id(), prompts: true }).ok();
     let mut early = EarlyOpensMap::new();
     for (id, open) in &link.opens {
+        let is_agent = matches!(open, HostMsg::OpenTab { agent_driven: true, .. });
         if let HostMsg::OpenTab { url, width_pt, height_pt, scale, .. } = open {
             early.insert(*id, (url.clone(), (*width_pt, *height_pt, *scale)));
         }
         tx.send(open.clone()).ok();
+        if is_agent {
+            tx.send(HostMsg::SetAgentDriven { tab_id: *id, agent_driven: true }).ok();
+        }
     }
     // Linux: frame reads and failures go to this connection only, never to a later engine's.
     #[cfg(target_os = "linux")]

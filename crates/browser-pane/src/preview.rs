@@ -252,7 +252,7 @@ impl BrowserHost {
     /// - When `Ready.preview == true`, the engine opens an isolated `oc-preview://` context.
     /// - When connected to an older engine (`Ready.preview == false`), NEVER falls back to `file://`;
     ///   refuses cleanly with `"browser.preview.unsupported"`.
-    pub fn open_preview_tab(&mut self, display_url: &str, spec: PreviewSpec) -> u64 {
+    pub fn open_preview_tab(&mut self, display_url: &str, spec: PreviewSpec, agent_driven: bool) -> u64 {
         rune::marks::mark("browser.tab.open");
         let id = self.alloc_tab_id();
         let surface = TabSurface::new();
@@ -271,30 +271,21 @@ impl BrowserHost {
         let tag = spec.tag();
         let ctx_kind = spec.context_kind(id);
 
-        let (initial_url, loading, refusal, send_msg) = if can_send {
+        let (initial_url, loading, refusal, send_open) = if can_send {
             if self.engine_preview() {
-                (
-                    display_url.to_owned(),
-                    true,
-                    None,
-                    Some(HostMsg::OpenTab {
-                        tab_id: id,
-                        url: "about:blank".into(),
-                        width_pt,
-                        height_pt,
-                        scale,
-                        focused: true,
-                        file_roots: Vec::new(),
-                        context: ctx_kind.clone(),
-                        preview: Some(spec.clone()),
-                    }),
-                )
+                (display_url.to_owned(), true, None, true)
             } else {
-                ("about:blank".into(), false, Some("browser.preview.unsupported".to_owned()), None)
+                ("about:blank".into(), false, Some("browser.preview.unsupported".to_owned()), false)
             }
         } else {
-            (display_url.to_owned(), true, None, None)
+            (display_url.to_owned(), true, None, false)
         };
+
+        let mut prompts = crate::prompts::TabPromptState::default();
+        if agent_driven {
+            prompts.agent_driven = true;
+            prompts.driver = Some(crate::prompts::TabDriver::Agent);
+        }
 
         self.tabs.push(BrowserTab {
             id,
@@ -308,30 +299,41 @@ impl BrowserHost {
             load_error: None,
             favicon: None,
             preview: Some(tag),
-            preview_spec: Some(spec),
+            preview_spec: Some(spec.clone()),
             refusal: refusal.clone(),
             rejected: u64::from(refusal.is_some()),
             inspecting: false,
             files: Vec::new(),
-            prompts: Default::default(),
+            prompts,
             find: Default::default(),
             surface,
             surface_origin: (0.0, 0.0),
             view_zoom: 1.0,
-            context: ctx_kind,
+            context: ctx_kind.clone(),
             file_roots: Vec::new(),
             viewport_pt: (width_pt, height_pt),
             device: None,
             scale,
             sent_resize: can_send.then_some((width_pt, height_pt, scale)),
-            has_engine_tab: send_msg.is_some() || !can_send,
+            has_engine_tab: send_open || !can_send,
             engine_confirmed: false,
         });
         self.focused_tab = Some(id);
 
         if can_send {
-            if let Some(msg) = send_msg {
-                self.send(msg);
+            if send_open {
+                self.send_open_tab(
+                    id,
+                    "about:blank".into(),
+                    width_pt,
+                    height_pt,
+                    scale,
+                    true,
+                    Vec::new(),
+                    ctx_kind,
+                    Some(spec),
+                    agent_driven,
+                );
             }
         } else {
             self.pending_opens.push((id, display_url.to_owned()));
@@ -353,7 +355,7 @@ impl BrowserHost {
         let refused = proxy_err
             .map(str::to_owned)
             .or_else(|| (!ctx_ok).then(|| "browser.partitions.unsupported".to_owned()));
-        let ((width_pt, height_pt), scale, had_engine_tab) = {
+        let ((width_pt, height_pt), scale, had_engine_tab, agent_driven) = {
             let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) else { return };
             let had = t.has_engine_tab;
             t.preview = None;
@@ -374,7 +376,7 @@ impl BrowserHost {
                 t.refusal = None;
                 t.has_engine_tab = true;
             }
-            (t.viewport_pt, t.scale, had)
+            (t.viewport_pt, t.scale, had, t.prompts.agent_driven)
         };
         let had_live_engine = had_engine_tab && !self.pending_opens.iter().any(|(id, _)| *id == tab_id);
         if refused.is_some() {
@@ -391,17 +393,18 @@ impl BrowserHost {
                 self.send(HostMsg::CloseTab { tab_id });
             }
             self.pending_opens.retain(|(id, _)| *id != tab_id);
-            self.send(HostMsg::OpenTab {
+            self.send_open_tab(
                 tab_id,
-                url: url.to_owned(),
+                url.to_owned(),
                 width_pt,
                 height_pt,
                 scale,
                 focused,
-                file_roots: Vec::new(),
+                Vec::new(),
                 context,
-                preview: None,
-            });
+                None,
+                agent_driven,
+            );
         } else {
             if connected && had_live_engine {
                 *self.reopening_tabs.entry(tab_id).or_default() += 1;
@@ -421,7 +424,7 @@ impl BrowserHost {
         let ready = self.engine_caps_known();
         let engine_preview = self.engine_preview();
         let ctx_kind = spec.context_kind(tab_id);
-        let ((width_pt, height_pt), scale, had_engine_tab) = {
+        let ((width_pt, height_pt), scale, had_engine_tab, agent_driven) = {
             let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) else { return };
             let had = t.has_engine_tab;
             t.preview = Some(spec.tag());
@@ -434,7 +437,7 @@ impl BrowserHost {
             t.refusal = None;
             t.engine_confirmed = false;
             t.has_engine_tab = !(connected && ready && !engine_preview);
-            (t.viewport_pt, t.scale, had)
+            (t.viewport_pt, t.scale, had, t.prompts.agent_driven)
         };
         let had_live_engine = had_engine_tab && !self.pending_opens.iter().any(|(id, _)| *id == tab_id);
         if connected && ready {
@@ -444,17 +447,18 @@ impl BrowserHost {
                     self.send(HostMsg::CloseTab { tab_id });
                 }
                 self.pending_opens.retain(|(id, _)| *id != tab_id);
-                self.send(HostMsg::OpenTab {
+                self.send_open_tab(
                     tab_id,
-                    url: "about:blank".into(),
+                    "about:blank".into(),
                     width_pt,
                     height_pt,
                     scale,
                     focused,
-                    file_roots: Vec::new(),
-                    context: ctx_kind,
-                    preview: Some(spec),
-                });
+                    Vec::new(),
+                    ctx_kind,
+                    Some(spec),
+                    agent_driven,
+                );
             } else {
                 if had_live_engine {
                     *self.reopening_tabs.entry(tab_id).or_default() += 1;

@@ -19,17 +19,53 @@ use crate::App;
 #[derive(Clone, Debug)]
 pub(super) struct TabScope {
     pub is_builtin_browser: bool,
+    pub plugin_id: String,
     pub tool_sid: Option<Option<String>>,
     pub in_flight: Vec<String>,
 }
 
 impl TabScope {
     pub(super) fn capture(lua: &Lua) -> Self {
-        let is_builtin_browser = lua
+        let plugin_id = lua
             .app_data_ref::<std::rc::Rc<Vmx>>()
-            .is_some_and(|vmx| &*vmx.half.id == "browser");
+            .map(|vmx| vmx.half.id.to_string())
+            .unwrap_or_default();
+        let is_builtin_browser = plugin_id == "browser";
         let (tool_sid, in_flight) = current_tool_scope(lua);
-        Self { is_builtin_browser, tool_sid, in_flight }
+        Self { is_builtin_browser, plugin_id, tool_sid, in_flight }
+    }
+
+    /// Returns the controlling driver when this caller is an MCP tool (`Agent`) or a third-party
+    /// Luau plugin (`Plugin(display_name)`), or `None` for the bundled built-in browser chrome UI.
+    pub(super) fn driver(&self, app: &App) -> Option<browser_pane::TabDriver> {
+        if self.tool_sid.is_some() {
+            return Some(browser_pane::TabDriver::Agent);
+        }
+        let is_bundled_browser = self.is_builtin_browser
+            && app
+                .plugins
+                .list
+                .iter()
+                .any(|p| p.tier == crate::plugin_host::Tier::Bundled && &*p.half.id == "browser");
+        if !is_bundled_browser {
+            let name = app
+                .plugins
+                .list
+                .iter()
+                .find(|p| &*p.half.id == self.plugin_id.as_str())
+                .map(|p| p.manifest.name.as_str())
+                .filter(|n| !n.trim().is_empty())
+                .unwrap_or(self.plugin_id.as_str());
+            return Some(browser_pane::TabDriver::plugin(name));
+        }
+        None
+    }
+
+    /// Marks `tab_id` controlled when driven by an MCP tool or third-party plugin.
+    pub(super) fn mark_tab_driven(&self, app: &mut App, tab_id: u64) {
+        if let Some(driver) = self.driver(app) {
+            app.workspace_panes.browser.host.set_tab_driver(tab_id, driver);
+        }
     }
 
     pub(super) fn is_verified_builtin_browser(&self, app: &App) -> bool {

@@ -91,9 +91,15 @@ fn start_tabs_open(
     };
 
     let host_id = match app.resolve_preview_target(Some(&att.session_id), &target_url, true) {
-        crate::browser::preview::PreviewTarget::Preview { display_url, spec } => {
-            app.open_resolved_preview_tab(Some(&att.session_id), &display_url, spec, None, focus)
-        }
+        crate::browser::preview::PreviewTarget::Preview { display_url, spec } => app
+            .open_resolved_preview_tab(
+                Some(&att.session_id),
+                &display_url,
+                spec,
+                None,
+                focus,
+                Some(browser_pane::TabDriver::Agent),
+            ),
         crate::browser::preview::PreviewTarget::Refused(_) => {
             return StepOutcome::Done(Outcome::fail(
                 failure_code::NAVIGATION_FAILED,
@@ -101,10 +107,9 @@ fn start_tabs_open(
             ));
         }
         crate::browser::preview::PreviewTarget::NotPreview => {
-            app.open_new_browser_tab_for_session(Some(&att.session_id), &target_url, None, focus)
+            app.open_new_agent_browser_tab_for_session(Some(&att.session_id), &target_url, None, focus)
         }
     };
-    app.workspace_panes.browser.host.set_agent_driven(host_id, true);
     let _ = att.sync_tabs(app);
     let Some(wire_tab_id) = att.host_to_wire.get(&host_id).cloned() else {
         return StepOutcome::Done(Outcome::fail(
@@ -372,10 +377,18 @@ fn start_preview(
         same.then(|| (hid, wid.clone()))
     });
     let (host_id, wire_tab_id, close_on_fail) = if let Some((hid, wid)) = existing {
+        app.workspace_panes.browser.host.set_agent_driven(hid, true);
         app.reopen_resolved_preview_tab(hid, Some(&att.session_id), &display_url, spec);
         (hid, wid, false)
     } else {
-        let hid = app.open_resolved_preview_tab(Some(&att.session_id), &display_url, spec, None, true);
+        let hid = app.open_resolved_preview_tab(
+            Some(&att.session_id),
+            &display_url,
+            spec,
+            None,
+            true,
+            Some(browser_pane::TabDriver::Agent),
+        );
         let _ = att.sync_tabs(app);
         let Some(wid) = att.host_to_wire.get(&hid).cloned() else {
             return StepOutcome::Done(Outcome::fail(

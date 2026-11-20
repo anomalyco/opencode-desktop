@@ -282,7 +282,7 @@ impl App {
         }
         match self.resolve_workspace_file_target(sid, rel_path, false) {
             PreviewTarget::Preview { display_url, spec } => {
-                self.open_resolved_preview_tab(Some(sid), &display_url, spec, target_pane, steal_focus)
+                self.open_resolved_preview_tab(Some(sid), &display_url, spec, target_pane, steal_focus, None)
             }
             PreviewTarget::Refused(code) => {
                 self.open_refused_browser_tab(Some(sid), code, target_pane, steal_focus)
@@ -306,7 +306,7 @@ impl App {
                 if !self.browser_preview_supported() {
                     self.open_refused_browser_tab(Some(sid), "browser.preview.unsupported", None, true);
                 } else {
-                    self.open_resolved_preview_tab(Some(sid), &display_url, spec, None, true);
+                    self.open_resolved_preview_tab(Some(sid), &display_url, spec, None, true, None);
                 }
                 true
             }
@@ -321,15 +321,21 @@ impl App {
         spec: PreviewSpec,
         target_pane: Option<SessionPane>,
         steal_focus: bool,
+        driver: Option<browser_pane::TabDriver>,
     ) -> u64 {
         if !self.browser_preview_supported() {
-            return self.open_refused_browser_tab(
+            let id = self.open_refused_browser_tab(
                 sid,
                 "browser.preview.unsupported",
                 target_pane,
                 steal_focus,
             );
+            if let Some(d) = driver {
+                self.workspace_panes.browser.host.set_tab_driver(id, d);
+            }
+            return id;
         }
+        let agent_driven = driver.is_some();
         let id = if self.use_mock_browser() {
             let tag = spec.tag();
             let title = preview_title(display_url);
@@ -345,8 +351,11 @@ impl App {
             self.workspace_panes
                 .browser
                 .host
-                .open_preview_tab(display_url, spec)
+                .open_preview_tab(display_url, spec, agent_driven)
         };
+        if let Some(d) = driver {
+            self.workspace_panes.browser.host.set_tab_driver(id, d);
+        }
         self.bind_preview_tab(id, sid);
         self.attach_browser_tab_to_session(sid, id, target_pane, steal_focus);
         id

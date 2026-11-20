@@ -119,9 +119,7 @@ impl App {
             if open_in_pane {
                 #[cfg(not(target_arch = "wasm32"))]
                 if agent {
-                    let ctx = self.browser_context_for_session(sid);
-                    let id = self.open_new_browser_tab_with_options(sid, trimmed, None, true, false, ctx, true);
-                    self.workspace_panes.browser.host.set_agent_driven(id, true);
+                    self.open_new_agent_browser_tab_for_session(sid, trimmed, None, true);
                 } else {
                     self.open_new_browser_tab_for_session(sid, trimmed, None, true);
                 }
