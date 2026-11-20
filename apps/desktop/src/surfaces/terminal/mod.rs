@@ -177,6 +177,16 @@ impl TerminalSurfaceHost for App {
         App::open_link(self, sid, None, href, tx);
     }
 
+    fn open_web_link(&mut self, sid: &str, href: &str, shift: bool, tx: &mut Tx) {
+        self.route_web_or_app_link(
+            Some(sid),
+            href,
+            crate::surfaces::browser::links::LinkSource::Terminal,
+            Some(shift),
+            tx,
+        );
+    }
+
     fn open_context_menu(
         &mut self,
         spec: ContextMenuSpec,
@@ -434,6 +444,15 @@ impl Feature<App> for TerminalSurfaceFeature {
                 })
                 .above(crate::session_menu::RENAME_OVERLAY_ID)
                 .with_dismiss(|s, tx| paste::answer_paste(s, false, tx)),
+        );
+        builder.register_overlay(
+            OverlayRegistration::<App>::new(opencode_feature_terminal_surface::osc8::OSC8_OVERLAY_ID)
+                .with_render(crate::overlays::layer::ACTION_DIALOG, |s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    opencode_feature_terminal_surface::osc8::dialog(s, p, cx)
+                })
+                .above(paste::PASTE_OVERLAY_ID)
+                .with_dismiss(|s, tx| opencode_feature_terminal_surface::osc8::answer(s, false, tx)),
         );
         // Known: `terminal.poll` reads `panels::SIDE` (`side_tab_visible`, `terminal_focus`)
         // for mount and `?1004` focus reports after `files.poll` (`finish_file_link`) opens side tabs.

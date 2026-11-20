@@ -19,6 +19,8 @@ use mlua::{Function, Lua, MultiValue, Table, Value};
 use rune::{El, Ime, Tx, col};
 #[cfg(not(target_arch = "wasm32"))]
 use rune_luau::{Completer, Data, Host, NodeArgs};
+#[cfg(not(target_arch = "wasm32"))]
+mod chrome;
 mod composer;
 pub use composer::composer;
 #[cfg(not(target_arch = "wasm32"))]
@@ -172,6 +174,9 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
                     ("message", message.map_or(Data::Nil, Data::String)),
                     ("downloads", Data::Bool(app.workspace_panes.browser.host.engine_downloads())),
                     ("policy", Data::Bool(app.workspace_panes.browser.host.engine_policy())),
+                    ("find", Data::Bool(app.workspace_panes.browser.host.engine_find())),
+                    ("clearCache", Data::Bool(app.workspace_panes.browser.host.engine_policy())),
+                    ("hardReload", Data::Bool(true)),
                 ]),
                 lua,
             )
@@ -199,6 +204,7 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
             Ok(())
         })
     })?;
+    chrome::service_methods(lua, t)?;
     let raw: Function = vmx.asyncs.raw_get("Browser.OpenAsync")?;
     let open: Function = lua.load("local raw = ... return function(self, spec) local id = raw(spec) return if id then self:Get(id) else nil end").set_name("=Browser:OpenAsync").call(raw)?;
     t.raw_set("OpenAsync", open)?;
@@ -212,7 +218,8 @@ pub fn asyncs(host: &Host<'_>, t: &Table) -> mlua::Result<()> {
     t.raw_set("BrowserTab.DevtoolsAsync", host.async_function("BrowserTab:DevtoolsAsync", devtools)?)?;
     t.raw_set("BrowserTab.SiteCookiesAsync", host.async_function("BrowserTab:SiteCookiesAsync", site_cookies)?)?;
     t.raw_set("BrowserTab.ClearSiteAsync", host.async_function("BrowserTab:ClearSiteAsync", clear_site)?)?;
-    t.raw_set("BrowserTab.ReadFileAsync", host.async_function("BrowserTab:ReadFileAsync", read_file)?)
+    t.raw_set("BrowserTab.ReadFileAsync", host.async_function("BrowserTab:ReadFileAsync", read_file)?)?;
+    chrome::asyncs(host, t)
 }
 
 /// A downloaded file as the plugin sees it: Desktop's `files.list` fields (no path).
@@ -524,6 +531,7 @@ fn tab_methods(lua: &Lua) -> mlua::Result<Table> {
     )?;
     m.raw_set("Zoom", lua.create_function(|lua, this: Table| read_tab(lua, &this, "BrowserTab:Zoom", |app, id| Ok(app.workspace_panes.browser.host.tab(id).map_or(1.0, |t| t.zoom))))?)?;
     viewport::methods(lua, &m)?;
+    chrome::tab_methods(lua, &m)?;
     m.raw_set(
         "Navigate",
         lua.create_function(|lua, (this, url): (Table, String)| {
@@ -662,6 +670,7 @@ pub fn version(app: &App) -> u64 {
         t.files.iter().for_each(|f| (&f.id, f.bytes, f.state as u8, &f.error).hash(&mut h));
     }
     app.workspace_panes.browser.host.focused_tab_id().hash(&mut h);
+    app.workspace_panes.browser.pending_app_links.borrow().len().hash(&mut h);
     let mut sessions: Vec<_> = app.workspace_panes.browser.session_tabs.iter().collect();
     sessions.sort();
     sessions.hash(&mut h);
@@ -683,7 +692,17 @@ pub fn pages(app: &App) -> Vec<(String, u64)> {
         .iter()
         .map(|t| {
             let mut h = std::hash::DefaultHasher::new();
-            (&t.url, &t.title, t.loading, &t.refusal, t.rejected).hash(&mut h);
+            (&t.url, &t.title, t.loading, &t.refusal, t.rejected, &t.favicon).hash(&mut h);
+            t.find.hash_state(&mut h);
+            let pending_links = app
+                .workspace_panes
+                .browser
+                .pending_app_links
+                .borrow()
+                .iter()
+                .filter(|(id, _)| *id == t.id)
+                .count();
+            pending_links.hash(&mut h);
             (t.id.to_string(), h.finish())
         })
         .collect()

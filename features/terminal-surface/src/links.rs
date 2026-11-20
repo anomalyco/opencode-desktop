@@ -250,29 +250,69 @@ fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// Ctrl+click (⌘-click) at (`col`, `row`) of terminal `tid`: opens what [`at`] finds, or the
-/// cell's OSC 8 link first.
+/// Ctrl+click (⌘-click) at (`col`, `row`) of terminal `tid`: opens the cell's OSC 8 link (with
+/// confirmation when the target differs from the visible text or uses a non-web scheme), else
+/// what [`at`] finds. Plain web URLs route through [`TerminalSurfaceHost::open_web_link`] so
+/// browser URL policy & `Settings > Browser` always decide.
 pub fn follow(host: &mut dyn TerminalSurfaceHost, wk: &str, tid: &str, col: u16, row: u16, tx: &mut Tx) {
-    let Some((target, folder)) = crate::ops::terminal_tab_mut(host, wk, tid).map(|t| {
+    let Some((osc8, osc8_visible, plain, folder)) = crate::ops::terminal_tab_mut(host, wk, tid).map(|t| {
         let snap = t.session.snapshot();
         let linked = snap
             .screen_rows
             .get(usize::from(row))
             .and_then(|r| r.cells.get(usize::from(col)))
             .is_some_and(|c| c.flags.contains(CellFlags::HYPERLINK));
-        let target = linked.then(|| t.session.hyperlink_at(col, row)).flatten().map(Target::Url).or_else(|| at(&snap, col, row));
+        let osc8 = linked.then(|| t.session.hyperlink_at(col, row)).flatten();
+        let osc8_visible = osc8.as_ref().map(|_| {
+            let cells = snap.screen_rows.get(usize::from(row)).map(|r| r.cells.as_slice()).unwrap_or(&[]);
+            let mut a = usize::from(col);
+            while a > 0 && cells.get(a - 1).is_some_and(|c| c.flags.contains(CellFlags::HYPERLINK)) {
+                a -= 1;
+            }
+            let mut b = usize::from(col) + 1;
+            while cells.get(b).is_some_and(|c| c.flags.contains(CellFlags::HYPERLINK)) {
+                b += 1;
+            }
+            cells[a..b]
+                .iter()
+                .filter(|c| !c.flags.contains(CellFlags::WIDE_SPACER_TAIL))
+                .map(|c| if c.grapheme.is_empty() { " " } else { c.grapheme.as_str() })
+                .collect::<String>()
+                .trim()
+                .to_owned()
+        });
+        let plain = if osc8.is_none() { at(&snap, col, row) } else { None };
         let folder = shell_folder(&snap, &t.cwd);
-        (target, folder)
+        (osc8, osc8_visible, plain, folder)
     }) else {
         return;
     };
-    let Some(target) = target else { return };
     let sid = wk.split_once('\0').map_or("", |(_, s)| s).to_owned();
-    let href = match target {
-        Target::Url(url) if !url.starts_with("file://") => {
-            if host.is_live() {
-                drop(tx.open_url(&url));
+    let shift = tx.mods().shift;
+    if let Some(url) = osc8 {
+        let visible = osc8_visible.unwrap_or_default();
+        let is_web = url.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("http://"))
+            || url.get(..8).is_some_and(|s| s.eq_ignore_ascii_case("https://"));
+        let is_file = url.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("file://"));
+        if is_file {
+            if visible != url {
+                crate::osc8::ask(host, crate::osc8::Pending { sid, visible, url, shift }, tx);
+            } else {
+                host.open_link(&sid, &url, tx);
             }
+            return;
+        }
+        if !is_web || visible != url {
+            crate::osc8::ask(host, crate::osc8::Pending { sid, visible, url, shift }, tx);
+            return;
+        }
+        host.open_web_link(&sid, &url, shift, tx);
+        return;
+    }
+    let Some(target) = plain else { return };
+    let href = match target {
+        Target::Url(url) if !url.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("file://")) => {
+            host.open_web_link(&sid, &url, shift, tx);
             return;
         }
         Target::Url(url) => url,

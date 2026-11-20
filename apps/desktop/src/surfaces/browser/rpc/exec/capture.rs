@@ -1,0 +1,501 @@
+//! Screenshot capture, console/network diagnostics, and tab-owned file list/get executors.
+
+use std::io::Cursor;
+
+use base64::Engine as _;
+use browser_pane::tools::diagnostics::TabDiagnostics;
+use opencode_kit::browser_rpc::{
+    Command, MAX_FILE_BYTES, Outcome, WireFile, failure_code, new_file_id,
+};
+use serde_json::{Value, json};
+
+use super::super::session::{CapturedFile, SessionAttachment};
+use super::{ExecPhase, StepOutcome, cdp_err_msg, check_page_guards};
+use crate::App;
+
+const MAX_FULLPAGE_EDGE: f64 = 16_384.0;
+const MAX_FULLPAGE_PIXELS: f64 = 16_000_000.0;
+
+pub(super) struct ScreenshotState {
+    pub host_id: u64,
+    pub format: String,
+    pub quality: Option<u64>,
+    pub max_width: Option<u32>,
+    pub stage: ScreenshotStage,
+}
+
+pub(super) enum ScreenshotStage {
+    GetBox { cdp_req: u64 },
+    GetMetrics { cdp_req: u64 },
+    Capture { cdp_req: u64 },
+}
+
+pub(super) fn try_start(
+    att: &mut SessionAttachment,
+    app: &mut App,
+    cmd: &Command,
+) -> Option<StepOutcome> {
+    match cmd.action_type()? {
+        "screenshot" => Some(start_screenshot(att, app, cmd)),
+        "console" => Some(exec_console(att, app, cmd)),
+        "network.list" => Some(exec_network_list(att, app, cmd)),
+        "network.get" => Some(exec_network_get(att, app, cmd)),
+        "files.list" => Some(exec_files_list(att, app, cmd)),
+        "files.get" => Some(exec_files_get(att, app, cmd)),
+        _ => None,
+    }
+}
+
+fn start_screenshot(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> StepOutcome {
+    let Some(wire_id) = cmd.tab_id() else {
+        return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "Missing tabID."));
+    };
+    let ref_arg = cmd.action.get("ref").and_then(Value::as_str);
+    let full_page = cmd.action.get("fullPage").and_then(Value::as_bool).unwrap_or(false);
+    if ref_arg.is_some() && full_page {
+        return StepOutcome::Done(Outcome::fail(
+            failure_code::OPERATION_FAILED,
+            "Choose either ref for an element screenshot or fullPage:true for the whole page.",
+        ));
+    }
+    let host_id = match att.resolve_tab(app, wire_id) {
+        Ok(id) => id,
+        Err(msg) => return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, msg)),
+    };
+    if let Err(o) = check_page_guards(app, host_id, "screenshot") {
+        return StepOutcome::Done(o);
+    }
+    let format = cmd
+        .action
+        .get("format")
+        .and_then(Value::as_str)
+        .unwrap_or("png")
+        .to_owned();
+    let quality = cmd.action.get("quality").and_then(Value::as_u64);
+    let max_width = cmd.action.get("maxWidth").and_then(Value::as_u64).map(|v| v as u32);
+    app.workspace_panes.browser.host.set_agent_driven(host_id, true);
+
+    if let Some(r) = ref_arg {
+        let Some(bid) = att.refs.get(&host_id).and_then(|t| t.resolve(r)) else {
+            return StepOutcome::Done(Outcome::fail(
+                failure_code::STALE_REF,
+                format!("Element ref {r} is stale or absent. Refresh the snapshot first."),
+            ));
+        };
+        match app.workspace_panes.browser.host.send_cdp(
+            host_id,
+            "DOM.getBoxModel",
+            json!({ "backendNodeId": bid }),
+            None,
+        ) {
+            Ok(cdp_req) => StepOutcome::Pending(ExecPhase::Screenshot(ScreenshotState {
+                host_id,
+                format,
+                quality,
+                max_width,
+                stage: ScreenshotStage::GetBox { cdp_req },
+            })),
+            Err(e) => StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, e)),
+        }
+    } else if full_page {
+        match app.workspace_panes.browser.host.send_cdp(host_id, "Page.getLayoutMetrics", json!({}), None) {
+            Ok(cdp_req) => StepOutcome::Pending(ExecPhase::Screenshot(ScreenshotState {
+                host_id,
+                format,
+                quality,
+                max_width,
+                stage: ScreenshotStage::GetMetrics { cdp_req },
+            })),
+            Err(e) => StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, e)),
+        }
+    } else {
+        let mut params = json!({ "format": format });
+        if let Some(q) = quality
+            && format != "png"
+        {
+            params["quality"] = json!(q);
+        }
+        match app.workspace_panes.browser.host.send_cdp(host_id, "Page.captureScreenshot", params, None) {
+            Ok(cdp_req) => StepOutcome::Pending(ExecPhase::Screenshot(ScreenshotState {
+                host_id,
+                format,
+                quality,
+                max_width,
+                stage: ScreenshotStage::Capture { cdp_req },
+            })),
+            Err(e) => StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, e)),
+        }
+    }
+}
+
+fn exec_console(att: &mut SessionAttachment, app: &App, cmd: &Command) -> StepOutcome {
+    let Some(wire_id) = cmd.tab_id() else {
+        return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "Missing tabID."));
+    };
+    let host_id = match att.resolve_tab(app, wire_id) {
+        Ok(id) => id,
+        Err(msg) => return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, msg)),
+    };
+    if let Err(o) = check_page_guards(app, host_id, "console") {
+        return StepOutcome::Done(o);
+    }
+    let Some(tab) = att.wire_tab(app, host_id) else {
+        return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable."));
+    };
+    let level = cmd.action.get("level").and_then(Value::as_str);
+    let limit = cmd.action.get("limit").and_then(Value::as_u64).map(|v| v as usize);
+    let mut val = att
+        .diagnostics
+        .get(&host_id)
+        .map(|d| d.query_console(level, limit))
+        .unwrap_or_else(|| json!({ "messages": [], "truncated": false, "dropped": 0 }));
+    val["tab"] = serde_json::to_value(tab).unwrap_or(Value::Null);
+    StepOutcome::Done(Outcome::ok(val, Vec::new()))
+}
+
+fn exec_network_list(att: &mut SessionAttachment, app: &App, cmd: &Command) -> StepOutcome {
+    let Some(wire_id) = cmd.tab_id() else {
+        return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "Missing tabID."));
+    };
+    let host_id = match att.resolve_tab(app, wire_id) {
+        Ok(id) => id,
+        Err(msg) => return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, msg)),
+    };
+    if let Err(o) = check_page_guards(app, host_id, "network.list") {
+        return StepOutcome::Done(o);
+    }
+    let Some(tab) = att.wire_tab(app, host_id) else {
+        return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable."));
+    };
+    let url_contains = cmd.action.get("urlContains").and_then(Value::as_str);
+    let rtype = cmd.action.get("resourceType").and_then(Value::as_str);
+    let limit = cmd.action.get("limit").and_then(Value::as_u64).map(|v| v as usize);
+    let mut val = att
+        .diagnostics
+        .get(&host_id)
+        .map(|d| d.query_network_list(url_contains, rtype, limit))
+        .unwrap_or_else(|| json!({ "requests": [], "truncated": false, "dropped": 0 }));
+    val["tab"] = serde_json::to_value(tab).unwrap_or(Value::Null);
+    StepOutcome::Done(Outcome::ok(val, Vec::new()))
+}
+
+fn exec_network_get(att: &mut SessionAttachment, app: &App, cmd: &Command) -> StepOutcome {
+    let Some(wire_id) = cmd.tab_id() else {
+        return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "Missing tabID."));
+    };
+    let Some(req_id) = cmd.action.get("id").and_then(Value::as_str) else {
+        return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "Missing request id."));
+    };
+    let host_id = match att.resolve_tab(app, wire_id) {
+        Ok(id) => id,
+        Err(msg) => return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, msg)),
+    };
+    if let Err(o) = check_page_guards(app, host_id, "network.get") {
+        return StepOutcome::Done(o);
+    }
+    let Some(tab) = att.wire_tab(app, host_id) else {
+        return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable."));
+    };
+    let Some(hop) = att.diagnostics.get(&host_id).and_then(|d| d.network_hop(req_id)) else {
+        return StepOutcome::Done(Outcome::fail(
+            failure_code::OPERATION_FAILED,
+            "Request ID is no longer retained in this tab or belongs to another tab. Call browser.network.list({tabID}) and copy a current id.",
+        ));
+    };
+    let include_body = cmd.action.get("includeBody").and_then(Value::as_bool).unwrap_or(false);
+    let include_resp = cmd
+        .action
+        .get("includeResponseBody")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let max_body = cmd
+        .action
+        .get("maxBodyChars")
+        .and_then(Value::as_u64)
+        .map_or(20_000, |v| (v as usize).clamp(1, 20_000));
+    let mut val = TabDiagnostics::format_network_get(hop, include_body, include_resp, max_body, None);
+    val["tab"] = serde_json::to_value(tab).unwrap_or(Value::Null);
+    StepOutcome::Done(Outcome::ok(val, Vec::new()))
+}
+
+fn exec_files_list(att: &mut SessionAttachment, app: &App, cmd: &Command) -> StepOutcome {
+    let Some(wire_id) = cmd.tab_id() else {
+        return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "Missing tabID."));
+    };
+    let host_id = match att.resolve_tab(app, wire_id) {
+        Ok(id) => id,
+        Err(msg) => return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, msg)),
+    };
+    if let Err(o) = check_page_guards(app, host_id, "files.list") {
+        return StepOutcome::Done(o);
+    }
+    let Some(tab) = att.wire_tab(app, host_id) else {
+        return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable."));
+    };
+    let mut files: Vec<Value> = att
+        .captures
+        .get(&host_id)
+        .into_iter()
+        .flatten()
+        .map(|c| {
+            json!({
+                "id": c.id,
+                "name": c.name,
+                "mime": c.mime,
+                "bytes": c.bytes.len(),
+                "state": "completed",
+            })
+        })
+        .collect();
+    if let Some(bt) = app.workspace_panes.browser.host.tab(host_id) {
+        for d in &bt.files {
+            if !opencode_kit::browser_rpc::is_valid_file_id(&d.id) {
+                continue;
+            }
+            let st = match d.state {
+                browser_pane::DownloadState::Pending => "pending",
+                browser_pane::DownloadState::Completed => "completed",
+                browser_pane::DownloadState::Failed => "failed",
+            };
+            files.push(json!({
+                "id": d.id,
+                "name": d.name,
+                "mime": d.mime,
+                "bytes": d.bytes,
+                "state": st,
+            }));
+        }
+    }
+    StepOutcome::Done(Outcome::ok(json!({ "tab": tab, "files": files }), Vec::new()))
+}
+
+fn exec_files_get(att: &mut SessionAttachment, app: &App, cmd: &Command) -> StepOutcome {
+    let Some(wire_id) = cmd.tab_id() else {
+        return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "Missing tabID."));
+    };
+    let Some(file_id) = cmd.action.get("fileID").and_then(Value::as_str) else {
+        return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "Missing fileID."));
+    };
+    let host_id = match att.resolve_tab(app, wire_id) {
+        Ok(id) => id,
+        Err(msg) => return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, msg)),
+    };
+    if let Err(o) = check_page_guards(app, host_id, "files.get") {
+        return StepOutcome::Done(o);
+    }
+    let Some(tab) = att.wire_tab(app, host_id) else {
+        return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable."));
+    };
+    if let Some(cap) = att
+        .captures
+        .get(&host_id)
+        .and_then(|list| list.iter().find(|c| c.id == file_id))
+    {
+        return match WireFile::from_bytes(cap.id.clone(), cap.name.clone(), cap.mime.clone(), &cap.bytes) {
+            Ok(wf) => StepOutcome::Done(Outcome::ok(json!({ "tab": tab }), vec![wf])),
+            Err(e) => StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, e)),
+        };
+    }
+    if let Some(bt) = app.workspace_panes.browser.host.tab(host_id)
+        && let Some(df) = bt.files.iter().find(|f| f.id == file_id)
+    {
+        if df.state != browser_pane::DownloadState::Completed {
+            return StepOutcome::Done(Outcome::fail(
+                failure_code::OPERATION_FAILED,
+                "Download is not completed yet.",
+            ));
+        }
+        let Some(verified) = app.workspace_panes.browser.host.download_path(host_id, df) else {
+            return StepOutcome::Done(Outcome::fail(
+                failure_code::OPERATION_FAILED,
+                "Download path failed confinement verification.",
+            ));
+        };
+        let Ok(bytes) = std::fs::read(&verified) else {
+            return StepOutcome::Done(Outcome::fail(
+                failure_code::OPERATION_FAILED,
+                "Could not read verified download file.",
+            ));
+        };
+        return match WireFile::from_bytes(df.id.clone(), df.name.clone(), df.mime.clone(), &bytes) {
+            Ok(wf) => StepOutcome::Done(Outcome::ok(json!({ "tab": tab }), vec![wf])),
+            Err(e) => StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, e)),
+        };
+    }
+    StepOutcome::Done(Outcome::fail(
+        failure_code::OPERATION_FAILED,
+        "File ID not found in this tab. Call browser.files.list({tabID}) to see owned files.",
+    ))
+}
+
+pub(super) fn step_screenshot(
+    att: &mut SessionAttachment,
+    app: &mut App,
+    st: &mut ScreenshotState,
+) -> Option<Outcome> {
+    match &st.stage {
+        ScreenshotStage::GetBox { cdp_req } => {
+            let resp = app.workspace_panes.browser.host.take_cdp_response(*cdp_req)?;
+            let val = match resp {
+                Ok(v) => v,
+                Err(_) => {
+                    return Some(Outcome::fail(
+                        failure_code::STALE_REF,
+                        "Could not read bounding box for element ref.",
+                    ));
+                }
+            };
+            let Some((x, y, w, h)) = box_model_rect(&val) else {
+                return Some(Outcome::fail(
+                    failure_code::OPERATION_FAILED,
+                    "Element has zero visible size.",
+                ));
+            };
+            let mut params = json!({
+                "format": st.format,
+                "clip": { "x": x, "y": y, "width": w, "height": h, "scale": 1.0 }
+            });
+            if let Some(q) = st.quality
+                && st.format != "png"
+            {
+                params["quality"] = json!(q);
+            }
+            match app.workspace_panes.browser.host.send_cdp(st.host_id, "Page.captureScreenshot", params, None) {
+                Ok(req) => {
+                    st.stage = ScreenshotStage::Capture { cdp_req: req };
+                    None
+                }
+                Err(e) => Some(Outcome::fail(failure_code::OPERATION_FAILED, e)),
+            }
+        }
+        ScreenshotStage::GetMetrics { cdp_req } => {
+            let resp = app.workspace_panes.browser.host.take_cdp_response(*cdp_req)?;
+            let val = match resp {
+                Ok(v) => v,
+                Err(e) => return Some(Outcome::fail(failure_code::OPERATION_FAILED, cdp_err_msg(&e))),
+            };
+            let rect = val.get("cssContentSize").or_else(|| val.get("contentSize"));
+            let w = rect.and_then(|r| r.get("width")).and_then(Value::as_f64).unwrap_or(1280.0).max(1.0);
+            let h = rect.and_then(|r| r.get("height")).and_then(Value::as_f64).unwrap_or(800.0).max(1.0);
+            let mut scale = 1.0f64;
+            if w > MAX_FULLPAGE_EDGE {
+                scale = scale.min(MAX_FULLPAGE_EDGE / w);
+            }
+            if h > MAX_FULLPAGE_EDGE {
+                scale = scale.min(MAX_FULLPAGE_EDGE / h);
+            }
+            if (w * scale) * (h * scale) > MAX_FULLPAGE_PIXELS {
+                scale *= (MAX_FULLPAGE_PIXELS / ((w * scale) * (h * scale))).sqrt();
+            }
+            let mut params = json!({
+                "format": st.format,
+                "captureBeyondViewport": true,
+                "clip": { "x": 0.0, "y": 0.0, "width": w, "height": h, "scale": scale }
+            });
+            if let Some(q) = st.quality
+                && st.format != "png"
+            {
+                params["quality"] = json!(q);
+            }
+            match app.workspace_panes.browser.host.send_cdp(st.host_id, "Page.captureScreenshot", params, None) {
+                Ok(req) => {
+                    st.stage = ScreenshotStage::Capture { cdp_req: req };
+                    None
+                }
+                Err(e) => Some(Outcome::fail(failure_code::OPERATION_FAILED, e)),
+            }
+        }
+        ScreenshotStage::Capture { cdp_req } => {
+            let resp = app.workspace_panes.browser.host.take_cdp_response(*cdp_req)?;
+            let val = match resp {
+                Ok(v) => v,
+                Err(e) => return Some(Outcome::fail(failure_code::OPERATION_FAILED, cdp_err_msg(&e))),
+            };
+            let Some(b64) = val.get("data").and_then(Value::as_str) else {
+                return Some(Outcome::fail(
+                    failure_code::OPERATION_FAILED,
+                    "Screenshot response omitted image data.",
+                ));
+            };
+            let Ok(mut bytes) = base64::engine::general_purpose::STANDARD.decode(b64) else {
+                return Some(Outcome::fail(
+                    failure_code::OPERATION_FAILED,
+                    "Screenshot image data was not valid base64.",
+                ));
+            };
+            if let Some(max_w) = st.max_width {
+                bytes = maybe_downscale(&bytes, &st.format, max_w);
+            }
+            if bytes.len() > MAX_FILE_BYTES {
+                return Some(Outcome::fail(
+                    failure_code::OPERATION_FAILED,
+                    "Captured screenshot exceeds the 5 MiB transfer limit. Try format='jpeg' or a smaller maxWidth.",
+                ));
+            }
+            let file_id = new_file_id();
+            let ext = if st.format == "jpeg" { "jpg" } else { st.format.as_str() };
+            let name = format!("screenshot.{ext}");
+            let mime = format!("image/{}", st.format);
+            let wf = match WireFile::from_bytes(file_id.clone(), name.clone(), mime.clone(), &bytes) {
+                Ok(w) => w,
+                Err(e) => return Some(Outcome::fail(failure_code::OPERATION_FAILED, e)),
+            };
+            let tab_url = app
+                .workspace_panes
+                .browser
+                .host
+                .tab(st.host_id)
+                .map(|t| t.url.clone())
+                .unwrap_or_default();
+            att.record_capture(
+                st.host_id,
+                CapturedFile { id: file_id, name, mime, bytes, resources: vec![tab_url] },
+            );
+            let Some(tab) = att.wire_tab(app, st.host_id) else {
+                return Some(Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable."));
+            };
+            Some(Outcome::ok(json!({ "tab": tab }), vec![wf]))
+        }
+    }
+}
+
+fn maybe_downscale(bytes: &[u8], format: &str, max_w: u32) -> Vec<u8> {
+    if !matches!(format, "png" | "jpeg") {
+        return bytes.to_vec();
+    }
+    let Ok(img) = image::load_from_memory(bytes) else {
+        return bytes.to_vec();
+    };
+    if img.width() <= max_w {
+        return bytes.to_vec();
+    }
+    let new_h = ((img.height() as u64 * max_w as u64) / img.width().max(1) as u64).max(1) as u32;
+    let resized = img.resize(max_w, new_h, image::imageops::FilterType::Triangle);
+    let mut out = Cursor::new(Vec::new());
+    let fmt = if format == "jpeg" {
+        image::ImageFormat::Jpeg
+    } else {
+        image::ImageFormat::Png
+    };
+    if resized.write_to(&mut out, fmt).is_ok() {
+        out.into_inner()
+    } else {
+        bytes.to_vec()
+    }
+}
+
+fn box_model_rect(v: &Value) -> Option<(f64, f64, f64, f64)> {
+    let border = v.get("model")?.get("border")?.as_array()?;
+    if border.len() < 8 {
+        return None;
+    }
+    let xs = [0, 2, 4, 6].map(|i| border[i].as_f64().unwrap_or(0.0));
+    let ys = [1, 3, 5, 7].map(|i| border[i].as_f64().unwrap_or(0.0));
+    let min_x = xs.into_iter().fold(f64::INFINITY, f64::min);
+    let max_x = xs.into_iter().fold(f64::NEG_INFINITY, f64::max);
+    let min_y = ys.into_iter().fold(f64::INFINITY, f64::min);
+    let max_y = ys.into_iter().fold(f64::NEG_INFINITY, f64::max);
+    let w = max_x - min_x;
+    let h = max_y - min_y;
+    (w > 0.0 && h > 0.0).then_some((min_x, min_y, w, h))
+}

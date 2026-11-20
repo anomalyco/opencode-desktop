@@ -279,6 +279,31 @@ pub fn start_read(host: &mut dyn FilesHost, sid: &str, path: &str, attempt: u64)
         .start(&server, &directory, sid, path, attempt, find, prior);
 }
 
+/// Opens a workspace HTML file (`path` inside `sid`'s folder) in the embedded browser pane.
+pub fn open_html_in_browser(host: &mut dyn FilesHost, sid: &str, path: &str) {
+    let dir = crate::links::link_directory(host, sid);
+    if dir.is_empty() {
+        return;
+    }
+    let url = format!(
+        "file://{}",
+        opencode_kit::path::encode_path(&opencode_kit::path::absolute(&dir, path))
+    );
+    host.open_page_tab(sid, &url);
+}
+
+/// Opens `path` from the Files sidebar tree/filter: routes workspace HTML files to the browser
+/// pane when [`FilesHost::opens_as_page`] is true (`packages/gui-plugins/src/file/renderer.tsx`),
+/// otherwise opens the file in the Files viewer.
+pub fn open_workspace_file_or_page(host: &mut dyn FilesHost, path: &str, preview: bool, tx: &mut Tx) {
+    let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
+    if host.opens_as_page(path) {
+        open_html_in_browser(host, &sid, path);
+    } else {
+        open_workspace_file_for_session(host, &sid, path, preview, None, true, tx);
+    }
+}
+
 pub fn open_workspace_file(
     host: &mut dyn FilesHost,
     path: &str,
@@ -375,7 +400,7 @@ pub fn submit_files_filter(host: &mut dyn FilesHost, tx: &mut Tx) {
         .or_else(|| filtered.first().cloned());
     if let Some(path) = pick {
         host.files_mut().filter.focused = false;
-        open_workspace_file(host, &path, false, None, tx);
+        open_workspace_file_or_page(host, &path, false, tx);
     }
 }
 

@@ -36,6 +36,10 @@ pub enum AttachState {
         connection_id: String,
         failures: u32,
         deadline: Instant,
+        /// True if `PluginUpdated` arrived while this attempt was already in flight, so an
+        /// immediately following `AttachOutcome::Unavailable` retries right away instead of
+        /// missing the `PRE-08` wake signal.
+        plugin_updated: bool,
     },
     /// Server completed permission grant and emitted `attached` v4; commands and state sync run.
     Attached {
@@ -196,8 +200,14 @@ impl AttachMachine {
                 | AttachState::Backoff { .. } => self.start_attach(now),
                 _ => Vec::new(),
             },
-            AttachEvent::PluginUpdated => match &self.state {
-                // PRE-08 (#63500): retry immediately when server plugins finish loading.
+            AttachEvent::PluginUpdated => match &mut self.state {
+                // PRE-08 (#63500): retry immediately when server plugins finish loading; if an
+                // attach attempt is already in flight, mark it so an `Unavailable` reply that
+                // raced ahead of `plugin.updated` retries immediately on arrival.
+                AttachState::Connecting { plugin_updated, .. } => {
+                    *plugin_updated = true;
+                    Vec::new()
+                }
                 AttachState::Unavailable
                 | AttachState::Unsupported
                 | AttachState::Backoff { .. } => self.start_attach(now),
@@ -257,6 +267,7 @@ impl AttachMachine {
             connection_id: connection_id.clone(),
             failures,
             deadline,
+            plugin_updated: false,
         };
         effects.push(AttachEffect::StartAttach { attempt, connection_id });
         effects.push(AttachEffect::ScheduleTimer { at: deadline });
@@ -316,12 +327,14 @@ impl AttachMachine {
     }
 
     fn handle_ended(&mut self, attempt: u64, outcome: AttachOutcome, now: Instant) -> Vec<AttachEffect> {
-        let (matches_attempt, was_attached, prev_failures, in_flight) = match &mut self.state {
-            AttachState::Connecting { attempt: cur, failures, .. } => (*cur == attempt, false, *failures, Vec::new()),
-            AttachState::Attached { attempt: cur, in_flight, .. } => {
-                (*cur == attempt, true, 0, std::mem::take(in_flight).into_iter().collect())
+        let (matches_attempt, was_attached, prev_failures, saw_plugin_update, in_flight) = match &mut self.state {
+            AttachState::Connecting { attempt: cur, failures, plugin_updated, .. } => {
+                (*cur == attempt, false, *failures, *plugin_updated, Vec::new())
             }
-            _ => (false, false, 0, Vec::new()),
+            AttachState::Attached { attempt: cur, in_flight, .. } => {
+                (*cur == attempt, true, 0, false, std::mem::take(in_flight).into_iter().collect())
+            }
+            _ => (false, false, 0, false, Vec::new()),
         };
         if !matches_attempt {
             return Vec::new();
@@ -336,6 +349,12 @@ impl AttachMachine {
         match outcome {
             AttachOutcome::Unsupported => {
                 self.state = AttachState::Unsupported;
+            }
+            AttachOutcome::Unavailable if saw_plugin_update => {
+                // `plugin.updated` arrived while this cold attach was in flight (`PRE-08`):
+                // retry immediately instead of parking in `Unavailable`.
+                effects.extend(self.start_attach(now));
+                return effects;
             }
             AttachOutcome::Unavailable => {
                 self.state = AttachState::Unavailable;

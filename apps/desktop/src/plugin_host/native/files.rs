@@ -66,6 +66,15 @@ pub fn build(lua: &Lua, t: &Table) -> mlua::Result<()> {
             app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 s.open_workspace_file_for_session(&sid, &path, preview, lines, false, tx);
+                // When opened explicitly via Workspace:OpenFile (for example browser's "View source"),
+                // show raw HTML source rather than Rune's simplified static HTML reader.
+                if std::path::Path::new(&path)
+                    .extension()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("html") || e.eq_ignore_ascii_case("htm"))
+                    && let Some(ws) = s.kernel.slots.get_mut(&crate::files::FILES).sessions.get_mut(&sid)
+                {
+                    ws.md.entry(path.clone()).or_default().mode.step(crate::files::markdown::PreviewModeEvent::ShowSource);
+                }
             }));
             Ok(())
         })
