@@ -292,6 +292,21 @@ mod native {
             }
         }
 
+        /// Default browser isolation context for tabs opened on the active server: local sidecar
+        /// uses `ContextKind::Default`, while remote servers use a dedicated `RemoteServer`
+        /// partition whenever the engine advertises `partitions: true`.
+        pub fn default_browser_context(&self) -> browser_pane::ContextKind {
+            let server = crate::servers::runtime::active(self);
+            if server.is_sidecar() || !self.workspace_panes.browser.host.engine_partitions() {
+                browser_pane::ContextKind::Default
+            } else {
+                browser_pane::ContextKind::RemoteServer {
+                    partition: format!("server:{}", server.as_str()),
+                    proxy: None,
+                }
+            }
+        }
+
         pub fn open_new_browser_tab(&mut self, url: &str) -> u64 {
             self.open_new_browser_tab_in(url, None)
         }
@@ -313,7 +328,24 @@ mod native {
             steal_focus: bool,
             from_address: bool,
         ) -> u64 {
-            let roots = self.browser_file_roots(sid);
+            let context = self.default_browser_context();
+            self.open_new_browser_tab_with_context(sid, url, target_pane, steal_focus, from_address, context)
+        }
+
+        pub fn open_new_browser_tab_with_context(
+            &mut self,
+            sid: Option<&str>,
+            url: &str,
+            target_pane: Option<SessionPane>,
+            steal_focus: bool,
+            from_address: bool,
+            context: browser_pane::ContextKind,
+        ) -> u64 {
+            let roots = if matches!(context, browser_pane::ContextKind::RemoteServer { .. }) {
+                Vec::new()
+            } else {
+                self.browser_file_roots(sid)
+            };
             let id = if self.use_mock_browser() {
                 let candidate = if from_address { browser_pane::resolve_address(url) } else { browser_pane::with_scheme(url) };
                 let refused = browser_pane::refusal(&candidate, &roots);
@@ -326,7 +358,7 @@ mod native {
                 }
                 id
             } else {
-                self.workspace_panes.browser.host.open_tab_with_roots(url, roots, from_address)
+                self.workspace_panes.browser.host.open_tab_with_context(url, roots, context, from_address)
             };
             if let Some(sid) = sid {
                 self.workspace_panes.browser.session_tabs.entry(sid.to_owned()).or_default().push(id);
@@ -432,13 +464,26 @@ mod native {
                 let popups: Vec<_> = self.workspace_panes.browser.host.drain_popup_opens().collect();
                 for popup in popups {
                     let sid = self.browser_tab_session(popup.opener_tab_id).map(str::to_owned);
-                    let agent = self
+                    let (agent, opener_ctx) = self
                         .workspace_panes
                         .browser
                         .host
                         .tab(popup.opener_tab_id)
-                        .is_some_and(|t| t.prompts.agent_driven);
-                    let new_id = self.open_new_browser_tab_for_session(sid.as_deref(), &popup.url, None, !popup.background);
+                        .map_or((false, self.default_browser_context()), |t| {
+                            let ctx = match &t.context {
+                                browser_pane::ContextKind::RemoteServer { .. } => t.context.clone(),
+                                _ => self.default_browser_context(),
+                            };
+                            (t.prompts.agent_driven, ctx)
+                        });
+                    let new_id = self.open_new_browser_tab_with_context(
+                        sid.as_deref(),
+                        &popup.url,
+                        None,
+                        !popup.background,
+                        false,
+                        opener_ctx,
+                    );
                     if agent {
                         self.workspace_panes.browser.host.set_agent_driven(new_id, true);
                     }

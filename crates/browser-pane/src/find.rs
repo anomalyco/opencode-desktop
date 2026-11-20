@@ -97,6 +97,40 @@ impl crate::BrowserHost {
         self.caps.context_menu()
     }
 
+    pub fn engine_partitions(&self) -> bool {
+        self.caps.partitions()
+    }
+
+    pub fn engine_remote_proxy(&self) -> bool {
+        self.caps.remote_proxy()
+    }
+
+    /// Updates or clears the local loopback tunnel proxy on a remote server partition.
+    pub fn set_partition_proxy(
+        &mut self,
+        partition: &str,
+        proxy: Option<crate::protocol::RemoteProxyConfig>,
+    ) {
+        for t in &mut self.tabs {
+            if let crate::protocol::ContextKind::RemoteServer { partition: p, proxy: cur } = &mut t.context
+                && p == partition
+            {
+                *cur = proxy.clone();
+            }
+        }
+        self.send(crate::protocol::HostMsg::SetPartitionProxy {
+            partition: partition.to_owned(),
+            proxy,
+        });
+    }
+
+    /// Closes connections and releases a non-default preview or remote server context in the engine.
+    pub fn drop_context(&mut self, context: crate::protocol::ContextKind) {
+        if !context.is_default() {
+            self.send(crate::protocol::HostMsg::DropContext { context });
+        }
+    }
+
     /// Hard reload bypassing cached files (`menu.hardReload` / `Ctrl+F5` / `Mod+Shift+R`).
     pub fn reload_ignore_cache(&mut self, tab_id: u64) {
         if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {

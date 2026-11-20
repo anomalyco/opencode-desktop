@@ -136,6 +136,8 @@ pub enum HostMsg {
         focused: bool,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         file_roots: Vec<String>,
+        #[serde(default, skip_serializing_if = "ContextKind::is_default")]
+        context: ContextKind,
     },
     SetTabPolicy {
         tab_id: u64,
@@ -296,6 +298,13 @@ pub enum HostMsg {
         id: u64,
         action: Option<ContextMenuCommand>,
     },
+    SetPartitionProxy {
+        partition: String,
+        proxy: Option<RemoteProxyConfig>,
+    },
+    DropContext {
+        context: ContextKind,
+    },
     Shutdown,
 }
 
@@ -323,6 +332,12 @@ pub enum EngineMsg {
         /// The engine routes page right-click context menus to the app.
         #[serde(default)]
         context_menu: bool,
+        /// The engine isolates `IsolatedPreview` and `RemoteServer` tabs in dedicated `CefRequestContext`s.
+        #[serde(default)]
+        partitions: bool,
+        /// The engine confines proxied `RemoteServer` partitions via `fixed_servers` + `<-loopback>` + WebRTC/DoH hardening.
+        #[serde(default)]
+        remote_proxy: bool,
     },
     /// A frame navigation or redirect was refused by URL policy while keeping the current page.
     Refused {
@@ -588,6 +603,48 @@ pub struct PageContextMenu {
     pub misspelled_word: Option<String>,
     #[serde(default)]
     pub suggestions: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteProxyConfig {
+    pub host: String,
+    pub port: u16,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub password: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub realm: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ContextKind {
+    #[default]
+    Default,
+    IsolatedPreview {
+        grant: String,
+    },
+    RemoteServer {
+        partition: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        proxy: Option<RemoteProxyConfig>,
+    },
+}
+
+impl ContextKind {
+    pub fn is_default(&self) -> bool {
+        matches!(self, Self::Default)
+    }
+
+    pub fn is_supported(&self, partitions: bool, remote_proxy: bool) -> bool {
+        match self {
+            Self::Default => true,
+            Self::IsolatedPreview { .. } => partitions,
+            Self::RemoteServer { proxy: None, .. } => partitions,
+            Self::RemoteServer { proxy: Some(_), .. } => partitions && remote_proxy,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
