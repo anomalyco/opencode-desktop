@@ -32,14 +32,14 @@ impl TabScope {
         Self { is_builtin_browser, tool_sid, in_flight }
     }
 
-    /// Central enforcement for EVERY Luau MCP tool call (`tool_sid.is_some()`), regardless of
-    /// tool name or whether the call yielded before `experimental.browser` attached:
-    /// refuses local `Browser:*` / `BrowserTab:*` access on remote servers and whenever
-    /// `experimental.browser` v4 suppresses local MCP for that server/session.
+    /// Central enforcement for EVERY Luau MCP tool call (`tool_sid.is_some()` or spawned from an
+    /// in-flight MCP tool coroutine via `task.spawn`), regardless of tool name or whether the call
+    /// yielded before `experimental.browser` attached: refuses local `Browser:*` / `BrowserTab:*`
+    /// access on remote servers and whenever `experimental.browser` v4 suppresses local MCP.
     pub(super) fn check_local_mcp_allowed(&self, app: &App) -> Result<(), String> {
-        let Some(caller_opt) = &self.tool_sid else {
+        if self.tool_sid.is_none() && self.in_flight.is_empty() {
             return Ok(());
-        };
+        }
         let server_key = crate::servers::runtime::active(app);
         let same_machine = server_key.is_sidecar()
             && match &*app.source {
@@ -50,15 +50,25 @@ impl TabScope {
             return Err(crate::rune_mcp::REMOTE_BROWSER_MCP_ERROR.to_owned());
         }
         #[cfg(not(target_arch = "wasm32"))]
-        if crate::surfaces::browser::rpc::is_mcp_browser_suppressed(
-            app,
-            server_key,
-            caller_opt.as_deref(),
-        ) {
-            return Err(crate::rune_mcp::RPC_ATTACHED_BROWSER_MCP_ERROR.to_owned());
+        {
+            let suppressed = match &self.tool_sid {
+                Some(caller_opt) => crate::surfaces::browser::rpc::is_mcp_browser_suppressed(
+                    app,
+                    server_key,
+                    caller_opt.as_deref(),
+                ),
+                None => self.in_flight.iter().any(|sid| {
+                    crate::surfaces::browser::rpc::is_mcp_browser_suppressed(
+                        app,
+                        server_key,
+                        Some(sid.as_str()),
+                    )
+                }),
+            };
+            if suppressed {
+                return Err(crate::rune_mcp::RPC_ATTACHED_BROWSER_MCP_ERROR.to_owned());
+            }
         }
-        #[cfg(target_arch = "wasm32")]
-        let _ = caller_opt;
         Ok(())
     }
 

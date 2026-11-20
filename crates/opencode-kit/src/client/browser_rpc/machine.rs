@@ -131,12 +131,16 @@ impl AttachMachine {
     }
 
     /// Whether local `rune_mcp` `browser_*` / `browser_cdp` tools must stay suppressed for this
-    /// session: active while `Attached`, and sticky across transient `Backoff`/`Connecting` after
-    /// a prior `Attached` state so reconnect glitches never re-advertise raw `browser_cdp`.
+    /// session: active while `Attached`, while `Blocked::Replaced` (another client holds live
+    /// `experimental.browser` on the server), and sticky across transient `Backoff`/`Connecting`
+    /// after a prior `Attached` state so reconnect glitches never re-advertise raw `browser_cdp`.
     pub fn suppresses_local_mcp(&self) -> bool {
-        matches!(self.state, AttachState::Attached { .. })
-            || (self.ever_attached
-                && matches!(self.state, AttachState::Backoff { .. } | AttachState::Connecting { .. }))
+        matches!(
+            self.state,
+            AttachState::Attached { .. }
+                | AttachState::Blocked { reason: BlockReason::Replaced }
+        ) || (self.ever_attached
+            && matches!(self.state, AttachState::Backoff { .. } | AttachState::Connecting { .. }))
     }
 
     pub fn is_connecting(&self) -> bool {
