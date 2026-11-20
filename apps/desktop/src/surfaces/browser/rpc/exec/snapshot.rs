@@ -208,7 +208,9 @@ pub(super) fn step_frames(att: &mut SessionAttachment, app: &mut App, st: &Frame
     let resp = app.workspace_panes.browser.host.take_cdp_response(st.cdp_req)?;
     match resp {
         Ok(val) => {
-            att.frames.entry(st.host_id).or_default().ingest_frame_tree(&val, None);
+            if att.frames.entry(st.host_id).or_default().ingest_frame_tree(&val, None) {
+                att.bump_generation(st.host_id);
+            }
             let Some(tab) = att.wire_tab(app, st.host_id) else {
                 return Some(Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable."));
             };
@@ -243,7 +245,9 @@ pub(super) fn step_snapshot(
                 Ok(v) => v,
                 Err(e) => return Some(Outcome::fail(failure_code::OPERATION_FAILED, cdp_err_msg(&e))),
             };
-            att.frames.entry(st.host_id).or_default().ingest_frame_tree(&val, None);
+            if att.frames.entry(st.host_id).or_default().ingest_frame_tree(&val, None) {
+                att.bump_generation(st.host_id);
+            }
             let tree = parse_frame_tree(&val);
             let want = st.frame_id.as_deref().unwrap_or("");
             let is_tracked_ext = att

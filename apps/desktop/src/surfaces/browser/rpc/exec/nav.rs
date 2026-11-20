@@ -5,15 +5,14 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use browser_pane::policy::{
-    extension_origin, extension_page_refusal, file_url_within, local_file_path, refusal, with_scheme,
-};
+use browser_pane::policy::{file_url_within, local_file_path, refusal};
 use opencode_kit::browser_rpc::{Command, Outcome, failure_code};
 use rune::Tx;
 use rune::time::Instant;
 use serde_json::{Value, json};
 
 use super::super::session::SessionAttachment;
+use super::target_url::parse_agent_url;
 use super::{ExecPhase, StepOutcome, check_page_guards};
 use crate::App;
 
@@ -70,22 +69,23 @@ fn start_tabs_open(
     cmd: &Command,
     now: Instant,
 ) -> StepOutcome {
-    let raw_url = cmd.action.get("url").and_then(Value::as_str);
+    let raw_url = cmd
+        .action
+        .get("url")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|u| !u.is_empty());
     let focus = cmd.action.get("focus").and_then(Value::as_bool).unwrap_or(true);
     let target_url = if let Some(u) = raw_url {
-        let trimmed = u.trim();
-        if extension_origin(trimmed) {
-            return StepOutcome::Done(Outcome::fail(
-                failure_code::NAVIGATION_FAILED,
-                extension_page_refusal(trimmed),
-            ));
-        }
-        let candidate = with_scheme(trimmed);
+        let candidate = match parse_agent_url(u) {
+            Ok(parsed) => parsed,
+            Err(msg) => return StepOutcome::Done(Outcome::fail(failure_code::NAVIGATION_FAILED, msg)),
+        };
         let roots = app.browser_file_roots(Some(&att.session_id));
         if let Some(why) = refusal(&candidate, &roots) {
             return StepOutcome::Done(Outcome::fail(
                 failure_code::NAVIGATION_FAILED,
-                format!("Navigation refused ({}): {trimmed}", why.code()),
+                format!("Navigation refused ({}): {}", why.code(), u.trim()),
             ));
         }
         candidate
@@ -183,19 +183,15 @@ fn start_navigate(
     if let Err(outcome) = check_page_guards(app, host_id, "navigate") {
         return StepOutcome::Done(outcome);
     }
-    let trimmed = raw_url.trim();
-    if extension_origin(trimmed) {
-        return StepOutcome::Done(Outcome::fail(
-            failure_code::NAVIGATION_FAILED,
-            extension_page_refusal(trimmed),
-        ));
-    }
-    let candidate = with_scheme(trimmed);
+    let candidate = match parse_agent_url(raw_url) {
+        Ok(parsed) => parsed,
+        Err(msg) => return StepOutcome::Done(Outcome::fail(failure_code::NAVIGATION_FAILED, msg)),
+    };
     let roots = app.browser_file_roots(Some(&att.session_id));
     if let Some(why) = refusal(&candidate, &roots) {
         return StepOutcome::Done(Outcome::fail(
             failure_code::NAVIGATION_FAILED,
-            format!("Navigation refused ({}): {trimmed}", why.code()),
+            format!("Navigation refused ({}): {}", why.code(), raw_url.trim()),
         ));
     }
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);

@@ -1005,7 +1005,6 @@ impl BrowserHost {
                         agent_tools,
                         preview,
                     };
-                    self.flush_pending_opens();
                     // A new engine starts with an empty downloads folder and numbers its files
                     // from 1 again: the last one's files are gone. Held prompts replay if live.
                     for t in &mut self.tabs {

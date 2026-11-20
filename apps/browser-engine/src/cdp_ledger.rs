@@ -285,3 +285,122 @@ pub(crate) fn handle_site_cookies(
         });
     }
 }
+
+/// Top-level JSON envelope fields of a raw CDP message extracted without building a `Value` AST.
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TopLevelCdp {
+    pub id: Option<i32>,
+    pub has_method: bool,
+    pub has_session_id: bool,
+}
+
+/// Streaming depth-tracking scanner that inspects ONLY root-level (`depth == 1`) JSON keys so
+/// nested `"id"`/`"sessionId"` inside `params` or `result` can never spoof reply/event routing.
+pub(crate) fn scan_top_level_cdp(raw: &[u8]) -> TopLevelCdp {
+    let mut out = TopLevelCdp::default();
+    let n = raw.len();
+    let mut i = 0usize;
+    while i < n && raw[i].is_ascii_whitespace() {
+        i += 1;
+    }
+    if i >= n || raw[i] != b'{' {
+        return out;
+    }
+    let mut depth = 0usize;
+    let mut in_str = false;
+    let mut escape = false;
+    let mut expect_key = false;
+    while i < n {
+        let b = raw[i];
+        if in_str {
+            if escape {
+                escape = false;
+            } else if b == b'\\' {
+                escape = true;
+            } else if b == b'"' {
+                in_str = false;
+            }
+            i += 1;
+            continue;
+        }
+        match b {
+            b'{' => {
+                depth += 1;
+                if depth == 1 {
+                    expect_key = true;
+                }
+                i += 1;
+            }
+            b'[' => {
+                depth += 1;
+                i += 1;
+            }
+            b'}' | b']' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    break;
+                }
+                i += 1;
+            }
+            b',' => {
+                if depth == 1 {
+                    expect_key = true;
+                }
+                i += 1;
+            }
+            b'"' if depth == 1 && expect_key => {
+                expect_key = false;
+                let key_start = i + 1;
+                i += 1;
+                let mut esc = false;
+                while i < n {
+                    if esc {
+                        esc = false;
+                    } else if raw[i] == b'\\' {
+                        esc = true;
+                    } else if raw[i] == b'"' {
+                        break;
+                    }
+                    i += 1;
+                }
+                let key = &raw[key_start..i.min(n)];
+                if i < n {
+                    i += 1;
+                }
+                while i < n && raw[i].is_ascii_whitespace() {
+                    i += 1;
+                }
+                if i < n && raw[i] == b':' {
+                    i += 1;
+                    while i < n && raw[i].is_ascii_whitespace() {
+                        i += 1;
+                    }
+                    if key == b"method" {
+                        out.has_method = true;
+                    } else if key == b"sessionId" {
+                        out.has_session_id = true;
+                    } else if key == b"id" {
+                        let num_start = i;
+                        if i < n && raw[i] == b'-' {
+                            i += 1;
+                        }
+                        while i < n && raw[i].is_ascii_digit() {
+                            i += 1;
+                        }
+                        if let Ok(s) = std::str::from_utf8(&raw[num_start..i]) {
+                            out.id = s.parse::<i32>().ok();
+                        }
+                    }
+                }
+            }
+            b'"' => {
+                in_str = true;
+                i += 1;
+            }
+            _ => {
+                i += 1;
+            }
+        }
+    }
+    out
+}

@@ -26,6 +26,9 @@ pub(super) enum EvalTargetError {
 #[derive(Default)]
 pub(super) struct TabFrameState {
     pub main_frame_id: Option<String>,
+    /// Last observed `loaderId` of the top-level main frame so same-URL reloads bump `generation`
+    /// even when `#274` drops `Page.*` events while extensions are active.
+    pub main_loader_id: Option<String>,
     pub frame_urls: BTreeMap<String, String>,
     pub frame_parents: HashMap<String, String>,
     pub frame_names: HashMap<String, String>,
@@ -37,13 +40,16 @@ pub(super) struct TabFrameState {
     pub extension_frames: HashSet<String>,
     /// Default main-world execution context per frame (`frame_id -> (context_id, session_id)`).
     pub main_contexts: HashMap<String, (i64, Option<String>)>,
-    /// Fail-closed flag set when the document creates more than [`MAX_TRACKED_FRAMES`] frames so
-    /// a 257th denied iframe can never hide from `source_urls()`.
+    /// Targets (`None` = top-level, `Some(sid)` = OOPIF) whose current live frame set exceeded
+    /// [`MAX_TRACKED_FRAMES`]; recomputed on every `ingest_frame_tree` rebuild so navigating away
+    /// from a 257-frame page recovers cleanly instead of permanently bricking the tab.
+    overflow_targets: HashSet<Option<String>>,
+    /// Fail-closed flag (`!overflow_targets.is_empty()` or live overflow during event ingestion).
     pub frame_cap_exceeded: bool,
 }
 
 impl TabFrameState {
-    fn record_frame_url(&mut self, fid: &str, url: &str) -> bool {
+    fn record_frame_url(&mut self, fid: &str, url: &str, target: Option<&str>) -> bool {
         if let Some(existing) = self.frame_urls.get_mut(fid) {
             // Never overwrite a committed URL with Chromium's empty `""` cross-process stub
             // from an ancestor target's `Page.getFrameTree` (real blank frames report `"about:blank"`).
@@ -53,6 +59,7 @@ impl TabFrameState {
             return true;
         }
         if self.frame_urls.len() >= MAX_TRACKED_FRAMES {
+            self.overflow_targets.insert(target.map(str::to_owned));
             self.frame_cap_exceeded = true;
             return false;
         }
@@ -103,12 +110,12 @@ impl TabFrameState {
                     self.frame_sessions.remove(frame_id);
                     self.main_contexts.remove(frame_id);
                     if !url.is_empty() {
-                        self.record_frame_url(frame_id, url);
+                        self.record_frame_url(frame_id, url, Some(child_sid));
                     }
                     eff.detach_sessions.push(child_sid.to_owned());
                     return eff;
                 }
-                if self.record_frame_url(frame_id, url) {
+                if self.record_frame_url(frame_id, url, Some(child_sid)) {
                     if let Some(pid) = parent_id {
                         self.frame_parents.insert(frame_id.to_owned(), pid);
                     }
@@ -122,8 +129,9 @@ impl TabFrameState {
                     && let Some(fid) = info.get("targetId").and_then(Value::as_str)
                 {
                     let url = info.get("url").and_then(Value::as_str).unwrap_or("");
+                    let owner = self.frame_sessions.get(fid).cloned();
                     if !url.is_empty() {
-                        self.record_frame_url(fid, url);
+                        self.record_frame_url(fid, url, owner.as_deref());
                     }
                     if extension_origin(url) {
                         self.extension_frames.insert(fid.to_owned());
@@ -155,6 +163,8 @@ impl TabFrameState {
                         self.extension_frames.remove(&fid);
                     }
                     self.main_contexts.retain(|_, (_, s)| s.as_deref() != Some(sid));
+                    self.overflow_targets.remove(&Some(sid.to_owned()));
+                    self.frame_cap_exceeded = !self.overflow_targets.is_empty();
                 }
             }
             "Page.frameNavigated" => {
@@ -166,13 +176,19 @@ impl TabFrameState {
                     let name = frame.get("name").and_then(Value::as_str).unwrap_or("");
                     if parent.is_none() && session_id.is_none() {
                         eff.main_navigated = true;
-                        self.frame_cap_exceeded = false;
+                        self.overflow_targets.remove(&None);
+                        self.frame_cap_exceeded = !self.overflow_targets.is_empty();
                         self.main_frame_id = Some(fid.to_owned());
+                        self.main_loader_id = frame
+                            .get("loaderId")
+                            .and_then(Value::as_str)
+                            .filter(|l| !l.is_empty())
+                            .map(str::to_owned);
                         self.frame_urls.retain(|k, _| k == fid || self.frame_sessions.contains_key(k));
                         self.frame_parents.retain(|k, _| self.frame_sessions.contains_key(k));
                         self.frame_names.retain(|k, _| k == fid || self.frame_sessions.contains_key(k));
                     }
-                    if self.record_frame_url(fid, url) {
+                    if self.record_frame_url(fid, url, session_id) {
                         if let Some(p) = parent {
                             self.frame_parents.insert(fid.to_owned(), p.to_owned());
                         }
@@ -200,7 +216,7 @@ impl TabFrameState {
                     params.get("frameId").and_then(Value::as_str),
                     params.get("url").and_then(Value::as_str),
                 ) {
-                    self.record_frame_url(fid, url);
+                    self.record_frame_url(fid, url, session_id);
                 }
             }
             "Page.frameDetached" => {
@@ -254,6 +270,10 @@ impl TabFrameState {
                 }
             }
             "Runtime.executionContextsCleared" => {
+                if session_id.is_none() && self.main_frame_id.is_some() {
+                    eff.main_navigated = true;
+                    self.main_loader_id = None;
+                }
                 self.main_contexts.retain(|_, (_, sid)| sid.as_deref() != session_id);
             }
             _ => {}
@@ -261,51 +281,90 @@ impl TabFrameState {
         eff
     }
 
-    /// Merges a live `Page.getFrameTree` response into tracked frames (preserving OOPIF children).
-    pub fn ingest_frame_tree(&mut self, tree: &Value, session_id: Option<&str>) {
-        let Some(root) = tree.get("frameTree") else { return };
-        self.walk_tree(root, None, session_id, false);
-    }
+    /// Rebuilds the tracked frame set for `session_id` (`None` = top-level in-process frames,
+    /// `Some(sid)` = OOPIF `sid`'s frames) from a live `Page.getFrameTree` reply: prunes removed
+    /// frames, recomputes `frame_cap_exceeded` from the current live tree (preventing permanent
+    /// bricking or stale denied-URL poisoning when `#274` drops `Page.*` events), and returns
+    /// `true` when the top-level main frame's `loaderId` changed (same-URL reload).
+    pub fn ingest_frame_tree(&mut self, tree: &Value, session_id: Option<&str>) -> bool {
+        let Some(root) = tree.get("frameTree") else { return false };
+        let mut walked: Vec<(String, String, Option<String>, String, Option<String>, bool)> = Vec::new();
+        collect_frame_tree(root, None, false, &mut walked);
+        if walked.is_empty() {
+            return false;
+        }
+        let mut main_reloaded = false;
+        if session_id.is_none() {
+            let (root_fid, _, _, _, root_loader, _) = &walked[0];
+            if let Some(next_loader) = root_loader.as_deref().filter(|l| !l.is_empty()) {
+                if self.main_loader_id.as_deref().is_some_and(|prev| prev != next_loader) {
+                    main_reloaded = true;
+                }
+                self.main_loader_id = Some(next_loader.to_owned());
+            }
+            self.main_frame_id = Some(root_fid.clone());
+        }
 
-    fn walk_tree(
-        &mut self,
-        node: &Value,
-        parent: Option<&str>,
-        session_id: Option<&str>,
-        parent_ext: bool,
-    ) {
-        let Some(frame) = node.get("frame") else { return };
-        let Some(fid) = frame.get("id").and_then(Value::as_str) else { return };
-        let url = frame.get("url").and_then(Value::as_str).unwrap_or("");
-        let name = frame.get("name").and_then(Value::as_str).unwrap_or("");
-        let pid = parent.or_else(|| frame.get("parentId").and_then(Value::as_str));
-        if pid.is_none() && session_id.is_none() {
-            self.main_frame_id = Some(fid.to_owned());
+        // Prune frames owned by `session_id` that disappeared from the live tree while preserving
+        // frames belonging to other CDP sessions (OOPIFs when `session_id == None`, or top-level
+        // and sibling OOPIFs when `session_id == Some(sid)`).
+        let live_ids: HashSet<&str> = walked.iter().map(|(fid, ..)| fid.as_str()).collect();
+        let stale: Vec<String> = self
+            .frame_urls
+            .keys()
+            .filter(|fid| {
+                let owned = match session_id {
+                    None => !self.frame_sessions.contains_key(*fid),
+                    Some(sid) => self.frame_sessions.get(*fid).map(String::as_str) == Some(sid),
+                };
+                owned && !live_ids.contains(fid.as_str())
+            })
+            .cloned()
+            .collect();
+        for fid in stale {
+            self.frame_urls.remove(&fid);
+            self.frame_parents.remove(&fid);
+            self.frame_names.remove(&fid);
+            self.frame_sessions.remove(&fid);
+            self.main_contexts.remove(&fid);
+            self.extension_frames.remove(&fid);
         }
-        let is_ext = parent_ext || extension_origin(url) || self.extension_frames.contains(fid);
-        if self.record_frame_url(fid, url) {
-            if let Some(p) = pid {
-                self.frame_parents.insert(fid.to_owned(), p.to_owned());
+
+        let target_key = session_id.map(str::to_owned);
+        self.overflow_targets.remove(&target_key);
+        let mut target_overflowed = false;
+        for (fid, url, pid, name, _, walked_ext) in walked {
+            // Skip OOPIF stubs inside the top-level tree whose session is already owned by a child
+            // OOPIF target, except preserve parent/name links and never clobber committed URLs.
+            let owned_by_other_oopif = session_id.is_none() && self.frame_sessions.contains_key(&fid);
+            let is_ext = walked_ext || self.extension_frames.contains(&fid);
+            if !self.record_frame_url(&fid, &url, session_id) {
+                target_overflowed = true;
+            } else {
+                if let Some(p) = pid {
+                    self.frame_parents.insert(fid.clone(), p);
+                }
+                if !name.is_empty() {
+                    self.frame_names.insert(fid.clone(), name);
+                }
+                if !is_ext
+                    && !owned_by_other_oopif
+                    && let Some(sid) = session_id
+                {
+                    self.frame_sessions.insert(fid.clone(), sid.to_owned());
+                }
             }
-            if !name.is_empty() {
-                self.frame_names.insert(fid.to_owned(), name.to_owned());
-            }
-            if !is_ext
-                && let Some(sid) = session_id
-            {
-                self.frame_sessions.insert(fid.to_owned(), sid.to_owned());
+            if is_ext {
+                self.extension_frames.insert(fid.clone());
+                self.frame_sessions.remove(&fid);
+                self.main_contexts.remove(&fid);
             }
         }
-        if is_ext {
-            self.extension_frames.insert(fid.to_owned());
-            self.frame_sessions.remove(fid);
-            self.main_contexts.remove(fid);
+        if target_overflowed {
+            self.overflow_targets.insert(target_key);
         }
-        if let Some(children) = node.get("childFrames").and_then(Value::as_array) {
-            for child in children {
-                self.walk_tree(child, Some(fid), session_id, is_ext);
-            }
-        }
+        self.frame_cap_exceeded = !self.overflow_targets.is_empty();
+        main_reloaded
     }
 
     /// Returns unique active non-extension OOPIF CDP `sessionId`s tracked on this tab.
@@ -432,5 +491,28 @@ impl TabFrameState {
             out.push(obj);
         }
         out
+    }
+}
+
+fn collect_frame_tree(
+    node: &Value,
+    parent: Option<&str>,
+    parent_ext: bool,
+    out: &mut Vec<(String, String, Option<String>, String, Option<String>, bool)>,
+) {
+    let Some(frame) = node.get("frame") else { return };
+    let Some(fid) = frame.get("id").and_then(Value::as_str) else { return };
+    let url = frame.get("url").and_then(Value::as_str).unwrap_or("");
+    let name = frame.get("name").and_then(Value::as_str).unwrap_or("");
+    let loader = frame.get("loaderId").and_then(Value::as_str).map(str::to_owned);
+    let pid = parent
+        .or_else(|| frame.get("parentId").and_then(Value::as_str))
+        .map(str::to_owned);
+    let is_ext = parent_ext || extension_origin(url);
+    out.push((fid.to_owned(), url.to_owned(), pid, name.to_owned(), loader, is_ext));
+    if let Some(children) = node.get("childFrames").and_then(Value::as_array) {
+        for child in children {
+            collect_frame_tree(child, Some(fid), is_ext, out);
+        }
     }
 }

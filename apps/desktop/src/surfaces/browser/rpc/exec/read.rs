@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 
 use super::super::frames::EvalTargetError;
 use super::super::session::SessionAttachment;
-use super::target_url::canonical_target_url;
+use super::target_url::parse_agent_url;
 use super::{ExecPhase, StepOutcome, cdp_err_msg, check_page_guards, send_rpc_cdp};
 use crate::App;
 
@@ -90,7 +90,9 @@ pub(super) fn compute_target(
         if let Some(u) = cmd.action.get("url").and_then(Value::as_str) {
             let trimmed = u.trim();
             if !trimmed.is_empty() {
-                resources.push(canonical_target_url(trimmed));
+                let parsed = parse_agent_url(trimmed)
+                    .map_err(|msg| Outcome::fail(failure_code::NAVIGATION_FAILED, msg))?;
+                resources.push(parsed);
             }
         } else if let Some(p) = cmd.action.get("path").and_then(Value::as_str) {
             resources.push(p.to_owned());
@@ -137,12 +139,11 @@ pub(super) fn compute_target(
             .unwrap_or_else(|| tab.url.clone());
         TargetMeta { resources: vec![res_url], key: format!("network:{req_id}") }
     } else if ty == "navigate" {
-        let norm = cmd
-            .action
-            .get("url")
-            .and_then(Value::as_str)
-            .map(canonical_target_url)
-            .unwrap_or_else(|| tab.url.clone());
+        let norm = match cmd.action.get("url").and_then(Value::as_str) {
+            Some(raw) => parse_agent_url(raw)
+                .map_err(|msg| Outcome::fail(failure_code::NAVIGATION_FAILED, msg))?,
+            None => tab.url.clone(),
+        };
         TargetMeta { resources: vec![norm.clone()], key: format!("navigate:{norm}") }
     } else if ty == "navigate.path" {
         let path = cmd
@@ -245,10 +246,14 @@ pub(super) fn step_inspect(
     for (req_id, sid) in st.pending.drain(..) {
         match app.workspace_panes.browser.host.take_cdp_response(req_id) {
             Some(Ok(val)) => {
-                att.frames
+                if att
+                    .frames
                     .entry(st.host_id)
                     .or_default()
-                    .ingest_frame_tree(&val, sid.as_deref());
+                    .ingest_frame_tree(&val, sid.as_deref())
+                {
+                    att.bump_generation(st.host_id);
+                }
             }
             Some(Err(err)) => {
                 let msg = cdp_err_msg(&err);

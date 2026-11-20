@@ -1039,23 +1039,6 @@ pub struct PendingClear {
     pub cookies: Vec<(String, String, String)>,
 }
 
-fn extract_json_i32_field(raw: &[u8], key: &str) -> Option<i32> {
-    let head = std::str::from_utf8(&raw[..raw.len().min(512)]).ok()?;
-    let pat = format!("\"{key}\":");
-    let rest = head.split_once(&pat)?.1.trim_start();
-    let digits: String = rest
-        .chars()
-        .take_while(|c| c.is_ascii_digit() || *c == '-')
-        .collect();
-    digits.parse().ok()
-}
-
-fn has_session_id_key(raw: &[u8]) -> bool {
-    let head = &raw[..raw.len().min(512)];
-    let tail = &raw[raw.len().saturating_sub(512)..];
-    head.windows(11).any(|w| w == b"\"sessionId\"") || tail.windows(11).any(|w| w == b"\"sessionId\"")
-}
-
 wrap_dev_tools_message_observer! {
     pub struct TabCdpObserver {
         tab_id: u64,
@@ -1179,12 +1162,19 @@ wrap_dev_tools_message_observer! {
             message: Option<&[u8]>,
         ) -> ::std::os::raw::c_int {
             let Some(raw) = message else { return 0 };
-            // Pre-parse size gate: reject oversized OOPIF responses and oversized events BEFORE
-            // `serde_json::from_slice`, while letting oversized top-level responses fall through to
-            // `on_dev_tools_method_result` where CEF supplies `message_id` directly.
+            // Pre-parse size gate for REPLIES only using strict depth-1 top-level JSON scanning:
+            // - Top-level replies (`id`, no `method`, no `sessionId`) return `0` immediately so
+            //   CEF delivers them ONCE to `on_dev_tools_method_result` (zero double parse, zero
+            //   AST allocation over `max_bytes`).
+            // - Flattened OOPIF replies (`id` + `sessionId`) over `max_bytes` reject BEFORE parse.
+            // - Events (`method` at depth 1) are NEVER dropped before `prompts` / `cdp_ledger`
+            //   bookkeeping regardless of size or nested `"id"` fields in `params`.
             if raw.len() > crate::cdp_ledger::MAX_CDP_EVAL_RESPONSE_BYTES {
-                if let Some(msg_id) = extract_json_i32_field(raw, "id") {
-                    if !has_session_id_key(raw) {
+                let top = crate::cdp_ledger::scan_top_level_cdp(raw);
+                if !top.has_method
+                    && let Some(msg_id) = top.id
+                {
+                    if !top.has_session_id {
                         return 0;
                     }
                     let over = {
@@ -1207,12 +1197,10 @@ wrap_dev_tools_message_observer! {
                         });
                         return 1;
                     }
-                } else if raw.len() > crate::cdp_ledger::MAX_CDP_RESPONSE_BYTES {
-                    return 1;
+                    if raw.len() > crate::cdp_ledger::MAX_CDP_RESPONSE_BYTES {
+                        return 1;
+                    }
                 }
-            }
-            if raw.len() > crate::cdp_ledger::MAX_CDP_RESPONSE_BYTES {
-                return 0;
             }
             let Ok(val) = serde_json::from_slice::<Value>(raw) else { return 0 };
             // Flattened OOPIF responses carry both `"id"` and `"sessionId"`; CEF's
@@ -1330,6 +1318,7 @@ wrap_dev_tools_message_observer! {
             if (self.extensions_active && method.starts_with("Page."))
                 || matches!(method.as_str(), "Page.frameRequestedNavigation" | "Page.windowOpen")
                 || detach_sid.is_some()
+                || raw.len() > crate::cdp_ledger::MAX_CDP_RESPONSE_BYTES
                 || crate::engine::browser_has_extension_surface(
                     browser.as_deref(),
                     self.is_popup,

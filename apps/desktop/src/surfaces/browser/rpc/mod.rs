@@ -196,7 +196,7 @@ pub fn on_sse_connected(app: &mut App, server_key: &ServerKey) {
     let mut pending_effects = Vec::new();
     {
         let st = app.kernel.slots.get_mut(&BROWSER_RPC);
-        let was_connected = st.sse_connected.insert(server_key.clone(), true) == Some(true);
+        let was_connected = st.sse_connected.insert(server_key.clone(), true).is_some();
         let invalidate = was_connected
             || st.server_verdicts.get(server_key).is_some_and(|(prev_srv, _, v)| {
                 matches!(v, ServerRpcVerdict::TransientError)
