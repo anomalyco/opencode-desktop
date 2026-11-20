@@ -383,10 +383,13 @@ return plugin.defineWindow(function(ctx)
         local copyView = copy.view(copyState, url)
         if d.status == "ready" then
             -- The QR code carries the remote address as `opencode pair --remote` prints it,
-            -- {"code","urls"} JSON, which the app's scanner reads.
+            -- {"code","urls"} JSON, which the app's scanner reads. Scanners expect dark modules on
+            -- a light quiet zone, so the code keeps black on white in every theme (`page.tsx`).
             local qr = Qr:Encode(`\{"code":"{d.code}","urls":["{d.tunnel}"]\}`)
             table.insert(body, frame({ fill = "bg-base", role = "img", label = I18n:T("qr") }, {
-                ui.icon(qr.icon, { size = 320, color = "text-chrome" }),
+                ui.box({ w = 320, h = 320, fill = ui.hex("#ffffff") }, {
+                    ui.icon(qr.icon, { size = 320, color = ui.hex("#000000") }),
+                }),
             }))
             table.insert(body, ui.row({ w = "full", gap = 8, align = "center", wrap = true }, {
                 -- Desktop marks this countdown role="timer" (page.tsx), but Rune's Luau bridge rejects that

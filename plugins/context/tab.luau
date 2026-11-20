@@ -224,6 +224,28 @@ local function stats(env: Env, session: Session?, sid: string, raws: { Raw }?, w
     local function stat(name: string, value: string): ui.Node
         return ui.col(STAT, { ui.text(I18n:T(name), STAT_NAME), ui.text(value, STAT_VALUE) })
     end
+    -- `tab.tsx`: omit Total Cost when no session is selected, or when spend is zero on OpenCode Go.
+    local costProvider: string? = if session and session.modelId and session.modelId ~= ""
+        then session.providerId
+        else session and session.usageProviderId
+    local costValue: string? = nil
+    if sid ~= "" then
+        local spent = if session then session.cost else 0
+        if spent == 0 and costProvider == nil and raws then
+            for i = #raws, 1, -1 do
+                if raws[i].kind == "assistant" then
+                    local modelJson = json.member(raws[i].text, "model")
+                    if modelJson then
+                        costProvider = json.string(json.member(modelJson, "providerID"))
+                    end
+                    break
+                end
+            end
+        end
+        if not (spent == 0 and costProvider == "opencode-go") then
+            costValue = I18n:Number(spent, CURRENCY)
+        end
+    end
     local cells: { ui.Node } = {
         stat("stats.session", title),
         stat("stats.messages", count(nil)),
@@ -241,14 +263,16 @@ local function stats(env: Env, session: Session?, sid: string, raws: { Raw }?, w
         }),
         stat("stats.userMessages", count("user")),
         stat("stats.assistantMessages", count("assistant")),
-        stat("stats.totalCost", I18n:Number(if session then session.cost else 0, CURRENCY)),
-        stat("stats.sessionCreated", time(session and session.created)),
-        stat("stats.lastActivity", time(session and session.usageCreated)),
     }
-    local lines: { ui.Node } = table.create(if wide then 8 else 16)
+    if costValue then
+        table.insert(cells, stat("stats.totalCost", costValue))
+    end
+    table.insert(cells, stat("stats.sessionCreated", time(session and session.created)))
+    table.insert(cells, stat("stats.lastActivity", time(session and session.usageCreated)))
+    local lines: { ui.Node } = table.create(if wide then math.ceil(#cells / 2) else #cells)
     if wide then
         for i = 1, #cells, 2 do
-            table.insert(lines, ui.row(STAT_LINE, { cells[i], cells[i + 1] }))
+            table.insert(lines, ui.row(STAT_LINE, { cells[i], cells[i + 1] or ui.col(STAT, {}) }))
         end
     else
         for _, cell in cells do

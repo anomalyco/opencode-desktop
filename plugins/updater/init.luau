@@ -100,7 +100,9 @@ return plugin.defineWindow(function(ctx)
         local checking = Toast:Show({ title = I18n:T("action.checking"), variant = "loading", persistent = true })
         local state = Updater:CheckAsync()
         checking:Dismiss()
-        if state.phase == "installed" then
+        if state.phase == "disabled" then
+            Toast:Show({ title = I18n:T("action.unavailable"), description = I18n:T("check.unavailable") })
+        elseif state.phase == "installed" then
             installed(state.version or "", true)
         elseif state.phase == "up-to-date" then
             Toast:Show({
@@ -161,10 +163,11 @@ return plugin.defineWindow(function(ctx)
             local state = Updater:State()
             local current = action(state, windowState)
             local enabled = releaseNotes:Get().enabled ~= false
-            return v:Memo("updates", `{current.label}:{current.run}:{enabled}:{changed:Version()}:{I18n:Locale().id}`, function()
+            return v:Memo("updates", `{current.label}:{current.description or ""}:{current.run or ""}:{enabled}:{changed:Version()}:{I18n:Locale().id}`, function()
                 return view.section(I18n, v, {
                     releaseNotes = enabled,
                     label = current.label,
+                    description = current.description,
                     -- Disabled while the action runs, or with no updater in this build.
                     enabled = current.run ~= nil and state ~= nil,
                     toggle = function(on)

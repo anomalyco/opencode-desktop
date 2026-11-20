@@ -409,20 +409,29 @@ fn answer_waiting(service: &Rc<RefCell<UpdaterService>>) {
 
 const NO_UPDATER: &str = "No updater runs in this build";
 
-/// Where the updater stands, as [`StateView`]; `None` when no updater runs, or while the service
-/// is still finding out.
+/// Where the updater stands, as [`StateView`]; `None` while the service is still finding out
+/// (`View::Starting`) or when this copy never attached one (for example a secondary profile copy).
+/// Headless runs report `disabled` without starting the worker thread.
 pub fn state_view(s: &dyn UpdaterHost) -> Option<StateView> {
-    let service = s.updater().service_ref()?;
+    let Some(service) = s.updater().service_ref() else {
+        return rune::is_headless().then_some(StateView {
+            phase: "disabled",
+            version: None,
+            progress: None,
+            error: None,
+        });
+    };
     let service = service.borrow();
     match service.snapshot().state {
-        View::Starting | View::Disabled => None,
+        View::Starting => None,
         ref view => Some(view_state(view, service.snapshot())),
     }
 }
 
 fn view_state(view: &View, snapshot: &Snapshot) -> StateView {
     let (phase, version, error) = match view {
-        View::Starting | View::Disabled => ("error", None, Some(NO_UPDATER)),
+        View::Starting => ("error", None, Some(NO_UPDATER)),
+        View::Disabled => ("disabled", None, None),
         View::Idle => ("idle", None, None),
         View::Checking => ("checking", None, None),
         View::Downloading(v) => ("downloading", Some(v), None),
@@ -445,12 +454,12 @@ fn view_state(view: &View, snapshot: &Snapshot) -> StateView {
 /// Checks for updates now and passes the resulting [`StateView`] to `done`.
 pub fn check_with(s: &dyn UpdaterHost, done: impl FnOnce(Option<StateView>) + 'static) {
     let Some(service) = s.updater().service_ref() else {
-        done(Some(StateView {
-            phase: "error",
-            version: None,
-            progress: None,
-            error: Some(NO_UPDATER.into()),
-        }));
+        let view = if rune::is_headless() {
+            StateView { phase: "disabled", version: None, progress: None, error: None }
+        } else {
+            StateView { phase: "error", version: None, progress: None, error: Some(NO_UPDATER.into()) }
+        };
+        done(Some(view));
         return;
     };
     let ticket = service.borrow_mut().check();
