@@ -17,6 +17,7 @@ local mcp = require("@self/mcp")
 local options = require("@self/options")
 local panel = require("@self/panel")
 local refusal = require("@self/refusal")
+local savedTabs = require("@self/saved_tabs")
 local settings = require("@self/settings")
 local site = require("@self/site")
 
@@ -39,6 +40,7 @@ return plugin.defineWindow(function(ctx)
     local Server = ctx:GetService("Server")
     local Servers = ctx:GetService("Servers")
     local Popover = ctx:GetService("Popover")
+    local Dialog = ctx:GetService("Dialog")
     local Workspace = ctx:GetService("Workspace")
 
     -- The window's address field and find field.
@@ -47,6 +49,7 @@ return plugin.defineWindow(function(ctx)
     local stored = Store:Value("history", { visits = {} })
     local prefsStore = Store:Value("preferences", { links = true, agentPages = true, advanced = false, welcomed = false })
     local sitePermsStore = Store:Value("rune.sitePermissions", {})
+    local savedTabsStore = Store:Value("savedTabs", { sessions = {} })
     local recorder = Contracts:Use("browser.history")
     local extContract = Contracts:Use("browser.extensions")
     local profileContract = Contracts:Use("browser.profile")
@@ -55,6 +58,10 @@ return plugin.defineWindow(function(ctx)
     local epochs: { [string]: address.Epoch } = {}
     -- Each page's last recorded visit, so repeated reports don't rewrite history.
     local recorded: { [string]: string } = {}
+    local recordedUrl: { [string]: string } = {}
+    local typedNavs: { [string]: string } = {}
+    local syncingEditor = false
+    local adoptedHistory = false
     -- Per-tab Find state, refusal notice state, transient failure notices, activity dot, reveal guard.
     local findStates: { [string]: find.State } = {}
     local activeFindTab: string? = nil
@@ -133,22 +140,70 @@ return plugin.defineWindow(function(ctx)
         refresh()
     end
 
+    local function ensureAdopted()
+        if adoptedHistory then
+            return
+        end
+        local bAny = Browser :: any
+        if type(bAny.HistoryAdopt) == "function" then
+            adoptedHistory = true
+            bAny:HistoryAdopt(visits())
+        end
+    end
+
+    local function setEditorText(text: string)
+        syncingEditor = true
+        editor:SetText(text)
+        syncingEditor = false
+    end
+
+    local dispatch: (event: address.Event) -> ()
+
     local function run(effects: { address.Effect })
+        local bAny = Browser :: any
         for _, effect in effects do
             if effect.type == "select" then
                 editor:SelectAll()
             elseif effect.type == "blur" then
                 editor:Blur()
+            elseif effect.type == "prepare" then
+                ensureAdopted()
+                if type(bAny.HistoryPrepare) == "function" then
+                    bAny:HistoryPrepare()
+                end
+            elseif effect.type == "set-text" then
+                setEditorText(effect.text)
+            elseif effect.type == "ask" then
+                ensureAdopted()
+                local pages: { history.HistoryPage } = {}
+                if type(bAny.HistorySearch) == "function" then
+                    local raw = bAny:HistorySearch(effect.query, address.HISTORY_ANSWER)
+                    if type(raw) == "table" then
+                        pages = raw :: { history.HistoryPage }
+                    end
+                end
+                dispatch({ type = "answered", attempt = effect.attempt, pages = pages, visits = visits() })
+            elseif effect.type == "forget" then
+                if type(bAny.HistoryForget) == "function" then
+                    bAny:HistoryForget(effect.url)
+                end
+                local keeper = recorder:Get()
+                if keeper and type(keeper.forget) == "function" then
+                    keeper.forget(effect.url)
+                end
             elseif effect.type == "navigate" then
                 local tab = Browser:Get(effect.tab)
                 if tab then
+                    if effect.typed then
+                        typedNavs[effect.tab] = effect.url
+                    end
                     tab:Navigate(effect.url)
                 end
             end
         end
     end
 
-    local function dispatch(event: address.Event)
+    dispatch = function(event: address.Event)
         local nextState, effects = address.step(state, event)
         state = nextState
         run(effects)
@@ -161,7 +216,7 @@ return plugin.defineWindow(function(ctx)
         state = nextState
         local e = state.edit
         if e.status == "editing" then
-            editor:SetText(e.text)
+            setEditorText(e.text)
         end
         editor:Focus()
         run(effects)
@@ -173,12 +228,21 @@ return plugin.defineWindow(function(ctx)
         return if e.status == "editing" then Browser:Get(e.tab) else nil
     end
 
+    local editorFocused = false
     editor.FocusChanged:Connect(function(focused: boolean)
+        editorFocused = focused
         if not focused then
-            dispatch({ type = "blurred" })
+            task.delay(0.12, function()
+                if not editorFocused then
+                    dispatch({ type = "blurred" })
+                end
+            end)
         end
     end)
     editor.Changed:Connect(function(value: string)
+        if syncingEditor then
+            return
+        end
         local e = state.edit
         if e.status ~= "editing" or e.text == value then
             return
@@ -192,7 +256,10 @@ return plugin.defineWindow(function(ctx)
         end
     end)
     editor.KeyPressed:Connect(function(key: string)
-        dispatch({ type = "key", key = key, visits = visits() })
+        local tab = editing()
+        if tab then
+            dispatch({ type = "key", key = key, epoch = epoch(tab), visits = visits() })
+        end
     end)
 
     -- Find in page state management (`find.luau`, ready for WS-1 Phase 1c engine `FindHandler`).
@@ -340,6 +407,8 @@ return plugin.defineWindow(function(ctx)
         if tab == nil then
             epochs[id] = nil
             recorded[id] = nil
+            recordedUrl[id] = nil
+            typedNavs[id] = nil
             findStates[id] = nil
             refusalNotices[id] = nil
             dismissedRefusals[id] = nil
@@ -369,12 +438,62 @@ return plugin.defineWindow(function(ctx)
         if prev ~= nil and url ~= "" and url ~= prevUrl and (selected == nil or selected.Id ~= id) then
             unseenTabs[id] = true
         end
-        if not tab:Loading() and history.recordable(url) and not isServerFile(url) then
-            local visit = `{url}\n{tab:Title()}`
+        local tAny = tab :: any
+        local isPrivate = type(tAny.IsPrivate) == "function" and tAny:IsPrivate() == true
+        -- Private/isolated preview tabs and internal server files NEVER write to history.
+        if not isPrivate and not tab:Loading() and history.recordable(url) and not isServerFile(url) then
+            local title = tab:Title()
+            local visit = `{url}\n{title}`
             local keeper = recorder:Get()
-            if recorded[id] ~= visit and keeper then
+            local bAny = Browser :: any
+            if recorded[id] ~= visit then
+                local sameUrl = recordedUrl[id] == url
                 recorded[id] = visit
-                keeper.remember(url, tab:Title())
+                recordedUrl[id] = url
+                if keeper then
+                    keeper.remember(url, title)
+                end
+                ensureAdopted()
+                if sameUrl then
+                    if type(bAny.HistoryRetitle) == "function" then
+                        bAny:HistoryRetitle(url, title)
+                    end
+                else
+                    local wasTyped = typedNavs[id] ~= nil
+                    typedNavs[id] = nil
+                    if type(bAny.HistoryVisit) == "function" then
+                        bAny:HistoryVisit(url, title, wasTyped, id)
+                    end
+                end
+            end
+        end
+        -- Sync saved tabs for immediate restore & loading hold (`UP-100` `#65067`).
+        local routed = Sessions:Routed()
+        if routed ~= nil then
+            local curSaved = savedTabs.normalize(savedTabsStore:Get())
+            local reported: { savedTabs.Reported } = {}
+            for _, info in Browser:List(routed.id, {}) do
+                if info.open then
+                    local live = Browser:Get(info.id)
+                    table.insert(reported, {
+                        id = info.id,
+                        url = info.url,
+                        title = if live then live:Title() else info.title,
+                        loading = if live then live:Loading() else false,
+                    })
+                end
+            end
+            local nextSaved = savedTabs.save(curSaved, routed.id, reported)
+            if nextSaved ~= nil then
+                curSaved = nextSaved
+                savedTabsStore:Set(curSaved :: any)
+            end
+            local fav = if type(tAny.Favicon) == "function" then tAny:Favicon() else nil
+            if type(fav) == "string" and fav ~= "" then
+                local withIcon = savedTabs.saveIcon(curSaved, routed.id, id, fav)
+                if withIcon ~= nil then
+                    savedTabsStore:Set(withIcon :: any)
+                end
             end
         end
         refresh()
@@ -523,6 +642,9 @@ return plugin.defineWindow(function(ctx)
             edit(tab)
         elseif what == "go" then
             dispatch({ type = "navigated", tab = tab.Id, url = arg :: string, epoch = epoch(tab) })
+        elseif what == "forget" then
+            dispatch({ type = "forget", url = arg :: string?, visits = visits() })
+            editor:Focus()
         elseif what == "zoom" then
             Popover:Close()
             tab:SetZoom(arg :: any)
@@ -577,6 +699,10 @@ return plugin.defineWindow(function(ctx)
             end
         elseif what == "history.clear" then
             Popover:Close()
+            local bAny = Browser :: any
+            if type(bAny.HistoryClear) == "function" then
+                bAny:HistoryClear()
+            end
             local keeper = recorder:Get()
             if keeper then
                 keeper.clear()
@@ -733,26 +859,30 @@ return plugin.defineWindow(function(ctx)
         act = act,
     }
 
-    -- A tab's label: "New tab" for a blank page, else the page's title, else its canonical host/URL.
-    local function label(info: BrowserTabInfo): string
+    -- A tab's label: "New tab" for a blank page, else live/saved title (loading hold), else host/URL.
+    local function label(sid: string, info: BrowserTabInfo): string
         if info.url == "" then
             return I18n:T("tab.new")
         end
-        if info.title ~= "" and info.title ~= "New tab" then
-            return info.title
+        local saved = savedTabs.find(savedTabs.normalize(savedTabsStore:Get()), sid, info.id)
+        local live = Browser:Get(info.id)
+        local held = savedTabs.tabTitle(info.url, info.title, if live then live:Loading() else true, saved)
+        if held ~= nil then
+            return held
         end
         local host = hostDisplay.displayHost(info.url)
         return if host ~= "" then host else info.url
     end
 
-    local function tabText(tab: BrowserTab): string
+    local function tabText(sid: string, tab: BrowserTab): string
         local url = pageUrl(tab)
         if url == "" then
             return I18n:T("tab.new")
         end
-        local title = tab:Title()
-        if title ~= "" and title ~= "New tab" then
-            return title
+        local saved = savedTabs.find(savedTabs.normalize(savedTabsStore:Get()), sid, tab.Id)
+        local held = savedTabs.tabTitle(url, tab:Title(), tab:Loading(), saved)
+        if held ~= nil then
+            return held
         end
         local host = hostDisplay.displayHost(url)
         return if host ~= "" then host else url
@@ -768,7 +898,7 @@ return plugin.defineWindow(function(ctx)
             local out: { PanelTab } = {}
             for _, info in Browser:List(sid, open) do
                 if info.open then
-                    table.insert(out, { instance = info.id, title = label(info), icon = "globe", fallback = true })
+                    table.insert(out, { instance = info.id, title = label(sid, info), icon = "globe", fallback = true })
                 end
             end
             return out
@@ -779,11 +909,14 @@ return plugin.defineWindow(function(ctx)
             if tab == nil then
                 return nil
             end
-            local title = tabText(tab)
+            local sid = props.sessionId or ""
+            local title = tabText(sid, tab)
             local tAny = tab :: any
-            local fav = if type(tAny.Favicon) == "function" then tAny:Favicon() else nil
+            local liveFav = if type(tAny.Favicon) == "function" then tAny:Favicon() else nil
+            local saved = savedTabs.find(savedTabs.normalize(savedTabsStore:Get()), sid, id)
+            local fav = savedTabs.tabIcon(pageUrl(tab), liveFav, saved)
             local iconNode: ui.Node
-            if type(fav) == "string" and string.sub(fav, 1, 11) == "data:image/" then
+            if fav ~= nil then
                 iconNode = ui.image({ src = fav, w = 16, h = 16, radius = 2 }, {
                     ui.icon("globe", { size = 16, color = "icon-weak" }),
                 })
@@ -1096,9 +1229,10 @@ return plugin.defineWindow(function(ctx)
     local function settingsCapabilities(): settings.Capabilities
         local prof = profileContract:Get()
         local ext = extContract:Get()
+        local avail = Browser:Available()
         return {
-            available = Browser:Available(),
-            import = type(prof) == "table" and type(prof.renderImport) == "function",
+            available = avail,
+            import = avail,
             extensions = type(ext) == "table" and type(ext.renderSettings) == "function",
             remoteSignIns = type(prof) == "table" and type(prof.remoteSignIns) == "function" and type(prof.setRemoteSignIns) == "function",
             cookieFile = type(prof) == "table" and type(prof.pickCookieFile) == "function",
@@ -1106,11 +1240,92 @@ return plugin.defineWindow(function(ctx)
     end
 
     local settingsHandle: Contribution? = nil
+    local importDialogHandle: Contribution? = nil
+    local clearNoticeText: string? = nil
+    local importSources: { settings.ImportBrowser } = {}
+    local importStatus: string? = nil
+
     local function refreshSettings()
         if settingsHandle then
             settingsHandle:Refresh()
         end
     end
+
+    local function runClearBrowsingData()
+        local bAny = Browser :: any
+        local histOk = true
+        if type(bAny.HistoryClear) == "function" then
+            histOk = bAny:HistoryClear() == true
+        end
+        local keeper = recorder:Get()
+        if keeper then
+            keeper.clear()
+        end
+        local prof = profileContract:Get()
+        local profOk = true
+        if type(prof) == "table" and type(prof.clearData) == "function" then
+            profOk = pcall(prof.clearData)
+        end
+        if not profOk then
+            clearNoticeText = I18n:T("settings.failed.clear")
+            Toast:Error(clearNoticeText :: string)
+        elseif not histOk then
+            clearNoticeText = I18n:T("settings.cleared.history")
+            Toast:Info(clearNoticeText :: string)
+        else
+            clearNoticeText = I18n:T("settings.cleared")
+            Toast:Info(clearNoticeText :: string)
+        end
+        refreshSettings()
+        refresh()
+    end
+
+    ctx:AddDialog({
+        id = "clear-data",
+        title = I18n:T("settings.clear.confirm.title"),
+        render = function(view)
+            return settings.renderClearConfirm(I18n, view, function()
+                Dialog:Close()
+            end, function()
+                Dialog:Close()
+                runClearBrowsingData()
+            end)
+        end,
+    })
+
+    importDialogHandle = ctx:AddDialog({
+        id = "import-history",
+        title = I18n:T("settings.import.title"),
+        render = function(view)
+            return settings.renderImportDialog(I18n, view, importSources, importStatus, function(browserId: string, profileId: string)
+                local bAny = Browser :: any
+                if type(bAny.HistoryImportProfile) ~= "function" then
+                    importStatus = I18n:T("settings.import.history.failed")
+                else
+                    local res = bAny:HistoryImportProfile(browserId, profileId)
+                    if type(res) == "table" and type(res.imported) == "number" then
+                        if res.imported > 0 then
+                            importStatus = I18n:T("settings.import.history.done", { count = res.imported })
+                        else
+                            importStatus = I18n:T("settings.import.history.empty")
+                        end
+                    else
+                        importStatus = I18n:T("settings.import.history.failed")
+                    end
+                end
+                if importDialogHandle then
+                    importDialogHandle:Refresh()
+                end
+                refreshSettings()
+            end, function()
+                Dialog:Close()
+            end)
+        end,
+        onDismiss = function()
+            importSources = {}
+            importStatus = nil
+        end,
+    })
 
     local settingsPage = settings.create({
         I18n = I18n,
@@ -1129,17 +1344,29 @@ return plugin.defineWindow(function(ctx)
             removeSitePermission(origin, permission)
             refreshSettings()
         end,
-        clearBrowsingData = function(): boolean
-            local keeper = recorder:Get()
-            if keeper then
-                keeper.clear()
+        historyCount = function(): number
+            ensureAdopted()
+            local bAny = Browser :: any
+            if type(bAny.HistoryCount) == "function" then
+                local n = bAny:HistoryCount()
+                if type(n) == "number" then
+                    return n
+                end
             end
-            local prof = profileContract:Get()
-            if type(prof) == "table" and type(prof.clearData) == "function" then
-                local ok = pcall(prof.clearData)
-                return ok
-            end
-            return true
+            return #visits()
+        end,
+        clearNotice = function(): string?
+            return clearNoticeText
+        end,
+        requestClearBrowsingData = function()
+            Dialog:Open("clear-data")
+        end,
+        openImportHistory = function()
+            -- Discover installed browsers ONLY on explicit user click, never on startup.
+            local bAny = Browser :: any
+            importStatus = nil
+            importSources = if type(bAny.HistoryImportSources) == "function" then (bAny:HistoryImportSources() :: any) or {} else {}
+            Dialog:Open("import-history")
         end,
         renderImport = function(view)
             local prof = profileContract:Get()

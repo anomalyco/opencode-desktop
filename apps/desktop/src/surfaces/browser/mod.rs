@@ -108,6 +108,8 @@ mod native {
         /// Conversation app-scheme links waiting to display inside the browser pane's guarded
         /// `RefusalBar` (`(tab_id, href)`).
         pub pending_app_links: std::cell::RefCell<std::collections::VecDeque<(u64, String)>>,
+        /// Persistent SQLite browsing history store (`history.sqlite`, lazily opened).
+        pub history: std::cell::RefCell<Option<browser_pane::history::HistoryStore>>,
     }
 
     /// App-level shortcuts that a focused web page must yield to OpenCode (Rune) rather than swallow,
