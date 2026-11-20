@@ -20,6 +20,7 @@ use serde_json::Value;
 use crate::model::{self, Delivery, Pending, SessionInfo};
 use crate::wire_error::{WireError, WireKind};
 
+pub mod browser_rpc;
 mod downloads;
 mod http;
 mod hub;
