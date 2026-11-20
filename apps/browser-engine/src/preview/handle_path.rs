@@ -1,17 +1,25 @@
-//! TOCTOU-proof open-handle kernel path verification and workspace root pinning
-//! (`packages/gui-plugins/src/browser/disk/{handle-path,contained-file,preview-scope}.ts`, #63002).
+//! TOCTOU-proof pre-open component walk + open-handle kernel path verification and workspace root
+//! pinning (`packages/gui-plugins/src/browser/disk/{handle-path,contained-file,preview-scope}.ts`, #63002).
 //!
 //! Every local preview read:
-//! 1. Validates the workspace-relative path against `browser_policy::preview::preview_allowed`.
+//! 1. Validates the workspace-relative path against `browser_policy::preview::{preview_path_valid, preview_allowed}`.
 //! 2. Verifies the workspace root directory still matches its pinned `(canonical_path, volume/dev,
-//!    file_index/inode, birth_time)` before opening.
-//! 3. Opens the target file ONCE without following a leaf symlink/reparse point (`O_NOFOLLOW |
-//!    O_NONBLOCK` on Unix; `FILE_FLAG_OPEN_REPARSE_POINT` on Windows).
-//! 4. Resolves the kernel's final path for that exact open handle (`GetFinalPathNameByHandleW` on
-//!    Windows, `fcntl(F_GETPATH)` on macOS, `/proc/self/fd/<fd>` on Linux), checks it is a regular
-//!    disk file (`FILE_TYPE_DISK` / `S_ISREG`), compares physically (case-sensitively even on NTFS)
-//!    against the pinned root, and re-checks `preview_allowed` + root pin AFTER open.
-//! 5. Hands that exact verified `std::fs::File` to the stream handler — never re-opening by path.
+//!    file_index/inode[, creation/birth_time])` before opening.
+//! 3. Walks every intermediate directory component WITHOUT following symlinks/junctions/reparse points:
+//!    - Windows: opens each intermediate component with `FILE_READ_ATTRIBUTES` +
+//!      `FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT`, rejecting any reparse point
+//!      before touching any child (preventing outbound SMB/NTLMv2 handshakes via `\\attacker\share`).
+//!    - Unix (macOS/Linux): opens the pinned root directory fd and walks each intermediate segment
+//!      with `openat(..., O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)` (preventing `/dev` opens
+//!      or symlink traversal before touching the leaf).
+//! 4. Opens the leaf file ONCE without following a leaf symlink/reparse point (`O_NOFOLLOW |
+//!    O_NONBLOCK | O_CLOEXEC` via `openat` on Unix; `FILE_FLAG_OPEN_REPARSE_POINT` on Windows).
+//! 5. Resolves the kernel's final path for that exact open handle (`GetFinalPathNameByHandleW` on
+//!    Windows accepting local `\\?\<drive>:\...` only, `fcntl(F_GETPATH)` on macOS,
+//!    `/proc/self/fd/<fd>` on Linux), checks regular disk file (`FILE_TYPE_DISK` / `S_ISREG`),
+//!    compares physically (case-sensitively even on NTFS) against the pinned root, and re-checks
+//!    `preview_path_valid` + `preview_allowed` + root pin AFTER open.
+//! 6. Hands that exact verified `std::fs::File` to the stream handler — never re-opening by path.
 
 use std::fs::File;
 use std::path::Path;
@@ -22,7 +30,10 @@ use browser_policy::preview::{MAX_PREVIEW_FILE_BYTES, preview_allowed, preview_p
 pub struct RootPin {
     /// Physical canonical root path (normalized `/` separators, no trailing `/` except `/`).
     pub canonical_path: String,
-    /// OS-level stable directory identity (`volume/dev + file_index/inode + birth_time`).
+    /// OS-level stable directory identity:
+    /// - Windows: `canonical_path + dwVolumeSerialNumber + nFileIndexHigh/Low + ftCreationTime`
+    /// - macOS:   `canonical_path + st_dev + st_ino + st_birthtime/nsec`
+    /// - Linux:   `canonical_path + st_dev + st_ino` (never mutable `st_ctime`)
     pub identity: String,
 }
 
@@ -33,7 +44,7 @@ pub enum OpenOutcome {
 }
 
 /// Pins a workspace root directory by opening it and capturing its canonical final path + OS
-/// volume/inode/birth identity. Returns `None` if the directory does not exist, is not a safe
+/// volume/inode identity. Returns `None` if the directory does not exist, is not a safe
 /// workspace root, or cannot be verified by the OS.
 pub fn pin_root(workspace: &str, home: Option<&str>) -> Option<RootPin> {
     if !browser_policy::is_safe_workspace_root(workspace, home) {
@@ -46,8 +57,8 @@ pub fn pin_root(workspace: &str, home: Option<&str>) -> Option<RootPin> {
     Some(pin)
 }
 
-/// Opens `rel_path` under `workspace` (pinned by `pin`) and verifies confinement strictly via the
-/// open OS file handle.
+/// Opens `rel_path` under `workspace` (pinned by `pin`) after walking every intermediate
+/// directory without following links, then verifies confinement strictly via the open OS handle.
 pub fn open_verified_file(
     workspace: &str,
     pin: &RootPin,
@@ -68,8 +79,7 @@ pub fn open_verified_file(
     if before != *pin {
         return OpenOutcome::Denied;
     }
-    let target = Path::new(&pin.canonical_path).join(rel_path);
-    let (file, final_path, size) = match os::open_regular_and_resolve(&target) {
+    let (file, final_path, size) = match os::open_regular_and_resolve(pin, rel_path) {
         Ok(ok) => ok,
         Err(OpenErr::NotFound) => return OpenOutcome::Missing,
         Err(OpenErr::Denied) => return OpenOutcome::Denied,
@@ -115,17 +125,17 @@ mod os {
     use std::fs::{File, OpenOptions};
     use std::os::windows::fs::OpenOptionsExt;
     use std::os::windows::io::AsRawHandle;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     use windows::Win32::Foundation::HANDLE;
     use windows::Win32::Storage::FileSystem::{
         BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT,
         FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_NAME_NORMALIZED,
-        FILE_TYPE_DISK, GETFINALPATHNAMEBYHANDLE_FLAGS, GetFileInformationByHandle, GetFileType,
-        GetFinalPathNameByHandleW, VOLUME_NAME_DOS,
+        FILE_READ_ATTRIBUTES, FILE_TYPE_DISK, GETFINALPATHNAMEBYHANDLE_FLAGS,
+        GetFileInformationByHandle, GetFileType, GetFinalPathNameByHandleW, VOLUME_NAME_DOS,
     };
 
-    use super::{OpenErr, RootPin};
+    use super::{OpenErr, RootPin, relative_inside};
 
     fn final_path_of(handle: HANDLE) -> Option<String> {
         let mut buf = vec![0u16; 32_768];
@@ -155,7 +165,7 @@ mod os {
         // Resolve the workspace root once (allowing a workspace opened via a directory alias),
         // then capture the physical directory's handle identity and final path.
         let file = OpenOptions::new()
-            .read(true)
+            .access_mode(FILE_READ_ATTRIBUTES.0)
             .custom_flags(FILE_FLAG_BACKUP_SEMANTICS.0)
             .open(dir)
             .ok()?;
@@ -180,12 +190,47 @@ mod os {
         Some(RootPin { canonical_path, identity })
     }
 
-    pub fn open_regular_and_resolve(target: &Path) -> Result<(File, String, u64), OpenErr> {
-        // Refuse opening a leaf symlink/reparse point without following it.
+    pub fn open_regular_and_resolve(pin: &RootPin, rel_path: &str) -> Result<(File, String, u64), OpenErr> {
+        let segments: Vec<&str> = rel_path.split('/').collect();
+        if segments.is_empty() {
+            return Err(OpenErr::Denied);
+        }
+        // Pre-open walk: inspect every intermediate directory WITHOUT following reparse points
+        // so a junction/symlink pointing to `\\attacker\share` is rejected before Windows ever
+        // touches a child path or initiates an outbound SMB handshake.
+        let mut cur = PathBuf::from(&pin.canonical_path);
+        for &seg in &segments[..segments.len() - 1] {
+            cur.push(seg);
+            let dir_handle = OpenOptions::new()
+                .access_mode(FILE_READ_ATTRIBUTES.0)
+                .custom_flags(FILE_FLAG_BACKUP_SEMANTICS.0 | FILE_FLAG_OPEN_REPARSE_POINT.0)
+                .open(&cur)
+                .map_err(|e| match e.kind() {
+                    std::io::ErrorKind::NotFound => OpenErr::NotFound,
+                    _ => OpenErr::Denied,
+                })?;
+            let h = HANDLE(dir_handle.as_raw_handle());
+            if unsafe { GetFileType(h) } != FILE_TYPE_DISK {
+                return Err(OpenErr::Denied);
+            }
+            let info = info_of(h).ok_or(OpenErr::Denied)?;
+            if (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT.0) != 0
+                || (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY.0) == 0
+            {
+                return Err(OpenErr::Denied);
+            }
+            let dir_final = final_path_of(h).ok_or(OpenErr::Denied)?;
+            if relative_inside(&pin.canonical_path, &dir_final).is_none() {
+                return Err(OpenErr::Denied);
+            }
+        }
+
+        // Open the leaf file once without following a leaf symlink/reparse point.
+        cur.push(segments[segments.len() - 1]);
         let file = OpenOptions::new()
             .read(true)
             .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0)
-            .open(target)
+            .open(&cur)
             .map_err(|e| match e.kind() {
                 std::io::ErrorKind::NotFound => OpenErr::NotFound,
                 _ => OpenErr::Denied,
@@ -206,9 +251,10 @@ mod os {
 
 #[cfg(unix)]
 mod os {
+    use std::ffi::CString;
     use std::fs::{File, OpenOptions};
     use std::os::unix::fs::OpenOptionsExt;
-    use std::os::unix::io::AsRawFd;
+    use std::os::unix::io::{AsRawFd, FromRawFd};
     use std::path::Path;
 
     use super::{OpenErr, RootPin};
@@ -244,6 +290,21 @@ mod os {
         Some(unsafe { st.assume_init() })
     }
 
+    fn identity_from_stat(canonical_path: &str, st: &libc::stat) -> String {
+        #[cfg(target_os = "macos")]
+        {
+            format!(
+                "{}:{}:{}:{}:{}",
+                canonical_path, st.st_dev, st.st_ino, st.st_birthtime, st.st_birthtime_nsec
+            )
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            // Never pin mutable `st_ctime` on Linux (changes on every file creation/rename in root).
+            format!("{}:{}:{}", canonical_path, st.st_dev, st.st_ino)
+        }
+    }
+
     pub fn pin_dir(dir: &Path) -> Option<RootPin> {
         let file = OpenOptions::new()
             .read(true)
@@ -256,29 +317,75 @@ mod os {
             return None;
         }
         let canonical_path = final_path_of(fd)?;
-        #[cfg(target_os = "macos")]
-        let birth = format!("{}:{}", st.st_birthtime, st.st_birthtime_nsec);
-        #[cfg(not(target_os = "macos"))]
-        let birth = format!("{}:{}", st.st_ctime, st.st_ctime_nsec);
-        let identity = format!("{}:{}:{}:{birth}", canonical_path, st.st_dev, st.st_ino);
+        let identity = identity_from_stat(&canonical_path, &st);
         Some(RootPin { canonical_path, identity })
     }
 
-    pub fn open_regular_and_resolve(target: &Path) -> Result<(File, String, u64), OpenErr> {
-        let file = OpenOptions::new()
+    struct OwnedFd(i32);
+    impl Drop for OwnedFd {
+        fn drop(&mut self) {
+            if self.0 >= 0 {
+                unsafe { libc::close(self.0) };
+            }
+        }
+    }
+
+    pub fn open_regular_and_resolve(pin: &RootPin, rel_path: &str) -> Result<(File, String, u64), OpenErr> {
+        let segments: Vec<&str> = rel_path.split('/').collect();
+        if segments.is_empty() {
+            return Err(OpenErr::Denied);
+        }
+        let root_file = OpenOptions::new()
             .read(true)
-            .custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW | libc::O_CLOEXEC)
-            .open(target)
-            .map_err(|e| match e.kind() {
-                std::io::ErrorKind::NotFound => OpenErr::NotFound,
-                _ => OpenErr::Denied,
-            })?;
-        let fd = file.as_raw_fd();
-        let st = fstat_of(fd).ok_or(OpenErr::Denied)?;
+            .custom_flags(libc::O_DIRECTORY | libc::O_CLOEXEC)
+            .open(Path::new(&pin.canonical_path))
+            .map_err(|_| OpenErr::Denied)?;
+        let root_st = fstat_of(root_file.as_raw_fd()).ok_or(OpenErr::Denied)?;
+        let root_final = final_path_of(root_file.as_raw_fd()).ok_or(OpenErr::Denied)?;
+        if identity_from_stat(&root_final, &root_st) != pin.identity {
+            return Err(OpenErr::Denied);
+        }
+
+        // Walk each intermediate directory component strictly via `openat(..., O_NOFOLLOW | O_DIRECTORY)`
+        // so intermediate symlinks (e.g. pointing to `/dev` or outside the workspace) are never followed.
+        let mut cur_raw = root_file.as_raw_fd();
+        let mut _held: Option<OwnedFd> = None;
+        for &seg in &segments[..segments.len() - 1] {
+            let c_seg = CString::new(seg).map_err(|_| OpenErr::Denied)?;
+            let next = unsafe {
+                libc::openat(
+                    cur_raw,
+                    c_seg.as_ptr(),
+                    libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+                )
+            };
+            if next < 0 {
+                let errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
+                return Err(if errno == libc::ENOENT { OpenErr::NotFound } else { OpenErr::Denied });
+            }
+            cur_raw = next;
+            _held = Some(OwnedFd(next));
+        }
+
+        let c_leaf = CString::new(segments[segments.len() - 1]).map_err(|_| OpenErr::Denied)?;
+        let leaf_fd = unsafe {
+            libc::openat(
+                cur_raw,
+                c_leaf.as_ptr(),
+                libc::O_RDONLY | libc::O_NONBLOCK | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            )
+        };
+        if leaf_fd < 0 {
+            let errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
+            return Err(if errno == libc::ENOENT { OpenErr::NotFound } else { OpenErr::Denied });
+        }
+        // SAFETY: `leaf_fd` is a newly opened, valid file descriptor owned exclusively by us.
+        let file = unsafe { File::from_raw_fd(leaf_fd) };
+        let st = fstat_of(file.as_raw_fd()).ok_or(OpenErr::Denied)?;
         if (st.st_mode & libc::S_IFMT) != libc::S_IFREG {
             return Err(OpenErr::Denied);
         }
-        let final_path = final_path_of(fd).ok_or(OpenErr::Denied)?;
+        let final_path = final_path_of(file.as_raw_fd()).ok_or(OpenErr::Denied)?;
         let size = u64::try_from(st.st_size).map_err(|_| OpenErr::Denied)?;
         Ok((file, final_path, size))
     }

@@ -375,6 +375,7 @@ wrap_display_handler! {
             self.favicon.fetch_candidates(
                 browser,
                 candidates,
+                self.preview.as_ref(),
                 self.snap.clone(),
                 self.out_tx.clone(),
             );
@@ -627,7 +628,10 @@ wrap_request_handler! {
                         self.prompts.set_pending_top_url(Some(url));
                         return 0;
                     }
-                    if user_gesture != 0 && browser_policy::destination_origin(&url).is_some() {
+                    if user_gesture != 0
+                        && url.len() <= crate::prompts::MAX_POPUP_URL_BYTES
+                        && browser_policy::destination_origin(&url).is_some()
+                    {
                         let _ = self.out_tx.send(EngineMsg::PopupBlocked { tab_id: self.tab_id, url });
                     } else {
                         let _ = self.out_tx.send(EngineMsg::Refused {
@@ -663,7 +667,10 @@ wrap_request_handler! {
         ) -> ::std::os::raw::c_int {
             let url = target_url.map(CefString::to_string).unwrap_or_default();
             if self.preview.is_some() {
-                if user_gesture != 0 && browser_policy::destination_origin(&url).is_some() {
+                if user_gesture != 0
+                    && url.len() <= crate::prompts::MAX_POPUP_URL_BYTES
+                    && browser_policy::destination_origin(&url).is_some()
+                {
                     let _ = self.out_tx.send(EngineMsg::PopupBlocked { tab_id: self.tab_id, url });
                 } else {
                     let _ = self.out_tx.send(EngineMsg::Refused {

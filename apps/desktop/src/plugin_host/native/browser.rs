@@ -24,6 +24,8 @@ mod chrome;
 mod composer;
 pub use composer::composer;
 #[cfg(not(target_arch = "wasm32"))]
+mod history;
+#[cfg(not(target_arch = "wasm32"))]
 mod scope;
 #[cfg(not(target_arch = "wasm32"))]
 mod viewport;
@@ -205,6 +207,7 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
         })
     })?;
     chrome::service_methods(lua, t)?;
+    history::service_methods(lua, t)?;
     let raw: Function = vmx.asyncs.raw_get("Browser.OpenAsync")?;
     let open: Function = lua.load("local raw = ... return function(self, spec) local id = raw(spec) return if id then self:Get(id) else nil end").set_name("=Browser:OpenAsync").call(raw)?;
     t.raw_set("OpenAsync", open)?;

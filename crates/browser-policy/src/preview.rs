@@ -49,9 +49,20 @@ pub fn is_artifact_scheme(input: &str) -> bool {
 }
 
 pub fn is_html_path(path: &str) -> bool {
-    let base = path.split(['?', '#']).next().unwrap_or(path);
+    let base = path.rsplit(['/', '\\']).next().unwrap_or(path);
     let lower = base.to_ascii_lowercase();
     lower.ends_with(".html") || lower.ends_with(".htm")
+}
+
+/// Returns whether a workspace root path uses Windows drive/UNC syntax (used to apply Windows
+/// filename rules for remote Windows workspaces regardless of client OS, without rejecting valid
+/// colons on remote Unix workspaces from a Windows client).
+pub fn root_is_windows(root: &str) -> bool {
+    let t = root.trim();
+    let b = t.as_bytes();
+    (b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':')
+        || t.starts_with(r"\\")
+        || t.starts_with("//")
 }
 
 /// Stable, session-scoped display prefix for remote workspace files (`preview-path.ts:12-14`).
@@ -122,7 +133,7 @@ pub fn preview_path_valid(path: &str, windows_rules: bool) -> bool {
         return false;
     }
     let bytes = path.as_bytes();
-    if bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && bytes[2] == b'/' {
+    if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
         return false;
     }
     path.split('/').all(|part| {
@@ -171,6 +182,7 @@ pub fn parse_preview_url(url: &str, grant_host: &str, windows_rules: bool) -> Op
 ///   safe workspace directory (never `/`, drive root, UNC root, `$HOME`, `Desktop`/`Documents`/
 ///   `Downloads`/`AppData`/`Library`), with zero dot-segments or secret filenames.
 pub fn preview_allowed(root: &str, document: &str, path: &str, entry: bool, home: Option<&str>) -> bool {
+    let win_rules = root_is_windows(root);
     let doc_norm = document.replace('\\', "/");
     let path_norm = path.replace('\\', "/");
     let doc: Vec<&str> = doc_norm.split('/').collect();
@@ -182,9 +194,9 @@ pub fn preview_allowed(root: &str, document: &str, path: &str, entry: bool, home
         part.is_empty()
             || part == "."
             || part == ".."
-            || (part.len() == 2 && part.as_bytes()[0].is_ascii_alphabetic() && part.as_bytes()[1] == b':')
+            || (part.len() >= 2 && part.as_bytes()[0].is_ascii_alphabetic() && part.as_bytes()[1] == b':')
             || part.chars().any(char::is_control)
-            || (cfg!(windows) && !valid_windows_segment(part))
+            || (win_rules && !valid_windows_segment(part))
     };
     if doc.iter().any(|p| bad_part(p)) || file.iter().any(|p| bad_part(p)) {
         return false;
@@ -196,7 +208,7 @@ pub fn preview_allowed(root: &str, document: &str, path: &str, entry: bool, home
         format!("{}/{}", root.trim_end_matches(['/', '\\']), folder.join("/"))
     };
     // Always enforce workspace-root safety BEFORE the one-shot entry HTML early return so neither
-    // local nor remote previews can target `/`, drive roots, UNC roots, or broad home folders.
+    // local nor remote previews can target `/`, drive roots, UNC roots, or broad home/system folders.
     if !is_safe_workspace_root(root, home) || !is_safe_workspace_root(&dir, home) {
         return false;
     }
@@ -207,10 +219,10 @@ pub fn preview_allowed(root: &str, document: &str, path: &str, entry: bool, home
     if file.len() <= folder.len() || !folder.iter().zip(file.iter()).all(|(a, b)| a == b) {
         return false;
     }
-    !file.iter().any(|part| is_hidden_or_secret_segment(part))
+    !file.iter().any(|part| is_hidden_or_secret_segment(part, win_rules))
 }
 
-fn is_hidden_or_secret_segment(part: &str) -> bool {
+fn is_hidden_or_secret_segment(part: &str, win_rules: bool) -> bool {
     if part.starts_with('.') {
         return true;
     }
@@ -223,7 +235,7 @@ fn is_hidden_or_secret_segment(part: &str) -> bool {
         || lower.ends_with(".key")
         || lower.ends_with(".pfx")
         || lower.ends_with(".p12")
-        || (cfg!(windows) && is_windows_device_name(lower.split('.').next().unwrap_or(&lower)))
+        || (win_rules && is_windows_device_name(lower.split('.').next().unwrap_or(&lower)))
 }
 
 /// Parsed artifact target (`artifact://<id>/<encoded_path>`).
@@ -331,13 +343,68 @@ pub fn preview_subresource_allowed(url: &str, grant_host: &str) -> bool {
     false
 }
 
-/// Whether `initiator` (Chromium's `request_initiator`) is permitted to fetch `oc-preview://<grant_host>`.
+/// Whether `initiator` (Chromium's `request_initiator`) matches `oc-preview://<grant_host>`.
+/// Returns `false` for missing/empty/`"null"` initiators; browser-initiated top-level navigations
+/// are handled separately by `preview/context.rs`.
 pub fn preview_initiator_allowed(initiator: Option<&str>, grant_host: &str) -> bool {
     let Some(raw) = initiator.map(str::trim).filter(|s| !s.is_empty()) else {
-        return true;
+        return false;
     };
     let expected = format!("{PREVIEW_SCHEME}://{grant_host}");
     raw.eq_ignore_ascii_case(&expected)
+}
+
+fn parse_ascii_u64(s: &str) -> Option<u64> {
+    if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    s.parse::<u64>().ok()
+}
+
+/// Validates and canonicalizes a single HTTP `Range` request header (`bytes=<start>-<end>`,
+/// `bytes=<start>-`, or `bytes=-<suffix>`) before forwarding to a remote preview host.
+/// Rejects multi-ranges, signs, whitespace, CRLF, or malformed syntax.
+pub fn normalize_range_header(raw: Option<&str>) -> Option<String> {
+    let trimmed = raw?.trim();
+    if trimmed.chars().any(char::is_control) {
+        return None;
+    }
+    let spec = strip_ascii_prefix(trimmed, "bytes=")?;
+    let (first_str, last_str) = spec.split_once('-')?;
+    if last_str.contains(',') {
+        return None;
+    }
+    match (first_str.is_empty(), last_str.is_empty()) {
+        (false, true) => {
+            let start = parse_ascii_u64(first_str)?;
+            Some(format!("bytes={start}-"))
+        }
+        (false, false) => {
+            let start = parse_ascii_u64(first_str)?;
+            let end = parse_ascii_u64(last_str)?;
+            (start <= end).then(|| format!("bytes={start}-{end}"))
+        }
+        (true, false) => {
+            let suffix = parse_ascii_u64(last_str)?;
+            (suffix > 0).then(|| format!("bytes=-{suffix}"))
+        }
+        (true, true) => None,
+    }
+}
+
+/// Strictly parses a `206 Partial Content` `Content-Range: bytes <start>-<end>/<total>` header.
+pub fn parse_content_range(header: Option<&str>) -> Option<(u64, u64, u64)> {
+    let trimmed = header?.trim();
+    let rest = strip_ascii_prefix(trimmed, "bytes ")?;
+    let (range_part, total_str) = rest.split_once('/')?;
+    let (start_str, end_str) = range_part.split_once('-')?;
+    let start = parse_ascii_u64(start_str)?;
+    let end = parse_ascii_u64(end_str)?;
+    let total = parse_ascii_u64(total_str)?;
+    if total == 0 || start > end || end >= total {
+        return None;
+    }
+    Some((start, end, total))
 }
 
 fn strip_ascii_prefix<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
@@ -375,19 +442,19 @@ pub fn parse_range(header: Option<&str>, size: u64) -> RangeSpec {
     }
     let (start, end) = match (first_str.is_empty(), last_str.is_empty()) {
         (false, true) => {
-            let Ok(s) = first_str.parse::<u64>() else {
+            let Some(s) = parse_ascii_u64(first_str) else {
                 return RangeSpec::Unsatisfiable { content_range: format!("bytes */{size}") };
             };
             (s, size - 1)
         }
         (false, false) => {
-            let (Ok(s), Ok(e)) = (first_str.parse::<u64>(), last_str.parse::<u64>()) else {
+            let (Some(s), Some(e)) = (parse_ascii_u64(first_str), parse_ascii_u64(last_str)) else {
                 return RangeSpec::Unsatisfiable { content_range: format!("bytes */{size}") };
             };
             (s, e.min(size - 1))
         }
         (true, false) => {
-            let Ok(suffix) = last_str.parse::<u64>() else {
+            let Some(suffix) = parse_ascii_u64(last_str) else {
                 return RangeSpec::Unsatisfiable { content_range: format!("bytes */{size}") };
             };
             if suffix == 0 {
@@ -412,7 +479,7 @@ pub fn parse_range(header: Option<&str>, size: u64) -> RangeSpec {
 
 /// Returns `(mime_type, optional_charset)` for a workspace file path (always paired with `nosniff`).
 pub fn mime_for_path(path: &str) -> (&'static str, Option<&'static str>) {
-    let base = path.split(['?', '#']).next().unwrap_or(path);
+    let base = path.rsplit(['/', '\\']).next().unwrap_or(path);
     let ext = base.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase());
     match ext.as_deref() {
         Some("html" | "htm") => ("text/html", Some("utf-8")),

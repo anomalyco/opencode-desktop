@@ -1,9 +1,11 @@
-//! Preview grant registry, random origin minting, display URL translation, and async remote /
-//! artifact fetch coordination for `oc-preview://` tabs.
+//! Preview grant registry, CSPRNG origin minting, display URL translation, bounded initiator
+//! cache, off-IO-thread local worker pool, and async remote/artifact proxy coordination for
+//! `oc-preview://` tabs.
 
 pub mod context;
 pub mod handle_path;
 pub mod handler;
+pub mod io_pool;
 pub mod scheme;
 
 use std::collections::{HashMap, VecDeque};
@@ -12,17 +14,20 @@ use std::sync::{Arc, Mutex};
 
 use browser_policy::preview::{
     MAX_ARTIFACT_BYTES, MAX_PREVIEW_FILE_BYTES, artifact_resource, is_preview_scheme,
-    local_display_url, parse_preview_url, preview_allowed, preview_url,
+    local_display_url, mime_for_path, parse_content_range, parse_preview_url, preview_allowed,
+    preview_url, root_is_windows,
 };
 use cef::{Callback, ImplCallback, ImplResourceReadCallback, ResourceReadCallback};
 
 use crate::output::Output;
-use crate::wire::{EngineMsg, PreviewKindTag, PreviewSpec};
+use crate::wire::{ContextKind, EngineMsg, PreviewKindTag, PreviewSpec};
 use handle_path::RootPin;
+use io_pool::PreviewIoPool;
 
-/// Maximum pending initiator entries remembered per grant (FIFO eviction prevents a fetch flood
-/// from wiping in-flight initiator records).
+/// Maximum pending initiator entries remembered per grant (strictly bounded in both map and queue).
 const MAX_INITIATOR_CACHE: usize = 4096;
+/// Maximum unread buffered bytes per in-flight remote/artifact proxy request (backpressure cap).
+const MAX_PROXY_QUEUE_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Clone, Debug)]
 pub enum PreviewKind {
@@ -69,15 +74,54 @@ pub struct PreviewGrant {
     entry_taken: AtomicBool,
     notified_denied: AtomicBool,
     last_display: Mutex<String>,
-    /// Request identifier -> whether Chromium's non-spoofable `request_initiator` was empty
-    /// (browser-initiated top-level navigation, eligible for the one-shot entry token).
+    /// Strictly bounded request-id -> initiator map (populated only for allowed same-grant requests).
     initiators: Mutex<InitiatorCache>,
 }
 
 #[derive(Default)]
 struct InitiatorCache {
-    map: HashMap<u64, InitiatorRecord>,
-    order: VecDeque<u64>,
+    map: HashMap<u64, (u64, InitiatorRecord)>,
+    order: VecDeque<(u64, u64)>,
+    next_seq: u64,
+}
+
+impl InitiatorCache {
+    fn prune_front(&mut self) {
+        while let Some(&(seq, req_id)) = self.order.front() {
+            if self.map.get(&req_id).is_some_and(|(cur_seq, _)| *cur_seq == seq) {
+                break;
+            }
+            self.order.pop_front();
+        }
+    }
+
+    fn insert(&mut self, req_id: u64, rec: InitiatorRecord) {
+        self.prune_front();
+        while self.map.len() >= MAX_INITIATOR_CACHE {
+            self.prune_front();
+            let Some((seq, oldest_id)) = self.order.pop_front() else {
+                self.map.clear();
+                break;
+            };
+            if self.map.get(&oldest_id).is_some_and(|(cur_seq, _)| *cur_seq == seq) {
+                self.map.remove(&oldest_id);
+            }
+        }
+        self.next_seq = self.next_seq.wrapping_add(1);
+        let seq = self.next_seq;
+        self.map.insert(req_id, (seq, rec));
+        self.order.push_back((seq, req_id));
+        if self.order.len() > MAX_INITIATOR_CACHE * 2 {
+            let map = &self.map;
+            self.order.retain(|&(s, id)| map.get(&id).is_some_and(|(cur, _)| *cur == s));
+        }
+    }
+
+    fn take(&mut self, req_id: u64) -> Option<InitiatorRecord> {
+        let rec = self.map.remove(&req_id).map(|(_, r)| r);
+        self.prune_front();
+        rec
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -93,6 +137,24 @@ impl PreviewGrant {
 
     pub fn is_artifact(&self) -> bool {
         matches!(self.kind, PreviewKind::Artifact { .. })
+    }
+
+    /// Canonical `ContextPool` scope key matching WS-1 `#288` (`Preview { workspace, grant }`,
+    /// `Artifact { artifact_id }`). Every tab gets a disjoint context keyed with its unique grant.
+    pub fn context_kind(&self) -> ContextKind {
+        match &self.kind {
+            PreviewKind::Local { pin, .. } => ContextKind::Preview {
+                workspace: pin.canonical_path.clone(),
+                grant: self.grant_host.clone(),
+            },
+            PreviewKind::Remote { root, .. } => ContextKind::Preview {
+                workspace: root.clone(),
+                grant: self.grant_host.clone(),
+            },
+            PreviewKind::Artifact { artifact_id } => ContextKind::Artifact {
+                artifact_id: format!("{artifact_id}:{}", self.grant_host),
+            },
+        }
     }
 
     pub fn revoke(&self) {
@@ -112,18 +174,20 @@ impl PreviewGrant {
     }
 
     pub fn record_initiator(&self, req_id: u64, browser_initiated: bool, allowed: bool) {
-        let mut cache = self.initiators.lock().unwrap();
-        while cache.map.len() >= MAX_INITIATOR_CACHE {
-            let Some(oldest) = cache.order.pop_front() else { break };
-            cache.map.remove(&oldest);
+        if req_id == 0 {
+            return;
         }
-        if cache.map.insert(req_id, InitiatorRecord { browser_initiated, allowed }).is_none() {
-            cache.order.push_back(req_id);
-        }
+        self.initiators
+            .lock()
+            .unwrap()
+            .insert(req_id, InitiatorRecord { browser_initiated, allowed });
     }
 
     pub fn take_initiator(&self, req_id: u64) -> Option<InitiatorRecord> {
-        self.initiators.lock().unwrap().map.remove(&req_id)
+        if req_id == 0 {
+            return None;
+        }
+        self.initiators.lock().unwrap().take(req_id)
     }
 
     pub fn last_display_url(&self) -> String {
@@ -132,7 +196,7 @@ impl PreviewGrant {
 
     /// Pure read-only translation of an internal `oc-preview://<grant_host>/...` URL into its
     /// clean display URL, or `None` if it fails scope/grant validation.
-    fn compute_display_url(&self, raw_url: &str) -> Option<String> {
+    pub fn compute_display_url(&self, raw_url: &str) -> Option<String> {
         if self.is_revoked() {
             return None;
         }
@@ -146,7 +210,8 @@ impl PreviewGrant {
                 local_display_url(root, &rel, &suffix)
             }
             PreviewKind::Remote { root, session_prefix, document } => {
-                let (rel, suffix) = parse_preview_url(raw_url, &self.grant_host, false)?;
+                let (rel, suffix) =
+                    parse_preview_url(raw_url, &self.grant_host, root_is_windows(root))?;
                 let same = rel == *document;
                 if !preview_allowed(root, document, &rel, same, None) {
                     return None;
@@ -182,23 +247,32 @@ impl PreviewGrant {
     }
 
     /// Whether a subframe inside this preview tab may navigate to `raw_url`.
-    /// Artifacts forbid `data:`/`blob:` subframes (matching `ARTIFACT_CSP`).
+    /// Artifacts allow only `about:blank` or same-grant `oc-preview://` (no `data:`/`blob:`);
+    /// workspace previews allow `about:blank`, `about:srcdoc`, same-origin `blob:`, and same-grant
+    /// `oc-preview://` (never `data:` subframes).
     pub fn allows_subframe_navigation(&self, raw_url: &str) -> bool {
         if self.is_revoked() {
             return false;
         }
+        let t = raw_url.trim();
+        if t.eq_ignore_ascii_case("about:blank") {
+            return true;
+        }
         if self.is_artifact() {
-            let t = raw_url.trim();
-            if t.eq_ignore_ascii_case("about:blank") {
-                return true;
-            }
             return self.compute_display_url(t).is_some();
         }
-        browser_policy::preview::preview_subresource_allowed(raw_url, &self.grant_host)
+        if t.eq_ignore_ascii_case("about:srcdoc") {
+            return true;
+        }
+        let own_blob = format!("blob:{}://{}/", scheme::PREVIEW_SCHEME, self.grant_host);
+        if t.len() >= own_blob.len() && t.as_bytes()[..own_blob.len()].eq_ignore_ascii_case(own_blob.as_bytes()) {
+            return true;
+        }
+        self.compute_display_url(t).is_some()
     }
 
-    /// Sanitizes any URL reported by CEF (`on_address_change`, `on_load_error`) so the internal
-    /// random `oc-preview://<uuid>` origin never escapes into `TabSnapshot`.
+    /// Sanitizes any URL reported by CEF (`on_address_change`, `on_load_error`, context menu, JS
+    /// dialogs) so the internal random `oc-preview://<uuid>` origin never escapes into `TabSnapshot`.
     pub fn sanitize_reported_url(&self, raw_url: &str) -> String {
         if let Some(display) = self.display_url(raw_url) {
             return display;
@@ -223,6 +297,9 @@ pub struct PendingProxy {
     pub tab_id: u64,
     pub grant: Arc<PreviewGrant>,
     pub head_only: bool,
+    /// For `PreviewKind::Remote`, verified workspace-relative path used to derive MIME strictly
+    /// from extension (never trusting server-supplied `Content-Type`). `None` for artifacts.
+    pub remote_rel: Option<String>,
     pub state: Mutex<ProxyStreamState>,
 }
 
@@ -234,9 +311,11 @@ pub struct ProxyStreamState {
     pub mime: String,
     pub charset: Option<String>,
     pub content_length: Option<u64>,
+    pub total_size: Option<u64>,
     pub content_range: Option<String>,
     pub open_callback: Option<Callback>,
     pub chunks: VecDeque<Vec<u8>>,
+    pub queued_bytes: usize,
     pub total_received: u64,
     pub ended: bool,
     pub end_ok: bool,
@@ -250,22 +329,25 @@ pub struct WaitingRead {
 }
 
 impl PendingProxy {
-    pub fn new(tab_id: u64, grant: Arc<PreviewGrant>, head_only: bool) -> Arc<Self> {
+    pub fn new(tab_id: u64, grant: Arc<PreviewGrant>, head_only: bool, remote_rel: Option<String>) -> Arc<Self> {
         Arc::new(Self {
             tab_id,
             grant,
             head_only,
+            remote_rel,
             state: Mutex::new(ProxyStreamState {
                 canceled: false,
                 head_ready: false,
                 head_ok: false,
-                status: 500,
+                status: 404,
                 mime: "application/octet-stream".into(),
                 charset: None,
                 content_length: None,
+                total_size: None,
                 content_range: None,
                 open_callback: None,
                 chunks: VecDeque::new(),
+                queued_bytes: 0,
                 total_received: 0,
                 ended: false,
                 end_ok: false,
@@ -281,6 +363,7 @@ impl PendingProxy {
             st.ended = true;
             st.end_ok = false;
             st.chunks.clear();
+            st.queued_bytes = 0;
             (st.open_callback.take(), st.waiting_read.take())
         };
         if let Some(cb) = open_cb {
@@ -291,6 +374,8 @@ impl PendingProxy {
         }
     }
 
+    /// Applies response headers; returns `true` if the proxy failed before `open()` and can be
+    /// removed from `PreviewRegistry::proxies` immediately.
     pub fn deliver_head(
         &self,
         ok: bool,
@@ -298,24 +383,55 @@ impl PendingProxy {
         mime: &str,
         content_length: Option<u64>,
         content_range: Option<String>,
-    ) {
-        let open_cb = {
+    ) -> bool {
+        let max_bytes = self.grant.kind.max_bytes();
+        let is_artifact = self.grant.is_artifact();
+        let (open_cb, failed_early) = {
             let mut st = self.state.lock().unwrap();
             if st.canceled || self.grant.is_revoked() {
                 st.canceled = true;
-                st.open_callback.take()
+                let cb = st.open_callback.take();
+                (cb, true)
             } else {
-                let over_cap = content_length.is_some_and(|n| n > self.grant.kind.max_bytes());
-                let valid_status = matches!(status, 200 | 206 | 416);
+                let over_cap = content_length.is_some_and(|n| n > max_bytes);
+                let (valid_status, total_size) = if is_artifact {
+                    // Upstream `serve.ts:25`: artifacts require strictly 200 OK.
+                    (status == 200, content_length)
+                } else {
+                    match status {
+                        200 => (true, content_length),
+                        206 => match parse_content_range(content_range.as_deref()) {
+                            Some((start, end, total))
+                                if total <= max_bytes
+                                    && content_length == Some(end - start + 1) =>
+                            {
+                                (true, Some(total))
+                            }
+                            _ => (false, None),
+                        },
+                        416 => (true, Some(0)),
+                        _ => (false, None),
+                    }
+                };
                 st.head_ready = true;
                 st.head_ok = ok && valid_status && !over_cap;
                 st.status = status;
-                let (clean_mime, charset) = browser_policy::preview::sanitize_content_type(mime);
-                st.mime = clean_mime;
-                st.charset = charset;
+                if let Some(rel) = &self.remote_rel {
+                    // Remote workspace files derive MIME strictly from extension (`serve.ts:78`).
+                    let (ext_mime, ext_cs) = mime_for_path(rel);
+                    st.mime = ext_mime.to_owned();
+                    st.charset = ext_cs.map(str::to_owned);
+                } else {
+                    let (clean_mime, charset) = browser_policy::preview::sanitize_content_type(mime);
+                    st.mime = clean_mime;
+                    st.charset = charset;
+                }
                 st.content_length = content_length;
+                st.total_size = total_size;
                 st.content_range = content_range;
-                st.open_callback.take()
+                let cb = st.open_callback.take();
+                let early_fail = !st.head_ok && cb.is_none();
+                (cb, early_fail)
             }
         };
         if let Some(cb) = open_cb {
@@ -329,6 +445,7 @@ impl PendingProxy {
                 cb.cancel();
             }
         }
+        failed_early
     }
 
     pub fn deliver_chunk(&self, bytes: Vec<u8>) {
@@ -341,23 +458,31 @@ impl PendingProxy {
                 return;
             }
             st.total_received = st.total_received.saturating_add(bytes.len() as u64);
-            if st.total_received > self.grant.kind.max_bytes() {
+            let exceeds_len = st.content_length.is_some_and(|cl| st.total_received > cl);
+            let exceeds_cap = st.total_received > self.grant.kind.max_bytes();
+            let exceeds_queue = st.queued_bytes.saturating_add(bytes.len()) > MAX_PROXY_QUEUE_BYTES;
+            if exceeds_cap || exceeds_len || exceeds_queue {
                 st.canceled = true;
                 st.ended = true;
                 st.end_ok = false;
                 st.chunks.clear();
+                st.queued_bytes = 0;
                 st.waiting_read.take().map(|w| (w.callback, -2i32))
             } else if let Some(wait) = st.waiting_read.take() {
                 let n = bytes.len().min(wait.max_len);
-                // SAFETY: CEF guarantees `data_out` remains valid until `wait.callback.cont` runs.
+                // SAFETY: CEF guarantees `data_out` remains valid until `wait.callback.cont` runs
+                // or `cancel()` returns; `cancel()` acquires `self.state` first.
                 unsafe {
                     std::ptr::copy_nonoverlapping(bytes.as_ptr(), wait.data_out as *mut u8, n);
                 }
                 if n < bytes.len() {
-                    st.chunks.push_front(bytes[n..].to_vec());
+                    let rem = bytes[n..].to_vec();
+                    st.queued_bytes = st.queued_bytes.saturating_add(rem.len());
+                    st.chunks.push_front(rem);
                 }
                 Some((wait.callback, n as i32))
             } else {
+                st.queued_bytes = st.queued_bytes.saturating_add(bytes.len());
                 st.chunks.push_back(bytes);
                 None
             }
@@ -374,6 +499,7 @@ impl PendingProxy {
             st.end_ok = ok && !st.canceled && !self.grant.is_revoked();
             if !st.end_ok {
                 st.chunks.clear();
+                st.queued_bytes = 0;
             }
             if st.chunks.is_empty() {
                 st.waiting_read.take().map(|w| (w.callback, if st.end_ok { 0i32 } else { -2i32 }))
@@ -387,10 +513,11 @@ impl PendingProxy {
     }
 }
 
-/// Engine-wide preview grant & async proxy fetch registry.
+/// Engine-wide preview grant, bounded local I/O pool, & async proxy fetch registry.
 pub struct PreviewRegistry {
     next_req_id: AtomicU64,
     proxies: Mutex<HashMap<u64, Arc<PendingProxy>>>,
+    io: PreviewIoPool,
 }
 
 impl PreviewRegistry {
@@ -398,7 +525,12 @@ impl PreviewRegistry {
         Arc::new(Self {
             next_req_id: AtomicU64::new(1),
             proxies: Mutex::new(HashMap::new()),
+            io: PreviewIoPool::new(),
         })
+    }
+
+    pub fn io(&self) -> &PreviewIoPool {
+        &self.io
     }
 
     /// Creates a new isolated grant from `spec`, pinning the local workspace root immediately.
@@ -409,7 +541,7 @@ impl PreviewRegistry {
         spec: PreviewSpec,
         home: Option<&str>,
     ) -> Result<(Arc<PreviewGrant>, String, String), &'static str> {
-        let grant_host = random_grant_host();
+        let grant_host = random_grant_host()?;
         match spec {
             PreviewSpec::Local { root, document } => {
                 let doc = document.replace('\\', "/");
@@ -443,7 +575,7 @@ impl PreviewRegistry {
                 if !prefix.starts_with("workspace://") || !prefix.ends_with('/') {
                     return Err("browser.address.workspace");
                 }
-                if !browser_policy::preview::preview_path_valid(&doc, false)
+                if !browser_policy::preview::preview_path_valid(&doc, root_is_windows(&root))
                     || !preview_allowed(&root, &doc, &doc, true, None)
                 {
                     return Err("browser.address.workspace");
@@ -492,9 +624,15 @@ impl PreviewRegistry {
         }
     }
 
-    pub fn register_proxy(&self, tab_id: u64, grant: Arc<PreviewGrant>, head_only: bool) -> (u64, Arc<PendingProxy>) {
+    pub fn register_proxy(
+        &self,
+        tab_id: u64,
+        grant: Arc<PreviewGrant>,
+        head_only: bool,
+        remote_rel: Option<String>,
+    ) -> (u64, Arc<PendingProxy>) {
         let req_id = self.next_req_id.fetch_add(1, Ordering::Relaxed);
-        let proxy = PendingProxy::new(tab_id, grant, head_only);
+        let proxy = PendingProxy::new(tab_id, grant, head_only, remote_rel);
         self.proxies.lock().unwrap().insert(req_id, proxy.clone());
         (req_id, proxy)
     }
@@ -504,17 +642,30 @@ impl PreviewRegistry {
     }
 
     pub fn cancel_tab_proxies(&self, tab_id: u64) {
-        let doomed: Vec<Arc<PendingProxy>> = {
+        let victims: Vec<Arc<PendingProxy>> = {
             let mut map = self.proxies.lock().unwrap();
-            let ids: Vec<u64> = map.iter().filter(|(_, p)| p.tab_id == tab_id).map(|(&k, _)| k).collect();
+            let ids: Vec<u64> = map
+                .iter()
+                .filter_map(|(&id, p)| (p.tab_id == tab_id).then_some(id))
+                .collect();
             ids.into_iter().filter_map(|id| map.remove(&id)).collect()
         };
-        for p in doomed {
+        for p in victims {
             p.cancel();
         }
     }
 
-    pub fn on_response_head(
+    pub fn cancel_all_proxies(&self) {
+        let victims: Vec<Arc<PendingProxy>> = {
+            let mut map = self.proxies.lock().unwrap();
+            map.drain().map(|(_, p)| p).collect()
+        };
+        for p in victims {
+            p.cancel();
+        }
+    }
+
+    pub fn deliver_head(
         &self,
         req_id: u64,
         ok: bool,
@@ -525,11 +676,14 @@ impl PreviewRegistry {
     ) {
         let proxy = self.proxies.lock().unwrap().get(&req_id).cloned();
         if let Some(p) = proxy {
-            p.deliver_head(ok, status, mime, content_length, content_range);
+            let remove_now = p.deliver_head(ok, status, mime, content_length, content_range);
+            if remove_now {
+                self.remove_proxy(req_id);
+            }
         }
     }
 
-    pub fn on_response_chunk(&self, req_id: u64, data_b64: &str) {
+    pub fn deliver_chunk(&self, req_id: u64, data_b64: &str) {
         use base64::Engine as _;
         let proxy = self.proxies.lock().unwrap().get(&req_id).cloned();
         if let Some(p) = proxy {
@@ -543,7 +697,7 @@ impl PreviewRegistry {
         }
     }
 
-    pub fn on_response_end(&self, req_id: u64, ok: bool) {
+    pub fn deliver_end(&self, req_id: u64, ok: bool) {
         let proxy = self.proxies.lock().unwrap().remove(&req_id);
         if let Some(p) = proxy {
             p.deliver_end(ok);
@@ -551,50 +705,33 @@ impl PreviewRegistry {
     }
 }
 
-/// Generates a 128-bit lowercase hex random host using OS CSPRNG (`BCryptGenRandom` on Windows,
-/// `/dev/urandom` on Unix) so preview origins are unguessable across tabs and sessions.
-fn random_grant_host() -> String {
+/// Generates a CSPRNG UUIDv4 grant hostname (122 random bits). Fails closed if OS CSPRNG fails.
+fn random_grant_host() -> Result<String, &'static str> {
     let mut bytes = [0u8; 16];
-    #[cfg(windows)]
-    {
-        use windows::Win32::Security::Cryptography::{
-            BCRYPT_USE_SYSTEM_PREFERRED_RNG, BCryptGenRandom,
-        };
-        let status = unsafe {
-            BCryptGenRandom(None, &mut bytes, BCRYPT_USE_SYSTEM_PREFERRED_RNG)
-        };
-        if status.is_err() {
-            fallback_entropy(&mut bytes);
-        }
-    }
-    #[cfg(unix)]
-    {
-        use std::io::Read as _;
-        if std::fs::File::open("/dev/urandom")
-            .and_then(|mut f| f.read_exact(&mut bytes))
-            .is_err()
-        {
-            fallback_entropy(&mut bytes);
-        }
-    }
-    // Format as UUIDv4 hex (`xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx`).
+    fill_os_random(&mut bytes)?;
     bytes[6] = (bytes[6] & 0x0f) | 0x40;
     bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    format!(
+    Ok(format!(
         "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
         bytes[0], bytes[1], bytes[2], bytes[3],
         bytes[4], bytes[5],
         bytes[6], bytes[7],
         bytes[8], bytes[9],
         bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15],
-    )
+    ))
 }
 
-fn fallback_entropy(bytes: &mut [u8; 16]) {
-    use std::collections::hash_map::RandomState;
-    use std::hash::{BuildHasher as _, Hasher as _};
-    let a = RandomState::new().build_hasher().finish();
-    let b = RandomState::new().build_hasher().finish();
-    bytes[..8].copy_from_slice(&a.to_le_bytes());
-    bytes[8..].copy_from_slice(&b.to_le_bytes());
+#[cfg(windows)]
+fn fill_os_random(out: &mut [u8]) -> Result<(), &'static str> {
+    use windows::Win32::Security::Cryptography::{BCRYPT_USE_SYSTEM_PREFERRED_RNG, BCryptGenRandom};
+    unsafe { BCryptGenRandom(None, out, BCRYPT_USE_SYSTEM_PREFERRED_RNG) }
+        .ok()
+        .map_err(|_| "browser.context.unavailable")
+}
+
+#[cfg(unix)]
+fn fill_os_random(out: &mut [u8]) -> Result<(), &'static str> {
+    use std::io::Read as _;
+    let mut f = std::fs::File::open("/dev/urandom").map_err(|_| "browser.context.unavailable")?;
+    f.read_exact(out).map_err(|_| "browser.context.unavailable")
 }

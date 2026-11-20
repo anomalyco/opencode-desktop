@@ -43,16 +43,23 @@ impl TabFavicon {
     }
 
     /// Starts fetching the first allowed candidate favicon URL for the current document generation.
+    /// Preview tabs enforce strict isolation: artifacts fetch zero favicons (`chromium.ts:644-645`),
+    /// and local/remote workspace previews permit ONLY `data:image/*` or their own `oc-preview://`
+    /// grant (never `http://` or `https://`).
     pub fn fetch_candidates(
         self: &Arc<Self>,
         browser: &Browser,
         candidates: Vec<String>,
+        preview: Option<&Arc<crate::preview::PreviewGrant>>,
         snap: Arc<Mutex<TabSnapshot>>,
         out_tx: Output,
     ) {
+        if preview.is_some_and(|g| g.is_artifact()) {
+            return;
+        }
         let allowed: Vec<String> = candidates
             .into_iter()
-            .filter(|u| is_allowed_favicon_url(u))
+            .filter(|u| is_allowed_favicon_url(u, preview))
             .take(4)
             .collect();
         if allowed.is_empty() {
@@ -92,20 +99,23 @@ impl TabFavicon {
     }
 }
 
-fn is_allowed_favicon_url(url: &str) -> bool {
+fn is_allowed_favicon_url(url: &str, preview: Option<&Arc<crate::preview::PreviewGrant>>) -> bool {
     let trimmed = url.trim();
     if trimmed.is_empty() || trimmed.len() > MAX_ICON_URL {
         return false;
     }
-    if browser_policy::destination_origin(trimmed).is_some() {
-        return true;
-    }
     let lower = trimmed.to_ascii_lowercase();
-    lower.starts_with("data:image/png;base64,")
+    let is_safe_data = lower.starts_with("data:image/png;base64,")
         || lower.starts_with("data:image/jpeg;base64,")
         || lower.starts_with("data:image/x-icon;base64,")
-        || lower.starts_with("data:image/vnd.microsoft.icon;base64,")
-        || lower.starts_with("oc-preview://")
+        || lower.starts_with("data:image/vnd.microsoft.icon;base64,");
+    if let Some(grant) = preview {
+        if grant.is_artifact() || grant.is_revoked() {
+            return false;
+        }
+        return is_safe_data || grant.compute_display_url(trimmed).is_some();
+    }
+    is_safe_data || browser_policy::destination_origin(trimmed).is_some()
 }
 
 fn encode_png_data_url(image: &Image) -> Option<String> {

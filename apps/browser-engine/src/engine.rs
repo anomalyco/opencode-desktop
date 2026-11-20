@@ -9,7 +9,7 @@ use cef::rc::Rc as _;
 use cef::{
     App, Browser, BrowserHost, BrowserProcessHandler, BrowserSettings, CefString,
     CommandLine, ImplApp, ImplBrowser, ImplBrowserHost, ImplBrowserProcessHandler,
-    ImplCommandLine, ImplFrame, ImplRequestContext, MouseButtonType,
+    ImplCommandLine, ImplFrame, MouseButtonType,
     MouseEvent, PaintElementType, Registration, RequestContext, SchemeRegistrar, Settings,
     WindowInfo, WrapApp, WrapBrowserProcessHandler, sys, wrap_app, wrap_browser_process_handler,
 };
@@ -212,7 +212,6 @@ struct ManagedTab {
     host: BrowserHost,
     file_roots: Arc<Mutex<Vec<String>>>,
     preview: Option<Arc<PreviewGrant>>,
-    preview_ctx: Option<RequestContext>,
     #[cfg(target_os = "linux")]
     preview_spec: Option<PreviewSpec>,
     view_state: Arc<Mutex<ViewRectState>>,
@@ -343,17 +342,28 @@ impl EngineManager {
                 let ids: Vec<u64> = self.tabs.keys().copied().collect();
                 for tab_id in ids {
                     let Some(tab) = self.tabs.remove(&tab_id) else { continue };
-                    self.release_preview(tab_id, tab.preview.as_ref(), tab.preview_ctx.as_ref());
+                    self.release_preview(tab_id, tab.preview.as_ref());
+                    let was_agent = tab.prompts.agent_driven.load(Ordering::Acquire);
                     tab.host.close_browser(1);
+                    self.contexts.release_tab(tab_id);
                     let url = tab.snap.lock().unwrap().url.clone();
                     let v = tab.view_state.lock().unwrap().clone();
                     let roots = tab.file_roots.lock().unwrap().clone();
                     let ctx = tab.context.clone();
                     self.open_tab(tab_id, &url, v.width_pt, v.height_pt, v.scale, tab.shown, roots, ctx, tab.preview_spec);
+                    if let Some(reopened) = self.tabs.get(&tab_id) {
+                        reopened.prompts.agent_driven.store(was_agent, Ordering::Release);
+                    } else {
+                        self.contexts.release_tab(tab_id);
+                    }
                 }
             }
             None => {}
         }
+    }
+
+    pub fn on_host_disconnected(&mut self) {
+        self.previews.cancel_all_proxies();
     }
 
     pub fn poll_picks(&mut self) {
@@ -367,6 +377,14 @@ impl EngineManager {
                     }
                 }
                 crate::context::DeferredOutcome::Refuse { tab_id, reason } => {
+                    if let Some(tab) = self.tabs.remove(&tab_id) {
+                        self.release_preview(tab_id, tab.preview.as_ref());
+                        tab.menu.cancel_all();
+                        tab.prompts.dismiss_all();
+                        tab.host.close_browser(1);
+                        self.downloads.close_tab(tab_id);
+                        self.contexts.release_tab(tab_id);
+                    }
                     let _ = self.out_tx.send(EngineMsg::Refused {
                         tab_id,
                         reason: reason.to_owned(),
@@ -504,8 +522,8 @@ impl EngineManager {
                 }
             }
             HostMsg::OpenTab { tab_id, url, width_pt, height_pt, scale, focused, file_roots, context, preview } => {
-                // Remote-server and preview tabs never receive raw `file://` roots.
-                let roots = if preview.is_some() || matches!(context, crate::wire::ContextKind::RemoteServer { .. }) {
+                // Only `Default` non-preview tabs receive local `file://` roots; all isolated & preview scopes strip them.
+                let roots = if preview.is_some() || context.is_isolated() {
                     Vec::new()
                 } else {
                     self.safe_roots(file_roots)
@@ -514,7 +532,7 @@ impl EngineManager {
             }
             HostMsg::SetTabPolicy { tab_id, file_roots } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
-                    if matches!(t.context, crate::wire::ContextKind::RemoteServer { .. }) {
+                    if t.preview.is_some() || t.context.is_isolated() {
                         t.file_roots.lock().unwrap().clear();
                     } else {
                         let roots = self.safe_roots(file_roots);
@@ -524,12 +542,15 @@ impl EngineManager {
             }
             HostMsg::CloseTab { tab_id } => {
                 if let Some(tab) = self.tabs.remove(&tab_id) {
-                    self.release_preview(tab_id, tab.preview.as_ref(), tab.preview_ctx.as_ref());
+                    self.release_preview(tab_id, tab.preview.as_ref());
                     tab.menu.cancel_all();
                     tab.prompts.dismiss_all();
                     tab.host.close_browser(1);
                     self.downloads.close_tab(tab_id);
+                    self.contexts.release_tab(tab_id);
                     let _ = self.out_tx.send(EngineMsg::TabClosed { tab_id });
+                } else {
+                    self.contexts.release_tab(tab_id);
                 }
             }
             HostMsg::FocusTab { tab_id } => {
@@ -958,13 +979,13 @@ impl EngineManager {
             HostMsg::ContextMenuAction { tab_id, id, action } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
                     let roots = t.file_roots.lock().unwrap().clone();
-                    t.menu.execute(id, action, &t.browser, &t.host, &roots);
+                    t.menu.execute(id, action, &t.browser, &t.host, &roots, t.preview.is_some());
                 }
             }
-            HostMsg::SetPartitionProxy { partition, proxy } => {
-                if let Ok(applied) = self.contexts.set_partition_proxy(&partition, proxy) {
+            HostMsg::SetPartitionProxy { server_id, proxy } => {
+                if let Ok(applied) = self.contexts.set_partition_proxy(&server_id, proxy) {
                     for t in self.tabs.values() {
-                        if matches!(&t.context, crate::wire::ContextKind::RemoteServer { partition: p, .. } if p == &partition) {
+                        if matches!(&t.context, crate::wire::ContextKind::RemoteServer { server_id: id, .. } if id == &server_id) {
                             *t.prompts.proxy.lock().unwrap() = applied.clone();
                         }
                     }
@@ -974,37 +995,35 @@ impl EngineManager {
                 self.contexts.drop_context(&context);
             }
             HostMsg::PreviewResponseHead { req_id, ok, status, mime, content_length, content_range } => {
-                self.previews.on_response_head(req_id, ok, status, &mime, content_length, content_range);
+                self.previews.deliver_head(req_id, ok, status, &mime, content_length, content_range);
             }
             HostMsg::PreviewResponseChunk { req_id, data_b64 } => {
-                self.previews.on_response_chunk(req_id, &data_b64);
+                self.previews.deliver_chunk(req_id, &data_b64);
             }
             HostMsg::PreviewResponseEnd { req_id, ok } => {
-                self.previews.on_response_end(req_id, ok);
+                self.previews.deliver_end(req_id, ok);
             }
             HostMsg::Shutdown => {
                 let drained: Vec<_> = self.tabs.drain().collect();
                 for (tab_id, t) in drained {
-                    self.release_preview(tab_id, t.preview.as_ref(), t.preview_ctx.as_ref());
+                    self.release_preview(tab_id, t.preview.as_ref());
                     t.menu.cancel_all();
                     t.prompts.dismiss_all();
                     t.host.close_browser(1);
                 }
+                self.previews.cancel_all_proxies();
+                self.contexts.release_all();
                 return false;
             }
         }
         true
     }
 
-    fn release_preview(&self, tab_id: u64, grant: Option<&Arc<PreviewGrant>>, ctx: Option<&RequestContext>) {
+    fn release_preview(&self, tab_id: u64, grant: Option<&Arc<PreviewGrant>>) {
         if let Some(g) = grant {
             g.revoke();
         }
         self.previews.cancel_tab_proxies(tab_id);
-        if let Some(c) = ctx {
-            let _ = c.clear_scheme_handler_factories();
-            c.close_all_connections(None);
-        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1020,34 +1039,58 @@ impl EngineManager {
         context: crate::wire::ContextKind,
         preview_spec: Option<PreviewSpec>,
     ) {
+        // Cleanly release any prior browser/grant/context on duplicate `tab_id` before opening.
+        if let Some(prev) = self.tabs.remove(&tab_id) {
+            self.release_preview(tab_id, prev.preview.as_ref());
+            prev.menu.cancel_all();
+            prev.prompts.dismiss_all();
+            prev.host.close_browser(1);
+            self.downloads.close_tab(tab_id);
+            self.contexts.release_tab(tab_id);
+        }
         let mut preview_grant: Option<Arc<PreviewGrant>> = None;
-        let mut preview_ctx: Option<RequestContext> = None;
         let mut refused_reason: Option<String> = None;
-        let mut req_ctx: Option<RequestContext> = None;
+        let mut req_ctx: Option<RequestContext>;
         let mut proxy_cfg = None;
+        let mut effective_context = context;
         let (initial_url, display_url) = if let Some(spec) = preview_spec.clone() {
-            match self.previews.create_grant(tab_id, spec, self.home.as_deref()) {
-                Ok((grant, internal, display)) => {
-                    if let Some(ctx) = crate::preview::context::create_preview_context(
-                        grant.clone(),
-                        self.previews.clone(),
-                        self.out_tx.clone(),
-                    ) {
-                        preview_grant = Some(grant);
-                        preview_ctx = Some(ctx.clone());
-                        req_ctx = Some(ctx);
-                        (internal, display)
-                    } else {
-                        grant.revoke();
-                        refused_reason = Some(browser_policy::Refusal::Workspace.code().to_owned());
-                        ("about:blank".to_owned(), "about:blank".to_owned())
-                    }
-                }
+            let (grant, internal, display) = match self.previews.create_grant(tab_id, spec, self.home.as_deref()) {
+                Ok(v) => v,
                 Err(code) => {
-                    refused_reason = Some(code.to_owned());
-                    ("about:blank".to_owned(), "about:blank".to_owned())
+                    // Fail closed immediately — never fall through to `Default` context!
+                    let _ = self.out_tx.send(EngineMsg::Refused {
+                        tab_id,
+                        reason: code.to_owned(),
+                    });
+                    return;
                 }
-            }
+            };
+            let ctx_kind = grant.context_kind();
+            let hooks = crate::preview::context::preview_context_hooks(
+                grant.clone(),
+                self.previews.clone(),
+                self.out_tx.clone(),
+            );
+            let resolved_ctx = match self.contexts.resolve_with_hooks(&ctx_kind, tab_id, &internal, hooks) {
+                Ok(r) => r,
+                Err(reason) => {
+                    self.release_preview(tab_id, Some(&grant));
+                    let _ = self.out_tx.send(EngineMsg::Refused {
+                        tab_id,
+                        reason: reason.to_owned(),
+                    });
+                    return;
+                }
+            };
+            effective_context = ctx_kind;
+            preview_grant = Some(grant);
+            req_ctx = resolved_ctx.request_context;
+            let init = if resolved_ctx.defer_initial_load {
+                "about:blank".to_owned()
+            } else {
+                internal
+            };
+            (init, display)
         } else {
             let refused = browser_policy::frame_guard(url, true, &file_roots);
             let target_url = if let Some(why) = refused {
@@ -1056,7 +1099,7 @@ impl EngineManager {
             } else {
                 url
             };
-            let resolved_ctx = match self.contexts.resolve(&context, tab_id, target_url) {
+            let resolved_ctx = match self.contexts.resolve(&effective_context, tab_id, target_url) {
                 Ok(r) => r,
                 Err(reason) => {
                     let _ = self.out_tx.send(EngineMsg::Refused {
@@ -1160,6 +1203,7 @@ impl EngineManager {
             tab_id,
             self.prompt_shared.clone(),
             prompts.clone(),
+            preview_grant.clone(),
             self.out_tx.clone(),
         );
         let permission = crate::prompts::TabPermissionHandler::new(
@@ -1170,12 +1214,18 @@ impl EngineManager {
             snap.clone(),
             self.out_tx.clone(),
         );
-        let dialog = crate::prompts::TabFileDialogHandler::new(tab_id, prompts.clone(), self.out_tx.clone());
+        let dialog = crate::prompts::TabFileDialogHandler::new(
+            tab_id,
+            is_preview,
+            prompts.clone(),
+            self.out_tx.clone(),
+        );
         let find = crate::find::TabFindHandler::new(tab_id, self.out_tx.clone());
         let context_menu = crate::menu::TabContextMenuHandler::new(
             tab_id,
             self.prompt_shared.clone(),
             file_roots.clone(),
+            preview_grant.clone(),
             menu_state.clone(),
             self.out_tx.clone(),
         );
@@ -1203,6 +1253,18 @@ impl EngineManager {
             ..Default::default()
         };
 
+        // Hard fail-closed invariant: an isolated or preview tab must NEVER open without a
+        // dedicated `CefRequestContext` (falling back to `None` would open it inside `Default`).
+        if (effective_context.is_isolated() || is_preview) && req_ctx.is_none() {
+            self.release_preview(tab_id, preview_grant.as_ref());
+            self.contexts.release_tab(tab_id);
+            let _ = self.out_tx.send(EngineMsg::Refused {
+                tab_id,
+                reason: "browser.context.unavailable".to_owned(),
+            });
+            return;
+        }
+
         let Some(browser) = cef::browser_host_create_browser_sync(
             Some(&win_info),
             Some(&mut client),
@@ -1211,10 +1273,23 @@ impl EngineManager {
             None,
             req_ctx.as_mut(),
         ) else {
-            self.release_preview(tab_id, preview_grant.as_ref(), preview_ctx.as_ref());
+            self.release_preview(tab_id, preview_grant.as_ref());
+            self.contexts.release_tab(tab_id);
+            let _ = self.out_tx.send(EngineMsg::Refused {
+                tab_id,
+                reason: "browser.context.unavailable".to_owned(),
+            });
             return;
         };
-        let Some(host) = browser.host() else { return };
+        let Some(host) = browser.host() else {
+            self.release_preview(tab_id, preview_grant.as_ref());
+            self.contexts.release_tab(tab_id);
+            let _ = self.out_tx.send(EngineMsg::Refused {
+                tab_id,
+                reason: "browser.context.unavailable".to_owned(),
+            });
+            return;
+        };
         if focused {
             for existing in self.tabs.values() {
                 existing.host.was_hidden(1);
@@ -1247,7 +1322,6 @@ impl EngineManager {
                 host,
                 file_roots,
                 preview: preview_grant,
-                preview_ctx,
                 #[cfg(target_os = "linux")]
                 preview_spec,
                 view_state,
@@ -1257,7 +1331,7 @@ impl EngineManager {
                 pending_clears,
                 prompts,
                 menu: menu_state,
-                context,
+                context: effective_context,
                 _cdp_reg: cdp_reg,
                 held_buttons: 0,
                 #[cfg(target_os = "linux")]

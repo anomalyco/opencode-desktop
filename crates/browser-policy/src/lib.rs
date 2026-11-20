@@ -565,7 +565,7 @@ fn resolve_unix_file_path(path: &str) -> Option<String> {
 
 fn normalize_root_lex(root: &str) -> Option<String> {
     let trimmed = root.trim();
-    if trimmed.is_empty() {
+    if trimmed.is_empty() || trimmed.chars().any(char::is_control) {
         return None;
     }
     let stripped = trimmed
@@ -573,13 +573,21 @@ fn normalize_root_lex(root: &str) -> Option<String> {
         .or_else(|| trimmed.strip_prefix("//?/"))
         .unwrap_or(trimmed)
         .replace('\\', "/");
-    let stripped = if stripped.len() >= 3 && stripped.as_bytes()[0] == b'/' && stripped.as_bytes()[1].is_ascii_alphabetic() && stripped.as_bytes()[2] == b':' {
+    let stripped = if stripped.len() >= 3
+        && stripped.as_bytes()[0] == b'/'
+        && stripped.as_bytes()[1].is_ascii_alphabetic()
+        && stripped.as_bytes()[2] == b':'
+    {
         &stripped[1..]
     } else {
         stripped.as_str()
     };
     let clean = if stripped == "/" { "/" } else { stripped.trim_end_matches('/') };
     if clean.is_empty() {
+        return None;
+    }
+    // Reject any dot-traversal segment so non-existent remote roots like `/foo/..` cannot evade checks.
+    if clean.split('/').any(|seg| seg == "." || seg == "..") {
         return None;
     }
     Some(if cfg!(windows) { clean.to_ascii_lowercase() } else { clean.to_owned() })
@@ -635,17 +643,54 @@ pub fn is_safe_workspace_root(root: &str, home: Option<&str>) -> bool {
 }
 
 fn is_broad_root_lex(lex: &str) -> bool {
-    if lex == "/" {
+    let lower = lex.to_ascii_lowercase();
+    if lower == "/" {
         return true;
     }
-    if lex.len() == 2 && lex.as_bytes()[0].is_ascii_alphabetic() && lex.as_bytes()[1] == b':' {
+    if lower.len() == 2 && lower.as_bytes()[0].is_ascii_alphabetic() && lower.as_bytes()[1] == b':' {
         return true;
     }
-    if let Some(rest) = lex.strip_prefix("//") {
+    if let Some(rest) = lower.strip_prefix("//") {
         // UNC server (`//server`) or share root (`//server/share`).
         return rest.split('/').filter(|s| !s.is_empty()).count() <= 2;
     }
-    false
+    // Exact broad container roots (users parent dirs, `/var`, `/private/var`).
+    if matches!(lower.as_str(), "/users" | "/home" | "/var" | "/private/var") {
+        return true;
+    }
+    // Windows broad / OS system roots (`C:/Users`, `C:/Windows`, `C:/Program Files*`, `C:/ProgramData`).
+    if lower.len() >= 3 && lower.as_bytes()[0].is_ascii_alphabetic() && lower.as_bytes()[1] == b':' && lower.as_bytes()[2] == b'/' {
+        let tail = &lower[2..];
+        if tail == "/users" {
+            return true;
+        }
+        const WIN_SYSTEM_TREES: &[&str] = &[
+            "/windows",
+            "/program files",
+            "/program files (x86)",
+            "/programdata",
+            "/system volume information",
+        ];
+        if WIN_SYSTEM_TREES.iter().any(|sys| tail == *sys || tail.starts_with(&format!("{sys}/"))) {
+            return true;
+        }
+    }
+    // Unix / macOS OS system trees (exact or subtree).
+    const UNIX_SYSTEM_TREES: &[&str] = &[
+        "/etc",
+        "/private/etc",
+        "/system",
+        "/library",
+        "/usr",
+        "/bin",
+        "/sbin",
+        "/dev",
+        "/proc",
+        "/sys",
+        "/boot",
+        "/root",
+    ];
+    UNIX_SYSTEM_TREES.iter().any(|sys| lower == *sys || lower.starts_with(&format!("{sys}/")))
 }
 
 fn is_home_broad_lex(lex: &str, home_lex: &str) -> bool {

@@ -52,7 +52,7 @@ pub struct BrowserTab {
     /// Surface layout origin in zoomed window points (for anchoring page context menus).
     pub surface_origin: (f32, f32),
     pub view_zoom: f32,
-    /// Storage/cookie/extension isolation context (`Default`, `IsolatedPreview`, or `RemoteServer`).
+    /// Storage/cookie/extension isolation context (`Default`, `Preview`, `Artifact`, `Private`, or `RemoteServer`).
     pub context: crate::protocol::ContextKind,
     pub(crate) file_roots: Vec<String>,
     pub(crate) viewport_pt: (f32, f32),
@@ -435,7 +435,7 @@ impl BrowserHost {
     ) -> u64 {
         rune::marks::mark("browser.tab.open");
         self.opened.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let file_roots = if matches!(context, crate::protocol::ContextKind::RemoteServer { .. }) {
+        let file_roots = if context.is_isolated() {
             Vec::new()
         } else {
             file_roots
@@ -511,12 +511,17 @@ impl BrowserHost {
     }
 
     pub fn set_tab_policy(&mut self, tab_id: u64, file_roots: Vec<String>) {
-        if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id)
-            && t.file_roots != file_roots
-        {
-            t.file_roots = file_roots.clone();
-            if self.is_connected() && self.engine_policy() {
-                self.send(HostMsg::SetTabPolicy { tab_id, file_roots });
+        if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
+            let file_roots = if t.context.is_isolated() {
+                Vec::new()
+            } else {
+                file_roots
+            };
+            if t.file_roots != file_roots {
+                t.file_roots = file_roots.clone();
+                if self.is_connected() && self.engine_policy() {
+                    self.send(HostMsg::SetTabPolicy { tab_id, file_roots });
+                }
             }
         }
     }

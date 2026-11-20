@@ -34,6 +34,18 @@ export type Capabilities = {
     cookieFile: boolean,
 }
 
+export type ImportProfile = {
+    id: string,
+    name: string,
+}
+
+export type ImportBrowser = {
+    id: string,
+    name: string,
+    engine: string,
+    profiles: { ImportProfile },
+}
+
 export type Env = {
     I18n: I18nService,
     preferences: () -> Preferences,
@@ -42,8 +54,11 @@ export type Env = {
     sitePermissions: () -> { SiteDecision },
     setSitePermission: (origin: string, permission: string, setting: "allow" | "block") -> (),
     removeSitePermission: (origin: string, permission: string) -> (),
-    clearBrowsingData: () -> boolean,
-    -- Optional contract-backed sections provided by WS-9 (extensions) or PR 4 / WS-1 (import).
+    historyCount: () -> number,
+    clearNotice: () -> string?,
+    requestClearBrowsingData: () -> (),
+    openImportHistory: () -> (),
+    -- Optional contract-backed sections provided by WS-9 (extensions) or WS-1 (cookies/remote).
     renderImport: ((view: View) -> ui.Node?)?,
     renderExtensions: ((view: View) -> ui.Node?)?,
     remoteSignInsEnabled: (() -> boolean)?,
@@ -165,10 +180,9 @@ local function permissionName(i18n: I18nService, kind: string): string
     return if translated ~= key then translated else kind
 end
 
--- Stateful page renderer holding ephemeral visit state (`closedOver` search target, clear status).
+-- Stateful page renderer holding ephemeral visit state (`closedOver` search target).
 function settings.create(env: Env, refresh: () -> ())
     local closedOver: string? = nil
-    local clearNotice: string? = nil
 
     local function render(view: View, props: SettingsPageProps): ui.Node
         local i18n = env.I18n
@@ -188,11 +202,30 @@ function settings.create(env: Env, refresh: () -> ())
         local isAdvanced = settings.advancedOpen(prefs.advanced, target, closedOver)
         local sections: { ui.Node } = {}
 
-        -- 1. Import from another browser (shown when history or cookie import capability is active)
-        if caps.import and env.renderImport then
-            local importNode = env.renderImport(view)
-            if importNode then
-                table.insert(sections, importNode)
+        -- 1. Import from another browser (user-explicit read-only history import + optional WS-1 cookie import)
+        if caps.import then
+            local customImport = if env.renderImport then env.renderImport(view) else nil
+            if customImport then
+                table.insert(sections, customImport)
+            else
+                table.insert(sections, ui.settingsList({ key = "settings-browser-import-section" }, {
+                    ui.settingsRow(
+                        {
+                            id = "settings-browser-import",
+                            title = i18n:T("settings.import.title"),
+                            description = i18n:T("settings.import.history.description"),
+                        },
+                        ui.button({
+                            key = "settings-browser-import-btn",
+                            text = i18n:T("settings.import.open"),
+                            size = "small",
+                            variant = "neutral",
+                            onPress = view:Handler(function()
+                                env.openImportHistory()
+                            end),
+                        })
+                    ),
+                }))
             end
         end
 
@@ -385,13 +418,18 @@ function settings.create(env: Env, refresh: () -> ())
                 ui.text(i18n:T("settings.sites.note"), NOTE),
             }))
 
-            -- 4d. Browser data section (`settings-browser-cookies`)
+            -- 4d. Browser data section (`settings-browser-cookies`, UP-117 #65124 confirm before clearing)
+            local count = env.historyCount()
+            local countText = if count > 0
+                then i18n:T(if count == 1 then "settings.history.count.one" else "settings.history.count.other", { count = count })
+                else nil
+            local dataDesc = env.clearNotice() or countText
             table.insert(sections, ui.settingsList({ key = "settings-browser-data-section", title = i18n:T("settings.data.title") }, {
                 ui.settingsRow(
                     {
                         id = "settings-browser-cookies",
                         title = i18n:T("settings.cookies.title"),
-                        description = clearNotice,
+                        description = dataDesc,
                     },
                     ui.button({
                         key = "settings-browser-clear-data",
@@ -399,9 +437,7 @@ function settings.create(env: Env, refresh: () -> ())
                         size = "small",
                         variant = "danger",
                         onPress = view:Handler(function()
-                            local ok = env.clearBrowsingData()
-                            clearNotice = i18n:T(if ok then "settings.cleared" else "settings.failed.clear")
-                            refresh()
+                            env.requestClearBrowsingData()
                         end),
                     })
                 ),
@@ -412,6 +448,119 @@ function settings.create(env: Env, refresh: () -> ())
     end
 
     return { render = render }
+end
+
+local DIALOG_TITLE = table.freeze({ size = 15, weight = "medium", lineHeight = 20, color = "text-chrome", noWrap = true })
+
+-- Confirmation dialog body for Clear browsing data (`UP-117` `#65124`).
+function settings.renderClearConfirm(i18n: I18nService, view: View, onCancel: () -> (), onConfirm: () -> ()): ui.Node
+    return ui.col({ key = "settings-browser-clear-confirm", w = "full", pad = 20, gap = 12 }, {
+        ui.text(i18n:T("settings.clear.confirm.title"), DIALOG_TITLE),
+        ui.text(i18n:T("settings.clear.confirm.description"), MUTED),
+        ui.row({ w = "full", justify = "end", gap = 8, pt = 4 }, {
+            ui.button({
+                key = "settings-browser-clear-cancel",
+                text = i18n:T("common.cancel"),
+                size = "small",
+                variant = "ghost",
+                autofocus = true,
+                onPress = view:Handler(function()
+                    onCancel()
+                end),
+            }),
+            ui.button({
+                key = "settings-browser-clear-confirm-btn",
+                text = i18n:T("settings.clear.confirm.action"),
+                size = "small",
+                variant = "danger",
+                onPress = view:Handler(function()
+                    onConfirm()
+                end),
+            }),
+        }),
+    })
+end
+
+-- User-explicit read-only browser history importer dialog (`UP-106` `#65073`).
+function settings.renderImportDialog(
+    i18n: I18nService,
+    view: View,
+    sources: { ImportBrowser },
+    statusText: string?,
+    onImport: (browserId: string, profileId: string) -> (),
+    onClose: () -> ()
+): ui.Node
+    local rows: { ui.Node } = {
+        ui.row({ w = "full", align = "center", gap = 8 }, {
+            ui.text(i18n:T("settings.import.title"), DIALOG_TITLE, { grow = 1, shrink = true, minW = 0, truncate = true }),
+            ui.iconButton({
+                key = "settings-import-x",
+                icon = "close",
+                variant = "ghost-muted",
+                size = "small",
+                label = i18n:T("common.close"),
+                onPress = view:Handler(function()
+                    onClose()
+                end),
+            }),
+        }),
+        ui.text(i18n:T("settings.import.history.description"), MUTED),
+    }
+    if #sources == 0 then
+        table.insert(rows, ui.row({ key = "settings-import-none", w = "full", py = 12, px = 12, radius = 6, fill = "surface-1" }, {
+            ui.text(i18n:T("settings.import.none"), MUTED),
+        }))
+    else
+        local listItems: { ui.Node } = {}
+        local idx = 0
+        for _, browser in sources do
+            for _, prof in browser.profiles do
+                idx += 1
+                local bid, pid = browser.id, prof.id
+                local label = if #browser.profiles > 1 then `{browser.name} ({prof.name})` else browser.name
+                table.insert(listItems, ui.row({
+                    key = `import-source-{idx}`,
+                    w = "full",
+                    px = 12,
+                    py = 8,
+                    gap = 8,
+                    radius = 6,
+                    fill = "surface-1",
+                    align = "center",
+                }, {
+                    ui.col({ grow = 1, shrink = true, minW = 0, gap = 2 }, {
+                        ui.text(label, HEADING),
+                        ui.text(prof.name, NOTE),
+                    }),
+                    ui.button({
+                        key = `import-source-btn-{idx}`,
+                        text = i18n:T("settings.import.history.action"),
+                        size = "small",
+                        variant = "neutral",
+                        onPress = view:Handler(function()
+                            onImport(bid, pid)
+                        end),
+                    }),
+                }))
+            end
+        end
+        table.insert(rows, ui.col({ key = "settings-import-list", w = "full", maxH = 260, scrollY = true, gap = 6 }, listItems))
+    end
+    if statusText ~= nil and statusText ~= "" then
+        table.insert(rows, ui.text(statusText, { key = "settings-import-status", size = 12, weight = "medium", lineHeight = 16, color = "text-chrome", wrap = true }))
+    end
+    table.insert(rows, ui.row({ w = "full", justify = "end", gap = 8, pt = 4 }, {
+        ui.button({
+            key = "settings-import-close",
+            text = i18n:T("common.close"),
+            size = "small",
+            variant = "ghost",
+            onPress = view:Handler(function()
+                onClose()
+            end),
+        }),
+    }))
+    return ui.col({ key = "settings-browser-import-dialog", w = "full", pad = 20, gap = 12 }, rows)
 end
 
 return settings

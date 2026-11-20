@@ -1,11 +1,13 @@
-//! `CefSchemeHandlerFactory` and `CefResourceHandler` implementations for `oc-preview://`:
-//! - `LocalFileResourceHandler`: opens & verifies local workspace files strictly via the open
-//!   handle (`handle_path::open_verified_file`), streams directly from that verified `File` handle
-//!   with full `HEAD` + `Range` (`200`/`206`/`416`) support and strict security headers.
+//! `CefSchemeHandlerFactory` and async off-IO-thread `CefResourceHandler` implementations for
+//! `oc-preview://`:
+//! - `LocalFileResourceHandler`: performs ALL filesystem open/verify/seek/read syscalls off CEF's
+//!   global IO thread on `PreviewIoPool`, verifies local files via pre-open intermediate-component
+//!   walk + open-handle final path (`handle_path::open_verified_file`), and streams strictly from
+//!   that verified `File` handle with `HEAD` + `Range` (`200`/`206`/`416`) + 8 security headers.
 //! - `ProxyResourceHandler`: validates remote workspace & artifact URLs/scopes/methods/initiators,
-//!   asks the desktop app host for bytes over the private Unix socket (`EngineMsg::PreviewFetch`),
-//!   and streams asynchronously into CEF with the exact same security headers — so remote server
-//!   credentials never enter the browser engine process.
+//!   per-segment percent-encodes remote paths and validates single-range syntax before asking the
+//!   desktop host over the private Unix socket (`EngineMsg::PreviewFetch`), derives remote MIME
+//!   strictly from extension, and streams asynchronously with backpressure and disconnect cleanup.
 
 use std::fs::File;
 use std::io::{Read as _, Seek as _, SeekFrom};
@@ -13,20 +15,24 @@ use std::sync::{Arc, Mutex};
 
 use browser_policy::preview::{
     ARTIFACT_CSP, CONNECTION_ALLOWLIST, RangeSpec, WORKSPACE_PREVIEW_CSP, artifact_resource,
-    mime_for_path, parse_preview_url, parse_range, preview_allowed,
+    encode_rel_path, mime_for_path, normalize_range_header, parse_preview_url, parse_range,
+    preview_allowed, root_is_windows,
 };
 use cef::rc::Rc as _;
 use cef::{
-    Browser, Callback, CefString, Frame, ImplRequest, ImplResourceHandler,
-    ImplResponse, ImplSchemeHandlerFactory, Request, ResourceHandler, ResourceReadCallback,
-    ResourceSkipCallback, Response, SchemeHandlerFactory, WrapResourceHandler,
-    WrapSchemeHandlerFactory, wrap_resource_handler, wrap_scheme_handler_factory,
+    Browser, Callback, CefString, Frame, ImplCallback, ImplRequest, ImplResourceHandler,
+    ImplResourceReadCallback, ImplResourceSkipCallback, ImplResponse, ImplSchemeHandlerFactory,
+    Request, ResourceHandler, ResourceReadCallback, ResourceSkipCallback, Response,
+    SchemeHandlerFactory, WrapResourceHandler, WrapSchemeHandlerFactory, wrap_resource_handler,
+    wrap_scheme_handler_factory,
 };
 
-use super::handle_path::{OpenOutcome, open_verified_file};
+use super::handle_path::{OpenOutcome, RootPin, open_verified_file};
 use super::{PendingProxy, PreviewGrant, PreviewKind, PreviewRegistry, WaitingRead};
 use crate::output::Output;
 use crate::wire::EngineMsg;
+
+const LOCAL_READ_CHUNK_MAX: usize = 64 * 1024;
 
 wrap_scheme_handler_factory! {
     pub struct PreviewSchemeHandlerFactory {
@@ -47,6 +53,11 @@ wrap_scheme_handler_factory! {
             if self.grant.is_revoked() {
                 return None;
             }
+            let req_id = req.identifier();
+            if req_id == 0 {
+                self.grant.mark_denied(&self.out_tx);
+                return None;
+            }
             let method = CefString::from(&req.method()).to_string().to_ascii_uppercase();
             if method != "GET" && method != "HEAD" {
                 return None;
@@ -54,8 +65,8 @@ wrap_scheme_handler_factory! {
             let head_only = method == "HEAD";
             let url = CefString::from(&req.url()).to_string();
             // Fail closed: every `oc-preview://` request MUST have been validated and recorded by
-            // `TabRequestHandler` or `PreviewRequestContextHandler` (covering frames, workers, and beacons).
-            let Some(rec) = self.grant.take_initiator(req.identifier()) else {
+            // `TabRequestHandler` or `ContextPool`'s `IsolatedContextHandler` (`frame == None` workers).
+            let Some(rec) = self.grant.take_initiator(req_id) else {
                 self.grant.mark_denied(&self.out_tx);
                 return None;
             };
@@ -64,7 +75,7 @@ wrap_scheme_handler_factory! {
                 return None;
             }
             let browser_initiated = rec.browser_initiated;
-            let range_header = {
+            let raw_range = {
                 let raw = CefString::from(&req.header_by_name(Some(&CefString::from("Range")))).to_string();
                 (!raw.trim().is_empty()).then_some(raw)
             };
@@ -76,49 +87,33 @@ wrap_scheme_handler_factory! {
                         return None;
                     };
                     let entry = rel == *document && browser_initiated && self.grant.take_entry();
-                    match open_verified_file(root, pin, document, &rel, entry, home.as_deref()) {
-                        OpenOutcome::Opened { file, verified_rel, size } => {
-                            if self.grant.is_revoked() {
-                                return None;
-                            }
-                            let range = parse_range(range_header.as_deref(), size);
-                            let (status, status_text, content_range, advertised_len) = match &range {
-                                RangeSpec::Full { length } => (200, "OK", None, *length),
-                                RangeSpec::Partial { length, content_range, .. } => {
-                                    // CEF's `StreamReaderURLLoader` calls `skip(start)` itself when
-                                    // a `Range` header is present; keep the handle at offset 0 so
-                                    // `skip()` positions it exactly once.
-                                    (206, "Partial Content", Some(content_range.clone()), *length)
-                                }
-                                RangeSpec::Unsatisfiable { content_range } => {
-                                    (416, "Range Not Satisfiable", Some(content_range.clone()), 0)
-                                }
-                            };
-                            let (mime, charset) = mime_for_path(&verified_rel);
-                            let state = LocalState {
-                                file: (!head_only && status != 416).then_some(file),
-                                head_only,
-                                status,
-                                status_text,
-                                mime,
-                                charset,
-                                file_size: size,
-                                offset: 0,
-                                advertised_len,
-                                remaining: if head_only || status == 416 { 0 } else { advertised_len },
-                                content_range,
-                            };
-                            Some(LocalFileResourceHandler::new(self.grant.clone(), Arc::new(Mutex::new(state))))
-                        }
-                        OpenOutcome::Denied => {
-                            self.grant.mark_denied(&self.out_tx);
-                            None
-                        }
-                        OpenOutcome::Missing => None,
+                    // Fast in-memory lexical gate on the IO thread; all disk syscalls run in `open()`
+                    // on `PreviewIoPool` off CEF's IO thread.
+                    if !preview_allowed(root, document, &rel, entry, home.as_deref()) {
+                        self.grant.mark_denied(&self.out_tx);
+                        return None;
                     }
+                    let req_spec = LocalOpenSpec {
+                        root: root.clone(),
+                        pin: pin.clone(),
+                        document: document.clone(),
+                        rel,
+                        entry,
+                        home: home.clone(),
+                        head_only,
+                        range_header: raw_range,
+                    };
+                    Some(LocalFileResourceHandler::new(
+                        self.grant.clone(),
+                        self.registry.clone(),
+                        self.out_tx.clone(),
+                        Arc::new(Mutex::new(LocalState::pending(req_spec))),
+                    ))
                 }
                 PreviewKind::Remote { root, document, .. } => {
-                    let Some((rel, _)) = parse_preview_url(&url, &self.grant.grant_host, false) else {
+                    let Some((rel, _)) =
+                        parse_preview_url(&url, &self.grant.grant_host, root_is_windows(root))
+                    else {
                         self.grant.mark_denied(&self.out_tx);
                         return None;
                     };
@@ -127,14 +122,22 @@ wrap_scheme_handler_factory! {
                         self.grant.mark_denied(&self.out_tx);
                         return None;
                     }
-                    let (req_id, proxy) = self.registry.register_proxy(self.grant.tab_id, self.grant.clone(), head_only);
+                    // Per-segment percent-encode `rel` and validate single-range syntax before host fetch.
+                    let encoded_rel = encode_rel_path(&rel);
+                    let safe_range = normalize_range_header(raw_range.as_deref());
+                    let (req_id, proxy) = self.registry.register_proxy(
+                        self.grant.tab_id,
+                        self.grant.clone(),
+                        head_only,
+                        Some(rel),
+                    );
                     let _ = self.out_tx.send(EngineMsg::PreviewFetch {
                         req_id,
                         tab_id: self.grant.tab_id,
                         kind: self.grant.kind.tag(),
-                        path: rel,
+                        path: encoded_rel,
                         method,
-                        range: range_header,
+                        range: safe_range,
                     });
                     Some(ProxyResourceHandler::new(req_id, proxy, self.registry.clone(), false))
                 }
@@ -142,7 +145,12 @@ wrap_scheme_handler_factory! {
                     let Some((_, route)) = artifact_resource(&url, &self.grant.grant_host, artifact_id) else {
                         return None;
                     };
-                    let (req_id, proxy) = self.registry.register_proxy(self.grant.tab_id, self.grant.clone(), head_only);
+                    let (req_id, proxy) = self.registry.register_proxy(
+                        self.grant.tab_id,
+                        self.grant.clone(),
+                        head_only,
+                        None,
+                    );
                     let _ = self.out_tx.send(EngineMsg::PreviewFetch {
                         req_id,
                         tab_id: self.grant.tab_id,
@@ -158,7 +166,20 @@ wrap_scheme_handler_factory! {
     }
 }
 
+struct LocalOpenSpec {
+    root: String,
+    pin: RootPin,
+    document: String,
+    rel: String,
+    entry: bool,
+    home: Option<String>,
+    head_only: bool,
+    range_header: Option<String>,
+}
+
 struct LocalState {
+    canceled: bool,
+    open_spec: Option<LocalOpenSpec>,
     file: Option<File>,
     head_only: bool,
     status: i32,
@@ -172,9 +193,32 @@ struct LocalState {
     content_range: Option<String>,
 }
 
+impl LocalState {
+    fn pending(spec: LocalOpenSpec) -> Self {
+        let head_only = spec.head_only;
+        Self {
+            canceled: false,
+            open_spec: Some(spec),
+            file: None,
+            head_only,
+            status: 404,
+            status_text: "Not Found",
+            mime: "application/octet-stream",
+            charset: None,
+            file_size: 0,
+            offset: 0,
+            advertised_len: 0,
+            remaining: 0,
+            content_range: None,
+        }
+    }
+}
+
 wrap_resource_handler! {
     struct LocalFileResourceHandler {
         grant: Arc<PreviewGrant>,
+        registry: Arc<PreviewRegistry>,
+        out_tx: Output,
         state: Arc<Mutex<LocalState>>,
     }
 
@@ -183,12 +227,94 @@ wrap_resource_handler! {
             &self,
             _request: Option<&mut Request>,
             handle_request: Option<&mut ::std::os::raw::c_int>,
-            _callback: Option<&mut Callback>,
+            callback: Option<&mut Callback>,
         ) -> ::std::os::raw::c_int {
-            if let Some(h) = handle_request {
-                *h = 1;
+            if self.grant.is_revoked() {
+                if let Some(h) = handle_request {
+                    *h = 1;
+                }
+                return 0;
             }
-            i32::from(!self.grant.is_revoked())
+            let spec = {
+                let mut st = self.state.lock().unwrap();
+                if st.canceled {
+                    None
+                } else {
+                    st.open_spec.take()
+                }
+            };
+            let (Some(spec), Some(cb)) = (spec, callback.cloned()) else {
+                if let Some(h) = handle_request {
+                    *h = 1;
+                }
+                return 0;
+            };
+            let state = self.state.clone();
+            let grant = self.grant.clone();
+            let out_tx = self.out_tx.clone();
+            let spawned = self.registry.io().try_spawn(move || {
+                if grant.is_revoked() || state.lock().unwrap().canceled {
+                    cb.cancel();
+                    return;
+                }
+                match open_verified_file(
+                    &spec.root,
+                    &spec.pin,
+                    &spec.document,
+                    &spec.rel,
+                    spec.entry,
+                    spec.home.as_deref(),
+                ) {
+                    OpenOutcome::Opened { file, verified_rel, size } => {
+                        let range = parse_range(spec.range_header.as_deref(), size);
+                        let (status, status_text, content_range, advertised_len) = match &range {
+                            RangeSpec::Full { length } => (200, "OK", None, *length),
+                            RangeSpec::Partial { length, content_range, .. } => {
+                                (206, "Partial Content", Some(content_range.clone()), *length)
+                            }
+                            RangeSpec::Unsatisfiable { content_range } => {
+                                (416, "Range Not Satisfiable", Some(content_range.clone()), 0)
+                            }
+                        };
+                        let (mime, charset) = mime_for_path(&verified_rel);
+                        let mut st = state.lock().unwrap();
+                        if st.canceled || grant.is_revoked() {
+                            drop(st);
+                            cb.cancel();
+                            return;
+                        }
+                        st.file = (!spec.head_only && status != 416).then_some(file);
+                        st.status = status;
+                        st.status_text = status_text;
+                        st.mime = mime;
+                        st.charset = charset;
+                        st.file_size = size;
+                        st.offset = 0;
+                        st.advertised_len = advertised_len;
+                        st.remaining = if spec.head_only || status == 416 { 0 } else { advertised_len };
+                        st.content_range = content_range;
+                        drop(st);
+                        cb.cont();
+                    }
+                    OpenOutcome::Denied => {
+                        grant.mark_denied(&out_tx);
+                        cb.cancel();
+                    }
+                    OpenOutcome::Missing => {
+                        cb.cancel();
+                    }
+                }
+            });
+            if !spawned {
+                if let Some(h) = handle_request {
+                    *h = 1;
+                }
+                return 0;
+            }
+            if let Some(h) = handle_request {
+                *h = 0;
+            }
+            1
         }
 
         fn response_headers(
@@ -223,47 +349,60 @@ wrap_resource_handler! {
             &self,
             bytes_to_skip: i64,
             bytes_skipped: Option<&mut i64>,
-            _callback: Option<&mut ResourceSkipCallback>,
+            callback: Option<&mut ResourceSkipCallback>,
         ) -> ::std::os::raw::c_int {
-            let mut st = self.state.lock().unwrap();
-            if bytes_to_skip < 0 || self.grant.is_revoked() || st.status == 416 {
-                if let Some(s) = bytes_skipped {
-                    *s = -2;
+            let Some(out_s) = bytes_skipped else { return 0 };
+            let (file, next_offset, skip) = {
+                let mut st = self.state.lock().unwrap();
+                if bytes_to_skip < 0 || st.canceled || self.grant.is_revoked() || st.status == 416 {
+                    *out_s = -2;
+                    return 0;
                 }
-                return 0;
-            }
-            if st.head_only {
-                if let Some(s) = bytes_skipped {
-                    *s = bytes_to_skip;
+                if st.head_only || bytes_to_skip == 0 {
+                    *out_s = bytes_to_skip;
+                    return 1;
                 }
-                return 1;
-            }
-            let skip = bytes_to_skip as u64;
-            let Some(next_offset) = st.offset.checked_add(skip) else {
-                if let Some(s) = bytes_skipped {
-                    *s = -2;
+                let skip = bytes_to_skip as u64;
+                let Some(next_offset) = st.offset.checked_add(skip) else {
+                    *out_s = -2;
+                    return 0;
+                };
+                if next_offset > st.file_size {
+                    *out_s = -2;
+                    return 0;
                 }
+                let Some(file) = st.file.take() else {
+                    *out_s = -2;
+                    return 0;
+                };
+                (file, next_offset, skip)
+            };
+            let Some(cb) = callback.cloned() else {
+                *out_s = -2;
                 return 0;
             };
-            if next_offset > st.file_size {
-                if let Some(s) = bytes_skipped {
-                    *s = -2;
+            let state = self.state.clone();
+            let grant = self.grant.clone();
+            let spawned = self.registry.io().try_spawn(move || {
+                let mut file = file;
+                let seek_ok = file.seek(SeekFrom::Start(next_offset)).is_ok();
+                let mut st = state.lock().unwrap();
+                if !seek_ok || st.canceled || grant.is_revoked() {
+                    drop(st);
+                    cb.cont(-2);
+                    return;
                 }
+                st.file = Some(file);
+                st.offset = next_offset;
+                st.remaining = st.advertised_len.min(st.file_size.saturating_sub(next_offset));
+                drop(st);
+                cb.cont(skip as i64);
+            });
+            if !spawned {
+                *out_s = -2;
                 return 0;
             }
-            if let Some(file) = st.file.as_mut()
-                && file.seek(SeekFrom::Start(next_offset)).is_err()
-            {
-                if let Some(s) = bytes_skipped {
-                    *s = -2;
-                }
-                return 0;
-            }
-            st.offset = next_offset;
-            st.remaining = st.advertised_len.min(st.file_size.saturating_sub(next_offset));
-            if let Some(s) = bytes_skipped {
-                *s = skip as i64;
-            }
+            *out_s = 0;
             1
         }
 
@@ -272,48 +411,93 @@ wrap_resource_handler! {
             data_out: *mut u8,
             bytes_to_read: ::std::os::raw::c_int,
             bytes_read: Option<&mut ::std::os::raw::c_int>,
-            _callback: Option<&mut ResourceReadCallback>,
+            callback: Option<&mut ResourceReadCallback>,
         ) -> ::std::os::raw::c_int {
             let Some(out_n) = bytes_read else { return 0 };
             if self.grant.is_revoked() || data_out.is_null() || bytes_to_read <= 0 {
                 *out_n = if self.grant.is_revoked() { -2 } else { 0 };
                 return 0;
             }
-            let mut st = self.state.lock().unwrap();
-            if st.remaining == 0 {
-                st.file = None;
-                *out_n = 0;
-                return 0;
-            }
-            let want = (bytes_to_read as u64).min(st.remaining) as usize;
-            let Some(file) = st.file.as_mut() else {
-                *out_n = 0;
-                return 0;
-            };
-            // SAFETY: CEF passes a writable buffer of at least `bytes_to_read` bytes.
-            let slice = unsafe { std::slice::from_raw_parts_mut(data_out, want) };
-            match file.read(slice) {
-                Ok(0) => {
-                    st.remaining = 0;
+            let (file, want) = {
+                let mut st = self.state.lock().unwrap();
+                if st.canceled {
+                    *out_n = -2;
+                    return 0;
+                }
+                if st.head_only || st.status == 416 || st.remaining == 0 {
                     st.file = None;
                     *out_n = 0;
-                    0
+                    return 0;
                 }
-                Ok(n) => {
-                    st.remaining = st.remaining.saturating_sub(n as u64);
-                    *out_n = n as i32;
-                    1
+                let want = (bytes_to_read as u64)
+                    .min(st.remaining)
+                    .min(LOCAL_READ_CHUNK_MAX as u64) as usize;
+                let Some(file) = st.file.take() else {
+                    *out_n = 0;
+                    return 0;
+                };
+                (file, want)
+            };
+            let Some(cb) = callback.cloned() else {
+                *out_n = -2;
+                return 0;
+            };
+            let data_out_addr = data_out as usize;
+            let state = self.state.clone();
+            let grant = self.grant.clone();
+            let spawned = self.registry.io().try_spawn(move || {
+                let mut file = file;
+                let mut buf = vec![0u8; want];
+                let res = file.read(&mut buf);
+                // Hold `state` mutex across the `data_out` copy so `cancel()` cannot return to
+                // CEF until any in-flight write finishes (zero UAF risk).
+                let mut st = state.lock().unwrap();
+                if st.canceled || grant.is_revoked() {
+                    drop(st);
+                    cb.cont(-2);
+                    return;
                 }
-                Err(_) => {
-                    st.file = None;
-                    *out_n = -2;
-                    0
+                match res {
+                    Ok(0) => {
+                        st.remaining = 0;
+                        st.file = None;
+                        drop(st);
+                        cb.cont(0);
+                    }
+                    Ok(n) => {
+                        // SAFETY: `!st.canceled` under mutex guarantees CEF's `data_out` buffer
+                        // of at least `bytes_to_read >= want >= n` bytes is still valid.
+                        unsafe {
+                            std::ptr::copy_nonoverlapping(buf.as_ptr(), data_out_addr as *mut u8, n);
+                        }
+                        st.offset = st.offset.saturating_add(n as u64);
+                        st.remaining = st.remaining.saturating_sub(n as u64);
+                        if st.remaining > 0 {
+                            st.file = Some(file);
+                        }
+                        drop(st);
+                        cb.cont(n as i32);
+                    }
+                    Err(_) => {
+                        st.file = None;
+                        drop(st);
+                        cb.cont(-2);
+                    }
                 }
+            });
+            if !spawned {
+                *out_n = -2;
+                return 0;
             }
+            *out_n = 0;
+            1
         }
 
         fn cancel(&self) {
-            self.state.lock().unwrap().file = None;
+            let mut st = self.state.lock().unwrap();
+            st.canceled = true;
+            st.open_spec = None;
+            st.file = None;
         }
     }
 }
@@ -335,16 +519,23 @@ wrap_resource_handler! {
         ) -> ::std::os::raw::c_int {
             let mut st = self.proxy.state.lock().unwrap();
             if st.canceled || self.proxy.grant.is_revoked() {
+                drop(st);
+                self.registry.remove_proxy(self.req_id);
                 if let Some(h) = handle_request {
                     *h = 1;
                 }
                 return 0;
             }
             if st.head_ready {
+                let ok = st.head_ok;
+                drop(st);
+                if !ok {
+                    self.registry.remove_proxy(self.req_id);
+                }
                 if let Some(h) = handle_request {
                     *h = 1;
                 }
-                return i32::from(st.head_ok);
+                return i32::from(ok);
             }
             if let Some(h) = handle_request {
                 *h = 0;
@@ -380,8 +571,13 @@ wrap_resource_handler! {
                 st.content_range.as_deref(),
             );
             if let Some(len) = response_length {
+                // On 206 Partial Content, report the total resource size (`total_size` parsed from
+                // `Content-Range`) so CEF's `StreamReaderURLLoader` bounds check passes even when
+                // `start >= slice_len`.
                 *len = if st.status == 416 {
                     0
+                } else if st.status == 206 {
+                    st.total_size.and_then(|n| i64::try_from(n).ok()).unwrap_or(-1)
                 } else {
                     st.content_length.and_then(|n| i64::try_from(n).ok()).unwrap_or(-1)
                 };
@@ -429,6 +625,10 @@ wrap_resource_handler! {
                 *out_n = -2;
                 return 0;
             }
+            if st.status == 416 {
+                *out_n = 0;
+                return 0;
+            }
             if let Some(mut chunk) = st.chunks.pop_front() {
                 let max_len = bytes_to_read as usize;
                 let n = chunk.len().min(max_len);
@@ -436,6 +636,7 @@ wrap_resource_handler! {
                 unsafe {
                     std::ptr::copy_nonoverlapping(chunk.as_ptr(), data_out, n);
                 }
+                st.queued_bytes = st.queued_bytes.saturating_sub(n);
                 if n < chunk.len() {
                     st.chunks.push_front(chunk.split_off(n));
                 }

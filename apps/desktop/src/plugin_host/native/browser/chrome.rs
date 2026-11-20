@@ -36,6 +36,19 @@ pub(super) fn asyncs(host: &Host<'_>, t: &Table) -> mlua::Result<()> {
 
 pub(super) fn tab_methods(lua: &Lua, m: &Table) -> mlua::Result<()> {
     m.raw_set(
+        "IsPrivate",
+        lua.create_function(|lua, this: Table| {
+            read_tab(lua, &this, "BrowserTab:IsPrivate", |app, id| {
+                Ok(app
+                    .workspace_panes
+                    .browser
+                    .host
+                    .tab(id)
+                    .is_some_and(|t| t.context.is_isolated()))
+            })
+        })?,
+    )?;
+    m.raw_set(
         "Favicon",
         lua.create_function(|lua, this: Table| {
             read_tab(lua, &this, "BrowserTab:Favicon", |app, id| {
