@@ -1,8 +1,8 @@
 --!strict
--- The Context tab (tab.tsx): the session's figures in a two-column grid (one column under 32rem),
--- its system prompt, and its raw messages, each opening to its JSON, with Export session. The
--- messages are those Desktop's timeline would hold (the host's `windowStart` on), read off the
--- server again whenever the session changes.
+-- The Context tab (tab.tsx): the session's figures in a two-column grid (one column under 32rem)
+-- and its raw messages, each opening to its JSON, with Export session. The messages are those
+-- Desktop's timeline would hold (the host's `windowStart` on), read off the server again whenever
+-- the session changes.
 
 local ui = require("@opencode/ui")
 local json = require("./json")
@@ -67,17 +67,6 @@ local STAT_LINE = table.freeze({ w = "full", gap = 16 } :: UiBoxProps)
 local STATS = table.freeze({ key = "context-stats", w = "full", gap = 16 } :: UiBoxProps)
 local CURRENCY = table.freeze({ style = "currency" } :: NumberFormat)
 local HEADING = table.freeze({ size = 13, weight = "regular" :: FontWeight, lineHeight = 19.5, color = "text-weak" } :: UiTextProps)
-local SYSTEM = table.freeze({ key = "context-system", w = "full", gap = 8 } :: UiBoxProps)
-local SYSTEM_BOX =
-    table.freeze({ w = "full", px = 12, py = 8, radius = 6, border = "border-base", fill = "surface-1" } :: UiBoxProps)
-local SYSTEM_TEXT = table.freeze({
-    size = 13,
-    weight = "regular" :: FontWeight,
-    lineHeight = 19.5,
-    wrap = true,
-    selectable = true,
-    color = "text-chrome",
-} :: UiTextProps)
 local CONTENT = table.freeze({ key = "session-usage-content", w = "full", pl = 24, pr = 32, pt = 16, pb = 40, gap = 40 } :: UiBoxProps)
 local TAB = table.freeze({ key = "context-tab", w = "full", h = "full", pt = 8 } :: UiBoxProps)
 local TAB_MOBILE = table.freeze({ key = "context-tab", w = "full", h = "full", pt = 0 } :: UiBoxProps)
@@ -280,25 +269,6 @@ local function stats(env: Env, session: Session?, sid: string, raws: { Raw }?, w
         end
     end
     return ui.col(STATS, lines)
-end
-
--- The latest system message's text, trimmed; nil when there is none.
-local function promptOf(raws: { Raw }): string?
-    for i = #raws, 1, -1 do
-        if raws[i].kind == "system" then
-            local text = json.string(json.member(raws[i].text, "text"))
-            local prompt = if text then text:match("^%s*(.-)%s*$") else nil
-            return if prompt == "" then nil else prompt
-        end
-    end
-    return nil
-end
-
-local function systemPrompt(env: Env, prompt: string): ui.Node
-    return ui.col(SYSTEM, {
-        ui.text(env.I18n:T("systemPrompt.title"), HEADING),
-        ui.col(SYSTEM_BOX, { ui.text(prompt, SYSTEM_TEXT) }),
-    })
 end
 
 -- `sessionExportFilename`: the title (or slug, or id) lowercased, runs of anything but letters,
@@ -565,21 +535,15 @@ function tab.panel(env: Env, view: View, props: PanelProps): ui.Node?
     local version =
         `{session and session.version}:{generation}:{env.state.toggles}:{exporting}:{wide}:{math.round(props.width)}:{props.placement}:{look}`
     return view:Memo(`panel-{sid}`, version, function()
-        -- The figures and the system prompt move only with the session and its messages: a
-        -- rebuild for a raw message opening or an export reuses them.
-        local prompt = promptOf(raws or {})
+        -- The figures move only with the session and its messages: a rebuild for a raw message
+        -- opening or an export reuses them.
         local figures = `{session and session.version}:{generation}:{wide}:{look}`
         local content = ui.col(CONTENT, {
             view:Memo(`stats-{sid}`, figures, function()
                 return stats(env, session, sid, raws, wide)
             end),
-            if prompt
-                then view:Memo(`system-{sid}`, figures, function()
-                    return systemPrompt(env, prompt :: string)
-                end)
-                else false,
             rawMessages(env, view, sid, raws or {}, generation, exporting, look),
-        } :: { any })
+        })
         -- The side region's tab sits 8 under the strip; a narrow window's view has no strip.
         return ui.col(if props.placement == "mobile" then TAB_MOBILE else TAB, {
             ui.col(SCROLL, { content }),
