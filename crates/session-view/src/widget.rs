@@ -44,6 +44,7 @@ fn words() -> Rc<Words> {
             exit_fullscreen: opencode_i18n::t!("rune.widget.exitFullscreen").to_owned(),
             elsewhere: opencode_i18n::t!("rune.widget.elsewhere").to_owned(),
             release: opencode_i18n::t!("rune.widget.release").to_owned(),
+            superseded: opencode_i18n::t!("rune.widget.superseded").to_owned(),
             sending: opencode_i18n::t!("rune.widget.sending").to_owned(),
             submitted: opencode_i18n::t!("rune.widget.submitted").to_owned(),
             dismissed: opencode_i18n::t!("rune.widget.dismissed").to_owned(),
@@ -88,6 +89,20 @@ pub fn frame<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, label: &s
         Place::Elsewhere => opencode_widget_view::placeholder(&look, label).key(format!("widget-{id}")),
         Place::Screen { size, close } => opencode_widget_view::screen(&look, local, hooks, face, label, size[1], close).key(format!("widget-screen-{id}")),
     }
+}
+
+/// A widget a newer one replaced: one quiet line, "Updated below", where it was.
+pub fn superseded<S: TimelineHost>(p: &Pal, id: &str) -> El {
+    let words = opencode_i18n::t!("rune.widget.superseded").to_owned();
+    rune::row()
+        .key(format!("widget-{id}"))
+        .gap(8.0)
+        .min_h(20.0)
+        .center_y()
+        .role("status")
+        .label(words.clone())
+        .child(rune::text("◈").font(crate::style::UI).color(p.faint).a11y_hidden())
+        .child(rune::text(words).font(crate::style::UI).color(p.faint))
 }
 
 /// The chip naming a widget's granted network hosts.

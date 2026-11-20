@@ -54,6 +54,8 @@ pub struct Words {
     pub elsewhere: String,
     /// The hint while the widget has the keyboard.
     pub release: String,
+    /// A widget a newer one replaced.
+    pub superseded: String,
 }
 
 impl Default for Words {
@@ -72,6 +74,7 @@ impl Default for Words {
             exit_fullscreen: "Exit full screen".into(),
             elsewhere: "Open in full screen".into(),
             release: "Esc to release".into(),
+            superseded: "Updated below".into(),
         }
     }
 }
@@ -146,6 +149,7 @@ pub fn frame<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, f
             b.push(match how {
                 Closed::Submitted(value) => status(k, k.glyph.check, c.success.icon, &look.words.submitted, Some(summary(value)).filter(|s| !s.is_empty())),
                 Closed::Dismissed => status(k, k.glyph.close, c.icon_muted, &look.words.dismissed, None),
+                Closed::Superseded => status(k, k.glyph.chevron_down, c.icon_muted, &look.words.superseded, None),
             });
             b
         }

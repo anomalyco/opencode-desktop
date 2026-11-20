@@ -17,6 +17,8 @@ pub enum WidgetStatus {
     /// Answered with `response`.
     Submitted(Value),
     Dismissed,
+    /// A newer widget replaced it (`replaces`): the timeline shows "Updated below".
+    Superseded,
 }
 
 /// One widget as the plugin keeps it (`Widget.State`).
@@ -45,6 +47,7 @@ impl WidgetState {
         let status = match v["status"].as_str() {
             Some("submitted") => WidgetStatus::Submitted(v["response"].clone()),
             Some("dismissed") => WidgetStatus::Dismissed,
+            Some("superseded") => WidgetStatus::Superseded,
             _ => WidgetStatus::Open,
         };
         Some(WidgetState {

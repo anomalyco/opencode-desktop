@@ -20,6 +20,14 @@ use crate::{Entry, Grants, Kind, States, Template, WidgetsHost, input, retry};
 /// before it posted a widget).
 pub fn view<H: WidgetsHost + TimelineHost>(s: &H, p: &Pal, session: &str, message: &str, call: &session_view::tools::Call) -> Option<El> {
     let key = widget_key(message, call.id);
+    // Replaced by a newer widget (which follows in the timeline): one quiet line, not interactive.
+    let superseded = match s.widgets().states(session) {
+        Some(States::Ready(map)) => map.get(&key).is_some_and(|w| w.status == WidgetStatus::Superseded),
+        _ => false,
+    };
+    if superseded {
+        return Some(session_view::widget::superseded::<H>(p, &key));
+    }
     let Some(e) = s.widgets().entries.get(&key) else {
         // Not opened yet (the next frame's sync opens it): a closed one already says how it
         // ended; an open one, or one whose state is on the way, shows its placeholder.
@@ -93,6 +101,7 @@ pub(crate) fn closed(status: &WidgetStatus) -> Option<Closed> {
         WidgetStatus::Open => None,
         WidgetStatus::Submitted(v) => Some(Closed::Submitted(v.clone())),
         WidgetStatus::Dismissed => Some(Closed::Dismissed),
+        WidgetStatus::Superseded => Some(Closed::Superseded),
     }
 }
 

@@ -35,6 +35,7 @@ pub const VARIANTS: &[(&str, usize)] = &[
     ("Live shader", 13),
     ("Keyboard and pointer", 14),
     ("Live shader, rebuilt", 15),
+    ("Superseded, template calls", 16),
 ];
 pub const KEYS: &[Trigger] = &[
     replay(open),
@@ -200,6 +201,7 @@ fn template(v: usize) -> &'static str {
         13 => SHADER_GAME,
         14 => INPUT,
         15 => SHADER_GAME,
+        16 => "confirm",
         _ => "suggestions",
     }
 }
@@ -265,6 +267,7 @@ fn data(v: usize) -> (&'static str, Value) {
         // The same game with a caption that changes every frame: every frame builds the widget
         // again, the cost the values-only path saves.
         15 => ("Shader paddle", json!({ "clock": true })),
+        16 => ("Delete the branch", json!({ "title": "Delete feature/reconnect-backoff?", "message": "The branch is merged into `main`." })),
         _ => ("Pick a hero image", json!({
             "title": "Which hero image should the landing page use?",
             "options": [
@@ -318,6 +321,10 @@ fn open(s: &mut App, tx: &mut Play<App>) {
     if *s.fixture_run.variant == 3 {
         tx.after(0.9, |s, tx| answer_elsewhere(s, tx));
     }
+    // Replaced by a newer widget: one quiet line where it was.
+    if *s.fixture_run.variant == 16 {
+        tx.after(0.9, |s, tx| changed(s, "superseded", Value::Null, tx));
+    }
     if *s.fixture_run.variant == 12 {
         tx.after(1.8, |s, tx| fullscreen(s, tx));
     }
@@ -330,6 +337,19 @@ fn post(s: &mut App, tx: &mut Tx) {
     let (title, data) = data(v);
     let input = json!({ "template": name, "data": data, "title": title });
     emit(s, "session.step.started", json!({ "assistantMessageID": ID, "agent": "build", "model": { "id": "claude-opus-5-5", "providerID": "anthropic" } }), tx);
+    // The agent worked on its template first: each `widget_template` call is one quiet line.
+    if v == 16 {
+        let calls = [
+            ("call_tpl_list", json!({ "action": "list" }), json!({ "action": "list", "count": 23 })),
+            ("call_tpl_get", json!({ "action": "get", "name": "neon-runner" }), json!({ "action": "get", "name": "neon-runner", "version": "0123456789abcdef", "revision": 2, "lines": 180 })),
+            ("call_tpl_edit", json!({ "action": "edit", "name": "neon-runner" }), json!({ "action": "edit", "name": "neon-runner", "version": "1123456789abcdef", "revision": 3, "lines": 184 })),
+        ];
+        for (id, input, metadata) in calls {
+            emit(s, "session.tool.input.started", json!({ "assistantMessageID": ID, "id": id, "name": "widget_template" }), tx);
+            emit(s, "session.tool.called", json!({ "assistantMessageID": ID, "id": id, "name": "widget_template", "input": input, "executed": true }), tx);
+            emit(s, "session.tool.success", json!({ "assistantMessageID": ID, "id": id, "content": [{ "type": "text", "text": "…" }], "metadata": metadata, "executed": true }), tx);
+        }
+    }
     emit(s, "session.tool.input.started", json!({ "assistantMessageID": ID, "id": CALL, "name": "widget" }), tx);
     emit(s, "session.tool.called", json!({ "assistantMessageID": ID, "id": CALL, "name": "widget", "input": input, "executed": true }), tx);
     changed(s, "open", Value::Null, tx);

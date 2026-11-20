@@ -35,6 +35,8 @@ use crate::step::{Response, StepInput, StepOutput, WidgetEvent};
 pub enum Closed {
     Submitted(Value),
     Dismissed,
+    /// A newer widget replaced it.
+    Superseded,
 }
 
 impl Closed {

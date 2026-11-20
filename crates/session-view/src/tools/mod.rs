@@ -208,6 +208,7 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
             "webfetch" => lists::webfetch(s, p, cx, c),
             "websearch" => lists::websearch(s, p, cx, c),
             "skill" => lists::skill_group(s, p, cx, &[*c]),
+            "widget_template" => widget_template(s, p, cx, c),
             _ => lists::generic(s, p, cx, c),
         }
     };
@@ -219,6 +220,25 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
 /// posted one, shows the call as any other.
 pub fn widget<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, message: &str, c: &Call) -> El {
     s.widget(p, cx.session, message, c).unwrap_or_else(|| view(s, p, cx, c))
+}
+
+/// A `widget_template` call as one quiet line from its short metadata (`specs/v2/widgets.md`),
+/// never its source: "Saved template neon-runner v3", "Edited …", "Read template …", "Listed 12
+/// widget templates".
+fn widget_template<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
+    let m = c.metadata;
+    let name = m["name"].as_str().unwrap_or("").to_owned();
+    let revision = m["revision"].as_u64().map(|r| r.to_string());
+    let title = match (m["action"].as_str(), revision) {
+        (Some("list"), _) => opencode_i18n::t!("rune.widget.template.listed", count = m["count"].as_u64().unwrap_or(0).to_string()).to_string(),
+        (Some("get"), _) => opencode_i18n::t!("rune.widget.template.read", name = name).to_string(),
+        (Some("save"), Some(r)) => opencode_i18n::t!("rune.widget.template.saved", name = name, revision = r).to_string(),
+        (Some("edit"), Some(r)) => opencode_i18n::t!("rune.widget.template.edited", name = name, revision = r).to_string(),
+        (Some("save" | "edit"), None) => opencode_i18n::t!("rune.widget.template.savedBuiltin", name = name).to_string(),
+        _ => opencode_i18n::t!("rune.widget.template.tool").to_string(),
+    };
+    let d = Display::of(s, cx, c, false);
+    still(trigger(s, p, cx, c, d, Trigger { title: title.into(), ..Trigger::default() }, Press::None, None))
 }
 
 /// A shell command run from the composer (`SessionShellMessage`): its shell call, and under it

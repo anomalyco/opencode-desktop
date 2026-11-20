@@ -183,6 +183,7 @@ fn status(m: &WidgetStatus) -> Status {
         WidgetStatus::Open => Status::Open,
         WidgetStatus::Submitted(v) => Status::Closed(Closed::Submitted(v.clone())),
         WidgetStatus::Dismissed => Status::Closed(Closed::Dismissed),
+        WidgetStatus::Superseded => Status::Closed(Closed::Superseded),
     }
 }
 

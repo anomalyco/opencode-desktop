@@ -382,6 +382,13 @@
   "rune.widget.retry": "Try again",
   "rune.widget.sending": "Sending…",
   "rune.widget.submitted": "Submitted",
+  "rune.widget.superseded": "Updated below",
+  "rune.widget.template.edited": "Edited template {{name}} v{{revision}}",
+  "rune.widget.template.listed": "Listed {{count}} widget templates",
+  "rune.widget.template.read": "Read template {{name}}",
+  "rune.widget.template.saved": "Saved template {{name}} v{{revision}}",
+  "rune.widget.template.savedBuiltin": "Saved template {{name}}",
+  "rune.widget.template.tool": "Widget template",
   "rune.widget.unsupported": "Widgets need the desktop app",
   "session.markRead": "Mark as read",
   "session.markUnread": "Mark as unread"
