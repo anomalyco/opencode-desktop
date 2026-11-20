@@ -25,6 +25,10 @@ impl TipsHost for App {
         !self.plugins.window_blurred.get() && self.toast.stack.page() == rune_kit::ToastPage::Shown
     }
 
+    fn is_touch_device(&self) -> bool {
+        session_view::style::hover_none()
+    }
+
     fn route_key(&self) -> TipRoute {
         TipRoute::from_hash(rune::Tracked::untracked(&self.route))
     }

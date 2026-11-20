@@ -28,6 +28,7 @@ mod jobs;
 pub mod mcp;
 mod mentions;
 mod output_head;
+mod plugins;
 #[cfg(not(target_arch = "wasm32"))]
 mod reach;
 #[cfg(not(target_arch = "wasm32"))]
@@ -43,6 +44,7 @@ pub use downloads::{export_filename, save_download, set_download_dir};
 pub use hub::{EventHub, HUB_AT, connect_workers, heard_at};
 pub use ids::{message_id, session_id};
 pub use jobs::{JobEndpoint, is_job_endpoint_unsupported};
+pub use plugins::{PluginEndpoint, is_plugin_endpoint_unsupported};
 #[cfg(not(target_arch = "wasm32"))]
 pub use reach::reach_back;
 #[cfg(not(target_arch = "wasm32"))]
@@ -774,7 +776,7 @@ fn event_line(line: &str) -> Option<Incoming> {
     if ty.starts_with("session.execution.") || matches!(ty.as_str(), "permission.asked" | "form.created" | "session.archived") {
         data["eventCreated"] = v["created"].clone();
     }
-    if matches!(ty.as_str(), "vcs.branch.updated" | "filesystem.changed") {
+    if matches!(ty.as_str(), "vcs.branch.updated" | "filesystem.changed" | "plugin.updated" | "config.updated") {
         data["eventLocation"] = v["location"].clone();
     }
     Some(Incoming::Event { ty, data })
