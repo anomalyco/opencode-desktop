@@ -377,6 +377,7 @@ pub(crate) fn scan_top_level_cdp(raw: &[u8]) -> TopLevelCdp {
                     }
                     if key == b"method" {
                         out.has_method = true;
+                        break;
                     } else if key == b"sessionId" {
                         out.has_session_id = true;
                     } else if key == b"id" {

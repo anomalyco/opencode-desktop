@@ -12,6 +12,7 @@ use opencode_kit::browser_rpc::{Command, Outcome, TargetMeta, failure_code};
 use serde_json::{Value, json};
 
 use super::super::session::SessionAttachment;
+use super::read::{queue_live_frame_refresh, step_live_frame_refresh};
 use super::{ExecPhase, StepOutcome, cdp_err_msg, check_page_guards, send_rpc_cdp, verify_authorized_state};
 use crate::App;
 
@@ -36,10 +37,13 @@ pub(super) struct SnapshotState {
 
 impl SnapshotState {
     pub fn cancel_cleanup(&mut self, app: &mut App) {
-        match &self.stage {
-            SnapshotStage::CheckFrame { cdp_req }
-            | SnapshotStage::FetchAx { cdp_req }
-            | SnapshotStage::FetchBoxes { cdp_req, .. } => {
+        match &mut self.stage {
+            SnapshotStage::CheckFrame { pending, .. } | SnapshotStage::VerifyPost { pending, .. } => {
+                for (req_id, _) in pending.drain(..) {
+                    app.workspace_panes.browser.host.cancel_cdp(req_id);
+                }
+            }
+            SnapshotStage::FetchAx { cdp_req } | SnapshotStage::FetchBoxes { cdp_req, .. } => {
                 app.workspace_panes.browser.host.cancel_cdp(*cdp_req);
             }
             SnapshotStage::ResolveFields { step, .. } => match step {
@@ -62,7 +66,7 @@ impl SnapshotState {
 }
 
 pub(super) enum SnapshotStage {
-    CheckFrame { cdp_req: u64 },
+    CheckFrame { pending: Vec<(u64, Option<String>)>, top_tree: Option<Value> },
     FetchAx { cdp_req: u64 },
     ResolveFields {
         prepared: PreparedSnapshot,
@@ -79,6 +83,12 @@ pub(super) enum SnapshotStage {
         box_queue: Vec<i64>,
         current_id: i64,
         cdp_req: u64,
+    },
+    VerifyPost {
+        pending: Vec<(u64, Option<String>)>,
+        prepared: PreparedSnapshot,
+        readable: HashMap<i64, bool>,
+        boxes: HashMap<i64, String>,
     },
 }
 
@@ -112,27 +122,12 @@ fn start_frames(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> St
         return StepOutcome::Done(o);
     }
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
-    let top_req = match app.workspace_panes.browser.host.send_cdp(host_id, "Page.getFrameTree", json!({}), None) {
-        Ok(id) => id,
-        Err(e) => return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, e)),
-    };
-    let mut pending = vec![(top_req, None)];
-    if app.workspace_panes.browser.host.engine_agent_tools() {
-        let oopif_sids = att
-            .frames
-            .get(&host_id)
-            .map(|f| f.oopif_sessions())
-            .unwrap_or_default();
-        for sid in oopif_sids {
-            if let Ok(req) = app.workspace_panes.browser.host.send_typed_cdp(
-                host_id,
-                "Page.getFrameTree",
-                json!({}),
-                Some(sid.clone()),
-            ) {
-                pending.push((req, Some(sid)));
-            }
-        }
+    let pending = queue_live_frame_refresh(att, app, host_id);
+    if pending.is_empty() {
+        return StepOutcome::Done(Outcome::fail(
+            failure_code::OPERATION_FAILED,
+            "Failed to query live frame tree on this tab.",
+        ));
     }
     StepOutcome::Pending(ExecPhase::Frames(FramesState {
         host_id,
@@ -192,19 +187,23 @@ fn start_snapshot(
     let expected_gen = cmd.generation.unwrap_or_else(|| att.generation_of(host_id));
     let expected_target = cmd.target.clone();
     if frame_id.is_some() {
-        match app.workspace_panes.browser.host.send_cdp(host_id, "Page.getFrameTree", json!({}), None) {
-            Ok(cdp_req) => StepOutcome::Pending(ExecPhase::Snapshot(SnapshotState {
-                host_id,
-                frame_id,
-                cdp_session: None,
-                expected_gen,
-                expected_target,
-                cmd: cmd.clone(),
-                opts,
-                stage: SnapshotStage::CheckFrame { cdp_req },
-            })),
-            Err(e) => StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, e)),
+        let pending = queue_live_frame_refresh(att, app, host_id);
+        if pending.is_empty() {
+            return StepOutcome::Done(Outcome::fail(
+                failure_code::OPERATION_FAILED,
+                "Failed to query live frame tree on this tab.",
+            ));
         }
+        StepOutcome::Pending(ExecPhase::Snapshot(SnapshotState {
+            host_id,
+            frame_id,
+            cdp_session: None,
+            expected_gen,
+            expected_target,
+            cmd: cmd.clone(),
+            opts,
+            stage: SnapshotStage::CheckFrame { pending, top_tree: None },
+        }))
     } else {
         match send_rpc_cdp(
             app,
@@ -229,46 +228,10 @@ fn start_snapshot(
 }
 
 pub(super) fn step_frames(att: &mut SessionAttachment, app: &mut App, st: &mut FramesState) -> Option<Outcome> {
-    let mut remaining = Vec::with_capacity(st.pending.len());
-    let mut fatal_err: Option<String> = None;
-    for (req_id, sid) in st.pending.drain(..) {
-        match app.workspace_panes.browser.host.take_cdp_response(req_id) {
-            Some(Ok(val)) => {
-                if att
-                    .frames
-                    .entry(st.host_id)
-                    .or_default()
-                    .ingest_frame_tree(&val, sid.as_deref())
-                {
-                    att.bump_generation(st.host_id);
-                }
-                if sid.is_none() {
-                    st.top_tree = Some(val);
-                }
-            }
-            Some(Err(err)) => {
-                let msg = cdp_err_msg(&err);
-                let still_active_oopif = sid.as_deref().is_some_and(|s| {
-                    att.frames
-                        .get(&st.host_id)
-                        .is_some_and(|f| f.frame_sessions.values().any(|v| v == s))
-                });
-                if sid.is_none() || still_active_oopif || msg.to_ascii_lowercase().contains("extension") {
-                    fatal_err = Some(msg);
-                }
-            }
-            None => remaining.push((req_id, sid)),
-        }
-    }
-    st.pending = remaining;
-    if let Some(msg) = fatal_err {
-        for (req_id, _) in st.pending.drain(..) {
-            app.workspace_panes.browser.host.cancel_cdp(req_id);
-        }
-        return Some(Outcome::fail(failure_code::OPERATION_FAILED, msg));
-    }
-    if !st.pending.is_empty() {
-        return None;
+    match step_live_frame_refresh(att, app, st.host_id, &mut st.pending, Some(&mut st.top_tree)) {
+        Ok(false) => return None,
+        Ok(true) => {}
+        Err(msg) => return Some(Outcome::fail(failure_code::OPERATION_FAILED, msg)),
     }
     let Some(tab) = att.wire_tab(app, st.host_id) else {
         return Some(Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable."));
@@ -295,15 +258,22 @@ pub(super) fn step_snapshot(
     ref_counter: &mut u64,
 ) -> Option<Outcome> {
     match &mut st.stage {
-        SnapshotStage::CheckFrame { cdp_req } => {
-            let resp = app.workspace_panes.browser.host.take_cdp_response(*cdp_req)?;
-            let val = match resp {
-                Ok(v) => v,
-                Err(e) => return Some(Outcome::fail(failure_code::OPERATION_FAILED, cdp_err_msg(&e))),
-            };
-            if att.frames.entry(st.host_id).or_default().ingest_frame_tree(&val, None) {
-                att.bump_generation(st.host_id);
+        SnapshotStage::CheckFrame { pending, top_tree } => {
+            match step_live_frame_refresh(att, app, st.host_id, pending, Some(top_tree)) {
+                Ok(false) => return None,
+                Ok(true) => {}
+                Err(msg) => return Some(Outcome::fail(failure_code::OPERATION_FAILED, msg)),
             }
+            if let Err(o) = verify_authorized_state(
+                att,
+                app,
+                &st.cmd,
+                Some(st.expected_gen),
+                st.expected_target.as_ref(),
+            ) {
+                return Some(o);
+            }
+            let val = top_tree.clone().unwrap_or(Value::Null);
             let tree = parse_frame_tree(&val);
             let want = st.frame_id.as_deref().unwrap_or("");
             let is_tracked_ext = att
@@ -535,6 +505,22 @@ pub(super) fn step_snapshot(
             }
             advance_boxes_or_finish(att, app, st, prepared, readable, boxes, box_queue, ref_counter)
         }
+        SnapshotStage::VerifyPost { .. } => {
+            let SnapshotStage::VerifyPost { mut pending, prepared, readable, boxes } =
+                std::mem::replace(&mut st.stage, SnapshotStage::FetchAx { cdp_req: 0 })
+            else {
+                return None;
+            };
+            match step_live_frame_refresh(att, app, st.host_id, &mut pending, None) {
+                Ok(false) => {
+                    st.stage = SnapshotStage::VerifyPost { pending, prepared, readable, boxes };
+                    return None;
+                }
+                Ok(true) => {}
+                Err(msg) => return Some(Outcome::fail(failure_code::OPERATION_FAILED, msg)),
+            }
+            Some(finish_snapshot(att, app, st, prepared, &readable, &boxes, ref_counter))
+        }
     }
 }
 
@@ -567,6 +553,13 @@ fn advance_boxes_or_finish(
             cdp_req: req,
         };
         return None;
+    }
+    if st.expected_target.is_some() && app.workspace_panes.browser.host.tab_open_in_engine(st.host_id) {
+        let pending = queue_live_frame_refresh(att, app, st.host_id);
+        if !pending.is_empty() {
+            st.stage = SnapshotStage::VerifyPost { pending, prepared, readable, boxes };
+            return None;
+        }
     }
     Some(finish_snapshot(att, app, st, prepared, &readable, &boxes, ref_counter))
 }

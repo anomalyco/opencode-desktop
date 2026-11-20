@@ -1170,18 +1170,20 @@ wrap_dev_tools_message_observer! {
             message: Option<&[u8]>,
         ) -> ::std::os::raw::c_int {
             let Some(raw) = message else { return 0 };
-            // Pre-parse size gate for REPLIES only using strict depth-1 top-level JSON scanning:
+            // Pre-parse size gate using strict depth-1 top-level JSON scanning (zero AST allocation):
+            // - Events (`method` at depth 1) over `MAX_CDP_RESPONSE_BYTES` (16 MiB) are dropped
+            //   UNPARSED before `serde_json::from_slice` so `console.log("A".repeat(100e6))` never
+            //   allocates a giant JSON AST (all bookkeeping events stay well below 16 MiB).
             // - Top-level replies (`id`, no `method`, no `sessionId`) return `0` immediately so
-            //   CEF delivers them ONCE to `on_dev_tools_method_result` (zero double parse, zero
-            //   AST allocation over `max_bytes`).
+            //   CEF delivers them ONCE to `on_dev_tools_method_result` (pre-parse cap check).
             // - Flattened OOPIF replies (`id` + `sessionId`) over `max_bytes` reject BEFORE parse.
-            // - Events (`method` at depth 1) are NEVER dropped before `prompts` / `cdp_ledger`
-            //   bookkeeping regardless of size or nested `"id"` fields in `params`.
             if raw.len() > crate::cdp_ledger::MAX_CDP_EVAL_RESPONSE_BYTES {
                 let top = crate::cdp_ledger::scan_top_level_cdp(raw);
-                if !top.has_method
-                    && let Some(msg_id) = top.id
-                {
+                if top.has_method {
+                    if raw.len() > crate::cdp_ledger::MAX_CDP_RESPONSE_BYTES {
+                        return 1;
+                    }
+                } else if let Some(msg_id) = top.id {
                     if !top.has_session_id {
                         return 0;
                     }
@@ -1208,9 +1210,11 @@ wrap_dev_tools_message_observer! {
                     if raw.len() > crate::cdp_ledger::MAX_CDP_RESPONSE_BYTES {
                         return 1;
                     }
+                } else if raw.len() > crate::cdp_ledger::MAX_CDP_RESPONSE_BYTES {
+                    return 1;
                 }
             }
-            let Ok(val) = serde_json::from_slice::<Value>(raw) else { return 0 };
+            let Ok(mut val) = serde_json::from_slice::<Value>(raw) else { return 0 };
             // Flattened OOPIF responses carry both `"id"` and `"sessionId"`; CEF's
             // `on_dev_tools_method_result` omits them, so handle them directly here.
             if let Some(msg_id) = val.get("id").and_then(Value::as_i64) {
@@ -1262,8 +1266,11 @@ wrap_dev_tools_message_observer! {
             let Some(method) = val.get("method").and_then(Value::as_str).map(str::to_owned) else {
                 return 0;
             };
-            let params = val.get("params").cloned().unwrap_or(Value::Null);
             let session_id = val.get("sessionId").and_then(Value::as_str).map(str::to_owned);
+            let params = val
+                .as_object_mut()
+                .and_then(|o| o.remove("params"))
+                .unwrap_or(Value::Null);
             // Track true CDP `frameId` (`devtools_frame_token`) lifecycle for `#274`'s whole-tab
             // extension surface guard (`review-rd274.md` Round-4 ruling).
             match method.as_str() {
@@ -1326,7 +1333,6 @@ wrap_dev_tools_message_observer! {
             if (self.extensions_active && method.starts_with("Page."))
                 || matches!(method.as_str(), "Page.frameRequestedNavigation" | "Page.windowOpen")
                 || detach_sid.is_some()
-                || raw.len() > crate::cdp_ledger::MAX_CDP_RESPONSE_BYTES
                 || crate::engine::browser_has_extension_surface(
                     browser.as_deref(),
                     self.is_popup,
