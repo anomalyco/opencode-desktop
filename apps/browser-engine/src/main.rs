@@ -13,6 +13,7 @@
 
 #[cfg(windows)]
 mod d3d_frames;
+mod dialogs;
 mod downloads;
 #[cfg(target_os = "linux")]
 mod dmabuf_frames;

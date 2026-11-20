@@ -3,7 +3,7 @@
 //! `desktop/src/main/files`).
 //!
 //! Each platform lists Desktop's apps for it (macOS's editors and terminals; on Windows VS Code,
-//! Cursor, Zed, PowerShell, and beyond Desktop's Windows Terminal and PowerShell 7, then Sublime
+//! Cursor, Zed, PowerShell (7 when installed), and beyond Desktop's Windows Terminal, then Sublime
 //! Text), only those installed (checked once, off the UI thread), with the file manager first
 //! (Finder, File Explorer). The choice is kept across launches and defaults to the file manager,
 //! as Desktop's does. Nothing shows unless the server shares this machine's files.
@@ -62,9 +62,9 @@ pub const APPS: &[OpenApp] = &[
     app("cursor", opencode_i18n::key!("plugin.file.open.app.cursor"), "cursor", "cursor"),
     app("zed", opencode_i18n::key!("plugin.file.open.app.zed"), "zed", "zed"),
     app("powershell", opencode_i18n::key!("plugin.file.open.app.powershell"), "powershell", "powershell"),
-    // Not Desktop's: what Windows developers open now (Windows Terminal, PowerShell 7).
+    // Not Desktop's: what Windows developers open now. PowerShell 7 opens from the PowerShell
+    // entry, as Desktop's does (`windows::resolve_app`).
     app("windows-terminal", opencode_i18n::key!("rune.openIn.windowsTerminal"), "windows-terminal", "wt"),
-    app("pwsh", opencode_i18n::key!("rune.openIn.powershell7"), "powershell", "pwsh"),
     app("sublime-text", opencode_i18n::key!("plugin.file.open.app.sublimeText"), "sublime-text", "Sublime Text"),
 ];
 
@@ -452,6 +452,8 @@ pub fn can_open(host: &dyn OpenInHost) -> bool {
 /// Loads the last picked app (`plugin.file` / `openInApp`) from host storage.
 pub fn load(host: &mut dyn OpenInHost) {
     let saved = host.read_json(STORAGE_NS, STORAGE_KEY).and_then(|v| v.as_str().map(str::to_owned));
+    // The PowerShell 7 entry this build had is the PowerShell entry now.
+    let saved = saved.map(|id| if id == "pwsh" { "powershell".to_owned() } else { id });
     host.open_in_mut().set_chosen(saved);
 }
 

@@ -6,6 +6,7 @@
 local ui = require("@opencode/ui")
 local address = require("./address")
 local history = require("./history")
+local prompt = require("./prompt")
 
 local panel = {}
 
@@ -33,6 +34,8 @@ export type Env = {
     siteOpen: () -> boolean,
     -- What the pane's controls do.
     act: (what: string, tab: BrowserTab?, arg: any?) -> (),
+    -- The page's dialogs (`prompt`).
+    prompt: prompt.Env,
 }
 
 -- `text-13-regular` at `--line-height-compact`, as bar.css sets the field and its rows.
@@ -477,8 +480,12 @@ function panel.render(env: Env, view: View, props: PanelProps): ui.Node
     elseif blank and (engine == "ready" or engine == "starting") then
         table.insert(items, home(env, view, tab, props.width))
     else
-        table.insert(items, ui.browserSurface({ key = "browser-page", tab = tab, grow = 1,
-            areaWidth = props.width, areaHeight = props.height - 44 - (if toolbar then 36 else 0) }))
+        -- The page, and what it asks over it (one frame either way, so the page keeps its node).
+        table.insert(items, ui.col({ key = "browser-page-frame", w = "full", grow = 1, minH = 0 }, {
+            ui.browserSurface({ key = "browser-page", tab = tab, grow = 1,
+                areaWidth = props.width, areaHeight = props.height - 44 - (if toolbar then 36 else 0) }),
+            prompt.render(env.prompt, view, tab),
+        }))
     end
     local list = suggestions(env, view, tab, state, props.width)
     if list then

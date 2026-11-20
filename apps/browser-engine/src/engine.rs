@@ -200,6 +200,8 @@ struct ManagedTab {
     cdp_id_map: Arc<Mutex<HashMap<i32, CdpPending>>>,
     internal_picked: Arc<Mutex<Vec<i64>>>,
     pending_clears: Arc<Mutex<Vec<PendingClear>>>,
+    /// The page's dialogs the app hasn't answered (`crate::dialogs`).
+    dialogs: crate::dialogs::Held,
     _cdp_reg: Option<Registration>,
     held_buttons: u32,
     /// Linux: whether it's the tab the app shows (`HostMsg::FocusTab`), to open it again so.
@@ -219,6 +221,8 @@ pub struct EngineManager {
     dark: Option<bool>,
     /// The pages' downloads, in the profile's `opencode-page-downloads` folder.
     downloads: Arc<crate::downloads::Downloads>,
+    /// Whether the app shows the pages' dialogs, and their ids (`crate::dialogs`).
+    dialog_shared: crate::dialogs::Shared,
     /// Windows: the D3D11 device frames are copied on; None renders on the CPU instead.
     #[cfg(windows)]
     gpu: Option<Arc<crate::d3d_frames::Gpu>>,
@@ -247,6 +251,7 @@ impl EngineManager {
             next_eref: 1,
             dark: None,
             downloads: crate::downloads::Downloads::open(&downloads),
+            dialog_shared: crate::dialogs::Shared::default(),
             #[cfg(windows)]
             gpu,
             #[cfg(target_os = "linux")]
@@ -399,7 +404,8 @@ impl EngineManager {
 
     pub fn handle(&mut self, msg: HostMsg) -> bool {
         match msg {
-            HostMsg::Hello { mach_service, .. } => {
+            HostMsg::Hello { mach_service, dialogs, .. } => {
+                self.dialog_shared.enabled.store(dialogs, Ordering::Relaxed);
                 #[cfg(not(target_os = "macos"))]
                 let _ = mach_service;
                 #[cfg(target_os = "macos")]
@@ -412,7 +418,19 @@ impl EngineManager {
                     pid: std::process::id(),
                     downloads: true,
                     policy: true,
+                    dialogs,
                 });
+                // What the pages still ask: the app that connects again shows it, one that doesn't
+                // show dialogs can't answer it.
+                for (&tab_id, t) in &self.tabs {
+                    if dialogs {
+                        for dialog in crate::dialogs::pending(&t.dialogs) {
+                            let _ = self.out_tx.send(EngineMsg::Dialog { tab_id, dialog });
+                        }
+                    } else {
+                        crate::dialogs::dismiss_all(&t.dialogs);
+                    }
+                }
                 if !self.tabs.is_empty() {
                     let list: Vec<TabSnapshot> = self
                         .tabs
@@ -797,6 +815,11 @@ impl EngineManager {
             HostMsg::DmabufFailed { reason } => self.frames_failed(crate::dmabuf_frames::Failure::Share(format!("the app: {reason}"))),
             #[cfg(not(target_os = "linux"))]
             HostMsg::FrameRead { .. } | HostMsg::DmabufFailed { .. } => {}
+            HostMsg::AnswerDialog { tab_id, id, accept, text } => {
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    crate::dialogs::answer(&t.dialogs, id, accept, &text);
+                }
+            }
             HostMsg::Shutdown => {
                 for (_, t) in self.tabs.drain() {
                     t.host.close_browser(1);
@@ -870,7 +893,9 @@ impl EngineManager {
             self.downloads.clone(),
             self.out_tx.clone(),
         );
-        let mut client = SidecarTabClient::new(render, display, load, request, download);
+        let dialogs: crate::dialogs::Held = Arc::new(Mutex::new(Vec::new()));
+        let jsdialog = crate::dialogs::TabDialogHandler::new(tab_id, self.dialog_shared.clone(), dialogs.clone(), self.out_tx.clone());
+        let mut client = SidecarTabClient::new(render, display, load, request, download, jsdialog);
 
         let mut win_info = WindowInfo::default().set_as_windowless(Default::default());
         win_info.shared_texture_enabled = i32::from(shared_texture);
@@ -929,6 +954,7 @@ impl EngineManager {
                 cdp_id_map,
                 internal_picked,
                 pending_clears,
+                dialogs,
                 _cdp_reg: cdp_reg,
                 held_buttons: 0,
                 #[cfg(target_os = "linux")]

@@ -22,6 +22,8 @@ use rune::{El, Ime, col};
 #[cfg(not(target_arch = "wasm32"))]
 use rune_luau::{Completer, Data, Host, NodeArgs};
 #[cfg(not(target_arch = "wasm32"))]
+mod dialog;
+#[cfg(not(target_arch = "wasm32"))]
 mod viewport;
 #[cfg(target_arch = "wasm32")]
 mod web;
@@ -298,7 +300,7 @@ fn devtools(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
             }
             match s.workspace_panes.browser.host.send_cdp(id, cdp, params, target) {
                 Ok(request) => {
-                    s.workspace_panes.browser.devtools.insert(request, (done, Instant::now() + DEVTOOLS_TIMEOUT));
+                    s.workspace_panes.browser.devtools.insert(request, (done, Instant::now() + DEVTOOLS_TIMEOUT, id));
                 }
                 Err(err) => done.complete(failed(err)),
             }
@@ -321,7 +323,7 @@ fn site_cookies(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
             }
             match s.workspace_panes.browser.host.site_cookies(id) {
                 Ok(request) => {
-                    s.workspace_panes.browser.devtools.insert(request, (done, Instant::now() + DEVTOOLS_TIMEOUT));
+                    s.workspace_panes.browser.devtools.insert(request, (done, Instant::now() + DEVTOOLS_TIMEOUT, id));
                 }
                 Err(err) => done.complete(failed(err)),
             }
@@ -361,7 +363,7 @@ fn clear_site(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
             }
             match s.workspace_panes.browser.host.clear_site(id) {
                 Ok(request) => {
-                    s.workspace_panes.browser.devtools.insert(request, (done, Instant::now() + DEVTOOLS_TIMEOUT));
+                    s.workspace_panes.browser.devtools.insert(request, (done, Instant::now() + DEVTOOLS_TIMEOUT, id));
                 }
                 Err(err) => done.complete(failed(err)),
             }
@@ -481,6 +483,7 @@ fn tab_methods(lua: &Lua) -> mlua::Result<Table> {
     )?;
     m.raw_set("Zoom", lua.create_function(|_, this: Table| read_tab(&this, "BrowserTab:Zoom", |app, id| Ok(app.workspace_panes.browser.host.tab(id).map_or(1.0, |t| t.zoom))))?)?;
     viewport::methods(lua, &m)?;
+    dialog::methods(lua, &m)?;
     m.raw_set(
         "Navigate",
         lua.create_function(|_, (this, url): (Table, String)| later(&this, "BrowserTab:Navigate", move |s, id, _| s.navigate_browser_tab(id, &url)))?,
@@ -606,6 +609,7 @@ pub fn version(app: &App) -> u64 {
     for t in app.workspace_panes.browser.host.tabs() {
         if let Some(d) = &t.device { (&d.preset, d.width, d.height, d.scale.map(f32::to_bits)).hash(&mut h); }
         (t.id, &t.url, &t.title, t.loading, t.can_go_back, t.can_go_forward, t.zoom.to_bits(), t.inspecting, &t.load_error, &t.refusal, t.rejected).hash(&mut h);
+        format!("{:?}", t.dialog).hash(&mut h);
         // A download's step or end: `BrowserTab:Files` reads them.
         t.files.iter().for_each(|f| (&f.id, f.bytes, f.state as u8, &f.error).hash(&mut h));
     }
@@ -631,7 +635,7 @@ pub fn pages(app: &App) -> Vec<(String, u64)> {
         .iter()
         .map(|t| {
             let mut h = std::hash::DefaultHasher::new();
-            (&t.url, &t.title, t.loading, &t.refusal, t.rejected).hash(&mut h);
+            (&t.url, &t.title, t.loading, &t.refusal, t.rejected, format!("{:?}", t.dialog)).hash(&mut h);
             (t.id.to_string(), h.finish())
         })
         .collect()
@@ -662,15 +666,16 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
         let answer = match app.workspace_panes.browser.host.take_cdp_response(request) {
             Some(Ok(v)) => map([("result", json_to_data(&v))]),
             Some(Err(e)) => map([("error", Data::String(e["message"].as_str().map(str::to_owned).unwrap_or_else(|| e.to_string())))]),
-            None if app.workspace_panes.browser.devtools.get(&request).is_some_and(|(_, at)| *at <= now) => map([("error", Data::String("Browser command timed out".into()))]),
+            None if app.workspace_panes.browser.devtools.get(&request).is_some_and(|(_, at, _)| *at <= now) => map([("error", Data::String("Browser command timed out".into()))]),
             None => continue,
         };
-        if let Some((done, _)) = app.workspace_panes.browser.devtools.remove(&request) {
+        if let Some((done, ..)) = app.workspace_panes.browser.devtools.remove(&request) {
             done.complete(answer);
             changed = true;
         }
     }
-    if let Some(next) = app.workspace_panes.browser.devtools.values().map(|(_, at)| *at).min() {
+    changed |= dialog::poll(app, tx, now);
+    if let Some(next) = app.workspace_panes.browser.devtools.values().map(|(_, at, _)| *at).min() {
         tx.wake_after(next.saturating_duration_since(now).max(Duration::from_millis(25)));
     }
     let picks: Vec<_> = if app.workspace_panes.browser.host.has_picked() { app.workspace_panes.browser.host.drain_picked_elements().collect() } else { Vec::new() };

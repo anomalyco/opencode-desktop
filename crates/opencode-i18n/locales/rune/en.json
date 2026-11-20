@@ -153,7 +153,6 @@
   "rune.message.quote": "Quote",
   "rune.notice.backgroundShell": "Background shell",
   "rune.openIn.failed": "Couldn't open",
-  "rune.openIn.powershell7": "PowerShell 7",
   "rune.openIn.windowsTerminal": "Windows Terminal",
   "rune.queue.changeFailed": "Couldn't change the queue",
   "rune.queue.label": "Queued prompts",

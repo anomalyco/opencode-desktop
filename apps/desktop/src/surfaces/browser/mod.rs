@@ -74,9 +74,9 @@ mod native {
         pub host: BrowserHost,
         /// Each session's pages, oldest first.
         pub session_tabs: HashMap<String, Vec<u64>>,
-        /// DevTools calls a plugin waits on, by the engine's request id: who to answer and when to
-        /// give up.
-        pub devtools: HashMap<u64, (rune_luau::Completer, Instant)>,
+        /// DevTools calls a plugin waits on, by the engine's request id: who to answer, when to
+        /// give up, and the page (a dialog it opens ends the call).
+        pub devtools: HashMap<u64, (rune_luau::Completer, Instant, u64)>,
     }
 
     /// App-level shortcuts that a focused web page must yield to OpenCode (Rune) rather than swallow,

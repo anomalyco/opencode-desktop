@@ -587,7 +587,7 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
         return if lost(link, None) { WireResult::Failed } else { WireResult::Stale };
     };
     let (tx, rx) = mpsc::channel::<HostMsg>();
-    tx.send(HostMsg::Hello { mach_service, pid: std::process::id() }).ok();
+    tx.send(HostMsg::Hello { mach_service, pid: std::process::id(), dialogs: true }).ok();
     let mut early = EarlyOpensMap::new();
     for (id, open) in &link.opens {
         if let HostMsg::OpenTab { url, width_pt, height_pt, scale, .. } = open {

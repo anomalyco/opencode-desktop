@@ -23,7 +23,7 @@ pub struct Win;
 
 impl Launcher for Win {
     fn installed(&self, apps: &[&'static str]) -> Vec<&'static str> {
-        apps.iter().copied().filter(|app| resolve(app, |k| std::env::var_os(k)).is_some()).collect()
+        apps.iter().copied().filter(|app| resolve_app(app).is_some()).collect()
     }
 
     fn open(&self, path: &str, app: Option<&str>) -> Result<(), String> {
@@ -31,7 +31,7 @@ impl Launcher for Win {
         match app {
             None => start(Command::new("explorer.exe").arg(&path)),
             Some(app) => {
-                let exe = resolve(app, |k| std::env::var_os(k)).ok_or_else(|| format!("{app} isn't installed"))?;
+                let exe = resolve_app(app).ok_or_else(|| format!("{app} isn't installed"))?;
                 if is_powershell(&exe) {
                     return powershell(&exe, &path);
                 }
@@ -122,6 +122,17 @@ fn powershell(exe: &Path, path: &str) -> Result<(), String> {
         .status()
         .map_err(|e| e.to_string())?;
     if status.success() { Ok(()) } else { Err(format!("start exited with {status}")) }
+}
+
+/// The executable an Open in entry starts (Desktop's `resolveAppPath`, `desktop/src/main/files/apps.ts`):
+/// like Windows Terminal, the PowerShell entry opens PowerShell 7 when it is installed and Windows
+/// PowerShell otherwise.
+fn resolve_app(app: &str) -> Option<PathBuf> {
+    let var = |k: &str| std::env::var_os(k);
+    if app == "powershell" {
+        return resolve("pwsh", var).or_else(|| resolve(app, var));
+    }
+    resolve(app, var)
 }
 
 /// The executable that command `app` starts (Desktop's `resolveWindowsAppPath`), else where its

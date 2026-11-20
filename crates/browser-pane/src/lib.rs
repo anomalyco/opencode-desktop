@@ -18,6 +18,7 @@ pub mod address;
 mod background;
 mod client;
 pub mod device;
+pub mod dialog;
 #[cfg(feature = "engine")]
 mod download;
 #[cfg(all(feature = "engine", target_os = "linux"))]
@@ -61,6 +62,6 @@ pub use policy::{
 #[cfg(feature = "engine")]
 pub use profile::shared_profile_dir;
 pub use protocol::CursorKind;
-pub use protocol::{DownloadFile, DownloadState};
+pub use protocol::{DialogKind, DownloadFile, DownloadState, PageDialog};
 pub use protocol::PickedElement;
 pub use site_zoom::ZoomStore;
