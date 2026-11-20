@@ -94,7 +94,7 @@ pub fn is_windows_device_name(stem: &str) -> bool {
     if matches!(prefix.as_str(), "com" | "lpt")
         && let Some(digit) = chars.next()
         && chars.next().is_none()
-        && matches!(digit, '1'..='9' | '\u{00B9}' | '\u{00B2}' | '\u{00B3}')
+        && matches!(digit, '0'..='9' | '\u{00B9}' | '\u{00B2}' | '\u{00B3}')
     {
         return true;
     }

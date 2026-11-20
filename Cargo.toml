@@ -34,6 +34,7 @@ members = [
     "features/updater",
     "features/workspace-tools",
     "crates/authenticode",
+    "crates/browser-extensions",
     "crates/browser-pane",
     "crates/browser-policy",
     "crates/hex-client",
