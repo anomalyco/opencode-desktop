@@ -13,7 +13,7 @@
 //!   Negotiate; agent-driven tabs cancel immediately and emit `AuthAgentRequired` (`sign_in_required`).
 //! - Native file choosers on agent-driven tabs are cancelled immediately (`FileChooserBlocked`).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -64,6 +64,7 @@ enum HeldPermission {
 }
 
 const MAX_PENDING_EXT_SUBFRAMES: usize = 128;
+const MAX_EXT_NETWORK_REQ_IDS: usize = 256;
 
 /// Per-tab held CEF prompt callbacks and agent-driven isolation flag.
 #[derive(Default)]
@@ -84,12 +85,69 @@ pub struct TabPrompts {
     /// Tracks extension frames observed via real CDP `frameId` (`devtools_frame_token`) in
     /// `TabCdpObserver::on_dev_tools_event` (`Page.frameNavigated` / `frameDetached`).
     cdp_ext_frames: Mutex<HashSet<String>>,
+    /// Monotonic epoch bumped on every DOM mutation event (`DOM.*`), frame lifecycle event
+    /// (`Page.frame*` / `load*`), navigation, or extension-frame state change so `TabMaskQueue`
+    /// can safely cache its protected DOM/frame sets per epoch without stale reads.
+    dom_epoch: AtomicU64,
+    /// Bounded recent set of CDP `Network` `requestId`s attributed to browser extensions so
+    /// follow-up `ExtraInfo`/`responseReceived`/`loading*` events are dropped before IPC.
+    ext_network_req_ids: Mutex<VecDeque<String>>,
+    /// CDP V8 `executionContextId`s belonging to extension isolated worlds or extension frames so
+    /// even eval/timer `Runtime.consoleAPICalled`/`exceptionThrown` events with empty stack URLs
+    /// are dropped before redaction.
+    ext_exec_contexts: Mutex<HashSet<i64>>,
     /// Latched when `on_render_process_terminated` runs so `EngineManager::poll_mask_jobs`
     /// fails closed any in-flight `TabMaskQueue` operations immediately instead of hanging.
     renderer_crashed: AtomicBool,
 }
 
 impl TabPrompts {
+    pub fn dom_epoch(&self) -> u64 {
+        self.dom_epoch.load(Ordering::Acquire)
+    }
+
+    pub fn bump_dom_epoch(&self) -> u64 {
+        self.dom_epoch.fetch_add(1, Ordering::AcqRel).wrapping_add(1)
+    }
+
+    pub fn mark_ext_network_request(&self, req_id: &str) {
+        if req_id.is_empty() {
+            return;
+        }
+        let mut q = self.ext_network_req_ids.lock().unwrap();
+        if q.iter().any(|s| s == req_id) {
+            return;
+        }
+        if q.len() >= MAX_EXT_NETWORK_REQ_IDS {
+            q.pop_front();
+        }
+        q.push_back(req_id.to_owned());
+    }
+
+    pub fn is_ext_network_request(&self, req_id: &str) -> bool {
+        !req_id.is_empty() && self.ext_network_req_ids.lock().unwrap().iter().any(|s| s == req_id)
+    }
+
+    pub fn mark_ext_exec_context(&self, ctx_id: i64) {
+        let mut set = self.ext_exec_contexts.lock().unwrap();
+        if set.len() >= MAX_EXT_NETWORK_REQ_IDS {
+            set.clear();
+        }
+        set.insert(ctx_id);
+    }
+
+    pub fn remove_ext_exec_context(&self, ctx_id: i64) {
+        self.ext_exec_contexts.lock().unwrap().remove(&ctx_id);
+    }
+
+    pub fn clear_ext_exec_contexts(&self) {
+        self.ext_exec_contexts.lock().unwrap().clear();
+    }
+
+    pub fn is_ext_exec_context(&self, ctx_id: i64) -> bool {
+        self.ext_exec_contexts.lock().unwrap().contains(&ctx_id)
+    }
+
     pub fn set_pending_top_url(&self, url: Option<String>) {
         *self.pending_top_url.lock().unwrap() = url;
     }
@@ -102,6 +160,7 @@ impl TabPrompts {
         if frame_id.is_empty() {
             return;
         }
+        self.bump_dom_epoch();
         let mut set = self.pending_ext_subframes.lock().unwrap();
         if set.len() >= MAX_PENDING_EXT_SUBFRAMES && !set.contains(&frame_id) {
             self.pending_overflow.store(true, Ordering::Release);
@@ -112,14 +171,18 @@ impl TabPrompts {
 
     pub fn clear_pending_ext_subframe(&self, frame_id: &str) {
         if !frame_id.is_empty() {
+            self.bump_dom_epoch();
             self.pending_ext_subframes.lock().unwrap().remove(frame_id);
         }
     }
 
     pub fn clear_all_ext_frame_tracking(&self) {
+        self.bump_dom_epoch();
         self.pending_ext_subframes.lock().unwrap().clear();
         self.pending_overflow.store(false, Ordering::Release);
         self.cdp_ext_frames.lock().unwrap().clear();
+        self.ext_network_req_ids.lock().unwrap().clear();
+        self.ext_exec_contexts.lock().unwrap().clear();
     }
 
     /// Retains only pending extension sub-frames whose `RenderFrameHost` is still alive and has
@@ -139,6 +202,7 @@ impl TabPrompts {
         if cdp_frame_id.is_empty() {
             return;
         }
+        self.bump_dom_epoch();
         let mut set = self.cdp_ext_frames.lock().unwrap();
         if is_ext {
             set.insert(cdp_frame_id.to_owned());
@@ -148,6 +212,7 @@ impl TabPrompts {
     }
 
     pub fn clear_cdp_ext_frames(&self) {
+        self.bump_dom_epoch();
         self.cdp_ext_frames.lock().unwrap().clear();
     }
 

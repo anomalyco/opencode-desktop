@@ -493,8 +493,10 @@ impl EngineManager {
             }
             HostMsg::Navigate { tab_id, url } => self.handle_navigate(tab_id, url),
             HostMsg::Back { tab_id } => {
-                if let Some(t) = self.tabs.get(&tab_id) {
+                if let Some(t) = self.tabs.get_mut(&tab_id) {
                     if self.contexts.is_tab_ready(tab_id) {
+                        t.prompts.bump_dom_epoch();
+                        t.mask_queue.invalidate_cache();
                         t.browser.go_back();
                     } else if self.contexts.is_tab_suspended(tab_id) {
                         let _ = self.out_tx.send(EngineMsg::Refused {
@@ -505,8 +507,10 @@ impl EngineManager {
                 }
             }
             HostMsg::Forward { tab_id } => {
-                if let Some(t) = self.tabs.get(&tab_id) {
+                if let Some(t) = self.tabs.get_mut(&tab_id) {
                     if self.contexts.is_tab_ready(tab_id) {
+                        t.prompts.bump_dom_epoch();
+                        t.mask_queue.invalidate_cache();
                         t.browser.go_forward();
                     } else if self.contexts.is_tab_suspended(tab_id) {
                         let _ = self.out_tx.send(EngineMsg::Refused {
@@ -517,8 +521,10 @@ impl EngineManager {
                 }
             }
             HostMsg::Reload { tab_id, ignore_cache } => {
-                if let Some(t) = self.tabs.get(&tab_id) {
+                if let Some(t) = self.tabs.get_mut(&tab_id) {
                     if self.contexts.is_tab_ready(tab_id) {
+                        t.prompts.bump_dom_epoch();
+                        t.mask_queue.invalidate_cache();
                         if ignore_cache {
                             t.browser.reload_ignore_cache();
                         } else {

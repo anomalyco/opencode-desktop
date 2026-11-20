@@ -496,6 +496,7 @@ wrap_load_handler! {
             _transition_type: TransitionType,
         ) {
             let Some(frame) = frame else { return };
+            self.prompts.bump_dom_epoch();
             if frame.is_main() == 1 {
                 self.prompts.clear_all_ext_frame_tracking();
             } else {
@@ -510,6 +511,7 @@ wrap_load_handler! {
         // A document from the network (any HTTP status) replaces a failed or crashed page; Chromium's
         // own error page ends with no status.
         fn on_load_end(&self, _browser: Option<&mut Browser>, frame: Option<&mut Frame>, http_status_code: i32) {
+            self.prompts.bump_dom_epoch();
             if let Some(f) = frame
                 && f.is_main() != 1
             {
@@ -1203,11 +1205,43 @@ wrap_dev_tools_message_observer! {
                 }
                 _ => {}
             }
-            // Suppress all engine-subscribed `Page.*` events from `out_tx` (`Page.enable` is
-            // forbidden to external callers by `check_cdp`), preventing `Page.frameRequestedNavigation`,
-            // `Page.windowOpen`, and `Page.frameDetached` from leaking extension URLs or frame IDs
-            // (`review-rd274.md` Round-5 §4).
-            if m.starts_with("Page.") {
+            if m.starts_with("DOM.")
+                || matches!(
+                    m.as_str(),
+                    "Page.frameAttached"
+                        | "Page.frameNavigated"
+                        | "Page.navigatedWithinDocument"
+                        | "Page.frameDetached"
+                        | "Page.frameStartedLoading"
+                        | "Page.frameStoppedLoading"
+                        | "Page.domContentEventFired"
+                        | "Page.loadEventFired"
+                        | "Page.lifecycleEvent"
+                )
+            {
+                self.prompts.bump_dom_epoch();
+            }
+            // Suppress all internal/DOM/Page/Overlay/Target/Accessibility events before IPC so
+            // closed-ShadowRoot mutations bound by internal `DOM.getDocument({ pierce: true })`
+            // and `Page.*` navigation/frame events never cross the engine boundary
+            // (`review-rd274.md` #314 Finding 3).
+            if m.starts_with("Page.")
+                || m.starts_with("DOM.")
+                || m.starts_with("Overlay.")
+                || m.starts_with("Target.")
+                || m.starts_with("Accessibility.")
+            {
+                return;
+            }
+            // Filter extension-attributed `Runtime.*` / `Log.*` / `Network.*` events BEFORE
+            // redaction so `TabDiagnostics` exclusion is never defeated (`review-rd274.md` #314 Finding 3).
+            let cdp_ext_frames = self.prompts.cdp_ext_frames_snapshot();
+            if crate::extensions::frame_guard::is_extension_cdp_event(
+                &m,
+                &val,
+                &cdp_ext_frames,
+                &self.prompts,
+            ) {
                 return;
             }
             let mut val = val;

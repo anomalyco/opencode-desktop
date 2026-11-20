@@ -459,6 +459,10 @@ impl EngineManager {
         }
     }
 
+    pub fn next_mask_deadline(&self) -> Option<std::time::Instant> {
+        self.tabs.values().filter_map(|t| t.mask_queue.next_deadline()).min()
+    }
+
     pub(super) fn poll_mask_jobs(&mut self) {
         let mut crashed_tabs = Vec::new();
         let mut replies = Vec::new();
@@ -488,6 +492,23 @@ impl EngineManager {
                 None => continue,
             };
             self.run_mask_effects(reply.tab_id, eff);
+        }
+        let now = std::time::Instant::now();
+        let tab_ids: Vec<u64> = self
+            .tabs
+            .iter()
+            .filter_map(|(&id, t)| t.mask_queue.next_deadline().filter(|&d| d <= now).map(|_| id))
+            .collect();
+        for tab_id in tab_ids {
+            let ctx = match self.tabs.get(&tab_id) {
+                Some(t) => mask_ctx_for_tab(t, self.extensions.is_some()),
+                None => continue,
+            };
+            let eff = match self.tabs.get_mut(&tab_id) {
+                Some(t) => t.mask_queue.expire_timed_out(now, &ctx),
+                None => continue,
+            };
+            self.run_mask_effects(tab_id, eff);
         }
     }
 
@@ -792,7 +813,9 @@ impl EngineManager {
         }
         match self.contexts.gate_navigation(tab_id, &url) {
             Ok(true) => {
-                if let Some(t) = self.tabs.get(&tab_id) {
+                if let Some(t) = self.tabs.get_mut(&tab_id) {
+                    t.prompts.bump_dom_epoch();
+                    t.mask_queue.invalidate_cache();
                     t.deferred_initial.store(false, Ordering::Release);
                     if let Some(frame) = t.browser.main_frame() {
                         t.prompts.set_pending_top_url(Some(url.clone()));
@@ -900,6 +923,7 @@ fn mask_ctx_for_tab(
     crate::extensions::mask_queue::TabMaskCtx {
         surface,
         extensions_active,
+        dom_epoch: t.prompts.dom_epoch(),
     }
 }
 

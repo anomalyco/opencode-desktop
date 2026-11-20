@@ -440,11 +440,16 @@ fn main() {
             break;
         }
         let cap = if now < busy_until { BUSY_PUMP_DELAY } else { MAX_PUMP_DELAY };
-        let wake = [Some(pump_at.unwrap_or(now + cap)), quit_at, manager.waits_for_texture().then(|| now + FRAME_RETRY)]
-            .into_iter()
-            .flatten()
-            .min()
-            .unwrap_or(now + MAX_PUMP_DELAY);
+        let wake = [
+            Some(pump_at.unwrap_or(now + cap)),
+            quit_at,
+            manager.next_mask_deadline(),
+            manager.waits_for_texture().then(|| now + FRAME_RETRY),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
+        .unwrap_or(now + MAX_PUMP_DELAY);
         let event = match rx.recv_timeout(wake.saturating_duration_since(now)) {
             Ok(event) => event,
             Err(RecvTimeoutError::Timeout) => {
