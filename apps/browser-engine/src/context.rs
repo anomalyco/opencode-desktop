@@ -378,12 +378,11 @@ pub fn canonical_extension_load_path(dir: &std::path::Path) -> Option<String> {
     }
 }
 
-/// Computes Chromium's `crx_file::id_util::GenerateIdForPath(path)` (SHA-256 of the normalized
-/// absolute path — UTF-16LE `wchar_t` code units on Windows, UTF-8 bytes on POSIX — first 16 bytes
-/// nibble-encoded as `'a'..='p'`).
-pub fn generate_id_for_path(dir: &std::path::Path) -> Option<String> {
+/// Computes Chromium's `crx_file::id_util::GenerateIdForPath(path)` directly from a normalized
+/// path string produced by [`canonical_extension_load_path`] (SHA-256 of UTF-16LE `wchar_t` code
+/// units on Windows or UTF-8 bytes on POSIX, first 16 bytes nibble-encoded as `'a'..='p'`).
+pub fn generate_id_for_normalized_path(norm: &str) -> String {
     use sha2::{Digest as _, Sha256};
-    let norm = canonical_extension_load_path(dir)?;
     let bytes: Vec<u8> = {
         #[cfg(windows)]
         {
@@ -395,7 +394,7 @@ pub fn generate_id_for_path(dir: &std::path::Path) -> Option<String> {
         }
         #[cfg(not(windows))]
         {
-            norm.into_bytes()
+            norm.as_bytes().to_vec()
         }
     };
     let digest = Sha256::digest(&bytes);
@@ -404,19 +403,19 @@ pub fn generate_id_for_path(dir: &std::path::Path) -> Option<String> {
         id.push((b'a' + (b >> 4)) as char);
         id.push((b'a' + (b & 0x0f)) as char);
     }
-    Some(id)
+    id
 }
 
 /// Disables `file://` scheme access in Chromium's `ExtensionPrefs`
 /// (`extensions.settings.<id>.newAllowFileAccess = false`) under BOTH the path-derived ID
-/// (`GenerateIdForPath`, checked by `UnpackedInstaller::GetFlags()` before manifest key parse so
-/// `Extension::ALLOW_FILE_ACCESS` is never set at load time) AND the key-derived `ext_id` (checked
-/// at runtime by `util::AllowFileAccess` / `ExtensionPrefs`). Returns `true` only when the
-/// preference write succeeds (callers fail closed on `false`; `review-rd274.md` Round-2 §1).
-pub fn disallow_extension_file_access(ext_id: &str, dir: &std::path::Path) -> bool {
-    let Some(path_id) = generate_id_for_path(dir) else {
+/// (`GenerateIdForPath` computed directly from the single `normalized_path` string passed to
+/// `Extensions.loadUnpacked`, eliminating double-canonicalization races) AND the key-derived
+/// `ext_id`. Returns `true` only when the preference write succeeds (`review-rd274.md` Round-3 §1).
+pub fn disallow_extension_file_access(ext_id: &str, normalized_path: &str) -> bool {
+    if normalized_path.is_empty() {
         return false;
-    };
+    }
+    let path_id = generate_id_for_normalized_path(normalized_path);
     let Some(ctx) = cef::request_context_get_global_context() else {
         return false;
     };
@@ -455,6 +454,44 @@ pub fn disallow_extension_file_access(ext_id: &str, dir: &std::path::Path) -> bo
     val.set_dictionary(Some(&mut root_dict));
     let mut err = CefString::from(" ");
     ctx.set_preference(Some(&key), Some(&mut val), Some(&mut err)) != 0
+}
+
+/// Post-load fail-closed verification (`review-rd274.md` Round-3 §1a): reads back Chromium's
+/// persisted `extensions.settings.<loaded_id>` after `Extensions.loadUnpacked` succeeds and
+/// requires BOTH:
+/// 1. `creation_flags` is present AND bit `1 << 2` (`0x4`, `Extension::ALLOW_FILE_ACCESS`) is `0`,
+/// 2. `newAllowFileAccess` is present AND `false`.
+///
+/// Catches any path-normalization drift on macOS/Linux or future Chromium versions immediately so
+/// the caller uninstalls the extension instead of failing open with `ALLOW_FILE_ACCESS`.
+pub fn verify_extension_file_access_disabled(loaded_id: &str) -> bool {
+    const EXTENSION_ALLOW_FILE_ACCESS: i32 = 1 << 2;
+    let Some(ctx) = cef::request_context_get_global_context() else {
+        return false;
+    };
+    let key = CefString::from("extensions.settings");
+    let Some(val) = ctx.preference(Some(&key)) else {
+        return false;
+    };
+    let Some(root_dict) = val.dictionary() else {
+        return false;
+    };
+    let Some(ext_dict) = root_dict.dictionary(Some(&CefString::from(loaded_id))) else {
+        return false;
+    };
+    let flags_key = CefString::from("creation_flags");
+    if ext_dict.has_key(Some(&flags_key)) == 0 {
+        return false;
+    }
+    let creation_flags = ext_dict.int(Some(&flags_key));
+    if (creation_flags & EXTENSION_ALLOW_FILE_ACCESS) != 0 {
+        return false;
+    }
+    let allow_key = CefString::from("newAllowFileAccess");
+    if ext_dict.has_key(Some(&allow_key)) == 0 {
+        return false;
+    }
+    ext_dict.bool(Some(&allow_key)) == 0
 }
 
 wrap_request_context_handler! {

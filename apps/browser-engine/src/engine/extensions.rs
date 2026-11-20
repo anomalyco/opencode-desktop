@@ -4,11 +4,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use cef::{BrowserSettings, CefString, ImplBrowser, ImplBrowserHost, ImplFrame, WindowInfo};
+use serde_json::{Value, json};
 
 use super::{BASE_COLOR, EngineManager};
 use crate::handlers::{
-    TabDisplayHandler, TabExtPolicy, TabLoadHandler, TabRenderHandler, TabRequestHandler,
-    ViewRectState,
+    CdpPending, TabDisplayHandler, TabExtPolicy, TabLoadHandler, TabRenderHandler,
+    TabRequestHandler, ViewRectState,
 };
 use crate::output::Output;
 use crate::prompts::{
@@ -149,13 +150,9 @@ impl EngineManager {
                     }
                 }
                 ExtEffect::ActionUpdated(action) => {
-                    self.grant_ext_id_to_user_tabs(&action.ext_id);
                     let _ = self.out_tx.send(EngineMsg::ExtensionAction { action });
                 }
                 ExtEffect::ExtensionsSynced(extensions) => {
-                    for act in &extensions {
-                        self.grant_ext_id_to_user_tabs(&act.ext_id);
-                    }
                     let _ = self.out_tx.send(EngineMsg::ExtensionsState {
                         request_id: None,
                         extensions,
@@ -201,25 +198,278 @@ impl EngineManager {
                     let _ = self.out_tx.send(EngineMsg::ExtensionUninstalled { ext_id, ok, error });
                 }
                 ExtEffect::ExtensionReloaded { ext_id, ok, error } => {
-                    if ok && !ext_id.is_empty() {
-                        self.grant_ext_id_to_user_tabs(&ext_id);
-                    }
                     let _ = self.out_tx.send(EngineMsg::ExtensionReloaded { ext_id, ok, error });
                 }
             }
         }
     }
 
-    fn grant_ext_id_to_user_tabs(&self, ext_id: &str) {
-        for t in self.tabs.values() {
-            if t.allow_extension_pages
-                && !t.isolated
-                && !t.is_popup
-                && !t.prompts.agent_driven.load(Ordering::Relaxed)
+    /// Handles `HostMsg::CdpCall` with whole-tab refusal for extension main frames/popups and
+    /// narrow sub-frame masking/stripping/hit-testing for web tabs embedding extension sub-frames
+    /// (`review-rd274.md` Round-3 §2).
+    pub(super) fn handle_cdp_call_guarded(
+        &mut self,
+        tab_id: u64,
+        request_id: u64,
+        method: String,
+        params: Value,
+        session_id: Option<String>,
+    ) {
+        let Some(t) = self.tabs.get(&tab_id) else {
+            return;
+        };
+        let refuse = |out_tx: &crate::output::Output, msg: &str| {
+            let _ = out_tx.send(EngineMsg::CdpResponse {
+                tab_id,
+                request_id,
+                ok: false,
+                result: json!({ "message": msg }),
+            });
+        };
+        // Reject any cross-session / OOPIF sessionId so external callers can never target
+        // extension iframes or non-page targets (`review-rd274.md` §1).
+        if session_id.is_some() {
+            refuse(&self.out_tx, "Cross-session DevTools targeting is not permitted.");
+            return;
+        }
+        // Whole-tab refusal strictly for extension main frames and popups.
+        if super::tab_is_extension_main_surface(t) {
+            refuse(&self.out_tx, "Agent browser tools cannot read or act on extension pages.");
+            return;
+        }
+        if let Err(err) = browser_policy::check_cdp(&method, &params, true) {
+            refuse(&self.out_tx, &err);
+            return;
+        }
+
+        let subframes = crate::extensions::frame_guard::inspect_subframes(&t.browser, &t.prompts);
+        if !subframes.any_ext() {
+            self.dispatch_cdp_raw(tab_id, request_id, &method, &params, CdpPending::Raw(request_id));
+            return;
+        }
+
+        // Reject explicit `frameId` targeting of any committed or pending extension sub-frame.
+        if let Some(fid) = params.get("frameId").and_then(Value::as_str) {
+            let main_id = t
+                .browser
+                .main_frame()
+                .map(|f| CefString::from(&f.identifier()).to_string())
+                .unwrap_or_default();
+            let same_main = !main_id.is_empty()
+                && crate::extensions::frame_guard::normalize_frame_id(fid)
+                    == crate::extensions::frame_guard::normalize_frame_id(&main_id);
+            if subframes.matches_frame_id(fid) || (subframes.has_pending && !same_main) {
+                refuse(&self.out_tx, "Agent browser tools cannot target extension sub-frames.");
+                return;
+            }
+        }
+
+        // Fail closed on screenshots while extension sub-frames are live/pending until the tracked
+        // screenshot-masking follow-up lands (`review-rd274.md` Round-3 §2).
+        if method == "Page.captureScreenshot" {
+            refuse(
+                &self.out_tx,
+                "Screenshots on tabs with live extension frames are blocked until screenshot masking lands.",
+            );
+            return;
+        }
+
+        // Keyboard/text input: refuse when focus is inside an extension frame or while pending.
+        if crate::extensions::frame_guard::is_keyboard_input_method(&method) {
+            if subframes.has_pending
+                || crate::extensions::frame_guard::focused_frame_is_extension(&t.browser)
             {
-                let mut ids = t.allowed_ext_ids.lock().unwrap();
-                if !ids.iter().any(|id| id == ext_id) {
-                    ids.push(ext_id.to_owned());
+                refuse(&self.out_tx, "Agent browser tools cannot type into extension frames.");
+                return;
+            }
+            self.dispatch_cdp_raw(tab_id, request_id, &method, &params, CdpPending::Raw(request_id));
+            return;
+        }
+
+        // Pointer/touch input: hit-test against every extension sub-frame viewport bounding box
+        // (including closed-ShadowRoot overlays and DNR-redirected frames) before forwarding.
+        if crate::extensions::frame_guard::is_pointer_input_method(&method) {
+            let points = crate::extensions::frame_guard::extract_input_points(&method, &params);
+            if subframes.has_pending || points.is_empty() {
+                refuse(
+                    &self.out_tx,
+                    "Agent browser tools cannot send pointer input while an extension frame is loading.",
+                );
+                return;
+            }
+            let job_id = self.next_hit_job;
+            self.next_hit_job = self.next_hit_job.wrapping_add(1).max(1);
+            self.hit_jobs.insert(
+                job_id,
+                super::HitTestJob {
+                    tab_id,
+                    request_id,
+                    method,
+                    params,
+                    points,
+                    remaining_boxes: 0,
+                    blocked: false,
+                },
+            );
+            let doc_params = json!({ "depth": -1, "pierce": true });
+            self.dispatch_cdp_raw(
+                tab_id,
+                request_id,
+                "DOM.getDocument",
+                &doc_params,
+                CdpPending::HitTestDoc(job_id),
+            );
+            return;
+        }
+
+        // FrameTree / Accessibility / DOM queries: strip extension sub-frames & tokens in reply.
+        if let Some(kind) = crate::extensions::frame_guard::reply_filter_for_method(&method) {
+            self.dispatch_cdp_raw(
+                tab_id,
+                request_id,
+                &method,
+                &params,
+                CdpPending::FilteredSubframes {
+                    request_id,
+                    kind,
+                    ext_frame_ids: subframes.ext_frame_ids,
+                },
+            );
+            return;
+        }
+
+        self.dispatch_cdp_raw(tab_id, request_id, &method, &params, CdpPending::Raw(request_id));
+    }
+
+    pub(super) fn dispatch_cdp_raw(
+        &mut self,
+        tab_id: u64,
+        request_id: u64,
+        method: &str,
+        params: &Value,
+        pending: CdpPending,
+    ) {
+        let Some(t) = self.tabs.get(&tab_id) else {
+            return;
+        };
+        let msg_id = self.next_cdp_id.fetch_add(1, Ordering::Relaxed);
+        t.cdp_id_map.lock().unwrap().insert(msg_id, pending);
+        let raw = json!({ "id": msg_id, "method": method, "params": params }).to_string();
+        if t.host.send_dev_tools_message(Some(raw.as_bytes())) != 1 {
+            t.cdp_id_map.lock().unwrap().remove(&msg_id);
+            let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                tab_id,
+                request_id,
+                ok: false,
+                result: json!({ "error": "send_dev_tools_message rejected" }),
+            });
+        }
+    }
+
+    /// Advances multi-step CDP hit-testing for `Input.dispatchMouseEvent` / `dispatchTouchEvent`
+    /// on web tabs containing extension sub-frames.
+    pub(super) fn poll_hit_tests(&mut self) {
+        let mut replies = Vec::new();
+        for tab in self.tabs.values() {
+            replies.extend(tab.hit_events.lock().unwrap().drain(..));
+        }
+        for reply in replies {
+            match reply {
+                crate::extensions::frame_guard::HitTestReply::Doc { job_id, ok, result } => {
+                    let Some(mut job) = self.hit_jobs.remove(&job_id) else {
+                        continue;
+                    };
+                    let Some(t) = self.tabs.get(&job.tab_id) else {
+                        continue;
+                    };
+                    let fresh = crate::extensions::frame_guard::inspect_subframes(&t.browser, &t.prompts);
+                    if !ok || super::tab_is_extension_main_surface(t) || fresh.has_pending {
+                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                            tab_id: job.tab_id,
+                            request_id: job.request_id,
+                            ok: false,
+                            result: json!({ "message": "Agent browser tools cannot interact with extension frames." }),
+                        });
+                        continue;
+                    }
+                    let bids = crate::extensions::frame_guard::find_ext_iframe_backend_ids(&result, &fresh);
+                    if bids.is_empty() {
+                        // All extension sub-frames disappeared before hit-test; safe to forward.
+                        if !fresh.any_ext() {
+                            self.dispatch_cdp_raw(
+                                job.tab_id,
+                                job.request_id,
+                                &job.method,
+                                &job.params,
+                                CdpPending::Raw(job.request_id),
+                            );
+                        } else {
+                            // Committed extension sub-frame exists but wasn't found in DOM -> fail closed.
+                            let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                                tab_id: job.tab_id,
+                                request_id: job.request_id,
+                                ok: false,
+                                result: json!({ "message": "Agent browser tools cannot verify extension frame bounds." }),
+                            });
+                        }
+                        continue;
+                    }
+                    job.remaining_boxes = bids.len();
+                    let tab_id = job.tab_id;
+                    let req_id = job.request_id;
+                    self.hit_jobs.insert(job_id, job);
+                    for bid in bids {
+                        self.dispatch_cdp_raw(
+                            tab_id,
+                            req_id,
+                            "DOM.getBoxModel",
+                            &json!({ "backendNodeId": bid }),
+                            CdpPending::HitTestBox(job_id),
+                        );
+                    }
+                }
+                crate::extensions::frame_guard::HitTestReply::Box { job_id, ok, result } => {
+                    let Some(job) = self.hit_jobs.get_mut(&job_id) else {
+                        continue;
+                    };
+                    if ok {
+                        if let Some(rect) = crate::extensions::frame_guard::parse_box_model_rect(&result)
+                            && job
+                                .points
+                                .iter()
+                                .any(|&pt| crate::extensions::frame_guard::point_in_rect(pt, rect))
+                        {
+                            job.blocked = true;
+                        }
+                    } else if !crate::extensions::frame_guard::is_unrendered_box_error(&result) {
+                        job.blocked = true;
+                    }
+                    job.remaining_boxes = job.remaining_boxes.saturating_sub(1);
+                    if job.remaining_boxes == 0 {
+                        let Some(done) = self.hit_jobs.remove(&job_id) else {
+                            continue;
+                        };
+                        let Some(t) = self.tabs.get(&done.tab_id) else {
+                            continue;
+                        };
+                        let fresh = crate::extensions::frame_guard::inspect_subframes(&t.browser, &t.prompts);
+                        if done.blocked || super::tab_is_extension_main_surface(t) || fresh.has_pending {
+                            let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                                tab_id: done.tab_id,
+                                request_id: done.request_id,
+                                ok: false,
+                                result: json!({ "message": "Agent browser tools cannot click or interact with extension frames." }),
+                            });
+                        } else {
+                            self.dispatch_cdp_raw(
+                                done.tab_id,
+                                done.request_id,
+                                &done.method,
+                                &done.params,
+                                CdpPending::Raw(done.request_id),
+                            );
+                        }
+                    }
                 }
             }
         }

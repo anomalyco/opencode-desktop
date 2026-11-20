@@ -142,22 +142,22 @@ impl ExtensionHost {
                     let batch = match kind {
                         SessionKind::ServiceWorker => vec![
                             json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.enable", "params": {} }),
-                            fetch_enable_cmd(fetch_id, &sid),
                             auto_attach_cmd(self.alloc_id(), &sid),
+                            fetch_enable_cmd(fetch_id, &sid),
                             json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.addBinding", "params": { "name": "__ocExtCall" } }),
                             json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Debugger.enable", "params": {} }),
                             json!({ "id": self.alloc_id(), "sessionId": sid, "method": "EventBreakpoints.setInstrumentationBreakpoint", "params": { "eventName": "scriptFirstStatement" } }),
                         ],
                         SessionKind::FileGuardOnly => vec![
-                            fetch_enable_cmd(fetch_id, &sid),
                             auto_attach_cmd(self.alloc_id(), &sid),
+                            fetch_enable_cmd(fetch_id, &sid),
                         ],
                         SessionKind::ExtensionPage | SessionKind::PopupPage | SessionKind::SeedProbe => {
                             let mut cmds = vec![
                                 json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.enable", "params": {} }),
                                 json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Page.enable", "params": {} }),
-                                fetch_enable_cmd(fetch_id, &sid),
                                 auto_attach_cmd(self.alloc_id(), &sid),
+                                fetch_enable_cmd(fetch_id, &sid),
                             ];
                             if kind != SessionKind::SeedProbe {
                                 let code = shim_source(kind == SessionKind::PopupPage);
@@ -336,9 +336,10 @@ impl ExtensionHost {
     fn handle_cdp_reply(&mut self, id: i64, msg: &Value) -> Vec<ExtEffect> {
         let mut effects = Vec::new();
         if let Some(sid) = self.pending_fetch_resume.remove(&id) {
-            // `Fetch.enable` has now updated subresource loader factories in the target; only now
-            // resume the paused target so line 1 of JS can never race ahead (`review-rd274.md` §1c).
-            if self.sessions.contains_key(&sid) {
+            // Fail closed if `Fetch.enable` returned an error: NEVER resume an unguarded target
+            // (`review-rd274.md` Round-3 §1). Because `auto_attach_cmd` precedes `fetch_enable_cmd`
+            // in the batch, a non-error reply strictly guarantees both completed before JS runs.
+            if msg.get("error").is_none() && self.sessions.contains_key(&sid) {
                 let _ = self.send_cdp("Runtime.runIfWaitingForDebugger", json!({}), Some(&sid));
             }
             return effects;
@@ -352,7 +353,12 @@ impl ExtensionHost {
         if let Some(expected_id) = self.pending_startup_loads.remove(&id) {
             let ok = msg.get("error").is_none();
             let loaded_id = msg.pointer("/result/id").and_then(Value::as_str).unwrap_or("");
-            if ok && loaded_id == expected_id {
+            // Post-load fail-closed verification: confirm Chromium actually cleared
+            // `Extension::ALLOW_FILE_ACCESS` (`creation_flags & 4 == 0` and
+            // `newAllowFileAccess == false`) under `<loaded_id>` (`review-rd274.md` Round-3 §1a).
+            let file_access_revoked =
+                ok && loaded_id == expected_id && crate::context::verify_extension_file_access_disabled(loaded_id);
+            if file_access_revoked {
                 if let Some(ext) = self.extensions.get_mut(&expected_id) {
                     ext.is_unpacked = true;
                     ext.loaded = true;
@@ -368,10 +374,13 @@ impl ExtensionHost {
                 self.extensions.remove(&expected_id);
                 self.actions.remove(&expected_id);
                 self.queued_clicks.retain(|cid| cid != &expected_id);
-                if is_valid_ext_id(loaded_id) && loaded_id != expected_id {
+                if is_valid_ext_id(loaded_id) {
                     let _ = self.send_cdp("Extensions.uninstall", json!({ "id": loaded_id }), None);
                 }
-                self.uninstall_inert_stub(&expected_id);
+                if loaded_id != expected_id {
+                    self.uninstall_inert_stub(&expected_id);
+                }
+                effects.push(ExtEffect::IntegrityFailed { ext_id: expected_id.clone() });
             }
             self.pending_filter_ids.remove(&expected_id);
             if self.pending_filter_ids.is_empty() && !self.filters_ready_emitted {
@@ -420,7 +429,11 @@ impl ExtensionHost {
         if let Some(expected_id) = self.pending_reload_cmd.remove(&id) {
             let ok = msg.get("error").is_none();
             let loaded_id = msg.pointer("/result/id").and_then(Value::as_str).unwrap_or("").to_owned();
-            if ok && is_valid_ext_id(&loaded_id) && loaded_id == expected_id {
+            let file_access_revoked = ok
+                && is_valid_ext_id(&loaded_id)
+                && loaded_id == expected_id
+                && crate::context::verify_extension_file_access_disabled(&loaded_id);
+            if file_access_revoked {
                 if let Some(ext) = self.extensions.get_mut(&expected_id) {
                     ext.is_unpacked = true;
                     ext.loaded = true;
@@ -428,13 +441,16 @@ impl ExtensionHost {
                 effects.push(ExtEffect::ExtensionReloaded { ext_id: loaded_id, ok: true, error: None });
             } else {
                 self.extensions.remove(&expected_id);
-                if is_valid_ext_id(&loaded_id) && loaded_id != expected_id {
+                if is_valid_ext_id(&loaded_id) {
                     let _ = self.send_cdp("Extensions.uninstall", json!({ "id": loaded_id }), None);
                 }
                 effects.push(ExtEffect::ExtensionReloaded {
                     ext_id: expected_id,
                     ok: false,
-                    error: msg.get("error").map(Value::to_string).or_else(|| Some("Loaded ID mismatch".into())),
+                    error: msg
+                        .get("error")
+                        .map(Value::to_string)
+                        .or_else(|| Some("Loaded ID mismatch or file:// access not revoked".into())),
                 });
             }
             return effects;
@@ -580,8 +596,8 @@ impl ExtensionHost {
                 self.pending_fetch_resume.insert(fetch_id, sid.to_owned());
                 let batch = vec![
                     json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.enable", "params": {} }),
-                    fetch_enable_cmd(fetch_id, sid),
                     auto_attach_cmd(self.alloc_id(), sid),
+                    fetch_enable_cmd(fetch_id, sid),
                     json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.addBinding", "params": { "name": "__ocExtCall" } }),
                     json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Debugger.enable", "params": {} }),
                     json!({ "id": self.alloc_id(), "sessionId": sid, "method": "EventBreakpoints.setInstrumentationBreakpoint", "params": { "eventName": "scriptFirstStatement" } }),
@@ -597,8 +613,8 @@ impl ExtensionHost {
                 let code = shim_source(false);
                 let batch = vec![
                     json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.enable", "params": {} }),
-                    fetch_enable_cmd(self.alloc_id(), sid),
                     auto_attach_cmd(self.alloc_id(), sid),
+                    fetch_enable_cmd(self.alloc_id(), sid),
                     json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.addBinding", "params": { "name": "__ocExtCall" } }),
                     json!({ "id": eval_id, "sessionId": sid, "method": "Runtime.evaluate", "params": { "expression": code, "returnByValue": true } }),
                 ];
@@ -609,9 +625,9 @@ impl ExtensionHost {
         }
 
         // Extension dedicated/shared workers (including `blob:chrome-extension://<id>/...` workers)
-        // and extension iframes: attach ONLY `Fetch.enable` + recursive `Target.setAutoAttach`
+        // and extension iframes: attach ONLY `Target.setAutoAttach` + `Fetch.enable`
         // (never install `__ocExtCall` or `shim.js`), and await `Fetch.enable`'s reply before
-        // resuming (`review-rd274.md` Round-2 §1a-c).
+        // resuming (`review-rd274.md` Round-2 §1a-c & Round-3 §1).
         if matches!(ttype, "worker" | "shared_worker" | "iframe")
             && let Some(ext_id) = super::manifest::extension_id_from_target_url(url)
             && self.extensions.contains_key(ext_id)
@@ -635,8 +651,8 @@ impl ExtensionHost {
                 self.pending_fetch_resume.insert(fetch_id, sid.to_owned());
             }
             let batch = vec![
-                fetch_enable_cmd(fetch_id, sid),
                 auto_attach_cmd(self.alloc_id(), sid),
+                fetch_enable_cmd(fetch_id, sid),
             ];
             self.pipe.send_batch(&batch);
             return effects;
@@ -696,8 +712,8 @@ impl ExtensionHost {
             let mut batch = vec![
                 json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.enable", "params": {} }),
                 json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Page.enable", "params": {} }),
-                fetch_enable_cmd(fetch_id, sid),
                 auto_attach_cmd(self.alloc_id(), sid),
+                fetch_enable_cmd(fetch_id, sid),
             ];
             if kind != SessionKind::SeedProbe {
                 let code = shim_source(kind == SessionKind::PopupPage);

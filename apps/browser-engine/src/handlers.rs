@@ -15,7 +15,7 @@ use cef::{
     ImplRequestHandler, ImplResourceRequestHandler, ImplSelectClientCertificateCallback,
     LoadHandler, PaintElementType, Rect, RenderHandler, Request, RequestHandler,
     ResourceRequestHandler, Response, ReturnValue, ScreenInfo, SelectClientCertificateCallback,
-    TerminationStatus, WindowOpenDisposition, WrapDevToolsMessageObserver, WrapDisplayHandler,
+    TerminationStatus, TransitionType, WindowOpenDisposition, WrapDevToolsMessageObserver, WrapDisplayHandler,
     WrapLoadHandler, WrapRenderHandler, WrapRequestHandler, WrapResourceRequestHandler,
     X509Certificate, sys, wrap_dev_tools_message_observer, wrap_display_handler,
     wrap_load_handler, wrap_render_handler, wrap_request_handler, wrap_resource_request_handler,
@@ -473,10 +473,32 @@ wrap_load_handler! {
             });
         }
 
+        fn on_load_start(
+            &self,
+            _browser: Option<&mut Browser>,
+            frame: Option<&mut Frame>,
+            _transition_type: TransitionType,
+        ) {
+            let Some(frame) = frame else { return };
+            if frame.is_main() == 1 {
+                self.prompts.clear_all_pending_ext_subframes();
+            } else {
+                let url = CefString::from(&frame.url()).to_string();
+                if crate::extensions::manifest::is_extension_scheme(&url) {
+                    let fid = CefString::from(&frame.identifier()).to_string();
+                    self.prompts.mark_pending_ext_subframe(fid);
+                }
+            }
+        }
+
         // A document from the network (any HTTP status) replaces a failed or crashed page; Chromium's
         // own error page ends with no status.
         fn on_load_end(&self, _browser: Option<&mut Browser>, frame: Option<&mut Frame>, http_status_code: i32) {
-            if frame.is_some_and(|f| f.is_main() != 1) {
+            if let Some(f) = frame
+                && f.is_main() != 1
+            {
+                let fid = CefString::from(&f.identifier()).to_string();
+                self.prompts.clear_pending_ext_subframe(&fid);
                 return;
             }
             self.prompts.set_pending_top_url(None);
@@ -501,7 +523,11 @@ wrap_load_handler! {
         ) {
             use sys::cef_errorcode_t as E;
             let code = *error_code.as_ref();
-            if frame.is_some_and(|f| f.is_main() != 1) {
+            if let Some(f) = frame
+                && f.is_main() != 1
+            {
+                let fid = CefString::from(&f.identifier()).to_string();
+                self.prompts.clear_pending_ext_subframe(&fid);
                 return;
             }
             self.prompts.set_pending_top_url(None);
@@ -580,7 +606,7 @@ wrap_resource_request_handler! {
         fn on_resource_redirect(
             &self,
             _browser: Option<&mut Browser>,
-            _frame: Option<&mut Frame>,
+            frame: Option<&mut Frame>,
             _request: Option<&mut Request>,
             _response: Option<&mut Response>,
             new_url: Option<&mut CefString>,
@@ -592,6 +618,11 @@ wrap_resource_request_handler! {
                 *new_url = CefString::from("");
             } else if self.is_main_navigation {
                 self.prompts.set_pending_top_url(Some(target));
+            } else if crate::extensions::manifest::is_extension_scheme(&target)
+                && let Some(f) = frame
+            {
+                let fid = CefString::from(&f.identifier()).to_string();
+                self.prompts.mark_pending_ext_subframe(fid);
             }
         }
 
@@ -645,7 +676,10 @@ wrap_request_handler! {
             _user_gesture: ::std::os::raw::c_int,
             _is_redirect: ::std::os::raw::c_int,
         ) -> ::std::os::raw::c_int {
-            let is_main = frame.is_none_or(|f| f.is_main() == 1);
+            let (is_main, sub_frame_id) = match frame {
+                Some(f) if f.is_main() != 1 => (false, Some(CefString::from(&f.identifier()).to_string())),
+                _ => (true, None),
+            };
             let url = request.map(|r| CefString::from(&r.url()).to_string()).unwrap_or_default();
             let is_agent = self.prompts.agent_driven.load(Ordering::Relaxed);
             // Block extension-origin URLs (`chrome-extension:`, `blob:chrome-extension:`, ...) in
@@ -665,6 +699,7 @@ wrap_request_handler! {
                     && target == Some(own_id.as_str())
                     && self.ext_policy.allowed_ext_ids.lock().unwrap().iter().any(|id| id == own_id)
                 {
+                    self.prompts.clear_all_pending_ext_subframes();
                     self.prompts.set_pending_top_url(Some(url));
                     return 0;
                 }
@@ -679,6 +714,7 @@ wrap_request_handler! {
                 && let Some(ext_id) = crate::extensions::manifest::extension_id_from_url(&url)
                 && self.ext_policy.allowed_ext_ids.lock().unwrap().iter().any(|id| id == ext_id)
             {
+                self.prompts.clear_all_pending_ext_subframes();
                 self.prompts.set_pending_top_url(Some(url));
                 return 0;
             }
@@ -691,7 +727,12 @@ wrap_request_handler! {
                 return 1;
             }
             if is_main {
+                self.prompts.clear_all_pending_ext_subframes();
                 self.prompts.set_pending_top_url(Some(url));
+            } else if crate::extensions::manifest::is_extension_scheme(&url)
+                && let Some(fid) = sub_frame_id
+            {
+                self.prompts.mark_pending_ext_subframe(fid);
             }
             0
         }
@@ -888,6 +929,13 @@ wrap_request_handler! {
 
 pub enum CdpPending {
     Raw(u64),
+    FilteredSubframes {
+        request_id: u64,
+        kind: crate::extensions::frame_guard::FilterKind,
+        ext_frame_ids: std::collections::HashSet<String>,
+    },
+    HitTestDoc(u64),
+    HitTestBox(u64),
     CookieCount(u64),
     ClearSite { request_id: u64, origin: String },
 }
@@ -905,6 +953,8 @@ wrap_dev_tools_message_observer! {
         id_map: Arc<Mutex<HashMap<i32, CdpPending>>>,
         internal_picked: Arc<Mutex<Vec<i64>>>,
         pending_clears: Arc<Mutex<Vec<PendingClear>>>,
+        hit_events: Arc<Mutex<Vec<crate::extensions::frame_guard::HitTestReply>>>,
+        events: std::sync::mpsc::Sender<crate::Event>,
         out_tx: Output,
     }
 
@@ -919,7 +969,7 @@ wrap_dev_tools_message_observer! {
             let Some(pending) = self.id_map.lock().unwrap().remove(&message_id) else {
                 return;
             };
-            let val = result
+            let mut val = result
                 .and_then(|b| serde_json::from_slice::<Value>(b).ok())
                 .unwrap_or(Value::Null);
             match pending {
@@ -930,6 +980,39 @@ wrap_dev_tools_message_observer! {
                         ok: success != 0,
                         result: val,
                     });
+                }
+                CdpPending::FilteredSubframes { request_id, kind, ext_frame_ids } => {
+                    if success != 0 {
+                        crate::extensions::frame_guard::filter_cdp_reply(kind, &mut val, &ext_frame_ids);
+                    }
+                    let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                        tab_id: self.tab_id,
+                        request_id,
+                        ok: success != 0,
+                        result: val,
+                    });
+                }
+                CdpPending::HitTestDoc(job_id) => {
+                    self.hit_events
+                        .lock()
+                        .unwrap()
+                        .push(crate::extensions::frame_guard::HitTestReply::Doc {
+                            job_id,
+                            ok: success != 0,
+                            result: val,
+                        });
+                    let _ = self.events.send(crate::Event::Pump(0));
+                }
+                CdpPending::HitTestBox(job_id) => {
+                    self.hit_events
+                        .lock()
+                        .unwrap()
+                        .push(crate::extensions::frame_guard::HitTestReply::Box {
+                            job_id,
+                            ok: success != 0,
+                            result: val,
+                        });
+                    let _ = self.events.send(crate::Event::Pump(0));
                 }
                 CdpPending::CookieCount(req_id) => {
                     let count = val.get("cookies").and_then(Value::as_array).map_or(0, Vec::len);

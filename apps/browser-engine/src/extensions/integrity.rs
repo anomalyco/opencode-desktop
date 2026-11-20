@@ -259,7 +259,7 @@ pub fn prepare_startup_stubs(specs: &[String], profile_root: &Path) -> PreparedS
 /// Removes the engine's temporary inert-stub directory on shutdown.
 pub fn cleanup_stub_root(stub_root: &Path) {
     if let Ok(meta) = std::fs::symlink_metadata(stub_root)
-        && !meta.file_type().is_symlink()
+        && !is_reparse_or_symlink(&meta)
     {
         let _ = std::fs::remove_dir_all(stub_root);
     }
@@ -274,10 +274,12 @@ fn sweep_stale_stubs(profile_root: &Path) {
         let Some(name) = name.to_str() else { continue };
         let Some(pid_part) = name.strip_prefix(STUB_PREFIX) else { continue };
         let pid_str = pid_part.split('-').next().unwrap_or(pid_part);
+        let path = entry.path();
         if pid_str.parse::<u32>().ok().is_some_and(|p| p != my_pid)
-            && entry.file_type().is_ok_and(|ft| ft.is_dir() && !ft.is_symlink())
+            && std::fs::symlink_metadata(&path)
+                .is_ok_and(|m| m.is_dir() && !is_reparse_or_symlink(&m))
         {
-            let _ = std::fs::remove_dir_all(entry.path());
+            let _ = std::fs::remove_dir_all(path);
         }
     }
 }
@@ -340,12 +342,12 @@ pub fn verify_extension_dir_and_manifest(
         return None;
     }
     let root_meta = std::fs::symlink_metadata(dir).ok()?;
-    if !root_meta.is_dir() || root_meta.file_type().is_symlink() {
+    if !root_meta.is_dir() || is_reparse_or_symlink(&root_meta) {
         return None;
     }
     let metadata_dir = dir.join("_metadata");
     if let Ok(meta) = std::fs::symlink_metadata(&metadata_dir) {
-        if meta.file_type().is_symlink() {
+        if is_reparse_or_symlink(&meta) {
             return None;
         }
         std::fs::remove_dir_all(&metadata_dir).ok()?;
@@ -392,7 +394,7 @@ pub fn extension_tree_digest_and_manifest(root: &Path) -> Option<(String, Option
         let Ok(meta) = std::fs::symlink_metadata(folder) else {
             return false;
         };
-        if !meta.is_dir() || meta.file_type().is_symlink() {
+        if !meta.is_dir() || is_reparse_or_symlink(&meta) {
             return false;
         }
         let Ok(entries) = std::fs::read_dir(folder) else {
@@ -409,27 +411,21 @@ pub fn extension_tree_digest_and_manifest(root: &Path) -> Option<(String, Option
             };
             let rel = format!("{prefix}{file_name}");
             let target = entry.path();
-            let Ok(ft) = entry.file_type() else {
+            let Ok(info) = std::fs::symlink_metadata(&target) else {
                 return false;
             };
-            if ft.is_symlink() {
+            if is_reparse_or_symlink(&info) {
                 return false;
             }
-            if ft.is_dir() {
+            if info.is_dir() {
                 dir_records.push(serde_json::json!([rel]).to_string());
                 if !collect(&target, &format!("{rel}/"), depth + 1, dir_records, file_jobs, count, total_bytes) {
                     return false;
                 }
                 continue;
             }
-            if !ft.is_file() {
-                return false;
-            }
-            let Ok(info) = std::fs::symlink_metadata(&target) else {
-                return false;
-            };
             let size = info.len();
-            if !info.is_file() || info.file_type().is_symlink() || size > MAX_FILE_BYTES {
+            if !info.is_file() || size > MAX_FILE_BYTES {
                 return false;
             }
             *total_bytes = total_bytes.saturating_add(size);

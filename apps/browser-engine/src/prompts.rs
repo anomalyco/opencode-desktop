@@ -13,8 +13,10 @@
 //!   Negotiate; agent-driven tabs cancel immediately and emit `AuthAgentRequired` (`sign_in_required`).
 //! - Native file choosers on agent-driven tabs are cancelled immediately (`FileChooserBlocked`).
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use cef::rc::Rc as _;
 use cef::{
@@ -71,6 +73,10 @@ pub struct TabPrompts {
     permissions: Mutex<Vec<HeldPermission>>,
     auth: Mutex<Vec<(AuthChallenge, AuthCallback)>>,
     pending_top_url: Mutex<Option<String>>,
+    /// Tracks in-flight (pre-commit) `chrome-extension://` sub-frame navigations keyed by CEF
+    /// frame identifier (5 s stale TTL) so agent actions cannot race between `on_before_browse`
+    /// and commit (`review-rd274.md` Round-3 §2).
+    pending_ext_subframes: Mutex<HashMap<String, Instant>>,
 }
 
 impl TabPrompts {
@@ -80,6 +86,32 @@ impl TabPrompts {
 
     pub fn pending_top_url(&self) -> Option<String> {
         self.pending_top_url.lock().unwrap().clone()
+    }
+
+    pub fn mark_pending_ext_subframe(&self, frame_id: String) {
+        if !frame_id.is_empty() {
+            self.pending_ext_subframes
+                .lock()
+                .unwrap()
+                .insert(frame_id, Instant::now());
+        }
+    }
+
+    pub fn clear_pending_ext_subframe(&self, frame_id: &str) {
+        if !frame_id.is_empty() {
+            self.pending_ext_subframes.lock().unwrap().remove(frame_id);
+        }
+    }
+
+    pub fn clear_all_pending_ext_subframes(&self) {
+        self.pending_ext_subframes.lock().unwrap().clear();
+    }
+
+    pub fn retain_pending_ext_subframes(&self, mut keep: impl FnMut(&str) -> bool) -> Vec<String> {
+        let mut map = self.pending_ext_subframes.lock().unwrap();
+        let ttl = Duration::from_secs(5);
+        map.retain(|id, ts| ts.elapsed() < ttl && keep(id));
+        map.keys().cloned().collect()
     }
 
     pub fn answer_dialog(&self, id: u64, accept: bool, text: &str) -> bool {

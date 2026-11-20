@@ -19,6 +19,7 @@
 #![deny(unsafe_code)]
 
 mod cdp;
+pub mod frame_guard;
 pub mod integrity;
 pub mod manifest;
 pub mod pipe;
@@ -383,8 +384,8 @@ impl ExtensionHost {
                 continue;
             };
             // Fail closed if Chromium refuses to revoke `ALLOW_FILE_ACCESS` before load
-            // (`review-rd274.md` Round-2 §1).
-            if !crate::context::disallow_extension_file_access(&id, &item.dir) {
+            // (hashes the exact single `path_str` passed to `loadUnpacked`; `review-rd274.md` Round-3 §1).
+            if !crate::context::disallow_extension_file_access(&id, &path_str) {
                 self.uninstall_inert_stub(&id);
                 effects.push(ExtEffect::IntegrityFailed { ext_id: id });
                 continue;
@@ -409,11 +410,13 @@ impl ExtensionHost {
     /// it cleanly (Chromium rejects `Extensions.uninstall` directly on `kCommandLine` extensions).
     pub(super) fn uninstall_inert_stub(&mut self, bad_id: &str) {
         if let Some(stub_dir) = self.stub_dirs_by_id.get(bad_id).cloned() {
-            let _ = crate::context::disallow_extension_file_access(bad_id, &stub_dir);
-            let path_str = crate::context::canonical_extension_load_path(&stub_dir)
-                .unwrap_or_else(|| stub_dir.to_string_lossy().into_owned());
-            let cid = self.send_cdp("Extensions.loadUnpacked", json!({ "path": path_str }), None);
-            self.pending_stub_cleanup.insert(cid, bad_id.to_owned());
+            if let Some(path_str) = crate::context::canonical_extension_load_path(&stub_dir) {
+                let _ = crate::context::disallow_extension_file_access(bad_id, &path_str);
+                let cid = self.send_cdp("Extensions.loadUnpacked", json!({ "path": path_str }), None);
+                self.pending_stub_cleanup.insert(cid, bad_id.to_owned());
+            } else {
+                let _ = self.send_cdp("Extensions.uninstall", json!({ "id": bad_id }), None);
+            }
         } else {
             let _ = self.send_cdp("Extensions.uninstall", json!({ "id": bad_id }), None);
         }
@@ -515,7 +518,20 @@ impl ExtensionHost {
                     error: Some("Extension files changed on disk; restart required.".into()),
                 }];
             }
-            let path_str = ext.dir.to_string_lossy().into_owned();
+            let Some(path_str) = crate::context::canonical_extension_load_path(&ext.dir) else {
+                return vec![ExtEffect::ExtensionUninstalled {
+                    ext_id: ext_id.to_owned(),
+                    ok: false,
+                    error: Some("Could not resolve extension path.".into()),
+                }];
+            };
+            if !crate::context::disallow_extension_file_access(ext_id, &path_str) {
+                return vec![ExtEffect::ExtensionUninstalled {
+                    ext_id: ext_id.to_owned(),
+                    ok: false,
+                    error: Some("Could not disable file:// access before uninstall upgrade.".into()),
+                }];
+            }
             let id = self.send_cdp("Extensions.loadUnpacked", json!({ "path": path_str }), None);
             self.pending_uninstall_upgrade.insert(id, ext_id.to_owned());
         }
@@ -548,7 +564,7 @@ impl ExtensionHost {
                 error: Some("Could not resolve extension path.".into()),
             }];
         };
-        if !crate::context::disallow_extension_file_access(&item.id, &item.dir) {
+        if !crate::context::disallow_extension_file_access(&item.id, &path_str) {
             return vec![ExtEffect::ExtensionReloaded {
                 ext_id: ext_id.to_owned(),
                 ok: false,
