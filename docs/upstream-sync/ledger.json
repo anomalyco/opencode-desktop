@@ -5,7 +5,7 @@
   "upstream_head": "4122af020611976880692dfc1d203d9ab1ef7962",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "5da64743af01b2386010043cd15439a475232cc2",
+  "rune_desktop_head": "189480255966dd44a420c259f56a2692422f8dd2",
   "post_1114_commit_count": 366,
   "post_1114_in_ledger": 135,
   "post_1114_skipped": 231,
@@ -3328,12 +3328,12 @@
       "size": "L",
       "status": "have it",
       "rune_pr": "#270, #276, #285, #297, #294",
-      "status_evidence": "Code merged on dev: chrome polish & device toolbar (#270 17194075), Settings > Browser (#276 c6bd83d0), policy-first link routing & Phase 1c chrome wiring (#285 5a1a37ba), inline chat video + reply browser/Finder link actions (#297 918d24f9), and Security A1 file-link/click-to-run fix (#294 ae3e9105: closes all 4 0.0.0-dev-440 execution/NTLMv2/wt/bundle holes and hardens #297 reply menu & zero-click video; known limitation: symlink/junction workspace roots refused until follow-up). PR #307 (A1b click-to-load video) open.",
+      "status_evidence": "Code merged on dev: chrome polish & device toolbar (#270 17194075), Settings > Browser (#276 c6bd83d0), policy-first link routing & Phase 1c chrome wiring (#285 5a1a37ba), inline chat video + reply browser/Finder link actions (#297 918d24f9), and Security A1 file-link/click-to-run fix (#294 ae3e9105: closes the 4 execution/NTLMv2/wt/bundle holes present from 0.0.0-dev-440 through published 0.0.0-dev-449 [b62e6985], removes #297 reply menu Open file/pre-menu metadata, and narrows #297 video auto-load to in-workspace files; known limitation: symlink/junction workspace roots refused until #308). PR #307 (A1b click-to-load video) and PR #308 (alias-root follow-up) open.",
       "depends_on": "UP-095 (#63002)",
       "risks": "Link routing must always delegate scheme/URL decisions to crates/browser-policy.",
       "workstream": "none",
-      "reviewed": "#294 confirmed (final check, compile-fix check, merge check; Windows proved live; macOS/Linux compiled only, never run; known limitation: symlink/junction workspace roots refused); #285/#289 NOT SAFE TO SHIP (A2/B follow-ups queued); #297 was not reviewed before merge (security findings closed on dev by #294; A1b #307 open for pre-merge review)",
-      "open_pr_note": "PR #307 (browser-ui/sec-a1b-click-to-load-video, held for pre-merge security review); browser-ui/followup-alias-root queued"
+      "reviewed": "#294 confirmed (final check, compile-fix check, merge check; Windows proved live; macOS/Linux compiled only, never run; known limitation: symlink/junction workspace roots refused); #285/#289 NOT SAFE TO SHIP (A2/B follow-ups queued); #297 was not reviewed before merge (security findings; in-workspace video auto-load still open on dev); #307 (1st read) and #308 (1st read) NOT CONFIRMED",
+      "open_pr_note": "PR #307 (browser-ui/sec-a1b-click-to-load-video, updated at e5b9ef78 after 1st read), PR #308 (browser-ui/sec-alias-root, in rework after 1st read)"
     },
     {
       "id": "UP-095-PREVIEWS",
@@ -3358,8 +3358,8 @@
       "depends_on": "UP-095 (#63002)",
       "risks": "Security-critical: symlink/TOCTOU, loopback/LAN/WebRTC exfiltration, credential isolation, raw file:// ban; requires newly published engine binary.",
       "workstream": "PREVIEWS",
-      "open_pr_note": "PR #303 (previews/pr2-app-routing, in rework after 1st security read)",
-      "reviewed": "#281 confirmed (third read + merge check); PR #303 in rework (1st read NOT CONFIRMED; 4 security review blockers)",
+      "open_pr_note": "PR #303 (previews/pr2-app-routing, in rework after 2nd security read)",
+      "reviewed": "#281 confirmed (third read + merge check); PR #303 in rework (2nd read at 67771007 NOT CONFIRMED; 3 security review blockers)",
       "rune_pr": "#281"
     },
     {
@@ -3386,8 +3386,8 @@
       "depends_on": "UP-095 (#63002), PRE-08 (#63500)",
       "risks": "Remote server attachment must fail closed until engine Ready.remote_proxy lands (WS-1 Phase 3a); older servers must keep full rune_mcp fallback.",
       "workstream": "BROWSER-TOOLS",
-      "reviewed": "NOT SAFE TO SHIP (#275/#287 retrospective findings open); #301 in rework (2nd read NOT CONFIRMED; #287 time_updated regression still on dev); #296 (3rd read), #298 (1st read), #302 (1st read) in rework; PR 3+ held",
-      "open_pr_note": "PR #301 (in rework — lazy attach fix for #287 regression), PR #296 (in rework — 3rd read), PR #298 (in rework), PR #302 (in rework)",
+      "reviewed": "NOT SAFE TO SHIP (#275/#287 retrospective findings open); #301 in rework (3rd read at f1c0871a NOT CONFIRMED; #287 time_updated regression still on dev); #296 (4th read at 86140d7a), #298 (1st read), #302 (1st read) in rework; PR 3+ held",
+      "open_pr_note": "PR #301 (in rework — 3rd read), PR #296 (in rework — 4th read), PR #298 (in rework), PR #302 (in rework)",
       "open_regression": "BROWSER-TOOLS (#287): eager experimental.browser attach triggers server writePermissions mutating session time_updated=now, bucketing opened sessions into Older (18 Home screens, +7.5M restPx; fix PR #301 in rework — regression still live on dev)"
     },
     {
@@ -3938,7 +3938,8 @@
       "#303 (in rework)",
       "#305 (in rework)",
       "#306 (in rework)",
-      "#307"
+      "#307 (updated after 1st read)",
+      "#308 (in rework)"
     ]
   }
 }
