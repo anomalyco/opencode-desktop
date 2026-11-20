@@ -317,7 +317,9 @@ impl<S: 'static> Inner<S> {
         let unified = st.mode() == DiffMode::Unified;
         let get_mut = self.d.get_mut.clone();
         let notes = self.d.notes.clone();
-        let row_at = i as u32;
+        // Capture the row's stable key, not its index `i`: expanding or collapsing a fold above
+        // shifts `st.rows` while the row's memo reuses this handler (`rune::memo` contract).
+        let row_key = st.keys[i].clone();
         c.cursor(Cursor::Pointer).on_drag(move |s: &mut S, d: &mut Drag, tx: &mut Tx| {
             tx.instant();
             let st = get_mut(s);
@@ -329,6 +331,9 @@ impl<S: 'static> Inner<S> {
                     false
                 }
                 Phase::Move => {
+                    let Some(row_at) = st.keys.iter().position(|k| k == &row_key).and_then(|r| u32::try_from(r).ok()) else {
+                        return;
+                    };
                     let Some(r_idx) = st.row_from(row_at, d.y) else { return };
                     let r = st.rows[r_idx as usize];
                     if r.file() != f {

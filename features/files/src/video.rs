@@ -319,9 +319,15 @@ pub fn stage<H: FilesHost + 'static>(s: &H, p: &Pal, v: &FileVideo) -> El {
         .w_full()
         .fill(p.layer1)
         .center()
-        .on_layout_tx(move |_: &mut H, [_, _, w, h], tx| {
-            sizer.set([w, h]);
-            tx.instant();
+        .on_layout_tx(move |s: &mut H, [_, _, w, h], tx| {
+            let prev = sizer.get();
+            if (prev[0] - w).abs() > 0.5 || (prev[1] - h).abs() > 0.5 {
+                sizer.set([w, h]);
+                s.touch_files();
+                tx.instant();
+            } else {
+                tx.live_only();
+            }
         })
         .on_pointer_move_local(|s: &mut H, _, tx| on_stage_pointer_move(s, tx))
         .on_hover_change(|s: &mut H, inside, tx| on_stage_hover_change(s, inside, tx))

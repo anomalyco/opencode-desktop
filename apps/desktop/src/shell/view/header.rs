@@ -25,9 +25,15 @@ thread_local! {
 }
 
 pub(super) fn header(s: &App, p: &Pal, info: Option<&SessionInfo>, t: Option<&Transcript>) -> El {
+    let c = super::chrome::chrome();
     let inputs = (
         (p.theme, p.generation, p.dark),
         opencode_i18n::locale().id(),
+        (c.sidebar_header(), c.lights_end.to_bits(), s.narrow()),
+        session_view::style::touch_controls(),
+        crate::icons::finish(s),
+        opencode_kit::model::project_sandboxes_version(),
+        crate::servers::version(),
         info.map(|i| (i.id.clone(), i.title.clone(), i.directory.clone(), i.project.clone(), i.parent.clone(), crate::plugin_host::services::session_version(s, &i.id))),
         crate::plugin_host::surfaces_version(s),
     );
@@ -115,7 +121,7 @@ pub(crate) fn header_in(s: &App, p: &Pal, info: Option<&SessionInfo>, _t: Option
                 .motion(crate::panels::view::SIDE_SPRING)
         }));
     row()
-        .key(scoped(scope, "header"))
+        .key(header_key(scope))
         .h(48.0)
         .pl(10.0)
         .pr(12.0)
@@ -142,7 +148,7 @@ fn fit(s: &App, info: Option<&SessionInfo>, proj: &str, worktree: Option<&str>, 
     // a resize moves none of these; only the title's box grows and shrinks with the window.
     let Some(location) = width("header-location") else { return HeaderFit::Full };
     let actions = rune::memo::layout_with("header-actions", |r| r[2]).unwrap_or(0.0);
-    let limit = if info.parent.is_some() { (width("header").unwrap_or(0.0) - 22.0) * 0.6 } else { f32::INFINITY };
+    let limit = if info.parent.is_some() { (rune::memo::layout_with(&header_key(scope), |r| r[2]).unwrap_or(0.0) - 22.0) * 0.6 } else { f32::INFINITY };
     let label = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
     let base = Measured {
         location,
@@ -179,6 +185,13 @@ fn title_width(s: &App, info: &SessionInfo) -> f32 {
 /// `key`, or `{scope}-{key}` for a copy on a stage.
 pub(super) fn scoped(scope: &str, key: &str) -> String {
     if scope.is_empty() { key.to_owned() } else { format!("{scope}-{key}") }
+}
+
+/// The header root's key: `"session-header"` for the routed region (matching its `region_with`
+/// id so reuse verifies the subtree rather than failing on the root key), or `{scope}-header`
+/// for a copy on a stage.
+fn header_key(scope: &str) -> String {
+    if scope.is_empty() { "session-header".to_owned() } else { scoped(scope, "header") }
 }
 
 /// The header's session title (`h1`: 13/530, 4 by 6 padding), truncating last. A root

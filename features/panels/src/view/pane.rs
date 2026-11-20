@@ -112,6 +112,7 @@ fn compute_bar_hash(
         (
             (p.theme, p.generation, p.dark),
             opencode_i18n::locale().id(),
+            opencode_ui::keymap::overrides::version(),
             pane as u8,
             session_id,
             pane_w.to_bits(),

@@ -17,11 +17,16 @@ pub(super) fn composer_dock(s: &App, p: &Pal) -> El {
         Route::Session { id, .. } => Some(crate::plugin_host::services::session_version(s, id)),
         _ => None,
     };
+    let touch = session_view::style::touch_controls();
+    let touch_server_ver = touch.then(|| (crate::servers::runtime::version(), crate::servers::health::version()));
     let inputs = (
         (p.theme, p.generation, p.dark),
         opencode_i18n::locale().id(),
         session_view::style::dock_w().to_bits(),
-        session_view::style::touch_controls(),
+        (touch, session_view::style::hover_none(), touch_server_ver),
+        (s.narrow(), s.layout.narrow.sm()),
+        session_view::scroller::device_scale().to_bits(),
+        crate::keymap::overrides::version(),
         crate::speech::listening(s),
         crate::plugin_host::surfaces_version(s),
         session_ver,
@@ -38,7 +43,7 @@ pub(super) fn composer_dock(s: &App, p: &Pal) -> El {
         // A subagent's page keeps its status line under the composer, in the dock's bottom inset.
         let pb = if status.is_some() { 0.0 } else { crate::view::DOCK_SIDE };
         col()
-            .key("dock")
+            .key("composer-dock")
             .w_full()
             .center()
             .px(crate::view::DOCK_SIDE)
