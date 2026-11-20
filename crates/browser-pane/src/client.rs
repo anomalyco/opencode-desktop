@@ -438,10 +438,13 @@ impl BrowserHost {
         let candidate = if from_address { resolve_address(raw_url) } else { crate::policy::with_scheme(raw_url) };
         let connected = self.is_connected();
         let ready = self.status() == EngineStatus::Ready;
-        let ctx_ok = !ready || context.is_supported(self.engine_partitions(), self.engine_remote_proxy());
+        let unproxied_remote = matches!(context, crate::protocol::ContextKind::RemoteServer { proxy: None, .. });
+        let ctx_ok = !unproxied_remote && (!ready || context.is_supported(self.engine_partitions(), self.engine_remote_proxy()));
         // An older engine without request-level `file://` confinement cannot safely host a `file://` origin.
         let effective_roots: &[String] = if connected && !self.engine_policy() { &[] } else { &file_roots };
-        let refused = if !ctx_ok {
+        let refused = if unproxied_remote {
+            Some("browser.proxy.required".to_owned())
+        } else if !ctx_ok {
             Some("browser.partitions.unsupported".to_owned())
         } else {
             crate::policy::refusal(&candidate, effective_roots).map(|r| r.code().to_owned())
@@ -497,7 +500,7 @@ impl BrowserHost {
                     context,
                 });
             }
-        } else {
+        } else if !unproxied_remote {
             self.pending_opens.push((id, url));
             self.ensure_connected();
         }
@@ -559,6 +562,12 @@ impl BrowserHost {
         let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) else {
             return;
         };
+        if matches!(t.context, crate::protocol::ContextKind::RemoteServer { proxy: None, .. }) {
+            t.loading = false;
+            t.refusal = Some("browser.proxy.required".to_owned());
+            t.rejected += 1;
+            return;
+        }
         let effective_roots: &[String] = if connected && !engine_policy { &[] } else { &t.file_roots };
         if let Some(why) = crate::policy::refusal(&url, effective_roots) {
             t.loading = false;

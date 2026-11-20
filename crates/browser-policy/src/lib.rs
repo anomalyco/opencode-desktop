@@ -228,7 +228,6 @@ pub fn check_cdp(method: &str, params: &serde_json::Value, engine_has_policy: bo
         | "DOM.enable"
         | "DOM.getDocument"
         | "DOM.describeNode"
-        | "DOM.resolveNode"
         | "DOM.getBoxModel"
         | "DOM.getContentQuads"
         | "DOM.scrollIntoViewIfNeeded"
@@ -243,10 +242,22 @@ pub fn check_cdp(method: &str, params: &serde_json::Value, engine_has_policy: bo
         | "Page.captureScreenshot"
         | "Page.handleJavaScriptDialog"
         | "Runtime.releaseObject" => Ok(()),
+        "DOM.resolveNode" => check_no_context_params(method, params),
         "Runtime.evaluate" | "Runtime.callFunctionOn" => check_runtime_params(method, params),
         "Input.dispatchKeyEvent" => check_key_params(params),
         _ => Err(format!("DevTools method '{method}' is not permitted in the built-in browser.")),
     }
+}
+
+fn check_no_context_params(method: &str, params: &serde_json::Value) -> Result<(), String> {
+    for field in ["contextId", "executionContextId", "uniqueContextId"] {
+        if params.get(field).is_some_and(|v| !v.is_null()) {
+            return Err(format!(
+                "DevTools method '{method}' cannot target an explicit execution context ('{field}')."
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn check_runtime_params(method: &str, params: &serde_json::Value) -> Result<(), String> {
@@ -256,7 +267,13 @@ fn check_runtime_params(method: &str, params: &serde_json::Value) -> Result<(), 
     {
         return Err(format!("DevTools method '{method}' cannot enable includeCommandLineAPI."));
     }
-    Ok(())
+    if let Some(v) = params.get("userGesture")
+        && !v.is_null()
+        && v != &serde_json::Value::Bool(false)
+    {
+        return Err(format!("DevTools method '{method}' cannot enable userGesture."));
+    }
+    check_no_context_params(method, params)
 }
 
 fn check_bounded_key_int(params: &serde_json::Value, field: &str, max: i64) -> Result<u64, String> {

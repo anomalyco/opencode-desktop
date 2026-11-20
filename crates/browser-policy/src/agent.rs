@@ -68,12 +68,43 @@ fn strip_ascii_prefix<'a>(input: &'a str, prefix: &str) -> Option<&'a str> {
 /// forbidding `userGesture: true`, raw filesystem paths (`DOM.setFileInputFiles`,
 /// `Input.dispatchDragEvent` with `files`), cookie mutations, `Browser.*`, and `Extensions.*`.
 pub fn check_typed_cdp(method: &str, params: &serde_json::Value, engine_has_policy: bool) -> Result<(), String> {
-    if matches!(method, "Runtime.evaluate" | "Runtime.callFunctionOn")
-        && params
+    if matches!(method, "Runtime.evaluate" | "Runtime.callFunctionOn") {
+        if params
             .get("userGesture")
             .is_some_and(|v| !v.is_null() && v != &serde_json::Value::Bool(false))
-    {
-        return Err(format!("DevTools method '{method}' cannot enable userGesture."));
+        {
+            return Err(format!("DevTools method '{method}' cannot enable userGesture."));
+        }
+        if params
+            .get("includeCommandLineAPI")
+            .is_some_and(|v| !v.is_null() && v != &serde_json::Value::Bool(false))
+        {
+            return Err(format!("DevTools method '{method}' cannot enable includeCommandLineAPI."));
+        }
+        for forbidden in ["executionContextId", "uniqueContextId"] {
+            if params.get(forbidden).is_some_and(|v| !v.is_null()) {
+                return Err(format!(
+                    "DevTools method '{method}' cannot target '{forbidden}'."
+                ));
+            }
+        }
+        // Native Rust RPC executors may pin an explicit integer `contextId` on `Runtime.evaluate`
+        // (after verifying the owning non-extension page frame).
+        if method == "Runtime.evaluate"
+            && let Some(cid) = params.get("contextId")
+            && !cid.is_null()
+        {
+            if !engine_has_policy {
+                return Err(
+                    "DevTools method 'Runtime.evaluate' with contextId requires an updated browser engine that enforces URL policy."
+                        .into(),
+                );
+            }
+            if cid.as_i64().is_none_or(|n| n <= 0) {
+                return Err("DevTools method 'Runtime.evaluate' requires a positive integer contextId.".into());
+            }
+            return Ok(());
+        }
     }
     if check_cdp(method, params, engine_has_policy).is_ok() {
         return Ok(());

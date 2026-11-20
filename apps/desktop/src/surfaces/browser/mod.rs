@@ -301,11 +301,16 @@ mod native {
         }
 
         /// Default browser isolation context for tabs opened on the active server: local sidecar
-        /// uses `ContextKind::Default`, while remote servers use a dedicated `RemoteServer`
-        /// partition whenever the engine advertises `partitions: true`.
+        /// uses `ContextKind::Default`, while remote servers ALWAYS request a dedicated
+        /// `RemoteServer` partition (never silently falling back to `Default`).
         pub fn default_browser_context(&self) -> browser_pane::ContextKind {
             let server = crate::servers::runtime::active(self);
-            if server.is_sidecar() || !self.workspace_panes.browser.host.engine_partitions() {
+            let same_machine = server.is_sidecar()
+                && match &*self.source {
+                    crate::Source::Live { server, .. } => server.is_local(),
+                    crate::Source::Fixture => true,
+                };
+            if same_machine {
                 browser_pane::ContextKind::Default
             } else {
                 browser_pane::ContextKind::RemoteServer {

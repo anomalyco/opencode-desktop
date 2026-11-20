@@ -225,11 +225,16 @@ impl AttachMachine {
                 | AttachState::Blocked { reason: BlockReason::Replaced } => self.start_attach(now),
                 _ => Vec::new(),
             },
-            AttachEvent::SessionMoved => {
-                let mut effects = self.abort_current();
-                effects.extend(self.start_attach(now));
-                effects
-            }
+            AttachEvent::SessionMoved => match &self.state {
+                // Keep RemoteUnproxied / Replaced / Missing sticky across session moves so a
+                // remote server cannot break fail-closed blocking via SSE `session.moved`.
+                AttachState::Blocked { .. } => Vec::new(),
+                _ => {
+                    let mut effects = self.abort_current();
+                    effects.extend(self.start_attach(now));
+                    effects
+                }
+            },
             AttachEvent::Control { frame } => self.handle_control(frame),
             AttachEvent::AttachEnded { attempt, outcome } => self.handle_ended(attempt, outcome, now),
             AttachEvent::Tick => self.handle_tick(now),

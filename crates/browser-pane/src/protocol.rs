@@ -641,7 +641,8 @@ impl ContextKind {
         match self {
             Self::Default => true,
             Self::IsolatedPreview { .. } => partitions,
-            Self::RemoteServer { proxy: None, .. } => partitions,
+            // Remote-server tabs must never open or navigate without a live loopback tunnel proxy.
+            Self::RemoteServer { proxy: None, .. } => false,
             Self::RemoteServer { proxy: Some(_), .. } => partitions && remote_proxy,
         }
     }

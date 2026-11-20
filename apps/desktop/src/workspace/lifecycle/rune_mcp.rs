@@ -105,6 +105,22 @@ impl RuneMcpHost for App {
         crate::servers::runtime::active(self)
     }
 
+    fn browser_mcp_refusal(&self, session_id: &str) -> Option<&'static str> {
+        let server_key = crate::servers::runtime::active(self);
+        let same_machine = server_key.is_sidecar()
+            && match &*self.source {
+                Source::Live { server, .. } => server.is_local(),
+                Source::Fixture => true,
+            };
+        if !same_machine {
+            return Some(REMOTE_BROWSER_MCP_ERROR);
+        }
+        if crate::surfaces::browser::rpc::is_session_or_server_attached(self, server_key, session_id) {
+            return Some(RPC_ATTACHED_BROWSER_MCP_ERROR);
+        }
+        None
+    }
+
     fn dispatch_mcp_call(&mut self, session_id: &str, call: McpCall, tx: &mut Tx) -> Option<McpCall> {
         crate::plugin_host::mcp_call(self, session_id, call, tx)
     }

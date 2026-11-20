@@ -65,6 +65,7 @@ enum WorkerMsg {
 pub struct BrowserRpcState {
     sessions: BTreeMap<(ServerKey, String), SessionAttachment>,
     sse_connected: BTreeMap<ServerKey, bool>,
+    mcp_suppressed: BTreeMap<ServerKey, (Server, bool)>,
     worker_tx: Sender<WorkerMsg>,
     worker_rx: Receiver<WorkerMsg>,
     waker: Option<Waker>,
@@ -78,6 +79,7 @@ impl Default for BrowserRpcState {
         Self {
             sessions: BTreeMap::new(),
             sse_connected: BTreeMap::new(),
+            mcp_suppressed: BTreeMap::new(),
             worker_tx,
             worker_rx,
             waker: None,
@@ -88,7 +90,6 @@ impl Default for BrowserRpcState {
 }
 
 /// Whether `server_key` currently has at least one live `experimental.browser` v4 attachment.
-#[allow(dead_code)]
 pub fn is_server_attached(app: &App, server_key: &ServerKey) -> bool {
     app.kernel
         .slots
@@ -96,6 +97,19 @@ pub fn is_server_attached(app: &App, server_key: &ServerKey) -> bool {
         .sessions
         .iter()
         .any(|((k, _), att)| k == server_key && att.attach.is_attached())
+}
+
+/// Whether `session_id` (or its `server_key`) currently uses `experimental.browser` v4 RPC.
+pub fn is_session_or_server_attached(app: &App, server_key: &ServerKey, session_id: &str) -> bool {
+    let st = app.kernel.slots.get(&BROWSER_RPC);
+    if st
+        .sessions
+        .get(&(server_key.clone(), session_id.to_owned()))
+        .is_some_and(|att| att.attach.is_attached())
+    {
+        return true;
+    }
+    is_server_attached(app, server_key)
 }
 
 /// Whether `session_id` on `server_key` has settled its attachment attempt for `BuiltinPromptGate`.
@@ -387,7 +401,7 @@ fn reconcile_sessions(app: &mut App, now: Instant) -> bool {
             }
         }
         for (key, dir) in wanted {
-            let same_machine = key.0.is_sidecar();
+            let same_machine = key.0.is_sidecar() && server.is_local();
             let scope_seed = {
                 st.next_diag_scope = st.next_diag_scope.saturating_add(1);
                 st.next_diag_scope
@@ -425,7 +439,36 @@ fn reconcile_sessions(app: &mut App, now: Instant) -> bool {
         }
     }
     apply_batch_effects(app, pending_effects);
+    sync_mcp_suppression(app);
     changed
+}
+
+fn sync_mcp_suppression(app: &mut App) {
+    let st = app.kernel.slots.get_mut(&BROWSER_RPC);
+    let mut current: BTreeMap<ServerKey, (Server, bool)> = BTreeMap::new();
+    for ((k, _), att) in &st.sessions {
+        let attached = att.attach.is_attached();
+        current
+            .entry(k.clone())
+            .and_modify(|(_, a)| *a |= attached)
+            .or_insert_with(|| (att.server.clone(), attached));
+    }
+    let mut updates: Vec<(Server, bool)> = Vec::new();
+    for (k, (srv, attached)) in &current {
+        let prev = st.mcp_suppressed.get(k).map(|(_, a)| *a);
+        if prev != Some(*attached) {
+            updates.push((srv.clone(), *attached));
+        }
+    }
+    for (k, (srv, was_attached)) in &st.mcp_suppressed {
+        if !current.contains_key(k) && *was_attached {
+            updates.push((srv.clone(), false));
+        }
+    }
+    st.mcp_suppressed = current;
+    for (srv, attached) in updates {
+        crate::rune_mcp::set_browser_rpc_attached(&srv, attached);
+    }
 }
 
 fn apply_batch_effects(
@@ -520,6 +563,7 @@ fn apply_batch_effects(
         }
     }
     app.kernel.slots.get_mut(&BROWSER_RPC).sessions = sessions;
+    sync_mcp_suppression(app);
 }
 
 fn live_server_clone(app: &App) -> Option<Server> {
