@@ -417,7 +417,8 @@ impl SettingsHost for App {
     }
 
     fn reveal_path(&self, dir: &str) -> Result<(), String> {
-        crate::view::location_card::reveal(dir)
+        let target = self.pinned_local_root(dir);
+        crate::view::location_card::reveal(target.as_deref().unwrap_or(dir))
     }
 
     fn list_worktrees(&mut self, project_id: &str) {

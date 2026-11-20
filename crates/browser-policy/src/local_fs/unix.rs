@@ -203,6 +203,9 @@ pub(super) fn resolve_root_open(clean: &str, hops: u8) -> Result<(VerifiedLocalP
             return Err(LocalPathError::UnsafePath);
         }
         if idx + 1 == segs.len() {
+            #[cfg(target_os = "macos")]
+            let canonical = final_path_of(held.0).ok_or(LocalPathError::UnsafePath)?;
+            #[cfg(not(target_os = "macos"))]
             let canonical = final_path_of(held.0).unwrap_or(walked);
             if is_unix_autofs_path(&canonical) {
                 return Err(LocalPathError::NonLocalDrive);
@@ -264,6 +267,9 @@ fn verify_path_open(clean: &str, require_dir: bool) -> Result<(VerifiedLocalPath
             if (require_dir && !is_dir) || (!is_dir && !is_file) {
                 return Err(LocalPathError::UnsafePath);
             }
+            #[cfg(target_os = "macos")]
+            let canonical = final_path_of(held.0).ok_or(LocalPathError::UnsafePath)?;
+            #[cfg(not(target_os = "macos"))]
             let canonical = final_path_of(held.0).unwrap_or(walked);
             return Ok((VerifiedLocalPath { path: canonical, is_dir, is_file }, held));
         }
@@ -285,12 +291,14 @@ pub(super) fn verify_within_root(target_lex: &str, root: &str, require_existing_
     let (verified_root, mut held) = verify_path_open(&safe_local_reveal_path(root)?, true).ok()?;
     let target_norm = normalize_unix_root(&safe_local_reveal_path(target_lex)?);
     let root_trim = verified_root.path.trim_end_matches('/');
-    let rel = if target_norm == root_trim {
+    let rel = if target_norm == root_trim
+        || (cfg!(target_os = "macos") && target_norm.eq_ignore_ascii_case(root_trim))
+    {
         ""
     } else if cfg!(target_os = "macos")
         && target_norm.len() > root_trim.len()
         && target_norm.as_bytes()[root_trim.len()] == b'/'
-        && target_norm[..root_trim.len()].eq_ignore_ascii_case(root_trim)
+        && target_norm.as_bytes()[..root_trim.len()].eq_ignore_ascii_case(root_trim.as_bytes())
     {
         &target_norm[root_trim.len() + 1..]
     } else {

@@ -291,7 +291,17 @@ pub fn open_link(host: &mut dyn FilesHost, sid: &str, from: Option<&str>, href: 
     let dir = link_directory(host, sid);
     let home = host.home_directory().to_owned();
     let is_file_uri = href.trim().get(..5).is_some_and(|s| s.eq_ignore_ascii_case("file:"));
-    match classify(href, base, &dir, &home) {
+    let mut classified = classify(href, base, &dir, &home);
+    if matches!(classified, Link::Outside { .. })
+        && let Some(phys) = host.session_physical_directory(sid)
+        && phys != dir
+    {
+        let phys_link = classify(href, base, &phys, &home);
+        if matches!(phys_link, Link::Inside { .. }) {
+            classified = phys_link;
+        }
+    }
+    match classified {
         Link::Web(_) => open_web(host, Some(sid), href, from.is_some(), tx),
         Link::Heading(h) => {
             if let Some(f) = from {

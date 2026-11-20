@@ -187,6 +187,24 @@ impl App {
         }
     }
 
+    /// Eagerly resolves and pins all loaded local project, session, and draft roots up front so
+    /// re-pointing a symlink/junction alias after start-up cannot move any workspace.
+    pub(crate) fn pin_loaded_roots(&self) {
+        if !self.can_reveal_outside() {
+            return;
+        }
+        for p in self.projects.iter() {
+            let _ = self.pinned_local_root(&p.directory);
+        }
+        for info in self.sessions.iter() {
+            let _ = self.pinned_local_root(&info.directory);
+        }
+        let draft = self.draft_dir();
+        if !draft.is_empty() {
+            let _ = self.pinned_local_root(draft);
+        }
+    }
+
     /// The app last picked (Desktop's `plugin.file` `openInApp`).
     pub fn load_open_in(&mut self) {
         #[cfg(not(target_arch = "wasm32"))]

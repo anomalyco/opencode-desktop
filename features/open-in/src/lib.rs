@@ -286,24 +286,44 @@ impl OpenIn {
         }
     }
 
-    /// Resolves and pins a local workspace root once per raw path in this window, returning the
-    /// verified physical directory (never the raw symlink/junction alias) for all later checks.
+    /// Resolves and pins a local workspace root once per normalized raw path in this window,
+    /// returning the verified physical directory (never the raw symlink/junction alias) for all
+    /// later checks.
     pub fn pinned_local_root(&self, raw_dir: &str, home: Option<&str>) -> Option<String> {
-        if raw_dir.is_empty() {
+        let key = Self::pin_key(raw_dir);
+        if key.is_empty() {
             return None;
         }
-        if let Some(cached) = self.pinned_roots.borrow().get(raw_dir) {
+        if let Some(cached) = self.pinned_roots.borrow().get(&key) {
             return cached.clone();
         }
         let resolved = browser_policy::resolve_safe_local_workspace_root(raw_dir, home);
         let mut map = self.pinned_roots.borrow_mut();
         if map.len() < 256 {
-            map.insert(raw_dir.to_owned(), resolved.clone());
+            if let Some(ref physical) = resolved {
+                let phys_key = Self::pin_key(physical);
+                if !phys_key.is_empty() && phys_key != key {
+                    map.entry(phys_key).or_insert_with(|| Some(physical.clone()));
+                }
+            }
+            map.insert(key, resolved.clone());
         }
         resolved
     }
 
-    /// Convenience constructor for a fixture launcher with fixed installed app IDs.
+    fn pin_key(raw: &str) -> String {
+    let mut norm = raw.trim().replace('\\', "/");
+    while norm.len() > 1 && norm.ends_with('/') && !(norm.len() == 3 && norm.as_bytes()[1] == b':') {
+        norm.pop();
+    }
+    if cfg!(any(windows, target_os = "macos")) {
+        norm.to_ascii_lowercase()
+    } else {
+        norm
+    }
+}
+
+/// Convenience constructor for a fixture launcher with fixed installed app IDs.
     pub fn fixed(apps: Vec<&'static str>) -> Self {
         Self::with(Arc::new(Fixed(apps)))
     }

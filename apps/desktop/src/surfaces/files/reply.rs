@@ -15,23 +15,34 @@ fn target(app: &App, href: &str) -> Option<(String, Link)> {
     }
     let href = href.strip_prefix(opencode_ui::style::CODE_LINK).unwrap_or(href).trim();
     let raw_dir = links::link_directory(app, app.active_session_id()?);
-    let dir = if app.can_reveal_outside() {
-        app.pinned_local_root(&raw_dir).unwrap_or(raw_dir)
+    let pinned = if app.can_reveal_outside() {
+        app.pinned_local_root(&raw_dir)
     } else {
-        raw_dir
+        Some(raw_dir.clone())
     };
     if is_file_scheme(href) {
         // This form names a file inside the workspace, never a foreign host or a path
         // escaping its root through a symlink. Remote paths use the server's file route.
         browser_policy::local_file_path(href)?;
-        if app.can_open_in() && !file_url_within(href, std::slice::from_ref(&dir)) {
+        let root = pinned.as_deref()?;
+        if app.can_open_in() && !file_url_within(href, &[root.to_owned()]) {
             return None;
         }
     }
-    let link = links::classify(href, "", &dir, app.home_directory());
+    let mut link = links::classify(href, "", &raw_dir, app.home_directory());
+    if matches!(link, Link::Outside { .. })
+        && let Some(ref phys) = pinned
+        && phys != &raw_dir
+    {
+        let phys_link = links::classify(href, "", phys, app.home_directory());
+        if matches!(phys_link, Link::Inside { .. }) {
+            link = phys_link;
+        }
+    }
     if is_file_scheme(href) && !matches!(link, Link::Inside { .. }) {
         return None;
     }
+    let dir = pinned.unwrap_or(raw_dir);
     Some((dir, link))
 }
 

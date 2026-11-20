@@ -129,6 +129,11 @@ impl App {
         }
         list.extend(self.sessions.drain(..).filter(|old| !self.recent_page.times.contains_key(&old.id)));
         *self.sessions = list;
+        if self.can_reveal_outside() {
+            for info in self.sessions.iter() {
+                let _ = self.pinned_local_root(&info.directory);
+            }
+        }
         self.sidebar_inbox.heard_sessions();
         self.note_tab_titles();
     }

@@ -61,6 +61,12 @@ pub fn pin_root(workspace: &str, home: Option<&str>) -> Option<RootPin> {
     if !browser_policy::is_safe_workspace_root(&pin.canonical_path, home) {
         return None;
     }
+    if let Some(h) = home
+        && let Ok(canon_home) = browser_policy::resolve_local_root(h)
+        && !browser_policy::is_safe_workspace_root(&pin.canonical_path, Some(&canon_home.path))
+    {
+        return None;
+    }
     Some(pin)
 }
 

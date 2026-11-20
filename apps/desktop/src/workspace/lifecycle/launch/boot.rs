@@ -398,6 +398,7 @@ impl App {
             *self.route = Route::Home;
         }
         self.sort_projects();
+        self.pin_loaded_roots();
     }
 }
 
