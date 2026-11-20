@@ -14,6 +14,8 @@ use super::super::session::SessionAttachment;
 use super::{ExecPhase, StepOutcome, cdp_err_msg, check_page_guards};
 use crate::App;
 
+const MAX_SNAPSHOT_PROBES: usize = 200;
+
 pub(super) struct FramesState {
     pub host_id: u64,
     pub cdp_req: u64,
@@ -24,6 +26,32 @@ pub(super) struct SnapshotState {
     pub frame_id: Option<String>,
     pub opts: SnapshotOptions,
     pub stage: SnapshotStage,
+}
+
+impl SnapshotState {
+    pub fn cancel_cleanup(&mut self, app: &mut App) {
+        match &self.stage {
+            SnapshotStage::CheckFrame { cdp_req }
+            | SnapshotStage::FetchAx { cdp_req }
+            | SnapshotStage::FetchBoxes { cdp_req, .. } => {
+                app.workspace_panes.browser.host.cancel_cdp(*cdp_req);
+            }
+            SnapshotStage::ResolveFields { step, .. } => match step {
+                FieldResolveStep::ResolveNode { cdp_req, .. } => {
+                    app.workspace_panes.browser.host.cancel_cdp(*cdp_req);
+                }
+                FieldResolveStep::CallDescribe { object_id, cdp_req, .. } => {
+                    app.workspace_panes.browser.host.cancel_cdp(*cdp_req);
+                    let _ = app.workspace_panes.browser.host.send_cdp(
+                        self.host_id,
+                        "Runtime.releaseObject",
+                        json!({ "objectId": object_id }),
+                        None,
+                    );
+                }
+            },
+        }
+    }
 }
 
 pub(super) enum SnapshotStage {
@@ -159,15 +187,28 @@ fn start_snapshot(
     }
 }
 
-pub(super) fn step_frames(att: &SessionAttachment, app: &mut App, st: &FramesState) -> Option<Outcome> {
+pub(super) fn step_frames(att: &mut SessionAttachment, app: &mut App, st: &FramesState) -> Option<Outcome> {
     let resp = app.workspace_panes.browser.host.take_cdp_response(st.cdp_req)?;
     match resp {
         Ok(val) => {
-            let parsed = parse_frame_tree(&val);
+            att.frames.entry(st.host_id).or_default().ingest_frame_tree(&val, None);
             let Some(tab) = att.wire_tab(app, st.host_id) else {
                 return Some(Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable."));
             };
-            Some(Outcome::ok(json!({ "tab": tab, "frames": parsed.frames }), Vec::new()))
+            // Combine main-process frame tree with tracked cross-site OOPIFs (excluding extensions).
+            let frames = att
+                .frames
+                .get(&st.host_id)
+                .map(|f| f.agent_frames(&tab.url))
+                .filter(|v| !v.is_empty())
+                .unwrap_or_else(|| {
+                    let parsed = parse_frame_tree(&val);
+                    serde_json::to_value(parsed.frames)
+                        .ok()
+                        .and_then(|v| v.as_array().cloned())
+                        .unwrap_or_default()
+                });
+            Some(Outcome::ok(json!({ "tab": tab, "frames": frames }), Vec::new()))
         }
         Err(err) => Some(Outcome::fail(failure_code::OPERATION_FAILED, cdp_err_msg(&err))),
     }
@@ -186,25 +227,39 @@ pub(super) fn step_snapshot(
                 Ok(v) => v,
                 Err(e) => return Some(Outcome::fail(failure_code::OPERATION_FAILED, cdp_err_msg(&e))),
             };
+            att.frames.entry(st.host_id).or_default().ingest_frame_tree(&val, None);
             let tree = parse_frame_tree(&val);
             let want = st.frame_id.as_deref().unwrap_or("");
-            if tree.extension_frame_ids.contains(want) {
+            let is_tracked_ext = att
+                .frames
+                .get(&st.host_id)
+                .is_some_and(|f| f.extension_frames.contains(want));
+            if tree.extension_frame_ids.contains(want) || is_tracked_ext {
                 return Some(Outcome::fail(
                     failure_code::OPERATION_FAILED,
                     "Agent browser tools cannot inspect extension frames.",
                 ));
             }
-            if !tree.frames.iter().any(|f| f.id == want) {
+            let oopif_session = att
+                .frames
+                .get(&st.host_id)
+                .and_then(|f| f.frame_sessions.get(want).cloned());
+            if !tree.frames.iter().any(|f| f.id == want) && oopif_session.is_none() {
                 return Some(Outcome::fail(
                     failure_code::OPERATION_FAILED,
                     "Frame ID not found in this tab. Call browser.frames({tabID}).",
                 ));
             }
+            let ax_params = if oopif_session.is_some() {
+                json!({})
+            } else {
+                json!({ "frameId": want })
+            };
             match app.workspace_panes.browser.host.send_cdp(
                 st.host_id,
                 "Accessibility.getFullAXTree",
-                json!({ "frameId": want }),
-                None,
+                ax_params,
+                oopif_session,
             ) {
                 Ok(req) => {
                     st.stage = SnapshotStage::FetchAx { cdp_req: req };
@@ -227,8 +282,12 @@ pub(super) fn step_snapshot(
                 Ok(p) => p,
                 Err(e) => return Some(Outcome::fail(failure_code::STALE_REF, e)),
             };
+            // Cap sequential CDP field/box probes so hostile DOMs with thousands of inputs cannot
+            // stall the session; any unprobed fields stay fail-closed (`value=<hidden>`).
             let mut val_queue = prepared.value_targets();
-            let box_queue = prepared.box_targets();
+            val_queue.truncate(MAX_SNAPSHOT_PROBES);
+            let mut box_queue = prepared.box_targets();
+            box_queue.truncate(MAX_SNAPSHOT_PROBES);
             if let Some((first_id, first_name)) = val_queue.pop() {
                 match app.workspace_panes.browser.host.send_cdp(
                     st.host_id,

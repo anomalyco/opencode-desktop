@@ -1,15 +1,18 @@
 //! Explicit non-blocking command executor state machine and per-tab safeguard guards
-//! (dialogs, HTTP auth, extension-origin isolation, cancellation).
+//! (server authorization target/generation checks, local deadlines, dialogs, HTTP auth,
+//! extension-origin isolation, and clean cancellation teardown).
 
 pub(super) mod capture;
 pub(super) mod nav;
 pub(super) mod read;
 pub(super) mod snapshot;
 
+use std::time::Duration;
+
 use browser_pane::policy::{extension_origin, extension_page_refusal};
 use opencode_kit::browser_rpc::{AttachEvent, Command, Outcome, failure_code};
-use rune::Tx;
 use rune::time::Instant;
+use rune::{Tx, Waker};
 use serde_json::Value;
 
 use self::capture::ScreenshotState;
@@ -18,6 +21,9 @@ use self::read::{EvalState, WaitState};
 use self::snapshot::{FramesState, SnapshotState};
 use super::session::SessionAttachment;
 use crate::App;
+
+const DEFAULT_CMD_TIMEOUT: Duration = Duration::from_secs(25);
+const MAX_WAIT_CMD_TIMEOUT: Duration = Duration::from_secs(31);
 
 /// Explicit non-blocking execution state of one in-flight `experimental.browser` command.
 enum ExecPhase {
@@ -47,11 +53,33 @@ impl ExecPhase {
                 if s.saw_loading {
                     Some(s.deadline)
                 } else {
-                    Some((s.started_at + std::time::Duration::from_millis(1_200)).min(s.deadline))
+                    Some((s.started_at + Duration::from_millis(1_200)).min(s.deadline))
                 }
             }
             Self::Wait(s) => Some(s.next_poll.min(s.deadline)),
             _ => None,
+        }
+    }
+
+    pub fn cancel_cleanup(&mut self, app: &mut App, session_id: &str, tx: Option<&mut Tx>) {
+        match self {
+            Self::WaitLoad(st) => {
+                app.workspace_panes.browser.host.stop(st.host_id);
+                if st.close_on_fail {
+                    if let Some(tx) = tx {
+                        app.close_browser_tab_for_session(session_id, st.host_id, tx);
+                    } else {
+                        app.workspace_panes.browser.host.close_tab(st.host_id);
+                    }
+                }
+            }
+            Self::Frames(st) => {
+                app.workspace_panes.browser.host.cancel_cdp(st.cdp_req);
+            }
+            Self::Snapshot(st) => st.cancel_cleanup(app),
+            Self::Eval(st) => st.cancel_cleanup(app),
+            Self::Wait(st) => st.cancel_cleanup(app),
+            Self::Screenshot(st) => st.cancel_cleanup(app),
         }
     }
 }
@@ -65,7 +93,14 @@ pub(super) struct ActiveCommand {
     pub connection_id: String,
     pub request_id: String,
     pub is_dialog: bool,
+    pub deadline: Instant,
     phase: ExecPhase,
+}
+
+impl ActiveCommand {
+    pub fn cancel_cleanup(&mut self, app: &mut App, session_id: &str, tx: Option<&mut Tx>) {
+        self.phase.cancel_cleanup(app, session_id, tx);
+    }
 }
 
 /// Checks non-negotiable per-tab guards before running an agent page action:
@@ -101,6 +136,46 @@ pub(super) fn check_page_guards(app: &App, host_id: u64, action_type: &str) -> R
     Ok(())
 }
 
+/// Verifies server-authorized `command.generation` and `command.target` right before execution
+/// (`chromium.ts:1518-1531`) so a page cannot bypass server deny rules by redirecting or framing
+/// between `inspect: true` and the real command.
+fn verify_authorized_target(
+    att: &SessionAttachment,
+    app: &App,
+    cmd: &Command,
+) -> Result<(), Outcome> {
+    if let Some(expected_gen) = cmd.generation {
+        let Some(wire_id) = cmd.tab_id() else {
+            return Err(Outcome::fail(
+                failure_code::DOCUMENT_CHANGED,
+                "Missing tabID for generation check.",
+            ));
+        };
+        let host_id = att
+            .resolve_tab(app, wire_id)
+            .map_err(|msg| Outcome::fail(failure_code::OPERATION_FAILED, msg))?;
+        if att.generation_of(host_id) != expected_gen {
+            return Err(Outcome::fail(
+                failure_code::DOCUMENT_CHANGED,
+                "The tab navigated or changed documents after authorization. Refresh state and retry.",
+            ));
+        }
+    }
+    if let Some(expected_target) = &cmd.target {
+        let actual = read::compute_target(att, app, cmd)?;
+        let mut expected_res = expected_target.resources.clone();
+        expected_res.sort();
+        expected_res.dedup();
+        if actual.key != expected_target.key || actual.resources != expected_res {
+            return Err(Outcome::fail(
+                failure_code::DOCUMENT_CHANGED,
+                "The page or its frames changed after authorization. Retry so permissions can re-check the current URLs.",
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Starts one fetched `experimental.browser` command for `att`.
 /// Immediately replies on synchronous actions or registers a non-blocking [`ActiveCommand`].
 pub(super) fn start_command(
@@ -110,13 +185,20 @@ pub(super) fn start_command(
     request_id: String,
     cmd: Command,
     now: Instant,
+    waker: Option<Waker>,
     tx: &mut Tx,
 ) {
     if !att.attach.is_request_in_flight(&connection_id, &request_id) {
         return;
     }
+    // Sync tabs first so `generation` and `source_urls` reflect any recent navigation.
+    let _ = att.sync_tabs(app);
     if cmd.is_inspect() {
         let outcome = read::inspect_target(att, app, &cmd);
+        finish_and_reply(att, app, &connection_id, request_id, outcome, now);
+        return;
+    }
+    if let Err(outcome) = verify_authorized_target(att, app, &cmd) {
         finish_and_reply(att, app, &connection_id, request_id, outcome, now);
         return;
     }
@@ -124,7 +206,7 @@ pub(super) fn start_command(
     let step = nav::try_start(att, app, &cmd, now, tx)
         .or_else(|| snapshot::try_start(att, app, &cmd))
         .or_else(|| read::try_start(att, app, &cmd, now))
-        .or_else(|| capture::try_start(att, app, &cmd))
+        .or_else(|| capture::try_start(att, app, &cmd, waker))
         .unwrap_or_else(|| {
             let name = cmd.action_type().unwrap_or("unknown");
             StepOutcome::Done(Outcome::fail(
@@ -137,10 +219,16 @@ pub(super) fn start_command(
             finish_and_reply(att, app, &connection_id, request_id, outcome, now);
         }
         StepOutcome::Pending(phase) => {
+            let deadline = match &phase {
+                ExecPhase::Wait(w) => (w.deadline + Duration::from_secs(1)).min(now + MAX_WAIT_CMD_TIMEOUT),
+                ExecPhase::WaitLoad(w) => w.deadline,
+                _ => now + DEFAULT_CMD_TIMEOUT,
+            };
             att.active_commands.push(ActiveCommand {
                 connection_id,
                 request_id,
                 is_dialog,
+                deadline,
                 phase,
             });
         }
@@ -153,16 +241,19 @@ pub(super) fn poll_commands(
     app: &mut App,
     now: Instant,
     ref_counter: &mut u64,
+    waker: Option<Waker>,
     tx: &mut Tx,
 ) -> (bool, Option<Instant>) {
     let mut changed = false;
     let mut earliest: Option<Instant> = None;
     let mut cmds = std::mem::take(&mut att.active_commands);
     let mut still_running = Vec::with_capacity(cmds.len());
+    let sid = att.session_id.clone();
 
     for mut cmd in cmds.drain(..) {
         // Hard cancellation invariant: never post a late result after cancel or disconnect.
         if !att.attach.is_request_in_flight(&cmd.connection_id, &cmd.request_id) {
+            cmd.cancel_cleanup(app, &sid, Some(tx));
             changed = true;
             continue;
         }
@@ -193,7 +284,14 @@ pub(super) fn poll_commands(
         };
 
         let done = if let Some(fail) = mid_guard_fail {
+            cmd.cancel_cleanup(app, &sid, Some(tx));
             Some(fail)
+        } else if now >= cmd.deadline && !matches!(cmd.phase, ExecPhase::Wait(_) | ExecPhase::WaitLoad(_)) {
+            cmd.cancel_cleanup(app, &sid, Some(tx));
+            Some(Outcome::fail(
+                failure_code::OPERATION_FAILED,
+                "Browser command timed out locally.",
+            ))
         } else {
             match &mut cmd.phase {
                 ExecPhase::WaitLoad(st) => nav::step_wait_load(att, app, st, now, tx),
@@ -201,7 +299,7 @@ pub(super) fn poll_commands(
                 ExecPhase::Snapshot(st) => snapshot::step_snapshot(att, app, st, ref_counter),
                 ExecPhase::Eval(st) => read::step_eval(att, app, st),
                 ExecPhase::Wait(st) => read::step_wait(att, app, st, now),
-                ExecPhase::Screenshot(st) => capture::step_screenshot(att, app, st),
+                ExecPhase::Screenshot(st) => capture::step_screenshot(att, app, st, waker.clone()),
             }
         };
 
@@ -209,12 +307,14 @@ pub(super) fn poll_commands(
             finish_and_reply(att, app, &cmd.connection_id, cmd.request_id, outcome, now);
             changed = true;
         } else {
-            if let Some(w) = cmd.phase.next_wake() {
-                earliest = Some(match earliest {
-                    Some(cur) => cur.min(w),
-                    None => w,
-                });
-            }
+            let wake = cmd
+                .phase
+                .next_wake()
+                .map_or(cmd.deadline, |w| w.min(cmd.deadline));
+            earliest = Some(match earliest {
+                Some(cur) => cur.min(wake),
+                None => wake,
+            });
             still_running.push(cmd);
         }
     }

@@ -105,6 +105,52 @@ impl crate::BrowserHost {
         self.caps.remote_proxy()
     }
 
+    pub fn engine_agent_tools(&self) -> bool {
+        self.caps.agent_tools()
+    }
+
+    /// Whether `tab_id` has been sent to a connected engine (`OpenTab` already flushed).
+    pub fn tab_open_in_engine(&self, tab_id: u64) -> bool {
+        self.is_connected()
+            && self.tabs.iter().any(|t| t.id == tab_id)
+            && !self.pending_opens.iter().any(|(id, _)| *id == tab_id)
+    }
+
+    /// Sends a typed CDP call allowed by [`crate::policy::check_typed_cdp`] exclusively for native
+    /// Rust `experimental.browser` executors (never exposed to untrusted Luau plugins). Falls back
+    /// to `HostMsg::CdpCall` for methods already permitted by `check_cdp`.
+    pub fn send_typed_cdp(
+        &mut self,
+        tab_id: u64,
+        method: impl Into<String>,
+        params: serde_json::Value,
+        session_id: Option<String>,
+    ) -> Result<u64, String> {
+        let method = method.into();
+        crate::policy::check_typed_cdp(&method, &params, self.engine_policy())?;
+        let request_id = self.next_req_id;
+        self.next_req_id += 1;
+        if self.engine_agent_tools() {
+            self.send(crate::protocol::HostMsg::TypedCdpCall {
+                tab_id,
+                request_id,
+                method,
+                params,
+                session_id,
+            });
+            return Ok(request_id);
+        }
+        crate::policy::check_cdp(&method, &params, self.engine_policy())?;
+        self.send(crate::protocol::HostMsg::CdpCall {
+            tab_id,
+            request_id,
+            method,
+            params,
+            session_id,
+        });
+        Ok(request_id)
+    }
+
     /// Updates or clears the local loopback tunnel proxy on a remote server partition.
     pub fn set_partition_proxy(
         &mut self,

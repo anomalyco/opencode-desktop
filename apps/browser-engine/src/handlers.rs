@@ -846,28 +846,50 @@ wrap_dev_tools_message_observer! {
             }
         }
 
-        fn on_dev_tools_event(
+        fn on_dev_tools_message(
             &self,
             _browser: Option<&mut Browser>,
-            method: Option<&CefString>,
-            params: Option<&[u8]>,
-        ) {
-            let Some(m) = method.map(CefString::to_string) else { return };
-            let val = params
-                .and_then(|b| serde_json::from_slice::<Value>(b).ok())
-                .unwrap_or(Value::Null);
-            if m == "Overlay.inspectNodeRequested"
-                && let Some(backend_id) = val["backendNodeId"].as_i64()
+            message: Option<&[u8]>,
+        ) -> ::std::os::raw::c_int {
+            let Some(raw) = message else { return 0 };
+            let Ok(val) = serde_json::from_slice::<Value>(raw) else { return 0 };
+            // Flattened OOPIF responses carry both `"id"` and `"sessionId"`; CEF's
+            // `on_dev_tools_method_result` omits them, so handle them directly here.
+            if let Some(msg_id) = val.get("id").and_then(Value::as_i64) {
+                if val.get("sessionId").is_some()
+                    && let Some(CdpPending::Raw(req_id)) = self.id_map.lock().unwrap().remove(&(msg_id as i32))
+                {
+                    let (ok, payload) = match val.get("error") {
+                        Some(err) => (false, err.clone()),
+                        None => (true, val.get("result").cloned().unwrap_or(Value::Null)),
+                    };
+                    let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                        tab_id: self.tab_id,
+                        request_id: req_id,
+                        ok,
+                        result: payload,
+                    });
+                    return 1;
+                }
+                return 0;
+            }
+            let Some(method) = val.get("method").and_then(Value::as_str).map(str::to_owned) else {
+                return 0;
+            };
+            let params = val.get("params").cloned().unwrap_or(Value::Null);
+            let session_id = val.get("sessionId").and_then(Value::as_str).map(str::to_owned);
+            if method == "Overlay.inspectNodeRequested"
+                && let Some(backend_id) = params["backendNodeId"].as_i64()
             {
                 self.internal_picked.lock().unwrap().push(backend_id);
             }
-            let session_id = val["sessionId"].as_str().map(str::to_owned);
             let _ = self.out_tx.send(EngineMsg::CdpEvent {
                 tab_id: self.tab_id,
-                method: m,
-                params: val,
+                method,
+                params,
                 session_id,
             });
+            0
         }
     }
 }

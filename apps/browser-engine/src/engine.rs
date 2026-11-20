@@ -460,6 +460,7 @@ impl EngineManager {
                     context_menu: prompts,
                     partitions: true,
                     remote_proxy: true,
+                    agent_tools: true,
                 });
                 for (&tab_id, t) in &self.tabs {
                     t.menu.cancel_all();
@@ -888,6 +889,43 @@ impl EngineManager {
             HostMsg::SetAgentDriven { tab_id, agent_driven } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
                     t.prompts.agent_driven.store(agent_driven, Ordering::Relaxed);
+                }
+            }
+            HostMsg::TypedCdpCall { tab_id, request_id, method, params, session_id } => {
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    let url = t.snap.lock().unwrap().url.clone();
+                    if browser_policy::extension_origin(&url) {
+                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                            tab_id,
+                            request_id,
+                            ok: false,
+                            result: json!({ "message": "Agent browser tools cannot run DevTools methods on extension pages." }),
+                        });
+                    } else if let Err(err) = browser_policy::check_typed_cdp(&method, &params, true) {
+                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                            tab_id,
+                            request_id,
+                            ok: false,
+                            result: json!({ "message": err }),
+                        });
+                    } else {
+                        let msg_id = self.next_cdp_id.fetch_add(1, Ordering::Relaxed);
+                        t.cdp_id_map.lock().unwrap().insert(msg_id, CdpPending::Raw(request_id));
+                        let mut payload = json!({ "id": msg_id, "method": method, "params": params });
+                        if let Some(sid) = session_id {
+                            payload["sessionId"] = Value::String(sid);
+                        }
+                        let raw = payload.to_string();
+                        if t.host.send_dev_tools_message(Some(raw.as_bytes())) != 1 {
+                            t.cdp_id_map.lock().unwrap().remove(&msg_id);
+                            let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                                tab_id,
+                                request_id,
+                                ok: false,
+                                result: json!({ "message": "send_dev_tools_message rejected" }),
+                            });
+                        }
+                    }
                 }
             }
             HostMsg::ClearSiteCache { tab_id, request_id } => {

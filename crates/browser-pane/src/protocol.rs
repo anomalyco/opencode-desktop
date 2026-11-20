@@ -305,6 +305,13 @@ pub enum HostMsg {
     DropContext {
         context: ContextKind,
     },
+    TypedCdpCall {
+        tab_id: u64,
+        request_id: u64,
+        method: String,
+        params: Value,
+        session_id: Option<String>,
+    },
     Shutdown,
 }
 
@@ -338,6 +345,9 @@ pub enum EngineMsg {
         /// The engine confines proxied `RemoteServer` partitions via `fixed_servers` + `<-loopback>` + WebRTC/DoH hardening.
         #[serde(default)]
         remote_proxy: bool,
+        /// The engine supports `TypedCdpCall` and flattened OOPIF `sessionId` CDP events.
+        #[serde(default)]
+        agent_tools: bool,
     },
     /// A frame navigation or redirect was refused by URL policy while keeping the current page.
     Refused {

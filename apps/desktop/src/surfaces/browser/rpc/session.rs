@@ -1,20 +1,22 @@
 //! Per-session `experimental.browser` v4 attachment state, bijective `tab_<uuid> <-> host_id`
 //! isolation, per-tab element refs, diagnostics, captures, and ordered FIFO outbound worker.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use browser_pane::tools::diagnostics::TabDiagnostics;
 use opencode_kit::browser_rpc::{
     AbortHandle, AttachMachine, BrowserState, LocationRef, Outcome, RpcCallError, Tab,
-    failure_code, new_tab_id,
+    failure_code, new_file_id, new_tab_id,
 };
 use opencode_kit::client::Server;
 use opencode_kit::servers::ServerKey;
 
 use super::exec::ActiveCommand;
+use super::frames::TabFrameState;
 use crate::App;
 
 const STATE_RETRY_MIN_MS: u64 = 250;
@@ -81,14 +83,19 @@ pub(super) struct SessionAttachment {
     pub server: Server,
     pub attach: AttachMachine,
     pub attach_abort: Option<(u64, AbortHandle)>,
-    pub outbound: Option<(String, Sender<OutboundMsg>, AbortHandle)>,
+    pub outbound: Option<(String, Sender<OutboundMsg>, AbortHandle, Arc<Mutex<HashSet<String>>>)>,
+    pub fetch_aborts: HashMap<String, AbortHandle>,
     pub wire_to_host: BTreeMap<String, u64>,
     pub host_to_wire: BTreeMap<u64, String>,
     pub generations: HashMap<u64, u64>,
     pub last_urls: HashMap<u64, String>,
     pub refs: HashMap<u64, TabRefs>,
+    pub frames: HashMap<u64, TabFrameState>,
+    pub cdp_bootstrapped: HashSet<u64>,
     pub diagnostics: HashMap<u64, TabDiagnostics>,
     pub captures: HashMap<u64, Vec<CapturedFile>>,
+    pub download_wire_ids: HashMap<(u64, String), String>,
+    pub download_origins: HashMap<(u64, String), Vec<String>>,
     pub agent_tab_id: Option<String>,
     pub active_commands: Vec<ActiveCommand>,
     pub diag_scope_seed: u64,
@@ -110,13 +117,18 @@ impl SessionAttachment {
             attach: AttachMachine::new(),
             attach_abort: None,
             outbound: None,
+            fetch_aborts: HashMap::new(),
             wire_to_host: BTreeMap::new(),
             host_to_wire: BTreeMap::new(),
             generations: HashMap::new(),
             last_urls: HashMap::new(),
             refs: HashMap::new(),
+            frames: HashMap::new(),
+            cdp_bootstrapped: HashSet::new(),
             diagnostics: HashMap::new(),
             captures: HashMap::new(),
+            download_wire_ids: HashMap::new(),
+            download_origins: HashMap::new(),
             agent_tab_id: None,
             active_commands: Vec::new(),
             diag_scope_seed,
@@ -124,19 +136,23 @@ impl SessionAttachment {
     }
 
     pub fn stop_outbound(&mut self) {
-        if let Some((_, tx, abort)) = self.outbound.take() {
+        if let Some((_, tx, abort, _)) = self.outbound.take() {
             abort.abort();
             let _ = tx.send(OutboundMsg::Stop);
+        }
+        for (_, abort) in self.fetch_aborts.drain() {
+            abort.abort();
         }
     }
 
     pub fn ensure_outbound(&mut self, connection_id: &str) {
-        if self.outbound.as_ref().is_some_and(|(cid, _, _)| cid == connection_id) {
+        if self.outbound.as_ref().is_some_and(|(cid, _, _, _)| cid == connection_id) {
             return;
         }
         self.stop_outbound();
         let (tx, rx) = mpsc::channel();
         let abort = AbortHandle::new();
+        let cancelled = Arc::new(Mutex::new(HashSet::new()));
         spawn_outbound_worker(
             self.server.clone(),
             self.location.clone(),
@@ -144,23 +160,105 @@ impl SessionAttachment {
             connection_id.to_owned(),
             rx,
             abort.clone(),
+            cancelled.clone(),
         );
-        self.outbound = Some((connection_id.to_owned(), tx, abort));
+        self.outbound = Some((connection_id.to_owned(), tx, abort, cancelled));
+    }
+
+    pub fn mark_cancelled(&mut self, request_id: &str) {
+        if let Some(abort) = self.fetch_aborts.remove(request_id) {
+            abort.abort();
+        }
+        if let Some((_, _, _, cancelled)) = &self.outbound {
+            let mut set = cancelled.lock().unwrap_or_else(PoisonError::into_inner);
+            if set.len() >= 256 {
+                set.clear();
+            }
+            set.insert(request_id.to_owned());
+        }
     }
 
     pub fn enqueue_state(&mut self, connection_id: &str, state: BrowserState, hash: u64) {
         self.ensure_outbound(connection_id);
         self.attach.mark_state_published(hash);
-        if let Some((_, tx, _)) = &self.outbound {
+        if let Some((_, tx, _, _)) = &self.outbound {
             let _ = tx.send(OutboundMsg::State(state));
         }
     }
 
     pub fn enqueue_result(&mut self, connection_id: &str, request_id: String, outcome: Outcome) {
         self.ensure_outbound(connection_id);
-        if let Some((_, tx, _)) = &self.outbound {
+        if let Some((_, tx, _, _)) = &self.outbound {
             let _ = tx.send(OutboundMsg::Result { request_id, outcome });
         }
+    }
+
+    /// Bootstraps `Page.enable`, `Runtime.enable`, and `Target.setAutoAttach({ flatten: true })`
+    /// once per tab when the engine advertises `Ready.agent_tools`, enabling cross-site OOPIF
+    /// tracking and main-world `contextId` pinning.
+    pub fn ensure_tab_cdp(&mut self, app: &mut App, host_id: u64) {
+        if self.cdp_bootstrapped.contains(&host_id)
+            || !app.workspace_panes.browser.host.engine_agent_tools()
+            || !app.workspace_panes.browser.host.tab_open_in_engine(host_id)
+        {
+            return;
+        }
+        let host = &mut app.workspace_panes.browser.host;
+        let _ = host.send_typed_cdp(host_id, "Page.enable", serde_json::json!({}), None);
+        let _ = host.send_typed_cdp(host_id, "Runtime.enable", serde_json::json!({}), None);
+        let _ = host.send_typed_cdp(
+            host_id,
+            "Target.setAutoAttach",
+            serde_json::json!({
+                "autoAttach": true,
+                "waitForDebuggerOnStart": false,
+                "flatten": true,
+            }),
+            None,
+        );
+        self.cdp_bootstrapped.insert(host_id);
+    }
+
+    /// Returns all known document URLs in `host_id` (main document + all in-process & OOPIF
+    /// subframes), sorted and deduplicated.
+    pub fn source_urls(&self, app: &App, host_id: u64) -> Vec<String> {
+        let main_url = app
+            .workspace_panes
+            .browser
+            .host
+            .tab(host_id)
+            .map(|t| t.url.as_str())
+            .unwrap_or("");
+        match self.frames.get(&host_id) {
+            Some(f) => f.source_urls(main_url),
+            None if !main_url.is_empty() => vec![main_url.to_owned()],
+            None => Vec::new(),
+        }
+    }
+
+    /// Maps an engine-assigned download ID (`file_1`) bijectively to a wire-valid `file_<uuid>`.
+    pub fn wire_download_id(&mut self, host_id: u64, engine_id: &str) -> String {
+        self.download_wire_ids
+            .entry((host_id, engine_id.to_owned()))
+            .or_insert_with(new_file_id)
+            .clone()
+    }
+
+    pub fn resolve_download_engine_id(&self, host_id: u64, wire_id: &str) -> Option<String> {
+        self.download_wire_ids
+            .iter()
+            .find(|((hid, _), wid)| *hid == host_id && wid.as_str() == wire_id)
+            .map(|((_, eid), _)| eid.clone())
+    }
+
+    pub fn download_resources(&self, app: &App, host_id: u64, wire_id: &str) -> Vec<String> {
+        if let Some(eid) = self.resolve_download_engine_id(host_id, wire_id)
+            && let Some(urls) = self.download_origins.get(&(host_id, eid))
+            && !urls.is_empty()
+        {
+            return urls.clone();
+        }
+        self.source_urls(app, host_id)
     }
 
     /// Reconciles this session's `tab_<uuid> <-> host_tab_id` map against `BrowserHost` strictly
@@ -197,8 +295,12 @@ impl SessionAttachment {
             self.generations.remove(&host_id);
             self.last_urls.remove(&host_id);
             self.refs.remove(&host_id);
+            self.frames.remove(&host_id);
+            self.cdp_bootstrapped.remove(&host_id);
             self.diagnostics.remove(&host_id);
             self.captures.remove(&host_id);
+            self.download_wire_ids.retain(|(hid, _), _| *hid != host_id);
+            self.download_origins.retain(|(hid, _), _| *hid != host_id);
         }
 
         // Register newly opened tabs and track document navigations.
@@ -232,6 +334,23 @@ impl SessionAttachment {
             self.diagnostics
                 .entry(*host_id)
                 .or_insert_with(|| TabDiagnostics::new(self.diag_scope_seed ^ host_id));
+            self.frames.entry(*host_id).or_default();
+            // Snapshot source URLs when a new download first appears on this tab so `files.get`
+            // `inspect_target` reflects the download's origin even after later navigations.
+            for f in &tab.files {
+                let key = (*host_id, f.id.clone());
+                self.download_wire_ids.entry(key.clone()).or_insert_with(new_file_id);
+                if !self.download_origins.contains_key(&key) {
+                    let mut origins = self
+                        .frames
+                        .get(host_id)
+                        .map(|fr| fr.source_urls(&tab.url))
+                        .unwrap_or_else(|| if tab.url.is_empty() { Vec::new() } else { vec![tab.url.clone()] });
+                    origins.sort();
+                    origins.dedup();
+                    self.download_origins.insert(key, origins);
+                }
+            }
             tabs.push(build_wire_tab(&wire_id, tab, generation));
         }
 
@@ -340,7 +459,14 @@ fn spawn_outbound_worker(
     connection_id: String,
     rx: Receiver<OutboundMsg>,
     abort: AbortHandle,
+    cancelled: Arc<Mutex<HashSet<String>>>,
 ) {
+    let is_cancelled = move |req_id: &str| {
+        cancelled
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(req_id)
+    };
     std::thread::Builder::new()
         .name("browser-rpc-out".into())
         .spawn(move || {
@@ -368,14 +494,18 @@ fn spawn_outbound_worker(
                             match d {
                                 OutboundMsg::Stop => break,
                                 OutboundMsg::Result { request_id, outcome } => {
-                                    send_result(&server, &location, &session_id, &connection_id, &request_id, &outcome);
+                                    if !abort.is_aborted() && !is_cancelled(&request_id) {
+                                        send_result(&server, &location, &session_id, &connection_id, &request_id, &outcome);
+                                    }
                                 }
                                 OutboundMsg::State(_) => {}
                             }
                         }
                     }
                     OutboundMsg::Result { request_id, outcome } => {
-                        send_result(&server, &location, &session_id, &connection_id, &request_id, &outcome);
+                        if !abort.is_aborted() && !is_cancelled(&request_id) {
+                            send_result(&server, &location, &session_id, &connection_id, &request_id, &outcome);
+                        }
                     }
                 }
             }

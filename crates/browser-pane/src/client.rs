@@ -110,8 +110,10 @@ pub struct BrowserHost {
     pub(crate) caps: EngineCaps,
     next_tab_id: u64,
     pub(crate) next_req_id: u64,
-    pending_opens: Vec<(u64, String)>,
+    pub(crate) pending_opens: Vec<(u64, String)>,
     pub(crate) cdp_responses: HashMap<u64, Result<Value, Value>>,
+    cdp_response_order: VecDeque<u64>,
+    cancelled_cdp: VecDeque<u64>,
     cdp_events: VecDeque<CdpEvent>,
     picked: VecDeque<PickedElement>,
     pub(crate) popup_opens: VecDeque<crate::prompts::PopupRequest>,
@@ -167,6 +169,8 @@ impl BrowserHost {
             next_req_id: 1,
             pending_opens: Vec::new(),
             cdp_responses: HashMap::new(),
+            cdp_response_order: VecDeque::new(),
+            cancelled_cdp: VecDeque::new(),
             cdp_events: VecDeque::new(),
             picked: VecDeque::new(),
             popup_opens: VecDeque::new(),
@@ -717,6 +721,16 @@ impl BrowserHost {
         self.cdp_responses.remove(&request_id)
     }
 
+    /// Discards any buffered or future CDP response for `request_id` so cancelled commands never
+    /// leak orphaned entries in `cdp_responses`.
+    pub fn cancel_cdp(&mut self, request_id: u64) {
+        self.cdp_responses.remove(&request_id);
+        if self.cancelled_cdp.len() >= 1_024 {
+            self.cancelled_cdp.pop_front();
+        }
+        self.cancelled_cdp.push_back(request_id);
+    }
+
     pub fn has_cdp_events(&self) -> bool {
         !self.cdp_events.is_empty()
     }
@@ -915,6 +929,7 @@ impl BrowserHost {
                     context_menu,
                     partitions,
                     remote_proxy,
+                    agent_tools,
                     ..
                 } => {
                     if !matches!(
@@ -932,7 +947,9 @@ impl BrowserHost {
                         context_menu,
                         partitions,
                         remote_proxy,
+                        agent_tools,
                     };
+                    self.flush_pending_opens();
                     // A new engine starts with an empty downloads folder and numbers its files
                     // from 1 again: the last one's files are gone. Held prompts replay if live.
                     for t in &mut self.tabs {
@@ -1014,6 +1031,15 @@ impl BrowserHost {
                     changed = true;
                 }
                 EngineMsg::CdpResponse { request_id, ok, result, .. } => {
+                    if let Some(pos) = self.cancelled_cdp.iter().position(|&id| id == request_id) {
+                        self.cancelled_cdp.remove(pos);
+                        continue;
+                    }
+                    while self.cdp_responses.len() >= 512 {
+                        let Some(oldest) = self.cdp_response_order.pop_front() else { break };
+                        self.cdp_responses.remove(&oldest);
+                    }
+                    self.cdp_response_order.push_back(request_id);
                     self.cdp_responses
                         .insert(request_id, if ok { Ok(result) } else { Err(result) });
                     changed = true;

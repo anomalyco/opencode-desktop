@@ -5,6 +5,7 @@
 //! keeps every session's tab namespace (`tab_<uuid>`) isolated by construction.
 
 mod exec;
+mod frames;
 mod session;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -133,11 +134,30 @@ fn mark_base_connected(base: &str) {
         .insert(base.to_owned());
 }
 
+fn clear_base_connected(base: &str) {
+    CONNECTED_BASES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .remove(base);
+}
+
 fn is_base_connected(base: &str) -> bool {
     CONNECTED_BASES
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .contains(base)
+}
+
+/// Called when `/api/event` drops (`Incoming::StreamDown`) so stale connected bases are cleared.
+pub fn on_sse_disconnected(app: &mut App, server_key: &ServerKey) {
+    if let Some(srv) = live_server_clone(app) {
+        clear_base_connected(&srv.base);
+    }
+    app.kernel
+        .slots
+        .get_mut(&BROWSER_RPC)
+        .sse_connected
+        .insert(server_key.clone(), false);
 }
 
 /// Called when `/api/event` opens or reconnects (`Incoming::Opened` / `Incoming::Reconnected`).
@@ -159,7 +179,7 @@ pub fn on_sse_connected(app: &mut App, server_key: &ServerKey) {
             }
         }
     }
-    apply_batch_effects(app, pending_effects);
+    apply_batch_effects(app, pending_effects, None);
 }
 
 /// Called when the server emits `plugin.updated` (`PRE-08` `#63500`): immediately re-probes any
@@ -178,7 +198,7 @@ pub fn on_plugin_updated(app: &mut App, server_key: &ServerKey) {
             }
         }
     }
-    apply_batch_effects(app, pending_effects);
+    apply_batch_effects(app, pending_effects, None);
 }
 
 /// Routes an SSE `rpc.experimental.browser.control` frame to the owning attachment (`connectionID`).
@@ -199,7 +219,7 @@ pub fn on_control_event(app: &mut App, server_key: &ServerKey, data: &Value) {
             }
         }
     }
-    apply_batch_effects(app, pending_effects);
+    apply_batch_effects(app, pending_effects, None);
 }
 
 /// Called when `session.created`, `session.moved`, or `session.deleted` arrives over SSE.
@@ -218,7 +238,7 @@ pub fn on_session_lifecycle(app: &mut App, server_key: &ServerKey, ty: &str, ses
         att.attach.step(event, now)
     };
     if !effs.is_empty() {
-        apply_batch_effects(app, vec![(key.clone(), effs)]);
+        apply_batch_effects(app, vec![(key.clone(), effs)], None);
     }
     if ty == "session.deleted" {
         let st = app.kernel.slots.get_mut(&BROWSER_RPC);
@@ -261,35 +281,62 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
             }
         }
     }
-    apply_batch_effects(app, pending_effects);
+    apply_batch_effects(app, pending_effects, None);
 
     // 2. Reconcile open sessions against the active live server.
     changed |= reconcile_sessions(app, now);
 
-    // 3. Route any CDP events from BrowserHost into the owning session's TabDiagnostics.
+    // 3. Route any CDP events from BrowserHost into TabDiagnostics and TabFrameState (OOPIFs +
+    //    main-world execution contexts), auto-enabling Page/Runtime/Target on attached OOPIFs.
     if app.workspace_panes.browser.host.has_cdp_events() {
         let events: Vec<_> = app.workspace_panes.browser.host.drain_cdp_events().collect();
-        let st = app.kernel.slots.get_mut(&BROWSER_RPC);
-        for ev in events {
-            for att in st.sessions.values_mut() {
-                if let Some(diag) = att.diagnostics.get_mut(&ev.tab_id) {
-                    diag.ingest_cdp_event(&ev.method, &ev.params, ev.session_id.as_deref());
+        let mut oopif_enables: Vec<(u64, String)> = Vec::new();
+        {
+            let st = app.kernel.slots.get_mut(&BROWSER_RPC);
+            for ev in events {
+                for att in st.sessions.values_mut() {
+                    if let Some(diag) = att.diagnostics.get_mut(&ev.tab_id) {
+                        diag.ingest_cdp_event(&ev.method, &ev.params, ev.session_id.as_deref());
+                    }
+                    if let Some(fr) = att.frames.get_mut(&ev.tab_id) {
+                        for child_sid in fr.ingest_cdp_event(&ev.method, &ev.params, ev.session_id.as_deref()) {
+                            oopif_enables.push((ev.tab_id, child_sid));
+                        }
+                    }
                 }
+            }
+        }
+        if app.workspace_panes.browser.host.engine_agent_tools() {
+            for (tab_id, child_sid) in oopif_enables {
+                let host = &mut app.workspace_panes.browser.host;
+                let _ = host.send_typed_cdp(tab_id, "Page.enable", serde_json::json!({}), Some(child_sid.clone()));
+                let _ = host.send_typed_cdp(tab_id, "Runtime.enable", serde_json::json!({}), Some(child_sid.clone()));
+                let _ = host.send_typed_cdp(
+                    tab_id,
+                    "Target.setAutoAttach",
+                    serde_json::json!({
+                        "autoAttach": true,
+                        "waitForDebuggerOnStart": false,
+                        "flatten": true,
+                    }),
+                    Some(child_sid),
+                );
             }
         }
     }
 
     // 4. Start newly fetched commands & step in-flight commands without blocking the UI thread.
     // Move `sessions` temporarily out of `Slot` so executors can mutably borrow `App`.
-    let (mut sessions, mut ref_counter) = {
+    let (mut sessions, mut ref_counter, waker) = {
         let st = app.kernel.slots.get_mut(&BROWSER_RPC);
-        (std::mem::take(&mut st.sessions), st.ref_counter)
+        (std::mem::take(&mut st.sessions), st.ref_counter, st.waker.clone())
     };
 
     for (key, conn_id, req_id, res) in fetched_commands {
         if let Some(att) = sessions.get_mut(&key) {
+            att.fetch_aborts.remove(&req_id);
             match res {
-                Ok(cmd) => exec::start_command(att, app, conn_id, req_id, cmd, now, tx),
+                Ok(cmd) => exec::start_command(att, app, conn_id, req_id, cmd, now, waker.clone(), tx),
                 Err(RpcCallError::InvalidInput(msg)) => {
                     if att.attach.is_request_in_flight(&conn_id, &req_id) {
                         att.enqueue_result(
@@ -310,14 +357,26 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
     let mut tick_effects = Vec::new();
     let mut earliest_wake: Option<Instant> = None;
     for (key, att) in &mut sessions {
-        let (cmd_changed, cmd_wake) = exec::poll_commands(att, app, now, &mut ref_counter, tx);
+        let (cmd_changed, cmd_wake) =
+            exec::poll_commands(att, app, now, &mut ref_counter, waker.clone(), tx);
         changed |= cmd_changed;
         if let Some(w) = cmd_wake {
             earliest_wake = Some(earliest_wake.map_or(w, |cur| cur.min(w)));
         }
-        // Sync tab inventory changes while attached.
+        // Sync tab inventory changes while attached & bootstrap OOPIF/context CDP tracking.
         if att.attach.is_attached() {
             let (inv, hash) = att.sync_tabs(app);
+            if app.workspace_panes.browser.host.engine_agent_tools() {
+                let to_boot: Vec<u64> = att
+                    .host_to_wire
+                    .keys()
+                    .copied()
+                    .filter(|hid| !att.cdp_bootstrapped.contains(hid))
+                    .collect();
+                for hid in to_boot {
+                    att.ensure_tab_cdp(app, hid);
+                }
+            }
             let effs = att.attach.step(AttachEvent::StateChanged { hash }, now);
             if effs.iter().any(|e| matches!(e, AttachEffect::SendState { .. }))
                 && let Some(cid) = att.attach.connection_id().map(str::to_owned)
@@ -344,10 +403,14 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
         st.sessions = sessions;
         st.ref_counter = ref_counter;
     }
-    apply_batch_effects(app, tick_effects);
+    apply_batch_effects(app, tick_effects, Some(tx));
 
     if let Some(at) = earliest_wake {
-        tx.wake_after(at.saturating_duration_since(now));
+        // Never spin the UI thread at 0 ms if a deadline just arrived.
+        let delay = at
+            .saturating_duration_since(now)
+            .max(std::time::Duration::from_millis(10));
+        tx.wake_after(delay);
     }
     changed
 }
@@ -438,7 +501,7 @@ fn reconcile_sessions(app: &mut App, now: Instant) -> bool {
             }
         }
     }
-    apply_batch_effects(app, pending_effects);
+    apply_batch_effects(app, pending_effects, None);
     sync_mcp_suppression(app);
     changed
 }
@@ -474,6 +537,7 @@ fn sync_mcp_suppression(app: &mut App) {
 fn apply_batch_effects(
     app: &mut App,
     batch: Vec<((ServerKey, String), Vec<AttachEffect>)>,
+    mut tx_opt: Option<&mut Tx>,
 ) {
     if batch.is_empty() {
         return;
@@ -528,6 +592,8 @@ fn apply_batch_effects(
                     att.enqueue_state(&connection_id, inv, hash);
                 }
                 AttachEffect::FetchCommand { connection_id, request_id } => {
+                    let abort = AbortHandle::new();
+                    att.fetch_aborts.insert(request_id.clone(), abort.clone());
                     let server = att.server.clone();
                     let location = att.location.clone();
                     let sid = att.session_id.clone();
@@ -537,8 +603,13 @@ fn apply_batch_effects(
                     std::thread::Builder::new()
                         .name("browser-rpc-cmd".into())
                         .spawn(move || {
-                            let result =
-                                server.browser_rpc_command(&location, &sid, &connection_id, &request_id);
+                            let result = server.browser_rpc_command_abortable(
+                                &location,
+                                &sid,
+                                &connection_id,
+                                &request_id,
+                                &abort,
+                            );
                             let _ = tx.send(WorkerMsg::CommandFetched {
                                 server_key: skey,
                                 session_id: sid,
@@ -553,8 +624,19 @@ fn apply_batch_effects(
                         .ok();
                 }
                 AttachEffect::CancelCommands { request_ids } => {
-                    att.active_commands
-                        .retain(|c| !request_ids.iter().any(|id| id == &c.request_id));
+                    for id in &request_ids {
+                        att.mark_cancelled(id);
+                    }
+                    let sid = att.session_id.clone();
+                    let mut kept = Vec::with_capacity(att.active_commands.len());
+                    for mut cmd in att.active_commands.drain(..) {
+                        if request_ids.iter().any(|id| id == &cmd.request_id) {
+                            cmd.cancel_cleanup(app, &sid, tx_opt.as_deref_mut());
+                        } else {
+                            kept.push(cmd);
+                        }
+                    }
+                    att.active_commands = kept;
                 }
                 AttachEffect::ScheduleTimer { .. }
                 | AttachEffect::SettlePromptGates

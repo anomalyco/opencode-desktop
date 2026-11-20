@@ -86,7 +86,14 @@ fn message(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
         }
         Incoming::Status(e) => status_toast::from_server(s, e),
         Incoming::Failed(e) => failed(s, e, tx),
-        Incoming::StreamDown(e) => reconnect::stream_down(s, e, tx),
+        Incoming::StreamDown(e) => {
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let active_server = crate::servers::runtime::active(s).clone();
+                crate::surfaces::browser::rpc::on_sse_disconnected(s, &active_server);
+            }
+            reconnect::stream_down(s, e, tx);
+        }
         Incoming::Unanswered(e) => reconnect::unanswered(s, e, tx),
         _ => {}
     }

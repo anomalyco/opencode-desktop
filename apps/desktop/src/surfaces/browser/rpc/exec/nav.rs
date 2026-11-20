@@ -95,6 +95,7 @@ fn start_tabs_open(
 
     let host_id = app.open_new_browser_tab_for_session(Some(&att.session_id), &target_url, None, focus);
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
+    att.ensure_tab_cdp(app, host_id);
     let _ = att.sync_tabs(app);
     let Some(wire_tab_id) = att.host_to_wire.get(&host_id).cloned() else {
         return StepOutcome::Done(Outcome::fail(
@@ -351,6 +352,9 @@ fn start_preview(
         same.then(|| (hid, wid.clone()))
     });
     let (host_id, wire_tab_id, close_on_fail) = if let Some((hid, wid)) = existing {
+        if let Err(o) = check_page_guards(app, hid, "navigate") {
+            return StepOutcome::Done(o);
+        }
         app.navigate_browser_tab(hid, &file_url);
         (hid, wid, false)
     } else {
