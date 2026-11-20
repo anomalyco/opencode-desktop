@@ -371,7 +371,10 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
     let mut tick_effects = Vec::new();
     let mut earliest_wake: Option<Instant> = None;
     for (key, att) in &mut sessions {
-        att.drain_bootstrap_frames(app);
+        if att.drain_bootstrap_frames(app) {
+            let retry_at = now + std::time::Duration::from_millis(25);
+            earliest_wake = Some(earliest_wake.map_or(retry_at, |cur| cur.min(retry_at)));
+        }
         // Cleanly close any cancelled `close_on_fail` tabs queued during SSE `on_control_event`
         // (eliminating ghost tabs in `session_tabs` and side-panel UI).
         if !att.pending_close_tabs.is_empty() {
