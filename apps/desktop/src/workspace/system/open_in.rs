@@ -74,6 +74,11 @@ impl OpenInHost for App {
         Some(self.session(self.active_session_id()?)?.directory.as_str())
     }
 
+    fn active_session_physical_directory(&self) -> Option<String> {
+        let dir = self.active_session_directory()?;
+        self.pinned_local_root(dir)
+    }
+
     fn read_json(&self, ns: &str, key: &str) -> Option<Value> {
         crate::storage::json(ns, key)
     }
@@ -160,6 +165,25 @@ impl App {
         #[cfg(target_arch = "wasm32")]
         {
             false
+        }
+    }
+
+    /// Resolves and pins a known-local workspace root directory once per window (returning the
+    /// verified physical path, never the raw symlink/junction alias). Returns `None` on remote
+    /// servers, `wasm32`, or refused broad/system/network paths.
+    pub fn pinned_local_root(&self, raw_dir: &str) -> Option<String> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if !self.can_reveal_outside() || raw_dir.is_empty() {
+                return None;
+            }
+            let home = (!self.home.is_empty()).then_some(self.home.as_str());
+            self.kernel.slots.get(&OPEN_IN).pinned_local_root(raw_dir, home)
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = raw_dir;
+            None
         }
     }
 

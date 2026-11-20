@@ -182,7 +182,8 @@ fn show(s: &mut App, info: &opencode_kit::model::SessionInfo, tx: &mut Tx) {
         Some("changes") => s.show_review(&sid, tx),
         Some("copy-path") => copied(s, &dir, tx),
         Some("reveal") => {
-            if let Err(e) = reveal(&dir) {
+            let target = s.pinned_local_root(&dir);
+            if let Err(e) = reveal(target.as_deref().unwrap_or(&dir)) {
                 crate::status_toast::fail(s, t!("common.requestFailed"), e);
             }
         }

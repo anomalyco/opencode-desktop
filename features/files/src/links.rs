@@ -304,9 +304,13 @@ pub fn open_link(host: &mut dyn FilesHost, sid: &str, from: Option<&str>, href: 
             }
         }
         Link::Inside { path, lines, .. } if lines.is_none() && host.opens_as_page(&path) => {
+            let Some(root) = host.session_physical_directory(sid) else {
+                host.toast_say(opencode_i18n::t!("rune.files.link.outside").to_owned(), path);
+                return;
+            };
             let url = format!(
                 "file://{}",
-                opencode_kit::path::encode_path(&opencode_kit::path::absolute(&dir, &path))
+                opencode_kit::path::encode_path(&opencode_kit::path::absolute(&root, &path))
             );
             host.open_page_tab(sid, &url);
         }

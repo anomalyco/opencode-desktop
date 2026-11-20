@@ -13,7 +13,8 @@
 #[cfg(target_os = "windows")]
 pub mod windows;
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -258,6 +259,9 @@ pub struct OpenIn {
     installed: Installed,
     chosen: Option<String>,
     launch: LaunchState,
+    /// Per-window pinned physical workspace roots resolved once on first encounter (never
+    /// re-resolved if a symlink/junction alias is re-pointed on disk after start-up).
+    pinned_roots: RefCell<HashMap<String, Option<String>>>,
 }
 
 /// What the first check in this process found, for every window after it.
@@ -278,7 +282,25 @@ impl OpenIn {
             installed: Installed::Unknown { wanted: Cell::new(false) },
             chosen: None,
             launch: LaunchState::Idle,
+            pinned_roots: RefCell::new(HashMap::new()),
         }
+    }
+
+    /// Resolves and pins a local workspace root once per raw path in this window, returning the
+    /// verified physical directory (never the raw symlink/junction alias) for all later checks.
+    pub fn pinned_local_root(&self, raw_dir: &str, home: Option<&str>) -> Option<String> {
+        if raw_dir.is_empty() {
+            return None;
+        }
+        if let Some(cached) = self.pinned_roots.borrow().get(raw_dir) {
+            return cached.clone();
+        }
+        let resolved = browser_policy::resolve_safe_local_workspace_root(raw_dir, home);
+        let mut map = self.pinned_roots.borrow_mut();
+        if map.len() < 256 {
+            map.insert(raw_dir.to_owned(), resolved.clone());
+        }
+        resolved
     }
 
     /// Convenience constructor for a fixture launcher with fixed installed app IDs.
@@ -458,6 +480,11 @@ pub trait OpenInHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
     fn is_local_server(&self) -> bool;
     /// The active session's working directory, if a session is open.
     fn active_session_directory(&self) -> Option<&str>;
+    /// The active session's pinned physical local directory (resolved once up front when the
+    /// workspace was opened through a local symlink/junction alias), or `None` if refused.
+    fn active_session_physical_directory(&self) -> Option<String> {
+        self.active_session_directory().map(str::to_owned)
+    }
     /// Reads a JSON preference from host storage (`STORAGE_NS`, `STORAGE_KEY`).
     fn read_json(&self, ns: &str, key: &str) -> Option<Value>;
     /// Writes a JSON preference to host storage.
@@ -518,13 +545,13 @@ pub fn detect(host: &mut dyn OpenInHost) {
     host.open_in_mut().detect();
 }
 
-/// Resolves `rel` inside the active session's working directory.
+/// Resolves `rel` inside the active session's pinned physical working directory.
 pub fn resolve_path(host: &dyn OpenInHost, rel: &str) -> Option<String> {
-    let dir = host.active_session_directory()?;
+    let dir = host.active_session_physical_directory()?;
     Some(if dir.is_empty() {
         rel.to_owned()
     } else if rel.is_empty() {
-        dir.to_owned()
+        dir
     } else {
         format!("{}/{rel}", dir.trim_end_matches(['/', '\\']))
     })
