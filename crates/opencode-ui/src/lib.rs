@@ -1,5 +1,5 @@
 //! Shared OpenCode UI design-system foundation: palettes and themes (`palette`, `themes`),
-//! typography and layout style tokens (`style`), dialog sizing (`dialog`), scroll containers
+//! typography and layout style tokens (`style`), dialog sizing (`dialog`), the focus ring (`focus`), scroll containers
 //! (`scroller`), rolling odometers (`odometer`), bottom sheets (`sheet`), popovers (`popover`),
 //! provider marks (`provider_mark`), shortcut keymap (`keymap`), reusable controls (`widgets`),
 //! file/review panel chrome (`panel_chrome`), popup/context menus (`popup`), and toast
@@ -9,6 +9,7 @@
 #![forbid(unsafe_code)]
 
 pub mod dialog;
+pub mod focus;
 pub mod keymap;
 pub mod odometer;
 pub mod palette;

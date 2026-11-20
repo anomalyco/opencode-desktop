@@ -138,7 +138,8 @@ fn methods<H: ConnectHost + 'static>(s: &H, p: &Pal) -> El {
     let description = opencode_i18n::t!("provider.connect.methods.description", provider = crate::provider_name(s, &provider_id(s)));
     let rows = list.into_iter().enumerate().map(|(at, m)| {
         let title = m.title();
-        row()
+        // Inset, as the list's full-width rows ring (`providers/connect/dialog.tsx`, anomalyco/opencode#64909).
+        let r = row()
             .key(format!("connect-method-{at}"))
             .role("button")
             .label(title.clone())
@@ -151,7 +152,8 @@ fn methods<H: ConnectHost + 'static>(s: &H, p: &Pal) -> El {
             .hover(p.hover)
             .press(p.pressed)
             .on_press_tx(move |s: &mut H, tx: &mut Tx| input(s, Input::MethodSelected(at), tx))
-            .child(text(title).font(BODY_MED).color(p.text))
+            .child(text(title).font(BODY_MED).color(p.text));
+        opencode_ui::focus::inset(p, r)
     });
     col().key("connect-methods").child(step_text(p, description).px(12.0)).children(rows)
 }

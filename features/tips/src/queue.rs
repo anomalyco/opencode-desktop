@@ -67,7 +67,8 @@ impl Tip {
     fn applies(self, installed: &Installed) -> bool {
         match self {
             Tip::Browse => !installed.browse,
-            Tip::Hex => installed.hex == Some(false),
+            // `packages/app/src/tips/model.ts`: never on a touch screen (`(hover: none)`).
+            Tip::Hex => !installed.touch && installed.hex == Some(false),
         }
     }
 }
@@ -179,6 +180,8 @@ pub struct Poll {
     pub browse_installed: Option<bool>,
     /// The launch's local Hex check; unknown until the worker finishes.
     pub hex_installed: Option<bool>,
+    /// The pointer can't hover (`(hover: none)`).
+    pub touch: bool,
     pub online: bool,
     /// The window is focused and shown (`document.hasFocus() && !document.hidden`).
     pub open: bool,
@@ -190,6 +193,7 @@ pub struct Poll {
 pub struct Installed {
     pub browse: bool,
     pub hex: Option<bool>,
+    pub touch: bool,
 }
 
 pub enum Event {
@@ -271,7 +275,7 @@ fn polled(state: &mut State, poll: Poll) -> Vec<Effect> {
                 effects.push(Effect::SyncMcp);
             }
             let Some(browse) = poll.browse_installed else { return effects };
-            let selected = select(&poll.history, poll.now, &Installed { browse, hex: poll.hex_installed });
+            let selected = select(&poll.history, poll.now, &Installed { browse, hex: poll.hex_installed, touch: poll.touch });
             if let Phase::Showing { tip, toast, .. } = phase {
                 if selected == Some(*tip) {
                     return effects;
@@ -280,7 +284,7 @@ fn polled(state: &mut State, poll: Poll) -> Vec<Effect> {
                 *phase = Phase::Idle;
                 return effects;
             }
-            if browse && poll.hex_installed.is_none() {
+            if browse && !poll.touch && poll.hex_installed.is_none() {
                 return effects;
             }
             *phase = Phase::Idle;

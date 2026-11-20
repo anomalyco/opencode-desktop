@@ -1,6 +1,6 @@
-//! The connect dialog on screen (`providers/connect/dialog.tsx`): a normal-size surface on the
-//! base fill with 12 pt corners; every step fits its content up to the normal height, and the top
-//! edge stays where that height puts it. The list is the search dialog's
+//! The connect dialog on screen (`providers/connect/dialog.tsx`): a large surface, the palette's
+//! width, on the base fill with 12 pt corners; every step fits its content up to the large height,
+//! and the top edge stays where that height puts it. The list is the search dialog's
 //! (`search-list.css` `.search-dialog`): a bare search under a compact header, a hairline across.
 
 use rune::{Color, Cx, El, Key, KeyEvent, Spring, TextStyle, Transition, Tx, col, el, icon, row, spacer, text};
@@ -14,9 +14,9 @@ use crate::dialog::{self, BackTarget, Event, Frame};
 use crate::ui::{self, BODY, BODY_MED, DIALOG_CLOSE, Fit};
 use crate::{AuthHost, ConnectHost, Open};
 
-/// The search dialog's title and description: 13 and 12 on a 20 line.
+/// The search dialog's title and description: 13 on a 20 line.
 const TITLE: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0).tracking(-0.04);
-const DESCRIPTION: TextStyle = TextStyle::new(12.0, 440.0).lh(20.0).tracking(-0.04);
+const DESCRIPTION: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0).tracking(-0.04);
 /// A provider step's title (`dialog-header-title` at 15, tracking -0.13).
 const STEP_TITLE: TextStyle = TextStyle::new(15.0, 530.0).lh(16.0).tracking(-0.13);
 /// The list's group labels: 12 on 18 at 440, tracking 0.05, faint.
@@ -24,7 +24,18 @@ const GROUP: TextStyle = TextStyle::new(12.0, 440.0).lh(18.0).tracking(0.05);
 
 /// The integrations the list offers, in the TUI's groups: connected first by name, then the
 /// popular ones in their order, then the rest by name. MCP sign-ins live in the MCPs dialog.
-const POPULAR: [&str; 6] = ["opencode", "opencode-go", "openai", "github-copilot", "anthropic", "google"];
+/// Unlike the TUI, Go comes before Console (`providers/connect/dialog.tsx`).
+const POPULAR: [&str; 6] = ["opencode-go", "opencode", "openai", "github-copilot", "anthropic", "google"];
+
+/// The line after OpenCode Go's and Console's names while they're not connected
+/// (`providerNote`, `providers/connect/dialog.tsx`).
+fn note(id: &str) -> Option<&'static str> {
+    match id {
+        "opencode-go" => Some(opencode_i18n::t!("dialog.provider.opencodeGo.tagline")),
+        "opencode" => Some(opencode_i18n::t!("dialog.provider.opencode.note")),
+        _ => None,
+    }
+}
 
 pub struct Row {
     pub id: String,
@@ -171,7 +182,7 @@ fn remote_label(host: &dyn ConnectHost, p: &Pal, id: &str) -> Option<El> {
     )
 }
 
-/// The Connect provider dialog modal layer (`DialogSize::Normal`, anchored fit).
+/// The Connect provider dialog modal layer (`DialogSize::Large`, content fit).
 pub fn layer<H: ConnectHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> Vec<El> {
     if !s.connect().is_open() {
         return Vec::new();
@@ -194,9 +205,9 @@ pub fn dialog<H: ConnectHost + 'static>(s: &H, p: &Pal, win: [f32; 2]) -> Vec<El
     let surface = build_dialog_surface(p, label, head, content)
         // A stray press beside it mustn't drop a sign-in the user is finishing in the browser.
         .modal(true, move |s: &mut H| close_on_backdrop(s, authorizing));
-    // `<Dialog size="normal" fit anchored>` (`providers/connect/dialog.tsx`): every step fits its
-    // content within the normal height, and the top edge stays put, so a step only moves the bottom.
-    ui::sized_modal("connect", p, DialogSize::Normal, Fit::Anchored, win, surface)
+    // `<Dialog size="large" fit>` (`providers/connect/dialog.tsx`): every step fits its content
+    // within the large height, and the top edge stays put, so a step only moves the bottom.
+    ui::sized_modal("connect", p, DialogSize::Large, Fit::Content, win, surface)
 }
 
 fn build_dialog_surface(p: &Pal, label: String, head: El, content: El) -> El {
@@ -254,7 +265,7 @@ fn crumb<H: ConnectHost + 'static>(content: El, key: &'static str, name: String,
 fn header<H: ConnectHost + 'static>(s: &H, open: &Open, p: &Pal, frame: Frame, label: &str) -> El {
     let close = close_button::<H>(p);
     match frame {
-        // `.search-dialog`: 10 pt above and at the end, 14 before, 6 below.
+        // `.search-dialog`: 14 pt above, 16 at the sides, 8 below.
         Frame::Picker => build_picker_header(p, close),
         Frame::Models => {
             let id = open.dialog.provider.as_ref().map(|p| p.id.clone()).unwrap_or_default();
@@ -292,10 +303,9 @@ fn build_picker_header(p: &Pal, close: El) -> El {
     row()
         .key("connect-header")
         .w_full()
-        .pt(10.0)
-        .pr(10.0)
-        .pb(6.0)
-        .pl(14.0)
+        .pt(14.0)
+        .px(16.0)
+        .pb(8.0)
         .child(
             col()
                 .grow(1.0)
@@ -340,7 +350,8 @@ fn build_provider_header(p: &Pal, root_crumb: El, provider_crumb: El, remote: Op
         .child(root_crumb)
         .child(icon(&ic::CHEVRON_RIGHT, 14.0).mirror_in_rtl().color(p.icon_muted))
         .child(provider_crumb);
-    row().key("connect-header").w_full().padding(16.0).child(nav).children(remote).child(close)
+    // `dialog.tsx`'s header: 14 pt above, 16 at the sides, 8 below.
+    row().key("connect-header").w_full().pt(14.0).px(16.0).pb(8.0).child(nav).children(remote).child(close)
 }
 
 /// The searchable list (`ProviderPicker`).
@@ -409,7 +420,8 @@ fn build_picker_frame(p: &Pal, field: El, sections: Vec<El>) -> El {
 }
 
 fn provider_row<H: ConnectHost + 'static>(p: &Pal, r: &Row, active: bool) -> El {
-    let base = build_provider_row_shell(p, r, active);
+    // The list clips its full-width rows, so they ring inset (`providers/connect/dialog.tsx`, anomalyco/opencode#64909).
+    let base = opencode_ui::focus::inset(p, build_provider_row_shell(p, r, active));
     if r.disabled {
         return base;
     }
@@ -441,6 +453,8 @@ fn build_provider_row_shell(p: &Pal, r: &Row, active: bool) -> El {
     }
     if let Some(account) = &r.account {
         e = e.child(ui::badge(p, account.clone()).shrink().min_w(0.0));
+    } else if let Some(line) = note(&r.id) {
+        e = e.child(text(line).key("provider-note").font(BODY).color(p.muted).shrink().min_w(0.0).truncate());
     }
     if r.needs_sign_in {
         e = e

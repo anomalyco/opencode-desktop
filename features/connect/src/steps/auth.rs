@@ -252,7 +252,8 @@ pub(super) fn browser<H: ConnectHost + 'static>(s: &H, p: &Pal) -> El {
                 _ => (true, true, None),
             };
             let toggle = opencode_i18n::t!("provider.connect.oauth.paste.toggle");
-            let mut block = col().w_full().child(
+            let mut block = col().w_full().child(opencode_ui::focus::inset(
+                p,
                 row()
                     .key("connect-paste-toggle")
                     .role("button")
@@ -263,8 +264,9 @@ pub(super) fn browser<H: ConnectHost + 'static>(s: &H, p: &Pal) -> El {
                     .center_y()
                     .on_press_tx(move |s: &mut H, tx: &mut Tx| toggle_paste(s, locked, shown, tx))
                     .child(icon(if shown { &ic::CHEVRON_DOWN } else { &ic::CHEVRON_RIGHT }, 14.0).mirror_in_rtl().color(p.icon_muted))
+                    .radius(6.0)
                     .child(text(toggle).font(BODY).color(p.text)),
-            );
+            ));
             if shown {
                 let label = opencode_i18n::t!("ui.redirectPaste.label");
                 let message = err.map(|e| match e {

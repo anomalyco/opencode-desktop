@@ -18,10 +18,10 @@ pub struct Manage {
     pub collapsed: HashSet<String>,
 }
 
-/// `dialog-title` and `dialog-description` as the settings dialog sets them: 13 on 20 at 440
-/// in `text-base`, 12 on 20 muted.
+/// `dialog-title` and `dialog-description` as `.search-dialog` sets them (`shell/search-list.css`):
+/// 13 on 20 at 440 in `text-base`, the description muted.
 const TITLE: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0).tracking(-0.04);
-const DESCRIPTION: TextStyle = TextStyle::new(12.0, 440.0).lh(20.0).tracking(-0.04);
+const DESCRIPTION: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0).tracking(-0.04);
 
 impl super::Pickers {
     /// Opens Manage models with an empty search, its field taking the keys.
@@ -83,10 +83,10 @@ pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
             s.pickers_mut().close_manage();
             true
         });
-    // `manage-models-search`: 6 pt in, a 28 pt field with its glass 8 pt in and the query 8 pt
-    // after it; a hairline across the dialog under it.
-    let search_row = col().key("manage-models-search").w_full().px(6.0)
-        .child(row().key("field").h(28.0).w_full().pl(8.0).pr(8.0).gap(8.0).center_y()
+    // `manage-models-search` (`providers/models/manage.css`): 8 pt in, a 32 pt field with its
+    // glass 8 pt in and the query 8 pt after it; a hairline across the dialog under it.
+    let search_row = col().key("manage-models-search").w_full().px(8.0)
+        .child(row().key("field").h(32.0).w_full().pl(8.0).pr(8.0).gap(8.0).center_y()
             .child(icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted))
             .child(field));
     let hairline = el().key("manage-models-rule").w_full().h(0.5).mt(6.0).fill(p.border_muted);
@@ -128,9 +128,9 @@ pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
         .transition(Transition::none())
         .motion(rune::Spring::NONE)
         .modal(true, |s: &mut S| s.pickers_mut().close_manage())
-        // `dialog-header`: 10 pt above, 14 before, 6 below the title and its description, and
-        // Connect an integration at its end where the host can connect one.
-        .child(row().key("manage-models-header").w_full().pt(10.0).pr(10.0).pb(6.0).pl(14.0)
+        // `.search-dialog`'s `dialog-header`: 14 pt above, 16 at the sides, 8 below the title and
+        // its description, and Connect an integration at its end where the host can connect one.
+        .child(row().key("manage-models-header").w_full().pt(14.0).px(16.0).pb(8.0)
             .child(col().grow(1.0).shrink().gap(2.0)
                 .child(text(opencode_i18n::t!("dialog.model.manage")).font(TITLE).color(p.text))
                 .child(text(opencode_i18n::t!("dialog.model.manage.description")).font(DESCRIPTION).color(p.muted)))
@@ -223,6 +223,7 @@ fn connect<S: PickerHost>(p: &Pal) -> El {
         })
         .build(crate::palette::kit(p))
         .key("manage-models-connect")
+        .mr(-2.0)
 }
 
 /// `--v2-elevation-overlay` (`theme.css:112-114`, `:230-234`): two drops and a 0.5 pt ring.

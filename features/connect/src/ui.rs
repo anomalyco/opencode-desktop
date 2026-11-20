@@ -81,13 +81,11 @@ pub(crate) fn dialog_window<H: ConnectHost + 'static>(s: &H, cx: &Cx<H>) -> [f32
     cx.layout_size("zoom").unwrap_or([1280.0 / zoom, 820.0 / zoom])
 }
 
-/// How a dialog's height follows its content (`<Dialog fit anchored>`).
+/// How a dialog's height follows its content (`<Dialog fit>`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Fit {
     /// As tall as its content, up to the size's most (`fit`).
     Content,
-    /// As tall as its content within the size's height, its top edge kept (`fit anchored`).
-    Anchored,
 }
 
 /// `card` at preset `size` in a window `win`: its width, and the most it grows to.
@@ -96,14 +94,13 @@ pub(crate) fn sized(card: El, size: DialogSize, fit: Fit, win: [f32; 2]) -> El {
     let card = card.w(size.width(win_w));
     match fit {
         Fit::Content => card.max_h(size.max_height(win_h, false)),
-        Fit::Anchored => card.max_h(size.max_height(win_h, true)),
     }
 }
 
 /// `card` at preset `size` in a window `win`, over its scrim (`modal`): centred, or with its top
-/// edge kept where it fits its content and is large or anchored.
+/// edge kept where it fits its content and is large.
 pub(crate) fn sized_modal(key: &str, p: &Pal, size: DialogSize, fit: Fit, win: [f32; 2], card: El) -> Vec<El> {
-    let kept = fit == Fit::Anchored || (fit == Fit::Content && size != DialogSize::Normal);
+    let kept = fit == Fit::Content && size != DialogSize::Normal;
     modal(key, p, sized(card, size, fit, win), kept.then(|| size.top(win[1])))
 }
 

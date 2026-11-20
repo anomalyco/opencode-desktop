@@ -33,6 +33,10 @@ impl TipsHost for App {
         self.mcp_servers("").map(|list| list.iter().any(|m| m.name == "browse"))
     }
 
+    fn hover_none(&self) -> bool {
+        session_view::style::hover_none()
+    }
+
     fn sync_mcp(&mut self) {
         App::sync_mcp(self, "");
     }

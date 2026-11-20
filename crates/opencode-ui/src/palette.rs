@@ -655,6 +655,9 @@ pub fn scroll_bar(p: &Pal) -> ScrollBarStyle {
 
 fn kit_from(p: &Pal) -> Kit {
     let mut k = rune_theme_opencode::kit(p.dark).clone();
+    // The focus ring is `assets/theme.json`'s in every theme: dark takes `blue-400` (anomalyco/opencode#64909,
+    // `packages/ui/src/theme/v2/mapping.ts`), which Rune's own OpenCode kit hasn't caught up with.
+    k.c.border_focus = p.v2.border_focus;
     if p.theme == 0 {
         return k;
     }

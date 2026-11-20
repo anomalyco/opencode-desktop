@@ -171,6 +171,7 @@ pub(super) fn view<H: ConnectHost + 'static>(s: &H, p: &Pal) -> El {
             .pr(8.0)
             .gap(6.0)
             .center_y()
+            .radius(6.0)
             .child(el().size(16.0, 16.0).center().children(is_active.then(|| icon(&ic::CHECK_SMALL, 14.0).color(p.icon))))
             .child(text(a.label.clone()).font(BODY).color(p.text).shrink().truncate());
         if a.status.is_some() {
@@ -179,6 +180,8 @@ pub(super) fn view<H: ConnectHost + 'static>(s: &H, p: &Pal) -> El {
         if !busy {
             line = line.on_press_tx(move |s: &mut H, tx: &mut Tx| choose_account(s, &pick, tx));
         }
+        // Full-width rows ring inset (`providers/connect/dialog.tsx`, anomalyco/opencode#64909).
+        let line = opencode_ui::focus::inset(p, line);
         let menu_id = a.id.clone();
         let options = el()
             .key(format!("account-options-{}", a.id))
@@ -215,6 +218,7 @@ pub(super) fn view<H: ConnectHost + 'static>(s: &H, p: &Pal) -> El {
         .child(el().size(16.0, 16.0).center().child(icon(&ic::PLUS, 16.0).color(p.icon_muted)))
         .child(text(opencode_i18n::t!("dialog.provider.accounts.add")).font(BODY).color(p.muted));
     add = if can_add { add.on_press_tx(|s: &mut H, tx: &mut Tx| add_account(s, tx)) } else { add.opacity(0.5) };
+    let add = opencode_ui::focus::inset(p, add);
     col()
         .key("connect-accounts")
         .w_full()
