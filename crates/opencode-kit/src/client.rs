@@ -362,7 +362,7 @@ impl Server {
     }
 
     /// `write`, waiting up to `timeout` for the reply.
-    pub(crate) fn write_within(&self, method: &'static str, path: &str, body: Option<Value>, timeout: Duration) -> Result<Value, WireError> {
+    pub fn write_within(&self, method: &'static str, path: &str, body: Option<Value>, timeout: Duration) -> Result<Value, WireError> {
         self.write_raw(method, path, body.map(|b| b.to_string().into_bytes()), timeout)
     }
 

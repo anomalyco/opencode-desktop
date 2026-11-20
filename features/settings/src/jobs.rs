@@ -11,10 +11,14 @@ use rune::Tx;
 use serde_json::{Value, json};
 
 use crate::host::SettingsHost;
+use crate::pages::plugin_updates::{self, PluginRow, package_flags, parse_rows};
 use crate::pages::project::Field as ProjectField;
 use crate::pages::project_extensions::{Lsp, SkillPairs, configured_lsps};
 use crate::pages::servers::global_shell;
 use crate::pages::worktrees::{self, Inspection, Skip, Target};
+
+/// How long a plugin update check or install may take.
+const PLUGIN_UPDATE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
 
 /// Background server request dispatched by [`SettingsHost::spawn_job`].
 #[derive(Clone, Debug)]
@@ -29,6 +33,15 @@ pub enum SettingsJob {
 #[derive(Clone, Debug)]
 pub enum SettingsRequest {
     LoadExtensions,
+    /// `plugin.check`: every package plugin, against its registry.
+    CheckPluginUpdates {
+        attempt: u64,
+    },
+    /// `plugin.update` of one package.
+    UpdatePlugin {
+        id: u64,
+        target: String,
+    },
     LoadProjectExtensions {
         dir: String,
     },
@@ -86,8 +99,16 @@ pub enum SettingsRequest {
 #[derive(Clone, Debug)]
 pub enum SettingsReply {
     ExtensionsLoaded {
-        plugins: Option<Vec<String>>,
+        plugins: Option<Vec<PluginRow>>,
         skills: Option<Vec<String>>,
+    },
+    PluginUpdatesChecked {
+        attempt: u64,
+        result: Result<Vec<PluginRow>, WireError>,
+    },
+    PluginUpdated {
+        id: u64,
+        result: Result<(), WireError>,
     },
     ProjectExtensionsLoaded {
         dir: String,
@@ -136,15 +157,7 @@ pub enum SettingsReply {
 pub fn execute_request(srv: &Server, request: SettingsRequest) -> SettingsReply {
     match request {
         SettingsRequest::LoadExtensions => {
-            let plugins = srv.get("/api/plugin").ok().map(|v| {
-                v["data"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter(|p| p["source"]["type"].as_str() != Some("builtin"))
-                    .filter_map(|p| p["id"].as_str().map(str::to_owned))
-                    .collect::<Vec<_>>()
-            });
+            let plugins = srv.get("/api/plugin").ok().map(|v| parse_rows(&v));
             // 503 until the server's plugins load; a list that still fails keeps the last one.
             let skills = srv.get_ready("/api/skill").ok().map(|v| {
                 v["data"]
@@ -155,6 +168,15 @@ pub fn execute_request(srv: &Server, request: SettingsRequest) -> SettingsReply 
                     .collect::<Vec<_>>()
             });
             SettingsReply::ExtensionsLoaded { plugins, skills }
+        }
+        // Both wait on package registries and installs, so they get longer than a plain write.
+        SettingsRequest::CheckPluginUpdates { attempt } => {
+            let result = srv.write_within("POST", "/api/plugin/check", Some(json!({})), PLUGIN_UPDATE_TIMEOUT).map(|v| parse_rows(&v));
+            SettingsReply::PluginUpdatesChecked { attempt, result }
+        }
+        SettingsRequest::UpdatePlugin { id, target } => {
+            let result = srv.write_within("POST", "/api/plugin/update", Some(json!({ "targets": [target] })), PLUGIN_UPDATE_TIMEOUT).map(|_| ());
+            SettingsReply::PluginUpdated { id, result }
         }
         SettingsRequest::LoadProjectExtensions { dir } => {
             let plugins_at = |q: &str| {
@@ -297,12 +319,34 @@ pub fn apply_reply(host: &mut dyn SettingsHost, reply: SettingsReply, tx: &mut T
         SettingsReply::ExtensionsLoaded { plugins, skills } => {
             tx.instant();
             let pages = host.settings_pages_mut();
-            if plugins.is_some() {
-                pages.plugins = plugins;
+            if let Some(rows) = plugins {
+                let outdated = package_flags(&rows);
+                pages.plugins = Some(rows);
+                plugin_updates::dispatch(host, plugin_updates::Event::ListLoaded { outdated });
             }
             if skills.is_some() {
-                pages.skills = skills;
+                host.settings_pages_mut().skills = skills;
             }
+        }
+        SettingsReply::PluginUpdatesChecked { attempt, result } => {
+            tx.instant();
+            plugin_updates::dispatch(
+                host,
+                match result {
+                    Ok(rows) => plugin_updates::Event::CheckSucceeded { attempt, outdated: package_flags(&rows) },
+                    Err(error) => plugin_updates::Event::CheckFailed { attempt, error },
+                },
+            );
+        }
+        SettingsReply::PluginUpdated { id, result } => {
+            tx.instant();
+            plugin_updates::dispatch(
+                host,
+                match result {
+                    Ok(()) => plugin_updates::Event::UpdateSucceeded { id },
+                    Err(error) => plugin_updates::Event::UpdateFailed { id, error },
+                },
+            );
         }
         SettingsReply::ProjectExtensionsLoaded { dir, plugins, skills, lsps } => {
             tx.instant();

@@ -39,7 +39,7 @@ pub fn sync(app: &App) {
     if !app.plugins.boot.is_started() {
         return;
     }
-    let all: Vec<CodeAction> = app.plugins.listed().flat_map(|(_, p)| p.half.contribs.borrow().code_block_actions.iter().map(|c| CodeAction { key: c.key, label: c.spec.title.clone(), icon: resolve("", &c.spec.icon), languages: c.spec.languages.clone() }).collect::<Vec<_>>()).collect();
+    let all: Vec<CodeAction> = app.plugins.listed().flat_map(|(_, p)| p.half.contribs.borrow().code_block_actions.iter().map(|c| CodeAction { key: c.key, label: c.spec.title.clone(), icon: resolve(&p.manifest.id, &c.spec.icon), languages: c.spec.languages.clone() }).collect::<Vec<_>>()).collect();
     CODE_ACTIONS.with(|a| *a.borrow_mut() = all);
     let tools: Vec<McpTool> = super::commands::mcp_tools(app).into_iter().map(|(name, description, schema)| McpTool::new(name, description, schema)).collect();
     if let Ok(mut t) = MCP_TOOLS.lock()

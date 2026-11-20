@@ -1286,7 +1286,7 @@ A semantic token, or a literal color from `ui.hex`.
 
 ### IconName
 
-The name of one of the app's icons, such as `"circle-check"`, or `file:<name>` for the type icon of a file so named. A plugin's own `icons/<name>.svg` files go by their file name and win over the app's in that plugin.
+The name of one of the app's icons, such as `"circle-check"`, or `file:<name>` for the type icon of a file so named. A plugin's own `icons/<name>.svg` files go by their file name and win over the app's wherever that plugin names an icon: its `ui.*` nodes and every icon field it hands the host (a settings page, composer pill, titlebar item, session panel launcher or code block action). Each is an SVG document whose `viewBox` frames a drawing on the app's 16 grid, drawn with `currentColor` so it takes the color of the place that shows it.
 
 `type IconName = string`
 

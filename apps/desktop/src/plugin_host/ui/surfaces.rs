@@ -195,7 +195,7 @@ fn titlebar_pills(app: &App, p: &Pal, vertical: bool) -> Vec<El> {
             let glyph = if busy {
                 rune_kit::Loader::new().size(12.0).build(crate::palette::kit(p))
             } else {
-                let icon = view.icon.as_deref().map_or(&DOWNLOAD, |name| crate::plugin_host::icons::resolve("", name));
+                let icon = view.icon.as_deref().map_or(&DOWNLOAD, |name| crate::plugin_host::icons::resolve(&app.plugins.list[i].manifest.id, name));
                 rune::icon(icon, 14.0).color(session_view::palette::token(p.dark, "icon-icon-accent").unwrap_or(p.accent))
             };
             let glyph = row().size(side, side).center().child(glyph);
@@ -294,7 +294,7 @@ pub fn pill_views(app: &App, p: &Pal, session: &str) -> Vec<El> {
             };
             let mut pill = crate::subagents::chip(app, p, &anchor, name, open).shrink().min_w(0.0);
             if let Some(icon) = &view.icon {
-                pill = pill.child(rune::icon(crate::plugin_host::icons::resolve("", icon), 14.0).color(ink));
+                pill = pill.child(rune::icon(crate::plugin_host::icons::resolve(&plugin, icon), 14.0).color(ink));
             }
             pill = pill.child(text(view.label).font(crate::view::UI).color(p.text).truncate().max_w(260.0).shrink().min_w(0.0));
             Some(pill.on_press_tx(move |s: &mut App, tx: &mut Tx| {
@@ -532,9 +532,9 @@ pub fn settings_page_actions(app: &App, p: &Pal, key: &str) -> Option<El> {
     page_actions(app, p, i, &spec)
 }
 
-/// A plugin page's rail icon: one it interned or a host icon by name.
+/// A plugin page's rail icon: one of the plugin's own (`icons/<name>.svg`) or a host icon by name.
 pub fn settings_page_icon(app: &App, key: &str) -> Option<&'static rune::Icon> {
-    own_page(app, key).and_then(|(_, _, spec, _)| spec.icon).map(|icon| icons::resolve("", &icon))
+    own_page(app, key).and_then(|(i, _, spec, _)| Some(icons::resolve(&app.plugins.list[i].manifest.id, &spec.icon?)))
 }
 
 /// A plugin page: its title, description and what it draws.
