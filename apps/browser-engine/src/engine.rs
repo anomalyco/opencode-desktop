@@ -360,10 +360,7 @@ impl EngineManager {
                     }
                 }
                 crate::context::DeferredOutcome::Refuse { tab_id, reason } => {
-                    let _ = self.out_tx.send(EngineMsg::Refused {
-                        tab_id,
-                        reason: reason.to_owned(),
-                    });
+                    self.close_and_refuse_tab(tab_id, reason);
                 }
             }
         }
@@ -552,23 +549,37 @@ impl EngineManager {
                             tab_id,
                             reason: why.code().to_owned(),
                         });
-                    } else if let Some(frame) = t.browser.main_frame() {
-                        frame.load_url(Some(&CefString::from(url.as_str())));
+                    } else {
+                        match self.contexts.gate_navigation(tab_id, &url) {
+                            Ok(true) => {
+                                if let Some(frame) = t.browser.main_frame() {
+                                    frame.load_url(Some(&CefString::from(url.as_str())));
+                                }
+                            }
+                            Ok(false) => {}
+                            Err(reason) => self.close_and_refuse_tab(tab_id, reason),
+                        }
                     }
                 }
             }
             HostMsg::Back { tab_id } => {
-                if let Some(t) = self.tabs.get(&tab_id) {
+                if self.contexts.is_ready(tab_id)
+                    && let Some(t) = self.tabs.get(&tab_id)
+                {
                     t.browser.go_back();
                 }
             }
             HostMsg::Forward { tab_id } => {
-                if let Some(t) = self.tabs.get(&tab_id) {
+                if self.contexts.is_ready(tab_id)
+                    && let Some(t) = self.tabs.get(&tab_id)
+                {
                     t.browser.go_forward();
                 }
             }
             HostMsg::Reload { tab_id, ignore_cache } => {
-                if let Some(t) = self.tabs.get(&tab_id) {
+                if self.contexts.is_ready(tab_id)
+                    && let Some(t) = self.tabs.get(&tab_id)
+                {
                     if ignore_cache {
                         t.browser.reload_ignore_cache();
                     } else {
@@ -948,15 +959,35 @@ impl EngineManager {
                 }
             }
             HostMsg::SetPartitionProxy { server_id, proxy } => {
-                if let Ok(applied) = self.contexts.set_partition_proxy(&server_id, proxy) {
-                    for t in self.tabs.values() {
-                        if matches!(&t.context, crate::wire::ContextKind::RemoteServer { server_id: id, .. } if id == &server_id) {
-                            *t.prompts.proxy.lock().unwrap() = applied.clone();
+                let sid = server_id.trim();
+                let live_tabs = self.contexts.tabs_for_remote(sid);
+                match self.contexts.set_partition_proxy(sid, proxy) {
+                    Ok(Some(applied)) => {
+                        for t in self.tabs.values() {
+                            if matches!(&t.context, crate::wire::ContextKind::RemoteServer { server_id: id, .. } if id.trim() == sid) {
+                                *t.prompts.proxy.lock().unwrap() = Some(applied.clone());
+                            }
+                        }
+                    }
+                    Ok(None) => {
+                        // Proxy removed: close every live tab on this remote server immediately so
+                        // zero tabs can continue unproxied.
+                        for tid in live_tabs {
+                            self.close_and_refuse_tab(tid, "browser.proxy.required");
+                        }
+                    }
+                    Err(reason) => {
+                        for tid in live_tabs {
+                            self.close_and_refuse_tab(tid, reason);
                         }
                     }
                 }
             }
             HostMsg::DropContext { context } => {
+                let live_tabs = self.contexts.tabs_for_context(&context);
+                for tid in live_tabs {
+                    self.close_managed_tab(tid);
+                }
                 self.contexts.drop_context(&context);
             }
             HostMsg::Shutdown => {
@@ -1210,6 +1241,27 @@ impl EngineManager {
                 reason: why.code().to_owned(),
             });
         }
+    }
+
+    fn close_managed_tab(&mut self, tab_id: u64) {
+        if let Some(tab) = self.tabs.remove(&tab_id) {
+            tab.menu.cancel_all();
+            tab.prompts.dismiss_all();
+            tab.host.close_browser(1);
+            self.downloads.close_tab(tab_id);
+            let _ = self.contexts.release_tab(tab_id);
+            let _ = self.out_tx.send(EngineMsg::TabClosed { tab_id });
+        } else {
+            let _ = self.contexts.release_tab(tab_id);
+        }
+    }
+
+    fn close_and_refuse_tab(&mut self, tab_id: u64, reason: &str) {
+        let _ = self.out_tx.send(EngineMsg::Refused {
+            tab_id,
+            reason: reason.to_owned(),
+        });
+        self.close_managed_tab(tab_id);
     }
 
     fn safe_roots(&self, roots: Vec<String>) -> Vec<String> {

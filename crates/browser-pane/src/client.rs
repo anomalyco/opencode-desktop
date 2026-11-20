@@ -117,6 +117,8 @@ pub struct BrowserHost {
     pub(crate) popup_opens: VecDeque<crate::prompts::PopupRequest>,
     pub(crate) context_menus: VecDeque<(u64, crate::protocol::PageContextMenu)>,
     pub(crate) diagnostics: VecDeque<crate::find::PageDiagnostic>,
+    /// Live loopback tunnel proxy configs registered per remote server identity (`ServerKey::as_str()`).
+    pub(crate) remote_proxies: HashMap<String, crate::protocol::RemoteProxyConfig>,
     pub(crate) site_permissions: crate::prompts::SitePermissions,
     site_zoom: SiteZoom,
     pub(crate) keep_engine: bool,
@@ -172,6 +174,7 @@ impl BrowserHost {
             popup_opens: VecDeque::new(),
             context_menus: VecDeque::new(),
             diagnostics: VecDeque::new(),
+            remote_proxies: HashMap::new(),
             site_permissions: crate::prompts::SitePermissions::default(),
             site_zoom: SiteZoom::default(),
             keep_engine: false,
@@ -435,18 +438,34 @@ impl BrowserHost {
         } else {
             file_roots
         };
+        // Resolve cached loopback proxy for `RemoteServer` contexts; fail closed if none is live.
+        let mut context = context;
+        let mut proxy_missing = false;
+        if let crate::protocol::ContextKind::RemoteServer { server_id, proxy } = &mut context {
+            let sid = server_id.trim().to_owned();
+            *server_id = sid.clone();
+            if proxy.is_none() {
+                *proxy = self.remote_proxies.get(&sid).cloned();
+            }
+            if proxy.is_none() {
+                proxy_missing = true;
+            }
+        }
         let candidate = if from_address { resolve_address(raw_url) } else { crate::policy::with_scheme(raw_url) };
         let connected = self.is_connected();
         let ready = self.status() == EngineStatus::Ready;
         let ctx_ok = !ready || context.is_supported(self.engine_partitions(), self.engine_remote_proxy());
         // An older engine without request-level `file://` confinement cannot safely host a `file://` origin.
         let effective_roots: &[String] = if connected && !self.engine_policy() { &[] } else { &file_roots };
-        let refused = if !ctx_ok {
+        let refused = if proxy_missing {
+            Some("browser.proxy.required".to_owned())
+        } else if !ctx_ok {
             Some("browser.partitions.unsupported".to_owned())
         } else {
             crate::policy::refusal(&candidate, effective_roots).map(|r| r.code().to_owned())
         };
         let url = if refused.is_some() { "about:blank".to_owned() } else { candidate };
+        let can_open_in_engine = !proxy_missing && ctx_ok;
         let id = self.alloc_tab_id();
         let surface = TabSurface::new();
         if let Some(w) = &self.waker {
@@ -480,12 +499,12 @@ impl BrowserHost {
             viewport_pt: (width_pt, height_pt),
             device: None,
             scale,
-            sent_resize: (connected && (context.is_default() || ready)).then_some((width_pt, height_pt, scale)),
+            sent_resize: (can_open_in_engine && connected && (context.is_default() || ready)).then_some((width_pt, height_pt, scale)),
         });
         self.focused_tab = Some(id);
 
-        if connected && (context.is_default() || ready) {
-            if ctx_ok {
+        if can_open_in_engine {
+            if connected && (context.is_default() || ready) {
                 self.send(HostMsg::OpenTab {
                     tab_id: id,
                     url,
@@ -496,10 +515,10 @@ impl BrowserHost {
                     file_roots: if self.engine_policy() { file_roots } else { Vec::new() },
                     context,
                 });
+            } else {
+                self.pending_opens.push((id, url));
+                self.ensure_connected();
             }
-        } else {
-            self.pending_opens.push((id, url));
-            self.ensure_connected();
         }
         id
     }
@@ -807,7 +826,19 @@ impl BrowserHost {
             let mut skip_open = false;
             let (open_url, ((width_pt, height_pt), scale), file_roots, context, emulate) =
                 if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
-                    if !t.context.is_supported(engine_partitions, engine_remote_proxy) {
+                    if let crate::protocol::ContextKind::RemoteServer { server_id, proxy } = &mut t.context {
+                        if proxy.is_none() {
+                            *proxy = self.remote_proxies.get(server_id.trim()).cloned();
+                        }
+                        if proxy.is_none() {
+                            t.url = "about:blank".into();
+                            t.loading = false;
+                            t.refusal = Some("browser.proxy.required".into());
+                            t.rejected += 1;
+                            skip_open = true;
+                        }
+                    }
+                    if !skip_open && !t.context.is_supported(engine_partitions, engine_remote_proxy) {
                         t.url = "about:blank".into();
                         t.loading = false;
                         t.refusal = Some("browser.partitions.unsupported".into());
@@ -964,6 +995,19 @@ impl BrowserHost {
                         }
                         if self.tabs.iter().any(|t| t.id == tab_id && t.prompts.agent_driven) {
                             self.send(HostMsg::SetAgentDriven { tab_id, agent_driven: true });
+                        }
+                    }
+                    if partitions && remote_proxy {
+                        let proxies: Vec<_> = self
+                            .remote_proxies
+                            .iter()
+                            .map(|(id, cfg)| (id.clone(), cfg.clone()))
+                            .collect();
+                        for (server_id, cfg) in proxies {
+                            self.send(HostMsg::SetPartitionProxy {
+                                server_id,
+                                proxy: Some(cfg),
+                            });
                         }
                     }
                     self.flush_pending_opens();

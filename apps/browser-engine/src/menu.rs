@@ -141,7 +141,6 @@ fn allowed_menu_url(raw: &str, roots: &[String]) -> Option<String> {
     }
     if browser_policy::destination_origin(trimmed).is_some()
         || browser_policy::file_url_within(trimmed, roots)
-        || trimmed.len() >= 13 && trimmed.as_bytes()[..13].eq_ignore_ascii_case(b"oc-preview://")
     {
         Some(trimmed.to_owned())
     } else {

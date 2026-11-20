@@ -105,27 +105,48 @@ impl crate::BrowserHost {
         self.caps.remote_proxy()
     }
 
+    /// Returns the currently registered loopback tunnel proxy for `server_id`, if any.
+    pub fn remote_proxy(&self, server_id: &str) -> Option<&crate::protocol::RemoteProxyConfig> {
+        self.remote_proxies.get(server_id.trim())
+    }
+
     /// Updates or clears the local loopback tunnel proxy on a remote server partition.
+    /// Clearing (`None`) removes the cached proxy and instructs the engine to close live remote
+    /// tabs for `server_id` so zero tabs can continue unproxied.
     pub fn set_partition_proxy(
         &mut self,
         server_id: &str,
         proxy: Option<crate::protocol::RemoteProxyConfig>,
     ) {
+        let sid = server_id.trim();
+        if sid.is_empty() {
+            return;
+        }
+        if let Some(cfg) = &proxy {
+            self.remote_proxies.insert(sid.to_owned(), cfg.clone());
+        } else {
+            self.remote_proxies.remove(sid);
+        }
         for t in &mut self.tabs {
             if let crate::protocol::ContextKind::RemoteServer { server_id: id, proxy: cur } = &mut t.context
-                && id == server_id
+                && id.trim() == sid
             {
                 *cur = proxy.clone();
             }
         }
-        self.send(crate::protocol::HostMsg::SetPartitionProxy {
-            server_id: server_id.to_owned(),
-            proxy,
-        });
+        if self.is_connected() && self.engine_partitions() && self.engine_remote_proxy() {
+            self.send(crate::protocol::HostMsg::SetPartitionProxy {
+                server_id: sid.to_owned(),
+                proxy,
+            });
+        }
     }
 
     /// Closes connections and releases a non-default preview or remote server context in the engine.
     pub fn drop_context(&mut self, context: crate::protocol::ContextKind) {
+        if let crate::protocol::ContextKind::RemoteServer { server_id, .. } = &context {
+            self.remote_proxies.remove(server_id.trim());
+        }
         if !context.is_default() {
             self.send(crate::protocol::HostMsg::DropContext { context });
         }

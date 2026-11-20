@@ -5,37 +5,29 @@
 //! ## Scope Partitioning & Canonical Keys
 //! - `ContextKind::Default` -> Global persistent profile (`OPENCODE_BROWSER_PROFILE/Default`,
 //!   `persist_session_cookies: 1`); never stored in `ContextPool`.
-//! - `ContextKind::Preview { workspace, grant }` -> `ContextKey::Preview { workspace, grant }`.
-//!   Distinct per workspace and grant; never shares cookies, storage, cache, or service workers
-//!   with another workspace's previews, with artifacts, with private tabs, with remote servers, or
-//!   with `Default`.
-//! - `ContextKind::Artifact { artifact_id }` -> `ContextKey::Artifact(artifact_id)`. Separate enum
-//!   variant and key namespace from `Preview` so artifacts never share a context with workspace
-//!   previews (even if `artifact_id == grant`).
-//! - `ContextKind::Private` -> `ContextKey::Private(tab_id)`. Unique per private tab; never shared
-//!   with any other private tab or scope.
+//! - `ContextKind::Preview { workspace, grant }` -> `ContextKey::Preview { workspace, grant }`
+//!   (trimmed). Distinct per workspace and grant.
+//! - `ContextKind::Artifact { artifact_id }` -> `ContextKey::Artifact(artifact_id)` (trimmed).
+//!   Separate enum variant and key namespace from `Preview`.
+//! - `ContextKind::Private` -> `ContextKey::Private(tab_id)`. Unique per private tab.
 //! - `ContextKind::RemoteServer { server_id, proxy }` -> `ContextKey::RemoteServer(server_id)`
-//!   keyed strictly by canonical server identity (`ServerKey::as_str()`, never display name).
+//!   (trimmed canonical `ServerKey::as_str()` identity, never display name). **ALWAYS requires a
+//!   live loopback tunnel proxy** (`browser.proxy.required` if absent; never falls back to direct).
 //!
-//! ## Security, Fail-Closed & Lifetime Guarantees
-//! - **Fail closed:** Empty/whitespace keys return `Err("browser.context.invalid")`; non-loopback
-//!   or zero-port proxies return `Err("browser.proxy.invalid")`; if CEF fails to create an isolated
-//!   `CefRequestContext`, `resolve_with_hooks` returns `Err("browser.context.unavailable")` and the
-//!   caller refuses the tab without creating a browser — an isolated tab NEVER falls back to
-//!   `Default`.
-//! - **Zero disk writes on isolated contexts:** All non-`Default` contexts (`Preview`, `Artifact`,
-//!   `Private`, `RemoteServer`) use empty `cache_path` and `persist_session_cookies: 0`. They live
-//!   strictly in memory and are invisible to main-profile extensions.
-//! - **Immediate teardown on last tab close:** Each pooled context ref-counts its open `tab_id`s.
-//!   When its last tab closes (`release_tab`), `ContextPool` removes the entry immediately, closes
-//!   all connections, wipes in-memory cookies, and drops the `CefRequestContext` handle so cookies,
-//!   `localStorage`, caches, and service workers are destroyed. For `RemoteServer`, any active
-//!   proxy config stays in `remote_proxies` until `DropContext` so reopening a tab on that still-
-//!   attached remote server gets a fresh clean context with the same tunnel proxy.
-//! - **Network lockdown:** Every isolated context disables non-proxied WebRTC UDP, WebRTC multiple
-//!   routes, DoH, QUIC, and DNS prefetching / network prediction; proxied `RemoteServer` contexts
-//!   also enforce `fixed_servers` + `bypass_list = "<-loopback>"` and defer initial loads until
-//!   `on_request_context_initialized` succeeds (failing closed if proxy preference setup fails).
+//! ## Fail-Closed, Proxy-Init Gating & Teardown Guarantees
+//! - **Fail closed:** Empty/whitespace keys -> `browser.context.invalid`; missing proxy on
+//!   `RemoteServer` -> `browser.proxy.required`; non-loopback or zero-port proxy ->
+//!   `browser.proxy.invalid`; CEF context/browser creation failure -> `browser.context.unavailable`.
+//! - **Zero proxy-bypass race window:** Every newly created `RemoteServer` tab opens on
+//!   `about:blank` and gates BOTH its initial URL and any subsequent `HostMsg::Navigate` / reload /
+//!   history nav until `on_request_context_initialized` finishes applying and verifying `proxy`
+//!   (`fixed_servers`, `<-loopback>`) + network lockdown preferences. If preference setup fails,
+//!   deferred tabs are refused and closed immediately.
+//! - **Immediate teardown:** `release_tab` ref-counts open tabs per `ContextKey` and immediately
+//!   removes, closes connections, deletes in-memory cookies, and drops the `CefRequestContext` when
+//!   the last tab closes. Clearing a remote server's proxy (`SetPartitionProxy { proxy: None }`),
+//!   failing a proxy update, or calling `DropContext` closes all live tabs in that context first so
+//!   no tab can ever continue unproxied or keep an isolated context alive.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -100,6 +92,17 @@ pub fn validate_proxy(cfg: &RemoteProxyConfig) -> Result<(), &'static str> {
     Ok(())
 }
 
+/// Formats `cfg`'s host and port into a valid Chromium `fixed_servers` URL (bracketing IPv6).
+fn format_proxy_server(cfg: &RemoteProxyConfig) -> String {
+    let host = cfg.host.trim();
+    let bracketed = if host.contains(':') && !host.starts_with('[') {
+        format!("[{host}]")
+    } else {
+        host.to_owned()
+    };
+    format!("http://{bracketed}:{}", cfg.port)
+}
+
 /// Checks whether a CEF `auth_credentials(is_proxy == 1)` challenge matches `cfg` (`network.ts:57-66`).
 pub fn proxy_matches_challenge(
     cfg: &RemoteProxyConfig,
@@ -109,45 +112,55 @@ pub fn proxy_matches_challenge(
     realm: &str,
 ) -> bool {
     let want_realm = cfg.realm.as_deref().unwrap_or(DEFAULT_PROXY_REALM);
+    let cfg_host = cfg.host.trim().trim_start_matches('[').trim_end_matches(']');
+    let chal_host = host.trim().trim_start_matches('[').trim_end_matches(']');
     scheme.eq_ignore_ascii_case("basic")
-        && host.eq_ignore_ascii_case(cfg.host.trim())
+        && chal_host.eq_ignore_ascii_case(cfg_host)
         && port == i32::from(cfg.port)
         && realm == want_realm
 }
 
-/// Applies full privacy/network lockdown (and optional `fixed_servers` + `<-loopback>` proxy) to an
-/// isolated `CefRequestContext`. Returns `true` when requested proxy configuration succeeded.
-fn apply_context_prefs(ctx: &RequestContext, proxy: Option<&RemoteProxyConfig>) -> bool {
+/// Applies full privacy/network lockdown (and mandatory `fixed_servers` + `<-loopback>` proxy for
+/// `RemoteServer` contexts) and verifies every required preference write succeeded.
+///
+/// Verified empirically on CEF 156.0.26 Alloy: `proxy`, `webrtc.ip_handling_policy`,
+/// `net.quic_allowed`, and `net.network_prediction_options` are registered and writable on
+/// isolated `CefRequestContext`s and MUST all return `set_preference == 1` (fail closed otherwise).
+fn apply_context_prefs(
+    ctx: &RequestContext,
+    proxy: Option<&RemoteProxyConfig>,
+    require_proxy: bool,
+) -> bool {
     let mut ok = true;
-    if let Some(cfg) = proxy {
-        ok = set_proxy_pref(ctx, Some(cfg));
-    } else if ctx.has_preference(Some(&CefString::from("proxy"))) != 0 {
-        let _ = set_proxy_pref(ctx, None);
+    match proxy {
+        Some(cfg) => {
+            if !set_proxy_pref(ctx, cfg) {
+                ok = false;
+            }
+        }
+        None if require_proxy => {
+            return false;
+        }
+        None => {}
     }
-    set_string_pref(ctx, "webrtc.ip_handling_policy", "disable_non_proxied_udp");
-    set_bool_pref(ctx, "webrtc.multiple_routes_enabled", false);
-    set_bool_pref(ctx, "webrtc.nonproxied_udp_enabled", false);
-    set_string_pref(ctx, "dns_over_https.mode", "off");
-    set_bool_pref(ctx, "net.quic_allowed", false);
-    // 2 == NETWORK_PREDICTION_NEVER in Chromium's PrefService.
-    set_int_pref(ctx, "net.network_prediction_options", 2);
-    set_bool_pref(ctx, "dns_prefetching.enabled", false);
+    ok &= set_required_string_pref(ctx, "webrtc.ip_handling_policy", "disable_non_proxied_udp");
+    ok &= set_required_bool_pref(ctx, "net.quic_allowed", false);
+    // 2 == NETWORK_PREDICTION_NEVER in Chromium's PrefService (supersedes `dns_prefetching.enabled`).
+    ok &= set_required_int_pref(ctx, "net.network_prediction_options", 2);
+    // Optional legacy/global prefs: enforced if registered on a build, fail closed if writable yet rejected.
+    ok &= set_optional_bool_pref(ctx, "webrtc.multiple_routes_enabled", false);
+    ok &= set_optional_bool_pref(ctx, "webrtc.nonproxied_udp_enabled", false);
+    ok &= set_optional_string_pref(ctx, "dns_over_https.mode", "off");
+    ok &= set_optional_bool_pref(ctx, "dns_prefetching.enabled", false);
     ok
 }
 
-fn set_proxy_pref(ctx: &RequestContext, proxy: Option<&RemoteProxyConfig>) -> bool {
+fn set_proxy_pref(ctx: &RequestContext, cfg: &RemoteProxyConfig) -> bool {
     let Some(mut dict) = cef::dictionary_value_create() else { return false };
-    match proxy {
-        Some(cfg) => {
-            let server = format!("http://{}:{}", cfg.host.trim(), cfg.port);
-            dict.set_string(Some(&CefString::from("mode")), Some(&CefString::from("fixed_servers")));
-            dict.set_string(Some(&CefString::from("server")), Some(&CefString::from(server.as_str())));
-            dict.set_string(Some(&CefString::from("bypass_list")), Some(&CefString::from("<-loopback>")));
-        }
-        None => {
-            dict.set_string(Some(&CefString::from("mode")), Some(&CefString::from("direct")));
-        }
-    }
+    let server = format_proxy_server(cfg);
+    dict.set_string(Some(&CefString::from("mode")), Some(&CefString::from("fixed_servers")));
+    dict.set_string(Some(&CefString::from("server")), Some(&CefString::from(server.as_str())));
+    dict.set_string(Some(&CefString::from("bypass_list")), Some(&CefString::from("<-loopback>")));
     let Some(mut val) = cef::value_create() else { return false };
     val.set_dictionary(Some(&mut dict));
     // `CefString::default()` maps to NULL in `cef-rs`, which CEF's `SetPreference` rejects;
@@ -165,37 +178,53 @@ fn set_proxy_pref(ctx: &RequestContext, proxy: Option<&RemoteProxyConfig>) -> bo
     ok
 }
 
-fn set_string_pref(ctx: &RequestContext, name: &str, value: &str) {
+fn set_required_string_pref(ctx: &RequestContext, name: &str, value: &str) -> bool {
     let key = CefString::from(name);
-    if ctx.has_preference(Some(&key)) == 0 {
-        return;
+    if ctx.has_preference(Some(&key)) == 0 || ctx.can_set_preference(Some(&key)) == 0 {
+        return false;
     }
-    let Some(mut val) = cef::value_create() else { return };
+    let Some(mut val) = cef::value_create() else { return false };
     val.set_string(Some(&CefString::from(value)));
     let mut err = CefString::from(" ");
-    let _ = ctx.set_preference(Some(&key), Some(&mut val), Some(&mut err));
+    ctx.set_preference(Some(&key), Some(&mut val), Some(&mut err)) != 0
 }
 
-fn set_bool_pref(ctx: &RequestContext, name: &str, value: bool) {
+fn set_required_bool_pref(ctx: &RequestContext, name: &str, value: bool) -> bool {
     let key = CefString::from(name);
-    if ctx.has_preference(Some(&key)) == 0 {
-        return;
+    if ctx.has_preference(Some(&key)) == 0 || ctx.can_set_preference(Some(&key)) == 0 {
+        return false;
     }
-    let Some(mut val) = cef::value_create() else { return };
+    let Some(mut val) = cef::value_create() else { return false };
     val.set_bool(i32::from(value));
     let mut err = CefString::from(" ");
-    let _ = ctx.set_preference(Some(&key), Some(&mut val), Some(&mut err));
+    ctx.set_preference(Some(&key), Some(&mut val), Some(&mut err)) != 0
 }
 
-fn set_int_pref(ctx: &RequestContext, name: &str, value: i32) {
+fn set_required_int_pref(ctx: &RequestContext, name: &str, value: i32) -> bool {
     let key = CefString::from(name);
-    if ctx.has_preference(Some(&key)) == 0 {
-        return;
+    if ctx.has_preference(Some(&key)) == 0 || ctx.can_set_preference(Some(&key)) == 0 {
+        return false;
     }
-    let Some(mut val) = cef::value_create() else { return };
+    let Some(mut val) = cef::value_create() else { return false };
     val.set_int(value);
     let mut err = CefString::from(" ");
-    let _ = ctx.set_preference(Some(&key), Some(&mut val), Some(&mut err));
+    ctx.set_preference(Some(&key), Some(&mut val), Some(&mut err)) != 0
+}
+
+fn set_optional_string_pref(ctx: &RequestContext, name: &str, value: &str) -> bool {
+    let key = CefString::from(name);
+    if ctx.has_preference(Some(&key)) == 0 {
+        return true;
+    }
+    set_required_string_pref(ctx, name, value)
+}
+
+fn set_optional_bool_pref(ctx: &RequestContext, name: &str, value: bool) -> bool {
+    let key = CefString::from(name);
+    if ctx.has_preference(Some(&key)) == 0 {
+        return true;
+    }
+    set_required_bool_pref(ctx, name, value)
 }
 
 /// Outcome produced once a deferred context finishes `on_request_context_initialized`.
@@ -207,6 +236,7 @@ pub enum DeferredOutcome {
 struct ContextEntry {
     ctx: RequestContext,
     tabs: HashSet<u64>,
+    require_proxy: bool,
     initialized: Arc<AtomicBool>,
     prefs_ok: Arc<AtomicBool>,
     proxy: Arc<Mutex<Option<RemoteProxyConfig>>>,
@@ -226,6 +256,7 @@ impl ContextEntry {
 
 wrap_request_context_handler! {
     struct IsolatedContextHandler {
+        require_proxy: bool,
         initialized: Arc<AtomicBool>,
         prefs_ok: Arc<AtomicBool>,
         proxy: Arc<Mutex<Option<RemoteProxyConfig>>>,
@@ -239,7 +270,7 @@ wrap_request_context_handler! {
         fn on_request_context_initialized(&self, request_context: Option<&mut RequestContext>) {
             let proxy = self.proxy.lock().unwrap().clone();
             let applied = request_context
-                .is_some_and(|ctx| apply_context_prefs(ctx, proxy.as_ref()));
+                .is_some_and(|ctx| apply_context_prefs(ctx, proxy.as_ref(), self.require_proxy));
             self.prefs_ok.store(applied, Ordering::Release);
             self.initialized.store(true, Ordering::Release);
             let pending = std::mem::take(&mut *self.deferred_loads.lock().unwrap());
@@ -247,7 +278,9 @@ wrap_request_context_handler! {
                 let mut out = self.ready_loads.lock().unwrap();
                 for (tab_id, url) in pending {
                     if applied {
-                        out.push(DeferredOutcome::Load { tab_id, url });
+                        if !url.eq_ignore_ascii_case("about:blank") {
+                            out.push(DeferredOutcome::Load { tab_id, url });
+                        }
                     } else {
                         out.push(DeferredOutcome::Refuse {
                             tab_id,
@@ -289,7 +322,7 @@ pub struct ContextPool {
     entries: HashMap<ContextKey, ContextEntry>,
     /// Tracks which pooled context each open `tab_id` belongs to for immediate teardown on close.
     tab_keys: HashMap<u64, ContextKey>,
-    /// Pre-configured remote server proxies kept across tab close/reopen until `DropContext`.
+    /// Pre-configured remote server proxies kept across tab close/reopen until cleared/dropped.
     remote_proxies: HashMap<String, RemoteProxyConfig>,
     /// Outcomes promoted by `on_request_context_initialized` ready for `EngineManager::poll_picks`.
     ready_loads: Arc<Mutex<Vec<DeferredOutcome>>>,
@@ -326,7 +359,8 @@ impl ContextPool {
     }
 
     /// Resolves (or creates) the partitioned `CefRequestContext` for `kind`, attaching optional
-    /// PREVIEWS scheme/resource hooks. Always fails closed (never falls back to `Default`).
+    /// PREVIEWS scheme/resource hooks. Always fails closed (never falls back to `Default` and
+    /// never opens a `RemoteServer` tab without a valid loopback proxy).
     pub fn resolve_with_hooks(
         &mut self,
         kind: &ContextKind,
@@ -334,7 +368,7 @@ impl ContextPool {
         initial_url: &str,
         hooks: ContextHooks,
     ) -> Result<ResolvedContext, &'static str> {
-        let (key, explicit_proxy) = match kind {
+        let (key, explicit_proxy, require_proxy) = match kind {
             ContextKind::Default => {
                 return Ok(ResolvedContext {
                     request_context: None,
@@ -343,50 +377,63 @@ impl ContextPool {
                 });
             }
             ContextKind::Preview { workspace, grant } => {
-                if workspace.trim().is_empty() || grant.trim().is_empty() {
+                let ws = workspace.trim();
+                let gr = grant.trim();
+                if ws.is_empty() || gr.is_empty() {
                     return Err("browser.context.invalid");
                 }
                 (
                     ContextKey::Preview {
-                        workspace: workspace.clone(),
-                        grant: grant.clone(),
+                        workspace: ws.to_owned(),
+                        grant: gr.to_owned(),
                     },
                     None,
+                    false,
                 )
             }
             ContextKind::Artifact { artifact_id } => {
-                if artifact_id.trim().is_empty() {
+                let aid = artifact_id.trim();
+                if aid.is_empty() {
                     return Err("browser.context.invalid");
                 }
-                (ContextKey::Artifact(artifact_id.clone()), None)
+                (ContextKey::Artifact(aid.to_owned()), None, false)
             }
-            ContextKind::Private => (ContextKey::Private(tab_id), None),
+            ContextKind::Private => (ContextKey::Private(tab_id), None, false),
             ContextKind::RemoteServer { server_id, proxy } => {
-                if server_id.trim().is_empty() {
+                let sid = server_id.trim();
+                if sid.is_empty() {
                     return Err("browser.context.invalid");
                 }
                 if let Some(cfg) = proxy {
                     validate_proxy(cfg)?;
                 }
+                // Remote servers MUST have an authenticated loopback tunnel proxy; never run direct.
                 let effective = match proxy {
                     Some(cfg) => {
-                        self.remote_proxies.insert(server_id.clone(), cfg.clone());
-                        Some(cfg.clone())
+                        self.remote_proxies.insert(sid.to_owned(), cfg.clone());
+                        cfg.clone()
                     }
-                    None => self.remote_proxies.get(server_id).cloned(),
+                    None => match self.remote_proxies.get(sid).cloned() {
+                        Some(cfg) => {
+                            validate_proxy(&cfg)?;
+                            cfg
+                        }
+                        None => return Err("browser.proxy.required"),
+                    },
                 };
-                (ContextKey::RemoteServer(server_id.clone()), effective)
+                (ContextKey::RemoteServer(sid.to_owned()), Some(effective), true)
             }
         };
 
         // Ensure a reused `tab_id` never leaks a stale ref-count in a previous context.
         if self.tab_keys.get(&tab_id).is_some_and(|prev| prev != &key) {
-            self.release_tab(tab_id);
+            let _ = self.release_tab(tab_id);
         }
 
         if !self.entries.contains_key(&key) {
             let entry = create_isolated_context(
                 explicit_proxy.clone(),
+                require_proxy,
                 self.ready_loads.clone(),
                 self.pump.clone(),
                 hooks,
@@ -398,7 +445,7 @@ impl ContextPool {
             if changed {
                 *existing.proxy.lock().unwrap() = Some(cfg.clone());
                 if existing.initialized.load(Ordering::Acquire) {
-                    let ok = apply_context_prefs(&existing.ctx, Some(&cfg));
+                    let ok = apply_context_prefs(&existing.ctx, Some(&cfg), true);
                     existing.prefs_ok.store(ok, Ordering::Release);
                     existing.ctx.close_all_connections(None);
                     if !ok {
@@ -411,12 +458,11 @@ impl ContextPool {
         let entry = self.entries.get_mut(&key).unwrap();
         let effective_proxy = entry.proxy.lock().unwrap().clone();
         let is_init = entry.initialized.load(Ordering::Acquire);
-        if effective_proxy.is_some() && is_init && !entry.prefs_ok.load(Ordering::Acquire) {
-            if entry.tabs.is_empty() {
-                let removed = self.entries.remove(&key);
-                if let Some(e) = removed {
-                    e.teardown();
-                }
+        if is_init && !entry.prefs_ok.load(Ordering::Acquire) {
+            if entry.tabs.is_empty()
+                && let Some(e) = self.entries.remove(&key)
+            {
+                e.teardown();
             }
             return Err("browser.proxy.invalid");
         }
@@ -424,32 +470,72 @@ impl ContextPool {
         entry.tabs.insert(tab_id);
         self.tab_keys.insert(tab_id, key);
 
-        let need_defer = effective_proxy.is_some()
-            && !is_init
-            && !initial_url.eq_ignore_ascii_case("about:blank");
+        // Even when `initial_url == "about:blank"`, register the tab in `deferred_loads` while
+        // `!is_init` on a proxied `RemoteServer` context so if proxy setup fails, `poll_picks`
+        // receives `DeferredOutcome::Refuse` and closes the tab immediately.
+        let need_defer = require_proxy && !is_init;
         if need_defer {
-            entry
-                .deferred_loads
-                .lock()
-                .unwrap()
-                .push((tab_id, initial_url.to_owned()));
+            let mut loads = entry.deferred_loads.lock().unwrap();
+            loads.retain(|(id, _)| *id != tab_id);
+            loads.push((tab_id, initial_url.to_owned()));
         }
 
         Ok(ResolvedContext {
             request_context: Some(entry.ctx.clone()),
             proxy: effective_proxy,
-            defer_initial_load: need_defer,
+            defer_initial_load: need_defer && !initial_url.eq_ignore_ascii_case("about:blank"),
         })
+    }
+
+    /// Gates `HostMsg::Navigate` for `tab_id` so a `RemoteServer` tab can NEVER call `load_url`
+    /// before `on_request_context_initialized` finishes applying and verifying proxy preferences.
+    ///
+    /// - Returns `Ok(true)` when navigation may proceed immediately.
+    /// - Returns `Ok(false)` when the URL was queued in `deferred_loads` awaiting proxy init.
+    /// - Returns `Err(reason)` when the context is missing or proxy prefs failed (caller must
+    ///   refuse and close the tab).
+    pub fn gate_navigation(&mut self, tab_id: u64, url: &str) -> Result<bool, &'static str> {
+        let Some(key) = self.tab_keys.get(&tab_id) else {
+            return Ok(true);
+        };
+        if !matches!(key, ContextKey::RemoteServer(_)) {
+            return Ok(true);
+        }
+        let Some(entry) = self.entries.get(key) else {
+            return Err("browser.proxy.required");
+        };
+        if !entry.initialized.load(Ordering::Acquire) {
+            let mut loads = entry.deferred_loads.lock().unwrap();
+            loads.retain(|(id, _)| *id != tab_id);
+            loads.push((tab_id, url.to_owned()));
+            return Ok(false);
+        }
+        if !entry.prefs_ok.load(Ordering::Acquire) {
+            return Err("browser.proxy.invalid");
+        }
+        Ok(true)
+    }
+
+    /// Whether `tab_id`'s context has completed proxy/lockdown initialization (guards `Reload` /
+    /// `Back` / `Forward` while a proxied `RemoteServer` context is still initializing).
+    pub fn is_ready(&self, tab_id: u64) -> bool {
+        let Some(key) = self.tab_keys.get(&tab_id) else {
+            return true;
+        };
+        let Some(entry) = self.entries.get(key) else {
+            return false;
+        };
+        if !entry.require_proxy {
+            return true;
+        }
+        entry.initialized.load(Ordering::Acquire) && entry.prefs_ok.load(Ordering::Acquire)
     }
 
     /// Releases `tab_id` from its pooled context. When the context's last tab closes, the context
     /// is removed from the pool immediately, its connections are closed, its in-memory cookies are
-    /// wiped, and its `CefRequestContext` handle is dropped so all in-memory storage, caches, and
-    /// service workers are destroyed.
-    pub fn release_tab(&mut self, tab_id: u64) {
-        let Some(key) = self.tab_keys.remove(&tab_id) else {
-            return;
-        };
+    /// wiped, and its `CefRequestContext` handle is dropped.
+    pub fn release_tab(&mut self, tab_id: u64) -> Option<ContextKey> {
+        let key = self.tab_keys.remove(&tab_id)?;
         let empty = if let Some(entry) = self.entries.get_mut(&key) {
             entry.tabs.remove(&tab_id);
             entry.deferred_loads.lock().unwrap().retain(|(id, _)| *id != tab_id);
@@ -459,7 +545,9 @@ impl ContextPool {
         };
         if empty && let Some(entry) = self.entries.remove(&key) {
             entry.teardown();
+            return Some(key);
         }
+        None
     }
 
     /// Tears down every pooled isolated context on engine shutdown.
@@ -471,35 +559,85 @@ impl ContextPool {
         }
     }
 
-    /// Updates or clears the local loopback proxy on a remote server partition (even before its
-    /// first tab opens), closing active connections immediately on a live context (`network.ts:47`).
+    /// Updates or clears the local loopback proxy on a remote server partition.
+    /// Clearing (`proxy: None`) or failing preference application removes the live context so the
+    /// caller can close any live tabs belonging to `server_id` (zero unproxied fallback).
     pub fn set_partition_proxy(
         &mut self,
         server_id: &str,
         proxy: Option<RemoteProxyConfig>,
     ) -> Result<Option<RemoteProxyConfig>, &'static str> {
-        if server_id.trim().is_empty() {
+        let sid = server_id.trim();
+        if sid.is_empty() {
             return Err("browser.context.invalid");
         }
-        if let Some(cfg) = &proxy {
-            validate_proxy(cfg)?;
-            self.remote_proxies.insert(server_id.to_owned(), cfg.clone());
-        } else {
-            self.remote_proxies.remove(server_id);
-        }
-        let key = ContextKey::RemoteServer(server_id.to_owned());
+        let key = ContextKey::RemoteServer(sid.to_owned());
+        let Some(cfg) = proxy else {
+            self.remote_proxies.remove(sid);
+            if let Some(entry) = self.entries.remove(&key) {
+                for tid in &entry.tabs {
+                    self.tab_keys.remove(tid);
+                }
+                entry.teardown();
+            }
+            return Ok(None);
+        };
+        validate_proxy(&cfg)?;
+        self.remote_proxies.insert(sid.to_owned(), cfg.clone());
         if let Some(entry) = self.entries.get_mut(&key) {
-            *entry.proxy.lock().unwrap() = proxy.clone();
+            *entry.proxy.lock().unwrap() = Some(cfg.clone());
             if entry.initialized.load(Ordering::Acquire) {
-                let ok = apply_context_prefs(&entry.ctx, proxy.as_ref());
+                let ok = apply_context_prefs(&entry.ctx, Some(&cfg), true);
                 entry.prefs_ok.store(ok, Ordering::Release);
                 entry.ctx.close_all_connections(None);
-                if proxy.is_some() && !ok {
+                if !ok {
+                    if let Some(removed) = self.entries.remove(&key) {
+                        for tid in &removed.tabs {
+                            self.tab_keys.remove(tid);
+                        }
+                        removed.teardown();
+                    }
                     return Err("browser.proxy.invalid");
                 }
             }
         }
-        Ok(proxy)
+        Ok(Some(cfg))
+    }
+
+    /// Lists all live `tab_id`s currently attached to `server_id`'s `RemoteServer` context.
+    pub fn tabs_for_remote(&self, server_id: &str) -> Vec<u64> {
+        let key = ContextKey::RemoteServer(server_id.trim().to_owned());
+        self.entries
+            .get(&key)
+            .map(|e| e.tabs.iter().copied().collect())
+            .unwrap_or_default()
+    }
+
+    /// Lists all live `tab_id`s currently attached to `kind`'s pooled context.
+    pub fn tabs_for_context(&self, kind: &ContextKind) -> Vec<u64> {
+        let Some(key) = Self::key_for_drop(kind) else {
+            return Vec::new();
+        };
+        self.entries
+            .get(&key)
+            .map(|e| e.tabs.iter().copied().collect())
+            .unwrap_or_default()
+    }
+
+    fn key_for_drop(kind: &ContextKind) -> Option<ContextKey> {
+        match kind {
+            ContextKind::Default | ContextKind::Private => None,
+            ContextKind::Preview { workspace, grant } => Some(ContextKey::Preview {
+                workspace: workspace.trim().to_owned(),
+                grant: grant.trim().to_owned(),
+            }),
+            ContextKind::Artifact { artifact_id } => {
+                Some(ContextKey::Artifact(artifact_id.trim().to_owned()))
+            }
+            ContextKind::RemoteServer { server_id, .. } => {
+                Some(ContextKey::RemoteServer(server_id.trim().to_owned()))
+            }
+        }
     }
 
     /// Returns the live `RequestContext` for a canonical `ContextKey`.
@@ -512,7 +650,7 @@ impl ContextPool {
     #[allow(dead_code)]
     pub fn remote_context(&self, server_id: &str) -> Option<RequestContext> {
         self.entries
-            .get(&ContextKey::RemoteServer(server_id.to_owned()))
+            .get(&ContextKey::RemoteServer(server_id.trim().to_owned()))
             .map(|e| e.ctx.clone())
     }
 
@@ -529,20 +667,13 @@ impl ContextPool {
     }
 
     /// Explicitly drops a pooled context and (for `RemoteServer`) clears its stored proxy config.
+    /// Callers MUST close any live `tabs_for_context(kind)` browsers first so Chromium immediately
+    /// releases the underlying `BrowserContext`.
     pub fn drop_context(&mut self, kind: &ContextKind) {
-        let key = match kind {
-            ContextKind::Default | ContextKind::Private => None,
-            ContextKind::Preview { workspace, grant } => Some(ContextKey::Preview {
-                workspace: workspace.clone(),
-                grant: grant.clone(),
-            }),
-            ContextKind::Artifact { artifact_id } => Some(ContextKey::Artifact(artifact_id.clone())),
-            ContextKind::RemoteServer { server_id, .. } => {
-                self.remote_proxies.remove(server_id);
-                Some(ContextKey::RemoteServer(server_id.clone()))
-            }
-        };
-        if let Some(k) = key
+        if let ContextKind::RemoteServer { server_id, .. } = kind {
+            self.remote_proxies.remove(server_id.trim());
+        }
+        if let Some(k) = Self::key_for_drop(kind)
             && let Some(entry) = self.entries.remove(&k)
         {
             for tab_id in &entry.tabs {
@@ -561,6 +692,7 @@ impl ContextPool {
 
 fn create_isolated_context(
     proxy: Option<RemoteProxyConfig>,
+    require_proxy: bool,
     ready_loads: Arc<Mutex<Vec<DeferredOutcome>>>,
     pump: Sender<crate::Event>,
     hooks: ContextHooks,
@@ -570,6 +702,7 @@ fn create_isolated_context(
     let proxy_arc = Arc::new(Mutex::new(proxy.clone()));
     let deferred_loads = Arc::new(Mutex::new(Vec::new()));
     let mut handler = IsolatedContextHandler::new(
+        require_proxy,
         initialized.clone(),
         prefs_ok.clone(),
         proxy_arc.clone(),
@@ -594,14 +727,15 @@ fn create_isolated_context(
     if let Some(on_created) = hooks.on_created {
         on_created(&ctx);
     }
-    // If CEF initialized the context synchronously, apply prefs immediately.
+    // If CEF initialized the context synchronously, apply & verify prefs immediately.
     if initialized.load(Ordering::Acquire) {
-        let ok = apply_context_prefs(&ctx, proxy.as_ref());
+        let ok = apply_context_prefs(&ctx, proxy.as_ref(), require_proxy);
         prefs_ok.store(ok, Ordering::Release);
     }
     Ok(ContextEntry {
         ctx,
         tabs: HashSet::new(),
+        require_proxy,
         initialized,
         prefs_ok,
         proxy: proxy_arc,

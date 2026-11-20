@@ -65,7 +65,7 @@ fn open_page_menu(app: &mut App, tab_id: u64, info: PageContextMenu, tx: &mut Tx
     // 3. Link actions (`page-menu.ts:88-96`)
     if let Some(link) = &info.link_url {
         let mut items = vec![Item::new("open-link", t!("rune.browser.menu.openLink"))];
-        if browser_pane::destination_origin(link).is_some() {
+        if app.external_url_allowed_for_tab(tab_id, link) {
             items.push(Item::new("external-link", t!("rune.browser.menu.external")));
         }
         items.push(Item::new("copy-link", t!("rune.browser.menu.copyLink")));
@@ -138,7 +138,7 @@ fn open_page_menu(app: &mut App, tab_id: u64, info: PageContextMenu, tx: &mut Tx
                 }
             }
             Some("external-link") => {
-                if let Some(url) = link_url && browser_pane::destination_origin(&url).is_some() {
+                if let Some(url) = link_url && s.external_url_allowed_for_tab(tab_id, &url) {
                     crate::open_in::open_external(tx, &url);
                 }
             }

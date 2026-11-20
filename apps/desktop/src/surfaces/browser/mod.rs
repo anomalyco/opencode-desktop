@@ -144,17 +144,44 @@ mod native {
             .collect()
     });
 
-    /// `url` when the default browser can open it: an `http:` or `https:` page, not `about:blank`,
-    /// `chrome:` or `data:`.
+    /// `url` when the default browser can open it: a credential-free `http:` or `https:` page,
+    /// not `about:blank`, `chrome:`, `data:`, or embedded credentials.
     pub fn external_url(url: &str) -> Option<&str> {
-        let scheme = url.split_once("://")?.0;
-        (scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https")).then_some(url)
+        browser_pane::destination_origin(url).map(|_| url.trim())
+    }
+
+    /// Whether `url` is a loopback HTTP(S) address (`127.0.0.1`, `localhost`, `*.localhost`, `[::1]`).
+    fn is_loopback_http_url(url: &str) -> bool {
+        let Some(origin) = browser_pane::destination_origin(url) else { return false };
+        let Some((_, authority)) = origin.split_once("://") else { return false };
+        let host = if let Some(rest) = authority.strip_prefix('[') {
+            rest.split(']').next().unwrap_or("")
+        } else {
+            authority.split(':').next().unwrap_or("")
+        };
+        browser_pane::policy::loopback_host(host)
     }
 
     impl App {
-        /// The page browser tab `id` shows, when the default browser can open it.
+        /// Whether `url` shown in tab `id` may be handed to the local OS default browser:
+        /// refuses non-HTTP(S), credentialed URLs, and loopback URLs from remote-server tabs
+        /// (which address the remote machine, never the user's own loopback services).
+        pub fn external_url_allowed_for_tab(&self, id: u64, url: &str) -> bool {
+            let Some(clean) = external_url(url) else { return false };
+            let remote = self
+                .workspace_panes
+                .browser
+                .host
+                .tab(id)
+                .is_some_and(|t| matches!(t.context, browser_pane::ContextKind::RemoteServer { .. }))
+                || !crate::servers::runtime::active(self).is_sidecar();
+            !(remote && is_loopback_http_url(clean))
+        }
+
+        /// The page browser tab `id` shows, when the default browser can safely open it.
         pub fn browser_tab_external_url(&self, id: u64) -> Option<String> {
-            external_url(&self.workspace_panes.browser.host.tab(id)?.url).map(str::to_owned)
+            let url = self.workspace_panes.browser.host.tab(id)?.url.clone();
+            self.external_url_allowed_for_tab(id, &url).then(|| url.trim().to_owned())
         }
 
         /// Opens browser tab `id`'s page in the default browser.
@@ -304,16 +331,18 @@ mod native {
 
         /// Default browser isolation context for tabs opened on the active server: local sidecar
         /// uses `ContextKind::Default`, while remote servers ALWAYS use a dedicated `RemoteServer`
-        /// context keyed by canonical `ServerKey` identity (never falling back to `Default` on
-        /// older engines — those fail closed with `browser.partitions.unsupported`).
+        /// context keyed by canonical `ServerKey` identity with the server's registered loopback
+        /// tunnel proxy (failing closed with `browser.proxy.required` if no proxy is live, or
+        /// `browser.partitions.unsupported` on older engines).
         pub fn default_browser_context(&self) -> browser_pane::ContextKind {
             let server = crate::servers::runtime::active(self);
             if server.is_sidecar() {
                 browser_pane::ContextKind::Default
             } else {
+                let sid = server.as_str();
                 browser_pane::ContextKind::RemoteServer {
-                    server_id: server.as_str().to_owned(),
-                    proxy: None,
+                    server_id: sid.to_owned(),
+                    proxy: self.workspace_panes.browser.host.remote_proxy(sid).cloned(),
                 }
             }
         }
