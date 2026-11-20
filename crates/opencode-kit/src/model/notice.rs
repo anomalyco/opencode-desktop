@@ -68,8 +68,10 @@ pub enum NoticeKind {
     Restart,
     /// A background shell or subagent came back (`Shell finished`, `Explore failed`).
     Finished(Finished),
-    /// A background tool report, linked to the initiating call by its job ID.
-    Job { id: String, description: String },
+    /// A background tool report, linked to the initiating call by its job ID. `script`: a
+    /// finished background Code Mode script's outcome (`source == "codemode"`,
+    /// anomalyco/opencode#64741). `required`: true when the job errored (`timelineNoticeRequired`).
+    Job { id: String, description: String, script: Option<Outcome>, required: bool },
     Text(String),
     /// The run ended (an `idle` message): never shown, it closes the turn whose changed files
     /// Changed files lists.
@@ -101,33 +103,45 @@ pub enum Outcome {
     Cancelled,
 }
 
-/// A shell or subagent's synthetic message as a notice, or `None` when Desktop shows none: a
-/// shell's with no description that didn't fail (`isNotice`, `timelineNoticeRequired`). A
-/// subagent's report is always one, its own row in the timeline (anomalyco/opencode#64017).
-fn finished(m: &Value, description: Option<&str>) -> Option<NoticeKind> {
-    let meta = &m["metadata"];
-    let subagent = meta["source"] == "subagent";
-    let state = meta["state"].as_str();
-    // Shell completion reports the process outcome in metadata, not its state (`shellResultFailed`).
-    let shell_failed = meta["timeout"] == true || meta["exit"].as_i64().is_some_and(|e| e != 0);
-    let required = state == Some("error") || (!subagent && state == Some("completed") && shell_failed);
-    if !subagent && description.is_none() && !required {
-        return None;
-    }
-    let outcome = match state {
+fn outcome_of(state: Option<&str>) -> Outcome {
+    match state {
         Some("error") => Outcome::Error,
         Some("cancelled") => Outcome::Cancelled,
         _ => Outcome::Completed,
-    };
+    }
+}
+
+/// A shell or subagent's synthetic message as a notice, or `None` when Desktop shows none: a
+/// shell's with no description that didn't fail (`isNotice`, `timelineNoticeRequired`). A
+/// subagent's report is always one, its own row in the timeline (anomalyco/opencode#64017).
+/// Falls back to `<background-result>` / legacy `<shell>` / `<subagent>` XML attributes when
+/// metadata fields are absent (anomalyco/opencode#64971).
+fn finished(m: &Value, description: Option<&str>, subagent: bool, bg: Option<&super::BackgroundResult>) -> Option<NoticeKind> {
+    let meta = &m["metadata"];
+    let state = meta["state"].as_str().or_else(|| bg.and_then(|b| b.state.as_deref()));
+    // Shell completion reports the process outcome in metadata, not its state (`shellResultFailed`).
+    let shell_failed = meta["timeout"] == true || meta["exit"].as_i64().is_some_and(|e| e != 0);
+    let required = state == Some("error") || (!subagent && state == Some("completed") && shell_failed);
+    let data = description
+        .or_else(|| {
+            bg.and_then(|b| if subagent { b.description.as_deref() } else { b.command.as_deref() })
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+        })
+        .map(str::to_owned);
+    if !subagent && data.is_none() && !required {
+        return None;
+    }
+    let outcome = outcome_of(state);
     let id = |k: &str| meta[k].as_str().filter(|v| !v.is_empty()).map(str::to_owned);
     Some(NoticeKind::Finished(Finished {
         agent: subagent.then(|| id("agent")).flatten(),
         subagent,
         outcome,
-        data: description.map(str::to_owned),
+        data,
         required,
-        shell: (!subagent).then(|| id("shellID")).flatten(),
-        child: subagent.then(|| id("childID")).flatten(),
+        shell: (!subagent).then(|| id("shellID").or_else(|| bg.and_then(|b| b.id.clone()))).flatten(),
+        child: subagent.then(|| id("childID").or_else(|| bg.and_then(|b| b.session_id.clone()))).flatten(),
     }))
 }
 
@@ -178,13 +192,51 @@ fn kind(ty: &str, m: &Value) -> Option<NoticeKind> {
             if m["metadata"]["notice"] == "restart" || description == Some("Continuing after restart") {
                 return Some(NoticeKind::Restart);
             }
-            if matches!(m["metadata"]["source"].as_str(), Some("subagent" | "shell")) {
-                return finished(m, description);
+            let bg = m["text"].as_str().and_then(super::parse_background_result);
+            let source = m["metadata"]["source"].as_str();
+            let is_subagent = source == Some("subagent")
+                || (source.is_none() && matches!(&bg, Some(b) if b.kind == super::BackgroundResultKind::Subagent));
+            let is_shell = source == Some("shell")
+                || (source.is_none() && matches!(&bg, Some(b) if b.kind == super::BackgroundResultKind::Shell));
+            if is_subagent || is_shell {
+                return finished(m, description, is_subagent, bg.as_ref());
             }
-            if let Some(id) = m["metadata"]["jobID"].as_str().filter(|id| !id.is_empty()) {
-                return Some(NoticeKind::Job { id: id.to_owned(), description: description?.to_owned() });
+            // Background Code Mode script notice (`timeline-next/row.tsx`, anomalyco/opencode#64741, #64971).
+            let is_codemode = source == Some("codemode")
+                || (source.is_none() && matches!(&bg, Some(b) if b.kind == super::BackgroundResultKind::CodeMode));
+            if is_codemode {
+                let id = m["metadata"]["jobID"]
+                    .as_str()
+                    .filter(|id| !id.is_empty())
+                    .or_else(|| bg.as_ref().and_then(super::BackgroundResult::target_id))
+                    .unwrap_or("");
+                let outcome = outcome_of(m["metadata"]["state"].as_str().or_else(|| bg.as_ref().and_then(|b| b.state.as_deref())));
+                return Some(NoticeKind::Job {
+                    id: id.to_owned(),
+                    description: description.unwrap_or("Script").to_owned(),
+                    script: Some(outcome),
+                    required: outcome == Outcome::Error,
+                });
             }
-            NoticeKind::Text(description?.to_owned())
+            // Image, video, or unknown future `<background-result kind="...">` notices: tolerated
+            // without crashing or dropping messages even when metadata/description are sparse.
+            let job_id = m["metadata"]["jobID"]
+                .as_str()
+                .filter(|id| !id.is_empty())
+                .or_else(|| bg.as_ref().and_then(super::BackgroundResult::target_id));
+            let state = m["metadata"]["state"].as_str().or_else(|| bg.as_ref().and_then(|b| b.state.as_deref()));
+            let required = state == Some("error");
+            if let Some(id) = job_id {
+                let label = description
+                    .map(str::to_owned)
+                    .or_else(|| bg.as_ref().and_then(super::BackgroundResult::fallback_description))
+                    .unwrap_or_else(|| id.to_owned());
+                return Some(NoticeKind::Job { id: id.to_owned(), description: label, script: None, required });
+            }
+            let text = description
+                .map(str::to_owned)
+                .or_else(|| bg.as_ref().and_then(super::BackgroundResult::fallback_description))?;
+            NoticeKind::Text(text)
         }
         _ => return None,
     })

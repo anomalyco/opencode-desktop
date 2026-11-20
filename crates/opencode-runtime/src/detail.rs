@@ -203,6 +203,9 @@ pub fn notice_placement(n: &opencode_kit::model::Notice, d: &Detail) -> Placemen
             let placement = d.placement(if f.subagent { Category::Subagents } else { Category::Shell });
             if placement == Placement::Hidden && !f.required { Placement::Hidden } else { Placement::Separate }
         }
+        // Failed background job notices (including failed Code Mode scripts) remain visible even
+        // when Notices are hidden (`timelineNoticeRequired` in `session-ui/src/timeline/detail.ts`).
+        (NoticeKind::Job { required: true, .. }, Placement::Hidden) => Placement::Separate,
         // What changed the session always stands on its own, whatever the setting
         // (`timeline-next/rules.ts`'s `sessionEvent`).
         (NoticeKind::Agent { .. } | NoticeKind::Model { .. } | NoticeKind::Moved { .. }, _) => Placement::Separate,
