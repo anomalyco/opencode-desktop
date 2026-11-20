@@ -55,6 +55,7 @@ impl App {
     /// the one it holds.
     pub(crate) fn children_listed(&mut self, sessions: Vec<SessionInfo>) {
         for mut info in sessions {
+            self.recent_page.merge_info(&mut info);
             match self.sessions.iter_mut().find(|x| x.id == info.id) {
                 Some(old) => {
                     info.viewed = info.viewed.max(old.viewed);

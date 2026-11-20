@@ -57,7 +57,7 @@ pub(crate) fn session_matches(host: &dyn SwitcherHost, q: &str, group: &'static 
             hint: None,
             chord: None,
             group,
-            updated: Some(s.updated),
+            updated: Some(host.session_active_ms(s)),
             open: host.is_tab_open(None, &s.id),
         })
         .collect()

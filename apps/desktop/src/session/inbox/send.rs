@@ -197,22 +197,7 @@ impl App {
                     if journal {
                         let paths=sent.paths.clone();
                         rune::marks::mark("send.enqueue");
-                        #[cfg(not(target_arch = "wasm32"))]
-                        let gate_browser = !starting && crate::surfaces::browser::rpc::gate::should_gate_prompt(self, &id);
-                        #[cfg(target_arch = "wasm32")]
-                        let gate_browser = false;
-                        let ok = if gate_browser {
-                            self.enqueue_prepared(sent, w)
-                        } else {
-                            self.enqueue_prompt(sent, w)
-                        };
-                        if !ok {self.composer_ext.attach.paths.extend(paths);return;}
-                        #[cfg(not(target_arch = "wasm32"))]
-                        if gate_browser {
-                            crate::surfaces::browser::rpc::gate::register_prompt_gate(self, &id, local.clone());
-                        } else if !starting {
-                            crate::surfaces::browser::rpc::engage_session(self, &id);
-                        }
+                        if !self.enqueue_prompt(sent,w) {self.composer_ext.attach.paths.extend(paths);return;}
                         rune::marks::mark("send.enqueued");
                     } else {
                         if !self.write(w) {self.composer_ext.attach.paths.extend(sent.paths);return;}
@@ -318,29 +303,9 @@ impl App {
     }
 
     /// Queues a write to the server; false (with a status line) when this build can't write.
-    /// Existing-session prompt writes (`/command`, busy follow-ups, non-journaled sends) pass
-    /// through `BuiltinPromptGate` before reaching the write worker.
     pub fn write(&mut self, w: Write) -> bool {
         if self.fixture_run.stage.is_some() {
             // A story's answers go nowhere; it acts as if they were sent.
-            *self.diag.status = "Storybook: not sent".into();
-            return true;
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        if matches!(*self.source, Source::Live { allow_send: true, writes: Some(_), .. })
-            && let Some(sid) = prompt_write_session(&w)
-            && crate::surfaces::browser::rpc::gate::should_gate_prompt(self, sid)
-        {
-            let sid = sid.to_owned();
-            crate::surfaces::browser::rpc::gate::hold_write(self, &sid, w);
-            crate::windows::peer::touch(self);
-            return true;
-        }
-        self.write_direct(w)
-    }
-
-    pub(crate) fn write_direct(&mut self, w: Write) -> bool {
-        if self.fixture_run.stage.is_some() {
             *self.diag.status = "Storybook: not sent".into();
             return true;
         }
@@ -356,17 +321,5 @@ impl App {
             _ => crate::status_toast::fail(self, opencode_i18n::t!("rune.send.disconnected"), opencode_i18n::t!("rune.send.nothingSentSentence")),
         }
         false
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn prompt_write_session(w: &Write) -> Option<&str> {
-    match w {
-        Write::Send { session, .. }
-        | Write::SendMovingHome { session, .. }
-        | Write::SendFromRevert { session, .. }
-        | Write::Prompt { session, .. } => Some(session.as_str()),
-        Write::Tracked { write, .. } => prompt_write_session(write),
-        _ => None,
     }
 }

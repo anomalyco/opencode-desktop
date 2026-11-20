@@ -456,8 +456,6 @@ mod native {
             };
             if let Some(sid) = sid {
                 self.workspace_panes.browser.session_tabs.entry(sid.to_owned()).or_default().push(id);
-                #[cfg(not(target_arch = "wasm32"))]
-                super::rpc::engage_session(self, sid);
                 let key = panel_key(PLUGIN, &id.to_string());
                 if steal_focus {
                     self.open_side_tab_for_session(sid, &key, target_pane, false, false);
@@ -497,8 +495,6 @@ mod native {
             if !vec.contains(&id) {
                 vec.push(id);
             }
-            #[cfg(not(target_arch = "wasm32"))]
-            super::rpc::engage_session(self, sid);
             let key = panel_key(PLUGIN, &id.to_string());
             if steal_focus {
                 self.open_side_tab_for_session(sid, &key, None, false, false);

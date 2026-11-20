@@ -13,6 +13,7 @@ use crate::{App, Source};
 #[derive(Clone, Default)]
 pub struct Page {
     times: HashMap<String, i64>,
+    idles: HashMap<String, i64>,
     range: Option<(i64, i64)>,
     sends: HashMap<String, SendTime>,
     receipts: VecDeque<(String, String)>,
@@ -29,11 +30,29 @@ enum SendTime {
 impl Page {
     fn listed(&mut self, list: &[SessionInfo]) {
         self.times.clear();
+        self.idles.clear();
         for session in list {
             self.observe(session);
             self.times.insert(session.id.clone(), session.active_ms());
+            self.idles.insert(session.id.clone(), session.idle.unwrap_or(0));
         }
         self.range = self.times.values().min().zip(self.times.values().max()).map(|(&min, &max)| (min, max));
+    }
+
+    /// Ports `mergeRootSessionIndex` (`packages/app/src/runtime/server/session-index.ts:4-20`):
+    /// passive metadata reads (opening a tab, browser permission grant `writePermissions`, rename,
+    /// model/agent switches) keep the indexed `updated` time; only a completed run
+    /// (`info.idle > indexed_idle`) advances an already-indexed session's recency.
+    pub fn merge_info(&mut self, info: &mut SessionInfo) {
+        let Some(&indexed_updated) = self.times.get(&info.id) else { return };
+        let indexed_idle = self.idles.get(&info.id).copied().unwrap_or(0);
+        let next_idle = info.idle.unwrap_or(0);
+        if next_idle > indexed_idle {
+            self.idles.insert(info.id.clone(), next_idle);
+            self.times.insert(info.id.clone(), info.active_ms());
+        } else if info.updated != indexed_updated {
+            info.updated = indexed_updated;
+        }
     }
 
     pub fn would_observe(&self, session: &SessionInfo) -> bool {

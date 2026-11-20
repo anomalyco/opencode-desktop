@@ -140,7 +140,6 @@ impl AttachMachine {
         matches!(
             self.state,
             AttachState::Attached { .. }
-                | AttachState::Backoff { .. }
                 | AttachState::Unavailable
                 | AttachState::Unsupported
                 | AttachState::Blocked { .. }

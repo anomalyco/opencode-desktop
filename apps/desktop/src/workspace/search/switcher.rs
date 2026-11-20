@@ -42,6 +42,10 @@ impl SwitcherHost for App {
         App::session(self, id)
     }
 
+    fn session_active_ms(&self, session: &SessionInfo) -> i64 {
+        self.recent_page.active_ms(session)
+    }
+
     fn push_session(&mut self, session: SessionInfo) {
         self.sessions.push(session);
     }

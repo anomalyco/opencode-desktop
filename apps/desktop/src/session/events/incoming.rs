@@ -131,6 +131,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             crate::rewind::read_sessions(s);
         }
         Incoming::Info(mut info) => {
+            s.recent_page.merge_info(&mut info);
             let recent_changed = rune::Tracked::untracked(&s.recent_page).would_observe(&info);
             if recent_changed {
                 s.recent_page.observe(&info);
@@ -282,10 +283,6 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             s.apply_project_opened(location, projects, session, tx);
         }
         Incoming::Settled { ticket, result } => settled(s, ticket, result, tx),
-        #[cfg(not(target_arch = "wasm32"))]
-        Incoming::PromptGate { session, directory, release } => {
-            crate::surfaces::browser::rpc::gate::wait_after_create(s, &session, &directory, release);
-        }
         Incoming::Created(info) if s.queue.starts.has(&info.id) => {
             s.started(info, tx);
         }
