@@ -105,6 +105,10 @@ pub trait MentionsHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
     fn session_info(&self, id: &str) -> Option<&SessionInfo>;
     /// All loaded session metadata.
     fn sessions(&self) -> &[SessionInfo];
+    /// Effective clamped recency timestamp for ordering `session` (`recent_page.active_ms`).
+    fn session_active_ms(&self, session: &SessionInfo) -> i64 {
+        session.active_ms()
+    }
     /// Whether session `id` is currently running (used for session chips).
     fn is_session_live(&self, id: &str) -> bool {
         let _ = id;

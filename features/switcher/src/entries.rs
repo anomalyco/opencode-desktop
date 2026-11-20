@@ -179,9 +179,16 @@ pub fn merged_roots<'a>(sessions: &'a [SessionInfo], extra: &'a [SessionInfo]) -
     all
 }
 
-/// Convenience wrapper over [`merged_roots`] reading the host's loaded sessions.
+/// Convenience wrapper over [`merged_roots`] reading the host's loaded sessions and ordering by
+/// the host's recency timestamp (`SwitcherHost::session_active_ms`).
 pub fn merged_roots_for<'a>(host: &'a dyn SwitcherHost, extra: &'a [SessionInfo]) -> Vec<&'a SessionInfo> {
-    merged_roots(host.sessions(), extra)
+    let mut all = merged_roots(host.sessions(), extra);
+    all.sort_by(|a, b| {
+        host.session_active_ms(b)
+            .cmp(&host.session_active_ms(a))
+            .then_with(|| a.id.encode_utf16().cmp(b.id.encode_utf16()))
+    });
+    all
 }
 
 /// The session whose folder the palette searches for files: Desktop lists files only where
