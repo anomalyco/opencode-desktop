@@ -1,5 +1,4 @@
 //! Sidebar state held on [`crate::ProjectsState`]:
-//! - [`ProjectDrag`]: vertical drag state for reordering projects in the Organized sidebar.
 //! - [`Customize`], [`Grouping`], [`Ordering`], [`Status`], [`Show`], [`Filters`]: Customize
 //!   sidebar view, filters, and per-group Show more counts (`sidebar-customized.tsx`).
 //! - [`Recent`]: Recent sidebar pins (`sidebar.recent`) and revealed count (`recent-sessions.tsx`).
@@ -9,18 +8,6 @@ use std::hash::{Hash, Hasher};
 
 use opencode_i18n::t;
 use serde_json::{Value, json};
-
-/// A project row's drag (`DragDropProvider` with `RestrictToVerticalAxis`): it starts 4 pt from
-/// the press, the project's block follows the pointer up and down, the blocks it passes step
-/// aside by its height, and a drop puts it there at once (`dropAnimation: null`).
-#[derive(Clone, Debug, PartialEq)]
-pub struct ProjectDrag {
-    pub from: usize,
-    pub to: usize,
-    pub dy: f32,
-    /// The listed projects' ids, in order, as the drag started.
-    pub ids: Vec<String>,
-}
 
 /// Group by (`SidebarGrouping`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]

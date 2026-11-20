@@ -317,6 +317,40 @@ pub(super) fn dropdown_trigger(s: &App, p: &Pal, selected: Option<&model::Projec
         .child(icon(&ic::CHEVRON_DOWN, 14.0).color(p.icon_muted))
 }
 
+/// Consolidated navigation's compact project picker at the end of Home's search field
+/// (`HomeProjectsView`'s `scope`, `home-project-scope`): includes selected project in accessible
+/// label and exposes `aria-expanded`.
+pub(super) fn scope_trigger(s: &App, p: &Pal, selected: Option<&model::Project>) -> El {
+    let open = s.project_state.home_menu_open;
+    let label = selected.map_or(t!("home.projects.all"), |proj| proj.name.as_str());
+    let lead = selected.map(|proj| crate::icons::badge(s, p, Some(proj), &proj.name));
+    row()
+        .key("home-projects-trigger")
+        .role("button")
+        .label(format!("{}: {label}", t!("home.projects")))
+        .expanded(open)
+        .h(28.0)
+        .max_w(220.0)
+        .shrink()
+        .min_w(0.0)
+        .mr(-4.0)
+        .pl(8.0)
+        .pr(6.0)
+        .gap(6.0)
+        .center_y()
+        .radius(4.0)
+        .fill(if open { p.pressed } else { rune::Color::TRANSPARENT })
+        .hover(p.hover)
+        .hover_group()
+        .on_press_tx(|s: &mut App, tx: &mut Tx| {
+            tx.instant();
+            s.project_state.home_menu_open = !s.project_state.home_menu_open;
+        })
+        .children(lead)
+        .child(text(label.to_owned()).key("name").font(UI).color(if open { p.text } else { p.muted }).group_color(p.text).truncate().dir(rune::Direction::Auto))
+        .child(icon(&ic::CHEVRON_DOWN, 14.0).color(p.icon_muted))
+}
+
 /// The dropdown's popover: as wide as its trigger and 6 below it, `rounded-[10px] bg-base p-1.5`,
 /// the floating elevation; All projects, the project rows, then Add project.
 pub(crate) fn home_projects_popover(s: &App, p: &Pal) -> Option<[El; 2]> {
@@ -324,7 +358,8 @@ pub(crate) fn home_projects_popover(s: &App, p: &Pal) -> Option<[El; 2]> {
         return None;
     }
     let selected_id = s.home_selected().map(|p| p.id.as_str());
-    let width = s.project_state.trigger_w.max(160.0);
+    let scope = s.home_project_scope();
+    let width = if scope { 280.0 } else { s.project_state.trigger_w.max(160.0) };
     let server = crate::servers::runtime::active(s);
     let failed = s.kernel.slots.get(&crate::projects::HOME_STATE).servers.iter().any(|v| v.key == *server && v.failed());
     // The same `home-projects-viewport` as the column's, its bar too.
@@ -354,7 +389,7 @@ pub(crate) fn home_projects_popover(s: &App, p: &Pal) -> Option<[El; 2]> {
         .key("home-projects-popover")
         .role("menu")
         .label_static(t!("home.projects"))
-        .anchored("home-projects-trigger", Side::Bottom, Align::Start, 6.0)
+        .anchored("home-projects-trigger", Side::Bottom, if scope { Align::End } else { Align::Start }, if scope { 8.0 } else { 6.0 })
         .w(width)
         .padding(6.0)
         .radius(10.0)

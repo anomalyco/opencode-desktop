@@ -202,6 +202,10 @@ pub trait SettingsHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback +
         self.settings_mut().tab_layout = layout;
         crate::persist_settings_diff(self.persists(), &before, self.settings());
     }
+    /// Reconciles the shell layout and navigation snapshot after Organize or Navigation changes.
+    fn sync_tab_layout(&mut self, tx: &mut Tx) {
+        let _ = tx;
+    }
     fn narrow(&self) -> bool {
         false
     }

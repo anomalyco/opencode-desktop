@@ -10,6 +10,8 @@
 pub mod actions;
 pub mod badges;
 pub mod hints;
+pub mod navigation_switch;
+pub mod pins;
 pub mod recently_closed;
 
 use opencode_servers::tabs as doc;

@@ -24,7 +24,21 @@ static DRAFT_PENCIL: Icon = Icon {
 /// (its width at the last layout) and keeps `trailing` (the `+` button) after its last tab.
 pub(crate) fn tab_strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation, viewport: Option<f32>, trailing: Option<El>) -> El {
     let all: Vec<usize> = (0..s.tabs.len()).collect();
-    strip(s, p, key, orientation, viewport, trailing, &all, false).on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| {
+    tab_strip_filtered(s, p, key, orientation, viewport, trailing, &all)
+}
+
+/// [`tab_strip`] over a subset of tab indices (e.g. unpinned top tabs under Consolidated), keeping
+/// `strip_laid_out` tracking intact for tear-out positioning and cross-window drops.
+pub(crate) fn tab_strip_filtered(
+    s: &App,
+    p: &Pal,
+    key: &str,
+    orientation: TabOrientation,
+    viewport: Option<f32>,
+    trailing: Option<El>,
+    indices: &[usize],
+) -> El {
+    strip(s, p, key, orientation, viewport, trailing, indices, false).on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| {
         tx.live_only();
         s.strip_laid_out(r);
     })

@@ -207,11 +207,35 @@ pub fn index(s: &dyn SettingsHost) -> Vec<Entry> {
         .or_else(|| servers.first())
         .cloned()
         .unwrap_or_else(pages::servers::inventory::fallback_own);
+    let proto = s.settings().navigation_prototype();
     for (page, target, title, section, description, keywords) in ROWS {
         if *page == Page::Servers && !selected.availability.can_index() {
             continue;
         }
+        if proto && *target == "settings-tab-layout" {
+            continue;
+        }
         add(page.clone(), target, *title, *section, *description, keywords);
+    }
+    if proto {
+        add(
+            Page::General,
+            "settings-navigation",
+            key!("settings.general.row.navigation.title"),
+            None,
+            Some(key!("settings.general.row.navigation.description")),
+            "tabs list navigation sidebar mode layout vertical horizontal",
+        );
+        if s.settings().navigation() == crate::Navigation::Tabs {
+            add(
+                Page::General,
+                "settings-tab-position",
+                key!("settings.general.row.tabPosition.title"),
+                None,
+                None,
+                "top side tabs position vertical horizontal",
+            );
+        }
     }
     if cfg!(target_os = "macos") {
         add(Page::General, "terminal-option-meta", key!("rune.settings.general.row.terminalOptionMeta.title"), None, None, "terminal option alt meta esc keyboard");

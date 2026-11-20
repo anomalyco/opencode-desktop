@@ -172,8 +172,6 @@ pub trait RestoreHost: opencode_kernel::AppEnv {
     fn organize_order(&self) -> Option<&BTreeMap<String, Vec<String>>> { None }
     /// Applies restored organized-sidebar state.
     fn apply_organize(&mut self, _state: OrganizeState) {}
-    /// Freezes initial organized project order once server projects arrive (`freeze_organize_order`).
-    fn freeze_organize_order(&mut self) {}
 
     /// Restores Customize sidebar preferences (`sidebar.view`).
     fn restore_sidebar_view(&mut self, _value: &Value) {}

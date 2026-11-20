@@ -12,6 +12,7 @@
 
 pub mod host;
 mod interface_mode;
+mod navigation_mode;
 pub mod jobs;
 pub mod pages;
 pub mod prefs;
@@ -33,7 +34,7 @@ pub use host::{
     build_version, configure,
 };
 pub use jobs::{SettingsJob, SettingsReply, SettingsRequest, apply_reply, execute_request};
-pub use prefs::{BackgroundActivity, Choice, Destination, FollowUp, Organize, SOUNDS, Sounds, TimelineWidth, TitlebarPosition};
+pub use prefs::{BackgroundActivity, Choice, Destination, FollowUp, Navigation, Organize, SOUNDS, Sounds, TimelineWidth, TitlebarPosition};
 pub use types::{
     CODE_FONTS, DockPlacement, Font, NotifyKind, NotifyKinds, ReduceMotion, Scheme, TERMINAL_FONTS, TabLayout, TerminalMarkShell, TextRenderer, UI_FONTS, ZOOM_LEVELS, ZOOM_MAX, ZOOM_MIN,
     css_family, custom_name, font_index, step_zoom,
@@ -96,8 +97,11 @@ pub struct Settings {
     pub terminal_font_name: String,
     /// Rune records the last minute of frames for ⌘⇧⌥R (`glitch`); on by default.
     pub record_glitches: bool,
-    /// Desktop's Interface layout (`appearance.tabLayout`): top tabs unless changed.
+    /// Desktop's Interface layout (`appearance.tabLayout`): top tabs unless changed. The shell
+    /// renders [`Settings::effective_tab_layout`].
     pub tab_layout: TabLayout,
+    /// The navigation prototype's Tabs or List (`appearance.navigation`, #64668).
+    pub navigation: Navigation,
     /// One side panel open state for every session tab instead of one per tab (`general.sharedSidePanel`, #64950).
     pub shared_side_panel: bool,
     /// Questions take the keyboard-first dock instead of Classic (Desktop's `general.newQuestionUI`,
@@ -174,6 +178,7 @@ impl Default for Settings {
             terminal_font_name: String::new(),
             record_glitches: true,
             tab_layout: TabLayout::default(),
+            navigation: Navigation::default(),
             shared_side_panel: false,
             new_question_ui: false,
             smooth_timeline: false,
@@ -220,6 +225,7 @@ impl Settings {
             "terminalFontName": self.terminal_font_name,
             "developer": { "rewind": self.record_glitches },
             "tabLayout": self.tab_layout.name(),
+            "navigation": self.navigation.name(),
             "sharedSidePanel": self.shared_side_panel,
             "newQuestionUI": self.new_question_ui,
             "smoothTimeline": self.smooth_timeline,
@@ -270,6 +276,7 @@ impl Settings {
             // Files from before the setting read as Desktop's default; Desktop nests it under
             // `appearance`, which here is the colour scheme.
             tab_layout: TabLayout::parse(v["tabLayout"].as_str().or_else(|| v["appearance"]["tabLayout"].as_str())),
+            navigation: Navigation::parse(v["navigation"].as_str().or_else(|| v["appearance"]["navigation"].as_str())),
             shared_side_panel: v["sharedSidePanel"].as_bool().unwrap_or(false),
             new_question_ui: v["newQuestionUI"].as_bool().unwrap_or(false),
             smooth_timeline: v["smoothTimeline"].as_bool().unwrap_or(false),
@@ -313,6 +320,28 @@ impl Settings {
             background_activity: BackgroundActivity::parse(v["backgroundActivity"].as_str()),
             turn_diffs: v["showTurnDiffs"].as_bool().unwrap_or(false),
         }
+    }
+
+    /// Experimental › Organize vertical sidebar › Consolidated (`navigationPrototype`, `settings/model.tsx`).
+    pub fn navigation_prototype(&self) -> bool {
+        self.sidebar_organize.effective() == Organize::Consolidated
+    }
+
+    /// The navigation prototype's List, else Tabs (`navigation`, `settings/model.tsx`).
+    pub fn navigation(&self) -> Navigation {
+        if self.navigation_prototype() { self.navigation } else { Navigation::Tabs }
+    }
+
+    /// The shell layout (`tabLayout`, `settings/model.tsx`): List always uses the sidebar, and the
+    /// prototype has no Inbox, so both resolve to side tabs.
+    pub fn effective_tab_layout(&self) -> TabLayout {
+        let forced = self.navigation_prototype() && (self.navigation == Navigation::List || self.tab_layout == TabLayout::Inbox);
+        if forced { TabLayout::Vertical } else { self.tab_layout }
+    }
+
+    /// Where tabs sit under the prototype's Tabs mode (`tabPosition`), preserved while List forces side tabs.
+    pub fn tab_position(&self) -> TabLayout {
+        if self.tab_layout == TabLayout::Horizontal { TabLayout::Horizontal } else { TabLayout::Vertical }
     }
 
     /// The zoom as a whole percentage, as Appearance › Zoom names it.

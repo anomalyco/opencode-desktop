@@ -259,10 +259,19 @@ impl App {
     /// Settings' Interface layout: saves the choice and starts the switch. It ends a tab drag,
     /// a rename and the peek first, so nothing is mid-gesture while the tabs fly.
     pub fn set_tab_layout(&mut self, layout: TabLayout, tx: &mut Tx) {
+        if self.settings.tab_layout != layout {
+            self.change_settings(|s| s.tab_layout = layout);
+        }
+        self.sync_tab_layout(tx);
+    }
+
+    /// Reconciles the shell layout and Consolidated Tabs/List snapshot with current settings.
+    pub fn sync_tab_layout(&mut self, tx: &mut Tx) {
+        crate::tabs::navigation_switch::sync(self, tx);
+        let layout = self.settings.effective_tab_layout();
         if !self.layout.motion.switch(layout, *self.clock) {
             return;
         }
-        self.change_settings(|s| s.tab_layout = layout);
         self.gestures.tab_drag.cancel();
         self.finish_rename(true);
         self.layout.peek_event(PeekEvent::Disabled, *self.clock);

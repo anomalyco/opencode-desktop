@@ -354,32 +354,63 @@ impl App {
         }
     }
 
-    /// The order the tab keys step through: the tabs, or in the inbox its rows as they show,
-    /// top to bottom, the Working shelf's while it's open.
+    /// The order the tab keys step through: the tabs (under Consolidated, visible pinned sessions
+    /// lead, followed by unpinned tabs or visible Recent rows), or in the inbox its rows as shown.
     pub(crate) fn nav_order(&self) -> Vec<String> {
-        if self.tab_layout() != crate::layout_state::TabLayout::Inbox {
-            return self.tabs.iter().map(Tab::uid).collect();
+        if self.tab_layout() == crate::layout_state::TabLayout::Inbox {
+            let sections = self.inbox_sections();
+            let shelf = if self.kernel.slots.get(&crate::restore::RESTORE).inbox.working_expanded { sections.working.len() } else { 0 };
+            let listed = sections.current.len() + sections.needs.len() + sections.unread.len() + sections.recent.len();
+            return sections.rows().take(listed + shelf).map(|e| e.session.id.clone()).collect();
         }
-        let sections = self.inbox_sections();
-        let shelf = if self.kernel.slots.get(&crate::restore::RESTORE).inbox.working_expanded { sections.working.len() } else { 0 };
-        let listed = sections.current.len() + sections.needs.len() + sections.unread.len() + sections.recent.len();
-        sections.rows().take(listed + shelf).map(|e| e.session.id.clone()).collect()
+        if self.settings.navigation_prototype() {
+            let mut order = crate::tabs::pins::visible_uids(self);
+            if self.settings.navigation() == crate::settings::Navigation::List {
+                for uid in crate::view::sidebar::recent::consolidated_visible_uids(self) {
+                    if !order.contains(&uid) {
+                        order.push(uid);
+                    }
+                }
+            } else {
+                for tab in self.tabs.iter().filter(|t| !crate::tabs::pins::holds(self, t)) {
+                    let uid = tab.uid();
+                    if !order.contains(&uid) {
+                        order.push(uid);
+                    }
+                }
+            }
+            return order;
+        }
+        self.tabs.iter().map(Tab::uid).collect()
     }
 
     /// The tab, or inbox row, the open page belongs to.
     fn nav_current(&self) -> Option<String> {
         match (&*self.route, self.tab_layout()) {
             (Route::Session { id, server }, crate::layout_state::TabLayout::Inbox) if !self.settings_open() => Some(tabs::session_uid(server, self.root_of(id))),
+            (Route::Session { id, server }, _) if self.settings.navigation_prototype() && !self.settings_open() => {
+                Some(tabs::session_uid(server, self.root_of(id)))
+            }
             _ => self.current_tab(),
         }
     }
 
-    /// Shows `id` from the tab keys: its tab, or in the inbox its row's session.
+    /// Shows `id` from the tab keys: its tab, pinned session, Recent row, or inbox row.
     fn nav_select(&mut self, id: &str, tx: &mut Tx) {
-        match self.tab_layout() {
-            crate::layout_state::TabLayout::Inbox => self.open_inbox_session(id, tx),
-            _ => self.select_tab(id, tx),
+        if self.tab_layout() == crate::layout_state::TabLayout::Inbox {
+            return self.open_inbox_session(id, tx);
         }
+        if self.settings.navigation_prototype() && self.tab(id).is_none() {
+            if crate::tabs::pins::open_by_uid(self, id, tx) {
+                return;
+            }
+            if let Some((server, sid)) = id.split_once(':') {
+                crate::servers::runtime::switch(self, &opencode_kit::servers::ServerKey::new(server));
+                self.open(sid, tx);
+                return;
+            }
+        }
+        self.select_tab(id, tx);
     }
 
     /// ⌘1–⌘9: the `n`th tab, or inbox row, from the top.
