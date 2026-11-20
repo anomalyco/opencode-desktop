@@ -424,6 +424,50 @@ pub fn server_for_session(s: &App, sid: &str) -> Option<ServerKey> {
     None
 }
 
+/// Resolves the [`ServerKey`] that owns session `sid` (checking open tabs, active route, active
+/// store, and parked server stores — never silently substituting `active` for a parked session).
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn session_server_key(s: &App, sid: &str) -> Option<ServerKey> {
+    if let Some(key) = server_for_session(s, sid) {
+        return Some(key);
+    }
+    if let Route::Session { id, server } = &*s.route
+        && id == sid
+    {
+        return Some(server.clone());
+    }
+    if s.sessions.iter().any(|x| x.id == sid) {
+        return Some(s.checkout.active.clone());
+    }
+    s.checkout
+        .parked
+        .iter()
+        .find(|(_, _, half)| half.store.has_session(sid))
+        .map(|(k, ..)| k.clone())
+}
+
+/// Returns the live [`Server`] handle for `key` if checked out or parked and not signed out.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn live_server_for_key(s: &App, key: &ServerKey) -> Option<Server> {
+    if signed_out(key) {
+        return None;
+    }
+    if *key == s.checkout.active {
+        return match &*s.source {
+            Source::Live { server, .. } => Some(server.clone()),
+            _ => None,
+        };
+    }
+    s.checkout
+        .parked
+        .iter()
+        .find(|(k, ..)| k == key)
+        .and_then(|(_, _, half)| match &half.source {
+            Source::Live { server, .. } => Some(server.clone()),
+            _ => None,
+        })
+}
+
 impl App {
     /// The server the window works against, when it isn't the app's own (a plugin's `<plugin>:<id>`,
     /// an added server's address): what plugins see as the current server.

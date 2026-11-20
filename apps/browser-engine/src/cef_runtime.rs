@@ -103,6 +103,9 @@ impl CefRuntime {
         };
         let ok = cef::initialize(Some(&main_args), Some(&settings), Some(&mut app), std::ptr::null_mut());
         assert_eq!(ok, 1, "cef::initialize failed");
+        if let Some(global) = cef::request_context_get_global_context() {
+            crate::preview::handler::ban_file_scheme(&global);
+        }
 
         Self {
             profile,

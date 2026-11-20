@@ -196,6 +196,21 @@ impl Server {
         Ok(val.get("output").cloned().unwrap_or(Value::Null))
     }
 
+    /// One-shot non-mutating capability probe (`POST /api/rpc/experimental.browser/state` with
+    /// `{}`) used on local connect/Home when no session is open to distinguish older servers
+    /// (`v2.2.6`/`v2.3.0` -> `404`/`405`/`501`) and plugin-disabled servers (`rpc.unavailable`)
+    /// from modern servers (`rpc.invalid_input` or `2xx`) without touching any session.
+    /// Returns `Some(true)` if `experimental.browser` is supported, `Some(false)` if proven
+    /// `Unsupported` or `Unavailable` (legacy `rune_mcp` allowed), or `None` on transient error.
+    pub fn browser_rpc_probe(&self, location: &LocationRef) -> Option<bool> {
+        let input = json!({});
+        match self.browser_rpc_call("state", location, &input, Some(Duration::from_secs(5))) {
+            Ok(_) | Err(RpcCallError::InvalidInput(_) | RpcCallError::Missing(_)) => Some(true),
+            Err(RpcCallError::Unsupported(_) | RpcCallError::Unavailable(_)) => Some(false),
+            Err(RpcCallError::Transport(_) | RpcCallError::Internal(_) | RpcCallError::Aborted) => None,
+        }
+    }
+
     /// Publishes the session's current browser tab inventory (`experimental.browser/state`).
     pub fn browser_rpc_state(
         &self,
