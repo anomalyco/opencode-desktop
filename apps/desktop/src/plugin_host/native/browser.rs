@@ -399,6 +399,9 @@ fn engine(app: &App) -> (&'static str, Option<String>) {
         EngineStatus::Downloading { .. } => ("downloading", None),
         EngineStatus::Verifying => ("verifying", None),
         EngineStatus::Paused(_) => ("paused", None),
+        EngineStatus::Failed(f) if matches!(f.fault, browser_pane::Fault::NotPublished) => {
+            ("unsupported", Some(crate::browser::view::fault_text(&f.fault)))
+        }
         EngineStatus::Failed(f) => ("failed", Some(crate::browser::view::fault_text(&f.fault))),
         EngineStatus::Unchecked | EngineStatus::Installed | EngineStatus::Connecting => ("starting", None),
         EngineStatus::Ready => ("ready", None),
