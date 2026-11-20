@@ -168,7 +168,14 @@ impl Backend {
     }
 
     pub(crate) fn parked(w: writer::Writer) -> Backend {
-        Backend { writer: Mutex::new(Writer::Parked(Box::new(w))), queue: SharedQueue::default(), urgent: Arc::default() }
+        let dirty = w.wal_dirty();
+        let backend = Backend { writer: Mutex::new(Writer::Parked(Box::new(w))), queue: SharedQueue::default(), urgent: Arc::default() };
+        if dirty {
+            // A database opened dirty has an armed idle-checkpoint timer that needs the writer
+            // thread running even if no writes arrive.
+            backend.sender();
+        }
+        backend
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Writer> {
@@ -257,10 +264,15 @@ impl Backend {
         if !parked_work {
             return FlushReport { clean: true, ..FlushReport::default() };
         }
-        let Some(tx) = self.sender() else { return FlushReport { clean: true, ..FlushReport::default() } };
+        // `parked_work` was true (a running writer or dirty WAL), so failing to spawn or reach the
+        // writer means durability is unconfirmed; never return `clean: true` so `close()` keeps
+        // the draft journal intact.
+        let Some(tx) = self.sender() else {
+            return FlushReport { clean: false, micros: micros(started), ..FlushReport::default() };
+        };
         let (reply, answer) = mpsc::sync_channel(1);
         if tx.send(writer::Msg::Flush { reason, started, reply }).is_err() {
-            return FlushReport { clean: true, ..FlushReport::default() };
+            return FlushReport { clean: false, micros: micros(started), ..FlushReport::default() };
         }
         self.urgent.fetch_add(1, Ordering::Release);
         answer.recv_timeout(deadline).unwrap_or(FlushReport { timed_out: true, micros: micros(started), ..FlushReport::default() })
@@ -275,9 +287,9 @@ impl Backend {
 
     pub(crate) fn close(&self) -> FlushReport {
         let report = self.flush(FlushReason::Quit, Duration::from_secs(2));
-        // Before the writer stops (its repage may move pages): the journal is clean when every
-        // draft it holds is in the database.
-        journal::finish(!report.timed_out && crate::write_trouble().is_none());
+        // Before the writer stops (its repage may move pages): the journal is clean only once
+        // every draft it holds is checkpointed into the database (or the database was clean).
+        journal::finish(!report.timed_out && crate::write_trouble().is_none() && (report.clean || report.checkpointed));
         let w = std::mem::replace(&mut *self.lock(), Writer::Off);
         if let Writer::Running { tx, join } = w {
             tx.send(writer::Msg::Stop).ok();

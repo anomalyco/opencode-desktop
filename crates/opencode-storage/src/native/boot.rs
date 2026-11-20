@@ -354,8 +354,9 @@ fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket), gate: &Gate) -> (St
     match result {
         Ok((conn, cache, deferred)) => {
             let cache = super::shared(cache);
-            // A run that read the record through SQLite leaves the WAL to checkpoint at quit.
-            let w = writer::Writer::new(conn, cache.clone(), config.clock, deferred, report.boot_source != BootSource::Raw, owe.journal, report.created);
+            let wal_dirty = report.boot_source != BootSource::Raw
+                || boot_record::wal_len(&std::path::PathBuf::from(format!("{}-wal", config.path.display()))) > 0;
+            let w = writer::Writer::new(conn, cache.clone(), config.clock, deferred, wal_dirty, owe.journal, report.created);
             (Storage::from_parts(cache, Backend::parked(w)), report)
         }
         Err(e) => {

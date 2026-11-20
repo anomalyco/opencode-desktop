@@ -20,10 +20,11 @@ use crate::{FlushReason, FlushReport, StorageError};
 /// The page size a file is rewritten to (`Writer::repage`), and the largest file rewritten.
 const REPAGE_TO: i64 = 16384;
 const REPAGE_MAX: i64 = 64 * 1024 * 1024;
-/// An unsynced commit (`commit_soon`, an outbox row): SQLite's checkpoint off for it, as it would
+/// An unsynced commit (`commit_soon`, write-behind): SQLite's checkpoint off for it, as it would
 /// run at OFF (`Writer::wal_unsynced`); and back.
 pub(super) const UNSYNCED: &str = "PRAGMA synchronous = OFF; PRAGMA wal_autocheckpoint = 0";
 pub(super) const SYNCED: &str = "PRAGMA synchronous = NORMAL; PRAGMA wal_autocheckpoint = 1000";
+const DURABLE: &str = "PRAGMA synchronous = FULL; PRAGMA wal_autocheckpoint = 0";
 /// The longest unsynced commits pile up, and the most WAL they fill, before a checkpoint syncs them.
 const UNSYNCED_FOR: Duration = Duration::from_secs(30);
 const UNSYNCED_BYTES: u64 = 16 * 1024 * 1024;
@@ -54,19 +55,36 @@ impl WalFile {
     }
 
     fn len(&mut self, conn: &Connection) -> u64 {
-        self.get_or_open(conn).and_then(|f| f.metadata().ok()).map_or(0, |m| m.len())
+        if let Some(len) = self.get_or_open(conn).and_then(|f| f.metadata().ok()).map(|m| m.len()) {
+            return len;
+        }
+        // Fallback when `-wal` cannot be opened for write: `metadata` reads live NTFS FCB size
+        // without needing write permission.
+        conn.path().and_then(|p| std::fs::metadata(format!("{p}-wal")).ok()).map_or(0, |m| m.len())
+    }
+
+    fn sync_all(&mut self, conn: &Connection) -> Option<u64> {
+        let file = self.get_or_open(conn)?;
+        file.sync_all().ok()?;
+        Some(file.metadata().ok().map_or(0, |m| m.len()))
+    }
+
+    fn close(&mut self) {
+        *self = Self::Unopened;
     }
 }
 
 /// Whether the dirty WAL holds any `synchronous = OFF` commits waiting for a sync or checkpoint.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum WalSync {
-    /// Every committed frame in the WAL has been synced (or came from open, NORMAL/FULL,
-    /// `sync_wal`, or a `PASSIVE` checkpoint).
-    Synced,
-    /// At least one unsynced (`synchronous = OFF`) commit landed at `since` and has not been
-    /// synced or checkpointed yet.
-    Unsynced { since: Instant },
+    /// Every committed frame in the WAL has been synced (via `sync_wal`, a completed `PASSIVE`
+    /// checkpoint, or a synced commit). `base_bytes` is the `-wal` length when synced (0 after a
+    /// completed `PASSIVE` checkpoint, since the next commit restarts `-wal` from 0).
+    Synced { base_bytes: u64 },
+    /// At least one unsynced commit landed at `since` and has not been synced or checkpointed yet.
+    /// `base_bytes` is the `-wal` length at the previous sync so unsynced growth is bounded past
+    /// `UNSYNCED_BYTES` without syncing on every commit when the WAL stays above 16 MiB.
+    Unsynced { since: Instant, base_bytes: u64 },
 }
 
 /// The writer's WAL checkpoint and sync-deadline state.
@@ -92,16 +110,31 @@ impl Wal {
 }
 
 pub(super) enum WalEvent {
-    /// A commit landed at NORMAL/FULL (or an outbox commit before `sync_wal` runs).
-    Committed { boot: bool },
-    /// An unsynced (`synchronous = OFF`) commit landed; `wal_bytes` is the `-wal` file length.
+    /// Database opened with pre-existing WAL frames or a stale boot record (unsynced until
+    /// checkpointed or synced).
+    OpenedDirty { boot_stale: bool, now: Instant },
+    /// The boot record must be rebuilt at the next checkpoint (no new SQLite commit of its own,
+    /// e.g. after attaching the draft journal).
+    BootStale,
+    /// A Tier 0 commit landed with `synchronous = FULL`, syncing the entire WAL up to `wal_bytes`.
+    DurableCommitted { boot: bool, wal_bytes: u64 },
+    /// An unsynced (`synchronous = OFF` or `NORMAL`) commit landed; `wal_bytes` is the `-wal` file length.
     UnsyncedCommitted { boot: bool, now: Instant, wal_bytes: u64 },
-    /// `sync_wal` successfully synced `-wal` to disk (`File::sync_data`).
-    WalSynced,
+    /// `PRAGMA wal_checkpoint(PASSIVE)` checkpointed every frame in the WAL (`busy == 0`,
+    /// `log >= 0`, `checkpointed >= log`).
+    PassiveCheckpointed,
+    /// `PRAGMA wal_checkpoint(PASSIVE)` errored, was busy, or left frames uncheckpointed.
+    PassiveCheckpointIncomplete { now: Instant },
+    /// `sync_wal` successfully synced `-wal` to disk (`File::sync_all`) at `wal_bytes`.
+    WalSynced { wal_bytes: u64 },
+    /// `sync_wal` could not open or sync `-wal`; data stays unsynced until a later sync succeeds.
+    WalSyncFailed { now: Instant },
     TimerFired { attempt: Attempt },
     QuitRequested,
     Checkpointed,
-    CheckpointFailed,
+    /// `boot_rebuilt`: `boot_record::rebuild` committed new unsynced frames to `-wal` before
+    /// `PRAGMA wal_checkpoint(TRUNCATE)` failed.
+    CheckpointFailed { boot_rebuilt: bool, now: Instant },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -110,40 +143,77 @@ pub(super) enum WalEffect {
     CancelTimer,
     /// Run `PRAGMA wal_checkpoint(PASSIVE)` to bound unsynced frames while writes keep coming.
     PassiveCheckpoint,
+    /// Sync `<db>-wal` directly (`File::sync_all`) when a checkpoint could not complete.
+    SyncWal,
     /// Rebuild the boot record first when `rebuild_boot`, then `PRAGMA wal_checkpoint(TRUNCATE)`.
     Checkpoint { rebuild_boot: bool },
 }
 
 fn wal_step(seq: &mut Seq, state: &mut Wal, event: WalEvent) -> Effects<WalEffect> {
     match (*state, event) {
-        // Every commit pushes the quiet period back.
-        (s, WalEvent::Committed { boot }) => {
-            let (prev_boot, sync) = match s {
-                Wal::Clean => (false, WalSync::Synced),
-                Wal::Dirty { boot_stale, sync, .. } => (boot_stale, sync),
+        (Wal::Clean, WalEvent::OpenedDirty { boot_stale, now }) => {
+            let attempt = seq.next();
+            *state = Wal::Dirty { attempt, boot_stale, sync: WalSync::Unsynced { since: now, base_bytes: 0 } };
+            Effects::one(WalEffect::ArmTimer { attempt, delay_ms: IDLE_CHECKPOINT_MS })
+        }
+        // Marks the boot record stale without recording a new commit; preserves sync status.
+        (s, WalEvent::BootStale) => {
+            let sync = match s {
+                Wal::Clean => WalSync::Synced { base_bytes: 0 },
+                Wal::Dirty { sync, .. } => sync,
             };
             let attempt = seq.next();
-            *state = Wal::Dirty { attempt, boot_stale: prev_boot || boot, sync };
+            *state = Wal::Dirty { attempt, boot_stale: true, sync };
+            Effects::one(WalEffect::ArmTimer { attempt, delay_ms: IDLE_CHECKPOINT_MS })
+        }
+        (s, WalEvent::DurableCommitted { boot, wal_bytes }) => {
+            let prev_boot = matches!(s, Wal::Dirty { boot_stale: true, .. });
+            let attempt = seq.next();
+            *state = Wal::Dirty { attempt, boot_stale: prev_boot || boot, sync: WalSync::Synced { base_bytes: wal_bytes } };
             Effects::one(WalEffect::ArmTimer { attempt, delay_ms: IDLE_CHECKPOINT_MS })
         }
         (s, WalEvent::UnsyncedCommitted { boot, now, wal_bytes }) => {
-            let (prev_boot, since) = match s {
-                Wal::Dirty { boot_stale, sync: WalSync::Unsynced { since }, .. } => (boot_stale, since),
-                Wal::Dirty { boot_stale, sync: WalSync::Synced, .. } => (boot_stale, now),
-                Wal::Clean => (false, now),
+            let (prev_boot, since, base_bytes) = match s {
+                Wal::Dirty { boot_stale, sync: WalSync::Unsynced { since, base_bytes }, .. } => (boot_stale, since, base_bytes),
+                Wal::Dirty { boot_stale, sync: WalSync::Synced { base_bytes }, .. } => (boot_stale, now, base_bytes),
+                Wal::Clean => (false, now, 0),
             };
+            // If `-wal` wrapped or truncated below the previous sync baseline, every byte now in
+            // `-wal` belongs to the new cycle; reset `base_bytes` so growth past the old baseline
+            // does not drop the unsynced byte count back to zero.
+            let base_bytes = if wal_bytes < base_bytes { 0 } else { base_bytes };
             let attempt = seq.next();
             let boot_stale = prev_boot || boot;
-            if now.saturating_duration_since(since) >= UNSYNCED_FOR || wal_bytes >= UNSYNCED_BYTES {
-                *state = Wal::Dirty { attempt, boot_stale, sync: WalSync::Synced };
+            // Stay Unsynced until PassiveCheckpointed or WalSynced confirms durability.
+            *state = Wal::Dirty { attempt, boot_stale, sync: WalSync::Unsynced { since, base_bytes } };
+            if now.saturating_duration_since(since) >= UNSYNCED_FOR || wal_bytes - base_bytes >= UNSYNCED_BYTES {
                 Effects::two(WalEffect::PassiveCheckpoint, WalEffect::ArmTimer { attempt, delay_ms: IDLE_CHECKPOINT_MS })
             } else {
-                *state = Wal::Dirty { attempt, boot_stale, sync: WalSync::Unsynced { since } };
                 Effects::one(WalEffect::ArmTimer { attempt, delay_ms: IDLE_CHECKPOINT_MS })
             }
         }
-        (Wal::Dirty { attempt, boot_stale, .. }, WalEvent::WalSynced) => {
-            *state = Wal::Dirty { attempt, boot_stale, sync: WalSync::Synced };
+        (Wal::Dirty { attempt, boot_stale, .. }, WalEvent::PassiveCheckpointed) => {
+            *state = Wal::Dirty { attempt, boot_stale, sync: WalSync::Synced { base_bytes: 0 } };
+            Effects::none()
+        }
+        (Wal::Dirty { attempt, boot_stale, sync }, WalEvent::PassiveCheckpointIncomplete { now }) => {
+            let sync = match sync {
+                WalSync::Unsynced { since, base_bytes } => WalSync::Unsynced { since, base_bytes },
+                WalSync::Synced { base_bytes } => WalSync::Unsynced { since: now, base_bytes },
+            };
+            *state = Wal::Dirty { attempt, boot_stale, sync };
+            Effects::one(WalEffect::SyncWal)
+        }
+        (Wal::Dirty { attempt, boot_stale, .. }, WalEvent::WalSynced { wal_bytes }) => {
+            *state = Wal::Dirty { attempt, boot_stale, sync: WalSync::Synced { base_bytes: wal_bytes } };
+            Effects::none()
+        }
+        (Wal::Dirty { attempt, boot_stale, sync }, WalEvent::WalSyncFailed { now }) => {
+            let sync = match sync {
+                WalSync::Unsynced { since, base_bytes } => WalSync::Unsynced { since, base_bytes },
+                WalSync::Synced { base_bytes } => WalSync::Unsynced { since: now, base_bytes },
+            };
+            *state = Wal::Dirty { attempt, boot_stale, sync };
             Effects::none()
         }
         (Wal::Dirty { attempt, boot_stale, .. }, WalEvent::TimerFired { attempt: fired }) if attempt == fired => {
@@ -156,50 +226,29 @@ fn wal_step(seq: &mut Seq, state: &mut Wal, event: WalEvent) -> Effects<WalEffec
             *state = Wal::Clean;
             Effects::one(WalEffect::CancelTimer)
         }
-        // The file was busy: try again after another quiet period, the record and sync still owed.
-        (Wal::Dirty { boot_stale, sync, .. }, WalEvent::CheckpointFailed) => {
+        // The file was busy or failed: sync `-wal` directly if unsynced frames remain (including
+        // a `boot_record::rebuild` committed at NORMAL just before TRUNCATE failed) so idle or
+        // quit never leaves data unsynced on disk, then retry checkpointing after a quiet period.
+        (Wal::Dirty { boot_stale, sync, .. }, WalEvent::CheckpointFailed { boot_rebuilt, now }) => {
             let attempt = seq.next();
+            let boot_stale = boot_stale && !boot_rebuilt;
+            let sync = match sync {
+                WalSync::Unsynced { since, base_bytes } => WalSync::Unsynced { since, base_bytes },
+                WalSync::Synced { base_bytes } if boot_rebuilt => WalSync::Unsynced { since: now, base_bytes },
+                WalSync::Synced { base_bytes } => WalSync::Synced { base_bytes },
+            };
             *state = Wal::Dirty { attempt, boot_stale, sync };
-            Effects::one(WalEffect::ArmTimer { attempt, delay_ms: IDLE_CHECKPOINT_MS })
+            if matches!(sync, WalSync::Unsynced { .. }) {
+                Effects::two(WalEffect::SyncWal, WalEffect::ArmTimer { attempt, delay_ms: IDLE_CHECKPOINT_MS })
+            } else {
+                Effects::one(WalEffect::ArmTimer { attempt, delay_ms: IDLE_CHECKPOINT_MS })
+            }
         }
         _ => Effects::none(),
     }
 }
 
 impl Writer {
-    /// A kill-safe write: committed to the WAL (handed to the operating system, no sync) before
-    /// it returns; `sync_wal` makes it survive a power cut too.
-    pub(super) fn committed(&mut self, boot: bool, f: impl FnOnce(&Connection, i64) -> rusqlite::Result<()>) -> Result<(), StorageError> {
-        let now = (self.clock)();
-        let result = (|| {
-            // Unsynced, the WAL header included (see `commit_buffered`); `sync_wal` follows.
-            self.conn.execute_batch(UNSYNCED)?;
-            let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
-            f(&tx, now)?;
-            tx.commit()
-        })();
-        note(&result);
-        self.conn.execute_batch(SYNCED).ok();
-        match result {
-            Ok(()) => {
-                self.wal_event(WalEvent::Committed { boot });
-                Ok(())
-            }
-            Err(e) => Err(StorageError(e.to_string())),
-        }
-    }
-
-    /// The WAL's frames to the disk (what `synchronous = FULL` does at each commit), through a
-    /// handle of its own kept open; a failed sync waits for the next checkpoint's.
-    pub(super) fn sync_wal(&mut self) {
-        if let Some(f) = self.wal_file.get_or_open(&self.conn)
-            && f.sync_data().is_ok()
-        {
-            self.wal_event(WalEvent::WalSynced);
-        }
-        rune::marks::mark("outbox.synced");
-    }
-
     /// Unsynced commits leave SQLite's own checkpoint off (`UNSYNCED`): one run at
     /// `synchronous = OFF` copies unsynced frames into the database file without a sync first,
     /// which a power cut could leave half-written. This runs it at NORMAL instead (the WAL synced,
@@ -212,30 +261,40 @@ impl Writer {
         self.wal_event(WalEvent::UnsyncedCommitted { boot, now: Instant::now(), wal_bytes });
     }
 
-    /// A Tier 0 write: committed and synced before it returns.
+    /// A Tier 0 write: committed and synced (`synchronous = FULL`) before it returns.
     pub(super) fn durable(&mut self, boot: bool, f: impl FnOnce(&Connection, i64) -> rusqlite::Result<()>) -> Result<(), StorageError> {
         let now = (self.clock)();
+        let changes_before = self.conn.total_changes();
         let result = (|| {
-            self.conn.execute_batch("PRAGMA synchronous = FULL")?;
+            self.conn.execute_batch(DURABLE)?;
             let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
             f(&tx, now)?;
             tx.commit()
         })();
         note(&result);
-        self.conn.execute_batch("PRAGMA synchronous = NORMAL").ok();
+        self.conn.execute_batch(SYNCED).ok();
         match result {
             Ok(()) => {
-                self.wal_event(WalEvent::Committed { boot });
+                // SQLite's `sqlite3PagerCommitPhaseOne` returns early without writing WAL frames
+                // or calling `xSync` when a transaction modifies zero rows; do not clear
+                // `WalSync::Unsynced` for a no-op commit that never synced `-wal`.
+                if self.conn.total_changes() != changes_before {
+                    let wal_bytes = self.wal_file.len(&self.conn);
+                    self.wal_event(WalEvent::DurableCommitted { boot, wal_bytes });
+                }
                 Ok(())
             }
             Err(e) => Err(StorageError(e.to_string())),
         }
     }
 
+    fn has_pending(&self) -> bool {
+        wb::has_pending(&self.state) || wb::has_pending(&self.docs) || wb::has_pending(&self.windows) || wb::has_pending(&self.previews) || wb::has_pending(&self.caches)
+    }
+
     pub(super) fn flush(&mut self, reason: FlushReason, started: Instant) -> FlushReport {
         let quit = matches!(reason, FlushReason::Quit | FlushReason::SessionEnd | FlushReason::UpdateRestart);
-        let pending = wb::has_pending(&self.state) || wb::has_pending(&self.docs) || wb::has_pending(&self.windows) || wb::has_pending(&self.previews) || wb::has_pending(&self.caches);
-        if !pending && (!quit || self.wal.is_clean()) {
+        if !self.has_pending() && (!quit || self.wal.is_clean()) {
             return FlushReport { clean: true, micros: super::super::micros(started), ..FlushReport::default() };
         }
         self.written = 0;
@@ -246,10 +305,15 @@ impl Writer {
         batches.extend(step_buffer(&mut self.seq, &mut self.previews, WriteBehindEvent::FlushRequested, PREVIEWS_MS, "previews", &mut self.timers).into_iter().map(|(a, m)| Batch::Previews(a, m)));
         batches.extend(step_buffer(&mut self.seq, &mut self.caches, WriteBehindEvent::FlushRequested, CACHES_MS, "caches", &mut self.timers).into_iter().map(|(a, m)| Batch::Caches(a, m)));
         self.commit(batches);
-        // At quit the WAL goes back into the file (`quit_checkpoint`) after the caller has its
-        // answer: the rows are committed now, and the synced checkpoint overlaps the windows
-        // closing; closing the storage waits for it.
-        let checkpointed = quit && !self.wal.is_clean();
+        // At quit / session-end / update-restart, complete the checkpoint (or fallback WAL sync)
+        // before returning FlushReport so callers and `close()`'s `journal::finish` never observe
+        // a clean/checkpointed answer while frames are still unsynced in the WAL.
+        let had_wal = !self.wal.is_clean();
+        self.quit_checkpoint(reason);
+        if quit {
+            rune::marks::mark("writer.checkpointed");
+        }
+        let checkpointed = quit && had_wal && self.wal.is_clean();
         FlushReport { clean: false, rows: self.written, micros: super::super::micros(started), checkpointed, timed_out: false }
     }
 
@@ -259,6 +323,11 @@ impl Writer {
     /// pages. Rewritten with `VACUUM` under the rollback journal, so a kill midway leaves the old
     /// file; the boot record's raw read is kept only if its table's root is still page 2.
     pub(super) fn repage(&mut self) {
+        // Never drop `journal_meta` / `journal` or rewrite the file while unsaved rows, a dirty
+        // WAL, write trouble, or unsettled draft-journal entries remain.
+        if !self.wal.is_clean() || self.has_pending() || crate::write_trouble().is_some() || !super::super::journal::is_clean() {
+            return;
+        }
         let get = |pragma: &str| self.conn.query_row(&format!("PRAGMA {pragma}"), [], |r| r.get::<_, i64>(0)).unwrap_or(0);
         let (page, pages) = (get("page_size"), get("page_count"));
         if page <= REPAGE_TO || page * pages > REPAGE_MAX {
@@ -268,15 +337,21 @@ impl Writer {
         // VACUUM moves every page: the draft journal's place goes with it, so it's reserved
         // again at the next launch (closed and clean by now: `journal::finish`).
         self.conn.execute_batch("DELETE FROM journal_meta; DELETE FROM journal;").ok();
+        // Drop the extra handle to `<db>-wal` before switching journal modes so `-wal` cannot be
+        // left delete-pending on Windows or bound to an unlinked inode if SQLite deletes it.
+        self.wal_file.close();
         let done = self.conn.execute_batch(&format!("PRAGMA journal_mode = DELETE; PRAGMA page_size = {REPAGE_TO}; VACUUM; PRAGMA journal_mode = WAL;"));
-        // The WAL back to empty: the next launch reads the record raw.
-        self.conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(())).ok();
+        if done.is_err() {
+            self.conn.execute_batch("PRAGMA journal_mode = WAL;").ok();
+        }
         let root: i64 = self.conn.query_row("SELECT rootpage FROM sqlite_schema WHERE name = 'boot'", [], |r| r.get(0)).unwrap_or(0);
         if root != 2
             && let Ok(version) = super::super::schema::user_version(&self.conn)
         {
             super::super::schema::set_flags(&self.conn, version & super::super::schema::FLAG_MASK & !super::super::schema::FLAG_BOOT_PAGE2).ok();
         }
+        // The WAL back to empty after any `user_version` update: the next launch reads the record raw.
+        self.conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(())).ok();
         eprintln!("opencode-storage: {} {} pages of {page} B into {REPAGE_TO} B pages in {} us", if done.is_ok() { "rewrote" } else { "couldn't rewrite" }, pages, t.elapsed().as_micros());
     }
 
@@ -338,8 +413,11 @@ impl Writer {
                 }
                 DraftGcEffect::Collect { attempt, at_ms, before_ms } => {
                     let event = match sql::collect_blobs(&self.conn, before_ms) {
-                        Ok(oldest) => {
+                        Ok((oldest, deleted)) => {
                             self.touched.retain(|_, t| *t >= before_ms);
+                            if deleted > 0 {
+                                self.wal_unsynced(false);
+                            }
                             DraftGcEvent::CollectSucceeded { attempt, at_ms, oldest_orphan_ms: oldest }
                         }
                         Err(e) => DraftGcEvent::CollectFailed { attempt, at_ms, error: e.to_string() },
@@ -363,7 +441,24 @@ impl Writer {
                     self.timers.insert("wal", None);
                 }
                 WalEffect::PassiveCheckpoint => {
-                    self.conn.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |_| Ok(())).ok();
+                    // SQLite's PASSIVE checkpoint can return busy == 0 even when a reader blocked
+                    // progress (checkpointed < log), so require all logged frames to be checkpointed.
+                    let complete = matches!(
+                        self.conn.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))),
+                        Ok((0, log, ckpt)) if log >= 0 && ckpt >= log
+                    );
+                    let event = if complete { WalEvent::PassiveCheckpointed } else { WalEvent::PassiveCheckpointIncomplete { now: Instant::now() } };
+                    queue.extend(wal_step(&mut self.seq, &mut self.wal, event));
+                }
+                WalEffect::SyncWal => {
+                    let event = match self.wal_file.sync_all(&self.conn) {
+                        Some(wal_bytes) => {
+                            rune::marks::mark("wal.synced");
+                            WalEvent::WalSynced { wal_bytes }
+                        }
+                        None => WalEvent::WalSyncFailed { now: Instant::now() },
+                    };
+                    queue.extend(wal_step(&mut self.seq, &mut self.wal, event));
                 }
                 WalEffect::Checkpoint { rebuild_boot } => {
                     // The record goes current in the transaction right before the checkpoint, so
@@ -376,8 +471,16 @@ impl Writer {
                         })()
                         .is_ok();
                     rune::marks::mark("writer.rebuilt");
-                    let busy = if rebuilt { self.conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get::<_, i64>(0)).unwrap_or(1) } else { 1 };
-                    let event = if busy == 0 { WalEvent::Checkpointed } else { WalEvent::CheckpointFailed };
+                    let complete = rebuilt
+                        && matches!(
+                            self.conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))),
+                            Ok((0, log, ckpt)) if log >= 0 && ckpt >= log
+                        );
+                    let event = if complete {
+                        WalEvent::Checkpointed
+                    } else {
+                        WalEvent::CheckpointFailed { boot_rebuilt: rebuild_boot && rebuilt, now: Instant::now() }
+                    };
                     queue.extend(wal_step(&mut self.seq, &mut self.wal, event));
                 }
             }
