@@ -6,6 +6,7 @@
 //! On `wasm32`, no CEF sidecar engine exists (`EngineStatus::Unsupported`), so `browser-pane` is
 //! omitted and this module exposes zero-sized no-op stubs.
 
+pub mod links;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod context_menu;
 #[cfg(not(target_arch = "wasm32"))]
@@ -100,6 +101,9 @@ mod native {
         pub devtools: HashMap<u64, PendingDevtools>,
         /// Last observed Luau store version for `plugin.browser/rune.sitePermissions`.
         pub site_permissions_version: u64,
+        /// Conversation app-scheme links waiting to display inside the browser pane's guarded
+        /// `RefusalBar` (`(tab_id, href)`).
+        pub pending_app_links: std::cell::RefCell<std::collections::VecDeque<(u64, String)>>,
     }
 
     /// App-level shortcuts that a focused web page must yield to OpenCode (Rune) rather than swallow,

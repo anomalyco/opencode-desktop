@@ -65,6 +65,9 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
                 ("message", Data::Nil),
                 ("downloads", Data::Bool(false)),
                 ("policy", Data::Bool(false)),
+                ("find", Data::Bool(false)),
+                ("clearCache", Data::Bool(false)),
+                ("hardReload", Data::Bool(false)),
             ]),
             lua,
         )
@@ -73,6 +76,7 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
         Err(mlua::Error::runtime(UNSUPPORTED))
     })?;
     method(lua, t, "Prepare", |_, _seconds: Option<f64>| Ok(()))?;
+    method(lua, t, "TakeAppLinkReview", |_, ()| Ok(Value::Nil))?;
     let raw: Function = vmx.asyncs.raw_get("Browser.OpenAsync")?;
     let open: Function = lua
         .load("local raw = ... return function(self, spec) local id = raw(spec) return if id then self:Get(id) else nil end")
@@ -94,6 +98,7 @@ pub fn asyncs(host: &Host<'_>, t: &Table) -> mlua::Result<()> {
         "BrowserTab.DevtoolsAsync",
         "BrowserTab.SiteCookiesAsync",
         "BrowserTab.ClearSiteAsync",
+        "BrowserTab.ClearCacheAsync",
         "BrowserTab.ReadFileAsync",
     ] {
         t.raw_set(

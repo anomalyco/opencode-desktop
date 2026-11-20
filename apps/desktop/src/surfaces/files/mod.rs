@@ -95,6 +95,15 @@ impl FilesHost for App {
         crate::open_in::open_external(tx, url);
     }
 
+    fn route_web_link(&mut self, sid: Option<&str>, url: &str, from_file: bool, tx: &mut Tx) {
+        let source = if from_file {
+            crate::surfaces::browser::links::LinkSource::FileViewer
+        } else {
+            crate::surfaces::browser::links::LinkSource::Chat
+        };
+        self.route_web_or_app_link(sid, url, source, None, tx);
+    }
+
     fn can_open_in(&self) -> bool {
         App::can_open_in(self)
     }
