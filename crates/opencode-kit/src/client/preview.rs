@@ -417,6 +417,7 @@ impl Server {
                         return false;
                     }
                 }
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(_) => return false,
             }
         }
@@ -435,7 +436,12 @@ fn extract_head(resp: &ureq::http::Response<ureq::Body>) -> PreviewHttpHead {
         .headers()
         .get("content-length")
         .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.trim().parse::<u64>().ok());
+        .and_then(|s| {
+            let t = s.trim();
+            (!t.is_empty() && t.bytes().all(|b| b.is_ascii_digit()))
+                .then(|| t.parse::<u64>().ok())
+                .flatten()
+        });
     let content_range = resp
         .headers()
         .get("content-range")

@@ -371,6 +371,7 @@ impl EngineManager {
                     partitions: true,
                     remote_proxy: true,
                     preview: true,
+                    preview_credit: true,
                     extensions: true,
                 });
                 for (&tab_id, t) in &self.tabs {

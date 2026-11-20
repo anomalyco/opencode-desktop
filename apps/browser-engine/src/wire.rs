@@ -241,6 +241,8 @@ pub enum EngineMsg {
         #[serde(default)]
         preview: bool,
         #[serde(default)]
+        preview_credit: bool,
+        #[serde(default)]
         extensions: bool,
     },
     /// Requests bytes for a remote workspace or artifact preview from the app host (server

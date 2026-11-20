@@ -810,6 +810,13 @@ wrap_resource_handler! {
                 return 1;
             }
             if st.remaining_to_deliver == Some(0) && st.skip_remaining == 0 {
+                let notify_cancel = !st.cancel_notified;
+                st.cancel_notified = true;
+                drop(st);
+                if notify_cancel {
+                    self.proxy.send_cancel();
+                }
+                self.registry.remove_proxy(self.req_id);
                 *out_n = 0;
                 return 0;
             }

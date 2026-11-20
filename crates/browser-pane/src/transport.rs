@@ -707,6 +707,10 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
                     WirePaint { tab_id, frame_id, width, height, bgra_b64: &bgra_b64 }.push(&link.surfaces);
                     continue;
                 }
+                // Track whether this engine speaks `EngineMsg::PreviewCredit` before any `PreviewFetch`.
+                if let EngineMsg::Ready { preview_credit, .. } = &msg {
+                    link.preview_chunk_budget.set_credit_enabled(*preview_credit);
+                }
                 // Handle per-proxy preview credit/cancel directly on the rx thread so streaming
                 // workers wake immediately without waiting for a UI frame.
                 if let EngineMsg::PreviewCredit { req_id, bytes, cancel } = msg {

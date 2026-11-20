@@ -647,6 +647,7 @@ impl PendingProxy {
                 st.remaining_to_deliver = Some(rem - keep as u64);
             }
             let discarded = raw_len.saturating_sub(slice.len());
+            let range_done = st.remaining_to_deliver == Some(0) && st.skip_remaining == 0;
             let exceeds_queue = st.queued_bytes.saturating_add(slice.len()) > MAX_PROXY_QUEUE_BYTES;
             if exceeds_cap || exceeds_len || exceeds_queue {
                 st.canceled = true;
@@ -658,16 +659,22 @@ impl PendingProxy {
                 st.cancel_notified = true;
                 (st.waiting_read.take().map(|w| (w.callback, -2i32)), true, 0usize, notify)
             } else if slice.is_empty() {
-                st.unacked_bytes = st.unacked_bytes.saturating_add(discarded);
-                let credit = if st.unacked_bytes >= PREVIEW_CREDIT_BATCH_BYTES
-                    || (st.chunks.is_empty() && st.waiting_read.is_some())
-                {
-                    std::mem::take(&mut st.unacked_bytes)
+                if range_done {
+                    let notify = !st.cancel_notified;
+                    st.cancel_notified = true;
+                    let wake_eof = st.chunks.is_empty().then(|| st.waiting_read.take().map(|w| (w.callback, 0i32))).flatten();
+                    (wake_eof, true, 0usize, notify)
                 } else {
-                    0
-                };
-                let done = st.remaining_to_deliver == Some(0) && st.skip_remaining == 0 && st.chunks.is_empty();
-                (done.then(|| st.waiting_read.take().map(|w| (w.callback, 0i32))).flatten(), false, credit, false)
+                    st.unacked_bytes = st.unacked_bytes.saturating_add(discarded);
+                    let credit = if st.unacked_bytes >= PREVIEW_CREDIT_BATCH_BYTES
+                        || (st.chunks.is_empty() && st.waiting_read.is_some())
+                    {
+                        std::mem::take(&mut st.unacked_bytes)
+                    } else {
+                        0
+                    };
+                    (None, false, credit, false)
+                }
             } else if let Some(wait) = st.waiting_read.take() {
                 let n = slice.len().min(wait.max_len);
                 // SAFETY: CEF guarantees `data_out` remains valid until `wait.callback.cont` runs
@@ -680,24 +687,36 @@ impl PendingProxy {
                     st.queued_bytes = st.queued_bytes.saturating_add(rem.len());
                     st.chunks.push_front(rem);
                 }
-                st.unacked_bytes = st.unacked_bytes.saturating_add(discarded + n);
-                let credit = if st.unacked_bytes >= PREVIEW_CREDIT_BATCH_BYTES {
-                    std::mem::take(&mut st.unacked_bytes)
+                if range_done {
+                    let notify = !st.cancel_notified;
+                    st.cancel_notified = true;
+                    (Some((wait.callback, n as i32)), true, 0usize, notify)
                 } else {
-                    0
-                };
-                (Some((wait.callback, n as i32)), false, credit, false)
+                    st.unacked_bytes = st.unacked_bytes.saturating_add(discarded + n);
+                    let credit = if st.unacked_bytes >= PREVIEW_CREDIT_BATCH_BYTES {
+                        std::mem::take(&mut st.unacked_bytes)
+                    } else {
+                        0
+                    };
+                    (Some((wait.callback, n as i32)), false, credit, false)
+                }
             } else {
                 let owned = slice.to_vec();
                 st.queued_bytes = st.queued_bytes.saturating_add(owned.len());
                 st.chunks.push_back(owned);
-                st.unacked_bytes = st.unacked_bytes.saturating_add(discarded);
-                let credit = if st.unacked_bytes >= PREVIEW_CREDIT_BATCH_BYTES {
-                    std::mem::take(&mut st.unacked_bytes)
+                if range_done {
+                    let notify = !st.cancel_notified;
+                    st.cancel_notified = true;
+                    (None, true, 0usize, notify)
                 } else {
-                    0
-                };
-                (None, false, credit, false)
+                    st.unacked_bytes = st.unacked_bytes.saturating_add(discarded);
+                    let credit = if st.unacked_bytes >= PREVIEW_CREDIT_BATCH_BYTES {
+                        std::mem::take(&mut st.unacked_bytes)
+                    } else {
+                        0
+                    };
+                    (None, false, credit, false)
+                }
             }
         };
         if notify_cancel {

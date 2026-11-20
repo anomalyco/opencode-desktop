@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::client::{BrowserHost, BrowserTab};
 use crate::frame::TabSurface;
@@ -17,6 +17,10 @@ use crate::protocol::{ContextKind, CursorKind, HostMsg, PreviewKindTag, PreviewS
 const INITIAL_PREVIEW_CREDIT_BYTES: usize = 1024 * 1024;
 /// Upper ceiling on accumulated credit per proxy (defensive against malformed peer messages).
 const MAX_PREVIEW_CREDIT_BYTES: usize = 2 * 1024 * 1024;
+/// Maximum time a host fetch worker waits for CEF to consume buffered bytes and return credit
+/// before aborting the fetch and releasing its `PreviewFetchPool` worker (`20 s`, matching
+/// `PREVIEW_PER_READ_TIMEOUT` so unconsumed `fetch()` or paused media cannot pin workers forever).
+const PREVIEW_CREDIT_WAIT_TIMEOUT: Duration = Duration::from_secs(20);
 
 #[derive(Default)]
 struct FlowEntry {
@@ -29,11 +33,18 @@ struct FlowEntry {
 /// engine `ProxyResourceHandler::read`. Control messages NEVER wait on this budget.
 #[derive(Default)]
 pub(crate) struct PreviewChunkBudget {
+    credit_enabled: AtomicBool,
     entries: Mutex<HashMap<u64, FlowEntry>>,
     ready: Condvar,
 }
 
 impl PreviewChunkBudget {
+    #[cfg_attr(not(feature = "engine"), allow(dead_code))]
+    pub(crate) fn set_credit_enabled(&self, enabled: bool) {
+        self.credit_enabled.store(enabled, Ordering::Release);
+        self.ready.notify_all();
+    }
+
     #[cfg_attr(not(feature = "engine"), allow(dead_code))]
     pub(crate) fn on_fetch(&self, req_id: u64, tab_id: u64) {
         let mut map = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
@@ -82,6 +93,7 @@ impl PreviewChunkBudget {
         shared: &Mutex<SharedEngine>,
     ) -> bool {
         let need = raw_len.max(1);
+        let deadline = Instant::now() + PREVIEW_CREDIT_WAIT_TIMEOUT;
         let mut map = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
         loop {
             if !alive.load(Ordering::Acquire)
@@ -95,13 +107,25 @@ impl PreviewChunkBudget {
             if entry.canceled {
                 return false;
             }
+            // Pre-credit `#281`-era engines (`Ready.preview == true, preview_credit == false`) do
+            // not emit `EngineMsg::PreviewCredit`: skip credit blocking so >1 MiB previews never
+            // deadlock (engine's own queue cap + pool caps still bound in-flight data).
+            if !self.credit_enabled.load(Ordering::Acquire) {
+                return true;
+            }
             if entry.credit >= need {
                 entry.credit -= need;
                 return true;
             }
+            let now = Instant::now();
+            if now >= deadline {
+                entry.canceled = true;
+                return false;
+            }
+            let wait = deadline.saturating_duration_since(now).min(Duration::from_millis(50));
             let (next, _) = self
                 .ready
-                .wait_timeout(map, Duration::from_millis(50))
+                .wait_timeout(map, wait)
                 .unwrap_or_else(PoisonError::into_inner);
             map = next;
         }
@@ -109,6 +133,7 @@ impl PreviewChunkBudget {
 
     #[cfg_attr(not(feature = "engine"), allow(dead_code))]
     pub(crate) fn reset(&self) {
+        self.credit_enabled.store(false, Ordering::Release);
         let mut map = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
         map.clear();
         self.ready.notify_all();
