@@ -430,6 +430,7 @@ wrap_load_handler! {
         snap: Arc<Mutex<TabSnapshot>>,
         prompts: Arc<crate::prompts::TabPrompts>,
         diagnostics: Arc<crate::diagnostics::TabDiagnostics>,
+        context_gate: Option<crate::context::ContextGate>,
         out_tx: Output,
     }
 
@@ -445,7 +446,13 @@ wrap_load_handler! {
                 self.prompts.set_pending_top_url(None);
             }
             let mut s = self.snap.lock().unwrap();
-            s.loading = is_loading != 0;
+            let waiting_deferred = is_loading == 0
+                && s.url.eq_ignore_ascii_case("about:blank")
+                && self
+                    .context_gate
+                    .as_ref()
+                    .is_some_and(|g| g.deferred_initial.load(std::sync::atomic::Ordering::Acquire));
+            s.loading = is_loading != 0 || waiting_deferred;
             s.can_go_back = can_go_back != 0;
             s.can_go_forward = can_go_forward != 0;
             let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
@@ -533,12 +540,14 @@ wrap_resource_request_handler! {
     pub struct TabResourceRequestHandler {
         file_roots: Arc<Mutex<Vec<String>>>,
         prompts: Arc<crate::prompts::TabPrompts>,
+        context_gate: Option<crate::context::ContextGate>,
         is_main_navigation: bool,
     }
 
     impl ResourceRequestHandler {
         // Sub-resources (`img`, `script`, `link`, `fetch`, `XHR`) may never read `file:` URLs
-        // outside the tab's allowed workspace roots (`pane.ts:103-107`).
+        // outside the tab's allowed workspace roots (`pane.ts:103-107`), and isolated contexts
+        // cancel every non-`about:blank` request until preferences are verified (or while suspended).
         fn on_before_resource_load(
             &self,
             _browser: Option<&mut Browser>,
@@ -547,6 +556,12 @@ wrap_resource_request_handler! {
             _callback: Option<&mut Callback>,
         ) -> ReturnValue {
             let url = request.map(|r| CefString::from(&r.url()).to_string()).unwrap_or_default();
+            if let Some(gate) = &self.context_gate
+                && !gate.is_network_allowed()
+                && !url.trim().eq_ignore_ascii_case("about:blank")
+            {
+                return ReturnValue::CANCEL;
+            }
             let roots = self.file_roots.lock().unwrap().clone();
             if browser_policy::subresource_allowed(&url, &roots) {
                 ReturnValue::CONTINUE
@@ -564,6 +579,12 @@ wrap_resource_request_handler! {
             new_url: Option<&mut CefString>,
         ) {
             let Some(new_url) = new_url else { return };
+            if let Some(gate) = &self.context_gate
+                && !gate.is_network_allowed()
+            {
+                *new_url = CefString::from("");
+                return;
+            }
             let target = new_url.to_string();
             let roots = self.file_roots.lock().unwrap().clone();
             if !browser_policy::subresource_allowed(&target, &roots) {
@@ -596,6 +617,7 @@ wrap_request_handler! {
         prompt_shared: crate::prompts::PromptShared,
         prompts: Arc<crate::prompts::TabPrompts>,
         diagnostics: Arc<crate::diagnostics::TabDiagnostics>,
+        context_gate: Option<crate::context::ContextGate>,
         out_tx: Output,
     }
 
@@ -613,6 +635,16 @@ wrap_request_handler! {
         ) -> ::std::os::raw::c_int {
             let is_main = frame.map_or(true, |f| f.is_main() == 1);
             let url = request.map(|r| CefString::from(&r.url()).to_string()).unwrap_or_default();
+            if let Some(gate) = &self.context_gate
+                && !gate.is_network_allowed()
+                && !url.trim().eq_ignore_ascii_case("about:blank")
+            {
+                let _ = self.out_tx.send(EngineMsg::Refused {
+                    tab_id: self.tab_id,
+                    reason: gate.refusal_reason().to_owned(),
+                });
+                return 1;
+            }
             let roots = self.file_roots.lock().unwrap().clone();
             if let Some(why) = browser_policy::frame_guard(&url, is_main, &roots) {
                 let _ = self.out_tx.send(EngineMsg::Refused {
@@ -636,6 +668,16 @@ wrap_request_handler! {
             _user_gesture: ::std::os::raw::c_int,
         ) -> ::std::os::raw::c_int {
             let url = target_url.map(CefString::to_string).unwrap_or_default();
+            if let Some(gate) = &self.context_gate
+                && !gate.is_network_allowed()
+                && !url.trim().eq_ignore_ascii_case("about:blank")
+            {
+                let _ = self.out_tx.send(EngineMsg::Refused {
+                    tab_id: self.tab_id,
+                    reason: gate.refusal_reason().to_owned(),
+                });
+                return 1;
+            }
             let roots = self.file_roots.lock().unwrap().clone();
             if let Some(why) = browser_policy::frame_guard(&url, true, &roots) {
                 let _ = self.out_tx.send(EngineMsg::Refused {
@@ -720,6 +762,7 @@ wrap_request_handler! {
             Some(TabResourceRequestHandler::new(
                 self.file_roots.clone(),
                 self.prompts.clone(),
+                self.context_gate.clone(),
                 is_main_navigation,
             ))
         }

@@ -347,6 +347,7 @@ pub fn origin_of(url: &str) -> Option<String> {
 wrap_life_span_handler! {
     pub struct TabLifeSpanHandler {
         tab_id: u64,
+        context_gate: Option<crate::context::ContextGate>,
         out_tx: Output,
     }
 
@@ -367,6 +368,15 @@ wrap_life_span_handler! {
             _extra_info: Option<&mut Option<DictionaryValue>>,
             _no_javascript_access: Option<&mut ::std::os::raw::c_int>,
         ) -> ::std::os::raw::c_int {
+            if let Some(gate) = &self.context_gate
+                && !gate.is_network_allowed()
+            {
+                let _ = self.out_tx.send(EngineMsg::Refused {
+                    tab_id: self.tab_id,
+                    reason: gate.refusal_reason().to_owned(),
+                });
+                return 1;
+            }
             let raw = target_url.map(CefString::to_string).unwrap_or_default();
             let url = if raw.trim().is_empty() { "about:blank".to_owned() } else { raw };
             // Pop-ups are never permitted to open `file://` or non-HTTP(S) schemes (`chromium.ts:448-468`).

@@ -110,19 +110,35 @@ impl crate::BrowserHost {
         self.remote_proxies.get(server_id.trim())
     }
 
-    /// Updates or clears the local loopback tunnel proxy on a remote server partition.
-    /// Clearing (`None`) removes the cached proxy and instructs the engine to close live remote
-    /// tabs for `server_id` so zero tabs can continue unproxied.
+    /// Drains `(tab_id, last_refusal)` closed by the engine (`EngineMsg::TabClosed`) so the desktop
+    /// shell can prune `session_tabs`, close dead side-panel tabs, and surface any refusal reason.
+    pub fn drain_closed_tabs(&mut self) -> impl Iterator<Item = (u64, Option<String>)> + '_ {
+        self.closed_tabs.drain(..)
+    }
+
+    /// Updates or suspends the local loopback tunnel proxy on a remote server partition.
+    /// Rejects invalid proxy configs (must be a strict loopback IP literal + non-empty Basic creds).
+    /// Clearing (`None`) suspends live tabs in the engine without destroying unsaved user state.
     pub fn set_partition_proxy(
         &mut self,
         server_id: &str,
         proxy: Option<crate::protocol::RemoteProxyConfig>,
-    ) {
+    ) -> bool {
         let sid = server_id.trim();
         if sid.is_empty() {
-            return;
+            return false;
         }
         if let Some(cfg) = &proxy {
+            if crate::policy::validate_proxy_endpoint(
+                &cfg.host,
+                cfg.port,
+                cfg.username.as_deref(),
+                cfg.password.as_deref(),
+            )
+            .is_err()
+            {
+                return false;
+            }
             self.remote_proxies.insert(sid.to_owned(), cfg.clone());
         } else {
             self.remote_proxies.remove(sid);
@@ -140,6 +156,7 @@ impl crate::BrowserHost {
                 proxy,
             });
         }
+        true
     }
 
     /// Closes connections and releases a non-default preview or remote server context in the engine.

@@ -134,7 +134,11 @@ fn open_page_menu(app: &mut App, tab_id: u64, info: PageContextMenu, tx: &mut Tx
             Some("open-link") => {
                 if let Some(url) = link_url {
                     let sid = s.browser_tab_session(tab_id).map(str::to_owned);
-                    s.open_new_browser_tab_for_session(sid.as_deref(), &url, None, true);
+                    let (agent, ctx) = s.browser_context_for_opener(tab_id);
+                    let new_id = s.open_new_browser_tab_with_context(sid.as_deref(), &url, None, true, false, ctx);
+                    if agent {
+                        s.workspace_panes.browser.host.set_agent_driven(new_id, true);
+                    }
                 }
             }
             Some("external-link") => {
@@ -150,7 +154,11 @@ fn open_page_menu(app: &mut App, tab_id: u64, info: PageContextMenu, tx: &mut Tx
             Some("open-image") => {
                 if let Some(url) = src_url {
                     let sid = s.browser_tab_session(tab_id).map(str::to_owned);
-                    s.open_new_browser_tab_for_session(sid.as_deref(), &url, None, true);
+                    let (agent, ctx) = s.browser_context_for_opener(tab_id);
+                    let new_id = s.open_new_browser_tab_with_context(sid.as_deref(), &url, None, true, false, ctx);
+                    if agent {
+                        s.workspace_panes.browser.host.set_agent_driven(new_id, true);
+                    }
                 }
             }
             Some("save-image") => {
