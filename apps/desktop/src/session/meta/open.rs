@@ -10,6 +10,13 @@ impl App {
     /// leaves Settings, as any page the sidebar opens does.
     pub fn open(&mut self, id: &str, tx: &mut Tx) {
         self.close_settings();
+        if self.can_reveal_outside()
+            && let Some(dir) = self.session(id).map(|s| s.directory.clone())
+        {
+            // Lazily pin ONLY this routed session's workspace root once process-wide before its
+            // messages render or any tool runs (zero boot syscalls for inactive listed projects).
+            let _ = self.pinned_local_root(&dir);
+        }
         if self.opening.as_ref().is_some_and(|o| o.id == id) { return; }
         let held = self.pages.has_pool() && self.route != Route::here(id.to_owned());
         if self.route != Route::here(id.to_owned()) { crate::telemetry::open_begin(id, held); }

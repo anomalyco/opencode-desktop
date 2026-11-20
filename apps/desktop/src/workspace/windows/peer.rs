@@ -375,7 +375,6 @@ pub fn keep_reading(s: &mut App, reading: Reading) {
     for (id, t) in reading.transcripts {
         s.transcripts.entry(id).or_insert(t);
     }
-    s.pin_loaded_roots();
 }
 
 /// The window leaves its server's peer (it closes, moves to another server, or loses it): it

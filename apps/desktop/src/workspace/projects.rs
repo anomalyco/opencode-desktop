@@ -450,7 +450,6 @@ impl App {
         tx: &mut Tx,
     ) {
         apply_project_opened(self, location, projects, session, tx);
-        self.pin_loaded_roots();
     }
 
     /// Consolidated navigation under side tabs: the sidebar already lists sessions, so Home drops

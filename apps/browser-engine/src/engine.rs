@@ -1372,7 +1372,7 @@ impl EngineManager {
     fn safe_roots(&self, roots: Vec<String>) -> Vec<String> {
         roots
             .into_iter()
-            .filter_map(|r| browser_policy::resolve_safe_local_workspace_root(&r, self.home.as_deref()))
+            .filter(|r| browser_policy::is_safe_local_workspace_root(r, self.home.as_deref()))
             .collect()
     }
 

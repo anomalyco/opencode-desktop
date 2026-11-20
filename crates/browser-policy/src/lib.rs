@@ -31,7 +31,8 @@ pub use local_path::{
     is_unc_or_device_path, is_unc_or_device_path_for, is_unix_autofs_path, safe_local_reveal_path,
 };
 pub use workspace_root::{
-    is_safe_local_workspace_root, is_safe_workspace_root, resolve_safe_local_workspace_root,
+    is_safe_local_workspace_root, is_safe_workspace_root, resolve_local_home,
+    resolve_safe_local_workspace_root,
 };
 use workspace_root::path_within_root;
 

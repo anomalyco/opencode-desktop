@@ -72,6 +72,18 @@ impl FilesHost for App {
         self.draft_dir()
     }
 
+    fn draft_physical_directory(&self) -> Option<String> {
+        let dir = self.draft_dir();
+        if dir.is_empty() {
+            return None;
+        }
+        if self.can_reveal_outside() {
+            self.pinned_local_root(dir)
+        } else {
+            Some(dir.to_owned())
+        }
+    }
+
     fn home_directory(&self) -> &str {
         &self.home
     }

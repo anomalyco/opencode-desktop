@@ -238,15 +238,31 @@ pub fn open_reply_link(host: &mut dyn FilesHost, href: &str, tx: &mut Tx) {
         return open_link(host, &sid, None, href, tx);
     }
     // A new session's page: no side panel to open a file in. Never execute via OS default app;
-    // at most reveal a local fixed-drive path in the file manager.
+    // at most reveal a local fixed-drive path in the file manager, routing the draft directory
+    // through the same process-wide physical root pin table.
     let draft_dir = host.draft_directory().to_owned();
+    let draft_phys = host.draft_physical_directory();
     let home = host.home_directory().to_owned();
     let is_file_uri = href.trim().get(..5).is_some_and(|s| s.eq_ignore_ascii_case("file:"));
-    match classify(href, "", &draft_dir, &home) {
+    let mut classified = classify(href, "", &draft_dir, &home);
+    if matches!(classified, Link::Outside { .. })
+        && let Some(ref phys) = draft_phys
+        && phys != &draft_dir
+    {
+        let phys_link = classify(href, "", phys, &home);
+        if matches!(phys_link, Link::Inside { .. }) {
+            classified = phys_link;
+        }
+    }
+    match classified {
         Link::Web(_) => open_web(host, None, href, false, tx),
         Link::Heading(_) => {}
         Link::Inside { path, .. } if !is_file_uri => {
-            let abs = format!("{}/{path}", draft_dir.trim_end_matches('/'));
+            let Some(root) = draft_phys else {
+                host.toast_say(opencode_i18n::t!("rune.files.link.outside").to_owned(), path);
+                return;
+            };
+            let abs = opencode_kit::path::absolute(&root, &path);
             reveal_outside_file(host, &abs);
         }
         Link::Outside { path } if !is_file_uri => reveal_outside_file(host, &path),

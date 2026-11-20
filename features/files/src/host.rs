@@ -134,6 +134,12 @@ pub trait FilesHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
     fn draft_directory(&self) -> &str {
         ""
     }
+    /// Pinned physical local directory of the active draft (resolved once via the process-wide
+    /// pin table on local servers, or `None` if refused).
+    fn draft_physical_directory(&self) -> Option<String> {
+        let dir = self.draft_directory();
+        (!dir.is_empty()).then(|| dir.to_owned())
+    }
     /// User home directory used to expand `~` and format out-of-workspace paths.
     fn home_directory(&self) -> &str {
         ""

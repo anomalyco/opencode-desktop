@@ -348,7 +348,7 @@ mod native {
                 return Vec::new();
             };
             let dir = self.link_directory(id);
-            self.pinned_local_root(&dir).into_iter().collect()
+            self.pinned_sidecar_root(&dir).into_iter().collect()
         }
 
         /// Default browser isolation context for tabs opened in session `sid`: derived from `sid`'s

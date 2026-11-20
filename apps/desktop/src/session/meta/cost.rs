@@ -55,9 +55,6 @@ impl App {
     /// the one it holds.
     pub(crate) fn children_listed(&mut self, sessions: Vec<SessionInfo>) {
         for mut info in sessions {
-            if self.can_reveal_outside() {
-                let _ = self.pinned_local_root(&info.directory);
-            }
             match self.sessions.iter_mut().find(|x| x.id == info.id) {
                 Some(old) => {
                     info.viewed = info.viewed.max(old.viewed);

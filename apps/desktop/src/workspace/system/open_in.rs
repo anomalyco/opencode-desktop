@@ -168,17 +168,16 @@ impl App {
         }
     }
 
-    /// Resolves and pins a known-local workspace root directory once per window (returning the
-    /// verified physical path, never the raw symlink/junction alias). Returns `None` on remote
-    /// servers, `wasm32`, or refused broad/system/network paths.
+    /// Resolves and pins a known-local workspace root directory once per process (shared across
+    /// all windows; returning the verified physical path, never the raw symlink/junction alias).
+    /// Returns `None` on remote servers, `wasm32`, refused paths, or past the fail-closed cap.
     pub fn pinned_local_root(&self, raw_dir: &str) -> Option<String> {
         #[cfg(not(target_arch = "wasm32"))]
         {
             if !self.can_reveal_outside() || raw_dir.is_empty() {
                 return None;
             }
-            let home = (!self.home.is_empty()).then_some(self.home.as_str());
-            self.kernel.slots.get(&OPEN_IN).pinned_local_root(raw_dir, home)
+            self.pinned_sidecar_root(raw_dir)
         }
         #[cfg(target_arch = "wasm32")]
         {
@@ -187,21 +186,22 @@ impl App {
         }
     }
 
-    /// Eagerly resolves and pins all loaded local project, session, and draft roots up front so
-    /// re-pointing a symlink/junction alias after start-up cannot move any workspace.
-    pub(crate) fn pin_loaded_roots(&self) {
-        if !self.can_reveal_outside() {
-            return;
+    /// Process-wide local root pin for callers that already verified the target session belongs
+    /// to this machine's sidecar (e.g. `browser_file_roots` for a parked sidecar tab while a
+    /// remote server is checked out).
+    pub fn pinned_sidecar_root(&self, raw_dir: &str) -> Option<String> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if raw_dir.is_empty() {
+                return None;
+            }
+            let home = (!self.home.is_empty()).then_some(self.home.as_str());
+            opencode_feature_open_in::pinned_local_root(raw_dir, home)
         }
-        for p in self.projects.iter() {
-            let _ = self.pinned_local_root(&p.directory);
-        }
-        for info in self.sessions.iter() {
-            let _ = self.pinned_local_root(&info.directory);
-        }
-        let draft = self.draft_dir();
-        if !draft.is_empty() {
-            let _ = self.pinned_local_root(draft);
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = raw_dir;
+            None
         }
     }
 

@@ -57,13 +57,17 @@ pub fn pin_root(workspace: &str, home: Option<&str>) -> Option<RootPin> {
     if !browser_policy::is_safe_workspace_root(workspace, home) {
         return None;
     }
-    let pin = os::pin_dir(Path::new(workspace))?;
+    // Resolve local symlinks/junctions via reparse metadata / `openat(O_NOFOLLOW)` BEFORE calling
+    // `os::pin_dir` so an alias targeting UNC (`\\server\share`) or Unix autofs (`/net/...`) is
+    // refused with zero network touch.
+    let verified = browser_policy::resolve_local_root(workspace).ok()?;
+    let pin = os::pin_dir(Path::new(&verified.path))?;
     if !browser_policy::is_safe_workspace_root(&pin.canonical_path, home) {
         return None;
     }
     if let Some(h) = home
-        && let Ok(canon_home) = browser_policy::resolve_local_root(h)
-        && !browser_policy::is_safe_workspace_root(&pin.canonical_path, Some(&canon_home.path))
+        && let Some(canon_home) = browser_policy::resolve_local_home(h)
+        && !browser_policy::is_safe_workspace_root(&pin.canonical_path, Some(&canon_home))
     {
         return None;
     }

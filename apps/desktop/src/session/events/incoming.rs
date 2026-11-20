@@ -127,18 +127,10 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
         Incoming::Sessions(list) => {
             s.session_search.invalidate();
             s.sessions_listed(list);
-            if s.can_reveal_outside() {
-                for info in s.sessions.iter() {
-                    let _ = s.pinned_local_root(&info.directory);
-                }
-            }
             s.sort_projects();
             crate::rewind::read_sessions(s);
         }
         Incoming::Info(mut info) => {
-            if s.can_reveal_outside() {
-                let _ = s.pinned_local_root(&info.directory);
-            }
             let recent_changed = rune::Tracked::untracked(&s.recent_page).would_observe(&info);
             if recent_changed {
                 s.recent_page.observe(&info);
@@ -222,14 +214,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
         }
         Incoming::LookupMissing(_) => return false,
         Incoming::Inbox { session, items } => s.inbox_listed(&session, &items),
-        Incoming::Worktrees { project, directories } => {
-            if s.can_reveal_outside() {
-                for dir in &directories {
-                    let _ = s.pinned_local_root(dir);
-                }
-            }
-            s.worktrees_listed(project, directories);
-        }
+        Incoming::Worktrees { project, directories } => s.worktrees_listed(project, directories),
         Incoming::Branches { directory, search, result } => return s.branches_listed(&directory, &search, result.ok()),
         Incoming::InterruptAcknowledged { session, interrupted } => {
             if !interrupted { stop::confirmed(s, &session); }
@@ -290,11 +275,6 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             s.session_search.invalidate();
             tx.instant();
             *s.projects = projects;
-            if s.can_reveal_outside() {
-                for p in s.projects.iter() {
-                    let _ = s.pinned_local_root(&p.directory);
-                }
-            }
             s.sort_projects();
             s.list_unlisted_worktrees();
         }
@@ -303,16 +283,10 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
         }
         Incoming::Settled { ticket, result } => settled(s, ticket, result, tx),
         Incoming::Created(info) if s.queue.starts.has(&info.id) => {
-            if s.can_reveal_outside() {
-                let _ = s.pinned_local_root(&info.directory);
-            }
             s.started(info, tx);
         }
         Incoming::Created(info) => {
             let id = info.id.clone();
-            if s.can_reveal_outside() {
-                let _ = s.pinned_local_root(&info.directory);
-            }
             // A command sent from a draft started it: the draft's tab becomes its tab.
             s.promote_draft(&id, &info.directory);
             if s.session(&id).is_none() {
