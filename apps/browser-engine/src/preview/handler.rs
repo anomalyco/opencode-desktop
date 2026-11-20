@@ -20,11 +20,11 @@ use browser_policy::preview::{
 };
 use cef::rc::Rc as _;
 use cef::{
-    Browser, Callback, CefString, Frame, ImplCallback, ImplRequest, ImplResourceHandler,
-    ImplResourceReadCallback, ImplResourceSkipCallback, ImplResponse, ImplSchemeHandlerFactory,
-    Request, ResourceHandler, ResourceReadCallback, ResourceSkipCallback, Response,
-    SchemeHandlerFactory, WrapResourceHandler, WrapSchemeHandlerFactory, wrap_resource_handler,
-    wrap_scheme_handler_factory,
+    Browser, Callback, CefString, Frame, ImplCallback, ImplRequest, ImplRequestContext,
+    ImplResourceHandler, ImplResourceReadCallback, ImplResourceSkipCallback, ImplResponse,
+    ImplSchemeHandlerFactory, Request, RequestContext, ResourceHandler, ResourceReadCallback,
+    ResourceSkipCallback, Response, SchemeHandlerFactory, WrapResourceHandler,
+    WrapSchemeHandlerFactory, wrap_resource_handler, wrap_scheme_handler_factory,
 };
 
 use super::handle_path::{OpenOutcome, RootPin, open_verified_file};
@@ -33,6 +33,55 @@ use crate::output::Output;
 use crate::wire::EngineMsg;
 
 const LOCAL_READ_CHUNK_MAX: usize = 64 * 1024;
+
+// Fail-closed `CefSchemeHandlerFactory` registered for `"file"` on the global `Default`
+// `CefRequestContext` and every isolated context so raw `file://` requests are blocked engine-wide
+// across main frames, sub-frames, subresources, `fetch`, and Web Workers (`notes/review-rd281.md`).
+wrap_scheme_handler_factory! {
+    struct FileSchemeBanFactory;
+
+    impl SchemeHandlerFactory {
+        fn create(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            _scheme_name: Option<&CefString>,
+            _request: Option<&mut Request>,
+        ) -> Option<ResourceHandler> {
+            Some(FileSchemeDenyHandler::new())
+        }
+    }
+}
+
+wrap_resource_handler! {
+    struct FileSchemeDenyHandler;
+
+    impl ResourceHandler {
+        fn open(
+            &self,
+            _request: Option<&mut Request>,
+            handle_request: Option<&mut ::std::os::raw::c_int>,
+            _callback: Option<&mut Callback>,
+        ) -> ::std::os::raw::c_int {
+            if let Some(h) = handle_request {
+                *h = 1;
+            }
+            0
+        }
+
+        fn cancel(&self) {}
+    }
+}
+
+/// Registers a fail-closed `"file"` scheme handler on `ctx` blocking all native `file://` loads.
+pub fn ban_file_scheme(ctx: &RequestContext) {
+    let mut factory = FileSchemeBanFactory::new();
+    let _ = ctx.register_scheme_handler_factory(
+        Some(&CefString::from("file")),
+        Some(&CefString::from("")),
+        Some(&mut factory),
+    );
+}
 
 wrap_scheme_handler_factory! {
     pub struct PreviewSchemeHandlerFactory {

@@ -41,7 +41,18 @@ impl App {
         tx: &mut Tx,
     ) {
         let trimmed = href.trim();
-        if trimmed.is_empty() || is_file_scheme(trimmed) {
+        if trimmed.is_empty()
+            || is_file_scheme(trimmed)
+            || browser_policy::preview::is_preview_scheme(trimmed)
+            || browser_policy::preview::is_workspace_scheme(trimmed)
+        {
+            return;
+        }
+        // Artifact links (`artifact://<id>/<path>` or same-server `/api/experimental/artifacts/<id>/view/...`)
+        // open directly in an isolated preview tab when a session is active.
+        if let Some(sid) = sid
+            && self.try_open_artifact_link(sid, trimmed)
+        {
             return;
         }
         let is_http = trimmed.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("http://"))

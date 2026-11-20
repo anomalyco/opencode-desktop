@@ -116,6 +116,9 @@ impl CefRuntime {
         };
         let ok = cef::initialize(Some(&main_args), Some(&settings), Some(&mut app), std::ptr::null_mut());
         assert_eq!(ok, 1, "cef::initialize failed");
+        if let Some(global) = cef::request_context_get_global_context() {
+            crate::preview::handler::ban_file_scheme(&global);
+        }
 
         Self {
             profile,
@@ -529,23 +532,14 @@ impl EngineManager {
                     }
                 }
             }
-            HostMsg::OpenTab { tab_id, url, width_pt, height_pt, scale, focused, file_roots, context, preview } => {
-                // Only `Default` non-preview tabs receive local `file://` roots; all isolated & preview scopes strip them.
-                let roots = if preview.is_some() || context.is_isolated() {
-                    Vec::new()
-                } else {
-                    self.safe_roots(file_roots)
-                };
-                self.open_tab(tab_id, &url, width_pt, height_pt, scale, focused, roots, context, preview);
+            HostMsg::OpenTab { tab_id, url, width_pt, height_pt, scale, focused, file_roots: _, context, preview } => {
+                // Raw `file://` is banned unconditionally engine-wide; local workspace previews use
+                // isolated `oc-preview://` grants instead of `file_roots`.
+                self.open_tab(tab_id, &url, width_pt, height_pt, scale, focused, Vec::new(), context, preview);
             }
-            HostMsg::SetTabPolicy { tab_id, file_roots } => {
+            HostMsg::SetTabPolicy { tab_id, file_roots: _ } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
-                    if t.preview.is_some() || t.context.is_isolated() {
-                        t.file_roots.lock().unwrap().clear();
-                    } else {
-                        let roots = self.safe_roots(file_roots);
-                        *t.file_roots.lock().unwrap() = roots;
-                    }
+                    t.file_roots.lock().unwrap().clear();
                 }
             }
             HostMsg::CloseTab { tab_id } => {
@@ -1420,13 +1414,6 @@ impl EngineManager {
         if let Some(reason) = refused_reason {
             let _ = self.out_tx.send(EngineMsg::Refused { tab_id, reason });
         }
-    }
-
-    fn safe_roots(&self, roots: Vec<String>) -> Vec<String> {
-        roots
-            .into_iter()
-            .filter(|r| browser_policy::is_safe_workspace_root(r, self.home.as_deref()))
-            .collect()
     }
 
     fn send_color_scheme(&self, host: &BrowserHost, dark: bool) {

@@ -105,6 +105,8 @@ function failure.refusalKey(code: string): string
         return "refused.workspace"
     elseif code == "browser.preview.restricted" then
         return "preview.restricted"
+    elseif code == "browser.preview.unsupported" then
+        return "preview.unsupported"
     end
     return "refused.web"
 end

@@ -306,13 +306,18 @@ impl PreviewGrant {
     }
 
     /// Sanitizes any URL reported by CEF (`on_address_change`, `on_load_error`, context menu, JS
-    /// dialogs) so the internal random `oc-preview://<uuid>` origin never escapes into `TabSnapshot`.
+    /// dialogs) so the internal random `oc-preview://<uuid>` origin (and the pre-init deferred
+    /// `about:blank` placeholder) never escapes into `TabSnapshot` or overwrites the display URL.
     pub fn sanitize_reported_url(&self, raw_url: &str) -> String {
         if let Some(display) = self.display_url(raw_url) {
             return display;
         }
+        let trimmed = raw_url.trim();
         let own = format!("{}://{}/", scheme::PREVIEW_SCHEME, self.grant_host);
-        if raw_url.len() >= own.len() && raw_url.as_bytes()[..own.len()].eq_ignore_ascii_case(own.as_bytes()) {
+        if trimmed.eq_ignore_ascii_case("about:blank")
+            || (trimmed.len() >= own.len()
+                && trimmed.as_bytes()[..own.len()].eq_ignore_ascii_case(own.as_bytes()))
+        {
             let last = self.last_display_url();
             if !last.is_empty() {
                 return last;

@@ -298,7 +298,16 @@ pub trait FilesHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
         let _ = path;
         false
     }
-    /// Opens a `file://` URL in a new embedded browser tab for session `sid`.
+    /// Opens workspace-relative `rel_path` as an isolated `oc-preview://` tab for session `sid`.
+    fn open_workspace_preview(&mut self, sid: &str, rel_path: &str) {
+        let _ = (sid, rel_path);
+    }
+    /// Opens `href` as an isolated `artifact://` preview tab if it targets an artifact on the active server.
+    fn try_open_artifact_link(&mut self, sid: &str, href: &str) -> bool {
+        let _ = (sid, href);
+        false
+    }
+    /// Opens a URL in a new embedded browser tab for session `sid`.
     fn open_page_tab(&mut self, sid: &str, url: &str) {
         let _ = (sid, url);
     }

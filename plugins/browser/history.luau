@@ -13,10 +13,11 @@ export type Part = { text: string, match: boolean }
 local MAX_VISITS = 30
 local MAX_URL_LENGTH = 2048
 
--- Pages kept in the window's recent list: web pages and workspace files, never blank or internal.
+-- The pages the history records: web pages only, never blank pages, internal URLs, or isolated
+-- workspace/artifact previews (`file://`, `workspace://`, `artifact://`, `oc-preview://`).
 function history.recordable(url: string): boolean
     local lower = string.lower(url)
-    return string.match(lower, "^https?://") ~= nil or string.match(lower, "^file://") ~= nil
+    return string.match(lower, "^https?://") ~= nil
 end
 
 -- Canonical web-page deduplication key matching Rust `history::page::page_key`.

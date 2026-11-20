@@ -125,6 +125,66 @@ pub fn preview_url(grant_host: &str, rel_path: &str, suffix: &str) -> String {
     format!("{PREVIEW_SCHEME}://{grant_host}/{encoded}{suffix}")
 }
 
+/// Computes a portable workspace-relative path from an already-normalized absolute `target` and
+/// workspace `root`, returning `None` if `target` is outside `root` or fails preview path rules.
+pub fn relative_to_root(target: &str, root: &str) -> Option<String> {
+    let t = target.replace('\\', "/");
+    let r = root.replace('\\', "/");
+    let r = r.trim_end_matches('/');
+    if r.is_empty() || t.len() <= r.len() {
+        return None;
+    }
+    let is_win = root_is_windows(root);
+    let matches_prefix = if is_win {
+        t.as_bytes()[..r.len()].eq_ignore_ascii_case(r.as_bytes())
+    } else {
+        &t[..r.len()] == r
+    };
+    if !matches_prefix || t.as_bytes().get(r.len()) != Some(&b'/') {
+        return None;
+    }
+    let rel = &t[r.len() + 1..];
+    preview_path_valid(rel, is_win).then(|| rel.to_owned())
+}
+
+/// Computes a sanitized response MIME type (plus UTF-8 charset when applicable).
+/// When `prefer_server` is `false` (remote workspace previews), derives MIME strictly from the
+/// file extension (`mime_for_path`) and NEVER trusts `server_ct` (`serve.ts:78`, `review-rd281.md`).
+pub fn sanitize_response_mime(server_ct: &str, path: &str, prefer_server: bool) -> String {
+    let (ext_mime, ext_charset) = mime_for_path(path);
+    if !prefer_server {
+        return match ext_charset {
+            Some(cs) => format!("{ext_mime}; charset={cs}"),
+            None => ext_mime.to_owned(),
+        };
+    }
+    let base = server_ct
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    let valid_token = !base.is_empty()
+        && base.contains('/')
+        && base.len() <= 128
+        && base.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'/' | b'-' | b'+' | b'.'));
+    if valid_token && base != "application/octet-stream" {
+        return match ext_charset {
+            Some(cs) if base.starts_with("text/") || base.ends_with("javascript") || base.ends_with("+xml") || base == "application/json" => {
+                format!("{base}; charset={cs}")
+            }
+            _ => base,
+        };
+    }
+    if ext_mime != "application/octet-stream" {
+        return match ext_charset {
+            Some(cs) => format!("{ext_mime}; charset={cs}"),
+            None => ext_mime.to_owned(),
+        };
+    }
+    "application/octet-stream".into()
+}
+
 /// Validates a portable workspace-relative path (`preview-path.ts:2-9`), rejecting drive letters,
 /// empty/dot segments, backslashes, control characters, and (when `windows_rules` is true)
 /// Windows colons, trailing dots/spaces, and DOS device names including superscript `COM¹..³`/`LPT¹..³`.

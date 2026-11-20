@@ -78,6 +78,16 @@ pub fn build(lua: &Lua, t: &Table) -> mlua::Result<()> {
             }));
             Ok(())
         })
+    })?;
+    method(lua, t, "OpenFileSource", |_, (sid, path): (String, String)| {
+        let path = crate::review::data::normalize_path(&path);
+        with_app("Workspace:OpenFileSource", |app| {
+            app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
+                tx.instant();
+                s.open_workspace_file_source(&sid, &path, false, None, true, tx);
+            }));
+            Ok(())
+        })
     })
 }
 

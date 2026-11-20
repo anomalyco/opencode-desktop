@@ -280,6 +280,14 @@ impl FilesHost for App {
         App::opens_as_page(self, path)
     }
 
+    fn open_workspace_preview(&mut self, sid: &str, rel_path: &str) {
+        self.open_workspace_preview_tab(sid, rel_path, None, true);
+    }
+
+    fn try_open_artifact_link(&mut self, sid: &str, href: &str) -> bool {
+        App::try_open_artifact_link(self, sid, href)
+    }
+
     fn open_page_tab(&mut self, sid: &str, url: &str) {
         self.open_new_browser_tab_for_session(Some(sid), url, None, true);
     }
@@ -364,6 +372,18 @@ impl App {
         tx: &mut Tx,
     ) {
         open_workspace_file_for_session(self, sid, path, preview, lines, steal_focus, tx);
+    }
+
+    pub fn open_workspace_file_source(
+        &mut self,
+        sid: &str,
+        path: &str,
+        preview: bool,
+        lines: Option<(u32, u32)>,
+        steal_focus: bool,
+        tx: &mut Tx,
+    ) {
+        open_workspace_file_source(self, sid, path, preview, lines, steal_focus, tx);
     }
 
     pub fn filtered_sidebar_files(&self, session_id: &str) -> Vec<String> {

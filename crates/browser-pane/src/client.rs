@@ -37,6 +37,10 @@ pub struct BrowserTab {
     pub load_error: Option<String>,
     /// Site favicon as a bounded `data:image/png;base64,...` data URL (`UP-109` `#65094`).
     pub favicon: Option<String>,
+    /// Set on isolated `oc-preview://` tabs so chrome renders them as previews.
+    pub preview: Option<crate::protocol::PreviewKindTag>,
+    /// Live preview grant specification (reused across reconnects & remote/artifact proxy validation).
+    pub preview_spec: Option<crate::protocol::PreviewSpec>,
     /// Why the last navigation on this page was refused while keeping the document (`policy::Refusal`).
     pub refusal: Option<String>,
     /// Count of refused navigations on this page, so repeated refusals end the address field's hold.
@@ -90,7 +94,7 @@ const MAX_QUEUED_CDP_EVENTS: usize = 2_048;
 
 pub struct BrowserHost {
     pub(crate) tabs: Vec<BrowserTab>,
-    focused_tab: Option<u64>,
+    pub(crate) focused_tab: Option<u64>,
     pub(crate) surfaces: Arc<Mutex<HashMap<u64, TabSurface>>>,
     /// Shared sidecar connection state (`generation`, `status`, `outbox`, child PID, and early opens).
     pub(crate) shared: Arc<Mutex<SharedEngine>>,
@@ -110,7 +114,14 @@ pub struct BrowserHost {
     pub(crate) caps: EngineCaps,
     next_tab_id: u64,
     pub(crate) next_req_id: u64,
-    pending_opens: Vec<(u64, String)>,
+    pub(crate) pending_opens: Vec<(u64, String)>,
+    pub(crate) preview_fetches: Vec<crate::preview::PreviewFetchRequest>,
+    /// Local preview tabs that waited for `Ready` on an older engine (`!Ready.preview`): the host
+    /// closes the pending browser tab and opens the file in the Files source viewer ("show source").
+    pub(crate) unsupported_local_previews: Vec<(u64, String)>,
+    /// Expected `TabClosed` acks from `reopen_tab_as_{web,preview}` so reopening a tab in a
+    /// different isolation context does not delete its `BrowserTab` entry or `TabSurface`.
+    pub(crate) reopening_tabs: HashMap<u64, u32>,
     pub(crate) cdp_responses: HashMap<u64, Result<Value, Value>>,
     cdp_events: VecDeque<CdpEvent>,
     picked: VecDeque<PickedElement>,
@@ -166,6 +177,9 @@ impl BrowserHost {
             next_tab_id: 1,
             next_req_id: 1,
             pending_opens: Vec::new(),
+            preview_fetches: Vec::new(),
+            unsupported_local_previews: Vec::new(),
+            reopening_tabs: HashMap::new(),
             cdp_responses: HashMap::new(),
             cdp_events: VecDeque::new(),
             picked: VecDeque::new(),
@@ -349,6 +363,8 @@ impl BrowserHost {
             cursor: CursorKind::Default,
             load_error: None,
             favicon: None,
+            preview: None,
+            preview_spec: None,
             refusal: None,
             rejected: 0,
             inspecting: false,
@@ -429,27 +445,21 @@ impl BrowserHost {
     pub fn open_tab_with_context(
         &mut self,
         raw_url: &str,
-        file_roots: Vec<String>,
+        _file_roots: Vec<String>,
         context: crate::protocol::ContextKind,
         from_address: bool,
     ) -> u64 {
         rune::marks::mark("browser.tab.open");
         self.opened.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let file_roots = if context.is_isolated() {
-            Vec::new()
-        } else {
-            file_roots
-        };
         let candidate = if from_address { resolve_address(raw_url) } else { crate::policy::with_scheme(raw_url) };
         let connected = self.is_connected();
         let ready = self.status() == EngineStatus::Ready;
         let ctx_ok = !ready || context.is_supported(self.engine_partitions(), self.engine_remote_proxy());
-        // An older engine without request-level `file://` confinement cannot safely host a `file://` origin.
-        let effective_roots: &[String] = if connected && !self.engine_policy() { &[] } else { &file_roots };
+        // Raw `file://` is banned unconditionally; local workspace files open via `open_preview_tab`.
         let refused = if !ctx_ok {
             Some("browser.partitions.unsupported".to_owned())
         } else {
-            crate::policy::refusal(&candidate, effective_roots).map(|r| r.code().to_owned())
+            crate::policy::refusal(&candidate, &[]).map(|r| r.code().to_owned())
         };
         let url = if refused.is_some() { "about:blank".to_owned() } else { candidate };
         let id = self.alloc_tab_id();
@@ -471,6 +481,8 @@ impl BrowserHost {
             cursor: CursorKind::Default,
             load_error: None,
             favicon: None,
+            preview: None,
+            preview_spec: None,
             refusal: refused.clone(),
             rejected: u64::from(refused.is_some()),
             inspecting: false,
@@ -481,7 +493,7 @@ impl BrowserHost {
             surface_origin: (0.0, 0.0),
             view_zoom: 1.0,
             context: context.clone(),
-            file_roots: file_roots.clone(),
+            file_roots: Vec::new(),
             viewport_pt: (width_pt, height_pt),
             device: None,
             scale,
@@ -498,7 +510,7 @@ impl BrowserHost {
                     height_pt,
                     scale,
                     focused: true,
-                    file_roots: if self.engine_policy() { file_roots } else { Vec::new() },
+                    file_roots: Vec::new(),
                     context,
                     preview: None,
                 });
@@ -510,18 +522,13 @@ impl BrowserHost {
         id
     }
 
-    pub fn set_tab_policy(&mut self, tab_id: u64, file_roots: Vec<String>) {
-        if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
-            let file_roots = if t.context.is_isolated() {
-                Vec::new()
-            } else {
-                file_roots
-            };
-            if t.file_roots != file_roots {
-                t.file_roots = file_roots.clone();
-                if self.is_connected() && self.engine_policy() {
-                    self.send(HostMsg::SetTabPolicy { tab_id, file_roots });
-                }
+    pub fn set_tab_policy(&mut self, tab_id: u64, _file_roots: Vec<String>) {
+        if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id)
+            && !t.file_roots.is_empty()
+        {
+            t.file_roots.clear();
+            if self.is_connected() && self.engine_policy() {
+                self.send(HostMsg::SetTabPolicy { tab_id, file_roots: Vec::new() });
             }
         }
     }
@@ -566,12 +573,10 @@ impl BrowserHost {
         crate::transport::paint_event(crate::transport::PaintEvent::Navigate);
         let url = if from_address { resolve_address(raw_url) } else { crate::policy::with_scheme(raw_url) };
         let connected = self.is_connected();
-        let engine_policy = self.engine_policy();
         let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) else {
             return;
         };
-        let effective_roots: &[String] = if connected && !engine_policy { &[] } else { &t.file_roots };
-        if let Some(why) = crate::policy::refusal(&url, effective_roots) {
+        if let Some(why) = crate::policy::refusal(&url, &[]) {
             t.loading = false;
             t.refusal = Some(why.code().to_owned());
             t.rejected += 1;
@@ -762,24 +767,22 @@ impl BrowserHost {
             let early = shared.take_early();
             (ready, early)
         };
-        let engine_policy = self.engine_policy();
         // Those the connect sent already (`transport::Link::opens`): one closed meanwhile closes;
         // one given another address or laid out at another size meanwhile gets them.
         for (&tab_id, (sent_url, sent_size)) in &early {
             let pending_url = self.pending_opens.iter().find(|(id, _)| *id == tab_id).map(|(_, u)| u.clone());
-            let (size, roots_to_send, nav_url) = {
+            let (size, nav_url) = {
                 let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) else {
                     self.send(HostMsg::CloseTab { tab_id });
                     continue;
                 };
                 let size = (t.viewport_pt.0, t.viewport_pt.1, t.scale);
                 t.sent_resize = Some(size);
-                let roots = (engine_policy && !t.file_roots.is_empty()).then(|| t.file_roots.clone());
                 let nav = match pending_url {
                     Some(url) if &url != sent_url => {
-                        if crate::policy::is_file_scheme(&url) && !engine_policy {
+                        if crate::policy::is_file_scheme(&url) {
                             t.loading = false;
-                            t.refusal = Some(crate::policy::Refusal::Web.code().to_owned());
+                            t.refusal = Some(crate::policy::Refusal::Workspace.code().to_owned());
                             t.rejected += 1;
                             None
                         } else {
@@ -788,13 +791,10 @@ impl BrowserHost {
                     }
                     _ => None,
                 };
-                (size, roots, nav)
+                (size, nav)
             };
             if size != *sent_size {
                 self.send(HostMsg::Resize { tab_id, width_pt: size.0, height_pt: size.1, scale: size.2 });
-            }
-            if let Some(file_roots) = roots_to_send {
-                self.send(HostMsg::SetTabPolicy { tab_id, file_roots });
             }
             if let Some(url) = nav_url {
                 self.send(HostMsg::Navigate { tab_id, url });
@@ -802,39 +802,56 @@ impl BrowserHost {
         }
         let engine_partitions = self.engine_partitions();
         let engine_remote_proxy = self.engine_remote_proxy();
+        let engine_preview = self.engine_preview();
         let mut deferred = Vec::new();
         for (tab_id, url) in std::mem::take(&mut self.pending_opens).into_iter().filter(|(id, _)| !early.contains_key(id)) {
             let needs_ready = crate::policy::is_file_scheme(&url)
-                || self.tabs.iter().any(|t| t.id == tab_id && !t.context.is_default());
+                || self.tabs.iter().any(|t| t.id == tab_id && (!t.context.is_default() || t.preview_spec.is_some()));
             if needs_ready && !ready {
                 deferred.push((tab_id, url));
                 continue;
             }
             let mut skip_open = false;
-            let (open_url, ((width_pt, height_pt), scale), file_roots, context, emulate) =
+            let (open_url, ((width_pt, height_pt), scale), context, preview, emulate) =
                 if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
-                    if !t.context.is_supported(engine_partitions, engine_remote_proxy) {
+                    t.sent_resize = Some((t.viewport_pt.0, t.viewport_pt.1, t.scale));
+                    let (open_url, preview) = if let Some(spec) = t.preview_spec.clone() {
+                        if engine_preview {
+                            ("about:blank".into(), Some(spec))
+                        } else {
+                            if let crate::protocol::PreviewSpec::Local { document, .. } = spec {
+                                self.unsupported_local_previews.push((tab_id, document));
+                            }
+                            t.url = "about:blank".into();
+                            t.loading = false;
+                            t.refusal = Some("browser.preview.unsupported".into());
+                            t.rejected += 1;
+                            skip_open = true;
+                            ("about:blank".into(), None)
+                        }
+                    } else if !t.context.is_supported(engine_partitions, engine_remote_proxy) {
                         t.url = "about:blank".into();
                         t.loading = false;
                         t.refusal = Some("browser.partitions.unsupported".into());
                         t.rejected += 1;
                         skip_open = true;
-                    }
-                    t.sent_resize = Some((t.viewport_pt.0, t.viewport_pt.1, t.scale));
-                    let open_url = if crate::policy::is_file_scheme(&url) && !engine_policy {
+                        ("about:blank".into(), None)
+                    } else if crate::policy::is_file_scheme(&url) {
                         t.url = "about:blank".into();
                         t.loading = false;
-                        t.refusal = Some(crate::policy::Refusal::Web.code().to_owned());
+                        t.refusal = Some(crate::policy::Refusal::Workspace.code().to_owned());
                         t.rejected += 1;
-                        "about:blank".into()
+                        skip_open = true;
+                        ("about:blank".into(), None)
                     } else {
-                        url
+                        (url, None)
                     };
-                    let roots = if engine_policy { t.file_roots.clone() } else { Vec::new() };
                     let emulate = t.device.as_ref().map(|d| (d.clone(), d.fit([t.viewport_pt.0, t.viewport_pt.1])));
-                    (open_url, (t.viewport_pt, t.scale), roots, t.context.clone(), emulate)
+                    (open_url, (t.viewport_pt, t.scale), t.context.clone(), preview, emulate)
                 } else {
-                    (url, ((800.0, 600.0), 2.0), Vec::new(), crate::protocol::ContextKind::Default, None)
+                    // Closed/orphaned pending_open entry: never synthesize `ContextKind::Default`.
+                    skip_open = true;
+                    ("about:blank".into(), ((800.0, 600.0), 2.0), crate::protocol::ContextKind::Default, None, None)
                 };
             if skip_open {
                 continue;
@@ -846,9 +863,9 @@ impl BrowserHost {
                 height_pt,
                 scale,
                 focused: self.focused_tab == Some(tab_id),
-                file_roots,
+                file_roots: Vec::new(),
                 context,
-                preview: None,
+                preview,
             });
             if let Some((device, emu_scale)) = emulate {
                 self.send(HostMsg::Emulate { tab_id, device: Some(device), scale: emu_scale });
@@ -866,15 +883,15 @@ impl BrowserHost {
             .iter()
             .filter(|(tab_id, url)| {
                 !crate::policy::is_file_scheme(url)
-                    && self.tabs.iter().all(|t| t.id != *tab_id || t.context.is_default())
+                    && self.tabs.iter().any(|t| t.id == *tab_id && t.context.is_default() && t.preview_spec.is_none())
             })
             .cloned()
             .map(|(tab_id, url)| {
-                let (((width_pt, height_pt), scale), file_roots) = self
+                let ((width_pt, height_pt), scale) = self
                     .tabs
                     .iter()
                     .find(|t| t.id == tab_id)
-                    .map_or((((800.0, 600.0), 2.0), Vec::new()), |t| ((t.viewport_pt, t.scale), t.file_roots.clone()));
+                    .map_or(((800.0, 600.0), 2.0), |t| (t.viewport_pt, t.scale));
                 (
                     tab_id,
                     HostMsg::OpenTab {
@@ -884,7 +901,7 @@ impl BrowserHost {
                         height_pt,
                         scale,
                         focused: focused == Some(tab_id),
-                        file_roots,
+                        file_roots: Vec::new(),
                         context: crate::protocol::ContextKind::Default,
                         preview: None,
                     },
@@ -953,7 +970,7 @@ impl BrowserHost {
                         s => self.send(HostMsg::SetColorScheme { dark: s == 2 }),
                     }
 
-                    // Tabs opened before it: their size, policy roots, and device emulation again
+                    // Tabs opened before it: their size and device emulation again
                     // (a reconnect forgets them; `notes/for-dax.md` §0).
                     let tabs_to_sync: Vec<_> = self
                         .tabs
@@ -962,13 +979,10 @@ impl BrowserHost {
                         .map(|t| {
                             t.sent_resize = None;
                             let emu = t.device.as_ref().map(|d| (d.clone(), d.fit([t.viewport_pt.0, t.viewport_pt.1])));
-                            (t.id, t.file_roots.clone(), emu)
+                            (t.id, emu)
                         })
                         .collect();
-                    for (tab_id, file_roots, emulate) in tabs_to_sync {
-                        if policy && !file_roots.is_empty() {
-                            self.send(HostMsg::SetTabPolicy { tab_id, file_roots });
-                        }
+                    for (tab_id, emulate) in tabs_to_sync {
                         if let Some((device, scale)) = emulate {
                             self.send(HostMsg::Emulate { tab_id, device: Some(device), scale });
                         }
@@ -1000,6 +1014,15 @@ impl BrowserHost {
                     changed |= self.upsert_tab(tab);
                 }
                 EngineMsg::TabClosed { tab_id } => {
+                    if let Some(pending) = self.reopening_tabs.get_mut(&tab_id) {
+                        if *pending <= 1 {
+                            self.reopening_tabs.remove(&tab_id);
+                        } else {
+                            *pending -= 1;
+                        }
+                        continue;
+                    }
+                    self.pending_opens.retain(|(id, _)| *id != tab_id);
                     if let Some(pos) = self.tabs.iter().position(|t| t.id == tab_id) {
                         let removed = self.tabs.remove(pos);
                         removed.surface.clear();
@@ -1069,16 +1092,16 @@ impl BrowserHost {
                     self.diagnostics.push_back(crate::find::PageDiagnostic { tab_id, level, event, fields });
                     changed = true;
                 }
-                EngineMsg::PreviewFetch { req_id, .. } => {
-                    // App-side remote/artifact fetch runner wires in PR 2; fail closed until then.
-                    self.send(HostMsg::PreviewResponseHead {
+                EngineMsg::PreviewFetch { req_id, tab_id, kind, path, method, range } => {
+                    self.preview_fetches.push(crate::preview::PreviewFetchRequest {
                         req_id,
-                        ok: false,
-                        status: 404,
-                        mime: "application/octet-stream".into(),
-                        content_length: None,
-                        content_range: None,
+                        tab_id,
+                        kind,
+                        path,
+                        method,
+                        range,
                     });
+                    changed = true;
                 }
                 EngineMsg::PreviewDenied { tab_id } => {
                     if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
@@ -1211,7 +1234,7 @@ impl BrowserHost {
         true
     }
 
-    fn alloc_tab_id(&mut self) -> u64 {
+    pub(crate) fn alloc_tab_id(&mut self) -> u64 {
         let id = self.next_tab_id;
         self.next_tab_id += 1;
         id
@@ -1267,8 +1290,18 @@ impl BrowserHost {
             t.can_go_forward = snap.can_go_forward;
             t.zoom = snap.zoom;
             t.cursor = snap.cursor;
-            t.load_error = snap.load_error;
+            let keep_artifact_missing = t.load_error.as_deref() == Some("browser.artifact.missing")
+                && (t.preview == Some(crate::protocol::PreviewKindTag::Artifact)
+                    || snap.preview == Some(crate::protocol::PreviewKindTag::Artifact));
+            t.load_error = if keep_artifact_missing {
+                Some("browser.artifact.missing".into())
+            } else {
+                snap.load_error
+            };
             t.favicon = snap.favicon;
+            if snap.preview.is_some() {
+                t.preview = snap.preview;
+            }
             let mut changed = changed;
             if new_site {
                 changed |= (t.zoom - want_zoom).abs() > 0.001;
@@ -1302,6 +1335,8 @@ impl BrowserHost {
             cursor: snap.cursor,
             load_error: snap.load_error,
             favicon: snap.favicon,
+            preview: snap.preview,
+            preview_spec: None,
             refusal: None,
             rejected: 0,
             inspecting: false,

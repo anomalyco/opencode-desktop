@@ -366,9 +366,11 @@ wrap_request_context_handler! {
                 .is_some_and(|ctx| apply_context_prefs(ctx, proxy.as_ref(), self.require_lockdown));
             if applied
                 && let Some(ctx) = request_context.as_deref()
-                && let Some(hook) = self.on_initialized.lock().unwrap().take()
             {
-                hook(ctx);
+                crate::preview::handler::ban_file_scheme(ctx);
+                if let Some(hook) = self.on_initialized.lock().unwrap().take() {
+                    hook(ctx);
+                }
             }
             self.prefs_ok.store(applied, Ordering::Release);
             self.ready.store(applied, Ordering::Release);

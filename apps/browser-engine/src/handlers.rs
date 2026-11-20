@@ -496,7 +496,15 @@ wrap_load_handler! {
             // Chromium blocks unsafe cross-scheme redirects (`302 -> file://` or `302 -> data:`)
             // and disallowed schemes in the network layer before `on_before_browse`: keep the
             // open page and report the policy refusal, matching Desktop's `will-redirect`.
-            if matches!(code, E::ERR_UNSAFE_REDIRECT | E::ERR_DISALLOWED_URL_SCHEME | E::ERR_UNKNOWN_URL_SCHEME) {
+            // Skip for a preview tab's own canceled `oc-preview://<grant>` URL (e.g. artifact 404).
+            let own_preview_fail = self.preview.as_ref().is_some_and(|g| {
+                failed_url
+                    .map(CefString::to_string)
+                    .is_some_and(|u| g.compute_display_url(&u).is_some())
+            });
+            if !own_preview_fail
+                && matches!(code, E::ERR_UNSAFE_REDIRECT | E::ERR_DISALLOWED_URL_SCHEME | E::ERR_UNKNOWN_URL_SCHEME)
+            {
                 let roots = self.file_roots.lock().unwrap().clone();
                 let why = if roots.is_empty() {
                     browser_policy::Refusal::Web

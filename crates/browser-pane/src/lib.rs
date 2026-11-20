@@ -35,6 +35,7 @@ mod machine;
 pub use browser_policy as policy;
 #[cfg(feature = "engine")]
 mod prefetch;
+pub mod preview;
 #[cfg(feature = "engine")]
 pub mod profile;
 pub mod prompts;
@@ -70,6 +71,7 @@ pub use protocol::{
     PageContextMenu, PageDialog, PermissionKind, PermissionPrompt, PreviewKindTag, PreviewSpec,
     RemoteProxyConfig,
 };
+pub use preview::{PreviewFetchRequest, PreviewResponder};
 pub use protocol::PickedElement;
 pub use prompts::{PermissionDecision, PermissionStore, SiteDecision, SitePermissions, SiteSetting};
 pub use site_zoom::ZoomStore;
