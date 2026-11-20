@@ -94,10 +94,12 @@ pub fn build() -> Kernel<App> {
     b.with_feature(&crate::surfaces::egg::EggFeature);
     #[cfg(feature = "office")]
     b.with_feature(&crate::surfaces::office::OfficeFeature);
+    #[cfg(not(target_arch = "wasm32"))]
     b.with_feature(&crate::surfaces::updater::UpdaterFeature);
     b.with_feature(&crate::line_comments::AnnotationsFeature);
     b.with_feature(&crate::attachments::ComposerInputFeature);
     b.with_feature(&crate::connect::ConnectFeature);
+    #[cfg(not(target_arch = "wasm32"))]
     b.with_feature(&crate::dictation::DictationFeature);
     b.with_feature(&crate::files::FilesFeature);
     b.with_feature(&crate::find::FindFeature);
@@ -106,7 +108,9 @@ pub fn build() -> Kernel<App> {
     b.with_feature(&crate::mcp::McpFeature);
     b.with_feature(&crate::mentions::MentionsFeature);
     b.with_feature(&crate::narrow::NarrowFeature);
+    #[cfg(not(target_arch = "wasm32"))]
     b.with_feature(&crate::notifications::NotificationsFeature);
+    #[cfg(not(target_arch = "wasm32"))]
     b.with_feature(&crate::open_in::OpenInFeature);
     b.with_feature(&crate::panels::PanelsFeature);
     b.with_feature(&crate::projects::ProjectsFeature);
@@ -279,7 +283,7 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
     b.schedule(stage::INGEST_SERVERS, "launch.poll", |s, _, tx| {
         crate::launch::poll(s, tx)
     })
-    .after("dictation.poll")
+    .after(if cfg!(target_arch = "wasm32") { "project_switcher.poll" } else { "dictation.poll" })
     .per_server(|s, _, tx| {
         crate::launch::poll(s, tx);
         false
@@ -313,16 +317,22 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
         false
     });
     // Precaution: `updater.poll` reads `I18N` via `t!("common.requestFailed")` before locale changes.
-    b.schedule(stage::INGEST_LOCAL, "language.poll", |s, _, tx| {
+    let language_poll = b.schedule(stage::INGEST_LOCAL, "language.poll", |s, _, tx| {
         crate::language::poll(s, tx)
-    })
-    .after("updater.poll");
+    });
+    #[cfg(not(target_arch = "wasm32"))]
+    language_poll.after("updater.poll");
+    #[cfg(target_arch = "wasm32")]
+    let _ = language_poll;
 
     // Precaution: `notifications.poll` can change `route` or answer `pending`/`requests` read by `speech.poll`.
-    b.schedule(stage::INGEST_DISPATCH, "speech.poll", |s, _, tx| {
+    let speech_poll = b.schedule(stage::INGEST_DISPATCH, "speech.poll", |s, _, tx| {
         crate::speech::poll(s, tx)
-    })
-    .after("notifications.poll");
+    });
+    #[cfg(not(target_arch = "wasm32"))]
+    speech_poll.after("notifications.poll");
+    #[cfg(target_arch = "wasm32")]
+    let _ = speech_poll;
     // Known: requires `launch.poll` (`INGEST_SERVERS`) for `Source::Live { writes: Some(_) }`;
     // precaution: mutates `settings_open`, `route`, `tabs`, `projects`, and `composer.focused`.
     b.schedule(stage::INGEST_DISPATCH, "deep_links.drain", |s, _, tx| {
@@ -365,7 +375,11 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
     .after("session_pages.poll");
     // Precaution: `jobs.poll` executes arbitrary `Apply` closures that can touch any `App` state.
     b.schedule(stage::INGEST_PAGES, "jobs.poll", |s, _, tx| s.poll_jobs(tx))
-        .after_all(&["context_window.poll", "inbox.outbox", "open_in.poll"])
+        .after_all(if cfg!(target_arch = "wasm32") {
+            &["context_window.poll", "inbox.outbox"]
+        } else {
+            &["context_window.poll", "inbox.outbox", "open_in.poll"]
+        })
         .per_server(|s, _, tx| {
             s.poll_server_jobs(tx);
             false
@@ -420,14 +434,19 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
 
     // ── Phase 3: React ───────────────────────────────────────────────────────────────────────────
     // Precaution: `browser.poll` fires `Browser.Picked` into plugins; run after review/files/terminal.
+    #[cfg(not(target_arch = "wasm32"))]
     b.schedule(stage::REACT_PANELS, "browser.poll", |s, _, tx| {
         crate::plugin_host::native::browser::poll(s, tx)
     })
     .after_all(&["review.poll", "files.poll", "terminal.poll"]);
     // Known: `plugin_watched_stamp` hashes `review::REVIEW` and `workspace_panes.browser` and `browser.poll`
     // completes CDP promises / fires `Browser.Picked` before plugin VMs poll.
+    #[cfg(not(target_arch = "wasm32"))]
     b.schedule(stage::REACT_PANELS, "plugin_host.poll", |s, _, tx| s.poll_plugins(tx))
         .after("browser.poll");
+    #[cfg(target_arch = "wasm32")]
+    b.schedule(stage::REACT_PANELS, "plugin_host.poll", |s, _, tx| s.poll_plugins(tx))
+        .after_all(&["review.poll", "files.poll", "terminal.poll"]);
     // Precaution: `plugin_host.poll` and `workspace_tools.rune_mcp` (`tools::execute`) can mutate
     // `source`/session state before turn diffs start.
     b.schedule(stage::REACT_PANELS, "turn_diffs.poll", |s, _, _| {
@@ -494,6 +513,7 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
         crate::jump_list::poll(s);
         // A window with its own id saves its frame itself (`windows`), as AppKit's one autosave
         // name can't tell windows apart.
+        #[cfg(not(target_arch = "wasm32"))]
         if !*s.appearance_state.framed && s.window.id.is_empty() {
             *s.appearance_state.framed = rune_mac::remember_frame("OpenCodeRuneMain");
         }

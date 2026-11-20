@@ -65,11 +65,11 @@ Shell kernel, UI foundation, headless runtime, platform utilities, and embeddabl
 | `crates/opencode-platform` | `opencode-platform` | OS and WASM host utilities: `wall`, `telemetry`, `askpass`, `web_fetch`, `host` (`PlatformPaths`/`PlatformInfo`), and `storage` (`StoragePort`, zero `opencode-storage` dependency) (`#![forbid(unsafe_code)]`) |
 | `crates/opencode-plugin-runtime` | `opencode-plugin-runtime` | `App`-independent Luau plugin runtime primitives (`catalogs`, `console`, `flyout`, `hot`, `icons`, `images`, `luau`, `machines`, `native_icons`, `power`, `process`, `qr`, `redraw`, `reveal`, `sources`, `tasks`) |
 | `crates/opencode-plugin-spec` | `opencode-plugin-spec` | Engine-agnostic plugin contract (`contract.json`), Luau/JSON-schema/Rust codegen, and host decoders |
-| `crates/opencode-runtime` | `opencode-runtime` | Headless runtime primitives and explicit state machines (`catalog`, `draft`, `idle`, `pairing`, `server_machine`, `server_pool`, `window`, `types`, and `machines/{fork,pages,queue,rewind,send_failed,send_reason}`) (`#![forbid(unsafe_code)]`) |
+| `crates/opencode-runtime` | `opencode-runtime` | Headless runtime primitives and explicit state machines (`catalog`, `composer_mode`, `detail`, `draft`, `idle`, `pairing`, `server_machine`, `server_pool`, `window`, `types`, and `machines/{fork,pages,queue,rewind,send_failed,send_reason}`) (`#![forbid(unsafe_code)]`) |
 | `crates/opencode-search` | `opencode-search` | Headless full-text, fuzzysort, model search, path index, file ranking, tokenizer, and URL query primitives (`#![forbid(unsafe_code)]`, zero Rune/UI deps) |
 | `crates/opencode-servers` | `opencode-servers` | Headless desktop shell multi-server machines, registry, window tabs schema, and legacy persistence migration (`controllers`, `health`, `home`, `home_load`, `migration`, `plugin_server`, `registry`, `resolution`, `settings`, `sidecar`, `tab_load`, `tabs`) (`#![forbid(unsafe_code)]`, zero UI/storage deps) |
 | `crates/opencode-storage` | `opencode-storage` | Persistence engine: SQLite with write-behind and draft journal on native; `localStorage`/IndexedDB on `wasm32`; process-wide `StorageOp` runner hook |
-| `crates/opencode-ui` | `opencode-ui` | Bottom-layer UI design-system foundation: `palette`, `themes`, `style`, `detail`, `dialog`, `scroller`, `odometer`, `sheet`, `popover`, `provider_mark`, `keymap`, `widgets`, `panel_chrome`, `popup`, `prompt_history`, `composer_mode`, `toast` (`#![forbid(unsafe_code)]`, zero `session-view` dependency) |
+| `crates/opencode-ui` | `opencode-ui` | Bottom-layer UI design-system foundation: `palette`, `themes`, `style`, `dialog`, `scroller`, `odometer`, `sheet`, `popover`, `provider_mark`, `keymap`, `widgets`, `panel_chrome`, `popup`, `prompt_history`, `toast` (`#![forbid(unsafe_code)]`, zero `session-view` dependency) |
 | `crates/otlp-lite` | `otlp-lite` | Lightweight OTLP/HTTP trace exporter for local collectors |
 | `crates/project-icon` | `project-icon` | Procedural CPU-shaded project icons and custom icon loader |
 | `crates/rune-parts` | `rune-parts` | Generative UI (```` ```ui ````) outline catalog, parser, checker, HTML renderer, and optional Rune `view` feature (`skills/rune-ui/SKILL.md`) |
@@ -238,6 +238,7 @@ flowchart TB
   FEATS --> CV
 
   SV --> UI
+  SV --> RT
   SV --> PARTS
   SV --> KIT
   SV --> SEARCH

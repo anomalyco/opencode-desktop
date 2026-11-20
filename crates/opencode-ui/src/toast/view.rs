@@ -124,7 +124,9 @@ fn toast_bottom<S: ToastHost>(s: &S, narrow: bool, w: f32, reach: f32) -> f32 {
         return base;
     }
     let top_y = if clearance == ComposerClearance::Session {
-        rune::memo::layout_with("dock", rect_top).map_or(cy, |dy| cy.min(dy))
+        rune::memo::layout_with("composer-dock", rect_top)
+            .or_else(|| rune::memo::layout_with("dock", rect_top))
+            .map_or(cy, |dy| cy.min(dy))
     } else {
         cy
     };

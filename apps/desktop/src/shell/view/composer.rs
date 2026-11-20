@@ -17,11 +17,16 @@ pub(super) fn composer_dock(s: &App, p: &Pal) -> El {
         Route::Session { id, .. } => Some(crate::plugin_host::services::session_version(s, id)),
         _ => None,
     };
+    let touch = session_view::style::touch_controls();
+    let touch_server_ver = touch.then(|| (crate::servers::runtime::version(), crate::servers::health::version()));
     let inputs = (
         (p.theme, p.generation, p.dark),
         opencode_i18n::locale().id(),
         session_view::style::dock_w().to_bits(),
-        session_view::style::touch_controls(),
+        (touch, session_view::style::hover_none(), touch_server_ver),
+        (s.narrow(), s.layout.narrow.sm()),
+        session_view::scroller::device_scale().to_bits(),
+        crate::keymap::overrides::version(),
         crate::speech::listening(s),
         crate::plugin_host::surfaces_version(s),
         session_ver,
@@ -38,7 +43,7 @@ pub(super) fn composer_dock(s: &App, p: &Pal) -> El {
         // A subagent's page keeps its status line under the composer, in the dock's bottom inset.
         let pb = if status.is_some() { 0.0 } else { crate::view::DOCK_SIDE };
         col()
-            .key("dock")
+            .key("composer-dock")
             .w_full()
             .center()
             .px(crate::view::DOCK_SIDE)
@@ -184,7 +189,7 @@ impl ComposerHost for App {
         self.settings.spellcheck
     }
     fn composer_dictating(&self) -> bool {
-        self.kernel.slots.get(&crate::dictation::DICTATION).active()
+        crate::dictation::is_active(self)
     }
     /// A session's composer sits on its docks (`region.tsx` passes `borderUnderlay`); the
     /// new-session page's doesn't.
@@ -256,7 +261,7 @@ impl ComposerHost for App {
             return true;
         }
         // A recording takes Escape before the page's layers: it throws the dictation away.
-        if ev.key == Key::Escape && self.kernel.slots.get(&crate::dictation::DICTATION).active() && crate::dictation::key(self, ev, tx) {
+        if ev.key == Key::Escape && crate::dictation::is_active(self) && crate::dictation::key(self, ev, tx) {
             return true;
         }
         // Escape closes the topmost layer and the caret stays put: a contenteditable keeps focus
@@ -299,7 +304,7 @@ fn toolbar_items(s: &App, p: &Pal, scope: &str, queues: bool) -> Vec<El> {
         None => model_name.clone(),
     };
     let mic = crate::dictation::toolbar(s, p);
-    let dictating = s.kernel.slots.get(&crate::dictation::DICTATION).active();
+    let dictating = crate::dictation::is_active(s);
     // Desktop's `Default` shows only under the pointer and otherwise keeps its room past the
     // row's end, which scrolls (`editor.tsx`, `overflow-x-auto`): it folds nothing. The row folds as
     // if it weren't there, and it shows where it fits without folding anything.

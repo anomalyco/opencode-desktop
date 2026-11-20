@@ -27,7 +27,7 @@ use crate::{Cmd, FlushReason, FlushReport, Loaded, StorageError, WindowFrame};
 mod durability;
 mod reserve;
 mod rows;
-use durability::{SYNCED, UNSYNCED, Wal, WalEvent, WalFile, WalSync};
+use durability::{SYNCED, UNSYNCED, Wal, WalEvent, WalFile};
 pub(crate) use reserve::OpenJournal;
 use reserve::{Reservation, ReserveStep};
 use rows::{apply, cmd_name, note, settled, slow};
@@ -142,10 +142,9 @@ impl Writer {
     /// the tables (the open reserved the draft journal, whose place the record names); `created`:
     /// this open made the file, so schema 2 is its own (`search::Origin`).
     pub(crate) fn new(conn: Connection, cache: Arc<Mutex<Cache>>, clock: fn() -> i64, deferred: Deferred, wal_dirty: bool, journal: OpenJournal, created: bool) -> Writer {
-        let mut seq = Seq::default();
+        let seq = Seq::default();
         let boot_stale = journal == OpenJournal::Reserved;
-        let wal = if wal_dirty || boot_stale { Wal::Dirty { attempt: seq.next(), boot_stale, sync: WalSync::Synced } } else { Wal::Clean };
-        Writer {
+        let mut writer = Writer {
             conn,
             cache,
             reservation: match journal {
@@ -163,13 +162,17 @@ impl Writer {
             previews: WriteBehindState::Idle,
             caches: WriteBehindState::Idle,
             gc: DraftGcState::Closed,
-            wal,
+            wal: Wal::Clean,
             timers: HashMap::new(),
             deferred,
             touched: HashMap::new(),
             written: 0,
             wal_file: WalFile::Unopened,
+        };
+        if wal_dirty || boot_stale {
+            writer.wal_event(WalEvent::OpenedDirty { boot_stale, now: Instant::now() });
         }
+        writer
     }
 
     /// The WAL holds frames to checkpoint (quit has work even with nothing queued).
@@ -282,8 +285,6 @@ impl Writer {
                     let report = self.flush(reason, started);
                     reply.send(report).ok();
                     rune::marks::mark("writer.flushed");
-                    self.quit_checkpoint(reason);
-                    rune::marks::mark("writer.checkpointed");
                 }
                 Ok(Msg::FirstFrame { done }) => {
                     let t = Instant::now();
@@ -294,7 +295,6 @@ impl Writer {
                     rune::marks::mark("writer.stop");
                     self.reserve_stopped();
                     self.flush(FlushReason::Quit, Instant::now());
-                    self.quit_checkpoint(FlushReason::Quit);
                     self.repage();
                     self.close_machines();
                     rune::marks::mark("writer.stopped");
@@ -441,13 +441,15 @@ impl Writer {
                 let n = name.clone();
                 self.state_event(WriteBehindEvent::Drop(Box::new(move |k: &StateKey, _: &Value| k.0 == n)));
                 let boot = crate::in_boot_record(&name, "");
-                let done = (|| -> rusqlite::Result<()> {
+                let done = (|| -> rusqlite::Result<usize> {
                     let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
-                    tx.execute("DELETE FROM state WHERE name = ?1", [&name])?;
-                    tx.commit()
+                    let deleted = tx.execute("DELETE FROM state WHERE name = ?1", [&name])?;
+                    tx.commit()?;
+                    Ok(deleted)
                 })();
-                if done.is_ok() {
-                    self.wal_event(WalEvent::Committed { boot });
+                note(&done);
+                if matches!(done, Ok(n) if n > 0) {
+                    self.wal_unsynced(boot);
                 }
             }
             Cmd::Doc { key, value, rev } => self.docs_event(WriteBehindEvent::Set { key, value: (value, rev) }),
@@ -458,9 +460,11 @@ impl Writer {
                 let now = (self.clock)();
                 let inserted = sql::insert_blob(&self.conn, &id, &data, now);
                 note(&inserted);
-                if inserted.is_ok() {
+                if let Ok(added) = inserted {
                     self.touched.insert(id, now);
-                    self.wal_event(WalEvent::Committed { boot: false });
+                    if added {
+                        self.wal_unsynced(false);
+                    }
                     let effects = draft_gc::step(&mut self.seq, &mut self.gc, DraftGcEvent::BlobUploaded { at_ms: now });
                     self.gc_effects(effects);
                 }
@@ -471,19 +475,16 @@ impl Writer {
             }
             Cmd::Outbox { op, done } => match outbox::native::prepare(op) {
                 outbox::native::Prepared::Write(w, blobs, clear) => {
-                    // Committed to the WAL (kill-safe), answered, then synced: the request leaves
-                    // on the answer, and only a power cut in the sync's few ms is left open.
-                    let r = self.committed(false, |c, now| outbox::native::write(c, &w, &blobs, &clear, now));
+                    // Tier 0: committed and synced (`synchronous = FULL`) before settling the
+                    // draft journal or telling the caller the prompt is saved.
+                    let r = self.durable(false, |c, now| outbox::native::write(c, &w, &blobs, &clear, now));
                     if r.is_ok() {
                         outbox::cached(&mut self.cache().outbox, &w);
                         super::journal::settle(clear.iter().filter(|(_, rev)| *rev > 0).map(|(k, rev)| (k.as_str(), *rev)));
                         self.search.changed();
+                        rune::marks::mark("outbox.synced");
                     }
-                    let ok = r.is_ok();
                     answer(done, r);
-                    if ok {
-                        self.sync_wal();
-                    }
                 }
                 outbox::native::Prepared::Read { server, adopt, done } => {
                     let adopted = match outbox::native::has_adoptees(&self.conn, &adopt) {
@@ -570,6 +571,7 @@ impl Writer {
         }
         if !self.deferred.pending() { ran(done); return }
         let seeded = import::after_first_frame(&mut self.conn, &mut self.deferred, now);
+        let boot = seeded.iter().any(|(name, key, _)| crate::in_boot_record(name, key));
         if !seeded.is_empty() {
             let mut cache = self.cache();
             for (name, key, value) in seeded {
@@ -578,7 +580,7 @@ impl Writer {
                 }
             }
         }
-        self.wal_event(WalEvent::Committed { boot: false });
+        self.wal_unsynced(boot);
         ran(done);
     }
 }

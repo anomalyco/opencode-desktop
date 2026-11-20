@@ -441,13 +441,20 @@ pub fn tracing() -> bool {
     ON.with(|o| *o)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+fn memory_stats() -> (i64, u64) {
+    (procwatch::alloc::heap().map_or(0, |h| h.live), procwatch::usage().footprint.unwrap_or(0))
+}
+#[cfg(target_arch = "wasm32")]
+fn memory_stats() -> (i64, u64) { (0, 0) }
+
 /// `--egg-trace`: the process's memory as the egg wakes and once it has gone.
 pub(crate) fn mark(what: &str, now: f64) {
     if !tracing() {
         return;
     }
-    let heap = procwatch::alloc::heap().map_or(0, |h| h.live);
-    eprintln!("egg memory {what} t={now:.3} heap={heap} footprint={}", procwatch::usage().footprint.unwrap_or(0));
+    let (heap, footprint) = memory_stats();
+    eprintln!("egg memory {what} t={now:.3} heap={heap} footprint={footprint}");
 }
 
 /// `--egg-trace <file>`: one JSON line per frame of what the egg drew, as the harness reads
@@ -467,8 +474,8 @@ fn trace(live: &Live, now: f64) {
             live.state, c.x, c.y, d.body, d.eyes, d.pin, d.neck, d.notch, d.letters[0].0, d.letters[7].0, live.page.flat
         );
         let [poll_us, prepare_us] = COST.with(Cell::get);
-        let heap = procwatch::alloc::heap().map_or(0, |h| h.live);
-        line += &format!(",\"heap\":{heap},\"footprint\":{}", procwatch::usage().footprint.unwrap_or(0));
+        let (heap, footprint) = memory_stats();
+        line += &format!(",\"heap\":{heap},\"footprint\":{footprint}");
         line += &format!(",\"sink\":{},\"draws\":{},\"poll_us\":{poll_us:.1},\"prepare_us\":{prepare_us:.1}", live.sink.value(now), rng::drawn());
         if let Some(b) = live.board.as_deref() {
             line += &format!(",\"home\":{},\"tilt\":[{},{}]", b.pins.left(), b.pins.tilt[0], b.pins.tilt[1]);

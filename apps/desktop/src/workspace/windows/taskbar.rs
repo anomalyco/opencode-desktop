@@ -140,8 +140,12 @@ impl App {
         }
         let Some(handle) = super::handle(&self.window.id) else { return };
         let k = self.settings.notify;
-        let announced = k.permissions && k.questions && self.kernel.slots.get(&crate::notifications::NOTIFIER).shows();
-        let event = Event::Polled { summary: self.taskbar_summary(), focused: rune_notify::app_focused(), announced };
+        let announced = k.permissions && k.questions && crate::notifications::shows(self);
+        #[cfg(not(target_arch = "wasm32"))]
+        let focused = rune_notify::app_focused();
+        #[cfg(target_arch = "wasm32")]
+        let focused = false;
+        let event = Event::Polled { summary: self.taskbar_summary(), focused, announced };
         self.step_taskbar(&handle, event);
     }
 

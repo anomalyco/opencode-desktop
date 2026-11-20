@@ -100,12 +100,8 @@ impl FilesHost for App {
     }
 
     fn open_in_current(&self) -> Option<OpenInCurrent> {
-        let open_in = self.kernel.slots.get(&crate::open_in::OPEN_IN);
-        Some(OpenInCurrent {
-            label: open_in.current_label(),
-            icon: crate::open_in::icon_of(open_in.current()),
-            busy: open_in.busy(),
-        })
+        let (label, icon, busy) = crate::open_in::current_info(self)?;
+        Some(OpenInCurrent { label, icon, busy })
     }
 
     fn open_in_finder_label(&self) -> &'static str {
@@ -121,15 +117,23 @@ impl FilesHost for App {
     }
 
     fn open_in_menu_options(&self, with_current: bool) -> Vec<OpenInMenuOption> {
-        crate::open_in::menu_options(self, with_current)
-            .into_iter()
-            .map(|opt| OpenInMenuOption {
-                item_id: opt.item_id,
-                label: opt.label,
-                icon: opt.icon,
-                checked: opt.checked,
-            })
-            .collect()
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            crate::open_in::menu_options(self, with_current)
+                .into_iter()
+                .map(|opt| OpenInMenuOption {
+                    item_id: opt.item_id,
+                    label: opt.label,
+                    icon: opt.icon,
+                    checked: opt.checked,
+                })
+                .collect()
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = with_current;
+            Vec::new()
+        }
     }
 
     fn open_in_pick(&mut self, rel: &str, id: &str, reveal: bool, tx: &mut Tx) {
@@ -145,7 +149,7 @@ impl FilesHost for App {
     }
 
     fn open_in_default(&mut self, abs_path: &str) {
-        self.kernel.slots.get_mut(&crate::open_in::OPEN_IN).open_default(abs_path.to_owned());
+        crate::open_in::open_default(self, abs_path.to_owned());
     }
 
     fn side_open(&self) -> bool {

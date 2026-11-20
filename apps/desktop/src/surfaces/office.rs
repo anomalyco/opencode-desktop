@@ -71,8 +71,11 @@ impl Feature<App> for OfficeFeature {
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
         // Precaution: both `updater.poll` and `office.poll` can push toasts via `App::toast`.
-        builder
-            .schedule(crate::tick::stage::INGEST_LOCAL, "office.poll", |s, _, tx| poll(s, tx))
-            .after("updater.poll");
+        let office_poll = builder
+            .schedule(crate::tick::stage::INGEST_LOCAL, "office.poll", |s, _, tx| poll(s, tx));
+        #[cfg(not(target_arch = "wasm32"))]
+        office_poll.after("updater.poll");
+        #[cfg(target_arch = "wasm32")]
+        let _ = office_poll;
     }
 }

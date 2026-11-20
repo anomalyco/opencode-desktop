@@ -5,6 +5,7 @@
 //! commands that have no row here through [`command`].
 
 use std::collections::{BTreeMap, HashMap};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, RwLock};
 
 use rune::Keybind;
@@ -19,6 +20,14 @@ static COMMANDS: RwLock<Vec<(String, &'static Keybind)>> = RwLock::new(Vec::new(
 static PARSED: Mutex<Option<HashMap<String, &'static Keybind>>> = Mutex::new(None);
 /// Optional host callback invoked after [`apply`] installs new overrides (e.g. menu bar refresh).
 static ON_CHANGED: RwLock<Option<fn()>> = RwLock::new(None);
+/// Monotonic counter bumped whenever [`apply`] installs overrides, so regions and memos reading
+/// `Bind::keycaps()` / `Bind::label()` can track shortcut changes.
+static VERSION: AtomicU64 = AtomicU64::new(0);
+
+/// Changes whenever [`apply`] installs new shortcut overrides.
+pub fn version() -> u64 {
+    VERSION.load(Ordering::Acquire)
+}
 
 fn parse(spec: &str) -> Option<&'static Keybind> {
     let mut cache = PARSED.lock().unwrap_or_else(|e| e.into_inner());
@@ -75,6 +84,7 @@ pub fn apply(map: &BTreeMap<String, String>) {
     let commands = map.iter().filter(|(id, _)| !rows.iter().any(|b| b.id == id.as_str())).filter_map(|(id, spec)| Some((id.clone(), parse(spec)?))).collect();
     *TABLE.write().unwrap_or_else(|e| e.into_inner()) = table;
     *COMMANDS.write().unwrap_or_else(|e| e.into_inner()) = commands;
+    VERSION.fetch_add(1, Ordering::Release);
     let hook = *ON_CHANGED.read().unwrap_or_else(|e| e.into_inner());
     if let Some(on_changed) = hook {
         on_changed();

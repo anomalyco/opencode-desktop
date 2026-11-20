@@ -144,6 +144,7 @@ pub struct StreamEvent {
     pub data: Value,
     pub done: Done,
     /// The notification and the sound the event calls for, which one window posts or plays.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub notice: Cell<Claim>,
     pub sound: Cell<Claim>,
 }

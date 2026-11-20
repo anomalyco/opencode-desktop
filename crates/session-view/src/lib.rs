@@ -7,8 +7,9 @@
 //! reveal, Working/Copy/Interrupted tail), linear bottom fade, two-layer live overlay scroll bar,
 //! and "Jump to latest", with no OpenCode (Rune)-only shell or side-panel assumptions inside.
 
+pub use opencode_runtime::detail;
 pub use opencode_ui::keymap::base as keymap;
-pub use opencode_ui::{detail, dialog, odometer, palette, scroller, sheet, themes};
+pub use opencode_ui::{dialog, odometer, palette, scroller, sheet, themes};
 
 pub mod activity;
 pub mod agent_start;

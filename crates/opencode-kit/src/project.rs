@@ -4,6 +4,7 @@
 //! worktree directories (`sandboxes`) live alongside it by project id, like `user_files`.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock, PoisonError};
 
 use serde_json::Value;
@@ -28,9 +29,16 @@ fn int_of(v: &Value) -> i64 {
     v.as_i64().or_else(|| v.as_f64().map(|f| f as i64)).unwrap_or(0)
 }
 
+static SANDBOX_VERSION: AtomicU64 = AtomicU64::new(0);
+
 fn sandbox_store() -> &'static Mutex<HashMap<String, Vec<String>>> {
     static STORE: OnceLock<Mutex<HashMap<String, Vec<String>>>> = OnceLock::new();
     STORE.get_or_init(Default::default)
+}
+
+/// Monotonic version bumped whenever [`set_project_sandboxes`] changes a project's worktree list.
+pub fn project_sandboxes_version() -> u64 {
+    SANDBOX_VERSION.load(Ordering::Acquire)
 }
 
 /// Non-canonical worktree directories the server reported on project `id` (`sandboxes`).
@@ -44,10 +52,16 @@ pub fn set_project_sandboxes(id: &str, sandboxes: Vec<String>) {
         return;
     }
     let mut store = sandbox_store().lock().unwrap_or_else(PoisonError::into_inner);
-    if sandboxes.is_empty() {
-        store.remove(id);
+    let changed = if sandboxes.is_empty() {
+        store.remove(id).is_some()
+    } else if store.get(id).is_some_and(|old| old == &sandboxes) {
+        false
     } else {
         store.insert(id.to_owned(), sandboxes);
+        true
+    };
+    if changed {
+        SANDBOX_VERSION.fetch_add(1, Ordering::Release);
     }
 }
 

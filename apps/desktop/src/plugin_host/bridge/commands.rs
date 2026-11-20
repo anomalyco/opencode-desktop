@@ -149,6 +149,7 @@ end
 
 /// Session scope for the running Luau coroutine: `(Some(sid), _)` inside an MCP tool call, else
 /// `(None, in_flight)` with any in-flight MCP tool session IDs in this VM.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn current_tool_scope(lua: &mlua::Lua) -> (Option<Option<String>>, Vec<String>) {
     let Ok(Some(sessions)) = lua.named_registry_value::<Option<mlua::Table>>("opencode.tool.sessions") else {
         return (None, Vec::new());

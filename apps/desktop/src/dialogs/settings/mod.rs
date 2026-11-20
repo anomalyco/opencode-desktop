@@ -228,13 +228,10 @@ impl SettingsHost for App {
     }
 
     fn about_info(&self) -> AboutInfo {
-        let updater = self.kernel.slots.get(&crate::updater::UPDATER);
-        let version = if updater.version.is_empty() {
-            crate::updater::build_version().to_owned()
-        } else {
-            updater.version.clone()
-        };
-        AboutInfo { version, other_contributors: about_other_contributors(self) }
+        AboutInfo {
+            version: crate::updater::display_version(self),
+            other_contributors: about_other_contributors(self),
+        }
     }
 
     fn on_wordmark_tick(&mut self, now: f64, letters: &str) {
