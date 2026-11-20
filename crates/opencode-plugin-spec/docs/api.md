@@ -2688,6 +2688,8 @@ A page in the app's browser, for `ui.browserSurface`.
 | `:LoadError` | `() -> string?` | Why the page shows no document: the engine's error for a load that failed (`net::ERR_CONNECTION_REFUSED`), or `page_crashed` when its renderer went away; nil while it shows one. A reload or another address loads it again. |
 | `:Refusal` | `() -> string?` | Why the last navigation was refused while keeping the page (`browser.address.credentials`, `browser.address.workspace`, `browser.address.web`, or `ERR_BLOCKED_BY_CLIENT`); nil once an allowed navigation starts. |
 | `:Rejected` | `() -> number` | Count of refused navigations on this page, so a repeated refusal still ends the address field's hold. |
+| `:Dialog` | `() -> BrowserDialog?` | The dialog the page waits on (its `alert`, `confirm` or `prompt`, or "Leave site?"), or nil. Only with an engine that holds dialogs for the app; an older one keeps Chromium's. |
+| `:AnswerDialog` | `(id: string, accept: boolean, text: string?, stop: boolean?) -> boolean` | Answers dialog `id`: OK or Leave (`accept`), a prompt's `text`, and with `stop` (offered when `repeated`) dismisses the page's next dialogs until another document. The first answer wins: false when the dialog is no longer open. |
 | `:Navigate` | `(url: string) -> ()` | Loads a URL, or a local `:port`. |
 | `:Back` | `() -> ()` | Goes back. |
 | `:Forward` | `() -> ()` | Goes forward. |
@@ -2717,6 +2719,20 @@ A file a page downloaded (`BrowserTab:Files`).
 | `bytes` | `number` | Bytes received so far. |
 | `state` | `string` | `pending`, `completed` or `failed`. |
 | `error` | `string?` | Why it failed: `too_large`, `canceled`, or Chromium's interrupt reason (`network_failed`, `file_no_space`, ...). |
+
+### BrowserDialog
+
+A dialog a page waits on (`BrowserTab:Dialog`).
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Its id, for `BrowserTab:AnswerDialog`. |
+| `kind` | `string` | `alert`, `confirm`, `prompt`, or `leave` (the page's `beforeunload`). |
+| `origin` | `string` | The address of the frame that asks; empty for `leave`. |
+| `message` | `string` | The page's text, without controls that reorder text, at most 2,000 characters. |
+| `defaultText` | `string` | A prompt's default answer. |
+| `repeated` | `boolean` | It opened within a second of the page's last dialog closing: offer to stop the page's dialogs. |
+| `armed` | `boolean` | It has shown for half a second: the pane's buttons take presses (a press already on its way can't answer it). |
 
 ### BrowserFileContents
 

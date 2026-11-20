@@ -42,6 +42,8 @@ pub struct BrowserTab {
     pub inspecting: bool,
     /// What the page downloaded, oldest first (`DownloadFile`), for the agent's tools.
     pub files: Vec<DownloadFile>,
+    /// The page's dialog, when one waits (`crate::dialog`).
+    pub dialog: crate::dialog::DialogGate,
     pub surface: TabSurface,
     pub(crate) file_roots: Vec<String>,
     pub(crate) viewport_pt: (f32, f32),
@@ -314,6 +316,7 @@ impl BrowserHost {
             rejected: 0,
             inspecting: false,
             files: Vec::new(),
+            dialog: Default::default(),
             surface,
             file_roots: Vec::new(),
             viewport_pt: (800.0, 600.0),
@@ -409,6 +412,7 @@ impl BrowserHost {
             rejected: u64::from(refused.is_some()),
             inspecting: false,
             files: Vec::new(),
+            dialog: Default::default(),
             surface,
             file_roots: file_roots.clone(),
             viewport_pt: (width_pt, height_pt),
@@ -623,6 +627,48 @@ impl BrowserHost {
         Ok(request_id)
     }
 
+    /// Steps tab `tab_id`'s dialog gate and sends what it answers; true when the tab had one.
+    fn step_dialog(&mut self, tab_id: u64, event: crate::dialog::DialogEvent) -> bool {
+        let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) else { return false };
+        let before = t.dialog.clone();
+        let effects = t.dialog.step(event);
+        let changed = t.dialog != before;
+        for effect in effects {
+            match effect {
+                crate::dialog::DialogEffect::Answer { id, accept, text } => self.send(HostMsg::AnswerDialog { tab_id, id, accept, text }),
+            }
+        }
+        changed
+    }
+
+    /// Answers dialog `id` of tab `tab_id` for the person or the agent: OK or Leave (`accept`),
+    /// a prompt's `text`, and whether to stop the document's dialogs. False when it's no longer
+    /// open: someone answered it first, or the page went on.
+    pub fn answer_dialog(&mut self, tab_id: u64, id: u64, accept: bool, text: String, stop: bool) -> bool {
+        let open = self.tabs.iter().find(|t| t.id == tab_id).and_then(|t| t.dialog.open()).is_some_and(|d| d.id == id);
+        let now = rune::time::Instant::now();
+        open && self.step_dialog(tab_id, crate::dialog::DialogEvent::Answer { id, accept, text, stop, now })
+    }
+
+    /// Arms the buttons of dialogs whose guard ended by `now`; the earliest guard still running,
+    /// for the caller to come back then.
+    pub fn tick_dialogs(&mut self, now: rune::time::Instant) -> (bool, Option<rune::time::Instant>) {
+        let mut changed = false;
+        for t in &mut self.tabs {
+            if t.dialog.wake_at().is_some() {
+                let before = t.dialog.clone();
+                t.dialog.step(crate::dialog::DialogEvent::Tick { now });
+                changed |= t.dialog != before;
+            }
+        }
+        (changed, self.tabs.iter().filter_map(|t| t.dialog.wake_at()).min())
+    }
+
+    /// Whether the engine shows the pages' dialogs to this app.
+    pub fn engine_dialogs(&self) -> bool {
+        self.caps.dialogs()
+    }
+
     pub fn take_cdp_response(&mut self, request_id: u64) -> Option<Result<Value, Value>> {
         self.cdp_responses.remove(&request_id)
     }
@@ -784,18 +830,20 @@ impl BrowserHost {
         mail.extend(std::iter::from_fn(|| self.inbox_rx.try_recv().ok()));
         for msg in mail {
             match msg {
-                EngineMsg::Ready { downloads, policy, .. } => {
+                EngineMsg::Ready { downloads, policy, dialogs, .. } => {
                     if !matches!(
                         self.shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::Ready),
                         EngineEffect::ReadyApplied
                     ) {
                         continue;
                     }
-                    self.caps = EngineCaps::Known { downloads, policy };
+                    self.caps = EngineCaps::Known { downloads, policy, dialogs };
                     // A new engine starts with an empty downloads folder and numbers its files
-                    // from 1 again: the last one's files are gone.
+                    // from 1 again: the last one's files are gone. A page's held dialog comes
+                    // again from the engine that holds it.
                     for t in &mut self.tabs {
                         t.files.clear();
+                        t.dialog.step(crate::dialog::DialogEvent::Reset);
                     }
                     rune::marks::mark("browser.engine.ready");
                     // Before any page loads, so the first draws in the app's scheme.
@@ -884,6 +932,13 @@ impl BrowserHost {
                         }
                         changed = true;
                     }
+                }
+                EngineMsg::Dialog { tab_id, dialog } => {
+                    let now = rune::time::Instant::now();
+                    changed |= self.step_dialog(tab_id, crate::dialog::DialogEvent::Opened { dialog, now });
+                }
+                EngineMsg::DialogsReset { tab_id } => {
+                    changed |= self.step_dialog(tab_id, crate::dialog::DialogEvent::Reset);
                 }
                 EngineMsg::CdpEvent { .. } => {}
                 // The socket reader delivers frames directly to the tab's retained Rune surface.
@@ -1067,6 +1122,7 @@ impl BrowserHost {
             rejected: 0,
             inspecting: false,
             files: Vec::new(),
+            dialog: Default::default(),
             surface,
             file_roots: Vec::new(),
             viewport_pt: (800.0, 600.0),

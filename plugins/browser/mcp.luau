@@ -1,24 +1,17 @@
 --!strict
 -- The browser's tools on the app's client MCP server (`browser_*`): the agent lists, opens,
 -- navigates, shows and closes the session's pages, reads a page's accessibility tree with `@eN`
--- references, highlights one, runs JavaScript, takes a screenshot and sends raw DevTools
--- commands. Each answers for the session whose agent called it.
+-- references, highlights one, runs JavaScript, waits for the page, answers its dialogs, takes a
+-- screenshot and sends raw DevTools commands. Each answers for the session whose agent called it.
+-- A page that shows a dialog refuses every command but `browser_dialog`, `browser_tabs` and
+-- `browser_close` until it's answered, as Desktop's dialog gate does (`dialog-machine.ts`).
+
+local snapshot = require("./snapshot")
 
 local mcp = {}
 
 local MAX_TEXT_BYTES = 32 * 1024
 local UNSUPPORTED = "The browser isn't available on this platform yet in OpenCode (Rune)"
-
-local ACTIONABLE: { [string]: boolean } = {
-    button = true,
-    link = true,
-    textbox = true,
-    searchbox = true,
-    combobox = true,
-    checkbox = true,
-    radio = true,
-    option = true,
-}
 
 local function truncate(s: string): string
     if #s <= MAX_TEXT_BYTES then
@@ -71,12 +64,29 @@ function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutServ
         return { tabID = id(tab), url = tab:Url(), title = tab:Title() }
     end
 
+    -- The session's open tab ids, for an error that names the ones to use.
+    local function openIds(sid: string): string
+        local ids: { string } = {}
+        for _, tab in Browser:Tabs(sid) do
+            table.insert(ids, tostring(id(tab)))
+        end
+        return if #ids == 0 then "none" else table.concat(ids, ", ")
+    end
+
     -- The page `args.tabID` names, else the session's: a missing one raises the tool's error.
     local function target(args: { [string]: any }, sid: string): BrowserTab
         local wanted = args.tabID
         local tab = if wanted ~= nil then Browser:Get(tostring(wanted)) else Browser:Active(sid)
         if tab == nil then
-            error(if wanted ~= nil then `No browser tab with tabID {wanted}` else "No open browser tab", 0)
+            error(if wanted ~= nil then `No browser tab with tabID {wanted}. Open tabs: {openIds(sid)}; list them with browser_tabs` else "No open browser tab: open one with browser_open", 0)
+        end
+        return tab
+    end
+
+    -- A page that waits on a dialog runs nothing else until it's answered (`chromium.ts` `runStopError`).
+    local function ready(tab: BrowserTab): BrowserTab
+        if tab:Dialog() ~= nil then
+            error(`[browser.dialog_open] A JavaScript dialog is open. Inspect it with browser_dialog(\{"tabID":{id(tab)},"action":"get"\}), then explicitly accept or dismiss it before continuing.`, 0)
         end
         return tab
     end
@@ -142,6 +152,11 @@ function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutServ
     local function waitLoad(tab: BrowserTab, before: string, beforeRejected: number)
         local loaded = tab:Loading()
         for _ = 1, 100 do
+            -- The agent's navigation leaves without "Leave site?", as Desktop's does.
+            local asked = tab:Dialog()
+            if asked and asked.kind == "leave" then
+                tab:AnswerDialog(asked.id, true)
+            end
             if tab:Rejected() > beforeRejected or tab:LoadError() ~= nil or ((loaded or tab:Url() ~= before) and not tab:Loading()) then
                 break
             end
@@ -243,6 +258,7 @@ function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutServ
             end
             return { tabID = id(opened), url = opened:Url() }
         end
+        ready(tab)
         local before = tab:Url()
         local beforeRejected = tab:Rejected()
         tab:Navigate(normalized)
@@ -278,39 +294,30 @@ function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutServ
         return { closedTabID = id(tab) }
     end)
 
-    tool("browser_snapshot", "Read the accessibility tree of a browser tab in OpenCode (Rune) with '@eN' refs on actionable elements.", {
+    tool("browser_snapshot", "Read the accessibility tree of a browser tab in OpenCode (Rune) at any depth, with '@eN' refs on its controls and each filled field's value (a field that may be secret prints value=<hidden>). Long pages are cut at maxChars (default 20000) with a footer saying how to see more.", {
         tabID = tabSchema(DEFAULT_TAB),
-        depth = { type = "integer", minimum = 1, maximum = 32, description = "Maximum accessibility tree depth (default 8)." },
+        interactive = { type = "boolean", description = "List the controls only." },
+        maxLines = { type = "integer", minimum = 1, description = "Print at most this many lines." },
+        maxChars = { type = "integer", minimum = 1000, maximum = 200000, description = "Print at most this many characters (default 20000)." },
+        depth = { type = "integer", minimum = 1, description = "Read at most this deep (default: the whole tree)." },
     }, nil, function(args, sid)
-        local tab = target(args, sid)
-        local depth = math.clamp(if type(args.depth) == "number" then math.floor(args.depth) else 8, 1, 32)
-        local tree = tab:DevtoolsAsync("Accessibility.getFullAXTree", { depth = depth })
+        local tab = ready(target(args, sid))
+        local tree = tab:DevtoolsAsync("Accessibility.getFullAXTree", {})
         local mine: { [string]: number } = {}
         refs[tab.Id] = mine
-        local lines: { string } = {}
-        local nodes = if type(tree) == "table" and type(tree.nodes) == "table" then tree.nodes else {}
-        for n, node in nodes do
-            if n > 300 then
-                break
-            end
-            if node.ignored ~= true then
-                local role = if type(node.role) == "table" and type(node.role.value) == "string" then node.role.value else "node"
-                local name = if type(node.name) == "table" and type(node.name.value) == "string" then string.gsub(node.name.value, "^%s*(.-)%s*$", "%1") else ""
-                local actionable = ACTIONABLE[role] == true
-                local prefix = ""
-                if actionable and type(node.backendDOMNodeId) == "number" then
-                    local ref = `@e{nextRef}`
-                    nextRef += 1
-                    mine[ref] = node.backendDOMNodeId
-                    prefix = `{ref} `
-                end
-                if actionable or name ~= "" then
-                    table.insert(lines, `{prefix}[{role}] {quote(name)}`)
-                end
-            end
-        end
         local out = page(tab)
-        out.snapshot = truncate(table.concat(lines, "\n"))
+        out.snapshot = snapshot.render(tab, tree, {
+            depth = if type(args.depth) == "number" then math.max(1, math.floor(args.depth)) else nil,
+            interactive = args.interactive == true,
+            maxLines = if type(args.maxLines) == "number" then args.maxLines else nil,
+            maxChars = if type(args.maxChars) == "number" then args.maxChars else nil,
+            ref = function(node: number): string
+                local ref = `@e{nextRef}`
+                nextRef += 1
+                mine[ref] = node
+                return ref
+            end,
+        })
         return out
     end)
 
@@ -318,7 +325,7 @@ function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutServ
         ref = { type = "string", description = "Element ref from browser_snapshot (e.g. '@e3'); omit or pass '' to clear." },
         tabID = tabSchema(DEFAULT_TAB),
     }, nil, function(args, sid)
-        local tab = target(args, sid)
+        local tab = ready(target(args, sid))
         local raw = if type(args.ref) == "string" then string.gsub(args.ref, "^%s*(.-)%s*$", "%1") else ""
         if raw == "" then
             tab:Highlight(nil)
@@ -333,23 +340,48 @@ function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutServ
         return { tabID = id(tab), ref = key, backendNodeId = node }
     end)
 
-    tool("browser_evaluate", "Evaluate a JavaScript expression in a browser tab in OpenCode (Rune) and return its value.", {
-        expression = { type = "string", description = "JavaScript expression to evaluate (promises are awaited)." },
+    -- The page runs a script as a classic script, where a top-level `return` or `await` doesn't
+    -- compile. One that fails so (nothing of it ran) runs again in an async function: as its
+    -- returned expression when it is one (`await fetch(x)`), else as its body (`tools.ts` `asyncBody`).
+    local function evaluate(tab: BrowserTab, script: string): any
+        local function run(source: string): (any, string?)
+            local answer = tab:DevtoolsAsync("Runtime.evaluate", { expression = source, returnByValue = true, awaitPromise = true })
+            if type(answer) ~= "table" then
+                return {}, nil
+            end
+            local exc = answer.exceptionDetails
+            if type(exc) == "table" then
+                return nil, if type(exc.exception) == "table" and type(exc.exception.description) == "string" then exc.exception.description elseif type(exc.text) == "string" then exc.text else "Evaluation failed"
+            end
+            return answer, nil
+        end
+        local answer, failure = run(script)
+        local syntax = failure ~= nil and string.find(failure, "SyntaxError", 1, true) ~= nil
+        if syntax and (string.find(script, "%f[%w_]return%f[^%w_]") or string.find(script, "%f[%w_]await%f[^%w_]")) then
+            local body = string.gsub(string.gsub(script, "^%s+", ""), "[%s;]+$", "")
+            answer, failure = run(`(async () => (\n{body}\n))()`)
+            if failure ~= nil and string.find(failure, "SyntaxError", 1, true) then
+                answer, failure = run(`(async () => \{\n{script}\n\})()`)
+            end
+        end
+        if failure ~= nil then
+            error(failure, 0)
+        end
+        return answer
+    end
+
+    tool("browser_evaluate", "Evaluate JavaScript in a browser tab in OpenCode (Rune) and return its value: an expression, or statements with a top-level 'return' or 'await'. Promises are awaited. 'script' and 'code' are accepted for 'expression'.", {
+        expression = { type = "string", description = "JavaScript to evaluate, e.g. 'document.title' or 'const r = await fetch(\"/api\"); return r.status'." },
+        script = { type = "string", description = "Same as 'expression'." },
+        code = { type = "string", description = "Same as 'expression'." },
         tabID = tabSchema(DEFAULT_TAB),
-    }, { "expression" }, function(args, sid)
-        if type(args.expression) ~= "string" then
-            error("Missing 'expression'", 0)
+    }, nil, function(args, sid)
+        local script = if type(args.expression) == "string" then args.expression elseif type(args.script) == "string" then args.script elseif type(args.code) == "string" then args.code else nil
+        if script == nil then
+            error("browser_evaluate needs the JavaScript to run in 'expression', for example browser_evaluate({ expression: \"document.title\" }).", 0)
         end
-        local tab = target(args, sid)
-        local answer = tab:DevtoolsAsync("Runtime.evaluate", { expression = args.expression, returnByValue = true, awaitPromise = true })
-        if type(answer) ~= "table" then
-            return { tabID = id(tab) }
-        end
-        local exc = answer.exceptionDetails
-        if type(exc) == "table" then
-            local detail = if type(exc.exception) == "table" and type(exc.exception.description) == "string" then exc.exception.description elseif type(exc.text) == "string" then exc.text else "Evaluation failed"
-            error(detail, 0)
-        end
+        local tab = ready(target(args, sid))
+        local answer = evaluate(tab, script)
         local result = if type(answer.result) == "table" then answer.result else {}
         local value: any
         if result.value ~= nil then
@@ -362,12 +394,86 @@ function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutServ
         return { tabID = id(tab), value = value }
     end)
 
+    -- Desktop's wait (`rpc.ts` "wait"): a timeout is a result (`met: false`), not an error.
+    tool("browser_wait", "Wait until a condition holds in a browser tab in OpenCode (Rune), or pause. Pass one of: text (this text appears on the page), textGone (it's no longer there), selector (a matching element is visible), url (the address contains it), or nothing (the page finishes loading). With only timeout, it pauses that long. A timeout returns met: false with what the page showed. timeout is in milliseconds, default 10000, at most 30000.", {
+        tabID = tabSchema(DEFAULT_TAB),
+        text = { type = "string", description = "Wait until this literal text is on the page." },
+        textGone = { type = "string", description = "Wait until this literal text is no longer on the page." },
+        selector = { type = "string", description = "CSS selector: wait until a matching element is visible." },
+        url = { type = "string", description = "Wait until the tab's address contains this." },
+        timeout = { type = "integer", minimum = 0, description = "Milliseconds to wait (default 10000, at most 30000)." },
+    }, nil, function(args, sid)
+        local tab = ready(target(args, sid))
+        local timeout = math.clamp(if type(args.timeout) == "number" then args.timeout else 10_000, 0, 30_000) / 1000
+        local function str(v: any): string?
+            return if type(v) == "string" and v ~= "" then v else nil
+        end
+        local text, gone, selector, url = str(args.text), str(args.textGone), str(args.selector), str(args.url)
+        local waited = if text then "text" elseif gone then "textGone" elseif selector then "selector" elseif url then "url" elseif args.timeout ~= nil then "delay" else "load"
+        local function holds(): boolean
+            if waited == "delay" then
+                return false
+            elseif waited == "load" then
+                return not tab:Loading()
+            elseif waited == "url" then
+                return string.find(tab:Url(), url :: string, 1, true) ~= nil
+            end
+            local check = if waited == "selector"
+                then `(() => \{ const e = document.querySelector({quote(selector :: string)}); if (!e) return false; const r = e.getBoundingClientRect(); const s = getComputedStyle(e); return r.width > 0 && r.height > 0 && s.visibility !== "hidden" \})()`
+                else `(document.body ? document.body.innerText : "").includes({quote((text or gone) :: string)})`
+            local ok, answer = pcall(evaluate, tab, check)
+            local found = ok and type(answer) == "table" and type(answer.result) == "table" and answer.result.value == true
+            return if waited == "textGone" then ok and not found else found
+        end
+        local System = ctx:GetService("System")
+        local deadline = System:Now() / 1000 + timeout
+        local met = holds()
+        while not met and System:Now() / 1000 < deadline do
+            task.wait(0.1)
+            if tab:Dialog() ~= nil then
+                break
+            end
+            met = holds()
+        end
+        if waited == "delay" then
+            met = true
+        end
+        return { tabID = id(tab), met = met, waited = waited, observed = { url = tab:Url(), title = tab:Title(), loading = tab:Loading(), dialog = tab:Dialog() ~= nil } }
+    end)
+
+    tool("browser_dialog", "Inspect, accept or dismiss the alert, confirm, prompt or 'Leave site?' a browser tab in OpenCode (Rune) waits on. The person may answer it in the pane too: the first answer wins. No dialog is reported as null.", {
+        tabID = tabSchema(DEFAULT_TAB),
+        action = { type = "string", enum = { "get", "accept", "dismiss" }, description = "'get' reads it; 'accept' presses OK (or Leave); 'dismiss' presses Cancel (or Stay)." },
+        promptText = { type = "string", description = "The answer to a prompt, with 'accept'." },
+    }, { "action" }, function(args, sid)
+        local tab = target(args, sid)
+        local dialog = tab:Dialog()
+        local function shown(d: BrowserDialog?): any
+            return if d then { type = d.kind, message = truncate(d.message), defaultValue = d.defaultText } else nil
+        end
+        local out = page(tab)
+        if args.action == "get" or args.action == nil then
+            out.dialog = shown(dialog)
+            return out
+        end
+        if dialog == nil then
+            error(`No dialog is open in tab {id(tab)}.`, 0)
+        end
+        local accept = args.action == "accept"
+        local text = if accept and type(args.promptText) == "string" then args.promptText else dialog.defaultText
+        if not tab:AnswerDialog(dialog.id, accept, text) then
+            error(`The dialog in tab {id(tab)} was already answered; read the tab again with browser_dialog action 'get'.`, 0)
+        end
+        out.dialog = nil
+        return out
+    end)
+
     tool("browser_screenshot", "Capture a screenshot of a browser tab in OpenCode (Rune), returning compact metadata and the image.", {
         tabID = tabSchema(DEFAULT_TAB),
         format = { type = "string", enum = { "png", "jpeg", "webp" }, description = "Image format (default 'png')." },
     }, nil, function(args, sid)
         local format = if args.format == "jpeg" or args.format == "jpg" then "jpeg" elseif args.format == "webp" then "webp" else "png"
-        local tab = target(args, sid)
+        local tab = ready(target(args, sid))
         local shot = tab:DevtoolsAsync("Page.captureScreenshot", { format = format })
         local data = if type(shot) == "table" and type(shot.data) == "string" then shot.data else ""
         if data == "" then
@@ -416,7 +522,7 @@ function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutServ
         if string.match(method, "^%s*$") then
             error("Missing 'method'", 0)
         end
-        local tab = target(args, sid)
+        local tab = ready(target(args, sid))
         if not Browser:Engine().policy then
             error("browser_cdp requires an updated browser engine that enforces URL policy.", 0)
         end

@@ -102,5 +102,18 @@
   "viewport.error": "Couldn’t apply the viewport. Try again.",
   "viewport.zoomPrompt": "Reset page zoom to 100% to set a fixed viewport.",
   "viewport.zoomExit": "The page is using the pane size because page zoom changed.",
-  "viewport.fitFailed": "Couldn’t fit the preview. Use the pane size or try different dimensions."
+  "viewport.fitFailed": "Couldn’t fit the preview. Use the pane size or try different dimensions.",
+  "prompt.ok": "OK",
+  "prompt.cancel": "Cancel",
+  "prompt.value": "Your answer",
+  "prompt.site.web": "{{host}} says",
+  "prompt.site.embedded": "An embedded page at {{host}} says",
+  "prompt.site.file": "This file says",
+  "prompt.site.page": "This page says",
+  "prompt.site.embedded.page": "An embedded page says",
+  "prompt.stop": "Stop this page from showing more messages",
+  "prompt.leave.title": "Leave site?",
+  "prompt.leave.description": "Changes you made may not be saved.",
+  "prompt.leave.leave": "Leave",
+  "prompt.leave.stay": "Stay"
 }

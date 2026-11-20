@@ -1,5 +1,5 @@
 use cef::rc::Rc as _;
-use cef::{Client, DisplayHandler, DownloadHandler, ImplClient, LoadHandler, RenderHandler, RequestHandler, WrapClient, wrap_client};
+use cef::{Client, DisplayHandler, DownloadHandler, ImplClient, JsdialogHandler, LoadHandler, RenderHandler, RequestHandler, WrapClient, wrap_client};
 
 wrap_client! {
     pub struct SidecarTabClient {
@@ -8,6 +8,7 @@ wrap_client! {
         load: LoadHandler,
         request: RequestHandler,
         download: DownloadHandler,
+        jsdialog: JsdialogHandler,
     }
 
     impl Client {
@@ -25,6 +26,9 @@ wrap_client! {
         }
         fn download_handler(&self) -> Option<DownloadHandler> {
             Some(self.download.clone())
+        }
+        fn jsdialog_handler(&self) -> Option<JsdialogHandler> {
+            Some(self.jsdialog.clone())
         }
     }
 }

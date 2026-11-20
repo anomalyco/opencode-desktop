@@ -120,6 +120,11 @@ pub enum HostMsg {
     Hello {
         mach_service: Option<String>,
         pid: u32,
+        /// This app shows a page's JavaScript dialogs and "Leave site?" (`Dialog`) and answers them
+        /// (`AnswerDialog`). An engine from before it ignores the field; one after it holds a page's
+        /// dialogs only for an app that said so, as an older app would leave them waiting for ever.
+        #[serde(default)]
+        dialogs: bool,
     },
     OpenTab {
         tab_id: u64,
@@ -247,6 +252,14 @@ pub enum HostMsg {
     DmabufFailed {
         reason: String,
     },
+    /// The answer to the page's dialog `id` (`EngineMsg::Dialog`): OK or Leave (`accept`), with
+    /// a prompt's text. Sent only to an engine whose `Ready` says `dialogs`.
+    AnswerDialog {
+        tab_id: u64,
+        id: u64,
+        accept: bool,
+        text: String,
+    },
     Shutdown,
 }
 
@@ -262,6 +275,21 @@ pub enum EngineMsg {
         /// The engine enforces URL and workspace `file://` policy in its request handlers.
         #[serde(default)]
         policy: bool,
+        /// The engine holds a page's dialogs for the app (`Dialog`), since this app said it shows
+        /// them (`Hello`).
+        #[serde(default)]
+        dialogs: bool,
+    },
+    /// A page asks the user: its `alert`, `confirm` or `prompt`, or its `beforeunload`
+    /// ("Leave site?"). The page waits until the app answers it (`HostMsg::AnswerDialog`) or a
+    /// navigation ends it (`DialogsReset`).
+    Dialog {
+        tab_id: u64,
+        dialog: PageDialog,
+    },
+    /// The page's held dialogs ended without an answer (a navigation, a crash): they're gone.
+    DialogsReset {
+        tab_id: u64,
     },
     /// A frame navigation or redirect was refused by URL policy while keeping the current page.
     Refused {
@@ -355,6 +383,44 @@ pub struct DownloadFile {
     /// interrupt reason (`network_failed`, `file_no_space`, ...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+}
+
+/// A dialog a page shows (`EngineMsg::Dialog`), as Desktop's dialog gate holds it
+/// (`gui-plugins/src/browser/dialog-machine.ts` `DialogInfo`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PageDialog {
+    /// Unique in the engine's run; an answer names it.
+    pub id: u64,
+    pub kind: DialogKind,
+    /// The asking frame's address; empty for "Leave site?".
+    #[serde(default)]
+    pub origin: String,
+    #[serde(default)]
+    pub message: String,
+    /// A `prompt`'s default answer.
+    #[serde(default)]
+    pub default_text: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DialogKind {
+    Alert,
+    Confirm,
+    Prompt,
+    /// The page's `beforeunload`: "Leave site?".
+    Leave,
+}
+
+impl DialogKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Alert => "alert",
+            Self::Confirm => "confirm",
+            Self::Prompt => "prompt",
+            Self::Leave => "leave",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -11,6 +11,7 @@ local address = require("@self/address")
 local history = require("@self/history")
 local mcp = require("@self/mcp")
 local panel = require("@self/panel")
+local prompt = require("@self/prompt")
 local createDevice = require("@self/device")
 local site = require("@self/site")
 
@@ -133,9 +134,29 @@ return plugin.defineWindow(function(ctx)
         dispatch({ type = "key", key = key, visits = visits() })
     end)
 
-    -- A page that moved: its counts, the history once it loaded (`record`), and the pane.
+    -- The page dialog the pane shows, and the window's field for a `prompt`'s answer.
+    local promptEditor = ctx:CreateEditor("")
+    local promptState = prompt.initial
+    local function promptDispatch(event: prompt.Event)
+        local nextState, effects = prompt.step(promptState, event)
+        promptState = nextState
+        for _, effect in effects do
+            if effect.type == "fill" then
+                promptEditor:SetText(effect.text)
+                promptEditor:SelectAll()
+            elseif effect.type == "focus" then
+                promptEditor:Focus()
+            elseif effect.type == "release" and promptEditor:Focused() then
+                promptEditor:Blur()
+            end
+        end
+        refresh()
+    end
+
+    -- A page that moved: its counts, the history once it loaded (`record`), its dialog, and the pane.
     Browser.Changed:Connect(function(id: string)
         local tab = Browser:Get(id)
+        promptDispatch({ type = "dialog", tab = id, dialog = if tab then tab:Dialog() else nil })
         if tab == nil then
             epochs[id] = nil
             recorded[id] = nil
@@ -372,6 +393,14 @@ return plugin.defineWindow(function(ctx)
             return Popover:IsOpen("site")
         end,
         act = act,
+        prompt = {
+            I18n = I18n,
+            editor = promptEditor,
+            state = function()
+                return promptState
+            end,
+            dispatch = promptDispatch,
+        },
     }
 
     -- A tab's label: "New tab" for a blank page, else the page's title, else its address.

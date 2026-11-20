@@ -68,7 +68,14 @@ pub struct PickedElement {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum HostMsg {
-    Hello { mach_service: Option<String>, pid: u32 },
+    /// `dialogs`: the app shows a page's dialogs and answers them (`AnswerDialog`); without it
+    /// they stay Chromium's (suppressed in a windowless page), as an older app never answers.
+    Hello {
+        mach_service: Option<String>,
+        pid: u32,
+        #[serde(default)]
+        dialogs: bool,
+    },
     OpenTab {
         tab_id: u64,
         url: String,
@@ -107,6 +114,8 @@ pub enum HostMsg {
     FrameRead { tab_id: u64, pool: u64, frame_id: u64 },
     /// Linux: the app can't import the engine's dmabufs; frames come as BGRA paints from now on.
     DmabufFailed { reason: String },
+    /// The app's answer to the page's dialog `id` (`EngineMsg::Dialog`).
+    AnswerDialog { tab_id: u64, id: u64, accept: bool, text: String },
     Shutdown,
 }
 
@@ -115,7 +124,13 @@ pub enum HostMsg {
 pub enum EngineMsg {
     /// `downloads`: this engine keeps a page's downloads (`EngineMsg::Download`).
     /// `policy`: this engine enforces URL and workspace `file://` policy in its request handlers.
-    Ready { chromium_major: u32, pid: u32, downloads: bool, policy: bool },
+    /// `dialogs`: this engine holds a page's dialogs for the app (`Dialog`).
+    Ready { chromium_major: u32, pid: u32, downloads: bool, policy: bool, dialogs: bool },
+    /// A page asks the user (`alert`, `confirm`, `prompt`, or `beforeunload`); it waits for
+    /// `HostMsg::AnswerDialog` or a navigation (`DialogsReset`).
+    Dialog { tab_id: u64, dialog: PageDialog },
+    /// The page's held dialogs ended without an answer.
+    DialogsReset { tab_id: u64 },
     Refused { tab_id: u64, reason: String },
     TabList { tabs: Vec<TabSnapshot> },
     TabUpdate { tab: TabSnapshot },
@@ -136,6 +151,25 @@ pub enum EngineMsg {
     /// Linux: a finished frame in buffer `slot` of `pool`. The app says when it has read it
     /// (`HostMsg::FrameRead`), and the engine writes that buffer again only after.
     DmabufFrame { tab_id: u64, frame_id: u64, pool: u64, slot: u32 },
+}
+
+/// A dialog a page shows, matching `crates/browser-pane/src/protocol.rs`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PageDialog {
+    pub id: u64,
+    pub kind: DialogKind,
+    pub origin: String,
+    pub message: String,
+    pub default_text: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DialogKind {
+    Alert,
+    Confirm,
+    Prompt,
+    Leave,
 }
 
 /// A file a page downloaded, kept in the engine's private downloads folder for the agent's tools

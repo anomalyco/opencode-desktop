@@ -3982,6 +3982,10 @@ export type BrowserTab = {
     Refusal: (self: BrowserTab) -> string?,
     --- Count of refused navigations on this page, so a repeated refusal still ends the address field's hold.
     Rejected: (self: BrowserTab) -> number,
+    --- The dialog the page waits on (its `alert`, `confirm` or `prompt`, or "Leave site?"), or nil. Only with an engine that holds dialogs for the app; an older one keeps Chromium's.
+    Dialog: (self: BrowserTab) -> BrowserDialog?,
+    --- Answers dialog `id`: OK or Leave (`accept`), a prompt's `text`, and with `stop` (offered when `repeated`) dismisses the page's next dialogs until another document. The first answer wins: false when the dialog is no longer open.
+    AnswerDialog: (self: BrowserTab, id: string, accept: boolean, text: string?, stop: boolean?) -> boolean,
     --- Loads a URL, or a local `:port`.
     Navigate: (self: BrowserTab, url: string) -> (),
     --- Goes back.
@@ -4030,6 +4034,24 @@ export type BrowserFile = {
     state: string,
     --- Why it failed: `too_large`, `canceled`, or Chromium's interrupt reason (`network_failed`, `file_no_space`, ...).
     error: string?,
+}
+
+--- A dialog a page waits on (`BrowserTab:Dialog`).
+export type BrowserDialog = {
+    --- Its id, for `BrowserTab:AnswerDialog`.
+    id: string,
+    --- `alert`, `confirm`, `prompt`, or `leave` (the page's `beforeunload`).
+    kind: string,
+    --- The address of the frame that asks; empty for `leave`.
+    origin: string,
+    --- The page's text, without controls that reorder text, at most 2,000 characters.
+    message: string,
+    --- A prompt's default answer.
+    defaultText: string,
+    --- It opened within a second of the page's last dialog closing: offer to stop the page's dialogs.
+    repeated: boolean,
+    --- It has shown for half a second: the pane's buttons take presses (a press already on its way can't answer it).
+    armed: boolean,
 }
 
 --- A downloaded file's contents (`BrowserTab:ReadFileAsync`).
