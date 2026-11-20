@@ -1,8 +1,10 @@
 //! Strict bounded HTTP/1.1 request-head parser, anti-smuggling validator, `CONNECT` authority
 //! parser, and forwarded-header sanitizer for [`super::tunnel_proxy::TunnelProxy`].
 
-use std::io::{BufReader, Read};
+use std::io::{BufReader, ErrorKind, Read};
 use std::net::TcpStream;
+
+use rune::time::Instant;
 
 const MAX_HEADER_BYTES: usize = 64 * 1024;
 const MAX_HEADERS: usize = 128;
@@ -34,19 +36,37 @@ pub(super) struct ProxyUrl {
     pub path_and_query: String,
 }
 
-/// Reads an HTTP/1.x request head strictly bounded to `MAX_HEADER_BYTES` (never calls unbounded
-/// `read_line`), enforcing exact CRLF (`\r\n`) endings, RFC 9110 token syntax, and rejecting
-/// bare `\r`/`\n`, control bytes, and obs-fold.
-pub(super) fn read_http_head(reader: &mut BufReader<TcpStream>) -> Result<ParsedHead, &'static str> {
+/// Reads an HTTP/1.x request head strictly bounded to `MAX_HEADER_BYTES` and `deadline` (total
+/// wall-clock budget, preventing slowloris 1-byte/9s slot exhaustion), enforcing exact CRLF
+/// (`\r\n`) endings, RFC 9110 token syntax, and rejecting bare `\r`/`\n`, control bytes, and
+/// obs-fold.
+pub(super) fn read_http_head(
+    reader: &mut BufReader<TcpStream>,
+    deadline: Instant,
+) -> Result<ParsedHead, &'static str> {
     let mut raw = Vec::with_capacity(1024);
     let mut byte = [0u8; 1];
     loop {
         if raw.len() >= MAX_HEADER_BYTES {
             return Err("431 Request Header Fields Too Large");
         }
+        let now = Instant::now();
+        if now >= deadline {
+            return Err("408 Request Timeout");
+        }
+        if reader.buffer().is_empty() {
+            let rem = deadline.saturating_duration_since(now);
+            reader.get_ref().set_read_timeout(Some(rem)).ok();
+        }
         match reader.read(&mut byte) {
             Ok(0) => return Err("400 Bad Request"),
             Ok(_) => raw.push(byte[0]),
+            Err(e)
+                if matches!(e.kind(), ErrorKind::TimedOut | ErrorKind::WouldBlock)
+                    || Instant::now() >= deadline =>
+            {
+                return Err("408 Request Timeout");
+            }
             Err(_) => return Err("400 Bad Request"),
         }
         if raw.ends_with(b"\r\n\r\n") {
@@ -91,21 +111,18 @@ pub(super) fn read_http_head(reader: &mut BufReader<TcpStream>) -> Result<Parsed
     Ok(ParsedHead { method, target, headers })
 }
 
-pub(super) fn parse_content_length(req: &ParsedHead, is_connect: bool) -> Result<u64, &'static str> {
+pub(super) fn parse_content_length(req: &ParsedHead, reject_body: bool) -> Result<u64, &'static str> {
     let mut found: Option<u64> = None;
     for (k, v) in &req.headers {
         if !k.eq_ignore_ascii_case("content-length") {
             continue;
         }
-        if is_connect || v.is_empty() || !v.bytes().all(|b| b.is_ascii_digit()) {
+        // Reject ANY Content-Length on CONNECT / WebSocket Upgrade, any duplicate Content-Length
+        // header (even identical), and any non-digit value.
+        if reject_body || found.is_some() || v.is_empty() || !v.bytes().all(|b| b.is_ascii_digit()) {
             return Err("400 Bad Request");
         }
         let n = v.parse::<u64>().map_err(|_| "400 Bad Request")?;
-        if let Some(prev) = found
-            && prev != n
-        {
-            return Err("400 Bad Request");
-        }
         found = Some(n);
     }
     Ok(found.unwrap_or(0))
@@ -176,10 +193,17 @@ pub(super) fn parse_proxy_url(raw: &str) -> Option<ProxyUrl> {
         let port = if tail.is_empty() {
             default_port
         } else {
-            tail.strip_prefix(':')?.parse::<u16>().ok()?
+            let p = tail.strip_prefix(':')?;
+            if p.is_empty() || !p.bytes().all(|b| b.is_ascii_digit()) {
+                return None;
+            }
+            p.parse::<u16>().ok()?
         };
         (host.to_owned(), port)
     } else if let Some((h, p)) = authority.rsplit_once(':') {
+        if p.is_empty() || !p.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
         let port = p.parse::<u16>().ok()?;
         (h.to_owned(), port)
     } else {
@@ -249,6 +273,18 @@ pub(super) fn build_forwarded_head(
     }
     out.push_str("\r\n");
     out
+}
+
+/// Returns `true` iff `head` (up to `\r\n\r\n`) begins with an HTTP/1.x `101` status line.
+pub(super) fn is_http_101_response(head: &[u8]) -> bool {
+    let end = head.windows(2).position(|w| w == b"\r\n").unwrap_or(head.len());
+    let Ok(line) = std::str::from_utf8(&head[..end]) else {
+        return false;
+    };
+    let mut parts = line.split(' ');
+    let version = parts.next().unwrap_or("");
+    let code = parts.next().unwrap_or("");
+    matches!(version, "HTTP/1.1" | "HTTP/1.0") && code == "101"
 }
 
 fn is_http_token(s: &str) -> bool {

@@ -167,6 +167,14 @@ pub trait SendFailedHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback
         false
     }
 
+    /// Whether `session`'s `BuiltinPromptGate` (`<= 1 s` browser RPC attach wait) is settled so
+    /// [`pump_outbox`] may dispatch the next queued/retried/follow-up prompt. Returning `false`
+    /// arms the gate and pauses dispatch until it settles or times out.
+    fn prompt_gate_ready(&mut self, session: &str) -> bool {
+        let _ = session;
+        true
+    }
+
     /// Notified when a queue-first prompt (`Alt+Enter`, `#63109`) is admitted to `session`'s
     /// server inbox so it moves ahead of existing queued prompts (after any still-queued `after`
     /// anchors). `force` is true when `session`'s inbox has not yet been synced from the server.

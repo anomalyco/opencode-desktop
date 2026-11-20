@@ -11,7 +11,10 @@ mod session;
 mod suppression;
 mod tunnel;
 
-pub use gate::{register_prompt_gate, should_gate_prompt};
+pub use gate::{
+    ensure_outbox_gate, hold_rewrite, hold_start_gate, hold_write, register_prompt_gate,
+    should_gate_prompt,
+};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -96,6 +99,7 @@ pub struct BrowserRpcState {
     mcp_suppressed: BTreeMap<ServerKey, (Server, bool)>,
     tunnels: tunnel::RemoteTunnelManager,
     prompt_gates: Vec<gate::PromptGateEntry>,
+    gate_timed_out_attempt: BTreeMap<(ServerKey, String), u64>,
     worker_tx: Sender<WorkerMsg>,
     worker_rx: Receiver<WorkerMsg>,
     waker: Option<Waker>,
@@ -115,6 +119,7 @@ impl Default for BrowserRpcState {
             mcp_suppressed: BTreeMap::new(),
             tunnels: tunnel::RemoteTunnelManager::default(),
             prompt_gates: Vec::new(),
+            gate_timed_out_attempt: BTreeMap::new(),
             worker_tx,
             worker_rx,
             waker: None,
@@ -188,11 +193,12 @@ pub fn on_sse_disconnected(app: &mut App, server_key: &ServerKey) {
     if let Some(srv) = live_server_clone(app) {
         clear_base_connected(&srv.base);
     }
-    app.kernel
-        .slots
-        .get_mut(&BROWSER_RPC)
-        .sse_connected
-        .insert(server_key.clone(), false);
+    {
+        let st = app.kernel.slots.get_mut(&BROWSER_RPC);
+        st.sse_connected.insert(server_key.clone(), false);
+        st.gate_timed_out_attempt.retain(|(k, _), _| k != server_key);
+    }
+    tunnel::suspend_server_tunnels(app, server_key);
     let _ = gate::drain_ready_gates(app, Instant::now());
 }
 

@@ -195,20 +195,13 @@ impl QueueHost for App {
                 }));
             }
             QueueJob::Rewrite(task) => {
-                let key = crate::servers::runtime::active(self).clone();
-                let deliver = self.deliverer();
-                self.job(move |srv| {
-                    let progress_key = key.clone();
-                    let reply = execute_rewrite(srv, task, move |update| {
-                        let k = progress_key.clone();
-                        deliver(Box::new(move |app: &mut App, _| {
-                            crate::servers::runtime::with_server(app, &k, |app| apply_reply(app, update));
-                        }));
-                    });
-                    Box::new(move |app: &mut App, _| {
-                        crate::servers::runtime::with_server(app, &key, |app| apply_reply(app, reply));
-                    })
-                });
+                #[cfg(not(target_arch = "wasm32"))]
+                match crate::surfaces::browser::rpc::hold_rewrite(self, task) {
+                    Ok(()) => return,
+                    Err(task) => self.spawn_rewrite_now(task),
+                }
+                #[cfg(target_arch = "wasm32")]
+                self.spawn_rewrite_now(task);
             }
         }
     }
@@ -227,6 +220,23 @@ impl QueueHost for App {
 }
 
 impl App {
+    pub(crate) fn spawn_rewrite_now(&mut self, task: RewriteTask) {
+        let key = crate::servers::runtime::active(self).clone();
+        let deliver = self.deliverer();
+        self.job(move |srv| {
+            let progress_key = key.clone();
+            let reply = execute_rewrite(srv, task, move |update| {
+                let k = progress_key.clone();
+                deliver(Box::new(move |app: &mut App, _| {
+                    crate::servers::runtime::with_server(app, &k, |app| apply_reply(app, update));
+                }));
+            });
+            Box::new(move |app: &mut App, _| {
+                crate::servers::runtime::with_server(app, &key, |app| apply_reply(app, reply));
+            })
+        });
+    }
+
     pub fn inbox_for(&self, session: &str) -> Option<&Inbox> {
         inbox_for(self, session)
     }

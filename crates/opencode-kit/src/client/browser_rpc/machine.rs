@@ -152,16 +152,25 @@ impl AttachMachine {
         matches!(self.state, AttachState::Connecting { .. })
     }
 
+    pub fn connecting_attempt(&self) -> Option<u64> {
+        match self.state {
+            AttachState::Connecting { attempt, .. } => Some(attempt),
+            _ => None,
+        }
+    }
+
     /// True once `experimental.browser` v4 is live and `rune_mcp` should suppress `browser_*`.
     pub fn should_suppress_mcp(&self) -> bool {
         self.is_attached()
     }
 
-    /// True when the prompt gate has nothing left to wait for (already attached or will not attach).
+    /// True when the prompt gate has nothing left to wait for (already attached, in backoff, or
+    /// will not attach; matches official `packages/gui-plugins/src/browser/machine.ts:507-509`).
     pub fn prompt_gate_settled(&self) -> bool {
         matches!(
             self.state,
             AttachState::Attached { .. }
+                | AttachState::Backoff { .. }
                 | AttachState::Unavailable
                 | AttachState::Unsupported
                 | AttachState::Blocked { .. }

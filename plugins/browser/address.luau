@@ -88,91 +88,9 @@ function address.parts(url: string): (string, string, string)
     return scheme, host, string.sub(rest, #host + 1)
 end
 
-local function parseIpv4Part(part: string): number?
-    if part == "" then
-        return nil
-    end
-    local hex = string.match(part, "^0[xX](%x+)$")
-    if hex then
-        return tonumber(hex, 16)
-    end
-    if #part > 1 and string.sub(part, 1, 1) == "0" then
-        if not string.match(part, "^[0-7]+$") then
-            return nil
-        end
-        return tonumber(part, 8)
-    end
-    if not string.match(part, "^%d+$") then
-        return nil
-    end
-    return tonumber(part, 10)
-end
-
-local function parseIpv4(host: string): number?
-    local parts = {}
-    for seg in string.gmatch(host .. ".", "([^.]*)%.") do
-        table.insert(parts, seg)
-    end
-    if #parts == 0 or #parts > 4 then
-        return nil
-    end
-    local nums = {}
-    for _, seg in ipairs(parts) do
-        local n = parseIpv4Part(seg)
-        if n == nil then
-            return nil
-        end
-        table.insert(nums, n)
-    end
-    local last = nums[#nums]
-    local limit = 2 ^ (8 * (5 - #nums))
-    if last < 0 or last >= limit then
-        return nil
-    end
-    local ip = last
-    for i = 1, #nums - 1 do
-        local n = nums[i]
-        if n < 0 or n > 255 then
-            return nil
-        end
-        ip = ip + n * (2 ^ (8 * (4 - i)))
-    end
-    return ip
-end
-
 function address.loopback(host: string): boolean
-    local h = string.gsub(string.lower(host), "^%s*(.-)%s*$", "%1")
-    h = string.gsub(h, "%.+$", "")
-    if h == "localhost" or string.sub(h, -10) == ".localhost" then
-        return true
-    end
-    local unbracketed = string.match(h, "^%[(.*)%]$") or h
-    if unbracketed == "::1" or unbracketed == "::" then
-        return true
-    end
-    -- Expanded IPv6 loopback/unspecified (`0:0:0:0:0:0:0:1`, `0:0:0:0:0:0:0:0`) and IPv4-mapped forms.
-    if string.find(unbracketed, ":", 1, true) then
-        if string.match(unbracketed, "^0+:0+:0+:0+:0+:0+:0+:0*[01]$") then
-            return true
-        end
-        local mappedV4 = string.match(unbracketed, "::ffff:([%d%.a-fA-FxX]+)$")
-        if mappedV4 then
-            local ip = parseIpv4(mappedV4)
-            if ip ~= nil then
-                return ip == 0 or math.floor(ip / 16777216) == 127
-            end
-        end
-        local mappedHex = string.match(unbracketed, "::ffff:(%x+):(%x+)$")
-        if mappedHex then
-            local hi = tonumber(mappedHex, 16)
-            if hi ~= nil and (math.floor(hi / 256) == 127 or hi == 0) then
-                return true
-            end
-        end
-        return false
-    end
-    local ip = parseIpv4(unbracketed)
-    return ip ~= nil and (ip == 0 or math.floor(ip / 16777216) == 127)
+    local h = string.lower(host)
+    return h == "localhost" or h == "[::1]" or h == "::1" or string.match(h, "^127%.%d+%.%d+%.%d+$") ~= nil or string.sub(h, -10) == ".localhost"
 end
 
 function address.searches(input: string): boolean

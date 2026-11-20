@@ -73,7 +73,7 @@ fn require_remote_proxy_if_remote(att: &SessionAttachment, app: &App) -> Result<
         .workspace_panes
         .browser
         .host
-        .partition_proxy(att.server_key.as_str())
+        .remote_proxy(att.server_key.as_str())
         .is_none()
     {
         return Err(Outcome::fail(

@@ -167,6 +167,18 @@ impl SendFailedHost for App {
         self.kernel.slots.get(&crate::queue::QUEUE_OPS).get(session).is_some_and(crate::queue::machine::Queue::busy)
     }
 
+    fn prompt_gate_ready(&mut self, session: &str) -> bool {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            crate::surfaces::browser::rpc::ensure_outbox_gate(self, session)
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = session;
+            true
+        }
+    }
+
     fn on_admitted_first(&mut self, session: &str, id: &str, after: Vec<String>, force: bool) {
         self.first_queued(session, id, after, force);
     }

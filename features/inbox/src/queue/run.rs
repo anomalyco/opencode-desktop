@@ -65,6 +65,12 @@ pub struct RewriteTask {
     abort: Arc<AtomicBool>,
 }
 
+impl RewriteTask {
+    pub fn session(&self) -> &str {
+        &self.session
+    }
+}
+
 /// Background work or deferred reply scheduled by [`QueueHost::spawn_queue_job`].
 pub enum QueueJob {
     /// Run a queue edit/reorder chain off the UI thread with [`execute_rewrite`], delivering

@@ -315,12 +315,37 @@ impl App {
         self.session(id).and_then(|i| i.revert.as_ref()).is_none() && self.inbox_for(id).is_some_and(|i| i.steering().next().is_some())
     }
 
+    /// Dispatches a live write directly without re-entering `BuiltinPromptGate` (called by
+    /// `gate::drain_ready_gates` inside `runtime::with_server` on the write's owning server).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn send_live_write(&mut self, w: Write) -> bool {
+        match &*self.source {
+            Source::Live { allow_send: false, .. } => crate::status_toast::fail(self, opencode_i18n::t!("rune.send.nothingSent"), opencode_i18n::t!("rune.jobs.readOnly")),
+            Source::Live { writes: Some(tx), .. } => {
+                let sent = tx.send(w).is_ok();
+                crate::windows::peer::touch(self);
+                return sent;
+            }
+            _ => crate::status_toast::fail(self, opencode_i18n::t!("rune.send.disconnected"), opencode_i18n::t!("rune.send.nothingSentSentence")),
+        }
+        false
+    }
+
     /// Queues a write to the server; false (with a status line) when this build can't write.
     pub fn write(&mut self, w: Write) -> bool {
         if self.fixture_run.stage.is_some() {
             // A story's answers go nowhere; it acts as if they were sent.
             *self.diag.status = "Storybook: not sent".into();
             return true;
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        if matches!(&*self.source, Source::Live { allow_send: true, writes: Some(_), .. })
+            && let Some(sid) = write_gate_session(&w).map(str::to_owned)
+        {
+            match crate::surfaces::browser::rpc::hold_write(self, &sid, w) {
+                Ok(()) => return true,
+                Err(w) => return self.send_live_write(w),
+            }
         }
         match &*self.source {
             Source::Live { allow_send: false, .. } => crate::status_toast::fail(self, opencode_i18n::t!("rune.send.nothingSent"), opencode_i18n::t!("rune.jobs.readOnly")),
@@ -334,5 +359,18 @@ impl App {
             _ => crate::status_toast::fail(self, opencode_i18n::t!("rune.send.disconnected"), opencode_i18n::t!("rune.send.nothingSentSentence")),
         }
         false
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn write_gate_session(w: &Write) -> Option<&str> {
+    match w {
+        Write::Prompt { session, .. }
+        | Write::Send { session, .. }
+        | Write::SendMovingHome { session, .. }
+        | Write::SendFromRevert { session, .. }
+        | Write::Deliver { session, .. } => Some(session.as_str()),
+        Write::Tracked { write, .. } | Write::Gated { write, .. } => write_gate_session(write),
+        _ => None,
     }
 }

@@ -16,7 +16,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use browser_pane::RemoteProxyConfig;
-use opencode_kit::browser_rpc::{LocationRef, PROXY_REALM, TunnelProxy};
+use opencode_kit::browser_rpc::{AttachState, LocationRef, PROXY_REALM, TunnelProxy};
 use opencode_kit::client::Server;
 use opencode_kit::servers::ServerKey;
 
@@ -40,6 +40,21 @@ struct DesiredTunnel {
     connection_id: String,
 }
 
+/// Immediately suspends any active remote [`TunnelProxy`] for `server_key` when `/api/event`
+/// drops (`on_sse_disconnected`), shutting down all tracked sockets (including upgraded
+/// WebSockets) in 0 ms and clearing the engine partition proxy.
+pub(super) fn suspend_server_tunnels(app: &mut App, server_key: &ServerKey) {
+    let mgr = std::mem::take(&mut app.kernel.slots.get_mut(&BROWSER_RPC).tunnels);
+    if let Some(cur) = mgr.tunnels.get(server_key) {
+        cur.proxy.set_suspended(true);
+        app.workspace_panes
+            .browser
+            .host
+            .set_partition_proxy(server_key.as_str(), None);
+    }
+    app.kernel.slots.get_mut(&BROWSER_RPC).tunnels = mgr;
+}
+
 /// Reconciles active [`TunnelProxy`] instances against currently attached remote-server sessions
 /// and updates `BrowserHost::set_partition_proxy` on every start, rotation, or stop.
 pub(super) fn sync_remote_tunnels(app: &mut App) {
@@ -57,7 +72,9 @@ pub(super) fn sync_remote_tunnels(app: &mut App) {
             if same_machine {
                 continue;
             }
-            if let Some(conn_id) = att.attach.connection_id()
+            let sse_up = st.sse_connected.get(key).copied().unwrap_or(true);
+            if sse_up
+                && let Some(conn_id) = att.attach.connection_id()
                 && att.attach.is_attached()
             {
                 desired.entry(key.clone()).or_insert_with(|| DesiredTunnel {
@@ -66,7 +83,12 @@ pub(super) fn sync_remote_tunnels(app: &mut App) {
                     session_id: sid.clone(),
                     connection_id: conn_id.to_owned(),
                 });
-            } else if att.attach.suppresses_local_mcp() {
+            } else if !sse_up
+                || matches!(
+                    att.attach.state,
+                    AttachState::Connecting { .. } | AttachState::Backoff { .. }
+                )
+            {
                 reconnecting.insert(key.clone());
             }
         }
@@ -101,6 +123,19 @@ pub(super) fn sync_remote_tunnels(app: &mut App) {
             && cur.connection_id == want.connection_id
         {
             cur.proxy.set_suspended(false);
+            if app.workspace_panes.browser.host.remote_proxy(key.as_str()).is_none() {
+                let cfg = RemoteProxyConfig {
+                    host: "127.0.0.1".to_owned(),
+                    port: cur.proxy.port,
+                    username: Some(cur.proxy.credentials.username.clone()),
+                    password: Some(cur.proxy.credentials.password.clone()),
+                    realm: Some(PROXY_REALM.to_owned()),
+                };
+                app.workspace_panes
+                    .browser
+                    .host
+                    .set_partition_proxy(key.as_str(), Some(cfg));
+            }
             continue;
         }
         // Start the replacement BEFORE closing `prev` so the OS cannot recycle the prior port
