@@ -28,10 +28,6 @@ pub struct ListSnapshot {
 }
 
 impl ListSnapshot {
-    pub fn is_empty(&self) -> bool {
-        self.keys.is_empty() && self.sessions.is_empty()
-    }
-
     pub fn to_json(&self) -> Value {
         json!({
             "keys": self.keys,

@@ -583,8 +583,8 @@ pub fn setting(p: &Pal, key: &str, title: &str, description: &str, control: El) 
 /// A row; its control centred on the text, or at its top (`SettingsRow align="start"`). A row
 /// settings search can reveal carries its `data-action` as `setting-<key>`.
 pub fn setting_at(p: &Pal, key: &str, title: &str, description: &str, control: El, centred: bool) -> El {
-    let about = text(description.to_owned()).key(format!("setting-{key}-about")).font(BODY).color(p.muted).wrap();
-    setting_with(p, key, title, about, control, centred)
+    let about = (!description.is_empty()).then(|| text(description.to_owned()).key(format!("setting-{key}-about")).font(BODY).color(p.muted).wrap());
+    setting_row(p, key, title, about, control, centred)
 }
 
 thread_local! {
@@ -614,6 +614,10 @@ pub fn compact() -> bool {
 
 /// A row whose description is built apart (a link after its words).
 pub fn setting_with(p: &Pal, key: &str, title: &str, about: El, control: El, centred: bool) -> El {
+    setting_row(p, key, title, Some(about), control, centred)
+}
+
+fn setting_row(p: &Pal, key: &str, title: &str, about: Option<El>, control: El, centred: bool) -> El {
     let copy = col()
         .grow(1.0)
         .shrink()
@@ -621,7 +625,7 @@ pub fn setting_with(p: &Pal, key: &str, title: &str, about: El, control: El, cen
         .gap(8.0)
         .child(text(title.to_owned()).key("title").font(ROW_TITLE).color(p.text).wrap())
         // `margin-block: -3.5px` keeps its 20 pt lines on the title's 16 pt rhythm.
-        .child(about.key("about").my(-3.5));
+        .children(about.map(|a| a.key("about").my(-3.5)));
     if ROWS_WRAP.get() {
         return col()
             .key(format!("setting-{key}"))
