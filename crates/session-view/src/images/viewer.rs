@@ -76,7 +76,7 @@ pub fn shown(size: Option<[u32; 2]>, w: f32, h: f32) -> [f32; 4] {
 /// Rebuilds changed clip controls and steps the open image's zoom glide.
 pub fn poll<S: TimelineHost>(s: &mut S, now: f64, tx: &mut Tx) -> bool {
     // Touch the tracked host store only when a clip changes or a glide is running.
-    let clips = s.media_store().videos.poll(s.active_session_id());
+    let clips = s.media_store().videos.poll(s.active_session_id(), tx);
     if clips { let _ = s.media_store_mut(); tx.instant(); }
     clips | (s.media_store().zoom.gliding() && s.media_store_mut().zoom.poll(now, tx))
 }

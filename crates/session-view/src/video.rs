@@ -1,5 +1,7 @@
 //! Standalone movie links in assistant Markdown. The original link remains the caption and
 //! fallback. No HTML or provider iframe is needed; the host resolves a source, Rune plays it.
+mod transport;
+
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::ops::Range;
@@ -7,7 +9,6 @@ use std::rc::{Rc, Weak};
 
 use pulldown_cmark::{Event, Options, Parser, Tag};
 use rune::{Color, El, Player, PlayerState, SurfaceFit, Tx, col, el, text};
-
 
 use crate::{TimelineHost, palette::Pal};
 
@@ -31,6 +32,7 @@ struct Embed {
 struct Clip {
     player: Player,
     face: Cell<Face>,
+    transport: transport::Transport,
 }
 
 impl Clip {
@@ -44,11 +46,15 @@ impl Clip {
 impl Clips {
     pub(crate) fn version(&self) -> u64 { self.version.get() }
 
-    pub(crate) fn poll(&self, active: Option<&str>) -> bool {
+    pub(crate) fn poll(&self, active: Option<&str>, tx: &mut Tx) -> bool {
         let mut changed = false;
         self.players.borrow_mut().retain(|(sid, _, _), weak| {
             let Some(c) = weak.upgrade() else { return false };
             if active != Some(sid) && c.player.is_playing() { c.player.pause(); }
+            if active == Some(sid) {
+                c.transport.sync(&c.player);
+                if c.player.is_playing() { tx.wake_at(tx.clock() + 1.0 / 60.0); }
+            }
             let face = c.face();
             changed |= c.face.replace(face) != face;
             true
@@ -66,12 +72,11 @@ impl Clips {
             let player = Player::new(src);
             player.set_muted(false);
             if let Some(wake) = &s.media_store().waker { player.set_waker(wake.clone()); }
-            let c = Rc::new(Clip { player, face: Cell::new(Face::Paused) });
+            let c = Rc::new(Clip { player, face: Cell::new(Face::Paused), transport: Default::default() });
             players.insert(key, Rc::downgrade(&c));
             c
         });
         let face = clip.face();
-        let action = if face == Face::Playing { opencode_i18n::t!("lab.pause") } else { opencode_i18n::t!("lab.play") };
         if face == Face::Failed {
             let target = href.to_owned();
             let label = opencode_i18n::t!("common.open");
@@ -82,16 +87,10 @@ impl Clips {
                     if clip.face() == Face::Failed { s.open_link(&target, tx); }
                 });
         }
-        let control = el().key("transport").role("button").focusable(true)
-            .label(format!("{action}: {name}")).h(32.0).px(12.0).center()
-            .fill(p.layer1).hover(p.hover).radius(4.0)
-            .child(text(action).font(crate::style::UI).color(p.text));
-        el().key(format!("clip-{at}")).w_full().aspect_ratio(16.0/9.0).max_h(360.0)
-            .fill(Color::BLACK).clip_rounded(4.0).video(&clip.player, SurfaceFit::Fit)
-            .child(control.pin(Some(8.0), None, None, Some(8.0)).on_press_tx(move |_: &mut S, tx: &mut Tx| {
-                if clip.player.is_playing() { clip.player.pause(); } else { clip.player.play(); }
-                tx.instant();
-            }))
+        col().key(format!("clip-{at}")).w_full().fill(p.layer1).clip_rounded(6.0)
+            .child(el().key("picture").w_full().aspect_ratio(16.0/9.0).max_h(360.0)
+                .fill(Color::BLACK).video(&clip.player, SurfaceFit::Fit))
+            .child(transport::controls::<S>(p, clip, name))
     }
 }
 
