@@ -897,12 +897,13 @@ return plugin.defineWindow(function(ctx)
         end,
     })
 
-    local function scoped(id: string, bind: string, hidden: boolean, title: string, handler: (tab: BrowserTab) -> boolean)
+    local function scoped(id: string, bind: string, hidden: boolean, title: string, handler: (tab: BrowserTab) -> boolean, follows: string?)
         ctx:AddCommand({
             id = id,
             title = title,
             group = I18n:T("command.category.view"),
             bind = bind,
+            follows = follows,
             hidden = hidden,
             editable = true,
             requiresSession = true,
@@ -960,10 +961,11 @@ return plugin.defineWindow(function(ctx)
         edit(tab)
         return true
     end)
+    -- Ctrl+W is the shell's `tab.close`: Settings > Shortcuts lists that one (Desktop's `follows`).
     scoped("close", "mod+w", true, I18n:T("command.close"), function(tab)
         tab:Close()
         return true
-    end)
+    end, "tab.close")
     scoped("newTab", "mod+t", true, I18n:T("command.newTab"), function()
         openNew(nil, "address")
         return true
