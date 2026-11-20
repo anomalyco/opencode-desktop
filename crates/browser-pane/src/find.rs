@@ -214,7 +214,6 @@ impl crate::BrowserHost {
         if let crate::protocol::ContextKind::RemoteServer { server_id, .. } = &context {
             let sid = server_id.trim();
             self.remote_proxies.remove(sid);
-            self.site_permissions.clear_remote(sid);
         }
         if !context.is_default() {
             self.send(crate::protocol::HostMsg::DropContext { context });

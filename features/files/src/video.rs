@@ -22,12 +22,31 @@ use crate::FilesHost;
 
 pub use opencode_kit::path::is_video;
 
-/// Workspace movie source shared by the file viewer and chat; never fetch the entire file.
-pub fn source(server: Option<&opencode_kit::client::Server>, directory: &str, path: &str) -> String {
+/// Workspace movie source shared by the file viewer and chat; never fetch the entire file, and
+/// verify local files stay inside `directory` without symlinks/junctions before handing a local
+/// path to `rune::Player`. On native local servers (or with no server), a rejected path returns
+/// `None` with no fallback to `/api/fs/read/...` so symlinks and junctions cannot bypass
+/// confinement.
+pub fn source(server: Option<&opencode_kit::client::Server>, directory: &str, path: &str) -> Option<String> {
     use opencode_search::query::{encode_fs_path, percent_encode};
-    match server.filter(|s| !s.is_local()) {
-        Some(s) => s.stream_url(&format!("/api/fs/read/{}?location%5Bdirectory%5D={}", encode_fs_path(path), percent_encode(directory))),
-        None => std::path::Path::new(directory).join(path).to_string_lossy().into_owned(),
+    let stream_url = |s: &opencode_kit::client::Server| {
+        s.stream_url(&format!(
+            "/api/fs/read/{}?location%5Bdirectory%5D={}",
+            encode_fs_path(path),
+            percent_encode(directory)
+        ))
+    };
+    #[cfg(target_arch = "wasm32")]
+    {
+        return server.map(stream_url);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        if let Some(s) = server.filter(|s| !s.is_local()) {
+            return Some(stream_url(s));
+        }
+        let candidate = std::path::Path::new(directory).join(path).to_string_lossy().into_owned();
+        browser_policy::verify_within_root(&candidate, directory, true)
     }
 }
 

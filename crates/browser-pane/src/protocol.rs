@@ -293,10 +293,15 @@ pub enum HostMsg {
         allow: bool,
         #[serde(default)]
         dismiss: bool,
+        #[serde(default)]
+        persist: bool,
     },
     ResetPermission {
         origin: String,
         kind: PermissionKind,
+    },
+    SyncSitePermissions {
+        entries: Vec<SitePermissionEntry>,
     },
     AnswerAuth {
         tab_id: u64,
@@ -620,6 +625,13 @@ impl PermissionKind {
             Self::ClipboardRead => "clipboard-read",
         }
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SitePermissionEntry {
+    pub origin: String,
+    pub kind: PermissionKind,
+    pub allow: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

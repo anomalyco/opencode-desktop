@@ -17,6 +17,8 @@ use std::time::Duration;
 
 use rune::time::Instant;
 
+#[cfg(feature = "engine")]
+pub(crate) use store::scrub_chromium_preferences_for_older_engine;
 pub use store::{
     ACTIVATION_DELAY_MS, AGENT_PERMISSION_TIMEOUT_MS, InputGuard, MAX_SIGN_IN_ATTEMPTS,
     PROMPT_TEXT_MAX, PermissionScope, PermissionStore, REALM_TEXT_MAX, REPEAT_DIALOG_MS,
@@ -244,7 +246,7 @@ impl PermissionGate {
     }
 
     /// Evaluates an incoming permission request against scope-partitioned kept + visit decisions.
-    /// Returns `Some((allow, dismiss))` to answer immediately without showing a bar, else enqueues.
+    /// Returns `Some((allow, dismiss, persist))` to answer immediately without showing a bar, else enqueues.
     pub fn evaluate(
         &mut self,
         request: PermissionPrompt,
@@ -253,19 +255,24 @@ impl PermissionGate {
         kept: &SitePermissions,
         visit: &HashMap<(String, PermissionKind), SiteSetting>,
         now: Instant,
-    ) -> Option<(bool, bool)> {
+    ) -> Option<(bool, bool, bool)> {
         if request.kinds.is_empty() || request.origin != request.top_origin {
-            return Some((false, true));
+            return Some((false, true, false));
         }
+        let is_profile = matches!(scope, PermissionScope::Profile);
         let mut all_allowed = true;
+        let mut all_kept = true;
         for &kind in &request.kinds {
             let kept_val = kept.get_scoped(scope, &request.origin, kind);
             let visit_val = visit.get(&(request.origin.clone(), kind)).copied();
             if kept_val == Some(SiteSetting::Block) {
-                return Some((false, false));
+                return Some((false, false, is_profile));
             }
             if visit_val == Some(SiteSetting::Block) {
-                return Some((false, true));
+                return Some((false, true, false));
+            }
+            if kept_val != Some(SiteSetting::Allow) {
+                all_kept = false;
             }
             let allowed = if agent_driven {
                 // Agent tabs never inherit kept user permissions (`site-permissions.ts`).
@@ -278,7 +285,7 @@ impl PermissionGate {
             }
         }
         if all_allowed {
-            return Some((true, false));
+            return Some((true, false, all_kept && is_profile));
         }
         let key = permission_key(&request, agent_driven);
         let expires_at = agent_driven.then(|| now + Duration::from_millis(AGENT_PERMISSION_TIMEOUT_MS));

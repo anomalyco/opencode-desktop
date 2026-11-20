@@ -6,7 +6,7 @@ use super::{
     AuthGate, PermissionDecision, PermissionScope, PermissionStore, PopupGate, PopupRequest,
     SitePermissions, SiteSetting,
 };
-use crate::protocol::{EngineMsg, HostMsg};
+use crate::protocol::{EngineMsg, HostMsg, SitePermissionEntry};
 
 impl crate::BrowserHost {
     pub fn remember_site_permissions(&mut self, store: PermissionStore) {
@@ -20,17 +20,32 @@ impl crate::BrowserHost {
                     }
                 }
             }
-            self.flush_permission_resets();
         }
+        self.sync_site_permissions();
     }
 
-    pub(crate) fn flush_permission_resets(&mut self) {
+    pub fn engine_permission_sync(&self) -> bool {
+        self.caps.permission_sync()
+    }
+
+    /// Syncs Chromium's `Default` `HostContentSettingsMap` to match Rune's persisted
+    /// `rune.sitePermissions` (`Default` `"Always allow"` / `"Never allow"` decisions).
+    pub(crate) fn sync_site_permissions(&mut self) {
         if !self.is_connected() || !self.caps.permission_sync() {
             return;
         }
-        for (origin, kind) in self.site_permissions.drain_pending_resets() {
-            self.send(HostMsg::ResetPermission { origin, kind });
-        }
+        let _ = self.site_permissions.drain_pending_resets();
+        let entries: Vec<SitePermissionEntry> = self
+            .site_permissions
+            .list()
+            .iter()
+            .map(|d| SitePermissionEntry {
+                origin: d.origin.clone(),
+                kind: d.permission,
+                allow: d.setting == SiteSetting::Allow,
+            })
+            .collect();
+        self.send(HostMsg::SyncSitePermissions { entries });
     }
 
     pub fn site_permissions(&self) -> &SitePermissions {
@@ -125,8 +140,10 @@ impl crate::BrowserHost {
         // Use `CEF_PERMISSION_RESULT_DISMISS` for non-permanent denies (`BlockOnce`, agent tabs,
         // visit-only contexts) so Chromium does not permanently block the origin.
         let dismiss = !allow && !permanent_block;
+        let persist = can_keep
+            && matches!(decision, PermissionDecision::AllowAlways | PermissionDecision::BlockAlways);
         for req_id in ids {
-            self.send(HostMsg::AnswerPermission { tab_id, id: req_id, allow, dismiss });
+            self.send(HostMsg::AnswerPermission { tab_id, id: req_id, allow, dismiss, persist });
         }
         true
     }
@@ -200,7 +217,7 @@ impl crate::BrowserHost {
             changed |= t.prompts.popup.tick(now);
         }
         for (tab_id, id) in expired {
-            self.send(HostMsg::AnswerPermission { tab_id, id, allow: false, dismiss: true });
+            self.send(HostMsg::AnswerPermission { tab_id, id, allow: false, dismiss: true, persist: false });
         }
         let next = self.tabs.iter().filter_map(|t| t.prompts.wake_at()).min();
         (changed, next)
@@ -245,10 +262,10 @@ impl crate::BrowserHost {
                         now,
                     )
                 } else {
-                    Some((false, true))
+                    Some((false, true, false))
                 };
-                if let Some((allow, dismiss)) = auto {
-                    self.send(HostMsg::AnswerPermission { tab_id, id, allow, dismiss });
+                if let Some((allow, dismiss, persist)) = auto {
+                    self.send(HostMsg::AnswerPermission { tab_id, id, allow, dismiss, persist });
                     false
                 } else {
                     true

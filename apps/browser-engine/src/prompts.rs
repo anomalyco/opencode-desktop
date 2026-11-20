@@ -13,23 +13,21 @@
 //!   Negotiate; agent-driven tabs cancel immediately and emit `AuthAgentRequired` (`sign_in_required`).
 //! - Native file choosers on agent-driven tabs are cancelled immediately (`FileChooserBlocked`).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use cef::rc::Rc as _;
 use cef::{
-    AuthCallback, Browser, BrowserHost, BrowserSettings, CefString, CefStringList, Client,
-    DialogHandler, DictionaryValue, FileDialogCallback, FileDialogMode, Frame, ImplAuthCallback,
-    ImplBrowser, ImplBrowserHost, ImplDialogHandler, ImplDictionaryValue, ImplFileDialogCallback,
-    ImplFrame, ImplJsdialogCallback, ImplJsdialogHandler, ImplLifeSpanHandler,
-    ImplMediaAccessCallback, ImplPermissionHandler, ImplPermissionPromptCallback,
-    ImplPreferenceManager, ImplRequestContext, ImplValue, JsdialogCallback, JsdialogHandler,
-    JsdialogType, LifeSpanHandler, MediaAccessCallback, PermissionHandler,
-    PermissionPromptCallback, PermissionRequestResult, PopupFeatures, RequestContext, WindowInfo,
-    WindowOpenDisposition, WrapDialogHandler, WrapJsdialogHandler, WrapLifeSpanHandler,
-    WrapPermissionHandler, sys, wrap_dialog_handler, wrap_jsdialog_handler,
-    wrap_life_span_handler, wrap_permission_handler,
+    AuthCallback, Browser, BrowserSettings, CefString, CefStringList, Client, DialogHandler,
+    DictionaryValue, FileDialogCallback, FileDialogMode, Frame, ImplAuthCallback, ImplBrowser, ImplDialogHandler,
+    ImplFileDialogCallback, ImplFrame, ImplJsdialogCallback, ImplJsdialogHandler,
+    ImplLifeSpanHandler, ImplMediaAccessCallback, ImplPermissionHandler,
+    ImplPermissionPromptCallback, JsdialogCallback, JsdialogHandler, JsdialogType, LifeSpanHandler,
+    MediaAccessCallback, PermissionHandler, PermissionPromptCallback, PermissionRequestResult,
+    PopupFeatures, RequestContext, WindowInfo, WindowOpenDisposition, WrapDialogHandler,
+    WrapJsdialogHandler, WrapLifeSpanHandler, WrapPermissionHandler, sys, wrap_dialog_handler,
+    wrap_jsdialog_handler, wrap_life_span_handler, wrap_permission_handler,
 };
 
 use crate::output::Output;
@@ -37,202 +35,6 @@ use crate::wire::{
     AuthChallenge, DialogKind, EngineMsg, PageDialog, PermissionKind, PermissionPrompt,
     RemoteProxyConfig, TabSnapshot,
 };
-
-/// Resets Chromium's `HostContentSettingsMap` entry for `(origin, kind)` back to `DEFAULT`
-/// so Chromium never caches one-time/agent grants or stale `Settings > Browser` revocations.
-pub fn reset_content_setting(ctx: &RequestContext, origin: &str, kind: PermissionKind) {
-    let Some(orig) = origin_of(origin) else { return };
-    let url = CefString::from(orig.as_str());
-    let default = sys::cef_content_setting_values_t::CEF_CONTENT_SETTING_VALUE_DEFAULT;
-    use sys::cef_content_setting_types_t as C;
-    let types: &[C] = match kind {
-        PermissionKind::Camera => &[C::CEF_CONTENT_SETTING_TYPE_MEDIASTREAM_CAMERA],
-        PermissionKind::Microphone => &[C::CEF_CONTENT_SETTING_TYPE_MEDIASTREAM_MIC],
-        PermissionKind::Location => &[
-            C::CEF_CONTENT_SETTING_TYPE_GEOLOCATION,
-            C::CEF_CONTENT_SETTING_TYPE_GEOLOCATION_WITH_OPTIONS,
-        ],
-        PermissionKind::Notifications => &[C::CEF_CONTENT_SETTING_TYPE_NOTIFICATIONS],
-        PermissionKind::ClipboardRead => &[C::CEF_CONTENT_SETTING_TYPE_CLIPBOARD_READ_WRITE],
-    };
-    for &ct in types {
-        ctx.set_content_setting(Some(&url), Some(&url), ct.into(), default.into());
-    }
-}
-
-/// Locks hardware-device chooser guards (`WebUSB`, `WebSerial`, `WebHID`, `WebBluetooth`) to
-/// `BLOCK` on `ctx` (default scope) so no persisted device grants can ever be reused.
-pub fn block_device_permission_guards(ctx: &RequestContext) {
-    use sys::cef_content_setting_types_t as C;
-    let block = sys::cef_content_setting_values_t::CEF_CONTENT_SETTING_VALUE_BLOCK;
-    for ct in [
-        C::CEF_CONTENT_SETTING_TYPE_USB_GUARD,
-        C::CEF_CONTENT_SETTING_TYPE_SERIAL_GUARD,
-        C::CEF_CONTENT_SETTING_TYPE_HID_GUARD,
-        C::CEF_CONTENT_SETTING_TYPE_BLUETOOTH_GUARD,
-    ] {
-        ctx.set_content_setting(None, None, ct.into(), block.into());
-    }
-}
-
-/// Scrubs any stale site-permission overrides persisted in `Default/Preferences` by older engine
-/// builds so Rune's context-scoped `SitePermissions` is the single source of truth from startup.
-pub fn scrub_legacy_content_settings(ctx: &RequestContext) {
-    let tables: &[(&str, PermissionKind)] = &[
-        ("profile.content_settings.exceptions.notifications", PermissionKind::Notifications),
-        ("profile.content_settings.exceptions.clipboard", PermissionKind::ClipboardRead),
-        ("profile.content_settings.exceptions.geolocation", PermissionKind::Location),
-        ("profile.content_settings.exceptions.geolocation_with_options", PermissionKind::Location),
-        ("profile.content_settings.exceptions.media_stream_camera", PermissionKind::Camera),
-        ("profile.content_settings.exceptions.media_stream_mic", PermissionKind::Microphone),
-    ];
-    for &(pref, kind) in tables {
-        let key = CefString::from(pref);
-        let Some(val) = ctx.preference(Some(&key)) else { continue };
-        let Some(dict) = val.dictionary() else { continue };
-        let mut raw_keys = CefStringList::new();
-        if dict.keys(Some(&mut raw_keys)) == 0 {
-            continue;
-        }
-        for entry_key in crate::menu::read_cef_string_list(&raw_keys) {
-            // Keys in `Preferences` have the form `"https://host:port,*"` or `"https://host:port,https://host:port"`.
-            let origin = entry_key.split(',').next().unwrap_or(&entry_key);
-            reset_content_setting(ctx, origin, kind);
-        }
-    }
-}
-
-/// Ref-counted per-context guard blocking `clipboard-sanitized-write` (`navigator.clipboard.write*`)
-/// via in-memory Chromium DevTools `Browser.setPermission` on every origin currently open in an
-/// agent-driven tab. Restores via `Browser.resetPermissions` + re-applying remaining active agent
-/// origins so no origin is ever upgraded to unsanitized write and zero entries are written to disk.
-#[derive(Default)]
-pub struct AgentClipboardGuard {
-    state: Mutex<AgentClipboardState>,
-    next_id: AtomicU64,
-}
-
-#[derive(Default)]
-struct AgentClipboardState {
-    tab_origins: HashMap<u64, (Option<String>, String)>,
-    tab_hosts: HashMap<u64, BrowserHost>,
-    counts: HashMap<(Option<String>, String), usize>,
-}
-
-impl AgentClipboardGuard {
-    pub fn set_origin(
-        &self,
-        tab_id: u64,
-        scope_id: Option<String>,
-        new_origin: Option<&str>,
-        host: &BrowserHost,
-    ) {
-        let next_key = new_origin.and_then(origin_of).map(|o| (scope_id, o));
-        let mut st = self.state.lock().unwrap();
-        st.tab_hosts.insert(tab_id, host.clone());
-        if st.tab_origins.get(&tab_id) == next_key.as_ref() {
-            return;
-        }
-        if let Some(old_key) = st.tab_origins.remove(&tab_id) {
-            self.decrement(&mut st, &old_key, Some(host));
-        }
-        if let Some(key) = next_key {
-            let count = st.counts.entry(key.clone()).or_insert(0);
-            *count += 1;
-            if *count == 1 {
-                self.deny_clipboard_write(host, &key.1);
-            }
-            st.tab_origins.insert(tab_id, key);
-        }
-    }
-
-    pub fn release_tab(&self, tab_id: u64, live_host: Option<&BrowserHost>) {
-        let mut st = self.state.lock().unwrap();
-        let stored_host = st.tab_hosts.remove(&tab_id);
-        let host = live_host.or(stored_host.as_ref());
-        if let Some(old_key) = st.tab_origins.remove(&tab_id) {
-            self.decrement(&mut st, &old_key, host);
-        }
-    }
-
-    pub fn release_all(&self) {
-        let mut st = self.state.lock().unwrap();
-        let origins = std::mem::take(&mut st.tab_origins);
-        let hosts = std::mem::take(&mut st.tab_hosts);
-        st.counts.clear();
-        let mut scopes_reset: Vec<Option<String>> = Vec::new();
-        for (tab_id, (scope_id, _)) in origins {
-            if !scopes_reset.contains(&scope_id)
-                && let Some(host) = hosts.get(&tab_id)
-            {
-                self.reset_permissions(host);
-                scopes_reset.push(scope_id);
-            }
-        }
-    }
-
-    fn decrement(
-        &self,
-        st: &mut AgentClipboardState,
-        key: &(Option<String>, String),
-        host: Option<&BrowserHost>,
-    ) {
-        let removed = if let Some(count) = st.counts.get_mut(key) {
-            *count = count.saturating_sub(1);
-            *count == 0
-        } else {
-            false
-        };
-        if !removed {
-            return;
-        }
-        st.counts.remove(key);
-        // Find a live `BrowserHost` in the same `BrowserContext` scope (preferring the caller's live
-        // host before it closes, else any remaining live tab in the same scope).
-        let target_host = host.cloned().or_else(|| {
-            st.tab_origins
-                .iter()
-                .find(|(_, (s, _))| *s == key.0)
-                .and_then(|(tid, _)| st.tab_hosts.get(tid).cloned())
-        });
-        let Some(h) = target_host else { return };
-        self.reset_permissions(&h);
-        // Re-apply denies for any other origins still open in agent-driven tabs of this scope.
-        for ((scope, origin), &count) in &st.counts {
-            if *scope == key.0 && count > 0 {
-                self.deny_clipboard_write(&h, origin);
-            }
-        }
-    }
-
-    fn deny_clipboard_write(&self, host: &BrowserHost, origin: &str) {
-        for raw in [false, true] {
-            let id = 900_000_000 + (self.next_id.fetch_add(1, Ordering::Relaxed) % 100_000_000);
-            let msg = serde_json::json!({
-                "id": id,
-                "method": "Browser.setPermission",
-                "params": {
-                    "permission": { "name": "clipboard-write", "allowWithoutSanitization": raw },
-                    "setting": "denied",
-                    "origin": origin,
-                }
-            })
-            .to_string();
-            let _ = host.send_dev_tools_message(Some(msg.as_bytes()));
-        }
-    }
-
-    fn reset_permissions(&self, host: &BrowserHost) {
-        let id = 900_000_000 + (self.next_id.fetch_add(1, Ordering::Relaxed) % 100_000_000);
-        let msg = serde_json::json!({
-            "id": id,
-            "method": "Browser.resetPermissions",
-            "params": {}
-        })
-        .to_string();
-        let _ = host.send_dev_tools_message(Some(msg.as_bytes()));
-    }
-}
 
 /// Shared across all tabs in the engine: whether the connected app handles prompts (`Hello.prompts`)
 /// and a monotonic prompt ID generator.
@@ -270,11 +72,76 @@ pub struct TabPrompts {
     permissions: Mutex<Vec<HeldPermission>>,
     auth: Mutex<Vec<(AuthChallenge, AuthCallback)>>,
     pending_top_url: Mutex<Option<String>>,
+    /// Tracks in-flight (pre-commit) `chrome-extension://` sub-frame navigations keyed by CEF
+    /// frame identifier until commit, cancel/error, main-frame nav, or renderer crash — NO
+    /// time-out that fails open (`review-rd274.md` Round-4 ruling).
+    pending_ext_subframes: Mutex<HashSet<String>>,
+    /// Tracks extension frames observed via real CDP `frameId` (`devtools_frame_token`) in
+    /// `TabCdpObserver::on_dev_tools_event` (`Page.frameNavigated` / `frameDetached`).
+    cdp_ext_frames: Mutex<HashSet<String>>,
 }
 
 impl TabPrompts {
     pub fn set_pending_top_url(&self, url: Option<String>) {
         *self.pending_top_url.lock().unwrap() = url;
+    }
+
+    pub fn pending_top_url(&self) -> Option<String> {
+        self.pending_top_url.lock().unwrap().clone()
+    }
+
+    pub fn mark_pending_ext_subframe(&self, frame_id: String) {
+        if !frame_id.is_empty() {
+            self.pending_ext_subframes.lock().unwrap().insert(frame_id);
+        }
+    }
+
+    pub fn clear_pending_ext_subframe(&self, frame_id: &str) {
+        if !frame_id.is_empty() {
+            self.pending_ext_subframes.lock().unwrap().remove(frame_id);
+        }
+    }
+
+    pub fn clear_all_ext_frame_tracking(&self) {
+        self.pending_ext_subframes.lock().unwrap().clear();
+        self.cdp_ext_frames.lock().unwrap().clear();
+    }
+
+    /// Retains only pending extension sub-frames whose `RenderFrameHost` is still alive and has
+    /// not yet committed as an extension scheme (zero fail-open TTL). Returns `true` if any
+    /// pre-commit extension sub-frame navigation is still in flight.
+    pub fn has_pending_ext_subframes(&self, live_frames: &HashMap<String, String>) -> bool {
+        let mut set = self.pending_ext_subframes.lock().unwrap();
+        set.retain(|id| {
+            live_frames
+                .get(id)
+                .is_some_and(|url| !crate::extensions::manifest::is_extension_scheme(url))
+        });
+        !set.is_empty()
+    }
+
+    pub fn has_any_pending_ext_subframes(&self) -> bool {
+        !self.pending_ext_subframes.lock().unwrap().is_empty()
+    }
+
+    pub fn set_cdp_ext_frame(&self, cdp_frame_id: &str, is_ext: bool) {
+        if cdp_frame_id.is_empty() {
+            return;
+        }
+        let mut set = self.cdp_ext_frames.lock().unwrap();
+        if is_ext {
+            set.insert(cdp_frame_id.to_owned());
+        } else {
+            set.remove(cdp_frame_id);
+        }
+    }
+
+    pub fn clear_cdp_ext_frames(&self) {
+        self.cdp_ext_frames.lock().unwrap().clear();
+    }
+
+    pub fn has_cdp_ext_frames(&self) -> bool {
+        !self.cdp_ext_frames.lock().unwrap().is_empty()
     }
 
     pub fn answer_dialog(&self, id: u64, accept: bool, text: &str) -> bool {
@@ -287,12 +154,17 @@ impl TabPrompts {
         true
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn answer_permission(
         &self,
+        tab_id: u64,
         id: u64,
         allow: bool,
         dismiss: bool,
+        persist: bool,
+        ctx_scope: Option<&str>,
         req_ctx: Option<&RequestContext>,
+        tracker: &crate::permissions::PermissionTracker,
     ) -> bool {
         let entry = {
             let mut list = self.permissions.lock().unwrap();
@@ -305,35 +177,57 @@ impl TabPrompts {
             };
             list.remove(pos)
         };
+        let is_default = ctx_scope.is_none();
+        let effective_persist = persist && is_default;
         match entry {
-            HeldPermission::Media { requested_bits, callback, .. } => {
+            HeldPermission::Media { prompt, requested_bits, callback } => {
                 if allow {
                     callback.cont(requested_bits);
                 } else {
                     callback.cancel();
                 }
+                if let Some(ctx) = req_ctx {
+                    for &kind in &prompt.kinds {
+                        if effective_persist {
+                            crate::permissions::set_content_setting(ctx, &prompt.origin, kind, allow);
+                            tracker.record_persistent(&prompt.origin, kind, allow);
+                        } else if allow {
+                            crate::permissions::set_content_setting(ctx, &prompt.origin, kind, true);
+                            tracker.record_visit(
+                                ctx_scope.map(str::to_owned),
+                                tab_id,
+                                &prompt.origin,
+                                kind,
+                                ctx.clone(),
+                            );
+                        }
+                    }
+                }
             }
             HeldPermission::Prompt { prompt, callback, .. } => {
                 let res = if allow {
                     sys::cef_permission_request_result_t::CEF_PERMISSION_RESULT_ACCEPT
-                } else if dismiss {
-                    sys::cef_permission_request_result_t::CEF_PERMISSION_RESULT_DISMISS
-                } else {
+                } else if effective_persist && !dismiss {
                     sys::cef_permission_request_result_t::CEF_PERMISSION_RESULT_DENY
+                } else {
+                    sys::cef_permission_request_result_t::CEF_PERMISSION_RESULT_DISMISS
                 };
-                callback.cont(res.into());
-                // CEF 156 Alloy writes `ACCEPT` (`1`) and `DENY` (`2`) into Chromium's
-                // `HostContentSettingsMap` (`Default/Preferences`). Always reset immediately back
-                // to `DEFAULT` so Rune's context-scoped `SitePermissions` stays the single source
-                // of truth (one-time/agent grants never persist, agent tabs never inherit human
-                // grants, and `Settings > Browser` revocations take effect immediately).
-                if (allow || !dismiss)
-                    && let Some(ctx) = req_ctx
-                {
+                if let Some(ctx) = req_ctx {
                     for &kind in &prompt.kinds {
-                        reset_content_setting(ctx, &prompt.origin, kind);
+                        if effective_persist && (allow || !dismiss) {
+                            tracker.record_persistent(&prompt.origin, kind, allow);
+                        } else if allow {
+                            tracker.record_visit(
+                                ctx_scope.map(str::to_owned),
+                                tab_id,
+                                &prompt.origin,
+                                kind,
+                                ctx.clone(),
+                            );
+                        }
                     }
                 }
+                callback.cont(res.into());
             }
         }
         true
@@ -398,6 +292,7 @@ impl TabPrompts {
 
     pub fn reset_on_crash(&self, tab_id: u64, out_tx: &Output) {
         self.set_pending_top_url(None);
+        self.clear_all_ext_frame_tracking();
         let dialogs = std::mem::take(&mut *self.dialogs.lock().unwrap());
         let had_dialogs = !dialogs.is_empty();
         for (_, cb) in dialogs {

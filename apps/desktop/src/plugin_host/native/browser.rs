@@ -177,6 +177,7 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
                     ("downloads", Data::Bool(app.workspace_panes.browser.host.engine_downloads())),
                     ("policy", Data::Bool(app.workspace_panes.browser.host.engine_policy())),
                     ("find", Data::Bool(app.workspace_panes.browser.host.engine_find())),
+                    ("permissionSync", Data::Bool(app.workspace_panes.browser.host.engine_permission_sync())),
                     ("clearCache", Data::Bool(app.workspace_panes.browser.host.engine_policy())),
                     ("hardReload", Data::Bool(true)),
                 ]),
@@ -664,6 +665,7 @@ pub fn version(app: &App) -> u64 {
     format!("{:?}", app.workspace_panes.browser.host.status()).hash(&mut h);
     app.workspace_panes.browser.host.engine_downloads().hash(&mut h);
     app.workspace_panes.browser.host.engine_policy().hash(&mut h);
+    app.workspace_panes.browser.host.engine_permission_sync().hash(&mut h);
     for t in app.workspace_panes.browser.host.tabs() {
         if let Some(d) = &t.device { (&d.preset, d.width, d.height, d.scale.map(f32::to_bits)).hash(&mut h); }
         (t.id, &t.url, &t.title, t.loading, t.can_go_back, t.can_go_forward, t.zoom.to_bits(), t.inspecting, &t.load_error, &t.favicon, &t.refusal, t.rejected).hash(&mut h);

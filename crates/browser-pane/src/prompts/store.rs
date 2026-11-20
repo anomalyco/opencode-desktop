@@ -1,7 +1,6 @@
 //! Input activation delay, prompt text sanitization, and persisted per-site permission store
 //! (`packages/gui-plugins/src/browser/{activation-delay,prompt-machine,site-permissions}.ts`).
 
-use std::collections::HashMap;
 use std::time::Duration;
 
 use rune::time::Instant;
@@ -94,13 +93,11 @@ pub struct SiteDecision {
 
 /// Partition scope for site permission decisions (`site-permissions.ts` `DecisionScope`):
 /// - `Profile`: persistent decisions for `ContextKind::Default` (`plugin.browser/rune.sitePermissions`).
-/// - `RemoteServer(server_id)`: in-memory decisions strictly for one remote server for the current run
-///   (never reads or writes `Profile`, never persisted to disk, dropped on `DropContext`).
-/// - `VisitOnly`: `Preview`, `Artifact`, and `Private` tabs never read or persist kept decisions.
+/// - `VisitOnly`: `RemoteServer`, `Preview`, `Artifact`, and `Private` tabs never read or persist
+///   kept decisions (per-visit only).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PermissionScope {
     Profile,
-    RemoteServer(String),
     VisitOnly,
 }
 
@@ -108,17 +105,10 @@ impl PermissionScope {
     pub fn from_context(context: &ContextKind) -> Self {
         match context {
             ContextKind::Default => Self::Profile,
-            ContextKind::RemoteServer { server_id, .. } => {
-                let sid = server_id.trim();
-                if sid.is_empty() {
-                    Self::VisitOnly
-                } else {
-                    Self::RemoteServer(sid.to_owned())
-                }
-            }
-            ContextKind::Preview { .. } | ContextKind::Artifact { .. } | ContextKind::Private => {
-                Self::VisitOnly
-            }
+            ContextKind::RemoteServer { .. }
+            | ContextKind::Preview { .. }
+            | ContextKind::Artifact { .. }
+            | ContextKind::Private => Self::VisitOnly,
         }
     }
 }
@@ -133,7 +123,6 @@ pub struct PermissionStore {
 #[derive(Default)]
 pub struct SitePermissions {
     decisions: Vec<SiteDecision>,
-    remote: HashMap<(String, String, PermissionKind), SiteSetting>,
     pending_resets: Vec<(String, PermissionKind)>,
     store: Option<PermissionStore>,
 }
@@ -145,15 +134,14 @@ impl SitePermissions {
             .unwrap_or_default();
         Self {
             decisions,
-            remote: HashMap::new(),
             pending_resets: Vec::new(),
             store: Some(store),
         }
     }
 
     /// Reloads the persistent `Default` profile decisions (e.g. after `Settings > Browser` edits
-    /// `rune.sitePermissions`) while preserving live in-memory `RemoteServer` decisions, and
-    /// queues Chromium `HostContentSettingsMap` resets for every removed or changed entry.
+    /// `rune.sitePermissions`), queuing Chromium `HostContentSettingsMap` resets for every removed
+    /// or changed entry.
     pub fn reload_profile(&mut self, store: PermissionStore) -> Vec<(String, PermissionKind)> {
         let next = (store.read)()
             .and_then(|raw| serde_json::from_str::<Vec<SiteDecision>>(&raw).ok())
@@ -192,8 +180,7 @@ impl SitePermissions {
             .map(|d| d.setting)
     }
 
-    /// Looks up a decision strictly inside `scope` (never crosses between `Profile`, different
-    /// `RemoteServer` partitions, or `VisitOnly`).
+    /// Looks up a decision strictly inside `scope` (`Profile` only; `VisitOnly` never inherits).
     pub fn get_scoped(
         &self,
         scope: &PermissionScope,
@@ -202,9 +189,6 @@ impl SitePermissions {
     ) -> Option<SiteSetting> {
         match scope {
             PermissionScope::Profile => self.get(origin, permission),
-            PermissionScope::RemoteServer(sid) => {
-                self.remote.get(&(sid.clone(), origin.to_owned(), permission)).copied()
-            }
             PermissionScope::VisitOnly => None,
         }
     }
@@ -231,8 +215,7 @@ impl SitePermissions {
         self.flush();
     }
 
-    /// Records a decision strictly inside `scope`: `Profile` persists to disk, `RemoteServer` stays
-    /// strictly in memory per server identity, and `VisitOnly` is ignored.
+    /// Records a decision strictly inside `scope`: `Profile` persists to disk; `VisitOnly` is ignored.
     pub fn set_scoped(
         &mut self,
         scope: &PermissionScope,
@@ -243,19 +226,9 @@ impl SitePermissions {
         if origin.is_empty() || origin.to_ascii_lowercase().starts_with("oc-preview:") {
             return;
         }
-        match scope {
-            PermissionScope::Profile => self.set(origin, permission, setting),
-            PermissionScope::RemoteServer(sid) => {
-                self.remote.insert((sid.clone(), origin, permission), setting);
-            }
-            PermissionScope::VisitOnly => {}
+        if matches!(scope, PermissionScope::Profile) {
+            self.set(origin, permission, setting);
         }
-    }
-
-    /// Drops all ephemeral in-memory decisions for remote server `server_id` (on `DropContext`).
-    pub fn clear_remote(&mut self, server_id: &str) {
-        let sid = server_id.trim();
-        self.remote.retain(|(id, _, _), _| id != sid);
     }
 
     pub fn remove(&mut self, origin: &str, permission: PermissionKind) {
@@ -288,5 +261,77 @@ impl SitePermissions {
         {
             (store.write)(json);
         }
+    }
+}
+
+/// Before spawning a browser engine on an unlocked `profile`, strips any exact-origin site
+/// permission entries in Chromium's `Default/Preferences` that are absent from (or disagree with)
+/// Rune's `rune.sitePermissions` so revocations and edits in `Settings > Browser` take effect on
+/// engine restart even when connected to an older engine (`permission_sync == false`).
+#[cfg(feature = "engine")]
+pub(crate) fn scrub_chromium_preferences_for_older_engine(
+    profile: &std::path::Path,
+    kept: &[SiteDecision],
+) {
+    let prefs_path = profile.join("Default").join("Preferences");
+    let Ok(meta) = std::fs::symlink_metadata(&prefs_path) else { return };
+    if !meta.is_file() || meta.file_type().is_symlink() {
+        return;
+    }
+    let Ok(raw) = std::fs::read_to_string(&prefs_path) else { return };
+    let Ok(mut root) = serde_json::from_str::<serde_json::Value>(&raw) else { return };
+    let Some(exceptions) = root
+        .get_mut("profile")
+        .and_then(|v| v.get_mut("content_settings"))
+        .and_then(|v| v.get_mut("exceptions"))
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return;
+    };
+    let tables: &[(&str, PermissionKind)] = &[
+        ("notifications", PermissionKind::Notifications),
+        ("clipboard", PermissionKind::ClipboardRead),
+        ("geolocation", PermissionKind::Location),
+        ("geolocation_with_options", PermissionKind::Location),
+        ("media_stream_camera", PermissionKind::Camera),
+        ("media_stream_mic", PermissionKind::Microphone),
+    ];
+    let mut dirty = false;
+    for &(table_name, kind) in tables {
+        let Some(table) = exceptions
+            .get_mut(table_name)
+            .and_then(serde_json::Value::as_object_mut)
+        else {
+            continue;
+        };
+        let before = table.len();
+        table.retain(|entry_key, val| {
+            let origin_raw = entry_key.split(',').next().unwrap_or(entry_key);
+            let Some(origin) = crate::policy::destination_origin(origin_raw) else {
+                // Keep non-origin / wildcard keys untouched.
+                return true;
+            };
+            let setting_num = val.get("setting").and_then(serde_json::Value::as_i64);
+            kept.iter().any(|d| {
+                d.permission == kind
+                    && crate::policy::destination_origin(&d.origin).as_deref()
+                        == Some(origin.as_str())
+                    && matches!(
+                        (d.setting, setting_num),
+                        (SiteSetting::Allow, Some(1)) | (SiteSetting::Block, Some(2))
+                    )
+            })
+        });
+        if table.len() != before {
+            dirty = true;
+        }
+    }
+    if !dirty {
+        return;
+    }
+    let Ok(updated) = serde_json::to_vec(&root) else { return };
+    let tmp = prefs_path.with_file_name(format!("Preferences.tmp-{}", std::process::id()));
+    if std::fs::write(&tmp, &updated).is_ok() && std::fs::rename(&tmp, &prefs_path).is_err() {
+        let _ = std::fs::remove_file(&tmp);
     }
 }
