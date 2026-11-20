@@ -7,7 +7,7 @@
 //! | `https:`, `mailto:`, `opencode-rune:`, any scheme but `file:` | The browser or the app that owns it (live runs only) |
 //! | `docs/plan.md`, `./x.md`, `../x.md`, `/abs/in/folder`, `~/…`, `file://…` | The file's tab, at `#L12`, `#L12-L20`, `:12` or `:12-20`; a `#heading` scrolls a rendered file to it |
 //! | An HTML file in the session's folder, on the app's own server with the browser on and the window wide | A page in the browser pane (`fileOrPage`, [`FilesHost::opens_as_page`]) |
-//! | A file outside the session's folder | Its default OS app (the server reads only inside the folder) |
+//! | A file outside the session's folder | Revealed in the file manager on a local fixed drive (never executed; UNC/device paths refused before touching disk) |
 //! | A file that isn't there | A toast naming it |
 //! | A bare word (`link`, `Makefile`) that isn't a file there | A toast saying it points nowhere (a bare word that is a file opens it) |
 //!
@@ -218,6 +218,11 @@ pub fn link_directory(host: &dyn FilesHost, sid: &str) -> String {
 
 /// Follows `href` clicked in the open session's timeline (a reply, a note, a card).
 pub fn open_reply_link(host: &mut dyn FilesHost, href: &str, tx: &mut Tx) {
+    // Refuse raw UNC/SMB/device paths BEFORE anything touches the filesystem or invokes plugins.
+    if browser_policy::is_raw_unc_href(href) {
+        host.toast_say(opencode_i18n::t!("rune.files.link.outside").to_owned(), href.trim().to_owned());
+        return;
+    }
     if tx.button() == rune::PointerButton::Middle {
         return open_middle_link(host, href, tx);
     }
@@ -232,7 +237,8 @@ pub fn open_reply_link(host: &mut dyn FilesHost, href: &str, tx: &mut Tx) {
     if let Some(sid) = host.active_session_id().map(str::to_owned) {
         return open_link(host, &sid, None, href, tx);
     }
-    // A new session's page: no side panel to open a file in.
+    // A new session's page: no side panel to open a file in. Never execute via OS default app;
+    // at most reveal a local fixed-drive path in the file manager.
     let draft_dir = host.draft_directory().to_owned();
     let home = host.home_directory().to_owned();
     let is_file_uri = href.trim().get(..5).is_some_and(|s| s.eq_ignore_ascii_case("file:"));
@@ -241,10 +247,12 @@ pub fn open_reply_link(host: &mut dyn FilesHost, href: &str, tx: &mut Tx) {
         Link::Heading(_) => {}
         Link::Inside { path, .. } if !is_file_uri => {
             let abs = format!("{}/{path}", draft_dir.trim_end_matches('/'));
-            open_outside_file(host, &abs);
+            reveal_outside_file(host, &abs);
         }
-        Link::Outside { path } if !is_file_uri => open_outside_file(host, &path),
-        Link::Inside { .. } | Link::Outside { .. } => {}
+        Link::Outside { path } if !is_file_uri => reveal_outside_file(host, &path),
+        Link::Inside { .. } | Link::Outside { .. } => {
+            host.toast_say(opencode_i18n::t!("rune.files.link.outside").to_owned(), href.trim().to_owned());
+        }
     }
 }
 
@@ -268,6 +276,11 @@ fn open_web(host: &mut dyn FilesHost, sid: Option<&str>, url: &str, from_file: b
 /// Follows `href` clicked in session `sid`'s timeline, or in its file `from` (`Some`) rendered
 /// in the viewer, whose folder relative links resolve against.
 pub fn open_link(host: &mut dyn FilesHost, sid: &str, from: Option<&str>, href: &str, tx: &mut Tx) {
+    // Refuse raw UNC/SMB/device paths BEFORE anything touches the filesystem or invokes plugins.
+    if browser_policy::is_raw_unc_href(href) {
+        host.toast_say(opencode_i18n::t!("rune.files.link.outside").to_owned(), href.trim().to_owned());
+        return;
+    }
     if tx.button() == rune::PointerButton::Middle {
         return open_middle_link(host, href, tx);
     }
@@ -298,9 +311,11 @@ pub fn open_link(host: &mut dyn FilesHost, sid: &str, from: Option<&str>, href: 
             host.open_page_tab(sid, &url);
         }
         Link::Inside { path, lines, heading } => open_file_link(host, sid, &path, lines, heading, tx),
-        Link::Outside { path } if !is_file_uri => open_outside_file(host, &path),
+        Link::Outside { path } if !is_file_uri => reveal_outside_file(host, &path),
         // Never hand a raw `file://` URL outside the workspace to the OS shell (`ours.md` §4).
-        Link::Outside { .. } => {}
+        Link::Outside { path } => {
+            host.toast_say(opencode_i18n::t!("rune.files.link.outside").to_owned(), path);
+        }
     }
 }
 
@@ -379,15 +394,18 @@ pub(crate) fn finish_file_link(host: &mut dyn FilesHost, sid: &str, path: &str, 
     }
 }
 
-/// A file outside the session's folder: its default OS app, where this machine has it.
-fn open_outside_file(host: &mut dyn FilesHost, path: &str) {
-    if !host.can_open_in() || !is_absolute(path) {
+/// A file outside the session's folder: NEVER executes or opens with the default OS app, and
+/// NEVER calls `exists()` / `metadata()` / `canonicalize()` on UNC or device paths. At most
+/// reveals a verified local fixed-drive path in the file manager (`SHOpenFolderAndSelectItems` /
+/// `open -R`).
+fn reveal_outside_file(host: &mut dyn FilesHost, path: &str) {
+    let Some(clean) = browser_policy::safe_local_reveal_path(path) else {
         host.toast_say(opencode_i18n::t!("rune.files.link.outside").to_owned(), path.to_owned());
         return;
-    }
-    if host.is_live() && !std::path::Path::new(path).exists() {
-        host.toast_say(opencode_i18n::t!("rune.files.link.notFound").to_owned(), path.to_owned());
+    };
+    if !host.can_reveal_outside() {
+        host.toast_say(opencode_i18n::t!("rune.files.link.outside").to_owned(), clean);
         return;
     }
-    host.open_in_default(path);
+    host.open_in_reveal_abs(&clean);
 }

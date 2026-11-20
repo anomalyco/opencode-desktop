@@ -117,33 +117,27 @@ fn to_png(bytes: &[u8]) -> Option<Vec<u8>> {
     Some(out.into_inner())
 }
 
-/// Opens `path` in its default app with the system's `open` (macOS) or `xdg-open`.
+/// Safely reveals `path` in the file manager instead of executing it with the OS default handler.
+/// Never invokes bare `explorer <path>` or `/usr/bin/open <path>`.
 pub fn open_with_system(path: &Path) {
-    let program = if cfg!(target_os = "macos") {
-        "/usr/bin/open"
-    } else if cfg!(target_os = "windows") {
-        "explorer"
-    } else {
-        "xdg-open"
-    };
-    if let Err(e) = std::process::Command::new(program).arg(path).spawn() {
-        eprintln!("open {}: {e}", path.display());
-    }
+    let _ = reveal_with_system(path);
 }
 
-/// Shows `path` selected in the file manager (`shell.showItemInFolder`); false when it isn't
-/// there or the file manager didn't start.
+/// Shows `path` selected in the file manager through `browser_policy::reveal_in_file_manager`
+/// (`SHOpenFolderAndSelectItems` on Windows, `/usr/bin/open -R --` on macOS, `xdg-open` parent
+/// on Linux) after full local fixed-drive and no-reparse-point verification. Never touches UNC,
+/// mapped drives, `subst`-to-UNC, symlinks/junctions, or autofs mounts.
 pub fn reveal_with_system(path: &Path) -> bool {
-    if !path.exists() {
+    if rune::is_headless() {
         return false;
     }
-    #[cfg(target_os = "windows")]
-    let spawned = std::process::Command::new("explorer.exe").arg(format!("/select,{}", path.display())).spawn();
-    #[cfg(target_os = "macos")]
-    let spawned = std::process::Command::new("/usr/bin/open").arg("-R").arg(path).spawn();
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    let spawned = std::process::Command::new("xdg-open").arg(path.parent().unwrap_or(path)).spawn();
-    spawned.map_err(|e| eprintln!("reveal {}: {e}", path.display())).is_ok()
+    match browser_policy::reveal_in_file_manager(&path.to_string_lossy()) {
+        Ok(_) => true,
+        Err(e) => {
+            eprintln!("reveal {}: {e}", path.display());
+            false
+        }
+    }
 }
 
 #[cfg(target_arch = "wasm32")]

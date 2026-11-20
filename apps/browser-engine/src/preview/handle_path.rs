@@ -203,20 +203,11 @@ mod os {
         ) -> i32;
     }
 
-    /// Allow-lists ONLY non-redirecting Windows Cloud Filter placeholder tags (`IO_REPARSE_TAG_CLOUD*`
-    /// and legacy `IO_REPARSE_TAG_ONEDRIVE`). Strictly refuses every name-surrogate / redirecting tag
-    /// (bit 29 `0x2000_0000`: symlinks, junctions, volume mount points, WSL symlinks), `APPEXECLINK`,
-    /// and every unknown tag (`notes/review-rd281.md` Finding #2).
-    fn is_allowed_cloud_reparse_tag(tag: u32) -> bool {
-        if (tag & 0x2000_0000) != 0 {
-            return false;
-        }
-        (tag & !0x0000_F000) == 0x9000_001A || tag == 0x8000_0021
-    }
-
     /// Inspects `FileAttributeTagInfo` whenever `FILE_ATTRIBUTE_REPARSE_POINT` is set.
-    /// Returns `Ok(true)` for an allowed Cloud Filter placeholder, `Ok(false)` for a regular
-    /// non-reparse entry, and `Err(OpenErr::Denied)` for symlinks, junctions, mount points, or unknown tags.
+    /// Returns `Ok(true)` for an allowed non-redirecting local reparse entry (Cloud Filter,
+    /// legacy OneDrive, WOF compression, or NTFS deduplication), `Ok(false)` for a regular
+    /// non-reparse entry, and `Err(OpenErr::Denied)` for symlinks, junctions, mount points,
+    /// `APPEXECLINK`, or unknown tags.
     fn verify_reparse_tag(handle: HANDLE, attrs: u32) -> Result<bool, OpenErr> {
         if (attrs & FILE_ATTRIBUTE_REPARSE_POINT.0) == 0 {
             return Ok(false);
@@ -230,7 +221,7 @@ mod os {
                 size_of::<FILE_ATTRIBUTE_TAG_INFO>() as u32,
             )
         };
-        if ok.is_err() || !is_allowed_cloud_reparse_tag(tag_info.ReparseTag) {
+        if ok.is_err() || !browser_policy::is_allowed_local_reparse_tag(tag_info.ReparseTag) {
             return Err(OpenErr::Denied);
         }
         Ok(true)
