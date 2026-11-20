@@ -152,6 +152,14 @@ pub fn files_main<H: FilesHost + PopupHost + 'static>(
                 .filter(|_| s.files().stage_size.get()[0] > META_MIN_W)
                 .map(|img| picture_meta(p, img.meta())),
         )
+        .children(s.opens_as_page(path).then(|| {
+            let (sid, at) = (session_id.to_owned(), path.to_owned());
+            let label = opencode_i18n::t!("plugin.file.view.openInBrowser");
+            tool::<H>(p, "files-open-browser-btn", &ic::GLOBE, false, label, label, move |s: &mut H, tx: &mut Tx| {
+                tx.instant();
+                s.open_workspace_preview(&sid, &at);
+            })
+        }))
         .children(previewable.then(|| {
             let (glyph, label) = if rendered {
                 (&ic::CODE_LINES, opencode_i18n::t!("plugin.file.view.viewSource"))

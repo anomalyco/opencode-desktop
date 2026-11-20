@@ -292,7 +292,11 @@ pub fn open_link(host: &mut dyn FilesHost, sid: &str, from: Option<&str>, href: 
     let home = host.home_directory().to_owned();
     let is_file_uri = href.trim().get(..5).is_some_and(|s| s.eq_ignore_ascii_case("file:"));
     match classify(href, base, &dir, &home) {
-        Link::Web(_) => open_web(host, Some(sid), href, from.is_some(), tx),
+        Link::Web(url) => {
+            if !host.try_open_artifact_link(sid, &url) {
+                open_web(host, Some(sid), href, from.is_some(), tx);
+            }
+        }
         Link::Heading(h) => {
             if let Some(f) = from {
                 markdown::scroll_to_heading(host, sid, f, &h, tx);
@@ -303,12 +307,8 @@ pub fn open_link(host: &mut dyn FilesHost, sid: &str, from: Option<&str>, href: 
                 markdown::scroll_to_heading(host, sid, &path, &h, tx);
             }
         }
-        Link::Inside { path, lines, .. } if lines.is_none() && host.opens_as_page(&path) => {
-            let url = format!(
-                "file://{}",
-                opencode_kit::path::encode_path(&opencode_kit::path::absolute(&dir, &path))
-            );
-            host.open_page_tab(sid, &url);
+        Link::Inside { path, lines: None, .. } if host.opens_as_page(&path) => {
+            host.open_workspace_preview(sid, &path);
         }
         Link::Inside { path, lines, heading } => open_file_link(host, sid, &path, lines, heading, tx),
         Link::Outside { path } if !is_file_uri => reveal_outside_file(host, &path),

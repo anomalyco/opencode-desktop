@@ -38,6 +38,25 @@ pub fn is_preview_scheme(input: &str) -> bool {
     t.len() >= 11 && t.as_bytes()[..11].eq_ignore_ascii_case(b"oc-preview:")
 }
 
+/// Whether `url` uses a banned raw scheme (`file:` or `oc-preview:`), including nested prefixes
+/// such as `view-source:file:`, `filesystem:file:`, `blob:file:`, or `blob:oc-preview:`.
+pub fn has_banned_scheme(url: &str) -> bool {
+    let mut cur = url.trim();
+    loop {
+        if is_preview_scheme(cur) || crate::is_file_scheme(cur) {
+            return true;
+        }
+        let next = ["view-source:", "filesystem:", "blob:"].iter().find_map(|p| {
+            (cur.len() >= p.len() && cur.as_bytes()[..p.len()].eq_ignore_ascii_case(p.as_bytes()))
+                .then(|| cur[p.len()..].trim())
+        });
+        match next {
+            Some(rest) => cur = rest,
+            None => return false,
+        }
+    }
+}
+
 pub fn is_workspace_scheme(input: &str) -> bool {
     let t = input.trim();
     t.len() >= 10 && t.as_bytes()[..10].eq_ignore_ascii_case(b"workspace:")
@@ -123,6 +142,69 @@ pub fn local_display_url(root: &str, rel_path: &str, suffix: &str) -> String {
 pub fn preview_url(grant_host: &str, rel_path: &str, suffix: &str) -> String {
     let encoded = if rel_path.is_empty() { String::new() } else { encode_rel_path(rel_path) };
     format!("{PREVIEW_SCHEME}://{grant_host}/{encoded}{suffix}")
+}
+
+/// Computes a portable workspace-relative path from an already-normalized absolute `target` and
+/// workspace `root`, returning `None` if `target` is outside `root` or fails preview path rules.
+pub fn relative_to_root(target: &str, root: &str) -> Option<String> {
+    let t = target.replace('\\', "/");
+    let r = root.replace('\\', "/");
+    let r = r.trim_end_matches('/');
+    if r.is_empty() || t.len() <= r.len() {
+        return None;
+    }
+    let is_win = root_is_windows(root);
+    let matches_prefix = if is_win {
+        t.as_bytes()[..r.len()].eq_ignore_ascii_case(r.as_bytes())
+    } else {
+        &t[..r.len()] == r
+    };
+    if !matches_prefix || t.as_bytes().get(r.len()) != Some(&b'/') {
+        return None;
+    }
+    let rel = &t[r.len() + 1..];
+    preview_path_valid(rel, is_win).then(|| rel.to_owned())
+}
+
+/// Computes a sanitized response MIME type (plus UTF-8 charset when applicable).
+/// When `prefer_server` is `false` (remote workspace previews), derives MIME strictly from the
+/// file extension (`mime_for_path`) and NEVER trusts `server_ct` (`serve.ts:78`, `review-rd281.md`).
+pub fn sanitize_response_mime(server_ct: &str, path: &str, prefer_server: bool) -> String {
+    let (ext_mime, ext_charset) = mime_for_path(path);
+    if !prefer_server {
+        return match ext_charset {
+            Some(cs) => format!("{ext_mime}; charset={cs}"),
+            None => ext_mime.to_owned(),
+        };
+    }
+    let base = server_ct
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    let valid_token = !base.is_empty()
+        && base.contains('/')
+        && base.len() <= 128
+        && base.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'/' | b'-' | b'+' | b'.'));
+    if valid_token && base != "application/octet-stream" {
+        let is_textual = base.starts_with("text/")
+            || base.ends_with("javascript")
+            || base.ends_with("+xml")
+            || base == "application/json";
+        if is_textual {
+            let cs = ext_charset.unwrap_or("utf-8");
+            return format!("{base}; charset={cs}");
+        }
+        return base;
+    }
+    if ext_mime != "application/octet-stream" {
+        return match ext_charset {
+            Some(cs) => format!("{ext_mime}; charset={cs}"),
+            None => ext_mime.to_owned(),
+        };
+    }
+    "application/octet-stream".into()
 }
 
 /// Validates a portable workspace-relative path (`preview-path.ts:2-9`), rejecting drive letters,

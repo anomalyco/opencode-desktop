@@ -98,15 +98,19 @@ impl crate::BrowserHost {
         let origin = item.request.origin;
         let kinds = item.request.kinds;
         let allow = matches!(decision, PermissionDecision::AllowOnce | PermissionDecision::AllowAlways);
-        // Agent-driven tabs never persist permissions and an allow applies only once (`page-prompts.ts:503`).
+        let isolated_or_non_web = t.preview.is_some()
+            || t.context.is_isolated()
+            || crate::policy::destination_origin(&origin).is_none();
+        let can_persist = !item.agent_driven && !isolated_or_non_web;
+        // Agent-driven and isolated/preview tabs never persist permissions into global `sitePermissions`.
         if !(item.agent_driven && allow) {
             match decision {
-                PermissionDecision::AllowAlways if !item.agent_driven => {
+                PermissionDecision::AllowAlways if can_persist => {
                     for kind in kinds {
                         self.site_permissions.set(origin.clone(), kind, SiteSetting::Allow);
                     }
                 }
-                PermissionDecision::BlockAlways if !item.agent_driven => {
+                PermissionDecision::BlockAlways if can_persist => {
                     for kind in kinds {
                         self.site_permissions.set(origin.clone(), kind, SiteSetting::Block);
                     }
@@ -232,14 +236,20 @@ impl crate::BrowserHost {
             EngineMsg::PermissionRequest { tab_id, request } => {
                 let id = request.id;
                 let auto = if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
-                    let agent = t.prompts.agent_driven;
-                    t.prompts.permission.evaluate(
-                        request,
-                        agent,
-                        &self.site_permissions,
-                        &t.prompts.visit_permissions,
-                        now,
-                    )
+                    if t.preview.is_some() {
+                        Some(false)
+                    } else {
+                        let agent = t.prompts.agent_driven;
+                        let empty = SitePermissions::default();
+                        let saved = if t.context.is_isolated() { &empty } else { &self.site_permissions };
+                        t.prompts.permission.evaluate(
+                            request,
+                            agent,
+                            saved,
+                            &t.prompts.visit_permissions,
+                            now,
+                        )
+                    }
                 } else {
                     Some(false)
                 };
