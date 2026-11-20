@@ -95,7 +95,7 @@ pub fn app_link_review_bar(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
         .dir(Direction::Ltr)
         .font(MONO_SMALL)
         .color(p.muted)
-        .wrap()
+        .wrap_anywhere()
         .on_drawn_layout_tx(move |app: &mut App, rect, tx| {
             app.observe_app_link_target_text(&text_token, rect, tx);
         });
