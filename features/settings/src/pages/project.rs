@@ -371,7 +371,8 @@ fn colors<H: SettingsHost + 'static>(p: &Pal, x: &Project) -> El {
             .on_press_tx(move |s: &mut H, tx: &mut Tx| pick_color(s, &id, i, selected, tx))
             .child(tile(p, "", i, 20.0, 11.0))
             .children(selected.then(|| row().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).center().child(icon(&ic::CHECK, 14.0).color(p.icon_contrast))));
-        let swatch = if selected { ring(p.v2.border_focus).into_iter().rev().fold(swatch, El::box_shadow) } else { swatch };
+        // Selection is a neutral ring and focus the shared outline, so the two stay apart (`project.css`, opencode#64909).
+        let swatch = if selected { ring(p.v2.border_inverse).into_iter().rev().fold(swatch, El::box_shadow) } else { swatch };
         r.child(swatch)
     })
 }

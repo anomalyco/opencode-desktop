@@ -60,7 +60,7 @@ fn card_shell(p: &Pal, layout: TabLayout, checked: bool) -> El {
         el().key("ring")
             .pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
             .radius(7.0)
-            .box_shadow(rune::Shadow { spread: 1.0, color: c.border_focus, inset: true, ..rune::Shadow::default() })
+            .box_shadow(rune::Shadow { spread: 1.0, color: c.border_strong, inset: true, ..rune::Shadow::default() })
     });
     let body = col()
         .key("body")
@@ -69,7 +69,7 @@ fn card_shell(p: &Pal, layout: TabLayout, checked: bool) -> El {
         .border_layout()
         // overflow: hidden, here rather than on the card, which would clip its own focus ring.
         .clip_rounded(8.0)
-        .child(sketch(p, layout, checked))
+        .child(sketch(p, layout, checked).opacity(if checked { 1.0 } else { 0.45 }))
         .child(
             row()
                 .key("name")
@@ -98,9 +98,26 @@ fn card_shell(p: &Pal, layout: TabLayout, checked: bool) -> El {
         .hover_group()
         .hover_motion(ease, ease)
         .child(body)
-        .child(ring("border", c.border_base).group_opacity(1.0, 0.0))
+        .child(ring("border", c.border_muted).group_opacity(1.0, 0.0))
         .child(ring("hover-border", c.border_strong).group_opacity(0.0, 1.0))
-        .child(ring("checked-border", c.border_focus).opacity(if checked { 1.0 } else { 0.0 }).opacity_motion(ease))
+        .child(ring("checked-border", c.border_strong).opacity(if checked { 1.0 } else { 0.0 }).opacity_motion(ease))
+        .children(checked.then(|| check_badge(p)))
+}
+
+/// `mode-option-check`: the chosen card's 16 pt check outside its top end corner, `icon-muted`
+/// with the ground's colour inked, in a 2 pt ring of `layer-01`. Selection is a neutral border and
+/// this check, so it never reads as the blue keyboard ring (opencode#64909).
+pub(crate) fn check_badge(p: &Pal) -> El {
+    let c = &kit(p).c;
+    el().key("check")
+        .pin(None, Some(-7.0), Some(-7.0), None)
+        .size(16.0, 16.0)
+        .radius(8.0)
+        .center()
+        .fill(c.icon_muted)
+        .box_shadow(rune::Shadow { spread: 2.0, color: c.layer_01, ..rune::Shadow::default() })
+        .a11y_hidden()
+        .child(rune::icon(&rune_theme_opencode::icons::CHECK_SMALL, 16.0).color(c.bg_base))
 }
 
 /// `interface-mode-sketch`: a 52pt window in miniature, 10pt in from the card's top and sides,
