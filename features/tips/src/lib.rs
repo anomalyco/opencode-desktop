@@ -11,6 +11,7 @@ pub mod queue;
 
 use std::cell::Cell;
 use std::hash::{DefaultHasher, Hash, Hasher};
+#[cfg(not(target_arch = "wasm32"))]
 use std::sync::OnceLock;
 
 use rune::Tx;
@@ -22,6 +23,7 @@ const GLOBAL: &str = "opencode.global.dat";
 const KEY: &str = "tips.queue";
 
 /// Shared by every window for this launch. Only workers initialize it; polls only read it.
+#[cfg(not(target_arch = "wasm32"))]
 static HEX_INSTALLED: OnceLock<bool> = OnceLock::new();
 
 /// Opaque identity of the host's current route so tip pacing detects navigation between polls
@@ -90,6 +92,7 @@ fn run(host: &mut dyn TipsHost, event: Event) -> bool {
     for effect in effects {
         match effect {
             Effect::SyncMcp => host.sync_mcp(),
+            #[cfg(not(target_arch = "wasm32"))]
             Effect::CheckHex => {
                 let wake = host.waker();
                 if rune::task::spawn("tip-hex", move || {
@@ -103,6 +106,8 @@ fn run(host: &mut dyn TipsHost, event: Event) -> bool {
                     let _ = HEX_INSTALLED.set(false).ok();
                 }
             }
+            #[cfg(target_arch = "wasm32")]
+            Effect::CheckHex => {}
             Effect::Show { tip, history } => {
                 let Some(claim) = queue::Claim::take() else { continue };
                 if let Some(history) = history.filter(|_| host.persists()) {
@@ -157,7 +162,10 @@ fn poll_with(host: &mut dyn TipsHost, focused: bool) -> bool {
         now,
         history,
         browse_installed: host.browse_installed(),
-        hex_installed: if cfg!(target_arch = "wasm32") { Some(false) } else { HEX_INSTALLED.get().copied() },
+        #[cfg(target_arch = "wasm32")]
+        hex_installed: Some(false),
+        #[cfg(not(target_arch = "wasm32"))]
+        hex_installed: HEX_INSTALLED.get().copied(),
         online: host.is_connected(),
         open: host.is_window_open(),
         acted,

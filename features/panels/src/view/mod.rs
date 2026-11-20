@@ -112,6 +112,7 @@ pub fn side_region<H: PanelsHost + 'static>(
     let chrome = host.panel_chrome();
     let inputs = (
         (p.theme, p.generation, p.dark),
+        opencode_i18n::locale().id(),
         (chrome.top.to_bits(), chrome.foot.to_bits(), chrome.stamp),
         laid_w.to_bits(),
         bottom_reserve.to_bits(),

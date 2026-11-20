@@ -1,0 +1,137 @@
+//! Browser (`wasm32`) host stubs for the `Browser` Luau service and `ui.browserSurface`.
+//!
+//! No CEF sidecar runs in a browser, so `Browser:Available()` is `false`, `Browser:Engine()`
+//! reports `"unsupported"`, and no browser tabs exist — matching `browser-pane` without its
+//! `engine` feature.
+
+use std::hash::{Hash, Hasher};
+
+use mlua::{Function, Lua, MultiValue, Table, Value};
+use rune::{El, Ime, col};
+use rune_luau::{Completer, Data, Host, NodeArgs};
+
+use crate::App;
+use crate::plugin_host::cx::{self, Dep};
+use crate::plugin_host::services::{lazy_signals, map, method};
+use crate::plugin_host::vm::Vmx;
+
+const UNSUPPORTED: &str = "The browser isn't available on this platform yet in OpenCode (Rune)";
+
+pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
+    method(lua, t, "Tabs", |lua, _sid: Option<String>| {
+        cx::read(Dep::Browser);
+        lua.create_table()
+    })?;
+    method(lua, t, "Get", |_, _id: String| {
+        cx::read(Dep::Browser);
+        Ok(Value::Nil)
+    })?;
+    method(lua, t, "List", |lua, (_sid, open): (String, Vec<String>)| {
+        cx::read(Dep::Browser);
+        let rows = open
+            .into_iter()
+            .map(|raw| {
+                map([
+                    ("id", Data::String(raw)),
+                    ("url", Data::String(String::new())),
+                    ("title", Data::String(String::new())),
+                    ("open", Data::Bool(false)),
+                ])
+            })
+            .collect();
+        super::super::diff::lua_data(lua, Data::List(rows))
+    })?;
+    method(lua, t, "Active", |_, _sid: String| {
+        cx::read(Dep::Browser);
+        Ok(Value::Nil)
+    })?;
+    method(lua, t, "Selected", |_, _sid: Option<String>| {
+        cx::read(Dep::Browser);
+        Ok(Value::Nil)
+    })?;
+    method(lua, t, "Focused", |_, ()| {
+        cx::read(Dep::Browser);
+        Ok(Value::Nil)
+    })?;
+    method(lua, t, "Available", |_, ()| {
+        cx::read(Dep::Browser);
+        Ok(false)
+    })?;
+    method(lua, t, "Engine", |lua, ()| {
+        cx::read(Dep::Browser);
+        mlua::IntoLua::into_lua(
+            map([
+                ("state", Data::String("unsupported".into())),
+                ("message", Data::Nil),
+                ("downloads", Data::Bool(false)),
+                ("policy", Data::Bool(false)),
+            ]),
+            lua,
+        )
+    })?;
+    method(lua, t, "NormalizeUrl", |_, (_url, _sid): (String, Option<String>)| -> mlua::Result<String> {
+        Err(mlua::Error::runtime(UNSUPPORTED))
+    })?;
+    method(lua, t, "Prepare", |_, _seconds: Option<f64>| Ok(()))?;
+    let raw: Function = vmx.asyncs.raw_get("Browser.OpenAsync")?;
+    let open: Function = lua
+        .load("local raw = ... return function(self, spec) local id = raw(spec) return if id then self:Get(id) else nil end")
+        .set_name("=Browser:OpenAsync")
+        .call(raw)?;
+    t.raw_set("OpenAsync", open)?;
+    lazy_signals(lua, vmx, t, "Browser", &["Changed", "Picked"])
+}
+
+pub fn asyncs(host: &Host<'_>, t: &Table) -> mlua::Result<()> {
+    t.raw_set(
+        "Browser.OpenAsync",
+        host.async_function("Browser:OpenAsync", |_, _: MultiValue, done: Completer| {
+            done.complete(Data::Nil);
+            Ok(())
+        })?,
+    )?;
+    for name in [
+        "BrowserTab.DevtoolsAsync",
+        "BrowserTab.SiteCookiesAsync",
+        "BrowserTab.ClearSiteAsync",
+        "BrowserTab.ReadFileAsync",
+    ] {
+        t.raw_set(
+            name,
+            host.async_function(name, |_, _: MultiValue, done: Completer| {
+                done.complete(map([("error", Data::String(UNSUPPORTED.into()))]));
+                Ok(())
+            })?,
+        )?;
+    }
+    Ok(())
+}
+
+/// Preserves `Dep::Browser` invalidation for `Layout:RegionOpen` even without `browser-pane`.
+pub fn version(app: &App) -> u64 {
+    let mut h = std::hash::DefaultHasher::new();
+    let side = app.kernel.slots.get(&crate::panels::SIDE);
+    (
+        rune::Tracked::untracked(&app.composer).focused,
+        side.focus.is_focused(),
+        format!("{:?}", side.active_pane_focus),
+    )
+        .hash(&mut h);
+    app.active_session_id()
+        .and_then(|sid| side.sessions.get(sid))
+        .map(|st| st.visibility.open())
+        .hash(&mut h);
+    h.finish()
+}
+
+pub fn pages(_: &App) -> Vec<(String, u64)> {
+    Vec::new()
+}
+
+pub fn view(_: &mut NodeArgs) -> Result<El, String> {
+    Ok(col().key("browser-no-page").grow(1.0).w_full())
+}
+
+pub fn ime(_: &mut App, _: &Ime) -> bool {
+    false
+}

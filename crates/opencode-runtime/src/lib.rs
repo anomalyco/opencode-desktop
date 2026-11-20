@@ -7,6 +7,8 @@
 #![forbid(unsafe_code)]
 
 pub mod catalog;
+pub mod composer_mode;
+pub mod detail;
 pub mod draft;
 pub mod idle;
 pub mod machines;

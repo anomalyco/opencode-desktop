@@ -207,7 +207,7 @@ pub fn read_raw(db: &Path) -> FastBoot {
 /// The WAL's length without opening it: `GetFileAttributesExW` reads the directory entry, where
 /// `std::fs::metadata` opens and closes a handle (an antivirus-scanned open on Windows).
 #[allow(unsafe_code)]
-fn wal_len(path: &Path) -> u64 {
+pub(crate) fn wal_len(path: &Path) -> u64 {
     #[cfg(windows)]
     {
         use std::os::windows::ffi::OsStrExt;

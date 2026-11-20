@@ -92,6 +92,7 @@ pub fn engine() -> Option<AppDirs> {
 }
 
 /// The folder the Hex dictation app writes its endpoint file to.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn hex_support() -> Option<PathBuf> {
     Some(app()?.sibling("hex").data().to_owned())
 }

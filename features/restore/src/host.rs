@@ -14,7 +14,7 @@ use opencode_kit::servers::{ServerKey, TabKey};
 use opencode_storage::{FlushReason, Lookup, Storage};
 use rune::{TextEdit, Tx};
 use serde_json::{Map, Value};
-use opencode_ui::composer_mode::Mode;
+use opencode_runtime::composer_mode::Mode;
 use opencode_ui::scroller::Place;
 
 use crate::{ContextFile, OrganizeState, Restore, RestoreRoute, RestoreTab, StorageNotice, places};

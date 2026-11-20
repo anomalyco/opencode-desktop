@@ -183,7 +183,7 @@ fn workspace(app: &App, p: &Pal, a: &NodeArgs, sid: &str, kinds: Rc<HashMap<Stri
         };
         return rune::memo(
             "files-workspace-tree",
-            (p.theme, p.generation, p.dark, sid, selected.as_deref(), tree_hash),
+            (p.theme, p.generation, p.dark, opencode_i18n::locale().id(), session_view::scroller::device_scale().to_bits(), sid, selected.as_deref(), tree_hash),
             || crate::files::view::workspace_tree_view::<App>(p, sid, ws, selected.as_deref(), Some(kinds)),
         );
     }

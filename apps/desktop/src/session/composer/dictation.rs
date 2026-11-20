@@ -1,16 +1,64 @@
 //! Desktop host adapter for `opencode-feature-dictation` (`features/dictation`).
+//!
+//! Hex voice dictation drives a local desktop process via `hex-client` and a filesystem watcher,
+//! neither of which exists in a browser; on `wasm32` the feature crate is omitted and the host
+//! hooks are no-ops.
 
+#[cfg(not(target_arch = "wasm32"))]
 pub use opencode_feature_dictation::*;
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
 
+#[cfg(not(target_arch = "wasm32"))]
 use opencode_kernel::{Feature, KernelBuilder, Slot};
+#[cfg(not(target_arch = "wasm32"))]
 use rune::{KeyEvent, TextEdit, Tx, Waker};
 
 use crate::App;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) static DICTATION: Slot<Dictation> = Slot::new();
 
+/// Whether a Hex dictation session is currently active (always `false` on `wasm32`).
+pub(crate) fn is_active(s: &App) -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        s.kernel.slots.get(&DICTATION).active()
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = s;
+        false
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn toolbar(_: &App, _: &crate::palette::Pal) -> Option<rune::El> {
+    None
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn status(_: &App, _: &crate::palette::Pal) -> Option<rune::El> {
+    None
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn key(_: &mut App, _: &rune::KeyEvent, _: &mut rune::Tx) -> bool {
+    false
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn key_up(_: &mut App, _: &rune::KeyEvent, _: &mut rune::Tx) -> bool {
+    false
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn submit(_: &mut App, _: bool) -> bool {
+    false
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 impl DictationHost for App {
     fn dictation(&self) -> &Dictation {
         self.kernel.slots.get(&DICTATION)
@@ -46,8 +94,10 @@ impl DictationHost for App {
 }
 
 /// Kernel feature registration for Hex voice dictation.
+#[cfg(not(target_arch = "wasm32"))]
 pub struct DictationFeature;
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Feature<App> for DictationFeature {
     fn id(&self) -> &'static str {
         "feature.dictation"
@@ -65,6 +115,7 @@ impl Feature<App> for DictationFeature {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 mod stories {
     //! The storybook's "Composer › Dictation", on the fake Hex.
 

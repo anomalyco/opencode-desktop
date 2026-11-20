@@ -191,7 +191,11 @@ pub fn files_hash(id: &str, origin: &Origin, tier: Tier) -> Option<String> {
     }?;
     // The browser plugin registers its MCP tools only on builds with an engine, so an update that
     // adds or removes the engine source invalidates its dormant contribution record.
-    if id == "browser" && !browser_pane::BrowserHost::engine_configured() {
+    #[cfg(not(target_arch = "wasm32"))]
+    let engine_configured = browser_pane::BrowserHost::engine_configured();
+    #[cfg(target_arch = "wasm32")]
+    let engine_configured = false;
+    if id == "browser" && !engine_configured {
         return Some(format!("{base}:no-engine"));
     }
     Some(base)

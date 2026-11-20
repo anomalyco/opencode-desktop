@@ -3,7 +3,7 @@
 //! `+` attach button, and instant Send / Stop button with `stop_glyph_swap()`.
 
 pub mod attachments;
-pub use opencode_ui::composer_mode as mode;
+pub use opencode_runtime::composer_mode as mode;
 pub use opencode_ui::prompt_history as history;
 
 use std::cell::Cell;

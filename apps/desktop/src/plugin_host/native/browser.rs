@@ -4,30 +4,52 @@
 //! plugin keeps the tabs, their titles, the address bar, history, the element picker's notes,
 //! the commands and the MCP tools.
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::hash::{Hash, Hasher};
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
+#[cfg(not(target_arch = "wasm32"))]
 use rune::time::Instant;
 
+#[cfg(not(target_arch = "wasm32"))]
 use browser_pane::EngineStatus;
-use mlua::{Function, Lua, MultiValue, Table, Value};
-use rune::{El, Ime, Tx, col};
+use mlua::{Lua, Table, Value};
+#[cfg(not(target_arch = "wasm32"))]
+use mlua::{Function, MultiValue};
+use rune::Tx;
+#[cfg(not(target_arch = "wasm32"))]
+use rune::{El, Ime, col};
+#[cfg(not(target_arch = "wasm32"))]
 use rune_luau::{Completer, Data, Host, NodeArgs};
+#[cfg(not(target_arch = "wasm32"))]
 mod viewport;
+#[cfg(target_arch = "wasm32")]
+mod web;
+#[cfg(target_arch = "wasm32")]
+pub use web::{asyncs, build, ime, pages, version, view};
 
 use super::super::cx::{self, Dep};
-use super::super::services::{json_to_data, lazy_signals, map, method, with_app};
+use super::super::services::{method, with_app};
+#[cfg(not(target_arch = "wasm32"))]
+use super::super::services::{json_to_data, lazy_signals, map};
+#[cfg(not(target_arch = "wasm32"))]
 use super::super::vm::Vmx;
+#[cfg(not(target_arch = "wasm32"))]
 use super::{handle_field, object, p};
 use crate::App;
 
 /// How long a DevTools call may take before it fails.
+#[cfg(not(target_arch = "wasm32"))]
 const DEVTOOLS_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// `Browser:Prepare`: how long the engine it starts waits for a page by default, and at most.
+#[cfg(not(target_arch = "wasm32"))]
 const PREPARE_HOLD_S: f64 = 5.0;
+#[cfg(not(target_arch = "wasm32"))]
 const PREPARE_HOLD_MAX_S: f64 = 60.0;
 
 /// The `Browser` service.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     method(lua, t, "Tabs", |lua, sid: Option<String>| {
         cx::read(Dep::Browser);
@@ -198,6 +220,7 @@ pub fn composer(lua: &Lua, t: &Table) -> mlua::Result<()> {
 }
 
 /// The host's async functions: `Browser:OpenAsync` and `BrowserTab`'s async methods.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn asyncs(host: &Host<'_>, t: &Table) -> mlua::Result<()> {
     t.raw_set("Browser.OpenAsync", host.async_function("Browser:OpenAsync", open)?)?;
     t.raw_set("BrowserTab.DevtoolsAsync", host.async_function("BrowserTab:DevtoolsAsync", devtools)?)?;
@@ -207,6 +230,7 @@ pub fn asyncs(host: &Host<'_>, t: &Table) -> mlua::Result<()> {
 }
 
 /// A downloaded file as the plugin sees it: Desktop's `files.list` fields (no path).
+#[cfg(not(target_arch = "wasm32"))]
 fn file_json(f: &browser_pane::DownloadFile) -> serde_json::Value {
     let state = match f.state {
         browser_pane::DownloadState::Pending => "pending",
@@ -218,6 +242,7 @@ fn file_json(f: &browser_pane::DownloadFile) -> serde_json::Value {
 
 /// Reads a completed download of the page, off the UI thread: its text when it's UTF-8, else
 /// its bytes in base64, as Desktop's `files.get` hands a file over; at most 5 MiB, its limit.
+#[cfg(not(target_arch = "wasm32"))]
 fn read_file(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
     const MAX: u64 = 5 * 1024 * 1024;
     let (id, file_id): (String, String) = mlua::FromLuaMulti::from_lua_multi(a, lua)?;
@@ -263,6 +288,7 @@ fn read_file(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
 
 /// Opens the page on the next poll, in a new tab of its session's side region, and answers with
 /// its id (nil without an engine for this platform).
+#[cfg(not(target_arch = "wasm32"))]
 fn open(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
     let (spec,): (Value,) = mlua::FromLuaMulti::from_lua_multi(a, lua)?;
     let spec: opencode_plugin_spec::BrowserOpenSpec = mlua::FromLua::from_lua(spec, lua).and_then(|d: Data| d.decode().map_err(mlua::Error::runtime))?;
@@ -283,6 +309,7 @@ fn open(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
 
 /// Sends the allow-listed DevTools command on the next poll; `poll` answers it with `{ result }`,
 /// or with `{ error }` when the policy or engine refused it, isn't running, or took too long.
+#[cfg(not(target_arch = "wasm32"))]
 fn devtools(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
     let (id, cdp, params, target): (String, String, Value, Option<String>) = mlua::FromLuaMulti::from_lua_multi(a, lua)?;
     let params = match <Data as mlua::FromLua>::from_lua(params, lua)?.to_json() {
@@ -309,6 +336,7 @@ fn devtools(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
     })
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn site_cookies(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
     let (id,): (String,) = mlua::FromLuaMulti::from_lua_multi(a, lua)?;
     with_app("BrowserTab:SiteCookiesAsync", |app| {
@@ -331,6 +359,7 @@ fn site_cookies(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
     })
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn clear_site(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
     let (id,): (String,) = mlua::FromLuaMulti::from_lua_multi(a, lua)?;
     let is_builtin_browser = lua
@@ -371,6 +400,7 @@ fn clear_site(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
 }
 
 /// Why the engine can't take a DevTools call now.
+#[cfg(not(target_arch = "wasm32"))]
 fn not_running(status: &EngineStatus) -> String {
     match status {
         EngineStatus::Unsupported => "The browser isn't available on this platform yet in OpenCode (Rune)".to_owned(),
@@ -381,6 +411,7 @@ fn not_running(status: &EngineStatus) -> String {
 }
 
 /// The contract's `BrowserEngine` for the engine's status.
+#[cfg(not(target_arch = "wasm32"))]
 fn engine(app: &App) -> (&'static str, Option<String>) {
     match app.workspace_panes.browser.host.status() {
         _ if app.use_mock_browser() => ("ready", None),
@@ -396,6 +427,7 @@ fn engine(app: &App) -> (&'static str, Option<String>) {
 }
 
 /// A `BrowserTab` for page `id`.
+#[cfg(not(target_arch = "wasm32"))]
 fn tab(lua: &Lua, id: u64) -> mlua::Result<Table> {
     let methods = match lua.named_registry_value::<Option<Table>>("opencode.browser.tab")? {
         Some(m) => m,
@@ -408,11 +440,13 @@ fn tab(lua: &Lua, id: u64) -> mlua::Result<Table> {
     object(lua, "BrowserTab", &[("Id", Value::String(lua.create_string(id.to_string())?))], methods)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn id_of(this: &Table) -> mlua::Result<u64> {
     this.raw_get::<String>("Id")?.parse::<u64>().map_err(|_| mlua::Error::runtime("not a BrowserTab"))
 }
 
 /// Queues `f` for page `this` on the next poll, if it's still open then.
+#[cfg(not(target_arch = "wasm32"))]
 fn later(this: &Table, what: &str, f: impl FnOnce(&mut App, u64, &mut Tx) + Send + 'static) -> mlua::Result<()> {
     let id = id_of(this)?;
     with_app(what, |app| {
@@ -426,12 +460,14 @@ fn later(this: &Table, what: &str, f: impl FnOnce(&mut App, u64, &mut Tx) + Send
     })
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn read_tab<R>(this: &Table, what: &str, f: impl FnOnce(&App, u64) -> mlua::Result<R>) -> mlua::Result<R> {
     cx::read(Dep::Browser);
     let id = id_of(this)?;
     with_app(what, |app| f(app, id))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn tab_methods(lua: &Lua) -> mlua::Result<Table> {
     let m = lua.create_table()?;
     m.raw_set("IsOpen", lua.create_function(|_, this: Table| read_tab(&this, "BrowserTab:IsOpen", |app, id| Ok(app.workspace_panes.browser.host.tab(id).is_some())))?)?;
@@ -590,6 +626,7 @@ fn tab_methods(lua: &Lua) -> mlua::Result<Table> {
 }
 
 /// What `Dep::Browser` reads now, as a number that changes with it.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn version(app: &App) -> u64 {
     let mut h = std::hash::DefaultHasher::new();
     format!("{:?}", app.workspace_panes.browser.host.status()).hash(&mut h);
@@ -615,6 +652,7 @@ pub fn version(app: &App) -> u64 {
 
 /// Each open page's id and a number that moves with its address, title, loading and refusal, for
 /// `Browser.Changed`.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn pages(app: &App) -> Vec<(String, u64)> {
     app.workspace_panes.browser
         .host
@@ -629,6 +667,7 @@ pub fn pages(app: &App) -> Vec<(String, u64)> {
 }
 
 /// `ui.browserSurface`: page `tab` filling the rest of the pane, or the engine's state.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn view(a: &mut NodeArgs) -> Result<El, String> {
     cx::with_app(|app| {
         cx::read(Dep::Browser);
@@ -643,6 +682,7 @@ pub fn view(a: &mut NodeArgs) -> Result<El, String> {
 }
 
 /// The engine's messages, DevTools answers and picks.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
     let mut changed = app.poll_browser();
     let now = Instant::now();
@@ -673,6 +713,7 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
 }
 
 /// IME for the page that has the keyboard.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn ime(app: &mut App, ime: &Ime) -> bool {
     if !app.side_open() || app.composer.focused || super::super::field_focused(app) || app.active_browser_tab_id().is_none() {
         return false;

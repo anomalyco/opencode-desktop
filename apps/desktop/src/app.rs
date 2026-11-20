@@ -18,7 +18,7 @@ use crate::shell::app_state::{
 use crate::tabs::Tab;
 use crate::{
     Route, appearance, background, commands, context_window, demo, dictation, dirs, events, files,
-    find, history, inbox_model, jobs, keymap, knobs, launch, layout_state, model_prefs, open_in,
+    find, history, inbox_model, jobs, keymap, knobs, launch, layout_state, model_prefs,
     plugin_host, popup, projects, prompt_history, recent_page, restore, send_failed, servers,
     session_catalog, session_pages, session_status, settings, shortcuts, slash, status_toast, stop,
     switcher, tabs, telemetry, turn_diffs, view, wall_ms, windows,
@@ -328,8 +328,11 @@ impl App {
             }
         }
         *self.diag.status = "Fixture".into();
-        *self.kernel.slots.get_mut(&open_in::OPEN_IN) = open_in::OpenIn::with(std::sync::Arc::new(open_in::Fixed(vec!["vscode", "cursor", "zed", "terminal", "ghostty", "xcode", "powershell"])));
-        self.kernel.slots.get_mut(&open_in::OPEN_IN).detect();
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            *self.kernel.slots.get_mut(&crate::open_in::OPEN_IN) = crate::open_in::OpenIn::with(std::sync::Arc::new(crate::open_in::Fixed(vec!["vscode", "cursor", "zed", "terminal", "ghostty", "xcode", "powershell"])));
+            self.kernel.slots.get_mut(&crate::open_in::OPEN_IN).detect();
+        }
         if let Some(home) = v["home"].as_str() {
             *self.home = home.to_owned();
         }

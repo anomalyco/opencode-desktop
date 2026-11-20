@@ -5390,6 +5390,7 @@ dependencies = [
  "image",
  "opencode-i18n",
  "opencode-kit",
+ "opencode-runtime",
  "opencode-search",
  "opencode-ui",
  "rune",

@@ -148,7 +148,7 @@ impl PanelsHost for App {
             crate::plugin_host::surfaces_version(self),
             opencode_i18n::I18N.locale(),
             crate::plugin_host::services::servers_version(self),
-            slots.untracked(&crate::updater::UPDATER).revision(),
+            crate::updater::revision_untracked(self),
             pickers.models.len(),
             pickers.limits.len(),
             pickers.paid.len(),
@@ -550,7 +550,7 @@ fn plugin_watched_stamp(app: &App) -> u64 {
         opencode_i18n::I18N.locale(),
         crate::plugin_host::services::servers_version(app),
         app.plugins.window_blurred.get(),
-        slots.untracked(&crate::updater::UPDATER).revision(),
+        crate::updater::revision_untracked(app),
         crate::plugin_host::epoch(),
     )
         .hash(&mut h);

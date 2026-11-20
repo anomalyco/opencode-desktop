@@ -11,9 +11,11 @@ bytemuck = { version = "1", features = ["derive"] }
 opencode-i18n = { path = "../../crates/opencode-i18n" }
 opencode-kernel = { path = "../../crates/opencode-kernel" }
 opencode-ui = { path = "../../crates/opencode-ui" }
-procwatch.workspace = true
 rune.workspace = true
 wgpu = { version = "30", default-features = false }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+procwatch.workspace = true
 
 [target.'cfg(target_os = "windows")'.dependencies]
 # The egg's sound stream (`sound/wasapi.rs`): the same build of `windows` Rune's video sound uses.

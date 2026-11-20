@@ -68,6 +68,7 @@ pub fn run(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 
 /// Whether `ev` is a window-wide shortcut that a focused browser page yields to the shell
 /// (every entry in [`TABLE`] except in-page zoom).
+#[cfg(not(target_arch = "wasm32"))]
 pub fn claims_from_browser(ev: &KeyEvent) -> bool {
     TABLE
         .iter()

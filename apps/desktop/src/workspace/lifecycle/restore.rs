@@ -12,7 +12,7 @@ use opencode_kit::model::{Attachment, PromptComment, Transcript};
 use opencode_servers::tabs::{ClosedTab, WindowDoc};
 use opencode_kit::servers::{ServerKey, TabKey};
 use opencode_storage::{FlushReason, Lookup, Storage};
-use opencode_ui::composer_mode::Mode;
+use opencode_runtime::composer_mode::Mode;
 use opencode_ui::scroller::Place;
 use rune::{TextEdit, Tx};
 use serde_json::{Map, Value};

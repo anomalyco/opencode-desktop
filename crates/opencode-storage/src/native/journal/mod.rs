@@ -211,6 +211,23 @@ pub(crate) fn finish(saved: bool) {
     j.busy.store(false, Ordering::Release);
 }
 
+/// Whether the draft journal is closed and clean (or not attached), so `repage()` may safely drop
+/// and rewrite its pages without losing unsettled drafts.
+pub(crate) fn is_clean() -> bool {
+    let Some(j) = JOURNAL.get() else { return true };
+    if j.open.load(Ordering::Acquire) {
+        return false;
+    }
+    while j.busy.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_err() {
+        std::hint::spin_loop();
+    }
+    // SAFETY: the CAS loop acquired `busy` with `Acquire`, giving exclusive access to `j.inner` until `busy` is released below.
+    #[allow(unsafe_code)]
+    let clean = unsafe { &*j.inner.get() }.header.clean;
+    j.busy.store(false, Ordering::Release);
+    clean
+}
+
 impl Inner {
     fn write(&mut self, j: &Journal, key: &str, seq: u64, text: Option<&str>) {
         let at = text.and_then(|t| self.append(j, key, seq, t));
@@ -482,7 +499,9 @@ pub(crate) fn kept(conn: &Connection) -> rusqlite::Result<Option<Location>> {
 /// [`provision`]'s first write: the tables and the zeroed blob, in one unsynced transaction (the
 /// next synced checkpoint makes it durable, as with any kill-safe commit).
 pub(crate) fn reserve(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute_batch("PRAGMA synchronous = OFF")?;
+    // Keep `wal_autocheckpoint` off while `synchronous = OFF`: an automatic checkpoint at OFF
+    // would copy unsynced frames into the database file without syncing `-wal` or the file first.
+    conn.execute_batch("PRAGMA synchronous = OFF; PRAGMA wal_autocheckpoint = 0")?;
     let reserved = (|| {
         conn.execute_batch(
             "BEGIN IMMEDIATE; \
@@ -501,19 +520,22 @@ pub(crate) fn reserve(conn: &Connection) -> rusqlite::Result<()> {
     if reserved.is_err() {
         conn.execute_batch("ROLLBACK").ok();
     }
-    conn.execute_batch("PRAGMA synchronous = NORMAL")?;
+    conn.execute_batch("PRAGMA synchronous = NORMAL; PRAGMA wal_autocheckpoint = 1000")?;
     reserved
 }
 
 /// [`provision`]'s second write, after [`reserve`]: the blob's pages into the main file, and its
 /// place recorded. Returns the place.
 pub(crate) fn locate(conn: &Connection, db: &Path, clock: fn() -> i64) -> rusqlite::Result<Location> {
-    conn.execute_batch("PRAGMA synchronous = OFF")?;
+    conn.execute_batch("PRAGMA synchronous = OFF; PRAGMA wal_autocheckpoint = 0")?;
     let reserved = (|| {
         // In WAL mode the pages are in the WAL now: into the main file with them. (A new file
         // has no WAL yet: they went there directly.)
         if conn.query_row("PRAGMA journal_mode", [], |r| r.get::<_, String>(0))? == "wal" {
-            conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get::<_, i64>(0)).and_then(|busy| if busy == 0 { Ok(()) } else { Err(rusqlite::Error::InvalidQuery) })?;
+            let (busy, log, ckpt) = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?)))?;
+            if busy != 0 || log < 0 || ckpt < log {
+                return Err(rusqlite::Error::InvalidQuery);
+            }
             rune::marks::mark("journal.checkpointed");
         }
         let mut loc = overflow(conn, db).ok_or(rusqlite::Error::InvalidQuery)?;
@@ -528,7 +550,7 @@ pub(crate) fn locate(conn: &Connection, db: &Path, clock: fn() -> i64) -> rusqli
     if reserved.is_err() {
         conn.execute_batch("ROLLBACK").ok();
     }
-    conn.execute_batch("PRAGMA synchronous = NORMAL")?;
+    conn.execute_batch("PRAGMA synchronous = NORMAL; PRAGMA wal_autocheckpoint = 1000")?;
     reserved
 }
 
