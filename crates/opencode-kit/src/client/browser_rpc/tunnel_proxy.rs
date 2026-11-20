@@ -51,6 +51,7 @@ pub struct ProxyCredentials {
 
 struct SharedProxy {
     state: ProxyState,
+    suspended: bool,
     next_id: u64,
     clients: BTreeMap<u64, TcpStream>,
     aborts: BTreeMap<u64, AbortHandle>,
@@ -90,6 +91,7 @@ impl TunnelProxy {
         );
         let shared = Arc::new(Mutex::new(SharedProxy {
             state: ProxyState::Open,
+            suspended: false,
             next_id: 1,
             clients: BTreeMap::new(),
             aborts: BTreeMap::new(),
@@ -116,6 +118,32 @@ impl TunnelProxy {
             listener_addr,
             accept_thread: Some(accept_thread),
         })
+    }
+
+    /// Temporarily suspends or resumes forwarding without closing the listener port (used during
+    /// transient remote reconnect so requests fail closed with `503` without tearing down tabs).
+    pub fn set_suspended(&self, suspended: bool) {
+        let (clients, aborts) = {
+            let mut g = self.shared.lock().unwrap_or_else(PoisonError::into_inner);
+            if g.suspended == suspended {
+                return;
+            }
+            g.suspended = suspended;
+            if suspended {
+                (
+                    std::mem::take(&mut g.clients).into_values().collect::<Vec<_>>(),
+                    std::mem::take(&mut g.aborts).into_values().collect::<Vec<_>>(),
+                )
+            } else {
+                (Vec::new(), Vec::new())
+            }
+        };
+        for abort in aborts {
+            abort.abort();
+        }
+        for stream in clients {
+            stream.shutdown(Shutdown::Both).ok();
+        }
     }
 
     /// Closes the proxy immediately: stops accepting, aborts all in-flight `tunnel.{open,read,write}`
@@ -193,11 +221,13 @@ impl Drop for ConnGuard {
 enum AdmitError {
     Closed,
     AtCapacity,
+    Suspended,
 }
 
 impl ProxyCtx {
     fn admits(&self) -> bool {
-        self.shared.lock().unwrap_or_else(PoisonError::into_inner).state.admits()
+        let g = self.shared.lock().unwrap_or_else(PoisonError::into_inner);
+        g.state.admits() && !g.suspended
     }
 
     fn authorized(&self, header: Option<&str>) -> bool {
@@ -209,6 +239,9 @@ impl ProxyCtx {
         let mut g = self.shared.lock().unwrap_or_else(PoisonError::into_inner);
         if !g.state.admits() {
             return Err(AdmitError::Closed);
+        }
+        if g.suspended {
+            return Err(AdmitError::Suspended);
         }
         if g.clients.len() >= MAX_CONCURRENT_CONNS {
             return Err(AdmitError::AtCapacity);
@@ -238,7 +271,7 @@ fn accept_loop(listener: TcpListener, ctx: Arc<ProxyCtx>) {
                     .spawn(move || handle_client(stream, ctx, guard))
                     .ok();
             }
-            Err(AdmitError::AtCapacity) => {
+            Err(AdmitError::AtCapacity | AdmitError::Suspended) => {
                 write_status(&mut stream, "503 Service Unavailable").ok();
                 stream.shutdown(Shutdown::Write).ok();
             }

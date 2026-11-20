@@ -515,7 +515,8 @@ return plugin.defineWindow(function(ctx)
         if lower ~= "http://" and lower ~= "https://" then
             return false
         end
-        local name = string.match(host, "^%[[^%]]*%]") or string.match(host, "^[^:]*") or host
+        local authority = string.match(host, "@(.*)$") or host
+        local name = string.match(authority, "^%[[^%]]*%]") or string.match(authority, "^[^:]*") or authority
         return Server:IsLocal() or not address.loopback(name)
     end
 

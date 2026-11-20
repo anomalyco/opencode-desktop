@@ -161,11 +161,16 @@ impl crate::BrowserHost {
     }
 
     /// Updates or clears the local loopback tunnel proxy on a remote server partition.
+    /// Rejects non-loopback IP literals, zero ports, or empty credentials before caching.
     pub fn set_partition_proxy(
         &mut self,
         server_id: &str,
         proxy: Option<crate::protocol::RemoteProxyConfig>,
     ) {
+        if server_id.trim().is_empty() {
+            return;
+        }
+        let proxy = proxy.filter(is_valid_remote_proxy);
         match &proxy {
             Some(cfg) => {
                 self.partition_proxies.insert(server_id.to_owned(), cfg.clone());
@@ -281,4 +286,18 @@ impl crate::BrowserHost {
     pub fn drain_diagnostics(&mut self) -> impl Iterator<Item = PageDiagnostic> + '_ {
         self.diagnostics.drain(..)
     }
+}
+
+fn is_valid_remote_proxy(cfg: &crate::protocol::RemoteProxyConfig) -> bool {
+    let host = cfg.host.trim();
+    if host.is_empty() || cfg.port == 0 {
+        return false;
+    }
+    let unbracketed = host.strip_prefix('[').and_then(|s| s.strip_suffix(']')).unwrap_or(host);
+    let Ok(ip) = unbracketed.parse::<std::net::IpAddr>() else {
+        return false;
+    };
+    ip.is_loopback()
+        && cfg.username.as_deref().is_some_and(|u| !u.is_empty())
+        && cfg.password.as_deref().is_some_and(|p| !p.is_empty())
 }

@@ -44,11 +44,12 @@ use std::sync::{Arc, Mutex};
 
 use cef::rc::Rc as _;
 use cef::{
-    Browser, CefString, CompletionCallback, Frame, ImplCompletionCallback, ImplCookieManager,
-    ImplDictionaryValue, ImplPreferenceManager, ImplRequestContext, ImplRequestContextHandler,
-    ImplValue, Request, RequestContext, RequestContextHandler, RequestContextSettings,
-    ResourceRequestHandler, WrapCompletionCallback, WrapRequestContextHandler, sys,
-    wrap_completion_callback, wrap_request_context_handler,
+    Browser, Callback, CefString, CompletionCallback, Frame, ImplCompletionCallback,
+    ImplCookieManager, ImplDictionaryValue, ImplPreferenceManager, ImplRequest,
+    ImplRequestContext, ImplRequestContextHandler, ImplResourceRequestHandler, ImplValue, Request,
+    RequestContext, RequestContextHandler, RequestContextSettings, ResourceRequestHandler,
+    ReturnValue, WrapCompletionCallback, WrapRequestContextHandler, WrapResourceRequestHandler,
+    sys, wrap_completion_callback, wrap_request_context_handler, wrap_resource_request_handler,
 };
 
 // CEF 156.0.26 dereferences a null `CefCompletionCallback*` (`0xC0000005` at `libcef.dll+0x2e7810`)
@@ -103,13 +104,49 @@ pub struct ContextHooks {
     pub on_created: Option<Box<dyn FnOnce(&RequestContext)>>,
 }
 
-/// Validates that a `RemoteProxyConfig` points strictly at a loopback host and non-zero port.
+// Fail-closed resource canceller for `RemoteServer` partitions before proxy initialization
+// completes or after `set_partition_proxy(None)` clears the active tunnel proxy.
+wrap_resource_request_handler! {
+    struct BlockUnproxiedResourceHandler;
+    impl ResourceRequestHandler {
+        fn on_before_resource_load(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            request: Option<&mut Request>,
+            _callback: Option<&mut Callback>,
+        ) -> ReturnValue {
+            let url = request
+                .map(|r| CefString::from(&r.url()).to_string())
+                .unwrap_or_default();
+            if url.eq_ignore_ascii_case("about:blank") {
+                return ReturnValue::CONTINUE;
+            }
+            ReturnValue::CANCEL
+        }
+    }
+}
+
+/// Validates that a `RemoteProxyConfig` points strictly at a loopback IP literal (`127.0.0.1` or
+/// `::1`), non-zero port, and non-empty Basic credentials (`review-rd-engine.md` §3.2 & §4.3).
 pub fn validate_proxy(cfg: &RemoteProxyConfig) -> Result<(), &'static str> {
     let host = cfg.host.trim();
-    if host.is_empty() || cfg.port == 0 || !browser_policy::loopback_host(host) {
+    if host.is_empty() || cfg.port == 0 {
         return Err("browser.proxy.invalid");
     }
     if host.chars().any(|c| c.is_whitespace() || c.is_control() || matches!(c, ';' | '=' | '/')) {
+        return Err("browser.proxy.invalid");
+    }
+    let unbracketed = host.strip_prefix('[').and_then(|s| s.strip_suffix(']')).unwrap_or(host);
+    let Ok(ip) = unbracketed.parse::<std::net::IpAddr>() else {
+        return Err("browser.proxy.invalid");
+    };
+    if !ip.is_loopback() {
+        return Err("browser.proxy.invalid");
+    }
+    if !cfg.username.as_deref().is_some_and(|u| !u.is_empty())
+        || !cfg.password.as_deref().is_some_and(|p| !p.is_empty())
+    {
         return Err("browser.proxy.invalid");
     }
     Ok(())
@@ -241,6 +278,7 @@ impl ContextEntry {
 
 wrap_request_context_handler! {
     struct IsolatedContextHandler {
+        require_proxy: bool,
         initialized: Arc<AtomicBool>,
         prefs_ok: Arc<AtomicBool>,
         proxy: Arc<Mutex<Option<RemoteProxyConfig>>>,
@@ -253,8 +291,11 @@ wrap_request_context_handler! {
     impl RequestContextHandler {
         fn on_request_context_initialized(&self, request_context: Option<&mut RequestContext>) {
             let proxy = self.proxy.lock().unwrap().clone();
-            let applied = request_context
-                .is_some_and(|ctx| apply_context_prefs(ctx, proxy.as_ref()));
+            let applied = if self.require_proxy && proxy.is_none() {
+                false
+            } else {
+                request_context.is_some_and(|ctx| apply_context_prefs(ctx, proxy.as_ref()))
+            };
             self.prefs_ok.store(applied, Ordering::Release);
             self.initialized.store(true, Ordering::Release);
             let pending = std::mem::take(&mut *self.deferred_loads.lock().unwrap());
@@ -266,7 +307,11 @@ wrap_request_context_handler! {
                     } else {
                         out.push(DeferredOutcome::Refuse {
                             tab_id,
-                            reason: "browser.proxy.invalid",
+                            reason: if proxy.is_none() {
+                                "browser.proxy.required"
+                            } else {
+                                "browser.proxy.invalid"
+                            },
                         });
                     }
                 }
@@ -284,6 +329,13 @@ wrap_request_context_handler! {
             request_initiator: Option<&CefString>,
             disable_default_handling: Option<&mut ::std::os::raw::c_int>,
         ) -> Option<ResourceRequestHandler> {
+            if self.require_proxy
+                && (!self.initialized.load(Ordering::Acquire)
+                    || !self.prefs_ok.load(Ordering::Acquire)
+                    || self.proxy.lock().unwrap().is_none())
+            {
+                return Some(BlockUnproxiedResourceHandler::new());
+            }
             self.resource_filter.as_ref().and_then(|hook| {
                 hook(
                     browser,
@@ -390,6 +442,9 @@ impl ContextPool {
                     }
                     None => self.remote_proxies.get(server_id).cloned(),
                 };
+                if effective.is_none() {
+                    return Err("browser.proxy.required");
+                }
                 (ContextKey::RemoteServer(server_id.clone()), effective)
             }
         };
@@ -400,7 +455,9 @@ impl ContextPool {
         }
 
         if !self.entries.contains_key(&key) {
+            let require_proxy = matches!(key, ContextKey::RemoteServer(_));
             let entry = create_isolated_context(
+                require_proxy,
                 explicit_proxy.clone(),
                 self.ready_loads.clone(),
                 self.pump.clone(),
@@ -505,13 +562,20 @@ impl ContextPool {
         let key = ContextKey::RemoteServer(server_id.to_owned());
         if let Some(entry) = self.entries.get_mut(&key) {
             *entry.proxy.lock().unwrap() = proxy.clone();
-            if entry.initialized.load(Ordering::Acquire) {
-                let ok = apply_context_prefs(&entry.ctx, proxy.as_ref());
-                entry.prefs_ok.store(ok, Ordering::Release);
-                close_connections(&entry.ctx);
-                if proxy.is_some() && !ok {
-                    return Err("browser.proxy.invalid");
+            if let Some(cfg) = &proxy {
+                if entry.initialized.load(Ordering::Acquire) {
+                    let ok = apply_context_prefs(&entry.ctx, Some(cfg));
+                    entry.prefs_ok.store(ok, Ordering::Release);
+                    close_connections(&entry.ctx);
+                    if !ok {
+                        return Err("browser.proxy.invalid");
+                    }
                 }
+            } else {
+                // Never flip a `RemoteServer` partition to `mode: "direct"`: mark it unready so
+                // `BlockUnproxiedResourceHandler` cancels all requests and tear down active sockets.
+                entry.prefs_ok.store(false, Ordering::Release);
+                close_connections(&entry.ctx);
             }
         }
         Ok(proxy)
@@ -575,6 +639,7 @@ impl ContextPool {
 }
 
 fn create_isolated_context(
+    require_proxy: bool,
     proxy: Option<RemoteProxyConfig>,
     ready_loads: Arc<Mutex<Vec<DeferredOutcome>>>,
     pump: Sender<crate::Event>,
@@ -585,6 +650,7 @@ fn create_isolated_context(
     let proxy_arc = Arc::new(Mutex::new(proxy.clone()));
     let deferred_loads = Arc::new(Mutex::new(Vec::new()));
     let mut handler = IsolatedContextHandler::new(
+        require_proxy,
         initialized.clone(),
         prefs_ok.clone(),
         proxy_arc.clone(),

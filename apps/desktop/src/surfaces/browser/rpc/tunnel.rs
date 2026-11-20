@@ -4,12 +4,16 @@
 //! Invariants:
 //! - Every remote tunnel binds strictly to IP literal `127.0.0.1` (never a hostname) with fresh
 //!   384-bit OS-CSPRNG Basic credentials (`realm = "OpenCode Browser Proxy"`).
-//! - Every stop, detach, disconnect, or `connection_id` rotation immediately calls
-//!   `BrowserHost::set_partition_proxy(server_id, None)` (or the rotated `Some(new_cfg)` after
-//!   closing the prior proxy) so a credential is never reused across a recycled port and no remote
-//!   tab can ever run unproxied.
+//! - On rotation, the new proxy binds while the prior listener is still open (so the OS cannot
+//!   recycle the port), updates `BrowserHost::set_partition_proxy(server_id, Some(new_cfg))`
+//!   atomically, and only then closes the prior proxy — never reusing credentials across ports and
+//!   never force-closing live remote tabs during normal reconnect.
+//! - During transient reconnect (`Connecting`/`Backoff` after a prior `Attached` state), the old
+//!   proxy is suspended (`503 Service Unavailable`, zero egress) instead of sending
+//!   `SetPartitionProxy(None)`. On permanent detach/close/block/unsupported/unavailable,
+//!   `BrowserHost::set_partition_proxy(server_id, None)` and `proxy.close()` run immediately.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use browser_pane::RemoteProxyConfig;
 use opencode_kit::browser_rpc::{LocationRef, PROXY_REALM, TunnelProxy};
@@ -42,8 +46,10 @@ pub(super) fn sync_remote_tunnels(app: &mut App) {
     let engine_known = app.workspace_panes.browser.host.engine_caps_known();
     let engine_remote_ok = !engine_known || app.workspace_panes.browser.host.engine_remote_proxy();
 
-    // Pick one live attached session per remote server as the tunnel carrier.
+    // Pick one live attached session per remote server as the tunnel carrier, and note remote
+    // servers currently in transient reconnect (`Connecting`/`Backoff` after prior attach).
     let mut desired: BTreeMap<ServerKey, DesiredTunnel> = BTreeMap::new();
+    let mut reconnecting: BTreeSet<ServerKey> = BTreeSet::new();
     if engine_remote_ok {
         let st = app.kernel.slots.get(&BROWSER_RPC);
         for ((key, sid), att) in &st.sessions {
@@ -60,6 +66,8 @@ pub(super) fn sync_remote_tunnels(app: &mut App) {
                     session_id: sid.clone(),
                     connection_id: conn_id.to_owned(),
                 });
+            } else if att.attach.suppresses_local_mcp() {
+                reconnecting.insert(key.clone());
             }
         }
     }
@@ -67,13 +75,19 @@ pub(super) fn sync_remote_tunnels(app: &mut App) {
     // Move manager out temporarily so we can mutate `BrowserHost`.
     let mut mgr = std::mem::take(&mut app.kernel.slots.get_mut(&BROWSER_RPC).tunnels);
 
-    // 1. Stop tunnels for remote servers that detached, disconnected, or lost engine support.
-    let stale: Vec<ServerKey> = mgr
-        .tunnels
-        .keys()
-        .filter(|k| !desired.contains_key(*k))
-        .cloned()
-        .collect();
+    // 1. Suspend tunnels in transient reconnect (`503`, zero egress, keeps tabs alive), and stop
+    //    tunnels for remote servers that permanently detached, closed, blocked, or lost engine support.
+    let mut stale: Vec<ServerKey> = Vec::new();
+    for (key, cur) in &mgr.tunnels {
+        if desired.contains_key(key) {
+            continue;
+        }
+        if reconnecting.contains(key) {
+            cur.proxy.set_suspended(true);
+        } else {
+            stale.push(key.clone());
+        }
+    }
     for key in stale {
         if let Some(mut old) = mgr.tunnels.remove(&key) {
             app.workspace_panes.browser.host.set_partition_proxy(key.as_str(), None);
@@ -83,19 +97,14 @@ pub(super) fn sync_remote_tunnels(app: &mut App) {
 
     // 2. Start or rotate tunnels whenever a remote server attaches with a new `connection_id`.
     for (key, want) in desired {
-        if mgr
-            .tunnels
-            .get(&key)
-            .is_some_and(|cur| cur.connection_id == want.connection_id)
+        if let Some(cur) = mgr.tunnels.get(&key)
+            && cur.connection_id == want.connection_id
         {
+            cur.proxy.set_suspended(false);
             continue;
         }
-        // Always tear down the previous proxy and notify the engine before binding a new port so
-        // credentials are never reused across a recycled loopback port.
-        if let Some(mut prev) = mgr.tunnels.remove(&key) {
-            app.workspace_panes.browser.host.set_partition_proxy(key.as_str(), None);
-            prev.proxy.close();
-        }
+        // Start the replacement BEFORE closing `prev` so the OS cannot recycle the prior port
+        // and the engine switches atomically from `Some(old)` to `Some(new)`.
         match TunnelProxy::start(
             want.server,
             want.location,
@@ -103,8 +112,6 @@ pub(super) fn sync_remote_tunnels(app: &mut App) {
             want.connection_id.clone(),
         ) {
             Ok(proxy) => {
-                // Register strictly with IP literal `127.0.0.1` + high-entropy Basic credentials
-                // (required by WS-1 `#292` `validate_proxy`).
                 let cfg = RemoteProxyConfig {
                     host: "127.0.0.1".to_owned(),
                     port: proxy.port,
@@ -116,14 +123,19 @@ pub(super) fn sync_remote_tunnels(app: &mut App) {
                     .browser
                     .host
                     .set_partition_proxy(key.as_str(), Some(cfg));
-                mgr.tunnels.insert(
+                if let Some(mut prev) = mgr.tunnels.insert(
                     key,
                     ActiveTunnel { connection_id: want.connection_id, proxy },
-                );
+                ) {
+                    prev.proxy.close();
+                }
             }
             Err(e) => {
                 eprintln!("browser-rpc: failed to start remote tunnel proxy: {e}");
                 app.workspace_panes.browser.host.set_partition_proxy(key.as_str(), None);
+                if let Some(mut prev) = mgr.tunnels.remove(&key) {
+                    prev.proxy.close();
+                }
             }
         }
     }
