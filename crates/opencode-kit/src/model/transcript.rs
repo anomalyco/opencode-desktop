@@ -350,6 +350,7 @@ impl Transcript {
             "session.compaction.started" | "session.compaction.delta" | "session.compaction.ended" | "session.compaction.failed" => {
                 return compaction::apply(&mut self.messages, ty, d, now);
             }
+            "session.widget.posted" | "session.widget.responded" => return super::widget::apply(&mut self.messages, ty, d, now),
             "session.revert.committed" => {
                 let at = self.visible_len(d["to"].as_str());
                 if at == self.messages.len() {

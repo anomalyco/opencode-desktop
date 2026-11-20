@@ -22,6 +22,7 @@ pub mod preview;
 mod tool;
 mod transcript;
 pub mod turn;
+mod widget;
 
 pub use attachment::{Attachment, base64_decode, media_hash, parse_attachment, prompt_extras_generation, set_user_files, user_files};
 pub use background_result::{BackgroundResult, BackgroundResultKind, parse_background_result};
@@ -40,6 +41,7 @@ pub use plugin::{PluginFeatures, PluginInfo, PluginSource, PluginState, SkillInf
 pub use tool::{shell_message, tool_error, tool_error_metadata, tool_output, tool_ran};
 use tool::{keep_tool_error, keep_tool_output, keep_tool_ran, replace_tool_metadata};
 pub use transcript::{Transcript, UNSEEN};
+pub use widget::{Widget, WidgetStatus};
 pub use crate::project::{LocationInfo, ProjectMeta, parse_location, parse_project, parse_worktrees, project_git, project_meta, project_sandboxes, project_sandboxes_version, set_project_sandboxes};
 pub use crate::quote::{CommentOrigin, FileComment, PromptComment, Quote, set_user_comments, user_comments};
 
@@ -283,6 +285,8 @@ pub enum Message {
     Compaction(Compaction),
     /// A switched agent or model, a move, updated instructions, a restart.
     Notice(Notice),
+    /// An interactive widget an agent posted (`widget`).
+    Widget(Widget),
 }
 
 /// Provider-supplied phase label on an assistant text part (`content.native.phase`,
@@ -356,6 +360,7 @@ impl Message {
             Message::Assistant(a) => &a.id,
             Message::Compaction(c) => &c.id,
             Message::Notice(n) => &n.id,
+            Message::Widget(w) => &w.id,
         }
     }
 }

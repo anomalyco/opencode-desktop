@@ -98,7 +98,7 @@ fn consume(c:&mut Connection) -> rusqlite::Result<Option<(String, std::time::Dur
         if let Some(messages)=bytes.and_then(|b|preview::decode_for_search(&b)) {
             for msg in messages {
                 // SEARCH's kinds (`opencode_search::fulltext::Kind`): what the user wrote, what came back.
-                let (kind,body)=match &msg { Message::User{text,..}|Message::Note{text,..}=>("user",text.clone()), Message::Assistant(a)=>("assistant",a.parts.iter().filter_map(|p|match p {Part::Text{text}=>Some(text.as_str()),_=>None}).collect::<Vec<_>>().join("\n")), Message::Compaction(c)=>("assistant",c.summary.clone()), Message::Notice(_)=>continue };
+                let (kind,body)=match &msg { Message::User{text,..}|Message::Note{text,..}=>("user",text.clone()), Message::Assistant(a)=>("assistant",a.parts.iter().filter_map(|p|match p {Part::Text{text}=>Some(text.as_str()),_=>None}).collect::<Vec<_>>().join("\n")), Message::Compaction(c)=>("assistant",c.summary.clone()), Message::Notice(_)=>continue, Message::Widget(w)=>("assistant",w.label().to_owned()) };
                 insert(&tx,server,session,msg.id(),kind,&body,now)?;
             }
         }
