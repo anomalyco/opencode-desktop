@@ -95,7 +95,7 @@ pub fn is_windows_device_name(stem: &str) -> bool {
     if matches!(prefix.as_str(), "com" | "lpt")
         && let Some(digit) = chars.next()
         && chars.next().is_none()
-        && matches!(digit, '1'..='9' | '\u{00B9}' | '\u{00B2}' | '\u{00B3}')
+        && matches!(digit, '0'..='9' | '\u{00B9}' | '\u{00B2}' | '\u{00B3}')
     {
         return true;
     }
@@ -122,7 +122,7 @@ pub fn local_file_path(input: &str) -> Option<String> {
         return None;
     }
     let decoded = percent_decode(raw_path)?;
-    if decoded.chars().any(|c| (c as u32) <= 0x1f) {
+    if decoded.chars().any(char::is_control) {
         return None;
     }
     let normalized = decoded.replace('\\', "/");

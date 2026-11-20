@@ -616,7 +616,7 @@ wrap_request_handler! {
             _browser: Option<&mut Browser>,
             frame: Option<&mut Frame>,
             request: Option<&mut Request>,
-            _user_gesture: ::std::os::raw::c_int,
+            user_gesture: ::std::os::raw::c_int,
             _is_redirect: ::std::os::raw::c_int,
         ) -> ::std::os::raw::c_int {
             let is_main = frame.map_or(true, |f| f.is_main() == 1);
@@ -627,7 +627,7 @@ wrap_request_handler! {
                         self.prompts.set_pending_top_url(Some(url));
                         return 0;
                     }
-                    if browser_policy::destination_origin(&url).is_some() {
+                    if user_gesture != 0 && browser_policy::destination_origin(&url).is_some() {
                         let _ = self.out_tx.send(EngineMsg::PopupBlocked { tab_id: self.tab_id, url });
                     } else {
                         let _ = self.out_tx.send(EngineMsg::Refused {
@@ -637,7 +637,7 @@ wrap_request_handler! {
                     }
                     return 1;
                 }
-                return i32::from(!browser_policy::preview::preview_subresource_allowed(&url, &grant.grant_host));
+                return i32::from(!grant.allows_subframe_navigation(&url));
             }
             let roots = self.file_roots.lock().unwrap().clone();
             if let Some(why) = browser_policy::frame_guard(&url, is_main, &roots) {
@@ -659,11 +659,11 @@ wrap_request_handler! {
             _frame: Option<&mut Frame>,
             target_url: Option<&CefString>,
             target_disposition: WindowOpenDisposition,
-            _user_gesture: ::std::os::raw::c_int,
+            user_gesture: ::std::os::raw::c_int,
         ) -> ::std::os::raw::c_int {
             let url = target_url.map(CefString::to_string).unwrap_or_default();
             if self.preview.is_some() {
-                if browser_policy::destination_origin(&url).is_some() {
+                if user_gesture != 0 && browser_policy::destination_origin(&url).is_some() {
                     let _ = self.out_tx.send(EngineMsg::PopupBlocked { tab_id: self.tab_id, url });
                 } else {
                     let _ = self.out_tx.send(EngineMsg::Refused {

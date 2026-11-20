@@ -20,8 +20,9 @@ use crate::output::Output;
 use crate::wire::{EngineMsg, PreviewKindTag, PreviewSpec};
 use handle_path::RootPin;
 
-/// Maximum pending initiator entries remembered per grant (prevents unbounded growth).
-const MAX_INITIATOR_CACHE: usize = 512;
+/// Maximum pending initiator entries remembered per grant (FIFO eviction prevents a fetch flood
+/// from wiping in-flight initiator records).
+const MAX_INITIATOR_CACHE: usize = 4096;
 
 #[derive(Clone, Debug)]
 pub enum PreviewKind {
@@ -70,7 +71,13 @@ pub struct PreviewGrant {
     last_display: Mutex<String>,
     /// Request identifier -> whether Chromium's non-spoofable `request_initiator` was empty
     /// (browser-initiated top-level navigation, eligible for the one-shot entry token).
-    initiators: Mutex<HashMap<u64, InitiatorRecord>>,
+    initiators: Mutex<InitiatorCache>,
+}
+
+#[derive(Default)]
+struct InitiatorCache {
+    map: HashMap<u64, InitiatorRecord>,
+    order: VecDeque<u64>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -82,6 +89,10 @@ pub struct InitiatorRecord {
 impl PreviewGrant {
     pub fn is_revoked(&self) -> bool {
         self.revoked.load(Ordering::Acquire)
+    }
+
+    pub fn is_artifact(&self) -> bool {
+        matches!(self.kind, PreviewKind::Artifact { .. })
     }
 
     pub fn revoke(&self) {
@@ -101,25 +112,27 @@ impl PreviewGrant {
     }
 
     pub fn record_initiator(&self, req_id: u64, browser_initiated: bool, allowed: bool) {
-        let mut map = self.initiators.lock().unwrap();
-        if map.len() >= MAX_INITIATOR_CACHE {
-            map.clear();
+        let mut cache = self.initiators.lock().unwrap();
+        while cache.map.len() >= MAX_INITIATOR_CACHE {
+            let Some(oldest) = cache.order.pop_front() else { break };
+            cache.map.remove(&oldest);
         }
-        map.insert(req_id, InitiatorRecord { browser_initiated, allowed });
+        if cache.map.insert(req_id, InitiatorRecord { browser_initiated, allowed }).is_none() {
+            cache.order.push_back(req_id);
+        }
     }
 
     pub fn take_initiator(&self, req_id: u64) -> Option<InitiatorRecord> {
-        self.initiators.lock().unwrap().remove(&req_id)
+        self.initiators.lock().unwrap().map.remove(&req_id)
     }
 
     pub fn last_display_url(&self) -> String {
         self.last_display.lock().unwrap().clone()
     }
 
-    /// Translates an internal `oc-preview://<grant_host>/...` URL into its clean display URL
-    /// (`file:///...`, `workspace://...`, or `artifact://...`), or `None` if it doesn't belong to
-    /// this grant or fails scope validation. Never returns `oc-preview://`.
-    pub fn display_url(&self, raw_url: &str) -> Option<String> {
+    /// Pure read-only translation of an internal `oc-preview://<grant_host>/...` URL into its
+    /// clean display URL, or `None` if it fails scope/grant validation.
+    fn compute_display_url(&self, raw_url: &str) -> Option<String> {
         if self.is_revoked() {
             return None;
         }
@@ -145,6 +158,14 @@ impl PreviewGrant {
                 display
             }
         };
+        Some(out)
+    }
+
+    /// Translates an internal `oc-preview://<grant_host>/...` URL into its clean display URL
+    /// (`file:///...`, `workspace://...`, or `artifact://...`) and caches it as `last_display`.
+    /// Never returns `oc-preview://`.
+    pub fn display_url(&self, raw_url: &str) -> Option<String> {
+        let out = self.compute_display_url(raw_url)?;
         *self.last_display.lock().unwrap() = out.clone();
         Some(out)
     }
@@ -157,7 +178,23 @@ impl PreviewGrant {
         if raw_url.trim().eq_ignore_ascii_case("about:blank") {
             return true;
         }
-        self.display_url(raw_url).is_some()
+        self.compute_display_url(raw_url).is_some()
+    }
+
+    /// Whether a subframe inside this preview tab may navigate to `raw_url`.
+    /// Artifacts forbid `data:`/`blob:` subframes (matching `ARTIFACT_CSP`).
+    pub fn allows_subframe_navigation(&self, raw_url: &str) -> bool {
+        if self.is_revoked() {
+            return false;
+        }
+        if self.is_artifact() {
+            let t = raw_url.trim();
+            if t.eq_ignore_ascii_case("about:blank") {
+                return true;
+            }
+            return self.compute_display_url(t).is_some();
+        }
+        browser_policy::preview::preview_subresource_allowed(raw_url, &self.grant_host)
     }
 
     /// Sanitizes any URL reported by CEF (`on_address_change`, `on_load_error`) so the internal
@@ -395,7 +432,7 @@ impl PreviewRegistry {
                     entry_taken: AtomicBool::new(false),
                     notified_denied: AtomicBool::new(false),
                     last_display: Mutex::new(display.clone()),
-                    initiators: Mutex::new(HashMap::new()),
+                    initiators: Mutex::new(InitiatorCache::default()),
                 });
                 Ok((grant, internal, display))
             }
@@ -421,7 +458,7 @@ impl PreviewRegistry {
                     entry_taken: AtomicBool::new(false),
                     notified_denied: AtomicBool::new(false),
                     last_display: Mutex::new(display.clone()),
-                    initiators: Mutex::new(HashMap::new()),
+                    initiators: Mutex::new(InitiatorCache::default()),
                 });
                 Ok((grant, internal, display))
             }
@@ -448,7 +485,7 @@ impl PreviewRegistry {
                     entry_taken: AtomicBool::new(false),
                     notified_denied: AtomicBool::new(false),
                     last_display: Mutex::new(display.clone()),
-                    initiators: Mutex::new(HashMap::new()),
+                    initiators: Mutex::new(InitiatorCache::default()),
                 });
                 Ok((grant, internal, display))
             }

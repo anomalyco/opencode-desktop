@@ -53,12 +53,17 @@ wrap_scheme_handler_factory! {
             }
             let head_only = method == "HEAD";
             let url = CefString::from(&req.url()).to_string();
-            // Verify the non-spoofable initiator recorded by `PreviewRequestContextHandler`.
-            let initiator = self.grant.take_initiator(req.identifier());
-            if initiator.is_some_and(|rec| !rec.allowed) {
+            // Fail closed: every `oc-preview://` request MUST have been validated and recorded by
+            // `TabRequestHandler` or `PreviewRequestContextHandler` (covering frames, workers, and beacons).
+            let Some(rec) = self.grant.take_initiator(req.identifier()) else {
+                self.grant.mark_denied(&self.out_tx);
+                return None;
+            };
+            if !rec.allowed {
+                self.grant.mark_denied(&self.out_tx);
                 return None;
             }
-            let browser_initiated = initiator.is_none_or(|rec| rec.browser_initiated);
+            let browser_initiated = rec.browser_initiated;
             let range_header = {
                 let raw = CefString::from(&req.header_by_name(Some(&CefString::from("Range")))).to_string();
                 (!raw.trim().is_empty()).then_some(raw)
@@ -98,8 +103,9 @@ wrap_scheme_handler_factory! {
                                 mime,
                                 charset,
                                 file_size: size,
+                                offset: 0,
                                 advertised_len,
-                                remaining: if head_only || status == 416 { 0 } else { size },
+                                remaining: if head_only || status == 416 { 0 } else { advertised_len },
                                 content_range,
                             };
                             Some(LocalFileResourceHandler::new(self.grant.clone(), Arc::new(Mutex::new(state))))
@@ -160,6 +166,7 @@ struct LocalState {
     mime: &'static str,
     charset: Option<&'static str>,
     file_size: u64,
+    offset: u64,
     advertised_len: u64,
     remaining: u64,
     content_range: Option<String>,
@@ -231,16 +238,29 @@ wrap_resource_handler! {
                 }
                 return 1;
             }
-            let skip = (bytes_to_skip as u64).min(st.remaining);
+            let skip = bytes_to_skip as u64;
+            let Some(next_offset) = st.offset.checked_add(skip) else {
+                if let Some(s) = bytes_skipped {
+                    *s = -2;
+                }
+                return 0;
+            };
+            if next_offset > st.file_size {
+                if let Some(s) = bytes_skipped {
+                    *s = -2;
+                }
+                return 0;
+            }
             if let Some(file) = st.file.as_mut()
-                && file.seek(SeekFrom::Current(skip as i64)).is_err()
+                && file.seek(SeekFrom::Start(next_offset)).is_err()
             {
                 if let Some(s) = bytes_skipped {
                     *s = -2;
                 }
                 return 0;
             }
-            st.remaining = st.advertised_len;
+            st.offset = next_offset;
+            st.remaining = st.advertised_len.min(st.file_size.saturating_sub(next_offset));
             if let Some(s) = bytes_skipped {
                 *s = skip as i64;
             }

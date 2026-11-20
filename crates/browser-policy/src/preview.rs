@@ -129,7 +129,7 @@ pub fn preview_path_valid(path: &str, windows_rules: bool) -> bool {
         !part.is_empty()
             && part != "."
             && part != ".."
-            && !part.chars().any(|c| c == '\\' || (c as u32) <= 0x1f)
+            && !part.chars().any(|c| c == '\\' || c.is_control())
             && (!windows_rules || valid_windows_segment(part))
     })
 }
@@ -183,26 +183,28 @@ pub fn preview_allowed(root: &str, document: &str, path: &str, entry: bool, home
             || part == "."
             || part == ".."
             || (part.len() == 2 && part.as_bytes()[0].is_ascii_alphabetic() && part.as_bytes()[1] == b':')
-            || part.chars().any(|c| (c as u32) <= 0x1f)
+            || part.chars().any(char::is_control)
             || (cfg!(windows) && !valid_windows_segment(part))
     };
     if doc.iter().any(|p| bad_part(p)) || file.iter().any(|p| bad_part(p)) {
+        return false;
+    }
+    let folder = &doc[..doc.len() - 1];
+    let dir = if folder.is_empty() {
+        root.trim_end_matches(['/', '\\']).to_owned()
+    } else {
+        format!("{}/{}", root.trim_end_matches(['/', '\\']), folder.join("/"))
+    };
+    // Always enforce workspace-root safety BEFORE the one-shot entry HTML early return so neither
+    // local nor remote previews can target `/`, drive roots, UNC roots, or broad home folders.
+    if !is_safe_workspace_root(root, home) || !is_safe_workspace_root(&dir, home) {
         return false;
     }
     let same = doc == file;
     if entry && same && is_html_path(&doc_norm) {
         return true;
     }
-    let folder = &doc[..doc.len() - 1];
     if file.len() <= folder.len() || !folder.iter().zip(file.iter()).all(|(a, b)| a == b) {
-        return false;
-    }
-    let dir = if folder.is_empty() {
-        root.trim_end_matches(['/', '\\']).to_owned()
-    } else {
-        format!("{}/{}", root.trim_end_matches(['/', '\\']), folder.join("/"))
-    };
-    if !is_safe_workspace_root(&dir, home) {
         return false;
     }
     !file.iter().any(|part| is_hidden_or_secret_segment(part))

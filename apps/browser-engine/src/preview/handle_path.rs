@@ -80,7 +80,9 @@ pub fn open_verified_file(
     let Some(verified_rel) = relative_inside(&pin.canonical_path, &final_path) else {
         return OpenOutcome::Denied;
     };
-    if !preview_allowed(&pin.canonical_path, document, &verified_rel, entry, home) {
+    if !preview_path_valid(&verified_rel, cfg!(windows))
+        || !preview_allowed(&pin.canonical_path, document, &verified_rel, entry, home)
+    {
         return OpenOutcome::Denied;
     }
     let Some(after) = os::pin_dir(Path::new(workspace)) else {
@@ -133,19 +135,14 @@ mod os {
             return None;
         }
         let raw = String::from_utf16(&buf[..len]).ok()?;
-        let cleaned = if let Some(unc) = raw.strip_prefix(r"\\?\UNC\") {
-            format!("//{unc}")
-        } else if let Some(dos) = raw.strip_prefix(r"\\?\") {
-            let b = dos.as_bytes();
-            if b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && b[2] == b'\\' {
-                dos.to_owned()
-            } else {
-                return None;
-            }
-        } else {
+        // Accept strictly local DOS drive paths (`\\?\C:\...`); refuse `\\?\UNC\`, device
+        // namespaces, and volume GUID paths so previews can never touch SMB/UNC shares.
+        let dos = raw.strip_prefix(r"\\?\")?;
+        let b = dos.as_bytes();
+        if b.len() < 3 || !b[0].is_ascii_alphabetic() || b[1] != b':' || b[2] != b'\\' {
             return None;
-        };
-        Some(cleaned.replace('\\', "/"))
+        }
+        Some(dos.replace('\\', "/"))
     }
 
     fn info_of(handle: HANDLE) -> Option<BY_HANDLE_FILE_INFORMATION> {
