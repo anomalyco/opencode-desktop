@@ -97,6 +97,9 @@ pub struct TabSnapshot {
     /// `page_crashed` when its renderer went away. An engine from before it sends none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub load_error: Option<String>,
+    /// Site favicon as a bounded `data:image/png;base64,...` data URL (`UP-109` `#65094`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub favicon: Option<String>,
 }
 
 /// An element chosen with the visual element picker (`Overlay.setInspectMode`), ready to insert
@@ -156,6 +159,8 @@ pub enum HostMsg {
     },
     Reload {
         tab_id: u64,
+        #[serde(default)]
+        ignore_cache: bool,
     },
     Stop {
         tab_id: u64,
@@ -271,6 +276,26 @@ pub enum HostMsg {
         tab_id: u64,
         agent_driven: bool,
     },
+    ClearSiteCache {
+        tab_id: u64,
+        request_id: u64,
+    },
+    Find {
+        tab_id: u64,
+        query: String,
+        forward: bool,
+        match_case: bool,
+        find_next: bool,
+    },
+    StopFind {
+        tab_id: u64,
+        clear_selection: bool,
+    },
+    ContextMenuAction {
+        tab_id: u64,
+        id: u64,
+        action: Option<ContextMenuCommand>,
+    },
     Shutdown,
 }
 
@@ -292,6 +317,12 @@ pub enum EngineMsg {
         /// The engine manages pop-ups (`PopupOpen` / `PopupBlocked`) via `LifeSpanHandler`.
         #[serde(default)]
         popups: bool,
+        /// The engine supports in-page `FindHandler`.
+        #[serde(default)]
+        find: bool,
+        /// The engine routes page right-click context menus to the app.
+        #[serde(default)]
+        context_menu: bool,
     },
     /// A frame navigation or redirect was refused by URL policy while keeping the current page.
     Refused {
@@ -335,6 +366,22 @@ pub enum EngineMsg {
     },
     FileChooserBlocked {
         tab_id: u64,
+    },
+    FindResult {
+        tab_id: u64,
+        count: u32,
+        active_match: u32,
+        final_update: bool,
+    },
+    ContextMenu {
+        tab_id: u64,
+        menu: PageContextMenu,
+    },
+    PageDiagnostic {
+        tab_id: u64,
+        level: String,
+        event: String,
+        fields: Value,
     },
     TabList {
         tabs: Vec<TabSnapshot>,
@@ -506,4 +553,56 @@ pub struct AuthChallenge {
     #[serde(default)]
     pub realm: String,
     pub scheme: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PageContextMenu {
+    pub id: u64,
+    pub x: i32,
+    pub y: i32,
+    #[serde(default)]
+    pub page_url: String,
+    #[serde(default)]
+    pub frame_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub src_url: Option<String>,
+    #[serde(default)]
+    pub is_image: bool,
+    #[serde(default)]
+    pub has_image_contents: bool,
+    #[serde(default)]
+    pub is_editable: bool,
+    #[serde(default)]
+    pub selection_text: String,
+    #[serde(default)]
+    pub can_cut: bool,
+    #[serde(default)]
+    pub can_copy: bool,
+    #[serde(default)]
+    pub can_paste: bool,
+    #[serde(default)]
+    pub can_select_all: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub misspelled_word: Option<String>,
+    #[serde(default)]
+    pub suggestions: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ContextMenuCommand {
+    Back,
+    Forward,
+    Reload,
+    HardReload,
+    Cut,
+    Copy,
+    Paste,
+    PastePlain,
+    SelectAll,
+    SaveImage { url: String },
+    ReplaceMisspelling { word: String },
+    AddToDictionary { word: String },
 }

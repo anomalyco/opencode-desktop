@@ -7,6 +7,8 @@
 //! omitted and this module exposes zero-sized no-op stubs.
 
 #[cfg(not(target_arch = "wasm32"))]
+pub mod context_menu;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod prompts;
 #[cfg(not(target_arch = "wasm32"))]
 mod scene;

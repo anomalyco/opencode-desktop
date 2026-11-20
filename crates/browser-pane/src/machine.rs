@@ -404,7 +404,14 @@ impl SharedEngine {
 pub(crate) enum EngineCaps {
     #[default]
     Unknown,
-    Known { downloads: bool, policy: bool, prompts: bool, popups: bool },
+    Known {
+        downloads: bool,
+        policy: bool,
+        prompts: bool,
+        popups: bool,
+        find: bool,
+        context_menu: bool,
+    },
 }
 
 impl EngineCaps {
@@ -422,6 +429,14 @@ impl EngineCaps {
 
     pub(crate) fn popups(self) -> bool {
         matches!(self, Self::Known { popups: true, .. })
+    }
+
+    pub(crate) fn find(self) -> bool {
+        matches!(self, Self::Known { find: true, .. })
+    }
+
+    pub(crate) fn context_menu(self) -> bool {
+        matches!(self, Self::Known { context_menu: true, .. })
     }
 }
 

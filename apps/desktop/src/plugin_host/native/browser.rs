@@ -655,8 +655,9 @@ pub fn version(app: &App) -> u64 {
     app.workspace_panes.browser.host.engine_policy().hash(&mut h);
     for t in app.workspace_panes.browser.host.tabs() {
         if let Some(d) = &t.device { (&d.preset, d.width, d.height, d.scale.map(f32::to_bits)).hash(&mut h); }
-        (t.id, &t.url, &t.title, t.loading, t.can_go_back, t.can_go_forward, t.zoom.to_bits(), t.inspecting, &t.load_error, &t.refusal, t.rejected).hash(&mut h);
+        (t.id, &t.url, &t.title, t.loading, t.can_go_back, t.can_go_forward, t.zoom.to_bits(), t.inspecting, &t.load_error, &t.favicon, &t.refusal, t.rejected).hash(&mut h);
         t.prompts.hash_state(&mut h);
+        t.find.hash_state(&mut h);
         // A download's step or end: `BrowserTab:Files` reads them.
         t.files.iter().for_each(|f| (&f.id, f.bytes, f.state as u8, &f.error).hash(&mut h));
     }
@@ -722,6 +723,7 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
         }
     }
     changed |= crate::surfaces::browser::prompts::poll(app, tx, now);
+    changed |= crate::surfaces::browser::context_menu::poll(app, tx);
     if let Some(next) = app.workspace_panes.browser.devtools.values().map(|p| p.deadline).min() {
         tx.wake_after(next.saturating_duration_since(now).max(Duration::from_millis(25)));
     }
