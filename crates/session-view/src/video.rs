@@ -1,5 +1,6 @@
 //! Standalone movie links in assistant Markdown. The original link remains the caption and
 //! fallback. No HTML or provider iframe is needed; the host resolves a source, Rune plays it.
+mod seek;
 mod transport;
 
 use std::cell::{Cell, RefCell};
@@ -7,8 +8,9 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::rc::{Rc, Weak};
 
+use opencode_ui::video_overlay::{self, Effect, Event as OverlayEvent, Overlay};
 use pulldown_cmark::{Event, Options, Parser, Tag};
-use rune::{Color, El, Player, PlayerState, SurfaceFit, Tx, col, el, text};
+use rune::{El, Player, PlayerState, Tx, col, el, text};
 
 use crate::{TimelineHost, palette::Pal};
 
@@ -29,10 +31,24 @@ struct Embed {
     name: String,
 }
 
+/// Only discrete changes invalidate a memoized message. Progress and pointer samples
+/// paint through Live bindings. Expose a fresh slider value to assistive clients each second.
+#[derive(Clone, Copy, PartialEq)]
+struct Presentation {
+    face: Face,
+    size: Option<(u32, u32)>,
+    length: Option<f64>,
+    shown: bool,
+    inspecting: bool,
+    compact: bool,
+    accessible_second: Option<u64>,
+}
+
 struct Clip {
     player: Player,
-    face: Cell<Face>,
-    transport: transport::Transport,
+    overlay: Cell<Overlay>,
+    reported: Cell<Option<Presentation>>,
+    track: seek::Track,
 }
 
 impl Clip {
@@ -41,10 +57,45 @@ impl Clip {
         else if self.player.is_playing() { Face::Playing }
         else { Face::Paused }
     }
+
+    fn observe(&self, event: OverlayEvent, tx: &mut Tx) -> bool {
+        let mut state = self.overlay.get();
+        let was = state.shown();
+        if let Some(Effect::WakeAt(due)) = video_overlay::step(&mut state, event) { tx.wake_at(due); }
+        self.overlay.set(state);
+        was != state.shown()
+    }
+
+    fn shown(&self) -> bool {
+        self.overlay.get().shown() || self.track.dragging() || crate::style::hover_none()
+    }
+
+    fn presentation_changed(&self, tx: &mut Tx) -> bool {
+        let next = Presentation {
+            face: self.face(), size: self.player.natural_size(), length: self.player.duration(),
+            inspecting: self.track.dragging(), shown: self.shown(), compact: self.track.compact(&self.player),
+            accessible_second: tx.assistive_technology().then(|| self.track.position(&self.player) as u64),
+        };
+        let last = self.reported.replace(Some(next));
+        if last == Some(next) { return false; }
+        if last.is_some_and(|p| p.shown && !next.shown) { tx.animated(); } else { tx.instant(); }
+        true
+    }
+
+    fn refresh<S: TimelineHost>(&self, s: &mut S, tx: &mut Tx) {
+        if self.presentation_changed(tx) { s.media_store_mut().videos.invalidate(); }
+        else { tx.live_only(); }
+    }
+
+    fn toggle(&self) {
+        if self.player.is_playing() { self.player.pause(); } else { self.player.play(); }
+    }
 }
 
 impl Clips {
     pub(crate) fn version(&self) -> u64 { self.version.get() }
+
+    fn invalidate(&self) { self.version.set(self.version.get().wrapping_add(1)); }
 
     pub(crate) fn poll(&self, active: Option<&str>, tx: &mut Tx) -> bool {
         let mut changed = false;
@@ -52,14 +103,24 @@ impl Clips {
             let Some(c) = weak.upgrade() else { return false };
             if active != Some(sid) && c.player.is_playing() { c.player.pause(); }
             if active == Some(sid) {
-                c.transport.sync(&c.player);
-                if c.player.is_playing() { tx.wake_at(tx.clock() + 1.0 / 60.0); }
+                let now = tx.clock();
+                let paused = !c.player.is_playing();
+                if c.overlay.get() == Overlay::Loading {
+                    if !matches!(c.player.state(), PlayerState::Loading) {
+                        c.observe(OverlayEvent::Loaded { paused, now }, tx);
+                    }
+                } else {
+                    c.observe(OverlayEvent::Playback { paused, now }, tx);
+                    c.observe(OverlayEvent::Tick { now }, tx);
+                }
+                c.track.poll(&c.player);
+                // When tucked away the movie's own frame clock suffices.
+                if !paused && c.shown() { tx.wake_at(now + 1.0 / 60.0); }
             }
-            let face = c.face();
-            changed |= c.face.replace(face) != face;
+            changed |= c.presentation_changed(tx);
             true
         });
-        if changed { self.version.set(self.version.get().wrapping_add(1)); }
+        if changed { self.invalidate(); }
         changed
     }
 
@@ -72,7 +133,7 @@ impl Clips {
             let player = Player::new(src);
             player.set_muted(false);
             if let Some(wake) = &s.media_store().waker { player.set_waker(wake.clone()); }
-            let c = Rc::new(Clip { player, face: Cell::new(Face::Paused), transport: Default::default() });
+            let c = Rc::new(Clip { player, overlay: Cell::default(), reported: Cell::default(), track: Default::default() });
             players.insert(key, Rc::downgrade(&c));
             c
         });
@@ -87,10 +148,7 @@ impl Clips {
                     if clip.face() == Face::Failed { s.open_link(&target, tx); }
                 });
         }
-        col().key(format!("clip-{at}")).w_full().fill(p.layer1).clip_rounded(6.0)
-            .child(el().key("picture").w_full().aspect_ratio(16.0/9.0).max_h(360.0)
-                .fill(Color::BLACK).video(&clip.player, SurfaceFit::Fit))
-            .child(transport::controls::<S>(p, clip, name))
+        transport::stage::<S>(p, clip, name).key(format!("clip-{at}"))
     }
 }
 
