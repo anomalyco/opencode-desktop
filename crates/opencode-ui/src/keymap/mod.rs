@@ -237,7 +237,9 @@ fn table() -> Vec<Binding> {
         // Ctrl+Shift+V to the app. ⇧⌘V pasted here on macOS before, and still does.
         hidden(PastePlain, "edit.pastePlain", key!("rune.command.edit.pastePlain"), Prompt, on("mod+shift+v")),
         unlisted(SubmitAnswer, "question.submit", key!("rune.command.question.submit"), Prompt, view(base::Bind::QuestionAdvance)),
-        unlisted(Stop, "session.stop", key!("rune.command.session.stop"), Prompt, view(base::Bind::Stop)),
+        // The composer's `prompt.stop` (`composer/model.ts`, opencode#64394): Esc and ⌃G while the
+        // session runs, one keybind Settings can change. Saved as `session.stop` before (`RENAMES`).
+        row(Stop, "prompt.stop", key!("command.prompt.stop"), Session, view(base::Bind::Stop)),
         row(FileOpen, "file.open", key!("command.file.open"), Navigation, on("mod+p")),
         // The browser's commands (`browser.open` and its pane's) are the browser plugin's.
         // Desktop's `terminal.toggle` (Ctrl+`) and `terminal.new` are the terminal plugin's

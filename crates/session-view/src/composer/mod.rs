@@ -11,7 +11,7 @@ use std::cell::Cell;
 use opencode_kit::client::PathAttachment;
 use opencode_kit::model::Attachment;
 use rune::{
-    Color, El, Key, KeyEvent, MotionIntent, Shadow, Spring, SpringPair, TextEdit, TextStyle,
+    Color, El, KeyEvent, MotionIntent, Shadow, Spring, SpringPair, TextEdit, TextStyle,
     Transition, Tx, col, el, icon, row, spacer, text,
 };
 use rune_theme_opencode::icons as ic;
@@ -78,11 +78,10 @@ pub fn stop_glyph_swap() -> Transition {
         .springs(SpringPair::new(Spring::new(0.2, 0.0), Spring::new(0.14, 0.0)))
 }
 
-/// Whether `ev` is `Esc` or `⌃G` without extra modifiers (stops a running session in the composer).
+/// Whether `ev` is one of `prompt.stop`'s keys (Esc and Ctrl+G unless Settings changed them),
+/// which stop a running session in the composer.
 pub fn is_stop_shortcut(ev: &KeyEvent) -> bool {
-    let m = ev.mods;
-    let esc = ev.key == Key::Escape && !m.cmd && !m.ctrl && !m.alt && !m.shift;
-    esc || crate::keymap::Bind::Stop.matches(ev)
+    crate::keymap::Bind::Stop.matches(ev)
 }
 
 /// Ghost toolbar button shared by Desktop's agent/model/effort pickers.
