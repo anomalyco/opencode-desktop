@@ -200,7 +200,7 @@ pub(super) fn list(s: &App, p: &Pal) -> El {
                 .a11y_hidden(),
         );
     }
-    let viewport = col().grow(1.0).shrink().min_h(0.0);
+    let viewport = col().grow(1.0).shrink().min_h(0.0).focus_inset(p);
     session_view::scroller::scroller("tab-groups-scroll").build::<App>(p, viewport, sections)
 }
 
@@ -312,6 +312,8 @@ fn header(s: &App, p: &Pal, g: &Group) -> El {
         .h_full()
         .gap(6.0)
         .center_y()
+        .radius(6.0)
+        .focus_inset(p)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| tg::header_press(s, &press_key, tx))
         .on_drag(move |s: &mut App, d: &mut Drag, tx: &mut Tx| header_drag(s, &drag_key, d, tx))
         .child(chip);
@@ -386,6 +388,7 @@ fn tab_row(s: &App, p: &Pal, g: &Group, t: &crate::tabs::Tab, tab_index: usize, 
         .size(20.0, 20.0)
         .center()
         .radius(4.0)
+        .focus_inset(p)
         .hover(p.hover)
         .press(p.pressed)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| s.close_tab(&close_uid, tx))
@@ -422,6 +425,7 @@ fn tab_row(s: &App, p: &Pal, g: &Group, t: &crate::tabs::Tab, tab_index: usize, 
         .gap(8.0)
         .center_y()
         .radius(6.0)
+        .focus_inset(p)
         .fill(if active || dragging.is_some() { p.pressed } else if marked { p.hover } else { Color::TRANSPARENT })
         .hover(if active { p.pressed } else { p.hover })
         .hover_group()
