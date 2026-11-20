@@ -104,14 +104,48 @@ pub fn is_safe_workspace_root(root: &str, home: Option<&str>) -> bool {
     true
 }
 
-/// Local-machine workspace root check for callers about to touch `root` on this machine's
-/// filesystem (e.g. local `file://` confinement, local sidecar `browser_file_roots`, and
-/// engine `safe_roots`).
+/// Resolves a known-local workspace root directory ONCE up front (at start-up / tab creation),
+/// permitting a local symlink or junction alias to another verified local fixed-drive /
+/// `MNT_LOCAL` directory (never touching SMB/autofs), applying the broad/system/home check to
+/// BOTH the raw path and the kernel-canonical physical path (case-insensitively on Windows and
+/// macOS, including against canonicalized `home`), and returning the **resolved physical root**.
 ///
-/// Applies [`is_safe_workspace_root`] lexically, refuses UNC/device paths, verifies `root`
-/// fail-closed via [`local_fs::verify_local_path`] (refusing symlinks/junctions, mapped drives,
-/// `subst`-to-UNC, and autofs without touching network shares), and re-checks
-/// [`is_safe_workspace_root`] on the verified physical directory.
+/// Callers MUST store and pass the returned physical root — NEVER the raw alias — into every
+/// later check (`file_roots`, `safe_roots`, `verify_within_root`, `verify_local_path`), so
+/// re-pointing the alias after start-up cannot move the workspace.
+pub fn resolve_safe_local_workspace_root(root: &str, home: Option<&str>) -> Option<String> {
+    if !is_safe_workspace_root(root, home) {
+        return None;
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        normalize_root_lex(root)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        if is_unc_or_device_path(root) {
+            return None;
+        }
+        match local_fs::resolve_local_root(root) {
+            Ok(verified) => {
+                if !is_safe_workspace_root(&verified.path, home) {
+                    return None;
+                }
+                if let Some(h_raw) = home
+                    && let Ok(canon_home) = local_fs::resolve_local_root(h_raw)
+                    && !is_safe_workspace_root(&verified.path, Some(&canon_home.path))
+                {
+                    return None;
+                }
+                Some(verified.path)
+            }
+            Err(_) => None,
+        }
+    }
+}
+
+/// Local-machine workspace root check for callers validating an already-physical root (fail-closed
+/// on symlinks/junctions so `path_within_root` never re-resolves an alias on later checks).
 pub fn is_safe_local_workspace_root(root: &str, home: Option<&str>) -> bool {
     if !is_safe_workspace_root(root, home) {
         return false;

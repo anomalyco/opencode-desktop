@@ -115,6 +115,12 @@ pub trait FilesHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
 
     /// Working directory of session `sid`, if loaded.
     fn session_directory(&self, sid: &str) -> Option<&str>;
+    /// Pinned physical local working directory of session `sid` (resolved once on first encounter
+    /// for local servers so symlinked/junction-aliased workspaces work without re-resolving
+    /// aliases later). On remote servers, returns the remote directory unchanged.
+    fn session_physical_directory(&self, sid: &str) -> Option<String> {
+        self.session_directory(sid).map(str::to_owned)
+    }
     /// Project root directory for session `sid` (defaults to [`Self::session_directory`]).
     fn session_project_root(&self, sid: &str) -> Option<&str> {
         self.session_directory(sid)

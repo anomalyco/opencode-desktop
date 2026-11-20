@@ -46,6 +46,18 @@ impl FilesHost for App {
         self.session(sid).map(|s| s.directory.as_str())
     }
 
+    fn session_physical_directory(&self, sid: &str) -> Option<String> {
+        let dir = self.session_directory(sid).filter(|d| !d.is_empty()).unwrap_or_else(|| self.draft_dir());
+        if dir.is_empty() {
+            return None;
+        }
+        if self.can_reveal_outside() {
+            self.pinned_local_root(dir)
+        } else {
+            Some(dir.to_owned())
+        }
+    }
+
     fn session_project_root(&self, sid: &str) -> Option<&str> {
         let info = self.session(sid)?;
         Some(self.project_for_session(info).map_or(info.directory.as_str(), |p| p.directory.as_str()))

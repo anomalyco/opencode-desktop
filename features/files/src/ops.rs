@@ -208,7 +208,12 @@ pub fn ensure_file_loaded(host: &mut dyn FilesHost, session_id: &str, path: &str
         .and_then(|w| w.videos.get(path))
         .is_some_and(video::FileVideo::failed);
     if video::is_video(path) && !failed {
-        let Some(source) = video::source(Some(&server), &directory, path) else {
+        let video_dir = if server.is_local() {
+            host.session_physical_directory(session_id)
+        } else {
+            Some(directory.clone())
+        };
+        let Some(source) = video_dir.and_then(|d| video::source(Some(&server), &d, path)) else {
             // Rejected by local workspace confinement (e.g. symlink/junction/missing): never fall
             // back to `/api/fs/read/...` on a local server.
             return;
@@ -276,10 +281,9 @@ pub fn start_read(host: &mut dyn FilesHost, sid: &str, path: &str, attempt: u64)
 
 /// Opens a workspace HTML file (`path` inside `sid`'s folder) in the embedded browser pane.
 pub fn open_html_in_browser(host: &mut dyn FilesHost, sid: &str, path: &str) {
-    let dir = crate::links::link_directory(host, sid);
-    if dir.is_empty() {
+    let Some(dir) = host.session_physical_directory(sid).filter(|d| !d.is_empty()) else {
         return;
-    }
+    };
     let url = format!(
         "file://{}",
         opencode_kit::path::encode_path(&opencode_kit::path::absolute(&dir, path))

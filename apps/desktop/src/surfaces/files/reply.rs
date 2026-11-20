@@ -14,7 +14,12 @@ fn target(app: &App, href: &str) -> Option<(String, Link)> {
         return None;
     }
     let href = href.strip_prefix(opencode_ui::style::CODE_LINK).unwrap_or(href).trim();
-    let dir = links::link_directory(app, app.active_session_id()?);
+    let raw_dir = links::link_directory(app, app.active_session_id()?);
+    let dir = if app.can_reveal_outside() {
+        app.pinned_local_root(&raw_dir).unwrap_or(raw_dir)
+    } else {
+        raw_dir
+    };
     if is_file_scheme(href) {
         // This form names a file inside the workspace, never a foreign host or a path
         // escaping its root through a symlink. Remote paths use the server's file route.
@@ -41,7 +46,14 @@ pub(crate) fn video(app: &App, href: &str) -> Option<String> {
         // Confine zero-click inline video auto-load on display to verified regular files inside
         // the session workspace. `Link::Web` (`http(s)`) and `Link::Outside` render as ordinary
         // links until click-to-load and remote-server host policy land in a follow-up PR.
-        Link::Inside { path, .. } if video::is_video(&path) => video::source(app.live_server(), &dir, &path),
+        Link::Inside { path, .. } if video::is_video(&path) => {
+            let root = if app.live_server().is_some_and(|s| !s.is_local()) {
+                dir
+            } else {
+                app.pinned_local_root(&dir)?
+            };
+            video::source(app.live_server(), &root, &path)
+        }
         _ => None,
     }
 }
@@ -62,7 +74,10 @@ pub(crate) fn menu(app: &mut App, href: &str, press: PointerPress, tx: &mut Tx) 
     if !app.can_reveal_outside() { return false; }
     let Some((dir, link)) = target(app, href) else { return false };
     let (inside, path) = match link {
-        Link::Inside { path, .. } => (true, opencode_kit::path::absolute(&dir, &path)),
+        Link::Inside { path, .. } => {
+            let Some(root) = app.pinned_local_root(&dir) else { return false };
+            (true, opencode_kit::path::absolute(&root, &path))
+        }
         Link::Outside { path } => (false, path),
         _ => return false,
     };
