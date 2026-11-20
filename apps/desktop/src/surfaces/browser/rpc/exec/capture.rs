@@ -14,6 +14,7 @@ use rune::Waker;
 use serde_json::{Value, json};
 
 use super::super::session::{CapturedFile, SessionAttachment};
+use super::read::{queue_live_frame_refresh, step_live_frame_refresh};
 use super::{ExecPhase, StepOutcome, cdp_err_msg, check_page_guards, send_rpc_cdp, verify_authorized_state};
 use crate::App;
 
@@ -66,11 +67,16 @@ pub(super) struct ScreenshotState {
 
 impl ScreenshotState {
     pub fn cancel_cleanup(&mut self, app: &mut App) {
-        match &self.stage {
+        match &mut self.stage {
             ScreenshotStage::GetBox { cdp_req }
             | ScreenshotStage::GetMetrics { cdp_req }
             | ScreenshotStage::Capture { cdp_req } => {
                 app.workspace_panes.browser.host.cancel_cdp(*cdp_req);
+            }
+            ScreenshotStage::VerifyPost { pending, .. } => {
+                for (req_id, _) in pending.drain(..) {
+                    app.workspace_panes.browser.host.cancel_cdp(req_id);
+                }
             }
             ScreenshotStage::Process { .. } => {}
         }
@@ -82,6 +88,7 @@ pub(super) enum ScreenshotStage {
     GetMetrics { cdp_req: u64 },
     Capture { cdp_req: u64 },
     Process { rx: Receiver<Result<Vec<u8>, String>>, resources: Vec<String> },
+    VerifyPost { pending: Vec<(u64, Option<String>)>, bytes: Vec<u8> },
 }
 
 pub(super) fn try_start(
@@ -562,34 +569,72 @@ pub(super) fn step_screenshot(
         }
         ScreenshotStage::Process { rx, resources } => {
             let res = rx.try_recv().ok()?;
-            if let Err(o) = verify_authorized_state(
-                att,
-                app,
-                &st.cmd,
-                Some(st.expected_gen),
-                st.expected_target.as_ref(),
-            ) {
-                return Some(o);
-            }
             let bytes = match res {
                 Ok(b) => b,
                 Err(msg) => return Some(Outcome::fail(failure_code::OPERATION_FAILED, msg)),
             };
-            let file_id = new_file_id();
-            let ext = if st.format == "jpeg" { "jpg" } else { st.format.as_str() };
-            let name = format!("screenshot.{ext}");
-            let mime = format!("image/{}", st.format);
-            let wf = match WireFile::from_bytes(file_id.clone(), name.clone(), mime.clone(), &bytes) {
-                Ok(w) => w,
+            if st.expected_target.is_some() && app.workspace_panes.browser.host.tab_open_in_engine(st.host_id) {
+                let pending = queue_live_frame_refresh(att, app, st.host_id);
+                if !pending.is_empty() {
+                    st.stage = ScreenshotStage::VerifyPost { pending, bytes };
+                    return None;
+                }
+            }
+            let resources = resources.clone();
+            Some(finish_screenshot(att, app, st, bytes, resources))
+        }
+        ScreenshotStage::VerifyPost { .. } => {
+            let ScreenshotStage::VerifyPost { mut pending, bytes } =
+                std::mem::replace(&mut st.stage, ScreenshotStage::Capture { cdp_req: 0 })
+            else {
+                return None;
+            };
+            match step_live_frame_refresh(att, app, st.host_id, &mut pending, None) {
+                Ok(false) => {
+                    st.stage = ScreenshotStage::VerifyPost { pending, bytes };
+                    return None;
+                }
+                Ok(true) => {}
+                Err(msg) => return Some(Outcome::fail(failure_code::OPERATION_FAILED, msg)),
+            }
+            let resources = match att.source_urls(app, st.host_id) {
+                Ok(urls) => urls,
                 Err(e) => return Some(Outcome::fail(failure_code::OPERATION_FAILED, e)),
             };
-            att.record_capture(st.host_id, CapturedFile { id: file_id, name, mime, bytes, resources: resources.clone() });
-            let Some(tab) = att.wire_tab(app, st.host_id) else {
-                return Some(Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable."));
-            };
-            Some(Outcome::ok(json!({ "tab": tab }), vec![wf]))
+            Some(finish_screenshot(att, app, st, bytes, resources))
         }
     }
+}
+
+fn finish_screenshot(
+    att: &mut SessionAttachment,
+    app: &App,
+    st: &ScreenshotState,
+    bytes: Vec<u8>,
+    resources: Vec<String>,
+) -> Outcome {
+    if let Err(o) = verify_authorized_state(
+        att,
+        app,
+        &st.cmd,
+        Some(st.expected_gen),
+        st.expected_target.as_ref(),
+    ) {
+        return o;
+    }
+    let file_id = new_file_id();
+    let ext = if st.format == "jpeg" { "jpg" } else { st.format.as_str() };
+    let name = format!("screenshot.{ext}");
+    let mime = format!("image/{}", st.format);
+    let wf = match WireFile::from_bytes(file_id.clone(), name.clone(), mime.clone(), &bytes) {
+        Ok(w) => w,
+        Err(e) => return Outcome::fail(failure_code::OPERATION_FAILED, e),
+    };
+    att.record_capture(st.host_id, CapturedFile { id: file_id, name, mime, bytes, resources });
+    let Some(tab) = att.wire_tab(app, st.host_id) else {
+        return Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable.");
+    };
+    Outcome::ok(json!({ "tab": tab }), vec![wf])
 }
 
 fn maybe_downscale(bytes: &[u8], format: &str, max_w: u32) -> Vec<u8> {

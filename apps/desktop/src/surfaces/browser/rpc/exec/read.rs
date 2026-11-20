@@ -24,6 +24,12 @@ pub(super) struct InspectState {
     pub cmd: Command,
 }
 
+pub(super) struct VerifyFramesState {
+    pub host_id: u64,
+    pub pending: Vec<(u64, Option<String>)>,
+    pub cmd: Command,
+}
+
 pub(super) struct EvalState {
     pub host_id: u64,
     pub script: String,
@@ -188,6 +194,124 @@ pub(super) fn compute_target(
     Ok(target)
 }
 
+/// Returns `true` when `cmd` targets or covers page frames and carries a server-authorized
+/// `target` that must be verified against a live `Page.getFrameTree` before execution
+/// (matching official `packages/gui-plugins/src/browser/chromium.ts:1518`). Commands that touch
+/// no frame (`tabs.*`, `navigate`, `navigate.path`, `back`, `forward`, `reload`, `stop`,
+/// `preview`, `network.get`, `files.get`) incur zero extra CDP round trips.
+pub(super) fn needs_live_frame_verify(cmd: &Command) -> bool {
+    if cmd.target.is_none() || cmd.tab_id().is_none() {
+        return false;
+    }
+    let ty = cmd.action_type().unwrap_or("");
+    !matches!(
+        ty,
+        "navigate"
+            | "navigate.path"
+            | "network.get"
+            | "files.get"
+            | "tabs.list"
+            | "tabs.open"
+            | "tabs.focus"
+            | "tabs.close"
+            | "back"
+            | "forward"
+            | "reload"
+            | "stop"
+            | "preview"
+    )
+}
+
+/// Queues live `Page.getFrameTree` calls on BOTH the top-level target (`None`) and every tracked
+/// non-extension OOPIF session (`Some(sid)`) so in-process child iframes inside top-level and
+/// OOPIFs are refreshed even when `#274` suppresses `Page.*` events.
+pub(super) fn queue_live_frame_refresh(
+    att: &SessionAttachment,
+    app: &mut App,
+    host_id: u64,
+) -> Vec<(u64, Option<String>)> {
+    let mut pending = Vec::new();
+    if let Ok(req) = app
+        .workspace_panes
+        .browser
+        .host
+        .send_cdp(host_id, "Page.getFrameTree", json!({}), None)
+    {
+        pending.push((req, None));
+    }
+    if app.workspace_panes.browser.host.engine_agent_tools() {
+        let oopif_sids = att
+            .frames
+            .get(&host_id)
+            .map(|f| f.oopif_sessions())
+            .unwrap_or_default();
+        for sid in oopif_sids {
+            if let Ok(req) = app.workspace_panes.browser.host.send_typed_cdp(
+                host_id,
+                "Page.getFrameTree",
+                json!({}),
+                Some(sid.clone()),
+            ) {
+                pending.push((req, Some(sid)));
+            }
+        }
+    }
+    pending
+}
+
+/// Polls pending `Page.getFrameTree` calls from [`queue_live_frame_refresh`], updating
+/// `att.frames` (pruning removed frames & bumping `generation` on reload). Returns `Ok(true)`
+/// once all pending replies arrived, `Ok(false)` while waiting, or `Err(msg)` on fatal failure.
+pub(super) fn step_live_frame_refresh(
+    att: &mut SessionAttachment,
+    app: &mut App,
+    host_id: u64,
+    pending: &mut Vec<(u64, Option<String>)>,
+    mut top_tree: Option<&mut Option<Value>>,
+) -> Result<bool, String> {
+    let mut remaining = Vec::with_capacity(pending.len());
+    let mut fatal_err: Option<String> = None;
+    for (req_id, sid) in pending.drain(..) {
+        match app.workspace_panes.browser.host.take_cdp_response(req_id) {
+            Some(Ok(val)) => {
+                if att
+                    .frames
+                    .entry(host_id)
+                    .or_default()
+                    .ingest_frame_tree(&val, sid.as_deref())
+                {
+                    att.bump_generation(host_id);
+                }
+                if sid.is_none()
+                    && let Some(slot) = top_tree.as_mut()
+                {
+                    **slot = Some(val);
+                }
+            }
+            Some(Err(err)) => {
+                let msg = cdp_err_msg(&err);
+                let still_active_oopif = sid.as_deref().is_some_and(|s| {
+                    att.frames
+                        .get(&host_id)
+                        .is_some_and(|f| f.frame_sessions.values().any(|v| v == s))
+                });
+                if sid.is_none() || still_active_oopif || msg.to_ascii_lowercase().contains("extension") {
+                    fatal_err = Some(msg);
+                }
+            }
+            None => remaining.push((req_id, sid)),
+        }
+    }
+    *pending = remaining;
+    if let Some(msg) = fatal_err {
+        for (req_id, _) in pending.drain(..) {
+            app.workspace_panes.browser.host.cancel_cdp(req_id);
+        }
+        return Err(msg);
+    }
+    Ok(pending.is_empty())
+}
+
 /// Starts `inspect: true`: refreshes live `Page.getFrameTree` on BOTH the top-level target AND
 /// every tracked non-extension OOPIF session so pre-existing in-process child iframes inside
 /// OOPIFs are never missed from `resources`.
@@ -200,32 +324,7 @@ pub(super) fn start_inspect(att: &mut SessionAttachment, app: &mut App, cmd: Com
         && let Ok(host_id) = att.resolve_tab(app, wire_id)
         && app.workspace_panes.browser.host.tab_open_in_engine(host_id)
     {
-        let mut pending = Vec::new();
-        if let Ok(req) = app
-            .workspace_panes
-            .browser
-            .host
-            .send_cdp(host_id, "Page.getFrameTree", json!({}), None)
-        {
-            pending.push((req, None));
-        }
-        if app.workspace_panes.browser.host.engine_agent_tools() {
-            let oopif_sids = att
-                .frames
-                .get(&host_id)
-                .map(|f| f.oopif_sessions())
-                .unwrap_or_default();
-            for sid in oopif_sids {
-                if let Ok(req) = app.workspace_panes.browser.host.send_typed_cdp(
-                    host_id,
-                    "Page.getFrameTree",
-                    json!({}),
-                    Some(sid.clone()),
-                ) {
-                    pending.push((req, Some(sid)));
-                }
-            }
-        }
+        let pending = queue_live_frame_refresh(att, app, host_id);
         if !pending.is_empty() {
             return StepOutcome::Pending(ExecPhase::Inspect(InspectState { host_id, pending, cmd }));
         }
@@ -241,43 +340,10 @@ pub(super) fn step_inspect(
     app: &mut App,
     st: &mut InspectState,
 ) -> Option<Outcome> {
-    let mut remaining = Vec::with_capacity(st.pending.len());
-    let mut fatal_err: Option<String> = None;
-    for (req_id, sid) in st.pending.drain(..) {
-        match app.workspace_panes.browser.host.take_cdp_response(req_id) {
-            Some(Ok(val)) => {
-                if att
-                    .frames
-                    .entry(st.host_id)
-                    .or_default()
-                    .ingest_frame_tree(&val, sid.as_deref())
-                {
-                    att.bump_generation(st.host_id);
-                }
-            }
-            Some(Err(err)) => {
-                let msg = cdp_err_msg(&err);
-                let still_active_oopif = sid.as_deref().is_some_and(|s| {
-                    att.frames
-                        .get(&st.host_id)
-                        .is_some_and(|f| f.frame_sessions.values().any(|v| v == s))
-                });
-                if sid.is_none() || still_active_oopif || msg.to_ascii_lowercase().contains("extension") {
-                    fatal_err = Some(msg);
-                }
-            }
-            None => remaining.push((req_id, sid)),
-        }
-    }
-    st.pending = remaining;
-    if let Some(msg) = fatal_err {
-        for (req_id, _) in st.pending.drain(..) {
-            app.workspace_panes.browser.host.cancel_cdp(req_id);
-        }
-        return Some(Outcome::fail(failure_code::OPERATION_FAILED, msg));
-    }
-    if !st.pending.is_empty() {
-        return None;
+    match step_live_frame_refresh(att, app, st.host_id, &mut st.pending, None) {
+        Ok(false) => return None,
+        Ok(true) => {}
+        Err(msg) => return Some(Outcome::fail(failure_code::OPERATION_FAILED, msg)),
     }
     match compute_target(att, app, &st.cmd) {
         Ok(target) => Some(Outcome::ok(serde_json::to_value(target).unwrap_or(Value::Null), Vec::new())),

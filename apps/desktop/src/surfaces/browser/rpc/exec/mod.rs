@@ -18,7 +18,7 @@ use serde_json::Value;
 
 use self::capture::ScreenshotState;
 use self::nav::WaitLoadState;
-use self::read::{EvalState, InspectState, WaitState};
+use self::read::{EvalState, InspectState, VerifyFramesState, WaitState};
 use self::snapshot::{FramesState, SnapshotState};
 use super::session::SessionAttachment;
 use crate::App;
@@ -29,6 +29,7 @@ const MAX_WAIT_CMD_TIMEOUT: Duration = Duration::from_secs(31);
 /// Explicit non-blocking execution state of one in-flight `experimental.browser` command.
 enum ExecPhase {
     Inspect(InspectState),
+    VerifyFrames(VerifyFramesState),
     WaitLoad(WaitLoadState),
     Frames(FramesState),
     Snapshot(SnapshotState),
@@ -41,6 +42,7 @@ impl ExecPhase {
     pub fn target_host_tab(&self) -> u64 {
         match self {
             Self::Inspect(s) => s.host_id,
+            Self::VerifyFrames(s) => s.host_id,
             Self::WaitLoad(s) => s.host_id,
             Self::Frames(s) => s.host_id,
             Self::Snapshot(s) => s.host_id,
@@ -73,6 +75,11 @@ impl ExecPhase {
     ) {
         match self {
             Self::Inspect(st) => {
+                for (req_id, _) in st.pending.drain(..) {
+                    app.workspace_panes.browser.host.cancel_cdp(req_id);
+                }
+            }
+            Self::VerifyFrames(st) => {
                 for (req_id, _) in st.pending.drain(..) {
                     app.workspace_panes.browser.host.cancel_cdp(req_id);
                 }
@@ -234,32 +241,39 @@ pub(super) fn start_command(
         }
         return;
     }
+    if read::needs_live_frame_verify(&cmd) {
+        if let Err(outcome) = verify_authorized_state(att, app, &cmd, cmd.generation, None) {
+            finish_and_reply(att, app, &connection_id, request_id, outcome, now);
+            return;
+        }
+        if let Some(wire_id) = cmd.tab_id()
+            && let Ok(host_id) = att.resolve_tab(app, wire_id)
+            && app.workspace_panes.browser.host.tab_open_in_engine(host_id)
+        {
+            let pending = read::queue_live_frame_refresh(att, app, host_id);
+            if !pending.is_empty() {
+                att.active_commands.push(ActiveCommand {
+                    connection_id,
+                    request_id,
+                    is_dialog: cmd.action_type() == Some("dialog"),
+                    deadline: now + DEFAULT_CMD_TIMEOUT,
+                    phase: ExecPhase::VerifyFrames(VerifyFramesState { host_id, pending, cmd }),
+                });
+                return;
+            }
+        }
+    }
     if let Err(outcome) = verify_authorized_state(att, app, &cmd, cmd.generation, cmd.target.as_ref()) {
         finish_and_reply(att, app, &connection_id, request_id, outcome, now);
         return;
     }
     let is_dialog = cmd.action_type() == Some("dialog");
-    let step = nav::try_start(att, app, &cmd, now, tx)
-        .or_else(|| snapshot::try_start(att, app, &cmd))
-        .or_else(|| read::try_start(att, app, &cmd, now))
-        .or_else(|| capture::try_start(att, app, &cmd, waker))
-        .unwrap_or_else(|| {
-            let name = cmd.action_type().unwrap_or("unknown");
-            StepOutcome::Done(Outcome::fail(
-                failure_code::UNSUPPORTED,
-                format!("browser.{name} is not supported yet by this desktop build."),
-            ))
-        });
-    match step {
+    match dispatch_verified_command(att, app, &cmd, now, waker, tx) {
         StepOutcome::Done(outcome) => {
             finish_and_reply(att, app, &connection_id, request_id, outcome, now);
         }
         StepOutcome::Pending(phase) => {
-            let deadline = match &phase {
-                ExecPhase::Wait(w) => (w.deadline + Duration::from_secs(1)).min(now + MAX_WAIT_CMD_TIMEOUT),
-                ExecPhase::WaitLoad(w) => w.deadline,
-                _ => now + DEFAULT_CMD_TIMEOUT,
-            };
+            let deadline = phase_deadline(&phase, now);
             att.active_commands.push(ActiveCommand {
                 connection_id,
                 request_id,
@@ -269,6 +283,35 @@ pub(super) fn start_command(
             });
         }
     }
+}
+
+fn phase_deadline(phase: &ExecPhase, now: Instant) -> Instant {
+    match phase {
+        ExecPhase::Wait(w) => (w.deadline + Duration::from_secs(1)).min(now + MAX_WAIT_CMD_TIMEOUT),
+        ExecPhase::WaitLoad(w) => w.deadline,
+        _ => now + DEFAULT_CMD_TIMEOUT,
+    }
+}
+
+fn dispatch_verified_command(
+    att: &mut SessionAttachment,
+    app: &mut App,
+    cmd: &Command,
+    now: Instant,
+    waker: Option<Waker>,
+    tx: &mut Tx,
+) -> StepOutcome {
+    nav::try_start(att, app, cmd, now, tx)
+        .or_else(|| snapshot::try_start(att, app, cmd))
+        .or_else(|| read::try_start(att, app, cmd, now))
+        .or_else(|| capture::try_start(att, app, cmd, waker))
+        .unwrap_or_else(|| {
+            let name = cmd.action_type().unwrap_or("unknown");
+            StepOutcome::Done(Outcome::fail(
+                failure_code::UNSUPPORTED,
+                format!("browser.{name} is not supported yet by this desktop build."),
+            ))
+        })
 }
 
 /// Advances all in-flight non-blocking commands for `att`. Returns `(changed, earliest_wake)`.
@@ -330,6 +373,41 @@ pub(super) fn poll_commands(
         } else {
             match &mut cmd.phase {
                 ExecPhase::Inspect(st) => read::step_inspect(att, app, st),
+                ExecPhase::VerifyFrames(st) => {
+                    match read::step_live_frame_refresh(att, app, st.host_id, &mut st.pending, None) {
+                        Ok(false) => None,
+                        Err(msg) => Some(Outcome::fail(failure_code::OPERATION_FAILED, msg)),
+                        Ok(true) => {
+                            let verified_cmd = st.cmd.clone();
+                            if let Err(o) = verify_authorized_state(
+                                att,
+                                app,
+                                &verified_cmd,
+                                verified_cmd.generation,
+                                verified_cmd.target.as_ref(),
+                            ) {
+                                Some(o)
+                            } else {
+                                match dispatch_verified_command(
+                                    att,
+                                    app,
+                                    &verified_cmd,
+                                    now,
+                                    waker.clone(),
+                                    tx,
+                                ) {
+                                    StepOutcome::Done(outcome) => Some(outcome),
+                                    StepOutcome::Pending(next_phase) => {
+                                        cmd.deadline = phase_deadline(&next_phase, now);
+                                        cmd.phase = next_phase;
+                                        changed = true;
+                                        None
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 ExecPhase::WaitLoad(st) => nav::step_wait_load(att, app, st, now, tx),
                 ExecPhase::Frames(st) => snapshot::step_frames(att, app, st),
                 ExecPhase::Snapshot(st) => snapshot::step_snapshot(att, app, st, ref_counter),
