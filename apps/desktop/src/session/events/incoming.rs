@@ -65,6 +65,8 @@ fn message(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             s.stream_back();
             s.check_sends();
             s.resync_view();
+            let active_server = crate::servers::runtime::active(s).clone();
+            crate::settings::pages::extensions::on_server_reconnected(s, &active_server);
             // A restarted server forgets its file watches (`server.connected` in Desktop), and a
             // change made meanwhile went unreported.
             crate::files::watch::connected(s);

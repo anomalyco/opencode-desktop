@@ -4,11 +4,13 @@
 
 pub mod about;
 pub mod appearance;
+pub mod console_link;
 pub mod experimental;
 pub mod extensions;
 pub mod general;
 pub mod models;
 pub mod notifications;
+pub mod plugin_update;
 pub mod project;
 pub mod project_extensions;
 pub mod projects;
@@ -165,9 +167,8 @@ pub struct State {
     /// Providers folded shut on Models.
     pub collapsed: models::Folds,
     pub tab: ExtensionsTab,
-    /// The server's plugins and skills, once read.
-    pub plugins: Option<Vec<String>>,
-    pub skills: Option<Vec<String>>,
+    /// Server-wide Extensions page state (plugins, skills, Console sources, plugin update machine).
+    pub extensions: extensions::State,
     /// The Connected row whose account menu, options or rename field is open on Providers.
     pub accounts: providers::Accounts,
     /// Settings search in the rail (`search.rs`).
@@ -236,7 +237,6 @@ pub fn show_page(host: &mut dyn SettingsHost, page: Page) {
     match &page {
         Page::Providers | Page::Models => host.sync_catalogs(None),
         Page::Extensions => {
-            host.sync_mcp("");
             extensions::load(host);
         }
         Page::Appearance => {

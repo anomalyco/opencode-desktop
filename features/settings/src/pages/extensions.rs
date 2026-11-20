@@ -1,16 +1,24 @@
-//! Settings › Extensions (`settings/providers/extensions.tsx`): the server's MCPs (each with its
-//! status, switch or sign-in, and a failed one's error), its plugins and its skills, under pill
-//! tabs. MCPs list the default location's servers, as available to all projects.
+//! Settings › Extensions (`packages/app/src/settings/providers/extensions.tsx`): the server's
+//! MCPs (with OpenCode Console manage/connect links, override badges, status dots, and switches),
+//! package/local plugins (with explicit Check for updates / per-plugin Update controls that hide
+//! quietly on older servers), and skills (with Console links for virtual `skill://` skills),
+//! under pill tabs (`anomalyco/opencode#63125`, `#64511`, `#64525`, `#64527`).
+
+use std::collections::HashSet;
 
 use opencode_i18n::t;
-use opencode_kit::integration::McpStatus;
+use opencode_kit::integration::{McpServer, McpStatus};
+use opencode_kit::model::{PluginInfo, SkillInfo};
+use opencode_kit::servers::ServerKey;
+use opencode_ui::palette::Pal;
 use opencode_ui::popup::PopupHost;
 use opencode_ui::widgets;
 use rune::{El, Icon, TextStyle, Tx, col, icon, row, rule, text};
 use rune_theme_opencode::icons as ic;
-use opencode_ui::palette::Pal;
 
-use super::{ExtensionsTab, LINE, NAME, catalog_with, header_with, page};
+use super::console_link::{ConsoleSources, console_connect_button, console_name, console_replaced, console_signed_in, load_failed};
+use super::plugin_update::{self, Effect as UpdateEffect, Event as UpdateEvent, State as UpdateState};
+use super::{BODY, ExtensionsTab, LINE, NAME, Page, catalog_with, ghost_button, header_with, page};
 use crate::host::SettingsHost;
 use crate::jobs::{SettingsJob, SettingsRequest};
 
@@ -24,9 +32,121 @@ static SKILL: Icon = Icon {
 /// A tab's label: 13 on 16 at 440.
 const TAB: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
 
-/// Reads the server's plugins and skills for their tabs.
+/// Ephemeral state held by Settings › Extensions for the selected server.
+pub struct State {
+    pub server: ServerKey,
+    pub active_dir: Option<String>,
+    pub plugins: Option<Result<Vec<PluginInfo>, ()>>,
+    pub skills: Option<Vec<SkillInfo>>,
+    pub sources: ConsoleSources,
+    pub updates: UpdateState,
+    /// Servers whose `/api/plugin/{check,update}` answered 404/405/501; cleared on reconnect.
+    pub unsupported_update_servers: HashSet<ServerKey>,
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self {
+            server: ServerKey::sidecar(),
+            active_dir: None,
+            plugins: None,
+            skills: None,
+            sources: ConsoleSources::default(),
+            updates: UpdateState::default(),
+            unsupported_update_servers: HashSet::new(),
+        }
+    }
+}
+
+/// Reads the server's plugins, skills, MCPs, integrations, and Console extension sources.
 pub fn load(s: &mut dyn SettingsHost) {
-    s.spawn_job(SettingsJob::ActiveServer(SettingsRequest::LoadExtensions));
+    let key = s.settings_pages().server.key.clone();
+    let active_dir = s.active_session_directory();
+    let st = &mut s.settings_pages_mut().extensions;
+    if st.server != key {
+        st.server = key.clone();
+        st.plugins = None;
+        st.skills = None;
+        st.sources = ConsoleSources::default();
+        let unsupported = st.unsupported_update_servers.contains(&key);
+        let _ = plugin_update::step(&mut st.updates, UpdateEvent::ServerChanged { unsupported });
+    }
+    st.active_dir = active_dir.clone();
+    s.sync_mcp("");
+    if let Some(dir) = active_dir.as_deref().filter(|d| !d.is_empty()) {
+        s.sync_mcp(dir);
+    }
+    s.sync_catalogs(active_dir.as_deref());
+    s.spawn_job(SettingsJob::ActiveServer(SettingsRequest::LoadExtensions {
+        server: key,
+        active_dir,
+    }));
+}
+
+/// Steps the plugin-update state machine and executes its returned side effects.
+pub fn dispatch_update(s: &mut dyn SettingsHost, event: UpdateEvent, _tx: &mut Tx) {
+    let server = s.settings_pages().extensions.server.clone();
+    let effects = plugin_update::step(&mut s.settings_pages_mut().extensions.updates, event);
+    for effect in effects {
+        match effect {
+            UpdateEffect::Check { attempt } => {
+                s.spawn_job(SettingsJob::ActiveServer(SettingsRequest::CheckPluginUpdates {
+                    server: server.clone(),
+                    attempt,
+                }));
+            }
+            UpdateEffect::Update { id, target } => {
+                s.spawn_job(SettingsJob::ActiveServer(SettingsRequest::UpdatePlugin {
+                    server: server.clone(),
+                    id,
+                    target,
+                }));
+            }
+            UpdateEffect::Refresh => {
+                s.spawn_job(SettingsJob::ActiveServer(SettingsRequest::ReloadPlugins {
+                    server: server.clone(),
+                }));
+            }
+            UpdateEffect::Failed { message } => {
+                s.toast_fail(t!("common.requestFailed").into(), message);
+            }
+            UpdateEffect::MarkServerUnsupported => {
+                s.settings_pages_mut().extensions.unsupported_update_servers.insert(server.clone());
+            }
+        }
+    }
+}
+
+/// Called on `plugin.updated` SSE: refreshes the plugin list when Settings › Extensions is open.
+pub fn on_plugin_updated(s: &mut dyn SettingsHost) {
+    if !s.settings_open() || s.settings_pages().page != Page::Extensions {
+        return;
+    }
+    let server = s.settings_pages().extensions.server.clone();
+    s.spawn_job(SettingsJob::ActiveServer(SettingsRequest::ReloadPlugins { server }));
+}
+
+/// Called on `config.updated` SSE: refreshes Console extension sources when Extensions is open.
+pub fn on_config_updated(s: &mut dyn SettingsHost) {
+    if !s.settings_open() || s.settings_pages().page != Page::Extensions {
+        return;
+    }
+    let st = &s.settings_pages().extensions;
+    let (server, active_dir) = (st.server.clone(), st.active_dir.clone());
+    s.spawn_job(SettingsJob::ActiveServer(SettingsRequest::ReloadConsoleSources { server, active_dir }));
+}
+
+/// Clears cached `Unsupported` update state for `server` on reconnect so an upgraded server can
+/// advertise plugin updates again without restarting the app.
+pub fn on_server_reconnected(s: &mut dyn SettingsHost, server: &ServerKey) {
+    let st = &mut s.settings_pages_mut().extensions;
+    let removed = st.unsupported_update_servers.remove(server);
+    if removed && st.server == *server {
+        let _ = plugin_update::step(&mut st.updates, UpdateEvent::ServerChanged { unsupported: false });
+    }
+    if s.settings_open() && s.settings_pages().page == Page::Extensions && s.settings_pages().extensions.server == *server {
+        load(s);
+    }
 }
 
 fn select_tab(s: &mut dyn SettingsHost, tab: ExtensionsTab, tx: &mut Tx) {
@@ -34,16 +154,29 @@ fn select_tab(s: &mut dyn SettingsHost, tab: ExtensionsTab, tx: &mut Tx) {
     s.settings_pages_mut().tab = tab;
 }
 
+fn retry_sources(s: &mut dyn SettingsHost, _tx: &mut Tx) {
+    let st = &s.settings_pages().extensions;
+    let (server, active_dir) = (st.server.clone(), st.active_dir.clone());
+    s.spawn_job(SettingsJob::ActiveServer(SettingsRequest::ReloadConsoleSources { server, active_dir }));
+}
+
+fn retry_plugins(s: &mut dyn SettingsHost, _tx: &mut Tx) {
+    let server = s.settings_pages().extensions.server.clone();
+    s.settings_pages_mut().extensions.plugins = None;
+    s.spawn_job(SettingsJob::ActiveServer(SettingsRequest::ReloadPlugins { server }));
+}
+
 pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
     let tab = s.settings_pages().tab;
     let (link, content) = match tab {
-        ExtensionsTab::Mcps => (manage(p), mcps(s, p)),
-        ExtensionsTab::Plugins => (manage(p), named_rows(p, "settings-plugins", &ic::CUBE, s.settings_pages().plugins.as_deref().unwrap_or_default())),
-        ExtensionsTab::Skills => (skills_link::<H>(p), named_rows(p, "settings-skills", &SKILL, s.settings_pages().skills.as_deref().unwrap_or_default())),
+        ExtensionsTab::Mcps => (manage(p), mcps::<H>(s, p)),
+        ExtensionsTab::Plugins => (plugins_header_actions::<H>(s, p), plugins_body::<H>(s, p)),
+        ExtensionsTab::Skills => (skills_link::<H>(p), skills_body::<H>(s, p)),
     };
     let heading = row()
         .w_full()
-        .h(24.0)
+        .min_h(24.0)
+        .gap(8.0)
         .center_y()
         .child(text(t!("settings.extensions.availableAll")).font(LINE).color(p.text).grow(1.0))
         .child(link);
@@ -87,6 +220,24 @@ fn manage(p: &Pal) -> El {
     text(t!("settings.extensions.manageConfig")).font(LINE).color(p.muted)
 }
 
+fn plugins_header_actions<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {
+    let st = &s.settings_pages().extensions;
+    let has_packages = st
+        .plugins
+        .as_ref()
+        .and_then(|r| r.as_ref().ok())
+        .is_some_and(|list| list.iter().any(|pl| pl.package_source().is_some()));
+    let check_btn = (has_packages && plugin_update::supported(&st.updates)).then(|| {
+        let checking = plugin_update::checking(&st.updates);
+        let label = if checking { t!("settings.plugins.checking") } else { t!("settings.plugins.check") };
+        ghost_button::<H>(p, "settings-plugins-check", label, None, true, !checking, |s, tx| {
+            dispatch_update(s, UpdateEvent::CheckRequested, tx);
+        })
+        .busy(checking)
+    });
+    row().gap(12.0).center_y().child(manage(p)).children(check_btn)
+}
+
 /// `.settings-extension-link`: underlined in `text-accent`, `text-accent-hover` under the pointer.
 fn skills_link<H: SettingsHost + 'static>(p: &Pal) -> El {
     let words = t!("settings.extensions.addSkills");
@@ -101,7 +252,7 @@ fn skills_link<H: SettingsHost + 'static>(p: &Pal) -> El {
 }
 
 /// `.settings-extension-row`: 56 pt tall with its rule. The last row has no rule.
-fn extension_row(p: &Pal, key: String, lead: El, name: El, trailing: Option<El>, last: bool) -> El {
+fn extension_row(p: &Pal, key: String, lead: El, name: El, badge: Option<El>, trailing: Option<El>, last: bool) -> El {
     let r = row()
         .key(key)
         .w_full()
@@ -109,13 +260,26 @@ fn extension_row(p: &Pal, key: String, lead: El, name: El, trailing: Option<El>,
         .py(16.0)
         .gap(16.0)
         .center_y()
-        .child(row().grow(1.0).shrink().min_w(0.0).gap(8.0).center_y().child(lead).child(name))
+        .child(row().grow(1.0).shrink().min_w(0.0).gap(8.0).center_y().child(lead).child(name).children(badge))
         .children(trailing);
     if last { r } else { r.child(rule(0.5, p.border).pin(Some(0.0), None, Some(0.0), Some(0.0))) }
 }
 
-fn mcps(s: &dyn SettingsHost, p: &Pal) -> Option<El> {
-    let mut list: Vec<_> = s.mcp_servers("").unwrap_or_default().to_vec();
+fn mcps<H: SettingsHost + 'static>(s: &H, p: &Pal) -> Vec<El> {
+    let st = &s.settings_pages().extensions;
+    let dir = st.active_dir.as_deref().unwrap_or("");
+    let active = (!dir.is_empty()).then(|| s.mcp_servers(dir)).flatten();
+    let mut list: Vec<McpServer> = s
+        .mcp_servers("")
+        .unwrap_or_default()
+        .iter()
+        .map(|srv| {
+            active
+                .and_then(|a| a.iter().find(|item| item.name == srv.name))
+                .cloned()
+                .unwrap_or_else(|| srv.clone())
+        })
+        .collect();
     list.sort_by(|a, b| rune::text::compare_names(&a.name, &b.name));
     let n = list.len();
     let rows: Vec<El> = list
@@ -123,30 +287,169 @@ fn mcps(s: &dyn SettingsHost, p: &Pal) -> Option<El> {
         .enumerate()
         .map(|(k, m)| {
             let disabled = m.status == McpStatus::Disabled;
+            let managed = st.sources.managed(&m.name);
+            let links = st.sources.links(&m.name);
+            let dot_status = if managed.is_some_and(|c| c.needs_connection) && m.status == McpStatus::Connected {
+                "needs_auth"
+            } else {
+                m.status.name()
+            };
+            let name_el = match (managed, &links) {
+                (Some(_), Some(l)) => console_name::<H>(p, format!("settings-mcp-console-{}", m.name), &m.name, l.manage.clone(), disabled),
+                _ => text(m.name.clone()).font(NAME).color(if disabled { p.muted } else { p.text }).shrink().truncate(),
+            };
+            let badge = st
+                .sources
+                .mcp(&m.name)
+                .filter(|c| c.overridden)
+                .and(links.as_ref())
+                .map(|l| console_replaced::<H>(p, format!("settings-mcp-replaced-{}", m.name), &m.name, l.manage.clone()));
+            let trailing = match st.sources.connect(&m.name) {
+                Some(connect_url) => console_connect_button::<H>(p, format!("settings-mcp-connect-{}", m.name), &m.name, connect_url),
+                None => {
+                    let ctl = s.mcp_row_trailing(p, dir, m);
+                    if managed.is_some() {
+                        row()
+                            .label(format!("{}: {}", m.name, t!("settings.extensions.console.temporary")))
+                            .center_y()
+                            .child(ctl)
+                    } else {
+                        ctl
+                    }
+                }
+            };
             extension_row(
                 p,
                 format!("settings-mcp-{}", m.name),
-                widgets::status_dot(p, m.status.name()),
-                text(m.name.clone()).font(NAME).color(if disabled { p.muted } else { p.text }).shrink().truncate(),
-                Some(s.mcp_row_trailing(p, "", m)),
+                widgets::status_dot(p, dot_status),
+                name_el,
+                badge,
+                Some(trailing),
                 k + 1 == n,
             )
         })
         .collect();
-    (!rows.is_empty()).then(|| catalog_with(p, "settings-mcps", rows, false))
+    let mut out = Vec::new();
+    if !rows.is_empty() {
+        out.push(catalog_with(p, "settings-mcps", rows, false));
+    }
+    if st.sources.failed() {
+        out.push(load_failed::<H>(
+            p,
+            "settings-extensions-sources-failed",
+            t!("settings.extensions.sources.loadFailed"),
+            t!("common.retry"),
+            retry_sources,
+        ));
+    }
+    out
 }
 
-/// By name, as Desktop sorts them (`localeCompare`).
-fn named_rows(p: &Pal, key: &str, glyph: &'static Icon, names: &[String]) -> Option<El> {
-    let mut names: Vec<&String> = names.iter().collect();
-    names.sort_by(|a, b| rune::text::compare_names(a, b));
-    let last = names.len();
-    let rows: Vec<El> = names
+fn plugins_body<H: SettingsHost + 'static>(s: &H, p: &Pal) -> Vec<El> {
+    let st = &s.settings_pages().extensions;
+    let mut out = Vec::new();
+    match &st.plugins {
+        None => {
+            if s.plugin_extensions_section(p).is_none() {
+                out.push(text(t!("common.loading")).font(BODY).color(p.muted));
+            }
+        }
+        Some(Err(())) => {
+            out.push(load_failed::<H>(
+                p,
+                "settings-extensions-plugins-failed",
+                t!("settings.extensions.plugins.loadFailed"),
+                t!("common.retry"),
+                retry_plugins,
+            ));
+        }
+        Some(Ok(list)) => {
+            let listed: Vec<&PluginInfo> = list.iter().filter(|pl| !pl.is_builtin()).collect();
+            let total = listed.len();
+            let can_update = plugin_update::supported(&st.updates);
+            let rows: Vec<El> = listed
+                .iter()
+                .enumerate()
+                .map(|(k, pl)| {
+                    let label = pl.label();
+                    let trailing = can_update.then(|| {
+                        let (target, outdated, updating) = pl.package_source()?;
+                        let v = plugin_update::view(&st.updates, target, outdated, updating);
+                        (v.outdated || v.updating).then(|| {
+                            let target_owned = target.to_owned();
+                            let btn_text = if v.updating { t!("settings.plugins.updating") } else { t!("settings.plugins.update") };
+                            ghost_button::<H>(
+                                p,
+                                &format!("settings-plugin-update-{target}"),
+                                btn_text,
+                                None,
+                                false,
+                                !v.updating,
+                                move |s, tx| {
+                                    dispatch_update(s, UpdateEvent::UpdateRequested { target: target_owned.clone() }, tx);
+                                },
+                            )
+                            .label(t!("settings.plugins.update.label", name = label))
+                            .busy(v.updating)
+                        })
+                    })
+                    .flatten();
+                    extension_row(
+                        p,
+                        format!("settings-plugins-{label}"),
+                        icon(&ic::CUBE, 16.0).color(p.icon_muted),
+                        text(label).font(NAME).color(p.text).shrink().truncate(),
+                        None,
+                        trailing,
+                        k + 1 == total,
+                    )
+                })
+                .collect();
+            if !rows.is_empty() {
+                out.push(catalog_with(p, "settings-plugins", rows, false));
+            }
+        }
+    }
+    out
+}
+
+fn skills_body<H: SettingsHost + 'static>(s: &H, p: &Pal) -> Vec<El> {
+    let st = &s.settings_pages().extensions;
+    let signed_in = console_signed_in(s, st.active_dir.as_deref());
+    let mut skills: Vec<&SkillInfo> = st.skills.as_deref().unwrap_or_default().iter().collect();
+    skills.sort_by(|a, b| rune::text::compare_names(&a.name, &b.name));
+    let total = skills.len();
+    let rows: Vec<El> = skills
         .iter()
         .enumerate()
-        .map(|(k, n)| {
-            extension_row(p, format!("{key}-{n}"), icon(glyph, 16.0).color(p.icon_muted), text((*n).clone()).font(NAME).color(p.text).shrink().truncate(), None, k + 1 == last)
+        .map(|(k, sk)| {
+            let name_el = match st.sources.skill(sk, signed_in) {
+                Some(href) => console_name::<H>(p, format!("settings-skill-console-{}", sk.name), &sk.name, href, false),
+                None => text(sk.name.clone()).font(NAME).color(p.text).shrink().truncate(),
+            };
+            extension_row(
+                p,
+                format!("settings-skills-{}", sk.name),
+                icon(&SKILL, 16.0).color(p.icon_muted),
+                name_el,
+                None,
+                None,
+                k + 1 == total,
+            )
         })
         .collect();
-    (!rows.is_empty()).then(|| catalog_with(p, key, rows, false))
+    let mut out = Vec::new();
+    if !rows.is_empty() {
+        out.push(catalog_with(p, "settings-skills", rows, false));
+    }
+    if st.sources.failed() {
+        out.push(load_failed::<H>(
+            p,
+            "settings-extensions-sources-failed",
+            t!("settings.extensions.sources.loadFailed"),
+            t!("common.retry"),
+            retry_sources,
+        ));
+    }
+    out
 }
