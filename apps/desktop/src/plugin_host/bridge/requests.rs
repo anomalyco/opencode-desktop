@@ -179,7 +179,17 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
             }
             (None, None) => app.run_command(&id, tx),
         },
-        Request::OpenLink { href } => app.open_reply_link(&href, tx),
+        Request::OpenLink { href, tool_sid, in_tool } => {
+            if !in_tool && app.plugins.is_builtin_plugin(plugin) {
+                app.open_reply_link(&href, tx);
+            } else {
+                let target_sid = match tool_sid {
+                    Some(caller) => caller,
+                    None => app.active_session_id().map(str::to_owned),
+                };
+                app.open_restricted_plugin_link(target_sid.as_deref(), &href, in_tool, tx);
+            }
+        }
         Request::OpenExternal(url) => {
             if app.live() {
                 let trimmed = url.trim();

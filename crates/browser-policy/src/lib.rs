@@ -157,8 +157,10 @@ pub fn file_url_within(input: &str, roots: &[String]) -> bool {
     roots.iter().any(|root| path_within_root(&target, root))
 }
 
-pub fn allowed_destination(input: &str, roots: &[String]) -> bool {
-    destination_origin(input).is_some() || file_url_within(input, roots)
+pub fn allowed_destination(input: &str, _roots: &[String]) -> bool {
+    // Raw `file://` URLs are banned unconditionally; local workspace files open exclusively via
+    // isolated `oc-preview://` grants (`#63002`, `notes/review-rd281.md` §9).
+    destination_origin(input).is_some()
 }
 
 /// Adds the missing scheme for programmatic / agent URLs (`policy.ts:86-95`), plus Rune's `:port` shorthand.
@@ -184,7 +186,7 @@ fn refusal_raw(trimmed: &str, roots: &[String]) -> Option<Refusal> {
     if is_http_with_credentials(trimmed) {
         return Some(Refusal::Credentials);
     }
-    Some(if roots.is_empty() { Refusal::Web } else { Refusal::Workspace })
+    Some(if is_file_scheme(trimmed) || !roots.is_empty() { Refusal::Workspace } else { Refusal::Web })
 }
 
 /// Why the pane refuses `input`, or `None` when allowed (`policy.ts:74-83`).
@@ -201,27 +203,26 @@ pub fn normalize_url(input: &str, roots: &[String]) -> Result<String, String> {
     }
 }
 
-/// Frame navigation & redirect guard (`chromium.ts:432-446`).
+/// Frame navigation & redirect guard (`chromium.ts:432-446`): bans raw `file:` and `oc-preview:`
+/// (and nested `view-source:`/`filesystem:`/`blob:` wrappers) unconditionally on all non-preview tabs.
 pub fn frame_guard(url: &str, is_main_frame: bool, roots: &[String]) -> Option<Refusal> {
     let trimmed = url.trim();
     if trimmed.eq_ignore_ascii_case("about:blank") {
         return None;
     }
-    if preview::is_preview_scheme(trimmed) {
-        return Some(if roots.is_empty() { Refusal::Web } else { Refusal::Workspace });
+    if preview::has_banned_scheme(trimmed) {
+        return Some(if is_file_scheme(trimmed) || !roots.is_empty() { Refusal::Workspace } else { Refusal::Web });
     }
     if is_main_frame {
         return refusal_raw(trimmed, roots);
     }
-    if !is_file_scheme(trimmed) || file_url_within(trimmed, roots) {
-        return None;
-    }
-    Some(if roots.is_empty() { Refusal::Web } else { Refusal::Workspace })
+    None
 }
 
-/// Sub-resource & download guard (`pane.ts:103-107`): no `file:` read outside `roots`, and never `oc-preview:` from non-preview tabs.
-pub fn subresource_allowed(url: &str, roots: &[String]) -> bool {
-    !preview::is_preview_scheme(url) && (!is_file_scheme(url) || file_url_within(url, roots))
+/// Sub-resource & download guard: bans raw `file:` and `oc-preview:` (including nested prefixes)
+/// unconditionally on non-preview tabs.
+pub fn subresource_allowed(url: &str, _roots: &[String]) -> bool {
+    !preview::has_banned_scheme(url)
 }
 
 mod agent;
@@ -243,6 +244,12 @@ pub fn searches(input: &str) -> bool {
         if scheme.eq_ignore_ascii_case("file") {
             let path_part = rest.split(['?', '#']).next().unwrap_or(rest);
             return path_part.is_empty() || path_part.chars().take_while(|&c| c != '/').any(char::is_whitespace);
+        }
+        if scheme.eq_ignore_ascii_case("workspace")
+            || scheme.eq_ignore_ascii_case("artifact")
+            || scheme.eq_ignore_ascii_case("oc-preview")
+        {
+            return rest.is_empty() || rest.chars().any(char::is_whitespace);
         }
         let authority = rest.split(['/', '\\', '?', '#']).next().unwrap_or("");
         if authority.is_empty() || authority.chars().any(|c| c.is_whitespace() || c.is_control()) {

@@ -90,7 +90,9 @@ impl ExecPhase {
                 }
             }
             Self::Frames(st) => {
-                app.workspace_panes.browser.host.cancel_cdp(st.cdp_req);
+                for (req_id, _) in st.pending.drain(..) {
+                    app.workspace_panes.browser.host.cancel_cdp(req_id);
+                }
             }
             Self::Snapshot(st) => st.cancel_cleanup(app),
             Self::Eval(st) => st.cancel_cleanup(app),

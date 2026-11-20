@@ -291,8 +291,9 @@ impl crate::BrowserHost {
         height_pt: f32,
         scale: f32,
         focused: bool,
-        file_roots: Vec<String>,
+        _file_roots: Vec<String>,
         context: crate::protocol::ContextKind,
+        preview: Option<crate::protocol::PreviewSpec>,
         agent_driven: bool,
     ) {
         self.send(crate::protocol::HostMsg::OpenTab {
@@ -302,9 +303,9 @@ impl crate::BrowserHost {
             height_pt,
             scale,
             focused,
-            file_roots,
+            file_roots: Vec::new(),
             context,
-            preview: None,
+            preview,
             agent_driven,
         });
         if agent_driven {
@@ -313,7 +314,7 @@ impl crate::BrowserHost {
     }
 
     /// What `flush_pending_opens` would send for the tabs that wait now, for a connect to send
-    /// itself. `file:` and isolated/remote tabs wait for `Ready` so an older engine never opens one.
+    /// itself. `file:` and isolated/remote/preview tabs wait for `Ready` so an older engine never opens one.
     #[cfg_attr(not(feature = "engine"), allow(dead_code))]
     pub(crate) fn pending_open_msgs(&self) -> Vec<(u64, crate::protocol::HostMsg)> {
         let focused = self.focused_tab;
@@ -321,16 +322,16 @@ impl crate::BrowserHost {
             .iter()
             .filter(|(tab_id, url)| {
                 !crate::policy::is_file_scheme(url)
-                    && self.tabs.iter().any(|t| t.id == *tab_id && t.context.is_default())
+                    && self.tabs.iter().any(|t| t.id == *tab_id && t.context.is_default() && t.preview_spec.is_none())
             })
             .cloned()
             .map(|(tab_id, url)| {
-                let (((width_pt, height_pt), scale), file_roots, agent_driven) = self
+                let (((width_pt, height_pt), scale), agent_driven) = self
                     .tabs
                     .iter()
                     .find(|t| t.id == tab_id)
-                    .map_or((((800.0, 600.0), 2.0), Vec::new(), false), |t| {
-                        ((t.viewport_pt, t.scale), t.file_roots.clone(), t.prompts.agent_driven)
+                    .map_or((((800.0, 600.0), 2.0), false), |t| {
+                        ((t.viewport_pt, t.scale), t.prompts.agent_driven)
                     });
                 (
                     tab_id,
@@ -341,7 +342,7 @@ impl crate::BrowserHost {
                         height_pt,
                         scale,
                         focused: focused == Some(tab_id),
-                        file_roots,
+                        file_roots: Vec::new(),
                         context: crate::protocol::ContextKind::Default,
                         preview: None,
                         agent_driven,

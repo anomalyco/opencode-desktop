@@ -31,6 +31,10 @@ mod mentions;
 mod output_head;
 mod plugins;
 #[cfg(not(target_arch = "wasm32"))]
+mod preview;
+#[cfg(not(target_arch = "wasm32"))]
+pub use preview::{PreviewAbort, PreviewHttpHead};
+#[cfg(not(target_arch = "wasm32"))]
 mod reach;
 #[cfg(not(target_arch = "wasm32"))]
 mod streams;

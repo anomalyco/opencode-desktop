@@ -19,7 +19,8 @@ const MAX_SNAPSHOT_PROBES: usize = 200;
 
 pub(super) struct FramesState {
     pub host_id: u64,
-    pub cdp_req: u64,
+    pub pending: Vec<(u64, Option<String>)>,
+    pub top_tree: Option<Value>,
 }
 
 pub(super) struct SnapshotState {
@@ -111,10 +112,33 @@ fn start_frames(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> St
         return StepOutcome::Done(o);
     }
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
-    match app.workspace_panes.browser.host.send_cdp(host_id, "Page.getFrameTree", json!({}), None) {
-        Ok(cdp_req) => StepOutcome::Pending(ExecPhase::Frames(FramesState { host_id, cdp_req })),
-        Err(e) => StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, e)),
+    let top_req = match app.workspace_panes.browser.host.send_cdp(host_id, "Page.getFrameTree", json!({}), None) {
+        Ok(id) => id,
+        Err(e) => return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, e)),
+    };
+    let mut pending = vec![(top_req, None)];
+    if app.workspace_panes.browser.host.engine_agent_tools() {
+        let oopif_sids = att
+            .frames
+            .get(&host_id)
+            .map(|f| f.oopif_sessions())
+            .unwrap_or_default();
+        for sid in oopif_sids {
+            if let Ok(req) = app.workspace_panes.browser.host.send_typed_cdp(
+                host_id,
+                "Page.getFrameTree",
+                json!({}),
+                Some(sid.clone()),
+            ) {
+                pending.push((req, Some(sid)));
+            }
+        }
     }
+    StepOutcome::Pending(ExecPhase::Frames(FramesState {
+        host_id,
+        pending,
+        top_tree: None,
+    }))
 }
 
 fn start_snapshot(
@@ -204,30 +228,64 @@ fn start_snapshot(
     }
 }
 
-pub(super) fn step_frames(att: &mut SessionAttachment, app: &mut App, st: &FramesState) -> Option<Outcome> {
-    let resp = app.workspace_panes.browser.host.take_cdp_response(st.cdp_req)?;
-    match resp {
-        Ok(val) => {
-            att.frames.entry(st.host_id).or_default().ingest_frame_tree(&val, None);
-            let Some(tab) = att.wire_tab(app, st.host_id) else {
-                return Some(Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable."));
-            };
-            let frames = att
-                .frames
-                .get(&st.host_id)
-                .map(|f| f.agent_frames(&tab.url))
-                .filter(|v| !v.is_empty())
-                .unwrap_or_else(|| {
-                    let parsed = parse_frame_tree(&val);
-                    serde_json::to_value(parsed.frames)
-                        .ok()
-                        .and_then(|v| v.as_array().cloned())
-                        .unwrap_or_default()
+pub(super) fn step_frames(att: &mut SessionAttachment, app: &mut App, st: &mut FramesState) -> Option<Outcome> {
+    let mut remaining = Vec::with_capacity(st.pending.len());
+    let mut fatal_err: Option<String> = None;
+    for (req_id, sid) in st.pending.drain(..) {
+        match app.workspace_panes.browser.host.take_cdp_response(req_id) {
+            Some(Ok(val)) => {
+                if att
+                    .frames
+                    .entry(st.host_id)
+                    .or_default()
+                    .ingest_frame_tree(&val, sid.as_deref())
+                {
+                    att.bump_generation(st.host_id);
+                }
+                if sid.is_none() {
+                    st.top_tree = Some(val);
+                }
+            }
+            Some(Err(err)) => {
+                let msg = cdp_err_msg(&err);
+                let still_active_oopif = sid.as_deref().is_some_and(|s| {
+                    att.frames
+                        .get(&st.host_id)
+                        .is_some_and(|f| f.frame_sessions.values().any(|v| v == s))
                 });
-            Some(Outcome::ok(json!({ "tab": tab, "frames": frames }), Vec::new()))
+                if sid.is_none() || still_active_oopif || msg.to_ascii_lowercase().contains("extension") {
+                    fatal_err = Some(msg);
+                }
+            }
+            None => remaining.push((req_id, sid)),
         }
-        Err(err) => Some(Outcome::fail(failure_code::OPERATION_FAILED, cdp_err_msg(&err))),
     }
+    st.pending = remaining;
+    if let Some(msg) = fatal_err {
+        for (req_id, _) in st.pending.drain(..) {
+            app.workspace_panes.browser.host.cancel_cdp(req_id);
+        }
+        return Some(Outcome::fail(failure_code::OPERATION_FAILED, msg));
+    }
+    if !st.pending.is_empty() {
+        return None;
+    }
+    let Some(tab) = att.wire_tab(app, st.host_id) else {
+        return Some(Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable."));
+    };
+    let frames = att
+        .frames
+        .get(&st.host_id)
+        .map(|f| f.agent_frames(&tab.url))
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| {
+            st.top_tree
+                .as_ref()
+                .and_then(|val| serde_json::to_value(parse_frame_tree(val).frames).ok())
+                .and_then(|v| v.as_array().cloned())
+                .unwrap_or_default()
+        });
+    Some(Outcome::ok(json!({ "tab": tab, "frames": frames }), Vec::new()))
 }
 
 pub(super) fn step_snapshot(
@@ -243,7 +301,9 @@ pub(super) fn step_snapshot(
                 Ok(v) => v,
                 Err(e) => return Some(Outcome::fail(failure_code::OPERATION_FAILED, cdp_err_msg(&e))),
             };
-            att.frames.entry(st.host_id).or_default().ingest_frame_tree(&val, None);
+            if att.frames.entry(st.host_id).or_default().ingest_frame_tree(&val, None) {
+                att.bump_generation(st.host_id);
+            }
             let tree = parse_frame_tree(&val);
             let want = st.frame_id.as_deref().unwrap_or("");
             let is_tracked_ext = att

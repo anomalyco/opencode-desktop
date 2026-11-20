@@ -246,7 +246,9 @@ impl SessionAttachment {
             if let Some(resp) = app.workspace_panes.browser.host.take_cdp_response(req_id) {
                 match resp {
                     Ok(val) => {
-                        self.frames.entry(host_id).or_default().ingest_frame_tree(&val, sid.as_deref());
+                        if self.frames.entry(host_id).or_default().ingest_frame_tree(&val, sid.as_deref()) {
+                            self.bump_generation(host_id);
+                        }
                     }
                     Err(err)
                         if sid.is_none()
