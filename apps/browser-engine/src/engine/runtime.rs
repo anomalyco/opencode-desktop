@@ -6,8 +6,8 @@ use std::sync::mpsc::Sender;
 use cef::rc::Rc as _;
 use cef::{
     App, BrowserProcessHandler, CefString, CommandLine, ImplApp, ImplBrowserProcessHandler,
-    ImplCommandLine, RequestContextHandler, Settings, WrapApp, WrapBrowserProcessHandler, sys,
-    wrap_app, wrap_browser_process_handler,
+    ImplCommandLine, RequestContextHandler, SchemeRegistrar, Settings, WrapApp,
+    WrapBrowserProcessHandler, sys, wrap_app, wrap_browser_process_handler,
 };
 
 use crate::profile::Profile;
@@ -203,6 +203,10 @@ wrap_app! {
             if let Some(luid) = &self.adapter_luid {
                 cmd.append_switch_with_value(Some(&"use-adapter-luid".into()), Some(&luid.as_str().into()));
             }
+        }
+
+        fn on_register_custom_schemes(&self, registrar: Option<&mut SchemeRegistrar>) {
+            crate::preview::scheme::register(registrar);
         }
 
         fn browser_process_handler(&self) -> Option<BrowserProcessHandler> {

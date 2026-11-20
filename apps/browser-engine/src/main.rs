@@ -30,6 +30,7 @@ mod diagnostics;
 mod favicon;
 mod find;
 mod menu;
+mod preview;
 mod profile;
 mod prompts;
 mod tab_client;
@@ -80,7 +81,7 @@ pub enum Event {
     /// Connection `id`, and the half the engine writes to; its messages follow as `Host`.
     Connected { id: u64, writer: UnixStream },
     Disconnected { id: u64 },
-    Host(HostMsg),
+    Host(Box<HostMsg>),
     /// CEF wants `cef::do_message_loop_work` in this many milliseconds (now when 0 or less).
     Pump(i64),
     /// Background parallel SHA-256 tree verification finished for startup `--extension` specs.
@@ -356,9 +357,17 @@ fn main() {
                     true
                 }
                 Event::Disconnected { id } => {
-                    let mut writer = client_writer.lock().unwrap();
-                    if writer.as_ref().is_some_and(|(current, _)| *current == id) {
-                        *writer = None;
+                    let disconnected_current = {
+                        let mut writer = client_writer.lock().unwrap();
+                        if writer.as_ref().is_some_and(|(current, _)| *current == id) {
+                            *writer = None;
+                            true
+                        } else {
+                            false
+                        }
+                    };
+                    if disconnected_current {
+                        manager.on_host_disconnected();
                     }
                     true
                 }
@@ -367,7 +376,7 @@ fn main() {
                     if std::mem::take(&mut first_message) {
                         step("first_message");
                     }
-                    manager.handle(msg)
+                    manager.handle(*msg)
                 }
                 #[cfg(target_os = "linux")]
                 Event::FramesFailed(failure) => {
@@ -480,7 +489,7 @@ fn read_messages(id: u64, stream: UnixStream, events: Sender<Event>) {
                 continue;
             }
             if let Ok(msg) = serde_json::from_str::<HostMsg>(&line)
-                && events.send(Event::Host(msg)).is_err()
+                && events.send(Event::Host(Box::new(msg))).is_err()
             {
                 return;
             }

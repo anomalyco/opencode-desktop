@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use cef::{
     Browser, BrowserHost, BrowserSettings, CefString, ImplBrowser, ImplBrowserHost, ImplFrame,
-    MouseButtonType, MouseEvent, PaintElementType, Registration, WindowInfo, sys,
+    MouseButtonType, MouseEvent, PaintElementType, Registration, RequestContext, WindowInfo, sys,
 };
 use serde_json::{Value, json};
 
@@ -15,9 +15,10 @@ use crate::handlers::{
     TabLoadHandler, TabRenderHandler, TabRequestHandler, ViewRectState, cef_mods, event_flag,
 };
 use crate::keys::send_key;
+use crate::preview::{PreviewGrant, PreviewRegistry};
 use crate::tab_client::SidecarTabClient;
 use crate::wire::{
-    CursorKind, EngineMsg, HostMsg, PickedElement, PointerBtn, TabSnapshot,
+    CursorKind, EngineMsg, HostMsg, PickedElement, PointerBtn, PreviewSpec, TabSnapshot,
 };
 
 pub use runtime::CefRuntime;
@@ -25,23 +26,27 @@ pub use runtime::CefRuntime;
 /// Opaque page background (ARGB) for pages that specify none. macOS uses Rune's dark base.
 const BASE_COLOR: u32 = if cfg!(target_os = "macos") { 0xFF11_1318 } else { 0xFFFF_FFFF };
 
-struct ManagedTab {
-    browser: Browser,
-    host: BrowserHost,
+pub(super) struct ManagedTab {
+    pub(super) browser: Browser,
+    pub(super) host: BrowserHost,
     file_roots: Arc<Mutex<Vec<String>>>,
     allowed_ext_ids: Arc<Mutex<Vec<String>>>,
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     allow_extension_pages: bool,
-    isolated: bool,
-    is_popup: bool,
+    pub(super) isolated: bool,
+    pub(super) is_popup: bool,
+    preview: Option<Arc<PreviewGrant>>,
+    #[cfg(target_os = "linux")]
+    preview_spec: Option<PreviewSpec>,
     view_state: Arc<Mutex<ViewRectState>>,
-    snap: Arc<Mutex<TabSnapshot>>,
-    cdp_id_map: Arc<Mutex<HashMap<i32, CdpPending>>>,
+    pub(super) snap: Arc<Mutex<TabSnapshot>>,
+    pub(super) cdp_id_map: Arc<Mutex<HashMap<i32, CdpPending>>>,
     internal_picked: Arc<Mutex<Vec<i64>>>,
     pending_clears: Arc<Mutex<Vec<PendingClear>>>,
-    prompts: Arc<crate::prompts::TabPrompts>,
+    pub(super) prompts: Arc<crate::prompts::TabPrompts>,
     menu: Arc<crate::menu::TabMenuState>,
     context: crate::wire::ContextKind,
+    generation: u64,
     _cdp_reg: Option<Registration>,
     held_buttons: u32,
     /// Linux: whether it's the tab the app shows (`HostMsg::FocusTab`), to open it again so.
@@ -75,6 +80,8 @@ pub struct EngineManager {
     downloads: Arc<crate::downloads::Downloads>,
     /// Shared prompt-handling toggle (`Hello.prompts`) and monotonic ID counter.
     prompt_shared: crate::prompts::PromptShared,
+    /// Isolated `oc-preview://` grant & async remote/artifact proxy registry.
+    previews: Arc<PreviewRegistry>,
     /// Shared pool of isolated `CefRequestContext`s for previews and remote servers.
     contexts: crate::context::ContextPool,
     /// Windows: the D3D11 device frames are copied on; None renders on the CPU instead.
@@ -118,67 +125,12 @@ impl EngineManager {
             home: crate::profile::home_dir(),
             downloads: crate::downloads::Downloads::open(&downloads),
             prompt_shared: crate::prompts::PromptShared::default(),
+            previews: PreviewRegistry::new(),
             contexts: crate::context::ContextPool::new(events),
             #[cfg(windows)]
             gpu,
             #[cfg(target_os = "linux")]
             transport,
-        }
-    }
-
-    pub fn shutdown_extensions(&mut self) {
-        if let Some(probe) = self.seed_probe.take() {
-            probe.close_browser(1);
-        }
-        if let Some(ext) = &self.extensions {
-            ext.close_pipe();
-        }
-        if let Some(root) = self.stub_root.take() {
-            crate::extensions::integrity::cleanup_stub_root(&root);
-        }
-    }
-
-    pub fn on_extensions_verified(&mut self, startup: crate::extensions::integrity::StartupExtensions) {
-        let effects = match &mut self.extensions {
-            Some(ext) => ext.on_startup_verified(startup),
-            None => return,
-        };
-        self.run_ext_effects(effects);
-    }
-
-    pub fn poll_extensions(&mut self) -> bool {
-        let effects = match &mut self.extensions {
-            Some(ext) => ext.drain_inbound(),
-            None => return false,
-        };
-        let had = !effects.is_empty();
-        self.run_ext_effects(effects);
-        had
-    }
-
-    pub fn on_tab_meta(
-        &mut self,
-        tab_id: u64,
-        url: Option<String>,
-        title: Option<String>,
-        loading: Option<bool>,
-    ) {
-        let is_eligible = self
-            .tabs
-            .get(&tab_id)
-            .is_some_and(|t| !t.isolated && !t.is_popup);
-        if !is_eligible {
-            return;
-        }
-        let Some(ext) = &mut self.extensions else { return };
-        if let Some(u) = url {
-            ext.on_tab_url_changed(tab_id, &u);
-        }
-        if let Some(t) = title {
-            ext.on_tab_title_changed(tab_id, &t);
-        }
-        if let Some(l) = loading {
-            ext.on_tab_loading_changed(tab_id, l);
         }
     }
 
@@ -234,6 +186,7 @@ impl EngineManager {
                 let ids: Vec<u64> = self.tabs.keys().copied().collect();
                 for tab_id in ids {
                     let Some(tab) = self.tabs.remove(&tab_id) else { continue };
+                    self.release_preview(tab_id, tab.preview.as_ref());
                     let was_agent = tab.prompts.agent_driven.load(Ordering::Acquire);
                     tab.host.close_browser(1);
                     if !tab.isolated && !tab.is_popup
@@ -241,6 +194,7 @@ impl EngineManager {
                     {
                         ext.on_tab_closed(tab_id);
                     }
+                    self.contexts.release_tab(tab_id);
                     let url = tab.snap.lock().unwrap().url.clone();
                     let v = tab.view_state.lock().unwrap().clone();
                     let roots = tab.file_roots.lock().unwrap().clone();
@@ -255,6 +209,7 @@ impl EngineManager {
                         tab.shown,
                         roots,
                         ctx,
+                        tab.preview_spec,
                         tab.isolated,
                         allow_ext,
                         tab.is_popup,
@@ -277,21 +232,38 @@ impl EngineManager {
         }
     }
 
+    pub fn on_host_disconnected(&mut self) {
+        self.previews.cancel_all_proxies();
+    }
+
     pub fn poll_picks(&mut self) {
         for outcome in self.contexts.drain_ready_loads() {
             match outcome {
-                crate::context::DeferredOutcome::Load { tab_id, url } => {
+                crate::context::DeferredOutcome::Load { tab_id, generation, url } => {
                     if let Some(tab) = self.tabs.get(&tab_id)
+                        && tab.generation == generation
+                        && self.contexts.is_tab_ready(tab_id)
+                        && !url.trim().eq_ignore_ascii_case("about:blank")
                         && let Some(frame) = tab.browser.main_frame()
                     {
                         frame.load_url(Some(&CefString::from(url.as_str())));
                     }
                 }
-                crate::context::DeferredOutcome::Refuse { tab_id, reason } => {
-                    let _ = self.out_tx.send(EngineMsg::Refused {
-                        tab_id,
-                        reason: reason.to_owned(),
-                    });
+                crate::context::DeferredOutcome::Refuse { tab_id, generation, reason } => {
+                    if self.tabs.get(&tab_id).is_some_and(|t| t.generation == generation) {
+                        if let Some(tab) = self.tabs.remove(&tab_id) {
+                            self.release_preview(tab_id, tab.preview.as_ref());
+                            tab.menu.cancel_all();
+                            tab.prompts.dismiss_all();
+                            tab.host.close_browser(1);
+                            self.downloads.close_tab(tab_id);
+                            self.contexts.release_tab(tab_id);
+                        }
+                        let _ = self.out_tx.send(EngineMsg::Refused {
+                            tab_id,
+                            reason: reason.to_owned(),
+                        });
+                    }
                 }
             }
         }
@@ -306,7 +278,9 @@ impl EngineManager {
             }
         }
         for clear in clears {
-            if let Some(tab) = self.tabs.get(&clear.tab_id) {
+            if let Some(tab) = self.tabs.get(&clear.tab_id)
+                && self.contexts.is_tab_ready(clear.tab_id)
+            {
                 for (name, domain, path) in clear.cookies {
                     self.send_internal_cdp(
                         &tab.host,
@@ -395,6 +369,7 @@ impl EngineManager {
                     context_menu: prompts,
                     partitions: true,
                     remote_proxy: true,
+                    preview: true,
                     extensions: true,
                 });
                 for (&tab_id, t) in &self.tabs {
@@ -442,13 +417,14 @@ impl EngineManager {
                 focused,
                 file_roots,
                 context,
+                preview,
                 isolated,
                 allow_extension_pages,
                 is_popup,
                 ext_open_request_id,
             } => {
-                // Only `Default` non-isolated tabs receive local `file://` roots; all isolated scopes strip them.
-                let roots = if context.is_isolated() || isolated {
+                // Only `Default` non-preview, non-isolated tabs receive local `file://` roots.
+                let roots = if preview.is_some() || context.is_isolated() || isolated {
                     Vec::new()
                 } else {
                     self.safe_roots(file_roots)
@@ -462,65 +438,22 @@ impl EngineManager {
                     focused,
                     roots,
                     context,
+                    preview,
                     isolated,
                     allow_extension_pages,
                     is_popup,
                     ext_open_request_id,
                 );
             }
-            HostMsg::ClickExtension { ext_id } => {
-                let effects = self
-                    .extensions
-                    .as_mut()
-                    .map(|e| e.click_extension(&ext_id))
-                    .unwrap_or_default();
-                self.run_ext_effects(effects);
-            }
-            HostMsg::ListExtensions { request_id } => {
-                let extensions = self
-                    .extensions
-                    .as_ref()
-                    .map(|e| e.list_actions())
-                    .unwrap_or_default();
-                let _ = self.out_tx.send(EngineMsg::ExtensionsState {
-                    request_id: Some(request_id),
-                    extensions,
-                });
-            }
-            HostMsg::UninstallExtension { ext_id } => {
-                let effects = self
-                    .extensions
-                    .as_mut()
-                    .map(|e| e.uninstall_extension(&ext_id))
-                    .unwrap_or_default();
-                self.run_ext_effects(effects);
-            }
-            HostMsg::ReloadExtension { ext_id } => {
-                let effects = self
-                    .extensions
-                    .as_mut()
-                    .map(|e| e.reload_extension(&ext_id))
-                    .unwrap_or_default();
-                self.run_ext_effects(effects);
-            }
-            HostMsg::CancelExtensionOpenTab { request_id } => {
-                if let Some((sid, rpc_id, _)) = self.pending_ext_opens.remove(&request_id)
-                    && let Some(ext) = &mut self.extensions
-                {
-                    ext.fail_tab_create(&sid, rpc_id, "Tab open refused by browser policy.");
-                }
-            }
-            HostMsg::ExtensionMetrics { request_id } => {
-                let metrics = self
-                    .extensions
-                    .as_ref()
-                    .map(|e| e.metrics.clone())
-                    .unwrap_or_default();
-                let _ = self.out_tx.send(EngineMsg::ExtensionMetrics { request_id, metrics });
-            }
+            HostMsg::ClickExtension { ext_id } => self.cmd_click_extension(&ext_id),
+            HostMsg::ListExtensions { request_id } => self.cmd_list_extensions(request_id),
+            HostMsg::UninstallExtension { ext_id } => self.cmd_uninstall_extension(&ext_id),
+            HostMsg::ReloadExtension { ext_id } => self.cmd_reload_extension(&ext_id),
+            HostMsg::CancelExtensionOpenTab { request_id } => self.cmd_cancel_extension_open_tab(request_id),
+            HostMsg::ExtensionMetrics { request_id } => self.cmd_extension_metrics(request_id),
             HostMsg::SetTabPolicy { tab_id, file_roots } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
-                    if t.context.is_isolated() {
+                    if t.preview.is_some() || t.context.is_isolated() {
                         t.file_roots.lock().unwrap().clear();
                     } else {
                         let roots = self.safe_roots(file_roots);
@@ -530,6 +463,7 @@ impl EngineManager {
             }
             HostMsg::CloseTab { tab_id } => {
                 if let Some(tab) = self.tabs.remove(&tab_id) {
+                    self.release_preview(tab_id, tab.preview.as_ref());
                     tab.menu.cancel_all();
                     tab.prompts.dismiss_all();
                     tab.host.close_browser(1);
@@ -571,6 +505,22 @@ impl EngineManager {
             }
             HostMsg::Navigate { tab_id, url } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
+                    if t.preview.is_some() {
+                        // A preview tab stays inside its isolated context; web navigations open in a normal context.
+                        let _ = self.out_tx.send(EngineMsg::Refused {
+                            tab_id,
+                            reason: browser_policy::Refusal::Workspace.code().to_owned(),
+                        });
+                        return true;
+                    }
+                    if !self.contexts.is_tab_ready(tab_id) {
+                        let _ = self.out_tx.send(EngineMsg::Refused {
+                            tab_id,
+                            reason: "browser.context.initializing".to_owned(),
+                        });
+                        return true;
+                    }
+                    self.contexts.clear_pending_load(tab_id);
                     // Popups stay strictly on their own `chrome-extension://<id>/` origin.
                     if t.is_popup {
                         let own = crate::extensions::manifest::extension_id_from_url(&t.snap.lock().unwrap().url).map(str::to_owned);
@@ -601,17 +551,23 @@ impl EngineManager {
                 }
             }
             HostMsg::Back { tab_id } => {
-                if let Some(t) = self.tabs.get(&tab_id) {
+                if let Some(t) = self.tabs.get(&tab_id)
+                    && self.contexts.is_tab_ready(tab_id)
+                {
                     t.browser.go_back();
                 }
             }
             HostMsg::Forward { tab_id } => {
-                if let Some(t) = self.tabs.get(&tab_id) {
+                if let Some(t) = self.tabs.get(&tab_id)
+                    && self.contexts.is_tab_ready(tab_id)
+                {
                     t.browser.go_forward();
                 }
             }
             HostMsg::Reload { tab_id, ignore_cache } => {
-                if let Some(t) = self.tabs.get(&tab_id) {
+                if let Some(t) = self.tabs.get(&tab_id)
+                    && self.contexts.is_tab_ready(tab_id)
+                {
                     if ignore_cache {
                         t.browser.reload_ignore_cache();
                     } else {
@@ -642,7 +598,9 @@ impl EngineManager {
                 }
             }
             HostMsg::Emulate { tab_id, device, scale } => {
-                if let Some(t) = self.tabs.get(&tab_id) {
+                if let Some(t) = self.tabs.get(&tab_id)
+                    && self.contexts.is_tab_ready(tab_id)
+                {
                     emulation::apply(device.as_ref(), scale, |method, params| self.send_internal_cdp(&t.host, method, params));
                 }
             }
@@ -757,8 +715,8 @@ impl EngineManager {
                 }
             }
             HostMsg::SetInspect { tab_id, enabled } => {
-                if let Some(t) = self.tabs.get(&tab_id) {
-                    if tab_is_extension_surface(t) {
+                if let Some(t) = self.tabs.get(&tab_id).filter(|_| self.contexts.is_tab_ready(tab_id)) {
+                    if extensions::tab_is_extension_surface(t) {
                         return true;
                     }
                     let host = t.host.clone();
@@ -794,8 +752,8 @@ impl EngineManager {
                 }
             }
             HostMsg::HighlightNode { tab_id, backend_node_id } => {
-                if let Some(t) = self.tabs.get(&tab_id) {
-                    if tab_is_extension_surface(t) {
+                if let Some(t) = self.tabs.get(&tab_id).filter(|_| self.contexts.is_tab_ready(tab_id)) {
+                    if extensions::tab_is_extension_surface(t) {
                         return true;
                     }
                     let host = t.host.clone();
@@ -823,62 +781,19 @@ impl EngineManager {
                 }
             }
             HostMsg::CdpCall { tab_id, request_id, method, params, session_id } => {
-                if let Some(t) = self.tabs.get(&tab_id) {
-                    // Reject any cross-session / OOPIF sessionId so external callers can never
-                    // target extension iframes or non-page targets (`review-rd274.md` §1).
-                    if session_id.is_some() {
-                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                            tab_id,
-                            request_id,
-                            ok: false,
-                            result: json!({ "message": "Cross-session DevTools targeting is not permitted." }),
-                        });
-                        return true;
-                    }
-                    // Fail closed on the entire tab whenever ANY frame (main OR sub-frame) is, or
-                    // is about to become, an extension frame — checked right at dispatch time on
-                    // both agent-driven tabs and unflagged 3P plugin `DevtoolsAsync` tabs
-                    // (`review-rd274.md` Round-4 ruling; narrow sub-frame masking lives in follow-up
-                    // `ws9/pr1b-ext-subframe-masking`, which still gates shipping).
-                    if tab_is_extension_surface(t) {
-                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                            tab_id,
-                            request_id,
-                            ok: false,
-                            result: json!({ "message": "Agent browser tools cannot read or act on extension pages or tabs with extension frames." }),
-                        });
-                        return true;
-                    }
-                    if let Err(err) = browser_policy::check_cdp(&method, &params, true) {
-                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                            tab_id,
-                            request_id,
-                            ok: false,
-                            result: json!({ "message": err }),
-                        });
-                        return true;
-                    }
-                    let msg_id = self.next_cdp_id.fetch_add(1, Ordering::Relaxed);
-                    t.cdp_id_map.lock().unwrap().insert(msg_id, CdpPending::Raw(request_id));
-                    let payload = json!({
-                        "id": msg_id,
-                        "method": method,
-                        "params": params,
-                    });
-                    let raw = payload.to_string();
-                    if t.host.send_dev_tools_message(Some(raw.as_bytes())) != 1 {
-                        t.cdp_id_map.lock().unwrap().remove(&msg_id);
-                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                            tab_id,
-                            request_id,
-                            ok: false,
-                            result: json!({ "error": "send_dev_tools_message rejected" }),
-                        });
-                    }
-                }
+                self.handle_cdp_call(tab_id, request_id, method, params, session_id);
             }
             HostMsg::SiteCookies { tab_id, request_id } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
+                    if !self.contexts.is_tab_ready(tab_id) {
+                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                            tab_id,
+                            request_id,
+                            ok: false,
+                            result: json!({ "message": "browser.context.initializing" }),
+                        });
+                        return true;
+                    }
                     let url = t.snap.lock().unwrap().url.clone();
                     if browser_policy::destination_origin(&url).is_none() {
                         let _ = self.out_tx.send(EngineMsg::CdpResponse {
@@ -910,6 +825,15 @@ impl EngineManager {
             }
             HostMsg::ClearSite { tab_id, request_id } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
+                    if !self.contexts.is_tab_ready(tab_id) {
+                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                            tab_id,
+                            request_id,
+                            ok: false,
+                            result: json!({ "message": "browser.context.initializing" }),
+                        });
+                        return true;
+                    }
                     let url = t.snap.lock().unwrap().url.clone();
                     let Some(origin) = browser_policy::destination_origin(&url) else {
                         let _ = self.out_tx.send(EngineMsg::CdpResponse {
@@ -981,6 +905,15 @@ impl EngineManager {
             }
             HostMsg::ClearSiteCache { tab_id, request_id } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
+                    if !self.contexts.is_tab_ready(tab_id) {
+                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                            tab_id,
+                            request_id,
+                            ok: false,
+                            result: json!({ "message": "browser.context.initializing" }),
+                        });
+                        return true;
+                    }
                     let url = t.snap.lock().unwrap().url.clone();
                     if let Some(origin) = browser_policy::destination_origin(&url) {
                         self.send_internal_cdp(
@@ -1023,8 +956,12 @@ impl EngineManager {
             }
             HostMsg::ContextMenuAction { tab_id, id, action } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
+                    if !self.contexts.is_tab_ready(tab_id) {
+                        t.menu.cancel_all();
+                        return true;
+                    }
                     let roots = t.file_roots.lock().unwrap().clone();
-                    t.menu.execute(id, action, &t.browser, &t.host, &roots);
+                    t.menu.execute(id, action, &t.browser, &t.host, &roots, t.preview.is_some());
                 }
             }
             HostMsg::SetPartitionProxy { server_id, proxy } => {
@@ -1039,17 +976,36 @@ impl EngineManager {
             HostMsg::DropContext { context } => {
                 self.contexts.drop_context(&context);
             }
+            HostMsg::PreviewResponseHead { req_id, ok, status, mime, content_length, content_range } => {
+                self.previews.deliver_head(req_id, ok, status, &mime, content_length, content_range);
+            }
+            HostMsg::PreviewResponseChunk { req_id, data_b64 } => {
+                self.previews.deliver_chunk(req_id, &data_b64);
+            }
+            HostMsg::PreviewResponseEnd { req_id, ok } => {
+                self.previews.deliver_end(req_id, ok);
+            }
             HostMsg::Shutdown => {
-                for (_, t) in self.tabs.drain() {
+                let drained: Vec<_> = self.tabs.drain().collect();
+                for (tab_id, t) in drained {
+                    self.release_preview(tab_id, t.preview.as_ref());
                     t.menu.cancel_all();
                     t.prompts.dismiss_all();
                     t.host.close_browser(1);
                 }
+                self.previews.cancel_all_proxies();
                 self.contexts.release_all();
                 return false;
             }
         }
         true
+    }
+
+    fn release_preview(&self, tab_id: u64, grant: Option<&Arc<PreviewGrant>>) {
+        if let Some(g) = grant {
+            g.revoke();
+        }
+        self.previews.cancel_tab_proxies(tab_id);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1063,68 +1019,133 @@ impl EngineManager {
         focused: bool,
         file_roots: Vec<String>,
         context: crate::wire::ContextKind,
+        preview_spec: Option<PreviewSpec>,
         isolated_flag: bool,
         allow_extension_pages: bool,
         is_popup: bool,
         ext_open_request_id: Option<u64>,
     ) {
-        // Normalize legacy `isolated: true` into a dedicated per-tab `ContextKind::Private`
-        // so private tabs NEVER share cookies/storage/cache with previews, artifacts, remote
-        // servers, or each other (`#288` / `review-rd274.md` §5).
-        let effective_context = if isolated_flag && context.is_default() {
+        // Cleanly release any prior browser/grant/context on duplicate `tab_id` before opening.
+        if let Some(prev) = self.tabs.remove(&tab_id) {
+            self.release_preview(tab_id, prev.preview.as_ref());
+            prev.menu.cancel_all();
+            prev.prompts.dismiss_all();
+            prev.host.close_browser(1);
+            self.downloads.close_tab(tab_id);
+            self.contexts.release_tab(tab_id);
+            if !prev.isolated && !prev.is_popup
+                && let Some(ext) = &mut self.extensions
+            {
+                ext.on_tab_closed(tab_id);
+            }
+        }
+        // Normalize legacy `isolated: true` into a dedicated per-tab `ContextKind::Private`.
+        let mut effective_context = if isolated_flag && context.is_default() && preview_spec.is_none() {
             crate::wire::ContextKind::Private
         } else {
             context
         };
-        let isolated = effective_context.is_isolated();
-        // Non-default context tabs (preview, artifact, remote, private) NEVER open extension pages or popups.
-        let allow_extension_pages = allow_extension_pages && !isolated;
-        let is_popup_valid = is_popup && allow_extension_pages;
-        let allowed_ext_list: Vec<String> = if allow_extension_pages {
-            self.extensions
-                .as_ref()
-                .map(|e| e.list_actions().into_iter().map(|a| a.ext_id).collect())
-                .unwrap_or_default()
+        let mut preview_grant: Option<Arc<PreviewGrant>> = None;
+        let mut refused_reason: Option<String> = None;
+        let mut req_ctx: Option<RequestContext>;
+        let context_ready;
+        let tab_generation;
+        let mut proxy_cfg = None;
+        let mut is_allowed_ext_url: Option<String> = None;
+        let mut allowed_ext_list: Vec<String> = Vec::new();
+        let (initial_url, display_url, isolated, allow_extension_pages, is_popup) = if let Some(spec) = preview_spec.clone() {
+            let (grant, internal, display) = match self.previews.create_grant(tab_id, spec, self.home.as_deref()) {
+                Ok(v) => v,
+                Err(code) => {
+                    // Fail closed immediately — never fall through to `Default` context!
+                    let _ = self.out_tx.send(EngineMsg::Refused {
+                        tab_id,
+                        reason: code.to_owned(),
+                    });
+                    return;
+                }
+            };
+            let ctx_kind = grant.context_kind();
+            let hooks = crate::preview::context::preview_context_hooks(
+                grant.clone(),
+                self.previews.clone(),
+                self.out_tx.clone(),
+            );
+            let resolved_ctx = match self.contexts.resolve_with_hooks(&ctx_kind, tab_id, &internal, hooks) {
+                Ok(r) => r,
+                Err(reason) => {
+                    self.release_preview(tab_id, Some(&grant));
+                    let _ = self.out_tx.send(EngineMsg::Refused {
+                        tab_id,
+                        reason: reason.to_owned(),
+                    });
+                    return;
+                }
+            };
+            effective_context = ctx_kind;
+            preview_grant = Some(grant);
+            req_ctx = resolved_ctx.request_context;
+            context_ready = resolved_ctx.ready;
+            tab_generation = resolved_ctx.generation;
+            let init = if resolved_ctx.defer_initial_load {
+                "about:blank".to_owned()
+            } else {
+                internal
+            };
+            (init, display, true, false, false)
         } else {
-            Vec::new()
-        };
-        let is_allowed_ext_url = crate::extensions::manifest::extension_id_from_url(url)
-            .filter(|id| allowed_ext_list.iter().any(|allowed| allowed == id));
-        // If `is_popup` was requested for a non-extension or disallowed URL, fail closed immediately.
-        if is_popup && (!is_popup_valid || is_allowed_ext_url.is_none()) {
-            let _ = self.out_tx.send(EngineMsg::Refused {
-                tab_id,
-                reason: browser_policy::Refusal::Blocked.code().to_owned(),
-            });
-            return;
-        }
-        let is_popup = is_popup_valid;
-        // Only tabs opened directly on an extension URL may navigate main frames inside that
-        // extension's origin; detached regular web tabs NEVER upgrade in-place into an unattached
-        // `chrome-extension://` page (`review-rd274.md` Round-2 §1d). Web-accessible sub-frames
-        // (e.g. Bitwarden inline overlays) on user web tabs do not consult `allowed_ext_list`.
-        let allowed_ext_list = is_allowed_ext_url.map(|id| vec![id.to_owned()]).unwrap_or_default();
-        let refused = if is_allowed_ext_url.is_some() {
-            None
-        } else {
-            browser_policy::frame_guard(url, true, &file_roots)
-        };
-        let target_url = if refused.is_some() { "about:blank" } else { url };
-        // Fail closed if a non-default `CefRequestContext` cannot be created (never falls back to
-        // the default profile with user cookies and extensions).
-        let resolved_ctx = match self.contexts.resolve(&effective_context, tab_id, target_url) {
-            Ok(r) => r,
-            Err(reason) => {
+            let isolated = effective_context.is_isolated();
+            let allow_ext = allow_extension_pages && !isolated;
+            let is_popup_valid = is_popup && allow_ext;
+            let loaded_ext_list: Vec<String> = if allow_ext {
+                self.extensions
+                    .as_ref()
+                    .map(|e| e.list_actions().into_iter().map(|a| a.ext_id).collect())
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+            let matched_ext = crate::extensions::manifest::extension_id_from_url(url)
+                .filter(|id| loaded_ext_list.iter().any(|allowed| allowed == id))
+                .map(str::to_owned);
+            if is_popup && (!is_popup_valid || matched_ext.is_none()) {
                 let _ = self.out_tx.send(EngineMsg::Refused {
                     tab_id,
-                    reason: reason.to_owned(),
+                    reason: browser_policy::Refusal::Blocked.code().to_owned(),
                 });
                 return;
             }
+            // Only tabs opened directly on an extension URL may navigate main frames inside that
+            // extension's origin; regular web tabs keep `allowed_ext_list` empty.
+            allowed_ext_list = matched_ext.clone().into_iter().collect();
+            is_allowed_ext_url = matched_ext;
+            let target_url = if is_allowed_ext_url.is_some() {
+                url
+            } else if let Some(why) = browser_policy::frame_guard(url, true, &file_roots) {
+                refused_reason = Some(why.code().to_owned());
+                "about:blank"
+            } else {
+                url
+            };
+            let resolved_ctx = match self.contexts.resolve(&effective_context, tab_id, target_url) {
+                Ok(r) => r,
+                Err(reason) => {
+                    let _ = self.out_tx.send(EngineMsg::Refused {
+                        tab_id,
+                        reason: reason.to_owned(),
+                    });
+                    return;
+                }
+            };
+            proxy_cfg = resolved_ctx.proxy;
+            req_ctx = resolved_ctx.request_context;
+            context_ready = resolved_ctx.ready;
+            tab_generation = resolved_ctx.generation;
+            let init = if resolved_ctx.defer_initial_load { "about:blank" } else { target_url };
+            (init.to_owned(), init.to_owned(), isolated, allow_ext, is_popup_valid)
         };
-        let initial_url = if resolved_ctx.defer_initial_load { "about:blank" } else { target_url };
-        let mut req_ctx = resolved_ctx.request_context;
-        let file_roots = Arc::new(Mutex::new(file_roots));
+        let is_preview = preview_grant.is_some();
+        let file_roots = Arc::new(Mutex::new(if is_preview { Vec::new() } else { file_roots }));
         let allowed_ext_ids = Arc::new(Mutex::new(allowed_ext_list));
         let view_state = Arc::new(Mutex::new(ViewRectState {
             width_pt: width_pt.max(1.0),
@@ -1133,15 +1154,16 @@ impl EngineManager {
         }));
         let snap = Arc::new(Mutex::new(TabSnapshot {
             tab_id,
-            url: initial_url.to_owned(),
+            url: display_url,
             title: "New tab".into(),
-            loading: refused.is_none(),
+            loading: refused_reason.is_none(),
             can_go_back: false,
             can_go_forward: false,
             zoom: 1.0,
             cursor: CursorKind::Default,
             load_error: None,
             favicon: None,
+            preview: preview_grant.as_ref().map(|g| g.kind.tag()),
         }));
         #[cfg(windows)]
         let frames: FrameRing = self
@@ -1169,12 +1191,13 @@ impl EngineManager {
             (),
         );
         let prompts = Arc::new(crate::prompts::TabPrompts::default());
-        *prompts.proxy.lock().unwrap() = resolved_ctx.proxy;
+        *prompts.proxy.lock().unwrap() = proxy_cfg;
         let favicon = Arc::new(crate::favicon::TabFavicon::default());
         let diagnostics = Arc::new(crate::diagnostics::TabDiagnostics::default());
         let menu_state = Arc::new(crate::menu::TabMenuState::default());
         let display = TabDisplayHandler::new(
             tab_id,
+            preview_grant.clone(),
             snap.clone(),
             prompts.clone(),
             favicon,
@@ -1184,6 +1207,7 @@ impl EngineManager {
         let load = TabLoadHandler::new(
             tab_id,
             file_roots.clone(),
+            preview_grant.clone(),
             snap.clone(),
             prompts.clone(),
             diagnostics.clone(),
@@ -1195,9 +1219,11 @@ impl EngineManager {
             file_roots.clone(),
             TabExtPolicy {
                 allowed_ext_ids: allowed_ext_ids.clone(),
-                popup_ext_id: is_popup.then(|| is_allowed_ext_url.map(str::to_owned)).flatten(),
+                popup_ext_id: is_popup.then(|| is_allowed_ext_url.clone()).flatten(),
                 isolated,
             },
+            preview_grant.clone(),
+            context_ready.clone(),
             snap.clone(),
             self.prompt_shared.clone(),
             prompts.clone(),
@@ -1208,29 +1234,43 @@ impl EngineManager {
             tab_id,
             file_roots.clone(),
             is_popup,
+            is_preview,
             self.downloads.clone(),
             self.out_tx.clone(),
         );
-        let life_span = crate::prompts::TabLifeSpanHandler::new(tab_id, self.out_tx.clone());
+        let life_span = crate::prompts::TabLifeSpanHandler::new(
+            tab_id,
+            is_preview,
+            context_ready,
+            self.out_tx.clone(),
+        );
         let jsdialog = crate::prompts::TabDialogHandler::new(
             tab_id,
             self.prompt_shared.clone(),
             prompts.clone(),
+            preview_grant.clone(),
             self.out_tx.clone(),
         );
         let permission = crate::prompts::TabPermissionHandler::new(
             tab_id,
+            is_preview,
             self.prompt_shared.clone(),
             prompts.clone(),
             snap.clone(),
             self.out_tx.clone(),
         );
-        let dialog = crate::prompts::TabFileDialogHandler::new(tab_id, prompts.clone(), self.out_tx.clone());
+        let dialog = crate::prompts::TabFileDialogHandler::new(
+            tab_id,
+            is_preview,
+            prompts.clone(),
+            self.out_tx.clone(),
+        );
         let find = crate::find::TabFindHandler::new(tab_id, self.out_tx.clone());
         let context_menu = crate::menu::TabContextMenuHandler::new(
             tab_id,
             self.prompt_shared.clone(),
             file_roots.clone(),
+            preview_grant.clone(),
             menu_state.clone(),
             self.out_tx.clone(),
         );
@@ -1258,9 +1298,10 @@ impl EngineManager {
             ..Default::default()
         };
 
-        // Hard fail-closed invariant: an isolated tab must NEVER open without a dedicated
-        // `CefRequestContext` (falling back to `None` would open it inside the signed-in profile).
-        if effective_context.is_isolated() && req_ctx.is_none() {
+        // Hard fail-closed invariant: an isolated or preview tab must NEVER open without a
+        // dedicated `CefRequestContext` (falling back to `None` would open it inside `Default`).
+        if (effective_context.is_isolated() || is_preview) && req_ctx.is_none() {
+            self.release_preview(tab_id, preview_grant.as_ref());
             self.contexts.release_tab(tab_id);
             let _ = self.out_tx.send(EngineMsg::Refused {
                 tab_id,
@@ -1271,9 +1312,9 @@ impl EngineManager {
 
         // Tell ExtensionHost what kind of OSR target CEF is about to create synchronously.
         if let Some(ext) = &mut self.extensions {
-            if isolated {
+            if isolated || is_preview {
                 ext.expect_isolated_tab();
-            } else if let Some(ext_id) = is_allowed_ext_url {
+            } else if let Some(ext_id) = is_allowed_ext_url.as_deref() {
                 if is_popup {
                     ext.expect_popup(ext_id);
                 } else {
@@ -1287,11 +1328,12 @@ impl EngineManager {
         let Some(browser) = cef::browser_host_create_browser_sync(
             Some(&win_info),
             Some(&mut client),
-            Some(&CefString::from(initial_url)),
+            Some(&CefString::from(initial_url.as_str())),
             Some(&browser_settings),
             None,
             req_ctx.as_mut(),
         ) else {
+            self.release_preview(tab_id, preview_grant.as_ref());
             self.contexts.release_tab(tab_id);
             if let Some(ext) = &mut self.extensions {
                 ext.cancel_expected_target();
@@ -1309,6 +1351,7 @@ impl EngineManager {
             return;
         };
         let Some(host) = browser.host() else {
+            self.release_preview(tab_id, preview_grant.as_ref());
             self.contexts.release_tab(tab_id);
             if let Some(ext) = &mut self.extensions {
                 ext.cancel_expected_target();
@@ -1366,6 +1409,9 @@ impl EngineManager {
                 allow_extension_pages,
                 isolated,
                 is_popup,
+                preview: preview_grant,
+                #[cfg(target_os = "linux")]
+                preview_spec,
                 view_state,
                 snap,
                 cdp_id_map,
@@ -1374,6 +1420,7 @@ impl EngineManager {
                 prompts,
                 menu: menu_state,
                 context: effective_context,
+                generation: tab_generation,
                 _cdp_reg: cdp_reg,
                 held_buttons: 0,
                 #[cfg(target_os = "linux")]
@@ -1382,14 +1429,14 @@ impl EngineManager {
                 frames,
             },
         );
-        if !isolated && !is_popup {
+        if !isolated && !is_preview && !is_popup {
             let effects = self
                 .extensions
                 .as_mut()
                 .map(|ext| {
                     ext.on_tab_opened(
                         tab_id,
-                        initial_url,
+                        &initial_url,
                         width_pt.round() as i32,
                         height_pt.round() as i32,
                         focused,
@@ -1404,11 +1451,8 @@ impl EngineManager {
                 ext.finish_tab_create(&sid, rpc_id, &ext_id, tab_id);
             }
         }
-        if let Some(why) = refused {
-            let _ = self.out_tx.send(EngineMsg::Refused {
-                tab_id,
-                reason: why.code().to_owned(),
-            });
+        if let Some(reason) = refused_reason {
+            let _ = self.out_tx.send(EngineMsg::Refused { tab_id, reason });
         }
     }
 
@@ -1429,57 +1473,6 @@ impl EngineManager {
         let raw = json!({ "id": id, "method": method, "params": params }).to_string();
         let _ = host.send_dev_tools_message(Some(raw.as_bytes()));
     }
-}
-
-/// Fail-closed whole-tab extension guard checked at dispatch time for every `HostMsg::CdpCall`,
-/// `SetInspect`, and `HighlightNode` (`review-rd274.md` Round-4 ruling).
-///
-/// Refuses the entire tab whenever ANY frame (main OR sub-frame) is, or is about to become, an
-/// extension frame — checking:
-/// 1. `is_popup`, snapshot URL, pending top URL, and live main-frame URL;
-/// 2. every live CEF frame via `browser.frame_identifiers()` (catches cross-process OOPIFs,
-///    Bitwarden closed-ShadowRoot overlays, and nested cross-origin iframes);
-/// 3. real CDP `frameId`s (`devtools_frame_token`) observed via `Page.frameNavigated` /
-///    `navigatedWithinDocument` / `frameDetached`;
-/// 4. pending (pre-commit) extension sub-frame navigations tracked with NO fail-open TTL.
-///
-/// Narrow sub-frame masking lives in tracked follow-up `ws9/pr1b-ext-subframe-masking` (which
-/// still gates enabling extensions for users).
-fn tab_is_extension_surface(t: &ManagedTab) -> bool {
-    if t.is_popup {
-        return true;
-    }
-    if crate::extensions::manifest::is_extension_scheme(&t.snap.lock().unwrap().url) {
-        return true;
-    }
-    if let Some(pending) = t.prompts.pending_top_url()
-        && crate::extensions::manifest::is_extension_scheme(&pending)
-    {
-        return true;
-    }
-    if t.prompts.has_cdp_ext_frames() {
-        return true;
-    }
-    if let Some(frame) = t.browser.main_frame() {
-        let live_url = CefString::from(&frame.url()).to_string();
-        if crate::extensions::manifest::is_extension_scheme(&live_url) {
-            return true;
-        }
-    }
-    let mut ids = cef::CefStringList::new();
-    t.browser.frame_identifiers(Some(&mut ids));
-    let mut live_frames: HashMap<String, String> = HashMap::new();
-    for id in ids {
-        let Some(frame) = t.browser.frame_by_identifier(Some(&CefString::from(id.as_str()))) else {
-            continue;
-        };
-        let furl = CefString::from(&frame.url()).to_string();
-        if crate::extensions::manifest::is_extension_scheme(&furl) {
-            return true;
-        }
-        live_frames.insert(id, furl);
-    }
-    t.prompts.has_pending_ext_subframes(&live_frames)
 }
 
 mod emulation;

@@ -67,7 +67,8 @@ pub use profile::shared_profile_dir;
 pub use protocol::CursorKind;
 pub use protocol::{
     AuthChallenge, ContextKind, ContextMenuCommand, DialogKind, DownloadFile, DownloadState,
-    PageContextMenu, PageDialog, PermissionKind, PermissionPrompt, RemoteProxyConfig,
+    PageContextMenu, PageDialog, PermissionKind, PermissionPrompt, PreviewKindTag, PreviewSpec,
+    RemoteProxyConfig,
 };
 pub use protocol::PickedElement;
 pub use prompts::{PermissionDecision, PermissionStore, SiteDecision, SitePermissions, SiteSetting};

@@ -53,6 +53,25 @@ pub struct TabSnapshot {
     /// Site favicon as a bounded `data:image/png;base64,...` data URL (`UP-109` `#65094`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub favicon: Option<String>,
+    /// Set on isolated `oc-preview://` tabs so browser chrome marks them as previews.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<PreviewKindTag>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PreviewKindTag {
+    Local,
+    Remote,
+    Artifact,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PreviewSpec {
+    Local { root: String, document: String },
+    Remote { root: String, session_prefix: String, document: String },
+    Artifact { artifact_id: String, path: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -95,6 +114,8 @@ pub enum HostMsg {
         /// `Private`). Non-default contexts are strictly invisible to extensions.
         #[serde(default)]
         context: ContextKind,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        preview: Option<PreviewSpec>,
         /// Legacy shorthand for `ContextKind::Private` when `context` is `Default`.
         #[serde(default)]
         isolated: bool,
@@ -170,6 +191,21 @@ pub enum HostMsg {
     AnswerAuth { tab_id: u64, id: u64, username: Option<String>, password: Option<String> },
     /// Marks a tab as agent-driven (cancels native file choosers, skips `beforeunload`, rejects HTTP auth).
     SetAgentDriven { tab_id: u64, agent_driven: bool },
+    /// App-proxied response headers for a remote workspace or artifact `EngineMsg::PreviewFetch`.
+    PreviewResponseHead {
+        req_id: u64,
+        ok: bool,
+        status: u16,
+        mime: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        content_length: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        content_range: Option<String>,
+    },
+    /// App-proxied base64 body chunk for a pending `EngineMsg::PreviewFetch`.
+    PreviewResponseChunk { req_id: u64, data_b64: String },
+    /// Marks EOF (`ok: true`) or failure (`ok: false`) for a pending `EngineMsg::PreviewFetch`.
+    PreviewResponseEnd { req_id: u64, ok: bool },
     Shutdown,
 }
 
@@ -179,8 +215,9 @@ pub enum EngineMsg {
     /// `downloads`: keeps page downloads; `policy`: enforces URL/CDP policy; `prompts`: holds
     /// dialogs/permissions/auth for the app; `popups`: routes pop-ups to managed tabs; `find`:
     /// supports in-page `FindHandler`; `context_menu`: routes right-click menus to the app;
-    /// `partitions` / `remote_proxy`: isolated `CefRequestContext` partitions; `extensions`: hosts
-    /// verified MV3 extensions over the private in-process CDP pipe.
+    /// `partitions` / `remote_proxy`: isolated `CefRequestContext` partitions; `preview`: serves
+    /// isolated `oc-preview://` tabs; `extensions`: hosts verified MV3 extensions over the private
+    /// in-process CDP pipe.
     Ready {
         chromium_major: u32,
         pid: u32,
@@ -199,8 +236,23 @@ pub enum EngineMsg {
         #[serde(default)]
         remote_proxy: bool,
         #[serde(default)]
+        preview: bool,
+        #[serde(default)]
         extensions: bool,
     },
+    /// Requests bytes for a remote workspace or artifact preview from the app host (server
+    /// credentials never enter the engine process).
+    PreviewFetch {
+        req_id: u64,
+        tab_id: u64,
+        kind: PreviewKindTag,
+        path: String,
+        method: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        range: Option<String>,
+    },
+    /// A preview page attempted to load a file outside its grant or a secret/hidden path.
+    PreviewDenied { tab_id: u64 },
     Refused { tab_id: u64, reason: String },
     Dialog { tab_id: u64, dialog: PageDialog },
     DialogsReset { tab_id: u64 },

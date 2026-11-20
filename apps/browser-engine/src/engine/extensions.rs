@@ -1,14 +1,16 @@
 //! Extension host effect runner and hidden seed-probe browser for `EngineManager`.
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use cef::{BrowserSettings, CefString, ImplBrowser, ImplBrowserHost, ImplFrame, WindowInfo};
+use serde_json::{Value, json};
 
-use super::{BASE_COLOR, EngineManager};
+use super::{BASE_COLOR, EngineManager, ManagedTab};
 use crate::handlers::{
-    TabDisplayHandler, TabExtPolicy, TabLoadHandler, TabRenderHandler, TabRequestHandler,
-    ViewRectState,
+    CdpPending, TabDisplayHandler, TabExtPolicy, TabLoadHandler, TabRenderHandler,
+    TabRequestHandler, ViewRectState,
 };
 use crate::output::Output;
 use crate::prompts::{
@@ -22,6 +24,92 @@ const MAX_PENDING_EXT_OPENS: usize = 16;
 const MAX_UNMANAGED_EXT_TABS: usize = 16;
 
 impl EngineManager {
+    pub fn shutdown_extensions(&mut self) {
+        if let Some(probe) = self.seed_probe.take() {
+            probe.close_browser(1);
+        }
+        if let Some(ext) = &self.extensions {
+            ext.close_pipe();
+        }
+        if let Some(root) = self.stub_root.take() {
+            crate::extensions::integrity::cleanup_stub_root(&root);
+        }
+    }
+
+    pub fn on_extensions_verified(&mut self, startup: crate::extensions::integrity::StartupExtensions) {
+        let effects = match &mut self.extensions {
+            Some(ext) => ext.on_startup_verified(startup),
+            None => return,
+        };
+        self.run_ext_effects(effects);
+    }
+
+    pub fn poll_extensions(&mut self) -> bool {
+        let effects = match &mut self.extensions {
+            Some(ext) => ext.drain_inbound(),
+            None => return false,
+        };
+        let had = !effects.is_empty();
+        self.run_ext_effects(effects);
+        had
+    }
+
+    pub fn on_tab_meta(
+        &mut self,
+        tab_id: u64,
+        url: Option<String>,
+        title: Option<String>,
+        loading: Option<bool>,
+    ) {
+        let is_eligible = self.tabs.get(&tab_id).is_some_and(|t| !t.isolated && !t.is_popup);
+        if !is_eligible {
+            return;
+        }
+        let Some(ext) = &mut self.extensions else { return };
+        if let Some(u) = url {
+            ext.on_tab_url_changed(tab_id, &u);
+        }
+        if let Some(t) = title {
+            ext.on_tab_title_changed(tab_id, &t);
+        }
+        if let Some(l) = loading {
+            ext.on_tab_loading_changed(tab_id, l);
+        }
+    }
+
+    pub(super) fn cmd_click_extension(&mut self, ext_id: &str) {
+        let effects = self.extensions.as_mut().map(|e| e.click_extension(ext_id)).unwrap_or_default();
+        self.run_ext_effects(effects);
+    }
+
+    pub(super) fn cmd_list_extensions(&self, request_id: u64) {
+        let extensions = self.extensions.as_ref().map(|e| e.list_actions()).unwrap_or_default();
+        let _ = self.out_tx.send(EngineMsg::ExtensionsState { request_id: Some(request_id), extensions });
+    }
+
+    pub(super) fn cmd_uninstall_extension(&mut self, ext_id: &str) {
+        let effects = self.extensions.as_mut().map(|e| e.uninstall_extension(ext_id)).unwrap_or_default();
+        self.run_ext_effects(effects);
+    }
+
+    pub(super) fn cmd_reload_extension(&mut self, ext_id: &str) {
+        let effects = self.extensions.as_mut().map(|e| e.reload_extension(ext_id)).unwrap_or_default();
+        self.run_ext_effects(effects);
+    }
+
+    pub(super) fn cmd_cancel_extension_open_tab(&mut self, request_id: u64) {
+        if let Some((sid, rpc_id, _)) = self.pending_ext_opens.remove(&request_id)
+            && let Some(ext) = &mut self.extensions
+        {
+            ext.fail_tab_create(&sid, rpc_id, "Tab open refused by browser policy.");
+        }
+    }
+
+    pub(super) fn cmd_extension_metrics(&self, request_id: u64) {
+        let metrics = self.extensions.as_ref().map(|e| e.metrics.clone()).unwrap_or_default();
+        let _ = self.out_tx.send(EngineMsg::ExtensionMetrics { request_id, metrics });
+    }
+
     pub(super) fn run_ext_effects(&mut self, effects: Vec<crate::extensions::ExtEffect>) {
         use crate::extensions::ExtEffect;
         for effect in effects {
@@ -68,6 +156,7 @@ impl EngineManager {
                             active,
                             Vec::new(),
                             ContextKind::Default,
+                            None,
                             false,
                             true,
                             false,
@@ -238,9 +327,11 @@ impl EngineManager {
             cursor: CursorKind::Default,
             load_error: None,
             favicon: None,
+            preview: None,
         }));
         let allowed_ext = vec![ext_id.clone()];
         let file_roots = Arc::new(Mutex::new(Vec::new()));
+        let context_ready = Arc::new(AtomicBool::new(true));
         let render = TabRenderHandler::new(
             u64::MAX,
             view_state,
@@ -260,6 +351,7 @@ impl EngineManager {
         );
         let display = TabDisplayHandler::new(
             u64::MAX,
+            None,
             snap.clone(),
             prompts.clone(),
             favicon,
@@ -269,6 +361,7 @@ impl EngineManager {
         let load = TabLoadHandler::new(
             u64::MAX,
             file_roots.clone(),
+            None,
             snap.clone(),
             prompts.clone(),
             diagnostics.clone(),
@@ -283,6 +376,8 @@ impl EngineManager {
                 popup_ext_id: Some(ext_id),
                 isolated: false,
             },
+            None,
+            context_ready.clone(),
             snap.clone(),
             prompt_shared.clone(),
             prompts.clone(),
@@ -293,24 +388,33 @@ impl EngineManager {
             u64::MAX,
             file_roots.clone(),
             true,
+            false,
             self.downloads.clone(),
             null_out.clone(),
         );
-        let life_span = TabLifeSpanHandler::new(u64::MAX, null_out.clone());
-        let jsdialog = TabDialogHandler::new(u64::MAX, prompt_shared.clone(), prompts.clone(), null_out.clone());
+        let life_span = TabLifeSpanHandler::new(u64::MAX, false, context_ready, null_out.clone());
+        let jsdialog = TabDialogHandler::new(
+            u64::MAX,
+            prompt_shared.clone(),
+            prompts.clone(),
+            None,
+            null_out.clone(),
+        );
         let permission = TabPermissionHandler::new(
             u64::MAX,
+            false,
             prompt_shared.clone(),
             prompts.clone(),
             snap,
             null_out.clone(),
         );
-        let dialog = TabFileDialogHandler::new(u64::MAX, prompts, null_out.clone());
+        let dialog = TabFileDialogHandler::new(u64::MAX, false, prompts, null_out.clone());
         let find = crate::find::TabFindHandler::new(u64::MAX, null_out.clone());
         let context_menu = crate::menu::TabContextMenuHandler::new(
             u64::MAX,
             prompt_shared,
             file_roots,
+            None,
             menu_state,
             null_out,
         );
@@ -352,4 +456,114 @@ impl EngineManager {
             ext.cancel_expected_target();
         }
     }
+
+    pub(super) fn handle_cdp_call(
+        &mut self,
+        tab_id: u64,
+        request_id: u64,
+        method: String,
+        params: Value,
+        session_id: Option<String>,
+    ) {
+        let Some(t) = self.tabs.get(&tab_id) else {
+            return;
+        };
+        if !self.contexts.is_tab_ready(tab_id) {
+            let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                tab_id,
+                request_id,
+                ok: false,
+                result: json!({ "message": "browser.context.initializing" }),
+            });
+            return;
+        }
+        // Reject any cross-session / OOPIF sessionId so external callers can never target
+        // extension iframes or non-page targets (`review-rd274.md` §1).
+        if session_id.is_some() {
+            let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                tab_id,
+                request_id,
+                ok: false,
+                result: json!({ "message": "Cross-session DevTools targeting is not permitted." }),
+            });
+            return;
+        }
+        // Fail closed on the entire tab whenever ANY frame (main OR sub-frame) is, or is about to
+        // become, an extension frame — checked at dispatch time on both agent-driven tabs and
+        // unflagged 3P plugin `DevtoolsAsync` tabs (`review-rd274.md` Round-4 ruling).
+        if tab_is_extension_surface(t) {
+            let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                tab_id,
+                request_id,
+                ok: false,
+                result: json!({ "message": "Agent browser tools cannot read or act on extension pages or tabs with extension frames." }),
+            });
+            return;
+        }
+        if let Err(err) = browser_policy::check_cdp(&method, &params, true) {
+            let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                tab_id,
+                request_id,
+                ok: false,
+                result: json!({ "message": err }),
+            });
+            return;
+        }
+        let msg_id = self.next_cdp_id.fetch_add(1, Ordering::Relaxed);
+        t.cdp_id_map.lock().unwrap().insert(msg_id, CdpPending::Raw(request_id));
+        let payload = json!({
+            "id": msg_id,
+            "method": method,
+            "params": params,
+        });
+        let raw = payload.to_string();
+        if t.host.send_dev_tools_message(Some(raw.as_bytes())) != 1 {
+            t.cdp_id_map.lock().unwrap().remove(&msg_id);
+            let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                tab_id,
+                request_id,
+                ok: false,
+                result: json!({ "error": "send_dev_tools_message rejected" }),
+            });
+        }
+    }
+}
+
+/// Fail-closed whole-tab extension guard checked at dispatch time for every `HostMsg::CdpCall`,
+/// `SetInspect`, and `HighlightNode` (`review-rd274.md` Round-4 ruling).
+pub(super) fn tab_is_extension_surface(t: &ManagedTab) -> bool {
+    if t.is_popup {
+        return true;
+    }
+    if crate::extensions::manifest::is_extension_scheme(&t.snap.lock().unwrap().url) {
+        return true;
+    }
+    if let Some(pending) = t.prompts.pending_top_url()
+        && crate::extensions::manifest::is_extension_scheme(&pending)
+    {
+        return true;
+    }
+    if t.prompts.has_cdp_ext_frames() {
+        return true;
+    }
+    if let Some(frame) = t.browser.main_frame() {
+        let live_url = CefString::from(&frame.url()).to_string();
+        if crate::extensions::manifest::is_extension_scheme(&live_url) {
+            return true;
+        }
+    }
+    let mut ids = cef::CefStringList::new();
+    t.browser.frame_identifiers(Some(&mut ids));
+    let mut live_frames: HashMap<String, String> = HashMap::new();
+    for id in ids {
+        let Some(frame) = t.browser.frame_by_identifier(Some(&CefString::from(id.as_str()))) else {
+            continue;
+        };
+        let furl = CefString::from(&frame.url()).to_string();
+        if crate::extensions::manifest::is_extension_scheme(&furl) {
+            return true;
+        }
+        live_frames.insert(id, furl);
+    }
+    t.prompts.has_pending_ext_subframes(&live_frames)
 }

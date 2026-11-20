@@ -3,14 +3,15 @@
 use std::collections::HashMap;
 #[cfg(target_os = "macos")]
 use std::ffi::{CString, c_char, c_void};
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use crate::output::{Output, Paint};
 use std::sync::{Arc, Mutex};
 
 use cef::rc::Rc as _;
 use cef::{
     AcceleratedPaintInfo, AuthCallback, Browser, Callback, CefString, CefStringList, CursorInfo,
-    CursorType, DevToolsMessageObserver, DisplayHandler, Errorcode, Frame, ImplDevToolsMessageObserver,
+    CursorType, DevToolsMessageObserver, DisplayHandler, Errorcode, Frame, ImplAuthCallback,
+    ImplDevToolsMessageObserver,
     ImplDisplayHandler, ImplFrame, ImplLoadHandler, ImplRenderHandler, ImplRequest,
     ImplRequestHandler, ImplResourceRequestHandler, ImplSelectClientCertificateCallback,
     LoadHandler, PaintElementType, Rect, RenderHandler, Request, RequestHandler,
@@ -321,6 +322,7 @@ wrap_render_handler! {
 wrap_display_handler! {
     pub struct TabDisplayHandler {
         tab_id: u64,
+        preview: Option<Arc<crate::preview::PreviewGrant>>,
         snap: Arc<Mutex<TabSnapshot>>,
         prompts: Arc<crate::prompts::TabPrompts>,
         favicon: Arc<crate::favicon::TabFavicon>,
@@ -340,7 +342,8 @@ wrap_display_handler! {
             }
             if let Some(url) = url {
                 let mut s = self.snap.lock().unwrap();
-                let url = url.to_string();
+                let raw = url.to_string();
+                let url = self.preview.as_ref().map_or(raw.clone(), |g| g.sanitize_reported_url(&raw));
                 // Chromium's error page commits the failed address; another address is another document.
                 if s.url != url {
                     let old_origin = crate::prompts::origin_of(&s.url);
@@ -379,6 +382,7 @@ wrap_display_handler! {
             self.favicon.fetch_candidates(
                 browser,
                 candidates,
+                self.preview.as_ref(),
                 self.snap.clone(),
                 self.out_tx.clone(),
             );
@@ -391,13 +395,19 @@ wrap_display_handler! {
                 if s.load_error.as_deref().is_some_and(|e| e != "page_crashed") {
                     return;
                 }
-                let title = title.to_string();
-                s.title = title.clone();
+                let raw = title.to_string();
+                // Never leak the internal `oc-preview://<uuid>` origin when a preview document has no <title>.
+                let display = if browser_policy::preview::is_preview_scheme(&raw) {
+                    s.url.clone()
+                } else {
+                    raw
+                };
+                s.title = display.clone();
                 let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
                 let _ = self.events.send(crate::Event::TabMeta {
                     tab_id: self.tab_id,
                     url: None,
-                    title: Some(title),
+                    title: Some(display),
                     loading: None,
                 });
             }
@@ -441,6 +451,7 @@ wrap_load_handler! {
     pub struct TabLoadHandler {
         tab_id: u64,
         file_roots: Arc<Mutex<Vec<String>>>,
+        preview: Option<Arc<crate::preview::PreviewGrant>>,
         snap: Arc<Mutex<TabSnapshot>>,
         prompts: Arc<crate::prompts::TabPrompts>,
         diagnostics: Arc<crate::diagnostics::TabDiagnostics>,
@@ -551,7 +562,8 @@ wrap_load_handler! {
                 return;
             }
             let mut s = self.snap.lock().unwrap();
-            if let Some(url) = failed_url.map(CefString::to_string).filter(|u| !u.is_empty()) {
+            if let Some(raw) = failed_url.map(CefString::to_string).filter(|u| !u.is_empty()) {
+                let url = self.preview.as_ref().map_or(raw.clone(), |g| g.sanitize_reported_url(&raw));
                 // As Desktop's tab names a failed page: its host and port.
                 let rest = url.split_once("://").map_or(url.as_str(), |(_, r)| r);
                 s.title = rest.split(['/', '?', '#']).next().unwrap_or(rest).to_owned();
@@ -580,6 +592,7 @@ wrap_load_handler! {
 wrap_resource_request_handler! {
     pub struct TabResourceRequestHandler {
         file_roots: Arc<Mutex<Vec<String>>>,
+        context_ready: Arc<AtomicBool>,
         prompts: Arc<crate::prompts::TabPrompts>,
         is_main_navigation: bool,
         is_subframe_navigation: bool,
@@ -587,7 +600,8 @@ wrap_resource_request_handler! {
 
     impl ResourceRequestHandler {
         // Sub-resources (`img`, `script`, `link`, `fetch`, `XHR`) may never read `file:` URLs
-        // outside the tab's allowed workspace roots (`pane.ts:103-107`).
+        // outside the tab's allowed workspace roots (`pane.ts:103-107`), and no non-`about:blank`
+        // request may run before an isolated context finishes preference initialization.
         fn on_before_resource_load(
             &self,
             _browser: Option<&mut Browser>,
@@ -596,6 +610,13 @@ wrap_resource_request_handler! {
             _callback: Option<&mut Callback>,
         ) -> ReturnValue {
             let url = request.map(|r| CefString::from(&r.url()).to_string()).unwrap_or_default();
+            if !self.context_ready.load(Ordering::Acquire) {
+                return if url.trim().eq_ignore_ascii_case("about:blank") {
+                    ReturnValue::CONTINUE
+                } else {
+                    ReturnValue::CANCEL
+                };
+            }
             let roots = self.file_roots.lock().unwrap().clone();
             if browser_policy::subresource_allowed(&url, &roots) {
                 ReturnValue::CONTINUE
@@ -613,6 +634,10 @@ wrap_resource_request_handler! {
             new_url: Option<&mut CefString>,
         ) {
             let Some(new_url) = new_url else { return };
+            if !self.context_ready.load(Ordering::Acquire) {
+                *new_url = CefString::from("");
+                return;
+            }
             let target = new_url.to_string();
             let roots = self.file_roots.lock().unwrap().clone();
             if !browser_policy::subresource_allowed(&target, &roots) {
@@ -659,6 +684,8 @@ wrap_request_handler! {
         tab_id: u64,
         file_roots: Arc<Mutex<Vec<String>>>,
         ext_policy: TabExtPolicy,
+        preview: Option<Arc<crate::preview::PreviewGrant>>,
+        context_ready: Arc<AtomicBool>,
         snap: Arc<Mutex<TabSnapshot>>,
         prompt_shared: crate::prompts::PromptShared,
         prompts: Arc<crate::prompts::TabPrompts>,
@@ -670,7 +697,8 @@ wrap_request_handler! {
         // Navigation and redirect guard (`chromium.ts:432-446`): main-frame navigations require
         // `about:blank`, credential-free `http:`/`https:`, a `file:` URL inside `file_roots`, or
         // (for non-isolated, non-agent user/popup tabs only) a loaded `chrome-extension://<id>/`
-        // page; popup main frames stay strictly on their own `chrome-extension://<id>/` origin;
+        // page; preview tabs stay strictly confined to their own `oc-preview://<grant_host>/`
+        // origin; popup main frames stay strictly on their own `chrome-extension://<id>/` origin;
         // isolated tabs refuse `chrome-extension:` in every frame; sub-frames additionally forbid
         // `file:` URLs outside `file_roots`.
         fn on_before_browse(
@@ -678,7 +706,7 @@ wrap_request_handler! {
             _browser: Option<&mut Browser>,
             frame: Option<&mut Frame>,
             request: Option<&mut Request>,
-            _user_gesture: ::std::os::raw::c_int,
+            user_gesture: ::std::os::raw::c_int,
             _is_redirect: ::std::os::raw::c_int,
         ) -> ::std::os::raw::c_int {
             let (is_main, sub_frame_id) = match frame {
@@ -686,6 +714,32 @@ wrap_request_handler! {
                 _ => (true, None),
             };
             let url = request.map(|r| CefString::from(&r.url()).to_string()).unwrap_or_default();
+            // Fail closed before `on_request_context_initialized` finishes verifying prefs:
+            // cancel every non-`about:blank` navigation (`review-rd281.md` #1, `review-rd-engine.md` #292 #1).
+            if !self.context_ready.load(Ordering::Acquire) {
+                return i32::from(!url.trim().eq_ignore_ascii_case("about:blank"));
+            }
+            if let Some(grant) = &self.preview {
+                if is_main {
+                    if grant.allows_main_navigation(&url) {
+                        self.prompts.set_pending_top_url(Some(url));
+                        return 0;
+                    }
+                    if user_gesture != 0
+                        && url.len() <= crate::prompts::MAX_POPUP_URL_BYTES
+                        && browser_policy::destination_origin(&url).is_some()
+                    {
+                        let _ = self.out_tx.send(EngineMsg::PopupBlocked { tab_id: self.tab_id, url });
+                    } else {
+                        let _ = self.out_tx.send(EngineMsg::Refused {
+                            tab_id: self.tab_id,
+                            reason: browser_policy::Refusal::Workspace.code().to_owned(),
+                        });
+                    }
+                    return 1;
+                }
+                return i32::from(!grant.allows_subframe_navigation(&url));
+            }
             let is_agent = self.prompts.agent_driven.load(Ordering::Relaxed);
             // Block extension-origin URLs (`chrome-extension:`, `blob:chrome-extension:`, ...) in
             // EVERY frame (main AND sub-frames) on isolated tabs and agent-driven tabs (`review-rd274.md` §1).
@@ -748,9 +802,26 @@ wrap_request_handler! {
             _frame: Option<&mut Frame>,
             target_url: Option<&CefString>,
             target_disposition: WindowOpenDisposition,
-            _user_gesture: ::std::os::raw::c_int,
+            user_gesture: ::std::os::raw::c_int,
         ) -> ::std::os::raw::c_int {
+            if !self.context_ready.load(Ordering::Acquire) {
+                return 1;
+            }
             let url = target_url.map(CefString::to_string).unwrap_or_default();
+            if self.preview.is_some() {
+                if user_gesture != 0
+                    && url.len() <= crate::prompts::MAX_POPUP_URL_BYTES
+                    && browser_policy::destination_origin(&url).is_some()
+                {
+                    let _ = self.out_tx.send(EngineMsg::PopupBlocked { tab_id: self.tab_id, url });
+                } else {
+                    let _ = self.out_tx.send(EngineMsg::Refused {
+                        tab_id: self.tab_id,
+                        reason: browser_policy::Refusal::Workspace.code().to_owned(),
+                    });
+                }
+                return 1;
+            }
             let is_agent = self.prompts.agent_driven.load(Ordering::Relaxed);
             if (self.ext_policy.isolated || is_agent)
                 && crate::extensions::manifest::is_extension_scheme(&url)
@@ -849,6 +920,12 @@ wrap_request_handler! {
             scheme: Option<&CefString>,
             callback: Option<&mut AuthCallback>,
         ) -> ::std::os::raw::c_int {
+            if self.preview.is_some() {
+                if let Some(cb) = callback {
+                    cb.cancel();
+                }
+                return 1;
+            }
             crate::prompts::handle_auth_credentials(
                 self.tab_id,
                 &self.prompt_shared,
@@ -885,17 +962,21 @@ wrap_request_handler! {
             &self,
             _browser: Option<&mut Browser>,
             frame: Option<&mut Frame>,
-            _request: Option<&mut Request>,
+            request: Option<&mut Request>,
             is_navigation: ::std::os::raw::c_int,
             _is_download: ::std::os::raw::c_int,
-            _request_initiator: Option<&CefString>,
+            request_initiator: Option<&CefString>,
             _disable_default_handling: Option<&mut ::std::os::raw::c_int>,
         ) -> Option<ResourceRequestHandler> {
+            if let Some(grant) = &self.preview {
+                return crate::preview::context::handle_resource_request(grant, frame, request, is_navigation, request_initiator);
+            }
             let is_main = frame.is_none_or(|f| f.is_main() == 1);
             let is_main_navigation = is_navigation != 0 && is_main;
             let is_subframe_navigation = is_navigation != 0 && !is_main;
             Some(TabResourceRequestHandler::new(
                 self.file_roots.clone(),
+                self.context_ready.clone(),
                 self.prompts.clone(),
                 is_main_navigation,
                 is_subframe_navigation,
