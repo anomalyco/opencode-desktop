@@ -197,7 +197,7 @@ pub fn reload(app: &mut App, i: usize, prepared: Option<hot::Prepared>) {
             services::store::withdraw_owner(&id, plugin::Kind::Window, vm);
             app.plugins.clear_model_badges(&id, vm);
             if app.plugins.dialog.as_ref().is_some_and(|d| {
-                &*d.plugin == id && !half.contribs.borrow().dialogs.iter().any(|c| c.spec.id == d.id)
+                *d.plugin == *id && !half.contribs.borrow().dialogs.iter().any(|c| c.spec.id == d.id)
             }) {
                 app.plugins.dialog = None;
                 opencode_kernel::AppOverlays::on_overlay_closed(app, "plugin.dialog");
