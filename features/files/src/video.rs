@@ -19,17 +19,15 @@ use opencode_ui::palette::{Pal, kit};
 
 use crate::FilesHost;
 
-/// What Desktop shows as a video, by extension (`util/src/artifact.ts:46-51`).
-pub fn is_video(path: &str) -> bool {
-    let name = opencode_kit::path::basename(path);
-    name.rsplit_once('.')
-        .filter(|(stem, _)| !stem.is_empty())
-        .is_some_and(|(_, e)| {
-            matches!(
-                e.to_ascii_lowercase().as_str(),
-                "mp4" | "m4v" | "webm" | "mov" | "ogv" | "mkv"
-            )
-        })
+pub use opencode_kit::path::is_video;
+
+/// Workspace movie source shared by the file viewer and chat; never fetch the entire file.
+pub fn source(server: Option<&opencode_kit::client::Server>, directory: &str, path: &str) -> String {
+    use opencode_search::query::{encode_fs_path, percent_encode};
+    match server.filter(|s| !s.is_local()) {
+        Some(s) => s.stream_url(&format!("/api/fs/read/{}?location%5Bdirectory%5D={}", encode_fs_path(path), percent_encode(directory))),
+        None => std::path::Path::new(directory).join(path).to_string_lossy().into_owned(),
+    }
 }
 
 /// `VIDEO_IDLE_MS`: how long a playing clip keeps its controls after the pointer last moved.

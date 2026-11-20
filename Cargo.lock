@@ -5560,6 +5560,7 @@ dependencies = [
  "opencode-runtime",
  "opencode-search",
  "opencode-ui",
+ "pulldown-cmark",
  "rune",
  "rune-kit",
  "rune-knobs",

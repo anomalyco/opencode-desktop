@@ -32,6 +32,7 @@ const SMALL: TextStyle = TextStyle::new(12.0, 440.0).lh(16.0);
 /// Decoded image cache, `media:` ref fetcher, and active image lightbox state.
 #[derive(Default)]
 pub struct MediaStore {
+    pub(crate) videos: crate::video::Clips,
     /// The image open in the viewer.
     pub viewing: Option<Viewing>,
     /// The open image's zoom and pan.
