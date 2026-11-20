@@ -41,7 +41,7 @@ pub struct Downloads {
     /// made): downloads then fail, and nothing is deleted.
     dir: Option<PathBuf>,
     next: AtomicU64,
-    files: Mutex<HashMap<u32, (u64, DownloadFile)>>,
+    files: Mutex<HashMap<(u64, u32), DownloadFile>>,
     /// Tabs that closed: a download of theirs still running is cancelled at its next step.
     closed: Mutex<HashSet<u64>>,
 }
@@ -61,8 +61,10 @@ impl Downloads {
     pub fn close_tab(&self, tab_id: u64) {
         self.closed.lock().unwrap().insert(tab_id);
         let files = self.files.lock().unwrap();
-        for (_, file) in files.values().filter(|(tab, _)| *tab == tab_id) {
-            remove_file_folder(&file.path);
+        for ((tab, _), file) in files.iter() {
+            if *tab == tab_id {
+                remove_file_folder(&file.path);
+            }
         }
         if let Some(dir) = &self.dir {
             // Only when empty: a folder the engine didn't fill stays.
@@ -129,7 +131,7 @@ wrap_download_handler! {
             let id = format!("file_{}", self.downloads.next.fetch_add(1, Ordering::Relaxed));
             let mime = CefString::from(&item.mime_type()).to_string();
             let mut file = DownloadFile { id, name, mime, bytes: 0, state: DownloadState::Pending, path: String::new(), error: None };
-            let held = self.downloads.files.lock().unwrap().values().filter(|(tab, _)| *tab == self.tab_id).count();
+            let held = self.downloads.files.lock().unwrap().keys().filter(|(tab, _)| *tab == self.tab_id).count();
             let fail = |mut file: DownloadFile, why: &str| {
                 file.state = DownloadState::Failed;
                 file.error = Some(why.to_owned());
@@ -147,7 +149,7 @@ wrap_download_handler! {
             let path = folder.join(safe_name(&file.name));
             file.path = path.to_string_lossy().into_owned();
             callback.cont(Some(&CefString::from(file.path.as_str())), 0);
-            self.downloads.files.lock().unwrap().insert(item.id(), (self.tab_id, file.clone()));
+            self.downloads.files.lock().unwrap().insert((self.tab_id, item.id()), file.clone());
             self.send(file);
             1
         }
@@ -158,9 +160,14 @@ wrap_download_handler! {
                     callback.cancel();
                 }
                 if let Some(item) = item
-                    && let Some((_, file)) = self.downloads.files.lock().unwrap().remove(&item.id())
+                    && let Some(mut file) = self.downloads.files.lock().unwrap().remove(&(self.tab_id, item.id()))
                 {
                     remove_file_folder(&file.path);
+                    if file.state == DownloadState::Pending {
+                        file.state = DownloadState::Failed;
+                        file.error = Some("canceled".to_owned());
+                        self.send(file);
+                    }
                 }
                 return;
             }
@@ -169,13 +176,13 @@ wrap_download_handler! {
                 if let Some(callback) = callback {
                     callback.cancel();
                 }
-                if let Some((_, file)) = self.downloads.files.lock().unwrap().remove(&item.id()) {
+                if let Some(file) = self.downloads.files.lock().unwrap().remove(&(self.tab_id, item.id())) {
                     remove_file_folder(&file.path);
                 }
                 return;
             }
             let mut files = self.downloads.files.lock().unwrap();
-            let Some((_, file)) = files.get_mut(&item.id()) else { return };
+            let Some(file) = files.get_mut(&(self.tab_id, item.id())) else { return };
             if file.state != DownloadState::Pending {
                 return;
             }

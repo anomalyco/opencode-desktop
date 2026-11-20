@@ -147,16 +147,19 @@ fn open_page_menu(app: &mut App, tab_id: u64, info: PageContextMenu, tx: &mut Tx
                     && s.workspace_panes.browser.host.tab(tab_id).is_some()
                     && let Some((agent, mut ctx)) = captured_opener.clone()
                 {
-                    if let browser_pane::ContextKind::RemoteServer { server_id, proxy } = &mut ctx {
-                        *proxy = s.workspace_panes.browser.host.remote_proxy(server_id.trim()).cloned();
-                        if proxy.is_none() {
-                            return;
+                    let proxy_ok = match &mut ctx {
+                        browser_pane::ContextKind::RemoteServer { server_id, proxy } => {
+                            *proxy = s.workspace_panes.browser.host.remote_proxy(server_id.trim()).cloned();
+                            proxy.is_some()
                         }
-                    }
-                    let sid = s.browser_tab_session(tab_id).map(str::to_owned).or_else(|| captured_sid.clone());
-                    let new_id = s.open_new_browser_tab_with_context(sid.as_deref(), &url, None, true, false, ctx);
-                    if agent {
-                        s.workspace_panes.browser.host.set_agent_driven(new_id, true);
+                        _ => true,
+                    };
+                    if proxy_ok {
+                        let sid = s.browser_tab_session(tab_id).map(str::to_owned).or_else(|| captured_sid.clone());
+                        let new_id = s.open_new_browser_tab_with_context(sid.as_deref(), &url, None, true, false, ctx);
+                        if agent {
+                            s.workspace_panes.browser.host.set_agent_driven(new_id, true);
+                        }
                     }
                 }
             }
@@ -178,16 +181,19 @@ fn open_page_menu(app: &mut App, tab_id: u64, info: PageContextMenu, tx: &mut Tx
                     && s.workspace_panes.browser.host.tab(tab_id).is_some()
                     && let Some((agent, mut ctx)) = captured_opener.clone()
                 {
-                    if let browser_pane::ContextKind::RemoteServer { server_id, proxy } = &mut ctx {
-                        *proxy = s.workspace_panes.browser.host.remote_proxy(server_id.trim()).cloned();
-                        if proxy.is_none() {
-                            return;
+                    let proxy_ok = match &mut ctx {
+                        browser_pane::ContextKind::RemoteServer { server_id, proxy } => {
+                            *proxy = s.workspace_panes.browser.host.remote_proxy(server_id.trim()).cloned();
+                            proxy.is_some()
                         }
-                    }
-                    let sid = s.browser_tab_session(tab_id).map(str::to_owned).or_else(|| captured_sid.clone());
-                    let new_id = s.open_new_browser_tab_with_context(sid.as_deref(), &url, None, true, false, ctx);
-                    if agent {
-                        s.workspace_panes.browser.host.set_agent_driven(new_id, true);
+                        _ => true,
+                    };
+                    if proxy_ok {
+                        let sid = s.browser_tab_session(tab_id).map(str::to_owned).or_else(|| captured_sid.clone());
+                        let new_id = s.open_new_browser_tab_with_context(sid.as_deref(), &url, None, true, false, ctx);
+                        if agent {
+                            s.workspace_panes.browser.host.set_agent_driven(new_id, true);
+                        }
                     }
                 }
             }
