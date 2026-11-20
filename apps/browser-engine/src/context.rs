@@ -44,13 +44,27 @@ use std::sync::{Arc, Mutex};
 
 use cef::rc::Rc as _;
 use cef::{
-    Browser, Callback, CefString, Frame, ImplCookieManager, ImplDictionaryValue,
-    ImplPreferenceManager, ImplRequest, ImplRequestContext, ImplRequestContextHandler,
-    ImplResourceRequestHandler, ImplValue, Request, RequestContext, RequestContextHandler,
-    RequestContextSettings, ResourceRequestHandler, Response, ReturnValue,
-    WrapRequestContextHandler, WrapResourceRequestHandler, sys, wrap_request_context_handler,
-    wrap_resource_request_handler,
+    Browser, Callback, CefString, CompletionCallback, Frame, ImplCompletionCallback,
+    ImplCookieManager, ImplDictionaryValue, ImplPreferenceManager, ImplRequest, ImplRequestContext,
+    ImplRequestContextHandler, ImplResourceRequestHandler, ImplValue, Request, RequestContext,
+    RequestContextHandler, RequestContextSettings, ResourceRequestHandler, Response, ReturnValue,
+    WrapCompletionCallback, WrapRequestContextHandler, WrapResourceRequestHandler, sys,
+    wrap_completion_callback, wrap_request_context_handler, wrap_resource_request_handler,
 };
+
+// CEF 156.0.26 dereferences a null `CefCompletionCallback*` (`0xC0000005` at `libcef.dll+0x2e7810`)
+// when `NetworkContext::CloseAllConnections` completes on a live `CefBrowserContext`.
+wrap_completion_callback! {
+    struct NoopCompletion;
+    impl CompletionCallback {
+        fn on_complete(&self) {}
+    }
+}
+
+fn close_connections(ctx: &RequestContext) {
+    let mut cb = NoopCompletion::new();
+    ctx.close_all_connections(Some(&mut cb));
+}
 
 use crate::wire::{ContextKind, RemoteProxyConfig};
 
@@ -219,7 +233,7 @@ struct ContextEntry {
 impl ContextEntry {
     fn teardown(&self) {
         self.deferred_loads.lock().unwrap().clear();
-        self.ctx.close_all_connections(None);
+        close_connections(&self.ctx);
         if let Some(mgr) = self.ctx.cookie_manager(None) {
             let _ = mgr.delete_cookies(None, None, None);
         }
@@ -637,7 +651,7 @@ impl ContextPool {
                 if existing.initialized.load(Ordering::Acquire) {
                     let ok = apply_context_prefs(&existing.ctx, Some(&cfg));
                     existing.prefs_ok.store(ok, Ordering::Release);
-                    existing.ctx.close_all_connections(None);
+                    close_connections(&existing.ctx);
                     if !ok {
                         return Err("browser.proxy.invalid");
                     }
@@ -730,7 +744,7 @@ impl ContextPool {
             if entry.initialized.load(Ordering::Acquire) {
                 let ok = apply_context_prefs(&entry.ctx, proxy.as_ref());
                 entry.prefs_ok.store(ok, Ordering::Release);
-                entry.ctx.close_all_connections(None);
+                close_connections(&entry.ctx);
                 if proxy.is_some() && !ok {
                     return Err("browser.proxy.invalid");
                 }
