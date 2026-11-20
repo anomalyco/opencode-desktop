@@ -45,6 +45,7 @@ impl WidgetsHost for App {
         }
         let directory = self.widget_directory(&session);
         self.job(move |srv| {
+            // Not loaded yet in the location (`rpc.unavailable`): read again on `plugin.updated`.
             let result = srv.widget_states(&directory, &session).map_err(|e| e.to_string());
             Box::new(move |s: &mut App, _tx: &mut Tx| states(s, &session, result)) as Apply
         });
@@ -55,9 +56,28 @@ impl WidgetsHost for App {
         let directory = self.widget_directory(session);
         self.job(move |srv| {
             // Compiled on the job thread too: the window only takes the finished program.
-            let result = srv.widget_program(&directory, &name, &version).map_err(|e| e.to_string()).and_then(|p| compile(&p.program)).map(Arc::new);
+            let result = srv.widget_program(&directory, &name, &version).map_err(|e| e.to_string()).and_then(|p| compile_as(&p.program, &p.mode, grant(&p.capabilities), offset(&p.program, &p.source))).map(Arc::new);
             Box::new(move |s: &mut App, _tx: &mut Tx| loaded(s, &name, &version, result)) as Apply
         });
+    }
+
+    fn post_report(&mut self, session: &str, message: &str, call: &str, error: Value) {
+        if !self.live() {
+            return;
+        }
+        let (directory, session, message, call) = (self.widget_directory(session), session.to_owned(), message.to_owned(), call.to_owned());
+        self.job(move |srv| {
+            // Best effort: the error already shows here; the agent hears of it when this goes.
+            if let Err(e) = srv.widget_report(&directory, &session, &message, &call, error) {
+                eprintln!("widget report failed: {e}");
+            }
+            Box::new(|_: &mut App, _: &mut Tx| {}) as Apply
+        });
+    }
+
+    fn widget_notify(&self) -> Arc<dyn Fn() + Send + Sync> {
+        // A run without a window (headless) has nothing to wake: its clock runs on its own.
+        (*self.waker).clone().unwrap_or_else(|| Arc::new(|| {}))
     }
 
     fn post_message(&mut self, session: &str, message: &str, call: &str, value: Value, wake: bool) {

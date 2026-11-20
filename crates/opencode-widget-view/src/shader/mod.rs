@@ -82,6 +82,19 @@ pub fn take_changed() -> bool {
     CHANGED.replace(false)
 }
 
+/// The slots whose shader didn't compile: the scope each was built in (its widget) and why.
+pub fn failures() -> Vec<(String, String)> {
+    REGISTRY.with_borrow(|r| {
+        r.marks
+            .iter()
+            .filter_map(|(key, m)| match &r.slots.get(m)?.status {
+                Status::Failed(e) => Some((key.rsplit_once('/').map_or(key.as_str(), |(scope, _)| scope).to_owned(), e.clone())),
+                _ => None,
+            })
+            .collect()
+    })
+}
+
 /// Forgets the slots `keep` doesn't name (by mark), as the GPU side drops a slot off screen.
 pub fn retain(keep: impl Fn(u32) -> bool) {
     REGISTRY.with_borrow_mut(|r| {

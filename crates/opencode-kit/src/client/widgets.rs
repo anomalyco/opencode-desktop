@@ -45,6 +45,8 @@ impl fmt::Display for WidgetError {
 pub struct WidgetProgram {
     /// `prelude + "\n" + source`.
     pub program: String,
+    /// The template's own source, the program's tail.
+    pub source: String,
     /// `"step"` or `"live"`.
     pub mode: String,
     /// What a live template may use beyond rendering (`{ https?: { hosts } }`).
@@ -81,13 +83,24 @@ impl Server {
     pub fn widget_program(&self, directory: &str, name: &str, version: &str) -> Result<WidgetProgram, WidgetError> {
         let out = self.widget_rpc(directory, "program", json!({ "name": name, "version": version }))?;
         let program = out["program"].as_str().ok_or_else(|| WidgetError::Rpc { kind: "shape".into(), message: "no program in the reply".into() })?.to_owned();
-        Ok(WidgetProgram { program, mode: out["mode"].as_str().unwrap_or("step").to_owned(), capabilities: out["capabilities"].clone() })
+        Ok(WidgetProgram { program, source: out["source"].as_str().unwrap_or("").to_owned(), mode: out["mode"].as_str().unwrap_or("step").to_owned(), capabilities: out["capabilities"].clone() })
     }
 
     /// Answers open widget `call` of `message` (`respond`): `response` is `{ value }` or
     /// `{ dismiss: true }`.
     pub fn widget_respond(&self, directory: &str, session: &str, message: &str, call: &str, response: Value) -> Result<(), WidgetError> {
         self.widget_rpc(directory, "respond", json!({ "sessionID": session, "messageID": message, "callID": call, "response": response })).map(|_| ())
+    }
+
+    /// Tells the agent that running widget `call` of `message` failed on this client (`report`):
+    /// `error` is `{ phase, message, line?, column? }`.
+    pub fn widget_report(&self, directory: &str, session: &str, message: &str, call: &str, error: Value) -> Result<(), WidgetError> {
+        self.widget_rpc(directory, "report", json!({ "sessionID": session, "messageID": message, "callID": call, "error": error, "client": "rune" })).map(|_| ())
+    }
+
+    /// Whether `e` says the plugin isn't loaded in the location yet (`rpc.unavailable`).
+    pub fn widget_unavailable(e: &WidgetError) -> bool {
+        matches!(e, WidgetError::Rpc { kind, .. } if kind == "rpc.unavailable")
     }
 
     /// Sends a non-final message from open widget `call` of `message` to the agent (`send`).

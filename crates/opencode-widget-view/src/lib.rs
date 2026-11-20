@@ -47,6 +47,8 @@ pub struct Look<'a> {
     pub dark: bool,
     /// What the widget is to the host (its message id): keeps each shader slot apart.
     pub scope: &'a str,
+    /// The capabilities granted to it, in a line ("Network: api.github.com"), when it has any.
+    pub chip: Option<&'a str>,
 }
 
 /// A lens from the host's state to a widget's [`Local`].

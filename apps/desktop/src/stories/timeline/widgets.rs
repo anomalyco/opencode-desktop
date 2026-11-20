@@ -4,7 +4,8 @@
 //! `confirm`) and their fixture data. Variants: each built-in, one another client already
 //! answered (read-only, its final view and answer), a template whose `init` throws (the error
 //! card), the `chart` canvas (bars, and a line you can choose a point on), the `backdrop`
-//! shader (plasma, aurora), and a shader whose WGSL doesn't compile. R replays; E answers it from another client, D dismisses it from one. Pictures
+//! shader (plasma, aurora), a shader whose WGSL doesn't compile, and the live `minigame`, whose
+//! program runs on a thread of its own. R replays; E answers it from another client, D dismisses it from one. Pictures
 //! come from the storybook, never the web.
 
 use std::sync::Arc;
@@ -28,6 +29,8 @@ pub const VARIANTS: &[(&str, usize)] = &[
     ("Backdrop", 7),
     ("Backdrop aurora", 8),
     ("Broken shader", 9),
+    ("Minigame (live)", 10),
+    ("Live runaway", 11),
 ];
 pub const KEYS: &[Trigger] = &[
     replay(open),
@@ -46,6 +49,9 @@ const ID: &str = "msg_zzzzstorywidget";
 const CALL: &str = "call_storywidget";
 const BROKEN: &str = "story-broken";
 const BROKEN_SHADER: &str = "story-broken-shader";
+/// A live template granted the network that, half a second in, runs without awaiting: the 50 ms
+/// rule stops it, and it shows its last view with why and Restart.
+const RUNAWAY: &str = "story-runaway";
 /// Where the story's pictures say they are; [`serve`] answers for them.
 const PICTURES: &str = "https://pictures.story.example/";
 
@@ -63,6 +69,8 @@ fn template(v: usize) -> &'static str {
         5 | 6 => "chart",
         7 | 8 => "backdrop",
         9 => BROKEN_SHADER,
+        10 => "minigame",
+        11 => RUNAWAY,
         _ => "suggestions",
     }
 }
@@ -120,6 +128,8 @@ fn data(v: usize) -> (&'static str, Value) {
         7 => ("Launch banner", json!({ "title": "Rune 1.0 is out", "text": "Native **GPU** rendering, now with widgets.", "preset": "plasma" })),
         8 => ("Aurora", json!({ "title": "Northern lights", "text": "An aurora drawn by a WGSL shader.", "preset": "aurora" })),
         9 => ("Broken shader", json!({})),
+        10 => ("Tap the dots", json!({ "title": "Tap the dots", "seconds": 20 })),
+        11 => ("Price ticker", json!({})),
         _ => ("Pick a hero image", json!({
             "title": "Which hero image should the landing page use?",
             "options": [
@@ -149,18 +159,23 @@ fn open(s: &mut App, tx: &mut Play<App>) {
     serve(s);
     for name in fixtures::BUILTINS {
         if let Some(program) = fixtures::program(name) {
-            preload(s, name, &version(name), &program);
+            preload(s, name, &version(name), &program, fixtures::mode(name), &Value::Null);
         }
     }
     // Throws in `init`: the error card, with Try again.
     let broken = format!("{}\nfunction view(state, data) {{\n  return ui.text(data.sections.length + \" sections\")\n}}", fixtures::PRELUDE);
-    preload(s, BROKEN, &version(BROKEN), &broken);
+    preload(s, BROKEN, &version(BROKEN), &broken, "step", &Value::Null);
     // A shader whose WGSL doesn't compile: its alt, with the compiler's message.
     let shader = format!(
         "{}\nfunction view(state, data) {{\n  return ui.column({{ gap: 2 }}, [ui.text(\"A broken shader\", {{ style: \"title\" }}), ui.shader(\"fn shade(frag: vec2f) -> vec4f {{ return vec4f(glow, 0.0, 0.0, 1.0); }}\", {{ height: 120, alt: \"A red glow\" }})])\n}}",
         fixtures::PRELUDE
     );
-    preload(s, BROKEN_SHADER, &version(BROKEN_SHADER), &shader);
+    preload(s, BROKEN_SHADER, &version(BROKEN_SHADER), &shader, "step", &Value::Null);
+    let runaway = format!(
+        "{}\nasync function main(data) {{\n  widget.render(ui.column({{ gap: 2 }}, [ui.text(\"Price ticker\", {{ style: \"title\" }}), ui.text(\"BTC 97,412.50 · ETH 3,604.12\", {{ style: \"body\" }})]))\n  await widget.sleep(500)\n  while (true) {{}}\n}}",
+        fixtures::PRELUDE
+    );
+    preload(s, RUNAWAY, &version(RUNAWAY), &runaway, "live", &json!({ "https": { "hosts": ["api.coingecko.com"] } }));
     tx.after(0.3, |s, tx| post(s, tx));
     if *s.fixture_run.variant == 3 {
         tx.after(0.9, |s, tx| answer_elsewhere(s, tx));

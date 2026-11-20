@@ -4062,6 +4062,8 @@ dependencies = [
  "rune",
  "serde_json",
  "session-view",
+ "ureq",
+ "url",
 ]
 
 [[package]]
@@ -4260,9 +4262,11 @@ dependencies = [
 name = "opencode-widget"
 version = "0.0.1"
 dependencies = [
+ "base64 0.22.1",
  "psychoscript",
  "serde",
  "serde_json",
+ "url",
 ]
 
 [[package]]

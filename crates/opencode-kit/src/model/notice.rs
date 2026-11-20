@@ -58,6 +58,8 @@ pub enum WidgetNote {
     Response,
     /// A message it sent while staying open (`send`).
     Message,
+    /// A client reported that running it failed (`report`).
+    Error,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -212,7 +214,11 @@ fn kind(ty: &str, m: &Value) -> Option<NoticeKind> {
         "synthetic" if m["metadata"]["widget"].is_object() => {
             let w = &m["metadata"]["widget"];
             let text = m["text"].as_str().unwrap_or("");
-            let note = if w["kind"] == "message" { WidgetNote::Message } else { WidgetNote::Response };
+            let note = match w["kind"].as_str() {
+                Some("message") => WidgetNote::Message,
+                Some("error") => WidgetNote::Error,
+                _ => WidgetNote::Response,
+            };
             let label = description.map(str::to_owned).unwrap_or_else(|| text.lines().next().unwrap_or("").to_owned());
             NoticeKind::Widget { message: s(&w["messageID"]), call: s(&w["callID"]), note, label }
         }

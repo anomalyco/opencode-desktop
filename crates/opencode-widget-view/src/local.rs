@@ -83,6 +83,16 @@ pub struct Pager {
     wheel: Wheel,
 }
 
+/// The canvas a live program's frames are for.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LiveCanvas {
+    pub id: Option<String>,
+    /// Its logical size, once laid out.
+    pub size: Option<[f32; 2]>,
+    /// Where the pointer is over it.
+    pub pointer: Option<opencode_widget::draw::Pointer>,
+}
+
 /// One widget's view-local state.
 #[derive(Clone, Debug, Default)]
 pub struct Local {
@@ -93,12 +103,50 @@ pub struct Local {
     canvases: HashMap<String, Canvas>,
     /// Bumped on every change a build reads, for hosts that memoize the widget's row.
     version: u64,
+    /// The widget is on screen (a live program runs only while it is).
+    shown: bool,
+    /// Builds of the widget's frame: one that stops counting sits in a window that doesn't draw.
+    builds: std::cell::Cell<u64>,
 }
 
 impl Local {
     /// A number that moves whenever anything a build reads here changed.
     pub fn version(&self) -> u64 {
         self.version
+    }
+
+    /// Whether the widget is on screen.
+    pub fn shown(&self) -> bool {
+        self.shown
+    }
+
+    /// The widget came on screen, or left it.
+    pub fn set_shown(&mut self, on: bool) {
+        self.shown = on;
+    }
+
+    /// A live program drew canvas `id` of `view`: it shows `commands` until the next draw.
+    pub fn canvas_posted(&mut self, view: &Node, id: &str, commands: Vec<Command>) {
+        let Some((path, ..)) = canvases(view).into_iter().find(|(_, i, _)| i.as_deref() == Some(id)) else { return };
+        self.canvases.entry(path).or_default().phase = crate::canvas::state::Phase::Settled { commands: std::rc::Rc::new(commands) };
+        self.version += 1;
+    }
+
+    /// The first canvas of `view`, which a live program's frame is for. None when the view has
+    /// no canvas.
+    pub fn live_canvas(&self, view: &Node) -> Option<LiveCanvas> {
+        let (path, id, _) = canvases(view).into_iter().next()?;
+        let c = self.canvases.get(&path);
+        Some(LiveCanvas { id, size: c.and_then(|c| c.size), pointer: c.and_then(|c| c.pointer) })
+    }
+
+    /// The widget's frame was built (drawn).
+    pub fn built(&self) {
+        self.builds.set(self.builds.get() + 1);
+    }
+
+    pub fn builds(&self) -> u64 {
+        self.builds.get()
     }
 
     /// Catches up with a new view from a step: inputs not being typed in take the view's value,

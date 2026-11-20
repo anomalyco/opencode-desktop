@@ -39,6 +39,7 @@ fn words() -> Rc<Words> {
             loading: opencode_i18n::t!("rune.widget.loading").to_owned(),
             failed: opencode_i18n::t!("rune.widget.failed").to_owned(),
             retry: opencode_i18n::t!("rune.widget.retry").to_owned(),
+            restart: opencode_i18n::t!("rune.widget.restart").to_owned(),
             sending: opencode_i18n::t!("rune.widget.sending").to_owned(),
             submitted: opencode_i18n::t!("rune.widget.submitted").to_owned(),
             dismissed: opencode_i18n::t!("rune.widget.dismissed").to_owned(),
@@ -51,9 +52,10 @@ fn words() -> Rc<Words> {
 }
 
 /// Widget `id` (its key) of session `session`, called `label`, in its frame, as `face` shows
-/// it. `retry` is what Try again does on a failed one.
+/// it. `retry` is what Try again (or Restart) does on a failed one; `chip` names the
+/// capabilities granted to it.
 #[allow(clippy::too_many_arguments)]
-pub fn frame<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, label: &str, face: Face<'_>, local: &Local, hooks: Option<&Hooks<S>>, retry: Option<Action<S>>) -> El {
+pub fn frame<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, label: &str, face: Face<'_>, local: &Local, hooks: Option<&Hooks<S>>, retry: Option<Action<S>>, chip: Option<&str>) -> El {
     let width = crate::style::content_w();
     let store = s.media_store().markdown.clone();
     let directory = s.session_directory(session);
@@ -62,6 +64,11 @@ pub fn frame<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, label: &s
     let image = |src: &str| if src.starts_with("data:") { store.data_image(src) } else { store.image(directory, src) };
     let markdown = |src: &str| crate::style::markdown_tinted::<S>(p, src, 1.0, false, p.text, width - 2.0 * FRAME_PAD);
     let words = words();
-    let look = Look { kit: crate::palette::kit(p), markdown: &markdown, image: &image, words: &words, width, scale: crate::scroller::device_scale(), dark: p.dark, scope: id };
+    let look = Look { kit: crate::palette::kit(p), markdown: &markdown, image: &image, words: &words, width, scale: crate::scroller::device_scale(), dark: p.dark, scope: id, chip };
     opencode_widget_view::frame(&look, local, hooks, face, label, retry).key(format!("widget-{id}"))
+}
+
+/// The chip naming a widget's granted network hosts.
+pub fn network_chip(hosts: &[String]) -> String {
+    opencode_i18n::t!("rune.widget.network", hosts = hosts.join(", ")).to_string()
 }

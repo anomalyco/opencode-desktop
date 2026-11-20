@@ -496,6 +496,8 @@ impl App {
             self.worktree_updated(project);
         }
         if ty == "plugin.updated" {
+            // The widgets plugin may have just loaded where its states couldn't be read.
+            crate::session::widgets::plugins_changed(self);
             let loc = data["eventLocation"]["directory"].as_str();
             crate::settings::pages::extensions::on_plugin_updated(self);
             crate::settings::pages::project_extensions::on_updated(self, loc);

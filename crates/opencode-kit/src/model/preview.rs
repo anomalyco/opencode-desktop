@@ -496,7 +496,11 @@ fn notice(w: &mut W, n: &Notice) {
             w.0.push(11);
             w.s(message);
             w.s(call);
-            w.b(*note == super::WidgetNote::Message);
+            w.0.push(match note {
+                super::WidgetNote::Response => 0,
+                super::WidgetNote::Message => 1,
+                super::WidgetNote::Error => 2,
+            });
             w.s(label);
         }
         NoticeKind::Text(t) => {
@@ -571,7 +575,11 @@ fn read_notice(r: &mut R<'_>) -> Option<Notice> {
         11 => NoticeKind::Widget {
             message: r.s()?,
             call: r.s()?,
-            note: if r.b()? { super::WidgetNote::Message } else { super::WidgetNote::Response },
+            note: match r.u8()? {
+                1 => super::WidgetNote::Message,
+                2 => super::WidgetNote::Error,
+                _ => super::WidgetNote::Response,
+            },
             label: r.s()?,
         },
         _ => return None,

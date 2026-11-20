@@ -19,6 +19,9 @@ session-view = { path = "../../crates/session-view" }
 # show as unsupported in the browser build.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 opencode-widget = { path = "../../crates/opencode-widget", features = ["runner"] }
+# A live widget's `fetch` (`transport.rs`).
+ureq = { workspace = true, features = ["rustls"] }
+url = "2"
 
 [lints]
 workspace = true

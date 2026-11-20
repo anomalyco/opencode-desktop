@@ -7,25 +7,29 @@
 //!
 //! The host fetches states and programs and posts answers off the UI thread ([`WidgetsHost`]);
 //! steps run here, synchronously, as the contract allows for v1 (well under a millisecond each,
-//! under a 250 ms budget). Drawing goes through `session_view::widget::frame` ([`view`]).
+//! under a 250 ms budget). A live template's program runs on a thread of its own ([`live`]).
+//! Drawing goes through `session_view::widget::frame` ([`view`]).
 
 #![forbid(unsafe_code)]
 
 mod engine;
+mod live;
+#[cfg(not(target_arch = "wasm32"))]
+mod transport;
 
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
 use opencode_kit::model::{WidgetCall, WidgetState, WidgetStatus, widget_key};
-use opencode_widget::{Closed, Effect, Event, Face, Phase, Status, Widget, WidgetEvent};
+use opencode_widget::{Closed, Effect, Event, Face, Mode, Phase, Status, Widget, WidgetEvent};
 use opencode_widget_view::{Hooks, Local};
 use rune::{El, Tx};
 use session_view::TimelineHost;
 use session_view::palette::Pal;
 use serde_json::Value;
 
-pub use engine::{Program, compile};
+pub use engine::{Compiled, Grants, Kind, Program, compile, compile_as, offset};
 pub use opencode_widget::{RespondError, fixtures};
 /// The shader slots' GPU side, for the host's compositor.
 pub use opencode_widget_view::shader;
@@ -33,7 +37,7 @@ pub use opencode_widget_view::shader;
 /// A template version's program, as far as this window has it.
 pub enum Template {
     Fetching,
-    Ready(Arc<Program>),
+    Ready(Arc<Compiled>),
     Failed(String),
 }
 
@@ -51,6 +55,10 @@ pub struct Entry {
     pub local: Local,
     /// The status as last read, so a change reaches the machine once.
     seen: WidgetStatus,
+    /// Its live program, when it runs one.
+    run: live::Run,
+    /// The errors reported for it (phase and message), each once.
+    reported: std::collections::HashSet<String>,
 }
 
 /// A session's widget states, as the plugin keeps them.
@@ -128,6 +136,18 @@ pub trait WidgetsHost {
     /// Posts `value` as a message from open widget `call` of `message` (`send`) off the UI
     /// thread; answers with [`sent`].
     fn post_message(&mut self, session: &str, message: &str, call: &str, value: Value, wake: bool);
+    /// Tells the agent widget `call` of `message` failed here (`report`, `error`: `{ phase,
+    /// message, line?, column? }`), off the UI thread; nothing answers.
+    fn post_report(&mut self, session: &str, message: &str, call: &str, error: Value);
+    /// Wakes the window from another thread: a live program posted or wants a frame.
+    fn widget_notify(&self) -> Arc<dyn Fn() + Send + Sync>;
+}
+
+/// The one place a template's declared capabilities become what it may use. For now every
+/// declared capability is granted (`widgets-live.md`, Capabilities); a permission prompt would
+/// decide here.
+pub fn grant(capabilities: &Value) -> Grants {
+    Grants::declared(capabilities)
 }
 
 fn status(m: &WidgetStatus) -> Status {
@@ -138,22 +158,13 @@ fn status(m: &WidgetStatus) -> Status {
     }
 }
 
-/// The view a machine shows now, for the local state to catch up with.
-fn shown(w: &Widget) -> Option<&opencode_widget::Node> {
-    match &w.phase {
-        Phase::Ready { view, .. } | Phase::Stepping { view, .. } | Phase::Responding { view, .. } => Some(view),
-        Phase::Closed { view, .. } => view.as_ref(),
-        Phase::Loading { .. } | Phase::Starting { .. } | Phase::Failed { .. } => None,
-    }
-}
-
 /// Steps widget `id` by `event` and runs what it asks for, steps included, until it rests.
 pub fn advance(host: &mut dyn WidgetsHost, id: &str, event: Event) {
     let mut queue = vec![event];
     while let Some(event) = queue.pop() {
         let Some(e) = host.widgets_mut().entries.get_mut(id) else { return };
         let effects = opencode_widget::machine::step(&mut e.machine, event);
-        if let Some(view) = shown(&e.machine) {
+        if let Some(view) = e.machine.view() {
             e.local.sync(view);
         }
         for effect in effects {
@@ -172,7 +183,7 @@ fn run(host: &mut dyn WidgetsHost, id: &str, effect: Effect) -> Option<Event> {
     };
     match effect {
         Effect::Fetch => match host.widgets().templates.get(&key) {
-            Some(Template::Ready(_)) => Some(Event::Loaded),
+            Some(Template::Ready(c)) => Some(Event::Loaded(mode(c))),
             Some(Template::Failed(m)) => Some(Event::LoadFailed(m.clone())),
             Some(Template::Fetching) => None,
             None => {
@@ -185,10 +196,30 @@ fn run(host: &mut dyn WidgetsHost, id: &str, effect: Effect) -> Option<Event> {
         },
         Effect::Run(input) => {
             let result = match host.widgets().templates.get(&key) {
-                Some(Template::Ready(p)) => engine::step(p, &input),
-                _ => Err("the widget's program isn't loaded".to_owned()),
+                Some(Template::Ready(c)) => match &c.kind {
+                    Kind::Step(p) => engine::step(p, &input).map_err(|f| (f, c.offset)),
+                    Kind::Live { .. } => return Some(Event::Ran(Err("a live widget has no steps".to_owned()))),
+                },
+                _ => return Some(Event::Ran(Err("the widget's program isn't loaded".to_owned()))),
             };
+            let result = result.map_err(|(f, offset)| {
+                let phase = if f.view { "view" } else if matches!(input, opencode_widget::StepInput::Init { .. }) { "init" } else { "update" };
+                report(host, id, phase, &f.message, f.location, offset);
+                f.message
+            });
             Some(Event::Ran(result))
+        }
+        Effect::Start => {
+            live::start(host, id);
+            None
+        }
+        Effect::Deliver(event) => {
+            live::deliver(host, id, &event);
+            None
+        }
+        Effect::Stop => {
+            live::stop(host, id);
+            None
         }
         Effect::Respond { response, attempt } => {
             host.post_response(&session, &message, &call, response.body(), attempt);
@@ -201,11 +232,18 @@ fn run(host: &mut dyn WidgetsHost, id: &str, effect: Effect) -> Option<Event> {
     }
 }
 
+fn mode(c: &Compiled) -> Mode {
+    match c.kind {
+        Kind::Live { .. } => Mode::Live,
+        Kind::Step(_) => Mode::Step,
+    }
+}
+
 /// `name@version`'s program came back (compiled), or why it couldn't.
-pub fn loaded(host: &mut dyn WidgetsHost, name: &str, version: &str, result: Result<Arc<Program>, String>) {
+pub fn loaded(host: &mut dyn WidgetsHost, name: &str, version: &str, result: Result<Arc<Compiled>, String>) {
     let key = format!("{name}@{version}");
     let event = match &result {
-        Ok(_) => Event::Loaded,
+        Ok(c) => Event::Loaded(mode(c)),
         Err(m) => Event::LoadFailed(m.clone()),
     };
     let slot = match result {
@@ -221,13 +259,18 @@ pub fn loaded(host: &mut dyn WidgetsHost, name: &str, version: &str, result: Res
         .map(|(id, _)| id.clone())
         .collect();
     for id in waiting {
+        if let Event::LoadFailed(m) = &event {
+            report(host, &id, "load", m, None, 0);
+        }
         advance(host, &id, event.clone());
     }
 }
 
-/// Seeds `name@version` with a program compiled here (stories, fixtures).
-pub fn preload(host: &mut dyn WidgetsHost, name: &str, version: &str, program: &str) {
-    let result = compile(program).map(Arc::new);
+/// Seeds `name@version` with a program compiled here (stories, fixtures): `mode` `"step"` or
+/// `"live"`, granted the `capabilities` it declares.
+pub fn preload(host: &mut dyn WidgetsHost, name: &str, version: &str, program: &str, mode: &str, capabilities: &Value) {
+    let lines = fixtures::PRELUDE.matches('\n').count() as u32 + 1;
+    let result = compile_as(program, mode, grant(capabilities), lines).map(Arc::new);
     loaded(host, name, version, result);
 }
 
@@ -295,6 +338,18 @@ pub fn changed(host: &mut dyn WidgetsHost, data: &Value) -> bool {
     true
 }
 
+/// Plugins changed in a location (`plugin.updated`): sessions whose states couldn't be read
+/// (the widgets plugin wasn't loaded yet) are read again.
+pub fn plugins_changed(host: &mut dyn WidgetsHost) {
+    let failed: Vec<String> = host.widgets().sessions.iter().filter(|(_, s)| matches!(s.states, States::Failed)).map(|(id, _)| id.clone()).collect();
+    for session in failed {
+        if let Some(s) = host.widgets_mut().sessions.get_mut(&session) {
+            s.states = States::Fetching;
+        }
+        host.fetch_states(&session);
+    }
+}
+
 /// The connection came back: events published meanwhile were missed, so each session's states
 /// are read again when it next shows.
 pub fn reconnected(host: &mut dyn WidgetsHost) {
@@ -341,7 +396,7 @@ pub fn sync(host: &mut dyn WidgetsHost) -> bool {
             None => {
                 let (machine, effects) = Widget::open(c.data().clone(), status(&state.status));
                 let label = c.input["title"].as_str().filter(|t| !t.is_empty()).unwrap_or(state.label()).to_owned();
-                let entry = Entry { session: session.clone(), message: c.message.clone(), call: c.call.clone(), template: state.template_key(), label, machine, local: Local::default(), seen: state.status.clone() };
+                let entry = Entry { session: session.clone(), message: c.message.clone(), call: c.call.clone(), template: state.template_key(), label, machine, local: Local::default(), seen: state.status.clone(), run: live::Run::default(), reported: Default::default() };
                 host.widgets_mut().entries.insert(key.clone(), entry);
                 for effect in effects {
                     if let Some(next) = run(host, &key, effect) {
@@ -360,7 +415,10 @@ pub fn sync(host: &mut dyn WidgetsHost) -> bool {
 pub fn draw_canvases(host: &mut dyn WidgetsHost, now: f64, tx: &mut Tx) -> bool {
     let mut wake: Option<f64> = None;
     let mut any = false;
-    for e in host.widgets().entries.values() {
+    let w = host.widgets();
+    // A live program draws its canvases itself.
+    let steps = |e: &Entry| matches!(w.templates.get(&e.template), Some(Template::Ready(c)) if matches!(c.kind, Kind::Step(_)));
+    for e in w.entries.values().filter(|e| steps(e)) {
         let Some(view) = e.machine.view() else { continue };
         any |= e.local.canvases_want(view, now);
         if let Some(at) = e.local.canvas_next(view) {
@@ -374,26 +432,59 @@ pub fn draw_canvases(host: &mut dyn WidgetsHost, now: f64, tx: &mut Tx) -> bool 
         return false;
     }
     let (scale, dark) = opencode_widget_view::appearance();
+    let mut failed = Vec::new();
     let Widgets { templates, entries, .. } = host.widgets_mut();
-    for e in entries.values_mut() {
+    for (id, e) in entries.iter_mut() {
         let Entry { machine, local, template, .. } = e;
         let (Some(view), Some(state)) = (machine.view(), machine.state()) else { continue };
-        let Some(Template::Ready(program)) = templates.get(template.as_str()) else { continue };
+        let Some(Template::Ready(c)) = templates.get(template.as_str()) else { continue };
+        let Kind::Step(program) = &c.kind else { continue };
         for (path, frame) in local.canvases_due(view, now, f64::from(scale), dark) {
-            let result = engine::draw(program, &machine.data, state, &frame);
+            let result = engine::draw(program, &machine.data, state, &frame).map_err(|f| {
+                let message = f.message.clone();
+                failed.push((id.clone(), f, c.offset));
+                message
+            });
             local.canvas_drawn(view, &path, now, result);
         }
     }
+    for (id, f, offset) in failed {
+        report(host, &id, "draw", &f.message, f.location, offset);
+    }
     true
+}
+
+/// Tells the agent widget `id` failed here (`report`), once per distinct error: `phase` is where
+/// (`init`, `update`, `view`, `draw`, `main`, `shader`, `fetch`, `load`), `location` the line
+/// and column in the program, less `offset` lines to be in the template's source.
+pub(crate) fn report(host: &mut dyn WidgetsHost, id: &str, phase: &str, message: &str, location: Option<(u32, u32)>, offset: u32) {
+    let Some(e) = host.widgets_mut().entries.get_mut(id) else { return };
+    if !e.machine.open_here() && !matches!(e.machine.phase, Phase::Starting { .. } | Phase::Failed { .. } | Phase::Stopped { .. } | Phase::Loading { .. }) {
+        return;
+    }
+    if !e.reported.insert(format!("{phase}\n{message}")) {
+        return;
+    }
+    let mut error = serde_json::json!({ "phase": phase, "message": message });
+    if let Some((line, column)) = location.filter(|(l, _)| *l > offset) {
+        error["line"] = (line - offset).into();
+        error["column"] = column.into();
+    }
+    let (session, message, call) = (e.session.clone(), e.message.clone(), e.call.clone());
+    host.post_report(&session, &message, &call, error);
 }
 
 /// Commits typing whose debounce ran out or whose field lost focus, and asks to wake for the
 /// next debounce; draws due canvases; and builds widgets again whose shader's status changed.
 pub fn poll(host: &mut dyn WidgetsHost, now: f64, tx: &mut Tx) -> bool {
     let mut changed = draw_canvases(host, now, tx);
+    changed |= live::poll(host, now, tx);
     if opencode_widget_view::shader::take_changed() {
-        // The shader's slot failed or froze: its widget builds again to say so.
-        host.widgets_mut();
+        // The shader's slot failed or froze: its widget builds again to say so, and the agent
+        // hears of a shader that didn't compile.
+        for (scope, message) in opencode_widget_view::shader::failures() {
+            report(host, &scope, "shader", &message, None, 0);
+        }
         changed = true;
     }
     if !host.widgets().pending() {
@@ -443,7 +534,7 @@ pub fn view<H: WidgetsHost + TimelineHost>(s: &H, p: &Pal, session: &str, messag
             Some(how) => Face::Closed { view: None, how },
             None => Face::Loading,
         };
-        return Some(session_view::widget::frame(s, p, session, &key, label, face, &Local::default(), None, None));
+        return Some(session_view::widget::frame(s, p, session, &key, label, face, &Local::default(), None, None, None));
     };
     let (lens, emit, again) = (key.clone(), key.clone(), key.clone());
     let hooks: Hooks<H> = Hooks {
@@ -451,7 +542,15 @@ pub fn view<H: WidgetsHost + TimelineHost>(s: &H, p: &Pal, session: &str, messag
         emit: Rc::new(move |s: &mut H, ev: WidgetEvent, _tx: &mut Tx| input(s, &emit, ev)),
     };
     let retry: opencode_widget_view::Action<H> = Rc::new(move |s: &mut H, _tx: &mut Tx| retry(s, &again));
-    Some(session_view::widget::frame(s, p, session, &key, &e.label, e.machine.face(), &e.local, Some(&hooks), Some(retry)))
+    // The hosts it may reach, when its template is granted the network.
+    let chip = match s.widgets().templates.get(&e.template) {
+        Some(Template::Ready(c)) => match &c.kind {
+            Kind::Live { grants: Grants { https: Some(hosts), .. }, .. } => Some(session_view::widget::network_chip(hosts)),
+            _ => None,
+        },
+        _ => None,
+    };
+    Some(session_view::widget::frame(s, p, session, &key, &e.label, e.machine.face(), &e.local, Some(&hooks), Some(retry), chip.as_deref()))
 }
 
 /// How a widget ended, from its state alone.

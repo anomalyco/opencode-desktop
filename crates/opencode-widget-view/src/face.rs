@@ -17,6 +17,8 @@ pub struct Words {
     pub loading: String,
     pub failed: String,
     pub retry: String,
+    /// Starts a live widget that stopped again.
+    pub restart: String,
     pub sending: String,
     pub submitted: String,
     pub dismissed: String,
@@ -31,6 +33,7 @@ impl Default for Words {
             loading: "Loading widget…".into(),
             failed: "This widget couldn't be shown".into(),
             retry: "Try again".into(),
+            restart: "Restart".into(),
             sending: "Sending…".into(),
             submitted: "Submitted".into(),
             dismissed: "Dismissed".into(),
@@ -73,6 +76,7 @@ fn status(k: &Kit, glyph: &'static rune::Icon, tint: rune::Color, words: &str, d
 /// The widget in its frame. `title` names it (the message's title, or its template's name);
 /// `retry` is what Try again does on a failed one.
 pub fn frame<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, face: Face<'_>, title: &str, retry: Option<Action<S>>) -> El {
+    local.built();
     let k = look.kit;
     let c = &k.c;
     let body: Vec<El> = match face {
@@ -90,10 +94,13 @@ pub fn frame<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, f
             }
             b
         }
-        Face::Live { view: v, live, sending, error } => {
+        Face::Live { view: v, live, sending, error, restart } => {
             let mut b = vec![view(look, local, hooks, v, live).key("view")];
             if let Some(e) = error {
                 b.push(status(k, k.glyph.circle_x, c.danger.icon, e, None).key("error"));
+            }
+            if let (true, Some(retry)) = (restart, retry) {
+                b.push(row().key("actions").child(Button::new(look.words.restart.clone()).variant(ButtonVariant::Neutral).on_press_tx(move |s: &mut S, tx: &mut Tx| retry(s, tx)).build(k)));
             }
             if sending {
                 b.push(row().key("sending").gap(8.0).items_center().child(Loader::new().size(12.0).build(k)).child(text(look.words.sending.clone()).font(k.ty.small.lh(16.0)).color(c.text_muted)));
@@ -109,7 +116,13 @@ pub fn frame<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, f
             b
         }
     };
-    col()
+    // What the widget may do beyond drawing, granted (a live widget's `fetch`): "Network: api.github.com".
+    let chip = look.chip.map(|chip| {
+        row().key("capabilities").child(
+            text(chip.to_owned()).key("chip").font(k.ty.small.lh(16.0)).color(c.text_muted).truncate().px(8.0).py(2.0).radius(8.0).border(1.0, c.border_weak),
+        )
+    });
+    let mut frame = col()
         .w_full()
         .max_w(look.width)
         .gap(12.0)
@@ -118,5 +131,12 @@ pub fn frame<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, f
         .border(1.0, c.border_weak)
         .role("group")
         .label(title.to_owned())
-        .children(body)
+        .children(chip)
+        .children(body);
+    // Whether it shows: a live widget runs only while it does.
+    if let Some(h) = hooks {
+        let lens = h.local.clone();
+        frame = frame.on_visible(move |s: &mut S, on, _tx: &mut Tx| (lens)(s).set_shown(on));
+    }
+    frame
 }
