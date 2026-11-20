@@ -213,6 +213,7 @@ struct ManagedTab {
     pending_clears: Arc<Mutex<Vec<PendingClear>>>,
     prompts: Arc<crate::prompts::TabPrompts>,
     menu: Arc<crate::menu::TabMenuState>,
+    context: crate::wire::ContextKind,
     _cdp_reg: Option<Registration>,
     held_buttons: u32,
     /// Linux: whether it's the tab the app shows (`HostMsg::FocusTab`), to open it again so.
@@ -236,6 +237,8 @@ pub struct EngineManager {
     downloads: Arc<crate::downloads::Downloads>,
     /// Shared prompt-handling toggle (`Hello.prompts`) and monotonic ID counter.
     prompt_shared: crate::prompts::PromptShared,
+    /// Shared pool of isolated `CefRequestContext`s for previews and remote servers.
+    contexts: crate::context::ContextPool,
     /// Windows: the D3D11 device frames are copied on; None renders on the CPU instead.
     #[cfg(windows)]
     gpu: Option<Arc<crate::d3d_frames::Gpu>>,
@@ -252,9 +255,9 @@ impl EngineManager {
     pub fn new(
         out_tx: crate::output::Output,
         downloads: std::path::PathBuf,
+        events: std::sync::mpsc::Sender<crate::Event>,
         #[cfg(windows)] gpu: Option<Arc<crate::d3d_frames::Gpu>>,
         #[cfg(target_os = "linux")] transport: crate::dmabuf_frames::Transport,
-        #[cfg(target_os = "linux")] events: std::sync::mpsc::Sender<crate::Event>,
     ) -> Self {
         Self {
             tabs: HashMap::new(),
@@ -266,6 +269,7 @@ impl EngineManager {
             home: crate::profile::home_dir(),
             downloads: crate::downloads::Downloads::open(&downloads),
             prompt_shared: crate::prompts::PromptShared::default(),
+            contexts: crate::context::ContextPool::new(events.clone()),
             #[cfg(windows)]
             gpu,
             #[cfg(target_os = "linux")]
@@ -331,7 +335,8 @@ impl EngineManager {
                     let url = tab.snap.lock().unwrap().url.clone();
                     let v = tab.view_state.lock().unwrap().clone();
                     let roots = tab.file_roots.lock().unwrap().clone();
-                    self.open_tab(tab_id, &url, v.width_pt, v.height_pt, v.scale, tab.shown, roots);
+                    let ctx = tab.context.clone();
+                    self.open_tab(tab_id, &url, v.width_pt, v.height_pt, v.scale, tab.shown, roots, ctx);
                 }
             }
             None => {}
@@ -339,6 +344,23 @@ impl EngineManager {
     }
 
     pub fn poll_picks(&mut self) {
+        for outcome in self.contexts.drain_ready_loads() {
+            match outcome {
+                crate::context::DeferredOutcome::Load { tab_id, url } => {
+                    if let Some(tab) = self.tabs.get(&tab_id)
+                        && let Some(frame) = tab.browser.main_frame()
+                    {
+                        frame.load_url(Some(&CefString::from(url.as_str())));
+                    }
+                }
+                crate::context::DeferredOutcome::Refuse { tab_id, reason } => {
+                    let _ = self.out_tx.send(EngineMsg::Refused {
+                        tab_id,
+                        reason: reason.to_owned(),
+                    });
+                }
+            }
+        }
         let mut ready = Vec::new();
         let mut clears = Vec::new();
         for (&tab_id, tab) in &self.tabs {
@@ -436,6 +458,8 @@ impl EngineManager {
                     popups: true,
                     find: true,
                     context_menu: prompts,
+                    partitions: true,
+                    remote_proxy: true,
                 });
                 for (&tab_id, t) in &self.tabs {
                     t.menu.cancel_all();
@@ -465,14 +489,23 @@ impl EngineManager {
                     }
                 }
             }
-            HostMsg::OpenTab { tab_id, url, width_pt, height_pt, scale, focused, file_roots } => {
-                let roots = self.safe_roots(file_roots);
-                self.open_tab(tab_id, &url, width_pt, height_pt, scale, focused, roots);
+            HostMsg::OpenTab { tab_id, url, width_pt, height_pt, scale, focused, file_roots, context } => {
+                // Remote-server tabs never receive local filesystem roots.
+                let roots = if matches!(context, crate::wire::ContextKind::RemoteServer { .. }) {
+                    Vec::new()
+                } else {
+                    self.safe_roots(file_roots)
+                };
+                self.open_tab(tab_id, &url, width_pt, height_pt, scale, focused, roots, context);
             }
             HostMsg::SetTabPolicy { tab_id, file_roots } => {
-                let roots = self.safe_roots(file_roots);
                 if let Some(t) = self.tabs.get(&tab_id) {
-                    *t.file_roots.lock().unwrap() = roots;
+                    if matches!(t.context, crate::wire::ContextKind::RemoteServer { .. }) {
+                        t.file_roots.lock().unwrap().clear();
+                    } else {
+                        let roots = self.safe_roots(file_roots);
+                        *t.file_roots.lock().unwrap() = roots;
+                    }
                 }
             }
             HostMsg::CloseTab { tab_id } => {
@@ -905,6 +938,18 @@ impl EngineManager {
                     t.menu.execute(id, action, &t.browser, &t.host, &roots);
                 }
             }
+            HostMsg::SetPartitionProxy { partition, proxy } => {
+                if let Ok(applied) = self.contexts.set_partition_proxy(&partition, proxy) {
+                    for t in self.tabs.values() {
+                        if matches!(&t.context, crate::wire::ContextKind::RemoteServer { partition: p, .. } if p == &partition) {
+                            *t.prompts.proxy.lock().unwrap() = applied.clone();
+                        }
+                    }
+                }
+            }
+            HostMsg::DropContext { context } => {
+                self.contexts.drop_context(&context);
+            }
             HostMsg::Shutdown => {
                 for (_, t) in self.tabs.drain() {
                     t.menu.cancel_all();
@@ -917,6 +962,7 @@ impl EngineManager {
         true
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn open_tab(
         &mut self,
         tab_id: u64,
@@ -926,9 +972,22 @@ impl EngineManager {
         scale: f32,
         focused: bool,
         file_roots: Vec<String>,
+        context: crate::wire::ContextKind,
     ) {
         let refused = browser_policy::frame_guard(url, true, &file_roots);
-        let initial_url = if refused.is_some() { "about:blank" } else { url };
+        let target_url = if refused.is_some() { "about:blank" } else { url };
+        let resolved_ctx = match self.contexts.resolve(&context, tab_id, target_url) {
+            Ok(r) => r,
+            Err(reason) => {
+                let _ = self.out_tx.send(EngineMsg::Refused {
+                    tab_id,
+                    reason: reason.to_owned(),
+                });
+                return;
+            }
+        };
+        let initial_url = if resolved_ctx.defer_initial_load { "about:blank" } else { target_url };
+        let mut req_ctx = resolved_ctx.request_context;
         let file_roots = Arc::new(Mutex::new(file_roots));
         let view_state = Arc::new(Mutex::new(ViewRectState {
             width_pt: width_pt.max(1.0),
@@ -973,6 +1032,7 @@ impl EngineManager {
             (),
         );
         let prompts = Arc::new(crate::prompts::TabPrompts::default());
+        *prompts.proxy.lock().unwrap() = resolved_ctx.proxy;
         let favicon = Arc::new(crate::favicon::TabFavicon::default());
         let diagnostics = Arc::new(crate::diagnostics::TabDiagnostics::default());
         let menu_state = Arc::new(crate::menu::TabMenuState::default());
@@ -1059,7 +1119,7 @@ impl EngineManager {
             Some(&CefString::from(initial_url)),
             Some(&browser_settings),
             None,
-            None,
+            req_ctx.as_mut(),
         ) else {
             return;
         };
@@ -1102,6 +1162,7 @@ impl EngineManager {
                 pending_clears,
                 prompts,
                 menu: menu_state,
+                context,
                 _cdp_reg: cdp_reg,
                 held_buttons: 0,
                 #[cfg(target_os = "linux")]

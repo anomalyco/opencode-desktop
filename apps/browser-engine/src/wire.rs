@@ -88,6 +88,8 @@ pub enum HostMsg {
         focused: bool,
         #[serde(default)]
         file_roots: Vec<String>,
+        #[serde(default)]
+        context: ContextKind,
     },
     SetTabPolicy { tab_id: u64, file_roots: Vec<String> },
     CloseTab { tab_id: u64 },
@@ -123,6 +125,10 @@ pub enum HostMsg {
     StopFind { tab_id: u64, clear_selection: bool },
     /// Executes or cancels a held page right-click context menu (`EngineMsg::ContextMenu`).
     ContextMenuAction { tab_id: u64, id: u64, action: Option<ContextMenuCommand> },
+    /// Updates or clears the local loopback tunnel proxy on a remote server partition.
+    SetPartitionProxy { partition: String, proxy: Option<RemoteProxyConfig> },
+    /// Closes all connections and drops a non-default preview or remote server context.
+    DropContext { context: ContextKind },
     /// Linux: the app's GPU has finished reading `frame_id` (and every frame before it) of
     /// buffer set `pool`; a read of a set the tab no longer has frees nothing.
     FrameRead { tab_id: u64, pool: u64, frame_id: u64 },
@@ -158,6 +164,10 @@ pub enum EngineMsg {
         find: bool,
         #[serde(default)]
         context_menu: bool,
+        #[serde(default)]
+        partitions: bool,
+        #[serde(default)]
+        remote_proxy: bool,
     },
     Refused { tab_id: u64, reason: String },
     Dialog { tab_id: u64, dialog: PageDialog },
@@ -307,6 +317,33 @@ pub struct PageContextMenu {
     pub misspelled_word: Option<String>,
     #[serde(default)]
     pub suggestions: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteProxyConfig {
+    pub host: String,
+    pub port: u16,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub password: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub realm: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ContextKind {
+    #[default]
+    Default,
+    IsolatedPreview {
+        grant: String,
+    },
+    RemoteServer {
+        partition: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        proxy: Option<RemoteProxyConfig>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
