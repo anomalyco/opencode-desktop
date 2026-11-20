@@ -75,8 +75,8 @@ pub fn reads_as_path(text: &str) -> bool {
     if text.contains(['{', '}', '<', '>', '"', '\'', '`', ';', '=', '|', '&', '*', ',']) {
         return false;
     }
-    // A network share (`\\host\share`) would make the server connect to the host just to check it.
-    if text.len() >= 2 && text.as_bytes()[..2].iter().all(|b| matches!(b, b'\\' | b'/')) {
+    // A network share (`\\host\share`), device path, or remote `file:` URI is never probed.
+    if browser_policy::is_raw_unc_href(text) {
         return false;
     }
     let path = path_line_suffix(text).0;
@@ -369,6 +369,10 @@ pub fn reply_code_links(host: &dyn FilesHost, body: &str, live: bool) -> Option<
 /// files end with it; a path the search doesn't find still opens as written, which covers
 /// files the search skips (an ignored `.env`).
 pub fn open_code_path(host: &mut dyn FilesHost, code: &str, tx: &mut Tx) {
+    if browser_policy::is_raw_unc_href(code) {
+        host.toast_say(opencode_i18n::t!("rune.files.link.outside").to_owned(), code.trim().to_owned());
+        return;
+    }
     if host.plugin_open_link(code, tx) {
         return;
     }
