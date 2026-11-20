@@ -150,13 +150,21 @@ impl Launcher for Mac {
     }
 
     fn open(&self, path: &str, bundle: Option<&str>) -> Result<(), String> {
+        if browser_policy::is_unc_or_device_path(path) {
+            return Err("Refusing network or device path".into());
+        }
         #[cfg(not(target_arch = "wasm32"))]
         {
+            if bundle.is_none()
+                && (browser_policy::is_macos_bundle_path(path) || !Path::new(path).is_dir())
+            {
+                return self.reveal(path);
+            }
             let mut cmd = std::process::Command::new("/usr/bin/open");
             if let Some(b) = bundle {
                 cmd.args(["-b", b]);
             }
-            run(cmd.arg(path)).map(|_| ())
+            run(cmd.args(["--", path])).map(|_| ())
         }
         #[cfg(target_arch = "wasm32")]
         {
@@ -166,13 +174,34 @@ impl Launcher for Mac {
     }
 
     fn reveal(&self, path: &str) -> Result<(), String> {
+        let Some(clean) = browser_policy::safe_local_reveal_path(path) else {
+            return Err("Refusing non-local or unsafe path".into());
+        };
         #[cfg(not(target_arch = "wasm32"))]
         {
-            run(std::process::Command::new("/usr/bin/open").args(["-R", path])).map(|_| ())
+            if !Path::new(&clean).exists() {
+                return Err(format!("{clean} doesn't exist"));
+            }
+            if log_harness_reveal(&clean) {
+                return Ok(());
+            }
+            #[cfg(target_os = "macos")]
+            {
+                run(std::process::Command::new("/usr/bin/open").args(["-R", "--", &clean])).map(|_| ())
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                let target = if Path::new(&clean).is_dir() {
+                    clean.as_str()
+                } else {
+                    Path::new(&clean).parent().and_then(Path::to_str).unwrap_or(&clean)
+                };
+                run(std::process::Command::new("xdg-open").arg(target)).map(|_| ())
+            }
         }
         #[cfg(target_arch = "wasm32")]
         {
-            let _ = path;
+            let _ = clean;
             Err("Revealing local files is not supported in the browser".into())
         }
     }
@@ -364,13 +393,21 @@ impl OpenIn {
         self.launch == LaunchState::Launching
     }
 
-    /// Opens absolute `path` in its default app.
-    pub fn open_default(&mut self, path: String) {
-        self.launch("", path, false);
+    /// Reveals an absolute local fixed-drive `path` in the system file manager (selecting the
+    /// item; never executes or opens it with its default application, and refuses UNC/device paths
+    /// before touching the filesystem).
+    pub fn reveal_local(&mut self, path: String) {
+        if browser_policy::safe_local_reveal_path(&path).is_none() {
+            return;
+        }
+        self.launch("", path, true);
     }
 
     /// Launches `app` on `path` in the background (or reveals `path` in the file manager).
     pub fn launch(&mut self, app: &str, path: String, reveal: bool) {
+        if browser_policy::is_unc_or_device_path(&path) {
+            return;
+        }
         if self.launch == LaunchState::Launching {
             return;
         }
@@ -383,6 +420,29 @@ impl OpenIn {
             Some(b) => launcher.open(&path, Some(b)),
         });
     }
+}
+
+/// Logs a safe reveal to `HARNESS_OPEN_EXTERNAL_LOG` during headless proofs without spawning
+/// a real OS file manager window.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn log_harness_reveal(path: &str) -> bool {
+    let Some(log) = std::env::var_os("HARNESS_OPEN_EXTERNAL_LOG").filter(|v| !v.is_empty()) else {
+        return false;
+    };
+    use std::io::Write as _;
+    let log_path = Path::new(&log);
+    if let Some(parent) = log_path.parent() {
+        drop(std::fs::create_dir_all(parent));
+    }
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(log_path) {
+        let entry = json!({
+            "pid": std::process::id(),
+            "kind": "reveal",
+            "path": path,
+        });
+        drop(writeln!(f, "{entry}"));
+    }
+    true
 }
 
 /// One app choice for an "Open in" menu or picker.
@@ -487,9 +547,12 @@ pub fn open_app_as(host: &mut dyn OpenInHost, app: &str, rel: &str, remember: bo
             host.write_json(STORAGE_NS, STORAGE_KEY, &json!(app));
         }
     }
-    // Desktop's toolbar opens its panel's folder in the file manager; a file shows selected in its
-    // folder instead of opening in its default app.
-    let reveal = reveal || !Path::new(&path).is_dir();
+    if browser_policy::is_unc_or_device_path(&path) {
+        return;
+    }
+    // Desktop's toolbar opens its panel's folder in the file manager; a file (or macOS bundle)
+    // shows selected in its folder instead of opening in its default app.
+    let reveal = reveal || browser_policy::is_macos_bundle_path(&path) || !Path::new(&path).is_dir();
     host.open_in_mut().launch(app, path, reveal && app == FINDER);
 }
 
@@ -505,13 +568,19 @@ pub fn open_current(host: &mut dyn OpenInHost, rel: &str, remember: bool, reveal
 /// `Workspace:OpenIn`: opens `path` (absolute, or inside the open session's folder) in `app`,
 /// where the server shares this machine's files; a file shows selected in the file manager.
 pub fn open_at(host: &mut dyn OpenInHost, app: &str, path: &str) {
-    if !can_open(host) || !host.open_in().options().iter().any(|(id, _)| *id == app) {
+    if !can_open(host)
+        || !host.open_in().options().iter().any(|(id, _)| *id == app)
+        || browser_policy::is_unc_or_device_path(path)
+    {
         return;
     }
     let Some(path) = (if opencode_kit::path::is_absolute(path) { Some(path.to_owned()) } else { resolve_path(host, path) }) else {
         return;
     };
-    let reveal = !Path::new(&path).is_dir();
+    if browser_policy::is_unc_or_device_path(&path) {
+        return;
+    }
+    let reveal = browser_policy::is_macos_bundle_path(&path) || !Path::new(&path).is_dir();
     host.open_in_mut().launch(app, path, reveal && app == FINDER);
 }
 

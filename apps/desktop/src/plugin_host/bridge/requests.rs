@@ -185,7 +185,7 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
                 crate::open_in::open_external(tx, &url);
             }
         }
-        Request::Reveal(path) => crate::plugin_host::reveal(&path),
+        Request::Reveal(path) => crate::open_in::reveal_abs(app, path),
         Request::CopyText(text) => tx.copy(text),
         // A muted session, or one under a muted root, shows nothing (`host-apis.tsx`'s notify).
         Request::Notify { session: Some(id), .. } if crate::session_menu::preferences::silenced(app, crate::servers::runtime::active(app), &id) => {}

@@ -214,8 +214,9 @@ pub trait FilesHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
     fn open_in_reveal(&mut self, rel: &str) {
         let _ = rel;
     }
-    /// Opens an absolute path outside the workspace in its default OS application.
-    fn open_in_default(&mut self, abs_path: &str) {
+    /// Reveals an absolute local fixed-drive path outside the workspace in the file manager
+    /// (never executes or opens with the default OS application, and never touches UNC paths).
+    fn open_in_reveal_abs(&mut self, abs_path: &str) {
         let _ = abs_path;
     }
 

@@ -157,8 +157,8 @@ impl FilesHost for App {
         self.open_in_app_as(crate::open_in::FINDER, rel, false, true);
     }
 
-    fn open_in_default(&mut self, abs_path: &str) {
-        crate::open_in::open_default(self, abs_path.to_owned());
+    fn open_in_reveal_abs(&mut self, abs_path: &str) {
+        crate::open_in::reveal_abs(self, abs_path.to_owned());
     }
 
     fn side_open(&self) -> bool {

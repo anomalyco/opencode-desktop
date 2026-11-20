@@ -27,9 +27,25 @@ impl Launcher for Win {
     }
 
     fn open(&self, path: &str, app: Option<&str>) -> Result<(), String> {
+        if browser_policy::is_unc_or_device_path(path) {
+            return Err("Refusing network or device path".into());
+        }
         let path = native(path);
         match app {
-            None => start(Command::new("explorer.exe").arg(&path)),
+            None => {
+                // Only open an existing local fixed-drive directory directly in Explorer; any file
+                // or non-directory falls back to safe reveal (never default-app execution).
+                let Some(clean) = browser_policy::safe_local_reveal_path(&path) else {
+                    return Err("Refusing non-local or unsafe path".into());
+                };
+                if !is_fixed_drive(&clean) {
+                    return Err("Refusing non-fixed drive path".into());
+                }
+                if !Path::new(&clean).is_dir() {
+                    return self.reveal(&clean);
+                }
+                start(Command::new("explorer.exe").arg(&clean))
+            }
             Some(app) => {
                 let exe = resolve(app, |k| std::env::var_os(k)).ok_or_else(|| format!("{app} isn't installed"))?;
                 if is_powershell(&exe) {
@@ -46,18 +62,45 @@ impl Launcher for Win {
     }
 
     fn reveal(&self, path: &str) -> Result<(), String> {
-        let path = native(path);
+        let Some(clean) = browser_policy::safe_local_reveal_path(path) else {
+            return Err("Refusing non-local or unsafe path".into());
+        };
+        let path = native(&clean);
+        // Check that the target drive is a local fixed drive BEFORE touching the filesystem so
+        // UNC paths and mapped network drives never trigger SMB handshakes or credential leaks.
+        if !is_fixed_drive(&path) {
+            return Err("Only local fixed drives can be revealed".into());
+        }
         if !Path::new(&path).exists() {
             return Err(format!("{path} doesn't exist"));
         }
-        // The shell selects it in a File Explorer window (an open one on its folder when there is
-        // one) without a new explorer.exe; only if it can't does that start.
+        if crate::log_harness_reveal(&path) {
+            return Ok(());
+        }
+        // Select the item in File Explorer via binary PIDL (`SHOpenFolderAndSelectItems`): never
+        // executes the target and cannot be tricked by commas or quotes. Never fall back to a
+        // command-line `explorer.exe` spawn.
         if shell_select(&path) {
             return Ok(());
         }
-        // Explorer reads `/select,` and the quoted path itself, so they go as written.
-        start(Command::new("explorer.exe").raw_arg(format!("/select,\"{path}\"")))
+        Err("Couldn't reveal this path in File Explorer".into())
     }
+}
+
+/// Returns `true` iff `path`'s drive root (`X:\`) is a local fixed drive (`DRIVE_FIXED`).
+#[allow(unsafe_code)]
+fn is_fixed_drive(path: &str) -> bool {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::GetDriveTypeW;
+    const DRIVE_FIXED: u32 = 3;
+    let bytes = path.as_bytes();
+    if bytes.len() < 3 || !bytes[0].is_ascii_alphabetic() || bytes[1] != b':' || (bytes[2] != b'\\' && bytes[2] != b'/') {
+        return false;
+    }
+    let root = format!("{}:\\", bytes[0] as char);
+    let wide: Vec<u16> = std::ffi::OsStr::new(&root).encode_wide().chain([0]).collect();
+    // SAFETY: `wide` is a valid NUL-terminated UTF-16 drive root string.
+    unsafe { GetDriveTypeW(wide.as_ptr()) == DRIVE_FIXED }
 }
 
 /// `SHOpenFolderAndSelectItems` on `path`, in this thread's own apartment (the launcher's worker).

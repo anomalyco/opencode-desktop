@@ -16,7 +16,9 @@
 #![forbid(unsafe_code)]
 
 mod app_links;
+mod local_path;
 pub use app_links::{AppSchemeAction, AppSchemeSource, classify_app_link};
+pub use local_path::{is_macos_bundle_path, is_raw_unc_href, is_unc_or_device_path, safe_local_reveal_path};
 
 /// Why a navigation was refused (`policy.ts:68-83`, `chromium.ts:442`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

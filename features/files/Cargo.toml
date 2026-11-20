@@ -7,6 +7,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
+browser-policy = { path = "../../crates/browser-policy" }
 opencode-code-view = { path = "../../crates/opencode-code-view" }
 opencode-i18n = { path = "../../crates/opencode-i18n" }
 opencode-kernel = { path = "../../crates/opencode-kernel" }
