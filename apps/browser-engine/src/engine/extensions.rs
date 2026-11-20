@@ -158,6 +158,7 @@ impl EngineManager {
                             ContextKind::Default,
                             None,
                             false,
+                            false,
                             true,
                             false,
                             None,
@@ -329,6 +330,7 @@ impl EngineManager {
             favicon: None,
             context: ContextKind::Default,
             preview: None,
+            agent_driven: false,
         }));
         let allowed_ext = vec![ext_id.clone()];
         let file_roots = Arc::new(Mutex::new(Vec::new()));
@@ -637,7 +639,8 @@ impl EngineManager {
 
     pub(super) fn handle_set_agent_driven(&mut self, tab_id: u64, agent_driven: bool) {
         if let Some(t) = self.tabs.get(&tab_id) {
-            t.prompts.agent_driven.store(agent_driven, Ordering::Relaxed);
+            t.prompts.agent_driven.store(agent_driven, Ordering::Release);
+            t.snap.lock().unwrap().agent_driven = agent_driven;
             if agent_driven {
                 // Agent-driven tabs may never navigate to `chrome-extension://` pages.
                 t.allowed_ext_ids.lock().unwrap().clear();
@@ -679,18 +682,23 @@ impl EngineManager {
         height_pt: f32,
         focused: bool,
         ext_open_request_id: Option<u64>,
+        agent_driven: bool,
     ) {
         let effects = self
             .extensions
             .as_mut()
             .map(|ext| {
-                ext.on_tab_opened(
+                let fx = ext.on_tab_opened(
                     tab_id,
                     initial_url,
                     width_pt.round() as i32,
                     height_pt.round() as i32,
                     focused,
-                )
+                );
+                if agent_driven {
+                    ext.set_tab_agent_driven(tab_id, true);
+                }
+                fx
             })
             .unwrap_or_default();
         self.run_ext_effects(effects);

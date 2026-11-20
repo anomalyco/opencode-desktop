@@ -95,7 +95,7 @@ const MAX_QUEUED_CDP_EVENTS: usize = 2_048;
 
 pub struct BrowserHost {
     pub(crate) tabs: Vec<BrowserTab>,
-    focused_tab: Option<u64>,
+    pub(crate) focused_tab: Option<u64>,
     pub(crate) surfaces: Arc<Mutex<HashMap<u64, TabSurface>>>,
     /// Shared sidecar connection state (`generation`, `status`, `outbox`, child PID, and early opens).
     pub(crate) shared: Arc<Mutex<SharedEngine>>,
@@ -441,7 +441,7 @@ impl BrowserHost {
     }
 
     pub fn open_tab_with_roots(&mut self, raw_url: &str, file_roots: Vec<String>, from_address: bool) -> u64 {
-        self.open_tab_with_context(raw_url, file_roots, crate::protocol::ContextKind::Default, from_address)
+        self.open_tab_with_context(raw_url, file_roots, crate::protocol::ContextKind::Default, from_address, false)
     }
 
     pub fn open_tab_with_context(
@@ -450,6 +450,7 @@ impl BrowserHost {
         file_roots: Vec<String>,
         context: crate::protocol::ContextKind,
         from_address: bool,
+        agent_driven: bool,
     ) -> u64 {
         rune::marks::mark("browser.tab.open");
         self.opened.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -486,6 +487,8 @@ impl BrowserHost {
             self.site_zoom.prepare();
         }
         let ((width_pt, height_pt), scale) = self.last_viewport;
+        let mut prompts = crate::prompts::TabPromptState::default();
+        prompts.agent_driven = agent_driven;
         self.tabs.push(BrowserTab {
             id,
             url: url.clone(),
@@ -501,7 +504,7 @@ impl BrowserHost {
             rejected: u64::from(refused.is_some()),
             inspecting: false,
             files: Vec::new(),
-            prompts: Default::default(),
+            prompts,
             find: Default::default(),
             surface,
             surface_origin: (0.0, 0.0),
@@ -519,17 +522,17 @@ impl BrowserHost {
 
         if can_open_in_engine {
             if connected && (context.is_default() || ready) {
-                self.send(HostMsg::OpenTab {
-                    tab_id: id,
+                self.send_open_tab(
+                    id,
                     url,
                     width_pt,
                     height_pt,
                     scale,
-                    focused: true,
-                    file_roots: if self.engine_policy() { file_roots } else { Vec::new() },
+                    true,
+                    if self.engine_policy() { file_roots } else { Vec::new() },
                     context,
-                    preview: None,
-                });
+                    agent_driven,
+                );
             } else {
                 self.pending_opens.push((id, url));
                 self.ensure_connected();
@@ -611,7 +614,7 @@ impl BrowserHost {
         }
         // If this tab never opened in the engine (e.g. `RemoteServer` opened before proxy was live),
         // either promote it now that a valid proxy exists or keep failing closed (never infinite spin).
-        let mut promote_open: Option<((f32, f32), f32, Vec<String>, crate::protocol::ContextKind)> = None;
+        let mut promote_open: Option<((f32, f32), f32, Vec<String>, crate::protocol::ContextKind, bool)> = None;
         if !t.has_engine_tab {
             if let crate::protocol::ContextKind::RemoteServer { server_id, proxy } = &mut t.context {
                 if proxy.is_none() {
@@ -640,7 +643,7 @@ impl BrowserHost {
                 return;
             }
             t.has_engine_tab = true;
-            promote_open = Some((t.viewport_pt, t.scale, t.file_roots.clone(), t.context.clone()));
+            promote_open = Some((t.viewport_pt, t.scale, t.file_roots.clone(), t.context.clone(), t.prompts.agent_driven));
         } else if matches!(t.context, crate::protocol::ContextKind::RemoteServer { proxy: None, .. }) {
             t.loading = false;
             t.refusal = Some("browser.proxy.required".to_owned());
@@ -652,19 +655,19 @@ impl BrowserHost {
             t.prompts.on_user_nav();
         }
         t.loading = true;
-        if let Some(((width_pt, height_pt), scale, file_roots, context)) = promote_open {
+        if let Some(((width_pt, height_pt), scale, file_roots, context, agent_driven)) = promote_open {
             if connected && (context.is_default() || ready) {
-                self.send(HostMsg::OpenTab {
+                self.send_open_tab(
                     tab_id,
                     url,
                     width_pt,
                     height_pt,
                     scale,
-                    focused: self.focused_tab == Some(tab_id),
-                    file_roots: if engine_policy { file_roots } else { Vec::new() },
+                    self.focused_tab == Some(tab_id),
+                    if engine_policy { file_roots } else { Vec::new() },
                     context,
-                    preview: None,
-                });
+                    agent_driven,
+                );
             } else {
                 self.pending_opens.push((tab_id, url));
                 self.ensure_connected();
@@ -834,7 +837,7 @@ impl BrowserHost {
         // one given another address or laid out at another size meanwhile gets them.
         for (&tab_id, (sent_url, sent_size)) in &early {
             let pending_url = self.pending_opens.iter().find(|(id, _)| *id == tab_id).map(|(_, u)| u.clone());
-            let (size, roots_to_send, nav_url) = {
+            let (size, roots_to_send, nav_url, agent_driven) = {
                 let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) else {
                     self.send(HostMsg::CloseTab { tab_id });
                     continue;
@@ -855,8 +858,11 @@ impl BrowserHost {
                     }
                     _ => None,
                 };
-                (size, roots, nav)
+                (size, roots, nav, t.prompts.agent_driven)
             };
+            if agent_driven {
+                self.send(HostMsg::SetAgentDriven { tab_id, agent_driven: true });
+            }
             if size != *sent_size {
                 self.send(HostMsg::Resize { tab_id, width_pt: size.0, height_pt: size.1, scale: size.2 });
             }
@@ -878,7 +884,7 @@ impl BrowserHost {
                 continue;
             }
             let mut skip_open = false;
-            let (open_url, ((width_pt, height_pt), scale), file_roots, context, emulate) =
+            let (open_url, ((width_pt, height_pt), scale), file_roots, context, emulate, agent_driven) =
                 if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
                     if let crate::protocol::ContextKind::RemoteServer { server_id, proxy } = &mut t.context {
                         if proxy.is_none() {
@@ -925,7 +931,7 @@ impl BrowserHost {
                     if !skip_open {
                         t.has_engine_tab = true;
                     }
-                    (open_url, (t.viewport_pt, t.scale), roots, t.context.clone(), emulate)
+                    (open_url, (t.viewport_pt, t.scale), roots, t.context.clone(), emulate, t.prompts.agent_driven)
                 } else {
                     // Tab was closed before flush: never synthesize a `ContextKind::Default` open!
                     continue;
@@ -933,58 +939,22 @@ impl BrowserHost {
             if skip_open {
                 continue;
             }
-            self.send(HostMsg::OpenTab {
+            self.send_open_tab(
                 tab_id,
-                url: open_url,
+                open_url,
                 width_pt,
                 height_pt,
                 scale,
-                focused: self.focused_tab == Some(tab_id),
+                self.focused_tab == Some(tab_id),
                 file_roots,
                 context,
-                preview: None,
-            });
+                agent_driven,
+            );
             if let Some((device, emu_scale)) = emulate {
                 self.send(HostMsg::Emulate { tab_id, device: Some(device), scale: emu_scale });
             }
         }
         self.pending_opens = deferred;
-    }
-
-    /// What `flush_pending_opens` would send for the tabs that wait now, for a connect to send
-    /// itself. `file:` and isolated/remote tabs wait for `Ready` so an older engine never opens one.
-    #[cfg_attr(not(feature = "engine"), allow(dead_code))]
-    pub(crate) fn pending_open_msgs(&self) -> Vec<(u64, HostMsg)> {
-        let focused = self.focused_tab;
-        self.pending_opens
-            .iter()
-            .filter(|(tab_id, url)| {
-                !crate::policy::is_file_scheme(url)
-                    && self.tabs.iter().any(|t| t.id == *tab_id && t.context.is_default())
-            })
-            .cloned()
-            .map(|(tab_id, url)| {
-                let (((width_pt, height_pt), scale), file_roots) = self
-                    .tabs
-                    .iter()
-                    .find(|t| t.id == tab_id)
-                    .map_or((((800.0, 600.0), 2.0), Vec::new()), |t| ((t.viewport_pt, t.scale), t.file_roots.clone()));
-                (
-                    tab_id,
-                    HostMsg::OpenTab {
-                        tab_id,
-                        url,
-                        width_pt,
-                        height_pt,
-                        scale,
-                        focused: focused == Some(tab_id),
-                        file_roots,
-                        context: crate::protocol::ContextKind::Default,
-                        preview: None,
-                    },
-                )
-            })
-            .collect()
     }
 
     /// Processes incoming messages from the sidecar; returns `true` only when visible UI metadata changed.
@@ -1407,6 +1377,10 @@ impl BrowserHost {
             t.cursor = snap.cursor;
             t.load_error = snap.load_error;
             t.favicon = snap.favicon;
+            t.prompts.agent_driven |= snap.agent_driven;
+            if t.prompts.agent_driven && t.prompts.driver.is_none() {
+                t.prompts.driver = Some(crate::prompts::TabDriver::Agent);
+            }
             t.has_engine_tab = true;
             t.engine_confirmed = true;
             let mut changed = changed;
@@ -1440,6 +1414,11 @@ impl BrowserHost {
         if is_site && (snap.zoom - want_zoom).abs() > 0.001 {
             self.send(HostMsg::SetZoom { tab_id: snap.tab_id, factor: want_zoom });
         }
+        let mut prompts = crate::prompts::TabPromptState::default();
+        prompts.agent_driven = snap.agent_driven;
+        if snap.agent_driven {
+            prompts.driver = Some(crate::prompts::TabDriver::Agent);
+        }
         self.tabs.push(BrowserTab {
             id: snap.tab_id,
             url: snap.url,
@@ -1455,7 +1434,7 @@ impl BrowserHost {
             rejected: 0,
             inspecting: false,
             files: Vec::new(),
-            prompts: Default::default(),
+            prompts,
             find: Default::default(),
             surface,
             surface_origin: (0.0, 0.0),

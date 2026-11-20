@@ -503,6 +503,15 @@ impl SessionAttachment {
     }
 }
 
+impl Drop for SessionAttachment {
+    fn drop(&mut self) {
+        self.stop_outbound();
+        if let Some((_, abort)) = self.attach_abort.take() {
+            abort.abort();
+        }
+    }
+}
+
 pub(super) fn build_wire_tab(wire_id: &str, tab: &browser_pane::BrowserTab, generation: u64) -> Tab {
     Tab {
         id: wire_id.to_owned(),
