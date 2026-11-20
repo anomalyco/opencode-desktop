@@ -326,17 +326,21 @@ pub fn notice<S: TimelineHost>(s: &S, p: &Pal, n: &Notice, run: crate::compactio
             line(m, &words, kids)
         }
         NoticeKind::Text(t) | NoticeKind::Job { description: t, .. } => line(Mark::Info, t, vec![faint_med("label", t.clone())]),
-        // An answered widget: one quiet line, as the TUI's `◈ Responded to "<title>"`.
-        NoticeKind::Widget { label, .. } => row()
-            .key("notice")
-            .w_full()
-            .gap(8.0)
-            .center_y()
-            .min_h(20.0)
-            .role("status")
-            .label(label.clone())
-            .child(text("◈").key("mark").font(UI).color(p.faint).a11y_hidden())
-            .child(faint("label", label.clone())),
+        // A widget's answer or message: one quiet line, as the TUI's `◈ Responded to "<title>"`
+        // or `◈ <title>: <short value>`.
+        NoticeKind::Widget { message, note, label, value } => {
+            let label = widget_note(s, message, *note, label, value.as_deref());
+            row()
+                .key("notice")
+                .w_full()
+                .gap(8.0)
+                .center_y()
+                .min_h(20.0)
+                .role("status")
+                .label(label.clone())
+                .child(text("◈").key("mark").font(UI).color(p.faint).a11y_hidden())
+                .child(faint("label", label))
+        }
         NoticeKind::Moved { directory } => {
             let words = row().key("words").gap(6.0).center_y().shrink().min_w(0.0)
                 .child(text(opencode_i18n::t!("ui.sessionTimeline.notice.movedTo")).key("label").font(UI).color(p.faint))
@@ -367,6 +371,23 @@ pub fn notice<S: TimelineHost>(s: &S, p: &Pal, n: &Notice, run: crate::compactio
 }
 
 /// The session a notice row draws in: the open one.
+/// A widget note's words, with the widget's title as its message names it now.
+fn widget_note<S: TimelineHost>(s: &S, message: &str, note: opencode_kit::model::WidgetNote, label: &str, value: Option<&str>) -> String {
+    use opencode_kit::model::{Message, WidgetNote};
+    let title = s.with_transcript(session_of(s), |t| {
+        t.messages.iter().rev().find_map(|m| match m {
+            Message::Widget(w) if w.id == message => Some(w.label().to_owned()),
+            _ => None,
+        })
+    }).flatten();
+    match (note, title, value) {
+        (WidgetNote::Message, Some(title), Some(value)) => format!("{title}: {value}"),
+        (WidgetNote::Response, Some(title), _) if label.starts_with("Dismissed") => format!("Dismissed \"{title}\""),
+        (WidgetNote::Response, Some(title), _) => format!("Responded to \"{title}\""),
+        _ => label.to_owned(),
+    }
+}
+
 fn session_of<S: TimelineHost>(s: &S) -> &str {
     s.active_session_id().unwrap_or_default()
 }

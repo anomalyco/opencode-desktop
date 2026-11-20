@@ -33,7 +33,7 @@ pub use compaction::{Compaction, CompactionStatus, background_compaction};
 pub use console_extensions::{CONSOLE_URL, ConsoleMcp, ConsoleMcpLinks, ConsoleWorkspace, console_mcp_links, console_mcps, console_skill_link, console_workspace};
 pub use inbox::{Delivery, Inbox, InboxChange, InboxItem, NoticeEffect, NoticeEvent, NoticeState, inbox_payload, parse_inbox_item, step_notice};
 pub use job::{JobInfo, JobKind, JobKindFilter, JobListQuery, JobLoadPhase, JobStatus, JobTime, JobTracker, JobTrackerEffect, JobTrackerEvent, is_job_event, merge_job_list, parse_job, parse_job_updated, parse_jobs};
-pub use notice::{Finished, Notice, NoticeKind, Outcome, Retry, StepError, is_notice_event, parse_inbox_notice};
+pub use notice::{Finished, Notice, NoticeKind, Outcome, Retry, StepError, WidgetNote, is_notice_event, parse_inbox_notice};
 pub use parse::{parse_message, parse_messages, parse_projects, parse_session, parse_sessions};
 use parse::tool_title;
 pub use pending::{Field, FieldKind, FieldOption, Pending, parse_form, parse_permission};

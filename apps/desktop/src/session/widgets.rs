@@ -45,6 +45,17 @@ impl WidgetsHost for App {
         });
     }
 
+    fn post_message(&mut self, session: &str, message: &str, body: Value) {
+        let (session, message) = (session.to_owned(), message.to_owned());
+        // A fixture run or story has no server to take it: it is taken, as a server would.
+        if !self.live() {
+            self.later(Box::new(move |s: &mut App, _tx: &mut Tx| sent(s, &message, Ok(()))));
+            return;
+        }
+        let (s2, m2) = (session.clone(), message.clone());
+        self.widget_write(message, move |srv| srv.send_widget_message(&s2, &m2, body), |s, id, r| sent(s, id, r));
+    }
+
     fn post_response(&mut self, session: &str, message: &str, body: Value, attempt: u32) {
         let (session, message) = (session.to_owned(), message.to_owned());
         // A fixture run or story has no server to take it: it is taken, as a server would.
@@ -58,6 +69,18 @@ impl WidgetsHost for App {
                 _ => RespondError::Failed(e.to_string()),
             });
             Box::new(move |s: &mut App, _tx: &mut Tx| responded(s, &message, attempt, result)) as Apply
+        });
+    }
+}
+
+impl App {
+    fn widget_write(&self, message: String, work: impl FnOnce(&opencode_kit::client::Server) -> Result<(), opencode_kit::wire_error::WireError> + Send + 'static, done: fn(&mut App, &str, Result<(), RespondError>)) {
+        self.job(move |srv| {
+            let result = work(srv).map_err(|e| match e.status() {
+                Some(409) => RespondError::Conflict,
+                _ => RespondError::Failed(e.to_string()),
+            });
+            Box::new(move |s: &mut App, _tx: &mut Tx| done(s, &message, result)) as Apply
         });
     }
 }

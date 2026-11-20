@@ -86,6 +86,9 @@ pub trait WidgetsHost {
     fn fetch_program(&mut self, name: &str, version: &str);
     /// Posts `body` as widget `message`'s response off the UI thread; answers with [`responded`].
     fn post_response(&mut self, session: &str, message: &str, body: Value, attempt: u32);
+    /// Posts `body` (`{ value, wake }`) as a message from open widget `message` off the UI
+    /// thread; answers with [`sent`].
+    fn post_message(&mut self, session: &str, message: &str, body: Value);
 }
 
 fn status(m: &WidgetStatus) -> Status {
@@ -152,6 +155,10 @@ fn run(host: &mut dyn WidgetsHost, id: &str, effect: Effect) -> Option<Event> {
             host.post_response(&session, id, response.body(), attempt);
             None
         }
+        Effect::Send(message) => {
+            host.post_message(&session, id, message.body());
+            None
+        }
     }
 }
 
@@ -188,6 +195,11 @@ pub fn preload(host: &mut dyn WidgetsHost, name: &str, version: &str, program: &
 /// Widget `id`'s response for `attempt` came back: `Ok`, a conflict (409), or a failure.
 pub fn responded(host: &mut dyn WidgetsHost, id: &str, attempt: u32, result: Result<(), RespondError>) {
     advance(host, id, Event::Responded { attempt, result });
+}
+
+/// A message widget `id` sent came back: taken, or a conflict (409: no longer open), or a failure.
+pub fn sent(host: &mut dyn WidgetsHost, id: &str, result: Result<(), RespondError>) {
+    advance(host, id, Event::Sent(result));
 }
 
 /// What the user did in widget `id`'s view.

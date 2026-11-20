@@ -524,10 +524,12 @@ fn notice(w: &mut W, n: &Notice) {
             w.os(f.shell.as_deref());
             w.os(f.child.as_deref());
         }
-        NoticeKind::Widget { message, label } => {
+        NoticeKind::Widget { message, note, label, value } => {
             w.0.push(11);
             w.s(message);
+            w.b(*note == super::WidgetNote::Message);
             w.s(label);
+            w.os(value.as_deref());
         }
         NoticeKind::Text(t) => {
             w.0.push(6);
@@ -598,7 +600,12 @@ fn read_notice(r: &mut R<'_>) -> Option<Notice> {
             NoticeKind::Job { id, description, script: Some(outcome), required: outcome == Outcome::Error }
         }
         10 => NoticeKind::Job { id: r.s()?, description: r.s()?, script: None, required: true },
-        11 => NoticeKind::Widget { message: r.s()?, label: r.s()? },
+        11 => NoticeKind::Widget {
+            message: r.s()?,
+            note: if r.b()? { super::WidgetNote::Message } else { super::WidgetNote::Response },
+            label: r.s()?,
+            value: r.os()?,
+        },
         _ => return None,
     };
     Some(Notice { id, kind })

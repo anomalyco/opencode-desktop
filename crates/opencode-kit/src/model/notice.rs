@@ -51,6 +51,15 @@ impl Retry {
     }
 }
 
+/// What a widget's note to the agent was.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WidgetNote {
+    /// Its final answer (or dismissal).
+    Response,
+    /// A message it sent while staying open (`send`).
+    Message,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Notice {
     pub id: String,
@@ -91,7 +100,9 @@ pub enum NoticeKind {
     /// The user answered an agent widget (`metadata.widget`): the prompt the server sends the
     /// agent for it, which the timeline shows as one quiet line (`Responded to "Hero image"`)
     /// under the widget, which already shows the answer.
-    Widget { message: String, label: String },
+    /// `message`: the widget's message id; `label`: its words as recorded (`Responded to "…"`);
+    /// `value`: a sent message's value in short.
+    Widget { message: String, note: WidgetNote, label: String, value: Option<String> },
     /// The run ended (an `idle` message): it closes the turn whose changed files Changed files
     /// lists. `failure`: the run failed before or between its steps (`outcome: "failed"` with an
     /// `error`, a model with no route, say), which the turn shows as its error.
@@ -198,6 +209,16 @@ fn kind(ty: &str, m: &Value) -> Option<NoticeKind> {
         "agent-switched" => NoticeKind::Agent { agent: s(&m["agent"]), previous: m["previous"].as_str().map(str::to_owned) },
         "model-switched" => NoticeKind::Model { model: ModelRef::parse(&m["model"]), previous: model_ref(&m["previous"]) },
         "location-switched" => NoticeKind::Moved { directory: s(&m["location"]["directory"]) },
+        // An answer or a message from a widget: `system` (`metadata.widget.kind`), or the older
+        // `synthetic` form, which only answered.
+        "system" | "synthetic" if m["metadata"]["widget"].is_object() => {
+            let w = &m["metadata"]["widget"];
+            let text = m["text"].as_str().unwrap_or("");
+            let note = if w["kind"] == "message" { WidgetNote::Message } else { WidgetNote::Response };
+            let label = description.map(str::to_owned).unwrap_or_else(|| widget_label(text));
+            let value = (note == WidgetNote::Message).then(|| short_value(text)).flatten();
+            NoticeKind::Widget { message: s(&w["messageID"]), note, label, value }
+        }
         "system" => {
             let sources: Vec<String> = m["metadata"]["instructionSources"].as_array().into_iter().flatten().filter_map(|x| x.as_str().map(str::to_owned)).collect();
             if m["metadata"]["notice"] == "instructions" && !sources.is_empty() {
@@ -207,10 +228,6 @@ fn kind(ty: &str, m: &Value) -> Option<NoticeKind> {
                 Some(keys) => instructions(keys.split(',').map(str::trim).filter(|k| !k.is_empty()).map(str::to_owned).collect()),
                 None => NoticeKind::Text(description.map_or_else(|| s(&m["text"]), str::to_owned)),
             }
-        }
-        "synthetic" if m["metadata"]["widget"].is_object() => {
-            let label = description.map(str::to_owned).unwrap_or_else(|| widget_label(m["text"].as_str().unwrap_or("")));
-            NoticeKind::Widget { message: s(&m["metadata"]["widget"]["messageID"]), label }
         }
         "synthetic" => {
             if m["metadata"]["notice"] == "restart" || description == Some("Continuing after restart") {
@@ -266,6 +283,14 @@ fn kind(ty: &str, m: &Value) -> Option<NoticeKind> {
     })
 }
 
+/// A sent message's value from its text (`…: <value>`), cut to a line.
+fn short_value(text: &str) -> Option<String> {
+    let (_, value) = text.split_once("\": ").or_else(|| text.split_once(": "))?;
+    let value = value.lines().next().unwrap_or("").trim();
+    let value = value.strip_prefix('"').and_then(|v| v.strip_suffix('"')).unwrap_or(value);
+    (!value.is_empty()).then(|| if value.chars().count() > 80 { value.chars().take(79).collect::<String>() + "…" } else { value.to_owned() })
+}
+
 /// `Responded to "<title>"` from the prompt text a response sends, for a server that gives no
 /// `description` (`User responded to widget "<title>": <value>`, `User dismissed widget "<title>"`).
 fn widget_label(text: &str) -> String {
@@ -292,6 +317,8 @@ fn from_event(ty: &str, d: &Value) -> Option<Notice> {
             instructions(sources)
         }
         "session.synthetic" => kind("synthetic", d)?,
+        // A system message's event (a widget's answer or message, `metadata.widget`).
+        "session.system" => kind("system", d)?,
         _ => return None,
     };
     Some(Notice { id, kind })
@@ -299,7 +326,7 @@ fn from_event(ty: &str, d: &Value) -> Option<Notice> {
 
 /// Whether `ty` is an event that appends a notice.
 pub fn is_notice_event(ty: &str) -> bool {
-    matches!(ty, "session.agent.selected" | "session.model.selected" | "session.moved" | "session.instructions.updated" | "session.synthetic")
+    matches!(ty, "session.agent.selected" | "session.model.selected" | "session.moved" | "session.instructions.updated" | "session.synthetic" | "session.system")
 }
 
 impl Transcript {
