@@ -232,8 +232,6 @@ impl App {
                 return false;
             }
             let draft = self.show_start(id, &directory, tx);
-            #[cfg(not(target_arch = "wasm32"))]
-            crate::surfaces::browser::rpc::engage_session(self, id);
             self.queue.starts.starts.insert(id.to_owned(), Start::Creating { directory, draft, created: false });
             return true;
         }
@@ -247,8 +245,6 @@ impl App {
             return false;
         }
         let draft = self.show_start(id, &directory, tx);
-        #[cfg(not(target_arch = "wasm32"))]
-        crate::surfaces::browser::rpc::engage_session(self, id);
         let now = *self.clock;
         let effects = self.queue.starts.step(id, Event::Begin { place, draft, held, toggling, now });
         self.start_effects(id, effects, tx);

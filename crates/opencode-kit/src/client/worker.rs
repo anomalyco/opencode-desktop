@@ -257,6 +257,27 @@ fn released(gate: &mut Option<std::sync::mpsc::Receiver<bool>>) -> bool {
     gate.take().is_none_or(|g| g.recv().unwrap_or(false))
 }
 
+/// Waits briefly (`<= 1.2 s` fallback; UI enforces the `1 s` `BuiltinPromptGate` cap) after a new
+/// session is created on the server so `experimental.browser` attaches before the first prompt.
+#[cfg(not(target_arch = "wasm32"))]
+fn wait_after_create(inbox_tx: &Sender<Incoming>, wake: &Waker, info: &crate::model::SessionInfo) {
+    let (tx, rx) = channel();
+    if inbox_tx
+        .send(Incoming::PromptGate {
+            session: info.id.clone(),
+            directory: info.directory.clone(),
+            release: tx,
+        })
+        .is_ok()
+    {
+        wake();
+        let _ = rx.recv_timeout(std::time::Duration::from_millis(1_200));
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn wait_after_create(_inbox_tx: &Sender<Incoming>, _wake: &Waker, _info: &crate::model::SessionInfo) {}
+
 /// The fetch and write threads, answering into `inbox_tx`.
 pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: &Waker) -> (Sender<Request>, Sender<Write>) {
     let (req_tx, req_rx) = channel::<Request>();
@@ -333,6 +354,7 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                         }
                         Write::SendMovingHome { session, prompt } => server.send_moving_home(&session, &prompt).map(|_| ()),
                         Write::Start { directory, prompt } => server.create_session(&directory).and_then(|mut info| {
+                            wait_after_create(&inbox_tx, &wake, &info);
                             server.send(&info.id, &prompt)?;
                             // The reply to the create came before the switches.
                             if let Some(agent) = &prompt.agent {
@@ -344,16 +366,30 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                             inbox_tx.send(Incoming::Created(info)).ok();
                             Ok(())
                         }),
-                        Write::StartAs { session, directory, prompt } => server.start_as(&session, &directory, &prompt).map(|info| {
-                            inbox_tx.send(Incoming::Created(info)).ok();
-                        }),
+                        Write::StartAs { session, directory, prompt } => server
+                            .start_as(&session, &directory, &prompt, |info| {
+                                wait_after_create(&inbox_tx, &wake, info);
+                            })
+                            .map(|info| {
+                                inbox_tx.send(Incoming::Created(info)).ok();
+                            }),
                         Write::StartInNewWorktree { session, project, from, branch, prompt } => {
                             let made = || {
                                 inbox_tx.send(Incoming::WorktreeCreated { project: project.clone() }).ok();
                             };
-                            server.start_in_new_worktree(&session, &project, &from, branch.as_deref(), &prompt, made).map(|info| {
-                                inbox_tx.send(Incoming::Created(info)).ok();
-                            })
+                            server
+                                .start_in_new_worktree(
+                                    &session,
+                                    &project,
+                                    &from,
+                                    branch.as_deref(),
+                                    &prompt,
+                                    made,
+                                    |info| wait_after_create(&inbox_tx, &wake, info),
+                                )
+                                .map(|info| {
+                                    inbox_tx.send(Incoming::Created(info)).ok();
+                                })
                         }
                         Write::Cancel { session, item } => server.cancel_inbox(&session, &item),
                         Write::Deliver { session, item, delivery } => server.set_delivery(&session, &item, delivery),

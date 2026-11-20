@@ -404,17 +404,19 @@ pub(super) fn reconcile_sessions(app: &mut App, now: Instant) -> bool {
             open_dirs.insert((active_server.clone(), id.clone()), dir);
         }
     }
-    let gated_ids: Vec<String> = app
+    let gated_ids: Vec<(String, Option<String>)> = app
         .kernel
         .slots
         .get(&BROWSER_RPC)
         .prompt_gates
         .iter()
         .filter(|g| g.server_key == active_server)
-        .map(|g| g.session_id.clone())
+        .map(|g| (g.session_id.clone(), g.directory.clone()))
         .collect();
-    for id in gated_ids {
-        let dir = session_directory(app, &id, "");
+    for (id, hint) in gated_ids {
+        let dir = hint
+            .filter(|d| !d.is_empty())
+            .unwrap_or_else(|| session_directory(app, &id, ""));
         if !dir.is_empty() {
             open_dirs.insert((active_server.clone(), id), dir);
         }
@@ -508,6 +510,7 @@ fn apply_batch_effects(
         let st = app.kernel.slots.get(&BROWSER_RPC);
         (st.worker_tx.clone(), st.waker.clone())
     };
+    let mut settle_gates = false;
     let mut sessions = std::mem::take(&mut app.kernel.slots.get_mut(&BROWSER_RPC).sessions);
     for (key, effects) in batch {
         let Some(att) = sessions.get_mut(&key) else { continue };
@@ -582,13 +585,18 @@ fn apply_batch_effects(
                     att.active_commands
                         .retain(|c| !request_ids.iter().any(|id| id == &c.request_id));
                 }
+                AttachEffect::SettlePromptGates => {
+                    settle_gates = true;
+                }
                 AttachEffect::ScheduleTimer { .. }
-                | AttachEffect::SettlePromptGates
                 | AttachEffect::SetMcpSuppressed { .. } => {}
             }
         }
     }
     app.kernel.slots.get_mut(&BROWSER_RPC).sessions = sessions;
+    if settle_gates {
+        let _ = gate::drain_ready_gates(app, Instant::now());
+    }
 }
 
 fn live_server_clone(app: &App) -> Option<Server> {
