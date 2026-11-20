@@ -749,38 +749,6 @@ impl BrowserHost {
         self.send(HostMsg::HighlightNode { tab_id, backend_node_id });
     }
 
-    pub fn send_cdp(
-        &mut self,
-        tab_id: u64,
-        method: impl Into<String>,
-        params: Value,
-        session_id: Option<String>,
-    ) -> Result<u64, String> {
-        if session_id.is_some() {
-            return Err("DevTools CdpCall does not permit targeting a child sessionId.".into());
-        }
-        if self
-            .tabs
-            .iter()
-            .find(|t| t.id == tab_id)
-            .is_some_and(|t| crate::policy::extension_origin(&t.url))
-        {
-            return Err("DevTools calls are not permitted on extension pages.".into());
-        }
-        let method = method.into();
-        crate::policy::check_cdp(&method, &params, self.engine_policy())?;
-        let request_id = self.next_req_id;
-        self.next_req_id += 1;
-        self.send(HostMsg::CdpCall {
-            tab_id,
-            request_id,
-            method,
-            params,
-            session_id: None,
-        });
-        Ok(request_id)
-    }
-
     /// Counts cookies for tab `tab_id`'s HTTP(S) destination without exposing cookie values.
     pub fn site_cookies(&mut self, tab_id: u64) -> Result<u64, String> {
         let url = self
