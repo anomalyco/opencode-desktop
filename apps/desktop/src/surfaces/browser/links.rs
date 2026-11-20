@@ -74,7 +74,7 @@ impl App {
                 } else {
                     crate::status_toast::fail(
                         self,
-                        opencode_i18n::t!("plugin.browser.menu.failed").to_owned(),
+                        opencode_i18n::t!("rune.browser.menu.pageUnavailable").to_owned(),
                         String::new(),
                     );
                 }

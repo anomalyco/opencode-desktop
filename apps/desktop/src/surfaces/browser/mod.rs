@@ -577,7 +577,7 @@ mod native {
                 if let Some(reason) = refusal {
                     crate::status_toast::fail(
                         self,
-                        opencode_i18n::t!("plugin.browser.menu.failed").to_owned(),
+                        opencode_i18n::t!("rune.openIn.failed").to_owned(),
                         reason,
                     );
                     changed = true;

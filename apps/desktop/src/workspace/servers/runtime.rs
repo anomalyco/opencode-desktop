@@ -404,6 +404,7 @@ pub fn active(s: &App) -> &ServerKey {
 
 /// Resolves the canonical `ServerKey` that owns session `sid` across the checked-out server and
 /// parked servers' snapshots (returns `None` when `sid` is unknown to the window).
+#[cfg(not(target_arch = "wasm32"))]
 pub fn server_for_session(s: &App, sid: &str) -> Option<ServerKey> {
     if let Some(tab) = s
         .tabs
