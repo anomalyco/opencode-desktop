@@ -312,3 +312,32 @@ fn strip_file_scheme_slashes(s: &str) -> Option<&str> {
         None
     }
 }
+
+/// Allow-lists ONLY non-redirecting local Windows reparse tags carried by ordinary files and
+/// Windows 11 OneDrive / Cloud Filter folders:
+/// - `IO_REPARSE_TAG_CLOUD`..`IO_REPARSE_TAG_CLOUD_F` (`(tag & !0x0000_F000) == 0x9000_001A`)
+///   and legacy `IO_REPARSE_TAG_ONEDRIVE` (`0x8000_0021`): Windows Cloud Filter placeholders
+///   (OneDrive Known Folder Move Desktop/Documents, iCloud, Dropbox, Google Drive).
+/// - `IO_REPARSE_TAG_WOF` (`0x8000_0017`): Windows Overlay Filter transparent NTFS/WIM compression
+///   (`Wof.sys`, e.g. `compact /exe:lzx`); stores local data metadata and never redirects paths.
+/// - `IO_REPARSE_TAG_DEDUP` (`0x8000_0013`): NTFS Data Deduplication (`ddp.sys`) local volume
+///   chunk-store metadata; never redirects path lookup.
+///
+/// Strictly refuses every name-surrogate / redirecting tag (bit 29 `0x2000_0000`: symlinks
+/// `0xA000_000C`, mount points / junctions `0xA000_0003`, WSL symlinks `0xA000_001D`, global
+/// reparse `0xA000_0019`), `IO_REPARSE_TAG_APPEXECLINK` (`0x8000_001B`), `IO_REPARSE_TAG_AF_UNIX`,
+/// `IO_REPARSE_TAG_PROJFS`, `IO_REPARSE_TAG_STORAGE_SYNC`, and every unknown tag.
+pub const fn is_allowed_local_reparse_tag(tag: u32) -> bool {
+    const NAME_SURROGATE_BIT: u32 = 0x2000_0000;
+    const IO_REPARSE_TAG_CLOUD_BASE: u32 = 0x9000_001A;
+    const IO_REPARSE_TAG_CLOUD_MASK: u32 = 0x0000_F000;
+    const IO_REPARSE_TAG_ONEDRIVE: u32 = 0x8000_0021;
+    const IO_REPARSE_TAG_WOF: u32 = 0x8000_0017;
+    const IO_REPARSE_TAG_DEDUP: u32 = 0x8000_0013;
+
+    if (tag & NAME_SURROGATE_BIT) != 0 {
+        return false;
+    }
+    (tag & !IO_REPARSE_TAG_CLOUD_MASK) == IO_REPARSE_TAG_CLOUD_BASE
+        || matches!(tag, IO_REPARSE_TAG_ONEDRIVE | IO_REPARSE_TAG_WOF | IO_REPARSE_TAG_DEDUP)
+}

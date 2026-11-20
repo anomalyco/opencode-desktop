@@ -146,7 +146,8 @@ pub(crate) fn file_name(hint: &str, bytes: &[u8]) -> String {
         .take(64)
         .collect();
     let trimmed = clean.trim().trim_matches(['.', ' ']);
-    let stem = if trimmed.is_empty() || browser_policy::is_windows_device_name(trimmed) {
+    let device_stem = trimmed.split('.').next().unwrap_or(trimmed);
+    let stem = if trimmed.is_empty() || browser_policy::is_windows_device_name(device_stem) {
         "image"
     } else {
         trimmed

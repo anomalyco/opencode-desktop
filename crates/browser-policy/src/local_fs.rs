@@ -10,8 +10,10 @@
 //! - **Windows:** pure string validation -> `QueryDosDeviceW` (`subst`-to-UNC & network redirector
 //!   refusal before `GetDriveTypeW`) -> `GetDriveTypeW == DRIVE_FIXED` -> component-wise open walk
 //!   with `FILE_READ_ATTRIBUTES` + `FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT`
-//!   rejecting every junction/symlink/reparse point before touching any child ->
-//!   `GetFinalPathNameByHandleW` confirming local `\\?\<drive>:\...` (never `\\?\UNC\`).
+//!   inspecting `FileAttributeTagInfo` (`is_allowed_local_reparse_tag`: permits only non-redirecting
+//!   Cloud Filter / legacy OneDrive / WOF / Dedup tags, rejecting all junctions/symlinks/mount
+//!   points/unknown tags before touching any child) -> `GetFinalPathNameByHandleW` confirming local
+//!   `\\?\<drive>:\...` (never `\\?\UNC\`).
 //! - **macOS / Linux:** pure string validation + autofs/network prefix rejection (`/net`,
 //!   `/Network`, `/misc`, `/afs`, `/run/user/*/gvfs`) -> component-wise `openat(..., O_NOFOLLOW)`
 //!   from `/` verifying `fstat` (`S_ISDIR`/`S_ISREG`) and `fstatfs` (`MNT_LOCAL` on macOS,
@@ -222,13 +224,14 @@ mod win {
     use windows_sys::Win32::Foundation::HANDLE;
     use windows_sys::Win32::Storage::FileSystem::{
         BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT,
-        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_NAME_NORMALIZED,
-        FILE_READ_ATTRIBUTES, FILE_TYPE_DISK, GetDriveTypeW, GetFileInformationByHandle,
-        GetFileType, GetFinalPathNameByHandleW, QueryDosDeviceW, VOLUME_NAME_DOS,
+        FILE_ATTRIBUTE_TAG_INFO, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+        FILE_NAME_NORMALIZED, FILE_READ_ATTRIBUTES, FILE_TYPE_DISK, FileAttributeTagInfo,
+        GetDriveTypeW, GetFileInformationByHandle, GetFileInformationByHandleEx, GetFileType,
+        GetFinalPathNameByHandleW, QueryDosDeviceW, VOLUME_NAME_DOS,
     };
 
     use super::{LocalPathError, VerifiedLocalPath};
-    use crate::local_path::safe_local_reveal_path;
+    use crate::local_path::{is_allowed_local_reparse_tag, safe_local_reveal_path};
 
     const DRIVE_FIXED: u32 = 3;
     const MAX_SUBST_DEPTH: u8 = 4;
@@ -327,6 +330,20 @@ mod win {
         if unsafe { GetFileInformationByHandle(handle, &mut info) } == 0 {
             return Err(LocalPathError::UnsafePath);
         }
+        if (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 {
+            let mut tag_info: FILE_ATTRIBUTE_TAG_INFO = unsafe { std::mem::zeroed() };
+            let ok = unsafe {
+                GetFileInformationByHandleEx(
+                    handle,
+                    FileAttributeTagInfo,
+                    (&raw mut tag_info).cast(),
+                    std::mem::size_of::<FILE_ATTRIBUTE_TAG_INFO>() as u32,
+                )
+            };
+            if ok == 0 || !is_allowed_local_reparse_tag(tag_info.ReparseTag) {
+                return Err(LocalPathError::SymlinkOrReparse);
+            }
+        }
         Ok((file, info))
     }
 
@@ -342,8 +359,8 @@ mod win {
         if segs.is_empty() {
             let (file, info) = open_no_reparse(&cur)?;
             let is_dir = (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
-            if (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 || !is_dir {
-                return Err(LocalPathError::SymlinkOrReparse);
+            if !is_dir {
+                return Err(LocalPathError::UnsafePath);
             }
             let final_path = final_dos_path(file.as_raw_handle() as HANDLE).ok_or(LocalPathError::NonLocalDrive)?;
             return Ok(VerifiedLocalPath { path: final_path, is_dir: true, is_file: false });
@@ -354,9 +371,6 @@ mod win {
             }
             cur.push(seg);
             let (file, info) = open_no_reparse(&cur)?;
-            if (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 {
-                return Err(LocalPathError::SymlinkOrReparse);
-            }
             let is_dir = (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
             let is_last = idx + 1 == segs.len();
             if !is_last && !is_dir {
@@ -404,9 +418,6 @@ mod win {
             cur.push(seg);
             match open_no_reparse(&cur) {
                 Ok((file, info)) => {
-                    if (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 {
-                        return None;
-                    }
                     let is_dir = (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
                     let is_last = idx + 1 == segs.len();
                     if !is_last && !is_dir {
@@ -564,7 +575,7 @@ mod unix_impl {
         clean.to_owned()
     }
 
-    pub(super) fn verify_path(clean: &str) -> Result<VerifiedLocalPath, LocalPathError> {
+    fn verify_path_open(clean: &str, require_dir: bool) -> Result<(VerifiedLocalPath, OwnedFd), LocalPathError> {
         if is_unix_autofs_path(clean) {
             return Err(LocalPathError::NonLocalDrive);
         }
@@ -581,7 +592,7 @@ mod unix_impl {
         }
         let segs: Vec<&str> = walked.split('/').filter(|s| !s.is_empty() && *s != ".").collect();
         if segs.is_empty() {
-            return Ok(VerifiedLocalPath { path: "/".into(), is_dir: true, is_file: false });
+            return Ok((VerifiedLocalPath { path: "/".into(), is_dir: true, is_file: false }, held));
         }
         for (idx, seg) in segs.iter().enumerate() {
             if *seg == ".." {
@@ -592,7 +603,7 @@ mod unix_impl {
             let flags = libc::O_RDONLY
                 | libc::O_NOFOLLOW
                 | libc::O_CLOEXEC
-                | if is_last { libc::O_NONBLOCK } else { libc::O_DIRECTORY };
+                | if !is_last || require_dir { libc::O_DIRECTORY } else { libc::O_NONBLOCK };
             // SAFETY: `held.0` is an open directory fd and `c_seg` is a NUL-terminated component.
             let next = unsafe { libc::openat(held.0, c_seg.as_ptr(), flags) };
             if next < 0 {
@@ -612,10 +623,10 @@ mod unix_impl {
             if is_last {
                 let is_dir = kind == libc::S_IFDIR;
                 let is_file = kind == libc::S_IFREG;
-                if !is_dir && !is_file {
+                if (require_dir && !is_dir) || (!is_dir && !is_file) {
                     return Err(LocalPathError::UnsafePath);
                 }
-                return Ok(VerifiedLocalPath { path: walked, is_dir, is_file });
+                return Ok((VerifiedLocalPath { path: walked, is_dir, is_file }, held));
             }
             if kind != libc::S_IFDIR {
                 return Err(LocalPathError::NotFound);
@@ -624,11 +635,12 @@ mod unix_impl {
         Err(LocalPathError::UnsafePath)
     }
 
+    pub(super) fn verify_path(clean: &str) -> Result<VerifiedLocalPath, LocalPathError> {
+        verify_path_open(clean, false).map(|(verified, _)| verified)
+    }
+
     pub(super) fn verify_within_root(target_lex: &str, root: &str, require_existing_leaf: bool) -> Option<String> {
-        let verified_root = verify_path(&safe_local_reveal_path(root)?).ok()?;
-        if !verified_root.is_dir {
-            return None;
-        }
+        let (verified_root, mut held) = verify_path_open(&safe_local_reveal_path(root)?, true).ok()?;
         let target_norm = normalize_unix_root(&safe_local_reveal_path(target_lex)?);
         let root_trim = verified_root.path.trim_end_matches('/');
         let rel = if target_norm == root_trim {
@@ -640,13 +652,6 @@ mod unix_impl {
         if rel.is_empty() {
             return (!require_existing_leaf).then_some(verified_root.path);
         }
-        let root_c = CString::new(verified_root.path.as_str()).ok()?;
-        // SAFETY: `root_c` is a NUL-terminated verified local directory path.
-        let root_fd = unsafe { libc::open(root_c.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC) };
-        if root_fd < 0 {
-            return None;
-        }
-        let mut held = OwnedFd(root_fd);
         let segs: Vec<&str> = rel.split('/').filter(|s| !s.is_empty() && *s != ".").collect();
         for (idx, seg) in segs.iter().enumerate() {
             if *seg == ".." {

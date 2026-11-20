@@ -26,8 +26,8 @@ pub use local_fs::{
     reveal_in_file_manager, verify_local_path, verify_within_root,
 };
 pub use local_path::{
-    is_clsid_folder_name, is_macos_bundle_path, is_raw_unc_href, is_unc_or_device_path,
-    is_unc_or_device_path_for, is_unix_autofs_path, safe_local_reveal_path,
+    is_allowed_local_reparse_tag, is_clsid_folder_name, is_macos_bundle_path, is_raw_unc_href,
+    is_unc_or_device_path, is_unc_or_device_path_for, is_unix_autofs_path, safe_local_reveal_path,
 };
 
 /// Why a navigation was refused (`policy.ts:68-83`, `chromium.ts:442`).
