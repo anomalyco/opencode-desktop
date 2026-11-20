@@ -1,7 +1,8 @@
 //! Standalone movie links in assistant Markdown. The original link remains the caption and
-//! fallback. Verified in-workspace clips auto-load inline, outside-workspace local clips on a
-//! local session show a play control disclosing the real local path and verify + load only on
-//! user click, and `http(s)` video links remain ordinary links that open in the browser pane.
+//! fallback. No video in a reply loads without a user click: local video files (inside the
+//! workspace, or outside on local sessions) render a play control disclosing the real path and
+//! verify + load only on click; `http(s)` video links remain ordinary links that open in the
+//! embedded browser pane.
 mod seek;
 mod transport;
 
@@ -15,20 +16,6 @@ use pulldown_cmark::{Event, Options, Parser, Tag};
 use rune::{Cursor, Direction, El, Player, PlayerState, Tx, col, el, icon, row, text};
 
 use crate::{TimelineHost, palette::Pal};
-
-/// How a standalone video link in a finished assistant reply loads.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ReplyVideo {
-    /// Verified regular file inside the session workspace (or remote session's own server route):
-    /// safe to auto-load inline on display.
-    Auto(String),
-    /// Outside-workspace local file on a local session: never touches disk on display; renders a
-    /// play control showing the real local `path` and verifies + loads only on user click.
-    OnClick {
-        /// Real sanitized local file path shown to the user before clicking Play.
-        path: String,
-    },
-}
 
 type ClipKey = (String, String, usize);
 
@@ -52,7 +39,7 @@ enum Face { Paused, Playing, Failed }
 
 struct Embed {
     end: usize,
-    mode: ReplyVideo,
+    display_path: String,
     href: String,
     name: String,
 }
@@ -158,11 +145,11 @@ impl Clips {
         changed
     }
 
-    fn build_clip<S: TimelineHost>(&self, s: &S, source: &str, auto_play: bool) -> Rc<Clip> {
+    fn build_clip<S: TimelineHost>(&self, s: &S, source: &str) -> Rc<Clip> {
         let player = Player::new(rune::MediaSource::from(source));
         player.set_muted(false);
         if let Some(wake) = &s.media_store().waker { player.set_waker(wake.clone()); }
-        if auto_play { player.play(); }
+        player.play();
         Rc::new(Clip { player, overlay: Cell::default(), reported: Cell::default(), track: Default::default() })
     }
 
@@ -181,85 +168,66 @@ impl Clips {
     }
 
     fn view<S: TimelineHost>(&self, s: &S, p: &Pal, row_key: &str, embed: &Embed) -> El {
-        let Embed { end: at, mode, href, name } = embed;
+        let Embed { end: at, display_path, href, name } = embed;
         let key = (s.active_session_id().unwrap_or("").to_owned(), row_key.to_owned(), *at);
-        match mode {
-            ReplyVideo::Auto(source) => {
-                let mut slots = self.slots.borrow_mut();
-                let src = rune::MediaSource::from(source.as_str());
-                let existing = match slots.get(&key) {
-                    Some(Slot::Active { clip, .. }) => clip.upgrade().filter(|c| c.player.source() == &src),
-                    _ => None,
-                };
-                let clip = existing.unwrap_or_else(|| {
-                    let c = self.build_clip(s, source, false);
-                    slots.insert(key, Slot::Active { href: href.clone(), clip: Rc::downgrade(&c) });
-                    c
-                });
-                drop(slots);
-                self.render_clip::<S>(p, *at, href, name, clip)
+        let mut slots = self.slots.borrow_mut();
+        let resolved = match slots.get(&key) {
+            Some(Slot::Starting { href: h, source }) if h == href => {
+                let c = self.build_clip(s, source);
+                slots.insert(key.clone(), Slot::Active { href: href.clone(), clip: Rc::downgrade(&c) });
+                Some(c)
             }
-            ReplyVideo::OnClick { path } => {
-                let mut slots = self.slots.borrow_mut();
-                let resolved = match slots.get(&key) {
-                    Some(Slot::Starting { href: h, source }) if h == href => {
-                        let c = self.build_clip(s, source, true);
-                        slots.insert(key.clone(), Slot::Active { href: href.clone(), clip: Rc::downgrade(&c) });
-                        Some(c)
-                    }
-                    Some(Slot::Starting { .. }) => {
-                        slots.remove(&key);
-                        None
-                    }
-                    Some(Slot::Active { href: h, clip }) if h == href => clip.upgrade(),
-                    _ => None,
-                };
-                drop(slots);
-                if let Some(clip) = resolved {
-                    return self.render_clip::<S>(p, *at, href, name, clip);
-                }
-                let play = opencode_i18n::t!("rune.video.playInline");
-                let shown_path = middle_truncate(path, 56);
-                let click_href = href.clone();
-                row()
-                    .key(format!("clip-play-{at}"))
-                    .self_start()
+            Some(Slot::Starting { .. }) => {
+                slots.remove(&key);
+                None
+            }
+            Some(Slot::Active { href: h, clip }) if h == href => clip.upgrade(),
+            _ => None,
+        };
+        drop(slots);
+        if let Some(clip) = resolved {
+            return self.render_clip::<S>(p, *at, href, name, clip);
+        }
+        let play = opencode_i18n::t!("rune.video.playInline");
+        let shown_path = middle_truncate(display_path, 56);
+        let click_href = href.clone();
+        row()
+            .key(format!("clip-play-{at}"))
+            .self_start()
+            .shrink()
+            .min_w(0.0)
+            .h(32.0)
+            .px(10.0)
+            .gap(6.0)
+            .radius(8.0)
+            .fill(p.layer2)
+            .hover(p.hover)
+            .press(p.pressed)
+            .hover_motion(crate::style::INSTANT, crate::style::INSTANT)
+            .border(1.0, p.border_muted)
+            .center_y()
+            .cursor(Cursor::Pointer)
+            .role("button")
+            .focusable(true)
+            .label(format!("{play}: {display_path}"))
+            .help(display_path.clone())
+            .child(icon(&transport::PLAY, 14.0).color(p.text))
+            .child(text(play).font(crate::style::UI).color(p.text))
+            .child(
+                text(format!("\u{b7} {shown_path}"))
+                    .font(crate::style::UI_SMALL)
+                    .color(p.muted)
+                    .dir(Direction::Ltr)
                     .shrink()
                     .min_w(0.0)
-                    .h(32.0)
-                    .px(10.0)
-                    .gap(6.0)
-                    .radius(8.0)
-                    .fill(p.layer2)
-                    .hover(p.hover)
-                    .press(p.pressed)
-                    .hover_motion(crate::style::INSTANT, crate::style::INSTANT)
-                    .border(1.0, p.border_muted)
-                    .center_y()
-                    .cursor(Cursor::Pointer)
-                    .role("button")
-                    .focusable(true)
-                    .label(format!("{play}: {path}"))
-                    .help(path.clone())
-                    .child(icon(&transport::PLAY, 14.0).color(p.text))
-                    .child(text(play).font(crate::style::UI).color(p.text))
-                    .child(
-                        text(format!("\u{b7} {shown_path}"))
-                            .font(crate::style::UI_SMALL)
-                            .color(p.muted)
-                            .dir(Direction::Ltr)
-                            .shrink()
-                            .min_w(0.0)
-                            .truncate_fade(),
-                    )
-                    .on_press_tx(move |s: &mut S, tx: &mut Tx| {
-                        if let Some(verified) = s.load_reply_video(&click_href, tx) {
-                            s.media_store_mut().videos.activate(key.clone(), click_href.clone(), verified);
-                            tx.instant();
-                        }
-                    })
-            }
-        }
+                    .truncate_fade(),
+            )
+            .on_press_tx(move |s: &mut S, tx: &mut Tx| {
+                if let Some(verified) = s.load_reply_video(&click_href, tx) {
+                    s.media_store_mut().videos.activate(key.clone(), click_href.clone(), verified);
+                    tx.instant();
+                }
+            })
     }
 }
 
@@ -319,7 +287,7 @@ fn has_visible_markdown(slice: &str, ref_defs: &str) -> bool {
 
 pub(crate) fn reply<S: TimelineHost>(s: &S, p: &Pal, row_key: &str, src: &str, streaming: bool, render: impl Fn(Range<usize>, &str) -> El) -> Option<El> {
     // During streaming the final paragraph may still acquire more prose.
-    if streaming || !(src.contains('[') || src.contains("://")) || !opencode_kit::path::mentions_video(src) { return None; }
+    if streaming || !src.contains('[') || !opencode_kit::path::mentions_video(src) { return None; }
     let parser = Parser::new_ext(src, Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS);
     let ref_defs = format_reference_defs(parser.reference_definitions());
     let mut depth = 0;
@@ -331,7 +299,6 @@ pub(crate) fn reply<S: TimelineHost>(s: &S, p: &Pal, row_key: &str, src: &str, s
         let candidate = if paragraph && depth == 1 {
             match &event {
                 Event::Start(Tag::Link { dest_url, .. }) => Some(dest_url.as_ref()),
-                Event::Text(t) if (t.starts_with("https://") || t.starts_with("http://")) && !t.trim().contains(char::is_whitespace) => Some(t.trim()),
                 _ => None,
             }
         } else { None };
@@ -339,11 +306,11 @@ pub(crate) fn reply<S: TimelineHost>(s: &S, p: &Pal, row_key: &str, src: &str, s
             let before = src[..range.start].rsplit('\n').next().unwrap_or("");
             let after = src[range.end..].split('\n').next().unwrap_or("");
             if before.trim().is_empty() && after.trim().is_empty() && !src[range.clone()].contains('\n')
-                && let Some(mode) = s.reply_video_source(href)
+                && let Some(display_path) = s.reply_video_source(href)
             {
                 let raw = &src[range.clone()];
                 let label = raw.strip_prefix('[').and_then(|s| s.split_once(']').map(|(label, _)| label)).unwrap_or(raw);
-                clips.push(Embed { end: range.end, mode, href: href.to_owned(), name: label.to_owned() });
+                clips.push(Embed { end: range.end, display_path, href: href.to_owned(), name: label.to_owned() });
             }
         }
         match event {
