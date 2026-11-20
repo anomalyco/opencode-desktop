@@ -418,11 +418,18 @@ impl App {
         open_reply_link(self, href, tx);
     }
 
-    /// Handles `Links:Open` from a third-party plugin: refuses raw UNC, `file://`, `oc-preview://`,
-    /// `workspace://`, and `artifact://` links; opens workspace relative files strictly in the
-    /// Files source viewer (never minting an `oc-preview://` grant); ignores outside local files;
-    /// and routes regular web links safely (still refusing same-server artifact URLs).
-    pub fn open_third_party_plugin_link(&mut self, href: &str, tx: &mut Tx) {
+    /// Handles `Links:Open` from a third-party plugin or any tool-scoped call: refuses raw UNC,
+    /// `file://`, `oc-preview://`, `workspace://`, and `artifact://` links; opens relative
+    /// workspace files strictly in the Files source viewer (never minting an `oc-preview://`
+    /// grant); ignores outside local files; and routes regular web links safely (refusing
+    /// same-server artifact URLs and marking tool-opened tabs `agent_driven`).
+    pub fn open_restricted_plugin_link(
+        &mut self,
+        sid: Option<&str>,
+        href: &str,
+        agent: bool,
+        tx: &mut Tx,
+    ) {
         let trimmed = href.trim();
         if trimmed.is_empty()
             || browser_policy::is_raw_unc_href(trimmed)
@@ -433,7 +440,7 @@ impl App {
         {
             return;
         }
-        let Some(sid) = self.active_session_id().map(str::to_owned) else { return };
+        let Some(sid) = sid.map(str::to_owned) else { return };
         let dir = link_directory(self, &sid);
         let home = self.home.clone();
         match crate::files::links::classify(trimmed, "", &dir, &home) {
@@ -445,6 +452,7 @@ impl App {
                     Some(&sid),
                     &url,
                     crate::browser::links::LinkSource::Chat,
+                    agent,
                     tx,
                 );
             }

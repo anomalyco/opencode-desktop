@@ -40,20 +40,21 @@ impl App {
         shift_override: Option<bool>,
         tx: &mut Tx,
     ) {
-        self.route_web_or_app_link_inner(sid, href, source, shift_override, true, tx);
+        self.route_web_or_app_link_inner(sid, href, source, shift_override, true, false, tx);
     }
 
-    /// Routes a web/app link initiated by a third-party plugin (`Links:Open`): refuses all
-    /// `artifact://` and same-server `/api/experimental/artifacts/...` links so third-party
-    /// plugins can never mint artifact preview grants (`notes/review-rd281.md` PR 2 Blocker #1).
+    /// Routes a web/app link initiated by a third-party plugin or tool call (`Links:Open`):
+    /// refuses all `artifact://` and same-server `/api/experimental/artifacts/...` links so
+    /// untrusted plugins or tools can never mint artifact preview grants (`notes/review-rd281.md`).
     pub fn route_plugin_web_or_app_link(
         &mut self,
         sid: Option<&str>,
         href: &str,
         source: LinkSource,
+        agent: bool,
         tx: &mut Tx,
     ) {
-        self.route_web_or_app_link_inner(sid, href, source, None, false, tx);
+        self.route_web_or_app_link_inner(sid, href, source, None, false, agent, tx);
     }
 
     fn route_web_or_app_link_inner(
@@ -63,6 +64,7 @@ impl App {
         _source: LinkSource,
         shift_override: Option<bool>,
         allow_artifacts: bool,
+        agent: bool,
         tx: &mut Tx,
     ) {
         let trimmed = href.trim();
@@ -115,8 +117,20 @@ impl App {
                 && self.browser_links_enabled()
                 && !self.browser_unsupported_for_links();
             if open_in_pane {
-                self.open_new_browser_tab_for_session(sid, trimmed, None, true);
-            } else if self.live() {
+                #[cfg(not(target_arch = "wasm32"))]
+                if agent {
+                    let ctx = self.browser_context_for_session(sid);
+                    let id = self.open_new_browser_tab_with_options(sid, trimmed, None, true, false, ctx, true);
+                    self.workspace_panes.browser.host.set_agent_driven(id, true);
+                } else {
+                    self.open_new_browser_tab_for_session(sid, trimmed, None, true);
+                }
+                #[cfg(target_arch = "wasm32")]
+                {
+                    let _ = agent;
+                    self.open_new_browser_tab_for_session(sid, trimmed, None, true);
+                }
+            } else if !agent && self.live() {
                 if self.external_url_allowed_for_session(sid, trimmed) {
                     crate::open_in::open_external(tx, trimmed);
                 } else {
@@ -130,6 +144,9 @@ impl App {
             return;
         }
 
+        if agent {
+            return;
+        }
         // Non-HTTP(S) scheme: validate the ORIGINAL string without trimming away unsafe characters.
         match classify_app_link(href, AppSchemeSource::Conversation) {
             Some(AppSchemeAction::Mail) => {

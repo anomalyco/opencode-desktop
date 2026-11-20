@@ -1,7 +1,7 @@
 //! CEF 156 runtime initialization, browser command-line sanitization, and global
 //! `RequestContextHandler` attachment (`DefaultRequestContextHandler`).
 
-use std::sync::mpsc::SyncSender;
+use std::sync::mpsc::Sender;
 
 use cef::rc::Rc as _;
 use cef::{
@@ -28,7 +28,7 @@ impl CefRuntime {
         locale: Option<&str>,
         ext_dirs: &[std::path::PathBuf],
         io_pipes: Option<String>,
-        pump: SyncSender<crate::Event>,
+        pump: Sender<crate::Event>,
     ) -> Self {
         #[cfg(target_os = "macos")]
         crate::mac_app::ensure_ns_application();
@@ -140,7 +140,7 @@ wrap_app! {
         ext_except: Option<String>,
         // Windows only: anonymous non-inheritable pipe HANDLE pair for `--remote-debugging-pipe`.
         io_pipes: Option<String>,
-        pump: SyncSender<crate::Event>,
+        pump: Sender<crate::Event>,
     }
     impl App {
         fn on_before_command_line_processing(
@@ -220,12 +220,12 @@ wrap_app! {
 
 wrap_browser_process_handler! {
     struct SidecarProcessHandler {
-        pump: SyncSender<crate::Event>,
+        pump: Sender<crate::Event>,
     }
     impl BrowserProcessHandler {
         // Any thread: the main loop wakes for it.
         fn on_schedule_message_pump_work(&self, delay_ms: i64) {
-            let _ = self.pump.try_send(crate::Event::Pump(delay_ms));
+            let _ = self.pump.send(crate::Event::Pump(delay_ms));
         }
 
         // Attach our global RequestContextHandler so extension service workers, offscreen

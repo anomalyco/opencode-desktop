@@ -60,7 +60,7 @@ pub struct EngineManager {
     tabs: HashMap<u64, ManagedTab>,
     mach_port: Arc<AtomicU32>,
     out_tx: crate::output::Output,
-    events: std::sync::mpsc::SyncSender<crate::Event>,
+    events: std::sync::mpsc::Sender<crate::Event>,
     extensions: Option<crate::extensions::ExtensionHost>,
     rejected_exts: Vec<String>,
     stub_root: Option<std::path::PathBuf>,
@@ -98,7 +98,8 @@ impl EngineManager {
     pub fn new(
         out_tx: crate::output::Output,
         downloads: std::path::PathBuf,
-        events: std::sync::mpsc::SyncSender<crate::Event>,
+        events: std::sync::mpsc::Sender<crate::Event>,
+        previews: Arc<PreviewRegistry>,
         #[cfg(windows)] gpu: Option<Arc<crate::d3d_frames::Gpu>>,
         #[cfg(target_os = "linux")] transport: crate::dmabuf_frames::Transport,
         extensions: Option<crate::extensions::ExtensionHost>,
@@ -125,7 +126,7 @@ impl EngineManager {
             home: crate::profile::home_dir(),
             downloads: crate::downloads::Downloads::open(&downloads),
             prompt_shared: crate::prompts::PromptShared::default(),
-            previews: PreviewRegistry::new(),
+            previews,
             contexts: crate::context::ContextPool::new(events),
             #[cfg(windows)]
             gpu,
@@ -167,7 +168,7 @@ impl EngineManager {
         let host = self.tabs.get(&tab_id).map(|t| &t.host);
         let events = self.events.clone();
         crate::dmabuf_frames::run(effects, tab_id, &self.out_tx, host, &move |f| {
-            let _ = events.try_send(crate::Event::FramesFailed(f));
+            let _ = events.send(crate::Event::FramesFailed(f));
         });
     }
 

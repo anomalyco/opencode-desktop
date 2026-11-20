@@ -1,6 +1,7 @@
 //! App-side `oc-preview://` tab orchestration and async remote/artifact proxy queue on
 //! [`BrowserHost`], with fail-closed fallback for older engines lacking `Ready.preview`.
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::Duration;
@@ -10,56 +11,113 @@ use crate::frame::TabSurface;
 use crate::machine::SharedEngine;
 use crate::protocol::{ContextKind, CursorKind, HostMsg, PreviewKindTag, PreviewSpec};
 
-/// Hard cap on unread `HostMsg::PreviewResponseChunk` frames buffered in the host's outbound
-/// socket writer queue (`32 * 64 KiB = 2 MiB` max queued across all active preview fetches).
-const MAX_OUTBOX_PREVIEW_CHUNKS: usize = 32;
+/// Initial end-to-end byte credit per in-flight `PreviewFetch` (`1 MiB` max in flight per proxy
+/// across host outbox + AF_UNIX socket + engine `PreviewRegistry`; replenished strictly when CEF
+/// consumes bytes via `EngineMsg::PreviewCredit`).
+const INITIAL_PREVIEW_CREDIT_BYTES: usize = 1024 * 1024;
+/// Upper ceiling on accumulated credit per proxy (defensive against malformed peer messages).
+const MAX_PREVIEW_CREDIT_BYTES: usize = 2 * 1024 * 1024;
 
-/// Bounded back-pressure semaphore shared between `PreviewResponder` workers and `rune-browser-tx`
-/// so streaming 128 MiB files never floods the outbound channel or starves UI control messages.
+#[derive(Default)]
+struct FlowEntry {
+    tab_id: u64,
+    credit: usize,
+    canceled: bool,
+}
+
+/// End-to-end per-proxy byte-credit flow control between host `PreviewFetchPool` workers and
+/// engine `ProxyResourceHandler::read`. Control messages NEVER wait on this budget.
 #[derive(Default)]
 pub(crate) struct PreviewChunkBudget {
-    in_flight: Mutex<usize>,
+    entries: Mutex<HashMap<u64, FlowEntry>>,
     ready: Condvar,
 }
 
 impl PreviewChunkBudget {
-    pub(crate) fn acquire(&self, alive: &AtomicBool, shared: &Mutex<SharedEngine>) -> bool {
-        let mut count = self.in_flight.lock().unwrap_or_else(PoisonError::into_inner);
-        while *count >= MAX_OUTBOX_PREVIEW_CHUNKS {
+    #[cfg_attr(not(feature = "engine"), allow(dead_code))]
+    pub(crate) fn on_fetch(&self, req_id: u64, tab_id: u64) {
+        let mut map = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
+        map.insert(req_id, FlowEntry { tab_id, credit: INITIAL_PREVIEW_CREDIT_BYTES, canceled: false });
+    }
+
+    #[cfg_attr(not(feature = "engine"), allow(dead_code))]
+    pub(crate) fn on_credit(&self, req_id: u64, bytes: usize, cancel: bool) {
+        let mut map = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(entry) = map.get_mut(&req_id) {
+            if cancel {
+                entry.canceled = true;
+            } else {
+                entry.credit = entry.credit.saturating_add(bytes).min(MAX_PREVIEW_CREDIT_BYTES);
+            }
+            self.ready.notify_all();
+        }
+    }
+
+    pub(crate) fn cancel_tab(&self, tab_id: u64) {
+        let mut map = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut woke = false;
+        for entry in map.values_mut() {
+            if entry.tab_id == tab_id {
+                entry.canceled = true;
+                woke = true;
+            }
+        }
+        if woke {
+            self.ready.notify_all();
+        }
+    }
+
+    pub(crate) fn finish(&self, req_id: u64) {
+        let mut map = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
+        if map.remove(&req_id).is_some() {
+            self.ready.notify_all();
+        }
+    }
+
+    pub(crate) fn acquire(
+        &self,
+        req_id: u64,
+        raw_len: usize,
+        alive: &AtomicBool,
+        shared: &Mutex<SharedEngine>,
+    ) -> bool {
+        let need = raw_len.max(1);
+        let mut map = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
+        loop {
             if !alive.load(Ordering::Acquire)
                 || !shared.lock().unwrap_or_else(PoisonError::into_inner).is_connected()
             {
                 return false;
             }
+            let Some(entry) = map.get_mut(&req_id) else {
+                return false;
+            };
+            if entry.canceled {
+                return false;
+            }
+            if entry.credit >= need {
+                entry.credit -= need;
+                return true;
+            }
             let (next, _) = self
                 .ready
-                .wait_timeout(count, Duration::from_millis(50))
+                .wait_timeout(map, Duration::from_millis(50))
                 .unwrap_or_else(PoisonError::into_inner);
-            count = next;
+            map = next;
         }
-        if !alive.load(Ordering::Acquire) {
-            return false;
-        }
-        *count += 1;
-        true
-    }
-
-    pub(crate) fn release_one(&self) {
-        let mut count = self.in_flight.lock().unwrap_or_else(PoisonError::into_inner);
-        *count = count.saturating_sub(1);
-        self.ready.notify_one();
     }
 
     #[cfg_attr(not(feature = "engine"), allow(dead_code))]
     pub(crate) fn reset(&self) {
-        let mut count = self.in_flight.lock().unwrap_or_else(PoisonError::into_inner);
-        *count = 0;
+        let mut map = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
+        map.clear();
         self.ready.notify_all();
     }
 }
 
 /// Thread-safe handle allowing background remote/artifact preview HTTP readers to stream
-/// response headers and 64 KiB chunks directly to the engine sidecar with bounded back-pressure.
+/// response headers and 64 KiB chunks directly to the engine sidecar with end-to-end byte-credit
+/// back-pressure.
 #[derive(Clone)]
 pub struct PreviewResponder {
     shared: Arc<Mutex<SharedEngine>>,
@@ -81,6 +139,9 @@ impl PreviewResponder {
         content_length: Option<u64>,
         content_range: Option<String>,
     ) -> bool {
+        if !ok {
+            self.budget.finish(req_id);
+        }
         self.send(HostMsg::PreviewResponseHead {
             req_id,
             ok,
@@ -91,21 +152,30 @@ impl PreviewResponder {
         })
     }
 
-    /// Streams one base64 chunk with bounded outbox back-pressure; returns `false` immediately if
-    /// `alive` flips `false` or the engine disconnects.
-    pub fn send_chunk(&self, req_id: u64, data_b64: String, alive: &AtomicBool) -> bool {
-        if !self.budget.acquire(alive, &self.shared) {
+    /// Streams one base64 chunk gated by per-proxy engine byte credits; returns `false`
+    /// immediately if `alive` flips `false`, the engine cancels the proxy, or it disconnects.
+    pub fn send_chunk(&self, req_id: u64, raw_len: usize, data_b64: String, alive: &AtomicBool) -> bool {
+        if !self.budget.acquire(req_id, raw_len, alive, &self.shared) {
             return false;
         }
         if !self.send(HostMsg::PreviewResponseChunk { req_id, data_b64 }) {
-            self.budget.release_one();
+            self.budget.finish(req_id);
             return false;
         }
         true
     }
 
     pub fn send_end(&self, req_id: u64, ok: bool) -> bool {
+        self.budget.finish(req_id);
         self.send(HostMsg::PreviewResponseEnd { req_id, ok })
+    }
+
+    pub fn finish_request(&self, req_id: u64) {
+        self.budget.finish(req_id);
+    }
+
+    pub fn cancel_tab(&self, tab_id: u64) {
+        self.budget.cancel_tab(tab_id);
     }
 }
 
@@ -249,6 +319,7 @@ impl BrowserHost {
     /// web tab (or vice versa), so web pages always run in the user's normal signed-in context and
     /// previews always run in a fresh isolated preview context.
     pub fn reopen_tab_as_web(&mut self, tab_id: u64, url: &str, mut context: ContextKind) {
+        self.preview_chunk_budget.cancel_tab(tab_id);
         let focused = self.focused_tab == Some(tab_id);
         let connected = self.is_connected();
         let ready = self.engine_caps_known();
@@ -319,6 +390,7 @@ impl BrowserHost {
 
     /// Replaces the CEF browser behind `tab_id` with a fresh isolated preview context.
     pub fn reopen_tab_as_preview(&mut self, tab_id: u64, display_url: &str, spec: PreviewSpec) {
+        self.preview_chunk_budget.cancel_tab(tab_id);
         let focused = self.focused_tab == Some(tab_id);
         let connected = self.is_connected();
         let ready = self.engine_caps_known();

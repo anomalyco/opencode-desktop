@@ -180,6 +180,7 @@ wrap_scheme_handler_factory! {
                     let Some((req_id, proxy)) = self.registry.register_proxy(
                         self.grant.tab_id,
                         self.grant.clone(),
+                        self.out_tx.clone(),
                         head_only,
                         Some(rel),
                         safe_range.clone(),
@@ -203,6 +204,7 @@ wrap_scheme_handler_factory! {
                     let Some((req_id, proxy)) = self.registry.register_proxy(
                         self.grant.tab_id,
                         self.grant.clone(),
+                        self.out_tx.clone(),
                         head_only,
                         None,
                         None,
@@ -725,16 +727,28 @@ wrap_resource_handler! {
                     return 0;
                 }
                 let mut left = want;
+                let mut dropped = 0usize;
                 while left > 0 {
                     let Some(mut front) = st.chunks.pop_front() else { break };
                     let drop_n = (front.len() as u64).min(left) as usize;
                     st.queued_bytes = st.queued_bytes.saturating_sub(drop_n);
+                    dropped = dropped.saturating_add(drop_n);
                     left -= drop_n as u64;
                     if drop_n < front.len() {
                         st.chunks.push_front(front.split_off(drop_n));
                     }
                 }
                 st.skip_remaining = st.skip_remaining.saturating_add(left);
+                st.unacked_bytes = st.unacked_bytes.saturating_add(dropped);
+                let credit = if st.unacked_bytes >= super::PREVIEW_CREDIT_BATCH_BYTES {
+                    std::mem::take(&mut st.unacked_bytes)
+                } else {
+                    0
+                };
+                drop(st);
+                if credit > 0 {
+                    self.proxy.send_credit(credit);
+                }
                 if let Some(s) = bytes_skipped {
                     *s = bytes_to_skip;
                 }
@@ -779,8 +793,18 @@ wrap_resource_handler! {
                     std::ptr::copy_nonoverlapping(chunk.as_ptr(), data_out, n);
                 }
                 st.queued_bytes = st.queued_bytes.saturating_sub(n);
+                st.unacked_bytes = st.unacked_bytes.saturating_add(n);
                 if n < chunk.len() {
                     st.chunks.push_front(chunk.split_off(n));
+                }
+                let credit = if st.unacked_bytes >= super::PREVIEW_CREDIT_BATCH_BYTES {
+                    std::mem::take(&mut st.unacked_bytes)
+                } else {
+                    0
+                };
+                drop(st);
+                if credit > 0 {
+                    self.proxy.send_credit(credit);
                 }
                 *out_n = n as i32;
                 return 1;
@@ -809,6 +833,11 @@ wrap_resource_handler! {
                 max_len: bytes_to_read as usize,
                 callback: cb,
             });
+            let credit = std::mem::take(&mut st.unacked_bytes);
+            drop(st);
+            if credit > 0 {
+                self.proxy.send_credit(credit);
+            }
             *out_n = 0;
             1
         }

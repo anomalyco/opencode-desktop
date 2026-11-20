@@ -41,7 +41,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::SyncSender;
+use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 
 use cef::rc::Rc as _;
@@ -400,7 +400,7 @@ wrap_request_context_handler! {
         deferred_loads: Arc<Mutex<Vec<(u64, u64, String)>>>,
         on_initialized: Arc<Mutex<Option<Box<dyn FnOnce(&RequestContext) + Send>>>>,
         resource_filter: Option<ResourceHook>,
-        pump: SyncSender<crate::Event>,
+        pump: Sender<crate::Event>,
     }
 
     impl RequestContextHandler {
@@ -438,7 +438,7 @@ wrap_request_context_handler! {
                         out.push(DeferredOutcome::Refuse { tab_id, generation, reason });
                     }
                 }
-                let _ = self.pump.try_send(crate::Event::Pump(0));
+                let _ = self.pump.send(crate::Event::Pump(0));
             }
         }
 
@@ -726,7 +726,7 @@ pub struct ContextPool {
     /// Outcomes promoted by `on_request_context_initialized` ready for `EngineManager::poll_picks`.
     ready_loads: Arc<Mutex<Vec<DeferredOutcome>>>,
     next_generation: u64,
-    pump: SyncSender<crate::Event>,
+    pump: Sender<crate::Event>,
 }
 
 /// Result of resolving a tab's `ContextKind` before creating its CEF browser.
@@ -750,7 +750,7 @@ pub struct ResolvedContext {
 }
 
 impl ContextPool {
-    pub fn new(pump: SyncSender<crate::Event>) -> Self {
+    pub fn new(pump: Sender<crate::Event>) -> Self {
         Self {
             entries: HashMap::new(),
             tab_keys: HashMap::new(),
@@ -1241,7 +1241,7 @@ fn create_isolated_context(
     proxy: Option<RemoteProxyConfig>,
     require_proxy: bool,
     ready_loads: Arc<Mutex<Vec<DeferredOutcome>>>,
-    pump: SyncSender<crate::Event>,
+    pump: Sender<crate::Event>,
     hooks: ContextHooks,
 ) -> Result<ContextEntry, &'static str> {
     let initialized = Arc::new(AtomicBool::new(false));

@@ -332,6 +332,13 @@ pub enum EngineMsg {
         request_id: u64,
         metrics: crate::extensions::ShimMetrics,
     },
+    /// Byte-credit replenishment (or immediate cancellation) for an in-flight `PreviewFetch`.
+    PreviewCredit {
+        req_id: u64,
+        bytes: u32,
+        #[serde(default)]
+        cancel: bool,
+    },
 }
 
 /// A file a page downloaded, kept in the engine's private downloads folder for the agent's tools

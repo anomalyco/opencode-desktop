@@ -178,7 +178,7 @@ pub type FrameRing = ();
 
 /// Linux: where a tab reports frames that can't come the way they do.
 #[cfg(target_os = "linux")]
-pub type Failures = std::sync::mpsc::SyncSender<crate::Event>;
+pub type Failures = std::sync::mpsc::Sender<crate::Event>;
 #[cfg(not(target_os = "linux"))]
 pub type Failures = ();
 
@@ -283,7 +283,7 @@ wrap_render_handler! {
                 let host = _browser.and_then(|b| cef::ImplBrowser::host(b));
                 let failures = self.failures.clone();
                 crate::dmabuf_frames::run(effects, self.tab_id, &self.out_tx, host.as_ref(), &move |f| {
-                    let _ = failures.try_send(crate::Event::FramesFailed(f));
+                    let _ = failures.send(crate::Event::FramesFailed(f));
                 });
             }
             #[cfg(not(target_os = "linux"))]
@@ -327,7 +327,7 @@ wrap_display_handler! {
         prompts: Arc<crate::prompts::TabPrompts>,
         favicon: Arc<crate::favicon::TabFavicon>,
         out_tx: Output,
-        events: std::sync::mpsc::SyncSender<crate::Event>,
+        events: std::sync::mpsc::Sender<crate::Event>,
     }
 
     impl DisplayHandler {
@@ -363,7 +363,7 @@ wrap_display_handler! {
                 self.prompts.set_pending_top_url(None);
                 s.url = url.clone();
                 let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
-                let _ = self.events.try_send(crate::Event::TabMeta {
+                let _ = self.events.send(crate::Event::TabMeta {
                     tab_id: self.tab_id,
                     url: Some(url),
                     title: None,
@@ -404,7 +404,7 @@ wrap_display_handler! {
                 };
                 s.title = display.clone();
                 let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
-                let _ = self.events.try_send(crate::Event::TabMeta {
+                let _ = self.events.send(crate::Event::TabMeta {
                     tab_id: self.tab_id,
                     url: None,
                     title: Some(display),
@@ -457,7 +457,7 @@ wrap_load_handler! {
         diagnostics: Arc<crate::diagnostics::TabDiagnostics>,
         deferred_initial: Arc<AtomicBool>,
         out_tx: Output,
-        events: std::sync::mpsc::SyncSender<crate::Event>,
+        events: std::sync::mpsc::Sender<crate::Event>,
     }
 
     impl LoadHandler {
@@ -481,7 +481,7 @@ wrap_load_handler! {
             s.can_go_back = can_go_back != 0;
             s.can_go_forward = can_go_forward != 0;
             let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
-            let _ = self.events.try_send(crate::Event::TabMeta {
+            let _ = self.events.send(crate::Event::TabMeta {
                 tab_id: self.tab_id,
                 url: None,
                 title: None,

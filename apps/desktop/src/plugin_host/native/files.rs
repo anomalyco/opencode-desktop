@@ -58,6 +58,10 @@ pub fn build(lua: &Lua, t: &Table) -> mlua::Result<()> {
         let caller = lua
             .app_data_ref::<std::rc::Rc<super::super::vm::Vmx>>()
             .map(|v| v.half.id.to_string());
+        #[cfg(not(target_arch = "wasm32"))]
+        let (tool_sid, in_flight) = super::super::commands::current_tool_scope(lua);
+        #[cfg(target_arch = "wasm32")]
+        let (tool_sid, in_flight): (Option<Option<String>>, Vec<String>) = (None, Vec::new());
         let o: opencode_plugin_spec::OpenFileOptions = if options.is_nil() { Default::default() } else { mlua::FromLua::from_lua(options, lua).and_then(|d: rune_luau::Data| d.decode().map_err(mlua::Error::runtime))? };
         let lines = o.start_line.map(|a| {
             let a = a.max(1) as u32;
@@ -66,16 +70,57 @@ pub fn build(lua: &Lua, t: &Table) -> mlua::Result<()> {
         let preview = o.preview == Some(true);
         let path = crate::review::data::normalize_path(&path);
         with_app("Workspace:OpenFile", |app| {
+            let is_builtin = caller.as_deref().is_some_and(|id| app.plugins.is_builtin_plugin(id));
+            let in_tool = tool_sid.is_some() || (!is_builtin && !in_flight.is_empty());
+            if let Some(ref caller_sid) = tool_sid
+                && caller_sid.as_deref() != Some(sid.as_str())
+            {
+                return Err(mlua::Error::runtime(
+                    "Workspace:OpenFile cannot target another session inside a tool call.",
+                ));
+            }
+            // Any tool-scoped call (built-in `file` `open_file` included) is an agent request:
+            // hidden/secret HTML entries are refused synchronously and allowed HTML previews are
+            // marked `agent_driven` (`notes/review-rd281.md` PR 2 2nd read #2).
+            #[cfg(not(target_arch = "wasm32"))]
+            if is_builtin && in_tool && lines.is_none() && app.opens_as_page(&path) {
+                match app.resolve_workspace_file_target(&sid, &path, true) {
+                    crate::browser::preview::PreviewTarget::Preview { display_url, spec } => {
+                        app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
+                            tx.instant();
+                            let id = s.open_resolved_preview_tab(Some(&sid), &display_url, spec, None, true);
+                            s.workspace_panes.browser.host.set_agent_driven(id, true);
+                        }));
+                        return Ok(());
+                    }
+                    crate::browser::preview::PreviewTarget::Refused(_)
+                    | crate::browser::preview::PreviewTarget::NotPreview => {
+                        return Err(mlua::Error::runtime(
+                            "Hidden or secret files cannot be opened as a browser preview by an agent.",
+                        ));
+                    }
+                }
+            }
             app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
-                let is_builtin = caller.as_deref().is_some_and(|id| s.plugins.is_builtin_plugin(id));
-                if !is_builtin {
+                let builtin_now = caller.as_deref().is_some_and(|id| s.plugins.is_builtin_plugin(id));
+                if !builtin_now {
                     // Third-party plugins always open workspace files in the Files source viewer
-                    // on the active session only — never minting an `oc-preview://` grant
+                    // on the allowed session only — never minting an `oc-preview://` grant
                     // (`notes/review-rd281.md` PR 2 Blocker #1).
-                    if s.active_session_id() == Some(sid.as_str()) {
+                    let allowed_sid = tool_sid
+                        .as_ref()
+                        .map(|c| c.as_deref() == Some(sid.as_str()))
+                        .unwrap_or_else(|| s.active_session_id() == Some(sid.as_str()));
+                    if allowed_sid {
                         s.open_workspace_file_source(&sid, &path, preview, lines, false, tx);
                     }
+                    return;
+                }
+                if in_tool {
+                    // Tool-scoped non-preview open (e.g. non-HTML, line-ranged, or older engine):
+                    // open strictly in Files source viewer so it can never mint a non-agent preview.
+                    s.open_workspace_file_source(&sid, &path, preview, lines, false, tx);
                     return;
                 }
                 s.open_workspace_file_for_session(&sid, &path, preview, lines, false, tx);
@@ -96,11 +141,22 @@ pub fn build(lua: &Lua, t: &Table) -> mlua::Result<()> {
         let caller = lua
             .app_data_ref::<std::rc::Rc<super::super::vm::Vmx>>()
             .map(|v| v.half.id.to_string());
+        #[cfg(not(target_arch = "wasm32"))]
+        let (tool_sid, _) = super::super::commands::current_tool_scope(lua);
+        #[cfg(target_arch = "wasm32")]
+        let tool_sid: Option<Option<String>> = None;
         let path = crate::review::data::normalize_path(&path);
         with_app("Workspace:OpenFileSource", |app| {
+            if let Some(ref caller_sid) = tool_sid
+                && caller_sid.as_deref() != Some(sid.as_str())
+            {
+                return Err(mlua::Error::runtime(
+                    "Workspace:OpenFileSource cannot target another session inside a tool call.",
+                ));
+            }
             app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
                 let is_builtin = caller.as_deref().is_some_and(|id| s.plugins.is_builtin_plugin(id));
-                if !is_builtin && s.active_session_id() != Some(sid.as_str()) {
+                if !is_builtin && tool_sid.is_none() && s.active_session_id() != Some(sid.as_str()) {
                     return;
                 }
                 tx.instant();

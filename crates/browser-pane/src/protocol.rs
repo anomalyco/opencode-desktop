@@ -398,6 +398,13 @@ pub enum EngineMsg {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         range: Option<String>,
     },
+    /// Byte-credit replenishment (or immediate cancellation) for an in-flight `PreviewFetch`.
+    PreviewCredit {
+        req_id: u64,
+        bytes: u32,
+        #[serde(default)]
+        cancel: bool,
+    },
     /// A preview page attempted to load a file outside its grant or a secret/hidden path.
     PreviewDenied {
         tab_id: u64,

@@ -21,7 +21,7 @@ use std::io::{Read, Write};
 #[cfg(unix)]
 use std::sync::atomic::AtomicU8;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, SyncSender};
+use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
 use std::sync::{Arc, Condvar, Mutex};
 
 use serde_json::{Value, json};
@@ -132,7 +132,7 @@ impl CdpPipe {
     /// Creates the private anonymous pipe pair, pre-writes `Target.setAutoAttach` directly into
     /// the kernel pipe buffer before `cef::initialize()` starts, spawns bounded reader & writer
     /// threads, and returns `(pipe, inbound_rx, wake_pending)`.
-    pub fn create(events: SyncSender<crate::Event>) -> Option<(Self, Receiver<PipeInbound>, Arc<AtomicBool>)> {
+    pub fn create(events: Sender<crate::Event>) -> Option<(Self, Receiver<PipeInbound>, Arc<AtomicBool>)> {
         #[cfg(windows)]
         let (mut our_write, our_read, browser_read_raw, browser_write_raw) = create_win_pipes()?;
         #[cfg(unix)]
@@ -324,9 +324,9 @@ fn spawn_writer(mut writer: File, outbound: Arc<(Mutex<OutboundQueues>, Condvar)
         });
 }
 
-fn wake_main(wake_pending: &AtomicBool, events: &SyncSender<crate::Event>) {
+fn wake_main(wake_pending: &AtomicBool, events: &Sender<crate::Event>) {
     if !wake_pending.swap(true, Ordering::AcqRel) {
-        let _ = events.try_send(crate::Event::Pump(0));
+        let _ = events.send(crate::Event::Pump(0));
     }
 }
 
@@ -334,7 +334,7 @@ fn spawn_reader(
     mut reader: File,
     inbound: SyncSender<PipeInbound>,
     wake_pending: Arc<AtomicBool>,
-    events: SyncSender<crate::Event>,
+    events: Sender<crate::Event>,
 ) {
     let _ = std::thread::Builder::new()
         .name("engine-ext-cdp-rx".into())

@@ -481,6 +481,7 @@ impl BrowserHost {
     }
 
     pub fn close_tab(&mut self, id: u64) {
+        self.preview_chunk_budget.cancel_tab(id);
         if let Some(pos) = self.tabs.iter().position(|t| t.id == id) {
             let removed = self.tabs.remove(pos);
             removed.surface.clear();
@@ -1161,6 +1162,9 @@ impl BrowserHost {
                         range,
                     });
                     changed = true;
+                }
+                EngineMsg::PreviewCredit { req_id, bytes, cancel } => {
+                    self.preview_chunk_budget.on_credit(req_id, bytes as usize, cancel);
                 }
                 EngineMsg::PreviewDenied { tab_id } => {
                     if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {

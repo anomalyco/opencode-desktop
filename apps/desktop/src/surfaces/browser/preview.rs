@@ -14,7 +14,7 @@
 //!   exact status/length/range checks, single-encoded remote paths, and generation-guarded errors).
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use base64::Engine as _;
 use browser_pane::policy::preview::{
@@ -42,15 +42,14 @@ pub(crate) struct PreviewTabBinding {
     pub generation: u64,
     pub alive: Arc<AtomicBool>,
     pub abort: PreviewAbort,
-    pub in_flight: Arc<AtomicUsize>,
 }
 
 struct BoundFetch {
+    server_id: String,
     server: opencode_kit::client::Server,
     generation: u64,
     alive: Arc<AtomicBool>,
     abort: PreviewAbort,
-    in_flight: Arc<AtomicUsize>,
 }
 
 pub enum PreviewTarget {
@@ -118,7 +117,6 @@ impl App {
                     generation,
                     alive: Arc::new(AtomicBool::new(true)),
                     abort: PreviewAbort::new(),
-                    in_flight: Arc::new(AtomicUsize::new(0)),
                 },
             );
         }
@@ -128,6 +126,8 @@ impl App {
         if let Some(binding) = self.workspace_panes.browser.preview_bindings.remove(&tab_id) {
             binding.alive.store(false, Ordering::Release);
             binding.abort.abort();
+            self.workspace_panes.browser.host.preview_responder().cancel_tab(tab_id);
+            PreviewFetchPool::global().revoke_tab(tab_id);
         }
     }
 
@@ -528,11 +528,11 @@ impl App {
                 .get(&req.tab_id)
                 .filter(|b| b.alive.load(Ordering::Acquire))
                 .map(|b| BoundFetch {
+                    server_id: b.server_key.as_str().to_owned(),
                     server: b.server.clone(),
                     generation: b.generation,
                     alive: Arc::clone(&b.alive),
                     abort: b.abort.clone(),
-                    in_flight: Arc::clone(&b.in_flight),
                 });
             dispatch_preview_fetch(req, spec, bound, responder.clone(), err_tx.clone(), waker.clone());
         }
@@ -635,11 +635,20 @@ fn dispatch_preview_fetch(
     let method = if req.method.eq_ignore_ascii_case("HEAD") { "HEAD" } else { "GET" };
     let req_id = req.req_id;
     let tab_id = req.tab_id;
+    let responder_cancel = responder.clone();
     let responder_panic = responder.clone();
     let responder_full = responder.clone();
-    let in_flight = Arc::clone(&bound.in_flight);
+    let alive_pool = Arc::clone(&bound.alive);
+    let abort_pool = bound.abort.clone();
+    let server_id = bound.server_id.clone();
     let spawned = PreviewFetchPool::global().try_spawn(
-        &in_flight,
+        tab_id,
+        server_id,
+        alive_pool,
+        abort_pool,
+        move || {
+            responder_cancel.send_head(req_id, false, 403, "application/octet-stream".into(), None, None);
+        },
         move || {
             responder_panic.send_head(req_id, false, 500, "application/octet-stream".into(), None, None);
         },
@@ -711,7 +720,7 @@ fn dispatch_preview_fetch(
                         return false;
                     }
                     let b64 = base64::engine::general_purpose::STANDARD.encode(chunk);
-                    responder.send_chunk(req_id, b64, &bound.alive)
+                    responder.send_chunk(req_id, chunk.len(), b64, &bound.alive)
                 },
             );
             if !head_sent {
@@ -720,6 +729,8 @@ fn dispatch_preview_fetch(
                 responder.send_end(req_id, true);
             } else if accepted {
                 responder.send_end(req_id, ok && bound.alive.load(Ordering::Acquire) && !bound.abort.is_aborted());
+            } else {
+                responder.finish_request(req_id);
             }
         },
     );
