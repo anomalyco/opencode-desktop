@@ -118,6 +118,10 @@ pub trait SwitcherHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback +
     // Sessions & projects
     fn sessions(&self) -> &[SessionInfo];
     fn session(&self, id: &str) -> Option<&SessionInfo>;
+    /// Effective recency timestamp for ordering/bucketing `session` (`recent_page.active_ms`).
+    fn session_active_ms(&self, session: &SessionInfo) -> i64 {
+        session.active_ms()
+    }
     fn push_session(&mut self, session: SessionInfo);
     fn project(&self, id: &str) -> Option<&Project>;
     fn project_for_session(&self, session: &SessionInfo) -> Option<&Project>;
