@@ -29,6 +29,7 @@ mod diagnostics;
 mod favicon;
 mod find;
 mod menu;
+mod preview;
 mod profile;
 mod prompts;
 mod tab_client;
@@ -236,9 +237,17 @@ fn main() {
                     true
                 }
                 Event::Disconnected { id } => {
-                    let mut writer = client_writer.lock().unwrap();
-                    if writer.as_ref().is_some_and(|(current, _)| *current == id) {
-                        *writer = None;
+                    let disconnected_current = {
+                        let mut writer = client_writer.lock().unwrap();
+                        if writer.as_ref().is_some_and(|(current, _)| *current == id) {
+                            *writer = None;
+                            true
+                        } else {
+                            false
+                        }
+                    };
+                    if disconnected_current {
+                        manager.on_host_disconnected();
                     }
                     true
                 }
