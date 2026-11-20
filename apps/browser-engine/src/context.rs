@@ -494,7 +494,9 @@ pub fn verify_extension_file_access_disabled(loaded_id: &str) -> bool {
         return false;
     };
     let flags_key = CefString::from("creation_flags");
-    if ext_dict.has_key(Some(&flags_key)) == 0 {
+    if ext_dict.has_key(Some(&flags_key)) == 0
+        || *ext_dict.get_type(Some(&flags_key)).as_ref() != sys::cef_value_type_t::VTYPE_INT
+    {
         return false;
     }
     let creation_flags = ext_dict.int(Some(&flags_key));
@@ -502,7 +504,9 @@ pub fn verify_extension_file_access_disabled(loaded_id: &str) -> bool {
         return false;
     }
     let allow_key = CefString::from("newAllowFileAccess");
-    if ext_dict.has_key(Some(&allow_key)) == 0 {
+    if ext_dict.has_key(Some(&allow_key)) == 0
+        || *ext_dict.get_type(Some(&allow_key)).as_ref() != sys::cef_value_type_t::VTYPE_BOOL
+    {
         return false;
     }
     ext_dict.bool(Some(&allow_key)) == 0

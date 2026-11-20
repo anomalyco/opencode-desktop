@@ -13,10 +13,9 @@
 //!   Negotiate; agent-driven tabs cancel immediately and emit `AuthAgentRequired` (`sign_in_required`).
 //! - Native file choosers on agent-driven tabs are cancelled immediately (`FileChooserBlocked`).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 
 use cef::rc::Rc as _;
 use cef::{
@@ -74,9 +73,12 @@ pub struct TabPrompts {
     auth: Mutex<Vec<(AuthChallenge, AuthCallback)>>,
     pending_top_url: Mutex<Option<String>>,
     /// Tracks in-flight (pre-commit) `chrome-extension://` sub-frame navigations keyed by CEF
-    /// frame identifier (5 s stale TTL) so agent actions cannot race between `on_before_browse`
-    /// and commit (`review-rd274.md` Round-3 §2).
-    pending_ext_subframes: Mutex<HashMap<String, Instant>>,
+    /// frame identifier until commit, cancel/error, main-frame nav, or renderer crash — NO
+    /// time-out that fails open (`review-rd274.md` Round-4 ruling).
+    pending_ext_subframes: Mutex<HashSet<String>>,
+    /// Tracks extension frames observed via real CDP `frameId` (`devtools_frame_token`) in
+    /// `TabCdpObserver::on_dev_tools_event` (`Page.frameNavigated` / `frameDetached`).
+    cdp_ext_frames: Mutex<HashSet<String>>,
 }
 
 impl TabPrompts {
@@ -90,10 +92,7 @@ impl TabPrompts {
 
     pub fn mark_pending_ext_subframe(&self, frame_id: String) {
         if !frame_id.is_empty() {
-            self.pending_ext_subframes
-                .lock()
-                .unwrap()
-                .insert(frame_id, Instant::now());
+            self.pending_ext_subframes.lock().unwrap().insert(frame_id);
         }
     }
 
@@ -103,15 +102,42 @@ impl TabPrompts {
         }
     }
 
-    pub fn clear_all_pending_ext_subframes(&self) {
+    pub fn clear_all_ext_frame_tracking(&self) {
         self.pending_ext_subframes.lock().unwrap().clear();
+        self.cdp_ext_frames.lock().unwrap().clear();
     }
 
-    pub fn retain_pending_ext_subframes(&self, mut keep: impl FnMut(&str) -> bool) -> Vec<String> {
-        let mut map = self.pending_ext_subframes.lock().unwrap();
-        let ttl = Duration::from_secs(5);
-        map.retain(|id, ts| ts.elapsed() < ttl && keep(id));
-        map.keys().cloned().collect()
+    /// Retains only pending extension sub-frames whose `RenderFrameHost` is still alive and has
+    /// not yet committed as an extension scheme (zero fail-open TTL). Returns `true` if any
+    /// pre-commit extension sub-frame navigation is still in flight.
+    pub fn has_pending_ext_subframes(&self, live_frames: &HashMap<String, String>) -> bool {
+        let mut set = self.pending_ext_subframes.lock().unwrap();
+        set.retain(|id| {
+            live_frames
+                .get(id)
+                .is_some_and(|url| !crate::extensions::manifest::is_extension_scheme(url))
+        });
+        !set.is_empty()
+    }
+
+    pub fn set_cdp_ext_frame(&self, cdp_frame_id: &str, is_ext: bool) {
+        if cdp_frame_id.is_empty() {
+            return;
+        }
+        let mut set = self.cdp_ext_frames.lock().unwrap();
+        if is_ext {
+            set.insert(cdp_frame_id.to_owned());
+        } else {
+            set.remove(cdp_frame_id);
+        }
+    }
+
+    pub fn clear_cdp_ext_frames(&self) {
+        self.cdp_ext_frames.lock().unwrap().clear();
+    }
+
+    pub fn has_cdp_ext_frames(&self) -> bool {
+        !self.cdp_ext_frames.lock().unwrap().is_empty()
     }
 
     pub fn answer_dialog(&self, id: u64, accept: bool, text: &str) -> bool {
@@ -215,6 +241,7 @@ impl TabPrompts {
 
     pub fn reset_on_crash(&self, tab_id: u64, out_tx: &Output) {
         self.set_pending_top_url(None);
+        self.clear_all_ext_frame_tracking();
         let dialogs = std::mem::take(&mut *self.dialogs.lock().unwrap());
         let had_dialogs = !dialogs.is_empty();
         for (_, cb) in dialogs {

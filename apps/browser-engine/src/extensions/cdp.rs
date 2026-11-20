@@ -372,8 +372,18 @@ impl ExtensionHost {
                 }
             } else {
                 self.extensions.remove(&expected_id);
+                self.verified_startup.remove(&expected_id);
                 self.actions.remove(&expected_id);
                 self.queued_clicks.retain(|cid| cid != &expected_id);
+                let stale_sids: Vec<String> = self
+                    .sessions
+                    .iter()
+                    .filter(|(_, s)| s.ext_id == expected_id || s.ext_id == loaded_id)
+                    .map(|(sid, _)| sid.clone())
+                    .collect();
+                for sid in stale_sids {
+                    self.detach_session(&sid);
+                }
                 if is_valid_ext_id(loaded_id) {
                     let _ = self.send_cdp("Extensions.uninstall", json!({ "id": loaded_id }), None);
                 }
@@ -441,6 +451,16 @@ impl ExtensionHost {
                 effects.push(ExtEffect::ExtensionReloaded { ext_id: loaded_id, ok: true, error: None });
             } else {
                 self.extensions.remove(&expected_id);
+                self.verified_startup.remove(&expected_id);
+                let stale_sids: Vec<String> = self
+                    .sessions
+                    .iter()
+                    .filter(|(_, s)| s.ext_id == expected_id || s.ext_id == loaded_id)
+                    .map(|(sid, _)| sid.clone())
+                    .collect();
+                for sid in stale_sids {
+                    self.detach_session(&sid);
+                }
                 if is_valid_ext_id(&loaded_id) {
                     let _ = self.send_cdp("Extensions.uninstall", json!({ "id": loaded_id }), None);
                 }

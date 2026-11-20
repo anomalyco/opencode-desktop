@@ -19,7 +19,6 @@
 #![deny(unsafe_code)]
 
 mod cdp;
-pub mod frame_guard;
 pub mod integrity;
 pub mod manifest;
 pub mod pipe;

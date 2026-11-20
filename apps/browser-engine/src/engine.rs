@@ -39,7 +39,6 @@ struct ManagedTab {
     cdp_id_map: Arc<Mutex<HashMap<i32, CdpPending>>>,
     internal_picked: Arc<Mutex<Vec<i64>>>,
     pending_clears: Arc<Mutex<Vec<PendingClear>>>,
-    hit_events: Arc<Mutex<Vec<crate::extensions::frame_guard::HitTestReply>>>,
     prompts: Arc<crate::prompts::TabPrompts>,
     menu: Arc<crate::menu::TabMenuState>,
     context: crate::wire::ContextKind,
@@ -50,16 +49,6 @@ struct ManagedTab {
     shown: bool,
     #[cfg(any(windows, target_os = "linux"))]
     frames: FrameRing,
-}
-
-pub(super) struct HitTestJob {
-    pub tab_id: u64,
-    pub request_id: u64,
-    pub method: String,
-    pub params: Value,
-    pub points: Vec<(f64, f64)>,
-    pub remaining_boxes: usize,
-    pub blocked: bool,
 }
 
 pub struct EngineManager {
@@ -77,8 +66,6 @@ pub struct EngineManager {
     seed_probe: Option<BrowserHost>,
     next_ext_tab_id: u64,
     next_cdp_id: AtomicI32,
-    next_hit_job: u64,
-    hit_jobs: HashMap<u64, HitTestJob>,
     next_eref: u64,
     /// The app's scheme, once it said (`HostMsg::SetColorScheme`).
     dark: Option<bool>,
@@ -126,8 +113,6 @@ impl EngineManager {
             seed_probe: None,
             next_ext_tab_id: 1_000_000,
             next_cdp_id: AtomicI32::new(100),
-            next_hit_job: 1,
-            hit_jobs: HashMap::new(),
             next_eref: 1,
             dark: None,
             home: crate::profile::home_dir(),
@@ -293,7 +278,6 @@ impl EngineManager {
     }
 
     pub fn poll_picks(&mut self) {
-        self.poll_hit_tests();
         for outcome in self.contexts.drain_ready_loads() {
             match outcome {
                 crate::context::DeferredOutcome::Load { tab_id, url } => {
@@ -545,7 +529,6 @@ impl EngineManager {
                 }
             }
             HostMsg::CloseTab { tab_id } => {
-                self.hit_jobs.retain(|_, job| job.tab_id != tab_id);
                 if let Some(tab) = self.tabs.remove(&tab_id) {
                     tab.menu.cancel_all();
                     tab.prompts.dismiss_all();
@@ -775,7 +758,7 @@ impl EngineManager {
             }
             HostMsg::SetInspect { tab_id, enabled } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
-                    if tab_is_extension_main_surface(t) {
+                    if tab_is_extension_surface(t) {
                         return true;
                     }
                     let host = t.host.clone();
@@ -812,7 +795,7 @@ impl EngineManager {
             }
             HostMsg::HighlightNode { tab_id, backend_node_id } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
-                    if tab_is_extension_main_surface(t) {
+                    if tab_is_extension_surface(t) {
                         return true;
                     }
                     let host = t.host.clone();
@@ -840,7 +823,59 @@ impl EngineManager {
                 }
             }
             HostMsg::CdpCall { tab_id, request_id, method, params, session_id } => {
-                self.handle_cdp_call_guarded(tab_id, request_id, method, params, session_id);
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    // Reject any cross-session / OOPIF sessionId so external callers can never
+                    // target extension iframes or non-page targets (`review-rd274.md` §1).
+                    if session_id.is_some() {
+                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                            tab_id,
+                            request_id,
+                            ok: false,
+                            result: json!({ "message": "Cross-session DevTools targeting is not permitted." }),
+                        });
+                        return true;
+                    }
+                    // Fail closed on the entire tab whenever ANY frame (main OR sub-frame) is, or
+                    // is about to become, an extension frame — checked right at dispatch time on
+                    // both agent-driven tabs and unflagged 3P plugin `DevtoolsAsync` tabs
+                    // (`review-rd274.md` Round-4 ruling; narrow sub-frame masking lives in follow-up
+                    // `ws9/pr1b-ext-subframe-masking`, which still gates shipping).
+                    if tab_is_extension_surface(t) {
+                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                            tab_id,
+                            request_id,
+                            ok: false,
+                            result: json!({ "message": "Agent browser tools cannot read or act on extension pages or tabs with extension frames." }),
+                        });
+                        return true;
+                    }
+                    if let Err(err) = browser_policy::check_cdp(&method, &params, true) {
+                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                            tab_id,
+                            request_id,
+                            ok: false,
+                            result: json!({ "message": err }),
+                        });
+                        return true;
+                    }
+                    let msg_id = self.next_cdp_id.fetch_add(1, Ordering::Relaxed);
+                    t.cdp_id_map.lock().unwrap().insert(msg_id, CdpPending::Raw(request_id));
+                    let payload = json!({
+                        "id": msg_id,
+                        "method": method,
+                        "params": params,
+                    });
+                    let raw = payload.to_string();
+                    if t.host.send_dev_tools_message(Some(raw.as_bytes())) != 1 {
+                        t.cdp_id_map.lock().unwrap().remove(&msg_id);
+                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                            tab_id,
+                            request_id,
+                            ok: false,
+                            result: json!({ "error": "send_dev_tools_message rejected" }),
+                        });
+                    }
+                }
             }
             HostMsg::SiteCookies { tab_id, request_id } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
@@ -1302,17 +1337,21 @@ impl EngineManager {
         let cdp_id_map = Arc::new(Mutex::new(HashMap::new()));
         let internal_picked = Arc::new(Mutex::new(Vec::new()));
         let pending_clears = Arc::new(Mutex::new(Vec::new()));
-        let hit_events = Arc::new(Mutex::new(Vec::new()));
         let mut observer = TabCdpObserver::new(
             tab_id,
             cdp_id_map.clone(),
             internal_picked.clone(),
             pending_clears.clone(),
-            hit_events.clone(),
-            self.events.clone(),
+            prompts.clone(),
             self.out_tx.clone(),
         );
         let cdp_reg = host.add_dev_tools_message_observer(Some(&mut observer));
+        if !isolated && self.extensions.is_some() {
+            // Enable `Page.frameNavigated` / `Page.frameDetached` notifications on non-isolated
+            // tabs when extensions are active so `TabCdpObserver` tracks real CDP `frameId`s
+            // (`devtools_frame_token`) cleanly (`review-rd274.md` Round-4 ruling).
+            self.send_internal_cdp(&host, "Page.enable", json!({}));
+        }
         if let Some(dark) = self.dark {
             self.send_color_scheme(&host, dark);
         }
@@ -1332,7 +1371,6 @@ impl EngineManager {
                 cdp_id_map,
                 internal_picked,
                 pending_clears,
-                hit_events,
                 prompts,
                 menu: menu_state,
                 context: effective_context,
@@ -1393,10 +1431,21 @@ impl EngineManager {
     }
 }
 
-/// Whether `t` is an extension main-frame page or popup (whole-tab refusal for agent CDP).
-/// Regular web tabs that embed `chrome-extension://` sub-frames stay drivable and are guarded
-/// per-frame by `crate::extensions::frame_guard` (`review-rd274.md` Round-3 §2).
-fn tab_is_extension_main_surface(t: &ManagedTab) -> bool {
+/// Fail-closed whole-tab extension guard checked at dispatch time for every `HostMsg::CdpCall`,
+/// `SetInspect`, and `HighlightNode` (`review-rd274.md` Round-4 ruling).
+///
+/// Refuses the entire tab whenever ANY frame (main OR sub-frame) is, or is about to become, an
+/// extension frame — checking:
+/// 1. `is_popup`, snapshot URL, pending top URL, and live main-frame URL;
+/// 2. every live CEF frame via `browser.frame_identifiers()` (catches cross-process OOPIFs,
+///    Bitwarden closed-ShadowRoot overlays, and nested cross-origin iframes);
+/// 3. real CDP `frameId`s (`devtools_frame_token`) observed via `Page.frameNavigated` /
+///    `navigatedWithinDocument` / `frameDetached`;
+/// 4. pending (pre-commit) extension sub-frame navigations tracked with NO fail-open TTL.
+///
+/// Narrow sub-frame masking lives in tracked follow-up `ws9/pr1b-ext-subframe-masking` (which
+/// still gates enabling extensions for users).
+fn tab_is_extension_surface(t: &ManagedTab) -> bool {
     if t.is_popup {
         return true;
     }
@@ -1408,13 +1457,29 @@ fn tab_is_extension_main_surface(t: &ManagedTab) -> bool {
     {
         return true;
     }
+    if t.prompts.has_cdp_ext_frames() {
+        return true;
+    }
     if let Some(frame) = t.browser.main_frame() {
         let live_url = CefString::from(&frame.url()).to_string();
         if crate::extensions::manifest::is_extension_scheme(&live_url) {
             return true;
         }
     }
-    false
+    let mut ids = cef::CefStringList::new();
+    t.browser.frame_identifiers(Some(&mut ids));
+    let mut live_frames: HashMap<String, String> = HashMap::new();
+    for id in ids {
+        let Some(frame) = t.browser.frame_by_identifier(Some(&CefString::from(id.as_str()))) else {
+            continue;
+        };
+        let furl = CefString::from(&frame.url()).to_string();
+        if crate::extensions::manifest::is_extension_scheme(&furl) {
+            return true;
+        }
+        live_frames.insert(id, furl);
+    }
+    t.prompts.has_pending_ext_subframes(&live_frames)
 }
 
 mod emulation;
