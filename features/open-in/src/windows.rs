@@ -6,7 +6,8 @@
 //! executable named like the command beside it; failing those, the folder its installer puts it
 //! in. File Explorer shows a verified local directory or reveals a file with it selected
 //! (`SHOpenFolderAndSelectItems`, never executing files); PowerShell (5 or 7) opens in its own
-//! console in the folder, Windows Terminal in a new window there (refusing `;` in folder names).
+//! console in the folder, Windows Terminal in a new window there (using `-d .` with `.current_dir`
+//! so folder names containing `;` work safely).
 
 use std::ffi::OsString;
 use std::os::windows::process::CommandExt;
@@ -89,6 +90,31 @@ impl Launcher for Win {
 
 fn is_terminal(exe: &Path) -> bool {
     exe.file_stem().is_some_and(|s| s.eq_ignore_ascii_case("wt"))
+}
+
+/// Opens a user-confirmed allow-listed app-scheme URI via `ShellExecuteW` (`open` verb only;
+/// never `cmd.exe` or `explorer.exe`). Caller must have verified `is_confirmed_app_scheme_url`.
+#[allow(unsafe_code)]
+pub(crate) fn open_app_uri(uri: &str) -> bool {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::UI::Shell::ShellExecuteW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+    let verb: Vec<u16> = OsStr::new("open").encode_wide().chain([0]).collect();
+    let target: Vec<u16> = OsStr::new(uri).encode_wide().chain([0]).collect();
+    // SAFETY: `verb` and `target` are NUL-terminated UTF-16 buffers valid across the call.
+    let res = unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            verb.as_ptr(),
+            target.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    (res as isize) > 32
 }
 
 /// Starts `cmd` on its own: the app keeps running after the launch answers.

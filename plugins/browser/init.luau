@@ -346,7 +346,8 @@ return plugin.defineWindow(function(ctx)
         end
     end)
 
-    -- Drains any queued conversation app-scheme link reviews into timestamped guarded notices.
+    -- Drains any queued app-scheme link reviews into timestamped guarded notices bound to their
+    -- single-use host-minted review token.
     local function drainAppLinkReviews()
         local bAny = Browser :: any
         if type(bAny.TakeAppLinkReview) ~= "function" then
@@ -357,17 +358,30 @@ return plugin.defineWindow(function(ctx)
             if review == nil or type(review.tabId) ~= "string" or type(review.url) ~= "string" then
                 break
             end
-            local action = refusal.externalTarget(review.url, "conversation")
+            local src: refusal.Source = if review.source == "page" then "page" else "conversation"
+            local action = refusal.externalTarget(review.url, src)
+            local reviewToken = if type(review.token) == "string" and review.token ~= "" then review.token else nil
             if action ~= nil then
+                local existing = refusalNotices[review.tabId]
+                if existing and existing.reviewToken and type(bAny.DismissAppLinkReview) == "function" then
+                    bAny:DismissAppLinkReview(existing.reviewToken)
+                end
+                local tab = Browser:Get(review.tabId)
+                if tab then
+                    dismissedRefusals[review.tabId] = tab:Rejected()
+                end
                 nextNoticeId += 1
                 refusalNotices[review.tabId] = {
                     token = `app:{nextNoticeId}`,
-                    origin = I18n:T("notice.conversation"),
+                    reviewToken = reviewToken,
+                    origin = if src == "page" then I18n:T("notice.page") else I18n:T("notice.conversation"),
                     text = I18n:T("refused.scheme"),
                     target = review.url,
                     action = action,
                     shownAtMs = System:Now(),
                 }
+            elseif reviewToken and type(bAny.DismissAppLinkReview) == "function" then
+                bAny:DismissAppLinkReview(reviewToken)
             end
         end
     end
@@ -379,6 +393,10 @@ return plugin.defineWindow(function(ctx)
         local existing = refusalNotices[tab.Id]
         if code == nil then
             if existing ~= nil and (navigated or string.sub(existing.token, 1, 4) ~= "app:") then
+                local bAny = Browser :: any
+                if existing.reviewToken ~= nil and type(bAny.DismissAppLinkReview) == "function" then
+                    bAny:DismissAppLinkReview(existing.reviewToken)
+                end
                 refusalNotices[tab.Id] = nil
             end
             return
@@ -405,6 +423,11 @@ return plugin.defineWindow(function(ctx)
         drainAppLinkReviews()
         local tab = Browser:Get(id)
         if tab == nil then
+            local existing = refusalNotices[id]
+            local bAny = Browser :: any
+            if existing and existing.reviewToken ~= nil and type(bAny.DismissAppLinkReview) == "function" then
+                bAny:DismissAppLinkReview(existing.reviewToken)
+            end
             epochs[id] = nil
             recorded[id] = nil
             recordedUrl[id] = nil
@@ -738,9 +761,10 @@ return plugin.defineWindow(function(ctx)
             closeFind(tab)
         elseif what == "refusal.action" then
             local notice = arg :: refusal.Notice?
+            local bAny = Browser :: any
             if notice and notice.target then
-                if notice.action == "open" then
-                    System:OpenExternal(notice.target)
+                if notice.action == "open" and notice.reviewToken ~= nil and type(bAny.ConfirmAppLinkReview) == "function" then
+                    bAny:ConfirmAppLinkReview(notice.reviewToken)
                 else
                     System:CopyText(notice.target)
                     Toast:Info(I18n:T("common.copied"))
@@ -750,6 +774,11 @@ return plugin.defineWindow(function(ctx)
             refusalNotices[tab.Id] = nil
             refresh()
         elseif what == "refusal.dismiss" then
+            local existing = refusalNotices[tab.Id]
+            local bAny = Browser :: any
+            if existing and existing.reviewToken ~= nil and type(bAny.DismissAppLinkReview) == "function" then
+                bAny:DismissAppLinkReview(existing.reviewToken)
+            end
             dismissedRefusals[tab.Id] = tab:Rejected()
             refusalNotices[tab.Id] = nil
             refresh()
@@ -1177,12 +1206,15 @@ return plugin.defineWindow(function(ctx)
             end
             local origin = if source == "conversation" then I18n:T("notice.conversation") else I18n:T("notice.page")
             nextNoticeId += 1
+            -- External contract notices are copy-only: OS app launches require a single-use
+            -- host-minted review token from `Browser:TakeAppLinkReview()` (never a plugin call).
             refusalNotices[tabId] = {
                 token = `ext:{tabId}:{nextNoticeId}`,
+                reviewToken = nil,
                 origin = origin,
                 text = I18n:T("refused.scheme"),
                 target = target,
-                action = action,
+                action = "copy",
                 shownAtMs = System:Now(),
             }
             refresh()

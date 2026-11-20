@@ -197,6 +197,42 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
                 }
             }
         }
+        Request::ConfirmAppLinkReview { token } => {
+            #[cfg(not(target_arch = "wasm32"))]
+            if &**plugin == crate::surfaces::browser::PLUGIN && app.live() {
+                let ready = {
+                    let reviews = app.workspace_panes.browser.active_app_reviews.borrow();
+                    reviews
+                        .get(&token)
+                        .is_some_and(|r| r.shown_at.elapsed() >= std::time::Duration::from_millis(500))
+                };
+                if !ready {
+                    return;
+                }
+                let review = app
+                    .workspace_panes
+                    .browser
+                    .active_app_reviews
+                    .borrow_mut()
+                    .remove(&token);
+                if let Some(review) = review
+                    && app.browser_tab_session(review.tab_id) == app.active_session_id()
+                    && browser_policy::is_confirmed_app_scheme_url(&review.url, review.source)
+                {
+                    crate::open_in::open_confirmed_app_url(tx, &review.url, review.source);
+                }
+            }
+            #[cfg(target_arch = "wasm32")]
+            let _ = token;
+        }
+        Request::DismissAppLinkReview { token } => {
+            #[cfg(not(target_arch = "wasm32"))]
+            if &**plugin == crate::surfaces::browser::PLUGIN {
+                app.workspace_panes.browser.active_app_reviews.borrow_mut().remove(&token);
+            }
+            #[cfg(target_arch = "wasm32")]
+            let _ = token;
+        }
         Request::Reveal(path) => crate::open_in::reveal_abs(app, path),
         Request::CopyText(text) => tx.copy(text),
         // A muted session, or one under a muted root, shows nothing (`host-apis.tsx`'s notify).

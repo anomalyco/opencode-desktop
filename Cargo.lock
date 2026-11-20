@@ -3807,6 +3807,7 @@ name = "opencode-feature-updater"
 version = "0.0.1"
 dependencies = [
  "authenticode",
+ "browser-policy",
  "opencode-i18n",
  "opencode-kernel",
  "opencode-platform",

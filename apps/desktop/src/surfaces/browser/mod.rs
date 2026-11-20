@@ -100,6 +100,17 @@ mod native {
         pub is_dialog: bool,
     }
 
+    /// A single-use app-scheme link review bound to the exact URL shown on the 500 ms guarded
+    /// browser review bar (`Browser:TakeAppLinkReview` / `Browser:ConfirmAppLinkReview`).
+    #[derive(Clone, Debug)]
+    pub struct AppLinkReview {
+        pub token: String,
+        pub tab_id: u64,
+        pub url: String,
+        pub source: browser_pane::policy::AppSchemeSource,
+        pub shown_at: Instant,
+    }
+
     #[derive(Default)]
     pub struct BrowserPane {
         pub host: BrowserHost,
@@ -109,9 +120,12 @@ mod native {
         pub devtools: HashMap<u64, PendingDevtools>,
         /// Last observed Luau store version for `plugin.browser/rune.sitePermissions`.
         pub site_permissions_version: u64,
-        /// Conversation app-scheme links waiting to display inside the browser pane's guarded
-        /// `RefusalBar` (`(tab_id, href)`).
-        pub pending_app_links: std::cell::RefCell<std::collections::VecDeque<(u64, String)>>,
+        /// Monotonic sequence for minting unique review tokens (`rev-<n>`).
+        pub app_review_seq: std::cell::Cell<u64>,
+        /// App-scheme links waiting to be drained into the browser pane's guarded `RefusalBar`.
+        pub pending_app_links: std::cell::RefCell<std::collections::VecDeque<AppLinkReview>>,
+        /// Active single-use review tokens currently shown on a `RefusalBar` (keyed by token).
+        pub active_app_reviews: std::cell::RefCell<HashMap<String, AppLinkReview>>,
         /// Persistent SQLite browsing history store (`history.sqlite`, lazily opened).
         pub history: std::cell::RefCell<Option<browser_pane::history::HistoryStore>>,
     }
@@ -537,6 +551,8 @@ mod native {
 
         /// Page `id`'s tab left its strip: the page closes.
         pub fn forget_browser_tab(&mut self, id: u64) {
+            self.workspace_panes.browser.pending_app_links.borrow_mut().retain(|r| r.tab_id != id);
+            self.workspace_panes.browser.active_app_reviews.borrow_mut().retain(|_, r| r.tab_id != id);
             for ids in self.workspace_panes.browser.session_tabs.values_mut() {
                 ids.retain(|&x| x != id);
             }
@@ -559,6 +575,8 @@ mod native {
             let engine_closed: Vec<(u64, bool)> =
                 self.workspace_panes.browser.host.drain_closed_tabs().collect();
             for (closed_id, fatal_close) in engine_closed {
+                self.workspace_panes.browser.pending_app_links.borrow_mut().retain(|r| r.tab_id != closed_id);
+                self.workspace_panes.browser.active_app_reviews.borrow_mut().retain(|_, r| r.tab_id != closed_id);
                 let owner_sid = self.browser_tab_session(closed_id).map(str::to_owned);
                 for ids in self.workspace_panes.browser.session_tabs.values_mut() {
                     ids.retain(|&x| x != closed_id);
@@ -603,6 +621,18 @@ mod native {
                     changed = true;
                 }
             }
+            if self.workspace_panes.browser.host.has_app_links() {
+                let links: Vec<_> = self.workspace_panes.browser.host.drain_app_links().collect();
+                for (tab_id, url) in links {
+                    if self.queue_browser_app_link_review_for_tab(
+                        tab_id,
+                        &url,
+                        browser_policy::AppSchemeSource::Page,
+                    ) {
+                        changed = true;
+                    }
+                }
+            }
             // Reload persisted site permissions when Settings > Browser edits `rune.sitePermissions`.
             let perm_ver = crate::plugin_host::services::store::store_version("browser", "rune.sitePermissions");
             if perm_ver != self.workspace_panes.browser.site_permissions_version {
@@ -632,4 +662,4 @@ mod native {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use native::{BrowserPane, PendingDevtools};
+pub use native::{AppLinkReview, BrowserPane, PendingDevtools};

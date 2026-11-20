@@ -66,10 +66,10 @@ pub fn classify_app_link(value: &str, source: AppSchemeSource) -> Option<AppSche
         }
     }
     if scheme == "mailto" {
-        return Some(if mailto_has_attachment(tail) {
-            AppSchemeAction::Copy
-        } else {
+        return Some(if mailto_query_allowed(tail) {
             AppSchemeAction::Mail
+        } else {
+            AppSchemeAction::Copy
         });
     }
     if source == AppSchemeSource::Conversation && scheme == "obsidian" {
@@ -91,10 +91,11 @@ pub fn classify_app_link(value: &str, source: AppSchemeSource) -> Option<AppSche
     })
 }
 
-/// Explicit allow-list of URLs permitted to reach the OS shell (`ShellExecuteW`, `NSWorkspace`,
-/// `xdg-open`): strictly credential-free `http:`/`https:` (no control/bidi/whitespace) or safe
-/// `mailto:` without attachment parameters. Nothing outside this allow-list may be handed to the
-/// OS (`ms-*`, `search-ms:`, `file:`, `smb:`, `javascript:`, `data:`, custom schemes).
+/// Explicit allow-list of URLs permitted to reach the OS shell automatically or without the
+/// guarded app-link review bar (`open_external`, toasts, sheets, Settings, Linux updater,
+/// `System:OpenExternal`): strictly credential-free `http:`/`https:` or RFC 6068 allow-listed
+/// `mailto:` (`to`, `cc`, `bcc`, `subject`, `body` only). Nothing outside this allow-list may
+/// reach the OS unconfirmed.
 pub fn is_safe_os_external_url(value: &str) -> bool {
     if value.is_empty() || value.len() > 2048 || value.trim() != value || has_unsafe_chars(value) {
         return false;
@@ -111,6 +112,17 @@ pub fn is_safe_os_external_url(value: &str) -> bool {
         return classify_app_link(value, AppSchemeSource::Conversation) == Some(AppSchemeAction::Mail);
     }
     false
+}
+
+/// Explicit allow-list of app-scheme URLs permitted to launch ONLY after the user confirms the
+/// 500 ms guarded app-link review bar (single-use review token bound to the exact displayed URL):
+/// strictly the 23 schemes in `APPS` (+ `PAGE_ONLY` when `source == AppSchemeSource::Page`)
+/// including RFC 6068 allow-listed `mailto:`. Never accepts `http`/`https`/`file`/`ms-*`/denied.
+pub fn is_confirmed_app_scheme_url(value: &str, source: AppSchemeSource) -> bool {
+    matches!(
+        classify_app_link(value, source),
+        Some(AppSchemeAction::Open | AppSchemeAction::Mail)
+    )
 }
 
 fn has_unsafe_chars(value: &str) -> bool {
@@ -194,19 +206,25 @@ fn percent_decode_query_key(raw: &str) -> Option<String> {
     Some(decoded)
 }
 
-fn mailto_has_attachment(tail: &str) -> bool {
-    let Some((_, query_and_frag)) = tail.split_once('?') else { return false };
+/// Strict RFC 6068 allow-list of `mailto:` query parameter keys (`to`, `cc`, `bcc`, `subject`,
+/// `body`). Rejects every other key — including client-specific attachment/action keys (`attach`,
+/// `attachment`, `attachment-url`, `send-now`, `x-attach`, `attach-file`, `body-file`), double-
+/// encoded keys, malformed `%XX`, and control/bidi bytes — failing closed to `Copy`.
+fn mailto_query_allowed(tail: &str) -> bool {
+    let Some((_, query_and_frag)) = tail.split_once('?') else { return true };
     let query = query_and_frag.split('#').next().unwrap_or(query_and_frag);
-    query.split(['&', ';']).any(|pair| {
+    if query.is_empty() {
+        return true;
+    }
+    query.split(['&', ';']).all(|pair| {
+        if pair.is_empty() {
+            return true;
+        }
         let raw_key = pair.split('=').next().unwrap_or(pair);
         let Some(decoded) = percent_decode_query_key(raw_key) else {
-            // Malformed percent encoding or hidden control bytes in query key: fail closed to Copy.
-            return true;
+            return false;
         };
         let key = decoded.trim().to_ascii_lowercase();
-        matches!(
-            key.as_str(),
-            "attach" | "attachment" | "attachments" | "file" | "filename" | "filepath" | "body-file"
-        )
+        matches!(key.as_str(), "to" | "cc" | "bcc" | "subject" | "body")
     })
 }

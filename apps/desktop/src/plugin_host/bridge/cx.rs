@@ -17,19 +17,34 @@ pub use opencode_plugin_runtime::ui_nodes::{rendering, rendering_as};
 thread_local! {
     static APP: Cell<*const App> = const { Cell::new(std::ptr::null()) };
     static READS: RefCell<Option<Vec<Dep>>> = const { RefCell::new(None) };
+    static IN_UI_GESTURE: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Runs `f` with `app` reachable from the bindings via [`with_app`]. Nests: an inner call
 /// restores the outer app on return or unwind.
 pub fn enter<R>(app: &App, f: impl FnOnce() -> R) -> R {
-    struct Restore(*const App);
+    enter_ui(app, false, f)
+}
+
+/// Runs `f` with `app` reachable and marks whether this entry was triggered directly by a user
+/// UI interaction (`vm::around` with a live transaction) rather than a timer, signal, render, or
+/// MCP tool coroutine.
+pub fn enter_ui<R>(app: &App, gesture: bool, f: impl FnOnce() -> R) -> R {
+    struct Restore(*const App, bool);
     impl Drop for Restore {
         fn drop(&mut self) {
             APP.set(self.0);
+            IN_UI_GESTURE.set(self.1);
         }
     }
-    let _restore = Restore(APP.replace(std::ptr::from_ref(app)));
+    let _restore = Restore(APP.replace(std::ptr::from_ref(app)), IN_UI_GESTURE.replace(gesture));
     f()
+}
+
+/// True only while executing directly inside a Rune UI interaction handler (`vm::around` with a
+/// live transaction), never inside timers, signals, renders, or MCP tool coroutines.
+pub fn in_ui_gesture() -> bool {
+    IN_UI_GESTURE.get()
 }
 
 /// Runs `f` with the active entry's `&App`, or returns `None` outside [`enter`].
@@ -80,6 +95,11 @@ pub enum Request {
     RunCommand { id: String, input: Option<String> },
     OpenLink { href: String },
     OpenExternal(String),
+    /// User pressed Open on the built-in browser plugin's 500 ms guarded app-link review bar
+    /// (`Browser:ConfirmAppLinkReview`). Single-use token verified strictly in the host.
+    ConfirmAppLinkReview { token: String },
+    /// User dismissed or navigated away from an app-link review bar (`Browser:DismissAppLinkReview`).
+    DismissAppLinkReview { token: String },
     Reveal(String),
     CopyText(String),
     /// `session`: the notification's session, which a mute silences.

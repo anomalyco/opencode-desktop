@@ -120,6 +120,7 @@ pub struct BrowserHost {
     cdp_events: VecDeque<CdpEvent>,
     picked: VecDeque<PickedElement>,
     pub(crate) popup_opens: VecDeque<crate::prompts::PopupRequest>,
+    pub(crate) app_links: VecDeque<(u64, String)>,
     pub(crate) context_menus: VecDeque<(u64, crate::protocol::PageContextMenu)>,
     pub(crate) diagnostics: VecDeque<crate::find::PageDiagnostic>,
     /// Tab IDs closed by the engine (`EngineMsg::TabClosed`) paired with `fatal_close` (`true` only
@@ -180,6 +181,7 @@ impl BrowserHost {
             cdp_events: VecDeque::new(),
             picked: VecDeque::new(),
             popup_opens: VecDeque::new(),
+            app_links: VecDeque::new(),
             context_menus: VecDeque::new(),
             diagnostics: VecDeque::new(),
             closed_tabs: VecDeque::new(),
@@ -1189,6 +1191,7 @@ impl BrowserHost {
                 | EngineMsg::AuthAgentRequired { .. }
                 | EngineMsg::PopupOpen { .. }
                 | EngineMsg::PopupBlocked { .. }
+                | EngineMsg::AppLinkBlocked { .. }
                 | EngineMsg::FileChooserBlocked { .. } => {
                     changed |= self.handle_prompt_msg(msg);
                 }

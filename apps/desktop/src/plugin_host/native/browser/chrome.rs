@@ -12,17 +12,79 @@ pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
     t.raw_set(
         "TakeAppLinkReview",
         lua.create_function(|lua, ()| {
+            let sc = scope::TabScope::capture(lua);
+            if !sc.is_builtin_browser || sc.tool_sid.is_some() || !sc.in_flight.is_empty() {
+                return Ok(mlua::Value::Nil);
+            }
             cx::read(Dep::Browser);
             let next = with_app("Browser:TakeAppLinkReview", |app| {
-                Ok(app.workspace_panes.browser.pending_app_links.borrow_mut().pop_front())
+                let Some(mut review) = app.workspace_panes.browser.pending_app_links.borrow_mut().pop_front() else {
+                    return Ok(None);
+                };
+                review.shown_at = Instant::now();
+                let mut active = app.workspace_panes.browser.active_app_reviews.borrow_mut();
+                if active.len() >= 64 {
+                    if let Some(oldest_key) = active
+                        .iter()
+                        .min_by_key(|(_, r)| r.shown_at)
+                        .map(|(k, _)| k.clone())
+                    {
+                        active.remove(&oldest_key);
+                    }
+                }
+                active.insert(review.token.clone(), review.clone());
+                Ok(Some(review))
             })?;
             match next {
-                Some((tab_id, url)) => mlua::IntoLua::into_lua(
-                    map([("tabId", Data::String(tab_id.to_string())), ("url", Data::String(url))]),
-                    lua,
-                ),
+                Some(review) => {
+                    let src = match review.source {
+                        browser_policy::AppSchemeSource::Conversation => "conversation",
+                        browser_policy::AppSchemeSource::Page => "page",
+                    };
+                    mlua::IntoLua::into_lua(
+                        map([
+                            ("tabId", Data::String(review.tab_id.to_string())),
+                            ("url", Data::String(review.url)),
+                            ("token", Data::String(review.token)),
+                            ("source", Data::String(src.to_owned())),
+                        ]),
+                        lua,
+                    )
+                }
                 None => Ok(mlua::Value::Nil),
             }
+        })?,
+    )?;
+    t.raw_set(
+        "ConfirmAppLinkReview",
+        lua.create_function(|lua, (_this, token): (mlua::Value, String)| {
+            let sc = scope::TabScope::capture(lua);
+            if !cx::in_ui_gesture()
+                || !sc.is_builtin_browser
+                || sc.tool_sid.is_some()
+                || !sc.in_flight.is_empty()
+                || token.is_empty()
+            {
+                return Ok(false);
+            }
+            let Some(plugin) = lua.app_data_ref::<std::rc::Rc<Vmx>>().map(|v| v.half.id.clone()) else {
+                return Ok(false);
+            };
+            cx::ask(&plugin, cx::Request::ConfirmAppLinkReview { token });
+            Ok(true)
+        })?,
+    )?;
+    t.raw_set(
+        "DismissAppLinkReview",
+        lua.create_function(|lua, (_this, token): (mlua::Value, String)| {
+            let sc = scope::TabScope::capture(lua);
+            if !sc.is_builtin_browser || sc.tool_sid.is_some() || !sc.in_flight.is_empty() || token.is_empty() {
+                return Ok(());
+            }
+            if let Some(plugin) = lua.app_data_ref::<std::rc::Rc<Vmx>>().map(|v| v.half.id.clone()) {
+                cx::ask(&plugin, cx::Request::DismissAppLinkReview { token });
+            }
+            Ok(())
         })?,
     )
 }

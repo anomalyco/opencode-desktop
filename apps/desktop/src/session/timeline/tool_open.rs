@@ -85,22 +85,62 @@ pub fn target(name: &str, status: &ToolStatus, input: &Value, metadata: &Value, 
     }
 }
 
-/// `path` inside `directory`, relative to it; `None` for a path outside it, UNC/device path, or
-/// any `..` traversal segment (including backslash-separated `..\\..`).
+/// `path` inside `directory`, relative to it; `None` for any path outside `directory`, UNC or
+/// device prefix, drive-letter / drive-relative / NTFS ADS (`:`), `..` traversal in either
+/// separator, or trailing dots/spaces in any path component.
 pub(crate) fn relative(path: &str, directory: &str) -> Option<String> {
-    if browser_policy::is_raw_unc_href(path) {
+    if path.is_empty()
+        || path.starts_with(char::is_whitespace)
+        || path.ends_with(char::is_whitespace)
+        || browser_policy::is_raw_unc_href(path)
+        || path.chars().any(|c| {
+            let n = c as u32;
+            c.is_control()
+                || matches!(
+                    n,
+                    0x7f..=0x9f | 0x061c | 0x200b..=0x200f | 0x202a..=0x202e | 0x2060 | 0x2066..=0x2069 | 0xfeff
+                )
+        })
+    {
         return None;
     }
-    let rel = if opencode_kit::path::is_absolute(path) {
+    let raw_rel = if opencode_kit::path::is_absolute(path) {
         opencode_kit::path::strip_dir(path, directory)?
     } else {
-        path.trim_start_matches("./").trim_start_matches(".\\")
+        path
     };
-    let rel = crate::review::data::normalize_path(rel);
-    if rel.is_empty()
-        || rel.starts_with('/')
-        || rel.split('/').any(|seg| seg == "..")
+    // Normalise separators and strip leading `./` / `.\` repeatedly BEFORE checking for drive
+    // letters, `:`, absolute/UNC forms, or `..` so `./C:/...`, `.\D:\...`, `.\C:foo`, `./a:ads`
+    // can never sneak past the relative-path check.
+    let fwd = raw_rel.replace('\\', "/");
+    let mut s = fwd.as_str();
+    while let Some(rest) = s.strip_prefix("./") {
+        s = rest;
+    }
+    if s.is_empty()
+        || s.starts_with('/')
+        || s.contains(':')
+        || opencode_kit::path::is_absolute(s)
+        || browser_policy::is_raw_unc_href(s)
+        || browser_policy::is_unc_or_device_path_for(s, true)
     {
+        return None;
+    }
+    for seg in s.split('/') {
+        if seg.is_empty()
+            || seg == "."
+            || seg == ".."
+            || seg.ends_with(['.', ' '])
+        {
+            return None;
+        }
+        let stem = seg.split('.').next().unwrap_or(seg).trim_end();
+        if browser_policy::is_windows_device_name(stem) {
+            return None;
+        }
+    }
+    let rel = crate::review::data::normalize_path(s);
+    if rel.is_empty() || rel.starts_with('/') || rel.contains(':') || rel.split('/').any(|p| p == "..") {
         return None;
     }
     Some(rel)

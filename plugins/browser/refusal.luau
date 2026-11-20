@@ -16,6 +16,7 @@ export type ExternalAction = "open" | "copy"
 
 export type Notice = {
     token: string,
+    reviewToken: string?,
     origin: string,
     text: string,
     target: string?,
@@ -125,17 +126,18 @@ local function hasCredentials(value: string, schemeLen: number): boolean
     return string.find(authority, "@", 1, true) ~= nil
 end
 
-local MAILTO_ATTACH_KEYS: { [string]: boolean } = {
-    attach = true,
-    attachment = true,
-    attachments = true,
-    file = true,
-    filename = true,
-    filepath = true,
-    ["body-file"] = true,
+-- Strict RFC 6068 allow-list of `mailto:` query keys (`to`, `cc`, `bcc`, `subject`, `body`).
+-- Rejects all proprietary/client-specific keys (`attach`, `attachment-url`, `send-now`, `x-attach`,
+-- `body-file`, etc.) and malformed/control percent-encodings.
+local MAILTO_ALLOWED_KEYS: { [string]: boolean } = {
+    to = true,
+    cc = true,
+    bcc = true,
+    subject = true,
+    body = true,
 }
 
-local function percentDecodeQueryKey(raw: string): string?
+local function percentDecode(raw: string): string?
     local out: { string } = {}
     local i = 1
     local len = #raw
@@ -170,23 +172,77 @@ local function percentDecodeQueryKey(raw: string): string?
     return decoded
 end
 
-local function mailtoHasAttachment(value: string): boolean
+local function mailtoQueryAllowed(value: string): boolean
     local query = string.match(value, "%?([^#]*)")
-    if query == nil then
-        return false
+    if query == nil or query == "" then
+        return true
     end
     for pair in string.gmatch(query, "[^&;]+") do
         local rawKey = string.match(pair, "^([^=]*)") or pair
-        local decoded = percentDecodeQueryKey(rawKey)
+        local decoded = percentDecode(rawKey)
         if decoded == nil then
-            return true
+            return false
         end
         local key = string.lower(string.gsub(decoded, "^%s*(.-)%s*$", "%1"))
-        if MAILTO_ATTACH_KEYS[key] == true then
-            return true
+        if MAILTO_ALLOWED_KEYS[key] ~= true then
+            return false
         end
     end
-    return false
+    return true
+end
+
+-- Extracts decoded recipient lines (`To:`, `Cc:`, `Bcc:`) from a `mailto:` URL so hidden
+-- recipients are always shown explicitly on the review bar before the user confirms Open.
+local function mailtoRecipientLines(value: string): { string }
+    local lower = string.lower(value)
+    if string.sub(lower, 1, 7) ~= "mailto:" then
+        return {}
+    end
+    local tail = string.sub(value, 8)
+    local pathPart = string.match(tail, "^([^?#]*)") or ""
+    local query = string.match(tail, "%?([^#]*)") or ""
+    local toList: { string } = {}
+    local ccList: { string } = {}
+    local bccList: { string } = {}
+    local function pushDecoded(dest: { string }, raw: string)
+        local dec = percentDecode(raw)
+        if dec ~= nil then
+            local clean = string.gsub(dec, "^%s*(.-)%s*$", "%1")
+            if clean ~= "" then
+                table.insert(dest, clean)
+            end
+        end
+    end
+    if pathPart ~= "" then
+        pushDecoded(toList, pathPart)
+    end
+    for pair in string.gmatch(query, "[^&;]+") do
+        local kRaw, vRaw = string.match(pair, "^([^=]*)=(.*)$")
+        if kRaw ~= nil and vRaw ~= nil then
+            local kDec = percentDecode(kRaw)
+            if kDec ~= nil then
+                local k = string.lower(string.gsub(kDec, "^%s*(.-)%s*$", "%1"))
+                if k == "to" then
+                    pushDecoded(toList, vRaw)
+                elseif k == "cc" then
+                    pushDecoded(ccList, vRaw)
+                elseif k == "bcc" then
+                    pushDecoded(bccList, vRaw)
+                end
+            end
+        end
+    end
+    local lines: { string } = {}
+    if #toList > 0 then
+        table.insert(lines, "To: " .. table.concat(toList, ", "))
+    end
+    if #ccList > 0 then
+        table.insert(lines, "Cc: " .. table.concat(ccList, ", "))
+    end
+    if #bccList > 0 then
+        table.insert(lines, "Bcc: " .. table.concat(bccList, ", "))
+    end
+    return lines
 end
 
 -- Validates an external app URL (`refusal-notice.ts::externalTarget`), returning `"open"`,
@@ -207,8 +263,8 @@ function refusal.externalTarget(value: string, source: Source?): ExternalAction?
     if hasCredentials(value, #rawScheme) then
         return nil
     end
-    if scheme == "mailto" and mailtoHasAttachment(value) then
-        return "copy"
+    if scheme == "mailto" then
+        return if mailtoQueryAllowed(value) then "open" else "copy"
     end
     if src == "conversation" and scheme == "obsidian" then
         local tail = string.sub(value, #rawScheme + 2)
@@ -279,6 +335,21 @@ function refusal.renderBar(
     }
     if notice.target ~= nil and notice.target ~= "" then
         local target = notice.target
+        local recipients = mailtoRecipientLines(target)
+        if #recipients > 0 then
+            local recNodes: { ui.Node } = {}
+            for _, line in recipients do
+                table.insert(recNodes, ui.text(line, {
+                    dir = "ltr",
+                    size = 12,
+                    mono = true,
+                    lineHeight = 16,
+                    color = "text-chrome",
+                    wrap = true,
+                }))
+            end
+            table.insert(rows, ui.col({ key = "browser-refusal-recipients", w = "full", gap = 2 }, recNodes))
+        end
         local web = hostDisplay.parts(target)
         local targetNode: ui.Node
         if web then

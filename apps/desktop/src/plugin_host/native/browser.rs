@@ -703,7 +703,7 @@ pub fn pages(app: &App) -> Vec<(String, u64)> {
                 .pending_app_links
                 .borrow()
                 .iter()
-                .filter(|(id, _)| *id == t.id)
+                .filter(|r| r.tab_id == t.id)
                 .count();
             pending_links.hash(&mut h);
             (t.id.to_string(), h.finish())

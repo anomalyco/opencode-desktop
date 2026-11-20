@@ -99,14 +99,34 @@ return plugin.defineWindow(function(ctx)
             end
             local session = Sessions:Get(context.sessionId)
             local dir = if session and session.directory ~= "" then session.directory else context.directory
-            local parent = false
-            for part in string.gmatch(raw, "[^/\\]+") do
-                parent = parent or part == ".."
+            local norm = string.gsub(raw, "\\", "/")
+            local hadDotSlash = string.sub(norm, 1, 2) == "./"
+            while string.sub(norm, 1, 2) == "./" do
+                norm = string.sub(norm, 3)
             end
-            if string.match(raw, "^[/\\][/\\]") ~= nil or string.match(raw, "^[/\\]%?%?[/\\]") ~= nil then
-                parent = true
+            local unsafe = norm == ""
+                or string.match(raw, "^[/\\][/\\]") ~= nil
+                or string.match(raw, "^[/\\]%?%?[/\\]") ~= nil
+                or string.match(norm, "^//") ~= nil
+            if not unsafe then
+                -- Only allow `:` if the original `raw` (without `./` prefix) is a genuine
+                -- Windows drive path inside `dir`.
+                local stripped = norm
+                if not hadDotSlash and string.match(norm, "^[A-Za-z]:/") ~= nil then
+                    stripped = string.sub(norm, 4)
+                end
+                if string.find(stripped, ":", 1, true) ~= nil then
+                    unsafe = true
+                else
+                    for part in string.gmatch(stripped, "[^/]+") do
+                        if part == ".." or string.match(part, "[%. ]$") ~= nil then
+                            unsafe = true
+                            break
+                        end
+                    end
+                end
             end
-            local path = if parent then nil else Workspace:Relative(raw, dir)
+            local path = if unsafe then nil else Workspace:Relative(raw, dir)
             if path == nil then
                 error(`Path '{raw}' is outside the session folder '{dir}'`, 0)
             end

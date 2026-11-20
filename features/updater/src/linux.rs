@@ -110,7 +110,11 @@ impl Platform for Linux {
 
     // On the updater's worker thread, so waiting for `xdg-open` holds nothing up.
     fn external_install(&self, url: &str) -> Result<(), String> {
-        let status = Command::new("xdg-open").arg(url).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
+        let trimmed = url.trim();
+        if !browser_policy::is_safe_os_external_url(trimmed) {
+            return Err("Refusing unsafe update URL".into());
+        }
+        let status = Command::new("xdg-open").arg(trimmed).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
         match status {
             Ok(s) if s.success() => Ok(()),
             Ok(s) => Err(format!("Could not open the download (xdg-open {s})")),

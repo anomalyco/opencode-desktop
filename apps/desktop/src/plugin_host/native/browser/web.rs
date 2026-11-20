@@ -77,6 +77,8 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     })?;
     method(lua, t, "Prepare", |_, _seconds: Option<f64>| Ok(()))?;
     method(lua, t, "TakeAppLinkReview", |_, ()| Ok(Value::Nil))?;
+    method(lua, t, "ConfirmAppLinkReview", |_, _token: String| Ok(false))?;
+    method(lua, t, "DismissAppLinkReview", |_, _token: String| Ok(()))?;
     method(lua, t, "HistoryPrepare", |_, ()| Ok(()))?;
     method(lua, t, "HistorySearch", |lua, (_q, _l): (String, Option<usize>)| lua.create_table())?;
     method(lua, t, "HistoryVisit", |_, _: mlua::MultiValue| Ok(()))?;

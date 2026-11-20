@@ -28,10 +28,12 @@ impl App {
     /// - `http:` / `https:` with credentials (`user:pass@host`): refused (never opened).
     /// - `file:`: never handed to the OS browser (`ours.md` §4).
     /// - App-scheme links (`mailto:`, `slack:`, `obsidian:`, `vscode:`, etc.): validated by
-    ///   `browser_policy::classify_app_link` (safe `mailto:` opens the mail client; `mailto:` with
-    ///   attachment params, editor schemes, and non-open/search `obsidian:` copy only; allowed
-    ///   app schemes open an in-pane 500 ms guarded review banner or copy if unavailable; denied
-    ///   schemes like `javascript:`, `data:`, `ms-msdt:`, `opencode*` are silently refused).
+    ///   `browser_policy::classify_app_link` (RFC 6068 allow-listed `mailto:` and the 18
+    ///   conversation app schemes open an in-pane 500 ms guarded review banner bound to a
+    ///   single-use host token, showing all `to`/`cc`/`bcc` recipients for `mailto:`, or copy if
+    ///   unavailable; non-allow-listed `mailto:` keys, conversation editor schemes, and non-open
+    ///   `obsidian:` copy only; denied schemes like `javascript:`, `data:`, `ms-msdt:`, `opencode*`
+    ///   are silently refused).
     pub fn route_web_or_app_link(
         &mut self,
         sid: Option<&str>,
@@ -83,17 +85,15 @@ impl App {
         }
 
         // Non-HTTP(S) scheme: validate the ORIGINAL string without trimming away unsafe characters.
+        // Both conversation `mailto:` (showing every to/cc/bcc recipient before opening) and the
+        // 23 allow-listed app schemes route through the 500 ms guarded review bar with a single-
+        // use host-minted token — never one-click launching OS app handlers.
         match classify_app_link(href, AppSchemeSource::Conversation) {
-            Some(AppSchemeAction::Mail) => {
-                if self.live() {
-                    crate::open_in::open_external(tx, href);
-                }
-            }
-            Some(AppSchemeAction::Open) => {
+            Some(AppSchemeAction::Mail | AppSchemeAction::Open) => {
                 if let Some(sid) = sid
                     && !self.narrow()
                     && !self.browser_unsupported_for_links()
-                    && self.queue_browser_app_link_review(sid, href)
+                    && self.queue_browser_app_link_review(sid, href, AppSchemeSource::Conversation)
                 {
                     return;
                 }
@@ -119,10 +119,15 @@ impl App {
         }
     }
 
-    fn queue_browser_app_link_review(&mut self, sid: &str, href: &str) -> bool {
+    pub(crate) fn queue_browser_app_link_review(
+        &mut self,
+        sid: &str,
+        href: &str,
+        source: AppSchemeSource,
+    ) -> bool {
         #[cfg(target_arch = "wasm32")]
         {
-            let _ = (sid, href);
+            let _ = (sid, href, source);
             false
         }
         #[cfg(not(target_arch = "wasm32"))]
@@ -145,7 +150,42 @@ impl App {
             } else {
                 self.open_new_browser_tab_for_session(Some(sid), "about:blank", None, true)
             };
-            self.workspace_panes.browser.pending_app_links.borrow_mut().push_back((tab_id, href.to_owned()));
+            self.queue_browser_app_link_review_for_tab(tab_id, href, source)
+        }
+    }
+
+    pub(crate) fn queue_browser_app_link_review_for_tab(
+        &mut self,
+        tab_id: u64,
+        href: &str,
+        source: AppSchemeSource,
+    ) -> bool {
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = (tab_id, href, source);
+            false
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if self.workspace_panes.browser.host.tab(tab_id).is_none()
+                || classify_app_link(href, source).is_none()
+            {
+                return false;
+            }
+            let seq = self.workspace_panes.browser.app_review_seq.get().wrapping_add(1);
+            self.workspace_panes.browser.app_review_seq.set(seq);
+            let mut pending = self.workspace_panes.browser.pending_app_links.borrow_mut();
+            if pending.len() >= 64 {
+                pending.pop_front();
+            }
+            pending.push_back(super::AppLinkReview {
+                token: format!("rev-{seq}"),
+                tab_id,
+                url: href.to_owned(),
+                source,
+                shown_at: rune::time::Instant::now(),
+            });
+            drop(pending);
             crate::plugin_host::bump();
             true
         }

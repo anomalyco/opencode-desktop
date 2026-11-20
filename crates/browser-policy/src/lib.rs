@@ -21,7 +21,10 @@ mod local_fs;
 mod local_path;
 pub mod preview;
 mod workspace_root;
-pub use app_links::{AppSchemeAction, AppSchemeSource, classify_app_link, is_safe_os_external_url};
+pub use app_links::{
+    AppSchemeAction, AppSchemeSource, classify_app_link, is_confirmed_app_scheme_url,
+    is_safe_os_external_url,
+};
 pub use local_fs::{
     LocalPathError, VerifiedLocalPath, is_local_fixed_drive, is_macos_bundle,
     reveal_in_file_manager, verify_local_path, verify_within_root,
