@@ -26,6 +26,7 @@ mod dmabuf;
 mod fd_lines;
 pub mod find;
 mod frame;
+pub mod history;
 pub mod installer;
 mod keys;
 #[cfg(all(feature = "engine", target_os = "macos"))]
