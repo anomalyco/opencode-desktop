@@ -275,6 +275,10 @@ pub struct ExtensionHost {
     pub(super) pending_stub_cleanup: HashMap<i64, String>,
     pub(super) pending_uninstall_cmd: HashMap<i64, String>,
     pub(super) pending_reload_cmd: HashMap<i64, String>,
+    /// Tracks `Fetch.enable` command IDs waiting for Chromium's reply (`UpdateSubresourceLoaderFactories`
+    /// completed) before sending `Runtime.runIfWaitingForDebugger` (`review-rd274.md` Round-2 §1c).
+    pub(super) pending_fetch_resume: HashMap<i64, String>,
+    pub(super) pipe_closed: bool,
     pub(super) open_tab_rates: HashMap<String, RateWindow>,
     pub(super) action_rates: HashMap<String, RateWindow>,
     pub(super) popup_resize_rates: HashMap<String, RateWindow>,
@@ -319,6 +323,8 @@ impl ExtensionHost {
             pending_stub_cleanup: HashMap::new(),
             pending_uninstall_cmd: HashMap::new(),
             pending_reload_cmd: HashMap::new(),
+            pending_fetch_resume: HashMap::new(),
+            pipe_closed: false,
             open_tab_rates: HashMap::new(),
             action_rates: HashMap::new(),
             popup_resize_rates: HashMap::new(),
@@ -334,8 +340,20 @@ impl ExtensionHost {
             match self.inbound_rx.try_recv() {
                 Ok(PipeInbound::Message(val)) => effects.extend(self.on_cdp_message(val)),
                 Ok(PipeInbound::FrameDropped) => effects.extend(self.on_frame_dropped()),
-                Ok(PipeInbound::Closed) => effects.extend(self.on_pipe_closed()),
-                Err(_) => break,
+                Ok(PipeInbound::Closed) => {
+                    if !self.pipe_closed {
+                        self.pipe_closed = true;
+                        effects.extend(self.on_pipe_closed());
+                    }
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    if !self.pipe_closed {
+                        self.pipe_closed = true;
+                        effects.extend(self.on_pipe_closed());
+                    }
+                    break;
+                }
             }
         }
         effects.extend(self.tick_timeouts());
@@ -358,14 +376,24 @@ impl ExtensionHost {
 
         for item in ordered {
             let is_filter = item.manifest.is_filter_extension();
-            let path_str = item.dir.to_string_lossy().into_owned();
             let id = item.id.clone();
+            let Some(path_str) = crate::context::canonical_extension_load_path(&item.dir) else {
+                self.uninstall_inert_stub(&id);
+                effects.push(ExtEffect::IntegrityFailed { ext_id: id });
+                continue;
+            };
+            // Fail closed if Chromium refuses to revoke `ALLOW_FILE_ACCESS` before load
+            // (`review-rd274.md` Round-2 §1).
+            if !crate::context::disallow_extension_file_access(&id, &item.dir) {
+                self.uninstall_inert_stub(&id);
+                effects.push(ExtEffect::IntegrityFailed { ext_id: id });
+                continue;
+            }
             if is_filter {
                 self.pending_filter_ids.insert(id.clone());
             }
             self.verified_startup.insert(id.clone(), item.clone());
             self.register_extension(id.clone(), item.dir, item.sha256, item.manifest, false, false);
-            crate::context::disallow_extension_file_access(&id);
             let cmd_id = self.send_cdp("Extensions.loadUnpacked", json!({ "path": path_str }), None);
             self.pending_startup_loads.insert(cmd_id, id);
         }
@@ -381,7 +409,9 @@ impl ExtensionHost {
     /// it cleanly (Chromium rejects `Extensions.uninstall` directly on `kCommandLine` extensions).
     pub(super) fn uninstall_inert_stub(&mut self, bad_id: &str) {
         if let Some(stub_dir) = self.stub_dirs_by_id.get(bad_id).cloned() {
-            let path_str = stub_dir.to_string_lossy().into_owned();
+            let _ = crate::context::disallow_extension_file_access(bad_id, &stub_dir);
+            let path_str = crate::context::canonical_extension_load_path(&stub_dir)
+                .unwrap_or_else(|| stub_dir.to_string_lossy().into_owned());
             let cid = self.send_cdp("Extensions.loadUnpacked", json!({ "path": path_str }), None);
             self.pending_stub_cleanup.insert(cid, bad_id.to_owned());
         } else {
@@ -511,9 +541,21 @@ impl ExtensionHost {
                 error: Some("Extension integrity digest mismatch.".into()),
             }];
         };
-        let path_str = item.dir.to_string_lossy().into_owned();
+        let Some(path_str) = crate::context::canonical_extension_load_path(&item.dir) else {
+            return vec![ExtEffect::ExtensionReloaded {
+                ext_id: ext_id.to_owned(),
+                ok: false,
+                error: Some("Could not resolve extension path.".into()),
+            }];
+        };
+        if !crate::context::disallow_extension_file_access(&item.id, &item.dir) {
+            return vec![ExtEffect::ExtensionReloaded {
+                ext_id: ext_id.to_owned(),
+                ok: false,
+                error: Some("Could not disable file:// access for extension.".into()),
+            }];
+        }
         self.register_extension(item.id.clone(), item.dir, item.sha256, manifest, true, false);
-        crate::context::disallow_extension_file_access(&item.id);
         let id = self.send_cdp("Extensions.loadUnpacked", json!({ "path": path_str }), None);
         self.pending_reload_cmd.insert(id, item.id);
         Vec::new()
@@ -742,7 +784,13 @@ impl ExtensionHost {
 
     pub(super) fn push_to_session(&mut self, sid: &str, msg: &Value) {
         let expr = format!("globalThis.__ocExtRecv?.({msg})");
-        self.send_cdp("Runtime.evaluate", json!({ "expression": expr }), Some(sid));
+        let id = self.alloc_id();
+        self.pipe.send_rpc(&json!({
+            "id": id,
+            "sessionId": sid,
+            "method": "Runtime.evaluate",
+            "params": { "expression": expr }
+        }));
     }
 
     pub(super) fn active_chromium_tab_id(&self) -> Option<i32> {

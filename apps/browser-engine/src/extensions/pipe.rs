@@ -15,13 +15,14 @@
 
 #![allow(unsafe_code)]
 
+use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{Read, Write};
 #[cfg(unix)]
 use std::sync::atomic::AtomicU8;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 
 use serde_json::{Value, json};
 
@@ -29,8 +30,11 @@ use serde_json::{Value, json};
 const MAX_CDP_MSG_BYTES: usize = 4 * 1024 * 1024;
 /// Bounded inbound CDP queue capacity (applies OS pipe backpressure against tight JS floods).
 const INBOUND_CAP: usize = 256;
-/// Bounded outbound CDP queue capacity (non-blocking `try_send` prevents main-thread deadlock).
-const OUTBOUND_CAP: usize = 512;
+/// Bounded outbound security/control CDP queue (`Fetch.*`, `Target.*`, `Debugger.*`, `Extensions.*`)
+/// drained strictly ahead of RPC replies so RPC floods can never drop or starve control commands.
+const CONTROL_OUTBOUND_CAP: usize = 512;
+/// Bounded outbound RPC/event push queue (`__ocExtRecv`).
+const RPC_OUTBOUND_CAP: usize = 512;
 
 /// Bitmask of Unix FDs 3 (bit 0) and 4 (bit 1) that were confirmed vacant and reserved by us.
 #[cfg(unix)]
@@ -105,8 +109,14 @@ pub fn release_reserved_unix_fds() {
 #[cfg(not(unix))]
 pub fn release_reserved_unix_fds() {}
 
+struct OutboundQueues {
+    control: VecDeque<Vec<u8>>,
+    rpc: VecDeque<Vec<u8>>,
+    closed: bool,
+}
+
 pub struct CdpPipe {
-    tx: Mutex<Option<SyncSender<Vec<u8>>>>,
+    outbound: Arc<(Mutex<OutboundQueues>, Condvar)>,
     adopted_by_cef: AtomicBool,
     /// Coalesces `Event::Pump(0)` wakeups from the reader thread.
     wake_pending: Arc<AtomicBool>,
@@ -158,15 +168,22 @@ impl CdpPipe {
             return None;
         }
 
-        let (out_tx, out_rx) = mpsc::sync_channel::<Vec<u8>>(OUTBOUND_CAP);
-        spawn_writer(our_write, out_rx);
+        let outbound = Arc::new((
+            Mutex::new(OutboundQueues {
+                control: VecDeque::new(),
+                rpc: VecDeque::new(),
+                closed: false,
+            }),
+            Condvar::new(),
+        ));
+        spawn_writer(our_write, outbound.clone());
 
         let (in_tx, in_rx) = mpsc::sync_channel::<PipeInbound>(INBOUND_CAP);
         let wake_pending = Arc::new(AtomicBool::new(false));
         spawn_reader(our_read, in_tx, wake_pending.clone(), events);
 
         let pipe = Self {
-            tx: Mutex::new(Some(out_tx)),
+            outbound,
             adopted_by_cef: AtomicBool::new(false),
             wake_pending: wake_pending.clone(),
             #[cfg(windows)]
@@ -202,16 +219,32 @@ impl CdpPipe {
         }
     }
 
-    /// Non-blocking enqueue of one NUL-terminated CDP command to the writer thread.
+    /// Non-blocking enqueue of one high-priority control CDP command (`Fetch.*`, `Target.*`,
+    /// `Debugger.*`, `Extensions.*`, etc.) drained ahead of RPC replies.
     pub fn send(&self, msg: &Value) {
         let mut bytes = msg.to_string().into_bytes();
         bytes.push(0);
-        if let Some(ref tx) = *self.tx.lock().unwrap() {
-            let _ = tx.try_send(bytes);
+        let (lock, cv) = &*self.outbound;
+        let mut q = lock.lock().unwrap();
+        if !q.closed && q.control.len() < CONTROL_OUTBOUND_CAP {
+            q.control.push_back(bytes);
+            cv.notify_one();
         }
     }
 
-    /// Non-blocking enqueue of a pipelined CDP command batch in a single write buffer.
+    /// Non-blocking enqueue of a lower-priority extension RPC reply / event push (`__ocExtRecv`).
+    pub fn send_rpc(&self, msg: &Value) {
+        let mut bytes = msg.to_string().into_bytes();
+        bytes.push(0);
+        let (lock, cv) = &*self.outbound;
+        let mut q = lock.lock().unwrap();
+        if !q.closed && q.rpc.len() < RPC_OUTBOUND_CAP {
+            q.rpc.push_back(bytes);
+            cv.notify_one();
+        }
+    }
+
+    /// Non-blocking enqueue of a pipelined high-priority control CDP command batch.
     pub fn send_batch(&self, msgs: &[Value]) {
         if msgs.is_empty() {
             return;
@@ -222,15 +255,23 @@ impl CdpPipe {
             buf.extend_from_slice(s.as_bytes());
             buf.push(0);
         }
-        if let Some(ref tx) = *self.tx.lock().unwrap() {
-            let _ = tx.try_send(buf);
+        let (lock, cv) = &*self.outbound;
+        let mut q = lock.lock().unwrap();
+        if !q.closed && q.control.len() < CONTROL_OUTBOUND_CAP {
+            q.control.push_back(buf);
+            cv.notify_one();
         }
     }
 
     /// Closes our write end so Chromium's `DevToolsPipeHandlerReadThread` sees clean EOF before
     /// `cef::shutdown()`.
     pub fn close(&self) {
-        let _ = self.tx.lock().unwrap().take();
+        let (lock, cv) = &*self.outbound;
+        let mut q = lock.lock().unwrap();
+        q.closed = true;
+        q.control.clear();
+        q.rpc.clear();
+        cv.notify_all();
         self.wake_pending.store(false, Ordering::Relaxed);
     }
 }
@@ -254,11 +295,28 @@ impl Drop for CdpPipe {
     }
 }
 
-fn spawn_writer(mut writer: File, rx: Receiver<Vec<u8>>) {
+fn spawn_writer(mut writer: File, outbound: Arc<(Mutex<OutboundQueues>, Condvar)>) {
     let _ = std::thread::Builder::new()
         .name("engine-ext-cdp-tx".into())
         .spawn(move || {
-            while let Ok(bytes) = rx.recv() {
+            let (lock, cv) = &*outbound;
+            loop {
+                let next = {
+                    let mut q = lock.lock().unwrap();
+                    loop {
+                        if let Some(bytes) = q.control.pop_front() {
+                            break Some(bytes);
+                        }
+                        if let Some(bytes) = q.rpc.pop_front() {
+                            break Some(bytes);
+                        }
+                        if q.closed {
+                            break None;
+                        }
+                        q = cv.wait(q).unwrap();
+                    }
+                };
+                let Some(bytes) = next else { break };
                 if writer.write_all(&bytes).is_err() || writer.flush().is_err() {
                     break;
                 }

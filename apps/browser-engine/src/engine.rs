@@ -235,6 +235,11 @@ impl EngineManager {
                     let Some(tab) = self.tabs.remove(&tab_id) else { continue };
                     let was_agent = tab.prompts.agent_driven.load(Ordering::Acquire);
                     tab.host.close_browser(1);
+                    if !tab.isolated && !tab.is_popup
+                        && let Some(ext) = &mut self.extensions
+                    {
+                        ext.on_tab_closed(tab_id);
+                    }
                     let url = tab.snap.lock().unwrap().url.clone();
                     let v = tab.view_state.lock().unwrap().clone();
                     let roots = tab.file_roots.lock().unwrap().clone();
@@ -589,6 +594,7 @@ impl EngineManager {
                             reason: why.code().to_owned(),
                         });
                     } else if let Some(frame) = t.browser.main_frame() {
+                        t.prompts.set_pending_top_url(Some(url.clone()));
                         frame.load_url(Some(&CefString::from(url.as_str())));
                     }
                 }
@@ -1089,12 +1095,11 @@ impl EngineManager {
             return;
         }
         let is_popup = is_popup_valid;
-        // A popup tab may only ever navigate inside its own extension's origin.
-        let allowed_ext_list = if is_popup {
-            is_allowed_ext_url.map(|id| vec![id.to_owned()]).unwrap_or_default()
-        } else {
-            allowed_ext_list
-        };
+        // Only tabs opened directly on an extension URL may navigate main frames inside that
+        // extension's origin; detached regular web tabs NEVER upgrade in-place into an unattached
+        // `chrome-extension://` page (`review-rd274.md` Round-2 §1d). Web-accessible sub-frames
+        // (e.g. Bitwarden inline overlays) on user web tabs do not consult `allowed_ext_list`.
+        let allowed_ext_list = is_allowed_ext_url.map(|id| vec![id.to_owned()]).unwrap_or_default();
         let refused = if is_allowed_ext_url.is_some() {
             None
         } else {
@@ -1415,14 +1420,20 @@ impl EngineManager {
     }
 }
 
-/// Whether `t` is currently displaying or navigating to an extension page or popup
-/// (checks popup flag, snapshot URL, live CEF main-frame URL, and pending navigation URL to
-/// close the navigation TOCTOU race; `review-rd274.md` §1).
+/// Whether `t` is currently displaying, navigating to, OR embedding any extension surface
+/// (checks popup flag, snapshot URL, live CEF main-frame URL, pending navigation URL, AND every
+/// live child frame via `browser.frame_identifiers()` — including cross-origin `chrome-extension://`
+/// OOPIFs such as password-manager autofill overlays; `review-rd274.md` Round-2 §2).
 fn tab_is_extension_surface(t: &ManagedTab) -> bool {
     if t.is_popup {
         return true;
     }
     if crate::extensions::manifest::is_extension_scheme(&t.snap.lock().unwrap().url) {
+        return true;
+    }
+    if let Some(pending) = t.prompts.pending_top_url()
+        && crate::extensions::manifest::is_extension_scheme(&pending)
+    {
         return true;
     }
     if let Some(frame) = t.browser.main_frame() {
@@ -1431,10 +1442,15 @@ fn tab_is_extension_surface(t: &ManagedTab) -> bool {
             return true;
         }
     }
-    if let Some(pending) = t.prompts.pending_top_url()
-        && crate::extensions::manifest::is_extension_scheme(&pending)
-    {
-        return true;
+    let mut frame_ids = cef::CefStringList::new();
+    t.browser.frame_identifiers(Some(&mut frame_ids));
+    for id in frame_ids {
+        if let Some(frame) = t.browser.frame_by_identifier(Some(&CefString::from(id.as_str()))) {
+            let furl = CefString::from(&frame.url()).to_string();
+            if crate::extensions::manifest::is_extension_scheme(&furl) {
+                return true;
+            }
+        }
     }
     false
 }

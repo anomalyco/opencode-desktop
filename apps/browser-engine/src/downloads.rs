@@ -121,7 +121,21 @@ wrap_download_handler! {
             suggested_name: Option<&CefString>,
             callback: Option<&mut BeforeDownloadCallback>,
         ) -> ::std::os::raw::c_int {
+            if self.is_popup {
+                return 0;
+            }
             let (Some(item), Some(callback)) = (item, callback) else { return 0 };
+            // Re-verify URL policy here (covers `BrowserHost::start_download` and post-redirect URLs
+            // that bypassed `can_download`; `review-rd274.md` Round-2 §3).
+            let url = CefString::from(&item.url()).to_string();
+            let orig_url = CefString::from(&item.original_url()).to_string();
+            if browser_policy::extension_origin(&url) || browser_policy::extension_origin(&orig_url) {
+                return 0;
+            }
+            let roots = self.file_roots.lock().unwrap().clone();
+            if !browser_policy::subresource_allowed(&url, &roots) || browser_policy::is_http_with_credentials(&url) {
+                return 0;
+            }
             let name = suggested_name.map(|n| n.to_string()).filter(|n| !n.is_empty()).unwrap_or_else(|| "file".to_owned());
             let id = format!("file_{}", self.downloads.next.fetch_add(1, Ordering::Relaxed));
             let mime = CefString::from(&item.mime_type()).to_string();

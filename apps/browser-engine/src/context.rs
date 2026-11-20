@@ -344,11 +344,79 @@ wrap_resource_request_handler! {
     }
 }
 
+/// Returns the normalized absolute path matching Chromium's `base::MakeAbsoluteFilePath`
+/// (`\\?\` stripped and uppercase drive letter on Windows, canonical UTF-8 on Unix) so both
+/// `Extensions.loadUnpacked` and `generate_id_for_path` see the exact same path.
+pub fn canonical_extension_load_path(dir: &std::path::Path) -> Option<String> {
+    let canon = std::fs::canonicalize(dir).ok()?;
+    #[cfg(windows)]
+    {
+        let mut s = canon.to_string_lossy().into_owned();
+        if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+            s = format!(r"\\{rest}");
+        } else if let Some(rest) = s.strip_prefix(r"\\?\") {
+            s = rest.to_owned();
+        }
+        while s.len() > 3 && s.ends_with('\\') {
+            s.pop();
+        }
+        let bytes = s.as_bytes();
+        if bytes.len() >= 2 && bytes[1] == b':' && bytes[0].is_ascii_lowercase() {
+            let mut chars: Vec<char> = s.chars().collect();
+            chars[0] = chars[0].to_ascii_uppercase();
+            s = chars.into_iter().collect();
+        }
+        Some(s)
+    }
+    #[cfg(not(windows))]
+    {
+        let mut s = canon.to_str()?.to_owned();
+        while s.len() > 1 && s.ends_with('/') {
+            s.pop();
+        }
+        Some(s)
+    }
+}
+
+/// Computes Chromium's `crx_file::id_util::GenerateIdForPath(path)` (SHA-256 of the normalized
+/// absolute path — UTF-16LE `wchar_t` code units on Windows, UTF-8 bytes on POSIX — first 16 bytes
+/// nibble-encoded as `'a'..='p'`).
+pub fn generate_id_for_path(dir: &std::path::Path) -> Option<String> {
+    use sha2::{Digest as _, Sha256};
+    let norm = canonical_extension_load_path(dir)?;
+    let bytes: Vec<u8> = {
+        #[cfg(windows)]
+        {
+            let mut out = Vec::with_capacity(norm.len() * 2);
+            for u in norm.encode_utf16() {
+                out.extend_from_slice(&u.to_le_bytes());
+            }
+            out
+        }
+        #[cfg(not(windows))]
+        {
+            norm.into_bytes()
+        }
+    };
+    let digest = Sha256::digest(&bytes);
+    let mut id = String::with_capacity(32);
+    for &b in &digest[..16] {
+        id.push((b'a' + (b >> 4)) as char);
+        id.push((b'a' + (b & 0x0f)) as char);
+    }
+    Some(id)
+}
+
 /// Disables `file://` scheme access in Chromium's `ExtensionPrefs`
-/// (`extensions.settings.<id>.newAllowFileAccess = false`) for `ext_id` before
-/// `Extensions.loadUnpacked` runs so `UnpackedInstaller` never grants
-/// `Extension::ALLOW_FILE_ACCESS` (`review-rd274.md` §2).
-pub fn disallow_extension_file_access(ext_id: &str) -> bool {
+/// (`extensions.settings.<id>.newAllowFileAccess = false`) under BOTH the path-derived ID
+/// (`GenerateIdForPath`, checked by `UnpackedInstaller::GetFlags()` before manifest key parse so
+/// `Extension::ALLOW_FILE_ACCESS` is never set at load time) AND the key-derived `ext_id` (checked
+/// at runtime by `util::AllowFileAccess` / `ExtensionPrefs`). Returns `true` only when the
+/// preference write succeeds (callers fail closed on `false`; `review-rd274.md` Round-2 §1).
+pub fn disallow_extension_file_access(ext_id: &str, dir: &std::path::Path) -> bool {
+    let Some(path_id) = generate_id_for_path(dir) else {
+        return false;
+    };
     let Some(ctx) = cef::request_context_get_global_context() else {
         return false;
     };
@@ -365,17 +433,22 @@ pub fn disallow_extension_file_access(ext_id: &str) -> bool {
     let Some(mut root_dict) = root_dict.take() else {
         return false;
     };
-    let ext_key = CefString::from(ext_id);
-    let mut ext_dict = root_dict
-        .dictionary(Some(&ext_key))
-        .and_then(|d| d.copy(0))
-        .or_else(cef::dictionary_value_create);
-    let Some(mut ext_dict) = ext_dict.take() else {
-        return false;
-    };
-    ext_dict.set_bool(Some(&CefString::from("newAllowFileAccess")), 0);
-    ext_dict.set_bool(Some(&CefString::from("allow_file_access")), 0);
-    root_dict.set_dictionary(Some(&ext_key), Some(&mut ext_dict));
+    let mut target_ids = vec![path_id];
+    if !target_ids.iter().any(|id| id == ext_id) {
+        target_ids.push(ext_id.to_owned());
+    }
+    for tid in &target_ids {
+        let ext_key = CefString::from(tid.as_str());
+        let mut ext_dict = root_dict
+            .dictionary(Some(&ext_key))
+            .and_then(|d| d.copy(0))
+            .or_else(cef::dictionary_value_create);
+        let Some(mut ext_dict) = ext_dict.take() else {
+            return false;
+        };
+        ext_dict.set_bool(Some(&CefString::from("newAllowFileAccess")), 0);
+        root_dict.set_dictionary(Some(&ext_key), Some(&mut ext_dict));
+    }
     let Some(mut val) = cef::value_create() else {
         return false;
     };

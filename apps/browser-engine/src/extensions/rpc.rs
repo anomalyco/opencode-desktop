@@ -474,6 +474,14 @@ impl ExtensionHost {
         if let Some(ch) = change {
             if let Some(raw_url) = ch.get("url").and_then(Value::as_str) {
                 let url = resolve_extension_nav_url(ext_id, raw_url)?;
+                // Never upgrade a detached web tab into a `chrome-extension://` document in-place
+                // (prevents bypassing per-target `Fetch.enable` and shim attach; extensions open
+                // their own pages via `chrome.tabs.create`; `review-rd274.md` Round-2 §1d).
+                if is_extension_scheme(&url)
+                    && extension_id_from_url(&self.tabs[idx].url) != Some(ext_id)
+                {
+                    return Err("Cannot navigate a web tab to an extension page; use chrome.tabs.create.".into());
+                }
                 effects.push(ExtEffect::NavigateTab { engine_tab_id, url });
             }
             if ch.get("active").and_then(Value::as_bool) == Some(true)
@@ -541,6 +549,9 @@ impl ExtensionHost {
                 Ok(Value::Null)
             }
             "action.setPopup" => {
+                if !self.allow_action_update(ext_id) {
+                    return Ok(Value::Null);
+                }
                 let popup: String = args
                     .first()
                     .and_then(|v| v.get("popup"))
@@ -593,6 +604,9 @@ impl ExtensionHost {
                 Ok(Value::String(self.actions.get(ext_id).and_then(|s| s.for_tab(tid).badge_text).unwrap_or_default()))
             }
             "action.setBadgeBackgroundColor" => {
+                if !self.allow_action_update(ext_id) {
+                    return Ok(Value::Null);
+                }
                 if let Some(c) = args.first().and_then(|v| v.get("color")).and_then(parse_badge_color) {
                     let tid = arg_tab_id(args.first());
                     self.actions.entry(ext_id.to_owned()).or_default().apply(tid, |a| a.badge_color = Some(c));
@@ -608,6 +622,9 @@ impl ExtensionHost {
                 Ok(Value::String(c))
             }
             "action.setBadgeTextColor" => {
+                if !self.allow_action_update(ext_id) {
+                    return Ok(Value::Null);
+                }
                 if let Some(c) = args.first().and_then(|v| v.get("color")).and_then(parse_badge_color) {
                     let tid = arg_tab_id(args.first());
                     self.actions.entry(ext_id.to_owned()).or_default().apply(tid, |a| a.badge_text_color = Some(c));
@@ -623,6 +640,9 @@ impl ExtensionHost {
                 Ok(Value::String(c))
             }
             "action.enable" => {
+                if !self.allow_action_update(ext_id) {
+                    return Ok(Value::Null);
+                }
                 let tid = args.first().and_then(Value::as_i64).map(|n| n as i32);
                 self.actions.entry(ext_id.to_owned()).or_default().apply(tid, |a| a.enabled = Some(true));
                 if let Some(snap) = self.action_snapshot(ext_id) {
@@ -631,6 +651,9 @@ impl ExtensionHost {
                 Ok(Value::Null)
             }
             "action.disable" => {
+                if !self.allow_action_update(ext_id) {
+                    return Ok(Value::Null);
+                }
                 let tid = args.first().and_then(Value::as_i64).map(|n| n as i32);
                 self.actions.entry(ext_id.to_owned()).or_default().apply(tid, |a| a.enabled = Some(false));
                 if let Some(snap) = self.action_snapshot(ext_id) {

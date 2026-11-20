@@ -66,10 +66,11 @@ pub struct StartupExtensions {
     pub rejected_ids: Vec<String>,
 }
 
-/// Opens a regular non-symlink file (`O_NOFOLLOW` + `(dev, ino)` check on Unix).
+/// Opens a regular non-symlink file (`O_NOFOLLOW` + `(dev, ino)` on Unix;
+/// `FILE_FLAG_OPEN_REPARSE_POINT` + `FILE_ATTRIBUTE_REPARSE_POINT` check on Windows).
 pub(crate) fn open_regular_no_follow(path: &Path) -> Option<(File, u64)> {
     let lmeta = std::fs::symlink_metadata(path).ok()?;
-    if !lmeta.is_file() || lmeta.file_type().is_symlink() {
+    if !lmeta.is_file() || is_reparse_or_symlink(&lmeta) {
         return None;
     }
     let mut opts = OpenOptions::new();
@@ -79,9 +80,15 @@ pub(crate) fn open_regular_no_follow(path: &Path) -> Option<(File, u64)> {
         use std::os::unix::fs::OpenOptionsExt as _;
         opts.custom_flags(libc::O_NOFOLLOW);
     }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt as _;
+        // FILE_FLAG_OPEN_REPARSE_POINT (0x0020_0000): opens the link itself without following.
+        opts.custom_flags(0x0020_0000);
+    }
     let file = opts.open(path).ok()?;
     let fmeta = file.metadata().ok()?;
-    if !fmeta.is_file() {
+    if !fmeta.is_file() || is_reparse_or_symlink(&fmeta) {
         return None;
     }
     #[cfg(unix)]
@@ -92,6 +99,20 @@ pub(crate) fn open_regular_no_follow(path: &Path) -> Option<(File, u64)> {
         }
     }
     Some((file, fmeta.len()))
+}
+
+fn is_reparse_or_symlink(meta: &std::fs::Metadata) -> bool {
+    if meta.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt as _;
+        if (meta.file_attributes() & 0x0400) != 0 {
+            return true;
+        }
+    }
+    false
 }
 
 /// Reads a regular non-symlink file with a hard byte cap (`Read::take(max_bytes + 1)`).
@@ -130,14 +151,62 @@ pub fn prepare_startup_stubs(specs: &[String], profile_root: &Path) -> PreparedS
     if parsed.is_empty() {
         return PreparedStartup::default();
     }
-    // Chromium splits `--disable-extensions-except` on commas; fall back to temp dir if needed.
+    // Chromium splits `--disable-extensions-except` on commas; if `profile_root` contains a comma,
+    // pick a user-owned comma-free parent (never rely on profile-overwritten `TMP` on Windows, and
+    // create an atomic non-predictable `0o700` dir on Unix; fail closed if unavailable).
     let base_parent = if profile_root.to_string_lossy().contains(',') {
-        std::env::temp_dir()
+        #[cfg(windows)]
+        {
+            match std::env::var_os("LOCALAPPDATA")
+                .map(PathBuf::from)
+                .filter(|p| !p.to_string_lossy().contains(','))
+            {
+                Some(p) => p,
+                None => {
+                    return PreparedStartup {
+                        pre_rejected_ids: parsed.into_iter().map(|c| c.id).collect(),
+                        ..PreparedStartup::default()
+                    };
+                }
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            let p = std::env::temp_dir();
+            if p.to_string_lossy().contains(',') {
+                return PreparedStartup {
+                    pre_rejected_ids: parsed.into_iter().map(|c| c.id).collect(),
+                    ..PreparedStartup::default()
+                };
+            }
+            p
+        }
     } else {
         profile_root.to_path_buf()
     };
-    let stub_root = base_parent.join(format!("{STUB_PREFIX}{}", std::process::id()));
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let stub_root = base_parent.join(format!("{STUB_PREFIX}{}-{nonce:x}", std::process::id()));
     if stub_root.to_string_lossy().contains(',') {
+        return PreparedStartup {
+            pre_rejected_ids: parsed.into_iter().map(|c| c.id).collect(),
+            ..PreparedStartup::default()
+        };
+    }
+    let root_created = {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt as _;
+            std::fs::DirBuilder::new().mode(0o700).create(&stub_root)
+        }
+        #[cfg(not(unix))]
+        {
+            std::fs::create_dir(&stub_root)
+        }
+    };
+    if root_created.is_err() {
         return PreparedStartup {
             pre_rejected_ids: parsed.into_iter().map(|c| c.id).collect(),
             ..PreparedStartup::default()
@@ -150,15 +219,20 @@ pub fn prepare_startup_stubs(specs: &[String], profile_root: &Path) -> PreparedS
             continue;
         };
         let stub_dir = stub_root.join(&cand.id);
-        if std::fs::create_dir_all(&stub_dir).is_err() {
+        let dir_created = {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::DirBuilderExt as _;
+                std::fs::DirBuilder::new().mode(0o700).create(&stub_dir)
+            }
+            #[cfg(not(unix))]
+            {
+                std::fs::create_dir(&stub_dir)
+            }
+        };
+        if dir_created.is_err() {
             out.pre_rejected_ids.push(cand.id);
             continue;
-        }
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt as _;
-            let _ = std::fs::set_permissions(&stub_root, std::fs::Permissions::from_mode(0o700));
-            let _ = std::fs::set_permissions(&stub_dir, std::fs::Permissions::from_mode(0o700));
         }
         let stub = json!({
             "manifest_version": 3,
@@ -174,7 +248,9 @@ pub fn prepare_startup_stubs(specs: &[String], profile_root: &Path) -> PreparedS
         out.stub_dirs_by_id.insert(cand.id.clone(), stub_dir);
         out.candidates.push(cand);
     }
-    if !out.stub_dirs.is_empty() {
+    if out.stub_dirs.is_empty() {
+        let _ = std::fs::remove_dir_all(&stub_root);
+    } else {
         out.stub_root = Some(stub_root);
     }
     out
@@ -196,7 +272,8 @@ fn sweep_stale_stubs(profile_root: &Path) {
     for entry in entries.flatten() {
         let name = entry.file_name();
         let Some(name) = name.to_str() else { continue };
-        let Some(pid_str) = name.strip_prefix(STUB_PREFIX) else { continue };
+        let Some(pid_part) = name.strip_prefix(STUB_PREFIX) else { continue };
+        let pid_str = pid_part.split('-').next().unwrap_or(pid_part);
         if pid_str.parse::<u32>().ok().is_some_and(|p| p != my_pid)
             && entry.file_type().is_ok_and(|ft| ft.is_dir() && !ft.is_symlink())
         {
@@ -207,7 +284,7 @@ fn sweep_stale_stubs(profile_root: &Path) {
 
 fn read_mv3_stub_fields(dir: &Path, expected_id: &str) -> Option<(String, String)> {
     let dir_meta = std::fs::symlink_metadata(dir).ok()?;
-    if !dir_meta.is_dir() || dir_meta.file_type().is_symlink() {
+    if !dir_meta.is_dir() || is_reparse_or_symlink(&dir_meta) {
         return None;
     }
     let bytes = read_regular_file_bounded(&dir.join("manifest.json"), MAX_MANIFEST_BYTES)?;
@@ -220,14 +297,11 @@ fn read_mv3_stub_fields(dir: &Path, expected_id: &str) -> Option<(String, String
     if obj.get("theme").is_some_and(|v| !v.is_null()) {
         return None;
     }
-    if let Some(perms) = obj.get("permissions").and_then(Value::as_array)
-        && perms
-            .iter()
-            .filter_map(Value::as_str)
-            .any(|p| DISALLOWED_REQUIRED_PERMS.contains(&p))
-    {
+    let perms = super::manifest::checked_string_array(obj.get("permissions"))?;
+    if perms.iter().any(|p| DISALLOWED_REQUIRED_PERMS.contains(&p.as_str())) {
         return None;
     }
+    let _hosts = super::manifest::checked_string_array(obj.get("host_permissions"))?;
     let version = obj.get("version")?.as_str()?.to_owned();
     let key = obj.get("key")?.as_str()?.trim().to_owned();
     if derive_id_from_key_b64(&key).as_deref() != Some(expected_id) {

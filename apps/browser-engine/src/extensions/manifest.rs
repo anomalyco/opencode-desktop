@@ -74,18 +74,9 @@ impl ExtensionManifest {
         }
         let default_locale = obj.get("default_locale").and_then(Value::as_str);
 
-        let permissions: Vec<String> = obj
-            .get("permissions")
-            .and_then(Value::as_array)
-            .map(|a| {
-                a.iter()
-                    .filter_map(Value::as_str)
-                    .filter(|s| s.len() <= MAX_ITEM_CHARS)
-                    .take(MAX_LIST_ITEMS)
-                    .map(str::to_owned)
-                    .collect()
-            })
-            .unwrap_or_default();
+        // Fail closed on oversized, non-string, empty, or control/bidi entries — NEVER silently
+        // truncate `permissions` or `host_permissions` (`review-rd274.md` Round-2 §3).
+        let permissions = checked_string_array(obj.get("permissions"))?;
         if permissions
             .iter()
             .any(|p| DISALLOWED_REQUIRED_PERMS.contains(&p.as_str()))
@@ -95,18 +86,7 @@ impl ExtensionManifest {
 
         // MV3 host permissions come strictly from `host_permissions` (never promote MV2-style URL
         // patterns placed inside `"permissions"`, which Chromium 156 ignores; `review-rd274.md` §6).
-        let hosts: Vec<String> = obj
-            .get("host_permissions")
-            .and_then(Value::as_array)
-            .map(|a| {
-                a.iter()
-                    .filter_map(Value::as_str)
-                    .filter(|s| s.len() <= MAX_ITEM_CHARS)
-                    .take(MAX_LIST_ITEMS)
-                    .map(str::to_owned)
-                    .collect()
-            })
-            .unwrap_or_default();
+        let hosts = checked_string_array(obj.get("host_permissions"))?;
 
         // Parse `_locales/<locale>/messages.json` at most ONCE (bounded <= 1 MiB, symlink-free).
         let locale_messages = load_locale_messages(dir, default_locale);
@@ -213,21 +193,27 @@ pub fn is_extension_scheme(url: &str) -> bool {
 pub fn extension_label(text: &str) -> String {
     let mut out = String::new();
     for ch in text.chars().take(256) {
-        let is_bidi = matches!(
-            ch,
-            '\u{061C}'
-                | '\u{200E}'
-                | '\u{200F}'
-                | '\u{202A}'..='\u{202E}'
-                | '\u{2066}'..='\u{2069}'
-        );
-        if ch.is_control() || is_bidi || ch == '\u{2028}' || ch == '\u{2029}' {
+        if is_disallowed_ui_char(ch) {
             out.push(' ');
         } else {
             out.push(ch);
         }
     }
     out.trim().chars().take(128).collect()
+}
+
+fn is_disallowed_ui_char(ch: char) -> bool {
+    ch.is_control()
+        || matches!(
+            ch,
+            '\u{061C}'
+                | '\u{200E}'
+                | '\u{200F}'
+                | '\u{2028}'
+                | '\u{2029}'
+                | '\u{202A}'..='\u{202E}'
+                | '\u{2066}'..='\u{2069}'
+        )
 }
 
 /// Internal preview, artifact, and local file URLs that extensions must never observe.
@@ -506,19 +492,65 @@ pub fn matches_host(patterns: &[String], input: &str) -> bool {
     })
 }
 
-fn host_covers(pattern: &str, host: &str) -> bool {
-    let pat_host = match pattern.split_once(':') {
-        Some((h, port)) if port == "*" || (!port.is_empty() && port.bytes().all(|b| b.is_ascii_digit())) => h,
-        _ => pattern,
+/// Validates a security-relevant manifest string array without silent truncation (identical
+/// fail-closed bounds to `crates/browser-extensions/src/manifest.rs`).
+pub(crate) fn checked_string_array(v: Option<&Value>) -> Option<Vec<String>> {
+    let Some(v) = v.filter(|v| !v.is_null()) else {
+        return Some(Vec::new());
     };
+    let arr = v.as_array()?;
+    if arr.len() > MAX_LIST_ITEMS {
+        return None;
+    }
+    let mut out = Vec::with_capacity(arr.len());
+    for item in arr {
+        let s = item.as_str()?.trim();
+        if s.is_empty()
+            || s.len() > MAX_ITEM_CHARS
+            || s.chars().any(is_disallowed_ui_char)
+        {
+            return None;
+        }
+        out.push(s.to_owned());
+    }
+    Some(out)
+}
+
+/// Extracts the 32-char extension ID from a `chrome-extension://<id>/...` OR wrapped
+/// `blob:chrome-extension://<id>/...` CDP target URL (`review-rd274.md` Round-2 §1a).
+pub fn extension_id_from_target_url(url: &str) -> Option<&str> {
+    let mut cur = url.trim();
+    while cur.len() >= 5 && cur.as_bytes()[..5].eq_ignore_ascii_case(b"blob:") {
+        cur = cur[5..].trim();
+    }
+    extension_id_from_url(cur)
+}
+
+fn host_covers(pattern: &str, host: &str) -> bool {
+    let (pat_host, pat_port) = match pattern.split_once(':') {
+        Some((h, p)) if p == "*" || (!p.is_empty() && p.bytes().all(|b| b.is_ascii_digit())) => (h, Some(p)),
+        Some(_) => return false,
+        None => (pattern, None),
+    };
+    let (target_host, target_port) = match host.split_once(':') {
+        Some((h, p)) => (h, Some(p)),
+        None => (host, None),
+    };
+    let port_ok = match pat_port {
+        None | Some("*") => true,
+        Some(p) => target_port == Some(p),
+    };
+    if !port_ok {
+        return false;
+    }
     if pat_host == "*" {
         return true;
     }
     if let Some(domain) = pat_host.strip_prefix("*.") {
-        let bare = host.strip_prefix("*.").unwrap_or(host);
+        let bare = target_host.strip_prefix("*.").unwrap_or(target_host);
         return bare == domain || bare.ends_with(&format!(".{domain}"));
     }
-    pattern == host
+    pat_host == target_host
 }
 
 /// Linear-backtracking glob match (`*` matches any substring), bounded on length.

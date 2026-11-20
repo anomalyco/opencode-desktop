@@ -86,6 +86,7 @@ impl EngineManager {
                             continue;
                         }
                         if let Some(frame) = t.browser.main_frame() {
+                            t.prompts.set_pending_top_url(Some(url.clone()));
                             frame.load_url(Some(&CefString::from(url.as_str())));
                         }
                     }
