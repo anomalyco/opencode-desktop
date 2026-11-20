@@ -1,8 +1,12 @@
 {
+  "active": "متابعة الهدف",
   "clear": "مسح",
-  "met": "تحقق الهدف",
+  "dismiss": "تجاهل",
   "pause": "إيقاف مؤقت",
   "paused": "الهدف متوقف مؤقتًا",
+  "reached": "تحقق الهدف",
   "resume": "استئناف",
-  "title": "الهدف"
+  "statusActive": "نشط",
+  "statusFinished": "منتهٍ",
+  "statusPaused": "متوقف مؤقتًا"
 }

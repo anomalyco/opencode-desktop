@@ -1,8 +1,12 @@
 {
+  "active": "עוקב אחר היעד",
   "clear": "ניקוי",
-  "met": "היעד הושג",
+  "dismiss": "סגירה",
   "pause": "השהיה",
   "paused": "היעד מושהה",
+  "reached": "היעד הושג",
   "resume": "המשך",
-  "title": "יעד"
+  "statusActive": "פעיל",
+  "statusFinished": "הסתיים",
+  "statusPaused": "מושהה"
 }

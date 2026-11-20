@@ -235,6 +235,7 @@ fn pill(a: &mut NodeArgs) -> Result<El, String> {
     if let Some(name) = a.string("icon") {
         let ink = match a.string("tone") {
             Some(t @ ("success" | "warning" | "danger")) => session_view::palette::token(pal.dark, &format!("state-fg-{t}")).unwrap_or(pal.icon_muted),
+            Some("accent") => pal.v2.icon_accent,
             _ => pal.icon_muted,
         };
         chip = chip.child(rune::icon(named_icon(name), 14.0).color(ink));

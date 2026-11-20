@@ -1,8 +1,12 @@
 {
+  "active": "ゴールを追跡中",
   "clear": "クリア",
-  "met": "ゴールを達成",
+  "dismiss": "閉じる",
   "pause": "一時停止",
   "paused": "ゴールを一時停止中",
+  "reached": "ゴールを達成",
   "resume": "再開",
-  "title": "ゴール"
+  "statusActive": "アクティブ",
+  "statusFinished": "完了",
+  "statusPaused": "一時停止中"
 }

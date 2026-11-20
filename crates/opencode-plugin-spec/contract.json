@@ -1,6 +1,6 @@
 {
   "$comment": "The OpenCode plugin contract: the single source of truth for plugin types, the plugin.toml schema, the selene std, the API docs and the host's Rust decoders. Edit this file, then run `cargo run -p opencode-plugin-spec -- --write`. Type strings use Luau syntax; `integer` is a whole number (Luau `number`).",
-  "contract": "1.4",
+  "contract": "1.5",
   "versioning": {
     "format": "MAJOR.MINOR",
     "rules": [
@@ -83,7 +83,8 @@
     { "name": "Tone", "rust": true, "doc": "A status color for an icon or a pill.", "values": [
       { "value": "success", "doc": "Done or passing." },
       { "value": "warning", "doc": "Needs attention." },
-      { "value": "danger", "doc": "Failed or blocked." }
+      { "value": "danger", "doc": "Failed or blocked." },
+      { "value": "accent", "doc": "Under way, in the accent color." }
     ] },
     { "name": "ToastVariant", "rust": true, "doc": "A toast's tone.", "values": [
       { "value": "default", "doc": "Neutral information." },
@@ -1486,14 +1487,14 @@
       { "name": "label", "type": "string", "doc": "The capsule's text." },
       { "name": "icon", "type": "IconName?", "doc": "The capsule's icon." },
       { "name": "tone", "type": "Tone?", "doc": "Colors the icon." },
-      { "name": "title", "type": "string?", "doc": "The accessible name and the popover heading, when it differs from `label`." },
+      { "name": "title", "type": "string?", "doc": "The accessible name, when it differs from `label`. It names the popover `renderMenu` fills, which has no heading of the host's." },
       { "name": "rows", "type": "{ ComposerPillRow }?", "doc": "The menu it opens, when the pill has no `renderMenu`." }
     ] },
     { "name": "ComposerPillSpec", "kind": "record", "rust": true, "official": "ComposerPill", "doc": "A pill in the row above a session's composer.", "fields": [
       { "name": "id", "type": "string", "doc": "Its id within the plugin." },
       { "name": "order", "type": "integer?", "doc": "Ascending order among plugin pills." },
       { "name": "show", "type": "(props: ComposerPillProps) -> ComposerPillView?", "doc": "What it shows above this session's composer, or nil for nothing. It must not yield." },
-      { "name": "renderMenu", "type": "((view: View, props: ComposerPillProps) -> UiNode?)?", "doc": "Content for the popover the pill opens. The host owns the capsule, the popover, its heading and its dismissal." },
+      { "name": "renderMenu", "type": "((view: View, props: ComposerPillProps) -> UiNode?)?", "doc": "Content for the popover the pill opens. The host owns the capsule and the popover's frame (its width, a 4 pt inset, placement, focus and dismissal); everything inside, any heading included, is yours." },
       { "name": "run", "type": "((props: ComposerPillProps) -> ())?", "doc": "Runs on a click when the pill has no menu." }
     ] },
     { "name": "CodeBlockProps", "kind": "record", "doc": "One complete fenced code block.", "fields": [

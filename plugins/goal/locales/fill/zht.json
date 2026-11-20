@@ -1,8 +1,12 @@
 {
+  "active": "正在追蹤目標",
   "clear": "清除",
-  "met": "目標已達成",
+  "dismiss": "關閉",
   "pause": "暫停",
   "paused": "目標已暫停",
+  "reached": "目標已達成",
   "resume": "繼續",
-  "title": "目標"
+  "statusActive": "進行中",
+  "statusFinished": "已完成",
+  "statusPaused": "已暫停"
 }
