@@ -7,9 +7,7 @@ use std::time::Duration;
 use super::framing::{is_http_101_response, write_status};
 use super::http::AbortHandle;
 use super::proxy_machine::{ReadEvent, ReadState};
-use super::tunnel_proxy::{
-    BODY_IDLE_TIMEOUT, MAX_WS_RESP_HEAD, POST_EOF_DRAIN_TIMEOUT, ProxyCtx, STREAM_IDLE_TIMEOUT,
-};
+use super::tunnel_proxy::{MAX_WS_RESP_HEAD, POST_EOF_DRAIN_TIMEOUT, ProxyCtx};
 use super::types::TUNNEL_CHUNK_BYTES;
 
 pub(super) enum WsHandshake {
@@ -70,7 +68,6 @@ pub(super) fn pump_exact_http_body(
     if remaining > 0 && !prebuffered.is_empty() {
         let take = (prebuffered.len() as u64).min(remaining) as usize;
         remaining -= take as u64;
-        ctx.bump_idle(client_id, BODY_IDLE_TIMEOUT);
         if write_all_chunks(ctx, tunnel_id, &prebuffered[..take], remaining == 0, abort).is_err() {
             return false;
         }
@@ -87,7 +84,6 @@ pub(super) fn pump_exact_http_body(
         match client_read.read(&mut buf[..want]) {
             Ok(0) => return false,
             Ok(n) => {
-                ctx.bump_idle(client_id, BODY_IDLE_TIMEOUT);
                 remaining -= n as u64;
                 if write_all_chunks(ctx, tunnel_id, &buf[..n], remaining == 0, abort).is_err() {
                     return false;
@@ -126,7 +122,6 @@ pub(super) fn pump_bidirectional_stream(
                 return true;
             }
             Ok(n) => {
-                ctx.bump_idle(client_id, STREAM_IDLE_TIMEOUT);
                 if write_all_chunks(ctx, tunnel_id, &buf[..n], false, abort).is_err() {
                     return false;
                 }
@@ -193,7 +188,6 @@ pub(super) fn drain_remote_to_client(
     tunnel_id: &str,
     abort: &AbortHandle,
     client_write: &mut TcpStream,
-    idle_timeout: Duration,
 ) {
     let mut state = ReadState::Idle;
     while state.step(ReadEvent::Pull) {
@@ -213,14 +207,11 @@ pub(super) fn drain_remote_to_client(
                     ctx.arm_post_eof(client_id, POST_EOF_DRAIN_TIMEOUT);
                     break;
                 }
-                if !chunk.data.is_empty() {
-                    ctx.bump_idle(client_id, idle_timeout);
-                    if client_write.write_all(&chunk.data).is_err() {
-                        state.step(ReadEvent::Destroyed);
-                        client_write.shutdown(Shutdown::Both).ok();
-                        ctx.arm_post_eof(client_id, Duration::ZERO);
-                        break;
-                    }
+                if !chunk.data.is_empty() && client_write.write_all(&chunk.data).is_err() {
+                    state.step(ReadEvent::Destroyed);
+                    client_write.shutdown(Shutdown::Both).ok();
+                    ctx.arm_post_eof(client_id, Duration::ZERO);
+                    break;
                 }
                 state.step(ReadEvent::Chunk);
             }

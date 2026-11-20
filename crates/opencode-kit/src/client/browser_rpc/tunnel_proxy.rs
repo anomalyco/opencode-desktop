@@ -14,11 +14,13 @@
 //! - **Mandatory auth & header stripping:** Constant-time `Proxy-Authorization` check on every
 //!   request and every `CONNECT` (`407 Proxy Authentication Required` otherwise); strips
 //!   `Proxy-Authorization`, `Transfer-Encoding`, and hop-by-hop headers before forwarding.
-//! - **Pool isolation & active watchdog deadlines:** Unauthenticated sockets use a separate smaller
-//!   16-slot pool so unauthenticated floods cannot starve the 64 authenticated tunnel slots. A
-//!   `Condvar` deadline watchdog actively shuts down (`Shutdown::Both`) and aborts expired sockets
-//!   (pre-auth head timeout, post-EOF drain for stalled POST bodies and half-open CONNECT/WS
-//!   clients, and idle body/stream bounds) rather than relying on `SO_RCVTIMEO` waking blocked reads.
+//! - **Pool isolation & active watchdog deadlines:** Unauthenticated sockets use a separate 64-slot
+//!   pool (`MAX_UNAUTH_CONNS = 64`) with a short 3 s total-head deadline so unauthenticated floods
+//!   cannot starve the 64 authenticated tunnel slots and recover quickly. Established authenticated
+//!   tunnels and response streams have NO idle kill (matching Official `proxy.ts`), while a
+//!   `Condvar` deadline watchdog actively shuts down (`Shutdown::Both`) and aborts expired pre-auth
+//!   heads (after a 1 s margin for writing `408`) and post-EOF sockets (~2 s after remote EOF for
+//!   stalled POST bodies and half-open CONNECT/WS clients).
 
 use std::collections::BTreeMap;
 use std::io::{BufReader, Write};
@@ -45,13 +47,12 @@ use super::types::{LocationRef, MAX_TUNNELS, TunnelTarget, try_random_hex};
 use crate::client::Server;
 
 pub const PROXY_REALM: &str = "OpenCode Browser Proxy";
-const HEADER_TIMEOUT: Duration = Duration::from_secs(10);
+const HEADER_TIMEOUT: Duration = Duration::from_secs(3);
+const WATCHDOG_HEAD_MARGIN: Duration = Duration::from_secs(1);
 pub(super) const MAX_WS_RESP_HEAD: usize = 64 * 1024;
 pub(super) const POST_EOF_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
-pub(super) const BODY_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
-pub(super) const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(180);
 const CLIENT_POLL_SLICE: Duration = Duration::from_millis(500);
-const MAX_UNAUTH_CONNS: usize = 16;
+const MAX_UNAUTH_CONNS: usize = MAX_TUNNELS;
 const MAX_CONCURRENT_CONNS: usize = MAX_TUNNELS;
 
 /// Binds an exclusive loopback TCP listener on `127.0.0.1:0`. On Windows, sets
@@ -91,8 +92,7 @@ pub struct ProxyCredentials {
 
 struct TrackedClient {
     stream: TcpStream,
-    deadline: Instant,
-    post_eof: bool,
+    deadline: Option<Instant>,
     expired: bool,
     aborts: Vec<AbortHandle>,
 }
@@ -271,14 +271,17 @@ fn watchdog_loop(shared: Arc<Mutex<SharedProxy>>, cv: Arc<Condvar>) {
             if c.expired {
                 continue;
             }
-            if c.deadline <= now {
+            let Some(deadline) = c.deadline else {
+                continue;
+            };
+            if deadline <= now {
                 c.expired = true;
                 if let Ok(s) = c.stream.try_clone() {
                     kill_streams.push(s);
                 }
                 kill_aborts.extend(c.aborts.iter().cloned());
             } else {
-                next_deadline = Some(next_deadline.map_or(c.deadline, |cur| cur.min(c.deadline)));
+                next_deadline = Some(next_deadline.map_or(deadline, |cur| cur.min(deadline)));
             }
         }
         if !kill_streams.is_empty() || !kill_aborts.is_empty() {
@@ -319,7 +322,7 @@ struct ConnGuard {
 }
 
 impl ConnGuard {
-    fn promote_authenticated(&mut self, idle_timeout: Duration) -> Result<(), AdmitError> {
+    fn promote_authenticated(&mut self) -> Result<(), AdmitError> {
         let mut g = self.ctx.shared.lock().unwrap_or_else(PoisonError::into_inner);
         if !g.state.admits() {
             return Err(AdmitError::Closed);
@@ -336,11 +339,11 @@ impl ConnGuard {
         if g.auth_clients.len() >= MAX_CONCURRENT_CONNS {
             return Err(AdmitError::AtCapacity);
         }
-        entry.deadline = Instant::now() + idle_timeout;
+        // Established authenticated tunnels and response streams have NO idle kill (matching
+        // Official `proxy.ts`); watchdog only arms again on remote EOF (`arm_post_eof`).
+        entry.deadline = None;
         g.auth_clients.insert(self.client_id, entry);
         self.authenticated = true;
-        drop(g);
-        self.ctx.watchdog_cv.notify_one();
         Ok(())
     }
 
@@ -409,8 +412,9 @@ impl ProxyCtx {
             id,
             TrackedClient {
                 stream: cloned,
-                deadline: Instant::now() + HEADER_TIMEOUT,
-                post_eof: false,
+                // Give `read_http_head` a 1 s margin after `HEADER_TIMEOUT` to write `408` cleanly
+                // before the watchdog forcibly shuts the socket down.
+                deadline: Some(Instant::now() + HEADER_TIMEOUT + WATCHDOG_HEAD_MARGIN),
                 expired: false,
                 aborts: Vec::new(),
             },
@@ -420,41 +424,13 @@ impl ProxyCtx {
         Ok(ConnGuard { ctx: self.clone(), client_id: id, authenticated: false })
     }
 
-    fn set_idle_timeout(&self, client_id: u64, timeout: Duration) {
-        let mut g = self.shared.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(c) = g.auth_clients.get_mut(&client_id)
-            && !c.post_eof
-            && !c.expired
-        {
-            c.deadline = Instant::now() + timeout;
-            drop(g);
-            self.watchdog_cv.notify_one();
-        }
-    }
-
-    pub(super) fn bump_idle(&self, client_id: u64, timeout: Duration) {
-        let mut g = self.shared.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(c) = g.auth_clients.get_mut(&client_id)
-            && !c.post_eof
-            && !c.expired
-        {
-            let next = Instant::now() + timeout;
-            if next > c.deadline {
-                c.deadline = next;
-            }
-        }
-    }
-
     pub(super) fn arm_post_eof(&self, client_id: u64, timeout: Duration) {
         let mut g = self.shared.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(c) = g.auth_clients.get_mut(&client_id)
             && !c.expired
         {
-            c.post_eof = true;
             let next = Instant::now() + timeout;
-            if next < c.deadline {
-                c.deadline = next;
-            }
+            c.deadline = Some(c.deadline.map_or(next, |cur| cur.min(next)));
             drop(g);
             self.watchdog_cv.notify_one();
         }
@@ -466,7 +442,7 @@ impl ProxyCtx {
             return true;
         }
         match g.auth_clients.get(&client_id) {
-            Some(c) => c.expired || Instant::now() >= c.deadline,
+            Some(c) => c.expired || c.deadline.is_some_and(|dl| Instant::now() >= dl),
             None => true,
         }
     }
@@ -525,7 +501,7 @@ fn handle_client(stream: TcpStream, ctx: Arc<ProxyCtx>, mut guard: ConnGuard) {
             .ok();
         return;
     }
-    match guard.promote_authenticated(BODY_IDLE_TIMEOUT) {
+    match guard.promote_authenticated() {
         Ok(()) => {}
         Err(AdmitError::AtCapacity | AdmitError::Suspended) => {
             write_status(reader.get_mut(), "503 Service Unavailable").ok();
@@ -589,8 +565,6 @@ fn handle_client(stream: TcpStream, ctx: Arc<ProxyCtx>, mut guard: ConnGuard) {
 
     let client_id = guard.client_id;
     let plain_http = !is_connect && !is_ws;
-    let idle_timeout = if plain_http { BODY_IDLE_TIMEOUT } else { STREAM_IDLE_TIMEOUT };
-    ctx.set_idle_timeout(client_id, idle_timeout);
 
     let io_abort = AbortHandle::new();
     if !guard.track_abort(&io_abort) {
@@ -658,7 +632,6 @@ fn handle_client(stream: TcpStream, ctx: Arc<ProxyCtx>, mut guard: ConnGuard) {
                     &tunnel_id,
                     &read_abort,
                     &mut client_write,
-                    BODY_IDLE_TIMEOUT,
                 );
                 client_read.shutdown(Shutdown::Both).ok();
                 close_tunnel(&ctx, &tunnel_id);
@@ -684,7 +657,6 @@ fn handle_client(stream: TcpStream, ctx: Arc<ProxyCtx>, mut guard: ConnGuard) {
                 &tid_down,
                 &abort_down,
                 &mut client_write,
-                idle_timeout,
             );
         })
         .ok();
