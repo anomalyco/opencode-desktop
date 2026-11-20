@@ -140,12 +140,18 @@ impl App {
             model,
         };
         if prompt.command.is_some() {
+            #[cfg(not(target_arch = "wasm32"))]
+            if let Route::Session { id, .. } = (*self.route).clone() {
+                crate::surfaces::browser::rpc::engage_session(self, &id);
+            }
             return self.send_command(prompt, alternate, tx);
         }
         let quotes = prompt.comments.clone();
         if let Route::Session { id, .. } = (*self.route).clone()
             && (self.busy(&id) || self.steers_waiting(&id))
         {
+            #[cfg(not(target_arch = "wasm32"))]
+            crate::surfaces::browser::rpc::engage_session(self, &id);
             let local = prompt.id.clone().unwrap_or_default();
             // Alt+Enter always queues first while busy (`#63109`); Enter does what Settings ›
             // Follow-up behavior says and ⌘⏎ the other; with no run to queue behind, both send
@@ -197,9 +203,28 @@ impl App {
                     if journal {
                         let paths=sent.paths.clone();
                         rune::marks::mark("send.enqueue");
-                        if !self.enqueue_prompt(sent,w) {self.composer_ext.attach.paths.extend(paths);return;}
+                        #[cfg(not(target_arch = "wasm32"))]
+                        let gate_browser = !starting && crate::surfaces::browser::rpc::gate::should_gate_prompt(self, &id);
+                        #[cfg(target_arch = "wasm32")]
+                        let gate_browser = false;
+                        let ok = if gate_browser {
+                            self.enqueue_prepared(sent, w)
+                        } else {
+                            self.enqueue_prompt(sent, w)
+                        };
+                        if !ok {self.composer_ext.attach.paths.extend(paths);return;}
+                        #[cfg(not(target_arch = "wasm32"))]
+                        if gate_browser {
+                            crate::surfaces::browser::rpc::gate::register_prompt_gate(self, &id, local.clone());
+                        } else if !starting {
+                            crate::surfaces::browser::rpc::engage_session(self, &id);
+                        }
                         rune::marks::mark("send.enqueued");
                     } else {
+                        #[cfg(not(target_arch = "wasm32"))]
+                        if !starting {
+                            crate::surfaces::browser::rpc::engage_session(self, &id);
+                        }
                         if !self.write(w) {self.composer_ext.attach.paths.extend(sent.paths);return;}
                         self.unsent.note(sent);
                         self.composer_ext.attach.echoes.push((id.clone(), local.clone(), text.clone()));

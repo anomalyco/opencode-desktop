@@ -5,6 +5,7 @@
 //! keeps every session's tab namespace (`tab_<uuid>`) isolated by construction.
 
 mod exec;
+pub(crate) mod gate;
 mod session;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -64,7 +65,12 @@ enum WorkerMsg {
 
 pub struct BrowserRpcState {
     sessions: BTreeMap<(ServerKey, String), SessionAttachment>,
+    /// Sessions where the user or agent actually engaged the browser or submitted a prompt.
+    /// Merely listing or opening a session to view it never adds an entry here, avoiding server
+    /// permission writes (`projector.ts:991`) that mutate `time_updated` on untouched sessions.
+    engaged: BTreeSet<(ServerKey, String)>,
     sse_connected: BTreeMap<ServerKey, bool>,
+    prompt_gates: Vec<gate::PromptGateEntry>,
     worker_tx: Sender<WorkerMsg>,
     worker_rx: Receiver<WorkerMsg>,
     waker: Option<Waker>,
@@ -77,13 +83,33 @@ impl Default for BrowserRpcState {
         let (worker_tx, worker_rx) = mpsc::channel();
         Self {
             sessions: BTreeMap::new(),
+            engaged: BTreeSet::new(),
             sse_connected: BTreeMap::new(),
+            prompt_gates: Vec::new(),
             worker_tx,
             worker_rx,
             waker: None,
             next_diag_scope: 1,
             ref_counter: 0,
         }
+    }
+}
+
+/// Marks `session_id` on the active live server as needing `experimental.browser` attachment
+/// (called on real use: opening/registering a browser tab or submitting a prompt/command).
+pub(crate) fn engage_session(app: &mut App, session_id: &str) {
+    if !app.live() || app.browser_unsupported() || app.use_mock_browser() || session_id.is_empty() {
+        return;
+    }
+    let server_key = crate::servers::runtime::active(app).clone();
+    let inserted = app
+        .kernel
+        .slots
+        .get_mut(&BROWSER_RPC)
+        .engaged
+        .insert((server_key, session_id.to_owned()));
+    if inserted {
+        let _ = reconcile_sessions(app, Instant::now());
     }
 }
 
@@ -186,6 +212,7 @@ pub fn on_control_event(app: &mut App, server_key: &ServerKey, data: &Value) {
         }
     }
     apply_batch_effects(app, pending_effects);
+    let _ = gate::drain_ready_gates(app, now);
 }
 
 /// Called when `session.created`, `session.moved`, or `session.deleted` arrives over SSE.
@@ -208,6 +235,7 @@ pub fn on_session_lifecycle(app: &mut App, server_key: &ServerKey, ty: &str, ses
     }
     if ty == "session.deleted" {
         let st = app.kernel.slots.get_mut(&BROWSER_RPC);
+        st.engaged.remove(&key);
         if let Some(mut att) = st.sessions.remove(&key) {
             att.stop_outbound();
             if let Some((_, abort)) = att.attach_abort.take() {
@@ -331,14 +359,22 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
         st.ref_counter = ref_counter;
     }
     apply_batch_effects(app, tick_effects);
+    let (gates_released, gate_wake) = gate::drain_ready_gates(app, now);
+    changed |= gates_released;
+    if let Some(gw) = gate_wake {
+        earliest_wake = Some(earliest_wake.map_or(gw, |cur| cur.min(gw)));
+    }
 
     if let Some(at) = earliest_wake {
-        tx.wake_after(at.saturating_duration_since(now));
+        let delay = at
+            .saturating_duration_since(now)
+            .max(std::time::Duration::from_millis(10));
+        tx.wake_after(delay);
     }
     changed
 }
 
-fn reconcile_sessions(app: &mut App, now: Instant) -> bool {
+pub(super) fn reconcile_sessions(app: &mut App, now: Instant) -> bool {
     if !app.live() || app.browser_unsupported() {
         return false;
     }
@@ -347,14 +383,16 @@ fn reconcile_sessions(app: &mut App, now: Instant) -> bool {
     };
     let active_server = crate::servers::runtime::active(app).clone();
 
-    // Collect every open session on the active server (all open tabs + routed session) so two
-    // concurrent sessions stay attached simultaneously with independent tab namespaces.
-    let mut wanted: BTreeMap<(ServerKey, String), String> = BTreeMap::new();
+    // Collect currently open sessions on the active server, then attach ONLY those explicitly
+    // engaged (browser tab opened or prompt submitted). Never attach sessions merely listed in
+    // `app.tabs` or opened to view, because `experimental.browser/attach` writes session
+    // permissions on the server (`projector.ts:991`) and mutates `time_updated`.
+    let mut open_dirs: BTreeMap<(ServerKey, String), String> = BTreeMap::new();
     for t in &app.tabs {
         if !t.is_draft() && t.server == active_server {
             let dir = session_directory(app, &t.id, &t.directory);
             if !dir.is_empty() {
-                wanted.insert((active_server.clone(), t.id.clone()), dir);
+                open_dirs.insert((active_server.clone(), t.id.clone()), dir);
             }
         }
     }
@@ -363,14 +401,45 @@ fn reconcile_sessions(app: &mut App, now: Instant) -> bool {
     {
         let dir = session_directory(app, id, "");
         if !dir.is_empty() {
-            wanted.insert((active_server.clone(), id.clone()), dir);
+            open_dirs.insert((active_server.clone(), id.clone()), dir);
         }
     }
+    let gated_ids: Vec<String> = app
+        .kernel
+        .slots
+        .get(&BROWSER_RPC)
+        .prompt_gates
+        .iter()
+        .filter(|g| g.server_key == active_server)
+        .map(|g| g.session_id.clone())
+        .collect();
+    for id in gated_ids {
+        let dir = session_directory(app, &id, "");
+        if !dir.is_empty() {
+            open_dirs.insert((active_server.clone(), id), dir);
+        }
+    }
+
+    let browser_tab_sids: BTreeSet<String> = app
+        .workspace_panes
+        .browser
+        .session_tabs
+        .iter()
+        .filter(|(_, ids)| !ids.is_empty())
+        .map(|(sid, _)| sid.clone())
+        .collect();
 
     let mut changed = false;
     let mut pending_effects = Vec::new();
     {
         let st = app.kernel.slots.get_mut(&BROWSER_RPC);
+        st.engaged.retain(|k| k.0 != active_server || open_dirs.contains_key(k));
+        let mut wanted: BTreeMap<(ServerKey, String), String> = BTreeMap::new();
+        for (key, dir) in open_dirs {
+            if st.engaged.contains(&key) || browser_tab_sids.contains(&key.1) {
+                wanted.insert(key, dir);
+            }
+        }
         let sse_ready = st.sse_connected.get(&active_server).copied().unwrap_or(false)
             || is_base_connected(&server.base);
         let existing_keys: BTreeSet<(ServerKey, String)> = st.sessions.keys().cloned().collect();
