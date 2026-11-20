@@ -255,6 +255,14 @@ impl Pickers {
         });
     }
 
+    /// Whether any connected provider beyond keyless free OpenCode Zen models is available
+    /// (`providers/catalog/providers.ts:96-109`).
+    pub fn has_paid_provider(&self) -> bool {
+        let connected = |id: &str| self.provider_order.is_empty() || self.provider_order.iter().any(|p| p == id);
+        self.provider_order.iter().any(|id| id != "opencode")
+            || self.models.iter().any(|m| connected(&m.provider) && (m.provider != "opencode" || !m.free))
+    }
+
     /// Desktop's model when neither the session nor its agent names one (`selection.tsx:366-404`):
     /// the configured model, else the most recent pick, else the first model of the first
     /// connected provider, each only while a connected provider lists it.

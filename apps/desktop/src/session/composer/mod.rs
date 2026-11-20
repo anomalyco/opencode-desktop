@@ -2,6 +2,7 @@ pub mod add_selection;
 pub mod attachments;
 pub mod dictation;
 pub mod dropzone;
+pub mod free_limit;
 pub mod line_comments;
 pub mod mentions;
 pub mod pickers;

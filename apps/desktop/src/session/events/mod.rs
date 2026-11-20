@@ -476,6 +476,9 @@ impl App {
         // A transcript shows only in its own family's page, so another session's stream
         // updates its state without rebuilding the view.
         changed |= done.transcript && self.shows_transcript(&sid);
+        if ty == "session.step.failed" {
+            changed |= crate::free_limit::on_step_failed(self, data);
+        }
         if ty.starts_with("session.") && !sid.is_empty() {
             // A step started in the open session may follow a prompt we haven't seen.
             if ty == "session.step.started" && self.route == Route::here(sid.clone()) {
