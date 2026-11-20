@@ -84,23 +84,34 @@ static NAMED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0
 
 /// Sanitizes and interns plugin `plugin`'s SVG file as its icon `name`, returning an error reason
 /// without interning anything when the SVG fails hostile-input checks.
-pub fn intern_svg(plugin: &str, name: &str, svg: &str) -> Result<(), &'static str> {
-    let clean = crate::svg::sanitize(svg)?;
+pub fn intern_svg(plugin: &str, name: &str, svg: &str) -> Result<(), String> {
+    let clean = match crate::svg::sanitize(svg) {
+        Ok(clean) => clean,
+        Err(why) => {
+            #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+            eprintln!("plugin {plugin}: icons/{name}.svg rejected: {why}");
+            return Err(why);
+        }
+    };
     if intern_icon(plugin, name, &clean.body, clean.view) == 0 {
-        return Err("failed to intern sanitized icon");
+        return Err("failed to intern sanitized icon".into());
     }
     Ok(())
 }
 
 /// Replaces all icons registered for `plugin` with sanitized entries from `(name, svg)` pairs.
-/// Withdraws icons no longer present, enforces [`MAX_ICONS_PER_PLUGIN`], and returns any rejected
-/// `(name, reason)` entries so the host can log them to the plugin console.
-pub fn replace_plugin(plugin: &str, entries: &[(&str, &str)]) -> Vec<(String, &'static str)> {
+/// Withdraws icons no longer present, enforces [`MAX_ICONS_PER_PLUGIN`], logs every refusal in
+/// debug builds, and returns rejected `(name, reason)` entries so the host can log them to the
+/// plugin console.
+pub fn replace_plugin(plugin: &str, entries: &[(&str, &str)]) -> Vec<(String, String)> {
     let mut rejected = Vec::new();
     let mut next_ids: Vec<(String, u32)> = Vec::new();
     for &(name, svg) in entries {
         if next_ids.len() >= MAX_ICONS_PER_PLUGIN {
-            rejected.push((name.to_owned(), "plugin exceeds 64 icon limit"));
+            let why = format!("plugin exceeds {MAX_ICONS_PER_PLUGIN} icon limit");
+            #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+            eprintln!("plugin {plugin}: icons/{name}.svg rejected: {why}");
+            rejected.push((name.to_owned(), why));
             continue;
         }
         match crate::svg::sanitize(svg) {
@@ -110,7 +121,11 @@ pub fn replace_plugin(plugin: &str, entries: &[(&str, &str)]) -> Vec<(String, &'
                     next_ids.push((name.to_owned(), id));
                 }
             }
-            Err(why) => rejected.push((name.to_owned(), why)),
+            Err(why) => {
+                #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+                eprintln!("plugin {plugin}: icons/{name}.svg rejected: {why}");
+                rejected.push((name.to_owned(), why));
+            }
         }
     }
     let mut guard = pool();

@@ -305,7 +305,7 @@ pub fn kept(rel: &str) -> bool {
 
 /// Sanitizes and interns plugin `plugin`'s `icons/<name>.svg` files as its icons, replacing any
 /// prior set for `plugin`. Returns rejected `(name, reason)` pairs for console diagnostics.
-pub fn intern_icons(plugin: &str, files: &[(String, String)]) -> Vec<(String, &'static str)> {
+pub fn intern_icons(plugin: &str, files: &[(String, String)]) -> Vec<(String, String)> {
     let entries: Vec<(&str, &str)> = files
         .iter()
         .filter_map(|(path, svg)| {
