@@ -466,7 +466,13 @@ fn picker_keys<S: PickerHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
                     (true, opencode_i18n::Direction::Ltr) | (false, opencode_i18n::Direction::Rtl) => 1,
                     (false, opencode_i18n::Direction::Ltr) | (true, opencode_i18n::Direction::Rtl) => -1,
                 };
-                if step < 0 { return false; }
+                if step < 0 {
+                    if s.step_effort(&key, step) {
+                        s.model_list_keyed();
+                        return true;
+                    }
+                    return false;
+                }
                 s.flyout_event(hover::machine::Event::Highlight { id: &key, option: Some(0) }, tx);
             }
             None => return open != Kind::Model,

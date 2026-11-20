@@ -85,6 +85,7 @@ fn nav_row(p: &Pal, key: &str, glyph: &'static Icon, label: &str) -> El {
         .gap(8.0)
         .center_y()
         .radius(6.0)
+        .focus_inset(p)
         .hover_group()
         .hover(p.layer1)
         .child(icon(glyph, 14.0).key("icon").color(p.icon_muted))
@@ -111,7 +112,8 @@ pub(super) fn project_row(s: &App, p: &Pal, server: &ServerKey, proj: &model::Pr
     let actions_w = 8.0 + 20.0 + 4.0 + 20.0;
     let actions = row()
         .key("actions")
-        .pin(None, Some(0.0), Some(4.0), Some(0.0))
+        // 2 clear of the row's top and bottom, where the row's inset focus ring runs.
+        .pin(None, Some(2.0), Some(4.0), Some(2.0))
         .w(actions_w)
         .pl(8.0)
         .gap(4.0)
@@ -138,6 +140,7 @@ pub(super) fn project_row(s: &App, p: &Pal, server: &ServerKey, proj: &model::Pr
         .px(6.0)
         .gap(8.0)
         .center_y()
+        .radius(6.0).focus_inset(p)
         .hover_group()
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
@@ -299,6 +302,7 @@ pub(super) fn dropdown_trigger(s: &App, p: &Pal, selected: Option<&model::Projec
         .gap(8.0)
         .center_y()
         .radius(6.0)
+        .focus_inset(p)
         .fill(if open { p.layer1 } else { p.bg_base })
         .hover(p.layer1)
         .on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| {

@@ -6,6 +6,7 @@ use rune::{El, GrowthSpec, ScrollSpec, col, edge, el, row, text};
 
 use crate::TimelineHost;
 use crate::compaction::Run;
+use crate::focus::FocusExt;
 use crate::fold::Fold;
 use crate::palette::Pal;
 use crate::style::{UI, activity_ring};
@@ -133,7 +134,7 @@ impl RowSpec {
     /// show (`line_reveal`). The text the timeline's last footer copies (`footer`) shares the
     /// footer's hover; the text that ends an earlier turn holds its own footer (`turn_footer`).
     #[allow(clippy::too_many_arguments)]
-    fn text_row<S: TimelineHost>(&self, s: &S, p: &Pal, t: &Transcript, mi: usize, part: usize, body: &str, fade: f32, live: bool, pt: f32, footer: bool) -> El {
+    fn text_row<S: TimelineHost>(&self, s: &S, p: &Pal, t: &Transcript, mi: usize, part: usize, body: &str, fade: f32, live: bool, pt: f32, footer: bool, keep_copy: bool) -> El {
         let message = t.messages[mi].id();
         let prompt = prompt_dir(t, mi);
         let md = |text: &str, fade: f32| markdown_view_find(s, p, &self.key, text, fade, live, Some(message), prompt);
@@ -141,14 +142,14 @@ impl RowSpec {
         let body = s.line_hold().paced(message, part).filter(|&n| body.is_char_boundary(n)).map_or(body, |n| &body[..n]);
         let words = crate::line_reveal::words(col().w_full().pt(pt), md, body, fade, s.line_hold().shown(message, part));
         if !live && turn_footer_text(t, mi, part) {
-            let words = words.child(turn_footer(s, p, t, mi, part));
+            let words = words.child(turn_footer(s, p, t, mi, part, keep_copy));
             return self.wrap_paced(s, None, words, body.contains("```")).hover_group_focus().hover_motion(crate::style::INSTANT, crate::style::INSTANT);
         }
         let row = self.wrap_paced(s, None, words, body.contains("```"));
         if footer { row.hover_group_shared(REPLY_HOVER).hover_motion(crate::style::INSTANT, crate::style::INSTANT) } else { row }
     }
 
-    pub fn build<S: TimelineHost>(&self, s: &S, p: &Pal, t: &Transcript, fade: f32) -> El {
+    pub fn build<S: TimelineHost>(&self, s: &S, p: &Pal, t: &Transcript, fade: f32, latest_copy: Option<usize>) -> El {
         let eager = EAGER_ROWS.get();
         let find_ver = s.find_row_version(&self.key);
         let k = s.knobs();
@@ -174,8 +175,10 @@ impl RowSpec {
                             let directory = s.active_session_id().and_then(|id| s.session_directory(id));
                             (m.markdown.version(), m.viewing.as_ref().map(|v| v.id.clone()), directory, favicons)
                         });
-                        // An earlier turn's Copy tick and its metadata, which omits the model in a narrow window.
-                        let own = turn_footer_text(t, *message, *part).then(|| (crate::copied::current(s), crate::style::narrow()));
+                        let keep_copy = latest_copy == Some(*message);
+                        // An earlier turn's Copy tick, its metadata (which omits the model in a
+                        // narrow window), and whether its Copy stays visible as the latest.
+                        let own = turn_footer_text(t, *message, *part).then(|| (crate::copied::current(s), crate::style::narrow(), keep_copy));
                         // A session id it names being looked up, renamed, starting or stopping.
                         let chips = body.contains("ses_").then(|| crate::session_chips::version(s, body));
                         // A path its code names being found (`TimelineHost::code_links`); a streaming
@@ -186,7 +189,7 @@ impl RowSpec {
                         let ver = (&t.session, body.as_str(), *live, pt.to_bits(), fade.to_bits(), look, self.streaming, find_ver, dw, s.diagrams().hidden_in(body), line, (copied, pictures, footer, crate::style::content_w().to_bits(), scale_bits, chips, own, code));
                         return rune::memo(self.key.clone(), ver, || {
                             ROW_BUILDS.set(ROW_BUILDS.get() + 1);
-                            self.text_row(s, p, t, *message, *part, body, fade, *live, *pt, footer)
+                            self.text_row(s, p, t, *message, *part, body, fade, *live, *pt, footer, keep_copy)
                         });
                     }
                 }
@@ -297,7 +300,7 @@ impl RowSpec {
             }
             RowContent::TurnText { message, part, live, pt } => match &t.messages[*message] {
                 Message::Assistant(a) => match &a.parts[*part] {
-                    Part::Text { text: body } => return self.text_row(s, p, t, *message, *part, body, fade, *live, *pt, footer_text(t, *message, *part)),
+                    Part::Text { text: body } => return self.text_row(s, p, t, *message, *part, body, fade, *live, *pt, footer_text(t, *message, *part), latest_copy == Some(*message)),
                     _ => unreachable!(),
                 },
                 _ => unreachable!(),
@@ -312,7 +315,7 @@ impl RowSpec {
                         let message = key.strip_prefix("t-").and_then(|k| k.rsplit_once('-')).map(|(id, _)| id);
                         let text = col().w_full().pt(*pt).child(markdown_view_find(s, p, &self.key, body, fade, *live, message, prompt_dir(t, start + msg)));
                         if !*live && turn_footer_text(t, start + msg, *part) {
-                            return self.wrap(s, text.child(turn_footer(s, p, t, start + msg, *part))).hover_group_focus().hover_motion(crate::style::INSTANT, crate::style::INSTANT);
+                            return self.wrap(s, text.child(turn_footer(s, p, t, start + msg, *part, latest_copy == Some(start + msg)))).hover_group_focus().hover_motion(crate::style::INSTANT, crate::style::INSTANT);
                         }
                         text
                     }
@@ -336,6 +339,7 @@ pub fn entries<'a>(messages: &'a [Message], detail: &crate::detail::Detail) -> V
     messages.iter().map(|m| match m {
         Message::Assistant(a) => Entry::Step(a),
         Message::Note { step, .. } => Entry::Step(step),
+        Message::Notice(n) if n.kind == model::NoticeKind::Idle => Entry::Idle,
         Message::Notice(n) if crate::detail::notice_folds(n, detail) => Entry::Notice(n),
         _ => Entry::Skip,
     }).collect()
@@ -354,7 +358,7 @@ fn group_hash(messages: &[Message]) -> u64 {
             _ => None,
         };
         if let Some(a) = step {
-            (&a.id, a.completed, a.parts.len()).hash(&mut h);
+            (&a.id, a.completed, a.parts.len(), &a.text_phases).hash(&mut h);
             for p in &a.parts {
                 match p {
                     Part::Tool { id, name, status, .. } => (0u8, id, name, std::mem::discriminant(status)).hash(&mut h),
@@ -460,13 +464,14 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
         rows: t.map(|t| rows(s, t)).unwrap_or_default(),
         lane: (t.is_some() && lane > 0.0).then(|| std::rc::Rc::new(RowSpec { key: "pill-lane".into(), content: RowContent::Lane(lane), streaming: false })),
     };
+    let tail_extra = t.map_or(0.0, |t| rhythm::tail_extra(t, &s.timeline_detail(), &specs.rows));
     let mut stack = col()
         .key("timeline")
         .w_full()
         .center()
         .px(crate::style::sides() / 2.0)
         .pt(crate::style::timeline_top())
-        .pb(((if crate::style::hover_none() { 104.0 } else { TAIL }) - crate::working::LANE).max(crate::jump::fade(s, 0.0)))
+        .pb(((if crate::style::hover_none() { 104.0 } else { TAIL }) + tail_extra - crate::working::LANE).max(crate::jump::fade(s, 0.0)))
         // One selection across the whole timeline, as a page's: a drag runs from a prompt
         // through tools and replies, and Cmd+A takes every message on screen.
         .selection_group(true)
@@ -489,10 +494,11 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
             false
         });
     }
+    let latest_copy = t.and_then(|t| parts::latest_copy_message(s, t));
     // Eager construction is the benchmark and regression-test reference.
     if eager && let Some(t) = t {
         stack = stack.virtualize(80.0)
-            .children((0..specs.len()).filter_map(|i| specs.get(i)).map(|r| marks.row(&r.key, r.build(s, p, t, e.word_fade).key(r.key.clone()))));
+            .children((0..specs.len()).filter_map(|i| specs.get(i)).map(|r| marks.row(&r.key, r.build(s, p, t, e.word_fade, latest_copy).key(r.key.clone()))));
     } else if t.is_some() {
         let keys = specs.clone();
         let id = id.to_owned();
@@ -510,7 +516,7 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
                 // Rows build after this returns, maybe beside another timeline's.
                 crate::style::set_sticky_top(sticky);
                 let Some(r) = specs.get(i) else { return col() };
-                marks.row(&r.key, s.with_transcript(&id, |t| r.build(s, &p, t, e.word_fade)).unwrap_or_else(col))
+                marks.row(&r.key, s.with_transcript(&id, |t| r.build(s, &p, t, e.word_fade, latest_copy)).unwrap_or_else(col))
             },
         ).virtual_rows_version(version);
     }
@@ -553,13 +559,12 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
         .scroll(ScrollSpec { stick_bottom: true })
         .scroll_fade(fade)
         // A Tab stop that scrolls with the keys, as Desktop's `ScrollView` (`tabIndex={0}` and its
-        // own `onKeyDown`, `scroll-view.tsx:453-551`), and never draws a ring, focused by Tab or
-        // by a click (`.scroll-view__viewport { outline: none }`, `scroll-view.css:15`). The
-        // header's controls follow it.
+        // own `onKeyDown`, `scroll-view.tsx:453-551`), ringed inside when the keyboard focuses it
+        // (`.scroll-view__viewport:focus-visible`, `scroll-view.css`). The header's controls follow it.
         .focusable(true)
         .role("region")
         .label_static(opencode_i18n::t!("ui.scrollView.ariaLabel"))
-        .no_focus_ring()
+        .focus_inset(p)
         // `sticky top-0 z-30` (`session-identity-header.tsx:54`). It needs no fill of its own:
         // rows under it clip at its bottom edge, where their fade starts (`below_sticky`), so
         // the panel's corners and ring show as they do without it.

@@ -5,6 +5,7 @@ use rune::{El, Tx, col, el, icon, row, spacer, text};
 use rune_kit::ButtonVariant;
 use rune_theme_opencode::icons as ic;
 use opencode_kit::model::Model;
+use opencode_ui::focus::FocusExt;
 use opencode_ui::palette::{Pal, kit};
 use opencode_ui::style::UI;
 
@@ -44,6 +45,7 @@ pub(super) fn view<H: ConnectHost + 'static>(s: &H, p: &Pal, id: &str) -> El {
                 .px(12.0)
                 .center_y()
                 .radius(4.0)
+                .focus_inset(p)
                 .hover(p.layer3)
                 .on_press_tx(move |s: &mut H, tx: &mut Tx| select_model(s, &key, tx))
                 .child(text(m.name.clone()).font(UI).color(p.text).grow(1.0).shrink().truncate())

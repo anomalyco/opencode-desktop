@@ -275,7 +275,7 @@
   "background-bg-layer-03": "grey-800",
   "background-bg-layer-04": "grey-700",
   "border-border-base": "alpha-light-10",
-  "border-border-focus": "blue-500",
+  "border-border-focus": "blue-400",
   "border-border-inverse": "grey-100",
   "border-border-muted": "alpha-light-8",
   "border-border-strong": "alpha-light-20",

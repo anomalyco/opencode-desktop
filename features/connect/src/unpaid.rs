@@ -5,6 +5,7 @@
 //! providers (OpenCode Go, OpenCode Console, OpenAI, Anthropic, Google, GitHub Copilot) and a
 //! link to view all providers in the Connect dialog.
 
+use opencode_ui::focus::FocusExt;
 use opencode_i18n::t;
 use opencode_kit::model::Model;
 use opencode_ui::dialog::DialogSize;
@@ -232,7 +233,7 @@ pub fn dialog<H: ConnectHost + 'static>(s: &H, p: &Pal, win: [f32; 2]) -> Vec<El
             .fill(if is_active { p.hover } else { Color::TRANSPARENT })
             .hover(p.hover)
             .press(p.pressed)
-            .focus_ring(2.0, -2.0, p.v2.border_focus)
+            .focus_inset(p)
             .on_press_tx(move |s: &mut H, tx: &mut Tx| {
                 s.select_free_model(&provider, &id, tx);
                 close(s, tx);
@@ -280,7 +281,7 @@ pub fn dialog<H: ConnectHost + 'static>(s: &H, p: &Pal, win: [f32; 2]) -> Vec<El
             .fill(if is_active { p.layer1 } else { p.bg_base })
             .hover(p.layer1)
             .press(p.pressed)
-            .focus_ring(2.0, -2.0, p.v2.border_focus)
+            .focus_inset(p)
             .on_press_tx(move |s: &mut H, tx: &mut Tx| crate::open(s, Some(&pick_id), false, tx))
             .child(el().mt(2.0).child(ui::provider_mark(&id, p.icon)))
             .child(label_col);
@@ -329,7 +330,7 @@ pub fn dialog<H: ConnectHost + 'static>(s: &H, p: &Pal, win: [f32; 2]) -> Vec<El
         .fill(if active == Some(more_idx) { p.hover } else { Color::TRANSPARENT })
         .hover(p.hover)
         .press(p.pressed)
-        .focus_ring(2.0, -2.0, p.v2.border_focus)
+        .focus_inset(p)
         .on_press_tx(|s: &mut H, tx: &mut Tx| crate::open(s, None, false, tx))
         .child(text(t!("dialog.model.unpaid.viewMoreProviders")).font(BODY).color(p.muted));
 

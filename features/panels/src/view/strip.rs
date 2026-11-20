@@ -5,6 +5,7 @@ use std::rc::Rc;
 use opencode_ui::keymap::Bind;
 use rune::{Anim, Color, Drag, El, Icon, PointerPress, ScrollFade, TextStyle, Tx, WheelEvent, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
+use opencode_ui::focus::FocusExt;
 use opencode_ui::palette::Pal;
 use opencode_ui::style::{UI, UI_SMALL};
 
@@ -222,6 +223,7 @@ fn new_tab_trigger<H: PanelsHost + 'static>(
         .gap(6.0)
         .center_y()
         .radius(6.0)
+        .focus_inset(p)
         .hover_group()
         .fill(if active { p.layer2 } else { Color::TRANSPARENT })
         .hover(if active { p.layer2 } else { p.hover })
@@ -335,6 +337,7 @@ fn tab_trigger<H: PanelsHost + 'static>(
         .gap(6.0)
         .center_y()
         .radius(6.0)
+        .focus_inset(p)
         .hover_group()
         .fill(if active { p.layer2 } else { Color::TRANSPARENT })
         .hover(if active { p.layer2 } else { p.hover })

@@ -7,6 +7,7 @@ use opencode_kit::integration::Connection;
 use rune::{El, Key, KeyEvent, TextEdit, Tx, col, el, icon, row, spacer, text};
 use rune_kit::{ButtonVariant, TextInput};
 use rune_theme_opencode::icons as ic;
+use opencode_ui::focus::FocusExt;
 use opencode_ui::palette::{Pal, kit};
 
 use super::{open_url, provider_id};
@@ -171,6 +172,7 @@ pub(super) fn view<H: ConnectHost + 'static>(s: &H, p: &Pal) -> El {
             .pr(8.0)
             .gap(6.0)
             .center_y()
+            .radius(6.0).focus_inset(p)
             .child(el().size(16.0, 16.0).center().children(is_active.then(|| icon(&ic::CHECK_SMALL, 14.0).color(p.icon))))
             .child(text(a.label.clone()).font(BODY).color(p.text).shrink().truncate());
         if a.status.is_some() {
@@ -210,6 +212,7 @@ pub(super) fn view<H: ConnectHost + 'static>(s: &H, p: &Pal) -> El {
         .gap(6.0)
         .center_y()
         .radius(6.0)
+        .focus_inset(p)
         .hover(p.hover)
         .press(p.pressed)
         .child(el().size(16.0, 16.0).center().child(icon(&ic::PLUS, 16.0).color(p.icon_muted)))

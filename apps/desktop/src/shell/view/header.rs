@@ -24,6 +24,23 @@ thread_local! {
     static FIT: Cell<HeaderFit> = const { Cell::new(HeaderFit::Full) };
 }
 
+fn ancestors<'a>(s: &'a App, info: &'a SessionInfo) -> Vec<&'a SessionInfo> {
+    let mut trail = Vec::new();
+    let mut seen = vec![info.id.as_str()];
+    let mut id = info.parent.as_deref();
+    while let Some(pid) = id {
+        if seen.contains(&pid) {
+            break;
+        }
+        seen.push(pid);
+        let Some(parent) = s.session(pid) else { break };
+        trail.push(parent);
+        id = parent.parent.as_deref();
+    }
+    trail.reverse();
+    trail
+}
+
 pub(super) fn header(s: &App, p: &Pal, info: Option<&SessionInfo>, t: Option<&Transcript>) -> El {
     let c = super::chrome::chrome();
     let inputs = (
@@ -34,7 +51,10 @@ pub(super) fn header(s: &App, p: &Pal, info: Option<&SessionInfo>, t: Option<&Tr
         crate::icons::finish(s),
         opencode_kit::model::project_sandboxes_version(),
         crate::servers::version(),
-        info.map(|i| (i.id.clone(), i.title.clone(), i.directory.clone(), i.project.clone(), i.parent.clone(), crate::plugin_host::services::session_version(s, &i.id))),
+        info.map(|i| {
+            let trail: Vec<_> = ancestors(s, i).into_iter().map(|a| (a.id.clone(), a.title.clone())).collect();
+            (i.id.clone(), i.title.clone(), i.directory.clone(), i.project.clone(), trail, crate::plugin_host::services::session_version(s, &i.id))
+        }),
         crate::plugin_host::surfaces_version(s),
     );
     rune::region_with("session-header", inputs, || header_in(s, p, info, t, ""))
@@ -49,7 +69,7 @@ pub(crate) fn header_in(s: &App, p: &Pal, info: Option<&SessionInfo>, _t: Option
     let reserve_side = !s.side_open() && s.fixture_run.stage.is_none();
     let project = info.and_then(|i| s.project(&i.project));
     let proj = info.map(|i| super::project_or_dir(project, &i.directory)).unwrap_or_default();
-    let parent = info.and_then(|i| i.parent.as_deref()).and_then(|pid| s.session(pid));
+    let trail = info.map(|i| ancestors(s, i)).unwrap_or_default();
     let worktree = info.filter(|i| i.parent.is_none()).and_then(|i| super::location::worktree_name(project, &i.directory));
     let fit = fit(s, info, &proj, worktree.as_deref(), scope);
     let compact = fit.compact();
@@ -59,36 +79,43 @@ pub(crate) fn header_in(s: &App, p: &Pal, info: Option<&SessionInfo>, _t: Option
     if let Some(info) = info {
         location = location.child(super::location::trigger(s, p, project, &proj, worktree.as_deref(), fit.collapse()));
         // The separator after the location: 8 of space each side, less the trigger's 6 and the
-        // title's 4 padding and the text's 0.5 side bearing (`SessionHeaderSeparator gap 8 before 6
-        // after 4`, `session-identity-header.css:114-121`), its glyph pulled in 0.25 and 0.34 at
-        // its sides (`slash.css`): 1.25 before the glyph's box, 3.16 after.
-        location = location.child(slash(p, 1.25, 3.16));
-        if let Some(parent) = parent {
-            let pid = parent.id.clone();
+        // following item's padding (6 for a subagent's ancestor pill, 4 for a title) and the
+        // text's 0.5 side bearing (`SessionHeaderSeparator`, `session-identity-header.tsx:439`),
+        // its glyph pulled in 0.25 and 0.34 at its sides (`slash.css`).
+        location = location.child(slash(p, 1.25, if trail.is_empty() { 3.16 } else { 1.16 }));
+        if !trail.is_empty() {
             // Beside a subagent's ancestors the location takes at most 60% and gives way first.
-            location = location
-                .shrink()
-                .min_w(0.0)
-                .child(
+            location = location.shrink().min_w(0.0);
+            let last = trail.len() - 1;
+            for (idx, ancestor) in trail.into_iter().enumerate() {
+                let pid = ancestor.id.clone();
+                let key = if idx == last { "parent-crumb".to_owned() } else { format!("ancestor-crumb-{idx}") };
+                location = location.child(
                     row()
-                        .key("parent-crumb")
+                        .key(key)
                         .role("button")
-                        .label(t!("rune.session.header.openParent", title = title_of(parent)))
-                        .help(title_of(parent))
-                        .pl(4.0)
-                        .max_w(204.0)
+                        .label(t!("rune.session.header.openParent", title = title_of(ancestor)))
+                        .help(title_of(ancestor))
+                        .h(28.0)
+                        .px(6.0)
+                        .max_w(200.0)
+                        .radius(6.0)
                         .shrink()
                         .min_w(0.0)
                         .center_y()
-                        .hover_group()
+                        .hover(p.hover)
+                        .focus_fill(p.hover)
+                        .no_focus_ring()
+                        .hover_group_focus()
+                        .hover_motion(INSTANT, INSTANT)
                         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                             tx.instant();
                             s.open(&pid, tx);
                         })
-                        .child(text(title_of(parent)).font(CRUMB).color(p.faint).group_color(p.muted).truncate().shrink().dir(rune::Direction::Auto)),
-                )
-                // The parent's own 6 of end padding, which its crumb here leaves out, then as above.
-                .child(slash(p, 7.25, 3.16));
+                        .child(text(title_of(ancestor)).font(CRUMB).color(p.faint).group_color(p.muted).truncate().shrink().dir(rune::Direction::Auto)),
+                );
+                location = location.child(slash(p, 1.25, if idx < last { 1.16 } else { 3.16 }));
+            }
         }
         // A running subagent's header spins beside its title (`SessionWorkingIndicator`): the
         // 16 px session progress indicator in a 16 px box, 4 after the crumbs and 2 before the
@@ -206,17 +233,20 @@ fn header_title(s: &App, p: &Pal, info: &SessionInfo) -> Vec<El> {
     let marked = s.kernel.slots.get(&crate::session_menu::MENUS).on.as_ref() == Some(&target);
     let dots_target = target.clone();
     let title = match crate::session_menu_view::field(s, p, &target, CRUMB) {
-        Some(field) => row().key("title").h(28.0).px(4.0).center_y().min_w(0.0).shrink().child(field),
+        // Done or cancelled, the rename hands focus back to the title's button (`message-timeline.tsx`).
+        Some(field) => row().key("title").h(28.0).px(4.0).center_y().min_w(0.0).shrink().child(field.focus_return("title-button")),
         None => {
             let begin = target.clone();
-            // The title in its own direction (`session-identity-header.tsx:263`): an `h1` that renames
-            // on a click, no Tab stop (`message-timeline.tsx:540-547`).
-            let t = row().key("title").dir(rune::Direction::Auto).role("heading").level(1).label(title_of(info)).h(28.0).px(4.0).center_y().min_w(0.0).shrink().radius(6.0).hover(p.hover).hover_motion(INSTANT, INSTANT)
+            // The title in its own direction (`session-identity-header.tsx:263`): the `h1` holds a
+            // button that renames, a Tab stop with the shared ring (`message-timeline.tsx`,
+            // `.session-title-rename > button`).
+            let b = row().key("title-button").role("button").dir(rune::Direction::Auto).label(title_of(info)).h(28.0).px(4.0).center_y().min_w(0.0).shrink().radius(6.0).hover(p.hover).hover_motion(INSTANT, INSTANT)
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                     tx.instant();
                     s.begin_rename(&begin);
                 })
                 .child(crate::title_change::title(&s.diag.knobs, &format!("title-{}", info.id), title_of(info), CRUMB, p.text));
+            let t = row().key("title").dir(rune::Direction::Auto).role("heading").level(1).label(title_of(info)).min_w(0.0).shrink().child(b);
             crate::session_menu::on(t, target)
         }
     };

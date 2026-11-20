@@ -278,10 +278,27 @@ pub fn turn_footer_text(t: &Transcript, message: usize, part: usize) -> bool {
     !t.messages[message + 1..message + 1 + next].iter().any(|m| matches!(m, Message::Assistant(a) if a.parts.iter().any(text)))
 }
 
+/// The message index of the latest turn that has a finished reply to copy
+/// (`session-timeline-row.tsx`'s `latestCopyTurn`, anomalyco/opencode#64640): computed once per
+/// timeline build by walking backwards from the last non-live message, so each row check is `O(1)`
+/// even in a 10,000-message session.
+pub fn latest_copy_message<S: TimelineHost>(s: &S, t: &Transcript) -> Option<usize> {
+    let busy = s.timeline_busy(t) || s.is_session_live(&t.session);
+    let live = if busy {
+        t.messages.iter().rposition(|m| matches!(m, Message::User { .. })).unwrap_or(0)
+    } else {
+        t.messages.len()
+    };
+    let text = |p: &Part| matches!(p, Part::Text { text } if !text.trim().is_empty());
+    t.messages.get(..live)?.iter().rposition(|m| matches!(m, Message::Assistant(a) if a.parts.iter().any(text)))
+}
+
 /// A finished turn's footer under its reply's last text (`text-part-copy-wrapper`): 8 under the
-/// text, 20 tall, Copy (the part's text) then "Model · 1s". Copy stays visible while the metadata
-/// waits for hover or keyboard focus (OpenCode 5db3553efa, `packages/session-ui/src/components/message-part.css`).
-pub fn turn_footer<S: TimelineHost>(s: &S, p: &Pal, t: &Transcript, message: usize, part: usize) -> El {
+/// text, 20 tall, Copy (the part's text) then "Model · 1s". When `keep_copy` is true (the latest
+/// finished turn with a reply), Copy stays visible while metadata waits for hover or keyboard
+/// focus; earlier turns hide the whole footer until hover or focus (anomalyco/opencode#64640,
+/// `packages/session-ui/src/components/message-part.css`).
+pub fn turn_footer<S: TimelineHost>(s: &S, p: &Pal, t: &Transcript, message: usize, part: usize, keep_copy: bool) -> El {
     use crate::working::{COPY, COPY_AT, COPY_GLYPH};
     let Message::Assistant(a) = &t.messages[message] else { return el() };
     let body = match a.parts.get(part) {
@@ -312,7 +329,11 @@ pub fn turn_footer<S: TimelineHost>(s: &S, p: &Pal, t: &Transcript, message: usi
     }
     let wrapper = row().key("reply-footer").h(COPY).mt(COPY_AT.1).gap(4.0).center_y();
     let wrapper = if interrupted { wrapper.w_full().child(rune::spacer()) } else { wrapper };
-    wrapper.child(button).child(crate::style::hover_reveal(meta))
+    if keep_copy {
+        wrapper.child(button).child(crate::style::hover_reveal(meta))
+    } else {
+        wrapper.child(crate::style::hover_reveal(row().key("reply-footer-items").h(COPY).gap(4.0).center_y().child(button).child(meta)))
+    }
 }
 
 /// The footer's items after Copy (`text-part-meta`): the model's name (and a variant other

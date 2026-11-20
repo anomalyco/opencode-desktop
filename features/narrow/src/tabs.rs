@@ -5,6 +5,7 @@
 use opencode_i18n::t;
 use rune::{El, PointerPress, TextStyle, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
+use opencode_ui::focus::FocusExt;
 use opencode_ui::palette::{Pal, kit};
 use opencode_ui::style::{INSTANT, activity_ring, tab_busy_glyph};
 
@@ -87,6 +88,7 @@ pub fn trigger<H: NarrowHost + 'static>(s: &H, p: &Pal) -> El {
         .gap(8.0)
         .center_y()
         .radius(6.0)
+        .focus_inset(p)
         .no_window_drag()
         .on_press_tx(|s: &mut H, tx: &mut Tx| toggle_tabs_drawer(s, tx))
         .children(open.then(|| wash(p.hover, 6.0)))
@@ -109,6 +111,7 @@ pub fn drawer<H: NarrowHost + 'static>(s: &H, p: &Pal) -> El {
         .iter()
         .fold(col().key("narrow-tabs-list").w_full().gap(2.0), |list, t| list.child(tab_row(s, p, t, current.as_deref())));
     let new = button("narrow-tabs-new", None, &ic::PLUS, 16.0, t!("command.session.new"), p.text, p.icon)
+        .focus_inset(p)
         .hover(p.layer2)
         .on_press_tx(|s: &mut H, tx: &mut Tx| press_new_session(s, tx));
     let mut home_row = button(
@@ -121,6 +124,7 @@ pub fn drawer<H: NarrowHost + 'static>(s: &H, p: &Pal) -> El {
         if home { p.icon } else { p.icon_faint },
     )
     .w_full()
+    .focus_inset(p)
     .on_press_tx(|s: &mut H, tx: &mut Tx| press_home(s, tx));
     if home {
         home_row = home_row.fill(p.layer2);
@@ -129,9 +133,11 @@ pub fn drawer<H: NarrowHost + 'static>(s: &H, p: &Pal) -> El {
         .grow(1.0)
         .shrink()
         .min_w(0.0)
+        .focus_inset(p)
         .hover(p.layer2)
         .on_press_tx(|s: &mut H, tx: &mut Tx| press_settings(s, tx));
     let help = button("narrow-tabs-help", None, &ic::HELP, 14.0, t!("sidebar.help"), p.faint, p.icon_faint)
+        .focus_inset(p)
         .hover(p.layer2)
         .on_press_tx(|s: &mut H, tx: &mut Tx| press_help(s, tx));
     let hairline = s.chrome().hairline;
@@ -195,6 +201,7 @@ fn tab_row<H: NarrowHost + 'static>(s: &H, p: &Pal, t: &NarrowTab, current: Opti
         .gap(6.0)
         .center_y()
         .radius(6.0)
+        .focus_inset(p)
         // A middle click closes it, as the titlebar's tabs do (`TabNavItem`'s `auxclick`).
         .on_middle_press(move |s: &mut H, tx: &mut Tx| close_tab(s, &middle, tx))
         .on_press_tx(move |s: &mut H, tx: &mut Tx| pick_tab(s, &select, tx))

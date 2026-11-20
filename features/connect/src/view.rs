@@ -8,6 +8,7 @@ use rune::{Color, Cx, El, Key, KeyEvent, Spring, TextStyle, Transition, Tx, col,
 use rune_kit::TextInput;
 use rune_theme_opencode::icons as ic;
 use opencode_ui::dialog::DialogSize;
+use opencode_ui::focus::FocusExt;
 use opencode_ui::palette::{Pal, kit};
 
 use crate::catalog;
@@ -452,6 +453,7 @@ fn build_provider_row_shell(p: &Pal, r: &Row, active: bool) -> El {
         .gap(8.0)
         .center_y()
         .radius(6.0)
+        .focus_inset(p)
         .fill(if active { p.hover } else { Color::TRANSPARENT })
         .transition(Transition::none())
         .child(ui::provider_mark(&r.id, p.icon).opacity(if r.disabled { 0.5 } else { 1.0 }))

@@ -83,23 +83,48 @@ pub fn view<H: ProjectsHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> Vec<El> {
             chips = chips.child(chip);
         }
         if o.recent.len() > 3 {
+            let expanded = matches!(o.suggest, Suggest::MoreProjects { .. });
             chips = chips.child(
                 button("…", ButtonVariant::Ghost)
                     .help(t!("dialog.directory.moreProjects"))
                     .on_press_tx(|s: &mut H, tx: &mut Tx| super::toggle_more_projects(s, tx))
-                    .build(k),
+                    .build(k)
+                    .key("directory-picker-more-projects")
+                    .label_static(t!("dialog.directory.moreProjects"))
+                    .expanded(expanded),
             );
         }
         body = body.child(chips);
-        if o.suggest == Suggest::MoreProjects {
-            let mut menu = col().role("menu").padding(4.0).radius(8.0).fill(p.bg_base).elevate(p.overlay);
-            for project in o.recent.iter().skip(3) {
+        if let Suggest::MoreProjects { active } = o.suggest {
+            let mut menu = col()
+                .key("directory-picker-more-menu")
+                .role("menu")
+                .label_static(t!("dialog.directory.moreProjects"))
+                .padding(4.0)
+                .radius(8.0)
+                .fill(p.bg_base)
+                .elevate(p.overlay);
+            for (i, project) in o.recent.iter().skip(3).enumerate() {
                 let dir = project.directory.clone();
+                let lit = i == active;
                 menu = menu.child(
-                    button(project.name.clone(), ButtonVariant::Ghost)
+                    row()
+                        .key(format!("more-project-{i}"))
+                        .role("menuitem")
+                        .label(project.name.clone())
                         .help(dir.clone())
+                        .focusable(true)
+                        .w_full()
+                        .h(28.0)
+                        .px(8.0)
+                        .center_y()
+                        .radius(4.0)
+                        .fill(if lit { p.hover } else { Color::TRANSPARENT })
+                        .hover(p.hover)
+                        .press(p.pressed)
+                        .focus_ring(2.0, -2.0, p.v2.border_focus)
                         .on_press_tx(move |s: &mut H, tx: &mut Tx| super::navigate(s, dir.clone(), tx))
-                        .build(k),
+                        .child(text(project.name.clone()).font(UI).color(p.text).truncate()),
                 );
             }
             body = body.child(menu);
@@ -166,7 +191,7 @@ pub fn view<H: ProjectsHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> Vec<El> {
         .key("directory-picker")
         .role("dialog")
         .label(o.title.clone())
-        .modal_tx(true, |s: &mut H, tx: &mut Tx| super::close(s, tx))
+        .modal_tx(true, |s: &mut H, tx: &mut Tx| super::dismiss(s, tx))
         .child(card);
     sized_modal("directory-picker-modal", p, DialogSize::Large, Fit::Content, dialog_window(cx, host.zoom()), card)
 }

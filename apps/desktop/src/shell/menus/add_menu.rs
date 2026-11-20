@@ -5,6 +5,7 @@
 //! A `/name` the server knows sends its arguments to `POST …/command`; shell mode sends the
 //! composer's text to `POST …/shell` and can't wait in the queue.
 
+use opencode_ui::focus::FocusExt;
 use std::collections::HashMap;
 
 use rune::{Color, El, Key, KeyEvent, Tx, col, el, icon, row, spacer, text};
@@ -417,7 +418,7 @@ pub fn exit_shell_button(p: &Pal, wide: bool) -> El {
         .radius(4.0)
         .hover(p.hover)
         .press(p.pressed)
-        .focus_ring(2.0, -2.0, p.v2.border_focus)
+        .focus_inset(p)
         // It shows and goes at once with all it holds, as Desktop's `<Show>` does.
         .transition(rune::Transition::none())
         .instant_changes()

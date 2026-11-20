@@ -130,7 +130,7 @@ pub enum Suggest {
     Closed,
     Searching { attempt: Attempt, query: String },
     Shown { items: Vec<String>, active: Option<usize> },
-    MoreProjects,
+    MoreProjects { active: usize },
 }
 
 impl Tree {
@@ -447,9 +447,15 @@ pub fn key(host: &mut dyn ProjectsHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
                 Some(path) => Action::Choose(path),
                 None => Action::Handled,
             },
-            (Suggest::Shown { .. } | Suggest::MoreProjects, Key::Escape) => {
+            (Suggest::Shown { .. }, Key::Escape) => {
                 o.suggest = Suggest::Closed;
                 tx.instant();
+                Action::Handled
+            }
+            (Suggest::MoreProjects { .. }, Key::Escape) => {
+                o.suggest = Suggest::Closed;
+                tx.instant();
+                tx.focus("directory-picker-more-projects", true);
                 Action::Handled
             }
             (_, Key::Enter) if !o.input.text.trim().is_empty() => {
@@ -512,6 +518,31 @@ pub fn resolve_pick(host: &mut dyn ProjectsHost, tx: &mut Tx) {
     (o.on_pick)(host, path, tx);
 }
 
+/// Dismisses the topmost layer inside the remote picker: closes the `"More projects"` overflow
+/// menu (returning focus to its trigger) or path suggestions first, then closes the dialog.
+pub fn dismiss(host: &mut dyn ProjectsHost, tx: &mut Tx) {
+    let closed_sub = {
+        let Some(o) = host.remote_picker_mut().open_mut() else { return };
+        match o.suggest {
+            Suggest::MoreProjects { .. } => {
+                o.suggest = Suggest::Closed;
+                tx.instant();
+                tx.focus("directory-picker-more-projects", true);
+                true
+            }
+            Suggest::Shown { .. } => {
+                o.suggest = Suggest::Closed;
+                tx.instant();
+                true
+            }
+            _ => false,
+        }
+    };
+    if !closed_sub {
+        close(host, tx);
+    }
+}
+
 /// Cancel, Escape, or a press outside: the pick ends with nothing.
 pub fn close(host: &mut dyn ProjectsHost, tx: &mut Tx) {
     if host.remote_picker_mut().take_open().is_some() {
@@ -534,10 +565,95 @@ pub(crate) fn input_edit(host: &mut dyn ProjectsHost) -> &mut TextEdit {
     host.remote_picker_mut().input_mut()
 }
 
+/// Dialog-level keys for the remote picker's "More projects" overflow menu (`role="menu"`):
+/// Down on `"More projects"` opens the menu; Up/Down/Home/End step `menuitem` rows, Enter/Space
+/// opens the highlighted project, Tab closes the menu and lets focus advance, and Escape closes
+/// the menu and returns focus to the `"More projects"` trigger.
+pub fn overlay_key(host: &mut dyn ProjectsHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    let is_space = matches!(&ev.key, Key::Text(t) if t == " ") && ev.mods == Default::default();
+    let chosen = {
+        let Some(o) = host.remote_picker_mut().open_mut() else { return false };
+        if matches!(o.suggest, Suggest::Closed)
+            && ev.key == Key::Down
+            && ev.mods == Default::default()
+            && tx.focused() == Some("directory-picker-more-projects")
+            && o.recent.len() > 3
+        {
+            o.suggest = Suggest::MoreProjects { active: 0 };
+            o.input.focused = false;
+            tx.instant();
+            tx.focus("more-project-0", true);
+            return true;
+        }
+        let Suggest::MoreProjects { active } = &mut o.suggest else { return false };
+        let count = o.recent.len().saturating_sub(3);
+        if count == 0 {
+            o.suggest = Suggest::Closed;
+            return false;
+        }
+        match ev.key {
+            Key::Tab => {
+                o.suggest = Suggest::Closed;
+                tx.instant();
+                return false;
+            }
+            Key::Down => {
+                *active = (*active + 1) % count;
+                tx.instant();
+                tx.focus(format!("more-project-{}", *active), true);
+                return true;
+            }
+            Key::Up => {
+                *active = (*active + count - 1) % count;
+                tx.instant();
+                tx.focus(format!("more-project-{}", *active), true);
+                return true;
+            }
+            Key::Home => {
+                *active = 0;
+                tx.instant();
+                tx.focus("more-project-0", true);
+                return true;
+            }
+            Key::End => {
+                *active = count - 1;
+                tx.instant();
+                tx.focus(format!("more-project-{}", *active), true);
+                return true;
+            }
+            Key::Escape => {
+                o.suggest = Suggest::Closed;
+                tx.instant();
+                tx.focus("directory-picker-more-projects", true);
+                return true;
+            }
+            Key::Enter => o.recent.get(3 + *active).map(|p| p.directory.clone()),
+            _ if is_space => o.recent.get(3 + *active).map(|p| p.directory.clone()),
+            _ => return false,
+        }
+    };
+    if let Some(dir) = chosen {
+        navigate(host, dir, tx);
+        return true;
+    }
+    false
+}
+
 pub(crate) fn toggle_more_projects(host: &mut dyn ProjectsHost, tx: &mut Tx) {
     if let Some(o) = host.remote_picker_mut().open_mut() {
-        o.suggest = if o.suggest == Suggest::MoreProjects { Suggest::Closed } else { Suggest::MoreProjects };
+        let opening = !matches!(o.suggest, Suggest::MoreProjects { .. });
+        o.suggest = if opening && o.recent.len() > 3 {
+            Suggest::MoreProjects { active: 0 }
+        } else {
+            Suggest::Closed
+        };
         tx.instant();
+        if opening && o.recent.len() > 3 {
+            o.input.focused = false;
+            tx.focus("more-project-0", tx.by_keys() || tx.focus_visible());
+        } else {
+            tx.focus("directory-picker-more-projects", tx.by_keys() || tx.focus_visible());
+        }
     }
 }
 
