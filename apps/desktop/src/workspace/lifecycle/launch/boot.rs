@@ -350,6 +350,13 @@ impl App {
         let files = server.clone();
         self.composer_ext.attach.markdown.set_fetch(
             std::sync::Arc::new(move |directory: &str, path: &str| {
+                #[cfg(not(target_arch = "wasm32"))]
+                if files.is_local() {
+                    let abs = opencode_kit::path::absolute(directory, path);
+                    if !browser_policy::verify_local_path(&abs).is_ok_and(|v| v.is_file) {
+                        return Err("refused non-local or unsafe image path".to_owned());
+                    }
+                }
                 let encoded = crate::review::data::encode_fs_path(path);
                 files
                     .get_bytes(&format!("/api/fs/read/{encoded}?location%5Bdirectory%5D={}", crate::switcher::encode(directory)))

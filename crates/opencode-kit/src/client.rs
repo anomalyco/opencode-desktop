@@ -27,7 +27,10 @@ mod hub;
 mod ids;
 mod jobs;
 pub mod mcp;
+mod media;
 mod mentions;
+#[cfg(not(target_arch = "wasm32"))]
+pub use media::TempMediaFile;
 mod output_head;
 mod plugins;
 #[cfg(not(target_arch = "wasm32"))]
@@ -329,19 +332,33 @@ impl Server {
         self.get_bytes(&format!("/api/experimental/media/{hash}"))
     }
 
-    /// `path` as a URL a media player opens on its own, which sends no header of ours: the
-    /// credential rides along as `auth_token`, which the server takes in its place
-    /// (`packages/server/src/middleware/authorization.ts`).
-    pub fn stream_url(&self, path: &str) -> String {
-        let url = format!("{}{path}", self.base);
-        let Some(token) = self.auth.as_deref().and_then(|a| a.strip_prefix("Basic ")) else { return url };
-        let token: String = token.chars().map(|c| match c { '+' => "%2B".into(), '/' => "%2F".into(), '=' => "%3D".into(), c => c.to_string() }).collect();
-        format!("{url}{}auth_token={token}", if path.contains('?') { '&' } else { '?' })
+    /// Matches official `anomalyco/opencode` (`packages/app/src/runtime/server/api.ts:45-56`,
+    /// `fileStreamUrl`): returns the ranged-read URL for media elements ONLY when the server has
+    /// no password (`self.auth.is_none()`). Credentials never go in a URL query parameter
+    /// (`auth_token`); password-protected servers download media through the authenticated API
+    /// (`Authorization` header) instead.
+    pub fn stream_url(&self, path: &str) -> Option<String> {
+        if self.auth.is_some() {
+            return None;
+        }
+        Some(format!("{}{path}", self.base))
+    }
+
+    /// Whether this server sends an `Authorization` header on API requests.
+    pub fn has_auth(&self) -> bool {
+        self.auth.is_some()
     }
 
     /// Raw bytes from `path` (such as `/api/fs/read/<path>?location[directory]=…`).
     pub fn get_bytes(&self, path: &str) -> Result<Vec<u8>, WireError> {
         self.exchange("GET", path, None, Some(Duration::from_secs(60)), &[])?.bytes("GET", path)
+    }
+
+    /// Authenticated media bytes from `path` (up to `64 MiB`), sending credentials strictly via
+    /// the `Authorization` HTTP header (never query parameters) with zero redirects.
+    pub fn get_media_bytes(&self, path: &str) -> Result<Vec<u8>, WireError> {
+        self.exchange_with_limit("GET", path, None, Some(Duration::from_secs(60)), &[], 64 << 20)?
+            .bytes("GET", path)
     }
 
     /// A write: `method` with an optional JSON body; OpenCode's empty (204) reply is `Value::Null`.
