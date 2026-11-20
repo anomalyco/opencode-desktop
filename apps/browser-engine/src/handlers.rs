@@ -19,7 +19,6 @@ use cef::{
     wrap_display_handler, wrap_load_handler, wrap_render_handler, wrap_request_handler,
     wrap_resource_request_handler,
 };
-use serde_json::Value;
 
 use crate::wire::{CursorKind, EngineMsg, MOD_ALT, MOD_CMD, MOD_CTRL, MOD_SHIFT, TabSnapshot};
 
