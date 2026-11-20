@@ -34,6 +34,7 @@ pub const VARIANTS: &[(&str, usize)] = &[
     ("Full screen", 12),
     ("Live shader", 13),
     ("Keyboard and pointer", 14),
+    ("Live shader, rebuilt", 15),
 ];
 pub const KEYS: &[Trigger] = &[
     replay(open),
@@ -84,7 +85,7 @@ async function main(data) {
       ui.column({ gap: 1 }, [
         ui.text("Shader paddle", { style: "title" }),
         ui.shader(WGSL, { id: "court", height: 220, values: [x, next.frame.t, 0, 0], alt: "A paddle and a ball" }),
-        ui.text("Drag on the court to move the paddle.", { style: "caption", tone: "muted" }),
+        ui.text(data.clock ? "t = " + next.frame.t.toFixed(2) : "Drag on the court to move the paddle.", { style: "caption", tone: "muted" }),
       ]),
     )
   }
@@ -191,6 +192,7 @@ fn template(v: usize) -> &'static str {
         12 => FULLSCREEN,
         13 => SHADER_GAME,
         14 => INPUT,
+        15 => SHADER_GAME,
         _ => "suggestions",
     }
 }
@@ -253,6 +255,9 @@ fn data(v: usize) -> (&'static str, Value) {
         12 => ("Starfield", json!({ "stars": 140 })),
         13 => ("Shader paddle", json!({})),
         14 => ("Keyboard and pointer", json!({})),
+        // The same game with a caption that changes every frame: every frame builds the widget
+        // again, the cost the values-only path saves.
+        15 => ("Shader paddle", json!({ "clock": true })),
         _ => ("Pick a hero image", json!({
             "title": "Which hero image should the landing page use?",
             "options": [
