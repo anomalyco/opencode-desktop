@@ -273,7 +273,13 @@ impl SessionAttachment {
             .map(|ids| {
                 ids.iter()
                     .copied()
-                    .filter(|&id| app.workspace_panes.browser.host.tab(id).is_some())
+                    .filter(|&id| {
+                        app.workspace_panes
+                            .browser
+                            .host
+                            .tab(id)
+                            .is_some_and(|t| !matches!(t.context, browser_pane::ContextKind::Private))
+                    })
                     .collect()
             })
             .unwrap_or_default();
@@ -385,11 +391,14 @@ impl SessionAttachment {
                     .into(),
             );
         }
-        if app.workspace_panes.browser.host.tab(host_id).is_none() {
+        let Some(tab) = app.workspace_panes.browser.host.tab(host_id) else {
             return Err(
                 "Browser tab is unavailable. Call browser.tabs.list({}) and use an existing tabID from this session."
                     .into(),
             );
+        };
+        if matches!(tab.context, browser_pane::ContextKind::Private) {
+            return Err("Agent browser tools cannot access private tabs.".into());
         }
         Ok(host_id)
     }
