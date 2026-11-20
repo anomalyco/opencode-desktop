@@ -324,6 +324,7 @@ wrap_display_handler! {
         snap: Arc<Mutex<TabSnapshot>>,
         prompts: Arc<crate::prompts::TabPrompts>,
         out_tx: Output,
+        events: std::sync::mpsc::Sender<crate::Event>,
     }
 
     impl DisplayHandler {
@@ -354,8 +355,14 @@ wrap_display_handler! {
                     }
                 }
                 self.prompts.set_pending_top_url(None);
-                s.url = url;
+                s.url = url.clone();
                 let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
+                let _ = self.events.send(crate::Event::TabMeta {
+                    tab_id: self.tab_id,
+                    url: Some(url),
+                    title: None,
+                    loading: None,
+                });
             }
         }
 
@@ -366,8 +373,15 @@ wrap_display_handler! {
                 if s.load_error.as_deref().is_some_and(|e| e != "page_crashed") {
                     return;
                 }
-                s.title = title.to_string();
+                let title = title.to_string();
+                s.title = title.clone();
                 let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
+                let _ = self.events.send(crate::Event::TabMeta {
+                    tab_id: self.tab_id,
+                    url: None,
+                    title: Some(title),
+                    loading: None,
+                });
             }
         }
 
@@ -412,6 +426,7 @@ wrap_load_handler! {
         snap: Arc<Mutex<TabSnapshot>>,
         prompts: Arc<crate::prompts::TabPrompts>,
         out_tx: Output,
+        events: std::sync::mpsc::Sender<crate::Event>,
     }
 
     impl LoadHandler {
@@ -422,14 +437,21 @@ wrap_load_handler! {
             can_go_back: i32,
             can_go_forward: i32,
         ) {
-            if is_loading == 0 {
+            let loading = is_loading != 0;
+            if !loading {
                 self.prompts.set_pending_top_url(None);
             }
             let mut s = self.snap.lock().unwrap();
-            s.loading = is_loading != 0;
+            s.loading = loading;
             s.can_go_back = can_go_back != 0;
             s.can_go_forward = can_go_forward != 0;
             let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
+            let _ = self.events.send(crate::Event::TabMeta {
+                tab_id: self.tab_id,
+                url: None,
+                title: None,
+                loading: Some(loading),
+            });
         }
 
         // A document from the network (any HTTP status) replaces a failed or crashed page; Chromium's
@@ -556,10 +578,19 @@ wrap_resource_request_handler! {
     }
 }
 
+/// Extension & isolation navigation policy attached to a managed tab's `TabRequestHandler`.
+#[derive(Clone)]
+pub struct TabExtPolicy {
+    pub allowed_ext_ids: Arc<Mutex<Vec<String>>>,
+    pub popup_ext_id: Option<String>,
+    pub isolated: bool,
+}
+
 wrap_request_handler! {
     pub struct TabRequestHandler {
         tab_id: u64,
         file_roots: Arc<Mutex<Vec<String>>>,
+        ext_policy: TabExtPolicy,
         snap: Arc<Mutex<TabSnapshot>>,
         prompt_shared: crate::prompts::PromptShared,
         prompts: Arc<crate::prompts::TabPrompts>,
@@ -568,8 +599,11 @@ wrap_request_handler! {
 
     impl RequestHandler {
         // Navigation and redirect guard (`chromium.ts:432-446`): main-frame navigations require
-        // `about:blank`, credential-free `http:`/`https:`, or a `file:` URL inside `file_roots`;
-        // sub-frames additionally forbid `file:` URLs outside `file_roots`.
+        // `about:blank`, credential-free `http:`/`https:`, a `file:` URL inside `file_roots`, or
+        // (for non-isolated, non-agent user/popup tabs only) a loaded `chrome-extension://<id>/`
+        // page; popup main frames stay strictly on their own `chrome-extension://<id>/` origin;
+        // isolated tabs refuse `chrome-extension:` in every frame; sub-frames additionally forbid
+        // `file:` URLs outside `file_roots`.
         fn on_before_browse(
             &self,
             _browser: Option<&mut Browser>,
@@ -578,8 +612,37 @@ wrap_request_handler! {
             _user_gesture: ::std::os::raw::c_int,
             _is_redirect: ::std::os::raw::c_int,
         ) -> ::std::os::raw::c_int {
-            let is_main = frame.map_or(true, |f| f.is_main() == 1);
+            let is_main = frame.is_none_or(|f| f.is_main() == 1);
             let url = request.map(|r| CefString::from(&r.url()).to_string()).unwrap_or_default();
+            if self.ext_policy.isolated && crate::extensions::manifest::is_extension_scheme(&url) {
+                let _ = self.out_tx.send(EngineMsg::Refused {
+                    tab_id: self.tab_id,
+                    reason: browser_policy::Refusal::Blocked.code().to_owned(),
+                });
+                return 1;
+            }
+            let is_agent = self.prompts.agent_driven.load(Ordering::Relaxed);
+            if is_main && let Some(own_id) = &self.ext_policy.popup_ext_id {
+                let target = crate::extensions::manifest::extension_id_from_url(&url);
+                if !is_agent
+                    && target == Some(own_id.as_str())
+                    && self.ext_policy.allowed_ext_ids.lock().unwrap().iter().any(|id| id == own_id)
+                {
+                    return 0;
+                }
+                let _ = self.out_tx.send(EngineMsg::Refused {
+                    tab_id: self.tab_id,
+                    reason: browser_policy::Refusal::Blocked.code().to_owned(),
+                });
+                return 1;
+            }
+            if is_main
+                && !is_agent
+                && let Some(ext_id) = crate::extensions::manifest::extension_id_from_url(&url)
+                && self.ext_policy.allowed_ext_ids.lock().unwrap().iter().any(|id| id == ext_id)
+            {
+                return 0;
+            }
             let roots = self.file_roots.lock().unwrap().clone();
             if let Some(why) = browser_policy::frame_guard(&url, is_main, &roots) {
                 let _ = self.out_tx.send(EngineMsg::Refused {
@@ -603,6 +666,53 @@ wrap_request_handler! {
             _user_gesture: ::std::os::raw::c_int,
         ) -> ::std::os::raw::c_int {
             let url = target_url.map(CefString::to_string).unwrap_or_default();
+            if self.ext_policy.isolated && crate::extensions::manifest::is_extension_scheme(&url) {
+                let _ = self.out_tx.send(EngineMsg::Refused {
+                    tab_id: self.tab_id,
+                    reason: browser_policy::Refusal::Blocked.code().to_owned(),
+                });
+                return 1;
+            }
+            let is_agent = self.prompts.agent_driven.load(Ordering::Relaxed);
+            use sys::cef_window_open_disposition_t as D;
+            let opens_new_tab = matches!(
+                *target_disposition.as_ref(),
+                D::CEF_WOD_NEW_BACKGROUND_TAB
+                    | D::CEF_WOD_NEW_FOREGROUND_TAB
+                    | D::CEF_WOD_NEW_POPUP
+                    | D::CEF_WOD_NEW_WINDOW
+            );
+            if let Some(own_id) = &self.ext_policy.popup_ext_id {
+                let target = crate::extensions::manifest::extension_id_from_url(&url);
+                if !is_agent
+                    && target == Some(own_id.as_str())
+                    && self.ext_policy.allowed_ext_ids.lock().unwrap().iter().any(|id| id == own_id)
+                {
+                    return 0;
+                }
+                // Links opened in a new tab from a popup (`target="_blank"`) open as a managed pane
+                // tab when allowed by URL policy (`popup.ts:169-180`), keeping the popup on-origin.
+                if opens_new_tab && browser_policy::destination_origin(&url).is_some() {
+                    let background = *target_disposition.as_ref() == D::CEF_WOD_NEW_BACKGROUND_TAB;
+                    let _ = self.out_tx.send(EngineMsg::PopupOpen {
+                        tab_id: self.tab_id,
+                        url,
+                        background,
+                    });
+                    return 1;
+                }
+                let _ = self.out_tx.send(EngineMsg::Refused {
+                    tab_id: self.tab_id,
+                    reason: browser_policy::Refusal::Blocked.code().to_owned(),
+                });
+                return 1;
+            }
+            if !is_agent
+                && let Some(ext_id) = crate::extensions::manifest::extension_id_from_url(&url)
+                && self.ext_policy.allowed_ext_ids.lock().unwrap().iter().any(|id| id == ext_id)
+            {
+                return 0;
+            }
             let roots = self.file_roots.lock().unwrap().clone();
             if let Some(why) = browser_policy::frame_guard(&url, true, &roots) {
                 let _ = self.out_tx.send(EngineMsg::Refused {
@@ -611,14 +721,7 @@ wrap_request_handler! {
                 });
                 return 1;
             }
-            use sys::cef_window_open_disposition_t as D;
-            if matches!(
-                *target_disposition.as_ref(),
-                D::CEF_WOD_NEW_BACKGROUND_TAB
-                    | D::CEF_WOD_NEW_FOREGROUND_TAB
-                    | D::CEF_WOD_NEW_POPUP
-                    | D::CEF_WOD_NEW_WINDOW
-            ) {
+            if opens_new_tab {
                 let background = *target_disposition.as_ref() == D::CEF_WOD_NEW_BACKGROUND_TAB;
                 let _ = self.out_tx.send(EngineMsg::PopupOpen {
                     tab_id: self.tab_id,

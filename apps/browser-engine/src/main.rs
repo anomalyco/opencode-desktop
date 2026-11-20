@@ -11,12 +11,14 @@
 // for it.
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
+mod context;
 #[cfg(windows)]
 mod d3d_frames;
 mod downloads;
 #[cfg(target_os = "linux")]
 mod dmabuf_frames;
 mod engine;
+mod extensions;
 mod output;
 mod handlers;
 mod keys;
@@ -77,6 +79,17 @@ pub enum Event {
     Host(HostMsg),
     /// CEF wants `cef::do_message_loop_work` in this many milliseconds (now when 0 or less).
     Pump(i64),
+    /// Private in-process CDP message from Chromium's `DevToolsPipeHandler` for extensions.
+    ExtensionCdp(serde_json::Value),
+    /// Background parallel SHA-256 tree verification finished for startup `--extension` specs.
+    ExtensionsVerified(extensions::integrity::StartupExtensions),
+    /// Main-frame metadata update for a non-isolated tab (feeds extension `tabs`/`webNavigation`).
+    TabMeta {
+        tab_id: u64,
+        url: Option<String>,
+        title: Option<String>,
+        loading: Option<bool>,
+    },
     /// Linux: a tab's frames can't come the way they do.
     #[cfg(target_os = "linux")]
     FramesFailed(dmabuf_frames::Failure),
@@ -131,6 +144,16 @@ fn main() {
 
     #[cfg(windows)]
     end_children_with_engine();
+    let ext_specs: Vec<String> = args
+        .windows(2)
+        .filter(|w| w[0] == "--extension")
+        .map(|w| w[1].clone())
+        .collect();
+    // Unix: reserve FDs 3 and 4 BEFORE `UnixListener::bind` so the IPC socket lands on FD >= 5
+    // and is never clobbered when `CdpPipe::create` places Chromium's pipe ends on FDs 3 and 4.
+    if !ext_specs.is_empty() {
+        extensions::pipe::reserve_unix_fds();
+    }
     let sock_path = arg("--socket").map(PathBuf::from).unwrap_or_else(default_socket_path);
     if let Some(parent) = sock_path.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -152,6 +175,51 @@ fn main() {
     step("listening");
 
     let (events, rx) = mpsc::channel::<Event>();
+    let profile = profile::Profile::open();
+    // Chromium's temporary files (and its helpers', which inherit this) go in the profile, not
+    // the user's temp folder: everything the engine writes is under the root the app gave it.
+    let temp = profile.root.join("Temp");
+    let _ = std::fs::remove_dir_all(&temp);
+    let _ = std::fs::create_dir_all(&temp);
+    // SAFETY: still single-threaded before any worker or CEF thread is spawned.
+    unsafe {
+        std::env::set_var("TMP", &temp);
+        std::env::set_var("TEMP", &temp);
+    }
+
+    // Fast (<1 ms) pre-CEF preparation: validate only MV3 manifest + key->id and write 100-byte
+    // inert exemption stubs (0 perms, 0 scripts, 0 DNR) so `--disable-extensions-except` locks
+    // Chromium's exemption set without adding ~1.7 s to `cef::initialize()`.
+    let prepared = extensions::integrity::prepare_startup_stubs(&ext_specs, &profile.root);
+    let pre_rejected = prepared.pre_rejected_ids;
+    let stub_root = prepared.stub_root;
+    let stub_dirs = prepared.stub_dirs;
+    let candidates = prepared.candidates;
+
+    // Create the private in-process anonymous CDP pipe BEFORE spawning any threads or
+    // `cef::initialize` (single-threaded on Unix so `dup2` + `FD_CLOEXEC` has zero fork race).
+    let ext_pipe = if !stub_dirs.is_empty() {
+        extensions::pipe::CdpPipe::create(events.clone())
+    } else {
+        if !ext_specs.is_empty() {
+            extensions::pipe::release_reserved_unix_fds();
+        }
+        None
+    };
+    let io_pipes_switch = ext_pipe.as_ref().and_then(|p| p.io_pipes_switch().map(str::to_owned));
+
+    // Full parallel hardware-accelerated SHA-256 tree verification runs concurrently with
+    // `cef::initialize()` (~35-60 ms hidden completely behind CEF's ~135 ms init).
+    if !candidates.is_empty() {
+        let verify_tx = events.clone();
+        let _ = std::thread::Builder::new()
+            .name("engine-ext-verify".into())
+            .spawn(move || {
+                let res = extensions::integrity::verify_candidates_parallel(candidates);
+                let _ = verify_tx.send(Event::ExtensionsVerified(res));
+            });
+    }
+
     let client_writer: Arc<Mutex<Option<(u64, Arc<UnixStream>)>>> = Arc::default();
     accept_connections(listener, events.clone());
 
@@ -161,20 +229,36 @@ fn main() {
         .and_then(|(high, low)| Some((high.parse::<i32>().ok()?, low.parse::<u32>().ok()?)));
     // The app's language as Chromium names it (`de`, `zh-CN`): page strings and Accept-Language.
     let locale = arg("--lang").cloned();
+    let cpu_frames = args.iter().any(|a| a == "--cpu-frames");
     // Windows: the D3D11 device frames are copied on (tens of ms) is made beside CEF's start.
     #[cfg(windows)]
-    let gpu = std::thread::Builder::new().name("engine-gpu".into()).spawn(move || d3d_frames::Gpu::new(adapter_luid)).expect("spawn engine-gpu");
+    let gpu = std::thread::Builder::new()
+        .name("engine-gpu".into())
+        .spawn(move || (!cpu_frames).then(|| d3d_frames::Gpu::new(adapter_luid)).flatten())
+        .expect("spawn engine-gpu");
     // Linux: the app's render node when it imports dmabufs; the EGL context frames are copied
     // with is made beside CEF's start too.
     #[cfg(target_os = "linux")]
     let gpu = {
+        let _ = cpu_frames;
         let node = linux_gpu::plan(arg("--dmabuf-device").cloned());
         std::thread::Builder::new()
             .name("engine-gpu".into())
             .spawn(move || node.map(|node| dmabuf_frames::Gpu::new(&node)))
             .expect("spawn engine-gpu")
     };
-    let _cef = CefRuntime::initialize(adapter_luid, locale.as_deref(), events.clone());
+    let _cef = CefRuntime::initialize(
+        profile,
+        adapter_luid,
+        locale.as_deref(),
+        &stub_dirs,
+        io_pipes_switch,
+        events.clone(),
+    );
+    if let Some(ref p) = ext_pipe {
+        p.mark_adopted_by_cef();
+    }
+    let ext_host = ext_pipe.map(extensions::ExtensionHost::new);
     step("cef_initialized");
 
     let (out_tx, out_rx) = output::Output::channel();
@@ -207,11 +291,27 @@ fn main() {
     }
 
     #[cfg(windows)]
-    let mut manager = EngineManager::new(out_tx, _cef.profile_root(), gpu.join().ok().flatten());
+    let mut manager = EngineManager::new(
+        out_tx,
+        _cef.profile_root(),
+        gpu.join().ok().flatten(),
+        events.clone(),
+        ext_host,
+        pre_rejected,
+        stub_root,
+    );
     #[cfg(target_os = "linux")]
-    let mut manager = EngineManager::new(out_tx, _cef.profile_root(), linux_gpu::transport(gpu.join().ok().flatten()), events.clone());
+    let mut manager = EngineManager::new(
+        out_tx,
+        _cef.profile_root(),
+        linux_gpu::transport(gpu.join().ok().flatten()),
+        events.clone(),
+        ext_host,
+        pre_rejected,
+        stub_root,
+    );
     #[cfg(target_os = "macos")]
-    let mut manager = EngineManager::new(out_tx, _cef.profile_root());
+    let mut manager = EngineManager::new(out_tx, _cef.profile_root(), events.clone(), ext_host, pre_rejected, stub_root);
     step("manager");
     let mut first_message = true;
     let start = Instant::now();
@@ -252,6 +352,23 @@ fn main() {
                 Event::Pump(delay_ms) => {
                     let at = Instant::now() + Duration::from_millis(delay_ms.max(0) as u64);
                     pump_at = Some(pump_at.map_or(at, |current| current.min(at)));
+                    true
+                }
+                Event::ExtensionCdp(val) => {
+                    busy_until = Instant::now() + BUSY_FOR;
+                    pump_at = Some(Instant::now());
+                    manager.on_extension_cdp(val);
+                    true
+                }
+                Event::ExtensionsVerified(startup) => {
+                    step("extensions_verified");
+                    busy_until = Instant::now() + BUSY_FOR;
+                    pump_at = Some(Instant::now());
+                    manager.on_extensions_verified(startup);
+                    true
+                }
+                Event::TabMeta { tab_id, url, title, loading } => {
+                    manager.on_tab_meta(tab_id, url, title, loading);
                     true
                 }
             }
@@ -309,6 +426,7 @@ fn main() {
             break;
         }
     }
+    manager.shutdown_extensions();
     let _ = std::fs::remove_file(&sock_path);
 }
 
