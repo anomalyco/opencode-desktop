@@ -308,6 +308,23 @@ pub fn notice<S: TimelineHost>(s: &S, p: &Pal, n: &Notice, run: crate::compactio
             crate::activity::event_row::view(s, p, session_of(s), &events, open, crate::disclosure::set::<S>(key.clone(), open, String::new()))
         }
         NoticeKind::Idle => col(),
+        // Finished background Code Mode script (`timeline-next/row.tsx`, anomalyco/opencode#64741):
+        // "Script finished · cm_…" (or failed / cancelled) in its outcome's ink (`p.cancelled`
+        // maps to `yellow-900` in light and `state-fg-warning` in dark, matching `outcomeNoticeColor`).
+        NoticeKind::Job { id, script: Some(outcome), .. } => {
+            use opencode_kit::model::Outcome;
+            let (label, m, ink) = match outcome {
+                Outcome::Error => (opencode_i18n::t!("ui.sessionTimeline.notice.failed", actor = "Script"), Mark::Failed, p.danger),
+                Outcome::Cancelled => (opencode_i18n::t!("ui.sessionTimeline.notice.cancelled", actor = "Script"), Mark::Stopped, p.cancelled),
+                Outcome::Completed => (opencode_i18n::t!("ui.sessionTimeline.notice.finished", actor = "Script"), Mark::Completed, p.v2.text_code_accent),
+            };
+            let words = if id.is_empty() { label.clone() } else { format!("{label} · {id}") };
+            let mut kids = vec![text(label).key("label").font(UI_MED).color(ink).shrink()];
+            if !id.is_empty() {
+                kids.push(faint("value", format!("· {id}")));
+            }
+            line(m, &words, kids)
+        }
         NoticeKind::Text(t) | NoticeKind::Job { description: t, .. } => line(Mark::Info, t, vec![faint_med("label", t.clone())]),
         NoticeKind::Moved { directory } => {
             let words = row().key("words").gap(6.0).center_y().shrink().min_w(0.0)

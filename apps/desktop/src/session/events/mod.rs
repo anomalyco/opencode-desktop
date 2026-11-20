@@ -260,7 +260,8 @@ impl App {
         let Some(id) = data["inboxID"].as_str() else { return false };
         self.session_revert(sid).is_none()
             && self.inboxes.get(sid).is_some_and(|i| i.waiting_notices().any(|n| n.id == id
-                && matches!(n.kind, opencode_kit::model::NoticeKind::Finished(_)) && notice_placement(n, &self.timeline_detail()) != Placement::Hidden))
+                && matches!(n.kind, opencode_kit::model::NoticeKind::Finished(_) | opencode_kit::model::NoticeKind::Job { script: Some(_), .. })
+                && notice_placement(n, &self.timeline_detail()) != Placement::Hidden))
     }
 
     pub(crate) fn tail_page(&mut self, sid: &str) {
