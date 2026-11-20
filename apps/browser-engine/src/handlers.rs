@@ -373,6 +373,16 @@ wrap_display_handler! {
                         crate::permissions::block_device_permission_guards_for_origin(&ctx, orig);
                     }
                 }
+                if self.context_scope_id.is_none()
+                    && self.preview.is_none()
+                    && self.prompts.agent_driven.load(Ordering::Acquire)
+                    && self.permissions.has_inherited_default_grant(&url)
+                {
+                    let _ = self.out_tx.send(EngineMsg::Refused {
+                        tab_id: self.tab_id,
+                        reason: crate::permissions::INHERITED_PERMISSION_REASON.to_owned(),
+                    });
+                }
                 self.prompts.set_pending_top_url(None);
                 s.url = url.clone();
                 let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
@@ -723,6 +733,7 @@ wrap_request_handler! {
         snap: Arc<Mutex<TabSnapshot>>,
         prompt_shared: crate::prompts::PromptShared,
         prompts: Arc<crate::prompts::TabPrompts>,
+        permissions: Arc<crate::permissions::PermissionTracker>,
         context_scope_id: Option<String>,
         diagnostics: Arc<crate::diagnostics::TabDiagnostics>,
         out_tx: Output,
@@ -753,6 +764,18 @@ wrap_request_handler! {
             // (and while a remote context is suspended): cancel every non-`about:blank` navigation.
             if !self.context_ready.load(Ordering::Acquire) {
                 return i32::from(!url.trim().eq_ignore_ascii_case("about:blank"));
+            }
+            if is_main
+                && self.context_scope_id.is_none()
+                && self.preview.is_none()
+                && self.prompts.agent_driven.load(Ordering::Acquire)
+                && self.permissions.has_inherited_default_grant(&url)
+            {
+                let _ = self.out_tx.send(EngineMsg::Refused {
+                    tab_id: self.tab_id,
+                    reason: crate::permissions::INHERITED_PERMISSION_REASON.to_owned(),
+                });
+                return 1;
             }
             if self.context_scope_id.is_some()
                 && let Some(ctx) = browser.as_ref().and_then(|b| b.host()).and_then(|h| h.request_context())
@@ -1070,11 +1093,14 @@ wrap_dev_tools_message_observer! {
     pub struct TabCdpObserver {
         tab_id: u64,
         is_popup: bool,
+        isolated: bool,
+        is_preview: bool,
         snap: Arc<Mutex<TabSnapshot>>,
         id_map: Arc<Mutex<HashMap<i32, CdpPending>>>,
         internal_picked: Arc<Mutex<Vec<i64>>>,
         pending_clears: Arc<Mutex<Vec<PendingClear>>>,
         prompts: Arc<crate::prompts::TabPrompts>,
+        permissions: Arc<crate::permissions::PermissionTracker>,
         out_tx: Output,
     }
 
@@ -1109,6 +1135,27 @@ wrap_dev_tools_message_observer! {
                             ok: false,
                             result: serde_json::json!({
                                 "message": "Agent browser tools cannot read or act on extension pages or tabs with extension frames."
+                            }),
+                        });
+                        return;
+                    }
+                    if self.permissions.tab_blocked(
+                        browser.as_deref(),
+                        self.isolated,
+                        self.is_preview,
+                        &self.snap,
+                        &self.prompts,
+                    ) {
+                        let _ = self.out_tx.send(EngineMsg::Refused {
+                            tab_id: self.tab_id,
+                            reason: crate::permissions::INHERITED_PERMISSION_REASON.to_owned(),
+                        });
+                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                            tab_id: self.tab_id,
+                            request_id: req_id,
+                            ok: false,
+                            result: serde_json::json!({
+                                "message": crate::permissions::INHERITED_PERMISSION_MSG
                             }),
                         });
                         return;

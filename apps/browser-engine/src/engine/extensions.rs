@@ -388,6 +388,7 @@ impl EngineManager {
             snap.clone(),
             prompt_shared.clone(),
             prompts.clone(),
+            self.permissions.clone(),
             None,
             diagnostics,
             null_out.clone(),
@@ -510,6 +511,9 @@ impl EngineManager {
             });
             return;
         }
+        if self.refuse_if_inherited(tab_id, t, Some(request_id)) {
+            return;
+        }
         if let Err(err) = browser_policy::check_cdp(&method, &params, true) {
             let _ = self.out_tx.send(EngineMsg::CdpResponse {
                 tab_id,
@@ -543,6 +547,9 @@ impl EngineManager {
             return;
         };
         if tab_is_extension_surface(t) {
+            return;
+        }
+        if enabled && self.refuse_if_inherited(tab_id, t, None) {
             return;
         }
         let host = t.host.clone();
@@ -584,6 +591,9 @@ impl EngineManager {
         if tab_is_extension_surface(t) {
             return;
         }
+        if backend_node_id.is_some() && self.refuse_if_inherited(tab_id, t, None) {
+            return;
+        }
         let host = t.host.clone();
         match backend_node_id {
             Some(id) => {
@@ -623,6 +633,10 @@ impl EngineManager {
             t.host.stop_finding(1);
             return;
         }
+        if !query.is_empty() && self.refuse_if_inherited(tab_id, t, None) {
+            t.host.stop_finding(1);
+            return;
+        }
         if query.is_empty() {
             t.host.stop_finding(1);
         } else {
@@ -633,6 +647,25 @@ impl EngineManager {
                 i32::from(find_next),
             );
         }
+    }
+
+    pub(super) fn refuse_if_inherited(&self, tab_id: u64, t: &ManagedTab, request_id: Option<u64>) -> bool {
+        if !self.permissions.tab_blocked(Some(&t.browser), t.isolated, t.preview.is_some(), &t.snap, &t.prompts) {
+            return false;
+        }
+        let _ = self.out_tx.send(EngineMsg::Refused {
+            tab_id,
+            reason: crate::permissions::INHERITED_PERMISSION_REASON.to_owned(),
+        });
+        if let Some(request_id) = request_id {
+            let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                tab_id,
+                request_id,
+                ok: false,
+                result: json!({ "message": crate::permissions::INHERITED_PERMISSION_MSG }),
+            });
+        }
+        true
     }
 
     pub(super) fn handle_set_agent_driven(&mut self, tab_id: u64, agent_driven: bool) {

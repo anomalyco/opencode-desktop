@@ -81,6 +81,8 @@
   "rune.browser.prompt.block": "Block",
   "rune.browser.prompt.cancel": "Cancel",
   "rune.browser.prompt.controlled.agent": "The agent is working in this tab, so sign-in prompts and file pickers are off. Open this page in a new tab to sign in or upload files.",
+  "rune.browser.prompt.controlled.inheritedPermission.agent": "The agent can't work on this site in your profile because you have allowed it clipboard, location, or notification access.",
+  "rune.browser.prompt.controlled.inheritedPermission.plugin": "The plugin {{name}} can't work on this site in your profile because you have allowed it clipboard, location, or notification access.",
   "rune.browser.prompt.controlled.openNewTab": "Open in new tab",
   "rune.browser.prompt.controlled.plugin": "The plugin {{name}} is controlling this tab, so sign-in prompts and file pickers are off. Open this page in a new tab to sign in or upload files.",
   "rune.browser.prompt.dismiss": "Not now",

@@ -73,5 +73,8 @@ pub use protocol::{
 };
 pub use preview::{PreviewFetchRequest, PreviewResponder};
 pub use protocol::PickedElement;
-pub use prompts::{PermissionDecision, PermissionStore, SiteDecision, SitePermissions, SiteSetting, TabDriver};
+pub use prompts::{
+    BlockedGuardReason, PermissionDecision, PermissionStore, SiteDecision, SitePermissions,
+    SiteSetting, TabDriver,
+};
 pub use site_zoom::ZoomStore;

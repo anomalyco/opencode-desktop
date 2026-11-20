@@ -439,6 +439,15 @@ impl EngineManager {
                             tab_id,
                             reason: why.code().to_owned(),
                         });
+                    } else if is_agent
+                        && !isolated
+                        && self.tabs.get(&tab_id).is_some_and(|t| t.preview.is_none())
+                        && self.permissions.has_inherited_default_grant(&url)
+                    {
+                        let _ = self.out_tx.send(EngineMsg::Refused {
+                            tab_id,
+                            reason: crate::permissions::INHERITED_PERMISSION_REASON.to_owned(),
+                        });
                     } else {
                         match self.contexts.gate_navigation(tab_id, &url) {
                             Ok(true) => {
@@ -667,6 +676,9 @@ impl EngineManager {
                         });
                         return true;
                     }
+                    if self.refuse_if_inherited(tab_id, t, Some(request_id)) {
+                        return true;
+                    }
                     let url = t.snap.lock().unwrap().url.clone();
                     if browser_policy::destination_origin(&url).is_none() {
                         let _ = self.out_tx.send(EngineMsg::CdpResponse {
@@ -706,6 +718,9 @@ impl EngineManager {
                             ok: false,
                             result: json!({ "message": reason }),
                         });
+                        return true;
+                    }
+                    if self.refuse_if_inherited(tab_id, t, Some(request_id)) {
                         return true;
                     }
                     let url = t.snap.lock().unwrap().url.clone();
@@ -1049,6 +1064,12 @@ impl EngineManager {
             } else if let Some(why) = browser_policy::frame_guard(url, true, &file_roots) {
                 refused_reason = Some(why.code().to_owned());
                 "about:blank"
+            } else if agent_driven
+                && !isolated
+                && self.permissions.has_inherited_default_grant(url)
+            {
+                refused_reason = Some(crate::permissions::INHERITED_PERMISSION_REASON.to_owned());
+                "about:blank"
             } else {
                 url
             };
@@ -1181,6 +1202,7 @@ impl EngineManager {
             snap.clone(),
             self.prompt_shared.clone(),
             prompts.clone(),
+            self.permissions.clone(),
             scope_id,
             diagnostics,
             self.out_tx.clone(),
@@ -1327,11 +1349,14 @@ impl EngineManager {
         let mut observer = TabCdpObserver::new(
             tab_id,
             is_popup,
+            isolated,
+            is_preview,
             snap.clone(),
             cdp_id_map.clone(),
             internal_picked.clone(),
             pending_clears.clone(),
             prompts.clone(),
+            self.permissions.clone(),
             self.out_tx.clone(),
         );
         let cdp_reg = host.add_dev_tools_message_observer(Some(&mut observer));

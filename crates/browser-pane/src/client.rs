@@ -394,8 +394,22 @@ impl BrowserHost {
             Some(err.to_owned())
         } else if !ctx_ok {
             Some("browser.partitions.unsupported".to_owned())
+        } else if let Some(why) = crate::policy::refusal(&candidate, &[]) {
+            Some(why.code().to_owned())
+        } else if agent_driven
+            && context.is_default()
+            && self.url_has_inherited_default_grant(&candidate)
+        {
+            Some(crate::prompts::INHERITED_PERMISSION_REASON.to_owned())
         } else {
-            crate::policy::refusal(&candidate, &[]).map(|r| r.code().to_owned())
+            None
+        };
+        let inherited_blocked =
+            refused.as_deref() == Some(crate::prompts::INHERITED_PERMISSION_REASON);
+        let tab_url = if refused.is_some() && !inherited_blocked {
+            "about:blank".to_owned()
+        } else {
+            candidate.clone()
         };
         let url = if refused.is_some() { "about:blank".to_owned() } else { candidate };
         let can_open_in_engine = proxy_err.is_none() && ctx_ok;
@@ -411,9 +425,13 @@ impl BrowserHost {
         let ((width_pt, height_pt), scale) = self.last_viewport;
         let mut prompts = crate::prompts::TabPromptState::default();
         prompts.agent_driven = agent_driven;
+        if inherited_blocked {
+            prompts.blocked_guard_notice =
+                Some(crate::prompts::BlockedGuardReason::InheritedPermission);
+        }
         self.tabs.push(BrowserTab {
             id,
-            url: url.clone(),
+            url: tab_url,
             title: "New tab".into(),
             loading: refused.is_none(),
             can_go_back: false,
@@ -521,6 +539,7 @@ impl BrowserHost {
         let ready = self.status() == EngineStatus::Ready;
         let engine_partitions = self.engine_partitions();
         let engine_remote_proxy = self.engine_remote_proxy();
+        let nav_inherited_blocked = !from_address && self.controlled_origin_blocked(tab_id, Some(&url));
         let remote_proxies = &self.remote_proxies;
         let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) else {
             return;
@@ -528,6 +547,15 @@ impl BrowserHost {
         if let Some(why) = crate::policy::refusal(&url, &[]) {
             t.loading = false;
             t.refusal = Some(why.code().to_owned());
+            t.rejected += 1;
+            return;
+        }
+        if nav_inherited_blocked {
+            t.url = url;
+            t.loading = false;
+            t.refusal = Some(crate::prompts::INHERITED_PERMISSION_REASON.to_owned());
+            t.prompts.blocked_guard_notice =
+                Some(crate::prompts::BlockedGuardReason::InheritedPermission);
             t.rejected += 1;
             return;
         }
@@ -606,6 +634,7 @@ impl BrowserHost {
     }
 
     pub fn back(&mut self, tab_id: u64) {
+        if self.reject_if_inherited(tab_id, None) { return; }
         if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
             t.prompts.on_user_nav();
         }
@@ -613,6 +642,7 @@ impl BrowserHost {
     }
 
     pub fn forward(&mut self, tab_id: u64) {
+        if self.reject_if_inherited(tab_id, None) { return; }
         if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
             t.prompts.on_user_nav();
         }
@@ -620,6 +650,7 @@ impl BrowserHost {
     }
 
     pub fn reload(&mut self, tab_id: u64) {
+        if self.reject_if_inherited(tab_id, None) { return; }
         if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
             t.prompts.on_user_nav();
         }
@@ -662,6 +693,11 @@ impl BrowserHost {
     }
 
     pub fn toggle_inspect(&mut self, tab_id: u64) {
+        if self.tabs.iter().find(|t| t.id == tab_id).is_some_and(|t| !t.inspecting)
+            && self.reject_if_inherited(tab_id, None)
+        {
+            return;
+        }
         let next = if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
             t.inspecting = !t.inspecting;
             t.inspecting
@@ -671,7 +707,10 @@ impl BrowserHost {
         self.send(HostMsg::SetInspect { tab_id, enabled: next });
     }
 
-    pub fn highlight_node(&self, tab_id: u64, backend_node_id: Option<i64>) {
+    pub fn highlight_node(&mut self, tab_id: u64, backend_node_id: Option<i64>) {
+        if backend_node_id.is_some() && self.reject_if_inherited(tab_id, None) {
+            return;
+        }
         self.send(HostMsg::HighlightNode { tab_id, backend_node_id });
     }
 
@@ -683,6 +722,9 @@ impl BrowserHost {
             .find(|t| t.id == tab_id)
             .map(|t| t.url.clone())
             .ok_or_else(|| format!("No browser tab with tabID {tab_id}"))?;
+        if self.reject_if_inherited(tab_id, None) {
+            return Err(crate::prompts::INHERITED_PERMISSION_MSG.to_owned());
+        }
         let request_id = self.next_req_id;
         self.next_req_id += 1;
         if !self.engine_policy() || crate::policy::destination_origin(&url).is_none() {
@@ -697,6 +739,9 @@ impl BrowserHost {
     pub fn clear_site(&mut self, tab_id: u64) -> Result<u64, String> {
         if !self.tabs.iter().any(|t| t.id == tab_id) {
             return Err(format!("No browser tab with tabID {tab_id}"));
+        }
+        if self.reject_if_inherited(tab_id, None) {
+            return Err(crate::prompts::INHERITED_PERMISSION_MSG.to_owned());
         }
         if !self.engine_policy() {
             return Err("Clearing site data requires an updated browser engine.".into());
@@ -1009,6 +1054,12 @@ impl BrowserHost {
                         {
                             t.has_engine_tab = false;
                         }
+                        if reason == crate::prompts::INHERITED_PERMISSION_REASON
+                            && t.prompts.agent_driven
+                        {
+                            t.prompts.blocked_guard_notice =
+                                Some(crate::prompts::BlockedGuardReason::InheritedPermission);
+                        }
                         t.refusal = Some(reason);
                         t.rejected += 1;
                         changed = true;
@@ -1280,7 +1331,10 @@ impl BrowserHost {
         self.next_tab_id = self.next_tab_id.max(snap.tab_id + 1);
         let want_zoom = self.site_zoom.get(&snap.url);
         if let Some(t) = self.tabs.iter_mut().find(|t| t.id == snap.tab_id) {
-            let url_changed = t.url != snap.url;
+            let preserve_inherited_refusal = t.refusal.as_deref()
+                == Some(crate::prompts::INHERITED_PERMISSION_REASON)
+                && snap.url.eq_ignore_ascii_case("about:blank");
+            let url_changed = !preserve_inherited_refusal && t.url != snap.url;
             let new_site = site_of(&snap.url).is_some() && site_of(&t.url) != site_of(&snap.url);
             let clear_refusal = (url_changed || snap.load_error.is_some()) && t.refusal.is_some();
             let (cancel_perms, cancel_auth) = if url_changed {
@@ -1306,7 +1360,9 @@ impl BrowserHost {
             if url_changed {
                 t.find.step(crate::find::FindEvent::DocumentChanged);
             }
-            t.url = snap.url;
+            if !preserve_inherited_refusal {
+                t.url = snap.url;
+            }
             t.title = snap.title;
             t.loading = snap.loading;
             t.can_go_back = snap.can_go_back;

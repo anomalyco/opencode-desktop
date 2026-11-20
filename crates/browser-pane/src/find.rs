@@ -306,6 +306,9 @@ impl crate::BrowserHost {
         if !self.tabs.iter().any(|t| t.id == tab_id) {
             return Err(format!("No browser tab with tabID {tab_id}"));
         }
+        if self.reject_if_inherited(tab_id, None) {
+            return Err(crate::prompts::INHERITED_PERMISSION_MSG.to_owned());
+        }
         if !self.engine_policy() {
             return Err("Clearing saved files requires an updated browser engine.".into());
         }
@@ -333,6 +336,9 @@ impl crate::BrowserHost {
         {
             return Err("DevTools calls are not permitted on extension pages.".into());
         }
+        if self.reject_if_inherited(tab_id, None) {
+            return Err(crate::prompts::INHERITED_PERMISSION_MSG.to_owned());
+        }
         let method = method.into();
         crate::policy::check_cdp(&method, &params, self.engine_policy())?;
         let request_id = self.next_req_id;
@@ -349,6 +355,9 @@ impl crate::BrowserHost {
 
     /// Starts or advances an in-page text search (`FindHandler`).
     pub fn find(&mut self, tab_id: u64, query: &str, forward: bool, match_case: bool, find_next: bool) {
+        if !query.is_empty() && self.reject_if_inherited(tab_id, None) {
+            return;
+        }
         if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
             t.find.step(FindEvent::Open);
             if t.find.query() != query {

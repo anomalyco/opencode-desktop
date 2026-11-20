@@ -3,10 +3,14 @@
 use rune::time::Instant;
 
 use super::{
-    AuthGate, PermissionDecision, PermissionScope, PermissionStore, PopupGate, PopupRequest,
-    SitePermissions, SiteSetting, TabDriver,
+    AuthGate, BlockedGuardReason, PermissionDecision, PermissionScope, PermissionStore, PopupGate,
+    PopupRequest, SitePermissions, SiteSetting, TabDriver,
 };
-use crate::protocol::{EngineMsg, HostMsg, SitePermissionEntry};
+use crate::protocol::{EngineMsg, HostMsg, PermissionKind, SitePermissionEntry};
+
+pub const INHERITED_PERMISSION_REASON: &str = "browser.controlled.inherited_permission";
+pub const INHERITED_PERMISSION_MSG: &str =
+    "Controlled browser actions are blocked on this site because it holds a profile permission.";
 
 impl crate::BrowserHost {
     pub fn remember_site_permissions(&mut self, store: PermissionStore) {
@@ -93,8 +97,71 @@ impl crate::BrowserHost {
 
     pub fn dismiss_blocked_guard_notice(&mut self, tab_id: u64) {
         if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
-            t.prompts.blocked_guard_notice = false;
+            t.prompts.blocked_guard_notice = None;
         }
+    }
+
+    /// App-side mirror of the engine's inherited-permission guard (`Default` profile only).
+    /// Fails closed when `url` is empty/unparseable or when connected to an older engine without
+    /// `permission_sync` and the profile permission store is not loaded.
+    pub(crate) fn url_has_inherited_default_grant(&self, url: &str) -> bool {
+        let trimmed = url.trim();
+        if trimmed.eq_ignore_ascii_case("about:blank") {
+            return false;
+        }
+        if !self.caps.permission_sync() && !self.site_permissions.is_loaded() {
+            return true;
+        }
+        let Some(orig) = crate::policy::destination_origin(trimmed) else {
+            return true;
+        };
+        if self.site_permissions.has_inherited_allow(&orig) {
+            return true;
+        }
+        self.tabs.iter().any(|other| {
+            other.context.is_default()
+                && other.preview.is_none()
+                && other.prompts.visit_permissions.iter().any(|((o, k), s)| {
+                    *s == SiteSetting::Allow
+                        && matches!(
+                            k,
+                            PermissionKind::ClipboardRead
+                                | PermissionKind::Location
+                                | PermissionKind::Notifications
+                        )
+                        && crate::policy::destination_origin(o).as_deref() == Some(orig.as_str())
+                })
+        })
+    }
+
+    /// True (fail-closed) when controlled actions on `tab_id` must be refused because its `Default`
+    /// profile top-level origin (or `target_url`) holds an inherited grant or cannot be determined.
+    pub(crate) fn controlled_origin_blocked(&self, tab_id: u64, target_url: Option<&str>) -> bool {
+        let Some(t) = self.tabs.iter().find(|t| t.id == tab_id) else {
+            return false;
+        };
+        if !t.prompts.agent_driven || !t.context.is_default() || t.preview.is_some() {
+            return false;
+        }
+        let target = target_url.map(str::trim).filter(|s| !s.is_empty());
+        let current = (!t.url.trim().is_empty()).then_some(t.url.as_str());
+        if target.is_none() && current.is_none() {
+            return true;
+        }
+        [target, current]
+            .into_iter()
+            .flatten()
+            .any(|u| self.url_has_inherited_default_grant(u))
+    }
+
+    pub(crate) fn reject_if_inherited(&mut self, tab_id: u64, target_url: Option<&str>) -> bool {
+        if !self.controlled_origin_blocked(tab_id, target_url) {
+            return false;
+        }
+        if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
+            t.prompts.blocked_guard_notice = Some(BlockedGuardReason::InheritedPermission);
+        }
+        true
     }
 
     pub fn answer_dialog(
@@ -314,7 +381,7 @@ impl crate::BrowserHost {
                         // Defense in depth against older engines where `OpenTab` doesn't carry
                         // `agent_driven` yet and a fast 401 on `TID_IO` races `SetAgentDriven`.
                         t.prompts.agent_auth_required = Some(challenge.origin);
-                        t.prompts.blocked_guard_notice = true;
+                        t.prompts.blocked_guard_notice = Some(BlockedGuardReason::Action);
                         (Some(challenge.id), true)
                     } else {
                         let cancel = t.prompts.auth_challenge(challenge, now);
@@ -340,7 +407,7 @@ impl crate::BrowserHost {
             EngineMsg::AuthAgentRequired { tab_id, origin } => {
                 if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
                     t.prompts.agent_auth_required = Some(origin);
-                    t.prompts.blocked_guard_notice = true;
+                    t.prompts.blocked_guard_notice = Some(BlockedGuardReason::Action);
                     true
                 } else {
                     false
@@ -361,7 +428,7 @@ impl crate::BrowserHost {
             EngineMsg::FileChooserBlocked { tab_id } => {
                 if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
                     t.prompts.file_chooser_blocked = t.prompts.file_chooser_blocked.saturating_add(1);
-                    t.prompts.blocked_guard_notice = true;
+                    t.prompts.blocked_guard_notice = Some(BlockedGuardReason::Action);
                     true
                 } else {
                     false

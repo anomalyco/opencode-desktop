@@ -26,12 +26,24 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
     let mut out = Vec::new();
     let k = kit(p);
 
-    if tab.prompts.agent_driven && tab.prompts.blocked_guard_notice {
-        let notice = match tab.prompts.driver.as_ref() {
-            Some(browser_pane::TabDriver::Plugin(name)) => {
-                t!("rune.browser.prompt.controlled.plugin", name = name.as_str())
+    if tab.prompts.agent_driven
+        && let Some(reason) = tab.prompts.blocked_guard_notice
+    {
+        let notice = match (reason, tab.prompts.driver.as_ref()) {
+            (
+                browser_pane::BlockedGuardReason::InheritedPermission,
+                Some(browser_pane::TabDriver::Plugin(name)),
+            ) => t!("rune.browser.prompt.controlled.inheritedPermission.plugin", name = name.as_str()),
+            (browser_pane::BlockedGuardReason::InheritedPermission, _) => {
+                t!("rune.browser.prompt.controlled.inheritedPermission.agent").to_owned()
             }
-            _ => t!("rune.browser.prompt.controlled.agent").to_owned(),
+            (
+                browser_pane::BlockedGuardReason::Action,
+                Some(browser_pane::TabDriver::Plugin(name)),
+            ) => t!("rune.browser.prompt.controlled.plugin", name = name.as_str()),
+            (browser_pane::BlockedGuardReason::Action, _) => {
+                t!("rune.browser.prompt.controlled.agent").to_owned()
+            }
         };
         let can_reopen = !tab.url.is_empty()
             && !tab.url.eq_ignore_ascii_case("about:blank")

@@ -20,14 +20,26 @@
 
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::sync::atomic::Ordering;
 
 use cef::{
-    CefString, CefStringList, ImplDictionaryValue, ImplPreferenceManager, ImplRequestContext,
-    ImplValue, RequestContext, sys,
+    Browser, CefString, CefStringList, ImplBrowser, ImplDictionaryValue, ImplFrame,
+    ImplPreferenceManager, ImplRequestContext, ImplValue, RequestContext, sys,
 };
 
 use crate::prompts::origin_of;
-use crate::wire::{ContextKind, PermissionKind, SitePermissionEntry};
+use crate::wire::{ContextKind, PermissionKind, SitePermissionEntry, TabSnapshot};
+
+pub const INHERITED_PERMISSION_REASON: &str = "browser.controlled.inherited_permission";
+pub const INHERITED_PERMISSION_MSG: &str =
+    "Controlled browser actions are blocked on this site because it holds a profile permission.";
+
+fn is_inherited_permission(kind: PermissionKind) -> bool {
+    matches!(
+        kind,
+        PermissionKind::ClipboardRead | PermissionKind::Location | PermissionKind::Notifications
+    )
+}
 
 const DEVICE_GUARD_TYPES: [sys::cef_content_setting_types_t; 7] = [
     sys::cef_content_setting_types_t::CEF_CONTENT_SETTING_TYPE_USB_GUARD,
@@ -335,6 +347,48 @@ impl PermissionTracker {
             all_actions
         };
         apply_reset_actions(actions);
+    }
+
+    pub fn has_inherited_default_grant(&self, url: &str) -> bool {
+        let trimmed = url.trim();
+        if trimmed.eq_ignore_ascii_case("about:blank") {
+            return false;
+        }
+        let (Some(orig), Ok(st)) = (origin_of(trimmed), self.state.lock()) else {
+            return true;
+        };
+        st.persistent.iter().any(|((o, k), &allow)| allow && o == &orig && is_inherited_permission(*k))
+            || st.visits.iter().any(|((scope, _), m)| {
+                scope.is_none() && m.keys().any(|(o, k)| o == &orig && is_inherited_permission(*k))
+            })
+    }
+
+    pub fn tab_blocked(
+        &self,
+        browser: Option<&Browser>,
+        isolated: bool,
+        is_preview: bool,
+        snap: &Mutex<TabSnapshot>,
+        prompts: &crate::prompts::TabPrompts,
+    ) -> bool {
+        if isolated || is_preview || !prompts.agent_driven.load(Ordering::Acquire) {
+            return false;
+        }
+        let main_url = browser
+            .and_then(|b| b.main_frame())
+            .map(|f| CefString::from(&f.url()).to_string())
+            .filter(|s| !s.trim().is_empty());
+        let Ok(snap_url) = snap.lock().map(|s| (!s.url.trim().is_empty()).then(|| s.url.clone())) else {
+            return true;
+        };
+        let pending_url = prompts.pending_top_url().filter(|s| !s.trim().is_empty());
+        if main_url.is_none() && snap_url.is_none() && pending_url.is_none() {
+            return true;
+        }
+        [main_url.as_deref(), snap_url.as_deref(), pending_url.as_deref()]
+            .into_iter()
+            .flatten()
+            .any(|u| self.has_inherited_default_grant(u))
     }
 
     /// Resets every remaining active `"Allow this time"` grant back to `DEFAULT` (or restores its
