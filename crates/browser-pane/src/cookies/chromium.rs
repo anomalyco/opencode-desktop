@@ -25,6 +25,29 @@ pub enum ChromiumKey {
     Cbc { v10: [u8; 16], v11: Option<[u8; 16]> },
 }
 
+impl Drop for ChromiumKey {
+    fn drop(&mut self) {
+        match self {
+            Self::Gcm(k) => {
+                for b in k.iter_mut() {
+                    *b = 0;
+                }
+            }
+            Self::Cbc { v10, v11 } => {
+                for b in v10.iter_mut() {
+                    *b = 0;
+                }
+                if let Some(k) = v11 {
+                    for b in k.iter_mut() {
+                        *b = 0;
+                    }
+                }
+            }
+        }
+        std::sync::atomic::compiler_fence(std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum Decrypted {
     Value(String),

@@ -35,6 +35,11 @@ pub const PROBE_COOKIE_NAME: &str = "opencode_cookie_check";
 /// Seconds between 1601-01-01 (Chromium's `base::Time` epoch) and 1970-01-01 (Unix epoch).
 const WINDOWS_EPOCH_OFFSET_SECS: f64 = 11_644_473_600.0;
 const MIRROR_POLL_INTERVAL: Duration = Duration::from_millis(1500);
+const MAX_IMPORT_COOKIES: usize = 50_000;
+const MAX_COOKIE_HOST: usize = 255;
+const MAX_COOKIE_NAME: usize = 4096;
+const MAX_COOKIE_VALUE: usize = 8192;
+const MAX_COOKIE_PATH: usize = 4096;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LinkSide {
@@ -88,7 +93,19 @@ pub fn cookie_url(cookie: &WireCookie) -> String {
 
 fn to_cef_cookie(cookie: &WireCookie, now_secs: f64) -> Option<(String, Cookie)> {
     let bare = cookie.host.trim_start_matches('.');
-    if bare.is_empty() || (cookie.name.is_empty() && cookie.value.is_empty()) {
+    if bare.is_empty()
+        || bare.len() > MAX_COOKIE_HOST
+        || cookie.name.len() > MAX_COOKIE_NAME
+        || cookie.value.len() > MAX_COOKIE_VALUE
+        || cookie.path.len() > MAX_COOKIE_PATH
+        || (cookie.name.is_empty() && cookie.value.is_empty())
+    {
+        return None;
+    }
+    if bare.chars().any(|c| matches!(c, '\0' | '\r' | '\n' | '/' | '\\') || c.is_whitespace())
+        || cookie.name.chars().any(|c| matches!(c, '\0' | '\r' | '\n'))
+        || cookie.path.chars().any(|c| matches!(c, '\0' | '\r' | '\n'))
+    {
         return None;
     }
     if let Some(exp) = cookie.expires
@@ -458,9 +475,10 @@ impl CookieController {
             return;
         };
         let now = now_unix_secs();
-        let mut prepared = Vec::with_capacity(cookies.len());
-        let mut pre_failed = 0u32;
-        for c in &cookies {
+        let overflow = cookies.len().saturating_sub(MAX_IMPORT_COOKIES) as u32;
+        let mut prepared = Vec::with_capacity(cookies.len().min(MAX_IMPORT_COOKIES));
+        let mut pre_failed = overflow;
+        for c in cookies.iter().take(MAX_IMPORT_COOKIES) {
             if is_probe_cookie(c) {
                 continue;
             }
@@ -534,6 +552,11 @@ impl CookieController {
         request_id: u64,
         out_tx: Output,
     ) {
+        let lower = url.trim().to_ascii_lowercase();
+        if !(lower.starts_with("http://") || lower.starts_with("https://")) {
+            let _ = out_tx.send(EngineMsg::ProfileActionDone { request_id, ok: false });
+            return;
+        }
         let Some(mgr) = Self::resolve_manager(contexts, partition) else {
             let _ = out_tx.send(EngineMsg::ProfileActionDone { request_id, ok: false });
             return;

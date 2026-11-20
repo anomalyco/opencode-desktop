@@ -32,7 +32,17 @@ pub fn firefox_profiles(root: &Path, ini: &str) -> Vec<FirefoxProfileEntry> {
             && !val.is_empty()
         {
             let directory = if *is_relative {
-                root.join(&val)
+                let rel = Path::new(&val);
+                if rel.is_absolute()
+                    || rel
+                        .components()
+                        .any(|c| matches!(c, std::path::Component::ParentDir))
+                {
+                    *name = None;
+                    *is_relative = true;
+                    return;
+                }
+                root.join(rel)
             } else {
                 PathBuf::from(&val)
             };

@@ -52,7 +52,7 @@ pub struct BrowserTab {
     /// Surface layout origin in zoomed window points (for anchoring page context menus).
     pub surface_origin: (f32, f32),
     pub view_zoom: f32,
-    /// Storage/cookie/extension isolation context (`Default`, `IsolatedPreview`, or `RemoteServer`).
+    /// Storage/cookie/extension isolation context (`Default`, `Preview`, `Artifact`, `Private`, or `RemoteServer`).
     pub context: crate::protocol::ContextKind,
     pub(crate) file_roots: Vec<String>,
     pub(crate) viewport_pt: (f32, f32),
@@ -75,6 +75,18 @@ const DOWNLOADS_DIR: &str = "opencode-page-downloads";
 
 /// A tab's downloads at most (the engine's `downloads::MAX_TAB_FILES`).
 pub const MAX_TAB_FILES: usize = 64;
+
+/// One DevTools Protocol event forwarded from the browser engine (`EngineMsg::CdpEvent`).
+#[derive(Clone, Debug)]
+pub struct CdpEvent {
+    pub tab_id: u64,
+    pub method: String,
+    pub params: Value,
+    pub session_id: Option<String>,
+}
+
+/// Bounded queue capacity for unconsumed CDP events so diagnostics never grow unboundedly.
+const MAX_QUEUED_CDP_EVENTS: usize = 2_048;
 
 pub struct BrowserHost {
     pub(crate) tabs: Vec<BrowserTab>,
@@ -100,6 +112,7 @@ pub struct BrowserHost {
     pub(crate) next_req_id: u64,
     pending_opens: Vec<(u64, String)>,
     pub(crate) cdp_responses: HashMap<u64, Result<Value, Value>>,
+    cdp_events: VecDeque<CdpEvent>,
     picked: VecDeque<PickedElement>,
     pub(crate) popup_opens: VecDeque<crate::prompts::PopupRequest>,
     pub(crate) context_menus: VecDeque<(u64, crate::protocol::PageContextMenu)>,
@@ -156,6 +169,7 @@ impl BrowserHost {
             next_req_id: 1,
             pending_opens: Vec::new(),
             cdp_responses: HashMap::new(),
+            cdp_events: VecDeque::new(),
             picked: VecDeque::new(),
             popup_opens: VecDeque::new(),
             context_menus: VecDeque::new(),
@@ -420,7 +434,7 @@ impl BrowserHost {
     ) -> u64 {
         rune::marks::mark("browser.tab.open");
         self.opened.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let file_roots = if matches!(context, crate::protocol::ContextKind::RemoteServer { .. }) {
+        let file_roots = if context.is_isolated() {
             Vec::new()
         } else {
             file_roots
@@ -495,12 +509,17 @@ impl BrowserHost {
     }
 
     pub fn set_tab_policy(&mut self, tab_id: u64, file_roots: Vec<String>) {
-        if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id)
-            && t.file_roots != file_roots
-        {
-            t.file_roots = file_roots.clone();
-            if self.is_connected() && self.engine_policy() {
-                self.send(HostMsg::SetTabPolicy { tab_id, file_roots });
+        if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
+            let file_roots = if t.context.is_isolated() {
+                Vec::new()
+            } else {
+                file_roots
+            };
+            if t.file_roots != file_roots {
+                t.file_roots = file_roots.clone();
+                if self.is_connected() && self.engine_policy() {
+                    self.send(HostMsg::SetTabPolicy { tab_id, file_roots });
+                }
             }
         }
     }
@@ -696,6 +715,14 @@ impl BrowserHost {
 
     pub fn take_cdp_response(&mut self, request_id: u64) -> Option<Result<Value, Value>> {
         self.cdp_responses.remove(&request_id)
+    }
+
+    pub fn has_cdp_events(&self) -> bool {
+        !self.cdp_events.is_empty()
+    }
+
+    pub fn drain_cdp_events(&mut self) -> impl Iterator<Item = CdpEvent> + '_ {
+        self.cdp_events.drain(..)
     }
 
     /// Whether the page picked an element since the last drain.
@@ -1071,7 +1098,13 @@ impl BrowserHost {
                     });
                     changed = true;
                 }
-                EngineMsg::CdpEvent { .. } => {}
+                EngineMsg::CdpEvent { tab_id, method, params, session_id } => {
+                    if self.cdp_events.len() >= MAX_QUEUED_CDP_EVENTS {
+                        self.cdp_events.pop_front();
+                    }
+                    self.cdp_events.push_back(CdpEvent { tab_id, method, params, session_id });
+                    changed = true;
+                }
                 // The socket reader delivers frames directly to the tab's retained Rune surface.
                 EngineMsg::SharedFrame { .. } | EngineMsg::CpuFrame { .. } | EngineMsg::DmabufPool { .. } | EngineMsg::DmabufFrame { .. } => {}
             }

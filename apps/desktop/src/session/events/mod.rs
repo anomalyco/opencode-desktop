@@ -499,6 +499,22 @@ impl App {
             let loc = data["eventLocation"]["directory"].as_str();
             crate::settings::pages::extensions::on_plugin_updated(self);
             crate::settings::pages::project_extensions::on_updated(self, loc);
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let active_server = crate::servers::runtime::active(self).clone();
+                crate::surfaces::browser::rpc::on_plugin_updated(self, &active_server);
+            }
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        if ty == opencode_kit::browser_rpc::CONTROL_EVENT {
+            let active_server = crate::servers::runtime::active(self).clone();
+            crate::surfaces::browser::rpc::on_control_event(self, &active_server, data);
+            changed = true;
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        if matches!(ty, "session.created" | "session.moved" | "session.deleted") && !sid.is_empty() {
+            let active_server = crate::servers::runtime::active(self).clone();
+            crate::surfaces::browser::rpc::on_session_lifecycle(self, &active_server, ty, &sid);
         }
         if ty == "config.updated" {
             let loc = data["eventLocation"]["directory"].as_str();

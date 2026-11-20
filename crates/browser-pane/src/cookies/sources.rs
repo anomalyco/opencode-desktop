@@ -19,14 +19,17 @@ use base64::Engine as _;
 use serde::Deserialize;
 
 use super::chromium::{ChromiumKey, read_chromium_cookies, read_chromium_hosts};
-use super::database::{SnapshotScratch, io_failure};
+use super::database::{SnapshotScratch, read_regular_bounded};
 use super::firefox::{firefox_profiles, read_firefox_cookies, read_firefox_hosts};
 use super::safari::parse_binary_cookies;
 use super::sites::{group_sites, site_filter};
 use super::{
     BrowserEngineKind, BrowserProfileInfo, BrowserSource, CookieHost, CookieRead, ImportFailure,
-    SiteList, SiteListOrder,
+    MAX_COOKIE_FILE_BYTES, SiteList, SiteListOrder,
 };
+
+const MAX_LOCAL_STATE_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_PROFILES_INI_BYTES: u64 = 1024 * 1024;
 
 struct Definition {
     id: &'static str,
@@ -291,7 +294,7 @@ pub fn read_source_hosts(
     match def.engine {
         BrowserEngineKind::Firefox => read_firefox_hosts(&target.directory, scratch),
         BrowserEngineKind::Safari => {
-            let data = fs::read(&target.database).map_err(|e| io_failure(&e))?;
+            let data = read_regular_bounded(&target.database, MAX_COOKIE_FILE_BYTES)?;
             let read = parse_binary_cookies(&data, false).ok_or(ImportFailure::Read)?;
             Ok(read
                 .cookies
@@ -322,7 +325,7 @@ pub fn read_source_cookies(
             None => read_firefox_cookies::<fn(&str) -> bool>(&target.directory, scratch, None),
         },
         BrowserEngineKind::Safari => {
-            let data = fs::read(&target.database).map_err(|e| io_failure(&e))?;
+            let data = read_regular_bounded(&target.database, MAX_COOKIE_FILE_BYTES)?;
             let mut read = parse_binary_cookies(&data, true).ok_or(ImportFailure::Read)?;
             if let Some(sites) = chosen_sites {
                 let mut keep = site_filter(sites);
@@ -381,7 +384,10 @@ fn locate_profiles(def: &Definition) -> Vec<LocatedProfile> {
             }]
         }
         BrowserEngineKind::Firefox => {
-            let Ok(ini) = fs::read_to_string(def.root.join("profiles.ini")) else {
+            let Ok(bytes) = read_regular_bounded(&def.root.join("profiles.ini"), MAX_PROFILES_INI_BYTES) else {
+                return Vec::new();
+            };
+            let Ok(ini) = String::from_utf8(bytes) else {
                 return Vec::new();
             };
             firefox_profiles(&def.root, &ini)
@@ -486,8 +492,8 @@ struct LocalStateOsCrypt {
 }
 
 fn read_local_state(root: &Path) -> Option<LocalState> {
-    let text = fs::read_to_string(root.join("Local State")).ok()?;
-    serde_json::from_str(&text).ok()
+    let bytes = read_regular_bounded(&root.join("Local State"), MAX_LOCAL_STATE_BYTES).ok()?;
+    serde_json::from_slice(&bytes).ok()
 }
 
 fn local_state_profiles(root: &Path) -> BTreeMap<String, String> {
@@ -512,6 +518,13 @@ fn local_state_profiles(root: &Path) -> BTreeMap<String, String> {
     names
 }
 
+fn zeroize_bytes(buf: &mut [u8]) {
+    for b in buf.iter_mut() {
+        *b = 0;
+    }
+    std::sync::atomic::compiler_fence(std::sync::atomic::Ordering::SeqCst);
+}
+
 #[cfg(windows)]
 fn chromium_key(def: &Definition) -> Option<ChromiumKey> {
     let encoded = read_local_state(&def.root)?.os_crypt?.encrypted_key?;
@@ -519,9 +532,10 @@ fn chromium_key(def: &Definition) -> Option<ChromiumKey> {
         .decode(encoded.trim())
         .ok()?;
     let payload = wrapped.strip_prefix(b"DPAPI")?;
-    let raw = dpapi_unprotect(payload)?;
-    let key: [u8; 32] = raw.try_into().ok()?;
-    Some(ChromiumKey::Gcm(key))
+    let mut raw = dpapi_unprotect(payload)?;
+    let key: Option<[u8; 32]> = raw.as_slice().try_into().ok();
+    zeroize_bytes(&mut raw);
+    key.map(ChromiumKey::Gcm)
 }
 
 #[cfg(windows)]
@@ -538,13 +552,15 @@ pub fn dpapi_unprotect(blob: &[u8]) -> Option<Vec<u8>> {
     let mut output = CRYPT_INTEGER_BLOB::default();
     // SAFETY: `input` points to valid read-only `blob` bytes for the duration of the synchronous
     // Win32 call; `CryptUnprotectData` allocates `output.pbData` with `LocalAlloc` on success,
-    // which we copy and unconditionally release via `LocalFree` below.
+    // which we copy, zeroize in place, and unconditionally release via `LocalFree` below.
     let ok = unsafe { CryptUnprotectData(&input, None, None, None, None, 0, &mut output) };
     if ok.is_err() || output.pbData.is_null() {
         return None;
     }
-    // SAFETY: `CryptUnprotectData` succeeded and returned `output.cbData` valid bytes at `pbData`.
-    let bytes = unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize) }.to_vec();
+    // SAFETY: `CryptUnprotectData` succeeded and returned `output.cbData` valid mutable bytes at `pbData`.
+    let out_slice = unsafe { std::slice::from_raw_parts_mut(output.pbData, output.cbData as usize) };
+    let bytes = out_slice.to_vec();
+    zeroize_bytes(out_slice);
     // SAFETY: `output.pbData` was allocated by `CryptUnprotectData` and is freed once here.
     let _ = unsafe { LocalFree(Some(HLOCAL(output.pbData.cast()))) };
     Some(bytes)
@@ -555,17 +571,16 @@ fn chromium_key(def: &Definition) -> Option<ChromiumKey> {
     use super::chromium::derive_cbc_key;
 
     let (service, account) = def.keychain?;
-    let password = security_framework::passwords::get_generic_password(service, account).ok()?;
-    let trimmed = trim_trailing_newlines(&password);
-    Some(ChromiumKey::Cbc {
-        v10: derive_cbc_key(trimmed, 1003),
-        v11: None,
-    })
+    let mut password = security_framework::passwords::get_generic_password(service, account).ok()?;
+    let trimmed_len = trim_trailing_newlines(&password).len();
+    let v10 = derive_cbc_key(&password[..trimmed_len], 1003);
+    zeroize_bytes(&mut password);
+    Some(ChromiumKey::Cbc { v10, v11: None })
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
 fn chromium_key(def: &Definition) -> Option<ChromiumKey> {
-    use std::process::Command;
+    use std::process::{Command, Stdio};
 
     use super::chromium::derive_cbc_key;
 
@@ -573,16 +588,23 @@ fn chromium_key(def: &Definition) -> Option<ChromiumKey> {
         .into_iter()
         .find(|p| Path::new(p).is_file());
     let v11 = tool.and_then(|bin| {
+        let bin_dir = Path::new(bin).parent()?;
         def.keyring.iter().find_map(|app| {
-            let out = Command::new(bin)
+            let mut out = Command::new(bin)
+                .current_dir(bin_dir)
+                .stdin(Stdio::null())
+                .stderr(Stdio::null())
                 .args(["lookup", "application", app])
                 .output()
                 .ok()?;
             if !out.status.success() {
+                zeroize_bytes(&mut out.stdout);
                 return None;
             }
-            let pw = trim_trailing_newlines(&out.stdout);
-            (!pw.is_empty()).then(|| derive_cbc_key(pw, 1))
+            let len = trim_trailing_newlines(&out.stdout).len();
+            let key = (len > 0).then(|| derive_cbc_key(&out.stdout[..len], 1));
+            zeroize_bytes(&mut out.stdout);
+            key
         })
     });
     Some(ChromiumKey::Cbc {

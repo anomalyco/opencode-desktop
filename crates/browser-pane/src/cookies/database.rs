@@ -1,13 +1,13 @@
 //! Private SQLite database snapshot helper for reading live browser cookie databases without
-//! acquiring locks or mutating the source browser's files (`profile/database.ts`), plus the
-//! startup persistence disk probe (`profile/probe.ts`).
+//! acquiring locks or mutating the source browser's files (`profile/database.ts`), plus bounded
+//! no-symlink file reading and the startup persistence disk probe (`profile/probe.ts`).
 
 use std::collections::HashSet;
-use std::fs;
-use std::io;
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use rusqlite::{Connection, OpenFlags};
@@ -15,6 +15,8 @@ use rusqlite::{Connection, OpenFlags};
 use super::{ImportFailure, PROBE_COOKIE_HOST, PROBE_COOKIE_NAME};
 
 const PREFIX: &str = "opencode-browser-import-";
+/// Hard upper bound per copied SQLite cookie database or WAL/journal sidecar (128 MiB).
+pub const MAX_COOKIE_DB_BYTES: u64 = 128 * 1024 * 1024;
 static NEXT_SNAP_ID: AtomicU64 = AtomicU64::new(1);
 
 /// Private scratch root where temporary SQLite copies live only for the duration of one read.
@@ -64,6 +66,61 @@ pub fn io_failure(err: &io::Error) -> ImportFailure {
     ImportFailure::Read
 }
 
+/// Opens a regular, non-symlink file read-only (with `O_NOFOLLOW | O_NONBLOCK` on Unix) and
+/// verifies the open handle's own metadata is a regular file within `max_bytes`.
+fn open_regular_nofollow(path: &Path, max_bytes: u64) -> Result<File, ImportFailure> {
+    let lmeta = fs::symlink_metadata(path).map_err(|e| io_failure(&e))?;
+    if lmeta.file_type().is_symlink() || !lmeta.is_file() || lmeta.len() > max_bytes {
+        return Err(ImportFailure::Read);
+    }
+    let mut opts = OpenOptions::new();
+    opts.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let file = opts.open(path).map_err(|e| io_failure(&e))?;
+    let fmeta = file.metadata().map_err(|e| io_failure(&e))?;
+    if !fmeta.is_file() || fmeta.len() > max_bytes {
+        return Err(ImportFailure::Read);
+    }
+    Ok(file)
+}
+
+/// Reads a regular, non-symlink file into memory, capped strictly at `max_bytes` on the open handle.
+pub fn read_regular_bounded(path: &Path, max_bytes: u64) -> Result<Vec<u8>, ImportFailure> {
+    let file = open_regular_nofollow(path, max_bytes)?;
+    let mut buf = Vec::new();
+    let limit = max_bytes.saturating_add(1);
+    file.take(limit)
+        .read_to_end(&mut buf)
+        .map_err(|e| io_failure(&e))?;
+    if (buf.len() as u64) > max_bytes {
+        return Err(ImportFailure::Read);
+    }
+    Ok(buf)
+}
+
+/// Copies a regular, non-symlink file into `dst` (created with mode `0o600` on Unix), capped at
+/// `max_bytes` directly on the open read handle.
+fn copy_regular_bounded(src: &Path, dst: &Path, max_bytes: u64) -> Result<(), ImportFailure> {
+    let mut reader = open_regular_nofollow(src, max_bytes)?.take(max_bytes.saturating_add(1));
+    let mut opts = OpenOptions::new();
+    opts.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let mut writer = opts.open(dst).map_err(|e| io_failure(&e))?;
+    let copied = io::copy(&mut reader, &mut writer).map_err(|e| io_failure(&e))?;
+    if copied > max_bytes {
+        return Err(ImportFailure::Read);
+    }
+    Ok(())
+}
+
 /// Copies `file` (and optional `-wal`, `-shm`, `-journal` sidecars) into a `0o700` private
 /// subdirectory of `scratch`, runs `read(&conn)` on the copy, and deletes the copy unconditionally.
 pub fn snapshot_database<T, F>(
@@ -103,18 +160,16 @@ where
     };
 
     create_private_dir(&dir).map_err(|e| io_failure(&e))?;
-    let base_name = file
-        .file_name()
-        .ok_or(ImportFailure::Read)?;
+    let base_name = file.file_name().ok_or(ImportFailure::Read)?;
     let copy = dir.join(base_name);
-    fs::copy(file, &copy).map_err(|e| io_failure(&e))?;
+    copy_regular_bounded(file, &copy, MAX_COOKIE_DB_BYTES)?;
 
     for suffix in ["-wal", "-shm", "-journal"] {
         let mut src = file.as_os_str().to_os_string();
         src.push(suffix);
         let mut dst = copy.as_os_str().to_os_string();
         dst.push(suffix);
-        fs::copy(PathBuf::from(src), PathBuf::from(dst)).ok();
+        copy_regular_bounded(&PathBuf::from(src), &PathBuf::from(dst), MAX_COOKIE_DB_BYTES).ok();
     }
 
     // Open read-write on our private copy so SQLite can replay any copied `-wal` frames cleanly.
@@ -126,7 +181,7 @@ where
     result
 }
 
-/// Sweeps any stale snapshot directories left behind by a crashed process.
+/// Sweeps any stale non-symlink snapshot directories left behind by a crashed process.
 pub fn sweep_snapshots(scratch: &SnapshotScratch) {
     let Ok(entries) = fs::read_dir(&scratch.directory) else {
         return;
@@ -142,7 +197,9 @@ pub fn sweep_snapshots(scratch: &SnapshotScratch) {
             .file_name()
             .to_str()
             .is_some_and(|n| n.starts_with(PREFIX));
-        if is_ours && !live.contains(&path) {
+        let real_dir = fs::symlink_metadata(&path)
+            .is_ok_and(|m| !m.file_type().is_symlink() && m.is_dir());
+        if is_ours && real_dir && !live.contains(&path) {
             remove_dir_retry(&path);
         }
     }

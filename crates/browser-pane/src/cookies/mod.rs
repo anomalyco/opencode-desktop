@@ -154,13 +154,11 @@ pub enum ProfileEvent {
 }
 
 /// Reads and parses an exported cookie file (Netscape `cookies.txt`, Chrome JSON array, or
-/// Playwright storage state), capped at `MAX_COOKIE_FILE_BYTES` (32 MiB) on regular files only.
+/// Playwright storage state), rejecting symlinks/non-regular files and capping reads at
+/// `MAX_COOKIE_FILE_BYTES` (32 MiB) directly on the open file handle (no metadata->read TOCTOU).
 #[cfg(feature = "engine")]
 pub fn read_cookie_file(path: &std::path::Path) -> Result<CookieRead, ImportFailure> {
-    let meta = std::fs::metadata(path).map_err(|_| ImportFailure::Read)?;
-    if !meta.is_file() || meta.len() > MAX_COOKIE_FILE_BYTES {
-        return Err(ImportFailure::Read);
-    }
-    let text = std::fs::read_to_string(path).map_err(|_| ImportFailure::Read)?;
+    let bytes = database::read_regular_bounded(path, MAX_COOKIE_FILE_BYTES)?;
+    let text = String::from_utf8(bytes).map_err(|_| ImportFailure::Format)?;
     format::parse_cookie_file(&text).ok_or(ImportFailure::Format)
 }
