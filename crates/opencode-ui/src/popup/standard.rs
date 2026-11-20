@@ -9,7 +9,7 @@ use crate::palette::Pal;
 
 use super::keys::key;
 use super::menu::{Entry, Menu, row_key};
-use super::state::{choose, choose_sub, focus_lit, hover, hover_sub, open_sub};
+use super::state::{choose, choose_sub, focus_lit, hover, hover_sub, moved, open_sub};
 use super::view::takes_focus;
 use super::{PopupHost, SubOpen};
 
@@ -37,11 +37,11 @@ pub(super) fn root<S: PopupHost + 'static>(p: &Pal, menu: &Menu, active: Option<
         let lit = active == Some(n) || sub.is_some_and(|o| o.at == n);
         match entry {
             Entry::Item(i) => item(p, &row_key(&i.id), &i.title, i.shortcut.as_deref(), i.enabled, lit)
-                .on_hover_change(move |s: &mut S, inside, tx: &mut Tx| enter(s, inside, 0, tx, |s| hover(s, n)))
+                .on_hover_change(move |s: &mut S, inside, tx: &mut Tx| enter(s, inside, 0, tx, |s, tx| hover(s, n, tx)))
                 .on_press_tx(move |s: &mut S, tx: &mut Tx| choose(s, n, tx)),
             Entry::Sub(sub) => item(p, &row_key(&sub.id), &sub.title, None, true, lit)
                 .child(icon(&CHEVRON, 16.0).key("chevron").color(p.standard.icon).mirror_in_rtl())
-                .on_hover_change(move |s: &mut S, inside, tx: &mut Tx| enter(s, inside, 0, tx, |s| hover(s, n)))
+                .on_hover_change(move |s: &mut S, inside, tx: &mut Tx| enter(s, inside, 0, tx, |s, tx| hover(s, n, tx)))
                 .on_press_tx(move |s: &mut S, tx: &mut Tx| open_sub(s, n, false, tx)),
             Entry::Separator => rule(p, n, hair),
             Entry::Group(title) => heading(p, n, title),
@@ -50,6 +50,7 @@ pub(super) fn root<S: PopupHost + 'static>(p: &Pal, menu: &Menu, active: Option<
     // It holds focus and takes the keys from there, as Kobalte's menus do (`menu-v2-content`).
     surface::<S>(p, "popup-menu", menu, hair)
         .w(menu.min_w)
+        .on_pointer_move_local(|s: &mut S, e: rune::PointerEvent, tx: &mut Tx| moved(s, [e.window_x, e.window_y], tx))
         .focusable(true)
         .tab_index(-1)
         .no_focus_ring()
@@ -61,7 +62,7 @@ pub(super) fn root<S: PopupHost + 'static>(p: &Pal, menu: &Menu, active: Option<
 pub(super) fn sub<S: PopupHost + 'static>(p: &Pal, menu: &Menu, active: Option<usize>, hair: f32) -> El {
     let rows = menu.entries.iter().enumerate().map(|(m, entry)| match entry {
         Entry::Item(i) => item(p, &row_key(&i.id), &i.title, i.shortcut.as_deref(), i.enabled, active == Some(m))
-            .on_hover_change(move |s: &mut S, inside, tx: &mut Tx| enter(s, inside, 1, tx, |s| hover_sub(s, m)))
+            .on_hover_change(move |s: &mut S, inside, tx: &mut Tx| enter(s, inside, 1, tx, |s, tx| hover_sub(s, m, tx)))
             .on_press_tx(move |s: &mut S, tx: &mut Tx| choose_sub(s, m, tx)),
         Entry::Separator => rule(p, m, hair),
         Entry::Group(title) => heading(p, m, title),
@@ -69,7 +70,7 @@ pub(super) fn sub<S: PopupHost + 'static>(p: &Pal, menu: &Menu, active: Option<u
         Entry::Sub(_) => el(),
     });
     let w = (2.0 * (PAD + hair) + menu.entries.iter().map(row_w).fold(0.0, f32::max)).max(SUB_MIN_W);
-    surface::<S>(p, "popup-submenu", menu, hair).w(w).children(rows.collect::<Vec<_>>())
+    surface::<S>(p, "popup-submenu", menu, hair).w(w).on_pointer_move_local(|s: &mut S, e: rune::PointerEvent, tx: &mut Tx| moved(s, [e.window_x, e.window_y], tx)).children(rows.collect::<Vec<_>>())
 }
 
 /// A row's width with nothing to squeeze it: its label, its shortcut 8 pt after, and its padding.
@@ -87,10 +88,10 @@ fn row_w(entry: &Entry) -> f32 {
 
 /// The pointer entering a row of the menu `level` deep lights it at once (`on_hover`'s commit
 /// would spring the fill), and focus moves onto it without a ring.
-fn enter<S: PopupHost + 'static>(s: &mut S, inside: bool, level: usize, tx: &mut Tx, f: impl FnOnce(&mut S)) {
+fn enter<S: PopupHost + 'static>(s: &mut S, inside: bool, level: usize, tx: &mut Tx, f: impl FnOnce(&mut S, &mut Tx)) {
     if inside {
         tx.instant();
-        f(s);
+        f(s, tx);
         focus_lit(s, level, false, tx);
     }
 }
