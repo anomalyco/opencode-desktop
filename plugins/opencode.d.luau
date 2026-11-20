@@ -120,6 +120,9 @@ export type UiAlign = "start" | "center" | "end" | "stretch"
 --- How a stack places its children along its axis.
 export type UiJustify = "start" | "center" | "end" | "between"
 
+--- How a `ui.frame` container arranges its children.
+export type UiDirection = "col" | "row" | "box"
+
 --- A text weight.
 export type FontWeight = "regular" | "medium" | "semibold" | "bold"
 
@@ -570,6 +573,130 @@ export type UiBoxProps = {
     revealOnHover: boolean?,
     --- The default text and icon color for descendants.
     color: Color?,
+}
+
+--- `ui.frame` props: a layout container whose border takes layout space snapped to device pixels (`box-sizing: border-box`).
+export type UiFrameProps = {
+    --- Identity among siblings across renders, and the anchor key for popovers and menus.
+    key: string?,
+    --- Width.
+    w: UiSize?,
+    --- Height.
+    h: UiSize?,
+    --- Minimum width.
+    minW: number?,
+    --- Minimum height.
+    minH: number?,
+    --- Maximum width.
+    maxW: number?,
+    --- Maximum height.
+    maxH: number?,
+    --- Share of a stack's free space.
+    grow: number?,
+    --- May shrink below its content size.
+    shrink: boolean?,
+    --- Padding on every side.
+    pad: number?,
+    --- Left and right padding.
+    px: number?,
+    --- Top and bottom padding.
+    py: number?,
+    --- Top padding.
+    pt: number?,
+    --- Right padding.
+    pr: number?,
+    --- Bottom padding.
+    pb: number?,
+    --- Left padding.
+    pl: number?,
+    --- Margin on every side.
+    m: number?,
+    --- Left and right margin.
+    mx: number?,
+    --- Top and bottom margin.
+    my: number?,
+    --- Top margin.
+    mt: number?,
+    --- Right margin.
+    mr: number?,
+    --- Bottom margin.
+    mb: number?,
+    --- Left margin.
+    ml: number?,
+    --- Takes the node out of flow, at these offsets from its parent's edges.
+    pin: UiPin?,
+    --- 0 to 1.
+    opacity: number?,
+    --- The accessibility role.
+    role: Role?,
+    --- The accessible name.
+    label: string?,
+    --- A tooltip.
+    help: string?,
+    --- Where the tooltip shows. Defaults to below.
+    helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
+    --- Space between children.
+    gap: number?,
+    --- How children sit across the axis.
+    align: UiAlign?,
+    --- How children sit along the axis.
+    justify: UiJustify?,
+    --- Centers children on both axes.
+    center: boolean?,
+    --- Children wrap onto more lines.
+    wrap: boolean?,
+    --- Background.
+    fill: Color?,
+    --- Background under the pointer.
+    hover: Color?,
+    --- Background while pressed.
+    press: Color?,
+    --- Draws the `surface-selected` fill and reports the selected state to assistive technology.
+    selected: boolean?,
+    --- Border color.
+    border: Color?,
+    --- Border width. Defaults to 1 when `border` is set.
+    borderWidth: number?,
+    --- Corner radius.
+    radius: number?,
+    --- Per-corner radii: top-left, top-right, bottom-right, bottom-left.
+    corners: { number }?,
+    --- A shadow from the app's elevation scale.
+    shadow: Elevation?,
+    --- Clips children to the box.
+    clip: boolean?,
+    --- Scrolls vertical overflow.
+    scrollY: boolean?,
+    --- Scrolls horizontal overflow.
+    scrollX: boolean?,
+    --- Takes keyboard focus.
+    focusable: boolean?,
+    --- Takes no presses.
+    disabled: boolean?,
+    --- Runs on a press.
+    onPress: UiHandler?,
+    --- Its `onPress` opens a menu, as Kobalte's `Menu.Trigger` does: a mouse runs it as the button goes down, and that press's release runs nothing. A key, a screen reader's Invoke or a tap run it on the click. Contract 1.1; a 1.0 host ignores it with one warning and opens on the click.
+    menuTrigger: boolean?,
+    --- Runs on a middle click, as a browser's `auxclick`: a tab closes, a row opens in the background. A `middle-press` event, with the modifier keys.
+    onMiddlePress: UiHandler?,
+    --- Runs as the pointer enters and leaves.
+    onHover: UiHandler?,
+    --- How hover and press fills change.
+    hoverTransition: HoverTransition?,
+    --- Starts a hover group: descendants with `hoverGroupColor` or `revealOnHover` react while this box is hovered.
+    hoverGroup: boolean?,
+    --- The text or icon color while the nearest hover group is hovered.
+    hoverGroupColor: Color?,
+    --- Shows only while the nearest hover group is hovered or focused.
+    revealOnHover: boolean?,
+    --- The default text and icon color for descendants.
+    color: Color?,
+    --- Stack direction: `"col"` (default), `"row"` or `"box"`.
+    direction: UiDirection?,
+    --- Per-side border widths in points: `{ top, right, bottom, left }`. Overrides `borderWidth`.
+    borderSides: { number }?,
 }
 
 --- Text styling: `ui.text` and `ui.shimmer`.
@@ -5502,6 +5629,8 @@ export type UiLibrary = {
     row: ((props: UiBoxProps, children: { UiNode }?) -> UiNode) & ((style: UiBoxProps, props: UiBoxProps?, children: { UiNode }?) -> UiNode),
     --- A vertical stack.
     col: ((props: UiBoxProps, children: { UiNode }?) -> UiNode) & ((style: UiBoxProps, props: UiBoxProps?, children: { UiNode }?) -> UiNode),
+    --- A layout container whose border takes room in layout, snapped to device pixels at every display scale as a CSS `border-box` border does.
+    frame: ((props: UiFrameProps, children: { UiNode }?) -> UiNode) & ((style: UiFrameProps, props: UiFrameProps?, children: { UiNode }?) -> UiNode),
     --- Flexible space in a stack.
     spacer: (props: UiSpacerProps?) -> UiNode,
     --- A 1 px rule, laid out as a 1px CSS border is: one device pixel up to 1.5x, two at 2x. A box whose height counts its border holds it beside its content.

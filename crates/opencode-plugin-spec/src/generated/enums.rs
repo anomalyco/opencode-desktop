@@ -270,6 +270,18 @@ string_enum! {
 }
 
 string_enum! {
+    /// How a `ui.frame` container arranges its children.
+    pub enum UiDirection {
+        /// A vertical stack. The default.
+        Col = "col",
+        /// A horizontal stack.
+        Row = "row",
+        /// No axis: children stack on top of each other.
+        Box = "box",
+    }
+}
+
+string_enum! {
     /// A text weight.
     pub enum FontWeight {
         /// 400.

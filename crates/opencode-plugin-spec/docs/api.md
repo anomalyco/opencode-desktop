@@ -535,6 +535,7 @@ The plugin's own messages in the interface language, and numbers, dates and list
 | `ui.box((props: UiBoxProps, children: { UiNode }?) -> UiNode) & ((style: UiBoxProps, props: UiBoxProps?, children: { UiNode }?) -> UiNode)` | layout | [`UiBoxProps`](#uiboxprops) | A container with no direction of its own: children stack on top of each other. |
 | `ui.row((props: UiBoxProps, children: { UiNode }?) -> UiNode) & ((style: UiBoxProps, props: UiBoxProps?, children: { UiNode }?) -> UiNode)` | layout | [`UiBoxProps`](#uiboxprops) | A horizontal stack. |
 | `ui.col((props: UiBoxProps, children: { UiNode }?) -> UiNode) & ((style: UiBoxProps, props: UiBoxProps?, children: { UiNode }?) -> UiNode)` | layout | [`UiBoxProps`](#uiboxprops) | A vertical stack. |
+| `ui.frame((props: UiFrameProps, children: { UiNode }?) -> UiNode) & ((style: UiFrameProps, props: UiFrameProps?, children: { UiNode }?) -> UiNode)` | layout | [`UiFrameProps`](#uiframeprops) | A layout container whose border takes room in layout, snapped to device pixels at every display scale as a CSS `border-box` border does. |
 | `ui.spacer(props: UiSpacerProps?) -> UiNode` | layout | [`UiSpacerProps`](#uispacerprops) | Flexible space in a stack. |
 | `ui.divider(props: UiDividerProps?) -> UiNode` | layout | [`UiDividerProps`](#uidividerprops) | A 1 px rule, laid out as a 1px CSS border is: one device pixel up to 1.5x, two at 2x. A box whose height counts its border holds it beside its content. |
 | `ui.text((content: string, props: UiTextProps?, ...string \| number) -> UiNode) & ((content: string, style: UiTextProps, props: UiTextProps, ...string \| number) -> UiNode)` | content | [`UiTextProps`](#uitextprops) | Text. Values after the props fill `{1}`, `{2}`... in `content`, written straight into the text: `ui.text("{1} / {2}", VALUE, read, write)`. Other braces stay as they are. |
@@ -864,6 +865,16 @@ How a stack places its children along its axis.
 | `"center"` | Packed in the center. |
 | `"end"` | Packed at the end. |
 | `"between"` | The first and last child at the edges, equal space between. |
+
+### UiDirection
+
+How a `ui.frame` container arranges its children.
+
+| Value | Meaning |
+|---|---|
+| `"col"` | A vertical stack. The default. |
+| `"row"` | A horizontal stack. |
+| `"box"` | No axis: children stack on top of each other. |
 
 ### FontWeight
 
@@ -1518,6 +1529,17 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `hoverGroupColor` | `Color?` | The text or icon color while the nearest hover group is hovered. |
 | `revealOnHover` | `boolean?` | Shows only while the nearest hover group is hovered or focused. |
 | `color` | `Color?` | The default text and icon color for descendants. |
+
+### UiFrameProps
+
+`ui.frame` props: a layout container whose border takes layout space snapped to device pixels (`box-sizing: border-box`).
+
+Also takes every field of [`UiBoxProps`](#uiboxprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `direction` | `UiDirection?` | Stack direction: `"col"` (default), `"row"` or `"box"`. |
+| `borderSides` | `{ number }?` | Per-side border widths in points: `{ top, right, bottom, left }`. Overrides `borderWidth`. |
 
 ### UiTextProps
 

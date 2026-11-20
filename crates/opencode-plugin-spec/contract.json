@@ -179,6 +179,11 @@
       { "value": "end", "doc": "Packed at the end." },
       { "value": "between", "doc": "The first and last child at the edges, equal space between." }
     ] },
+    { "name": "UiDirection", "rust": true, "doc": "How a `ui.frame` container arranges its children.", "values": [
+      { "value": "col", "doc": "A vertical stack. The default." },
+      { "value": "row", "doc": "A horizontal stack." },
+      { "value": "box", "doc": "No axis: children stack on top of each other." }
+    ] },
     { "name": "FontWeight", "rust": true, "doc": "A text weight.", "values": [
       { "value": "regular", "doc": "400." },
       { "value": "medium", "doc": "500." },
@@ -548,6 +553,10 @@
       { "name": "hoverGroupColor", "type": "Color?", "doc": "The text or icon color while the nearest hover group is hovered." },
       { "name": "revealOnHover", "type": "boolean?", "doc": "Shows only while the nearest hover group is hovered or focused." },
       { "name": "color", "type": "Color?", "doc": "The default text and icon color for descendants." }
+    ] },
+    { "name": "UiFrameProps", "kind": "record", "extends": ["UiBoxProps"], "doc": "`ui.frame` props: a layout container whose border takes layout space snapped to device pixels (`box-sizing: border-box`).", "fields": [
+      { "name": "direction", "type": "UiDirection?", "doc": "Stack direction: `\"col\"` (default), `\"row\"` or `\"box\"`." },
+      { "name": "borderSides", "type": "{ number }?", "doc": "Per-side border widths in points: `{ top, right, bottom, left }`. Overrides `borderWidth`." }
     ] },
     { "name": "UiTextProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "Text styling: `ui.text` and `ui.shimmer`.", "fields": [
       { "name": "size", "type": "number?", "doc": "Font size in points. Defaults to 13." },
@@ -1906,6 +1915,7 @@
     { "name": "box", "category": "layout", "sig": "((props: UiBoxProps, children: { UiNode }?) -> UiNode) & ((style: UiBoxProps, props: UiBoxProps?, children: { UiNode }?) -> UiNode)", "props": "UiBoxProps", "doc": "A container with no direction of its own: children stack on top of each other." },
     { "name": "row", "category": "layout", "sig": "((props: UiBoxProps, children: { UiNode }?) -> UiNode) & ((style: UiBoxProps, props: UiBoxProps?, children: { UiNode }?) -> UiNode)", "props": "UiBoxProps", "doc": "A horizontal stack." },
     { "name": "col", "category": "layout", "sig": "((props: UiBoxProps, children: { UiNode }?) -> UiNode) & ((style: UiBoxProps, props: UiBoxProps?, children: { UiNode }?) -> UiNode)", "props": "UiBoxProps", "doc": "A vertical stack." },
+    { "name": "frame", "category": "layout", "sig": "((props: UiFrameProps, children: { UiNode }?) -> UiNode) & ((style: UiFrameProps, props: UiFrameProps?, children: { UiNode }?) -> UiNode)", "props": "UiFrameProps", "doc": "A layout container whose border takes room in layout, snapped to device pixels at every display scale as a CSS `border-box` border does." },
     { "name": "spacer", "category": "layout", "sig": "(props: UiSpacerProps?) -> UiNode", "props": "UiSpacerProps", "doc": "Flexible space in a stack." },
     { "name": "divider", "category": "layout", "sig": "(props: UiDividerProps?) -> UiNode", "props": "UiDividerProps", "doc": "A 1 px rule, laid out as a 1px CSS border is: one device pixel up to 1.5x, two at 2x. A box whose height counts its border holds it beside its content." },
     { "name": "text", "category": "content", "sig": "((content: string, props: UiTextProps?, ...string | number) -> UiNode) & ((content: string, style: UiTextProps, props: UiTextProps, ...string | number) -> UiNode)", "props": "UiTextProps", "doc": "Text. Values after the props fill `{1}`, `{2}`... in `content`, written straight into the text: `ui.text(\"{1} / {2}\", VALUE, read, write)`. Other braces stay as they are." },

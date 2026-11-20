@@ -1,5 +1,5 @@
 //! `App`-independent contract `ui.*` host node builders over `opencode-ui` and `rune-kit`:
-//! `divider`, `icon`, `loader`, `metric`, `keybind`, `button`, `iconButton`, `radio`,
+//! `frame`, `divider`, `icon`, `loader`, `metric`, `keybind`, `button`, `iconButton`, `radio`,
 //! `serverIndicator`, `dialogHeader`, `progressCircle`, and `segmented`.
 
 use std::cell::RefCell;
@@ -49,6 +49,7 @@ pub fn base_nodes(
     catalog_chord: fn(&str) -> Option<Chord>,
 ) -> Vec<HostNode> {
     vec![
+        HostNode::new("frame", frame),
         HostNode::new("divider", divider),
         HostNode::new("icon", icon),
         HostNode::new("metric", metric),
@@ -97,6 +98,37 @@ pub fn dir(a: &NodeArgs) -> Option<Direction> {
         "auto" => Some(Direction::Auto),
         _ => None,
     }
+}
+
+/// A layout container whose border takes room in layout (`El::border_layout`), snapped to whole
+/// device pixels at every scale the way CSS `box-sizing: border-box` does. Standard `UiBoxProps`
+/// apply automatically via `rune-luau`'s host-node prop pass.
+fn frame(a: &mut NodeArgs) -> Result<El, String> {
+    let mut out = match a.string("direction") {
+        Some("row") => row(),
+        Some("box") => el(),
+        Some("col") | None => col(),
+        Some(other) => return Err(format!("direction must be col, row or box, got {other:?}")),
+    };
+    out = out.border_layout();
+    if let Some(Data::List(sides)) = a.data("borderSides") {
+        let _ = a.get("borderWidth");
+        let w = |i: usize| match sides.get(i) {
+            Some(Data::Number(n)) => *n as f32,
+            Some(Data::Integer(n)) => *n as f32,
+            _ => 0.0,
+        };
+        let c = a.color("border").unwrap_or_else(|| p(a).border);
+        out = out.border_sides([w(0), w(1), w(2), w(3)], c);
+    }
+    out = out.children(std::mem::take(&mut a.children));
+    if a.flag("disabled") {
+        out = out.disabled(true);
+    } else {
+        out = a.on_press(out, "onPress");
+    }
+    out = a.on_hover(out, "onHover");
+    Ok(out)
 }
 
 /// A 1 px rule laid out as Chromium lays out a 1px CSS border: one device pixel at 1x, 1.25x and
