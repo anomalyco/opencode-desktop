@@ -52,6 +52,7 @@ pub(crate) struct Link {
     /// held them for 20-650 ms); stored into `Connected::early` on attach so that turn doesn't
     /// send them again and corrects what changed meanwhile.
     pub opens: Vec<(u64, HostMsg)>,
+    pub profile_permissions: Vec<crate::prompts::SiteDecision>,
     pub preview_chunk_budget: Arc<crate::preview::PreviewChunkBudget>,
 }
 
@@ -141,6 +142,7 @@ pub(crate) fn spawn_and_attach(engine: &Installed, sock: &Path, profile: &Path, 
     if !link.current() {
         return;
     }
+    crate::prompts::scrub_chromium_preferences_for_older_engine(profile, &link.profile_permissions);
     let mut child = match engine_command(&engine.bin, sock, profile).spawn() {
         Ok(child) => child,
         Err(e) => {

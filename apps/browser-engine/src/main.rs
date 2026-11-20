@@ -20,6 +20,7 @@ mod dmabuf_frames;
 mod engine;
 mod extensions;
 mod output;
+mod permissions;
 mod handlers;
 mod keys;
 #[cfg(target_os = "linux")]

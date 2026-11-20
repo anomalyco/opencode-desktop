@@ -3,14 +3,49 @@
 use rune::time::Instant;
 
 use super::{
-    AuthGate, PermissionDecision, PermissionStore, PopupGate, PopupRequest, SitePermissions,
-    SiteSetting, TabDriver,
+    AuthGate, PermissionDecision, PermissionScope, PermissionStore, PopupGate, PopupRequest,
+    SitePermissions, SiteSetting, TabDriver,
 };
-use crate::protocol::{EngineMsg, HostMsg};
+use crate::protocol::{EngineMsg, HostMsg, SitePermissionEntry};
 
 impl crate::BrowserHost {
     pub fn remember_site_permissions(&mut self, store: PermissionStore) {
-        self.site_permissions = SitePermissions::remember(store);
+        let changed = self.site_permissions.reload_profile(store);
+        // Clear any revoked/changed visit cache on Default tabs so revocations take effect immediately.
+        if !changed.is_empty() {
+            for t in &mut self.tabs {
+                if t.context.is_default() {
+                    for pair in &changed {
+                        t.prompts.visit_permissions.remove(pair);
+                    }
+                }
+            }
+        }
+        self.sync_site_permissions();
+    }
+
+    pub fn engine_permission_sync(&self) -> bool {
+        self.caps.permission_sync()
+    }
+
+    /// Syncs Chromium's `Default` `HostContentSettingsMap` to match Rune's persisted
+    /// `rune.sitePermissions` (`Default` `"Always allow"` / `"Never allow"` decisions).
+    pub(crate) fn sync_site_permissions(&mut self) {
+        if !self.is_connected() || !self.caps.permission_sync() {
+            return;
+        }
+        let _ = self.site_permissions.drain_pending_resets();
+        let entries: Vec<SitePermissionEntry> = self
+            .site_permissions
+            .list()
+            .iter()
+            .map(|d| SitePermissionEntry {
+                origin: d.origin.clone(),
+                kind: d.permission,
+                allow: d.setting == SiteSetting::Allow,
+            })
+            .collect();
+        self.send(HostMsg::SyncSitePermissions { entries });
     }
 
     pub fn site_permissions(&self) -> &SitePermissions {
@@ -95,24 +130,27 @@ impl crate::BrowserHost {
         let now = Instant::now();
         let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) else { return false };
         let Some((item, ids)) = t.prompts.permission.take_active(id, now) else { return false };
+        let scope = PermissionScope::from_context(&t.context);
         let origin = item.request.origin;
         let kinds = item.request.kinds;
         let allow = matches!(decision, PermissionDecision::AllowOnce | PermissionDecision::AllowAlways);
-        let isolated_or_non_web = t.preview.is_some()
-            || t.context.is_isolated()
-            || crate::policy::destination_origin(&origin).is_none();
-        let can_persist = !item.agent_driven && !isolated_or_non_web;
-        // Agent-driven and isolated/preview tabs never persist permissions into global `sitePermissions`.
+        let can_keep = !item.agent_driven
+            && !matches!(scope, PermissionScope::VisitOnly)
+            && t.preview.is_none()
+            && crate::policy::destination_origin(&origin).is_some();
+        let permanent_block = matches!(decision, PermissionDecision::BlockAlways) && can_keep;
+        // Agent-driven and isolated/preview tabs never persist permissions into global `sitePermissions`,
+        // and an allow on an agent-driven tab applies only once (`page-prompts.ts:503`).
         if !(item.agent_driven && allow) {
             match decision {
-                PermissionDecision::AllowAlways if can_persist => {
+                PermissionDecision::AllowAlways if can_keep => {
                     for kind in kinds {
-                        self.site_permissions.set(origin.clone(), kind, SiteSetting::Allow);
+                        self.site_permissions.set_scoped(&scope, origin.clone(), kind, SiteSetting::Allow);
                     }
                 }
-                PermissionDecision::BlockAlways if can_persist => {
+                PermissionDecision::BlockAlways if can_keep => {
                     for kind in kinds {
-                        self.site_permissions.set(origin.clone(), kind, SiteSetting::Block);
+                        self.site_permissions.set_scoped(&scope, origin.clone(), kind, SiteSetting::Block);
                     }
                 }
                 PermissionDecision::AllowOnce | PermissionDecision::AllowAlways => {
@@ -127,8 +165,13 @@ impl crate::BrowserHost {
                 }
             }
         }
+        // Use `CEF_PERMISSION_RESULT_DISMISS` for non-permanent denies (`BlockOnce`, agent tabs,
+        // visit-only contexts) so Chromium does not permanently block the origin.
+        let dismiss = !allow && !permanent_block;
+        let persist = can_keep
+            && matches!(decision, PermissionDecision::AllowAlways | PermissionDecision::BlockAlways);
         for req_id in ids {
-            self.send(HostMsg::AnswerPermission { tab_id, id: req_id, allow });
+            self.send(HostMsg::AnswerPermission { tab_id, id: req_id, allow, dismiss, persist });
         }
         true
     }
@@ -202,7 +245,7 @@ impl crate::BrowserHost {
             changed |= t.prompts.popup.tick(now);
         }
         for (tab_id, id) in expired {
-            self.send(HostMsg::AnswerPermission { tab_id, id, allow: false });
+            self.send(HostMsg::AnswerPermission { tab_id, id, allow: false, dismiss: true, persist: false });
         }
         let next = self.tabs.iter().filter_map(|t| t.prompts.wake_at()).min();
         (changed, next)
@@ -237,24 +280,24 @@ impl crate::BrowserHost {
                 let id = request.id;
                 let auto = if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
                     if t.preview.is_some() {
-                        Some(false)
+                        Some((false, true, false))
                     } else {
                         let agent = t.prompts.agent_driven;
-                        let empty = SitePermissions::default();
-                        let saved = if t.context.is_isolated() { &empty } else { &self.site_permissions };
+                        let scope = PermissionScope::from_context(&t.context);
                         t.prompts.permission.evaluate(
                             request,
                             agent,
-                            saved,
+                            &scope,
+                            &self.site_permissions,
                             &t.prompts.visit_permissions,
                             now,
                         )
                     }
                 } else {
-                    Some(false)
+                    Some((false, true, false))
                 };
-                if let Some(allow) = auto {
-                    self.send(HostMsg::AnswerPermission { tab_id, id, allow });
+                if let Some((allow, dismiss, persist)) = auto {
+                    self.send(HostMsg::AnswerPermission { tab_id, id, allow, dismiss, persist });
                     false
                 } else {
                     true
