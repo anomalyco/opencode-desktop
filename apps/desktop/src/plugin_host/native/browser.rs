@@ -13,14 +13,14 @@ use rune::time::Instant;
 
 #[cfg(not(target_arch = "wasm32"))]
 use browser_pane::EngineStatus;
-use mlua::{Lua, Table, Value};
 #[cfg(not(target_arch = "wasm32"))]
-use mlua::{Function, MultiValue};
-use rune::Tx;
+use mlua::{Function, Lua, MultiValue, Table, Value};
 #[cfg(not(target_arch = "wasm32"))]
-use rune::{El, Ime, col};
+use rune::{El, Ime, Tx, col};
 #[cfg(not(target_arch = "wasm32"))]
 use rune_luau::{Completer, Data, Host, NodeArgs};
+mod composer;
+pub use composer::composer;
 #[cfg(not(target_arch = "wasm32"))]
 mod scope;
 #[cfg(not(target_arch = "wasm32"))]
@@ -30,13 +30,15 @@ mod web;
 #[cfg(target_arch = "wasm32")]
 pub use web::{asyncs, build, ime, pages, version, view};
 
-use super::super::cx::{self, Dep};
-use super::super::services::{lazy_signals, method, with_app};
 #[cfg(not(target_arch = "wasm32"))]
-use super::super::services::{json_to_data, map};
+use super::super::cx::{self, Dep};
+#[cfg(not(target_arch = "wasm32"))]
+use super::super::services::{json_to_data, lazy_signals, map, method, with_app};
+#[cfg(not(target_arch = "wasm32"))]
 use super::super::vm::Vmx;
 #[cfg(not(target_arch = "wasm32"))]
 use super::{handle_field, object, p};
+#[cfg(not(target_arch = "wasm32"))]
 use crate::App;
 
 /// How long a DevTools call may take before it fails.
@@ -203,61 +205,6 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     lazy_signals(lua, vmx, t, "Browser", &["Changed", "Picked"])
 }
 
-/// The `Composer` service.
-pub fn composer(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
-    method(lua, t, "InsertPill", |_, (id, label): (String, String)| {
-        with_app("Composer:InsertPill", |app| {
-            app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
-                tx.instant();
-                if !s.composer.text.is_empty() && !s.composer.text.ends_with(char::is_whitespace) {
-                    s.composer.insert(" ");
-                }
-                s.composer.insert_pill(id, &label);
-                s.composer.insert(" ");
-                s.composer.focused = true;
-                s.kernel.slots.get_mut(&crate::panels::SIDE).focus.blur();
-                super::super::blur_fields(s);
-            }));
-            Ok(())
-        })
-    })?;
-    method(lua, t, "Active", |_, ()| {
-        cx::read(Dep::Composer);
-        with_app("Composer:Active", |app| Ok(app.has_composer()))
-    })?;
-    method(lua, t, "Directory", |_, ()| {
-        cx::read(Dep::Composer);
-        with_app("Composer:Directory", |app| Ok(app.composer_directory()))
-    })?;
-    method(lua, t, "Model", |lua, ()| {
-        cx::read(Dep::Composer);
-        with_app("Composer:Model", |app| {
-            use crate::pickers::PickerHost as _;
-            let selection = app.selection();
-            let found = app
-                .pickers()
-                .models
-                .iter()
-                .find(|m| m.provider == selection.model.provider && m.id == selection.model.id);
-            match found {
-                Some(m) => {
-                    let out = lua.create_table_with_capacity(0, 3)?;
-                    out.raw_set("providerId", m.provider.as_str())?;
-                    out.raw_set("modelId", m.id.as_str())?;
-                    out.raw_set("name", m.name.as_str())?;
-                    Ok(Value::Table(out))
-                }
-                None => Ok(Value::Nil),
-            }
-        })
-    })?;
-    method(lua, t, "Picker", |_, ()| {
-        cx::read(Dep::Composer);
-        with_app("Composer:Picker", |app| Ok(app.composer_ext.pickers.open().map(|k| k.key().to_owned())))
-    })?;
-    lazy_signals(lua, vmx, t, "Composer", &["PickerChanged"])
-}
-
 /// The host's async functions: `Browser:OpenAsync` and `BrowserTab`'s async methods.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn asyncs(host: &Host<'_>, t: &Table) -> mlua::Result<()> {
@@ -350,6 +297,9 @@ fn open(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
             tx.instant();
             let url = if spec.url.trim().is_empty() { "about:blank" } else { spec.url.as_str() };
             let id = s.open_new_browser_tab_for_session(sid.as_deref(), url, None, spec.background != Some(true));
+            if scope.tool_sid.is_some() {
+                s.workspace_panes.browser.host.set_agent_driven(id, true);
+            }
             done.complete(Data::String(id.to_string()));
         }));
         Ok(())
@@ -378,9 +328,16 @@ fn devtools(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
             if !s.workspace_panes.browser.host.has_live_sidecar() {
                 return done.complete(failed(not_running(&s.workspace_panes.browser.host.status())));
             }
+            if scope.tool_sid.is_some() {
+                s.workspace_panes.browser.host.set_agent_driven(id, true);
+            }
+            let is_dialog = cdp == "Page.handleJavaScriptDialog";
+            if !is_dialog && s.workspace_panes.browser.host.tab(id).is_some_and(|t| t.prompts.dialog.open().is_some()) {
+                return done.complete(failed(format!("[browser.dialog_open] A JavaScript dialog is open in tab {id}. Answer or dismiss the dialog before continuing.")));
+            }
             match s.workspace_panes.browser.host.send_cdp(id, cdp, params, target) {
                 Ok(request) => {
-                    s.workspace_panes.browser.devtools.insert(request, (done, Instant::now() + DEVTOOLS_TIMEOUT));
+                    s.workspace_panes.browser.devtools.insert(request, crate::surfaces::browser::PendingDevtools { done, deadline: Instant::now() + DEVTOOLS_TIMEOUT, tab_id: id, is_dialog });
                 }
                 Err(err) => done.complete(failed(err)),
             }
@@ -407,7 +364,7 @@ fn site_cookies(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
             }
             match s.workspace_panes.browser.host.site_cookies(id) {
                 Ok(request) => {
-                    s.workspace_panes.browser.devtools.insert(request, (done, Instant::now() + DEVTOOLS_TIMEOUT));
+                    s.workspace_panes.browser.devtools.insert(request, crate::surfaces::browser::PendingDevtools { done, deadline: Instant::now() + DEVTOOLS_TIMEOUT, tab_id: id, is_dialog: false });
                 }
                 Err(err) => done.complete(failed(err)),
             }
@@ -434,7 +391,7 @@ fn clear_site(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
             }
             match s.workspace_panes.browser.host.clear_site(id) {
                 Ok(request) => {
-                    s.workspace_panes.browser.devtools.insert(request, (done, Instant::now() + DEVTOOLS_TIMEOUT));
+                    s.workspace_panes.browser.devtools.insert(request, crate::surfaces::browser::PendingDevtools { done, deadline: Instant::now() + DEVTOOLS_TIMEOUT, tab_id: id, is_dialog: false });
                 }
                 Err(err) => done.complete(failed(err)),
             }
@@ -569,17 +526,21 @@ fn tab_methods(lua: &Lua) -> mlua::Result<Table> {
     viewport::methods(lua, &m)?;
     m.raw_set(
         "Navigate",
-        lua.create_function(|lua, (this, url): (Table, String)| later(lua, &this, "BrowserTab:Navigate", move |s, id, _| s.navigate_browser_tab(id, &url)))?,
+        lua.create_function(|lua, (this, url): (Table, String)| {
+            let agent = scope::TabScope::capture(lua).tool_sid.is_some();
+            later(lua, &this, "BrowserTab:Navigate", move |s, id, _| {
+                if agent { s.workspace_panes.browser.host.set_agent_driven(id, true); }
+                s.navigate_browser_tab(id, &url);
+            })
+        })?,
     )?;
     for name in ["Back", "Forward", "Reload", "Stop"] {
         m.raw_set(
             name,
             lua.create_function(move |lua, this: Table| {
                 later(lua, &this, "BrowserTab", move |s, id, _| {
-                    if name != "Stop" {
-                        s.workspace_panes.browser.host.clear_refusal(id);
-                    }
-                    let host = &s.workspace_panes.browser.host;
+                    if name != "Stop" { s.workspace_panes.browser.host.clear_refusal(id); }
+                    let host = &mut s.workspace_panes.browser.host;
                     match name {
                         "Back" => host.back(id),
                         "Forward" => host.forward(id),
@@ -695,6 +656,7 @@ pub fn version(app: &App) -> u64 {
     for t in app.workspace_panes.browser.host.tabs() {
         if let Some(d) = &t.device { (&d.preset, d.width, d.height, d.scale.map(f32::to_bits)).hash(&mut h); }
         (t.id, &t.url, &t.title, t.loading, t.can_go_back, t.can_go_forward, t.zoom.to_bits(), t.inspecting, &t.load_error, &t.refusal, t.rejected).hash(&mut h);
+        t.prompts.hash_state(&mut h);
         // A download's step or end: `BrowserTab:Files` reads them.
         t.files.iter().for_each(|f| (&f.id, f.bytes, f.state as u8, &f.error).hash(&mut h));
     }
@@ -751,15 +713,16 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
         let answer = match app.workspace_panes.browser.host.take_cdp_response(request) {
             Some(Ok(v)) => map([("result", json_to_data(&v))]),
             Some(Err(e)) => map([("error", Data::String(e["message"].as_str().map(str::to_owned).unwrap_or_else(|| e.to_string())))]),
-            None if app.workspace_panes.browser.devtools.get(&request).is_some_and(|(_, at)| *at <= now) => map([("error", Data::String("Browser command timed out".into()))]),
+            None if app.workspace_panes.browser.devtools.get(&request).is_some_and(|p| p.deadline <= now) => map([("error", Data::String("Browser command timed out".into()))]),
             None => continue,
         };
-        if let Some((done, _)) = app.workspace_panes.browser.devtools.remove(&request) {
-            done.complete(answer);
+        if let Some(pending) = app.workspace_panes.browser.devtools.remove(&request) {
+            pending.done.complete(answer);
             changed = true;
         }
     }
-    if let Some(next) = app.workspace_panes.browser.devtools.values().map(|(_, at)| *at).min() {
+    changed |= crate::surfaces::browser::prompts::poll(app, tx, now);
+    if let Some(next) = app.workspace_panes.browser.devtools.values().map(|p| p.deadline).min() {
         tx.wake_after(next.saturating_duration_since(now).max(Duration::from_millis(25)));
     }
     let picks: Vec<_> = if app.workspace_panes.browser.host.has_picked() { app.workspace_panes.browser.host.drain_picked_elements().collect() } else { Vec::new() };
@@ -775,7 +738,11 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
 /// IME for the page that has the keyboard.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn ime(app: &mut App, ime: &Ime) -> bool {
-    if !app.side_open() || app.composer.focused || super::super::field_focused(app) || app.active_browser_tab_id().is_none() {
+    let Some(id) = app.active_browser_tab_id() else { return false };
+    if !app.side_open() || app.composer.focused || super::super::field_focused(app) {
+        return false;
+    }
+    if app.workspace_panes.browser.host.tab(id).is_some_and(|t| t.prompts.dialog.open().is_some() || t.prompts.auth.active().is_some()) {
         return false;
     }
     app.workspace_panes.browser.host.ime(ime)

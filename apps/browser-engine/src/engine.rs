@@ -161,6 +161,14 @@ wrap_app! {
             // Disable Chrome's default extension subsystem so CEF's Chrome bootstrap never scans
             // host OS extension registries (`external_registry_loader_win.cc`) on startup.
             cmd.append_switch(Some(&"disable-extensions".into()));
+            // Let `TabRequestHandler::auth_credentials` handle HTTP 401 challenges in OSR instead
+            // of Chrome's native login dialog (which fails with `ERR_INVALID_AUTH_CREDENTIALS` on
+            // windowless browsers; CEF issue #3603).
+            cmd.append_switch(Some(&"disable-chrome-login-prompt".into()));
+            // Route script-initiated pop-ups through `TabLifeSpanHandler::on_before_popup` (which
+            // always returns `1` to cancel native windows and holds `user_gesture == 0` in the
+            // host's "Pop-up blocked" bar) instead of silently swallowing them before CEF sees them.
+            cmd.append_switch(Some(&"disable-popup-blocking".into()));
             cmd.append_switch(Some(&"mute-audio".into()));
             cmd.append_switch(Some(&"use-mock-keychain".into()));
             cmd.append_switch(Some(&"no-startup-window".into()));
@@ -203,6 +211,7 @@ struct ManagedTab {
     cdp_id_map: Arc<Mutex<HashMap<i32, CdpPending>>>,
     internal_picked: Arc<Mutex<Vec<i64>>>,
     pending_clears: Arc<Mutex<Vec<PendingClear>>>,
+    prompts: Arc<crate::prompts::TabPrompts>,
     _cdp_reg: Option<Registration>,
     held_buttons: u32,
     /// Linux: whether it's the tab the app shows (`HostMsg::FocusTab`), to open it again so.
@@ -224,6 +233,8 @@ pub struct EngineManager {
     home: Option<String>,
     /// The pages' downloads, in the profile's `opencode-page-downloads` folder.
     downloads: Arc<crate::downloads::Downloads>,
+    /// Shared prompt-handling toggle (`Hello.prompts`) and monotonic ID counter.
+    prompt_shared: crate::prompts::PromptShared,
     /// Windows: the D3D11 device frames are copied on; None renders on the CPU instead.
     #[cfg(windows)]
     gpu: Option<Arc<crate::d3d_frames::Gpu>>,
@@ -253,6 +264,7 @@ impl EngineManager {
             dark: None,
             home: crate::profile::home_dir(),
             downloads: crate::downloads::Downloads::open(&downloads),
+            prompt_shared: crate::prompts::PromptShared::default(),
             #[cfg(windows)]
             gpu,
             #[cfg(target_os = "linux")]
@@ -405,7 +417,8 @@ impl EngineManager {
 
     pub fn handle(&mut self, msg: HostMsg) -> bool {
         match msg {
-            HostMsg::Hello { mach_service, .. } => {
+            HostMsg::Hello { mach_service, prompts, .. } => {
+                self.prompt_shared.enabled.store(prompts, Ordering::Relaxed);
                 #[cfg(not(target_os = "macos"))]
                 let _ = mach_service;
                 #[cfg(target_os = "macos")]
@@ -418,7 +431,16 @@ impl EngineManager {
                     pid: std::process::id(),
                     downloads: true,
                     policy: true,
+                    prompts,
+                    popups: true,
                 });
+                for (&tab_id, t) in &self.tabs {
+                    if prompts {
+                        t.prompts.replay_pending(tab_id, &self.out_tx);
+                    } else {
+                        t.prompts.dismiss_all();
+                    }
+                }
                 if !self.tabs.is_empty() {
                     let list: Vec<TabSnapshot> = self
                         .tabs
@@ -451,6 +473,7 @@ impl EngineManager {
             }
             HostMsg::CloseTab { tab_id } => {
                 if let Some(tab) = self.tabs.remove(&tab_id) {
+                    tab.prompts.dismiss_all();
                     tab.host.close_browser(1);
                     self.downloads.close_tab(tab_id);
                     let _ = self.out_tx.send(EngineMsg::TabClosed { tab_id });
@@ -805,8 +828,29 @@ impl EngineManager {
             HostMsg::DmabufFailed { reason } => self.frames_failed(crate::dmabuf_frames::Failure::Share(format!("the app: {reason}"))),
             #[cfg(not(target_os = "linux"))]
             HostMsg::FrameRead { .. } | HostMsg::DmabufFailed { .. } => {}
+            HostMsg::AnswerDialog { tab_id, id, accept, text } => {
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    t.prompts.answer_dialog(id, accept, &text);
+                }
+            }
+            HostMsg::AnswerPermission { tab_id, id, allow } => {
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    t.prompts.answer_permission(id, allow);
+                }
+            }
+            HostMsg::AnswerAuth { tab_id, id, username, password } => {
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    t.prompts.answer_auth(id, username.as_deref(), password.as_deref());
+                }
+            }
+            HostMsg::SetAgentDriven { tab_id, agent_driven } => {
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    t.prompts.agent_driven.store(agent_driven, Ordering::Relaxed);
+                }
+            }
             HostMsg::Shutdown => {
                 for (_, t) in self.tabs.drain() {
+                    t.prompts.dismiss_all();
                     t.host.close_browser(1);
                 }
                 return false;
@@ -869,16 +913,55 @@ impl EngineManager {
             #[cfg(not(target_os = "linux"))]
             (),
         );
-        let display = TabDisplayHandler::new(snap.clone(), self.out_tx.clone());
-        let load = TabLoadHandler::new(tab_id, file_roots.clone(), snap.clone(), self.out_tx.clone());
-        let request = TabRequestHandler::new(tab_id, file_roots.clone(), snap.clone(), self.out_tx.clone());
+        let prompts = Arc::new(crate::prompts::TabPrompts::default());
+        let display = TabDisplayHandler::new(tab_id, snap.clone(), prompts.clone(), self.out_tx.clone());
+        let load = TabLoadHandler::new(
+            tab_id,
+            file_roots.clone(),
+            snap.clone(),
+            prompts.clone(),
+            self.out_tx.clone(),
+        );
+        let request = TabRequestHandler::new(
+            tab_id,
+            file_roots.clone(),
+            snap.clone(),
+            self.prompt_shared.clone(),
+            prompts.clone(),
+            self.out_tx.clone(),
+        );
         let download = crate::downloads::TabDownloadHandler::new(
             tab_id,
             file_roots.clone(),
             self.downloads.clone(),
             self.out_tx.clone(),
         );
-        let mut client = SidecarTabClient::new(render, display, load, request, download);
+        let life_span = crate::prompts::TabLifeSpanHandler::new(tab_id, self.out_tx.clone());
+        let jsdialog = crate::prompts::TabDialogHandler::new(
+            tab_id,
+            self.prompt_shared.clone(),
+            prompts.clone(),
+            self.out_tx.clone(),
+        );
+        let permission = crate::prompts::TabPermissionHandler::new(
+            tab_id,
+            self.prompt_shared.clone(),
+            prompts.clone(),
+            snap.clone(),
+            self.out_tx.clone(),
+        );
+        let dialog = crate::prompts::TabFileDialogHandler::new(tab_id, prompts.clone(), self.out_tx.clone());
+        let mut client = SidecarTabClient::new(
+            render,
+            display,
+            load,
+            request,
+            download,
+            life_span,
+            jsdialog,
+            permission,
+            dialog,
+        );
 
         let mut win_info = WindowInfo::default().set_as_windowless(Default::default());
         win_info.shared_texture_enabled = i32::from(shared_texture);
@@ -937,6 +1020,7 @@ impl EngineManager {
                 cdp_id_map,
                 internal_picked,
                 pending_clears,
+                prompts,
                 _cdp_reg: cdp_reg,
                 held_buttons: 0,
                 #[cfg(target_os = "linux")]

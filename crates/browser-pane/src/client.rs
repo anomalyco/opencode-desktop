@@ -42,6 +42,8 @@ pub struct BrowserTab {
     pub inspecting: bool,
     /// What the page downloaded, oldest first (`DownloadFile`), for the agent's tools.
     pub files: Vec<DownloadFile>,
+    /// Page dialogs, permissions, HTTP auth, and blocked pop-up state (`prompts.rs`).
+    pub prompts: crate::prompts::TabPromptState,
     pub surface: TabSurface,
     pub(crate) file_roots: Vec<String>,
     pub(crate) viewport_pt: (f32, f32),
@@ -84,12 +86,14 @@ pub struct BrowserHost {
     #[cfg_attr(not(feature = "engine"), allow(dead_code))]
     pub(crate) profile_dir: Option<PathBuf>,
     /// Capabilities advertised by the running (or last run) engine's `Ready`.
-    caps: EngineCaps,
+    pub(crate) caps: EngineCaps,
     next_tab_id: u64,
     next_req_id: u64,
     pending_opens: Vec<(u64, String)>,
     cdp_responses: HashMap<u64, Result<Value, Value>>,
     picked: VecDeque<PickedElement>,
+    pub(crate) popup_opens: VecDeque<crate::prompts::PopupRequest>,
+    pub(crate) site_permissions: crate::prompts::SitePermissions,
     site_zoom: SiteZoom,
     pub(crate) keep_engine: bool,
     /// The scheme pages draw in: 0 not given yet, 1 light, 2 dark.
@@ -140,6 +144,8 @@ impl BrowserHost {
             pending_opens: Vec::new(),
             cdp_responses: HashMap::new(),
             picked: VecDeque::new(),
+            popup_opens: VecDeque::new(),
+            site_permissions: crate::prompts::SitePermissions::default(),
             site_zoom: SiteZoom::default(),
             keep_engine: false,
             color_scheme: std::sync::atomic::AtomicU8::new(0),
@@ -314,6 +320,7 @@ impl BrowserHost {
             rejected: 0,
             inspecting: false,
             files: Vec::new(),
+            prompts: Default::default(),
             surface,
             file_roots: Vec::new(),
             viewport_pt: (800.0, 600.0),
@@ -409,6 +416,7 @@ impl BrowserHost {
             rejected: u64::from(refused.is_some()),
             inspecting: false,
             files: Vec::new(),
+            prompts: Default::default(),
             surface,
             file_roots: file_roots.clone(),
             viewport_pt: (width_pt, height_pt),
@@ -498,6 +506,9 @@ impl BrowserHost {
             return;
         }
         t.refusal = None;
+        if from_address || !t.prompts.agent_driven {
+            t.prompts.on_user_nav();
+        }
         // The page shows where it is until the engine says it went: the address field holds what
         // was submitted meanwhile, as Desktop's does (an address set here at once ended that hold,
         // and the engine's next report, still the old document, emptied the field).
@@ -511,15 +522,24 @@ impl BrowserHost {
         }
     }
 
-    pub fn back(&self, tab_id: u64) {
+    pub fn back(&mut self, tab_id: u64) {
+        if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
+            t.prompts.on_user_nav();
+        }
         self.send(HostMsg::Back { tab_id });
     }
 
-    pub fn forward(&self, tab_id: u64) {
+    pub fn forward(&mut self, tab_id: u64) {
+        if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
+            t.prompts.on_user_nav();
+        }
         self.send(HostMsg::Forward { tab_id });
     }
 
-    pub fn reload(&self, tab_id: u64) {
+    pub fn reload(&mut self, tab_id: u64) {
+        if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
+            t.prompts.on_user_nav();
+        }
         self.send(HostMsg::Reload { tab_id });
     }
 
@@ -788,18 +808,19 @@ impl BrowserHost {
         mail.extend(std::iter::from_fn(|| self.inbox_rx.try_recv().ok()));
         for msg in mail {
             match msg {
-                EngineMsg::Ready { downloads, policy, .. } => {
+                EngineMsg::Ready { downloads, policy, prompts, popups, .. } => {
                     if !matches!(
                         self.shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::Ready),
                         EngineEffect::ReadyApplied
                     ) {
                         continue;
                     }
-                    self.caps = EngineCaps::Known { downloads, policy };
+                    self.caps = EngineCaps::Known { downloads, policy, prompts, popups };
                     // A new engine starts with an empty downloads folder and numbers its files
-                    // from 1 again: the last one's files are gone.
+                    // from 1 again: the last one's files are gone. Held prompts replay if live.
                     for t in &mut self.tabs {
                         t.files.clear();
+                        t.prompts.reset_for_engine();
                     }
                     rune::marks::mark("browser.engine.ready");
                     // Before any page loads, so the first draws in the app's scheme.
@@ -810,7 +831,7 @@ impl BrowserHost {
 
                     // Tabs opened before it: their size, policy roots, and device emulation again
                     // (a reconnect forgets them; `notes/for-dax.md` §0).
-                    let tabs_to_sync: Vec<(u64, Vec<String>, Option<(crate::device::Device, f32)>)> = self
+                    let tabs_to_sync: Vec<_> = self
                         .tabs
                         .iter_mut()
                         .filter(|t| !self.pending_opens.iter().any(|(id, _)| *id == t.id))
@@ -826,6 +847,9 @@ impl BrowserHost {
                         }
                         if let Some((device, scale)) = emulate {
                             self.send(HostMsg::Emulate { tab_id, device: Some(device), scale });
+                        }
+                        if self.tabs.iter().any(|t| t.id == tab_id && t.prompts.agent_driven) {
+                            self.send(HostMsg::SetAgentDriven { tab_id, agent_driven: true });
                         }
                     }
                     self.flush_pending_opens();
@@ -892,6 +916,18 @@ impl BrowserHost {
                         changed = true;
                     }
                 }
+                EngineMsg::Dialog { .. }
+                | EngineMsg::DialogsReset { .. }
+                | EngineMsg::PermissionRequest { .. }
+                | EngineMsg::PermissionDismissed { .. }
+                | EngineMsg::AuthRequest { .. }
+                | EngineMsg::AuthReset { .. }
+                | EngineMsg::AuthAgentRequired { .. }
+                | EngineMsg::PopupOpen { .. }
+                | EngineMsg::PopupBlocked { .. }
+                | EngineMsg::FileChooserBlocked { .. } => {
+                    changed |= self.handle_prompt_msg(msg);
+                }
                 EngineMsg::CdpEvent { .. } => {}
                 // The socket reader delivers frames directly to the tab's retained Rune surface.
                 EngineMsg::SharedFrame { .. } | EngineMsg::CpuFrame { .. } | EngineMsg::DmabufPool { .. } | EngineMsg::DmabufFrame { .. } => {}
@@ -954,6 +990,9 @@ impl BrowserHost {
     }
 
     pub(crate) fn forward_key(&mut self, tab_id: u64, ev: &KeyEvent, down: bool) -> bool {
+        if self.tab(tab_id).is_some_and(|t| t.prompts.has_blocking_modal()) {
+            return false;
+        }
         if self.shell_shortcut.map_or_else(|| is_shell_shortcut(ev), |f| f(ev)) {
             return false;
         }
@@ -1022,9 +1061,15 @@ impl BrowserHost {
         self.next_tab_id = self.next_tab_id.max(snap.tab_id + 1);
         let want_zoom = self.site_zoom.get(&snap.url);
         if let Some(t) = self.tabs.iter_mut().find(|t| t.id == snap.tab_id) {
+            let url_changed = t.url != snap.url;
             let new_site = site_of(&snap.url).is_some() && site_of(&t.url) != site_of(&snap.url);
-            let clear_refusal = (t.url != snap.url || snap.load_error.is_some()) && t.refusal.is_some();
-            let changed = t.url != snap.url
+            let clear_refusal = (url_changed || snap.load_error.is_some()) && t.refusal.is_some();
+            let (cancel_perms, cancel_auth) = if url_changed {
+                t.prompts.on_document_committed(&t.url, &snap.url)
+            } else {
+                (Vec::new(), Vec::new())
+            };
+            let changed = url_changed
                 || t.title != snap.title
                 || t.loading != snap.loading
                 || t.can_go_back != snap.can_go_back
@@ -1032,7 +1077,9 @@ impl BrowserHost {
                 || (t.zoom - snap.zoom).abs() > 0.001
                 || t.cursor != snap.cursor
                 || t.load_error != snap.load_error
-                || clear_refusal;
+                || clear_refusal
+                || !cancel_perms.is_empty()
+                || !cancel_auth.is_empty();
             if clear_refusal {
                 t.refusal = None;
             }
@@ -1044,11 +1091,17 @@ impl BrowserHost {
             t.zoom = snap.zoom;
             t.cursor = snap.cursor;
             t.load_error = snap.load_error;
+            let mut changed = changed;
             if new_site {
-                let changed = changed || (t.zoom - want_zoom).abs() > 0.001;
+                changed |= (t.zoom - want_zoom).abs() > 0.001;
                 t.zoom = want_zoom;
                 self.send(HostMsg::SetZoom { tab_id: snap.tab_id, factor: want_zoom });
-                return changed;
+            }
+            for id in cancel_perms {
+                self.send(HostMsg::AnswerPermission { tab_id: snap.tab_id, id, allow: false });
+            }
+            for id in cancel_auth {
+                self.send(HostMsg::AnswerAuth { tab_id: snap.tab_id, id, username: None, password: None });
             }
             return changed;
         }
@@ -1074,6 +1127,7 @@ impl BrowserHost {
             rejected: 0,
             inspecting: false,
             files: Vec::new(),
+            prompts: Default::default(),
             surface,
             file_roots: Vec::new(),
             viewport_pt: (800.0, 600.0),

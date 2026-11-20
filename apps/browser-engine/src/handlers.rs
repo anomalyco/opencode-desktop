@@ -9,14 +9,15 @@ use std::sync::{Arc, Mutex};
 
 use cef::rc::Rc as _;
 use cef::{
-    AcceleratedPaintInfo, Browser, Callback, CefString, CursorInfo, CursorType,
+    AcceleratedPaintInfo, AuthCallback, Browser, Callback, CefString, CursorInfo, CursorType,
     DevToolsMessageObserver, DisplayHandler, Errorcode, Frame, ImplDevToolsMessageObserver,
     ImplDisplayHandler, ImplFrame, ImplLoadHandler, ImplRenderHandler, ImplRequest,
-    ImplRequestHandler, ImplResourceRequestHandler, LoadHandler, PaintElementType, Rect,
-    RenderHandler, Request, RequestHandler, ResourceRequestHandler, Response, ReturnValue,
-    ScreenInfo, TerminationStatus, WindowOpenDisposition, WrapDevToolsMessageObserver,
-    WrapDisplayHandler, WrapLoadHandler, WrapRenderHandler, WrapRequestHandler,
-    WrapResourceRequestHandler, sys, wrap_dev_tools_message_observer, wrap_display_handler,
+    ImplRequestHandler, ImplResourceRequestHandler, ImplSelectClientCertificateCallback,
+    LoadHandler, PaintElementType, Rect, RenderHandler, Request, RequestHandler,
+    ResourceRequestHandler, Response, ReturnValue, ScreenInfo, SelectClientCertificateCallback,
+    TerminationStatus, WindowOpenDisposition, WrapDevToolsMessageObserver, WrapDisplayHandler,
+    WrapLoadHandler, WrapRenderHandler, WrapRequestHandler, WrapResourceRequestHandler,
+    X509Certificate, sys, wrap_dev_tools_message_observer, wrap_display_handler,
     wrap_load_handler, wrap_render_handler, wrap_request_handler, wrap_resource_request_handler,
 };
 use serde_json::Value;
@@ -319,7 +320,9 @@ wrap_render_handler! {
 
 wrap_display_handler! {
     pub struct TabDisplayHandler {
+        tab_id: u64,
         snap: Arc<Mutex<TabSnapshot>>,
+        prompts: Arc<crate::prompts::TabPrompts>,
         out_tx: Output,
     }
 
@@ -338,8 +341,19 @@ wrap_display_handler! {
                 let url = url.to_string();
                 // Chromium's error page commits the failed address; another address is another document.
                 if s.url != url {
+                    let old_origin = crate::prompts::origin_of(&s.url);
+                    let new_origin = crate::prompts::origin_of(&url);
                     s.load_error = None;
+                    self.prompts.clear_auth_on_nav(self.tab_id, &self.out_tx);
+                    if old_origin != new_origin {
+                        self.prompts.clear_permissions_on_origin_change(
+                            self.tab_id,
+                            new_origin.as_deref(),
+                            &self.out_tx,
+                        );
+                    }
                 }
+                self.prompts.set_pending_top_url(None);
                 s.url = url;
                 let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
             }
@@ -396,6 +410,7 @@ wrap_load_handler! {
         tab_id: u64,
         file_roots: Arc<Mutex<Vec<String>>>,
         snap: Arc<Mutex<TabSnapshot>>,
+        prompts: Arc<crate::prompts::TabPrompts>,
         out_tx: Output,
     }
 
@@ -407,6 +422,9 @@ wrap_load_handler! {
             can_go_back: i32,
             can_go_forward: i32,
         ) {
+            if is_loading == 0 {
+                self.prompts.set_pending_top_url(None);
+            }
             let mut s = self.snap.lock().unwrap();
             s.loading = is_loading != 0;
             s.can_go_back = can_go_back != 0;
@@ -417,7 +435,11 @@ wrap_load_handler! {
         // A document from the network (any HTTP status) replaces a failed or crashed page; Chromium's
         // own error page ends with no status.
         fn on_load_end(&self, _browser: Option<&mut Browser>, frame: Option<&mut Frame>, http_status_code: i32) {
-            if frame.is_some_and(|f| f.is_main() != 1) || http_status_code <= 0 {
+            if frame.is_some_and(|f| f.is_main() != 1) {
+                return;
+            }
+            self.prompts.set_pending_top_url(None);
+            if http_status_code <= 0 {
                 return;
             }
             let mut s = self.snap.lock().unwrap();
@@ -438,7 +460,11 @@ wrap_load_handler! {
         ) {
             use sys::cef_errorcode_t as E;
             let code = *error_code.as_ref();
-            if frame.is_some_and(|f| f.is_main() != 1) || code == E::ERR_ABORTED {
+            if frame.is_some_and(|f| f.is_main() != 1) {
+                return;
+            }
+            self.prompts.set_pending_top_url(None);
+            if code == E::ERR_ABORTED {
                 return;
             }
             // Chromium blocks unsafe cross-scheme redirects (`302 -> file://` or `302 -> data:`)
@@ -474,6 +500,8 @@ wrap_load_handler! {
 wrap_resource_request_handler! {
     pub struct TabResourceRequestHandler {
         file_roots: Arc<Mutex<Vec<String>>>,
+        prompts: Arc<crate::prompts::TabPrompts>,
+        is_main_navigation: bool,
     }
 
     impl ResourceRequestHandler {
@@ -508,6 +536,8 @@ wrap_resource_request_handler! {
             let roots = self.file_roots.lock().unwrap().clone();
             if !browser_policy::subresource_allowed(&target, &roots) {
                 *new_url = CefString::from("");
+            } else if self.is_main_navigation {
+                self.prompts.set_pending_top_url(Some(target));
             }
         }
 
@@ -531,6 +561,8 @@ wrap_request_handler! {
         tab_id: u64,
         file_roots: Arc<Mutex<Vec<String>>>,
         snap: Arc<Mutex<TabSnapshot>>,
+        prompt_shared: crate::prompts::PromptShared,
+        prompts: Arc<crate::prompts::TabPrompts>,
         out_tx: Output,
     }
 
@@ -556,6 +588,9 @@ wrap_request_handler! {
                 });
                 return 1;
             }
+            if is_main {
+                self.prompts.set_pending_top_url(Some(url));
+            }
             0
         }
 
@@ -564,7 +599,7 @@ wrap_request_handler! {
             _browser: Option<&mut Browser>,
             _frame: Option<&mut Frame>,
             target_url: Option<&CefString>,
-            _target_disposition: WindowOpenDisposition,
+            target_disposition: WindowOpenDisposition,
             _user_gesture: ::std::os::raw::c_int,
         ) -> ::std::os::raw::c_int {
             let url = target_url.map(CefString::to_string).unwrap_or_default();
@@ -576,20 +611,84 @@ wrap_request_handler! {
                 });
                 return 1;
             }
+            use sys::cef_window_open_disposition_t as D;
+            if matches!(
+                *target_disposition.as_ref(),
+                D::CEF_WOD_NEW_BACKGROUND_TAB
+                    | D::CEF_WOD_NEW_FOREGROUND_TAB
+                    | D::CEF_WOD_NEW_POPUP
+                    | D::CEF_WOD_NEW_WINDOW
+            ) {
+                let background = *target_disposition.as_ref() == D::CEF_WOD_NEW_BACKGROUND_TAB;
+                let _ = self.out_tx.send(EngineMsg::PopupOpen {
+                    tab_id: self.tab_id,
+                    url,
+                    background,
+                });
+                return 1;
+            }
             0
+        }
+
+        fn auth_credentials(
+            &self,
+            _browser: Option<&mut Browser>,
+            origin_url: Option<&CefString>,
+            is_proxy: ::std::os::raw::c_int,
+            host: Option<&CefString>,
+            port: ::std::os::raw::c_int,
+            realm: Option<&CefString>,
+            scheme: Option<&CefString>,
+            callback: Option<&mut AuthCallback>,
+        ) -> ::std::os::raw::c_int {
+            crate::prompts::handle_auth_credentials(
+                self.tab_id,
+                &self.prompt_shared,
+                &self.prompts,
+                &self.snap,
+                &self.out_tx,
+                origin_url,
+                is_proxy,
+                host,
+                port,
+                realm,
+                scheme,
+                callback,
+            )
+        }
+
+        // Client certificate requests are always cancelled so no client cert is ever sent (`#63002`).
+        fn on_select_client_certificate(
+            &self,
+            _browser: Option<&mut Browser>,
+            _is_proxy: ::std::os::raw::c_int,
+            _host: Option<&CefString>,
+            _port: ::std::os::raw::c_int,
+            _certificates: Option<&[Option<X509Certificate>]>,
+            callback: Option<&mut SelectClientCertificateCallback>,
+        ) -> ::std::os::raw::c_int {
+            if let Some(cb) = callback {
+                cb.select(None);
+            }
+            1
         }
 
         fn resource_request_handler(
             &self,
             _browser: Option<&mut Browser>,
-            _frame: Option<&mut Frame>,
+            frame: Option<&mut Frame>,
             _request: Option<&mut Request>,
-            _is_navigation: ::std::os::raw::c_int,
+            is_navigation: ::std::os::raw::c_int,
             _is_download: ::std::os::raw::c_int,
             _request_initiator: Option<&CefString>,
             _disable_default_handling: Option<&mut ::std::os::raw::c_int>,
         ) -> Option<ResourceRequestHandler> {
-            Some(TabResourceRequestHandler::new(self.file_roots.clone()))
+            let is_main_navigation = is_navigation != 0 && frame.is_none_or(|f| f.is_main() == 1);
+            Some(TabResourceRequestHandler::new(
+                self.file_roots.clone(),
+                self.prompts.clone(),
+                is_main_navigation,
+            ))
         }
 
         // The page's renderer went away (crashed, killed, out of memory): the tab keeps its address,
@@ -601,6 +700,7 @@ wrap_request_handler! {
             _error_code: i32,
             _error_string: Option<&CefString>,
         ) {
+            self.prompts.reset_on_crash(self.tab_id, &self.out_tx);
             let mut s = self.snap.lock().unwrap();
             s.loading = false;
             s.load_error = Some("page_crashed".into());

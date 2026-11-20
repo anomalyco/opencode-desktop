@@ -68,7 +68,14 @@ pub struct PickedElement {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum HostMsg {
-    Hello { mach_service: Option<String>, pid: u32 },
+    /// `prompts`: the app shows and answers page dialogs, permission prompts, and HTTP auth;
+    /// older apps leave it false so the engine suppresses dialogs and denies permissions/auth.
+    Hello {
+        mach_service: Option<String>,
+        pid: u32,
+        #[serde(default)]
+        prompts: bool,
+    },
     OpenTab {
         tab_id: u64,
         url: String,
@@ -107,16 +114,43 @@ pub enum HostMsg {
     FrameRead { tab_id: u64, pool: u64, frame_id: u64 },
     /// Linux: the app can't import the engine's dmabufs; frames come as BGRA paints from now on.
     DmabufFailed { reason: String },
+    /// The app's answer to a held JavaScript dialog or `beforeunload` (`EngineMsg::Dialog`).
+    AnswerDialog { tab_id: u64, id: u64, accept: bool, text: String },
+    /// The app's answer to a held permission request (`EngineMsg::PermissionRequest`).
+    AnswerPermission { tab_id: u64, id: u64, allow: bool },
+    /// The app's answer to an HTTP 401 auth challenge (`EngineMsg::AuthRequest`); `None` cancels.
+    AnswerAuth { tab_id: u64, id: u64, username: Option<String>, password: Option<String> },
+    /// Marks a tab as agent-driven (cancels native file choosers, skips `beforeunload`, rejects HTTP auth).
+    SetAgentDriven { tab_id: u64, agent_driven: bool },
     Shutdown,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum EngineMsg {
-    /// `downloads`: this engine keeps a page's downloads (`EngineMsg::Download`).
-    /// `policy`: this engine enforces URL and workspace `file://` policy in its request handlers.
-    Ready { chromium_major: u32, pid: u32, downloads: bool, policy: bool },
+    /// `downloads`: keeps page downloads; `policy`: enforces URL/CDP policy; `prompts`: holds
+    /// dialogs/permissions/auth for the app; `popups`: routes pop-ups to managed tabs.
+    Ready {
+        chromium_major: u32,
+        pid: u32,
+        downloads: bool,
+        policy: bool,
+        #[serde(default)]
+        prompts: bool,
+        #[serde(default)]
+        popups: bool,
+    },
     Refused { tab_id: u64, reason: String },
+    Dialog { tab_id: u64, dialog: PageDialog },
+    DialogsReset { tab_id: u64 },
+    PermissionRequest { tab_id: u64, request: PermissionPrompt },
+    PermissionDismissed { tab_id: u64, id: u64 },
+    AuthRequest { tab_id: u64, challenge: AuthChallenge },
+    AuthReset { tab_id: u64 },
+    AuthAgentRequired { tab_id: u64, origin: String },
+    PopupOpen { tab_id: u64, url: String, background: bool },
+    PopupBlocked { tab_id: u64, url: String },
+    FileChooserBlocked { tab_id: u64 },
     TabList { tabs: Vec<TabSnapshot> },
     TabUpdate { tab: TabSnapshot },
     TabClosed { tab_id: u64 },
@@ -164,4 +198,56 @@ pub enum DownloadState {
     Pending,
     Completed,
     Failed,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PageDialog {
+    pub id: u64,
+    pub kind: DialogKind,
+    #[serde(default)]
+    pub origin: String,
+    #[serde(default)]
+    pub message: String,
+    #[serde(default)]
+    pub default_text: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DialogKind {
+    Alert,
+    Confirm,
+    Prompt,
+    Leave,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PermissionKind {
+    Camera,
+    Microphone,
+    Location,
+    Notifications,
+    ClipboardRead,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PermissionPrompt {
+    pub id: u64,
+    pub origin: String,
+    pub top_origin: String,
+    pub kinds: Vec<PermissionKind>,
+    #[serde(default)]
+    pub is_media: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthChallenge {
+    pub id: u64,
+    pub origin: String,
+    pub host: String,
+    pub port: u16,
+    #[serde(default)]
+    pub realm: String,
+    pub scheme: String,
 }
