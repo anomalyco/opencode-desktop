@@ -57,9 +57,11 @@ impl WidgetEvent {
         WidgetEvent { id: id.into(), kind: EventKind::Change, value: Some(value.into()) }
     }
 
-    /// A canvas's pointer at (`x`, `y`), logical pixels from its top-left.
-    pub fn pointer(id: impl Into<String>, kind: PointerKind, x: f64, y: f64) -> WidgetEvent {
-        WidgetEvent { id: id.into(), kind: EventKind::Pointer, value: Some(json!({ "kind": kind.name(), "x": x, "y": y })) }
+    /// A canvas's pointer at (`x`, `y`), logical pixels from its top-left, with the canvas's
+    /// logical size so `update` can hit-test a layout that follows the width.
+    pub fn pointer(id: impl Into<String>, kind: PointerKind, x: f64, y: f64, width: f64, height: f64) -> WidgetEvent {
+        let value = json!({ "kind": kind.name(), "x": x, "y": y, "width": width, "height": height });
+        WidgetEvent { id: id.into(), kind: EventKind::Pointer, value: Some(value) }
     }
 }
 
@@ -88,6 +90,30 @@ pub struct StepOutput {
     /// Present (and true): the user dismissed the widget.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub dismiss: bool,
+    /// Present: a message to the agent; the widget stays open.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub send: Option<SendMessage>,
+}
+
+/// A non-final message to the agent (`send(value, state, { wake })`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SendMessage {
+    #[serde(default)]
+    pub value: Value,
+    /// Whether it starts the agent's turn (true unless the template said otherwise).
+    #[serde(default = "yes")]
+    pub wake: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
+impl SendMessage {
+    /// The message endpoint's body: `{ value, wake }`.
+    pub fn body(&self) -> Value {
+        json!({ "value": self.value, "wake": self.wake })
+    }
 }
 
 impl StepOutput {

@@ -199,6 +199,9 @@ pub enum Node {
         /// 0 (draw on change only) when absent, at most 60.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         fps: Option<f64>,
+        /// Seconds: animates only until it drew a frame with `t >= duration`, then on changes.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        duration: Option<f64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         alt: Option<String>,
     },

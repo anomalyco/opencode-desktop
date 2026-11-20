@@ -78,6 +78,8 @@ pub enum Event {
     Input(WidgetEvent),
     /// The respond request for `attempt` came back.
     Responded { attempt: u32, result: Result<(), RespondError> },
+    /// The message a step sent (`send`) came back: taken, or why not.
+    Sent(Result<(), RespondError>),
     /// The message changed on the server (`session.widget.responded`, a page read).
     Status(Status),
     /// Try a failed widget again from the template fetch.
@@ -99,6 +101,8 @@ pub enum Effect {
     Run(StepInput),
     /// Post the response; answer with `Responded` carrying `attempt`.
     Respond { response: Response, attempt: u32 },
+    /// Post a non-final message to the agent; answer with `Sent`. The widget stays open.
+    Send(crate::step::SendMessage),
 }
 
 /// What a renderer draws for a widget.
@@ -178,7 +182,10 @@ pub fn step(w: &mut Widget, event: Event) -> Vec<Effect> {
                     let effect = Effect::Respond { response: response.clone(), attempt };
                     (Phase::Responding { state: out.state, view: out.view, response, attempt }, vec![effect])
                 }
-                None => (Phase::Ready { state: out.state, view: out.view, error: None }, vec![]),
+                None => {
+                    let effects = out.send.map(Effect::Send).into_iter().collect();
+                    (Phase::Ready { state: out.state, view: out.view, error: None }, effects)
+                }
             },
             Err(message) => (Phase::Ready { state, view, error: Some(message) }, vec![]),
         },
@@ -190,6 +197,14 @@ pub fn step(w: &mut Widget, event: Event) -> Vec<Effect> {
         },
         (Phase::Ready { view, .. } | Phase::Stepping { view, .. } | Phase::Responding { view, .. }, Event::Status(Status::Closed(how))) => {
             (Phase::Closed { view: Some(view), how }, vec![])
+        }
+        // A message that didn't go says so inline; the widget stays open either way.
+        (Phase::Ready { state, view, .. }, Event::Sent(Err(e))) => {
+            let message = match e {
+                RespondError::Conflict => "This widget is no longer open.".to_owned(),
+                RespondError::Failed(m) => m,
+            };
+            (Phase::Ready { state, view, error: Some(message) }, vec![])
         }
         (Phase::Failed { status, .. }, Event::Retry) => (Phase::Loading { status }, vec![Effect::Fetch]),
         (phase, _) => (phase, vec![]),

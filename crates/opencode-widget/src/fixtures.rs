@@ -1,5 +1,5 @@
 //! Copies of `@opencode/widget`'s prelude and built-in templates (`suggestions`, `form`,
-//! `confirm`; anomalyco/opencode `packages/widget/src/prelude.js` and `templates/*.js`), for
+//! `confirm`, `chart`, `backdrop`; anomalyco/opencode `packages/widget/src/prelude.js` and `templates/*.js`), for
 //! stories, fixtures and local runs without a server. A live client always runs the program the
 //! server serves, never these; refresh them when the canonical ones change.
 
@@ -7,7 +7,7 @@
 pub const PRELUDE: &str = include_str!("../fixtures/prelude.js");
 
 /// The built-in templates' names.
-pub const BUILTINS: [&str; 3] = ["suggestions", "form", "confirm"];
+pub const BUILTINS: [&str; 5] = ["suggestions", "form", "confirm", "chart", "backdrop"];
 
 /// Built-in template `name`'s source.
 pub fn source(name: &str) -> Option<&'static str> {
@@ -15,6 +15,8 @@ pub fn source(name: &str) -> Option<&'static str> {
         "suggestions" => include_str!("../fixtures/suggestions.js"),
         "form" => include_str!("../fixtures/form.js"),
         "confirm" => include_str!("../fixtures/confirm.js"),
+        "chart" => include_str!("../fixtures/chart.js"),
+        "backdrop" => include_str!("../fixtures/backdrop.js"),
         _ => return None,
     })
 }
