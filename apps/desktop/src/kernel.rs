@@ -130,6 +130,7 @@ pub fn build() -> Kernel<App> {
     b.with_feature(&crate::tips::TipsFeature);
     b.with_feature(&crate::new_worktree::WorkspaceToolsFeature);
     b.with_feature(&crate::tabs::groups::TabGroupsFeature);
+    b.with_feature(&crate::session::widgets::WidgetsFeature);
     b.with_feature(&crate::plugin_host::PluginHostFeature);
     b.register_overlay(
         OverlayRegistration::<App>::new("overlay.pickers")

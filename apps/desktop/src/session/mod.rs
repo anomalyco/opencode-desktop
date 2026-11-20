@@ -5,3 +5,4 @@ pub mod menu;
 pub mod meta;
 pub mod pages;
 pub mod timeline;
+pub mod widgets;

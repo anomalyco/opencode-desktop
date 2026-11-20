@@ -368,6 +368,15 @@
   "rune.web.stay.no": "Not now",
   "rune.web.stay.title": "Stay signed in on this device?",
   "rune.web.stay.yes": "Stay signed in",
+  "rune.widget.dismissed": "Dismissed",
+  "rune.widget.failed": "This widget couldn't be shown",
+  "rune.widget.loading": "Loading widget…",
+  "rune.widget.next": "Next",
+  "rune.widget.previous": "Previous",
+  "rune.widget.retry": "Try again",
+  "rune.widget.sending": "Sending…",
+  "rune.widget.submitted": "Submitted",
+  "rune.widget.unsupported": "Widgets need the desktop app",
   "session.markRead": "Mark as read",
   "session.markUnread": "Mark as unread"
 }

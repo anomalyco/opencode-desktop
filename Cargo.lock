@@ -3588,6 +3588,7 @@ dependencies = [
  "opencode-feature-timeline-extras",
  "opencode-feature-tips",
  "opencode-feature-updater",
+ "opencode-feature-widgets",
  "opencode-feature-workspace-tools",
  "opencode-i18n",
  "opencode-kernel",
@@ -4051,6 +4052,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "opencode-feature-widgets"
+version = "0.0.1"
+dependencies = [
+ "opencode-i18n",
+ "opencode-kit",
+ "opencode-widget",
+ "opencode-widget-view",
+ "rune",
+ "serde_json",
+ "session-view",
+]
+
+[[package]]
 name = "opencode-feature-workspace-tools"
 version = "0.0.1"
 dependencies = [
@@ -4248,6 +4262,16 @@ version = "0.0.1"
 dependencies = [
  "psychoscript",
  "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "opencode-widget-view"
+version = "0.0.1"
+dependencies = [
+ "opencode-widget",
+ "rune",
+ "rune-kit",
  "serde_json",
 ]
 
@@ -6074,6 +6098,8 @@ dependencies = [
  "opencode-runtime",
  "opencode-search",
  "opencode-ui",
+ "opencode-widget",
+ "opencode-widget-view",
  "pulldown-cmark",
  "rune",
  "rune-kit",

@@ -11,3 +11,4 @@ pub(crate) mod stop;
 pub(crate) mod tool_group;
 pub(crate) mod tool_open;
 pub(crate) mod turn_errors;
+pub(crate) mod widgets;
