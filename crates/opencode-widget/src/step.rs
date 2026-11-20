@@ -5,6 +5,7 @@
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Value, json};
 
+use crate::draw::Frame;
 use crate::node::Node;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -12,6 +13,26 @@ use crate::node::Node;
 pub enum EventKind {
     Press,
     Change,
+    /// A canvas's pointer: `value: { kind: "down" | "move" | "up", x, y }`.
+    Pointer,
+}
+
+/// What a canvas's pointer did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum PointerKind {
+    Down,
+    Move,
+    Up,
+}
+
+impl PointerKind {
+    fn name(self) -> &'static str {
+        match self {
+            PointerKind::Down => "down",
+            PointerKind::Move => "move",
+            PointerKind::Up => "up",
+        }
+    }
 }
 
 /// `{ id, type, value? }`.
@@ -35,6 +56,11 @@ impl WidgetEvent {
     pub fn change(id: impl Into<String>, value: impl Into<Value>) -> WidgetEvent {
         WidgetEvent { id: id.into(), kind: EventKind::Change, value: Some(value.into()) }
     }
+
+    /// A canvas's pointer at (`x`, `y`), logical pixels from its top-left.
+    pub fn pointer(id: impl Into<String>, kind: PointerKind, x: f64, y: f64) -> WidgetEvent {
+        WidgetEvent { id: id.into(), kind: EventKind::Pointer, value: Some(json!({ "kind": kind.name(), "x": x, "y": y })) }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -42,6 +68,8 @@ impl WidgetEvent {
 pub enum StepInput {
     Init { data: Value },
     Event { data: Value, state: Value, event: WidgetEvent },
+    /// A canvas's frame: returns `{ commands }` (see [`crate::draw`]).
+    Draw { data: Value, state: Value, frame: Frame },
 }
 
 /// Deserializes a field that is there, `null` included, as `Some`: `submit: null` submits null.

@@ -64,6 +64,9 @@ pub enum Phase {
     Failed { message: String, status: Status },
 }
 
+// A step's output is the large one and moves once per step; boxing it would cost an allocation
+// per step for nothing.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
     /// The template's program is compiled and ready to step.

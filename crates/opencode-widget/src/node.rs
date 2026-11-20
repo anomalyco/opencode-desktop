@@ -189,6 +189,38 @@ pub enum Node {
         multiline: bool,
     },
     Divider,
+    /// Drawn every frame by the template's `draw` (see [`crate::draw`]); full width unless `width`.
+    Canvas {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        height: f64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        width: Option<f64>,
+        /// 0 (draw on change only) when absent, at most 60.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fps: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        alt: Option<String>,
+    },
+    /// A WGSL fragment shader (see [`crate::shader`]); full width unless `width`.
+    Shader {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        height: f64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        width: Option<f64>,
+        wgsl: String,
+        /// Up to 16 floats for `widget.values`.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        values: Vec<f64>,
+        /// 60 when absent.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fps: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        alt: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        poster: Option<String>,
+    },
     /// A node type this client doesn't know: drawn as nothing (with a warning in development).
     #[serde(other)]
     Unknown,
@@ -207,7 +239,7 @@ impl Node {
     pub fn id(&self) -> Option<&str> {
         match self {
             Node::Button { id, .. } | Node::Checkbox { id, .. } | Node::Slider { id, .. } | Node::Select { id, .. } | Node::Input { id, .. } => Some(id),
-            Node::Carousel { id, .. } | Node::Card { id, .. } => id.as_deref(),
+            Node::Carousel { id, .. } | Node::Card { id, .. } | Node::Canvas { id, .. } | Node::Shader { id, .. } => id.as_deref(),
             _ => None,
         }
     }
@@ -232,7 +264,7 @@ impl Node {
             Node::Text { text, .. } | Node::Markdown { text } => out.push(text.clone()),
             Node::Button { label, .. } | Node::Checkbox { label, .. } => out.push(label.clone()),
             Node::Slider { label: Some(label), .. } | Node::Select { label: Some(label), .. } | Node::Input { label: Some(label), .. } => out.push(label.clone()),
-            Node::Image { alt: Some(alt), .. } => out.push(alt.clone()),
+            Node::Image { alt: Some(alt), .. } | Node::Canvas { alt: Some(alt), .. } | Node::Shader { alt: Some(alt), .. } => out.push(alt.clone()),
             _ => {}
         });
         out.join("\n")
