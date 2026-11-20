@@ -344,9 +344,15 @@ pub fn origin_of(url: &str) -> Option<String> {
     None
 }
 
+/// Maximum URL byte length emitted in `EngineMsg::PopupBlocked` (prevents multi-MiB query
+/// exfiltration behind a truncated `short_host` popup notice).
+pub const MAX_POPUP_URL_BYTES: usize = 16_384;
+
 wrap_life_span_handler! {
     pub struct TabLifeSpanHandler {
         tab_id: u64,
+        is_preview: bool,
+        context_ready: Arc<AtomicBool>,
         out_tx: Output,
     }
 
@@ -367,6 +373,9 @@ wrap_life_span_handler! {
             _extra_info: Option<&mut Option<DictionaryValue>>,
             _no_javascript_access: Option<&mut ::std::os::raw::c_int>,
         ) -> ::std::os::raw::c_int {
+            if !self.context_ready.load(Ordering::Acquire) {
+                return 1;
+            }
             let raw = target_url.map(CefString::to_string).unwrap_or_default();
             let url = if raw.trim().is_empty() { "about:blank".to_owned() } else { raw };
             // Pop-ups are never permitted to open `file://` or non-HTTP(S) schemes (`chromium.ts:448-468`).
@@ -375,6 +384,23 @@ wrap_life_span_handler! {
                     tab_id: self.tab_id,
                     reason: why.code().to_owned(),
                 });
+                return 1;
+            }
+            // Preview tabs never auto-spawn pop-ups (even with user gesture); user-gesture http(s)
+            // links within the URL size cap surface as a blocked-popup notice, while non-gesture
+            // or oversized attempts emit `Refused`.
+            if self.is_preview {
+                if user_gesture != 0
+                    && url.len() <= MAX_POPUP_URL_BYTES
+                    && browser_policy::destination_origin(&url).is_some()
+                {
+                    let _ = self.out_tx.send(EngineMsg::PopupBlocked { tab_id: self.tab_id, url });
+                } else {
+                    let _ = self.out_tx.send(EngineMsg::Refused {
+                        tab_id: self.tab_id,
+                        reason: browser_policy::Refusal::Web.code().to_owned(),
+                    });
+                }
                 return 1;
             }
             if user_gesture != 0 {
@@ -416,6 +442,7 @@ wrap_jsdialog_handler! {
         tab_id: u64,
         shared: PromptShared,
         prompts: Arc<TabPrompts>,
+        preview: Option<Arc<crate::preview::PreviewGrant>>,
         out_tx: Output,
     }
 
@@ -489,6 +516,10 @@ impl TabDialogHandler {
             callback.cont(i32::from(kind == DialogKind::Leave), None);
             return 1;
         }
+        let origin = self
+            .preview
+            .as_ref()
+            .map_or(origin.clone(), |g| g.sanitize_reported_url(&origin));
         let id = self.shared.next_id();
         let dialog = PageDialog { id, kind, origin, message, default_text };
         self.prompts.dialogs.lock().unwrap().push((dialog.clone(), callback.clone()));
@@ -500,6 +531,7 @@ impl TabDialogHandler {
 wrap_permission_handler! {
     pub struct TabPermissionHandler {
         tab_id: u64,
+        is_preview: bool,
         shared: PromptShared,
         prompts: Arc<TabPrompts>,
         snap: Arc<Mutex<TabSnapshot>>,
@@ -516,6 +548,10 @@ wrap_permission_handler! {
             callback: Option<&mut MediaAccessCallback>,
         ) -> ::std::os::raw::c_int {
             let Some(callback) = callback else { return 1 };
+            if self.is_preview {
+                callback.cancel();
+                return 1;
+            }
             let audio = sys::cef_media_access_permission_types_t::CEF_MEDIA_PERMISSION_DEVICE_AUDIO_CAPTURE as u32;
             let video = sys::cef_media_access_permission_types_t::CEF_MEDIA_PERMISSION_DEVICE_VIDEO_CAPTURE as u32;
             let allowed_mask = audio | video;
@@ -574,6 +610,9 @@ wrap_permission_handler! {
                 callback.cont(sys::cef_permission_request_result_t::CEF_PERMISSION_RESULT_DENY.into());
                 1
             };
+            if self.is_preview {
+                return deny();
+            }
             use sys::cef_permission_request_types_t as P;
             let cam = P::CEF_PERMISSION_TYPE_CAMERA_STREAM as u32;
             let mic = P::CEF_PERMISSION_TYPE_MIC_STREAM as u32;
@@ -652,6 +691,7 @@ wrap_permission_handler! {
 wrap_dialog_handler! {
     pub struct TabFileDialogHandler {
         tab_id: u64,
+        is_preview: bool,
         prompts: Arc<TabPrompts>,
         out_tx: Output,
     }
@@ -668,7 +708,7 @@ wrap_dialog_handler! {
             _accept_descriptions: Option<&mut CefStringList>,
             callback: Option<&mut FileDialogCallback>,
         ) -> ::std::os::raw::c_int {
-            if self.prompts.agent_driven.load(Ordering::Relaxed) {
+            if self.is_preview || self.prompts.agent_driven.load(Ordering::Relaxed) {
                 if let Some(cb) = callback {
                     cb.cancel();
                 }
