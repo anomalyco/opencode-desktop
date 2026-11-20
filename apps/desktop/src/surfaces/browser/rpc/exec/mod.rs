@@ -20,7 +20,7 @@ use super::session::SessionAttachment;
 use crate::App;
 
 /// Explicit non-blocking execution state of one in-flight `experimental.browser` command.
-pub(super) enum ExecPhase {
+enum ExecPhase {
     WaitLoad(WaitLoadState),
     Frames(FramesState),
     Snapshot(SnapshotState),
@@ -56,7 +56,7 @@ impl ExecPhase {
     }
 }
 
-pub(super) enum StepOutcome {
+enum StepOutcome {
     Done(Outcome),
     Pending(ExecPhase),
 }
@@ -65,7 +65,7 @@ pub(super) struct ActiveCommand {
     pub connection_id: String,
     pub request_id: String,
     pub is_dialog: bool,
-    pub phase: ExecPhase,
+    phase: ExecPhase,
 }
 
 /// Checks non-negotiable per-tab guards before running an agent page action:
