@@ -10,7 +10,7 @@ local ui = require("@opencode/ui")
 local machine = require("@self/machine")
 
 local VIEWS: { [machine.Status]: { label: string, icon: string, tone: Tone? } } = {
-    active = { label = "title", icon = "outline-steer", tone = nil },
+    active = { label = "title", icon = "steer", tone = nil },
     paused = { label = "paused", icon = "circle-exclamation", tone = "warning" },
     complete = { label = "met", icon = "circle-check", tone = "success" },
 }

@@ -9,6 +9,7 @@ pub mod extensions;
 pub mod general;
 pub mod models;
 pub mod notifications;
+pub mod plugin_updates;
 pub mod project;
 pub mod project_extensions;
 pub mod projects;
@@ -166,7 +167,9 @@ pub struct State {
     pub collapsed: models::Folds,
     pub tab: ExtensionsTab,
     /// The server's plugins and skills, once read.
-    pub plugins: Option<Vec<String>>,
+    pub plugins: Option<Vec<plugin_updates::PluginRow>>,
+    /// Plugin update checks and installs on the Plugins tab.
+    pub updates: plugin_updates::Machine,
     pub skills: Option<Vec<String>>,
     /// The Connected row whose account menu, options or rename field is open on Providers.
     pub accounts: providers::Accounts,
@@ -237,6 +240,7 @@ pub fn show_page(host: &mut dyn SettingsHost, page: Page) {
         Page::Providers | Page::Models => host.sync_catalogs(None),
         Page::Extensions => {
             host.sync_mcp("");
+            plugin_updates::dispatch(host, plugin_updates::Event::Reset);
             extensions::load(host);
         }
         Page::Appearance => {

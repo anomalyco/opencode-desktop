@@ -406,6 +406,7 @@ pub fn close_settings(host: &mut dyn SettingsHost) {
     search::clear(host);
     host.settings_pages_mut().shortcuts.capture = None;
     host.settings_pages_mut().blur_fields();
+    pages::plugin_updates::dispatch(host, pages::plugin_updates::Event::Reset);
     if was_open {
         host.on_overlay_closed(OVERLAY_ID);
     }

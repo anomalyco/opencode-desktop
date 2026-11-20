@@ -410,7 +410,7 @@ fn segmented(a: &mut NodeArgs) -> Result<El, String> {
     for item in items {
         let id = item.get("id").as_str().unwrap_or_default().to_owned();
         let label = item.get("label").as_str().unwrap_or_default().to_owned();
-        let glyph = icons::resolve("", item.get("icon").as_str().unwrap_or_default());
+        let glyph = named_icon(item.get("icon").as_str().unwrap_or_default());
         let key = item.get("key").as_str().map_or_else(|| id.clone(), str::to_owned);
         let on = id == value;
         let b = segmented_button(&pal, key, glyph, on, label);

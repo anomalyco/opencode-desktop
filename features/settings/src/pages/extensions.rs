@@ -8,9 +8,11 @@ use opencode_ui::popup::PopupHost;
 use opencode_ui::widgets;
 use rune::{El, Icon, TextStyle, Tx, col, icon, row, rule, text};
 use rune_theme_opencode::icons as ic;
-use opencode_ui::palette::Pal;
+use opencode_ui::palette::{Pal, kit};
+use rune_kit::ButtonVariant;
 
 use super::{ExtensionsTab, LINE, NAME, catalog_with, header_with, page};
+use super::plugin_updates;
 use crate::host::SettingsHost;
 use crate::jobs::{SettingsJob, SettingsRequest};
 
@@ -38,8 +40,11 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
     let tab = s.settings_pages().tab;
     let (link, content) = match tab {
         ExtensionsTab::Mcps => (manage(p), mcps(s, p)),
-        ExtensionsTab::Plugins => (manage(p), named_rows(p, "settings-plugins", &ic::CUBE, s.settings_pages().plugins.as_deref().unwrap_or_default())),
-        ExtensionsTab::Skills => (skills_link::<H>(p), named_rows(p, "settings-skills", &SKILL, s.settings_pages().skills.as_deref().unwrap_or_default())),
+        ExtensionsTab::Plugins => (plugins_heading::<H>(s, p), plugins::<H>(s, p)),
+        ExtensionsTab::Skills => {
+            let names: Vec<(String, Option<El>)> = s.settings_pages().skills.iter().flatten().map(|n| (n.clone(), None)).collect();
+            (skills_link::<H>(p), named_rows(p, "settings-skills", &SKILL, names))
+        }
     };
     let heading = row()
         .w_full()
@@ -85,6 +90,58 @@ fn tabs<H: SettingsHost + 'static>(p: &Pal, on: ExtensionsTab) -> El {
 
 fn manage(p: &Pal) -> El {
     text(t!("settings.extensions.manageConfig")).font(LINE).color(p.muted)
+}
+
+/// The Plugins heading's end: Manage in opencode.json, and Check for updates while the server
+/// lists a package plugin (`settings/providers/extensions.tsx`).
+#[allow(deprecated)]
+fn plugins_heading<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {
+    let has_packages = s.settings_pages().plugins.iter().flatten().any(|r| r.package.is_some());
+    let checking = s.settings_pages().updates.checking();
+    let check = has_packages.then(|| {
+        widgets::button(if checking { t!("settings.plugins.checking") } else { t!("settings.plugins.check") }, ButtonVariant::GhostMuted)
+            .size(rune_kit::ButtonSize::Small)
+            .disabled(checking)
+            .on_press_tx(|s: &mut H, tx: &mut Tx| {
+                tx.instant();
+                plugin_updates::dispatch(s, plugin_updates::Event::CheckRequested);
+            })
+            .build(kit(p))
+            .key("settings-plugins-check")
+    });
+    row().gap(12.0).center_y().child(manage(p)).children(check)
+}
+
+/// The server's plugins, each package one with Update while it has a newer version or is updating
+/// (`PluginUpdateButton` in `runtime/plugin/extension-plugins.tsx`).
+#[allow(deprecated)]
+fn plugins<H: SettingsHost + 'static>(s: &H, p: &Pal) -> Option<El> {
+    let pages = s.settings_pages();
+    let rows = pages
+        .plugins
+        .iter()
+        .flatten()
+        .map(|r| {
+            let button = r.package.as_ref().and_then(|pkg| {
+                let (outdated, updating) = pages.updates.view(pkg);
+                (outdated || updating).then(|| {
+                    let target = pkg.target.clone();
+                    widgets::button(if updating { t!("settings.plugins.updating") } else { t!("settings.plugins.update") }, ButtonVariant::Ghost)
+                        .size(rune_kit::ButtonSize::Small)
+                        .disabled(updating)
+                        .on_press_tx(move |s: &mut H, tx: &mut Tx| {
+                            tx.instant();
+                            plugin_updates::dispatch(s, plugin_updates::Event::UpdateRequested { target: target.clone() });
+                        })
+                        .build(kit(p))
+                        .key(format!("settings-plugins-update-{}", pkg.target))
+                        .label(t!("settings.plugins.update.label", name = r.name.as_str()))
+                })
+            });
+            (r.name.clone(), button)
+        })
+        .collect();
+    named_rows(p, "settings-plugins", &ic::CUBE, rows)
 }
 
 /// `.settings-extension-link`: underlined in `text-accent`, `text-accent-hover` under the pointer.
@@ -136,16 +193,15 @@ fn mcps(s: &dyn SettingsHost, p: &Pal) -> Option<El> {
     (!rows.is_empty()).then(|| catalog_with(p, "settings-mcps", rows, false))
 }
 
-/// By name, as Desktop sorts them (`localeCompare`).
-fn named_rows(p: &Pal, key: &str, glyph: &'static Icon, names: &[String]) -> Option<El> {
-    let mut names: Vec<&String> = names.iter().collect();
-    names.sort_by(|a, b| rune::text::compare_names(a, b));
+/// By name, as Desktop sorts them (`localeCompare`), each with what ends its row.
+fn named_rows(p: &Pal, key: &str, glyph: &'static Icon, mut names: Vec<(String, Option<El>)>) -> Option<El> {
+    names.sort_by(|a, b| rune::text::compare_names(&a.0, &b.0));
     let last = names.len();
     let rows: Vec<El> = names
-        .iter()
+        .into_iter()
         .enumerate()
-        .map(|(k, n)| {
-            extension_row(p, format!("{key}-{n}"), icon(glyph, 16.0).color(p.icon_muted), text((*n).clone()).font(NAME).color(p.text).shrink().truncate(), None, k + 1 == last)
+        .map(|(k, (n, trailing))| {
+            extension_row(p, format!("{key}-{n}"), icon(glyph, 16.0).color(p.icon_muted), text(n).font(NAME).color(p.text).shrink().truncate(), trailing, k + 1 == last)
         })
         .collect();
     (!rows.is_empty()).then(|| catalog_with(p, key, rows, false))

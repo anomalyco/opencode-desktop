@@ -294,7 +294,7 @@ pub fn panel_menu_items(app: &App, i: usize, session: &str) -> Vec<crate::panels
                 Some(Data::String(d)) => Some(d),
                 _ => s.description.clone(),
             };
-            let icon = crate::plugin_host::icons::resolve("", s.icon.as_deref().unwrap_or("plus"));
+            let icon = crate::plugin_host::icons::resolve(&p.manifest.id, s.icon.as_deref().unwrap_or("plus"));
             crate::panels::PanelLauncherDesc::new(intern(&s.id), s.title, icon, s.order.unwrap_or(0) as i32)
                 .description(detail)
                 .command(s.keybind.as_deref().map(intern))
