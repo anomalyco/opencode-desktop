@@ -468,6 +468,7 @@ return plugin.defineWindow(function(ctx)
             end
         end
         -- Sync saved tabs for immediate restore & loading hold (`UP-100` `#65067`).
+        -- Isolated tabs (`Preview`, `Artifact`, `Private`, `RemoteServer`) NEVER persist to disk.
         local routed = Sessions:Routed()
         if routed ~= nil then
             local curSaved = savedTabs.normalize(savedTabsStore:Get())
@@ -475,12 +476,18 @@ return plugin.defineWindow(function(ctx)
             for _, info in Browser:List(routed.id, {}) do
                 if info.open then
                     local live = Browser:Get(info.id)
-                    table.insert(reported, {
-                        id = info.id,
-                        url = info.url,
-                        title = if live then live:Title() else info.title,
-                        loading = if live then live:Loading() else false,
-                    })
+                    local liveAny = live :: any
+                    local livePrivate = liveAny ~= nil
+                        and type(liveAny.IsPrivate) == "function"
+                        and liveAny:IsPrivate() == true
+                    if not livePrivate then
+                        table.insert(reported, {
+                            id = info.id,
+                            url = info.url,
+                            title = if live then live:Title() else info.title,
+                            loading = if live then live:Loading() else false,
+                        })
+                    end
                 end
             end
             local nextSaved = savedTabs.save(curSaved, routed.id, reported)
@@ -488,11 +495,13 @@ return plugin.defineWindow(function(ctx)
                 curSaved = nextSaved
                 savedTabsStore:Set(curSaved :: any)
             end
-            local fav = if type(tAny.Favicon) == "function" then tAny:Favicon() else nil
-            if type(fav) == "string" and fav ~= "" then
-                local withIcon = savedTabs.saveIcon(curSaved, routed.id, id, fav)
-                if withIcon ~= nil then
-                    savedTabsStore:Set(withIcon :: any)
+            if not isPrivate then
+                local fav = if type(tAny.Favicon) == "function" then tAny:Favicon() else nil
+                if type(fav) == "string" and fav ~= "" then
+                    local withIcon = savedTabs.saveIcon(curSaved, routed.id, id, fav)
+                    if withIcon ~= nil then
+                        savedTabsStore:Set(withIcon :: any)
+                    end
                 end
             end
         end
@@ -505,17 +514,22 @@ return plugin.defineWindow(function(ctx)
     end)
 
     -- A loopback address opens on the machine that runs the server; the system browser here
-    -- reaches it only when the server runs here too.
-    local function reachable(url: string): boolean
+    -- reaches it only when the server runs here too (authoritative Rust policy via CanOpenExternally).
+    local function reachable(url: string, tab: BrowserTab?): boolean
+        local tAny = tab :: any
+        if tAny ~= nil and type(tAny.CanOpenExternally) == "function" then
+            return tAny:CanOpenExternally() == true
+        end
         local scheme, host = address.parts(url)
         local lower = string.lower(scheme)
-        if lower == "file://" then
-            return false
-        end
         if lower ~= "http://" and lower ~= "https://" then
             return false
         end
+        if string.find(host, "@", 1, true) ~= nil then
+            return false
+        end
         local name = string.match(host, "^%[[^%]]*%]") or string.match(host, "^[^:]*") or host
+        name = string.gsub(name, "%.+$", "")
         return Server:IsLocal() or not address.loopback(name)
     end
 
@@ -665,7 +679,7 @@ return plugin.defineWindow(function(ctx)
         elseif what == "external" then
             Popover:Close()
             local url = pageUrl(tab)
-            if reachable(url) then
+            if reachable(url, tab) then
                 System:OpenExternal(url)
             else
                 Toast:Error(I18n:T("menu.failed"))
@@ -754,10 +768,10 @@ return plugin.defineWindow(function(ctx)
                 url = url,
                 zoom = tab:Zoom(),
                 inspectable = url ~= "" and tab:LoadError() == nil,
-                suspended = false,
+                suspended = tab:Refusal() == "browser.proxy.required",
                 failed = tab:LoadError() ~= nil,
                 serverFile = isServerFile(url),
-                canOpenExternal = reachable(url),
+                canOpenExternal = reachable(url, tab),
                 canRevealFile = srcPath ~= nil and Server:IsLocal(),
                 canViewSource = canSource,
                 canFind = canFind,
@@ -978,7 +992,14 @@ return plugin.defineWindow(function(ctx)
         end,
         closedTab = function(props): ClosedTab?
             local tab = if props.instance then Browser:Get(props.instance) else nil
-            local url = if tab then pageUrl(tab) else ""
+            if tab == nil then
+                return nil
+            end
+            local tAny = tab :: any
+            if type(tAny.IsPrivate) == "function" and tAny:IsPrivate() == true then
+                return nil
+            end
+            local url = pageUrl(tab)
             if url == "" then
                 return nil
             end
