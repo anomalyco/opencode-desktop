@@ -38,15 +38,10 @@ pub(crate) fn video(app: &App, href: &str) -> Option<String> {
     if !cfg!(any(target_os = "macos", target_os = "windows")) { return None; }
     let (dir, link) = target(app, href)?;
     match link {
-        Link::Web(url) if web_url(&url) => {
-            let (_, rest) = url.split_once("://")?;
-            let (_, path) = rest.split(['?', '#']).next()?.split_once('/')?;
-            video::is_video(path).then_some(url)
-        }
+        // Confine zero-click inline video auto-load on display to verified regular files inside
+        // the session workspace. `Link::Web` (`http(s)`) and `Link::Outside` render as ordinary
+        // links until click-to-load and remote-server host policy land in a follow-up PR.
         Link::Inside { path, .. } if video::is_video(&path) => video::source(app.live_server(), &dir, &path),
-        Link::Outside { path } if app.can_open_in() && video::is_video(&path) => {
-            browser_policy::verify_local_path(&path).ok().filter(|v| v.is_file).map(|v| v.path)
-        }
         _ => None,
     }
 }

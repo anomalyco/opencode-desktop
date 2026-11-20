@@ -207,9 +207,12 @@ pub fn ensure_file_loaded(host: &mut dyn FilesHost, session_id: &str, path: &str
         .get(session_id)
         .and_then(|w| w.videos.get(path))
         .is_some_and(video::FileVideo::failed);
-    if video::is_video(path) && !failed
-        && let Some(source) = video::source(Some(&server), &directory, path)
-    {
+    if video::is_video(path) && !failed {
+        let Some(source) = video::source(Some(&server), &directory, path) else {
+            // Rejected by local workspace confinement (e.g. symlink/junction/missing): never fall
+            // back to `/api/fs/read/...` on a local server.
+            return;
+        };
         let pane = host.files_mut();
         let wrap = pane.wrap;
         let clip = video::FileVideo::new(&source, pane.waker.clone());
