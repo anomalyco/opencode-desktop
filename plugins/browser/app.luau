@@ -26,6 +26,9 @@ return plugin.defineApp(function(ctx)
                 stored:Set({ visits = history.remember(visits(), { url = url, title = title }) })
             end
         end,
+        forget = function(url: string)
+            stored:Set({ visits = history.forget(visits(), url) })
+        end,
         clear = function()
             stored:Set({ visits = {} })
         end,

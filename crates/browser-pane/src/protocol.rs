@@ -299,7 +299,8 @@ pub enum HostMsg {
         action: Option<ContextMenuCommand>,
     },
     SetPartitionProxy {
-        partition: String,
+        #[serde(alias = "partition")]
+        server_id: String,
         proxy: Option<RemoteProxyConfig>,
     },
     DropContext {
@@ -339,7 +340,7 @@ pub enum EngineMsg {
         /// The engine routes page right-click context menus to the app.
         #[serde(default)]
         context_menu: bool,
-        /// The engine isolates `IsolatedPreview` and `RemoteServer` tabs in dedicated `CefRequestContext`s.
+        /// The engine isolates `Preview`, `Artifact`, `Private`, and `RemoteServer` tabs in dedicated `CefRequestContext`s.
         #[serde(default)]
         partitions: bool,
         /// The engine confines proxied `RemoteServer` partitions via `fixed_servers` + `<-loopback>` + WebRTC/DoH hardening.
@@ -632,11 +633,21 @@ pub struct RemoteProxyConfig {
 pub enum ContextKind {
     #[default]
     Default,
-    IsolatedPreview {
+    /// Workspace preview (`oc-preview://`): distinct per `(workspace, grant)`.
+    Preview {
+        workspace: String,
         grant: String,
     },
+    /// Artifact preview: distinct namespace from workspace previews.
+    Artifact {
+        artifact_id: String,
+    },
+    /// Per-tab ephemeral private context (keyed strictly by `tab_id`).
+    Private,
+    /// Per-remote-server isolated context keyed strictly by canonical server identity.
     RemoteServer {
-        partition: String,
+        #[serde(alias = "partition")]
+        server_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         proxy: Option<RemoteProxyConfig>,
     },
@@ -647,10 +658,14 @@ impl ContextKind {
         matches!(self, Self::Default)
     }
 
+    pub fn is_isolated(&self) -> bool {
+        !self.is_default()
+    }
+
     pub fn is_supported(&self, partitions: bool, remote_proxy: bool) -> bool {
         match self {
             Self::Default => true,
-            Self::IsolatedPreview { .. } => partitions,
+            Self::Preview { .. } | Self::Artifact { .. } | Self::Private => partitions,
             // Remote-server tabs must never open or navigate without a live loopback tunnel proxy.
             Self::RemoteServer { proxy: None, .. } => false,
             Self::RemoteServer { proxy: Some(_), .. } => partitions && remote_proxy,

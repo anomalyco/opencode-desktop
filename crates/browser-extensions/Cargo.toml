@@ -1,0 +1,26 @@
+[package]
+name = "browser-extensions"
+version = "0.0.1"
+description = "Pure-Rust MV3 browser extension verifier, safe unpacker, compatibility classifier, and permissions review manager"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+base64.workspace = true
+browser-policy = { path = "../browser-policy" }
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+sha2 = "0.10"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+crc32fast = "1"
+flate2 = "1"
+icu_normalizer = { version = "2", default-features = false, features = ["compiled_data"] }
+ring = "0.17"
+ureq = { workspace = true, features = ["rustls", "platform-verifier"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[lints]
+workspace = true

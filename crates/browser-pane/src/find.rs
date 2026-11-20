@@ -154,18 +154,18 @@ impl crate::BrowserHost {
     /// Updates or clears the local loopback tunnel proxy on a remote server partition.
     pub fn set_partition_proxy(
         &mut self,
-        partition: &str,
+        server_id: &str,
         proxy: Option<crate::protocol::RemoteProxyConfig>,
     ) {
         for t in &mut self.tabs {
-            if let crate::protocol::ContextKind::RemoteServer { partition: p, proxy: cur } = &mut t.context
-                && p == partition
+            if let crate::protocol::ContextKind::RemoteServer { server_id: id, proxy: cur } = &mut t.context
+                && id == server_id
             {
                 *cur = proxy.clone();
             }
         }
         self.send(crate::protocol::HostMsg::SetPartitionProxy {
-            partition: partition.to_owned(),
+            server_id: server_id.to_owned(),
             proxy,
         });
     }

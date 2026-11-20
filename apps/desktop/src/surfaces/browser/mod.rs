@@ -108,6 +108,8 @@ mod native {
         /// Conversation app-scheme links waiting to display inside the browser pane's guarded
         /// `RefusalBar` (`(tab_id, href)`).
         pub pending_app_links: std::cell::RefCell<std::collections::VecDeque<(u64, String)>>,
+        /// Persistent SQLite browsing history store (`history.sqlite`, lazily opened).
+        pub history: std::cell::RefCell<Option<browser_pane::history::HistoryStore>>,
     }
 
     /// App-level shortcuts that a focused web page must yield to OpenCode (Rune) rather than swallow,
@@ -301,8 +303,8 @@ mod native {
         }
 
         /// Default browser isolation context for tabs opened on the active server: local sidecar
-        /// uses `ContextKind::Default`, while remote servers ALWAYS request a dedicated
-        /// `RemoteServer` partition (never silently falling back to `Default`).
+        /// uses `ContextKind::Default`, while remote servers ALWAYS use a dedicated `RemoteServer`
+        /// context keyed by canonical `ServerKey` identity (never falling back to `Default`).
         pub fn default_browser_context(&self) -> browser_pane::ContextKind {
             let server = crate::servers::runtime::active(self);
             let same_machine = server.is_sidecar()
@@ -314,7 +316,7 @@ mod native {
                 browser_pane::ContextKind::Default
             } else {
                 browser_pane::ContextKind::RemoteServer {
-                    partition: format!("server:{}", server.as_str()),
+                    server_id: server.as_str().to_owned(),
                     proxy: None,
                 }
             }
@@ -354,7 +356,7 @@ mod native {
             from_address: bool,
             context: browser_pane::ContextKind,
         ) -> u64 {
-            let roots = if matches!(context, browser_pane::ContextKind::RemoteServer { .. }) {
+            let roots = if context.is_isolated() {
                 Vec::new()
             } else {
                 self.browser_file_roots(sid)
@@ -485,7 +487,10 @@ mod native {
                         .map_or((false, self.default_browser_context()), |t| {
                             let ctx = match &t.context {
                                 browser_pane::ContextKind::RemoteServer { .. } => t.context.clone(),
-                                _ => self.default_browser_context(),
+                                browser_pane::ContextKind::Preview { .. }
+                                | browser_pane::ContextKind::Artifact { .. }
+                                | browser_pane::ContextKind::Private => browser_pane::ContextKind::Private,
+                                browser_pane::ContextKind::Default => self.default_browser_context(),
                             };
                             (t.prompts.agent_driven, ctx)
                         });
