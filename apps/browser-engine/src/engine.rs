@@ -25,24 +25,25 @@ use crate::wire::{
 /// Opaque page background (ARGB) for pages that specify none. macOS uses Rune's dark base.
 const BASE_COLOR: u32 = if cfg!(target_os = "macos") { 0xFF11_1318 } else { 0xFFFF_FFFF };
 
-pub(super) struct ManagedTab {
-    pub(super) browser: Browser,
-    pub(super) host: BrowserHost,
+pub(crate) struct ManagedTab {
+    pub(crate) browser: Browser,
+    pub(crate) host: BrowserHost,
     file_roots: Arc<Mutex<Vec<String>>>,
     allowed_ext_ids: Arc<Mutex<Vec<String>>>,
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     allow_extension_pages: bool,
     pub(super) isolated: bool,
-    pub(super) is_popup: bool,
+    pub(crate) is_popup: bool,
     preview: Option<Arc<PreviewGrant>>,
     #[cfg(target_os = "linux")]
     preview_spec: Option<PreviewSpec>,
     view_state: Arc<Mutex<ViewRectState>>,
-    pub(super) snap: Arc<Mutex<TabSnapshot>>,
-    pub(super) cdp_id_map: Arc<Mutex<HashMap<i32, CdpPending>>>,
+    pub(crate) snap: Arc<Mutex<TabSnapshot>>,
+    pub(crate) cdp_id_map: Arc<Mutex<HashMap<i32, CdpPending>>>,
+    pub(crate) cdp_ledger: Arc<Mutex<crate::cdp_ledger::EngineCdpLedger>>,
     internal_picked: Arc<Mutex<Vec<i64>>>,
     pending_clears: Arc<Mutex<Vec<PendingClear>>>,
-    pub(super) prompts: Arc<crate::prompts::TabPrompts>,
+    pub(crate) prompts: Arc<crate::prompts::TabPrompts>,
     menu: Arc<crate::menu::TabMenuState>,
     context: crate::wire::ContextKind,
     generation: u64,
@@ -283,6 +284,7 @@ impl EngineManager {
                     context_menu: prompts,
                     partitions: true,
                     remote_proxy: true,
+                    agent_tools: true,
                     preview: true,
                     permission_sync: true,
                     preview_credit: true,
@@ -657,43 +659,8 @@ impl EngineManager {
             }
             HostMsg::SiteCookies { tab_id, request_id } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
-                    if !self.contexts.is_tab_ready(tab_id) {
-                        let reason = self.contexts.not_ready_reason(tab_id);
-                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                            tab_id,
-                            request_id,
-                            ok: false,
-                            result: json!({ "message": reason }),
-                        });
-                        return true;
-                    }
-                    let url = t.snap.lock().unwrap().url.clone();
-                    if browser_policy::destination_origin(&url).is_none() {
-                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                            tab_id,
-                            request_id,
-                            ok: true,
-                            result: json!({ "cookies": 0 }),
-                        });
-                        return true;
-                    }
-                    let msg_id = self.next_cdp_id.fetch_add(1, Ordering::Relaxed);
-                    t.cdp_id_map.lock().unwrap().insert(msg_id, CdpPending::CookieCount(request_id));
-                    let raw = json!({
-                        "id": msg_id,
-                        "method": "Network.getCookies",
-                        "params": { "urls": [url] },
-                    })
-                    .to_string();
-                    if t.host.send_dev_tools_message(Some(raw.as_bytes())) != 1 {
-                        t.cdp_id_map.lock().unwrap().remove(&msg_id);
-                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                            tab_id,
-                            request_id,
-                            ok: false,
-                            result: json!({ "message": "send_dev_tools_message rejected" }),
-                        });
-                    }
+                    let not_ready = (!self.contexts.is_tab_ready(tab_id)).then(|| self.contexts.not_ready_reason(tab_id));
+                    crate::cdp_ledger::handle_site_cookies(tab_id, request_id, not_ready, t, &self.next_cdp_id, &self.out_tx);
                 }
             }
             HostMsg::ClearSite { tab_id, request_id } => {
@@ -789,6 +756,22 @@ impl EngineManager {
             }
             HostMsg::SetAgentDriven { tab_id, agent_driven } => {
                 self.handle_set_agent_driven(tab_id, agent_driven);
+            }
+            HostMsg::TypedCdpCall { tab_id, request_id, method, params, session_id } => {
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    let not_ready = (!self.contexts.is_tab_ready(tab_id)).then(|| self.contexts.not_ready_reason(tab_id));
+                    crate::cdp_ledger::handle_typed_cdp_call(
+                        tab_id,
+                        request_id,
+                        not_ready,
+                        t,
+                        &self.next_cdp_id,
+                        &self.out_tx,
+                        method,
+                        params,
+                        session_id,
+                    );
+                }
             }
             HostMsg::ClearSiteCache { tab_id, request_id } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
@@ -1322,6 +1305,7 @@ impl EngineManager {
         }
 
         let cdp_id_map = Arc::new(Mutex::new(HashMap::new()));
+        let cdp_ledger = Arc::new(Mutex::new(crate::cdp_ledger::EngineCdpLedger::default()));
         let internal_picked = Arc::new(Mutex::new(Vec::new()));
         let pending_clears = Arc::new(Mutex::new(Vec::new()));
         let mut observer = TabCdpObserver::new(
@@ -1331,7 +1315,9 @@ impl EngineManager {
             cdp_id_map.clone(),
             internal_picked.clone(),
             pending_clears.clone(),
+            cdp_ledger.clone(),
             prompts.clone(),
+            self.extensions.is_some(),
             self.out_tx.clone(),
         );
         let cdp_reg = host.add_dev_tools_message_observer(Some(&mut observer));
@@ -1361,6 +1347,7 @@ impl EngineManager {
                 view_state,
                 snap,
                 cdp_id_map,
+                cdp_ledger,
                 internal_picked,
                 pending_clears,
                 prompts,
@@ -1430,8 +1417,7 @@ impl Drop for EngineManager {
     }
 }
 
-pub(crate) use extensions::browser_has_extension_surface;
-
+pub(crate) use extensions::{browser_has_extension_surface, tab_is_extension_surface};
 mod emulation;
 mod extensions;
 mod frames;

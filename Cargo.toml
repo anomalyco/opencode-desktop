@@ -89,6 +89,7 @@ polling = "3.11"
 # Desktop lists them.
 serde_json = { version = "1", features = ["preserve_order"] }
 ureq = { version = "3.4", default-features = false }
+url = "2"
 
 # BetterOffice's Word engine builds against its own yrs fork, as its workspace patches it.
 [patch.crates-io]
