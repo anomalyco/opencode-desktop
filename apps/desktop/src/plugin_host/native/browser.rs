@@ -188,8 +188,9 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     method(lua, t, "NormalizeUrl", |lua, (url, sid): (String, Option<String>)| {
         let scope = scope::TabScope::capture(lua);
         with_app("Browser:NormalizeUrl", |app| {
+            scope.check_local_mcp_allowed(app).map_err(mlua::Error::runtime)?;
             let target = scope.target_session(app, sid.as_deref());
-            if !scope.is_verified_builtin_browser(app) {
+            if !scope.is_builtin_browser {
                 return browser_pane::normalize_url(&browser_pane::with_scheme(&url), &[])
                     .map_err(mlua::Error::runtime);
             }
@@ -239,8 +240,7 @@ fn open(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
                 return done.complete(Data::Nil);
             }
             let sid = scope.target_session(s, spec.session_id.as_deref());
-            let builtin = scope.is_verified_builtin_browser(s);
-            if sid.is_none() && (scope.tool_sid.is_some() || !builtin) {
+            if sid.is_none() && (scope.tool_sid.is_some() || !scope.is_builtin_browser) {
                 return done.complete(Data::Nil);
             }
             tx.instant();
@@ -248,7 +248,7 @@ fn open(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
             let candidate = browser_pane::with_scheme(url);
             let driver = scope.driver(s);
             // Third-party plugins may never mint preview/artifact grants (`notes/review-rd281.md` §9).
-            let id = if !builtin
+            let id = if !scope.is_builtin_browser
                 && !matches!(
                     s.resolve_preview_target(sid.as_deref(), &candidate, true),
                     crate::browser::preview::PreviewTarget::NotPreview
@@ -528,7 +528,7 @@ fn tab_methods(lua: &Lua) -> mlua::Result<Table> {
                 let agent = cap.driver(s).is_some();
                 let sid = s.browser_tab_session(id).map(str::to_owned);
                 let resolved = browser_pane::resolve_address(&url);
-                if !cap.is_verified_builtin_browser(s)
+                if !cap.is_builtin_browser
                     && !matches!(
                         s.resolve_preview_target(sid.as_deref(), &resolved, true),
                         crate::browser::preview::PreviewTarget::NotPreview

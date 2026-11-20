@@ -105,6 +105,25 @@ impl RuneMcpHost for App {
         crate::servers::runtime::active(self)
     }
 
+    fn browser_mcp_refusal(&self, session_id: &str) -> Option<&'static str> {
+        let server_key = crate::servers::runtime::active(self);
+        let same_machine = server_key.is_sidecar()
+            && match &*self.source {
+                Source::Live { server, .. } => server.is_local(),
+                Source::Fixture => true,
+            };
+        if !same_machine {
+            return Some(REMOTE_BROWSER_MCP_ERROR);
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        if crate::surfaces::browser::rpc::is_mcp_browser_suppressed(self, server_key, Some(session_id)) {
+            return Some(RPC_ATTACHED_BROWSER_MCP_ERROR);
+        }
+        #[cfg(target_arch = "wasm32")]
+        let _ = session_id;
+        None
+    }
+
     fn dispatch_mcp_call(&mut self, session_id: &str, call: McpCall, tx: &mut Tx) -> Option<McpCall> {
         crate::plugin_host::mcp_call(self, session_id, call, tx)
     }
