@@ -65,6 +65,8 @@ pub struct EngineManager {
     downloads: Arc<crate::downloads::Downloads>,
     /// Shared prompt-handling toggle (`Hello.prompts`) and monotonic ID counter.
     prompt_shared: crate::prompts::PromptShared,
+    /// Blocks `clipboard-sanitized-write` on every origin currently open in an agent-driven tab.
+    clipboard_guard: Arc<crate::prompts::AgentClipboardGuard>,
     /// Isolated `oc-preview://` grant & async remote/artifact proxy registry.
     previews: Arc<PreviewRegistry>,
     /// Shared pool of isolated `CefRequestContext`s for previews and remote servers.
@@ -89,6 +91,10 @@ impl EngineManager {
         #[cfg(windows)] gpu: Option<Arc<crate::d3d_frames::Gpu>>,
         #[cfg(target_os = "linux")] transport: crate::dmabuf_frames::Transport,
     ) -> Self {
+        if let Some(global) = cef::request_context_get_global_context() {
+            crate::prompts::block_device_permission_guards(&global);
+            crate::prompts::scrub_legacy_content_settings(&global);
+        }
         Self {
             tabs: HashMap::new(),
             mach_port: Arc::new(AtomicU32::new(0)),
@@ -99,6 +105,7 @@ impl EngineManager {
             home: crate::profile::home_dir(),
             downloads: crate::downloads::Downloads::open(&downloads),
             prompt_shared: crate::prompts::PromptShared::default(),
+            clipboard_guard: Arc::new(crate::prompts::AgentClipboardGuard::default()),
             previews: PreviewRegistry::new(),
             contexts: crate::context::ContextPool::new(events.clone()),
             #[cfg(windows)]
@@ -319,6 +326,7 @@ impl EngineManager {
                     partitions: true,
                     remote_proxy: true,
                     preview: true,
+                    permission_sync: true,
                 });
                 for (&tab_id, t) in &self.tabs {
                     t.menu.cancel_all();
@@ -369,6 +377,7 @@ impl EngineManager {
             }
             HostMsg::CloseTab { tab_id } => {
                 if let Some(tab) = self.tabs.remove(&tab_id) {
+                    self.clipboard_guard.release_tab(tab_id, Some(&tab.host));
                     self.release_preview(tab_id, tab.preview.as_ref());
                     tab.menu.cancel_all();
                     tab.prompts.dismiss_all();
@@ -377,6 +386,7 @@ impl EngineManager {
                     self.contexts.release_tab(tab_id);
                     let _ = self.out_tx.send(EngineMsg::TabClosed { tab_id });
                 } else {
+                    self.clipboard_guard.release_tab(tab_id, None);
                     self.contexts.release_tab(tab_id);
                 }
             }
@@ -828,9 +838,22 @@ impl EngineManager {
                     t.prompts.answer_dialog(id, accept, &text);
                 }
             }
-            HostMsg::AnswerPermission { tab_id, id, allow } => {
+            HostMsg::AnswerPermission { tab_id, id, allow, dismiss } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
-                    t.prompts.answer_permission(id, allow);
+                    let ctx = t.host.request_context().or_else(|| {
+                        t.context
+                            .is_default()
+                            .then(cef::request_context_get_global_context)
+                            .flatten()
+                    });
+                    t.prompts.answer_permission(id, allow, dismiss, ctx.as_ref());
+                }
+            }
+            HostMsg::ResetPermission { origin, kind } => {
+                // `Settings > Browser` manages `Default` profile decisions strictly; never mutate
+                // isolated `RemoteServer` contexts from a `Default` profile revocation.
+                if let Some(global) = cef::request_context_get_global_context() {
+                    crate::prompts::reset_content_setting(&global, &origin, kind);
                 }
             }
             HostMsg::AnswerAuth { tab_id, id, username, password } => {
@@ -840,7 +863,23 @@ impl EngineManager {
             }
             HostMsg::SetAgentDriven { tab_id, agent_driven } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
-                    t.prompts.agent_driven.store(agent_driven, Ordering::Relaxed);
+                    t.prompts.agent_driven.store(agent_driven, Ordering::Release);
+                    if agent_driven {
+                        let live_url = t
+                            .browser
+                            .main_frame()
+                            .map(|f| CefString::from(&f.url()).to_string())
+                            .filter(|u| !u.is_empty())
+                            .unwrap_or_else(|| t.snap.lock().unwrap().url.clone());
+                        self.clipboard_guard.set_origin(
+                            tab_id,
+                            context_scope_id(&t.context, tab_id),
+                            crate::prompts::origin_of(&live_url).as_deref(),
+                            &t.host,
+                        );
+                    } else {
+                        self.clipboard_guard.release_tab(tab_id, Some(&t.host));
+                    }
                 }
             }
             HostMsg::ClearSiteCache { tab_id, request_id } => {
@@ -967,6 +1006,7 @@ impl EngineManager {
                 self.previews.deliver_end(req_id, ok);
             }
             HostMsg::Shutdown => {
+                self.clipboard_guard.release_all();
                 let drained: Vec<_> = self.tabs.drain().collect();
                 for (tab_id, t) in drained {
                     self.release_preview(tab_id, t.preview.as_ref());
@@ -1004,12 +1044,15 @@ impl EngineManager {
     ) {
         // Cleanly release any prior browser/grant/context on duplicate `tab_id` before opening.
         if let Some(prev) = self.tabs.remove(&tab_id) {
+            self.clipboard_guard.release_tab(tab_id, Some(&prev.host));
             self.release_preview(tab_id, prev.preview.as_ref());
             prev.menu.cancel_all();
             prev.prompts.dismiss_all();
             prev.host.close_browser(1);
             self.downloads.close_tab(tab_id);
             self.contexts.release_tab(tab_id);
+        } else {
+            self.clipboard_guard.release_tab(tab_id, None);
         }
         let mut preview_grant: Option<Arc<PreviewGrant>> = None;
         let mut refused_reason: Option<String> = None;
@@ -1156,11 +1199,14 @@ impl EngineManager {
         let favicon = Arc::new(crate::favicon::TabFavicon::default());
         let diagnostics = Arc::new(crate::diagnostics::TabDiagnostics::default());
         let menu_state = Arc::new(crate::menu::TabMenuState::default());
+        let scope_id = context_scope_id(&effective_context, tab_id);
         let display = TabDisplayHandler::new(
             tab_id,
             preview_grant.clone(),
             snap.clone(),
             prompts.clone(),
+            self.clipboard_guard.clone(),
+            scope_id.clone(),
             favicon,
             self.out_tx.clone(),
         );
@@ -1182,6 +1228,8 @@ impl EngineManager {
             snap.clone(),
             self.prompt_shared.clone(),
             prompts.clone(),
+            self.clipboard_guard.clone(),
+            scope_id,
             diagnostics,
             self.out_tx.clone(),
         );
@@ -1196,7 +1244,7 @@ impl EngineManager {
         let life_span = crate::prompts::TabLifeSpanHandler::new(
             tab_id,
             is_preview,
-            context_ready,
+            context_ready.clone(),
             self.out_tx.clone(),
         );
         let jsdialog = crate::prompts::TabDialogHandler::new(
@@ -1209,9 +1257,9 @@ impl EngineManager {
         let permission = crate::prompts::TabPermissionHandler::new(
             tab_id,
             is_preview,
+            context_ready,
             self.prompt_shared.clone(),
             prompts.clone(),
-            snap.clone(),
             self.out_tx.clone(),
         );
         let dialog = crate::prompts::TabFileDialogHandler::new(
@@ -1349,6 +1397,7 @@ impl EngineManager {
 
     fn close_managed_tab(&mut self, tab_id: u64) {
         if let Some(tab) = self.tabs.remove(&tab_id) {
+            self.clipboard_guard.release_tab(tab_id, Some(&tab.host));
             self.release_preview(tab_id, tab.preview.as_ref());
             tab.menu.cancel_all();
             tab.prompts.dismiss_all();
@@ -1357,6 +1406,7 @@ impl EngineManager {
             self.contexts.release_tab(tab_id);
             let _ = self.out_tx.send(EngineMsg::TabClosed { tab_id });
         } else {
+            self.clipboard_guard.release_tab(tab_id, None);
             self.contexts.release_tab(tab_id);
         }
     }
@@ -1385,6 +1435,22 @@ impl EngineManager {
         let id = self.next_cdp_id.fetch_add(1, Ordering::Relaxed);
         let raw = json!({ "id": id, "method": method, "params": params }).to_string();
         let _ = host.send_dev_tools_message(Some(raw.as_bytes()));
+    }
+}
+
+fn context_scope_id(kind: &crate::wire::ContextKind, tab_id: u64) -> Option<String> {
+    match kind {
+        crate::wire::ContextKind::Default => None,
+        crate::wire::ContextKind::Preview { workspace, grant } => {
+            Some(format!("preview:{}:{}", workspace.trim(), grant.trim()))
+        }
+        crate::wire::ContextKind::Artifact { artifact_id } => {
+            Some(format!("artifact:{}", artifact_id.trim()))
+        }
+        crate::wire::ContextKind::Private => Some(format!("private:{tab_id}")),
+        crate::wire::ContextKind::RemoteServer { server_id, .. } => {
+            Some(format!("remote:{}", server_id.trim()))
+        }
     }
 }
 

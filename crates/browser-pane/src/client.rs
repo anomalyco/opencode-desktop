@@ -1028,6 +1028,7 @@ impl BrowserHost {
                     partitions,
                     remote_proxy,
                     preview,
+                    permission_sync,
                     ..
                 } => {
                     if !matches!(
@@ -1046,7 +1047,9 @@ impl BrowserHost {
                         partitions,
                         remote_proxy,
                         preview,
+                        permission_sync,
                     };
+                    self.flush_permission_resets();
                     // A new engine starts with an empty downloads folder and numbers its files
                     // from 1 again: the last one's files are gone. Held prompts replay if live.
                     for t in &mut self.tabs {
@@ -1418,7 +1421,7 @@ impl BrowserHost {
                 self.send(HostMsg::SetZoom { tab_id: snap.tab_id, factor: want_zoom });
             }
             for id in cancel_perms {
-                self.send(HostMsg::AnswerPermission { tab_id: snap.tab_id, id, allow: false });
+                self.send(HostMsg::AnswerPermission { tab_id: snap.tab_id, id, allow: false, dismiss: true });
             }
             for id in cancel_auth {
                 self.send(HostMsg::AnswerAuth { tab_id: snap.tab_id, id, username: None, password: None });

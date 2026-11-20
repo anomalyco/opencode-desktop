@@ -165,7 +165,18 @@ pub enum HostMsg {
     /// The app's answer to a held JavaScript dialog or `beforeunload` (`EngineMsg::Dialog`).
     AnswerDialog { tab_id: u64, id: u64, accept: bool, text: String },
     /// The app's answer to a held permission request (`EngineMsg::PermissionRequest`).
-    AnswerPermission { tab_id: u64, id: u64, allow: bool },
+    AnswerPermission {
+        tab_id: u64,
+        id: u64,
+        allow: bool,
+        /// When `true` and `!allow`, answers with `CEF_PERMISSION_RESULT_DISMISS` so Chromium does
+        /// not permanently block the origin (for `"Not now"`, timeouts, and origin changes).
+        #[serde(default)]
+        dismiss: bool,
+    },
+    /// Resets Chromium's `HostContentSettingsMap` entry for `(origin, kind)` back to `DEFAULT`
+    /// when a site permission is revoked or changed in `Settings > Browser`.
+    ResetPermission { origin: String, kind: PermissionKind },
     /// The app's answer to an HTTP 401 auth challenge (`EngineMsg::AuthRequest`); `None` cancels.
     AnswerAuth { tab_id: u64, id: u64, username: Option<String>, password: Option<String> },
     /// Marks a tab as agent-driven (cancels native file choosers, skips `beforeunload`, rejects HTTP auth).
@@ -214,6 +225,10 @@ pub enum EngineMsg {
         remote_proxy: bool,
         #[serde(default)]
         preview: bool,
+        /// The engine resets Chromium's `HostContentSettingsMap` on one-time/revoked permissions
+        /// and supports `HostMsg::ResetPermission` + `AnswerPermission.dismiss`.
+        #[serde(default)]
+        permission_sync: bool,
     },
     /// Requests bytes for a remote workspace or artifact preview from the app host (server
     /// credentials never enter the engine process).

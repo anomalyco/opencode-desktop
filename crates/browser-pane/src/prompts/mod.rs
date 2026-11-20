@@ -19,8 +19,8 @@ use rune::time::Instant;
 
 pub use store::{
     ACTIVATION_DELAY_MS, AGENT_PERMISSION_TIMEOUT_MS, InputGuard, MAX_SIGN_IN_ATTEMPTS,
-    PROMPT_TEXT_MAX, PermissionStore, REALM_TEXT_MAX, REPEAT_DIALOG_MS, SiteDecision,
-    SitePermissions, SiteSetting, sanitize_prompt_text,
+    PROMPT_TEXT_MAX, PermissionScope, PermissionStore, REALM_TEXT_MAX, REPEAT_DIALOG_MS,
+    SiteDecision, SitePermissions, SiteSetting, sanitize_prompt_text,
 };
 
 use crate::protocol::{AuthChallenge, DialogKind, PageDialog, PermissionKind, PermissionPrompt};
@@ -243,25 +243,29 @@ impl PermissionGate {
             .min()
     }
 
-    /// Evaluates an incoming permission request against kept + visit decisions.
-    /// Returns `Some(allow)` to answer immediately without showing a bar, else enqueues/coalesces.
+    /// Evaluates an incoming permission request against scope-partitioned kept + visit decisions.
+    /// Returns `Some((allow, dismiss))` to answer immediately without showing a bar, else enqueues.
     pub fn evaluate(
         &mut self,
         request: PermissionPrompt,
         agent_driven: bool,
+        scope: &PermissionScope,
         kept: &SitePermissions,
         visit: &HashMap<(String, PermissionKind), SiteSetting>,
         now: Instant,
-    ) -> Option<bool> {
+    ) -> Option<(bool, bool)> {
         if request.kinds.is_empty() || request.origin != request.top_origin {
-            return Some(false);
+            return Some((false, true));
         }
         let mut all_allowed = true;
         for &kind in &request.kinds {
-            let kept_val = kept.get(&request.origin, kind);
+            let kept_val = kept.get_scoped(scope, &request.origin, kind);
             let visit_val = visit.get(&(request.origin.clone(), kind)).copied();
-            if kept_val == Some(SiteSetting::Block) || visit_val == Some(SiteSetting::Block) {
-                return Some(false);
+            if kept_val == Some(SiteSetting::Block) {
+                return Some((false, false));
+            }
+            if visit_val == Some(SiteSetting::Block) {
+                return Some((false, true));
             }
             let allowed = if agent_driven {
                 // Agent tabs never inherit kept user permissions (`site-permissions.ts`).
@@ -274,7 +278,7 @@ impl PermissionGate {
             }
         }
         if all_allowed {
-            return Some(true);
+            return Some((true, false));
         }
         let key = permission_key(&request, agent_driven);
         let expires_at = agent_driven.then(|| now + Duration::from_millis(AGENT_PERMISSION_TIMEOUT_MS));

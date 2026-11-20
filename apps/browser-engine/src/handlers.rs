@@ -11,15 +11,15 @@ use cef::rc::Rc as _;
 use cef::{
     AcceleratedPaintInfo, AuthCallback, Browser, Callback, CefString, CefStringList, CursorInfo,
     CursorType, DevToolsMessageObserver, DisplayHandler, Errorcode, Frame, ImplAuthCallback,
-    ImplDevToolsMessageObserver,
-    ImplDisplayHandler, ImplFrame, ImplLoadHandler, ImplRenderHandler, ImplRequest,
-    ImplRequestHandler, ImplResourceRequestHandler, ImplSelectClientCertificateCallback,
-    LoadHandler, PaintElementType, Rect, RenderHandler, Request, RequestHandler,
-    ResourceRequestHandler, Response, ReturnValue, ScreenInfo, SelectClientCertificateCallback,
-    TerminationStatus, WindowOpenDisposition, WrapDevToolsMessageObserver, WrapDisplayHandler,
-    WrapLoadHandler, WrapRenderHandler, WrapRequestHandler, WrapResourceRequestHandler,
-    X509Certificate, sys, wrap_dev_tools_message_observer, wrap_display_handler,
-    wrap_load_handler, wrap_render_handler, wrap_request_handler, wrap_resource_request_handler,
+    ImplBrowser, ImplDevToolsMessageObserver, ImplDisplayHandler, ImplFrame,
+    ImplLoadHandler, ImplRenderHandler, ImplRequest, ImplRequestHandler,
+    ImplResourceRequestHandler, ImplSelectClientCertificateCallback, LoadHandler, PaintElementType,
+    Rect, RenderHandler, Request, RequestHandler, ResourceRequestHandler, Response, ReturnValue,
+    ScreenInfo, SelectClientCertificateCallback, TerminationStatus, WindowOpenDisposition,
+    WrapDevToolsMessageObserver, WrapDisplayHandler, WrapLoadHandler, WrapRenderHandler,
+    WrapRequestHandler, WrapResourceRequestHandler, X509Certificate, sys,
+    wrap_dev_tools_message_observer, wrap_display_handler, wrap_load_handler, wrap_render_handler,
+    wrap_request_handler, wrap_resource_request_handler,
 };
 use serde_json::Value;
 
@@ -325,6 +325,8 @@ wrap_display_handler! {
         preview: Option<Arc<crate::preview::PreviewGrant>>,
         snap: Arc<Mutex<TabSnapshot>>,
         prompts: Arc<crate::prompts::TabPrompts>,
+        clipboard_guard: Arc<crate::prompts::AgentClipboardGuard>,
+        context_scope_id: Option<String>,
         favicon: Arc<crate::favicon::TabFavicon>,
         out_tx: Output,
     }
@@ -332,7 +334,7 @@ wrap_display_handler! {
     impl DisplayHandler {
         fn on_address_change(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             frame: Option<&mut Frame>,
             url: Option<&CefString>,
         ) {
@@ -357,6 +359,16 @@ wrap_display_handler! {
                             new_origin.as_deref(),
                             &self.out_tx,
                         );
+                        if self.prompts.agent_driven.load(Ordering::Acquire)
+                            && let Some(host) = browser.as_ref().and_then(|b| b.host())
+                        {
+                            self.clipboard_guard.set_origin(
+                                self.tab_id,
+                                self.context_scope_id.clone(),
+                                new_origin.as_deref(),
+                                &host,
+                            );
+                        }
                     }
                 }
                 self.prompts.set_pending_top_url(None);
@@ -622,6 +634,8 @@ wrap_request_handler! {
         snap: Arc<Mutex<TabSnapshot>>,
         prompt_shared: crate::prompts::PromptShared,
         prompts: Arc<crate::prompts::TabPrompts>,
+        clipboard_guard: Arc<crate::prompts::AgentClipboardGuard>,
+        context_scope_id: Option<String>,
         diagnostics: Arc<crate::diagnostics::TabDiagnostics>,
         out_tx: Output,
     }
@@ -632,7 +646,7 @@ wrap_request_handler! {
         // preview tabs stay strictly confined to their own `oc-preview://<grant_host>/` origin.
         fn on_before_browse(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             frame: Option<&mut Frame>,
             request: Option<&mut Request>,
             user_gesture: ::std::os::raw::c_int,
@@ -675,6 +689,17 @@ wrap_request_handler! {
                 return 1;
             }
             if is_main {
+                if self.prompts.agent_driven.load(Ordering::Acquire)
+                    && let Some(orig) = crate::prompts::origin_of(&url)
+                    && let Some(host) = browser.as_ref().and_then(|b| b.host())
+                {
+                    self.clipboard_guard.set_origin(
+                        self.tab_id,
+                        self.context_scope_id.clone(),
+                        Some(&orig),
+                        &host,
+                    );
+                }
                 self.prompts.set_pending_top_url(Some(url));
             }
             0

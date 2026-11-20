@@ -81,7 +81,14 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
         let req_id = queued.request.id;
         let agent = queued.agent_driven;
         let preview = queued.request.origin.to_ascii_lowercase().starts_with("oc-preview:");
-        let can_remember = !agent && !preview;
+        // Private, Artifact, Preview, and agent-driven tabs are strictly visit-only (never offer
+        // "Always allow" / "Never allow"); RemoteServer remembers only in-memory for that server.
+        let can_remember = !agent
+            && !preview
+            && matches!(
+                tab.context,
+                browser_pane::ContextKind::Default | browser_pane::ContextKind::RemoteServer { .. }
+            );
         let waiting = tab.prompts.permission.waiting_count();
         let sentence = permission_sentence(&queued.request.origin, &queued.request.kinds);
 
