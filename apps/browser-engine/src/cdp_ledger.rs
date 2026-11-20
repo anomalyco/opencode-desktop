@@ -191,15 +191,15 @@ pub(crate) fn tab_has_extension_frame(
 
 /// Validates a `HostMsg::CdpCall` against readiness, child `sessionId`, extension frames, and `check_cdp`.
 pub(crate) fn check_raw_cdp_call_allowed(
-    tab_ready: bool,
+    not_ready_reason: Option<&str>,
     browser: &cef::Browser,
     snap: &std::sync::Mutex<crate::wire::TabSnapshot>,
     method: &str,
     params: &Value,
     session_id: Option<&str>,
 ) -> Result<(), String> {
-    if !tab_ready {
-        return Err("browser.context.initializing".into());
+    if let Some(reason) = not_ready_reason {
+        return Err(reason.into());
     }
     if session_id.is_some() {
         return Err("DevTools CdpCall does not permit targeting a child sessionId.".into());
@@ -213,7 +213,7 @@ pub(crate) fn check_raw_cdp_call_allowed(
 /// Validates a `HostMsg::TypedCdpCall` against readiness, extension frames, `check_typed_cdp`,
 /// and the engine-authoritative `EngineCdpLedger`.
 pub(crate) fn check_typed_call_allowed(
-    tab_ready: bool,
+    not_ready_reason: Option<&str>,
     browser: &cef::Browser,
     snap: &std::sync::Mutex<crate::wire::TabSnapshot>,
     ledger: &std::sync::Mutex<EngineCdpLedger>,
@@ -221,8 +221,8 @@ pub(crate) fn check_typed_call_allowed(
     params: &Value,
     session_id: Option<&str>,
 ) -> Result<(), String> {
-    if !tab_ready {
-        return Err("browser.context.initializing".into());
+    if let Some(reason) = not_ready_reason {
+        return Err(reason.into());
     }
     if tab_has_extension_frame(browser, snap) {
         return Err("Agent browser tools cannot run DevTools methods on tabs containing extension documents.".into());

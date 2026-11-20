@@ -13,11 +13,25 @@
 //! - Sub-resources (`img`, `script`, `link`, `fetch`, `XHR`, redirects, downloads) may never read
 //!   a `file:` URL outside `file_roots`.
 
-#![forbid(unsafe_code)]
+#![cfg_attr(target_arch = "wasm32", forbid(unsafe_code))]
+#![cfg_attr(not(target_arch = "wasm32"), deny(unsafe_code))]
 
 mod app_links;
+mod local_fs;
+mod local_path;
 pub mod preview;
+mod workspace_root;
 pub use app_links::{AppSchemeAction, AppSchemeSource, classify_app_link};
+pub use local_fs::{
+    LocalPathError, VerifiedLocalPath, is_local_fixed_drive, is_macos_bundle,
+    reveal_in_file_manager, verify_local_path, verify_within_root,
+};
+pub use local_path::{
+    is_allowed_local_reparse_tag, is_clsid_folder_name, is_macos_bundle_path, is_raw_unc_href,
+    is_unc_or_device_path, is_unc_or_device_path_for, is_unix_autofs_path, safe_local_reveal_path,
+};
+pub use workspace_root::{is_safe_local_workspace_root, is_safe_workspace_root};
+use workspace_root::path_within_root;
 
 /// Why a navigation was refused (`policy.ts:68-83`, `chromium.ts:442`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -272,23 +286,10 @@ pub fn resolve_address(input: &str) -> String {
     with_scheme(value)
 }
 
-pub fn loopback_host(hostname: &str) -> bool {
-    let h = hostname.trim_end_matches('.');
-    if h.eq_ignore_ascii_case("localhost") || h == "::1" || h == "[::1]" {
-        return true;
-    }
-    if h.len() > 10 && h.as_bytes()[h.len() - 10..].eq_ignore_ascii_case(b".localhost") {
-        return true;
-    }
-    let mut parts = h.split('.');
-    if let (Some(a), Some(b), Some(c), Some(d), None) = (parts.next(), parts.next(), parts.next(), parts.next(), parts.next())
-        && a == "127"
-        && [b, c, d].into_iter().all(|p| p.parse::<u8>().is_ok())
-    {
-        return true;
-    }
-    false
-}
+mod network;
+pub use network::{
+    is_local_or_loopback_host, is_strict_loopback_ip, loopback_host, validate_proxy_endpoint,
+};
 
 fn is_loopback_authority(value: &str) -> bool {
     let authority = value.split(['/', '\\', '?', '#']).next().unwrap_or("");
@@ -462,224 +463,6 @@ fn resolve_unix_file_path(path: &str) -> Option<String> {
         stack.push(seg);
     }
     Some(format!("/{}", stack.join("/")))
-}
-
-fn normalize_root_lex(root: &str) -> Option<String> {
-    let trimmed = root.trim();
-    if trimmed.is_empty() || trimmed.chars().any(char::is_control) {
-        return None;
-    }
-    let norm_raw = trimmed.replace('\\', "/");
-    // Reject Win32 device (`\\.\...`) and NT object (`\??\...`) namespaces.
-    if norm_raw.starts_with("//./") || norm_raw.starts_with("/??/") {
-        return None;
-    }
-    // Extended-length prefix `\\?\...` is accepted ONLY for local drive paths (`\\?\C:\...`);
-    // `\\?\UNC\...`, `\\?\Volume{...}`, `\\?\GlobalRoot\...`, etc. are rejected.
-    let stripped = if let Some(after_ext) = norm_raw.strip_prefix("//?/") {
-        let ab = after_ext.as_bytes();
-        if ab.len() < 3 || !ab[0].is_ascii_alphabetic() || ab[1] != b':' || ab[2] != b'/' {
-            return None;
-        }
-        after_ext
-    } else {
-        norm_raw.as_str()
-    };
-    let stripped = if stripped.len() >= 3
-        && stripped.as_bytes()[0] == b'/'
-        && stripped.as_bytes()[1].is_ascii_alphabetic()
-        && stripped.as_bytes()[2] == b':'
-    {
-        &stripped[1..]
-    } else {
-        stripped
-    };
-    // Reject leading `///...` (which Unix collapses to `/` and would evade UNC/prefix checks).
-    if stripped.starts_with("///") {
-        return None;
-    }
-    // Reject drive-relative roots (`C:Windows`) and non-absolute paths (`foo/bar`).
-    let sb = stripped.as_bytes();
-    let is_drive_abs = sb.len() >= 3 && sb[0].is_ascii_alphabetic() && sb[1] == b':' && sb[2] == b'/';
-    let is_drive_bare = sb.len() == 2 && sb[0].is_ascii_alphabetic() && sb[1] == b':';
-    let is_slash_abs = stripped.starts_with('/');
-    if !(is_drive_abs || is_drive_bare || is_slash_abs) {
-        return None;
-    }
-    let clean = if stripped == "/" { "/" } else { stripped.trim_end_matches('/') };
-    if clean.is_empty() {
-        return None;
-    }
-    // Reject internal `//` empty segments (after optional leading UNC `//`) so `C://Windows` or
-    // `/etc//passwd` cannot bypass broad-root prefix matching on remote workspaces.
-    let body = clean.strip_prefix("//").unwrap_or(clean);
-    if body.is_empty() || body.contains("//") {
-        return None;
-    }
-    // Reject any dot-traversal segment so non-existent remote roots like `/foo/..` cannot evade checks.
-    if clean.split('/').any(|seg| seg == "." || seg == "..") {
-        return None;
-    }
-    Some(if cfg!(windows) { clean.to_ascii_lowercase() } else { clean.to_owned() })
-}
-
-fn lex_within(target: &str, root_lex: &str) -> bool {
-    let cmp_target = if cfg!(windows) { target.to_ascii_lowercase() } else { target.to_owned() };
-    if root_lex == "/" {
-        return cmp_target.starts_with('/');
-    }
-    cmp_target == root_lex
-        || (cmp_target.len() > root_lex.len()
-            && cmp_target.starts_with(root_lex)
-            && cmp_target.as_bytes()[root_lex.len()] == b'/')
-}
-
-/// Whether `root` is a narrow enough workspace directory to confine `file://` URLs
-/// (`review-browser-policy.md` §5, matching `#63002` `disk/preview-scope.ts:25-31`).
-///
-/// Refuses filesystem roots (`/`), Windows drive roots (`C:\`), UNC share roots (`\\server\share`),
-/// and (when `home` is provided) the user's home directory and its top-level system directories
-/// (`Desktop`, `Documents`, `Downloads`, `AppData`, `AppData/Local`, `AppData/Roaming`, `Library`).
-pub fn is_safe_workspace_root(root: &str, home: Option<&str>) -> bool {
-    let Some(lex) = normalize_root_lex(root) else { return false };
-    if is_broad_root_lex(&lex) {
-        return false;
-    }
-    let home_lex = home.and_then(normalize_root_lex);
-    if home_lex.as_deref().is_some_and(|h| is_home_broad_lex(&lex, h)) {
-        return false;
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        if let Ok(canon) = std::fs::canonicalize(root)
-            && let Some(canon_lex) = normalize_root_lex(&canon.to_string_lossy())
-        {
-            if is_broad_root_lex(&canon_lex) {
-                return false;
-            }
-            if home_lex.as_deref().is_some_and(|h| is_home_broad_lex(&canon_lex, h)) {
-                return false;
-            }
-            if let Some(h_raw) = home
-                && let Ok(canon_home) = std::fs::canonicalize(h_raw)
-                && let Some(ch_lex) = normalize_root_lex(&canon_home.to_string_lossy())
-                && is_home_broad_lex(&canon_lex, &ch_lex)
-            {
-                return false;
-            }
-        }
-    }
-    true
-}
-
-fn is_broad_root_lex(lex: &str) -> bool {
-    let lower = lex.to_ascii_lowercase();
-    if lower == "/" {
-        return true;
-    }
-    if lower.len() == 2 && lower.as_bytes()[0].is_ascii_alphabetic() && lower.as_bytes()[1] == b':' {
-        return true;
-    }
-    if let Some(rest) = lower.strip_prefix("//") {
-        // UNC server (`//server`) or share root (`//server/share`).
-        return rest.split('/').filter(|s| !s.is_empty()).count() <= 2;
-    }
-    // Exact broad container roots (users parent dirs, `/var`, `/private/var`).
-    if matches!(lower.as_str(), "/users" | "/home" | "/var" | "/private/var") {
-        return true;
-    }
-    // Windows broad / OS system roots (`C:/Users`, `C:/Windows`, `C:/Program Files*`, `C:/ProgramData`).
-    if lower.len() >= 3 && lower.as_bytes()[0].is_ascii_alphabetic() && lower.as_bytes()[1] == b':' && lower.as_bytes()[2] == b'/' {
-        let tail = &lower[2..];
-        if tail == "/users" {
-            return true;
-        }
-        const WIN_SYSTEM_TREES: &[&str] = &[
-            "/windows",
-            "/program files",
-            "/program files (x86)",
-            "/programdata",
-            "/system volume information",
-        ];
-        if WIN_SYSTEM_TREES.iter().any(|sys| tail == *sys || tail.starts_with(&format!("{sys}/"))) {
-            return true;
-        }
-    }
-    // Unix / macOS OS system trees (exact or subtree).
-    const UNIX_SYSTEM_TREES: &[&str] = &[
-        "/etc",
-        "/private/etc",
-        "/system",
-        "/library",
-        "/usr",
-        "/bin",
-        "/sbin",
-        "/dev",
-        "/proc",
-        "/sys",
-        "/boot",
-        "/root",
-    ];
-    UNIX_SYSTEM_TREES.iter().any(|sys| lower == *sys || lower.starts_with(&format!("{sys}/")))
-}
-
-fn is_home_broad_lex(lex: &str, home_lex: &str) -> bool {
-    const SYSTEM_SUFFIXES: &[&str] = &[
-        "",
-        "/Desktop",
-        "/Documents",
-        "/Downloads",
-        "/AppData",
-        "/AppData/Local",
-        "/AppData/Roaming",
-        "/Library",
-    ];
-    SYSTEM_SUFFIXES.iter().any(|suffix| {
-        let candidate = if suffix.is_empty() {
-            home_lex.to_owned()
-        } else {
-            format!("{home_lex}{suffix}")
-        };
-        if cfg!(windows) {
-            lex.eq_ignore_ascii_case(&candidate)
-        } else {
-            lex == candidate
-        }
-    })
-}
-
-fn path_within_root(target_lex: &str, root: &str) -> bool {
-    if !is_safe_workspace_root(root, None) {
-        return false;
-    }
-    let Some(root_lex) = normalize_root_lex(root) else { return false };
-    #[cfg(target_arch = "wasm32")]
-    {
-        lex_within(target_lex, &root_lex)
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let Ok(canon_root) = std::fs::canonicalize(root) else { return false };
-        let canon_root_str = canon_root.to_string_lossy();
-        let lex_ok = lex_within(target_lex, &root_lex)
-            || normalize_root_lex(&canon_root_str).is_some_and(|cr| lex_within(target_lex, &cr));
-        if !lex_ok {
-            return false;
-        }
-        let os_target = if cfg!(windows) { target_lex.replace('/', "\\") } else { target_lex.to_owned() };
-        let mut cur: &std::path::Path = std::path::Path::new(&os_target);
-        loop {
-            if std::fs::symlink_metadata(cur).is_ok() {
-                let Ok(canon_cur) = std::fs::canonicalize(cur) else { return false };
-                return canon_cur.starts_with(&canon_root);
-            }
-            let Some(parent) = cur.parent() else { return false };
-            if parent == cur || parent.as_os_str().is_empty() {
-                return false;
-            }
-            cur = parent;
-        }
-    }
 }
 
 fn encode_query_component(s: &str) -> String {

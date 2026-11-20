@@ -31,6 +31,8 @@
   "refused.failed": "Couldn't do that. Try again.",
   "refused.workspace": "Only web pages and files inside this session's workspace can open here.",
   "refused.credentials": "Addresses with a user name or password can't open here.",
+  "refused.proxyRequired": "Paused while reconnecting to the server.",
+  "refused.proxyInvalid": "Couldn't connect through the server's proxy.",
   "notice.conversation": "From the conversation",
   "notice.page": "From this page",
   "notice.site": "From the tab at {{site}}",

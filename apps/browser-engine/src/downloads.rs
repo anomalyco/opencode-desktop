@@ -13,7 +13,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use cef::rc::Rc as _;
@@ -41,7 +41,7 @@ pub struct Downloads {
     /// made): downloads then fail, and nothing is deleted.
     dir: Option<PathBuf>,
     next: AtomicU64,
-    files: Mutex<HashMap<u32, (u64, DownloadFile)>>,
+    files: Mutex<HashMap<(u64, u32), DownloadFile>>,
     /// Tabs that closed: a download of theirs still running is cancelled at its next step.
     closed: Mutex<HashSet<u64>>,
 }
@@ -61,8 +61,10 @@ impl Downloads {
     pub fn close_tab(&self, tab_id: u64) {
         self.closed.lock().unwrap().insert(tab_id);
         let files = self.files.lock().unwrap();
-        for (_, file) in files.values().filter(|(tab, _)| *tab == tab_id) {
-            remove_file_folder(&file.path);
+        for ((tab, _), file) in files.iter() {
+            if *tab == tab_id {
+                remove_file_folder(&file.path);
+            }
         }
         if let Some(dir) = &self.dir {
             // Only when empty: a folder the engine didn't fill stays.
@@ -93,13 +95,14 @@ wrap_download_handler! {
         tab_id: u64,
         file_roots: Arc<Mutex<Vec<String>>>,
         is_preview: bool,
+        context_ready: Arc<AtomicBool>,
         downloads: Arc<Downloads>,
         out_tx: Output,
     }
 
     impl DownloadHandler {
         fn can_download(&self, _browser: Option<&mut Browser>, url: Option<&CefString>, _method: Option<&CefString>) -> ::std::os::raw::c_int {
-            if self.is_preview {
+            if self.is_preview || !self.context_ready.load(Ordering::Acquire) {
                 return 0;
             }
             let url = url.map(CefString::to_string).unwrap_or_default();
@@ -111,8 +114,8 @@ wrap_download_handler! {
         }
 
         // Where it goes, with no dialog. Returning 1 says the callback is taken; returning 1
-        // without calling `callback.cont()` cancels the download (e.g. for preview tabs, even if
-        // `host.start_download` bypassed `can_download`).
+        // without calling `callback.cont()` cancels the download (e.g. for preview tabs or
+        // uninitialized/suspended contexts, even if `host.start_download` bypassed `can_download`).
         fn on_before_download(
             &self,
             browser: Option<&mut Browser>,
@@ -120,7 +123,7 @@ wrap_download_handler! {
             suggested_name: Option<&CefString>,
             callback: Option<&mut BeforeDownloadCallback>,
         ) -> ::std::os::raw::c_int {
-            if self.is_preview {
+            if self.is_preview || !self.context_ready.load(Ordering::Acquire) {
                 return 1;
             }
             let (Some(item), Some(callback)) = (item, callback) else { return 0 };
@@ -137,7 +140,7 @@ wrap_download_handler! {
                     .filter(|u| !u.is_empty())
             };
             let mut file = DownloadFile { id, name, mime, bytes: 0, state: DownloadState::Pending, path: String::new(), error: None, source_url };
-            let held = self.downloads.files.lock().unwrap().values().filter(|(tab, _)| *tab == self.tab_id).count();
+            let held = self.downloads.files.lock().unwrap().keys().filter(|(tab, _)| *tab == self.tab_id).count();
             let fail = |mut file: DownloadFile, why: &str| {
                 file.state = DownloadState::Failed;
                 file.error = Some(why.to_owned());
@@ -155,15 +158,25 @@ wrap_download_handler! {
             let path = folder.join(safe_name(&file.name));
             file.path = path.to_string_lossy().into_owned();
             callback.cont(Some(&CefString::from(file.path.as_str())), 0);
-            self.downloads.files.lock().unwrap().insert(item.id(), (self.tab_id, file.clone()));
+            self.downloads.files.lock().unwrap().insert((self.tab_id, item.id()), file.clone());
             self.send(file);
             1
         }
 
         fn on_download_updated(&self, _browser: Option<&mut Browser>, item: Option<&mut DownloadItem>, callback: Option<&mut DownloadItemCallback>) {
-            if self.is_preview {
+            if self.is_preview || !self.context_ready.load(Ordering::Acquire) {
                 if let Some(callback) = callback {
                     callback.cancel();
+                }
+                if let Some(item) = item
+                    && let Some(mut file) = self.downloads.files.lock().unwrap().remove(&(self.tab_id, item.id()))
+                {
+                    remove_file_folder(&file.path);
+                    if file.state == DownloadState::Pending {
+                        file.state = DownloadState::Failed;
+                        file.error = Some("canceled".to_owned());
+                        self.send(file);
+                    }
                 }
                 return;
             }
@@ -172,13 +185,13 @@ wrap_download_handler! {
                 if let Some(callback) = callback {
                     callback.cancel();
                 }
-                if let Some((_, file)) = self.downloads.files.lock().unwrap().remove(&item.id()) {
+                if let Some(file) = self.downloads.files.lock().unwrap().remove(&(self.tab_id, item.id())) {
                     remove_file_folder(&file.path);
                 }
                 return;
             }
             let mut files = self.downloads.files.lock().unwrap();
-            let Some((_, file)) = files.get_mut(&item.id()) else { return };
+            let Some(file) = files.get_mut(&(self.tab_id, item.id())) else { return };
             if file.state != DownloadState::Pending {
                 return;
             }

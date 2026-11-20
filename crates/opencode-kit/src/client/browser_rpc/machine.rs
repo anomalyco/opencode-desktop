@@ -141,12 +141,11 @@ impl AttachMachine {
     }
 
     /// Whether local `rune_mcp` `browser_*` / `browser_cdp` tools must stay suppressed for this
-    /// session: active while `Attached`, and sticky across transient `Backoff`/`Connecting` after
-    /// a prior `Attached` state so reconnect glitches never re-advertise raw `browser_cdp`.
+    /// session: fail closed across every state (`Idle`, `Connecting`, `Attached`, `Backoff`,
+    /// `Blocked::*`, `Closed`) and allow legacy fallback ONLY once the server is proven
+    /// `Unsupported` (older `v2.2.6`/`v2.3.0`) or `Unavailable` (browser plugin disabled).
     pub fn suppresses_local_mcp(&self) -> bool {
-        matches!(self.state, AttachState::Attached { .. })
-            || (self.ever_attached
-                && matches!(self.state, AttachState::Backoff { .. } | AttachState::Connecting { .. }))
+        !matches!(self.state, AttachState::Unsupported | AttachState::Unavailable)
     }
 
     pub fn is_connecting(&self) -> bool {
