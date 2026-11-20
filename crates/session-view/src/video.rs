@@ -1,7 +1,7 @@
 //! Standalone movie links in assistant Markdown. The original link remains the caption and
-//! fallback. No HTML or provider iframe is needed; verified in-workspace clips auto-load inline,
-//! while outside-workspace local clips and `http(s)` URLs show a play control and verify + load
-//! only on user click.
+//! fallback. Verified in-workspace clips auto-load inline, outside-workspace local clips on a
+//! local session show a play control disclosing the real local path and verify + load only on
+//! user click, and `http(s)` video links remain ordinary links that open in the browser pane.
 mod seek;
 mod transport;
 
@@ -12,7 +12,7 @@ use std::rc::{Rc, Weak};
 
 use opencode_ui::video_overlay::{self, Effect, Event as OverlayEvent, Overlay};
 use pulldown_cmark::{Event, Options, Parser, Tag};
-use rune::{Cursor, El, Player, PlayerState, Tx, col, el, icon, row, text};
+use rune::{Cursor, Direction, El, Player, PlayerState, Tx, col, el, icon, row, text};
 
 use crate::{TimelineHost, palette::Pal};
 
@@ -22,11 +22,11 @@ pub enum ReplyVideo {
     /// Verified regular file inside the session workspace (or remote session's own server route):
     /// safe to auto-load inline on display.
     Auto(String),
-    /// Outside-workspace local file or `http(s)` video URL: never touches disk or network on
-    /// display; renders a play control beside the link and verifies + loads only on user click.
+    /// Outside-workspace local file on a local session: never touches disk on display; renders a
+    /// play control showing the real local `path` and verifies + loads only on user click.
     OnClick {
-        /// Sanitized host for `http(s)` URLs, or `None` for local files.
-        detail: Option<String>,
+        /// Real sanitized local file path shown to the user before clicking Play.
+        path: String,
     },
 }
 
@@ -199,13 +199,17 @@ impl Clips {
                 drop(slots);
                 self.render_clip::<S>(p, *at, href, name, clip)
             }
-            ReplyVideo::OnClick { detail } => {
+            ReplyVideo::OnClick { path } => {
                 let mut slots = self.slots.borrow_mut();
                 let resolved = match slots.get(&key) {
                     Some(Slot::Starting { href: h, source }) if h == href => {
                         let c = self.build_clip(s, source, true);
                         slots.insert(key.clone(), Slot::Active { href: href.clone(), clip: Rc::downgrade(&c) });
                         Some(c)
+                    }
+                    Some(Slot::Starting { .. }) => {
+                        slots.remove(&key);
+                        None
                     }
                     Some(Slot::Active { href: h, clip }) if h == href => clip.upgrade(),
                     _ => None,
@@ -215,7 +219,7 @@ impl Clips {
                     return self.render_clip::<S>(p, *at, href, name, clip);
                 }
                 let play = opencode_i18n::t!("rune.video.playInline");
-                let subtitle = detail.as_deref().unwrap_or(opencode_i18n::t!("rune.video.localFile"));
+                let shown_path = middle_truncate(path, 56);
                 let click_href = href.clone();
                 row()
                     .key(format!("clip-play-{at}"))
@@ -235,13 +239,15 @@ impl Clips {
                     .cursor(Cursor::Pointer)
                     .role("button")
                     .focusable(true)
-                    .label(format!("{play}: {name}"))
+                    .label(format!("{play}: {path}"))
+                    .help(path.clone())
                     .child(icon(&transport::PLAY, 14.0).color(p.text))
                     .child(text(play).font(crate::style::UI).color(p.text))
                     .child(
-                        text(format!("\u{b7} {subtitle}"))
+                        text(format!("\u{b7} {shown_path}"))
                             .font(crate::style::UI_SMALL)
                             .color(p.muted)
+                            .dir(Direction::Ltr)
                             .shrink()
                             .min_w(0.0)
                             .truncate_fade(),
@@ -257,11 +263,65 @@ impl Clips {
     }
 }
 
-pub(crate) fn reply<S: TimelineHost>(s: &S, p: &Pal, row_key: &str, src: &str, streaming: bool, render: impl Fn(Range<usize>) -> El) -> Option<El> {
+fn middle_truncate(path: &str, max_chars: usize) -> String {
+    let chars: Vec<char> = path.chars().collect();
+    if chars.len() <= max_chars || max_chars < 8 {
+        return path.to_owned();
+    }
+    let budget = max_chars - 1;
+    let file_tail = path.rfind(['/', '\\']).map(|i| path[i..].chars().count()).unwrap_or(0);
+    let tail_len = if file_tail > 0 && file_tail + 12 <= budget {
+        file_tail.max((budget * 3) / 5)
+    } else {
+        (budget * 3) / 5
+    };
+    let head_len = budget.saturating_sub(tail_len).max(6);
+    let tail_len = budget.saturating_sub(head_len);
+    let head: String = chars[..head_len].iter().collect();
+    let tail: String = chars[chars.len() - tail_len..].iter().collect();
+    format!("{head}\u{2026}{tail}")
+}
+
+fn format_reference_defs(defs: &pulldown_cmark::RefDefs) -> String {
+    let mut out = String::new();
+    for (label, def) in defs.iter() {
+        let dest = def.dest.replace(['\r', '\n'], "");
+        if dest.contains(['<', '>']) {
+            continue;
+        }
+        out.push_str("\n\n[");
+        out.push_str(label.as_ref());
+        out.push_str("]: <");
+        out.push_str(&dest);
+        out.push('>');
+        if let Some(title) = &def.title {
+            let clean_title = title.replace(['\r', '\n'], " ").replace('"', "\\\"");
+            out.push_str(" \"");
+            out.push_str(&clean_title);
+            out.push('"');
+        }
+    }
+    out
+}
+
+fn has_visible_markdown(slice: &str, ref_defs: &str) -> bool {
+    if slice.trim().is_empty() {
+        return false;
+    }
+    if ref_defs.is_empty() {
+        return true;
+    }
+    let full = format!("{slice}{ref_defs}");
+    Parser::new_ext(&full, Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS)
+        .next()
+        .is_some()
+}
+
+pub(crate) fn reply<S: TimelineHost>(s: &S, p: &Pal, row_key: &str, src: &str, streaming: bool, render: impl Fn(Range<usize>, &str) -> El) -> Option<El> {
     // During streaming the final paragraph may still acquire more prose.
     if streaming || !(src.contains('[') || src.contains("://")) || !opencode_kit::path::mentions_video(src) { return None; }
     let parser = Parser::new_ext(src, Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS);
-    let references = parser.reference_definitions().iter().next().is_some();
+    let ref_defs = format_reference_defs(parser.reference_definitions());
     let mut depth = 0;
     let mut paragraph = false;
     let mut clips = Vec::new();
@@ -296,15 +356,18 @@ pub(crate) fn reply<S: TimelineHost>(s: &S, p: &Pal, row_key: &str, src: &str, s
         }
     }
     if clips.is_empty() { return None; }
-    // Keep document-wide reference definitions in scope when present.
-    let mut out = if references { render(0..src.len()) } else { col().w_full().gap(8.0) };
+    // Keep every clip control inline beside its link even when document-wide reference definitions
+    // are present, appending reference definitions invisibly to each Markdown slice.
+    let mut out = col().w_full().gap(8.0);
     let mut from = 0;
     for embed in clips {
         let end = embed.end;
-        if !references { out.push_child(render(from..end).key(format!("md-{from}"))); }
+        out.push_child(render(from..end, &ref_defs).key(format!("md-{from}")));
         out.push_child(s.media_store().videos.view(s, p, row_key, &embed));
         from = end;
     }
-    if !references && !src[from..].trim().is_empty() { out.push_child(render(from..src.len()).key(format!("md-{from}"))); }
+    if has_visible_markdown(&src[from..], &ref_defs) {
+        out.push_child(render(from..src.len(), &ref_defs).key(format!("md-{from}")));
+    }
     Some(out)
 }

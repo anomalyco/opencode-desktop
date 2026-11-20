@@ -20,7 +20,6 @@ mod app_links;
 mod local_fs;
 mod local_path;
 pub mod preview;
-mod remote_url;
 mod workspace_root;
 pub use app_links::{AppSchemeAction, AppSchemeSource, classify_app_link};
 pub use local_fs::{
@@ -31,7 +30,6 @@ pub use local_path::{
     is_allowed_local_reparse_tag, is_clsid_folder_name, is_macos_bundle_path, is_raw_unc_href,
     is_unc_or_device_path, is_unc_or_device_path_for, is_unix_autofs_path, safe_local_reveal_path,
 };
-pub use remote_url::{is_public_http_url, sanitized_http_host};
 pub use workspace_root::{is_safe_local_workspace_root, is_safe_workspace_root};
 use workspace_root::path_within_root;
 

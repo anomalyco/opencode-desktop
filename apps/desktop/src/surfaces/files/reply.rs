@@ -43,31 +43,11 @@ fn is_remote_session(app: &App) -> bool {
     non_local || non_sidecar
 }
 
-fn web_video_url(app: &App, url: &str) -> bool {
-    if !web_url(url) {
-        return false;
-    }
-    let Some((_, rest)) = url.split_once("://") else {
-        return false;
-    };
-    let Some((_, path)) = rest.split(['?', '#']).next().and_then(|s| s.split_once('/')) else {
-        return false;
-    };
-    if !video::is_video(path) {
-        return false;
-    }
-    // On remote-server sessions, direct OS media loads bypass `TunnelProxy`, so refuse loopback,
-    // private LAN, link-local, metadata, alternate-IP, and local/internal hostnames.
-    if is_remote_session(app) && !browser_policy::is_public_http_url(url) {
-        return false;
-    }
-    true
-}
-
 /// Decides on reply display whether a standalone video link auto-loads (verified regular file
 /// inside the session workspace) or renders with a click-to-load play control (outside-workspace
-/// local clip or policy-allowed `http(s)` URL). Performs zero outside-disk or network I/O on
-/// display.
+/// local clip on a local session only). `http(s)` video links stay ordinary links and open in the
+/// embedded browser pane (which enforces `browser_policy`, remote `TunnelProxy`, isolated storage,
+/// and sandboxed decoders). Performs zero outside-disk or network I/O on display.
 pub(crate) fn video(app: &App, href: &str) -> Option<session_view::ReplyVideo> {
     if !cfg!(any(target_os = "macos", target_os = "windows")) { return None; }
     let (dir, link) = target(app, href)?;
@@ -75,26 +55,23 @@ pub(crate) fn video(app: &App, href: &str) -> Option<session_view::ReplyVideo> {
         Link::Inside { path, .. } if video::is_video(&path) => {
             video::source(app.live_server(), &dir, &path).map(session_view::ReplyVideo::Auto)
         }
-        Link::Outside { path } if app.can_open_in() && video::is_video(&path) => {
+        Link::Outside { path } if app.can_open_in() && !is_remote_session(app) && video::is_video(&path) => {
             // Pure lexical pre-check on display (no disk/SMB/autofs touch); full OS verification
-            // runs in `load_video` only when the user clicks Play.
+            // runs in `load_video` only when the user clicks Play. Passes the real local path so
+            // the Play control discloses the actual file before click.
             browser_policy::safe_local_reveal_path(&path)
-                .map(|_| session_view::ReplyVideo::OnClick { detail: None })
+                .map(|clean| session_view::ReplyVideo::OnClick { path: clean })
         }
-        Link::Web(url) if web_video_url(app, &url) => Some(session_view::ReplyVideo::OnClick {
-            detail: browser_policy::sanitized_http_host(&url),
-        }),
         _ => None,
     }
 }
 
-/// Verifies and resolves a standalone reply video target strictly on an explicit user click on
-/// the Play control:
+/// Verifies and resolves a standalone local reply video target strictly on an explicit user click
+/// on the Play control:
 /// - `Link::Inside`: re-verifies inside workspace via `video::source` (`verify_within_root`).
-/// - `Link::Outside`: verifies via `browser_policy::verify_local_path` (fixed drive / `MNT_LOCAL`,
-///   no UNC, mapped/`subst`-to-UNC, symlinks/junctions, or autofs; regular file only).
-/// - `Link::Web`: re-verifies `destination_origin`, video extension, and `is_public_http_url` on
-///   remote-server sessions.
+/// - `Link::Outside` (local sessions only): verifies via `browser_policy::verify_local_path`
+///   (fixed drive / `MNT_LOCAL`, no UNC, mapped/`subst`-to-UNC, symlinks/junctions, or autofs;
+///   regular file only).
 pub(crate) fn load_video(app: &mut App, href: &str) -> Option<String> {
     if !cfg!(any(target_os = "macos", target_os = "windows")) { return None; }
     let Some((dir, link)) = target(app, href) else {
@@ -109,7 +86,7 @@ pub(crate) fn load_video(app: &mut App, href: &str) -> Option<String> {
             }
             src
         }
-        Link::Outside { path } if app.can_open_in() && video::is_video(&path) => {
+        Link::Outside { path } if app.can_open_in() && !is_remote_session(app) && video::is_video(&path) => {
             match browser_policy::verify_local_path(&path) {
                 Ok(verified) if verified.is_file => Some(verified.path),
                 Ok(_) => {
@@ -120,14 +97,6 @@ pub(crate) fn load_video(app: &mut App, href: &str) -> Option<String> {
                     crate::status_toast::fail(app, t!("rune.openIn.failed"), e.to_string());
                     None
                 }
-            }
-        }
-        Link::Web(url) => {
-            if web_video_url(app, &url) {
-                Some(url)
-            } else {
-                crate::status_toast::fail(app, t!("rune.openIn.failed"), t!("rune.video.remoteBlocked"));
-                None
             }
         }
         _ => None,
