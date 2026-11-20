@@ -460,6 +460,7 @@ function view.render(
         ui.dialogHeader({
             title = I18n:T("usage.title"),
             closeLabel = I18n:T("ui.common.close"),
+            wrapTitle = false,
         }),
         ui.col({ key = "usage-body", w = "full", gap = 16 }, { body }),
         foot,
