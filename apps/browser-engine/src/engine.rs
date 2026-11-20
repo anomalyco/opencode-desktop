@@ -331,12 +331,18 @@ impl EngineManager {
                 let ids: Vec<u64> = self.tabs.keys().copied().collect();
                 for tab_id in ids {
                     let Some(tab) = self.tabs.remove(&tab_id) else { continue };
+                    let was_agent = tab.prompts.agent_driven.load(Ordering::Acquire);
                     tab.host.close_browser(1);
                     let url = tab.snap.lock().unwrap().url.clone();
                     let v = tab.view_state.lock().unwrap().clone();
                     let roots = tab.file_roots.lock().unwrap().clone();
                     let ctx = tab.context.clone();
                     self.open_tab(tab_id, &url, v.width_pt, v.height_pt, v.scale, tab.shown, roots, ctx);
+                    if let Some(reopened) = self.tabs.get(&tab_id) {
+                        reopened.prompts.agent_driven.store(was_agent, Ordering::Release);
+                    } else {
+                        self.contexts.release_tab(tab_id);
+                    }
                 }
             }
             None => {}
@@ -490,8 +496,8 @@ impl EngineManager {
                 }
             }
             HostMsg::OpenTab { tab_id, url, width_pt, height_pt, scale, focused, file_roots, context } => {
-                // Remote-server tabs never receive local filesystem roots.
-                let roots = if matches!(context, crate::wire::ContextKind::RemoteServer { .. }) {
+                // Only `Default` tabs receive local `file://` roots; all isolated scopes strip them.
+                let roots = if context.is_isolated() {
                     Vec::new()
                 } else {
                     self.safe_roots(file_roots)
@@ -500,7 +506,7 @@ impl EngineManager {
             }
             HostMsg::SetTabPolicy { tab_id, file_roots } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
-                    if matches!(t.context, crate::wire::ContextKind::RemoteServer { .. }) {
+                    if t.context.is_isolated() {
                         t.file_roots.lock().unwrap().clear();
                     } else {
                         let roots = self.safe_roots(file_roots);
@@ -514,7 +520,10 @@ impl EngineManager {
                     tab.prompts.dismiss_all();
                     tab.host.close_browser(1);
                     self.downloads.close_tab(tab_id);
+                    self.contexts.release_tab(tab_id);
                     let _ = self.out_tx.send(EngineMsg::TabClosed { tab_id });
+                } else {
+                    self.contexts.release_tab(tab_id);
                 }
             }
             HostMsg::FocusTab { tab_id } => {
@@ -938,10 +947,10 @@ impl EngineManager {
                     t.menu.execute(id, action, &t.browser, &t.host, &roots);
                 }
             }
-            HostMsg::SetPartitionProxy { partition, proxy } => {
-                if let Ok(applied) = self.contexts.set_partition_proxy(&partition, proxy) {
+            HostMsg::SetPartitionProxy { server_id, proxy } => {
+                if let Ok(applied) = self.contexts.set_partition_proxy(&server_id, proxy) {
                     for t in self.tabs.values() {
-                        if matches!(&t.context, crate::wire::ContextKind::RemoteServer { partition: p, .. } if p == &partition) {
+                        if matches!(&t.context, crate::wire::ContextKind::RemoteServer { server_id: id, .. } if id == &server_id) {
                             *t.prompts.proxy.lock().unwrap() = applied.clone();
                         }
                     }
@@ -956,6 +965,7 @@ impl EngineManager {
                     t.prompts.dismiss_all();
                     t.host.close_browser(1);
                 }
+                self.contexts.release_all();
                 return false;
             }
         }
@@ -1113,6 +1123,17 @@ impl EngineManager {
             ..Default::default()
         };
 
+        // Hard fail-closed invariant: an isolated tab must NEVER open without a dedicated
+        // `CefRequestContext` (falling back to `None` would open it inside the signed-in profile).
+        if context.is_isolated() && req_ctx.is_none() {
+            self.contexts.release_tab(tab_id);
+            let _ = self.out_tx.send(EngineMsg::Refused {
+                tab_id,
+                reason: "browser.context.unavailable".to_owned(),
+            });
+            return;
+        }
+
         let Some(browser) = cef::browser_host_create_browser_sync(
             Some(&win_info),
             Some(&mut client),
@@ -1121,9 +1142,21 @@ impl EngineManager {
             None,
             req_ctx.as_mut(),
         ) else {
+            self.contexts.release_tab(tab_id);
+            let _ = self.out_tx.send(EngineMsg::Refused {
+                tab_id,
+                reason: "browser.context.unavailable".to_owned(),
+            });
             return;
         };
-        let Some(host) = browser.host() else { return };
+        let Some(host) = browser.host() else {
+            self.contexts.release_tab(tab_id);
+            let _ = self.out_tx.send(EngineMsg::Refused {
+                tab_id,
+                reason: "browser.context.unavailable".to_owned(),
+            });
+            return;
+        };
         if focused {
             for existing in self.tabs.values() {
                 existing.host.was_hidden(1);
