@@ -336,6 +336,7 @@ const ROWS: &[Row] = &[
     (Page::General, "settings-pinch-zoom", key!("settings.general.row.pinchZoom.title"), None, None, ""),
     (Page::General, "settings-spellcheck", key!("settings.general.row.spellcheck.title"), None, None, "spelling spell check dictionary"),
     (Page::General, "settings-mobile-diff-wrap", key!("plugin.review.settings.wrapLines.title"), None, None, "diff wrap lines"),
+    (Page::Experimental, "settings-tab-groups", key!("settings.experimental.row.tabGroups.title"), None, Some(key!("settings.experimental.row.tabGroups.description")), "tab groups server project colors drag organize search sessions"),
     (Page::Experimental, "settings-new-question-ui", key!("settings.experimental.row.newQuestionUI.title"), None, Some(key!("settings.experimental.row.newQuestionUI.description")), "question answers keyboard dock redesign"),
     (Page::Experimental, "settings-smooth-timeline", key!("rune.settings.experimental.row.smoothTimeline.title"), None, Some(key!("rune.settings.experimental.row.smoothTimeline.description")), "motion animation pending working queue steer tray delivery"),
     (Page::Experimental, "settings-sidebar-organize", key!("settings.experimental.row.sidebarOrganize.title"), None, Some(key!("settings.experimental.row.sidebarOrganize.description")), "vertical side tabs projects recents organize sidebar"),

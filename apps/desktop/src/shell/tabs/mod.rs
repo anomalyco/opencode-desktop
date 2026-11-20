@@ -9,6 +9,7 @@
 
 pub mod actions;
 pub mod badges;
+pub mod groups;
 pub mod recently_closed;
 
 use opencode_servers::tabs as doc;

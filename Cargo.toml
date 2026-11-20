@@ -27,6 +27,7 @@ members = [
     "features/settings",
     "features/subagents",
     "features/switcher",
+    "features/tab-groups",
     "features/terminal-surface",
     "features/timeline-extras",
     "features/tips",
