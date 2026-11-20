@@ -64,6 +64,7 @@ local function money(I18n: I18nService, value: number, auto: boolean): string
     local whole = auto and (math.fmod(value, 1) == 0)
     return I18n:Number(value, { style = "currency", currency = "USD", maxFraction = if whole then 0 else 2 })
 end
+view.money = money
 
 -- `format.time`: `Nov 1 at 12:00 AM (GMT-7)`.
 local function formatTime(I18n: I18nService, at: number): string

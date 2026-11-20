@@ -190,8 +190,7 @@ pub fn build() -> Kernel<App> {
         .register_slot(&crate::events::STREAM_GAPS)
         .register_slot(&crate::speech::SPEECH)
         .register_slot(&crate::crash_notice::CRASH_NOTICE)
-        .register_slot(&crate::servers::dialog::DIALOG)
-        .register_slot(&crate::model_picker::budget::PICKER_BUDGETS);
+        .register_slot(&crate::servers::dialog::DIALOG);
     b.build()
 }
 

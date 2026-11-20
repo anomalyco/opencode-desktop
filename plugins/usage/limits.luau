@@ -314,6 +314,33 @@ local function budgetAction(b: Budget): Action
     }
 end
 
+-- `modelUsage` (anomalyco/opencode#64409): the tightest applicable budget wins.
+function limits.modelLeft(info: Info, provider: string, model: string, served: boolean): number?
+    local best: number? = nil
+    for _, b in info.budgets do
+        local spent: number? = nil
+        if b.coversAll then
+            if served then
+                spent = b.spent
+            end
+        else
+            for _, e in b.models do
+                if e.provider == provider and e.model == model then
+                    spent = if b.perModel then (e.spent or 0) else b.spent
+                    break
+                end
+            end
+        end
+        if spent ~= nil then
+            local left = math.max(0, b.limit - spent)
+            if best == nil or left < best then
+                best = left
+            end
+        end
+    end
+    return best
+end
+
 -- `usageView`: what the dialog shows for `info`; `credits` marks a workspace out of credits.
 function limits.view(info: Info, model: CurrentModel?, credits: boolean): UsageView
     type Ranked = { index: number, budget: Budget, spend: Spend }

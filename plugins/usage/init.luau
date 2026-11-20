@@ -15,8 +15,10 @@ local PALETTE_ORDER = 560
 return plugin.defineWindow(function(ctx)
     local I18n = ctx:GetService("I18n")
     local Composer = ctx:GetService("Composer")
+    local Models = ctx:GetService("Models")
     local Sessions = ctx:GetService("Sessions")
     local Server = ctx:GetService("Server")
+    local Servers = ctx:GetService("Servers")
     local Dialog = ctx:GetService("Dialog")
     local Commands = ctx:GetService("Commands")
     local System = ctx:GetService("System")
@@ -24,10 +26,72 @@ return plugin.defineWindow(function(ctx)
 
     local changed = ctx:CreateSignal()
     local cache: { [string]: limits.Info } = {}
+    local badgesPublished = false
     local openState: machine.OpenState? = nil
     local timeoutThread: thread? = nil
     local tickThread: thread? = nil
     local tickDueMs: number? = nil
+
+    local function cacheKey(directory: string): string
+        return `{Servers:Current() or ""}\n{directory}`
+    end
+
+    local function publishBadges()
+        local info = cache[cacheKey(Composer:Directory())]
+        if info == nil then
+            if badgesPublished then
+                badgesPublished = false
+                Models:SetBadges({})
+            end
+            return
+        end
+        local badges: { ModelBadge } = {}
+        for _, m in Models:List() do
+            if not m.free then
+                local served = m.providerId ~= "opencode-go"
+                    and (m.providerId == "opencode" or m.integration == "opencode")
+                local left = limits.modelLeft(info, m.providerId, m.modelId, served)
+                if left ~= nil then
+                    local reached = left <= 0
+                    local label = if reached
+                        then I18n:T("usage.budget.reached")
+                        else I18n:T("usage.budget.left", { amount = view.money(I18n, left, false) })
+                    table.insert(badges, {
+                        providerId = m.providerId,
+                        modelId = m.modelId,
+                        label = label,
+                        critical = reached,
+                    })
+                end
+            end
+        end
+        if #badges > 0 or badgesPublished then
+            badgesPublished = #badges > 0
+            Models:SetBadges(badges)
+        end
+    end
+
+    local function refreshForPicker()
+        if not Server:IsLive() then
+            return
+        end
+        local directory = Composer:Directory()
+        local key = cacheKey(directory)
+        task.spawn(function()
+            local path = `/api/experimental/usage/limits?location%5Bdirectory%5D={Server:EncodeUri(directory)}`
+            local res = Server:RequestAsync("GET", path)
+            if not res.ok then
+                return
+            end
+            local parsed = limits.parseInfo(res.json)
+            if parsed ~= nil then
+                cache[key] = parsed
+            else
+                cache[key] = nil
+            end
+            publishBadges()
+        end)
+    end
 
     local function cancelThread(th: thread?)
         if th and th ~= coroutine.running() and coroutine.status(th) == "suspended" then
@@ -75,12 +139,17 @@ return plugin.defineWindow(function(ctx)
             end
         end)
 
+        local key = cacheKey(directory)
         task.spawn(function()
             local path = `/api/experimental/usage/limits?location%5Bdirectory%5D={Server:EncodeUri(directory)}`
             local res = Server:RequestAsync("GET", path)
             local parsed: limits.Info? = if res.ok then limits.parseInfo(res.json) else nil
             if parsed ~= nil then
-                cache[directory] = parsed
+                cache[key] = parsed
+                publishBadges()
+            elseif res.ok and limits.isSignedOutResponse(res) then
+                cache[key] = nil
+                publishBadges()
             end
             local cur = openState
             if cur == nil or cur.directory ~= directory then
@@ -117,7 +186,7 @@ return plugin.defineWindow(function(ctx)
             else nil
         local session = Sessions:Routed()
         local credits = session ~= nil and session.lastErrorStatus == 402
-        local cached = cache[directory]
+        local cached = cache[cacheKey(directory)]
         local state, effect = machine.open(directory, model, credits, cached)
         openState = state
         changed:Fire()
@@ -292,7 +361,23 @@ return plugin.defineWindow(function(ctx)
     end
 
     register()
-    I18n.Changed:Connect(register)
+    I18n.Changed:Connect(function()
+        register()
+        publishBadges()
+    end)
+    Composer.PickerChanged:Connect(function(kind)
+        if kind == "model" then
+            publishBadges()
+            refreshForPicker()
+        end
+    end)
+    Models.Changed:Connect(publishBadges)
+    Sessions.RoutedChanged:Connect(function()
+        publishBadges()
+    end)
+    Server.Connected:Connect(function()
+        publishBadges()
+    end)
 
     ctx.Disposing:Connect(closeState)
 end)
