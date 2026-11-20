@@ -14,6 +14,7 @@ pub use opencode_ui::{dialog, odometer, palette, scroller, sheet, themes};
 pub mod activity;
 pub mod agent_start;
 pub mod arrivals;
+pub mod code_wrap;
 pub mod compaction;
 pub mod composer;
 pub mod copied;
@@ -246,6 +247,10 @@ pub trait TimelineHost: Sized + 'static {
 
     fn fold_user_messages(&self) -> bool {
         true
+    }
+    /// Code blocks wrap long lines instead of scrolling (`general.wrapCodeBlocks`, `code_wrap`).
+    fn wrap_code_blocks(&self) -> bool {
+        false
     }
     fn open_link(&mut self, _url: &str, _tx: &mut Tx) {}
     /// A right-click in the timeline on `at`: a message, an image, or an image in a message.

@@ -143,15 +143,33 @@ pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
 /// A code block with Desktop's Copy button (`markdown.css`'s `markdown-copy-button`): a 24 pt
 /// ghost icon button 4 pt in from the top right, fading in over 0.15 s while the pointer is over
 /// the block (`markdown.css:352-381`), its glyph a tick for a moment after a copy.
+///
+/// Plugin actions, Wrap (while a line is wider than the block, `code_wrap`) and Copy share one
+/// toolbar, 2 apart, over a fill of the block's background that fades out toward its start and
+/// bottom so code under it softens rather than shows through (`markdown-code-toolbar`,
+/// anomalyco/opencode#64545). The fill stops a point inside the block's hairline and rounded
+/// corner (anomalyco/opencode#64576).
 fn code_card<S: TimelineHost>(p: &Pal, card: El, c: &rune_kit::CodeFrame<'_>, copied: &[String]) -> El {
     let key = copy_key("code-copy", &(c.index, c.source));
     let button = copy_button::<S>(p, c.source, key, opencode_i18n::t!("ui.message.copy"), copied);
     let actions = if c.open { Vec::new() } else { S::code_block_actions(p, c.language, c.source) };
-    let buttons = if actions.is_empty() {
-        button.pin(None, Some(4.0), Some(4.0), None)
-    } else {
-        row().key("code-actions").gap(2.0).pin(None, Some(4.0), Some(4.0), None).children(actions).child(button)
-    };
+    // A block keeps its choice while it streams: it's known by its place and first line.
+    let wrap_key = copy_key("code-wrap", &(c.index, c.source.lines().next().unwrap_or_default()));
+    let wrapped = crate::code_wrap::wraps(&wrap_key);
+    // The timeline's column stands in for the block's own width, a list's indent aside.
+    let wrap = crate::code_wrap::overflows(c.source, CODE, content_w()).then(|| wrap_button::<S>(p, wrap_key, wrapped));
+    let card = if wrapped { crate::code_wrap::card(p, c.source, c.language, CODE) } else { card };
+    // `inset: -3px -3px -8px -24px`: solid from 24 in, fading over the 8 under the buttons.
+    let n = actions.len() + usize::from(wrap.is_some()) + 1;
+    let fill_w = 24.0 * n as f32 + 2.0 * (n - 1) as f32 + 27.0;
+    let toolbar_fill = col()
+        .key("toolbar-fill")
+        .pin(Some(-24.0), Some(-3.0), Some(-3.0), Some(-8.0))
+        .clip_corners([0.0, 6.0, 0.0, 0.0])
+        .inert()
+        .child(el().w_full().grow(1.0).linear_gradient(std::f32::consts::FRAC_PI_2, [(0.0, p.code_bg.alpha(0.0)), (24.0 / fill_w, p.code_bg)]))
+        .child(row().w_full().h(8.0).child(el().w(24.0)).child(el().grow(1.0).h_full().gradient(p.code_bg, p.code_bg.alpha(0.0))));
+    let buttons = row().key("code-actions").gap(2.0).pin(None, Some(4.0), Some(4.0), None).child(toolbar_fill).children(actions).children(wrap).child(button);
     // It also shows while the keyboard is on it or a plugin's action beside it
     // (`markdown.css:379-382`'s `:focus-within`), and always where nothing hovers: its
     // `opacity: 0` is `@media (hover: hover)` only (`markdown.css:359`).
@@ -162,6 +180,33 @@ fn code_card<S: TimelineHost>(p: &Pal, card: El, c: &rune_kit::CodeFrame<'_>, co
         .hover_motion(HOVER_FADE, HOVER_FADE)
         .child(card)
         .child(buttons.group_opacity(idle, 1.0))
+}
+
+/// Desktop's `text-wrap` icon (`ui/src/icons/catalog.ts`).
+static TEXT_WRAP: rune::Icon = rune::Icon {
+    name: "text-wrap",
+    view: 16.0,
+    body: r#"<path d="M1.5 3.5H14.5M1.5 8H11.5C12.8807 8 14 9.11929 14 10.5C14 11.8807 12.8807 13 11.5 13H8.5M10 11.5L8.5 13L10 14.5M1.5 12.5H5" stroke-linecap="round" stroke-linejoin="round" stroke="currentColor"/>"#,
+};
+
+/// The 24 pt ghost button that wraps a code block's lines, or unwraps them (`wrapped`), named for
+/// what it does next.
+fn wrap_button<S: TimelineHost>(p: &Pal, key: String, wrapped: bool) -> El {
+    let label = if wrapped { opencode_i18n::t!("ui.message.unwrapLines") } else { opencode_i18n::t!("ui.message.wrapLines") };
+    row()
+        .key("wrap")
+        .role("button")
+        .label(label)
+        .help(label)
+        .help_above()
+        .size(24.0, 24.0)
+        .center()
+        .radius(6.0)
+        .hover(p.hover)
+        .press(p.pressed)
+        .hover_motion(INSTANT, INSTANT)
+        .on_press_tx(move |_: &mut S, _: &mut Tx| crate::code_wrap::toggle(&key))
+        .child(icon(&TEXT_WRAP, 16.0).color(p.icon_muted))
 }
 
 /// A copy button's `copied::mark_copied` mark: `prefix` and a hash of `what`.

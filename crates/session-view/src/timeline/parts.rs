@@ -278,9 +278,21 @@ pub fn turn_footer_text(t: &Transcript, message: usize, part: usize) -> bool {
     !t.messages[message + 1..message + 1 + next].iter().any(|m| matches!(m, Message::Assistant(a) if a.parts.iter().any(text)))
 }
 
+/// Whether the turn message `message` ends is the latest with a reply to copy
+/// (`session-timeline-row.tsx`'s `latestCopyTurn`): no later turn has reply text, a turn still
+/// running not counting, as its Copy hides meanwhile (`hideCopy`).
+pub fn latest_copy_turn<S: TimelineHost>(s: &S, t: &Transcript, message: usize) -> bool {
+    let busy = s.timeline_busy(t) || s.is_session_live(&t.session);
+    let live = if busy { t.messages.iter().rposition(|m| matches!(m, Message::User { .. })).unwrap_or(0) } else { t.messages.len() };
+    let text = |p: &Part| matches!(p, Part::Text { text } if !text.trim().is_empty());
+    let later = t.messages.get(message + 1..live.max(message + 1)).unwrap_or_default();
+    !later.iter().any(|m| matches!(m, Message::Assistant(a) if a.parts.iter().any(text)))
+}
+
 /// A finished turn's footer under its reply's last text (`text-part-copy-wrapper`): 8 under the
-/// text, 20 tall, Copy (the part's text) then "Model · 1s". Copy stays visible while the metadata
-/// waits for hover or keyboard focus (OpenCode 5db3553efa, `packages/session-ui/src/components/message-part.css`).
+/// text, 20 tall, Copy (the part's text) then "Model · 1s". The latest turn's Copy stays visible
+/// while its metadata waits for hover or keyboard focus; an earlier turn's whole footer waits
+/// (anomalyco/opencode#64640, `packages/session-ui/src/components/message-part.css`).
 pub fn turn_footer<S: TimelineHost>(s: &S, p: &Pal, t: &Transcript, message: usize, part: usize) -> El {
     use crate::working::{COPY, COPY_AT, COPY_GLYPH};
     let Message::Assistant(a) = &t.messages[message] else { return el() };
@@ -312,7 +324,11 @@ pub fn turn_footer<S: TimelineHost>(s: &S, p: &Pal, t: &Transcript, message: usi
     }
     let wrapper = row().key("reply-footer").h(COPY).mt(COPY_AT.1).gap(4.0).center_y();
     let wrapper = if interrupted { wrapper.w_full().child(rune::spacer()) } else { wrapper };
-    wrapper.child(button).child(crate::style::hover_reveal(meta))
+    if latest_copy_turn(s, t, message) {
+        wrapper.child(button).child(crate::style::hover_reveal(meta))
+    } else {
+        wrapper.child(crate::style::hover_reveal(row().key("reply-footer-items").h(COPY).gap(4.0).center_y().child(button).child(meta)))
+    }
 }
 
 /// The footer's items after Copy (`text-part-meta`): the model's name (and a variant other

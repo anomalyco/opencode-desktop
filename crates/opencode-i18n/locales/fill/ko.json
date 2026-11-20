@@ -735,5 +735,9 @@
   "voice.unmute": "음소거 해제",
   "voice.you": "나:",
   "dialog.directory.parent": "상위 폴더",
-  "dialog.directory.root": "루트"
+  "dialog.directory.root": "루트",
+  "settings.timeline.row.wrapCodeBlocks.title": "코드 블록 줄 바꿈",
+  "settings.timeline.row.wrapCodeBlocks.description": "코드 블록의 긴 줄을 스크롤하지 않고 줄 바꿈합니다. 각 블록은 마우스를 올려 전환할 수 있습니다",
+  "ui.message.wrapLines": "줄 바꿈",
+  "ui.message.unwrapLines": "줄 바꿈 안 함"
 }

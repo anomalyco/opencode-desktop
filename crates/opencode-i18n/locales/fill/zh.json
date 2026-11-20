@@ -735,5 +735,9 @@
   "voice.unmute": "取消静音",
   "voice.you": "你：",
   "dialog.directory.parent": "上级目录",
-  "dialog.directory.root": "根目录"
+  "dialog.directory.root": "根目录",
+  "settings.timeline.row.wrapCodeBlocks.title": "代码块自动换行",
+  "settings.timeline.row.wrapCodeBlocks.description": "代码块中的长行自动换行而不是滚动。悬停时仍可单独切换每个代码块",
+  "ui.message.wrapLines": "自动换行",
+  "ui.message.unwrapLines": "不自动换行"
 }

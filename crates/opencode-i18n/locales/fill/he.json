@@ -773,5 +773,9 @@
   "voice.unmute": "ביטול ההשתקה",
   "voice.you": "אתה:",
   "dialog.directory.parent": "תיקיית אב",
-  "dialog.directory.root": "שורש"
+  "dialog.directory.root": "שורש",
+  "settings.timeline.row.wrapCodeBlocks.title": "גלישת שורות בבלוקי קוד",
+  "settings.timeline.row.wrapCodeBlocks.description": "גלישת שורות ארוכות בבלוקי קוד במקום גלילה. עדיין אפשר להחליף כל בלוק במעבר עם העכבר",
+  "ui.message.wrapLines": "גלישת שורות",
+  "ui.message.unwrapLines": "ללא גלישת שורות"
 }

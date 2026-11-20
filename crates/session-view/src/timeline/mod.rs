@@ -162,8 +162,9 @@ impl RowSpec {
                         let dw = if body.contains("mermaid") { crate::genui::width(s).to_bits() } else { 0 };
                         let reveal = crate::line_reveal::reveal(k);
                         let line = (reveal, k.get(&crate::line_reveal::LINE_GROW).to_bits(), crate::line_reveal::feather(k).to_bits(), s.line_hold().shown(&a.id, *part), s.line_hold().paced(&a.id, *part));
-                        // A code block's Copy shows its tick, so the copy in hand rebuilds the row.
-                        let copied = body.contains("```").then(|| crate::copied::current(s));
+                        // A code block's Copy shows its tick, so the copy in hand rebuilds the row,
+                        // as a block wrapping or unwrapping its lines does.
+                        let copied = body.contains("```").then(|| (crate::copied::current(s), crate::code_wrap::version()));
                         // A picture landing (an image, a link's favicon), the viewer opening one, or
                         // the session's directory its paths read from becoming known rebuilds the row.
                         let footer = footer_text(t, *message, *part);
@@ -174,8 +175,9 @@ impl RowSpec {
                             let directory = s.active_session_id().and_then(|id| s.session_directory(id));
                             (m.markdown.version(), m.viewing.as_ref().map(|v| v.id.clone()), directory, favicons)
                         });
-                        // An earlier turn's Copy tick and its metadata, which omits the model in a narrow window.
-                        let own = turn_footer_text(t, *message, *part).then(|| (crate::copied::current(s), crate::style::narrow()));
+                        // An earlier turn's Copy tick and its metadata, which omits the model in a narrow
+                        // window, and whether its Copy stays in view as the latest.
+                        let own = turn_footer_text(t, *message, *part).then(|| (crate::copied::current(s), crate::style::narrow(), parts::latest_copy_turn(s, t, *message)));
                         // A session id it names being looked up, renamed, starting or stopping.
                         let chips = body.contains("ses_").then(|| crate::session_chips::version(s, body));
                         // A path its code names being found (`TimelineHost::code_links`); a streaming
@@ -196,7 +198,7 @@ impl RowSpec {
                     let fold = crate::disclosure::fold(k).duration.to_bits();
                     let detail = s.timeline_detail();
                     let look = (p.theme, p.generation, p.dark, opencode_i18n::locale().id(), crate::style::hover_none());
-                    let ver = (&t.session, group_hash(&t.messages[*start..*end]), *block, *live, pt.to_bits(), look, self.streaming, (fold, crate::style::content_w().to_bits(), crate::scroller::device_scale().to_bits(), detail, s.shell_output_version(), crate::style::sticky_top().to_bits(), s.reduced_motion()));
+                    let ver = (&t.session, group_hash(&t.messages[*start..*end]), *block, *live, pt.to_bits(), look, self.streaming, (fold, crate::style::content_w().to_bits(), crate::scroller::device_scale().to_bits(), detail, s.shell_output_version(), crate::style::sticky_top().to_bits(), s.reduced_motion(), crate::code_wrap::version()));
                     return rune::memo(self.key.clone(), ver, || {
                         ROW_BUILDS.set(ROW_BUILDS.get() + 1);
                         let blocks = turns::fold_with(&entries(&t.messages[*start..*end], &detail), *live, &detail);
@@ -336,6 +338,7 @@ pub fn entries<'a>(messages: &'a [Message], detail: &crate::detail::Detail) -> V
     messages.iter().map(|m| match m {
         Message::Assistant(a) => Entry::Step(a),
         Message::Note { step, .. } => Entry::Step(step),
+        Message::Notice(n) if n.kind == model::NoticeKind::Idle => Entry::Idle,
         Message::Notice(n) if crate::detail::notice_folds(n, detail) => Entry::Notice(n),
         _ => Entry::Skip,
     }).collect()
@@ -452,6 +455,7 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
     let t = t.filter(|_| !s.ends().due(id));
     let sticky = if header.is_some() { crate::style::HEADER_H } else { 0.0 };
     crate::style::set_sticky_top(sticky);
+    crate::code_wrap::set_default(s.wrap_code_blocks());
     // Held room's streaming text draws past its row's edge into the room over Working.
     let held_room = crate::line_reveal::reveal(s.knobs()) == crate::line_reveal::Reveal::HeldRoom;
     let e = rune::growth::StreamEdge { overflow: held_room, ..edge::FEATHER };

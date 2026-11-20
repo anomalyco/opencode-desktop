@@ -58,6 +58,8 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El, with_header: bo
                     session_view::timeline::projection_wanted(),
                     session_view::scroller::device_scale().to_bits(),
                     s.kernel.slots.untracked(&crate::files::FILES).reply_version(shown),
+                    // A code block's own Wrap choice, which Markdown keeps outside the app's state.
+                    session_view::code_wrap::version(),
                 ),
             );
             rune::region_with("timeline-area", (id, shown, inputs), || {

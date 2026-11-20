@@ -830,5 +830,9 @@
   "voice.unmute": "إلغاء كتم الصوت",
   "voice.you": "أنت:",
   "dialog.directory.parent": "المجلد الأصل",
-  "dialog.directory.root": "الجذر"
+  "dialog.directory.root": "الجذر",
+  "settings.timeline.row.wrapCodeBlocks.title": "التفاف أسطر كتل الشيفرة",
+  "settings.timeline.row.wrapCodeBlocks.description": "لف الأسطر الطويلة في كتل الشيفرة بدلًا من التمرير. يمكن تبديل كل كتلة عند التمرير فوقها",
+  "ui.message.wrapLines": "التفاف الأسطر",
+  "ui.message.unwrapLines": "عدم التفاف الأسطر"
 }

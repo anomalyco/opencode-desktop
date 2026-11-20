@@ -735,5 +735,9 @@
   "voice.unmute": "ミュートを解除",
   "voice.you": "あなた:",
   "dialog.directory.parent": "親フォルダ",
-  "dialog.directory.root": "ルート"
+  "dialog.directory.root": "ルート",
+  "settings.timeline.row.wrapCodeBlocks.title": "コードブロックを折り返す",
+  "settings.timeline.row.wrapCodeBlocks.description": "コードブロックの長い行をスクロールせずに折り返します。各ブロックはホバーで切り替えられます",
+  "ui.message.wrapLines": "行を折り返す",
+  "ui.message.unwrapLines": "行を折り返さない"
 }
