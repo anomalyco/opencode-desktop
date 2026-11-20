@@ -12,11 +12,15 @@ pub mod context_menu;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod prompts;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod rpc;
+#[cfg(not(target_arch = "wasm32"))]
 mod scene;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod view;
 #[cfg(not(target_arch = "wasm32"))]
 pub use prompts::BrowserFeature;
+#[cfg(not(target_arch = "wasm32"))]
+pub use rpc::BrowserRpcFeature;
 
 /// The browser plugin's id: its tabs key as `browser:<page id>`.
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]

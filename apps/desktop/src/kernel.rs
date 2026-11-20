@@ -98,6 +98,8 @@ pub fn build() -> Kernel<App> {
     b.with_feature(&crate::surfaces::updater::UpdaterFeature);
     #[cfg(not(target_arch = "wasm32"))]
     b.with_feature(&crate::surfaces::browser::BrowserFeature);
+    #[cfg(not(target_arch = "wasm32"))]
+    b.with_feature(&crate::surfaces::browser::BrowserRpcFeature);
     b.with_feature(&crate::line_comments::AnnotationsFeature);
     b.with_feature(&crate::attachments::ComposerInputFeature);
     b.with_feature(&crate::connect::ConnectFeature);
