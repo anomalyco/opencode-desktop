@@ -117,6 +117,7 @@ fn drive(host: &mut dyn WidgetsHost, id: &str, visible: bool, now: f64, tx: &mut
     }
     let posts = if live.news() { live.take() } else { Vec::new() };
     let ended = live.ended();
+    let failed_at = live.failed_at();
     let mut changed = false;
     for post in posts {
         let event = match post {
@@ -180,7 +181,12 @@ fn drive(host: &mut dyn WidgetsHost, id: &str, visible: bool, now: f64, tx: &mut
             Ended::Returned | Ended::Stopped => None,
         };
         if let Some(m) = &error {
-            crate::report(host, id, "main", m, None, 0);
+            // Its line in the template's source: the program's, less the prelude's lines.
+            let offset = host.widgets().entries.get(id).and_then(|e| match host.widgets().templates.get(&e.template) {
+                Some(Template::Ready(c)) => Some(c.offset),
+                _ => None,
+            });
+            crate::report(host, id, "main", m, failed_at, offset.unwrap_or(0));
         }
         stop(host, id);
         advance(host, id, Event::Ended(error));

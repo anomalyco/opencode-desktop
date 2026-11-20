@@ -134,6 +134,8 @@ pub(super) struct St {
     pub dropped: u32,
     pub watch: Watch,
     pub suspender: Option<Suspender>,
+    /// Where in the program it threw, when it ended so (1-based line and column).
+    pub failed_at: Option<(u32, u32)>,
 }
 
 impl St {
@@ -192,6 +194,7 @@ impl Link {
             dropped: 0,
             watch: Watch::fresh(now),
             suspender: None,
+            failed_at: None,
         };
         Arc::new_cyclic(|me| Link { st: Mutex::new(st), news: AtomicBool::new(false), program, data, setup, me: me.clone() })
     }
@@ -241,10 +244,14 @@ impl Link {
         if st.era != era {
             return;
         }
-        let ended = |result: Result<RunOutcome, Interrupted>| match result {
+        let mut at = None;
+        let mut ended = |result: Result<RunOutcome, Interrupted>| match result {
             Ok(RunOutcome::Done(o)) => match o.json() {
                 Ok(_) => Ended::Returned,
-                Err(d) => Ended::Failed(d.message_lossy()),
+                Err(d) => {
+                    at = d.location;
+                    Ended::Failed(d.message_lossy())
+                }
             },
             Ok(RunOutcome::Suspended(_)) => Ended::Failed("the widget stopped".into()),
             Err(_) => Ended::Stopped,
@@ -258,6 +265,7 @@ impl Link {
             (Run::Stopping, _) => Run::Ended(Ended::Stopped),
             (_, result) => Run::Ended(ended(result)),
         };
+        st.failed_at = at;
         st.suspender = None;
         st.waiters.clear();
         st.timers.clear();
@@ -345,6 +353,10 @@ impl Link {
             Run::Ended(e) => Some(e.clone()),
             _ => None,
         }
+    }
+
+    pub fn failed_at(&self) -> Option<(u32, u32)> {
+        self.lock().failed_at
     }
 
     pub fn is_paused(&self) -> bool {

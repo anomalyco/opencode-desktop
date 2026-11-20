@@ -493,7 +493,12 @@ pub(crate) fn report(host: &mut dyn WidgetsHost, id: &str, phase: &str, message:
     if !e.reported.insert(format!("{phase}\n{message}")) {
         return;
     }
-    let mut error = serde_json::json!({ "phase": phase, "message": message });
+    // The interpreter's message names the program's line; the report gives the source's.
+    let text = match location {
+        Some((line, column)) => message.strip_suffix(&format!(" (line {line}, col {column})")).unwrap_or(message),
+        None => message,
+    };
+    let mut error = serde_json::json!({ "phase": phase, "message": text });
     if let Some((line, column)) = location.filter(|(l, _)| *l > offset) {
         error["line"] = (line - offset).into();
         error["column"] = column.into();

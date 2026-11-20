@@ -146,6 +146,11 @@ impl Live {
         self.link.ended()
     }
 
+    /// Where in the program it threw (1-based line and column), when it failed so.
+    pub fn failed_at(&self) -> Option<(u32, u32)> {
+        self.link.failed_at()
+    }
+
     /// The widget left view: the program pauses.
     pub fn pause(&self) {
         self.link.pause();
