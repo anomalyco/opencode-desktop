@@ -177,6 +177,14 @@ impl SessionMenuHost for App {
         App::close_tab(self, uid, tx);
     }
 
+    fn tab_menu_extra(&self, uid: &str) -> Vec<crate::session_menu::Line> {
+        crate::tabs::groups::tab_menu(self, uid)
+    }
+
+    fn run_tab_menu_extra(&mut self, uid: &str, id: &str, _tx: &mut Tx) -> bool {
+        crate::tabs::groups::run_tab_menu(self, uid, id)
+    }
+
     fn is_session_pinned(&self, server: &ServerKey, id: &str) -> bool {
         let key = crate::view::sidebar::state::key(server.as_str(), id);
         self.project_state.recent.pins.contains(&key)

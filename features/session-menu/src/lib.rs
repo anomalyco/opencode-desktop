@@ -188,6 +188,10 @@ pub struct Item {
 pub enum Line {
     Item(Item),
     Sep,
+    /// A row the host adds ([`SessionMenuHost::tab_menu_extra`]), its id the host's own.
+    Extra(popup::Item),
+    /// A row opening `menu` beside it; its items answer the same pick.
+    Sub { id: String, title: String, menu: Menu },
 }
 
 fn item(id: &'static str, title: impl Into<String>, enabled: bool) -> Line {
@@ -246,13 +250,20 @@ pub fn lines(host: &dyn SessionMenuHost, t: &Target) -> Vec<Line> {
                     at.is_some_and(|i| i + 1 < tabs.len()),
                 ),
             ];
+            // The host's rows (tab groups' Add to group, `tab-nav.tsx`'s `contextMenuExtra`): a
+            // draft's before its close items, a session's after Mark as read.
+            let extra = host.tab_menu_extra(uid);
             // A draft has no session to rename or delete: only the close items (`DraftTabItem`).
             if draft {
-                return close.into();
+                let sep = (!extra.is_empty()).then_some(Line::Sep);
+                return extra.into_iter().chain(sep).chain(close).collect();
             }
+            let sep = (!extra.is_empty()).then_some(Line::Sep);
             std::iter::once(item("rename", opencode_i18n::t!("common.rename"), known))
                 .chain([item("export", asks(opencode_i18n::t!("common.export")), known && !exporting(host, &t.server, &t.id))])
                 .chain(read_item)
+                .chain(sep)
+                .chain(extra)
                 .chain([Line::Sep])
                 .chain(close)
                 .chain([Line::Sep, item("delete", asks(opencode_i18n::t!("common.delete")), known)])
@@ -275,6 +286,8 @@ pub fn menu(lines: &[Line]) -> Menu {
     lines.iter().fold(Menu::new(opencode_i18n::t!("command.category.session")), |m, l| match l {
         Line::Item(i) => m.item(popup::Item::new(i.id, i.title.clone()).enabled(i.enabled).danger(i.danger)),
         Line::Sep => m.separator(),
+        Line::Extra(i) => m.item(i.clone()),
+        Line::Sub { id, title, menu } => m.submenu(id.clone(), title.clone(), menu.clone()),
     })
 }
 
@@ -352,6 +365,9 @@ pub fn on_dialog<H: SessionMenuHost + 'static>(e: El, t: Target) -> El {
 
 /// Runs the menu item `id` on `t`.
 pub fn run(host: &mut dyn SessionMenuHost, t: &Target, id: &str, tx: &mut Tx) {
+    if t.spot == Spot::Tab && let Some(tab) = t.tab(host) && host.run_tab_menu_extra(&tab.uid, id, tx) {
+        return;
+    }
     match id {
         "pin-toggle" => host.toggle_session_pin(&t.server, &t.id),
         "mute-toggle" => preferences::update(host, preferences::Kind::Muted, &t.server, &t.id, !preferences::muted(&t.server, &t.id)),

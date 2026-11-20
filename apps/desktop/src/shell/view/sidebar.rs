@@ -12,6 +12,7 @@ pub(crate) mod grouping;
 mod recent;
 pub(crate) mod pins;
 pub(super) mod rows;
+mod tab_groups;
 pub(crate) mod state;
 
 // ---------------------------------------------------------------------------------------------
@@ -218,7 +219,9 @@ fn contents(s: &App, p: &Pal, top: f32) -> El {
                     } else { new() },
                 ),
         )
-        .child(el().key("tabs-gap").w_full().h(16.0))
+        // Grouped side tabs put their filter and grouping menu here (`titlebar.tsx`'s
+        // `isGroupedSidebarList`).
+        .child(if crate::tabs::groups::on(s) { tab_groups::controls(s, p) } else { el().key("tabs-gap").w_full().h(16.0) })
         .child(list(s, p))
         .children(crate::plugin_host::sidebar_items(s, p))
 }
@@ -234,6 +237,7 @@ fn list(s: &App, p: &Pal) -> El {
             crate::settings::Organize::Projects => super::sidebar_organized::organized(s, p),
             crate::settings::Organize::Customize => customized::customized(s, p),
             crate::settings::Organize::Recent => recent::recent(s, p),
+            crate::settings::Organize::List if crate::tabs::groups::on(s) => tab_groups::list(s, p),
             crate::settings::Organize::List => tab_strip(s, p, "tabs", TabOrientation::Vertical, None, None),
         },
         _ => tab_strip(s, p, "tabs", TabOrientation::Vertical, None, None),

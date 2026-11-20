@@ -101,6 +101,10 @@ pub struct Settings {
     /// Questions take the keyboard-first dock instead of Classic (Desktop's `general.newQuestionUI`,
     /// Settings › Experimental › New question UI). Off unless turned on, as there.
     pub new_question_ui: bool,
+    /// Group the side tabs (Desktop's `general.tabGroups`, Settings › Experimental › Tab
+    /// groups); `None` until set, which reads as on in local and dev builds only
+    /// (`settings/model.tsx`'s `import.meta.env.DEV` fallback).
+    pub tab_groups: Option<bool>,
     /// Ease a live delivery into place: the Pending label, the tray's room and joined prompts.
     pub smooth_timeline: bool,
     /// macOS: Option in the terminal is Meta (Esc and the key, for a shell's word motions) instead
@@ -173,6 +177,7 @@ impl Default for Settings {
             record_glitches: true,
             tab_layout: TabLayout::default(),
             new_question_ui: false,
+            tab_groups: None,
             smooth_timeline: false,
             terminal_option_meta: false,
             terminal_marks: Vec::new(),
@@ -201,6 +206,19 @@ impl Default for Settings {
 
 impl Settings {
     pub fn to_json(&self) -> Value {
+        let mut v = self.to_json_base();
+        if let (Some(on), Some(m)) = (self.tab_groups, v.as_object_mut()) {
+            m.insert("tabGroups".into(), json!(on));
+        }
+        v
+    }
+
+    /// Experimental › Tab groups, its fallback applied.
+    pub fn tab_groups(&self) -> bool {
+        self.tab_groups.unwrap_or(!cfg!(target_arch = "wasm32") && matches!(build_channel(), "local" | "dev"))
+    }
+
+    fn to_json_base(&self) -> Value {
         json!({
             "showAgentPicker": self.show_agent,
             "appearance": self.scheme.name(),
@@ -267,6 +285,7 @@ impl Settings {
             // `appearance`, which here is the colour scheme.
             tab_layout: TabLayout::parse(v["tabLayout"].as_str().or_else(|| v["appearance"]["tabLayout"].as_str())),
             new_question_ui: v["newQuestionUI"].as_bool().unwrap_or(false),
+            tab_groups: v["tabGroups"].as_bool(),
             smooth_timeline: v["smoothTimeline"].as_bool().unwrap_or(false),
             terminal_option_meta: v["terminal"]["optionAsMeta"].as_bool().unwrap_or(false),
             terminal_marks: v["terminal"]["marks"]

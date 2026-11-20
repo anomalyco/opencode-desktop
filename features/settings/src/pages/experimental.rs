@@ -1,5 +1,6 @@
-//! Settings › Experimental (`settings/experimental/experimental.tsx`): Organize vertical sidebar,
-//! New question UI and Smooth timeline; then the host's Developer section (Rewind).
+//! Settings › Experimental (`settings/experimental/experimental.tsx`): Tab groups, Organize
+//! vertical sidebar, New question UI and Smooth timeline; then the host's Developer section
+//! (Rewind).
 
 use opencode_i18n::t;
 use opencode_ui::popup::PopupHost;
@@ -14,6 +15,10 @@ fn toggle_new_question_ui(s: &mut dyn SettingsHost) {
     change_settings(s, |x| x.new_question_ui = !x.new_question_ui);
 }
 
+fn toggle_tab_groups(s: &mut dyn SettingsHost) {
+    change_settings(s, |x| x.tab_groups = Some(!x.tab_groups()));
+}
+
 fn toggle_smooth_timeline(s: &mut dyn SettingsHost) {
     change_settings(s, |x| x.smooth_timeline = !x.smooth_timeline);
 }
@@ -25,6 +30,16 @@ fn pick_organize(s: &mut dyn SettingsHost, id: &str, _tx: &mut Tx) {
 pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
     let st = s.settings();
     let rows = vec![
+        (
+            "settings-tab-groups",
+            setting(
+                p,
+                "settings-tab-groups",
+                t!("settings.experimental.row.tabGroups.title"),
+                t!("settings.experimental.row.tabGroups.description"),
+                switch(p, "tab-groups-switch", st.tab_groups()).on_press(|s: &mut H| toggle_tab_groups(s)),
+            ),
+        ),
         (
             "settings-sidebar-organize",
             setting(

@@ -197,6 +197,16 @@ pub trait SessionMenuHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlay
         let _ = (server, id, tx);
     }
     /// Closes window tab `uid`.
+    /// Rows the window adds to tab `uid`'s menu (tab groups' Add to group); none by default.
+    fn tab_menu_extra(&self, _uid: &str) -> Vec<crate::Line> {
+        Vec::new()
+    }
+
+    /// Runs a row [`SessionMenuHost::tab_menu_extra`] added; `false` for an id it didn't add.
+    fn run_tab_menu_extra(&mut self, _uid: &str, _id: &str, _tx: &mut Tx) -> bool {
+        false
+    }
+
     fn close_tab(&mut self, uid: &str, tx: &mut Tx) {
         let _ = (uid, tx);
     }
