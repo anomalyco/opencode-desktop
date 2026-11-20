@@ -76,7 +76,7 @@ impl Writer {
             ReserveStep::AfterFrame => self.reservation = Reservation::Owed(ReserveStep::AfterFrame),
             ReserveStep::Insert => match journal::reserve(&self.conn) {
                 Ok(()) => {
-                    self.wal_event(WalEvent::Committed { boot: false });
+                    self.wal_unsynced(false);
                     self.next_step(ReserveStep::Locate);
                 }
                 Err(e) => self.no_journal(e.to_string()),
@@ -86,7 +86,7 @@ impl Writer {
             // sum, so a kill before the next rebuild leaves a place the next launch trusts.
             ReserveStep::Locate => match self.rebuild_record().and_then(|()| journal::locate(&self.conn, &db, self.clock)) {
                 Ok(loc) => {
-                    self.wal_event(WalEvent::Committed { boot: false });
+                    self.wal_unsynced(false);
                     self.next_step(ReserveStep::Attach(loc));
                 }
                 Err(e) => self.no_journal(e.to_string()),
@@ -97,7 +97,7 @@ impl Writer {
                     Ok(_) => {
                         rune::marks::mark("journal.attached");
                         // The next checkpoint's record names it, kept by this run.
-                        self.wal_event(WalEvent::Committed { boot: true });
+                        self.wal_event(WalEvent::BootStale);
                         self.reservation = Reservation::Unsynced;
                         self.sync_reservation();
                     }
