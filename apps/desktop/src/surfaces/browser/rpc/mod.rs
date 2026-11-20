@@ -282,10 +282,12 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
     changed |= reconcile_sessions(app, now);
 
     // 3. Route any CDP events from BrowserHost into TabDiagnostics and TabFrameState (OOPIFs +
-    //    main-world execution contexts), auto-enabling Page/Runtime/Target on attached OOPIFs.
+    //    main-world execution contexts), auto-enabling non-extension OOPIFs, immediately detaching
+    //    extension OOPIFs, and bumping generation on top-level reloads/navigations.
     if app.workspace_panes.browser.host.has_cdp_events() {
         let events: Vec<_> = app.workspace_panes.browser.host.drain_cdp_events().collect();
         let mut oopif_enables: Vec<(u64, String)> = Vec::new();
+        let mut oopif_detaches: Vec<(u64, String)> = Vec::new();
         {
             let st = app.kernel.slots.get_mut(&BROWSER_RPC);
             for ev in events {
@@ -293,17 +295,34 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
                     if let Some(diag) = att.diagnostics.get_mut(&ev.tab_id) {
                         diag.ingest_cdp_event(&ev.method, &ev.params, ev.session_id.as_deref());
                     }
+                    let mut main_nav = false;
                     if let Some(fr) = att.frames.get_mut(&ev.tab_id) {
-                        for child_sid in fr.ingest_cdp_event(&ev.method, &ev.params, ev.session_id.as_deref()) {
+                        let eff = fr.ingest_cdp_event(&ev.method, &ev.params, ev.session_id.as_deref());
+                        for child_sid in eff.enable_sessions {
                             oopif_enables.push((ev.tab_id, child_sid));
                         }
+                        for ext_sid in eff.detach_sessions {
+                            oopif_detaches.push((ev.tab_id, ext_sid));
+                        }
+                        main_nav = eff.main_navigated;
+                    }
+                    if main_nav && att.host_to_wire.contains_key(&ev.tab_id) {
+                        att.bump_generation(ev.tab_id);
                     }
                 }
             }
         }
         if app.workspace_panes.browser.host.engine_agent_tools() {
+            let host = &mut app.workspace_panes.browser.host;
+            for (tab_id, ext_sid) in oopif_detaches {
+                let _ = host.send_typed_cdp(
+                    tab_id,
+                    "Target.detachFromTarget",
+                    serde_json::json!({ "sessionId": ext_sid }),
+                    None,
+                );
+            }
             for (tab_id, child_sid) in oopif_enables {
-                let host = &mut app.workspace_panes.browser.host;
                 let _ = host.send_typed_cdp(tab_id, "Page.enable", serde_json::json!({}), Some(child_sid.clone()));
                 let _ = host.send_typed_cdp(tab_id, "Runtime.enable", serde_json::json!({}), Some(child_sid.clone()));
                 let _ = host.send_typed_cdp(
@@ -352,6 +371,16 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
     let mut tick_effects = Vec::new();
     let mut earliest_wake: Option<Instant> = None;
     for (key, att) in &mut sessions {
+        att.drain_bootstrap_frames(app);
+        // Cleanly close any cancelled `close_on_fail` tabs queued during SSE `on_control_event`
+        // (eliminating ghost tabs in `session_tabs` and side-panel UI).
+        if !att.pending_close_tabs.is_empty() {
+            let sid = att.session_id.clone();
+            for hid in std::mem::take(&mut att.pending_close_tabs) {
+                app.close_browser_tab_for_session(&sid, hid, tx);
+            }
+            changed = true;
+        }
         let (cmd_changed, cmd_wake) =
             exec::poll_commands(att, app, now, &mut ref_counter, waker.clone(), tx);
         changed |= cmd_changed;
@@ -627,7 +656,7 @@ fn apply_batch_effects(
                     let mut kept = Vec::with_capacity(att.active_commands.len());
                     for mut cmd in att.active_commands.drain(..) {
                         if request_ids.iter().any(|id| id == &cmd.request_id) {
-                            cmd.cancel_cleanup(app, &sid, tx_opt.as_deref_mut());
+                            cmd.cancel_cleanup(app, &sid, tx_opt.as_deref_mut(), &mut att.pending_close_tabs);
                         } else {
                             kept.push(cmd);
                         }

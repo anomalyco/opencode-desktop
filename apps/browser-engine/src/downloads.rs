@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex};
 use cef::rc::Rc as _;
 use cef::{
     BeforeDownloadCallback, Browser, CefString, DownloadHandler, DownloadInterruptReason, DownloadItem, DownloadItemCallback,
-    ImplBeforeDownloadCallback, ImplDownloadHandler, ImplDownloadItem, ImplDownloadItemCallback, WrapDownloadHandler, wrap_download_handler,
+    ImplBeforeDownloadCallback, ImplBrowser, ImplDownloadHandler, ImplDownloadItem, ImplDownloadItemCallback, ImplFrame, WrapDownloadHandler, wrap_download_handler,
 };
 
 use crate::output::Output;
@@ -109,7 +109,7 @@ wrap_download_handler! {
         // Where it goes, with no dialog. Returning 1 says the callback is taken; 0 cancels it.
         fn on_before_download(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             item: Option<&mut DownloadItem>,
             suggested_name: Option<&CefString>,
             callback: Option<&mut BeforeDownloadCallback>,
@@ -118,7 +118,16 @@ wrap_download_handler! {
             let name = suggested_name.map(|n| n.to_string()).filter(|n| !n.is_empty()).unwrap_or_else(|| "file".to_owned());
             let id = format!("file_{}", self.downloads.next.fetch_add(1, Ordering::Relaxed));
             let mime = CefString::from(&item.mime_type()).to_string();
-            let mut file = DownloadFile { id, name, mime, bytes: 0, state: DownloadState::Pending, path: String::new(), error: None };
+            let item_url = CefString::from(&item.url()).to_string();
+            let source_url = if !item_url.is_empty() {
+                Some(item_url)
+            } else {
+                browser
+                    .and_then(|b| b.main_frame())
+                    .map(|f| CefString::from(&f.url()).to_string())
+                    .filter(|u| !u.is_empty())
+            };
+            let mut file = DownloadFile { id, name, mime, bytes: 0, state: DownloadState::Pending, path: String::new(), error: None, source_url };
             let held = self.downloads.files.lock().unwrap().values().filter(|(tab, _)| *tab == self.tab_id).count();
             let fail = |mut file: DownloadFile, why: &str| {
                 file.state = DownloadState::Failed;

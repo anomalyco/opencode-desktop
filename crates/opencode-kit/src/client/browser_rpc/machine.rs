@@ -332,11 +332,8 @@ impl AttachMachine {
                     return Vec::new();
                 };
                 let (attempt, connection_id) = (*attempt, connection_id.clone());
-<<<<<<< HEAD
                 self.rapid_retries = 0;
-=======
                 self.ever_attached = true;
->>>>>>> browser-tools/fix-remote-dual-route-cdp
                 self.state = AttachState::Attached {
                     attempt,
                     connection_id: connection_id.clone(),

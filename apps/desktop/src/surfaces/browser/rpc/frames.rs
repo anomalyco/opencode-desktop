@@ -6,7 +6,22 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use browser_pane::policy::{extension_origin, extension_page_refusal};
 use serde_json::{Value, json};
 
-const MAX_TRACKED_FRAMES: usize = 256;
+pub const MAX_TRACKED_FRAMES: usize = 256;
+
+#[derive(Default)]
+pub(super) struct FrameEventEffects {
+    /// Newly attached non-extension OOPIF `sessionId`s to bootstrap (`Page`/`Runtime`/`Target`).
+    pub enable_sessions: Vec<String>,
+    /// Newly detected extension OOPIF `sessionId`s to immediately detach via `Target.detachFromTarget`.
+    pub detach_sessions: Vec<String>,
+    /// True when the top-level main frame navigated or reloaded (signals a generation bump).
+    pub main_navigated: bool,
+}
+
+pub(super) enum EvalTargetError {
+    DocumentChanged(String),
+    Failed(String),
+}
 
 #[derive(Default)]
 pub(super) struct TabFrameState {
@@ -22,29 +37,44 @@ pub(super) struct TabFrameState {
     pub extension_frames: HashSet<String>,
     /// Default main-world execution context per frame (`frame_id -> (context_id, session_id)`).
     pub main_contexts: HashMap<String, (i64, Option<String>)>,
+    /// Fail-closed flag set when the document creates more than [`MAX_TRACKED_FRAMES`] frames so
+    /// a 257th denied iframe can never hide from `source_urls()`.
+    pub frame_cap_exceeded: bool,
 }
 
 impl TabFrameState {
-    /// Ingests one CDP event for this tab. Returns any newly attached non-extension OOPIF
-    /// `sessionId`s on which the driver should enable `Page`, `Runtime`, and `Target.setAutoAttach`.
+    fn record_frame_url(&mut self, fid: &str, url: &str) -> bool {
+        if self.frame_urls.contains_key(fid) {
+            self.frame_urls.insert(fid.to_owned(), url.to_owned());
+            return true;
+        }
+        if self.frame_urls.len() >= MAX_TRACKED_FRAMES {
+            self.frame_cap_exceeded = true;
+            return false;
+        }
+        self.frame_urls.insert(fid.to_owned(), url.to_owned());
+        true
+    }
+
+    /// Ingests one CDP event for this tab and returns required driver effects.
     pub fn ingest_cdp_event(
         &mut self,
         method: &str,
         params: &Value,
         session_id: Option<&str>,
-    ) -> Vec<String> {
-        let mut attach_sessions = Vec::new();
+    ) -> FrameEventEffects {
+        let mut eff = FrameEventEffects::default();
         match method {
             "Target.attachedToTarget" => {
-                let Some(info) = params.get("targetInfo") else { return attach_sessions };
+                let Some(info) = params.get("targetInfo") else { return eff };
                 if info.get("type").and_then(Value::as_str) != Some("iframe") {
-                    return attach_sessions;
+                    return eff;
                 }
                 let Some(child_sid) = params.get("sessionId").and_then(Value::as_str) else {
-                    return attach_sessions;
+                    return eff;
                 };
                 let Some(frame_id) = info.get("targetId").and_then(Value::as_str) else {
-                    return attach_sessions;
+                    return eff;
                 };
                 let url = info.get("url").and_then(Value::as_str).unwrap_or("");
                 let parent_id = info
@@ -68,19 +98,19 @@ impl TabFrameState {
                     self.extension_frames.insert(frame_id.to_owned());
                     self.frame_sessions.remove(frame_id);
                     self.main_contexts.remove(frame_id);
-                    if !url.is_empty() && self.frame_urls.len() < MAX_TRACKED_FRAMES {
-                        self.frame_urls.insert(frame_id.to_owned(), url.to_owned());
+                    if !url.is_empty() {
+                        self.record_frame_url(frame_id, url);
                     }
-                    return attach_sessions;
+                    eff.detach_sessions.push(child_sid.to_owned());
+                    return eff;
                 }
-                if self.frame_urls.len() < MAX_TRACKED_FRAMES {
-                    self.frame_urls.insert(frame_id.to_owned(), url.to_owned());
+                if self.record_frame_url(frame_id, url) {
                     if let Some(pid) = parent_id {
                         self.frame_parents.insert(frame_id.to_owned(), pid);
                     }
                     self.frame_sessions.insert(frame_id.to_owned(), child_sid.to_owned());
                 }
-                attach_sessions.push(child_sid.to_owned());
+                eff.enable_sessions.push(child_sid.to_owned());
             }
             "Target.targetInfoChanged" => {
                 if let Some(info) = params.get("targetInfo")
@@ -88,15 +118,18 @@ impl TabFrameState {
                     && let Some(fid) = info.get("targetId").and_then(Value::as_str)
                 {
                     let url = info.get("url").and_then(Value::as_str).unwrap_or("");
-                    if !url.is_empty()
-                        && (self.frame_urls.len() < MAX_TRACKED_FRAMES || self.frame_urls.contains_key(fid))
-                    {
-                        self.frame_urls.insert(fid.to_owned(), url.to_owned());
+                    if !url.is_empty() {
+                        self.record_frame_url(fid, url);
                     }
                     if extension_origin(url) {
                         self.extension_frames.insert(fid.to_owned());
                         self.main_contexts.remove(fid);
-                        self.frame_sessions.remove(fid);
+                        // Move sessionId into `extension_sessions` AND detach so child frames
+                        // spawned inside this extension OOPIF cannot fall back to `main_frame_id`.
+                        if let Some(sid) = self.frame_sessions.remove(fid) {
+                            self.extension_sessions.insert(sid.clone(), fid.to_owned());
+                            eff.detach_sessions.push(sid);
+                        }
                     }
                 }
             }
@@ -128,14 +161,14 @@ impl TabFrameState {
                     let parent = frame.get("parentId").and_then(Value::as_str);
                     let name = frame.get("name").and_then(Value::as_str).unwrap_or("");
                     if parent.is_none() && session_id.is_none() {
-                        // Top-level navigation clears stale child frame records from the prior document.
+                        eff.main_navigated = true;
+                        self.frame_cap_exceeded = false;
                         self.main_frame_id = Some(fid.to_owned());
                         self.frame_urls.retain(|k, _| k == fid || self.frame_sessions.contains_key(k));
                         self.frame_parents.retain(|k, _| self.frame_sessions.contains_key(k));
                         self.frame_names.retain(|k, _| k == fid || self.frame_sessions.contains_key(k));
                     }
-                    if self.frame_urls.len() < MAX_TRACKED_FRAMES || self.frame_urls.contains_key(fid) {
-                        self.frame_urls.insert(fid.to_owned(), url.to_owned());
+                    if self.record_frame_url(fid, url) {
                         if let Some(p) = parent {
                             self.frame_parents.insert(fid.to_owned(), p.to_owned());
                         }
@@ -149,6 +182,10 @@ impl TabFrameState {
                     if is_ext {
                         self.extension_frames.insert(fid.to_owned());
                         self.main_contexts.remove(fid);
+                        if let Some(sid) = self.frame_sessions.remove(fid) {
+                            self.extension_sessions.insert(sid.clone(), fid.to_owned());
+                            eff.detach_sessions.push(sid);
+                        }
                     } else {
                         self.extension_frames.remove(fid);
                     }
@@ -158,20 +195,19 @@ impl TabFrameState {
                 if let (Some(fid), Some(url)) = (
                     params.get("frameId").and_then(Value::as_str),
                     params.get("url").and_then(Value::as_str),
-                ) && (self.frame_urls.len() < MAX_TRACKED_FRAMES || self.frame_urls.contains_key(fid))
-                {
-                    self.frame_urls.insert(fid.to_owned(), url.to_owned());
+                ) {
+                    self.record_frame_url(fid, url);
                 }
             }
             "Page.frameDetached" => {
                 // Ignore `"swap"` detachments: Chromium emits `reason: "swap"` on the parent
                 // session when an iframe transitions into an out-of-process target (OOPIF).
                 if params.get("reason").and_then(Value::as_str) == Some("swap") {
-                    return attach_sessions;
+                    return eff;
                 }
                 if let Some(fid) = params.get("frameId").and_then(Value::as_str) {
                     if session_id.is_none() && self.frame_sessions.contains_key(fid) {
-                        return attach_sessions;
+                        return eff;
                     }
                     self.frame_urls.remove(fid);
                     self.frame_parents.remove(fid);
@@ -183,7 +219,7 @@ impl TabFrameState {
             }
             "Runtime.executionContextCreated" => {
                 if session_id.is_some_and(|s| self.extension_sessions.contains_key(s)) {
-                    return attach_sessions;
+                    return eff;
                 }
                 if let Some(ctx) = params.get("context")
                     && let Some(cid) = ctx.get("id").and_then(Value::as_i64)
@@ -197,6 +233,10 @@ impl TabFrameState {
                     if extension_origin(origin) {
                         self.extension_frames.insert(fid.to_owned());
                         self.main_contexts.remove(fid);
+                        if let Some(sid) = self.frame_sessions.remove(fid) {
+                            self.extension_sessions.insert(sid.clone(), fid.to_owned());
+                            eff.detach_sessions.push(sid);
+                        }
                     } else {
                         self.main_contexts
                             .insert(fid.to_owned(), (cid, session_id.map(str::to_owned)));
@@ -214,10 +254,10 @@ impl TabFrameState {
             }
             _ => {}
         }
-        attach_sessions
+        eff
     }
 
-    /// Merges a `Page.getFrameTree` response into tracked frames (preserving OOPIF children).
+    /// Merges a live `Page.getFrameTree` response into tracked frames (preserving OOPIF children).
     pub fn ingest_frame_tree(&mut self, tree: &Value, session_id: Option<&str>) {
         let Some(root) = tree.get("frameTree") else { return };
         self.walk_tree(root, None, session_id, false);
@@ -239,8 +279,7 @@ impl TabFrameState {
             self.main_frame_id = Some(fid.to_owned());
         }
         let is_ext = parent_ext || extension_origin(url) || self.extension_frames.contains(fid);
-        if self.frame_urls.len() < MAX_TRACKED_FRAMES || self.frame_urls.contains_key(fid) {
-            self.frame_urls.insert(fid.to_owned(), url.to_owned());
+        if self.record_frame_url(fid, url) {
             if let Some(p) = pid {
                 self.frame_parents.insert(fid.to_owned(), p.to_owned());
             }
@@ -260,50 +299,82 @@ impl TabFrameState {
     }
 
     /// Returns all known document URLs in this tab (main document + all in-process & OOPIF
-    /// subframes), sorted and deduplicated, for server authorization (`inspect_target` / `Target`).
-    pub fn source_urls(&self, main_url: &str) -> Vec<String> {
+    /// subframes, including `about:blank`), sorted and deduplicated. Fails closed when the tab
+    /// overflowed [`MAX_TRACKED_FRAMES`] so a 257th iframe cannot evade server authorization.
+    pub fn source_urls(&self, main_url: &str) -> Result<Vec<String>, String> {
+        if self.frame_cap_exceeded {
+            return Err(format!(
+                "Tab exceeded {MAX_TRACKED_FRAMES} tracked frames; cannot verify authorization targets safely."
+            ));
+        }
         let mut urls: Vec<String> = Vec::with_capacity(self.frame_urls.len() + 1);
         if !main_url.is_empty() {
             urls.push(main_url.to_owned());
         }
         for url in self.frame_urls.values() {
-            if !url.is_empty() && url != "about:blank" {
+            if !url.is_empty() {
                 urls.push(url.clone());
             }
         }
         urls.sort();
         urls.dedup();
-        urls
+        Ok(urls)
     }
 
-    /// Resolves an optional `frameID` into `(pinned_context_id, cdp_session_id)`, strictly
-    /// refusing extension frames (and descendants) as well as unknown `frameID`s.
+    /// Resolves an optional `frameID` into `(pinned_context_id, cdp_session_id)`.
+    /// When `require_pinned` is `true` (`engine_agent_tools`), fails closed with
+    /// [`EvalTargetError::DocumentChanged`] whenever the main-world `contextId` is not known
+    /// (never silently falling back to an unpinned `Runtime.evaluate`).
     pub fn resolve_eval_target(
         &self,
         frame_id: Option<&str>,
-    ) -> Result<(Option<i64>, Option<String>), String> {
-        let Some(fid) = frame_id else {
-            let ctx = self
-                .main_frame_id
-                .as_deref()
-                .and_then(|mid| self.main_contexts.get(mid))
-                .map(|(cid, _)| *cid);
-            return Ok((ctx, None));
+        require_pinned: bool,
+    ) -> Result<(Option<i64>, Option<String>), EvalTargetError> {
+        let target_fid = match frame_id {
+            Some(fid) => {
+                if self.extension_frames.contains(fid) {
+                    let url = self
+                        .frame_urls
+                        .get(fid)
+                        .map(String::as_str)
+                        .unwrap_or("chrome-extension://");
+                    return Err(EvalTargetError::Failed(extension_page_refusal(url)));
+                }
+                if !self.frame_urls.contains_key(fid) && self.main_frame_id.as_deref() != Some(fid) {
+                    return Err(EvalTargetError::Failed(
+                        "Frame ID was not found in this tab. Call browser.frames({tabID}) and pass a current frameID."
+                            .into(),
+                    ));
+                }
+                fid
+            }
+            None => match self.main_frame_id.as_deref() {
+                Some(mid) => mid,
+                None if require_pinned => {
+                    return Err(EvalTargetError::DocumentChanged(
+                        "Main frame execution context is unavailable yet. Retry after the document settles."
+                            .into(),
+                    ));
+                }
+                None => return Ok((None, None)),
+            },
         };
-        if self.extension_frames.contains(fid) {
-            let url = self.frame_urls.get(fid).map(String::as_str).unwrap_or("chrome-extension://");
-            return Err(extension_page_refusal(url));
-        }
-        if !self.frame_urls.contains_key(fid) && self.main_frame_id.as_deref() != Some(fid) {
-            return Err(
-                "Frame ID was not found in this tab. Call browser.frames({tabID}) and pass a current frameID."
-                    .into(),
-            );
-        }
-        if let Some((cid, sid)) = self.main_contexts.get(fid) {
+        if let Some((cid, sid)) = self.main_contexts.get(target_fid) {
             return Ok((Some(*cid), sid.clone()));
         }
-        Ok((None, self.frame_sessions.get(fid).cloned()))
+        if require_pinned {
+            return Err(EvalTargetError::DocumentChanged(
+                "Frame execution context is unavailable or navigated. Refresh state and retry."
+                    .into(),
+            ));
+        }
+        if frame_id.is_some() {
+            return Err(EvalTargetError::Failed(
+                "Frame context is unavailable on this browser engine. Call browser.frames({tabID}) or omit frameID."
+                    .into(),
+            ));
+        }
+        Ok((None, None))
     }
 
     /// Returns the agent-visible frame list (main frame + in-process children + cross-site OOPIFs),

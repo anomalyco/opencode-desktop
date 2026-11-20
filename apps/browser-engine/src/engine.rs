@@ -209,6 +209,7 @@ struct ManagedTab {
     view_state: Arc<Mutex<ViewRectState>>,
     snap: Arc<Mutex<TabSnapshot>>,
     cdp_id_map: Arc<Mutex<HashMap<i32, CdpPending>>>,
+    cdp_ledger: Arc<Mutex<crate::cdp_ledger::EngineCdpLedger>>,
     internal_picked: Arc<Mutex<Vec<i64>>>,
     pending_clears: Arc<Mutex<Vec<PendingClear>>>,
     prompts: Arc<crate::prompts::TabPrompts>,
@@ -917,15 +918,26 @@ impl EngineManager {
             }
             HostMsg::TypedCdpCall { tab_id, request_id, method, params, session_id } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
-                    let url = t.snap.lock().unwrap().url.clone();
-                    if browser_policy::extension_origin(&url) {
+                    if tab_has_extension_frame(&t.browser, &t.snap) {
                         let _ = self.out_tx.send(EngineMsg::CdpResponse {
                             tab_id,
                             request_id,
                             ok: false,
-                            result: json!({ "message": "Agent browser tools cannot run DevTools methods on extension pages." }),
+                            result: json!({ "message": "Agent browser tools cannot run DevTools methods on tabs containing extension documents." }),
                         });
                     } else if let Err(err) = browser_policy::check_typed_cdp(&method, &params, true) {
+                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                            tab_id,
+                            request_id,
+                            ok: false,
+                            result: json!({ "message": err }),
+                        });
+                    } else if let Err(err) = t
+                        .cdp_ledger
+                        .lock()
+                        .unwrap()
+                        .verify_typed_call(&method, &params, session_id.as_deref())
+                    {
                         let _ = self.out_tx.send(EngineMsg::CdpResponse {
                             tab_id,
                             request_id,
@@ -1221,6 +1233,7 @@ impl EngineManager {
         }
 
         let cdp_id_map = Arc::new(Mutex::new(HashMap::new()));
+        let cdp_ledger = Arc::new(Mutex::new(crate::cdp_ledger::EngineCdpLedger::default()));
         let internal_picked = Arc::new(Mutex::new(Vec::new()));
         let pending_clears = Arc::new(Mutex::new(Vec::new()));
         let mut observer = TabCdpObserver::new(
@@ -1228,6 +1241,7 @@ impl EngineManager {
             cdp_id_map.clone(),
             internal_picked.clone(),
             pending_clears.clone(),
+            cdp_ledger.clone(),
             self.out_tx.clone(),
         );
         let cdp_reg = host.add_dev_tools_message_observer(Some(&mut observer));
@@ -1244,6 +1258,7 @@ impl EngineManager {
                 view_state,
                 snap,
                 cdp_id_map,
+                cdp_ledger,
                 internal_picked,
                 pending_clears,
                 prompts,

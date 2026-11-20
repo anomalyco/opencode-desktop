@@ -1,30 +1,66 @@
 //! Screenshot capture, console/network diagnostics, and tab-owned file list/get executors.
 
 use std::io::Cursor;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver};
 
 use base64::Engine;
 use browser_pane::tools::diagnostics::TabDiagnostics;
 use opencode_kit::browser_rpc::{
-    Command, MAX_FILE_BYTES, Outcome, WireFile, failure_code, is_valid_file_id, new_file_id,
+    Command, MAX_FILE_BYTES, Outcome, TargetMeta, WireFile, failure_code, is_valid_file_id,
+    new_file_id,
 };
 use rune::Waker;
 use serde_json::{Value, json};
 
 use super::super::session::{CapturedFile, SessionAttachment};
-use super::{ExecPhase, StepOutcome, cdp_err_msg, check_page_guards};
+use super::{ExecPhase, StepOutcome, cdp_err_msg, check_page_guards, send_rpc_cdp, verify_authorized_state};
 use crate::App;
 
 const MAX_FULLPAGE_EDGE: f64 = 16_384.0;
 const MAX_FULLPAGE_PIXELS: f64 = 16_000_000.0;
 /// Maximum raw base64 characters accepted from `Page.captureScreenshot` before rejecting (16 MiB).
 const MAX_RAW_SCREENSHOT_B64: usize = 16 * 1024 * 1024;
+/// Cap concurrent off-UI screenshot decodes so 16 in-flight commands cannot amplify peak RAM.
+const MAX_CONCURRENT_IMG_DECODES: usize = 2;
+static ACTIVE_IMG_DECODES: AtomicUsize = AtomicUsize::new(0);
+
+struct ImgDecodeGuard;
+
+impl ImgDecodeGuard {
+    fn try_acquire() -> Option<Self> {
+        let mut cur = ACTIVE_IMG_DECODES.load(Ordering::Relaxed);
+        loop {
+            if cur >= MAX_CONCURRENT_IMG_DECODES {
+                return None;
+            }
+            match ACTIVE_IMG_DECODES.compare_exchange_weak(
+                cur,
+                cur + 1,
+                Ordering::AcqRel,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => return Some(Self),
+                Err(next) => cur = next,
+            }
+        }
+    }
+}
+
+impl Drop for ImgDecodeGuard {
+    fn drop(&mut self) {
+        ACTIVE_IMG_DECODES.fetch_sub(1, Ordering::AcqRel);
+    }
+}
 
 pub(super) struct ScreenshotState {
     pub host_id: u64,
     pub format: String,
     pub quality: Option<u64>,
     pub max_width: Option<u32>,
+    pub expected_gen: u64,
+    pub expected_target: Option<TargetMeta>,
+    pub cmd: Command,
     pub stage: ScreenshotStage,
 }
 
@@ -99,25 +135,31 @@ fn start_screenshot(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -
         .and_then(Value::as_u64)
         .map(|v| (v as u32).clamp(100, 4_000));
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
+    let expected_gen = cmd.generation.unwrap_or_else(|| att.generation_of(host_id));
+    let expected_target = cmd.target.clone();
 
     if let Some(r) = ref_arg {
-        let Some(bid) = att.refs.get(&host_id).and_then(|t| t.resolve(r)) else {
+        let Some((bid, ref_session)) = att.refs.get(&host_id).and_then(|t| t.resolve(r)) else {
             return StepOutcome::Done(Outcome::fail(
                 failure_code::STALE_REF,
                 format!("Element ref {r} is stale or absent. Refresh the snapshot first."),
             ));
         };
-        match app.workspace_panes.browser.host.send_cdp(
+        match send_rpc_cdp(
+            app,
             host_id,
             "DOM.getBoxModel",
             json!({ "backendNodeId": bid }),
-            None,
+            ref_session,
         ) {
             Ok(cdp_req) => StepOutcome::Pending(ExecPhase::Screenshot(ScreenshotState {
                 host_id,
                 format,
                 quality,
                 max_width,
+                expected_gen,
+                expected_target,
+                cmd: cmd.clone(),
                 stage: ScreenshotStage::GetBox { cdp_req },
             })),
             Err(e) => StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, e)),
@@ -129,6 +171,9 @@ fn start_screenshot(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -
                 format,
                 quality,
                 max_width,
+                expected_gen,
+                expected_target,
+                cmd: cmd.clone(),
                 stage: ScreenshotStage::GetMetrics { cdp_req },
             })),
             Err(e) => StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, e)),
@@ -146,6 +191,9 @@ fn start_screenshot(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -
                 format,
                 quality,
                 max_width,
+                expected_gen,
+                expected_target,
+                cmd: cmd.clone(),
                 stage: ScreenshotStage::Capture { cdp_req },
             })),
             Err(e) => StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, e)),
@@ -443,6 +491,17 @@ pub(super) fn step_screenshot(
         }
         ScreenshotStage::Capture { cdp_req } => {
             let resp = app.workspace_panes.browser.host.take_cdp_response(*cdp_req)?;
+            // Re-verify generation and target right after capture so a redirect mid-capture
+            // cannot leak pixels from a newly loaded denied origin.
+            if let Err(o) = verify_authorized_state(
+                att,
+                app,
+                &st.cmd,
+                Some(st.expected_gen),
+                st.expected_target.as_ref(),
+            ) {
+                return Some(o);
+            }
             let val = match resp {
                 Ok(v) => v,
                 Err(e) => return Some(Outcome::fail(failure_code::OPERATION_FAILED, cdp_err_msg(&e))),
@@ -459,7 +518,16 @@ pub(super) fn step_screenshot(
                     "Captured screenshot exceeds the raw size limit. Try format='jpeg' or a smaller maxWidth.",
                 ));
             }
-            let resources = att.source_urls(app, st.host_id);
+            let resources = match att.source_urls(app, st.host_id) {
+                Ok(urls) => urls,
+                Err(e) => return Some(Outcome::fail(failure_code::OPERATION_FAILED, e)),
+            };
+            let Some(guard) = ImgDecodeGuard::try_acquire() else {
+                return Some(Outcome::fail(
+                    failure_code::OPERATION_FAILED,
+                    "Too many concurrent screenshot decodes in progress. Wait for an existing capture to finish and retry.",
+                ));
+            };
             let b64_owned = b64.to_owned();
             let format = st.format.clone();
             let max_width = st.max_width;
@@ -467,6 +535,7 @@ pub(super) fn step_screenshot(
             std::thread::Builder::new()
                 .name("browser-rpc-img".into())
                 .spawn(move || {
+                    let _guard = guard;
                     let res = (|| -> Result<Vec<u8>, String> {
                         let mut bytes = base64::engine::general_purpose::STANDARD
                             .decode(b64_owned.trim())
@@ -493,6 +562,15 @@ pub(super) fn step_screenshot(
         }
         ScreenshotStage::Process { rx, resources } => {
             let res = rx.try_recv().ok()?;
+            if let Err(o) = verify_authorized_state(
+                att,
+                app,
+                &st.cmd,
+                Some(st.expected_gen),
+                st.expected_target.as_ref(),
+            ) {
+                return Some(o);
+            }
             let bytes = match res {
                 Ok(b) => b,
                 Err(msg) => return Some(Outcome::fail(failure_code::OPERATION_FAILED, msg)),

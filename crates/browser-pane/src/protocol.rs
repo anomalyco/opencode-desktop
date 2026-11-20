@@ -496,6 +496,9 @@ pub struct DownloadFile {
     /// interrupt reason (`network_failed`, `file_no_space`, ...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Source URL captured by the engine in `on_before_download` before any post-download redirect.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_url: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
