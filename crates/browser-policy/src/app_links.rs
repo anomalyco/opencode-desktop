@@ -1,9 +1,13 @@
-//! App-scheme link validation matching upstream `#63002`
-//! (`packages/app/src/runtime/plugin/app-links.ts` and `packages/gui-plugins/src/browser/refusal-notice.ts`).
-//!
-//! Validates the ORIGINAL string without trimming away unsafe characters or accepting repaired
-//! schemes: rejects control bytes, bidi overrides/isolates, percent-encoded controls, credentials,
-//! and denied schemes; gates `mailto:` attachment params, `obsidian:` actions, and editor schemes.
+//! App-scheme link validation matching official `origin/dev` `b9a60d9d`
+//! (`packages/app/src/runtime/plugin/app-links.ts:22-29, 35-88` and
+//! `packages/gui-plugins/src/browser/refusal-notice.ts:3-36, 44-55`), plus two stricter
+//! Rune-desktop rules (`ours.md`):
+//! 1. Strict RFC 3986 URI character confinement (`is_strict_rfc3986_uri`) refusing `"`, spaces,
+//!    `\`, `< > ` ^ { | }`, controls, bidi, non-ASCII, and malformed `%XX` before any OS handoff or
+//!    review bar (`mailto:` included — no exemption).
+//! 2. Strict RFC 6068 query-key allow-list for `mailto:` (`to`, `cc`, `bcc`, `subject`, `body`
+//!    only; anything else downgrades to `Copy` instead of official's two-key `attach`/`attachment`
+//!    blocklist).
 
 /// Where an app-scheme link originated.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -17,9 +21,11 @@ pub enum AppSchemeSource {
 /// Safe route for a non-web app-scheme URL.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AppSchemeAction {
-    /// Direct handoff to the system mail client (`mailto:` without attachment params).
+    /// Direct handoff to the system mail client (`mailto:` passing RFC 3986 + RFC 6068 allow-list;
+    /// the OS mail client's compose window displays every recipient).
     Mail,
-    /// May offer an explicit "Open" action behind the 500 ms guarded review bar.
+    /// May offer an explicit "Open" action behind the 500 ms guarded review bar (subject to
+    /// official's `fits()` full-visibility check and 60 s token TTL).
     Open,
     /// Copy-only (never launches an external OS handler).
     Copy,
@@ -41,9 +47,62 @@ const DENIED: &[&str] = &[
     "ms-msdt", "search-ms", "ms-officecmd",
 ];
 
+/// Returns `true` ONLY if `value` consists strictly of RFC 3986 URI characters
+/// (`unreserved` / `gen-delims` / `sub-delims` / valid `%XX` excluding `%00`–`%1F` and `%7F`),
+/// within `1..=2048` bytes.
+///
+/// Explicitly refuses `"`, spaces/whitespace, `\`, `< > ` ^ { | }`, controls, bidi marks,
+/// non-ASCII bytes, and truncated/malformed `%` sequences so no URI handed to `ShellExecuteExW`
+/// (`"%1"` substitution), `/usr/bin/open`, or `xdg-open` can ever break out of quotes or inject
+/// command-line flags. Applies uniformly to EVERY scheme — including `mailto:`.
+pub fn is_strict_rfc3986_uri(value: &str) -> bool {
+    if value.is_empty() || value.len() > 2048 {
+        return false;
+    }
+    let bytes = value.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b == b'%' {
+            if i + 2 >= bytes.len() {
+                return false;
+            }
+            let Some(hi) = (bytes[i + 1] as char).to_digit(16) else {
+                return false;
+            };
+            let Some(lo) = (bytes[i + 2] as char).to_digit(16) else {
+                return false;
+            };
+            let decoded = ((hi << 4) | lo) as u8;
+            if decoded <= 0x1f || decoded == 0x7f {
+                return false;
+            }
+            i += 3;
+            continue;
+        }
+        let allowed = b.is_ascii_alphanumeric()
+            || matches!(
+                b,
+                // RFC 3986 unreserved
+                b'-' | b'.' | b'_' | b'~'
+                // RFC 3986 gen-delims
+                | b':' | b'/' | b'?' | b'#' | b'[' | b']' | b'@'
+                // RFC 3986 sub-delims
+                | b'!' | b'$' | b'&' | b'\'' | b'(' | b')' | b'*' | b'+' | b',' | b';' | b'='
+            );
+        if !allowed {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
 /// Validates the original `value` and returns its safe route, or `None` when denied/malformed.
+/// Any URI violating strict RFC 3986 character rules (`"`, space, `\`, control, non-ASCII, bad
+/// `%XX`) is refused immediately (`None`) before a review bar or OS open can occur.
 pub fn classify_app_link(value: &str, source: AppSchemeSource) -> Option<AppSchemeAction> {
-    if value.is_empty() || value.len() > 2048 || value.trim() != value || has_unsafe_chars(value) {
+    if !is_strict_rfc3986_uri(value) || has_unsafe_chars(value) {
         return None;
     }
     let colon = value.find(':')?;
@@ -66,6 +125,9 @@ pub fn classify_app_link(value: &str, source: AppSchemeSource) -> Option<AppSche
         }
     }
     if scheme == "mailto" {
+        if tail.is_empty() || tail.starts_with("//") {
+            return None;
+        }
         return Some(if mailto_query_allowed(tail) {
             AppSchemeAction::Mail
         } else {
@@ -83,8 +145,7 @@ pub fn classify_app_link(value: &str, source: AppSchemeSource) -> Option<AppSche
     }
     let permitted = APPS.contains(&scheme.as_str())
         || (source == AppSchemeSource::Page && PAGE_ONLY.contains(&scheme.as_str()));
-    let printable_bounded = value.len() <= 200 && value.bytes().all(|b| (0x21..=0x7e).contains(&b));
-    Some(if permitted && printable_bounded {
+    Some(if permitted && value.len() <= 200 {
         AppSchemeAction::Open
     } else {
         AppSchemeAction::Copy
@@ -93,14 +154,10 @@ pub fn classify_app_link(value: &str, source: AppSchemeSource) -> Option<AppSche
 
 /// Explicit allow-list of URLs permitted to reach the OS shell automatically or without the
 /// guarded app-link review bar (`open_external`, toasts, sheets, Settings, Linux updater,
-/// `System:OpenExternal`): strictly credential-free `http:`/`https:` or RFC 6068 allow-listed
-/// `mailto:` (`to`, `cc`, `bcc`, `subject`, `body` only). Nothing outside this allow-list may
-/// reach the OS unconfirmed.
+/// `System:OpenExternal`): strictly RFC 3986 credential-free `http:`/`https:` or RFC 6068
+/// allow-listed `mailto:`. Nothing outside this allow-list may reach the OS unconfirmed.
 pub fn is_safe_os_external_url(value: &str) -> bool {
-    if value.is_empty() || value.len() > 2048 || value.trim() != value || has_unsafe_chars(value) {
-        return false;
-    }
-    if value.bytes().any(|b| b.is_ascii_whitespace()) {
+    if !is_strict_rfc3986_uri(value) || has_unsafe_chars(value) {
         return false;
     }
     let is_http = value.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("http://"))
@@ -115,18 +172,42 @@ pub fn is_safe_os_external_url(value: &str) -> bool {
 }
 
 /// Explicit allow-list of app-scheme URLs permitted to launch ONLY after the user confirms the
-/// 500 ms guarded app-link review bar (single-use review token bound to the exact displayed URL):
-/// strictly the 23 schemes in `APPS` (+ `PAGE_ONLY` when `source == AppSchemeSource::Page`)
-/// including RFC 6068 allow-listed `mailto:`. Never accepts `http`/`https`/`file`/`ms-*`/denied.
+/// 500 ms guarded native review bar: strictly RFC 3986 URIs whose scheme is in `APPS` (+
+/// `PAGE_ONLY` when `source == AppSchemeSource::Page`), including RFC 6068 allow-listed `mailto:`.
 pub fn is_confirmed_app_scheme_url(value: &str, source: AppSchemeSource) -> bool {
-    matches!(
-        classify_app_link(value, source),
-        Some(AppSchemeAction::Open | AppSchemeAction::Mail)
-    )
+    is_strict_rfc3986_uri(value)
+        && matches!(
+            classify_app_link(value, source),
+            Some(AppSchemeAction::Open | AppSchemeAction::Mail)
+        )
+}
+
+/// Strict RFC 6068 query-key allow-list (`to`, `cc`, `bcc`, `subject`, `body` only): stricter than
+/// official's two-key `attach`/`attachment` blocklist (`app-links.ts:24`), closing proprietary
+/// client keys (`attachment-url`, `send-now`, `x-attach`, `body-file`, etc.). Preserves `+`
+/// verbatim (no `+` -> space, no key `.trim()`) and fails closed to `Copy` on any other key or
+/// invalid percent-decoded key.
+fn mailto_query_allowed(tail: &str) -> bool {
+    let Some((_, query_and_frag)) = tail.split_once('?') else { return true };
+    let query = query_and_frag.split('#').next().unwrap_or(query_and_frag);
+    if query.is_empty() {
+        return true;
+    }
+    query.split(['&', ';']).all(|pair| {
+        if pair.is_empty() {
+            return true;
+        }
+        let raw_key = pair.split('=').next().unwrap_or(pair);
+        let Some(decoded) = percent_decode_strict(raw_key) else {
+            return false;
+        };
+        let key = decoded.to_ascii_lowercase();
+        matches!(key.as_str(), "to" | "cc" | "bcc" | "subject" | "body")
+    })
 }
 
 fn has_unsafe_chars(value: &str) -> bool {
-    if value.chars().any(|c| {
+    value.chars().any(|c| {
         let n = c as u32;
         n <= 0x1f
             || (0x7f..=0x9f).contains(&n)
@@ -139,29 +220,10 @@ fn has_unsafe_chars(value: &str) -> bool {
                     | 0x2066..=0x2069
                     | 0xfeff
             )
-    }) {
-        return true;
-    }
-    let bytes = value.as_bytes();
-    let mut i = 0;
-    while i + 2 < bytes.len() {
-        if bytes[i] == b'%' {
-            let h = bytes[i + 1].to_ascii_lowercase();
-            let l = bytes[i + 2].to_ascii_lowercase();
-            let is_ctrl = (matches!(h, b'0' | b'1') && l.is_ascii_hexdigit())
-                || (h == b'7' && l == b'f');
-            if is_ctrl {
-                return true;
-            }
-            i += 3;
-        } else {
-            i += 1;
-        }
-    }
-    false
+    })
 }
 
-fn percent_decode_query_key(raw: &str) -> Option<String> {
+fn percent_decode_strict(raw: &str) -> Option<String> {
     let bytes = raw.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
@@ -178,53 +240,14 @@ fn percent_decode_query_key(raw: &str) -> Option<String> {
             }
             out.push(val);
             i += 3;
-        } else if bytes[i] == b'+' {
-            out.push(b' ');
-            i += 1;
         } else {
             out.push(bytes[i]);
             i += 1;
         }
     }
     let decoded = String::from_utf8(out).ok()?;
-    if decoded.chars().any(|c| {
-        let n = c as u32;
-        n <= 0x1f
-            || (0x7f..=0x9f).contains(&n)
-            || matches!(
-                n,
-                0x061c
-                    | 0x200b..=0x200f
-                    | 0x202a..=0x202e
-                    | 0x2060
-                    | 0x2066..=0x2069
-                    | 0xfeff
-            )
-    }) {
+    if has_unsafe_chars(&decoded) {
         return None;
     }
     Some(decoded)
-}
-
-/// Strict RFC 6068 allow-list of `mailto:` query parameter keys (`to`, `cc`, `bcc`, `subject`,
-/// `body`). Rejects every other key — including client-specific attachment/action keys (`attach`,
-/// `attachment`, `attachment-url`, `send-now`, `x-attach`, `attach-file`, `body-file`), double-
-/// encoded keys, malformed `%XX`, and control/bidi bytes — failing closed to `Copy`.
-fn mailto_query_allowed(tail: &str) -> bool {
-    let Some((_, query_and_frag)) = tail.split_once('?') else { return true };
-    let query = query_and_frag.split('#').next().unwrap_or(query_and_frag);
-    if query.is_empty() {
-        return true;
-    }
-    query.split(['&', ';']).all(|pair| {
-        if pair.is_empty() {
-            return true;
-        }
-        let raw_key = pair.split('=').next().unwrap_or(pair);
-        let Some(decoded) = percent_decode_query_key(raw_key) else {
-            return false;
-        };
-        let key = decoded.trim().to_ascii_lowercase();
-        matches!(key.as_str(), "to" | "cc" | "bcc" | "subject" | "body")
-    })
 }

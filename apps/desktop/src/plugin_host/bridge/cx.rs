@@ -17,35 +17,19 @@ pub use opencode_plugin_runtime::ui_nodes::{rendering, rendering_as};
 thread_local! {
     static APP: Cell<*const App> = const { Cell::new(std::ptr::null()) };
     static READS: RefCell<Option<Vec<Dep>>> = const { RefCell::new(None) };
-    static IN_UI_GESTURE: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Runs `f` with `app` reachable from the bindings via [`with_app`]. Nests: an inner call
 /// restores the outer app on return or unwind.
 pub fn enter<R>(app: &App, f: impl FnOnce() -> R) -> R {
-    enter_ui(app, false, f)
-}
-
-/// Runs `f` with `app` reachable and marks whether this entry was triggered directly by a user
-/// UI interaction (`vm::around` with a live transaction) rather than a timer, signal, render, or
-/// MCP tool coroutine.
-pub fn enter_ui<R>(app: &App, gesture: bool, f: impl FnOnce() -> R) -> R {
-    struct Restore(*const App, bool);
+    struct Restore(*const App);
     impl Drop for Restore {
         fn drop(&mut self) {
             APP.set(self.0);
-            IN_UI_GESTURE.set(self.1);
         }
     }
-    let _restore = Restore(APP.replace(std::ptr::from_ref(app)), IN_UI_GESTURE.replace(gesture));
+    let _restore = Restore(APP.replace(std::ptr::from_ref(app)));
     f()
-}
-
-/// True only while executing directly inside a Rune UI interaction handler (`vm::around` with a
-/// live transaction), never inside timers, signals, renders, or MCP tool coroutines.
-#[cfg(not(target_arch = "wasm32"))]
-pub fn in_ui_gesture() -> bool {
-    IN_UI_GESTURE.get()
 }
 
 /// Runs `f` with the active entry's `&App`, or returns `None` outside [`enter`].
@@ -94,15 +78,8 @@ pub enum Request {
     /// A folder on a server to open a draft in (`Layout:OpenProject`).
     OpenProject { server: String, title: String },
     RunCommand { id: String, input: Option<String> },
-    OpenLink { href: String },
+    OpenLink { href: String, tool_sid: Option<Option<String>>, in_tool: bool },
     OpenExternal(String),
-    /// User pressed Open on the built-in browser plugin's 500 ms guarded app-link review bar
-    /// (`Browser:ConfirmAppLinkReview`). Single-use token verified strictly in the host.
-    #[cfg(not(target_arch = "wasm32"))]
-    ConfirmAppLinkReview { token: String },
-    /// User dismissed or navigated away from an app-link review bar (`Browser:DismissAppLinkReview`).
-    #[cfg(not(target_arch = "wasm32"))]
-    DismissAppLinkReview { token: String },
     Reveal(String),
     CopyText(String),
     /// `session`: the notification's session, which a mute silences.

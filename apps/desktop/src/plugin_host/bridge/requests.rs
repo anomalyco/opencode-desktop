@@ -179,7 +179,17 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
             }
             (None, None) => app.run_command(&id, tx),
         },
-        Request::OpenLink { href } => app.open_reply_link(&href, tx),
+        Request::OpenLink { href, tool_sid, in_tool } => {
+            if !in_tool && app.plugins.is_builtin_plugin(plugin) {
+                app.open_reply_link(&href, tx);
+            } else {
+                let target_sid = match tool_sid {
+                    Some(caller) => caller,
+                    None => app.active_session_id().map(str::to_owned),
+                };
+                app.open_restricted_plugin_link(target_sid.as_deref(), &href, in_tool, tx);
+            }
+        }
         Request::OpenExternal(url) => {
             if app.live() {
                 let trimmed = url.trim();
@@ -195,38 +205,6 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
                 } else {
                     crate::open_in::open_external(tx, trimmed);
                 }
-            }
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        Request::ConfirmAppLinkReview { token } => {
-            if &**plugin == crate::surfaces::browser::PLUGIN && app.live() {
-                let ready = {
-                    let reviews = app.workspace_panes.browser.active_app_reviews.borrow();
-                    reviews
-                        .get(&token)
-                        .is_some_and(|r| r.shown_at.elapsed() >= std::time::Duration::from_millis(500))
-                };
-                if !ready {
-                    return;
-                }
-                let review = app
-                    .workspace_panes
-                    .browser
-                    .active_app_reviews
-                    .borrow_mut()
-                    .remove(&token);
-                if let Some(review) = review
-                    && app.browser_tab_session(review.tab_id) == app.active_session_id()
-                    && browser_policy::is_confirmed_app_scheme_url(&review.url, review.source)
-                {
-                    crate::open_in::open_confirmed_app_url(tx, &review.url, review.source);
-                }
-            }
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        Request::DismissAppLinkReview { token } => {
-            if &**plugin == crate::surfaces::browser::PLUGIN {
-                app.workspace_panes.browser.active_app_reviews.borrow_mut().remove(&token);
             }
         }
         Request::Reveal(path) => crate::open_in::reveal_abs(app, path),

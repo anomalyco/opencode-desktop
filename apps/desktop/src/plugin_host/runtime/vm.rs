@@ -102,8 +102,7 @@ fn start(lua: &Lua, module: &Table, vm: u64, kind: Kind) -> mlua::Result<()> {
 /// for, carried out in the same transaction.
 fn around(state: &mut dyn Any, mut tx: Option<&mut Tx>, run: &mut dyn FnMut(Option<&mut Tx>)) {
     let Some(app) = state.downcast_mut::<App>() else { return run(tx) };
-    let gesture = tx.is_some();
-    cx::enter_ui(app, gesture, || run(tx.as_deref_mut()));
+    cx::enter(app, || run(tx.as_deref_mut()));
     match tx {
         Some(tx) => requests::carry_out(app, tx),
         None => app.plugins.asked.set(true),

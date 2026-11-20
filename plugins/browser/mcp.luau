@@ -157,6 +157,12 @@ function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutServ
         if code == "browser.address.workspace" then
             return "Only HTTP, HTTPS, about:blank, and file URLs inside the workspace are supported."
         end
+        if code == "browser.preview.restricted" then
+            return "This preview tried to load files it is not allowed to read."
+        end
+        if code == "browser.preview.unsupported" then
+            return "This preview requires an updated browser engine."
+        end
         return "Only HTTP, HTTPS, and about:blank URLs are supported."
     end
 

@@ -2,12 +2,12 @@
 //! (`tabs.list`, `tabs.open`, `tabs.focus`, `tabs.close`, `navigate`, `back`, `forward`,
 //! `reload`, `stop`, `preview`, `navigate.path`).
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
-use browser_pane::policy::{
-    extension_origin, extension_page_refusal, file_url_within, local_file_path, refusal, with_scheme,
-};
+use browser_pane::PreviewSpec;
+use browser_pane::policy::{extension_origin, extension_page_refusal, local_file_path};
+use browser_pane::policy::preview::relative_to_root;
 use opencode_kit::browser_rpc::{Command, Outcome, failure_code};
 use rune::Tx;
 use rune::time::Instant;
@@ -80,21 +80,36 @@ fn start_tabs_open(
                 extension_page_refusal(trimmed),
             ));
         }
-        let candidate = with_scheme(trimmed);
-        let roots = app.browser_file_roots(Some(&att.session_id));
-        if let Some(why) = refusal(&candidate, &roots) {
-            return StepOutcome::Done(Outcome::fail(
-                failure_code::NAVIGATION_FAILED,
-                format!("Navigation refused ({}): {trimmed}", why.code()),
-            ));
+        match app.normalize_browser_url_for_session(Some(&att.session_id), trimmed, true) {
+            Ok(normalized) => normalized,
+            Err(err) => {
+                return StepOutcome::Done(Outcome::fail(failure_code::NAVIGATION_FAILED, err));
+            }
         }
-        candidate
     } else {
         "about:blank".to_owned()
     };
 
-    let host_id = app.open_new_browser_tab_for_session(Some(&att.session_id), &target_url, None, focus);
-    app.workspace_panes.browser.host.set_agent_driven(host_id, true);
+    let host_id = match app.resolve_preview_target(Some(&att.session_id), &target_url, true) {
+        crate::browser::preview::PreviewTarget::Preview { display_url, spec } => app
+            .open_resolved_preview_tab(
+                Some(&att.session_id),
+                &display_url,
+                spec,
+                None,
+                focus,
+                Some(browser_pane::TabDriver::Agent),
+            ),
+        crate::browser::preview::PreviewTarget::Refused(_) => {
+            return StepOutcome::Done(Outcome::fail(
+                failure_code::NAVIGATION_FAILED,
+                "The workspace file is outside this session's workspace or cannot be read.",
+            ));
+        }
+        crate::browser::preview::PreviewTarget::NotPreview => {
+            app.open_new_agent_browser_tab_for_session(Some(&att.session_id), &target_url, None, focus)
+        }
+    };
     let _ = att.sync_tabs(app);
     let Some(wire_tab_id) = att.host_to_wire.get(&host_id).cloned() else {
         return StepOutcome::Done(Outcome::fail(
@@ -190,17 +205,28 @@ fn start_navigate(
             extension_page_refusal(trimmed),
         ));
     }
-    let candidate = with_scheme(trimmed);
-    let roots = app.browser_file_roots(Some(&att.session_id));
-    if let Some(why) = refusal(&candidate, &roots) {
-        return StepOutcome::Done(Outcome::fail(
-            failure_code::NAVIGATION_FAILED,
-            format!("Navigation refused ({}): {trimmed}", why.code()),
-        ));
-    }
+    let candidate = match app.normalize_browser_url_for_session(Some(&att.session_id), trimmed, true) {
+        Ok(normalized) => normalized,
+        Err(err) => {
+            return StepOutcome::Done(Outcome::fail(failure_code::NAVIGATION_FAILED, err));
+        }
+    };
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
     let prev_rejected = app.workspace_panes.browser.host.tab(host_id).map_or(0, |t| t.rejected);
-    app.navigate_browser_tab(host_id, &candidate);
+    match app.resolve_preview_target(Some(&att.session_id), &candidate, true) {
+        crate::browser::preview::PreviewTarget::Preview { display_url, spec } => {
+            app.reopen_resolved_preview_tab(host_id, Some(&att.session_id), &display_url, spec);
+        }
+        crate::browser::preview::PreviewTarget::Refused(_) => {
+            return StepOutcome::Done(Outcome::fail(
+                failure_code::NAVIGATION_FAILED,
+                "The workspace file is outside this session's workspace or cannot be read.",
+            ));
+        }
+        crate::browser::preview::PreviewTarget::NotPreview => {
+            app.navigate_browser_tab(host_id, &candidate);
+        }
+    }
     if app.use_mock_browser() {
         let _ = att.sync_tabs(app);
         let Some(tab) = att.wire_tab(app, host_id) else {
@@ -340,21 +366,29 @@ fn start_preview(
         }
         return StepOutcome::Done(Outcome::ok(json!({ "path": path }), Vec::new()));
     }
-    let file_url = match resolve_workspace_preview(att, app, path) {
-        Ok(u) => u,
+    let (display_url, spec) = match resolve_workspace_preview(att, app, path) {
+        Ok(v) => v,
         Err(msg) => return StepOutcome::Done(Outcome::fail(failure_code::PREVIEW_UNAVAILABLE, msg)),
     };
     // Reuse existing tab showing the same file in this session, matching `pane.ts:1053`.
     let existing = att.host_to_wire.iter().find_map(|(&hid, wid)| {
         let t = app.workspace_panes.browser.host.tab(hid)?;
-        let same = t.url.split(['?', '#']).next() == Some(file_url.as_str());
+        let same = t.url.split(['?', '#']).next() == Some(display_url.as_str());
         same.then(|| (hid, wid.clone()))
     });
     let (host_id, wire_tab_id, close_on_fail) = if let Some((hid, wid)) = existing {
-        app.navigate_browser_tab(hid, &file_url);
+        app.workspace_panes.browser.host.set_agent_driven(hid, true);
+        app.reopen_resolved_preview_tab(hid, Some(&att.session_id), &display_url, spec);
         (hid, wid, false)
     } else {
-        let hid = app.open_new_browser_tab_for_session(Some(&att.session_id), &file_url, None, true);
+        let hid = app.open_resolved_preview_tab(
+            Some(&att.session_id),
+            &display_url,
+            spec,
+            None,
+            true,
+            Some(browser_pane::TabDriver::Agent),
+        );
         let _ = att.sync_tabs(app);
         let Some(wid) = att.host_to_wire.get(&hid).cloned() else {
             return StepOutcome::Done(Outcome::fail(
@@ -408,13 +442,13 @@ fn start_navigate_path(
     if let Err(outcome) = check_page_guards(app, host_id, "navigate") {
         return StepOutcome::Done(outcome);
     }
-    let file_url = match resolve_workspace_preview(att, app, path) {
-        Ok(u) => u,
+    let (display_url, spec) = match resolve_workspace_preview(att, app, path) {
+        Ok(v) => v,
         Err(msg) => return StepOutcome::Done(Outcome::fail(failure_code::PREVIEW_UNAVAILABLE, msg)),
     };
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
     let prev_rejected = app.workspace_panes.browser.host.tab(host_id).map_or(0, |t| t.rejected);
-    app.navigate_browser_tab(host_id, &file_url);
+    app.reopen_resolved_preview_tab(host_id, Some(&att.session_id), &display_url, spec);
     att.agent_tab_id = Some(wire_id.to_owned());
     if app.use_mock_browser() {
         let _ = att.sync_tabs(app);
@@ -540,49 +574,50 @@ fn is_html_path(path: &str) -> bool {
         .is_some_and(|e| e.eq_ignore_ascii_case("html") || e.eq_ignore_ascii_case("htm"))
 }
 
-fn resolve_workspace_preview(att: &SessionAttachment, app: &App, raw_path: &str) -> Result<String, String> {
-    let roots = app.browser_file_roots(Some(&att.session_id));
-    let Some(root) = roots.first() else {
-        return Err("Workspace preview requires a local session workspace root.".into());
-    };
-    let abs = if raw_path.starts_with("file:") {
-        PathBuf::from(
-            local_file_path(raw_path).ok_or_else(|| "Invalid workspace file URL.".to_owned())?,
-        )
+fn resolve_workspace_preview(
+    att: &SessionAttachment,
+    app: &App,
+    raw_path: &str,
+) -> Result<(String, PreviewSpec), String> {
+    if !app.browser_preview_supported() {
+        return Err("Previews require an updated browser engine.".into());
+    }
+    let rel = if raw_path.trim().get(..5).is_some_and(|s| s.eq_ignore_ascii_case("file:")) {
+        let local = local_file_path(raw_path)
+            .ok_or_else(|| "Invalid workspace file URL.".to_owned())?;
+        let roots = app.browser_file_roots(Some(&att.session_id));
+        roots
+            .iter()
+            .find_map(|r| relative_to_root(&local, r))
+            .ok_or_else(|| {
+                "The workspace file is outside this session's workspace or cannot be read."
+                    .to_owned()
+            })?
+    } else if Path::new(raw_path).is_absolute() {
+        let roots = app.browser_file_roots(Some(&att.session_id));
+        let norm = raw_path.replace('\\', "/");
+        roots
+            .iter()
+            .find_map(|r| relative_to_root(&norm, r))
+            .ok_or_else(|| {
+                "The workspace file is outside this session's workspace or cannot be read."
+                    .to_owned()
+            })?
     } else {
-        let p = Path::new(raw_path);
-        if p.is_absolute() { p.to_path_buf() } else { PathBuf::from(root).join(p) }
+        raw_path.to_owned()
     };
-    let url = path_to_file_url(&abs);
-    if !file_url_within(&url, &roots) {
-        return Err("The workspace file is outside this session's workspace or cannot be read.".into());
-    }
-    if !abs.is_file() {
-        return Err("The workspace file no longer exists or cannot be read by this session.".into());
-    }
-    Ok(url)
-}
-
-fn path_to_file_url(path: &Path) -> String {
-    let raw = path.to_string_lossy().replace('\\', "/");
-    let prefixed = if raw.starts_with('/') { raw } else { format!("/{raw}") };
-    let encoded: String = prefixed
-        .split('/')
-        .map(|seg| {
-            if seg.len() == 2 && seg.as_bytes()[1] == b':' {
-                seg.to_owned()
-            } else {
-                seg.bytes()
-                    .map(|b| match b {
-                        b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                            (b as char).to_string()
-                        }
-                        _ => format!("%{b:02X}"),
-                    })
-                    .collect()
+    // Agent previews strictly refuse hidden/dotfile and secret entry documents (`agent = true`).
+    match app.resolve_workspace_file_target(&att.session_id, &rel, true) {
+        crate::browser::preview::PreviewTarget::Preview { display_url, spec } => {
+            if let PreviewSpec::Local { ref root, ref document } = spec
+                && !Path::new(root).join(document).is_file()
+            {
+                return Err(
+                    "The workspace file no longer exists or cannot be read by this session.".into(),
+                );
             }
-        })
-        .collect::<Vec<_>>()
-        .join("/");
-    format!("file://{encoded}")
+            Ok((display_url, spec))
+        }
+        _ => Err("The workspace file is outside this session's workspace or cannot be read.".into()),
+    }
 }

@@ -16,7 +16,6 @@ export type ExternalAction = "open" | "copy"
 
 export type Notice = {
     token: string,
-    reviewToken: string?,
     origin: string,
     text: string,
     target: string?,
@@ -104,14 +103,38 @@ local function hasUnsafeChars(value: string): boolean
     return false
 end
 
-local function isPrintableAsciiBounded(value: string): boolean
-    if #value < 1 or #value > 200 then
+-- Strict RFC 3986 URI character check: refuses `"`, spaces/whitespace, `\`, `< > ` ^ { | }`,
+-- controls, non-ASCII, and malformed `%XX` / `%00`–`%1F` / `%7F` across EVERY scheme (`mailto:` included).
+local function isStrictRfc3986Uri(value: string): boolean
+    local len = #value
+    if len < 1 or len > 2048 then
         return false
     end
-    for i = 1, #value do
+    local i = 1
+    while i <= len do
         local b = string.byte(value, i)
-        if b < 0x21 or b > 0x7e then
-            return false
+        if b == 0x25 then -- '%'
+            if i + 2 > len then
+                return false
+            end
+            local hex = string.sub(value, i + 1, i + 2)
+            if string.match(hex, "^[0-9A-Fa-f][0-9A-Fa-f]$") == nil then
+                return false
+            end
+            local dec = tonumber(hex, 16)
+            if dec == nil or dec <= 0x1f or dec == 0x7f then
+                return false
+            end
+            i += 3
+        else
+            local ok = (b >= 0x30 and b <= 0x39)
+                or (b >= 0x41 and b <= 0x5a)
+                or (b >= 0x61 and b <= 0x7a)
+                or string.find("-._~:/?#[]@!$&'()*+,;=", string.char(b), 1, true) ~= nil
+            if not ok then
+                return false
+            end
+            i += 1
         end
     end
     return true
@@ -127,8 +150,7 @@ local function hasCredentials(value: string, schemeLen: number): boolean
 end
 
 -- Strict RFC 6068 allow-list of `mailto:` query keys (`to`, `cc`, `bcc`, `subject`, `body`).
--- Rejects all proprietary/client-specific keys (`attach`, `attachment-url`, `send-now`, `x-attach`,
--- `body-file`, etc.) and malformed/control percent-encodings.
+-- Preserves `+` verbatim (never turns `+` into space) and rejects any un-decodable key or value.
 local MAILTO_ALLOWED_KEYS: { [string]: boolean } = {
     to = true,
     cc = true,
@@ -137,7 +159,7 @@ local MAILTO_ALLOWED_KEYS: { [string]: boolean } = {
     body = true,
 }
 
-local function percentDecode(raw: string): string?
+local function percentDecodeStrict(raw: string): string?
     local out: { string } = {}
     local i = 1
     local len = #raw
@@ -157,9 +179,6 @@ local function percentDecode(raw: string): string?
             end
             table.insert(out, string.char(byte))
             i += 3
-        elseif ch == "+" then
-            table.insert(out, " ")
-            i += 1
         else
             table.insert(out, ch)
             i += 1
@@ -173,83 +192,40 @@ local function percentDecode(raw: string): string?
 end
 
 local function mailtoQueryAllowed(value: string): boolean
-    local query = string.match(value, "%?([^#]*)")
+    local tail = string.sub(value, 8)
+    if tail == "" or string.sub(tail, 1, 2) == "//" or string.find(tail, "#", 1, true) ~= nil then
+        return false
+    end
+    local pathPart = string.match(tail, "^([^?]*)") or ""
+    if pathPart ~= "" and percentDecodeStrict(pathPart) == nil then
+        return false
+    end
+    local query = string.match(tail, "%?(.*)$")
     if query == nil or query == "" then
         return true
     end
-    for pair in string.gmatch(query, "[^&;]+") do
-        local rawKey = string.match(pair, "^([^=]*)") or pair
-        local decoded = percentDecode(rawKey)
-        if decoded == nil then
+    for pair in string.gmatch(query, "[^&]+") do
+        local rawKey, rawVal = string.match(pair, "^([^=]*)=(.*)$")
+        if rawKey == nil or rawVal == nil then
             return false
         end
-        local key = string.lower(string.gsub(decoded, "^%s*(.-)%s*$", "%1"))
-        if MAILTO_ALLOWED_KEYS[key] ~= true then
+        local keyDec = percentDecodeStrict(rawKey)
+        local valDec = percentDecodeStrict(rawVal)
+        if keyDec == nil or valDec == nil then
+            return false
+        end
+        if MAILTO_ALLOWED_KEYS[string.lower(keyDec)] ~= true then
             return false
         end
     end
     return true
 end
 
--- Extracts decoded recipient lines (`To:`, `Cc:`, `Bcc:`) from a `mailto:` URL so hidden
--- recipients are always shown explicitly on the review bar before the user confirms Open.
-local function mailtoRecipientLines(value: string): { string }
-    local lower = string.lower(value)
-    if string.sub(lower, 1, 7) ~= "mailto:" then
-        return {}
-    end
-    local tail = string.sub(value, 8)
-    local pathPart = string.match(tail, "^([^?#]*)") or ""
-    local query = string.match(tail, "%?([^#]*)") or ""
-    local toList: { string } = {}
-    local ccList: { string } = {}
-    local bccList: { string } = {}
-    local function pushDecoded(dest: { string }, raw: string)
-        local dec = percentDecode(raw)
-        if dec ~= nil then
-            local clean = string.gsub(dec, "^%s*(.-)%s*$", "%1")
-            if clean ~= "" then
-                table.insert(dest, clean)
-            end
-        end
-    end
-    if pathPart ~= "" then
-        pushDecoded(toList, pathPart)
-    end
-    for pair in string.gmatch(query, "[^&;]+") do
-        local kRaw, vRaw = string.match(pair, "^([^=]*)=(.*)$")
-        if kRaw ~= nil and vRaw ~= nil then
-            local kDec = percentDecode(kRaw)
-            if kDec ~= nil then
-                local k = string.lower(string.gsub(kDec, "^%s*(.-)%s*$", "%1"))
-                if k == "to" then
-                    pushDecoded(toList, vRaw)
-                elseif k == "cc" then
-                    pushDecoded(ccList, vRaw)
-                elseif k == "bcc" then
-                    pushDecoded(bccList, vRaw)
-                end
-            end
-        end
-    end
-    local lines: { string } = {}
-    if #toList > 0 then
-        table.insert(lines, "To: " .. table.concat(toList, ", "))
-    end
-    if #ccList > 0 then
-        table.insert(lines, "Cc: " .. table.concat(ccList, ", "))
-    end
-    if #bccList > 0 then
-        table.insert(lines, "Bcc: " .. table.concat(bccList, ", "))
-    end
-    return lines
-end
-
 -- Validates an external app URL (`refusal-notice.ts::externalTarget`), returning `"open"`,
 -- `"copy"`, or `nil` when denied. Never trims away bad characters.
 function refusal.externalTarget(value: string, source: Source?): ExternalAction?
     local src: Source = source or "page"
-    if #value > 2048 or value ~= string.gsub(value, "^%s*(.-)%s*$", "%1") or hasUnsafeChars(value) then
+    if not isStrictRfc3986Uri(value) or hasUnsafeChars(value) then
         return nil
     end
     local rawScheme = string.match(value, "^([A-Za-z][A-Za-z0-9+.-]*):")
@@ -274,7 +250,7 @@ function refusal.externalTarget(value: string, source: Source?): ExternalAction?
         end
     end
     local permitted = APPS[scheme] == true or (src == "page" and PAGE_ONLY[scheme] == true)
-    return if permitted and isPrintableAsciiBounded(value) then "open" else "copy"
+    return if permitted and #value <= 200 then "open" else "copy"
 end
 
 -- Returns whether `nowMs` is past the 500 ms activation delay and not held by an agent reveal guard.
@@ -335,21 +311,6 @@ function refusal.renderBar(
     }
     if notice.target ~= nil and notice.target ~= "" then
         local target = notice.target
-        local recipients = mailtoRecipientLines(target)
-        if #recipients > 0 then
-            local recNodes: { ui.Node } = {}
-            for _, line in recipients do
-                table.insert(recNodes, ui.text(line, {
-                    dir = "ltr",
-                    size = 12,
-                    mono = true,
-                    lineHeight = 16,
-                    color = "text-chrome",
-                    wrap = true,
-                }))
-            end
-            table.insert(rows, ui.col({ key = "browser-refusal-recipients", w = "full", gap = 2 }, recNodes))
-        end
         local web = hostDisplay.parts(target)
         local targetNode: ui.Node
         if web then

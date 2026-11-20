@@ -106,6 +106,9 @@ pub struct TabSnapshot {
     /// Set on isolated `oc-preview://` tabs so browser chrome marks them as previews.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preview: Option<PreviewKindTag>,
+    /// Whether this tab is agent-driven (preserved across reconnects).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub agent_driven: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -162,6 +165,8 @@ pub enum HostMsg {
         context: ContextKind,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         preview: Option<PreviewSpec>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        agent_driven: bool,
     },
     SetTabPolicy {
         tab_id: u64,
@@ -387,6 +392,9 @@ pub enum EngineMsg {
         /// The engine serves isolated `oc-preview://` tabs.
         #[serde(default)]
         preview: bool,
+        /// The engine emits `EngineMsg::PreviewCredit` for end-to-end preview flow control.
+        #[serde(default)]
+        preview_credit: bool,
     },
     /// Requests bytes for a remote workspace or artifact preview from the app host.
     PreviewFetch {
@@ -397,6 +405,13 @@ pub enum EngineMsg {
         method: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         range: Option<String>,
+    },
+    /// Byte-credit replenishment (or immediate cancellation) for an in-flight `PreviewFetch`.
+    PreviewCredit {
+        req_id: u64,
+        bytes: u32,
+        #[serde(default)]
+        cancel: bool,
     },
     /// A preview page attempted to load a file outside its grant or a secret/hidden path.
     PreviewDenied {

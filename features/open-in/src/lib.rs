@@ -499,12 +499,15 @@ pub fn open_external(tx: &mut Tx, url: &str) -> bool {
 }
 
 /// Launches a user-confirmed app-scheme URL (`slack:`, `figma:`, `obsidian:`, `mailto:`, etc.)
-/// strictly after the user pressed Open on the 500 ms guarded review bar (single-use review token
-/// verified by the built-in browser host). Only schemes in `browser_policy`'s `APPS` + page-only
-/// `PAGE_ONLY` table (plus RFC 6068 allow-listed `mailto:`) are accepted.
+/// strictly after the user pressed Open on the 500 ms guarded native review bar (128-bit CSPRNG
+/// single-use review token with 60 s TTL and `fits()` full-visibility verified by the host). Only
+/// strict RFC 3986 URIs in `browser_policy`'s `APPS` + page-only `PAGE_ONLY` table are accepted.
 pub fn open_confirmed_app_url(tx: &mut Tx, url: &str, source: browser_policy::AppSchemeSource) -> bool {
     let trimmed = url.trim();
-    if trimmed != url || !browser_policy::is_confirmed_app_scheme_url(trimmed, source) {
+    if trimmed != url
+        || !browser_policy::is_strict_rfc3986_uri(trimmed)
+        || !browser_policy::is_confirmed_app_scheme_url(trimmed, source)
+    {
         return false;
     }
     #[cfg(all(not(target_arch = "wasm32"), debug_assertions))]

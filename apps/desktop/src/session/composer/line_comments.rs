@@ -143,7 +143,7 @@ impl LineCommentsHost for App {
                 self.open_review_for_session(sid, None, None, Some(path), None, tx);
             }
             _ => {
-                self.open_workspace_file_for_session(sid, path, false, None, false, tx);
+                self.open_workspace_file_source(sid, path, false, None, false, tx);
             }
         }
     }

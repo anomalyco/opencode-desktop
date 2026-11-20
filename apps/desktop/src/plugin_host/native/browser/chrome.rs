@@ -3,97 +3,87 @@
 
 use mlua::{Function, Lua, MultiValue, Table};
 use rune::Tx;
-use rune_luau::{Completer, Data, Host};
 use rune::time::Instant;
+use rune_luau::{Completer, Data, Host};
 
-use super::{App, DEVTOOLS_TIMEOUT, Dep, Vmx, cx, id_of, later, map, not_running, read_tab, scope, with_app};
+use super::{App, DEVTOOLS_TIMEOUT, Vmx, id_of, later, map, not_running, read_tab, scope, with_app};
 
 pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
-    t.raw_set(
-        "TakeAppLinkReview",
-        lua.create_function(|lua, ()| {
-            let sc = scope::TabScope::capture(lua);
-            if !sc.is_builtin_browser || sc.tool_sid.is_some() || !sc.in_flight.is_empty() {
-                return Ok(mlua::Value::Nil);
-            }
-            cx::read(Dep::Browser);
-            let next = with_app("Browser:TakeAppLinkReview", |app| {
-                let Some(mut review) = app.workspace_panes.browser.pending_app_links.borrow_mut().pop_front() else {
-                    return Ok(None);
-                };
-                review.shown_at = Instant::now();
-                let mut active = app.workspace_panes.browser.active_app_reviews.borrow_mut();
-                if active.len() >= 64 {
-                    if let Some(oldest_key) = active
-                        .iter()
-                        .min_by_key(|(_, r)| r.shown_at)
-                        .map(|(k, _)| k.clone())
-                    {
-                        active.remove(&oldest_key);
-                    }
-                }
-                active.insert(review.token.clone(), review.clone());
-                Ok(Some(review))
-            })?;
-            match next {
-                Some(review) => {
-                    let src = match review.source {
-                        browser_policy::AppSchemeSource::Conversation => "conversation",
-                        browser_policy::AppSchemeSource::Page => "page",
-                    };
-                    mlua::IntoLua::into_lua(
-                        map([
-                            ("tabId", Data::String(review.tab_id.to_string())),
-                            ("url", Data::String(review.url)),
-                            ("token", Data::String(review.token)),
-                            ("source", Data::String(src.to_owned())),
-                        ]),
-                        lua,
-                    )
-                }
-                None => Ok(mlua::Value::Nil),
-            }
-        })?,
-    )?;
-    t.raw_set(
-        "ConfirmAppLinkReview",
-        lua.create_function(|lua, (_this, token): (mlua::Value, String)| {
-            let sc = scope::TabScope::capture(lua);
-            if !cx::in_ui_gesture()
-                || !sc.is_builtin_browser
-                || sc.tool_sid.is_some()
-                || !sc.in_flight.is_empty()
-                || token.is_empty()
-            {
-                return Ok(false);
-            }
-            let Some(plugin) = lua.app_data_ref::<std::rc::Rc<Vmx>>().map(|v| v.half.id.clone()) else {
-                return Ok(false);
-            };
-            cx::ask(&plugin, cx::Request::ConfirmAppLinkReview { token });
-            Ok(true)
-        })?,
-    )?;
-    t.raw_set(
-        "DismissAppLinkReview",
-        lua.create_function(|lua, (_this, token): (mlua::Value, String)| {
-            let sc = scope::TabScope::capture(lua);
-            if !sc.is_builtin_browser || sc.tool_sid.is_some() || !sc.in_flight.is_empty() || token.is_empty() {
-                return Ok(());
-            }
-            if let Some(plugin) = lua.app_data_ref::<std::rc::Rc<Vmx>>().map(|v| v.half.id.clone()) {
-                cx::ask(&plugin, cx::Request::DismissAppLinkReview { token });
-            }
-            Ok(())
-        })?,
-    )
+    // App-scheme link reviews are rendered natively by the host (`surfaces/browser/prompts/app_link.rs`)
+    // so review tokens never cross into Luau; keep `TakeAppLinkReview` returning nil for compatibility.
+    t.raw_set("TakeAppLinkReview", lua.create_function(|_, ()| Ok(mlua::Value::Nil))?)
 }
 
 pub(super) fn asyncs(host: &Host<'_>, t: &Table) -> mlua::Result<()> {
     t.raw_set(
         "BrowserTab.ClearCacheAsync",
         host.async_function("BrowserTab:ClearCacheAsync", clear_cache)?,
+    )?;
+    t.raw_set(
+        "BrowserTab.ReadFileAsync",
+        host.async_function("BrowserTab:ReadFileAsync", read_file)?,
     )
+}
+
+/// A downloaded file as the plugin sees it: Desktop's `files.list` fields (no path).
+pub(super) fn file_json(f: &browser_pane::DownloadFile) -> serde_json::Value {
+    let state = match f.state {
+        browser_pane::DownloadState::Pending => "pending",
+        browser_pane::DownloadState::Completed => "completed",
+        browser_pane::DownloadState::Failed => "failed",
+    };
+    serde_json::json!({ "id": f.id, "name": f.name, "mime": f.mime, "bytes": f.bytes, "state": state, "error": f.error })
+}
+
+/// Reads a completed download of the page, off the UI thread: its text when it's UTF-8, else
+/// its bytes in base64, as Desktop's `files.get` hands a file over; at most 5 MiB, its limit.
+fn read_file(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
+    const MAX: u64 = 5 * 1024 * 1024;
+    let (id, file_id): (String, String) = mlua::FromLuaMulti::from_lua_multi(a, lua)?;
+    let scope = scope::TabScope::capture(lua);
+    with_app("BrowserTab:ReadFileAsync", |app| {
+        app.later(Box::new(move |s: &mut App, _: &mut Tx| {
+            let failed = |message: String| map([("error", Data::String(message))]);
+            let Some(tab_id) = id.parse::<u64>().ok().filter(|&id| s.workspace_panes.browser.host.tab(id).is_some()) else {
+                return done.complete(failed(format!("No browser tab with tabID {id}")));
+            };
+            if let Err(err) = scope.check_tab(s, tab_id, true) {
+                return done.complete(failed(err));
+            }
+            let tab = s.workspace_panes.browser.host.tab(tab_id);
+            let Some(file) = tab.and_then(|t| t.files.iter().find(|f| f.id == file_id)).cloned() else {
+                return done.complete(failed(format!("No downloaded file {file_id} in browser tab {id}: list them with browser_files")));
+            };
+            match file.state {
+                browser_pane::DownloadState::Pending => return done.complete(failed(format!("{} is still downloading: check browser_files again", file.name))),
+                browser_pane::DownloadState::Failed => return done.complete(failed(format!("{} didn't download ({})", file.name, file.error.as_deref().unwrap_or("failed")))),
+                browser_pane::DownloadState::Completed => {}
+            }
+            // Opened only where the engine keeps downloads, never at a path the engine merely named.
+            let Some(path) = s.workspace_panes.browser.host.download_path(tab_id, &file) else {
+                return done.complete(failed(format!("Couldn't read {}: it isn't in the browser's downloads folder", file.name)));
+            };
+            rune_luau::spawn_blocking(move || {
+                use base64::Engine as _;
+                use std::io::Read as _;
+                let mut bytes = Vec::new();
+                let read = std::fs::File::open(&path).and_then(|f| f.take(MAX + 1).read_to_end(&mut bytes));
+                if let Err(e) = read {
+                    return done.complete(failed(format!("Couldn't read {}: {e}", file.name)));
+                }
+                if bytes.len() as u64 > MAX {
+                    return done.complete(failed(format!("{} is over the 5 MiB limit", file.name)));
+                }
+                let size = Data::Integer(bytes.len() as i64);
+                let body = match String::from_utf8(bytes) {
+                    Ok(text) => ("text", Data::String(text)),
+                    Err(e) => ("base64", Data::String(base64::engine::general_purpose::STANDARD.encode(e.into_bytes()))),
+                };
+                done.complete(map([("name", Data::String(file.name)), ("mime", Data::String(file.mime)), ("bytes", size), body]));
+            });
+        }));
+        Ok(())
+    })
 }
 
 pub(super) fn tab_methods(lua: &Lua, m: &Table) -> mlua::Result<()> {
@@ -106,7 +96,7 @@ pub(super) fn tab_methods(lua: &Lua, m: &Table) -> mlua::Result<()> {
                     .browser
                     .host
                     .tab(id)
-                    .is_some_and(|t| t.context.is_isolated()))
+                    .is_some_and(|t| t.context.is_isolated() || t.preview.is_some()))
             })
         })?,
     )?;
@@ -202,6 +192,7 @@ fn clear_cache(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
             if !s.workspace_panes.browser.host.has_live_sidecar() {
                 return done.complete(failed(not_running(&s.workspace_panes.browser.host.status())));
             }
+            scope.mark_tab_driven(s, id);
             match s.workspace_panes.browser.host.clear_site_cache(id) {
                 Ok(request) => {
                     s.workspace_panes.browser.devtools.insert(
