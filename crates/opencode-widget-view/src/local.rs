@@ -111,6 +111,9 @@ pub struct Local {
     moved: HashMap<String, f64>,
     /// The widget is full screen (`frame.fullscreen`).
     fullscreen: bool,
+    /// It has keyboard focus (a ring and "Esc to release"), and holds the pointer captured.
+    focused: bool,
+    captured: bool,
 }
 
 impl Local {
@@ -151,6 +154,22 @@ impl Local {
 
     pub fn set_moved(&mut self, path: &str, at: f64) {
         self.moved.insert(path.to_owned(), at);
+    }
+
+    pub fn focused(&self) -> bool {
+        self.focused
+    }
+
+    pub fn captured(&self) -> bool {
+        self.captured
+    }
+
+    /// The host's keyboard focus and pointer capture for this widget.
+    pub fn set_input(&mut self, focused: bool, captured: bool) {
+        if (self.focused, self.captured) != (focused, captured) {
+            (self.focused, self.captured) = (focused, captured);
+            self.version += 1;
+        }
     }
 
     pub fn fullscreen(&self) -> bool {

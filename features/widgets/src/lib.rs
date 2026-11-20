@@ -14,6 +14,7 @@
 
 mod engine;
 pub mod fullscreen;
+pub mod input;
 mod live;
 mod view;
 #[cfg(not(target_arch = "wasm32"))]
@@ -59,6 +60,16 @@ pub struct Entry {
     run: live::Run,
     /// The errors reported for it (phase and message), each once.
     reported: std::collections::HashSet<String>,
+    /// Its live program asked for the pointer (`widget.capturePointer()`).
+    capture_wanted: bool,
+}
+
+impl Entry {
+    /// Whether it asks for pointer capture: its live program did, or its view's root says
+    /// `capture: "pointer"`.
+    pub fn wants_capture(&self) -> bool {
+        self.capture_wanted || self.machine.view().is_some_and(opencode_widget::Node::wants_capture)
+    }
 }
 
 /// A session's widget states, as the plugin keeps them.
@@ -93,6 +104,8 @@ pub struct Widgets {
     spare: Local,
     /// The widget full screen, if any.
     pub screen: fullscreen::Screen,
+    /// The widget with the keyboard (and the pointer), if any.
+    pub focus: input::Focus,
     /// The window's size in points, as full screen last laid out.
     screen_size: [f32; 2],
 }
@@ -143,6 +156,11 @@ pub trait WidgetsHost {
     /// Tells the agent widget `call` of `message` failed here (`report`, `error`: `{ phase,
     /// message, line?, column? }`), off the UI thread; nothing answers.
     fn post_report(&mut self, session: &str, message: &str, call: &str, error: Value);
+    /// Where the OS cursor is on screen, for a widget capturing the pointer; `None` where it
+    /// can't be read.
+    fn pointer_at(&self) -> Option<[f64; 2]>;
+    /// Puts the OS cursor back at `to` (from [`WidgetsHost::pointer_at`]).
+    fn warp_pointer(&mut self, to: [f64; 2]);
     /// Whether the window is OS full screen now; `None` without a window (a headless run).
     fn window_full_screen(&self) -> Option<bool>;
     /// Wakes the window from another thread: a live program posted or wants a frame.
@@ -402,7 +420,7 @@ pub fn sync(host: &mut dyn WidgetsHost) -> bool {
             None => {
                 let (machine, effects) = Widget::open(c.data().clone(), status(&state.status));
                 let label = c.input["title"].as_str().filter(|t| !t.is_empty()).unwrap_or(state.label()).to_owned();
-                let entry = Entry { session: session.clone(), message: c.message.clone(), call: c.call.clone(), template: state.template_key(), label, machine, local: Local::default(), seen: state.status.clone(), run: live::Run::default(), reported: Default::default() };
+                let entry = Entry { session: session.clone(), message: c.message.clone(), call: c.call.clone(), template: state.template_key(), label, machine, local: Local::default(), seen: state.status.clone(), run: live::Run::default(), reported: Default::default(), capture_wanted: false };
                 host.widgets_mut().entries.insert(key.clone(), entry);
                 for effect in effects {
                     if let Some(next) = run(host, &key, effect) {
@@ -485,6 +503,7 @@ pub(crate) fn report(host: &mut dyn WidgetsHost, id: &str, phase: &str, message:
 pub fn poll(host: &mut dyn WidgetsHost, now: f64, tx: &mut Tx) -> bool {
     let mut changed = draw_canvases(host, now, tx);
     changed |= fullscreen::poll(host, now, tx);
+    input::poll(host, tx);
     changed |= live::poll(host, now, tx);
     if opencode_widget_view::shader::take_changed() {
         // The shader's slot failed or froze: its widget builds again to say so, and the agent

@@ -14,10 +14,10 @@
 //! The widget hears `{ id: "", type: "fullscreen", value }` on entering and leaving (its
 //! `update`, or a live program's `widget.event()`), and its frames say `fullscreen`.
 
-use opencode_widget::{Event, WidgetEvent};
+use opencode_widget::WidgetEvent;
 use rune::Tx;
 
-use crate::{WidgetsHost, advance, live};
+use crate::WidgetsHost;
 
 /// How long the window may take to report OS full screen before the widget fills it without.
 const ASK_S: f64 = 3.0;
@@ -110,15 +110,14 @@ pub fn send(host: &mut dyn WidgetsHost, event: ScreenEvent, now: f64, tx: &mut T
 }
 
 /// Widget `id` entered or left full screen: its frames say so, and its template hears it.
+/// Leaving lets go of the keyboard and the pointer.
 fn tell(host: &mut dyn WidgetsHost, id: &str, on: bool) {
     let Some(e) = host.widgets_mut().entries.get_mut(id) else { return };
     e.local.set_fullscreen(on);
-    let event = WidgetEvent::fullscreen(on);
-    if e.machine.running() {
-        live::deliver(host, id, &event);
-    } else if matches!(e.machine.phase, opencode_widget::Phase::Ready { .. }) {
-        advance(host, id, Event::Input(event));
+    if !on {
+        crate::input::release(host);
     }
+    crate::input::tell(host, id, WidgetEvent::fullscreen(on));
 }
 
 /// Follows the window's OS full screen, and lets go of a widget that closed while full screen.

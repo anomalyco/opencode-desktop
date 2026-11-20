@@ -159,6 +159,12 @@ fn drive(host: &mut dyn WidgetsHost, id: &str, visible: bool, now: f64, tx: &mut
                 eprintln!("widget {id}: dropped {n} posts over 240 a second");
                 continue;
             }
+            Post::Capture(on) => {
+                if let Some(e) = host.widgets_mut().entries.get_mut(id) {
+                    e.capture_wanted = on;
+                }
+                continue;
+            }
             Post::Failed { phase, message } => {
                 crate::report(host, id, phase, &message, None, 0);
                 continue;

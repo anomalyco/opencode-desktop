@@ -33,6 +33,7 @@ pub const VARIANTS: &[(&str, usize)] = &[
     ("Live runaway", 11),
     ("Full screen", 12),
     ("Live shader", 13),
+    ("Keyboard and pointer", 14),
 ];
 pub const KEYS: &[Trigger] = &[
     replay(open),
@@ -87,6 +88,50 @@ async function main(data) {
       ]),
     )
   }
+}
+"##;
+
+/// A live program that takes the keyboard and the pointer (`widgets-input.md`): arrows or WASD
+/// and the captured pointer's relative moves steer a dot; it shows the last event it heard.
+const INPUT: &str = "story-input";
+const INPUT_SOURCE: &str = r##"async function main(data) {
+  const s = { x: 160, y: 90, focus: false, capture: false, last: "Click the pad, then use the arrows or move the mouse" }
+  widget.capturePointer()
+  show(s)
+  while (true) {
+    const e = await widget.event()
+    if (e.type === "focus") s.focus = e.value
+    else if (e.type === "capture") s.capture = e.value
+    else if (e.type === "key") {
+      if (e.value.kind === "down") {
+        const k = e.value.key
+        if (k === "ArrowLeft" || k === "a") s.x -= 12
+        if (k === "ArrowRight" || k === "d") s.x += 12
+        if (k === "ArrowUp" || k === "w") s.y -= 12
+        if (k === "ArrowDown" || k === "s") s.y += 12
+      }
+      s.last = "key " + e.value.kind + " " + e.value.key + " (" + e.value.code + ")"
+    } else if (e.type === "pointer" && e.value.dx !== undefined) {
+      s.x += e.value.dx
+      s.y += e.value.dy
+      s.last = "move dx " + e.value.dx.toFixed(0) + " dy " + e.value.dy.toFixed(0)
+    } else if (e.type === "pointer") s.last = "pointer " + e.value.kind + (e.value.button !== undefined ? " button " + e.value.button : "")
+    show(s)
+  }
+}
+
+function show(s) {
+  widget.render(
+    ui.column({ gap: 1 }, [
+      ui.text("Keyboard and pointer", { style: "title" }),
+      ui.canvas({ id: "pad", height: 180, alt: "A dot to steer" }),
+      ui.text((s.focus ? "Focused" : "Not focused") + " · " + (s.capture ? "pointer captured" : "pointer free") + " · " + s.last, { style: "caption", tone: "muted" }),
+    ]),
+  )
+  const g = ui.draw()
+  g.rrect(0, 0, 2000, 180, 0, "surface")
+  g.circle(s.x, s.y, 10, s.capture ? "accent" : "#f59e0b")
+  widget.draw("pad", g)
 }
 "##;
 
@@ -145,6 +190,7 @@ fn template(v: usize) -> &'static str {
         11 => RUNAWAY,
         12 => FULLSCREEN,
         13 => SHADER_GAME,
+        14 => INPUT,
         _ => "suggestions",
     }
 }
@@ -206,6 +252,7 @@ fn data(v: usize) -> (&'static str, Value) {
         11 => ("Price ticker", json!({})),
         12 => ("Starfield", json!({ "stars": 140 })),
         13 => ("Shader paddle", json!({})),
+        14 => ("Keyboard and pointer", json!({})),
         _ => ("Pick a hero image", json!({
             "title": "Which hero image should the landing page use?",
             "options": [
@@ -253,6 +300,7 @@ fn open(s: &mut App, tx: &mut Play<App>) {
     );
     preload(s, RUNAWAY, &version(RUNAWAY), &runaway, "live", &json!({ "https": { "hosts": ["api.coingecko.com"] } }));
     preload(s, SHADER_GAME, &version(SHADER_GAME), &format!("{}\n{SHADER_GAME_SOURCE}", fixtures::PRELUDE), "live", &Value::Null);
+    preload(s, INPUT, &version(INPUT), &format!("{}\n{INPUT_SOURCE}", fixtures::PRELUDE), "live", &Value::Null);
     preload(s, FULLSCREEN, &version(FULLSCREEN), &format!("{}\n{FULLSCREEN_SOURCE}", fixtures::PRELUDE), "step", &Value::Null);
     tx.after(0.3, |s, tx| post(s, tx));
     if *s.fixture_run.variant == 3 {

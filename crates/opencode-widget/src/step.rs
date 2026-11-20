@@ -17,6 +17,13 @@ pub enum EventKind {
     Pointer,
     /// The widget entered or left full screen: `{ id: "", value: true | false }`.
     Fullscreen,
+    /// A key while the widget has keyboard focus (`widgets-input.md`): `{ id: "", value: { kind,
+    /// key, code, repeat, shift, alt, ctrl, meta } }`. Esc is never delivered.
+    Key,
+    /// Keyboard focus gained or lost: `{ id: "", value: true | false }`.
+    Focus,
+    /// Pointer capture granted or released: `{ id: "", value: true | false }`.
+    Capture,
 }
 
 /// What a canvas's pointer did.
@@ -59,17 +66,57 @@ impl WidgetEvent {
         WidgetEvent { id: id.into(), kind: EventKind::Change, value: Some(value.into()) }
     }
 
-    /// A canvas's pointer at (`x`, `y`), logical pixels from its top-left, with the canvas's
-    /// logical size so `update` can hit-test a layout that follows the width.
     /// The widget entered (`true`) or left full screen.
     pub fn fullscreen(on: bool) -> WidgetEvent {
         WidgetEvent { id: String::new(), kind: EventKind::Fullscreen, value: Some(Value::Bool(on)) }
     }
 
+    /// Keyboard focus gained (`true`) or lost.
+    pub fn focus(on: bool) -> WidgetEvent {
+        WidgetEvent { id: String::new(), kind: EventKind::Focus, value: Some(Value::Bool(on)) }
+    }
+
+    /// Pointer capture granted (`true`) or released.
+    pub fn capture(on: bool) -> WidgetEvent {
+        WidgetEvent { id: String::new(), kind: EventKind::Capture, value: Some(Value::Bool(on)) }
+    }
+
+    /// A key pressed (`down`) or released while the widget has keyboard focus.
+    pub fn key(key: &Key) -> WidgetEvent {
+        WidgetEvent { id: String::new(), kind: EventKind::Key, value: serde_json::to_value(key).ok() }
+    }
+
+    /// The pointer moved by (`dx`, `dy`) logical pixels while the widget holds it captured.
+    pub fn captured_move(id: impl Into<String>, dx: f64, dy: f64) -> WidgetEvent {
+        WidgetEvent { id: id.into(), kind: EventKind::Pointer, value: Some(json!({ "kind": "move", "dx": dx, "dy": dy })) }
+    }
+
+    /// A button went down or up while the widget holds the pointer captured (0 primary, 1
+    /// middle, 2 secondary, as DOM `button`).
+    pub fn captured_button(id: impl Into<String>, down: bool, button: u8) -> WidgetEvent {
+        WidgetEvent { id: id.into(), kind: EventKind::Pointer, value: Some(json!({ "kind": if down { "down" } else { "up" }, "button": button })) }
+    }
+
+    /// A canvas's (or shader's) pointer at (`x`, `y`), logical pixels from its top-left, with its
+    /// logical size so `update` can hit-test a layout that follows the width.
     pub fn pointer(id: impl Into<String>, kind: PointerKind, x: f64, y: f64, width: f64, height: f64) -> WidgetEvent {
         let value = json!({ "kind": kind.name(), "x": x, "y": y, "width": width, "height": height });
         WidgetEvent { id: id.into(), kind: EventKind::Pointer, value: Some(value) }
     }
+}
+
+/// A key event's value (`key` and `code` as in DOM `KeyboardEvent`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Key {
+    /// `"down"` or `"up"`.
+    pub kind: String,
+    pub key: String,
+    pub code: String,
+    pub repeat: bool,
+    pub shift: bool,
+    pub alt: bool,
+    pub ctrl: bool,
+    pub meta: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

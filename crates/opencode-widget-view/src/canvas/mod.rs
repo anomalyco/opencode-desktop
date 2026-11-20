@@ -38,8 +38,11 @@ pub(crate) fn view<S: 'static>(cx: &Cx<S>, path: &str, id: Option<&str>, height:
     let (lens, key) = (hooks.local.clone(), path.to_owned());
     b = b.on_visible(move |s: &mut S, on, _tx: &mut Tx| (lens)(s).canvas_event(&key, Event::Seen(if on { Sight::Shown } else { Sight::Hidden })));
     // Hover tells `draw` where the pointer is; it isn't an event.
-    let (lens, key) = (hooks.local.clone(), path.to_owned());
-    b = b.on_pointer_move_local(move |s: &mut S, p, _tx: &mut Tx| {
+    let (lens, key, h, cid) = (hooks.local.clone(), path.to_owned(), hooks.clone(), id.map(str::to_owned));
+    b = b.on_pointer_move_local(move |s: &mut S, p, tx: &mut Tx| {
+        if crate::captured(&h, s, cid.as_deref(), PointerKind::Move, [p.x, p.y], tx) {
+            return;
+        }
         let down = (lens)(s).canvas(&key).and_then(|c| c.pointer).is_some_and(|p| p.down);
         (lens)(s).canvas_event(&key, Event::Pointer(Some(Pointer { x: f64::from(p.x), y: f64::from(p.y), down })));
     });
@@ -54,6 +57,14 @@ pub(crate) fn view<S: 'static>(cx: &Cx<S>, path: &str, id: Option<&str>, height:
     b.on_drag(move |s: &mut S, d: &mut Drag, tx: &mut Tx| {
         let (x, y) = (f64::from(d.x), f64::from(d.y));
         let (w, h) = (f64::from(d.w), f64::from(d.h));
+        let phase = match d.phase {
+            Phase::Down => PointerKind::Down,
+            Phase::Move => PointerKind::Move,
+            Phase::Up => PointerKind::Up,
+        };
+        if crate::captured(&hooks, s, id.as_deref(), phase, [d.x, d.y], tx) {
+            return;
+        }
         let down = d.phase != Phase::Up;
         let local = (hooks.local)(s);
         local.canvas_event(&key, Event::Pointer(Some(Pointer { x, y, down })));

@@ -38,6 +38,8 @@ pub struct Words {
     pub exit_fullscreen: String,
     /// The inline copy while the widget is full screen.
     pub elsewhere: String,
+    /// The hint while the widget has the keyboard.
+    pub release: String,
 }
 
 impl Default for Words {
@@ -55,6 +57,7 @@ impl Default for Words {
             fullscreen: "Full screen".into(),
             exit_fullscreen: "Exit full screen".into(),
             elsewhere: "Open in full screen".into(),
+            release: "Esc to release".into(),
         }
     }
 }
@@ -155,6 +158,9 @@ pub fn frame<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, f
         let lens = h.local.clone();
         frame = frame.on_visible(move |s: &mut S, on, _tx: &mut Tx| (lens)(s).set_shown(on));
     }
+    if let (Some(h), Face::Live { live: true, .. }) = (hooks, face) {
+        frame = keyboard(look, local, h, frame);
+    }
     // Full screen, top right, on hover and keyboard focus, as a video player's.
     if let Some(expand) = expand {
         let words = look.words.fullscreen.clone();
@@ -181,6 +187,32 @@ pub fn frame<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, f
 /// Room around a full-screen widget, each side.
 const PAD: f32 = 24.0;
 
+/// A widget that takes the keyboard (`widgets-input.md`): a click inside or Tab focuses it, keys
+/// go to the host while it (or a control in it) has focus, a ring and "Esc to release" show
+/// while it has, and the cursor hides while it holds the pointer captured.
+fn keyboard<S: 'static>(look: &Look, local: &Local, hooks: &Hooks<S>, frame: El) -> El {
+    let Some(input) = hooks.input.clone() else { return frame };
+    let c = &look.kit.c;
+    let (down, up, press) = (input.clone(), input.clone(), input);
+    let mut frame = frame
+        .focusable(true)
+        .on_key(move |s: &mut S, ev, tx| down(s, crate::Input::Key { event: ev, up: false }, tx))
+        .on_key_up(move |s: &mut S, ev, tx| up(s, crate::Input::Key { event: ev, up: true }, tx))
+        .on_drag(move |s: &mut S, d: &mut rune::Drag, tx: &mut Tx| {
+            if d.phase == rune::Phase::Down {
+                press(s, crate::Input::Press, tx);
+            }
+        });
+    if local.focused() {
+        let hint = text(look.words.release.clone()).key("release").font(look.kit.ty.small.lh(16.0)).color(c.text_muted);
+        frame = frame.child(hint.pin(None, None, Some(14.0), Some(6.0)));
+    }
+    if local.captured() {
+        frame = frame.cursor(rune::Cursor::Hidden);
+    }
+    frame
+}
+
 /// The inline copy of a widget that is full screen: its frame, saying where it is.
 pub fn placeholder(look: &Look, title: &str) -> El {
     let k = look.kit;
@@ -203,6 +235,7 @@ pub fn screen<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, 
     local.built();
     let k = look.kit;
     let c = &k.c;
+    let live = matches!(face, Face::Live { live: true, .. });
     let content = match face {
         Face::Live { view: v, live, error, .. } => {
             let mut b = vec![view(look, local, hooks, v, live).key("view").grow(1.0).min_h(0.0)];
@@ -229,8 +262,12 @@ pub fn screen<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, 
         .help(words)
         .on_press_tx(move |s: &mut S, tx: &mut Tx| close(s, tx))
         .child(icon(k.glyph.close, 14.0).color(c.icon_base));
-    el().key("widget-screen")
-        .pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
+    let root = el().key("widget-screen");
+    let root = match hooks {
+        Some(h) if live => keyboard(look, local, h, root),
+        _ => root,
+    };
+    root.pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
         .fill(c.bg_base)
         .role("dialog")
         .label(title.to_owned())

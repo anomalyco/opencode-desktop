@@ -75,6 +75,14 @@ impl WidgetsHost for App {
         });
     }
 
+    fn pointer_at(&self) -> Option<[f64; 2]> {
+        crate::session::pointer_lock::at()
+    }
+
+    fn warp_pointer(&mut self, to: [f64; 2]) {
+        crate::session::pointer_lock::warp(to);
+    }
+
     fn window_full_screen(&self) -> Option<bool> {
         crate::windows::handle(&self.window.id)?.placement().map(|p| p.full_screen)
     }

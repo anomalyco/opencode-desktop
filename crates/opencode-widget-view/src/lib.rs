@@ -27,6 +27,28 @@ use rune::{El, Image, Tx};
 use rune_kit::Kit;
 
 pub use face::{EXPAND, Words, frame, placeholder, screen, summary};
+
+/// The button a press used, as DOM `button` numbers it.
+pub(crate) fn button(tx: &Tx) -> u8 {
+    match tx.button() {
+        rune::PointerButton::Primary => 0,
+        rune::PointerButton::Middle => 1,
+        _ => 2,
+    }
+}
+
+/// A canvas or shader heard the pointer at `at`: with the pointer captured it goes to the host
+/// as captured input (true), and a press takes focus first.
+pub(crate) fn captured<S: 'static>(hooks: &Hooks<S>, s: &mut S, id: Option<&str>, kind: opencode_widget::PointerKind, at: [f32; 2], tx: &mut Tx) -> bool {
+    let Some(input) = hooks.input.clone() else { return false };
+    if !(hooks.local)(s).captured() {
+        if kind == opencode_widget::PointerKind::Down {
+            input(s, Input::Press, tx);
+        }
+        return (hooks.local)(s).captured() && kind == opencode_widget::PointerKind::Down;
+    }
+    input(s, Input::Captured { id, kind, at, button: button(tx) }, tx)
+}
 pub use local::{DEBOUNCE_S, Local};
 
 /// What a widget's build reads from the host besides the widget.
@@ -75,15 +97,32 @@ impl<S> Default for Buttons<S> {
     }
 }
 
+/// Input the host's keyboard focus and pointer capture take (`widgets-input.md`), before it
+/// reaches the template.
+pub enum Input<'a> {
+    /// A key pressed (`up`: released) while the widget or a control in it has focus.
+    Key { event: &'a rune::KeyEvent, up: bool },
+    /// A press inside the widget: it takes focus, and a capture it asked for.
+    Press,
+    /// The pointer while captured, at `at` (logical points in the element that heard it):
+    /// moving, or a button going down or up.
+    Captured { id: Option<&'a str>, kind: opencode_widget::PointerKind, at: [f32; 2], button: u8 },
+}
+
+/// Where the host takes [`Input`]; true when it took it.
+pub type InputFn<S> = Rc<dyn Fn(&mut S, Input<'_>, &mut Tx) -> bool>;
+
 /// Where a widget's view sends what the user does, and where its [`Local`] lives in the host.
 pub struct Hooks<S> {
     pub local: Lens<S>,
     pub emit: Emit<S>,
+    /// Keyboard focus and pointer capture, when the host offers them.
+    pub input: Option<InputFn<S>>,
 }
 
 impl<S> Clone for Hooks<S> {
     fn clone(&self) -> Self {
-        Hooks { local: self.local.clone(), emit: self.emit.clone() }
+        Hooks { local: self.local.clone(), emit: self.emit.clone(), input: self.input.clone() }
     }
 }
 

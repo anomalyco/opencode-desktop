@@ -43,6 +43,7 @@ fn words() -> Rc<Words> {
             fullscreen: opencode_i18n::t!("rune.widget.fullscreen").to_owned(),
             exit_fullscreen: opencode_i18n::t!("rune.widget.exitFullscreen").to_owned(),
             elsewhere: opencode_i18n::t!("rune.widget.elsewhere").to_owned(),
+            release: opencode_i18n::t!("rune.widget.release").to_owned(),
             sending: opencode_i18n::t!("rune.widget.sending").to_owned(),
             submitted: opencode_i18n::t!("rune.widget.submitted").to_owned(),
             dismissed: opencode_i18n::t!("rune.widget.dismissed").to_owned(),

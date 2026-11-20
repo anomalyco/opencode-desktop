@@ -377,6 +377,7 @@
   "rune.widget.network": "Network: {{hosts}}",
   "rune.widget.next": "Next",
   "rune.widget.previous": "Previous",
+  "rune.widget.release": "Esc to release",
   "rune.widget.restart": "Restart",
   "rune.widget.retry": "Try again",
   "rune.widget.sending": "Sending…",

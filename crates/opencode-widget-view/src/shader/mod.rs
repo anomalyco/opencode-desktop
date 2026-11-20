@@ -193,7 +193,11 @@ pub(crate) fn view<S: 'static>(cx: &Cx<S>, path: &str, id: Option<&str>, size: S
     let b = b.effect(mark).effect_data([f32::from_bits(mark), 0.0, 0.0, 0.0]);
     let Some(hooks) = cx.hooks.cloned() else { return b };
     let (live, id, key) = (cx.live, id.map(str::to_owned), path.to_owned());
-    b.on_pointer_move_local(move |_: &mut S, p, _tx: &mut Tx| {
+    let (h, sid) = (hooks.clone(), id.clone());
+    b.on_pointer_move_local(move |s: &mut S, p, tx: &mut Tx| {
+        if crate::captured(&h, s, sid.as_deref(), opencode_widget::PointerKind::Move, [p.x, p.y], tx) {
+            return;
+        }
         let down = with_slot(mark, |s| s.pointer.is_some_and(|(_, d)| d)).unwrap_or(false);
         point(mark, Some(([p.x, p.y], down)));
     })
@@ -203,6 +207,14 @@ pub(crate) fn view<S: 'static>(cx: &Cx<S>, path: &str, id: Option<&str>, size: S
         }
     })
     .on_drag(move |s: &mut S, d: &mut Drag, tx: &mut Tx| {
+        let phase = match d.phase {
+            Phase::Down => opencode_widget::PointerKind::Down,
+            Phase::Move => opencode_widget::PointerKind::Move,
+            Phase::Up => opencode_widget::PointerKind::Up,
+        };
+        if crate::captured(&hooks, s, id.as_deref(), phase, [d.x, d.y], tx) {
+            return;
+        }
         point(mark, Some(([d.x, d.y], d.phase != Phase::Up)));
         // A shader with an id sends the pointer to the template as a canvas does: `move` only
         // while down, at most once a frame.

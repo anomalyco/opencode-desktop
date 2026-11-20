@@ -74,6 +74,7 @@ fn post(link: &Link, args: Vec<HostValue>) -> HostResult {
         Some("frame") => Post::Frame,
         Some("submit") => Post::Submit(message["value"].clone()),
         Some("dismiss") => Post::Dismiss,
+        Some("capture") => Post::Capture(message["value"].as_bool().unwrap_or(false)),
         Some("send") => Post::Send(SendMessage { value: message["value"].clone(), wake: message["wake"].as_bool().unwrap_or(true) }),
         _ => return Ok(HostValue::Undefined),
     };

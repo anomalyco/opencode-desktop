@@ -101,6 +101,10 @@ pub enum Node {
         /// widgets and views with a canvas or shader (`widgets-fullscreen.md`).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         fullscreen: Option<bool>,
+        /// On the root: `"pointer"` asks for pointer capture, granted on the next click
+        /// (`widgets-input.md`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        capture: Option<String>,
     },
     Row {
         #[serde(default)]
@@ -116,6 +120,10 @@ pub enum Node {
         /// widgets and views with a canvas or shader (`widgets-fullscreen.md`).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         fullscreen: Option<bool>,
+        /// On the root: `"pointer"` asks for pointer capture, granted on the next click
+        /// (`widgets-input.md`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        capture: Option<String>,
     },
     Text {
         text: String,
@@ -146,6 +154,10 @@ pub enum Node {
         /// widgets and views with a canvas or shader (`widgets-fullscreen.md`).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         fullscreen: Option<bool>,
+        /// On the root: `"pointer"` asks for pointer capture, granted on the next click
+        /// (`widgets-input.md`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        capture: Option<String>,
     },
     Card {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -158,6 +170,10 @@ pub enum Node {
         /// widgets and views with a canvas or shader (`widgets-fullscreen.md`).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         fullscreen: Option<bool>,
+        /// On the root: `"pointer"` asks for pointer capture, granted on the next click
+        /// (`widgets-input.md`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        capture: Option<String>,
     },
     Button {
         id: String,
@@ -227,6 +243,10 @@ pub enum Node {
         /// widgets and views with a canvas or shader (`widgets-fullscreen.md`).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         fullscreen: Option<bool>,
+        /// On the root: `"pointer"` asks for pointer capture, granted on the next click
+        /// (`widgets-input.md`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        capture: Option<String>,
     },
     /// A WGSL fragment shader (see [`crate::shader`]); full width unless `width`.
     Shader {
@@ -253,6 +273,10 @@ pub enum Node {
         /// widgets and views with a canvas or shader (`widgets-fullscreen.md`).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         fullscreen: Option<bool>,
+        /// On the root: `"pointer"` asks for pointer capture, granted on the next click
+        /// (`widgets-input.md`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        capture: Option<String>,
     },
     /// A node type this client doesn't know: drawn as nothing (with a warning in development).
     #[serde(other)]
@@ -296,6 +320,14 @@ impl Node {
         }
         let mut out = Vec::new();
         walk(self, other, "w", &mut out).then_some(out)
+    }
+
+    /// Whether this view, as the root, asks for pointer capture (`capture: "pointer"`).
+    pub fn wants_capture(&self) -> bool {
+        match self {
+            Node::Column { capture, .. } | Node::Row { capture, .. } | Node::Carousel { capture, .. } | Node::Card { capture, .. } | Node::Canvas { capture, .. } | Node::Shader { capture, .. } => capture.as_deref() == Some("pointer"),
+            _ => false,
+        }
     }
 
     /// Whether this view, as the root, offers full screen: its `fullscreen` prop, else for a

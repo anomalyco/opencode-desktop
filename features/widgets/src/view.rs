@@ -55,12 +55,14 @@ pub fn view<H: WidgetsHost + TimelineHost>(s: &H, p: &Pal, session: &str, messag
     Some(session_view::widget::frame(s, p, session, &key, &e.label, e.machine.face(), &e.local, Some(&hooks::<H>(&key)), Place::Inline(buttons), chip(s, e).as_deref()))
 }
 
-/// Where widget `key`'s view sends what the user does.
+/// Where widget `key`'s view sends what the user does: its events, and its keys and pointer
+/// for keyboard focus and capture.
 fn hooks<H: WidgetsHost + 'static>(key: &str) -> Hooks<H> {
-    let (lens, emit) = (key.to_owned(), key.to_owned());
+    let (lens, emit, take) = (key.to_owned(), key.to_owned(), key.to_owned());
     Hooks {
         local: Rc::new(move |s: &mut H| s.widgets_mut().local_mut(&lens)),
         emit: Rc::new(move |s: &mut H, ev: WidgetEvent, _tx: &mut Tx| input(s, &emit, ev)),
+        input: Some(Rc::new(move |s: &mut H, i: opencode_widget_view::Input<'_>, tx: &mut Tx| crate::input::take(s, &take, i, tx))),
     }
 }
 

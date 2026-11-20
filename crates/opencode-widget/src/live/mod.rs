@@ -76,6 +76,8 @@ pub enum Post {
     Send(SendMessage),
     /// Posts were dropped over the rate (`count` since the last warning).
     Dropped(u32),
+    /// Pointer capture asked for (`widget.capturePointer()`) or given back.
+    Capture(bool),
     /// Something the program asked of the host failed (`phase`: `fetch`), for the agent to hear.
     Failed { phase: &'static str, message: String },
 }
