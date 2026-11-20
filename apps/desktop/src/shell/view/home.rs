@@ -431,10 +431,12 @@ pub(super) fn hover_session(s: &mut App, id: &str, inside: bool, tx: &mut Tx) {
 /// `createAltHold`: while Alt is held on Desktop, every Home row and search result shows its
 /// worktree and branch, and their branches load (`alt-hold.ts`, `onRevealLocations`).
 pub(crate) fn home_modifiers(s: &mut App, mods: rune::Mods, tx: &mut Tx) {
-    // The quote comment editor shows its alternate send while Mod is held.
+    // The quote comment editor shows its alternate send while Mod is held, and tab avatars show
+    // 1..9 shortcut numbers after holding Mod alone for 400 ms (#63089).
     let quote = crate::quote::editor::modifiers(s, mods, tx);
+    let hints = crate::tab_hints::modifiers(s, mods, tx);
     if s.kernel.slots.get(&crate::home_search::HOME_SEARCH).alt_held == mods.alt {
-        if quote {
+        if quote || hints {
             return;
         }
         return tx.live_only();

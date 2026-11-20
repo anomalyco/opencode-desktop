@@ -208,11 +208,13 @@ impl App {
         select_narrow_view(self, session, view, tx);
     }
 
-    pub fn place_narrow(&mut self, session: &str, key: &str, was: (crate::panels::state::Visibility, bool)) {
+    pub fn place_narrow(&mut self, session: &str, key: &str, was: (crate::panels::state::Visibility, bool)) -> bool {
         if place_narrow(self, session, key) {
             let st = self.session_side_mut(session);
             (st.visibility, st.bottom_open) = was;
+            return true;
         }
+        false
     }
 
     pub fn tabs_drawer(&mut self, event: TabsEvent, tx: &mut Tx) {

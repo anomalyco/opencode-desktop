@@ -98,6 +98,8 @@ pub struct Settings {
     pub record_glitches: bool,
     /// Desktop's Interface layout (`appearance.tabLayout`): top tabs unless changed.
     pub tab_layout: TabLayout,
+    /// One side panel open state for every session tab instead of one per tab (`general.sharedSidePanel`, #64950).
+    pub shared_side_panel: bool,
     /// Questions take the keyboard-first dock instead of Classic (Desktop's `general.newQuestionUI`,
     /// Settings › Experimental › New question UI). Off unless turned on, as there.
     pub new_question_ui: bool,
@@ -172,6 +174,7 @@ impl Default for Settings {
             terminal_font_name: String::new(),
             record_glitches: true,
             tab_layout: TabLayout::default(),
+            shared_side_panel: false,
             new_question_ui: false,
             smooth_timeline: false,
             terminal_option_meta: false,
@@ -217,6 +220,7 @@ impl Settings {
             "terminalFontName": self.terminal_font_name,
             "developer": { "rewind": self.record_glitches },
             "tabLayout": self.tab_layout.name(),
+            "sharedSidePanel": self.shared_side_panel,
             "newQuestionUI": self.new_question_ui,
             "smoothTimeline": self.smooth_timeline,
             "terminal": { "optionAsMeta": self.terminal_option_meta, "marks": self.terminal_marks },
@@ -266,6 +270,7 @@ impl Settings {
             // Files from before the setting read as Desktop's default; Desktop nests it under
             // `appearance`, which here is the colour scheme.
             tab_layout: TabLayout::parse(v["tabLayout"].as_str().or_else(|| v["appearance"]["tabLayout"].as_str())),
+            shared_side_panel: v["sharedSidePanel"].as_bool().unwrap_or(false),
             new_question_ui: v["newQuestionUI"].as_bool().unwrap_or(false),
             smooth_timeline: v["smoothTimeline"].as_bool().unwrap_or(false),
             terminal_option_meta: v["terminal"]["optionAsMeta"].as_bool().unwrap_or(false),

@@ -58,10 +58,18 @@ fn strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation, viewport: Opt
         })
         .collect();
     let (built_tabs, built_uids) = (tabs.clone(), uids.clone());
+    let show_hints = crate::tab_hints::shown(s);
+    let nav_order = s.nav_order();
+    let shortcuts: Vec<Option<usize>> = built_uids
+        .iter()
+        .map(|uid| nav_order.iter().position(|u| u == uid).filter(|&i| i < 9).map(|i| i + 1))
+        .collect();
     let order: Vec<usize> = indices.to_vec();
     let mut strip = TabStrip::new(key, orientation)
         .words(tab_words())
-        .lazy_tabs(slots, move |index| item(s, p, built_tabs[index], built_uids[index].clone(), index, nav_ids.clone(), hide_avatars))
+        .lazy_tabs(slots, move |index| {
+            item(s, p, built_tabs[index], built_uids[index].clone(), index, nav_ids.clone(), hide_avatars, shortcuts[index], show_hints)
+        })
         .active(current.as_deref())
         .viewport_width(viewport)
         .fill(p.bg_deep)
@@ -114,7 +122,18 @@ fn strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation, viewport: Opt
     strip.build(crate::palette::kit(p))
 }
 
-fn item<'a>(s: &'a App, p: &Pal, t: &'a crate::tabs::Tab, uid: String, index: usize, nav_ids: std::rc::Rc<Vec<String>>, hide_avatar: bool) -> TabItem<'a, App> {
+#[allow(clippy::too_many_arguments)]
+fn item<'a>(
+    s: &'a App,
+    p: &Pal,
+    t: &'a crate::tabs::Tab,
+    uid: String,
+    index: usize,
+    nav_ids: std::rc::Rc<Vec<String>>,
+    hide_avatar: bool,
+    shortcut: Option<usize>,
+    show_hints: bool,
+) -> TabItem<'a, App> {
     let draft = t.is_draft();
     let face = face(s, t);
     let target = target(s, t);
@@ -125,11 +144,15 @@ fn item<'a>(s: &'a App, p: &Pal, t: &'a crate::tabs::Tab, uid: String, index: us
     let mark = status(s, t);
     let muted = !draft && s.project_navigation() && crate::session_menu::preferences::muted(&t.server, &t.id) && mark != Some(TabItemStatus::Busy);
     let mut item = TabItem::new(uid, face.title).status(if muted { None } else { mark }).marked(marked);
+    let active_tab = s.current_tab().as_deref() == Some(id.as_str()) && !s.settings_open();
     item = match (draft, hide_avatar) {
-        (true, _) => item.icon(&DRAFT_PENCIL),
+        (true, _) => match shortcut {
+            Some(n) => item.avatar(draft_avatar(p, active_tab, n, show_hints)),
+            None => item.icon(&DRAFT_PENCIL),
+        },
         // Its slot stays, empty (`[data-avatar="hidden"]`'s `visibility: hidden`, `tab-nav.css:466`).
         (false, true) => item.avatar(el().size(16.0, 16.0)),
-        (false, false) => item.avatar(crate::icons::badge(s, p, face.project, &project_or_dir(face.project, face.dir))),
+        (false, false) => item.avatar(crate::icons::tab_badge(s, p, face.project, &project_or_dir(face.project, face.dir), shortcut, show_hints)),
     };
     if let Some(field) = crate::session_menu_view::field(s, p, &target, UI_MED) {
         item = item.editor(field);
@@ -141,7 +164,7 @@ fn item<'a>(s: &'a App, p: &Pal, t: &'a crate::tabs::Tab, uid: String, index: us
     let active = !draft && matches!(&*s.route, Route::Session { id: r, server } if *server == t.server && s.root_of(r) == t.id);
     let bell = muted.then(|| super::sidebar::pins::muted_mark(p));
     item.decorate(move |slot, _| {
-        let slot = if let Some(mark) = bell { super::sidebar::pins::marked_slot(slot, mark) } else { slot };
+        let slot = if let Some(bell_el) = bell { super::sidebar::pins::marked_slot(slot, bell_el, mark) } else { slot };
         // The arrows open the tab they reach as they pass it; its menu on a right-click.
         let slot = slot.on_key(move |s: &mut App, ev, _: &mut Tx| s.prefetch_navigation(&nav_ids, index, ev));
         // Down the side tabs, the preview card follows the pointer's height.
@@ -162,6 +185,39 @@ fn item<'a>(s: &'a App, p: &Pal, t: &'a crate::tabs::Tab, uid: String, index: us
         };
         crate::session_menu::on(slot, target)
     })
+}
+
+/// A draft tab's 16×16 leading face (`DraftTabItem` in `tab-nav.tsx`, #63089): the pencil icon
+/// slides up while the outline shortcut badge rises in when Mod is held.
+fn draft_avatar(p: &Pal, active: bool, shortcut: usize, show_hints: bool) -> El {
+    let anim = rune::Anim::new(Curve::tween(0.16, Easing::EASE_OUT));
+    let font = TextStyle::new(11.0, 530.0).lh(11.0).tracking(0.05).features("\"tnum\"");
+    let pencil = icon(&DRAFT_PENCIL, 16.0)
+        .key("tab-icon-face")
+        .color(if active { p.icon } else { p.icon_muted })
+        .opacity(if show_hints { 0.0 } else { 1.0 })
+        .offset(0.0, if show_hints { -6.0 } else { 0.0 })
+        .opacity_motion(anim)
+        .offset_motion(anim);
+    let badge = el()
+        .key("tab-shortcut-face")
+        .absolute(0.0, 0.0)
+        .size(16.0, 16.0)
+        .radius(4.0)
+        .fill(p.bg_base)
+        .box_shadow(Pal::ring_in(p.q.border_strong))
+        .center()
+        .opacity(if show_hints { 1.0 } else { 0.0 })
+        .opacity_motion(anim)
+        .a11y_hidden()
+        .child(
+            text(shortcut.to_string())
+                .font(font)
+                .color(p.muted)
+                .offset(0.0, if show_hints { 0.0 } else { 6.0 })
+                .offset_motion(anim),
+        );
+    el().key("draft-avatar").size(16.0, 16.0).clip_soft(0.0).center().child(pencil).child(badge)
 }
 
 /// What a tab's menu and rename act on: its session (or draft) on its own server, whichever one

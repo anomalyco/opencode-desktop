@@ -251,8 +251,14 @@ pub fn build() -> Kernel<App> {
 fn register_core_systems(b: &mut KernelBuilder<App>) {
     use crate::tick::stage;
 
+    b.register_slot(&crate::tab_hints::TAB_HINTS);
     b.add_visibility("status_toast.visibility", |s, shown, tx| {
         crate::status_toast::visibility(s, shown, tx);
+    });
+    b.add_visibility("tab_hints.visibility", |s, shown, tx| {
+        if !shown {
+            crate::tab_hints::window_left(s, tx);
+        }
     });
 
     // ── Phase 1: Ingest ──────────────────────────────────────────────────────────────────────────
@@ -487,6 +493,9 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
         crate::view::tab_preview::poll(s, now, tx)
     })
     .after("narrow.poll");
+    b.schedule(stage::REACT_SHELL, "tab_hints.poll", |s, now, tx| {
+        crate::tab_hints::poll(s, now, tx)
+    });
     // Known: reads `tab_layout()` and `settings_open()` settled by `layout_state.poll` -> `narrow.poll`.
     b.schedule(stage::REACT_SHELL, "session_status.poll", |s, now, tx| {
         crate::session_status::poll(s, now, tx)

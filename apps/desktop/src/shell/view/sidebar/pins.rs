@@ -3,7 +3,7 @@
 use super::*;
 use crate::session_menu::{Spot, Target, preferences};
 use opencode_kit::servers::ServerKey;
-use rune_kit::shell::{TabItem, TabStrip};
+use rune_kit::shell::{TabItem, TabItemStatus, TabStrip};
 
 pub(crate) fn muted_mark(p: &Pal) -> El {
     // `MutedIcon`, tab-nav.tsx.
@@ -11,10 +11,29 @@ pub(crate) fn muted_mark(p: &Pal) -> El {
     icon(&BELL, 14.0).key("muted").color(p.icon_faint).help(t!("sidebar.recent.muted"))
 }
 
+/// Accessible description for a muted `role("tab")`: preserves both `"Muted"` and any underlying
+/// status (`Needs attention`, `Unread`, `Failed`, `Working`) that the muted bell replaced visually.
+pub(crate) fn muted_description(mark: Option<TabItemStatus>) -> String {
+    let words = super::super::tab_strip::tab_words();
+    let status = match mark {
+        Some(TabItemStatus::Busy) => Some(words.busy),
+        Some(TabItemStatus::Attention) => Some(words.attention),
+        Some(TabItemStatus::Unread) => Some(words.unread),
+        Some(TabItemStatus::Failed) => Some(words.failed),
+        None => None,
+    };
+    match status {
+        Some(state) => format!("{state}, {}", t!("sidebar.recent.muted")),
+        None => t!("sidebar.recent.muted").to_owned(),
+    }
+}
+
 /// The kit's decorated element wraps the entire tab. Reserve a column beside the
 /// pill so its title and close button keep their own space.
-pub(crate) fn marked_slot(slot: El, mark: El) -> El {
-    slot.pr(22.0).child(el().pin(None, Some(0.0), Some(4.0), Some(0.0)).w(16.0).center().child(mark))
+pub(crate) fn marked_slot(slot: El, mark: El, status: Option<TabItemStatus>) -> El {
+    slot.description(muted_description(status))
+        .pr(22.0)
+        .child(el().pin(None, Some(0.0), Some(4.0), Some(0.0)).w(16.0).center().child(mark))
 }
 
 pub(crate) fn section(s: &App, p: &Pal) -> (Option<El>, Vec<usize>) {
@@ -35,10 +54,24 @@ pub(crate) fn section(s: &App, p: &Pal) -> (Option<El>, Vec<usize>) {
         recent.retain(|i| Some(*i) != tab);
         visible.push(pin.clone());
         let muted = preferences::muted(&server, id);
-        let item = TabItem::new(pin.clone(), crate::tabs::tab_title(name)).closable(tab.is_some())
-            .avatar(crate::icons::badge(s, p, info.and_then(|i| s.project_for_session(i)), name))
+        let mark = tab.map(|i| &s.tabs[i]).and_then(|t| s.tab_status_of(t)).or_else(|| {
+            (&server == crate::servers::runtime::active(s)).then(|| s.tab_status(id)).flatten()
+        }).map(|st| match st {
+            crate::TabStatus::Busy => TabItemStatus::Busy,
+            crate::TabStatus::Attention => TabItemStatus::Attention,
+            crate::TabStatus::Unread => TabItemStatus::Unread,
+            crate::TabStatus::Failed => TabItemStatus::Failed,
+        });
+        let show_hints = crate::tab_hints::shown(s);
+        let nav_order = s.nav_order();
+        let uid = crate::tabs::session_uid(&server, id);
+        let shortcut = nav_order.iter().position(|u| u == &uid).filter(|&i| i < 9).map(|i| i + 1);
+        let item = TabItem::new(pin.clone(), crate::tabs::tab_title(name))
+            .status(if muted && mark != Some(TabItemStatus::Busy) { None } else { mark })
+            .closable(tab.is_some())
+            .avatar(crate::icons::tab_badge(s, p, info.and_then(|i| s.project_for_session(i)), name, shortcut, show_hints))
             .decorate(move |slot, _| {
-                let slot = if muted { marked_slot(slot, muted_mark(p)) } else { slot };
+                let slot = if muted { marked_slot(slot, muted_mark(p), mark) } else { slot };
                 crate::session_menu::on_dialog(slot, target)
             });
         items.push(item);

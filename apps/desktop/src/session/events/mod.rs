@@ -336,7 +336,7 @@ impl App {
             session.title = title.to_owned();
             done.renamed = true;
         }
-        if crate::recent_page::reloads_on(self, ty, data, &sid) {
+        if crate::recent_page::reloads_on(ty, data) {
             self.schedule_recent_reload();
         }
         if ty == "project.updated"

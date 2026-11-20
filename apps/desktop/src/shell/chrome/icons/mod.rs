@@ -47,6 +47,16 @@ pub fn badge(s: &App, p: &Pal, project: Option<&Project>, name: &str) -> El {
     }
 }
 
+/// [`badge`] for a tab avatar, with an optional `1..=9` shortcut number revealed while Mod is held (#63089).
+pub fn tab_badge(s: &App, p: &Pal, project: Option<&Project>, name: &str, shortcut: Option<usize>, show_hints: bool) -> El {
+    let pal = palette(p);
+    let label = shortcut.map(|n| n.to_string());
+    match project {
+        Some(x) => s.appearance_state.icons.view_with_label(&pal, x, 16.0, label.as_deref(), show_hints),
+        None => s.appearance_state.icons.view_with_label(&pal, project_icon::Project::named(name), 16.0, label.as_deref(), show_hints),
+    }
+}
+
 /// A session row's avatar (`SessionTabAvatarView`): the project's badge, the open-tab bar 6 before
 /// it when `open`, and the unread dot on its corner when `unread`, cut clear of the badge.
 pub fn session_avatar(s: &App, p: &Pal, project: Option<&Project>, name: &str, open: bool, unread: bool) -> El {

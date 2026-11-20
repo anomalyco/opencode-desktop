@@ -80,22 +80,25 @@ fn strip(s: &App, p: &Pal, strip_key: &str, sessions: &[&SessionInfo], pins: Opt
         _ => None,
     };
     let pinned = pins.is_some();
+    let show_hints = crate::tab_hints::shown(s);
+    let nav_order = s.nav_order();
     let items = sessions.iter().enumerate().map(|(index, info)| {
         let target = Target::on(&here, &info.id, Spot::Row);
         let muted = preferences::muted(&here, &info.id);
+        let raw_mark = status(s, &info.id, false);
+        let uid = crate::tabs::session_uid(&here, &info.id);
+        let shortcut = nav_order.iter().position(|u| u == &uid).filter(|&i| i < 9).map(|i| i + 1);
         let mut item = TabItem::new(info.id.as_str(), crate::tabs::tab_title(&info.title))
             .status(status(s, &info.id, muted))
             .closable(false)
             .marked(s.kernel.slots.get(&crate::session_menu::MENUS).on.as_ref() == Some(&target))
-            .avatar(crate::icons::badge(s, p, s.project_for_session(info), &info.title));
-        // Desktop's faint trailing "Muted" label (`TabNavItem`'s `label`); the kit's tab has no
-        // trailing label, so it reads under the title.
+            .avatar(crate::icons::tab_badge(s, p, s.project_for_session(info), &info.title, shortcut, show_hints));
         if let Some(field) = crate::session_menu_view::field(s, p, &target, UI_MED) {
             item = item.editor(field);
         }
         let (id, server, count) = (info.id.clone(), here.clone(), sessions.len());
         item.decorate(move |slot, _| {
-            let slot = if muted { super::pins::marked_slot(slot, super::pins::muted_mark(p)) } else { slot };
+            let slot = if muted { super::pins::marked_slot(slot, super::pins::muted_mark(p), raw_mark) } else { slot };
             slot.on_secondary_press(move |s: &mut App, press: rune::PointerPress, tx: &mut Tx| open_menu(s, &server, &id, pinned.then_some((index, count)), press, tx))
         })
     });

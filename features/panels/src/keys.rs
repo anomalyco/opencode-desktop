@@ -88,6 +88,13 @@ fn tabs_check_stamp(host: &dyn PanelsHost) -> u64 {
 /// and empty-side New tab sync. Native panels and plugins run as their own scheduled systems.
 pub fn poll_panels(host: &mut dyn PanelsHost, tx: &mut Tx) -> bool {
     let mut changed = false;
+    if host.shared_side_panel()
+        && host.side().shared_open == Some(true)
+        && let Some(sid) = host.active_session_id().map(str::to_owned)
+        && !host.side().shared_mounted.contains(&sid)
+    {
+        host.side_mut().shared_mounted.insert(sid);
+    }
     if host.side().edge_flight.is_flying() {
         let now = host.clock();
         if host.side().edge_flight.due(now)

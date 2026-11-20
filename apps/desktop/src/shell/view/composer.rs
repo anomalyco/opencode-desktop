@@ -221,6 +221,7 @@ impl ComposerHost for App {
         self.kernel.slots.get(&crate::suggestions::SUGGEST).state.held_height()
     }
     fn composer_on_change(&mut self, tx: &mut Tx) {
+        crate::tab_hints::cancel(self, tx);
         if self.composer_typed() {
             // The + button and the pickers fade out over 200 ms (`editor.tsx:178-182`).
             tx.animated();
@@ -230,6 +231,7 @@ impl ComposerHost for App {
         self.suggest_input(tx);
     }
     fn composer_on_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
+        crate::tab_hints::key_down(self, ev, tx);
         // editor.tsx:343: even above suggestions, Return writes a line, never sends a prompt.
         if ev.key == Key::Enter && self.composer_docked_actions() && !self.composer.is_composing() {
             if ev.mods.cmd || ev.mods.ctrl {

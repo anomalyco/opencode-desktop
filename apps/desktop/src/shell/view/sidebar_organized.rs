@@ -69,7 +69,7 @@ fn server_groups(s: &App, p: &Pal) -> El {
     for server in &s.kernel.slots.get(&crate::projects::HOME_STATE).servers {
         let key = server.key.clone();
         let collapsed = crate::projects::home::collapsed(&key);
-        let mut group = col().role("group").label(server.label.clone()).w_full().gap(4.0)
+        let mut group = col().w_full().gap(4.0)
             .child(small_button(p, &format!("server-{key}"), &server.label).expanded(!collapsed)
                 .on_press_tx(move |_: &mut App, tx| crate::projects::home::toggle_collapsed(&key, tx)));
         if !collapsed && server.key == *runtime::active(s) { group = group.child(projects(s, p)); }

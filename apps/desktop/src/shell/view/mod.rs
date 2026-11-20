@@ -138,6 +138,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     root.on_key_up(|s: &mut App, ev, tx| crate::dictation::key_up(s, ev, tx))
         .on_window_focus(|s: &mut App, focused, tx| {
             s.plugins.window_blurred.set(!focused);
+            if !focused { crate::tab_hints::window_left(s, tx); }
             if focused { crate::launch::network_available(s, tx); }
             // The coordinator's `tip` opens on the window's `focus`.
             crate::tips::on_focus(s, focused);
@@ -210,6 +211,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         s.zoom.to_bits(),
         *s.sidebar_open,
         s.can_tear(),
+        crate::tab_hints::shown(s),
         crate::plugin_host::surfaces_version(s),
     );
     let band = (chrome().row_h > 0.0)
