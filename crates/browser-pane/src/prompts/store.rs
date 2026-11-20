@@ -264,16 +264,32 @@ impl SitePermissions {
     }
 }
 
+#[cfg(feature = "engine")]
+static PREFS_SCRUB_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+#[cfg(feature = "engine")]
+static PREFS_SCRUB_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
 /// Before spawning a browser engine on an unlocked `profile`, strips any exact-origin site
 /// permission entries in Chromium's `Default/Preferences` that are absent from (or disagree with)
 /// Rune's `rune.sitePermissions` so revocations and edits in `Settings > Browser` take effect on
 /// engine restart even when connected to an older engine (`permission_sync == false`).
+///
+/// Holds both an in-process mutex (serializing multi-window spawns in the same process) and the
+/// exclusive OS `engine.lock` file lock across the entire read-modify-rename, using a unique
+/// per-call temp filename (`Preferences.tmp-{pid}-{seq}`).
 #[cfg(feature = "engine")]
 pub(crate) fn scrub_chromium_preferences_for_older_engine(
     profile: &std::path::Path,
     kept: &[SiteDecision],
 ) {
     let prefs_path = profile.join("Default").join("Preferences");
+    if !prefs_path.exists() {
+        return;
+    }
+    let _in_proc = PREFS_SCRUB_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Some(_engine_lock) = crate::profile::try_lock_exclusive(profile) else {
+        return;
+    };
     let Ok(meta) = std::fs::symlink_metadata(&prefs_path) else { return };
     if !meta.is_file() || meta.file_type().is_symlink() {
         return;
@@ -330,8 +346,9 @@ pub(crate) fn scrub_chromium_preferences_for_older_engine(
         return;
     }
     let Ok(updated) = serde_json::to_vec(&root) else { return };
-    let tmp = prefs_path.with_file_name(format!("Preferences.tmp-{}", std::process::id()));
-    if std::fs::write(&tmp, &updated).is_ok() && std::fs::rename(&tmp, &prefs_path).is_err() {
+    let seq = PREFS_SCRUB_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = prefs_path.with_file_name(format!("Preferences.tmp-{}-{seq}", std::process::id()));
+    if std::fs::write(&tmp, &updated).is_err() || std::fs::rename(&tmp, &prefs_path).is_err() {
         let _ = std::fs::remove_file(&tmp);
     }
 }

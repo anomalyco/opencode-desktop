@@ -141,9 +141,7 @@ pub(crate) fn spawn_and_attach(engine: &Installed, sock: &Path, profile: &Path, 
     if !link.current() {
         return;
     }
-    if profile::is_free(profile) {
-        crate::prompts::scrub_chromium_preferences_for_older_engine(profile, &link.profile_permissions);
-    }
+    crate::prompts::scrub_chromium_preferences_for_older_engine(profile, &link.profile_permissions);
     let mut child = match engine_command(&engine.bin, sock, profile).spawn() {
         Ok(child) => child,
         Err(e) => {
