@@ -252,7 +252,7 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
     // 2. Reconcile open sessions against the active live server.
     changed |= reconcile_sessions(app, now);
 
-    // 3. Route any CDP events from BrowserHost into the owning session's TabDiagnostics.
+    // 3. Route any CDP events from BrowserHost into diagnostics & active trace/heap buffers.
     if app.workspace_panes.browser.host.has_cdp_events() {
         let events: Vec<_> = app.workspace_panes.browser.host.drain_cdp_events().collect();
         let st = app.kernel.slots.get_mut(&BROWSER_RPC);
@@ -260,6 +260,24 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
             for att in st.sessions.values_mut() {
                 if let Some(diag) = att.diagnostics.get_mut(&ev.tab_id) {
                     diag.ingest_cdp_event(&ev.method, &ev.params, ev.session_id.as_deref());
+                }
+                if ev.method == "Tracing.dataCollected"
+                    && let Some(rec) = att.trace_recording.as_mut()
+                    && rec.host_id == ev.tab_id
+                    && let Some(arr) = ev.params.get("value").and_then(Value::as_array)
+                {
+                    rec.events.extend(arr.iter().cloned());
+                } else if ev.method == "Tracing.tracingComplete"
+                    && let Some(rec) = att.trace_recording.as_mut()
+                    && rec.host_id == ev.tab_id
+                {
+                    rec.data_loss = ev.params.get("dataLossOccurred").and_then(Value::as_bool).unwrap_or(false);
+                    rec.complete = true;
+                } else if ev.method == "HeapProfiler.addHeapSnapshotChunk"
+                    && let Some(buf) = att.heap_chunks.get_mut(&ev.tab_id)
+                    && let Some(chunk) = ev.params.get("chunk").and_then(Value::as_str)
+                {
+                    buf.push_str(chunk);
                 }
             }
         }
@@ -301,9 +319,20 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
         if let Some(w) = cmd_wake {
             earliest_wake = Some(earliest_wake.map_or(w, |cur| cur.min(w)));
         }
-        // Sync tab inventory changes while attached.
+        // Sync tab inventory changes while attached & auto-enable CDP diagnostics on session tabs.
         if att.attach.is_attached() {
             let (inv, hash) = att.sync_tabs(app);
+            if app.workspace_panes.browser.host.engine_agent_tools() {
+                let to_enable: Vec<u64> = att
+                    .host_to_wire
+                    .keys()
+                    .copied()
+                    .filter(|hid| !att.diagnostics_enabled.contains(hid))
+                    .collect();
+                for hid in to_enable {
+                    att.ensure_diagnostics(app, hid);
+                }
+            }
             let effs = att.attach.step(AttachEvent::StateChanged { hash }, now);
             if effs.iter().any(|e| matches!(e, AttachEffect::SendState { .. }))
                 && let Some(cid) = att.attach.connection_id().map(str::to_owned)

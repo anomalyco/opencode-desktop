@@ -305,6 +305,26 @@ pub enum HostMsg {
     DropContext {
         context: ContextKind,
     },
+    TypedCdpCall {
+        tab_id: u64,
+        request_id: u64,
+        method: String,
+        params: Value,
+        session_id: Option<String>,
+    },
+    UploadFiles {
+        tab_id: u64,
+        request_id: u64,
+        backend_node_id: i64,
+        files: Vec<String>,
+    },
+    DropFiles {
+        tab_id: u64,
+        request_id: u64,
+        x: f64,
+        y: f64,
+        files: Vec<String>,
+    },
     Shutdown,
 }
 
@@ -338,6 +358,9 @@ pub enum EngineMsg {
         /// The engine confines proxied `RemoteServer` partitions via `fixed_servers` + `<-loopback>` + WebRTC/DoH hardening.
         #[serde(default)]
         remote_proxy: bool,
+        /// The engine supports `TypedCdpCall`, confined `UploadFiles`, and confined `DropFiles`.
+        #[serde(default)]
+        agent_tools: bool,
     },
     /// A frame navigation or redirect was refused by URL policy while keeping the current page.
     Refused {

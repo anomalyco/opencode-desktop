@@ -142,6 +142,13 @@ pub enum HostMsg {
     AnswerAuth { tab_id: u64, id: u64, username: Option<String>, password: Option<String> },
     /// Marks a tab as agent-driven (cancels native file choosers, skips `beforeunload`, rejects HTTP auth).
     SetAgentDriven { tab_id: u64, agent_driven: bool },
+    /// Typed CDP call issued strictly by Rune's native Rust `experimental.browser` executors
+    /// (`browser_policy::check_typed_cdp`), never exposed to untrusted Luau plugins.
+    TypedCdpCall { tab_id: u64, request_id: u64, method: String, params: Value, session_id: Option<String> },
+    /// Sets files on a `<input type="file">` strictly from `<profile>/opencode-page-uploads/<tab_id>/`.
+    UploadFiles { tab_id: u64, request_id: u64, backend_node_id: i64, files: Vec<String> },
+    /// Drops staged files onto `(x, y)` strictly from `<profile>/opencode-page-uploads/<tab_id>/`.
+    DropFiles { tab_id: u64, request_id: u64, x: f64, y: f64, files: Vec<String> },
     Shutdown,
 }
 
@@ -150,7 +157,8 @@ pub enum HostMsg {
 pub enum EngineMsg {
     /// `downloads`: keeps page downloads; `policy`: enforces URL/CDP policy; `prompts`: holds
     /// dialogs/permissions/auth for the app; `popups`: routes pop-ups to managed tabs; `find`:
-    /// supports in-page `FindHandler`; `context_menu`: routes right-click menus to the app.
+    /// supports in-page `FindHandler`; `context_menu`: routes right-click menus to the app;
+    /// `agent_tools`: supports `TypedCdpCall`, confined `UploadFiles`, and confined `DropFiles`.
     Ready {
         chromium_major: u32,
         pid: u32,
@@ -168,6 +176,8 @@ pub enum EngineMsg {
         partitions: bool,
         #[serde(default)]
         remote_proxy: bool,
+        #[serde(default)]
+        agent_tools: bool,
     },
     Refused { tab_id: u64, reason: String },
     Dialog { tab_id: u64, dialog: PageDialog },

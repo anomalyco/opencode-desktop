@@ -95,6 +95,7 @@ fn start_tabs_open(
 
     let host_id = app.open_new_browser_tab_for_session(Some(&att.session_id), &target_url, None, focus);
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
+    att.ensure_diagnostics(app, host_id);
     let _ = att.sync_tabs(app);
     let Some(wire_tab_id) = att.host_to_wire.get(&host_id).cloned() else {
         return StepOutcome::Done(Outcome::fail(

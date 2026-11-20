@@ -2,7 +2,7 @@
 
 use std::io::Cursor;
 
-use base64::Engine as _;
+use base64::Engine;
 use browser_pane::tools::diagnostics::TabDiagnostics;
 use opencode_kit::browser_rpc::{
     Command, MAX_FILE_BYTES, Outcome, WireFile, failure_code, new_file_id,
@@ -22,6 +22,15 @@ pub(super) struct ScreenshotState {
     pub quality: Option<u64>,
     pub max_width: Option<u32>,
     pub stage: ScreenshotStage,
+}
+
+pub(super) struct NetworkGetState {
+    pub host_id: u64,
+    pub req_id: String,
+    pub include_body: bool,
+    pub include_resp: bool,
+    pub max_body: usize,
+    pub cdp_req: u64,
 }
 
 pub(super) enum ScreenshotStage {
@@ -179,7 +188,7 @@ fn exec_network_list(att: &mut SessionAttachment, app: &App, cmd: &Command) -> S
     StepOutcome::Done(Outcome::ok(val, Vec::new()))
 }
 
-fn exec_network_get(att: &mut SessionAttachment, app: &App, cmd: &Command) -> StepOutcome {
+fn exec_network_get(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> StepOutcome {
     let Some(wire_id) = cmd.tab_id() else {
         return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "Missing tabID."));
     };
@@ -196,7 +205,7 @@ fn exec_network_get(att: &mut SessionAttachment, app: &App, cmd: &Command) -> St
     let Some(tab) = att.wire_tab(app, host_id) else {
         return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable."));
     };
-    let Some(hop) = att.diagnostics.get(&host_id).and_then(|d| d.network_hop(req_id)) else {
+    let Some(hop) = att.diagnostics.get(&host_id).and_then(|d| d.network_hop(req_id)).cloned() else {
         return StepOutcome::Done(Outcome::fail(
             failure_code::OPERATION_FAILED,
             "Request ID is no longer retained in this tab or belongs to another tab. Call browser.network.list({tabID}) and copy a current id.",
@@ -213,9 +222,62 @@ fn exec_network_get(att: &mut SessionAttachment, app: &App, cmd: &Command) -> St
         .get("maxBodyChars")
         .and_then(Value::as_u64)
         .map_or(20_000, |v| (v as usize).clamp(1, 20_000));
-    let mut val = TabDiagnostics::format_network_get(hop, include_body, include_resp, max_body, None);
+    if (include_resp || include_body)
+        && hop.is_text_response()
+        && !matches!(hop.phase, browser_pane::tools::diagnostics::HopPhase::Pending { .. })
+        && app.workspace_panes.browser.host.engine_agent_tools()
+        && let Ok(cdp_req) = app.workspace_panes.browser.host.send_typed_cdp(
+            host_id,
+            "Network.getResponseBody",
+            json!({ "requestId": hop.native_id }),
+            hop.session_id.clone(),
+        )
+    {
+        return StepOutcome::Pending(ExecPhase::NetworkGet(NetworkGetState {
+            host_id,
+            req_id: req_id.to_owned(),
+            include_body,
+            include_resp,
+            max_body,
+            cdp_req,
+        }));
+    }
+    let mut val = TabDiagnostics::format_network_get(&hop, include_body, include_resp, max_body, None);
     val["tab"] = serde_json::to_value(tab).unwrap_or(Value::Null);
     StepOutcome::Done(Outcome::ok(val, Vec::new()))
+}
+
+pub(super) fn step_network_get(
+    att: &SessionAttachment,
+    app: &mut App,
+    st: &NetworkGetState,
+) -> Option<Outcome> {
+    let resp = app.workspace_panes.browser.host.take_cdp_response(st.cdp_req)?;
+    let Some(tab) = att.wire_tab(app, st.host_id) else {
+        return Some(Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable."));
+    };
+    let Some(hop) = att.diagnostics.get(&st.host_id).and_then(|d| d.network_hop(&st.req_id)) else {
+        return Some(Outcome::fail(failure_code::OPERATION_FAILED, "Request ID is no longer retained."));
+    };
+    let fetched = match resp {
+        Ok(v) => {
+            let raw = v.get("body").and_then(Value::as_str).unwrap_or("");
+            let b64 = v.get("base64Encoded").and_then(Value::as_bool).unwrap_or(false);
+            if b64 {
+                base64::engine::general_purpose::STANDARD
+                    .decode(raw)
+                    .ok()
+                    .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+                    .ok_or("backendUnavailable")
+            } else {
+                Ok(raw.to_owned())
+            }
+        }
+        Err(_) => Err("backendUnavailable"),
+    };
+    let mut val = TabDiagnostics::format_network_get(hop, st.include_body, st.include_resp, st.max_body, Some(fetched));
+    val["tab"] = serde_json::to_value(tab).unwrap_or(Value::Null);
+    Some(Outcome::ok(val, Vec::new()))
 }
 
 fn exec_files_list(att: &mut SessionAttachment, app: &App, cmd: &Command) -> StepOutcome {
@@ -247,24 +309,27 @@ fn exec_files_list(att: &mut SessionAttachment, app: &App, cmd: &Command) -> Ste
             })
         })
         .collect();
-    if let Some(bt) = app.workspace_panes.browser.host.tab(host_id) {
-        for d in &bt.files {
-            if !opencode_kit::browser_rpc::is_valid_file_id(&d.id) {
-                continue;
-            }
-            let st = match d.state {
-                browser_pane::DownloadState::Pending => "pending",
-                browser_pane::DownloadState::Completed => "completed",
-                browser_pane::DownloadState::Failed => "failed",
-            };
-            files.push(json!({
-                "id": d.id,
-                "name": d.name,
-                "mime": d.mime,
-                "bytes": d.bytes,
-                "state": st,
-            }));
-        }
+    let engine_downloads: Vec<_> = app
+        .workspace_panes
+        .browser
+        .host
+        .tab(host_id)
+        .map(|bt| bt.files.clone())
+        .unwrap_or_default();
+    for d in &engine_downloads {
+        let wire_fid = att.wire_download_id(host_id, &d.id);
+        let st = match d.state {
+            browser_pane::DownloadState::Pending => "pending",
+            browser_pane::DownloadState::Completed => "completed",
+            browser_pane::DownloadState::Failed => "failed",
+        };
+        files.push(json!({
+            "id": wire_fid,
+            "name": d.name,
+            "mime": d.mime,
+            "bytes": d.bytes,
+            "state": st,
+        }));
     }
     StepOutcome::Done(Outcome::ok(json!({ "tab": tab, "files": files }), Vec::new()))
 }
@@ -296,8 +361,12 @@ fn exec_files_get(att: &mut SessionAttachment, app: &App, cmd: &Command) -> Step
             Err(e) => StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, e)),
         };
     }
+    let engine_id = att.resolve_download_engine_id(host_id, file_id);
     if let Some(bt) = app.workspace_panes.browser.host.tab(host_id)
-        && let Some(df) = bt.files.iter().find(|f| f.id == file_id)
+        && let Some(df) = bt
+            .files
+            .iter()
+            .find(|f| engine_id.as_deref() == Some(f.id.as_str()) || f.id == file_id)
     {
         if df.state != browser_pane::DownloadState::Completed {
             return StepOutcome::Done(Outcome::fail(
@@ -317,7 +386,8 @@ fn exec_files_get(att: &mut SessionAttachment, app: &App, cmd: &Command) -> Step
                 "Could not read verified download file.",
             ));
         };
-        return match WireFile::from_bytes(df.id.clone(), df.name.clone(), df.mime.clone(), &bytes) {
+        let wire_fid = att.wire_download_id(host_id, &df.id);
+        return match WireFile::from_bytes(wire_fid, df.name.clone(), df.mime.clone(), &bytes) {
             Ok(wf) => StepOutcome::Done(Outcome::ok(json!({ "tab": tab }), vec![wf])),
             Err(e) => StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, e)),
         };

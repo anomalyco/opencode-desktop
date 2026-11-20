@@ -413,6 +413,7 @@ pub(crate) enum EngineCaps {
         context_menu: bool,
         partitions: bool,
         remote_proxy: bool,
+        agent_tools: bool,
     },
 }
 
@@ -447,6 +448,10 @@ impl EngineCaps {
 
     pub(crate) fn remote_proxy(self) -> bool {
         matches!(self, Self::Known { remote_proxy: true, .. })
+    }
+
+    pub(crate) fn agent_tools(self) -> bool {
+        matches!(self, Self::Known { agent_tools: true, .. })
     }
 }
 

@@ -105,6 +105,101 @@ impl crate::BrowserHost {
         self.caps.remote_proxy()
     }
 
+    pub fn engine_agent_tools(&self) -> bool {
+        self.caps.agent_tools()
+    }
+
+    /// Sends a typed CDP call allowed by [`crate::policy::check_typed_cdp`] exclusively for native
+    /// Rust `experimental.browser` executors (never exposed to untrusted Luau plugins). Falls back
+    /// to `HostMsg::CdpCall` for methods already permitted by `check_cdp`.
+    pub fn send_typed_cdp(
+        &mut self,
+        tab_id: u64,
+        method: impl Into<String>,
+        params: serde_json::Value,
+        session_id: Option<String>,
+    ) -> Result<u64, String> {
+        let method = method.into();
+        crate::policy::check_typed_cdp(&method, &params, self.engine_policy())?;
+        let request_id = self.next_req_id;
+        self.next_req_id += 1;
+        if self.engine_agent_tools() {
+            self.send(crate::protocol::HostMsg::TypedCdpCall {
+                tab_id,
+                request_id,
+                method,
+                params,
+                session_id,
+            });
+            return Ok(request_id);
+        }
+        crate::policy::check_cdp(&method, &params, self.engine_policy())?;
+        self.send(crate::protocol::HostMsg::CdpCall {
+            tab_id,
+            request_id,
+            method,
+            params,
+            session_id,
+        });
+        Ok(request_id)
+    }
+
+    /// Sends confined `UploadFiles` to the engine (`Ready.agent_tools == true` required).
+    pub fn upload_files(
+        &mut self,
+        tab_id: u64,
+        backend_node_id: i64,
+        files: Vec<String>,
+    ) -> Result<u64, String> {
+        if !self.engine_agent_tools() {
+            return Err("File uploads require an updated browser engine (agent_tools capability).".into());
+        }
+        let request_id = self.next_req_id;
+        self.next_req_id += 1;
+        self.send(crate::protocol::HostMsg::UploadFiles { tab_id, request_id, backend_node_id, files });
+        Ok(request_id)
+    }
+
+    /// Sends confined `DropFiles` to the engine (`Ready.agent_tools == true` required).
+    pub fn drop_files(
+        &mut self,
+        tab_id: u64,
+        x: f64,
+        y: f64,
+        files: Vec<String>,
+    ) -> Result<u64, String> {
+        if !self.engine_agent_tools() {
+            return Err("File drops require an updated browser engine (agent_tools capability).".into());
+        }
+        let request_id = self.next_req_id;
+        self.next_req_id += 1;
+        self.send(crate::protocol::HostMsg::DropFiles { tab_id, request_id, x, y, files });
+        Ok(request_id)
+    }
+
+    /// Resolves the engine's profile directory holding `opencode-page-uploads/` (`OPENCODE_BROWSER_PROFILE`
+    /// -> configured `profile_dir` -> `shared_profile_dir()`).
+    pub fn uploads_profile_dir(&self) -> Option<std::path::PathBuf> {
+        #[cfg(feature = "engine")]
+        {
+            if let Some(p) = std::env::var_os(crate::profile::PROFILE_ENV)
+                .filter(|v| !v.is_empty())
+                .map(std::path::PathBuf::from)
+            {
+                return Some(p);
+            }
+            Some(
+                self.profile_dir
+                    .clone()
+                    .unwrap_or_else(crate::profile::shared_profile_dir),
+            )
+        }
+        #[cfg(not(feature = "engine"))]
+        {
+            self.profile_dir.clone()
+        }
+    }
+
     /// Updates or clears the local loopback tunnel proxy on a remote server partition.
     pub fn set_partition_proxy(
         &mut self,

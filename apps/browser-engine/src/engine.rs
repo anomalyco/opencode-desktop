@@ -134,8 +134,9 @@ impl CefRuntime {
 impl Drop for CefRuntime {
     fn drop(&mut self) {
         cef::shutdown();
-        // The pages' downloads end with the engine, as Desktop's go with its pages.
+        // The pages' downloads and staged agent uploads end with the engine.
         crate::downloads::remove_owned(&self.profile.root);
+        crate::agent::remove_owned_uploads(&self.profile.root);
         if self.profile.temporary {
             let _ = std::fs::remove_dir_all(&self.profile.root);
         }
@@ -202,13 +203,13 @@ wrap_browser_process_handler! {
     }
 }
 
-struct ManagedTab {
+pub(crate) struct ManagedTab {
     browser: Browser,
-    host: BrowserHost,
+    pub(crate) host: BrowserHost,
     file_roots: Arc<Mutex<Vec<String>>>,
     view_state: Arc<Mutex<ViewRectState>>,
-    snap: Arc<Mutex<TabSnapshot>>,
-    cdp_id_map: Arc<Mutex<HashMap<i32, CdpPending>>>,
+    pub(crate) snap: Arc<Mutex<TabSnapshot>>,
+    pub(crate) cdp_id_map: Arc<Mutex<HashMap<i32, CdpPending>>>,
     internal_picked: Arc<Mutex<Vec<i64>>>,
     pending_clears: Arc<Mutex<Vec<PendingClear>>>,
     prompts: Arc<crate::prompts::TabPrompts>,
@@ -235,6 +236,8 @@ pub struct EngineManager {
     home: Option<String>,
     /// The pages' downloads, in the profile's `opencode-page-downloads` folder.
     downloads: Arc<crate::downloads::Downloads>,
+    /// Engine profile directory holding `opencode-page-downloads` and `opencode-page-uploads`.
+    profile_dir: std::path::PathBuf,
     /// Shared prompt-handling toggle (`Hello.prompts`) and monotonic ID counter.
     prompt_shared: crate::prompts::PromptShared,
     /// Shared pool of isolated `CefRequestContext`s for previews and remote servers.
@@ -268,6 +271,7 @@ impl EngineManager {
             dark: None,
             home: crate::profile::home_dir(),
             downloads: crate::downloads::Downloads::open(&downloads),
+            profile_dir: downloads,
             prompt_shared: crate::prompts::PromptShared::default(),
             contexts: crate::context::ContextPool::new(events.clone()),
             #[cfg(windows)]
@@ -460,6 +464,7 @@ impl EngineManager {
                     context_menu: prompts,
                     partitions: true,
                     remote_proxy: true,
+                    agent_tools: true,
                 });
                 for (&tab_id, t) in &self.tabs {
                     t.menu.cancel_all();
@@ -514,12 +519,14 @@ impl EngineManager {
                     tab.prompts.dismiss_all();
                     tab.host.close_browser(1);
                     self.downloads.close_tab(tab_id);
+                    crate::agent::remove_tab_uploads(&self.profile_dir, tab_id);
                     let _ = self.out_tx.send(EngineMsg::TabClosed { tab_id });
                 }
             }
             HostMsg::FocusTab { tab_id } => {
                 for (&id, t) in &mut self.tabs {
                     let active = id == tab_id;
+                    let agent = t.prompts.agent_driven.load(Ordering::Relaxed);
                     #[cfg(target_os = "linux")]
                     {
                         t.shown = active;
@@ -528,7 +535,7 @@ impl EngineManager {
                             let _ = ring.lock().unwrap().step(crate::dmabuf_frames::Event::Released);
                         }
                     }
-                    t.host.was_hidden(i32::from(!active));
+                    t.host.was_hidden(i32::from(!active && !agent));
                     t.host.set_focus(i32::from(active));
                     if active {
                         t.host.invalidate(PaintElementType::default());
@@ -888,6 +895,31 @@ impl EngineManager {
             HostMsg::SetAgentDriven { tab_id, agent_driven } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
                     t.prompts.agent_driven.store(agent_driven, Ordering::Relaxed);
+                    if agent_driven {
+                        // Keep background agent tabs unthrottled so waits, screenshots, and traces never stall.
+                        t.host.was_hidden(0);
+                    }
+                }
+            }
+            HostMsg::TypedCdpCall { tab_id, request_id, method, params, session_id } => {
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    crate::agent::handle_typed_cdp(
+                        t, tab_id, request_id, method, params, session_id, &self.next_cdp_id, &self.out_tx,
+                    );
+                }
+            }
+            HostMsg::UploadFiles { tab_id, request_id, backend_node_id, files } => {
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    crate::agent::handle_upload_files(
+                        t, &self.profile_dir, tab_id, request_id, backend_node_id, &files, &self.next_cdp_id, &self.out_tx,
+                    );
+                }
+            }
+            HostMsg::DropFiles { tab_id, request_id, x, y, files } => {
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    crate::agent::handle_drop_files(
+                        t, &self.profile_dir, tab_id, request_id, x, y, &files, &self.next_cdp_id, &self.out_tx,
+                    );
                 }
             }
             HostMsg::ClearSiteCache { tab_id, request_id } => {
@@ -1126,7 +1158,9 @@ impl EngineManager {
         let Some(host) = browser.host() else { return };
         if focused {
             for existing in self.tabs.values() {
-                existing.host.was_hidden(1);
+                if !existing.prompts.agent_driven.load(Ordering::Relaxed) {
+                    existing.host.was_hidden(1);
+                }
                 existing.host.set_focus(0);
             }
             host.set_focus(1);

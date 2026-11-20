@@ -1,7 +1,7 @@
 //! Per-session `experimental.browser` v4 attachment state, bijective `tab_<uuid> <-> host_id`
 //! isolation, per-tab element refs, diagnostics, captures, and ordered FIFO outbound worker.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::Duration;
@@ -9,10 +9,12 @@ use std::time::Duration;
 use browser_pane::tools::diagnostics::TabDiagnostics;
 use opencode_kit::browser_rpc::{
     AbortHandle, AttachMachine, BrowserState, LocationRef, Outcome, RpcCallError, Tab,
-    failure_code, new_tab_id,
+    failure_code, new_file_id, new_tab_id,
 };
 use opencode_kit::client::Server;
 use opencode_kit::servers::ServerKey;
+use rune::time::Instant;
+use serde_json::Value;
 
 use super::exec::ActiveCommand;
 use crate::App;
@@ -71,6 +73,15 @@ pub(super) struct CapturedFile {
     pub resources: Vec<String>,
 }
 
+/// In-flight Chromium performance trace buffer for one tab.
+pub(super) struct TraceRecording {
+    pub host_id: u64,
+    pub started_at: Instant,
+    pub events: Vec<Value>,
+    pub complete: bool,
+    pub data_loss: bool,
+}
+
 /// Complete per-session state for one `experimental.browser` v4 attachment.
 /// Isolation invariant: every tab lookup checks BOTH `wire_to_host` (owned by this session) AND
 /// `app.browser_tab_session(host_id) == Some(self.session_id)`.
@@ -88,7 +99,12 @@ pub(super) struct SessionAttachment {
     pub last_urls: HashMap<u64, String>,
     pub refs: HashMap<u64, TabRefs>,
     pub diagnostics: HashMap<u64, TabDiagnostics>,
+    pub diagnostics_enabled: HashSet<u64>,
     pub captures: HashMap<u64, Vec<CapturedFile>>,
+    pub download_wire_ids: HashMap<(u64, String), String>,
+    pub trace_recording: Option<TraceRecording>,
+    pub cpu_started: HashMap<u64, Instant>,
+    pub heap_chunks: HashMap<u64, String>,
     pub agent_tab_id: Option<String>,
     pub active_commands: Vec<ActiveCommand>,
     pub diag_scope_seed: u64,
@@ -116,11 +132,64 @@ impl SessionAttachment {
             last_urls: HashMap::new(),
             refs: HashMap::new(),
             diagnostics: HashMap::new(),
+            diagnostics_enabled: HashSet::new(),
             captures: HashMap::new(),
+            download_wire_ids: HashMap::new(),
+            trace_recording: None,
+            cpu_started: HashMap::new(),
+            heap_chunks: HashMap::new(),
             agent_tab_id: None,
             active_commands: Vec::new(),
             diag_scope_seed,
         }
+    }
+
+    /// Enables `Runtime`, `Log`, and `Network` CDP domains on `host_id` once per tab when the
+    /// engine advertises `Ready.agent_tools`.
+    pub fn ensure_diagnostics(&mut self, app: &mut App, host_id: u64) {
+        if self.diagnostics_enabled.contains(&host_id)
+            || !app.workspace_panes.browser.host.engine_agent_tools()
+        {
+            return;
+        }
+        let _ = app
+            .workspace_panes
+            .browser
+            .host
+            .send_typed_cdp(host_id, "Runtime.enable", serde_json::json!({}), None);
+        let _ = app
+            .workspace_panes
+            .browser
+            .host
+            .send_typed_cdp(host_id, "Log.enable", serde_json::json!({}), None);
+        let _ = app.workspace_panes.browser.host.send_typed_cdp(
+            host_id,
+            "Network.enable",
+            serde_json::json!({
+                "maxTotalBufferSize": 5_242_880,
+                "maxResourceBufferSize": 1_048_576,
+                "maxPostDataSize": 20_000,
+            }),
+            None,
+        );
+        self.diagnostics_enabled.insert(host_id);
+    }
+
+    /// Maps an engine-assigned download ID (`file_1`) bijectively to a wire-valid `file_<uuid>`
+    /// owned strictly by `(host_id, engine_id)`.
+    pub fn wire_download_id(&mut self, host_id: u64, engine_id: &str) -> String {
+        let key = (host_id, engine_id.to_owned());
+        self.download_wire_ids
+            .entry(key)
+            .or_insert_with(new_file_id)
+            .clone()
+    }
+
+    pub fn resolve_download_engine_id(&self, host_id: u64, wire_id: &str) -> Option<String> {
+        self.download_wire_ids
+            .iter()
+            .find(|((hid, _), wid)| *hid == host_id && wid.as_str() == wire_id)
+            .map(|((_, eid), _)| eid.clone())
     }
 
     pub fn stop_outbound(&mut self) {
@@ -198,7 +267,15 @@ impl SessionAttachment {
             self.last_urls.remove(&host_id);
             self.refs.remove(&host_id);
             self.diagnostics.remove(&host_id);
+            self.diagnostics_enabled.remove(&host_id);
             self.captures.remove(&host_id);
+            self.download_wire_ids.retain(|(hid, _), _| *hid != host_id);
+            self.cpu_started.remove(&host_id);
+            self.heap_chunks.remove(&host_id);
+            if self.trace_recording.as_ref().is_some_and(|r| r.host_id == host_id) {
+                self.trace_recording = None;
+            }
+            super::exec::files::cleanup_tab_uploads(app, host_id);
         }
 
         // Register newly opened tabs and track document navigations.

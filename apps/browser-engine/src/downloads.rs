@@ -100,7 +100,10 @@ wrap_download_handler! {
         fn can_download(&self, _browser: Option<&mut Browser>, url: Option<&CefString>, _method: Option<&CefString>) -> ::std::os::raw::c_int {
             let url = url.map(CefString::to_string).unwrap_or_default();
             let roots = self.file_roots.lock().unwrap().clone();
-            if !browser_policy::subresource_allowed(&url, &roots) || browser_policy::is_http_with_credentials(&url) {
+            if !browser_policy::subresource_allowed(&url, &roots)
+                || browser_policy::is_http_with_credentials(&url)
+                || browser_policy::extension_origin(&url)
+            {
                 return 0;
             }
             1
