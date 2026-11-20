@@ -100,8 +100,11 @@ return plugin.defineWindow(function(ctx)
             local session = Sessions:Get(context.sessionId)
             local dir = if session and session.directory ~= "" then session.directory else context.directory
             local parent = false
-            for part in string.gmatch(raw, "[^/]+") do
+            for part in string.gmatch(raw, "[^/\\]+") do
                 parent = parent or part == ".."
+            end
+            if string.match(raw, "^[/\\][/\\]") ~= nil or string.match(raw, "^[/\\]%?%?[/\\]") ~= nil then
+                parent = true
             end
             local path = if parent then nil else Workspace:Relative(raw, dir)
             if path == nil then

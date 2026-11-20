@@ -81,8 +81,18 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, name: &str, t: &Table) -> mlua::Result<()
             })?;
             method(lua, t, "Exists", |lua, link: Value| {
                 let link: spec::Link = decode(lua, link, "Link")?;
-                let path = link.href.strip_prefix("file://").unwrap_or(&link.href);
-                Ok(std::path::Path::new(path).exists())
+                if browser_policy::is_raw_unc_href(&link.href) {
+                    return Ok(false);
+                }
+                let path = if browser_policy::is_file_scheme(&link.href) {
+                    let Some(p) = browser_policy::local_file_path(&link.href) else {
+                        return Ok(false);
+                    };
+                    p
+                } else {
+                    link.href
+                };
+                Ok(browser_policy::verify_local_path(&path).is_ok())
             })
         }
         "Commands" => {

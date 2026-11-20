@@ -127,7 +127,18 @@ impl App {
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let tab_id = if let Some(existing) = self.default_browser_tab_for_session(sid) {
+            // Never fall back to another session's focused browser tab (`review-rd-tools.md` §2).
+            let existing_in_session = self.active_browser_tab_for_session(sid).or_else(|| {
+                self.workspace_panes
+                    .browser
+                    .session_tabs
+                    .get(sid)?
+                    .iter()
+                    .rev()
+                    .copied()
+                    .find(|&id| self.workspace_panes.browser.host.tab(id).is_some())
+            });
+            let tab_id = if let Some(existing) = existing_in_session {
                 let key = crate::panels::panel_key(super::PLUGIN, &existing.to_string());
                 self.open_side_tab_for_session(sid, &key, None, false, false);
                 existing

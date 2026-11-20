@@ -85,15 +85,25 @@ pub fn target(name: &str, status: &ToolStatus, input: &Value, metadata: &Value, 
     }
 }
 
-/// `path` inside `directory`, relative to it; `None` for a path outside it.
+/// `path` inside `directory`, relative to it; `None` for a path outside it, UNC/device path, or
+/// any `..` traversal segment (including backslash-separated `..\\..`).
 pub(crate) fn relative(path: &str, directory: &str) -> Option<String> {
+    if browser_policy::is_raw_unc_href(path) {
+        return None;
+    }
     let rel = if opencode_kit::path::is_absolute(path) {
         opencode_kit::path::strip_dir(path, directory)?
     } else {
-        path.trim_start_matches("./")
+        path.trim_start_matches("./").trim_start_matches(".\\")
     };
     let rel = crate::review::data::normalize_path(rel);
-    (!rel.is_empty()).then_some(rel)
+    if rel.is_empty()
+        || rel.starts_with('/')
+        || rel.split('/').any(|seg| seg == "..")
+    {
+        return None;
+    }
+    Some(rel)
 }
 
 /// The first changed line of the step's own diff (`metadata.files[].patch`) for `path`.

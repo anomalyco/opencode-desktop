@@ -21,7 +21,7 @@ mod local_fs;
 mod local_path;
 pub mod preview;
 mod workspace_root;
-pub use app_links::{AppSchemeAction, AppSchemeSource, classify_app_link};
+pub use app_links::{AppSchemeAction, AppSchemeSource, classify_app_link, is_safe_os_external_url};
 pub use local_fs::{
     LocalPathError, VerifiedLocalPath, is_local_fixed_drive, is_macos_bundle,
     reveal_in_file_manager, verify_local_path, verify_within_root,
@@ -75,8 +75,12 @@ impl Refusal {
 pub fn destination_origin(input: &str) -> Option<String> {
     let trimmed = input.trim();
     let (scheme, rest) = split_http_scheme(trimmed)?;
-    let authority = rest.split(['/', '\\', '?', '#']).next().unwrap_or("");
-    if authority.is_empty() || authority.contains('@') || authority.chars().any(|c| c.is_whitespace() || c.is_control()) {
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    if authority.is_empty()
+        || authority.contains('\\')
+        || authority.contains('@')
+        || authority.chars().any(|c| c.is_whitespace() || c.is_control())
+    {
         return None;
     }
     let host_port = parse_host_port(authority)?;
@@ -87,7 +91,7 @@ pub fn destination_origin(input: &str) -> Option<String> {
 pub fn is_http_with_credentials(input: &str) -> bool {
     let trimmed = input.trim();
     let Some((_, rest)) = split_http_scheme(trimmed) else { return false };
-    let authority = rest.split(['/', '\\', '?', '#']).next().unwrap_or("");
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
     if authority.is_empty() || authority.chars().any(|c| c.is_whitespace() || c.is_control()) {
         return false;
     }

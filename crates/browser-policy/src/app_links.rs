@@ -91,12 +91,42 @@ pub fn classify_app_link(value: &str, source: AppSchemeSource) -> Option<AppSche
     })
 }
 
+/// Explicit allow-list of URLs permitted to reach the OS shell (`ShellExecuteW`, `NSWorkspace`,
+/// `xdg-open`): strictly credential-free `http:`/`https:` (no control/bidi/whitespace) or safe
+/// `mailto:` without attachment parameters. Nothing outside this allow-list may be handed to the
+/// OS (`ms-*`, `search-ms:`, `file:`, `smb:`, `javascript:`, `data:`, custom schemes).
+pub fn is_safe_os_external_url(value: &str) -> bool {
+    if value.is_empty() || value.len() > 2048 || value.trim() != value || has_unsafe_chars(value) {
+        return false;
+    }
+    if value.bytes().any(|b| b.is_ascii_whitespace()) {
+        return false;
+    }
+    let is_http = value.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("http://"))
+        || value.get(..8).is_some_and(|s| s.eq_ignore_ascii_case("https://"));
+    if is_http {
+        return crate::destination_origin(value).is_some();
+    }
+    if value.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("mailto:")) {
+        return classify_app_link(value, AppSchemeSource::Conversation) == Some(AppSchemeAction::Mail);
+    }
+    false
+}
+
 fn has_unsafe_chars(value: &str) -> bool {
     if value.chars().any(|c| {
         let n = c as u32;
         n <= 0x1f
             || (0x7f..=0x9f).contains(&n)
-            || matches!(n, 0x061c | 0x200e | 0x200f | 0x202a..=0x202e | 0x2066..=0x2069)
+            || matches!(
+                n,
+                0x061c
+                    | 0x200b..=0x200f
+                    | 0x202a..=0x202e
+                    | 0x2060
+                    | 0x2066..=0x2069
+                    | 0xfeff
+            )
     }) {
         return true;
     }
@@ -119,11 +149,64 @@ fn has_unsafe_chars(value: &str) -> bool {
     false
 }
 
+fn percent_decode_query_key(raw: &str) -> Option<String> {
+    let bytes = raw.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            if i + 2 >= bytes.len() {
+                return None;
+            }
+            let hi = (bytes[i + 1] as char).to_digit(16)?;
+            let lo = (bytes[i + 2] as char).to_digit(16)?;
+            let val = ((hi << 4) | lo) as u8;
+            if val <= 0x1f || val == 0x7f {
+                return None;
+            }
+            out.push(val);
+            i += 3;
+        } else if bytes[i] == b'+' {
+            out.push(b' ');
+            i += 1;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    let decoded = String::from_utf8(out).ok()?;
+    if decoded.chars().any(|c| {
+        let n = c as u32;
+        n <= 0x1f
+            || (0x7f..=0x9f).contains(&n)
+            || matches!(
+                n,
+                0x061c
+                    | 0x200b..=0x200f
+                    | 0x202a..=0x202e
+                    | 0x2060
+                    | 0x2066..=0x2069
+                    | 0xfeff
+            )
+    }) {
+        return None;
+    }
+    Some(decoded)
+}
+
 fn mailto_has_attachment(tail: &str) -> bool {
     let Some((_, query_and_frag)) = tail.split_once('?') else { return false };
     let query = query_and_frag.split('#').next().unwrap_or(query_and_frag);
-    query.split('&').any(|pair| {
-        let key = pair.split('=').next().unwrap_or(pair);
-        key.eq_ignore_ascii_case("attach") || key.eq_ignore_ascii_case("attachment")
+    query.split(['&', ';']).any(|pair| {
+        let raw_key = pair.split('=').next().unwrap_or(pair);
+        let Some(decoded) = percent_decode_query_key(raw_key) else {
+            // Malformed percent encoding or hidden control bytes in query key: fail closed to Copy.
+            return true;
+        };
+        let key = decoded.trim().to_ascii_lowercase();
+        matches!(
+            key.as_str(),
+            "attach" | "attachment" | "attachments" | "file" | "filename" | "filepath" | "body-file"
+        )
     })
 }

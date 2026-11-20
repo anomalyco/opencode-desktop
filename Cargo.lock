@@ -3601,6 +3601,7 @@ dependencies = [
 name = "opencode-feature-office"
 version = "0.0.1"
 dependencies = [
+ "browser-policy",
  "bytemuck",
  "office-preview",
  "opencode-kernel",

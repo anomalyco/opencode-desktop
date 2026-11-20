@@ -85,10 +85,10 @@ local function hasUnsafeChars(value: string): boolean
             return true
         end
     end
-    -- C1 controls (U+0080..U+009F) and bidi marks/overrides/isolates.
+    -- C1 controls (U+0080..U+009F), bidi marks/overrides/isolates, BOM, and zero-width chars.
     local ok = pcall(function()
         for _, cp in utf8.codes(value) do
-            if (cp >= 0x80 and cp <= 0x9f) or cp == 0x061c or cp == 0x200e or cp == 0x200f or (cp >= 0x202a and cp <= 0x202e) or (cp >= 0x2066 and cp <= 0x2069) then
+            if (cp >= 0x80 and cp <= 0x9f) or cp == 0x061c or (cp >= 0x200b and cp <= 0x200f) or (cp >= 0x202a and cp <= 0x202e) or cp == 0x2060 or (cp >= 0x2066 and cp <= 0x2069) or cp == 0xfeff then
                 error("unsafe", 0)
             end
         end
@@ -125,14 +125,64 @@ local function hasCredentials(value: string, schemeLen: number): boolean
     return string.find(authority, "@", 1, true) ~= nil
 end
 
+local MAILTO_ATTACH_KEYS: { [string]: boolean } = {
+    attach = true,
+    attachment = true,
+    attachments = true,
+    file = true,
+    filename = true,
+    filepath = true,
+    ["body-file"] = true,
+}
+
+local function percentDecodeQueryKey(raw: string): string?
+    local out: { string } = {}
+    local i = 1
+    local len = #raw
+    while i <= len do
+        local ch = string.sub(raw, i, i)
+        if ch == "%" then
+            if i + 2 > len then
+                return nil
+            end
+            local hex = string.sub(raw, i + 1, i + 2)
+            if string.match(hex, "^[0-9A-Fa-f][0-9A-Fa-f]$") == nil then
+                return nil
+            end
+            local byte = tonumber(hex, 16)
+            if byte == nil or byte <= 0x1f or byte == 0x7f then
+                return nil
+            end
+            table.insert(out, string.char(byte))
+            i += 3
+        elseif ch == "+" then
+            table.insert(out, " ")
+            i += 1
+        else
+            table.insert(out, ch)
+            i += 1
+        end
+    end
+    local decoded = table.concat(out)
+    if hasUnsafeChars(decoded) then
+        return nil
+    end
+    return decoded
+end
+
 local function mailtoHasAttachment(value: string): boolean
     local query = string.match(value, "%?([^#]*)")
     if query == nil then
         return false
     end
-    for pair in string.gmatch(query, "[^&]+") do
-        local key = string.lower(string.match(pair, "^([^=]*)") or pair)
-        if key == "attach" or key == "attachment" then
+    for pair in string.gmatch(query, "[^&;]+") do
+        local rawKey = string.match(pair, "^([^=]*)") or pair
+        local decoded = percentDecodeQueryKey(rawKey)
+        if decoded == nil then
+            return true
+        end
+        local key = string.lower(string.gsub(decoded, "^%s*(.-)%s*$", "%1"))
+        if MAILTO_ATTACH_KEYS[key] == true then
             return true
         end
     end
@@ -157,15 +207,13 @@ function refusal.externalTarget(value: string, source: Source?): ExternalAction?
     if hasCredentials(value, #rawScheme) then
         return nil
     end
-    if src == "conversation" then
-        if scheme == "obsidian" then
-            local tail = string.sub(value, #rawScheme + 2)
-            local okObsidian = string.match(tail, "^//open$") ~= nil or string.match(tail, "^//open%?") ~= nil or string.match(tail, "^//search$") ~= nil or string.match(tail, "^//search%?") ~= nil
-            if not okObsidian then
-                return "copy"
-            end
-        end
-        if scheme == "mailto" and mailtoHasAttachment(value) then
+    if scheme == "mailto" and mailtoHasAttachment(value) then
+        return "copy"
+    end
+    if src == "conversation" and scheme == "obsidian" then
+        local tail = string.sub(value, #rawScheme + 2)
+        local okObsidian = string.match(tail, "^//open$") ~= nil or string.match(tail, "^//open%?") ~= nil or string.match(tail, "^//search$") ~= nil or string.match(tail, "^//search%?") ~= nil
+        if not okObsidian then
             return "copy"
         end
     end

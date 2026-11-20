@@ -417,7 +417,7 @@ impl OpenIn {
 
 /// Logs a safe reveal to `HARNESS_OPEN_EXTERNAL_LOG` during headless proofs without spawning
 /// a real OS file manager window.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), debug_assertions))]
 pub(crate) fn log_harness_reveal(path: &str) -> bool {
     let Some(log) = std::env::var_os("HARNESS_OPEN_EXTERNAL_LOG").filter(|v| !v.is_empty()) else {
         return false;
@@ -436,6 +436,11 @@ pub(crate) fn log_harness_reveal(path: &str) -> bool {
         drop(writeln!(f, "{entry}"));
     }
     true
+}
+
+#[cfg(all(not(target_arch = "wasm32"), not(debug_assertions)))]
+pub(crate) fn log_harness_reveal(_path: &str) -> bool {
+    false
 }
 
 /// One app choice for an "Open in" menu or picker.
@@ -464,10 +469,16 @@ pub trait OpenInHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
     fn write_json(&self, ns: &str, key: &str, val: &Value);
 }
 
-/// Opens `url` in the system browser, or appends it to `HARNESS_OPEN_EXTERNAL_LOG` when a
-/// hidden-desktop capture is driving the app (matching `harness/electron-open-external-stub.cjs`).
+/// Opens `url` in the system browser/mail client ONLY when it passes the explicit OS scheme
+/// allow-list (`browser_policy::is_safe_os_external_url`: credential-free `http:`/`https:`, or
+/// attachment-free `mailto:`). In debug builds, appends to `HARNESS_OPEN_EXTERNAL_LOG` when set
+/// for hidden-desktop captures; release builds never honor that env var.
 pub fn open_external(tx: &mut Tx, url: &str) -> bool {
-    #[cfg(not(target_arch = "wasm32"))]
+    let trimmed = url.trim();
+    if !browser_policy::is_safe_os_external_url(trimmed) {
+        return false;
+    }
+    #[cfg(all(not(target_arch = "wasm32"), debug_assertions))]
     if let Some(log) = std::env::var_os("HARNESS_OPEN_EXTERNAL_LOG").filter(|v| !v.is_empty()) {
         use std::io::Write as _;
         let path = Path::new(&log);
@@ -478,13 +489,13 @@ pub fn open_external(tx: &mut Tx, url: &str) -> bool {
             let entry = json!({
                 "pid": std::process::id(),
                 "kind": "openExternal",
-                "url": url,
+                "url": trimmed,
             });
             drop(writeln!(f, "{entry}"));
         }
         return true;
     }
-    tx.open_url(url).is_ok()
+    tx.open_url(trimmed).is_ok()
 }
 
 /// Strips a trailing ` (os error N)` suffix and normalizes known transport error wording.
