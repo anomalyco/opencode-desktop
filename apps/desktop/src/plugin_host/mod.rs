@@ -152,6 +152,9 @@ impl PanelScale {
     }
 }
 
+/// Model-picker inline annotations (`"{providerId}:{modelId}" -> (label, critical)`) from one plugin.
+pub(crate) type ModelBadgeMap = HashMap<String, (String, bool)>;
+
 /// The window's plugin host (`WindowPluginHost`).
 #[derive(Default)]
 pub struct PluginHost {
@@ -172,7 +175,7 @@ pub struct PluginHost {
     pub dormant: dormant::Dormant,
     /// Per-plugin model-picker row annotations (`Models:SetBadges`), keyed by plugin id and tagged
     /// with the VM id that set them so reload/stop drops stale entries.
-    pub(crate) model_badges: BTreeMap<String, (u64, HashMap<String, (String, bool)>)>,
+    pub(crate) model_badges: BTreeMap<String, (u64, ModelBadgeMap)>,
     pub overlay: Overlay,
     pub dialog: Option<OpenDialog>,
     /// The titlebar item the pointer is over, whose pill opens to show its label.
