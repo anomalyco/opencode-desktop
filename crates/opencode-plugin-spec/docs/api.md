@@ -1209,6 +1209,15 @@ A dialog's size: one of Desktop's three presets, each clamped to the window.
 | `"small"` | Deprecated: the same as `normal`. |
 | `"medium"` | Deprecated: the same as `normal`. |
 
+### DialogLayer
+
+Which modal overlay layer a plugin dialog sits in.
+
+| Value | Meaning |
+|---|---|
+| `"standard"` | Standard modal dialog layer, beneath elevated system recovery and server dialogs. Since 1.5. |
+| `"elevated"` | Elevated modal dialog layer, above standard dialogs and recovery prompts. The default. Since 1.5. |
+
 ### StoreScope
 
 What a declared store keeps a value for.
@@ -3425,6 +3434,7 @@ A modal dialog, opened with `Dialog:Open`.
 | `id` | `string` | Its id within the plugin. |
 | `title` | `string?` | Its heading and accessible name. |
 | `size` | `DialogSize?` | Its size preset. |
+| `layer` | `DialogLayer?` | Which modal overlay layer the dialog draws in (`"standard"` beneath elevated recovery/server dialogs, or `"elevated"` above them). Defaults to `"elevated"`. Since 1.5. |
 | `radius` | `number?` | Corner radius in points. Defaults to 6 for `normal` dialogs and 12 for `large` and `x-large`. Since 1.5. |
 | `hideScrollbar` | `boolean?` | Hides the scroll bar when a `normal` dialog's content overflows, as Desktop's `dialog-content` does. Defaults to false. Since 1.5. |
 | `render` | `(view: View, props: DialogProps) -> UiNode?` | Draws its body inside the host's dialog frame: Desktop's dialog with the overlay elevation. A normal one is as tall as its content on layer-01 with 6-point corners; a large or x-large one is its size's height on bg-base with 12-point corners, so its body can fill it (`h = "full"`). |

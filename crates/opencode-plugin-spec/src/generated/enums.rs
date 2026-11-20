@@ -696,6 +696,16 @@ string_enum! {
 }
 
 string_enum! {
+    /// Which modal overlay layer a plugin dialog sits in.
+    pub enum DialogLayer {
+        /// Standard modal dialog layer, beneath elevated system recovery and server dialogs.
+        Standard = "standard",
+        /// Elevated modal dialog layer, above standard dialogs and recovery prompts. The default.
+        Elevated = "elevated",
+    }
+}
+
+string_enum! {
     /// What a declared store keeps a value for.
     pub enum StoreScope {
         /// One value for the whole app.

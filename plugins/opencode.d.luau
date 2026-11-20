@@ -210,6 +210,9 @@ export type MenuEntryKind = "item" | "group" | "separator"
 --- A dialog's size: one of Desktop's three presets, each clamped to the window.
 export type DialogSize = "normal" | "large" | "x-large" | "small" | "medium"
 
+--- Which modal overlay layer a plugin dialog sits in.
+export type DialogLayer = "standard" | "elevated"
+
 --- What a declared store keeps a value for.
 export type StoreScope = "global" | "session"
 
@@ -4946,6 +4949,8 @@ export type DialogSpec = {
     title: string?,
     --- Its size preset.
     size: DialogSize?,
+    --- Which modal overlay layer the dialog draws in (`"standard"` beneath elevated recovery/server dialogs, or `"elevated"` above them). Defaults to `"elevated"`.
+    layer: DialogLayer?,
     --- Corner radius in points. Defaults to 6 for `normal` dialogs and 12 for `large` and `x-large`.
     radius: number?,
     --- Hides the scroll bar when a `normal` dialog's content overflows, as Desktop's `dialog-content` does. Defaults to false.

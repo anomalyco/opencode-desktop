@@ -429,14 +429,41 @@ pub fn dialog_card(app: &App, p: &Pal, win: [f32; 2]) -> Option<(&'static str, E
     Some((key, card))
 }
 
+/// Which modal overlay layer the currently open plugin dialog belongs to (defaulting to
+/// `DialogLayer::Elevated` when omitted on `DialogSpec`).
+pub fn dialog_layer(app: &App) -> Option<opencode_plugin_spec::DialogLayer> {
+    let open = app.plugins.dialog.as_ref()?;
+    let (i, _) = app.plugins.running().find(|(_, pl)| pl.half.id == open.plugin)?;
+    let layer = app.plugins.list[i]
+        .half
+        .contribs
+        .borrow()
+        .dialogs
+        .iter()
+        .find(|c| c.spec.id == open.id)?
+        .spec
+        .layer
+        .unwrap_or(opencode_plugin_spec::DialogLayer::Elevated);
+    Some(layer)
+}
+
 /// The open plugin dialog over a scrim, as the app's own dialogs sit: in Desktop's dialog frame
 /// at the plugin's size preset (`runtime/plugin/ui.tsx` `Dialog`): a normal one as tall as its
 /// content (`<Dialog fit>`), a large or x-large one its size's height on bg-base with 12 pt corners.
 /// Esc or a press outside closes it and runs its `onDismiss`.
 pub fn dialog_view(app: &App, p: &Pal, cx: &rune::Cx<App>) -> Vec<El> {
     let Some((key, card)) = dialog_card(app, p, crate::widgets::dialog_window(cx, *app.zoom)) else { return Vec::new() };
-    let card = card.modal(true, |s: &mut App| requests::dismiss_dialog(s, &mut Tx::default()));
+    let card = card.modal_tx(true, requests::dismiss_dialog);
     crate::widgets::modal(&format!("plugin-dialog-modal-{key}"), p, card, None)
+}
+
+/// Renders the open plugin dialog only when its declared [`opencode_plugin_spec::DialogLayer`]
+/// matches `target`.
+pub fn dialog_view_in(app: &App, p: &Pal, cx: &rune::Cx<App>, target: opencode_plugin_spec::DialogLayer) -> Vec<El> {
+    if dialog_layer(app) != Some(target) {
+        return Vec::new();
+    }
+    dialog_view(app, p, cx)
 }
 
 /// A server source's entry `rec` (key `key`), as its window half's `row` draws it in

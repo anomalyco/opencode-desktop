@@ -61,7 +61,7 @@ pub use servers::{
 };
 pub use sources::{Origin, Tier};
 pub use surfaces::{
-    dialog_card, dialog_view, file_viewer, pill_views, popover_view, settings_page, settings_page_actions,
+    dialog_card, dialog_view_in, file_viewer, pill_views, popover_view, settings_page, settings_page_actions,
     settings_page_icon, settings_page_ids, settings_page_key, settings_page_title, settings_pages, sidebar_items, slot,
     slot_with, titlebar_items,
 };
@@ -532,10 +532,18 @@ impl opencode_kernel::Feature<App> for PluginHostFeature {
                 .with_key(popover_key),
         );
         builder.register_overlay(
+            opencode_kernel::OverlayRegistration::<App>::new("plugin.dialog.standard")
+                .with_render(crate::overlays::layer::DIALOG, |s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    dialog_view_in(s, p, cx, opencode_plugin_spec::DialogLayer::Standard)
+                })
+                .above(crate::mcp::SIGN_IN_OVERLAY_ID),
+        );
+        builder.register_overlay(
             opencode_kernel::OverlayRegistration::<App>::new("plugin.dialog")
                 .with_render(crate::overlays::layer::ELEVATED_DIALOG, |s, cx| {
                     let p = crate::palette::pal(s.dark(cx));
-                    dialog_view(s, p, cx)
+                    dialog_view_in(s, p, cx, opencode_plugin_spec::DialogLayer::Elevated)
                 })
                 .above("dialog.move_recovery")
                 .with_key(dialog_key)

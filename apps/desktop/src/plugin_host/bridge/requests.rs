@@ -66,7 +66,19 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
             tx.instant();
             // A dialog takes over from a popover, as Kobalte's does as focus leaves it.
             close_popover(app, tx);
-            let return_focus = tx.focused().map(str::to_owned);
+            // Replacing an already-open plugin dialog keeps the original pre-dialog focus target
+            // rather than capturing a control inside the dialog that is about to unmount.
+            let return_focus = if app.plugins.dialog.is_some() {
+                app.kernel
+                    .overlays
+                    .entries()
+                    .iter()
+                    .rev()
+                    .find(|entry| entry.id == "plugin.dialog")
+                    .and_then(|entry| entry.return_focus.clone())
+            } else {
+                tx.focused().map(str::to_owned)
+            };
             app.plugins.dialog = Some(OpenDialog { plugin: plugin.clone(), id, data });
             opencode_kernel::AppOverlays::on_overlay_opened(app, "plugin.dialog", return_focus);
         }

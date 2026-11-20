@@ -281,6 +281,7 @@ return plugin.defineWindow(function(ctx)
             id = "main",
             title = I18n:T("usage.title"),
             size = "normal",
+            layer = "standard",
             radius = 12,
             hideScrollbar = true,
             render = function(v, props)
@@ -305,7 +306,7 @@ end)
 ```
 
 Key patterns from this port:
-- **Overlay stack and focus restoration are host-managed.** Calling `Dialog:Open("main")` pushes the dialog onto the shell's `OverlayStack` (so pressing `Escape` over Settings or another modal pops only the top dialog and restores focus to where it was before the dialog opened). Use `ui.dialogHeader` for the standard title bar and close button.
+- **Overlay stack, layer, and focus restoration are host-managed.** Calling `Dialog:Open("main")` pushes the dialog onto the shell's `OverlayStack` (so pressing `Escape` over Settings or another modal pops only the top dialog and restores focus to where it was before the dialog opened). Set `layer = "standard"` on `DialogSpec` for ordinary dialogs that should sit beneath elevated system recovery and server dialogs (the default `"elevated"` stays above them). Use `ui.dialogHeader` for the standard title bar and close button.
 - **Explicit state machine + attempt fencing.** Every async fetch carries a monotonically increasing `attempt` number checked in `machine.step` so slow responses or expired `task.delay` timeouts from earlier attempts cannot overwrite a retry or a closed dialog.
 - **Offline/fixture detection.** Check `Server:IsLive()` before issuing HTTP requests so offline fixture windows skip network calls and immediately show their offline state.
 - **Runtime language updates.** Because `CommandSpec.title`/`description` and `DialogSpec.title` are evaluated when registered, wrap registration in a helper and re-run it on `I18n.Changed` after calling `:Withdraw()` on the previous `Contribution` handles.

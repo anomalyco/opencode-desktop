@@ -47,7 +47,7 @@ pub(crate) mod layer {
     pub const ACTION_DIALOG: OverlayLayer = OverlayLayer::new("layer.action_dialog", key_band::MID);
     /// Floating quote editor/toolbar, line-comment toolbar, and side-panel context menus & drag ghost.
     pub const FLOATING_CHROME: OverlayLayer = OverlayLayer::new("layer.floating_chrome", key_band::MID);
-    /// Standard modal dialogs (default layer for feature dialogs: fork, jump, connect, mcp, usage).
+    /// Standard modal dialogs (default layer for feature dialogs: fork, jump, connect, mcp, and `layer = "standard"` plugin dialogs).
     pub const DIALOG: OverlayLayer = OverlayLayer::new("layer.dialog", key_band::MODAL);
     /// Elevated confirmation, system, and plugin dialogs drawn above standard dialogs.
     pub const ELEVATED_DIALOG: OverlayLayer = OverlayLayer::new("layer.elevated_dialog", key_band::MODAL);
