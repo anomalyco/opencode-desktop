@@ -153,7 +153,7 @@ fn consolidated_groups(s: &App) -> (Vec<ViewGroup<&SessionInfo>>, bool) {
             ViewRow {
                 key: key(here.as_str(), &ses.id),
                 title: crate::tabs::tab_title(&ses.title),
-                updated: if ses.updated > 0 { ses.updated } else { ses.created },
+                updated: s.recent_page.time(ses),
                 created: ses.created,
                 status: recent_status(s, here, &ses.id),
                 project,
@@ -348,7 +348,7 @@ fn strip(
         };
         if consolidated && !muted {
             let st = recent_status(s, &here, &info.id);
-            if let Some(meta) = recent_view::meta_label(view, st, info.created, info.updated, *s.now_ms) {
+            if let Some(meta) = recent_view::meta_label(view, st, info.created, s.recent_page.time(info), *s.now_ms) {
                 item = item.subtitle(meta);
             }
         }

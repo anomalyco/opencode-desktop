@@ -64,6 +64,9 @@ enum WorkerMsg {
 
 pub struct BrowserRpcState {
     sessions: BTreeMap<(ServerKey, String), SessionAttachment>,
+    /// Sessions the user actually routed into on this window (`model.ts:664-689`). Restored or
+    /// background tabs sitting in `app.tabs` are not attached until routed.
+    routed_sessions: BTreeSet<(ServerKey, String)>,
     sse_connected: BTreeMap<ServerKey, bool>,
     worker_tx: Sender<WorkerMsg>,
     worker_rx: Receiver<WorkerMsg>,
@@ -77,6 +80,7 @@ impl Default for BrowserRpcState {
         let (worker_tx, worker_rx) = mpsc::channel();
         Self {
             sessions: BTreeMap::new(),
+            routed_sessions: BTreeSet::new(),
             sse_connected: BTreeMap::new(),
             worker_tx,
             worker_rx,
@@ -220,6 +224,7 @@ pub fn on_session_lifecycle(app: &mut App, server_key: &ServerKey, ty: &str, ses
     }
     if ty == "session.deleted" {
         let st = app.kernel.slots.get_mut(&BROWSER_RPC);
+        st.routed_sessions.remove(&key);
         if let Some(mut att) = st.sessions.remove(&key) {
             att.stop_outbound();
             if let Some((_, abort)) = att.attach_abort.take() {
@@ -359,23 +364,29 @@ fn reconcile_sessions(app: &mut App, now: Instant) -> bool {
     };
     let active_server = crate::servers::runtime::active(app).clone();
 
-    // Collect every open session on the active server (all open tabs + routed session) so two
-    // concurrent sessions stay attached simultaneously with independent tab namespaces.
-    let mut wanted: BTreeMap<(ServerKey, String), String> = BTreeMap::new();
+    // Match official (`packages/gui-plugins/src/browser/model.ts:664-689`, `machine.ts:1000-1025`):
+    // attach a session only when it is routed on screen, and keep already-attached sessions alive
+    // while they stay open in `app.tabs` (never eagerly attaching restored or background tabs).
+    let mut open_dirs: BTreeMap<(ServerKey, String), String> = BTreeMap::new();
     for t in &app.tabs {
         if !t.is_draft() && t.server == active_server {
             let dir = session_directory(app, &t.id, &t.directory);
             if !dir.is_empty() {
-                wanted.insert((active_server.clone(), t.id.clone()), dir);
+                open_dirs.insert((active_server.clone(), t.id.clone()), dir);
             }
         }
     }
+    let mut routed_now: Option<(ServerKey, String)> = None;
     if let Route::Session { server: rk, id } = &*app.route
         && *rk == active_server
     {
+        let key = (active_server.clone(), id.clone());
         let dir = session_directory(app, id, "");
         if !dir.is_empty() {
-            wanted.insert((active_server.clone(), id.clone()), dir);
+            open_dirs.insert(key.clone(), dir);
+            routed_now = Some(key);
+        } else if open_dirs.contains_key(&key) {
+            routed_now = Some(key);
         }
     }
 
@@ -383,6 +394,15 @@ fn reconcile_sessions(app: &mut App, now: Instant) -> bool {
     let mut pending_effects = Vec::new();
     {
         let st = app.kernel.slots.get_mut(&BROWSER_RPC);
+        if let Some(key) = routed_now {
+            st.routed_sessions.insert(key);
+        }
+        st.routed_sessions
+            .retain(|k| k.0 != active_server || open_dirs.contains_key(k));
+        let wanted: BTreeMap<(ServerKey, String), String> = open_dirs
+            .into_iter()
+            .filter(|(k, _)| st.routed_sessions.contains(k))
+            .collect();
         let sse_ready = st.sse_connected.get(&active_server).copied().unwrap_or(false)
             || is_base_connected(&server.base);
         let existing_keys: BTreeSet<(ServerKey, String)> = st.sessions.keys().cloned().collect();
