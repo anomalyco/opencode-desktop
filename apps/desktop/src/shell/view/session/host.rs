@@ -186,8 +186,11 @@ impl session_view::TimelineHost for App {
     fn reply_link_menu(&mut self, url: &str, press: rune::PointerPress, tx: &mut Tx) -> bool {
         crate::files::reply::menu(self, url, press, tx)
     }
-    fn reply_video_source(&self, url: &str) -> Option<String> {
+    fn reply_video_source(&self, url: &str) -> Option<session_view::ReplyVideo> {
         crate::files::reply::video(self, url)
+    }
+    fn load_reply_video(&mut self, url: &str, _tx: &mut Tx) -> Option<String> {
+        crate::files::reply::load_video(self, url)
     }
     fn context_menu(&mut self, at: session_view::images::menu::MenuAt, press: rune::PointerPress, tx: &mut Tx) {
         popup::context::open(self, at, press, tx);
