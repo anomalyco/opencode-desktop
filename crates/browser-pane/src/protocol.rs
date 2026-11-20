@@ -305,6 +305,39 @@ pub enum HostMsg {
     DropContext {
         context: ContextKind,
     },
+    ProfileCookiesList {
+        request_id: u64,
+        #[serde(default)]
+        partition: Option<String>,
+    },
+    ProfileCookiesSet {
+        request_id: u64,
+        #[serde(default)]
+        partition: Option<String>,
+        cookies: Vec<WireCookie>,
+    },
+    ProfileCookieDelete {
+        request_id: u64,
+        #[serde(default)]
+        partition: Option<String>,
+        url: String,
+        name: String,
+    },
+    ProfileProbeCookies {
+        request_id: u64,
+    },
+    ClearProfileData {
+        request_id: u64,
+    },
+    SetShareSignIns {
+        enabled: bool,
+    },
+    SyncRemoteCookies {
+        request_id: u64,
+        partition: String,
+        #[serde(default)]
+        from_remote: bool,
+    },
     Shutdown,
 }
 
@@ -338,6 +371,27 @@ pub enum EngineMsg {
         /// The engine confines proxied `RemoteServer` partitions via `fixed_servers` + `<-loopback>` + WebRTC/DoH hardening.
         #[serde(default)]
         remote_proxy: bool,
+        /// The engine exposes `CefCookieManager` list/import/delete/probe/clear & two-way remote cookie mirroring.
+        #[serde(default)]
+        cookies: bool,
+    },
+    ProfileCookies {
+        request_id: u64,
+        cookies: Vec<WireCookie>,
+    },
+    ProfileCookiesImported {
+        request_id: u64,
+        imported: u32,
+        failed: u32,
+    },
+    ProfileProbeReady {
+        request_id: u64,
+        written: bool,
+        cache_dir: String,
+    },
+    ProfileActionDone {
+        request_id: u64,
+        ok: bool,
     },
     /// A frame navigation or redirect was refused by URL policy while keeping the current page.
     Refused {
@@ -662,4 +716,37 @@ pub enum ContextMenuCommand {
     SaveImage { url: String },
     ReplaceMisspelling { word: String },
     AddToDictionary { word: String },
+}
+
+fn default_cookie_path() -> String {
+    "/".to_owned()
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CookieSameSite {
+    #[default]
+    Unspecified,
+    NoRestriction,
+    Lax,
+    Strict,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct WireCookie {
+    /// Leading dot for domain cookies (`.github.com`), bare host for host-only (`github.com`).
+    pub host: String,
+    pub name: String,
+    pub value: String,
+    #[serde(default = "default_cookie_path")]
+    pub path: String,
+    #[serde(default)]
+    pub secure: bool,
+    #[serde(default)]
+    pub http_only: bool,
+    /// Unix timestamp in seconds; `None` for session cookies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires: Option<f64>,
+    #[serde(default)]
+    pub same_site: CookieSameSite,
 }

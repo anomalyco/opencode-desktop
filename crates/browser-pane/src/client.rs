@@ -104,6 +104,8 @@ pub struct BrowserHost {
     pub(crate) popup_opens: VecDeque<crate::prompts::PopupRequest>,
     pub(crate) context_menus: VecDeque<(u64, crate::protocol::PageContextMenu)>,
     pub(crate) diagnostics: VecDeque<crate::find::PageDiagnostic>,
+    pub(crate) profile_events: VecDeque<crate::cookies::ProfileEvent>,
+    pub(crate) share_sign_ins: bool,
     pub(crate) site_permissions: crate::prompts::SitePermissions,
     site_zoom: SiteZoom,
     pub(crate) keep_engine: bool,
@@ -158,6 +160,8 @@ impl BrowserHost {
             popup_opens: VecDeque::new(),
             context_menus: VecDeque::new(),
             diagnostics: VecDeque::new(),
+            profile_events: VecDeque::new(),
+            share_sign_ins: false,
             site_permissions: crate::prompts::SitePermissions::default(),
             site_zoom: SiteZoom::default(),
             keep_engine: false,
@@ -884,6 +888,7 @@ impl BrowserHost {
                     context_menu,
                     partitions,
                     remote_proxy,
+                    cookies,
                     ..
                 } => {
                     if !matches!(
@@ -901,7 +906,11 @@ impl BrowserHost {
                         context_menu,
                         partitions,
                         remote_proxy,
+                        cookies,
                     };
+                    if cookies && self.share_sign_ins {
+                        self.send(HostMsg::SetShareSignIns { enabled: true });
+                    }
                     // A new engine starts with an empty downloads folder and numbers its files
                     // from 1 again: the last one's files are gone. Held prompts replay if live.
                     for t in &mut self.tabs {
@@ -1030,6 +1039,36 @@ impl BrowserHost {
                 }
                 EngineMsg::PageDiagnostic { tab_id, level, event, fields } => {
                     self.diagnostics.push_back(crate::find::PageDiagnostic { tab_id, level, event, fields });
+                    changed = true;
+                }
+                EngineMsg::ProfileCookies { request_id, cookies } => {
+                    self.profile_events.push_back(crate::cookies::ProfileEvent::CookiesListed {
+                        request_id,
+                        cookies,
+                    });
+                    changed = true;
+                }
+                EngineMsg::ProfileCookiesImported { request_id, imported, failed } => {
+                    self.profile_events.push_back(crate::cookies::ProfileEvent::CookiesImported {
+                        request_id,
+                        imported,
+                        failed,
+                    });
+                    changed = true;
+                }
+                EngineMsg::ProfileProbeReady { request_id, written, cache_dir } => {
+                    self.profile_events.push_back(crate::cookies::ProfileEvent::ProbeReady {
+                        request_id,
+                        written,
+                        cache_dir,
+                    });
+                    changed = true;
+                }
+                EngineMsg::ProfileActionDone { request_id, ok } => {
+                    self.profile_events.push_back(crate::cookies::ProfileEvent::ActionDone {
+                        request_id,
+                        ok,
+                    });
                     changed = true;
                 }
                 EngineMsg::CdpEvent { .. } => {}

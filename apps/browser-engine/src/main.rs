@@ -25,6 +25,7 @@ mod linux_gpu;
 #[cfg(target_os = "macos")]
 mod mac_app;
 mod context;
+mod cookies;
 mod diagnostics;
 mod favicon;
 mod find;

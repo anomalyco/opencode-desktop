@@ -413,6 +413,7 @@ pub(crate) enum EngineCaps {
         context_menu: bool,
         partitions: bool,
         remote_proxy: bool,
+        cookies: bool,
     },
 }
 

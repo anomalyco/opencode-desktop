@@ -287,9 +287,16 @@ impl ContextPool {
     }
 
     /// Returns the live `RequestContext` for a remote server partition (for Phase 3b cookie mirroring).
-    #[allow(dead_code)]
     pub fn remote_context(&self, partition: &str) -> Option<RequestContext> {
         self.remotes.get(partition).map(|e| e.ctx.clone())
+    }
+
+    /// Returns all active remote server partitions and their `RequestContext`s.
+    pub fn remote_partitions(&self) -> Vec<(String, RequestContext)> {
+        self.remotes
+            .iter()
+            .map(|(k, e)| (k.clone(), e.ctx.clone()))
+            .collect()
     }
 
     /// Closes connections and releases a non-default context when a preview grant or remote

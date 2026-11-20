@@ -11,7 +11,7 @@ default = []
 # Download, start and talk to the CEF engine over a Unix socket (AF_UNIX on Windows too). Without it,
 # the pane keeps its tab model and reports `EngineStatus::Unsupported`. The app turns it on for macOS
 # and Windows, and for Linux x86_64.
-engine = ["dep:authenticode", "dep:libc", "dep:memchr", "dep:sha2", "dep:ureq", "dep:uds_windows", "dep:windows", "dep:zstd"]
+engine = ["dep:authenticode", "dep:libc", "dep:memchr", "dep:ring", "dep:rusqlite", "dep:security-framework", "dep:sha2", "dep:ureq", "dep:uds_windows", "dep:windows", "dep:zstd"]
 # Harness builds: injected faults (`unpack.rs`), never in a release.
 faults = ["engine"]
 
@@ -29,20 +29,30 @@ ureq = { workspace = true, features = ["rustls", "platform-verifier"], optional 
 # decoder's speed, so a fast connection isn't held up by it.
 zstd = { version = "0.13", default-features = false, optional = true }
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ring = { version = "0.17", optional = true }
+rusqlite = { version = "0.41", default-features = false, features = ["bundled"], optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = { version = "3.7", optional = true }
+
 [target.'cfg(unix)'.dependencies]
 libc = { version = "0.2", optional = true }
 # Line ends in the engine's megabyte-long paint lines (`fd_lines.rs`, Linux).
 memchr = { version = "2", optional = true }
 
 # The engine's socket: AF_UNIX, in Windows 10 1803 and later. `windows`: the background download's
-# thread priority and its pause checks (power line, connection cost); whether commit memory was short when the engine ended.
+# thread priority and its pause checks (power line, connection cost); whether commit memory was short when the engine ended;
+# DPAPI `CryptUnprotectData` for Windows Chromium cookie import.
 [target.'cfg(windows)'.dependencies]
 authenticode = { path = "../authenticode", optional = true }
 uds_windows = { version = "1.1", optional = true }
 windows = { version = "0.62", optional = true, features = [
     "Networking_Connectivity",
+    "Win32_Security_Cryptography",
     "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_JobObjects",
+    "Win32_System_Memory",
     "Win32_System_SystemInformation",
     "Win32_Storage_FileSystem",
     "Win32_System_Power",

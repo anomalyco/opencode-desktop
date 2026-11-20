@@ -170,7 +170,8 @@ wrap_app! {
             // host's "Pop-up blocked" bar) instead of silently swallowing them before CEF sees them.
             cmd.append_switch(Some(&"disable-popup-blocking".into()));
             cmd.append_switch(Some(&"mute-audio".into()));
-            cmd.append_switch(Some(&"use-mock-keychain".into()));
+            // Real OS cookie encryption is enabled (DPAPI on Windows, Keychain on macOS,
+            // Secret Service / KWallet on Linux); `ProfileProbeCookies` detects locked key stores.
             cmd.append_switch(Some(&"no-startup-window".into()));
             cmd.append_switch(Some(&"noerrdialogs".into()));
             cmd.append_switch(Some(&"hide-crash-restore-bubble".into()));
@@ -214,6 +215,7 @@ struct ManagedTab {
     prompts: Arc<crate::prompts::TabPrompts>,
     menu: Arc<crate::menu::TabMenuState>,
     context: crate::wire::ContextKind,
+    last_loading: bool,
     _cdp_reg: Option<Registration>,
     held_buttons: u32,
     /// Linux: whether it's the tab the app shows (`HostMsg::FocusTab`), to open it again so.
@@ -239,6 +241,10 @@ pub struct EngineManager {
     prompt_shared: crate::prompts::PromptShared,
     /// Shared pool of isolated `CefRequestContext`s for previews and remote servers.
     contexts: crate::context::ContextPool,
+    /// Profile cookie manager, persistence probe, sign-out everywhere, and remote cookie mirror.
+    cookies: crate::cookies::CookieController,
+    /// CEF `cache_path` (`<profile_root>/Default`), returned by `ProfileProbeCookies`.
+    profile_cache: String,
     /// Windows: the D3D11 device frames are copied on; None renders on the CPU instead.
     #[cfg(windows)]
     gpu: Option<Arc<crate::d3d_frames::Gpu>>,
@@ -270,6 +276,8 @@ impl EngineManager {
             downloads: crate::downloads::Downloads::open(&downloads),
             prompt_shared: crate::prompts::PromptShared::default(),
             contexts: crate::context::ContextPool::new(events.clone()),
+            cookies: crate::cookies::CookieController::new(events.clone()),
+            profile_cache: downloads.join("Default").to_string_lossy().into_owned(),
             #[cfg(windows)]
             gpu,
             #[cfg(target_os = "linux")]
@@ -363,14 +371,35 @@ impl EngineManager {
         }
         let mut ready = Vec::new();
         let mut clears = Vec::new();
-        for (&tab_id, tab) in &self.tabs {
+        let mut profile_dirty = false;
+        let mut remote_dirty: Vec<String> = Vec::new();
+        for (&tab_id, tab) in &mut self.tabs {
             for backend_id in tab.internal_picked.lock().unwrap().drain(..) {
                 ready.push((tab_id, backend_id));
             }
             for clear in tab.pending_clears.lock().unwrap().drain(..) {
                 clears.push(clear);
             }
+            let loading = tab.snap.lock().unwrap().loading;
+            if tab.last_loading && !loading {
+                match &tab.context {
+                    crate::wire::ContextKind::Default => profile_dirty = true,
+                    crate::wire::ContextKind::RemoteServer { partition, .. } => {
+                        remote_dirty.push(partition.clone());
+                    }
+                    crate::wire::ContextKind::IsolatedPreview { .. } => {}
+                }
+            }
+            tab.last_loading = loading;
         }
+        if profile_dirty {
+            self.cookies.on_profile_dirty(&self.contexts);
+        }
+        for partition in remote_dirty {
+            self.cookies
+                .on_partition_dirty(&self.contexts, &partition, crate::cookies::LinkSide::Other);
+        }
+        self.cookies.poll(&self.contexts);
         for clear in clears {
             if let Some(tab) = self.tabs.get(&clear.tab_id) {
                 for (name, domain, path) in clear.cookies {
@@ -460,6 +489,7 @@ impl EngineManager {
                     context_menu: prompts,
                     partitions: true,
                     remote_proxy: true,
+                    cookies: true,
                 });
                 for (&tab_id, t) in &self.tabs {
                     t.menu.cancel_all();
@@ -948,7 +978,72 @@ impl EngineManager {
                 }
             }
             HostMsg::DropContext { context } => {
+                if let crate::wire::ContextKind::RemoteServer { partition, .. } = &context {
+                    self.cookies.on_partition_dropped(partition);
+                }
                 self.contexts.drop_context(&context);
+            }
+            HostMsg::ProfileCookiesList { request_id, partition } => {
+                self.cookies.list(&self.contexts, partition.as_deref(), request_id, self.out_tx.clone());
+            }
+            HostMsg::ProfileCookiesSet { request_id, partition, cookies } => {
+                self.cookies.set_batch(
+                    &self.contexts,
+                    partition.as_deref(),
+                    cookies,
+                    request_id,
+                    self.out_tx.clone(),
+                );
+            }
+            HostMsg::ProfileCookieDelete { request_id, partition, url, name } => {
+                self.cookies.delete_one(
+                    &self.contexts,
+                    partition.as_deref(),
+                    &url,
+                    &name,
+                    request_id,
+                    self.out_tx.clone(),
+                );
+            }
+            HostMsg::ProfileProbeCookies { request_id } => {
+                self.cookies.probe_persistence(&self.profile_cache, request_id, self.out_tx.clone());
+            }
+            HostMsg::ClearProfileData { request_id } => {
+                for t in self.tabs.values() {
+                    if matches!(t.context, crate::wire::ContextKind::IsolatedPreview { .. }) {
+                        continue;
+                    }
+                    let url = t.snap.lock().unwrap().url.clone();
+                    if let Some(origin) = browser_policy::destination_origin(&url) {
+                        self.send_internal_cdp(
+                            &t.host,
+                            "Storage.clearDataForOrigin",
+                            json!({
+                                "origin": origin,
+                                "storageTypes": "all",
+                            }),
+                        );
+                    }
+                    self.send_internal_cdp(&t.host, "Network.clearBrowserCache", json!({}));
+                }
+                self.cookies.clear_all(&self.contexts, request_id, self.out_tx.clone());
+            }
+            HostMsg::SetShareSignIns { enabled } => {
+                self.cookies.set_share_sign_ins(enabled, &self.contexts);
+            }
+            HostMsg::SyncRemoteCookies { request_id, partition, from_remote } => {
+                let side = if from_remote {
+                    crate::cookies::LinkSide::Other
+                } else {
+                    crate::cookies::LinkSide::Profile
+                };
+                self.cookies.sync_partition_now(
+                    &self.contexts,
+                    &partition,
+                    side,
+                    request_id,
+                    self.out_tx.clone(),
+                );
             }
             HostMsg::Shutdown => {
                 for (_, t) in self.tabs.drain() {
@@ -1149,6 +1244,12 @@ impl EngineManager {
             self.send_color_scheme(&host, dark);
         }
 
+        if let crate::wire::ContextKind::RemoteServer { partition, .. } = &context
+            && self.cookies.share_sign_ins()
+        {
+            self.cookies
+                .on_partition_dirty(&self.contexts, partition, crate::cookies::LinkSide::Profile);
+        }
         self.tabs.insert(
             tab_id,
             ManagedTab {
@@ -1163,6 +1264,7 @@ impl EngineManager {
                 prompts,
                 menu: menu_state,
                 context,
+                last_loading: false,
                 _cdp_reg: cdp_reg,
                 held_buttons: 0,
                 #[cfg(target_os = "linux")]
