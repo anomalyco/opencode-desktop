@@ -105,27 +105,115 @@ impl crate::BrowserHost {
         self.caps.remote_proxy()
     }
 
-    /// Updates or clears the local loopback tunnel proxy on a remote server partition.
+    /// Returns the currently registered loopback tunnel proxy for `server_id`, if any.
+    pub fn remote_proxy(&self, server_id: &str) -> Option<&crate::protocol::RemoteProxyConfig> {
+        self.remote_proxies.get(server_id.trim())
+    }
+
+    /// Drains `(tab_id, fatal_close)` for tabs closed by the engine (`EngineMsg::TabClosed`) so the
+    /// desktop shell can prune `session_tabs`/strip and show a notice only on fatal proxy/context loss.
+    pub fn drain_closed_tabs(&mut self) -> impl Iterator<Item = (u64, bool)> + '_ {
+        self.closed_tabs.drain(..)
+    }
+
+    /// Resolves & validates a `RemoteServer` context's loopback proxy before opening a tab;
+    /// when a valid explicit `Some(cfg)` updates `remote_proxies`, clears suspended banners on
+    /// existing tabs for that server.
+    pub(crate) fn resolve_remote_context(
+        &mut self,
+        context: &mut crate::protocol::ContextKind,
+    ) -> Option<&'static str> {
+        let crate::protocol::ContextKind::RemoteServer { server_id, proxy } = context else {
+            return None;
+        };
+        let sid = server_id.trim().to_owned();
+        *server_id = sid.clone();
+        if sid.is_empty() {
+            return Some("browser.context.invalid");
+        }
+        let explicit = proxy.is_some();
+        if !explicit {
+            *proxy = self.remote_proxies.get(&sid).cloned();
+        }
+        let Some(cfg) = proxy.as_ref() else {
+            return Some("browser.proxy.required");
+        };
+        if let Err(reason) = crate::policy::validate_proxy_endpoint(
+            &cfg.host,
+            cfg.port,
+            cfg.username.as_deref(),
+            cfg.password.as_deref(),
+        ) {
+            return Some(reason);
+        }
+        if explicit {
+            self.remote_proxies.insert(sid.clone(), cfg.clone());
+            for t in &mut self.tabs {
+                if let crate::protocol::ContextKind::RemoteServer { server_id: id, proxy: cur } = &mut t.context
+                    && id.trim() == sid
+                {
+                    *cur = Some(cfg.clone());
+                    if t.refusal.as_deref() == Some("browser.proxy.required") {
+                        t.refusal = None;
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Updates or suspends the local loopback tunnel proxy on a remote server partition.
+    /// Rejects invalid proxy configs (must be a strict loopback IP literal + non-empty Basic creds).
+    /// Clearing (`None`) suspends live tabs in the engine without destroying unsaved user state;
+    /// supplying `Some(cfg)` clears the suspended refusal banner on matching tabs.
     pub fn set_partition_proxy(
         &mut self,
         server_id: &str,
         proxy: Option<crate::protocol::RemoteProxyConfig>,
-    ) {
+    ) -> bool {
+        let sid = server_id.trim();
+        if sid.is_empty() {
+            return false;
+        }
+        if let Some(cfg) = &proxy {
+            if crate::policy::validate_proxy_endpoint(
+                &cfg.host,
+                cfg.port,
+                cfg.username.as_deref(),
+                cfg.password.as_deref(),
+            )
+            .is_err()
+            {
+                return false;
+            }
+            self.remote_proxies.insert(sid.to_owned(), cfg.clone());
+        } else {
+            self.remote_proxies.remove(sid);
+        }
         for t in &mut self.tabs {
             if let crate::protocol::ContextKind::RemoteServer { server_id: id, proxy: cur } = &mut t.context
-                && id == server_id
+                && id.trim() == sid
             {
                 *cur = proxy.clone();
+                if proxy.is_some() && t.refusal.as_deref() == Some("browser.proxy.required") {
+                    t.refusal = None;
+                }
             }
         }
-        self.send(crate::protocol::HostMsg::SetPartitionProxy {
-            server_id: server_id.to_owned(),
-            proxy,
-        });
+        if self.is_connected() && self.engine_partitions() && self.engine_remote_proxy() {
+            self.send(crate::protocol::HostMsg::SetPartitionProxy {
+                server_id: sid.to_owned(),
+                proxy,
+            });
+        }
+        true
     }
 
     /// Closes connections and releases a non-default preview or remote server context in the engine.
     pub fn drop_context(&mut self, context: crate::protocol::ContextKind) {
+        if let crate::protocol::ContextKind::RemoteServer { server_id, .. } = &context {
+            self.remote_proxies.remove(server_id.trim());
+        }
         if !context.is_default() {
             self.send(crate::protocol::HostMsg::DropContext { context });
         }
