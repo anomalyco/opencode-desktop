@@ -60,13 +60,20 @@ impl App {
         let _ = self.show_draft();
         let root = self.root_of(id).to_owned();
         crate::session_menu::unread::set(self, &crate::servers::runtime::current(), &root, false);
-        // As in Desktop, you can type straight away. A subagent's page waits for a click into
-        // its composer, so its keys (E in the inbox, Esc) stay with the page, and a story's
-        // keys stay with the storybook.
+        // As in Desktop, you can type straight away, handing focus on from whatever control held it
+        // when the session opened (including a titlebar button or side panel via a tab shortcut,
+        // `session/composer/focus.tsx` #64418/#64504). A subagent's page waits for a click into its
+        // composer, so its keys (E in the inbox, Esc) stay with the page, and a story's keys stay
+        // with the storybook.
         if !crate::auto_focus_composer(tx) {
             self.composer.focused = false;
         } else if root == id && self.fixture_run.stage.is_none() && !self.dock_shown() {
+            self.search.focused = false;
+            self.kernel.slots.get_mut(&crate::find::FIND).input.focused = false;
+            self.kernel.slots.get_mut(&crate::panels::SIDE).focus.blur();
+            crate::plugin_host::blur_fields(self);
             self.composer.focused = true;
+            tx.focus("prompt", tx.focus_visible());
         }
         // Viewing it reads it, and its tab, locally.
         for s in self.sessions.iter_mut().filter(|s| s.id == root || s.id == id) {

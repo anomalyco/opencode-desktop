@@ -1229,6 +1229,8 @@
   "settings.general.row.shell.description": "Shell used by the terminal and agent tools",
   "settings.general.row.shell.terminalOnly": "terminal only",
   "settings.general.row.shell.title": "Terminal shell",
+  "settings.general.row.sharedSidePanel.description": "Opening or closing it in one session applies to all",
+  "settings.general.row.sharedSidePanel.title": "Keep side panel open across sessions",
   "settings.general.row.showCustomAgents.description": "Switch between agents in the composer. When hidden, defaults to Build agent.",
   "settings.general.row.showCustomAgents.title": "Show agent",
   "settings.general.row.spellcheck.description": "Underline misspelled words while typing",

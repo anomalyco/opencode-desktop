@@ -78,12 +78,20 @@ impl ServerView {
 pub enum Browser {
     #[default]
     Closed,
-    Projects(TextEdit),
+    Projects {
+        search: TextEdit,
+        selected: usize,
+        restore_focus: Option<String>,
+        restore_composer: bool,
+    },
     History {
         search: TextEdit,
         server: ServerKey,
         project: Project,
         sessions: Vec<(String, String)>,
+        selected: usize,
+        restore_focus: Option<String>,
+        restore_composer: bool,
     },
 }
 

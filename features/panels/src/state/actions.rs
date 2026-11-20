@@ -69,6 +69,19 @@ pub fn show_pane_tab<H: PanelsHost>(host: &mut H, tx: &mut Tx, show: impl FnOnce
     finish_show_pane_tab(host, was, tx);
 }
 
+/// Sets the side region's open state: shared across sessions while `sharedSidePanel` is on
+/// (`tabs.tsx` `setRegion`, #64950), otherwise per-session.
+fn set_side_open(side: &mut super::SideState, shared: bool, sid: &str, open: bool) {
+    if shared {
+        side.shared_open = Some(open);
+        if open {
+            side.shared_mounted.insert(sid.to_owned());
+        }
+    } else {
+        side.sessions.entry(sid.to_owned()).or_default().visibility.step(open);
+    }
+}
+
 pub fn open_side_new_tab(host: &mut dyn PanelsHost, pane: SessionPane) -> String {
     host.wake_panel_launchers();
     let Some(sid) = host.active_session_id().map(str::to_owned) else {
@@ -79,6 +92,7 @@ pub fn open_side_new_tab(host: &mut dyn PanelsHost, pane: SessionPane) -> String
         let stored = host.side().sessions.get(&sid).map_or(&empty, |s| &s.tab_state.tabs);
         reg.pane_active(pane, stored)
     });
+    let shared = host.shared_side_panel();
     let id = {
         let side = host.side_mut();
         let id = format!("new:{}", side.next_new_serial);
@@ -93,11 +107,10 @@ pub fn open_side_new_tab(host: &mut dyn PanelsHost, pane: SessionPane) -> String
         side.focus.focus();
         side.active_pane_focus = pane;
         side.close_guard.step(CloseTabGuardEvent::RegionOpened);
-        let st = side.sessions.entry(sid).or_default();
         if pane == SessionPane::Bottom {
-            st.bottom_open = true;
+            side.sessions.entry(sid).or_default().bottom_open = true;
         } else {
-            st.visibility.step(true);
+            set_side_open(side, shared, &sid, true);
         }
         id
     };
@@ -113,8 +126,9 @@ pub fn dismiss_side_new_tab(host: &mut dyn PanelsHost, new_id: &str) {
     let strip_empty = resolve_side_region(host).is_none_or(|r| r.strip.is_empty());
     let any_new = host.side().adding.iter().any(|n| n.session_id == sid);
     if strip_empty && !any_new {
+        let shared = host.shared_side_panel();
         let side = host.side_mut();
-        side.sessions.entry(sid).or_default().visibility.step(false);
+        set_side_open(side, shared, &sid, false);
         side.focus.blur();
     }
 }
@@ -125,6 +139,7 @@ pub fn toggle_side_region(host: &mut dyn PanelsHost, tx: &mut Tx) {
     let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
     host.side_mut().menu = SideMenu::Closed;
     let was_open = side_stored_open(host);
+    let shared = host.shared_side_panel();
     if was_open {
         // Closing gives focus back to the prompt when it was in the region (`panels.tsx`
         // `toggle`'s `giveBackFocus`), rather than to nothing.
@@ -133,7 +148,7 @@ pub fn toggle_side_region(host: &mut dyn PanelsHost, tx: &mut Tx) {
         }
         {
             let side = host.side_mut();
-            side.sessions.entry(sid).or_default().visibility.step(false);
+            set_side_open(side, shared, &sid, false);
             side.focus.blur();
         }
         host.blur_panel_fields();
@@ -142,7 +157,7 @@ pub fn toggle_side_region(host: &mut dyn PanelsHost, tx: &mut Tx) {
 
     {
         let side = host.side_mut();
-        side.sessions.entry(sid.clone()).or_default().visibility.step(true);
+        set_side_open(side, shared, &sid, true);
         side.focus.focus();
         side.active_pane_focus = SessionPane::Side;
         side.close_guard.step(CloseTabGuardEvent::RegionOpened);
@@ -244,20 +259,24 @@ pub fn open_side_tab_for_session(
         .map(|p| p.default_pane);
     let pane_choice = target_pane.or(default_pane);
 
+    let was_shared = host.side().shared_open;
+    let shared = host.shared_side_panel();
     let is_active = host.active_session_id() == Some(session_id);
     {
         let side = host.side_mut();
-        let st = side.sessions.entry(session_id.to_owned()).or_default();
-        st.tab_state = if preview {
-            preview_session_tab(&st.tab_state, key, &transient_launchers, pane_choice)
-        } else {
-            open_session_tab(&st.tab_state, key, &transient_launchers, first, pane_choice)
+        let actual_pane = {
+            let st = side.sessions.entry(session_id.to_owned()).or_default();
+            st.tab_state = if preview {
+                preview_session_tab(&st.tab_state, key, &transient_launchers, pane_choice)
+            } else {
+                open_session_tab(&st.tab_state, key, &transient_launchers, first, pane_choice)
+            };
+            session_tab_pane(&st.tab_state.tabs, key)
         };
-        let actual_pane = session_tab_pane(&st.tab_state.tabs, key);
         if actual_pane == SessionPane::Bottom {
-            st.bottom_open = true;
+            side.sessions.entry(session_id.to_owned()).or_default().bottom_open = true;
         } else {
-            st.visibility.step(true);
+            set_side_open(side, shared, session_id, true);
         }
         side.adding.retain(|n| !(n.session_id == session_id && n.pane == actual_pane));
         side.focus.focus();
@@ -272,7 +291,9 @@ pub fn open_side_tab_for_session(
     {
         prov.focus(host, session_id, tab_id, false);
     }
-    host.place_narrow(session_id, key, was);
+    if host.place_narrow(session_id, key, was) && shared {
+        host.side_mut().shared_open = was_shared;
+    }
 }
 
 /// Hides the pane showing `key` (Desktop's `layout.hide`): the bottom pane, or the side region.
@@ -309,23 +330,27 @@ pub fn show_side_tab(host: &mut dyn PanelsHost, session_id: &str, key: &str, tar
         .map(|p| p.home_pane(host));
     let prefix = split_panel_key(key).map(|(pl, _)| format!("{pl}:")).unwrap_or_default();
 
+    let was_shared = host.side().shared_open;
+    let shared = host.shared_side_panel();
     let is_active = host.active_session_id() == Some(session_id);
     {
         let side = host.side_mut();
-        let st = side.sessions.entry(session_id.to_owned()).or_default();
-        let sibling = st.tab_state.tabs.all.iter().any(|k| k.starts_with(&prefix));
-        let mut next = st.tab_state.tabs.clone();
-        if !next.all.iter().any(|k| k == key) {
-            next.all.push(key.to_owned());
-        }
-        next.active = Some(key.to_owned());
-        let target = target.or(if sibling { None } else { fallback });
-        st.tab_state.tabs = place_session_tabs(&st.tab_state.tabs, next, target);
-        let pane = session_tab_pane(&st.tab_state.tabs, key);
+        let pane = {
+            let st = side.sessions.entry(session_id.to_owned()).or_default();
+            let sibling = st.tab_state.tabs.all.iter().any(|k| k.starts_with(&prefix));
+            let mut next = st.tab_state.tabs.clone();
+            if !next.all.iter().any(|k| k == key) {
+                next.all.push(key.to_owned());
+            }
+            next.active = Some(key.to_owned());
+            let target = target.or(if sibling { None } else { fallback });
+            st.tab_state.tabs = place_session_tabs(&st.tab_state.tabs, next, target);
+            session_tab_pane(&st.tab_state.tabs, key)
+        };
         if pane == SessionPane::Bottom {
-            st.bottom_open = true;
+            side.sessions.entry(session_id.to_owned()).or_default().bottom_open = true;
         } else {
-            st.visibility.step(true);
+            set_side_open(side, shared, session_id, true);
         }
         side.adding.retain(|n| !(n.session_id == session_id && n.pane == pane));
         if is_active && !side.background_open.is_active() {
@@ -338,7 +363,9 @@ pub fn show_side_tab(host: &mut dyn PanelsHost, session_id: &str, key: &str, tar
     {
         prov.focus(host, session_id, tab_id, false);
     }
-    host.place_narrow(session_id, key, was);
+    if host.place_narrow(session_id, key, was) && shared {
+        host.side_mut().shared_open = was_shared;
+    }
 }
 
 pub fn open_side_tab(
@@ -390,15 +417,18 @@ pub fn select_side_tab(host: &mut dyn PanelsHost, key: &str, tx: &mut Tx) {
 pub fn move_side_tab(host: &mut dyn PanelsHost, key: &str, pane: SessionPane, before: Option<&str>, tx: &mut Tx) {
     let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
     tx.instant();
+    let shared = host.shared_side_panel();
     let side = host.side_mut();
     side.close_guard.step(CloseTabGuardEvent::RegionOpened);
-    let st = side.sessions.entry(sid).or_default();
-    st.tab_state.tabs = move_session_tab(&st.tab_state.tabs, key, pane, before);
-    if pane == SessionPane::Bottom {
-        st.bottom_open = true;
-    } else {
-        st.visibility.step(true);
+    {
+        let st = side.sessions.entry(sid.clone()).or_default();
+        st.tab_state.tabs = move_session_tab(&st.tab_state.tabs, key, pane, before);
+        if pane == SessionPane::Bottom {
+            st.bottom_open = true;
+            return;
+        }
     }
+    set_side_open(side, shared, &sid, true);
 }
 
 pub fn promote_preview_tab(host: &mut dyn PanelsHost, key: &str) {
@@ -483,9 +513,10 @@ pub fn close_side_tab(host: &mut dyn PanelsHost, key: &str, tx: &mut Tx) {
         // The side region slides shut on its spring; a side tab it closed stays on screen
         // until it lands.
         let at = host.clock();
+        let shared = host.shared_side_panel();
         let effects = {
             let side = host.side_mut();
-            side.sessions.entry(sid.clone()).or_default().visibility.step(false);
+            set_side_open(side, shared, &sid, false);
             side.focus.blur();
             entry
                 .filter(|_| was_pane != SessionPane::Bottom)

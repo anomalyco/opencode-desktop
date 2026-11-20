@@ -89,15 +89,10 @@ impl Page {
     }
 }
 
-/// `recentReloadsOn`, recent-sessions-model.ts:295-311.
-pub fn reloads_on(app: &App, ty: &str, data: &Value, sid: &str) -> bool {
-    match ty {
-        "session.created" => data["parentID"].is_null(),
-        "session.archived" | "session.unarchived" => true,
-        "session.execution.interrupted" if data["reason"] == "shutdown" => false,
-        "session.execution.succeeded" | "session.execution.failed" | "session.execution.interrupted" => app.session(sid).is_none_or(|s| s.parent.is_none()),
-        _ => false,
-    }
+/// `recentReloadsOn`, recent-sessions-model.ts (#64503): reload page one only when a new root
+/// session is created. Other changes (run ends, renames, archive) reach rows through live events.
+pub fn reloads_on(ty: &str, data: &Value) -> bool {
+    ty == "session.created" && data["parentID"].is_null()
 }
 
 /// One trailing-edge reload per server (`recent-sessions.tsx:133-146,319-322,334-344`).
@@ -156,12 +151,6 @@ impl App {
             Effect::Wake(delay) => tx.wake_after(delay),
             Effect::Fetch => if let Source::Live { requests: Some(r), .. } = &*self.source { r.send(Request::Sessions).ok(); },
             Effect::None => (),
-        }
-    }
-
-    pub(crate) fn reload_recent_on_focus(&mut self) {
-        for key in self.checkout.keys() {
-            crate::servers::runtime::with_server(self, &key, |s| s.schedule_recent_reload());
         }
     }
 }

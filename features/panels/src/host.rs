@@ -65,6 +65,10 @@ pub trait PanelsHost: opencode_kernel::AppEnv {
     fn dock_placement(&self) -> DockPlacement {
         DockPlacement::Side
     }
+    /// Whether the side panel open state is shared across every session tab (`general.sharedSidePanel`, #64950).
+    fn shared_side_panel(&self) -> bool {
+        false
+    }
     /// Window chrome metrics for positioning and caching the side region.
     fn panel_chrome(&self) -> PanelChrome {
         PanelChrome { top: 8.0, foot: 0.0, stamp: 0 }
@@ -200,9 +204,11 @@ pub trait PanelsHost: opencode_kernel::AppEnv {
     }
 
     /// Places a newly opened tab into the narrow-window view switcher instead of opening side/bottom
-    /// panes, restoring the previous `(visibility, bottom_open)` state when narrow.
-    fn place_narrow(&mut self, session_id: &str, key: &str, was: (Visibility, bool)) {
+    /// panes, restoring the previous `(visibility, bottom_open)` state when narrow. Returns `true`
+    /// when narrow mode intercepted the open.
+    fn place_narrow(&mut self, session_id: &str, key: &str, was: (Visibility, bool)) -> bool {
         let _ = (session_id, key, was);
+        false
     }
     /// Called when `key` is selected in the tab strip (e.g. to blur a file filter input for non-file tabs).
     fn on_side_tab_selected(&mut self, key: &str) {

@@ -4,7 +4,7 @@ mod actions;
 mod resolve;
 
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -529,6 +529,10 @@ pub struct SideState {
     /// Each pane's tab strip scroll (by `SessionPane as usize`): what its handlers read, which a
     /// build never does.
     pub strips: Rc<[StripScroll; 3]>,
+    /// One side panel open state shared across sessions while `sharedSidePanel` is on (#64950).
+    pub shared_open: Option<bool>,
+    /// Sessions that mounted the side region while `shared_open` was true (transient, for smooth close).
+    pub shared_mounted: HashSet<String>,
     pub sessions: HashMap<String, SessionSideState>,
     pub adding: Vec<NewTabEntry>,
     pub chosen_new_tab: HashMap<SessionPane, String>,
@@ -563,6 +567,8 @@ impl Default for SideState {
             resolved: Default::default(),
             resolved_gen: Cell::new(0),
             tabs_stamp: Cell::new(None),
+            shared_open: None,
+            shared_mounted: HashSet::new(),
             sessions: HashMap::new(),
             adding: Vec::new(),
             chosen_new_tab: HashMap::new(),
@@ -654,17 +660,28 @@ pub fn side_open(host: &dyn PanelsHost) -> bool {
     side_stored_open(host) && !host.narrow()
 }
 
+/// Whether `session`'s side region is open, respecting `sharedSidePanel` (#64950).
+pub fn session_side_open(host: &dyn PanelsHost, session: &str) -> bool {
+    if host.shared_side_panel() {
+        return host.side().shared_open.unwrap_or(false);
+    }
+    host.side().sessions.get(session).is_some_and(|st| st.visibility.open())
+}
+
 /// The routed session's side region is open, shown or folded away by a narrow window.
 pub fn side_stored_open(host: &dyn PanelsHost) -> bool {
-    host.active_session_id()
-        .and_then(|id| host.side().sessions.get(id))
-        .is_some_and(|st| st.visibility.open())
+    host.active_session_id().is_some_and(|id| session_side_open(host, id))
 }
 
 pub fn side_mounted(host: &dyn PanelsHost) -> bool {
-    host.active_session_id()
-        .and_then(|id| host.side().sessions.get(id))
-        .is_some_and(|st| st.visibility.mounted())
+    host.active_session_id().is_some_and(|id| {
+        if host.shared_side_panel() {
+            let side = host.side();
+            side.shared_open.unwrap_or(false) || side.shared_mounted.contains(id)
+        } else {
+            host.side().sessions.get(id).is_some_and(|st| st.visibility.mounted())
+        }
+    })
 }
 
 /// The bottom pane shows: open for the routed session, in a wide window (`screen.tsx:545`).
@@ -741,7 +758,7 @@ pub fn tab_state(host: &dyn PanelsHost, session: &str, key: &str) -> u64 {
     }
     let shown = match pane {
         SessionPane::Bottom => st.bottom_open,
-        SessionPane::Side | SessionPane::Split => st.visibility.open(),
+        SessionPane::Side | SessionPane::Split => session_side_open(host, session),
     };
     if shown { 3 } else { 2 }
 }
@@ -759,6 +776,6 @@ pub fn side_tab_visible(host: &dyn PanelsHost, key: &str) -> bool {
     let Some(sid) = host.active_session_id() else { return false };
     let Some(st) = host.side().sessions.get(sid) else { return false };
     let pane = session_tab_pane(&st.tab_state.tabs, key);
-    let open = if pane == SessionPane::Bottom { st.bottom_open } else { st.visibility.open() };
+    let open = if pane == SessionPane::Bottom { st.bottom_open } else { session_side_open(host, sid) };
     open && pane_shown_tab(host, pane).as_deref() == Some(key)
 }

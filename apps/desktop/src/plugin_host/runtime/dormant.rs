@@ -380,11 +380,20 @@ fn push_once(list: &mut Vec<(String, Wait)>, id: &str, to: Wait) {
 
 /// Whether session `session`'s side region is open on New tab (empty side strip, or adding a tab).
 fn session_shows_launchers(app: &App, session: &str) -> bool {
-    app.kernel.slots.get(&crate::panels::SIDE).sessions.get(session).is_some_and(|st| {
-        st.visibility.open()
-            && (!st.tab_state.tabs.all.iter().any(|k| st.tab_state.tabs.panes.get(k).copied().unwrap_or(crate::panels::SessionPane::Side) != crate::panels::SessionPane::Bottom)
-                || app.kernel.slots.get(&crate::panels::SIDE).adding.iter().any(|n| n.session_id == session))
-    })
+    let side_state = app.kernel.slots.get(&crate::panels::SIDE);
+    let st = side_state.sessions.get(session);
+    let side_open = if app.settings.shared_side_panel {
+        side_state.shared_open.unwrap_or(false)
+    } else {
+        st.is_some_and(|st| st.visibility.open())
+    };
+    if !side_open {
+        return false;
+    }
+    let has_side_tab = st.is_some_and(|st| {
+        st.tab_state.tabs.all.iter().any(|k| st.tab_state.tabs.panes.get(k).copied().unwrap_or(crate::panels::SessionPane::Side) != crate::panels::SessionPane::Bottom)
+    });
+    !has_side_tab || side_state.adding.iter().any(|n| n.session_id == session)
 }
 
 /// The dormant plugins a session's screen draws, as `first_screen` decides for a launch: its

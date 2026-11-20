@@ -210,7 +210,12 @@ impl App {
         if !crate::auto_focus_composer(tx) {
             self.composer.focused = false;
         } else if self.fixture_run.stage.is_none() {
+            self.search.focused = false;
+            self.kernel.slots.get_mut(&crate::find::FIND).input.focused = false;
+            self.kernel.slots.get_mut(&crate::panels::SIDE).focus.blur();
+            crate::plugin_host::blur_fields(self);
             self.composer.focused = true;
+            tx.focus("prompt", tx.focus_visible());
         }
         tx.settle();
     }

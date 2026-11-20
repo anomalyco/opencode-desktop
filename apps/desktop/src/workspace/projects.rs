@@ -518,6 +518,7 @@ impl Feature<App> for ProjectsFeature {
                     let p = crate::palette::pal(s.dark(cx));
                     crate::view::home::browse::view(s, p, cx)
                 })
+                .with_key(crate::view::home::browse::key)
                 .above("overlay.add_menu")
                 .with_dismiss(crate::view::home::browse::close),
         );

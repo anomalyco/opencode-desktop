@@ -40,15 +40,29 @@ pub fn plugins(app: &App) -> Vec<&'static str> {
     let transcript = app.launch.cold_transcript.is_some();
     // The debug plugin's one slot is its bar (`window.bottom`), counted above: hidden, it draws nothing.
     out.extend(sources::builtin_ids().filter(|id| (*id != "debug" && has(id, &["Slot", "ComposerPill"])) || (transcript && has(id, &["CodeBlock", "LinkHandler"]))));
-    if let Some(side) = app.kernel.slots.get(&crate::panels::SIDE).sessions.get(session) {
-        let tabs = &side.tab_state.tabs;
-        let shown = |key: &String| match tabs.panes.get(key).copied().unwrap_or(SessionPane::Side) {
-            SessionPane::Bottom => side.bottom_open,
-            _ => side.visibility.open(),
-        };
-        let with_tabs: Vec<&str> = tabs.all.iter().filter(|k| shown(k)).filter_map(|k| crate::panels::tabs::split_panel_key(k).map(|(plugin, _)| plugin)).collect();
-        let files = with_tabs.contains(&"file");
-        let empty_side = side.visibility.open() && !tabs.all.iter().any(|k| tabs.panes.get(k).copied().unwrap_or(SessionPane::Side) != SessionPane::Bottom);
+    let side_state = app.kernel.slots.get(&crate::panels::SIDE);
+    let side = side_state.sessions.get(session);
+    let side_open = if app.settings.shared_side_panel {
+        side_state.shared_open.unwrap_or(false)
+    } else {
+        side.is_some_and(|st| st.visibility.open())
+    };
+    let with_tabs: Vec<&str> = side
+        .map(|side| {
+            let tabs = &side.tab_state.tabs;
+            let shown = |key: &String| match tabs.panes.get(key).copied().unwrap_or(SessionPane::Side) {
+                SessionPane::Bottom => side.bottom_open,
+                _ => side_open,
+            };
+            tabs.all.iter().filter(|k| shown(k)).filter_map(|k| crate::panels::tabs::split_panel_key(k).map(|(plugin, _)| plugin)).collect()
+        })
+        .unwrap_or_default();
+    let files = with_tabs.contains(&"file");
+    let has_side_tab = side.is_some_and(|side| {
+        side.tab_state.tabs.all.iter().any(|k| side.tab_state.tabs.panes.get(k).copied().unwrap_or(SessionPane::Side) != SessionPane::Bottom)
+    });
+    let empty_side = side_open && !has_side_tab;
+    if !with_tabs.is_empty() || empty_side {
         out.extend(sources::builtin_ids().filter(|id| with_tabs.contains(id) || (files && has(id, &["FileViewer"])) || (empty_side && has(id, &["Panel", "MenuItem"]))));
     }
     out.sort_unstable();

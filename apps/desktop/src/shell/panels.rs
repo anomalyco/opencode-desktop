@@ -64,6 +64,10 @@ impl PanelsHost for App {
         self.settings.terminal_placement
     }
 
+    fn shared_side_panel(&self) -> bool {
+        self.settings.shared_side_panel
+    }
+
     fn panel_chrome(&self) -> PanelChrome {
         let c = crate::view::chrome();
         let mut h = DefaultHasher::new();
@@ -250,8 +254,8 @@ impl PanelsHost for App {
         crate::plugin_host::native::on_key(self, ev, tx)
     }
 
-    fn place_narrow(&mut self, session_id: &str, key: &str, was: (Visibility, bool)) {
-        App::place_narrow(self, session_id, key, was);
+    fn place_narrow(&mut self, session_id: &str, key: &str, was: (Visibility, bool)) -> bool {
+        App::place_narrow(self, session_id, key, was)
     }
 
     fn on_side_tab_selected(&mut self, key: &str) {

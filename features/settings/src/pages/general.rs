@@ -15,6 +15,10 @@ use crate::host::SettingsHost;
 use crate::types::{DockPlacement, TerminalMarkShell};
 use crate::{Choice as _, Destination, FollowUp, TitlebarPosition, change_settings, list, set_show_agent, set_terminal_placement, setting, setting_at, switch};
 
+fn toggle_shared_side_panel(s: &mut dyn SettingsHost) {
+    change_settings(s, |x| x.shared_side_panel = !x.shared_side_panel);
+}
+
 fn pick_language(s: &mut dyn SettingsHost, id: &str, _tx: &mut Tx) {
     s.set_language(id);
 }
@@ -83,6 +87,16 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
                 t!("settings.general.row.interfaceMode.description"),
                 crate::interface_mode::control(s, p),
                 false,
+            ),
+        ),
+        (
+            "settings-shared-side-panel",
+            setting(
+                p,
+                "settings-shared-side-panel",
+                t!("settings.general.row.sharedSidePanel.title"),
+                t!("settings.general.row.sharedSidePanel.description"),
+                switch(p, "shared-side-panel-switch", st.shared_side_panel).on_press(|s: &mut H| toggle_shared_side_panel(s)),
             ),
         ),
         (

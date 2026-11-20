@@ -18,7 +18,7 @@ pub(crate) use crate::shell::{
     nav::{history, layout_state, pinch, route},
     overlays,
     tabs,
-    tabs::{actions as tab_actions, badges as tab_badges, recently_closed},
+    tabs::{actions as tab_actions, badges as tab_badges, hints as tab_hints, recently_closed},
     view,
 };
 

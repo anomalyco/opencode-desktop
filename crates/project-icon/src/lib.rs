@@ -360,8 +360,54 @@ impl Icons {
 
     /// The project's icon at `size_pt` square: its image, else a mark in the current look.
     pub fn view<'a>(&self, pal: &Palette, project: impl Into<Project<'a>>, size_pt: f32) -> El {
+        self.view_with_label(pal, project, size_pt, None, false)
+    }
+
+    /// [`Self::view`] with an optional stacked shortcut label (`project-avatar.tsx` `label`,
+    /// `tab-nav.css` #63089): when `show_label` is true, the initial slides up and fades out
+    /// while `label` rises in over `160 ms ease-out` (backing images with the avatar colour).
+    pub fn view_with_label<'a>(
+        &self,
+        pal: &Palette,
+        project: impl Into<Project<'a>>,
+        size_pt: f32,
+        label: Option<&str>,
+        show_label: bool,
+    ) -> El {
         let project = project.into();
-        self.image(pal, project, size_pt).unwrap_or_else(|| self.mark(pal, project, size_pt, self.look()))
+        let Some(lbl) = label else {
+            return self.image(pal, project, size_pt).unwrap_or_else(|| self.mark(pal, project, size_pt, self.look()));
+        };
+        let anim = rune::Anim::new(rune::Curve::tween(0.16, rune::Easing::EASE_OUT));
+        let radius = size_pt * styles::RADIUS;
+        let font = TextStyle::new(size_pt * 11.0 / 16.0, 530.0).lh(size_pt).tracking(0.05).features("\"tnum\"");
+        let badge_label = |bg: Option<Color>| {
+            let mut layer = el()
+                .key("avatar-label")
+                .absolute(0.0, 0.0)
+                .size(size_pt, size_pt)
+                .center()
+                .opacity(if show_label { 1.0 } else { 0.0 })
+                .offset(0.0, if show_label { 0.0 } else { 6.0 })
+                .opacity_motion(anim)
+                .offset_motion(anim)
+                .a11y_hidden()
+                .child(text(lbl).font(font).color(pal.fg));
+            if let Some(bg) = bg {
+                layer = layer.fill(bg);
+            }
+            layer
+        };
+        if let Some(img_tile) = self.image(pal, project, size_pt) {
+            let bg = pal.avatars[chosen_color(project.color).unwrap_or(8)].0;
+            return el()
+                .size(size_pt, size_pt)
+                .radius(radius)
+                .clip_soft(0.0)
+                .child(img_tile)
+                .child(badge_label(Some(bg)));
+        }
+        self.mark_with_label(pal, project, size_pt, self.look(), Some((lbl, show_label, anim, font)))
     }
 
     /// What lies over a tile in the current finish: Desktop's inset ring in `ring`, or the light,
@@ -428,6 +474,17 @@ impl Icons {
 
     /// The procedural mark alone, in `look`.
     pub fn mark<'a>(&self, pal: &Palette, project: impl Into<Project<'a>>, size_pt: f32, look: Look) -> El {
+        self.mark_with_label(pal, project, size_pt, look, None)
+    }
+
+    fn mark_with_label<'a>(
+        &self,
+        pal: &Palette,
+        project: impl Into<Project<'a>>,
+        size_pt: f32,
+        look: Look,
+        overlay: Option<(&str, bool, rune::Anim, TextStyle)>,
+    ) -> El {
         let project = project.into();
         let seed = if project.name.is_empty() { project.id } else { project.name };
         let chosen = chosen_color(project.color);
@@ -474,7 +531,45 @@ impl Icons {
             let letter = first.map_or("?".into(), |c| c.to_uppercase().to_string());
             // Desktop's 11 px semibold letter in a 16 px tile.
             let font = TextStyle::new(size_pt * 11.0 / 16.0, 530.0).lh(size_pt);
-            tile = tile.center().child(text(letter).font(font).color(pal.fg));
+            if let Some((lbl, show_label, anim, lbl_font)) = overlay {
+                let initial = text(letter)
+                    .key("avatar-initial")
+                    .font(font)
+                    .color(pal.fg)
+                    .opacity(if show_label { 0.0 } else { 1.0 })
+                    .offset(0.0, if show_label { -6.0 } else { 0.0 })
+                    .opacity_motion(anim)
+                    .offset_motion(anim);
+                let shortcut = el()
+                    .key("avatar-label")
+                    .absolute(0.0, 0.0)
+                    .size(size_pt, size_pt)
+                    .center()
+                    .opacity(if show_label { 1.0 } else { 0.0 })
+                    .offset(0.0, if show_label { 0.0 } else { 6.0 })
+                    .opacity_motion(anim)
+                    .offset_motion(anim)
+                    .a11y_hidden()
+                    .child(text(lbl).font(lbl_font).color(pal.fg));
+                tile = tile.clip_soft(0.0).center().child(initial).child(shortcut);
+            } else {
+                tile = tile.center().child(text(letter).font(font).color(pal.fg));
+            }
+        } else if let Some((lbl, show_label, anim, lbl_font)) = overlay {
+            let bg = pal.avatars[variant].0;
+            let shortcut = el()
+                .key("avatar-label")
+                .absolute(0.0, 0.0)
+                .size(size_pt, size_pt)
+                .fill(bg)
+                .center()
+                .opacity(if show_label { 1.0 } else { 0.0 })
+                .offset(0.0, if show_label { 0.0 } else { 6.0 })
+                .opacity_motion(anim)
+                .offset_motion(anim)
+                .a11y_hidden()
+                .child(text(lbl).font(lbl_font).color(pal.fg));
+            tile = tile.clip_soft(0.0).child(shortcut);
         }
         if look.style == Style::Pop {
             let letter = seed.chars().find(|c| c.is_alphanumeric()).map_or("?".into(), |c| c.to_uppercase().to_string());
