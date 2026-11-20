@@ -77,15 +77,16 @@ const SHADER_GAME_SOURCE: &str = r##"const WGSL = `fn shade(frag: vec2f) -> vec4
 
 async function main(data) {
   let x = 0.5
+  const onPointer = (p) => {
+    if (p.x !== undefined) x = p.x / p.width
+  }
   while (true) {
-    const next = await widget.next({ frame: true })
-    if (next.type === "event" && next.event.type === "pointer") x = next.event.value.x / next.event.value.width
-    if (next.type !== "frame") continue
+    const frame = await widget.frame()
     widget.render(
       ui.column({ gap: 1 }, [
         ui.text("Shader paddle", { style: "title" }),
-        ui.shader(WGSL, { id: "court", height: 220, values: [x, next.frame.t, 0, 0], alt: "A paddle and a ball" }),
-        ui.text(data.clock ? "t = " + next.frame.t.toFixed(2) : "Drag on the court to move the paddle.", { style: "caption", tone: "muted" }),
+        ui.shader(WGSL, { key: "court", height: 220, values: [x, frame.t, 0, 0], alt: "A paddle and a ball", onPointer }),
+        ui.text(data.clock ? "t = " + frame.t.toFixed(2) : "Drag on the court to move the paddle.", { style: "caption", tone: "muted" }),
       ]),
     )
   }
@@ -97,35 +98,42 @@ async function main(data) {
 const INPUT: &str = "story-input";
 const INPUT_SOURCE: &str = r##"async function main(data) {
   const s = { x: 160, y: 90, focus: false, capture: false, last: "Click the pad, then use the arrows or move the mouse" }
-  widget.capturePointer()
-  show(s)
-  while (true) {
-    const e = await widget.event()
-    if (e.type === "focus") s.focus = e.value
-    else if (e.type === "capture") s.capture = e.value
-    else if (e.type === "key") {
-      if (e.value.kind === "down") {
-        const k = e.value.key
-        if (k === "ArrowLeft" || k === "a") s.x -= 12
-        if (k === "ArrowRight" || k === "d") s.x += 12
-        if (k === "ArrowUp" || k === "w") s.y -= 12
-        if (k === "ArrowDown" || k === "s") s.y += 12
-      }
-      s.last = "key " + e.value.kind + " " + e.value.key + " (" + e.value.code + ")"
-    } else if (e.type === "pointer" && e.value.dx !== undefined) {
-      s.x += e.value.dx
-      s.y += e.value.dy
-      s.last = "move dx " + e.value.dx.toFixed(0) + " dy " + e.value.dy.toFixed(0)
-    } else if (e.type === "pointer") s.last = "pointer " + e.value.kind + (e.value.button !== undefined ? " button " + e.value.button : "")
+  widget.on("focus", (on) => {
+    s.focus = on
+    show(s)
+  })
+  widget.on("capture", (on) => {
+    s.capture = on
+    show(s)
+  })
+  widget.on("key", (key) => {
+    if (key.kind === "down") {
+      const k = key.key
+      if (k === "ArrowLeft" || k === "a") s.x -= 12
+      if (k === "ArrowRight" || k === "d") s.x += 12
+      if (k === "ArrowUp" || k === "w") s.y -= 12
+      if (k === "ArrowDown" || k === "s") s.y += 12
+    }
+    s.last = "key " + key.kind + " " + key.key + " (" + key.code + ")"
+    show(s)
+  })
+  s.onPointer = (p) => {
+    if (p.dx !== undefined) {
+      s.x += p.dx
+      s.y += p.dy
+      s.last = "move dx " + p.dx.toFixed(0) + " dy " + p.dy.toFixed(0)
+    } else s.last = "pointer " + p.kind + (p.button !== undefined ? " button " + p.button : "")
     show(s)
   }
+  widget.capturePointer()
+  show(s)
 }
 
 function show(s) {
   widget.render(
     ui.column({ gap: 1 }, [
       ui.text("Keyboard and pointer", { style: "title" }),
-      ui.canvas({ id: "pad", height: 180, alt: "A dot to steer" }),
+      ui.canvas({ key: "pad", height: 180, alt: "A dot to steer", onPointer: s.onPointer }),
       ui.text((s.focus ? "Focused" : "Not focused") + " · " + (s.capture ? "pointer captured" : "pointer free") + " · " + s.last, { style: "caption", tone: "muted" }),
     ]),
   )
@@ -145,14 +153,13 @@ const FULLSCREEN_SOURCE: &str = r##"function init(data) {
 function view(state, data) {
   return ui.column({ gap: 2 }, [
     ui.text(state.full ? "Starfield, full screen" : "Starfield", { style: "title" }),
-    ui.canvas({ id: "sky", height: 180, fps: 30, fill: true, alt: "A starfield" }),
+    ui.canvas({ key: "sky", height: 180, fps: 30, fill: true, alt: "A starfield" }),
     !state.full && ui.text("Hover the widget and press the expand button.", { style: "caption", tone: "muted" }),
   ])
 }
 
-function update(state, event) {
-  if (event.type === "fullscreen") return { ...state, full: event.value === true }
-  return state
+function onFullscreen(state, on) {
+  return { ...state, full: on }
 }
 
 function draw(state, data, frame) {

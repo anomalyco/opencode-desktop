@@ -231,7 +231,7 @@ fn run(host: &mut dyn WidgetsHost, id: &str, effect: Effect) -> Option<Event> {
                 _ => return Some(Event::Ran(Err("the widget's program isn't loaded".to_owned()))),
             };
             let result = result.map_err(|(f, offset)| {
-                let phase = if f.view { "view" } else if matches!(input, opencode_widget::StepInput::Init { .. }) { "init" } else { "update" };
+                let phase = if f.view { "view" } else if matches!(input, opencode_widget::StepInput::Init { .. }) { "init" } else { "event" };
                 report(host, id, phase, &f.message, f.location, offset);
                 f.message
             });
