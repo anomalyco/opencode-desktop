@@ -96,12 +96,24 @@ pub fn note_started(app: &mut App, i: usize) {
     let Some(hash) = super::sources::files_hash(&p.manifest.id, &p.origin, p.tier) else { return };
     let id = p.manifest.id.clone();
     let app_half = super::app_half::each(|a| (*a.half.id == *id).then(|| record_kinds(&a.half.contribs.borrow(), &["menubar_items", "mcp_tools"]))).into_iter().next().unwrap_or_default();
+    let vm = p.script().and_then(rune_luau::Script::vm_id);
+    let mut signals: Vec<String> = p
+        .half
+        .signals
+        .borrow()
+        .keys()
+        .filter(|(v, name)| Some(*v) == vm && !name.starts_with("ctx.") && !name.starts_with("editor."))
+        .map(|(_, name)| name.clone())
+        .collect();
+    signals.sort();
+    signals.dedup();
     let record = Record {
         hash,
         locale: opencode_i18n::locale().id().to_owned(),
         window: record_kinds(&p.half.contribs.borrow(), &[]),
         app: app_half,
         events: p.half.events.borrow().iter().map(|(_, prefix, _)| prefix.clone()).collect(),
+        signals,
     };
     let d = &mut app.plugins.dormant;
     d.ensure_read();
@@ -260,15 +272,48 @@ pub fn wake_owners(app: &mut App, owns: impl Fn(&Contribs) -> bool) -> bool {
     any
 }
 
-/// The palette, the slash list or a menu is opening: the dormant plugins whose rows in it answer
-/// a function (`enabled`, `hidden`, `when`) start, so the rows it lists are the ones they say.
-pub fn wake_kind(app: &mut App, kind: &str, fns: &[&str]) -> bool {
-    let ids: Vec<String> = app.plugins.dormant.asleep.iter().filter(|(_, a)| a.record.window.get(kind).is_some_and(|es| es.iter().any(|e| e.fns.iter().any(|f| fns.contains(&f.as_str()))))).map(|(id, _)| id.clone()).collect();
+/// Wakes, now, each dormant plugin whose recorded signals contain `signal`; true when one woke.
+pub fn wake_signal(app: &mut App, signal: &str) -> bool {
+    let ids: Vec<String> = app
+        .plugins
+        .dormant
+        .asleep
+        .iter()
+        .filter(|(_, a)| a.record.signals.iter().any(|s| s == signal))
+        .map(|(id, _)| id.clone())
+        .collect();
     let mut any = false;
     for id in ids {
         any |= wake(app, &id, Why::Use);
     }
     any
+}
+
+/// The palette, the slash list or a menu is opening: any queued built-ins contributing to `kind`
+/// are adopted at once, and dormant plugins whose rows in it answer a function (`enabled`,
+/// `hidden`, `when`) start, so the rows it lists are complete even on a first launch.
+pub fn wake_kind(app: &mut App, kind: &str, fns: &[&str]) -> bool {
+    super::boot::doze_owed(app);
+    let adopted = match kind {
+        "commands" => super::boot::adopt_later_kinds(app, &["Command"]),
+        "menu_items" => super::boot::adopt_later_kinds(app, &["MenuItem"]),
+        _ => false,
+    };
+    let ids: Vec<String> = app.plugins.dormant.asleep.iter().filter(|(_, a)| a.record.window.get(kind).is_some_and(|es| es.iter().any(|e| e.fns.iter().any(|f| fns.contains(&f.as_str()))))).map(|(id, _)| id.clone()).collect();
+    let mut woke = false;
+    for id in ids {
+        woke |= wake(app, &id, Why::Use);
+    }
+    adopted || woke
+}
+
+/// Settings is opening: adopts any queued built-ins contributing commands or settings surfaces
+/// and wakes dormant ones so Settings › Shortcuts and plugin pages are complete immediately.
+pub fn wake_settings(app: &mut App) -> bool {
+    super::boot::doze_owed(app);
+    let adopted = super::boot::adopt_later_kinds(app, &["Command", "Setting", "SettingsPage"]);
+    let woke = wake_owners(app, |c| !c.settings.is_empty() || !c.settings_pages.is_empty());
+    adopted || woke
 }
 
 /// Whether dormant plugin `id`'s recorded contribution `key` of `kind` handed over function `name`.
@@ -279,7 +324,7 @@ pub fn recorded_fn(app: &App, id: &str, kind: &str, key: &str, name: &str) -> bo
 /// The side region's New tab view or its `+` menu is opening: any queued or dormant plugins with
 /// entries there (panels, `session.panel` rows) start, so the entries are the ones they offer.
 pub fn wake_launchers(app: &mut App) -> bool {
-    let adopted = super::boot::adopt_later_launchers(app);
+    let adopted = super::boot::adopt_later_kinds(app, &["Panel", "MenuItem"]);
     let woke = wake_owners(app, |c| !c.panels.is_empty() || c.menu_items.iter().any(|m| m.spec.menu == spec::MenuName::SessionPanel));
     adopted || woke
 }
@@ -369,7 +414,7 @@ fn for_session(app: &App, session: &str) -> Vec<String> {
 /// The window routes to session `session`: what its screen draws starts before its frame.
 pub fn wake_for_route(app: &mut App, session: &str) {
     if session_shows_launchers(app, session) {
-        super::boot::adopt_later_launchers(app);
+        super::boot::adopt_later_kinds(app, &["Panel", "MenuItem"]);
     }
     for id in for_session(app, session) {
         wake(app, &id, Why::Use);

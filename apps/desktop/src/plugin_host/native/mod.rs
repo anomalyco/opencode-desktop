@@ -90,7 +90,7 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, name: &str, t: &Table) -> mlua::Result<()
         "Workspace" => files::build(lua, t),
         "Terminal" => terminal::build(lua, vmx, t),
         "Browser" => browser::build(lua, vmx, t),
-        "Composer" => browser::composer(lua, t),
+        "Composer" => browser::composer(lua, vmx, t),
         _ => Ok(()),
     }
 }

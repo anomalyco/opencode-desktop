@@ -11,6 +11,27 @@ use crate::plugin_host::{
     Half, Hot, Life, LifeEvent, Plugin, Tier, Trust, contrib, drive, process, servers, services, stores, tasks,
 };
 
+/// Starts a single built-in plugin synchronously on `app` when not yet running (used by
+/// standalone storybook stages, which construct a fresh `App` without booting every plugin).
+pub fn boot_builtin(app: &mut App, id: &str) {
+    if app.plugins.waker.is_none() {
+        app.plugins.waker = (*app.waker).clone();
+    }
+    if app.plugins.find(id).is_some_and(|i| app.plugins.list[i].running()) {
+        return;
+    }
+    if app.plugins.find(id).is_some() {
+        dormant::wake(app, id, dormant::Why::Use);
+        if app.plugins.find(id).is_some_and(|i| app.plugins.list[i].running()) {
+            return;
+        }
+    }
+    stores::begin();
+    if let Some(found) = sources::builtins().into_iter().find(|f| f.manifest.id == id) {
+        adopt_one(app, found, None);
+    }
+}
+
 /// Discovers and starts the plugins once the window's waker exists (`--no-plugins` skips it).
 pub fn setup(app: &mut App, waker: Waker) {
     let host = &mut app.plugins;
@@ -128,15 +149,22 @@ fn start_later(app: &mut App) {
     stores::load(app, ids, true, |app, tx| {
         // Stage B is in: what the record couldn't say about overrides and trust, it does now.
         refresh_records(app);
+        settle_later(app);
+        if app.kernel.slots.get(&crate::switcher::SWITCHER).is_open() {
+            adopt_later_kinds(app, &["Command"]);
+        }
+        if app.settings_open() {
+            adopt_later_kinds(app, &["Command", "Setting", "SettingsPage"]);
+        }
+        if let Some(kind) = app.composer_ext.pickers.open() {
+            crate::plugin_host::notify_picker_after_boot(app, kind, tx);
+        }
         #[cfg(target_arch = "wasm32")]
         {
-            let _ = tx;
-            settle_later(app);
             next_later(app, PAGE_LATER_AFTER);
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            settle_later(app);
             start_one_later(app, tx);
         }
     });
@@ -162,18 +190,51 @@ fn settle_later(app: &mut App) {
     }
 }
 
-/// Adopts, now, any queued plugins still in `later` that register panels or menu items, so opening
-/// New tab or the `+` menu before `start_one_later` reaches them lists their entries at once.
-pub(super) fn adopt_later_launchers(app: &mut App) -> bool {
+/// Adopts, now, any queued plugins still in `later` whose static contribution kinds intersect
+/// `kinds` (or non-bundled plugins, whose contributions aren't pre-scanned), so opening a surface
+/// like the command palette, slash menu, Settings, or panel launchers on a first launch before
+/// `start_one_later` reaches them lists their entries at once.
+pub(in crate::plugin_host) fn adopt_later_kinds(app: &mut App, kinds: &[&str]) -> bool {
     if app.plugins.boot.later().is_empty() {
+        return false;
+    }
+    if !refresh_records(app) && !(crate::storage::need() && refresh_records(app)) {
         return false;
     }
     let later = app.plugins.boot.take_later();
     let mut now = Vec::new();
     let mut keep = Vec::with_capacity(later.len());
     for found in later {
-        let kinds = sources::contributions(&found.manifest.id);
-        if found.tier != Tier::Bundled || kinds.contains(&"Panel") || kinds.contains(&"MenuItem") {
+        let contrib_kinds = sources::contributions(&found.manifest.id);
+        if found.tier != Tier::Bundled || kinds.iter().any(|k| contrib_kinds.contains(k)) {
+            now.push(found);
+        } else {
+            keep.push(found);
+        }
+    }
+    app.plugins.boot.set_later(keep);
+    let any = !now.is_empty();
+    if any {
+        adopt(app, now);
+    }
+    any
+}
+
+/// Adopts, now, any queued plugins still in `later` that connect to watched host signal `signal`
+/// (or non-bundled plugins, whose signals aren't pre-scanned), so opening a host surface before
+/// `start_one_later` reaches them delivers the event in that same turn.
+pub(in crate::plugin_host) fn adopt_later_signal(app: &mut App, signal: &str) -> bool {
+    if app.plugins.boot.later().is_empty() {
+        return false;
+    }
+    if !refresh_records(app) && !(crate::storage::need() && refresh_records(app)) {
+        return false;
+    }
+    let later = app.plugins.boot.take_later();
+    let mut now = Vec::new();
+    let mut keep = Vec::with_capacity(later.len());
+    for found in later {
+        if found.tier != Tier::Bundled || sources::signals(&found.manifest.id).contains(&signal) {
             now.push(found);
         } else {
             keep.push(found);

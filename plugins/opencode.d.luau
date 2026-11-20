@@ -1,4 +1,4 @@
--- OpenCode plugin contract 1.4: global types for luau-lsp.
+-- OpenCode plugin contract 1.5: global types for luau-lsp.
 -- Generated from crates/opencode-plugin-spec/contract.json by `cargo run -p opencode-plugin-spec -- --write`. Do not edit.
 -- Load it with `luau-lsp analyze --definitions=@opencode=plugins/opencode.d.luau`.
 
@@ -16,6 +16,7 @@ export type SemanticToken =
     | "surface-hover" -- The fill of a row or button under the pointer.
     | "surface-press" -- The fill of a row or button while it is pressed.
     | "surface-selected" -- The fill of a selected row or tab.
+    | "surface-inverse" -- A high-contrast inverse fill, such as a progress bar fill or solid contrast indicator. Since 1.5.
     | "text-strong" -- Headings and the most important text.
     | "text-base" -- Body text.
     | "text-weak" -- Secondary text: descriptions and labels.
@@ -41,6 +42,11 @@ export type SemanticToken =
     | "status-warning" -- Needs attention.
     | "status-danger" -- Failed, blocked or destructive.
     | "status-info" -- Neutral information.
+    | "status-success-bg" -- A tinted background for success callouts and banners. Since 1.5.
+    | "status-warning-bg" -- A tinted background for warning callouts and banners. Since 1.5.
+    | "status-danger-bg" -- A tinted background for danger callouts and banners. Since 1.5.
+    | "status-info-bg" -- A tinted background for informational callouts and banners. Since 1.5.
+    | "status-danger-strong" -- High-contrast danger ink for text and indicators on light or tinted danger surfaces. Since 1.5.
     | "avatar-orange" -- A letter tile's fill, as the app's project avatars draw: the first of eight a name hashes to.
     | "avatar-yellow" -- A letter tile's fill, the second of eight.
     | "avatar-cyan" -- A letter tile's fill, the third of eight.
@@ -113,6 +119,12 @@ export type UiAlign = "start" | "center" | "end" | "stretch"
 
 --- How a stack places its children along its axis.
 export type UiJustify = "start" | "center" | "end" | "between"
+
+--- How a `ui.frame` container arranges its children.
+export type UiDirection = "col" | "row" | "box"
+
+--- Which picker overlay the composer currently has open.
+export type ComposerPicker = "agent" | "model" | "effort" | "project"
 
 --- A text weight.
 export type FontWeight = "regular" | "medium" | "semibold" | "bold"
@@ -198,6 +210,9 @@ export type MenuEntryKind = "item" | "group" | "separator"
 --- A dialog's size: one of Desktop's three presets, each clamped to the window.
 export type DialogSize = "normal" | "large" | "x-large" | "small" | "medium"
 
+--- Which modal overlay layer a plugin dialog sits in.
+export type DialogLayer = "standard" | "elevated"
+
 --- What a declared store keeps a value for.
 export type StoreScope = "global" | "session"
 
@@ -214,7 +229,7 @@ export type TextDirection = "ltr" | "rtl"
 export type PluralCategory = "zero" | "one" | "two" | "few" | "many" | "other"
 
 --- A date and time format, as the app writes dates.
-export type DateStyle = "time" | "monthDay" | "monthDayYear" | "dateTime" | "monthDayTime" | "monthDayYearTime" | "monthDayTimeZone"
+export type DateStyle = "time" | "monthDay" | "monthDayYear" | "dateTime" | "monthDayTime" | "monthDayYearTime" | "monthDayTimeZone" | "timeZone"
 
 --- A unit of relative time.
 export type TimeUnit = "second" | "minute" | "hour" | "day" | "week" | "month" | "year"
@@ -564,6 +579,130 @@ export type UiBoxProps = {
     revealOnHover: boolean?,
     --- The default text and icon color for descendants.
     color: Color?,
+}
+
+--- `ui.frame` props: a layout container whose border takes layout space snapped to device pixels (`box-sizing: border-box`).
+export type UiFrameProps = {
+    --- Identity among siblings across renders, and the anchor key for popovers and menus.
+    key: string?,
+    --- Width.
+    w: UiSize?,
+    --- Height.
+    h: UiSize?,
+    --- Minimum width.
+    minW: number?,
+    --- Minimum height.
+    minH: number?,
+    --- Maximum width.
+    maxW: number?,
+    --- Maximum height.
+    maxH: number?,
+    --- Share of a stack's free space.
+    grow: number?,
+    --- May shrink below its content size.
+    shrink: boolean?,
+    --- Padding on every side.
+    pad: number?,
+    --- Left and right padding.
+    px: number?,
+    --- Top and bottom padding.
+    py: number?,
+    --- Top padding.
+    pt: number?,
+    --- Right padding.
+    pr: number?,
+    --- Bottom padding.
+    pb: number?,
+    --- Left padding.
+    pl: number?,
+    --- Margin on every side.
+    m: number?,
+    --- Left and right margin.
+    mx: number?,
+    --- Top and bottom margin.
+    my: number?,
+    --- Top margin.
+    mt: number?,
+    --- Right margin.
+    mr: number?,
+    --- Bottom margin.
+    mb: number?,
+    --- Left margin.
+    ml: number?,
+    --- Takes the node out of flow, at these offsets from its parent's edges.
+    pin: UiPin?,
+    --- 0 to 1.
+    opacity: number?,
+    --- The accessibility role.
+    role: Role?,
+    --- The accessible name.
+    label: string?,
+    --- A tooltip.
+    help: string?,
+    --- Where the tooltip shows. Defaults to below.
+    helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
+    --- Space between children.
+    gap: number?,
+    --- How children sit across the axis.
+    align: UiAlign?,
+    --- How children sit along the axis.
+    justify: UiJustify?,
+    --- Centers children on both axes.
+    center: boolean?,
+    --- Children wrap onto more lines.
+    wrap: boolean?,
+    --- Background.
+    fill: Color?,
+    --- Background under the pointer.
+    hover: Color?,
+    --- Background while pressed.
+    press: Color?,
+    --- Draws the `surface-selected` fill and reports the selected state to assistive technology.
+    selected: boolean?,
+    --- Border color.
+    border: Color?,
+    --- Border width. Defaults to 1 when `border` is set.
+    borderWidth: number?,
+    --- Corner radius.
+    radius: number?,
+    --- Per-corner radii: top-left, top-right, bottom-right, bottom-left.
+    corners: { number }?,
+    --- A shadow from the app's elevation scale.
+    shadow: Elevation?,
+    --- Clips children to the box.
+    clip: boolean?,
+    --- Scrolls vertical overflow.
+    scrollY: boolean?,
+    --- Scrolls horizontal overflow.
+    scrollX: boolean?,
+    --- Takes keyboard focus.
+    focusable: boolean?,
+    --- Takes no presses.
+    disabled: boolean?,
+    --- Runs on a press.
+    onPress: UiHandler?,
+    --- Its `onPress` opens a menu, as Kobalte's `Menu.Trigger` does: a mouse runs it as the button goes down, and that press's release runs nothing. A key, a screen reader's Invoke or a tap run it on the click. Contract 1.1; a 1.0 host ignores it with one warning and opens on the click.
+    menuTrigger: boolean?,
+    --- Runs on a middle click, as a browser's `auxclick`: a tab closes, a row opens in the background. A `middle-press` event, with the modifier keys.
+    onMiddlePress: UiHandler?,
+    --- Runs as the pointer enters and leaves.
+    onHover: UiHandler?,
+    --- How hover and press fills change.
+    hoverTransition: HoverTransition?,
+    --- Starts a hover group: descendants with `hoverGroupColor` or `revealOnHover` react while this box is hovered.
+    hoverGroup: boolean?,
+    --- The text or icon color while the nearest hover group is hovered.
+    hoverGroupColor: Color?,
+    --- Shows only while the nearest hover group is hovered or focused.
+    revealOnHover: boolean?,
+    --- The default text and icon color for descendants.
+    color: Color?,
+    --- Stack direction: `"col"` (default), `"row"` or `"box"`.
+    direction: UiDirection?,
+    --- Per-side border widths in points: `{ top, right, bottom, left }`. Overrides `borderWidth`.
+    borderSides: { number }?,
 }
 
 --- Text styling: `ui.text` and `ui.shimmer`.
@@ -2132,7 +2271,7 @@ export type UiDialogHeaderProps = {
     helpSide: Side?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
-    --- The dialog's title: 15 pt, wrapping anywhere.
+    --- The dialog's title: 15 pt, wrapping anywhere unless `wrapTitle` is false.
     title: string,
     --- A muted line under the title.
     description: string?,
@@ -2140,6 +2279,8 @@ export type UiDialogHeaderProps = {
     hideClose: boolean?,
     --- The close button's accessible name. Defaults to Close.
     closeLabel: string?,
+    --- Whether the title wraps across lines (breaking anywhere for long identifiers). Defaults to true; set false for short single-line dialog titles.
+    wrapTitle: boolean?,
 }
 
 --- `ui.markdown` props. Native: parsing, shaping, code fences and Mermaid diagrams stay in the host.
@@ -3220,6 +3361,8 @@ export type NumberFormat = {
     currency: string?,
     --- The most fraction digits. Defaults to 3 for `decimal`, 2 for `currency`, 0 for `percent` and `compact`.
     maxFraction: number?,
+    --- For `currency`, formats with the interface language's localized currency pattern (such as `1.234,50 $` or `1,84 USD`) instead of prefixing the narrow currency symbol. Defaults to false.
+    localePattern: boolean?,
 }
 
 --- A session's token counts at its last step.
@@ -3284,6 +3427,8 @@ export type Session = {
     updated: number?,
     --- How many messages the app holds for it. Nil before it has read them.
     messages: number?,
+    --- The HTTP status code of the session's last assistant message failure, when it failed with one (such as 402 or 429).
+    lastErrorStatus: number?,
 }
 
 --- A model as the server's catalog names it.
@@ -3298,6 +3443,46 @@ export type ModelInfo = {
     outputLimit: number?,
     --- Any of its token prices is above zero.
     paid: boolean?,
+}
+
+--- An entry in the host's model catalog (`Models:List`).
+export type ModelEntry = {
+    --- The provider id.
+    providerId: string,
+    --- The model id.
+    modelId: string,
+    --- Its display name.
+    name: string,
+    --- The provider's display name.
+    providerName: string?,
+    --- The provider's integration id, when connected through an integration.
+    integration: string?,
+    --- Whether the model is marked free.
+    free: boolean,
+    --- Whether any of its token prices is above zero.
+    paid: boolean,
+}
+
+--- A short inline annotation a plugin attaches to a model row in the model picker (`Models:SetBadges`).
+export type ModelBadge = {
+    --- The provider id.
+    providerId: string,
+    --- The model id.
+    modelId: string,
+    --- Short text shown beside the model name and in its effort flyout.
+    label: string,
+    --- Emphasizes the annotation in danger ink (for example, a reached limit or blocked model).
+    critical: boolean?,
+}
+
+--- The model selected in the composer.
+export type ComposerModel = {
+    --- The provider id.
+    providerId: string,
+    --- The model id.
+    modelId: string,
+    --- Its display name.
+    name: string,
 }
 
 --- A cached server read.
@@ -4220,6 +4405,8 @@ export type CommandSpec = {
     keywords: string?,
     --- The palette category.
     group: string?,
+    --- Palette order, ascending. Commands without an order are listed after ordered commands.
+    order: number?,
     --- The Settings › Shortcuts section. Defaults to `general`.
     section: CommandSection?,
     --- The default keybind, such as `"mod+shift+t"`.
@@ -4766,6 +4953,12 @@ export type DialogSpec = {
     title: string?,
     --- Its size preset.
     size: DialogSize?,
+    --- Which modal overlay layer the dialog draws in (`"standard"` beneath elevated recovery/server dialogs, or `"elevated"` above them). Defaults to `"elevated"`.
+    layer: DialogLayer?,
+    --- Corner radius in points. Defaults to 6 for `normal` dialogs and 12 for `large` and `x-large`.
+    radius: number?,
+    --- Hides the scroll bar when a `normal` dialog's content overflows, as Desktop's `dialog-content` does. Defaults to false.
+    hideScrollbar: boolean?,
     --- Draws its body inside the host's dialog frame: Desktop's dialog with the overlay elevation. A normal one is as tall as its content on layer-01 with 6-point corners; a large or x-large one is its size's height on bg-base with 12-point corners, so its body can fill it (`h = "full"`).
     render: (view: View, props: DialogProps) -> UiNode?,
     --- Runs when Esc or a click outside closes it.
@@ -4840,6 +5033,10 @@ export type SessionsService = {
 export type ModelsService = {
     --- How the catalog names a model.
     Get: (self: ModelsService, providerId: string, modelId: string) -> ModelInfo,
+    --- Every model currently in the host's catalog.
+    List: (self: ModelsService) -> { ModelEntry },
+    --- Replaces this plugin's inline model-picker badges. Pass an empty list to clear them. Window halves only.
+    SetBadges: (self: ModelsService, badges: { ModelBadge }) -> (),
     --- Fires when the catalog changes.
     Changed: Signal<()>,
 }
@@ -4860,6 +5057,8 @@ export type ServerService = {
     Version: (self: ServerService) -> string?,
     --- It runs on this machine.
     IsLocal: (self: ServerService) -> boolean,
+    --- The window works with a live server rather than an offline fixture.
+    IsLive: (self: ServerService) -> boolean,
     --- The app may change things on it.
     CanWrite: (self: ServerService) -> boolean,
     --- Fires as its event connection goes up or down.
@@ -5160,10 +5359,20 @@ export type BrowserService = {
     Picked: Signal<BrowserPick>,
 }
 
---- The routed session's composer. The window half only: `ctx:GetService("Composer")`.
+--- The active session's or draft's composer. The window half only: `ctx:GetService("Composer")`.
 export type ComposerService = {
     --- Puts a pill at the caret, with a space on each side, and gives the composer the keyboard.
     InsertPill: (self: ComposerService, id: string, label: string) -> (),
+    --- Whether the current screen has a composer (a draft or a root session).
+    Active: (self: ComposerService) -> boolean,
+    --- The composer's workspace folder (the active session's, or the draft's).
+    Directory: (self: ComposerService) -> string,
+    --- The model currently selected in the composer, when listed in the model catalog.
+    Model: (self: ComposerService) -> ComposerModel?,
+    --- Which composer picker overlay is currently open, or nil when none is open.
+    Picker: (self: ComposerService) -> ComposerPicker?,
+    --- Fires when a composer picker opens or closes, with the open picker kind or nil.
+    PickerChanged: Signal<ComposerPicker?>,
 }
 
 --- Office documents laid out and drawn by the host, each on a thread of its own. The window half only: `ctx:GetService("Office")`.
@@ -5470,6 +5679,8 @@ export type UiLibrary = {
     row: ((props: UiBoxProps, children: { UiNode }?) -> UiNode) & ((style: UiBoxProps, props: UiBoxProps?, children: { UiNode }?) -> UiNode),
     --- A vertical stack.
     col: ((props: UiBoxProps, children: { UiNode }?) -> UiNode) & ((style: UiBoxProps, props: UiBoxProps?, children: { UiNode }?) -> UiNode),
+    --- A layout container whose border takes room in layout, snapped to device pixels at every display scale as a CSS `border-box` border does.
+    frame: ((props: UiFrameProps, children: { UiNode }?) -> UiNode) & ((style: UiFrameProps, props: UiFrameProps?, children: { UiNode }?) -> UiNode),
     --- Flexible space in a stack.
     spacer: (props: UiSpacerProps?) -> UiNode,
     --- A 1 px rule, laid out as a 1px CSS border is: one device pixel up to 1.5x, two at 2x. A box whose height counts its border holds it beside its content.

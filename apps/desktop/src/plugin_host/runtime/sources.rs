@@ -33,10 +33,11 @@ mod disk {
         })
     }
 
-    /// Built-in `(id, contributions)` scanned lazily from `plugins/` on disk, matching
-    /// `apps/desktop/build.rs`'s `BUILTINS` and `CONTRIBUTIONS`.
-    pub(super) fn index() -> &'static [(&'static str, &'static [&'static str])] {
-        static INDEX: OnceLock<Vec<(&'static str, &'static [&'static str])>> = OnceLock::new();
+    /// Built-in `(id, contributions, signals)` scanned lazily from `plugins/` on disk, matching
+    /// `apps/desktop/build.rs`'s `BUILTINS`, `CONTRIBUTIONS`, and `SIGNALS`.
+    pub(super) fn index() -> &'static [(&'static str, &'static [&'static str], &'static [&'static str])] {
+        type Index = Vec<(&'static str, &'static [&'static str], &'static [&'static str])>;
+        static INDEX: OnceLock<Index> = OnceLock::new();
         INDEX.get_or_init(|| {
             let mut dirs: Vec<_> = std::fs::read_dir(root()).into_iter().flatten().flatten().map(|e| e.path()).collect();
             dirs.sort();
@@ -61,12 +62,44 @@ mod disk {
                     .collect();
                 kinds.sort_unstable();
                 kinds.dedup();
+                let mut sigs: Vec<&'static str> = files
+                    .iter()
+                    .filter(|(rel, _)| rel.ends_with(".luau"))
+                    .flat_map(|(_, src)| extract_signals(src))
+                    .map(|s| &*Box::leak(s.into_boxed_str()))
+                    .collect();
+                sigs.sort_unstable();
+                sigs.dedup();
                 let id: &'static str = Box::leak(name.into_boxed_str());
                 let kinds: &'static [&'static str] = Box::leak(kinds.into_boxed_slice());
-                out.push((id, kinds));
+                let sigs: &'static [&'static str] = Box::leak(sigs.into_boxed_slice());
+                out.push((id, kinds, sigs));
             }
             out
         })
+    }
+
+    fn extract_signals(src: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        for marker in [":Connect(", ":Once("] {
+            let mut rest = src;
+            while let Some(pos) = rest.find(marker) {
+                let ident = rest[..pos]
+                    .rsplit(|c: char| !(c.is_ascii_alphanumeric() || c == '.' || c == '_'))
+                    .next()
+                    .unwrap_or("");
+                if let Some((left, sig)) = ident.rsplit_once('.') {
+                    let svc = left.rsplit('.').next().unwrap_or(left);
+                    if svc.bytes().next().is_some_and(|b| b.is_ascii_uppercase())
+                        && sig.bytes().next().is_some_and(|b| b.is_ascii_uppercase())
+                    {
+                        out.push(format!("{svc}.{sig}"));
+                    }
+                }
+                rest = &rest[pos + marker.len()..];
+            }
+        }
+        out
     }
 
     #[cfg(feature = "office")]
@@ -169,11 +202,24 @@ pub fn folders() -> Vec<Found> {
 pub fn contributions(id: &str) -> &'static [&'static str] {
     #[cfg(disk_builtins)]
     {
-        disk::index().iter().find(|(p, _)| *p == id).map_or(&[], |(_, kinds)| kinds)
+        disk::index().iter().find(|(p, _, _)| *p == id).map_or(&[], |(_, kinds, _)| kinds)
     }
     #[cfg(not(disk_builtins))]
     {
         embedded::CONTRIBUTIONS.iter().find(|(p, _)| *p == id).map_or(&[], |(_, kinds)| kinds)
+    }
+}
+
+/// Which watched host signals built-in `id` connects to (`Composer.PickerChanged`, ...: read at
+/// build time); empty for a plugin that isn't built in.
+pub fn signals(id: &str) -> &'static [&'static str] {
+    #[cfg(disk_builtins)]
+    {
+        disk::index().iter().find(|(p, _, _)| *p == id).map_or(&[], |(_, _, sigs)| sigs)
+    }
+    #[cfg(not(disk_builtins))]
+    {
+        embedded::SIGNALS.iter().find(|(p, _)| *p == id).map_or(&[], |(_, sigs)| sigs)
     }
 }
 
@@ -205,7 +251,7 @@ pub fn files_hash(id: &str, origin: &Origin, tier: Tier) -> Option<String> {
 pub fn builtin_ids() -> impl Iterator<Item = &'static str> {
     #[cfg(disk_builtins)]
     {
-        disk::index().iter().map(|(id, _)| *id)
+        disk::index().iter().map(|(id, _, _)| *id)
     }
     #[cfg(not(disk_builtins))]
     {

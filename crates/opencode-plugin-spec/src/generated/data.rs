@@ -116,8 +116,10 @@ pub struct NumberFormat {
     pub currency: Option<String>,
     /// The most fraction digits. Defaults to 3 for `decimal`, 2 for `currency`, 0 for `percent` and `compact`.
     pub max_fraction: Option<i64>,
+    /// For `currency`, formats with the interface language's localized currency pattern (such as `1.234,50 $` or `1,84 USD`) instead of prefixing the narrow currency symbol. Defaults to false.
+    pub locale_pattern: Option<bool>,
 }
-impl_record!(NumberFormat, ["style", "notation", "currency", "maxFraction"], [], []);
+impl_record!(NumberFormat, ["style", "notation", "currency", "maxFraction", "localePattern"], [], []);
 
 /// A session's token counts at its last step.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -188,8 +190,10 @@ pub struct Session {
     pub updated: Option<f64>,
     /// How many messages the app holds for it. Nil before it has read them.
     pub messages: Option<i64>,
+    /// The HTTP status code of the session's last assistant message failure, when it failed with one (such as 402 or 429).
+    pub last_error_status: Option<i64>,
 }
-impl_record!(Session, ["id", "serverId", "directory", "title", "parentId", "projectId", "agent", "variant", "busy", "version", "messagesVersion", "cost", "usage", "usageProviderId", "usageModelId", "usageMessageId", "windowStart", "usageCreated", "providerId", "modelId", "created", "updated", "messages"], [], []);
+impl_record!(Session, ["id", "serverId", "directory", "title", "parentId", "projectId", "agent", "variant", "busy", "version", "messagesVersion", "cost", "usage", "usageProviderId", "usageModelId", "usageMessageId", "windowStart", "usageCreated", "providerId", "modelId", "created", "updated", "messages", "lastErrorStatus"], [], []);
 
 /// A model as the server's catalog names it.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -208,6 +212,58 @@ pub struct ModelInfo {
     pub paid: Option<bool>,
 }
 impl_record!(ModelInfo, ["providerName", "modelName", "contextLimit", "outputLimit", "paid"], [], []);
+
+/// An entry in the host's model catalog (`Models:List`).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct ModelEntry {
+    /// The provider id.
+    pub provider_id: String,
+    /// The model id.
+    pub model_id: String,
+    /// Its display name.
+    pub name: String,
+    /// The provider's display name.
+    pub provider_name: Option<String>,
+    /// The provider's integration id, when connected through an integration.
+    pub integration: Option<String>,
+    /// Whether the model is marked free.
+    pub free: bool,
+    /// Whether any of its token prices is above zero.
+    pub paid: bool,
+}
+impl_record!(ModelEntry, ["providerId", "modelId", "name", "providerName", "integration", "free", "paid"], [], []);
+
+/// A short inline annotation a plugin attaches to a model row in the model picker (`Models:SetBadges`).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct ModelBadge {
+    /// The provider id.
+    pub provider_id: String,
+    /// The model id.
+    pub model_id: String,
+    /// Short text shown beside the model name and in its effort flyout.
+    pub label: String,
+    /// Emphasizes the annotation in danger ink (for example, a reached limit or blocked model).
+    pub critical: Option<bool>,
+}
+impl_record!(ModelBadge, ["providerId", "modelId", "label", "critical"], [], []);
+
+/// The model selected in the composer.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct ComposerModel {
+    /// The provider id.
+    pub provider_id: String,
+    /// The model id.
+    pub model_id: String,
+    /// Its display name.
+    pub name: String,
+}
+impl_record!(ComposerModel, ["providerId", "modelId", "name"], [], []);
 
 /// A cached server read.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

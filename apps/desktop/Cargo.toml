@@ -63,7 +63,6 @@ opencode-feature-switcher = { path = "../../features/switcher" }
 opencode-feature-terminal-surface = { path = "../../features/terminal-surface" }
 opencode-feature-timeline-extras = { path = "../../features/timeline-extras" }
 opencode-feature-tips = { path = "../../features/tips" }
-opencode-feature-usage = { path = "../../features/usage" }
 opencode-feature-workspace-tools = { path = "../../features/workspace-tools" }
 opencode-kernel = { path = "../../crates/opencode-kernel" }
 opencode-platform = { path = "../../crates/opencode-platform" }

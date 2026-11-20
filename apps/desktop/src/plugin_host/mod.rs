@@ -53,7 +53,7 @@ pub use flyout::{Flyout, FlyoutEvent, Overlay};
 pub use machines::{Hot, HotEffect, Life, LifeEffect, LifeEvent, Trust, TrustEffect, TrustEvent};
 pub use plugin::Half;
 pub use reveal::reveal;
-pub use runtime::boot::{doze_owed, first_frame, setup};
+pub use runtime::boot::{boot_builtin, doze_owed, first_frame, setup};
 pub use runtime::lifecycle::{drive, fire_named, poll, reload, step_trust, toggle};
 pub use servers::{
     ServerRec, all as contributed_servers, authenticating as server_authenticating, changed as servers_changed,
@@ -61,9 +61,9 @@ pub use servers::{
 };
 pub use sources::{Origin, Tier};
 pub use surfaces::{
-    dialog_view, file_viewer, pill_views, popover_view, settings_page, settings_page_actions, settings_page_icon,
-    settings_page_ids, settings_page_key, settings_page_title, settings_pages, sidebar_items, slot, slot_with,
-    titlebar_items,
+    dialog_card, dialog_view_in, file_viewer, pill_views, popover_view, settings_page, settings_page_actions,
+    settings_page_icon, settings_page_ids, settings_page_key, settings_page_title, settings_pages, sidebar_items, slot,
+    slot_with, titlebar_items,
 };
 pub use trust::dialog as trust_dialog;
 pub use ui::view::settings_section;
@@ -152,6 +152,9 @@ impl PanelScale {
     }
 }
 
+/// Model-picker inline annotations (`"{providerId}:{modelId}" -> (label, critical)`) from one plugin.
+pub(crate) type ModelBadgeMap = HashMap<String, (String, bool)>;
+
 /// The window's plugin host (`WindowPluginHost`).
 #[derive(Default)]
 pub struct PluginHost {
@@ -170,6 +173,9 @@ pub struct PluginHost {
     boot: runtime::boot::Boot,
     /// The built-ins waiting for their first use, and their records.
     pub dormant: dormant::Dormant,
+    /// Per-plugin model-picker row annotations (`Models:SetBadges`), keyed by plugin id and tagged
+    /// with the VM id that set them so reload/stop drops stale entries.
+    pub(crate) model_badges: BTreeMap<String, (u64, ModelBadgeMap)>,
     pub overlay: Overlay,
     pub dialog: Option<OpenDialog>,
     /// The titlebar item the pointer is over, whose pill opens to show its label.
@@ -227,6 +233,39 @@ impl PluginHost {
         self.dialog.is_some()
     }
 
+    /// The short inline annotation any plugin attached to model `key` (`"{providerId}:{modelId}"`).
+    /// Prefers a critical badge when multiple plugins annotate the same model.
+    pub fn model_badge(&self, key: &str) -> Option<(String, bool)> {
+        let mut fallback: Option<&(String, bool)> = None;
+        for (_, badges) in self.model_badges.values() {
+            if let Some(entry) = badges.get(key) {
+                if entry.1 {
+                    return Some(entry.clone());
+                }
+                if fallback.is_none() {
+                    fallback = Some(entry);
+                }
+            }
+        }
+        fallback.cloned()
+    }
+
+    /// Replaces `plugin`'s inline model-picker badges (an empty map clears them).
+    pub fn set_model_badges(&mut self, plugin: &str, vm: u64, badges: HashMap<String, (String, bool)>) {
+        if badges.is_empty() {
+            self.model_badges.remove(plugin);
+        } else {
+            self.model_badges.insert(plugin.to_owned(), (vm, badges));
+        }
+    }
+
+    /// Drops `plugin`'s model badges unless they were written by `keep_vm`.
+    pub fn clear_model_badges(&mut self, plugin: &str, keep_vm: Option<u64>) {
+        if self.model_badges.get(plugin).is_some_and(|(vm, _)| Some(*vm) != keep_vm) {
+            self.model_badges.remove(plugin);
+        }
+    }
+
     pub fn half(&self, id: &str) -> Option<&Rc<Half>> {
         self.list.iter().find(|p| &*p.half.id == id).map(|p| &p.half)
     }
@@ -255,6 +294,54 @@ impl PluginHost {
             render_us: m.vm_time.as_secs_f64() * 1e6 / m.vm_calls.max(1) as f64,
             memo_hit_rate: self.hits.get() as f64 / (self.hits.get() as f64 + calls),
         })
+    }
+}
+
+/// The composer picker `kind` is opening: wakes or adopts any built-in listening to
+/// `Composer.PickerChanged` and fires it synchronously in this same turn so plugin-provided
+/// picker annotations and refreshes run with zero frame delay.
+pub fn notify_picker_opening(app: &mut App, kind: crate::pickers::Kind, tx: &mut Tx) {
+    notify_picker_inner(app, kind, false, tx);
+}
+
+/// Completes picker notification after deferred boot finishes when a picker opened before
+/// stage B storage was ready: fires only on plugins that just started, avoiding duplicate
+/// delivery to plugins already notified by [`notify_picker_opening`].
+pub(crate) fn notify_picker_after_boot(app: &mut App, kind: crate::pickers::Kind, tx: &mut Tx) {
+    notify_picker_inner(app, kind, true, tx);
+}
+
+fn notify_picker_inner(app: &mut App, kind: crate::pickers::Kind, only_new: bool, tx: &mut Tx) {
+    use std::hash::{Hash, Hasher};
+    const SIGNAL: &str = "Composer.PickerChanged";
+    let already_running: HashSet<String> = if only_new {
+        app.plugins.running().map(|(_, p)| p.manifest.id.clone()).collect()
+    } else {
+        HashSet::new()
+    };
+    runtime::boot::doze_owed(app);
+    runtime::boot::adopt_later_signal(app, SIGNAL);
+    dormant::wake_signal(app, SIGNAL);
+    let key = kind.key();
+    let payload = Data::String(key.to_owned());
+    let mut h = std::hash::DefaultHasher::new();
+    Some(key).hash(&mut h);
+    let seen_v = h.finish();
+    let mut fired = false;
+    for i in 0..app.plugins.list.len() {
+        let Some(vm) = app.plugins.list[i].script().and_then(Script::vm_id) else { continue };
+        if only_new && already_running.contains(&app.plugins.list[i].manifest.id) {
+            continue;
+        }
+        let has_signal = app.plugins.list[i].half.signals.borrow().contains_key(&(vm, SIGNAL.to_owned()));
+        if !has_signal {
+            continue;
+        }
+        app.plugins.list[i].half.seen.borrow_mut().insert(SIGNAL.to_owned(), seen_v);
+        fired |= fire_named(app, i, SIGNAL, payload.clone());
+    }
+    if fired {
+        requests::carry_out(app, tx);
     }
 }
 
@@ -415,9 +502,12 @@ pub fn popover_key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     true
 }
 
-/// Esc closes the open plugin dialog, telling its plugin.
+/// Esc closes the open plugin dialog, telling its plugin (yielding when another overlay sits above it).
 pub fn dialog_key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if ev.key != rune::Key::Escape || app.plugins.dialog.is_none() {
+        return false;
+    }
+    if app.kernel.overlays.top().is_some_and(|top| top.id != "plugin.dialog") {
         return false;
     }
     requests::dismiss_dialog(app, tx);
@@ -442,13 +532,22 @@ impl opencode_kernel::Feature<App> for PluginHostFeature {
                 .with_key(popover_key),
         );
         builder.register_overlay(
+            opencode_kernel::OverlayRegistration::<App>::new("plugin.dialog.standard")
+                .with_render(crate::overlays::layer::DIALOG, |s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    dialog_view_in(s, p, cx, opencode_plugin_spec::DialogLayer::Standard)
+                })
+                .above(crate::mcp::SIGN_IN_OVERLAY_ID),
+        );
+        builder.register_overlay(
             opencode_kernel::OverlayRegistration::<App>::new("plugin.dialog")
                 .with_render(crate::overlays::layer::ELEVATED_DIALOG, |s, cx| {
                     let p = crate::palette::pal(s.dark(cx));
-                    dialog_view(s, p, cx)
+                    dialog_view_in(s, p, cx, opencode_plugin_spec::DialogLayer::Elevated)
                 })
                 .above("dialog.move_recovery")
-                .with_key(dialog_key),
+                .with_key(dialog_key)
+                .with_dismiss(requests::dismiss_dialog),
         );
         builder.register_overlay(
             opencode_kernel::OverlayRegistration::<App>::new("plugin.trust")

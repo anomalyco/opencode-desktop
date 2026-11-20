@@ -44,8 +44,8 @@ pub trait PickerHost: ComposerHost {
         false
     }
 
-    /// Lets a live host refresh a partial list without delaying the dialog or its input.
-    fn picker_model_opening(&mut self) {}
+    /// Lets a live host refresh a partial list or notify plugins without delaying the dialog or its input.
+    fn picker_model_opening(&mut self, _tx: &mut Tx) {}
 
     /// The buttons beside the model search, in order: Manage models opens here; a host that can
     /// connect a provider puts Connect first.
@@ -222,9 +222,7 @@ pub trait PickerHost: ComposerHost {
     }
 
     fn open_picker_with(&mut self, kind: Kind, gesture: menu::Gesture, tx: &mut Tx) {
-        if kind == Kind::Model && self.pickers().open() != Some(Kind::Model) {
-            self.picker_model_opening();
-        }
+        let opening_model = kind == Kind::Model && self.pickers().open() != Some(Kind::Model);
         let item_keys: Vec<String> = self.picker_items_for(kind).into_iter().map(|i| i.key).collect();
         let pk = self.pickers_mut();
         let eff = menu::step(&mut pk.menu, menu::Event::Open { kind, gesture, items: &item_keys });
@@ -236,6 +234,9 @@ pub trait PickerHost: ComposerHost {
             pk.active.clear();
         }
         self.apply_menu_effect(eff, tx);
+        if opening_model {
+            self.picker_model_opening(tx);
+        }
         if self.pickers().open() == Some(Kind::Model) && let Some(key) = self.picker_active() {
             self.flyout_event(hover::machine::Event::Highlight { id: &key, option: None }, tx);
         }

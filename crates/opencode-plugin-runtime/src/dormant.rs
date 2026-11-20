@@ -31,6 +31,9 @@ pub struct Record {
     pub app: BTreeMap<String, Vec<Entry>>,
     /// The server event prefixes its window half listened for (`Server:OnEvent`).
     pub events: Vec<String>,
+    /// The watched host signals its window half connected to (`Composer.PickerChanged`, ...).
+    #[serde(default)]
+    pub signals: Vec<String>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -39,7 +42,7 @@ struct File {
     plugins: BTreeMap<String, Record>,
 }
 
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 
 /// Why a dormant plugin starts: its first use, the next turn after it was asked for, or idle time.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

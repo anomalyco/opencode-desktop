@@ -1,4 +1,4 @@
-# OpenCode plugin API reference (contract 1.4)
+# OpenCode plugin API reference (contract 1.5)
 
 > Generated from crates/opencode-plugin-spec/contract.json by `cargo run -p opencode-plugin-spec -- --write`. Do not edit. For a walkthrough, read [Writing a plugin](writing-a-plugin.md).
 
@@ -6,7 +6,7 @@ Contents: [Versioning](#versioning) · [Modules and globals](#modules-and-global
 
 ## Versioning
 
-Contract versions are `MAJOR.MINOR`. This is contract `1.4`.
+Contract versions are `MAJOR.MINOR`. This is contract `1.5`.
 
 - A plugin names the contract it targets in plugin.toml: `contract = "1.0"`.
 - Minor versions (1.1, 1.2, …) only add: new optional properties on `ui.*` nodes and specs, new semantic tokens (each with a 1.0 fallback token), new services, methods, signals, contribution kinds and enum values. A plugin that targets 1.0 runs unchanged on every 1.x host.
@@ -152,6 +152,8 @@ The server's model catalog. Halves: window, app.
 | Member | Type | Description |
 |---|---|---|
 | `:Get` | `(providerId: string, modelId: string) -> ModelInfo` | How the catalog names a model. |
+| `:List` | `() -> { ModelEntry }` | Every model currently in the host's catalog. Since 1.5. |
+| `:SetBadges` | `(badges: { ModelBadge }) -> ()` | Replaces this plugin's inline model-picker badges. Pass an empty list to clear them. Window halves only. Since 1.5. |
 | `.Changed` | `Signal<()>` | Fires when the catalog changes. |
 
 ### Server
@@ -167,6 +169,7 @@ The OpenCode server this window works with: the server of the session or draft i
 | `:EncodeUri` | `(text: string) -> string` | Percent-encodes text for a path or query. |
 | `:Version` | `() -> string?` | The version it reported. |
 | `:IsLocal` | `() -> boolean` | It runs on this machine. |
+| `:IsLive` | `() -> boolean` | The window works with a live server rather than an offline fixture. Since 1.5. |
 | `:CanWrite` | `() -> boolean` | The app may change things on it. |
 | `.Connected` | `Signal<boolean>` | Fires as its event connection goes up or down. |
 
@@ -424,11 +427,16 @@ Pages in this window's embedded browser, each a tab of a session's side region. 
 
 ### Composer
 
-The routed session's composer. Halves: window.
+The active session's or draft's composer. Halves: window.
 
 | Member | Type | Description |
 |---|---|---|
 | `:InsertPill` | `(id: string, label: string) -> ()` | Puts a pill at the caret, with a space on each side, and gives the composer the keyboard. |
+| `:Active` | `() -> boolean` | Whether the current screen has a composer (a draft or a root session). Since 1.5. |
+| `:Directory` | `() -> string` | The composer's workspace folder (the active session's, or the draft's). Since 1.5. |
+| `:Model` | `() -> ComposerModel?` | The model currently selected in the composer, when listed in the model catalog. Since 1.5. |
+| `:Picker` | `() -> ComposerPicker?` | Which composer picker overlay is currently open, or nil when none is open. Since 1.5. |
+| `.PickerChanged` | `Signal<ComposerPicker?>` | Fires when a composer picker opens or closes, with the open picker kind or nil. Since 1.5. |
 
 ### Office
 
@@ -531,6 +539,7 @@ The plugin's own messages in the interface language, and numbers, dates and list
 | `ui.box((props: UiBoxProps, children: { UiNode }?) -> UiNode) & ((style: UiBoxProps, props: UiBoxProps?, children: { UiNode }?) -> UiNode)` | layout | [`UiBoxProps`](#uiboxprops) | A container with no direction of its own: children stack on top of each other. |
 | `ui.row((props: UiBoxProps, children: { UiNode }?) -> UiNode) & ((style: UiBoxProps, props: UiBoxProps?, children: { UiNode }?) -> UiNode)` | layout | [`UiBoxProps`](#uiboxprops) | A horizontal stack. |
 | `ui.col((props: UiBoxProps, children: { UiNode }?) -> UiNode) & ((style: UiBoxProps, props: UiBoxProps?, children: { UiNode }?) -> UiNode)` | layout | [`UiBoxProps`](#uiboxprops) | A vertical stack. |
+| `ui.frame((props: UiFrameProps, children: { UiNode }?) -> UiNode) & ((style: UiFrameProps, props: UiFrameProps?, children: { UiNode }?) -> UiNode)` | layout | [`UiFrameProps`](#uiframeprops) | A layout container whose border takes room in layout, snapped to device pixels at every display scale as a CSS `border-box` border does. |
 | `ui.spacer(props: UiSpacerProps?) -> UiNode` | layout | [`UiSpacerProps`](#uispacerprops) | Flexible space in a stack. |
 | `ui.divider(props: UiDividerProps?) -> UiNode` | layout | [`UiDividerProps`](#uidividerprops) | A 1 px rule, laid out as a 1px CSS border is: one device pixel up to 1.5x, two at 2x. A box whose height counts its border holds it beside its content. |
 | `ui.text((content: string, props: UiTextProps?, ...string \| number) -> UiNode) & ((content: string, style: UiTextProps, props: UiTextProps, ...string \| number) -> UiNode)` | content | [`UiTextProps`](#uitextprops) | Text. Values after the props fill `{1}`, `{2}`... in `content`, written straight into the text: `ui.text("{1} / {2}", VALUE, read, write)`. Other braces stay as they are. |
@@ -604,6 +613,7 @@ A `Color` is one of these tokens, or `ui.hex("#RRGGBB")`. The host resolves toke
 | `surface-hover` | surface | The fill of a row or button under the pointer. |
 | `surface-press` | surface | The fill of a row or button while it is pressed. |
 | `surface-selected` | surface | The fill of a selected row or tab. |
+| `surface-inverse` | surface | A high-contrast inverse fill, such as a progress bar fill or solid contrast indicator. Falls back to `text-strong` on older hosts. Since 1.5. |
 | `text-strong` | text | Headings and the most important text. |
 | `text-base` | text | Body text. |
 | `text-weak` | text | Secondary text: descriptions and labels. |
@@ -629,6 +639,11 @@ A `Color` is one of these tokens, or `ui.hex("#RRGGBB")`. The host resolves toke
 | `status-warning` | status | Needs attention. |
 | `status-danger` | status | Failed, blocked or destructive. |
 | `status-info` | status | Neutral information. |
+| `status-success-bg` | status | A tinted background for success callouts and banners. Falls back to `surface-2` on older hosts. Since 1.5. |
+| `status-warning-bg` | status | A tinted background for warning callouts and banners. Falls back to `surface-2` on older hosts. Since 1.5. |
+| `status-danger-bg` | status | A tinted background for danger callouts and banners. Falls back to `surface-2` on older hosts. Since 1.5. |
+| `status-info-bg` | status | A tinted background for informational callouts and banners. Falls back to `surface-2` on older hosts. Since 1.5. |
+| `status-danger-strong` | status | High-contrast danger ink for text and indicators on light or tinted danger surfaces. Falls back to `status-danger` on older hosts. Since 1.5. |
 | `avatar-orange` | avatar | A letter tile's fill, as the app's project avatars draw: the first of eight a name hashes to. |
 | `avatar-yellow` | avatar | A letter tile's fill, the second of eight. |
 | `avatar-cyan` | avatar | A letter tile's fill, the third of eight. |
@@ -854,6 +869,27 @@ How a stack places its children along its axis.
 | `"center"` | Packed in the center. |
 | `"end"` | Packed at the end. |
 | `"between"` | The first and last child at the edges, equal space between. |
+
+### UiDirection
+
+How a `ui.frame` container arranges its children.
+
+| Value | Meaning |
+|---|---|
+| `"col"` | A vertical stack. The default. |
+| `"row"` | A horizontal stack. |
+| `"box"` | No axis: children stack on top of each other. |
+
+### ComposerPicker
+
+Which picker overlay the composer currently has open.
+
+| Value | Meaning |
+|---|---|
+| `"agent"` | The agent picker. |
+| `"model"` | The model picker. |
+| `"effort"` | The model effort/variant picker. |
+| `"project"` | The draft project picker. |
 
 ### FontWeight
 
@@ -1173,6 +1209,15 @@ A dialog's size: one of Desktop's three presets, each clamped to the window.
 | `"small"` | Deprecated: the same as `normal`. |
 | `"medium"` | Deprecated: the same as `normal`. |
 
+### DialogLayer
+
+Which modal overlay layer a plugin dialog sits in.
+
+| Value | Meaning |
+|---|---|
+| `"standard"` | Standard modal dialog layer, beneath elevated system recovery and server dialogs. Since 1.5. |
+| `"elevated"` | Elevated modal dialog layer, above standard dialogs and recovery prompts. The default. Since 1.5. |
+
 ### StoreScope
 
 What a declared store keeps a value for.
@@ -1236,6 +1281,7 @@ A date and time format, as the app writes dates.
 | `"monthDayTime"` | Month, day and time: `Nov 3, 3:45 PM`. |
 | `"monthDayYearTime"` | Month, day, year and time: `Nov 3, 2026, 3:45 PM`. |
 | `"monthDayTimeZone"` | Month, day, time and the zone's offset: `Nov 3, 3:45 PM GMT-7`. |
+| `"timeZone"` | The local time zone's short offset at that moment: `GMT-7`, `GMT+5:30`, `UTC`. Since 1.5. |
 
 ### TimeUnit
 
@@ -1507,6 +1553,17 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `hoverGroupColor` | `Color?` | The text or icon color while the nearest hover group is hovered. |
 | `revealOnHover` | `boolean?` | Shows only while the nearest hover group is hovered or focused. |
 | `color` | `Color?` | The default text and icon color for descendants. |
+
+### UiFrameProps
+
+`ui.frame` props: a layout container whose border takes layout space snapped to device pixels (`box-sizing: border-box`).
+
+Also takes every field of [`UiBoxProps`](#uiboxprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `direction` | `UiDirection?` | Stack direction: `"col"` (default), `"row"` or `"box"`. |
+| `borderSides` | `{ number }?` | Per-side border widths in points: `{ top, right, bottom, left }`. Overrides `borderWidth`. |
 
 ### UiTextProps
 
@@ -1810,10 +1867,11 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 
 | Field | Type | Description |
 |---|---|---|
-| `title` | `string` | The dialog's title: 15 pt, wrapping anywhere. |
+| `title` | `string` | The dialog's title: 15 pt, wrapping anywhere unless `wrapTitle` is false. |
 | `description` | `string?` | A muted line under the title. |
 | `hideClose` | `boolean?` | Leaves out the close button. |
 | `closeLabel` | `string?` | The close button's accessible name. Defaults to Close. |
+| `wrapTitle` | `boolean?` | Whether the title wraps across lines (breaking anywhere for long identifiers). Defaults to true; set false for short single-line dialog titles. Since 1.5. |
 
 ### UiMarkdownProps
 
@@ -2052,6 +2110,7 @@ How `I18n:Number` writes a number.
 | `notation` | `NumberNotation?` | Defaults to `standard`. |
 | `currency` | `string?` | An ISO 4217 code for `currency`. Defaults to `"USD"`. |
 | `maxFraction` | `number?` | The most fraction digits. Defaults to 3 for `decimal`, 2 for `currency`, 0 for `percent` and `compact`. |
+| `localePattern` | `boolean?` | For `currency`, formats with the interface language's localized currency pattern (such as `1.234,50 $` or `1,84 USD`) instead of prefixing the narrow currency symbol. Defaults to false. Since 1.5. |
 
 ### SessionUsage
 
@@ -2094,6 +2153,7 @@ A session as the app holds it.
 | `created` | `number?` | When it was created, in milliseconds since the Unix epoch. |
 | `updated` | `number?` | When it last changed, in milliseconds since the Unix epoch. |
 | `messages` | `number?` | How many messages the app holds for it. Nil before it has read them. |
+| `lastErrorStatus` | `number?` | The HTTP status code of the session's last assistant message failure, when it failed with one (such as 402 or 429). Since 1.5. |
 
 ### ModelInfo
 
@@ -2106,6 +2166,41 @@ A model as the server's catalog names it.
 | `contextLimit` | `number?` | Its context window in tokens. |
 | `outputLimit` | `number?` | Its output limit in tokens. |
 | `paid` | `boolean?` | Any of its token prices is above zero. |
+
+### ModelEntry
+
+An entry in the host's model catalog (`Models:List`).
+
+| Field | Type | Description |
+|---|---|---|
+| `providerId` | `string` | The provider id. |
+| `modelId` | `string` | The model id. |
+| `name` | `string` | Its display name. |
+| `providerName` | `string?` | The provider's display name. |
+| `integration` | `string?` | The provider's integration id, when connected through an integration. |
+| `free` | `boolean` | Whether the model is marked free. |
+| `paid` | `boolean` | Whether any of its token prices is above zero. |
+
+### ModelBadge
+
+A short inline annotation a plugin attaches to a model row in the model picker (`Models:SetBadges`).
+
+| Field | Type | Description |
+|---|---|---|
+| `providerId` | `string` | The provider id. |
+| `modelId` | `string` | The model id. |
+| `label` | `string` | Short text shown beside the model name and in its effort flyout. |
+| `critical` | `boolean?` | Emphasizes the annotation in danger ink (for example, a reached limit or blocked model). |
+
+### ComposerModel
+
+The model selected in the composer.
+
+| Field | Type | Description |
+|---|---|---|
+| `providerId` | `string` | The provider id. |
+| `modelId` | `string` | The model id. |
+| `name` | `string` | Its display name. |
 
 ### Resource
 
@@ -2892,6 +2987,7 @@ A command in the palette, with an optional keybind and slash command. Published 
 | `description` | `string?` | The palette's second line. |
 | `keywords` | `string?` | More words the palette matches, separated by spaces. |
 | `group` | `string?` | The palette category. |
+| `order` | `number?` | Palette order, ascending. Commands without an order are listed after ordered commands. Since 1.5. |
 | `section` | `CommandSection?` | The Settings › Shortcuts section. Defaults to `general`. |
 | `bind` | `string?` | The default keybind, such as `"mod+shift+t"`. |
 | `slash` | `CommandSlash?` | Also offers it as a slash command. |
@@ -3340,6 +3436,9 @@ A modal dialog, opened with `Dialog:Open`.
 | `id` | `string` | Its id within the plugin. |
 | `title` | `string?` | Its heading and accessible name. |
 | `size` | `DialogSize?` | Its size preset. |
+| `layer` | `DialogLayer?` | Which modal overlay layer the dialog draws in (`"standard"` beneath elevated recovery/server dialogs, or `"elevated"` above them). Defaults to `"elevated"`. Since 1.5. |
+| `radius` | `number?` | Corner radius in points. Defaults to 6 for `normal` dialogs and 12 for `large` and `x-large`. Since 1.5. |
+| `hideScrollbar` | `boolean?` | Hides the scroll bar when a `normal` dialog's content overflows, as Desktop's `dialog-content` does. Defaults to false. Since 1.5. |
 | `render` | `(view: View, props: DialogProps) -> UiNode?` | Draws its body inside the host's dialog frame: Desktop's dialog with the overlay elevation. A normal one is as tall as its content on layer-01 with 6-point corners; a large or x-large one is its size's height on bg-base with 12-point corners, so its body can fill it (`h = "full"`). |
 | `onDismiss` | `(() -> ())?` | Runs when Esc or a click outside closes it. |
 

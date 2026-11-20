@@ -19,6 +19,7 @@ const KEYS: &[Trigger] = &[
 
 fn open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
+    crate::plugin_host::boot_builtin(s, "usage");
     show(s, *s.fixture_run.variant, tx);
 }
 
@@ -52,6 +53,7 @@ fn view(s: &App, p: &Pal) -> El {
 rune_register::register!(crate::stories::STORY_LIST: Story = [
     Story { path: "Composer/Commands", scene: |s| {
         s.finish_stream();
+        crate::plugin_host::boot_builtin(s, "usage");
         show(s, *s.fixture_run.variant, &mut Tx::default());
         stage(s, view);
     }, knobs: &[], keys: KEYS, variants: VARIANTS },

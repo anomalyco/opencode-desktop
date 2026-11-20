@@ -108,6 +108,19 @@ fn session_project_id<'a>(app: &'a App, info: &'a opencode_kit::model::SessionIn
         .or_else(|| (!info.project.is_empty() && info.project != "global").then_some(info.project.as_str()))
 }
 
+/// HTTP status code of `t`'s last assistant reply failure, when it failed with one.
+fn last_error_status(t: Option<&opencode_kit::model::Transcript>) -> Option<u16> {
+    t?.messages
+        .iter()
+        .rev()
+        .find_map(|m| match m {
+            opencode_kit::model::Message::Assistant(a) => Some(a),
+            _ => None,
+        })
+        .and_then(|a| a.failure.as_ref())
+        .and_then(|e| e.status)
+}
+
 /// A session's version, as plugins see it: it moves when its title, cost, usage, message count
 /// or busy state does, and not while a reply streams within a step.
 /// `watch::SessionInputs` tracks the shared inputs. Only this session reads its transcript.
@@ -119,7 +132,7 @@ pub fn session_version(app: &App, id: &str) -> u64 {
     let messages = t.map(|t| t.messages.len());
     let usage = last.map(|(_, k)| (k.input, k.output, k.reasoning, k.cache_read, k.cache_write));
     let mut h = std::hash::DefaultHasher::new();
-    (&info.title, info.updated, cost.to_bits(), messages, app.subtree_running(&info.id), usage, last.map(|(a, _)| (&a.id, a.completed)), (&info.model.provider, &info.model.id, &info.model.variant, &info.agent, session_project_id(app, info), app.held(id))).hash(&mut h);
+    (&info.title, info.updated, cost.to_bits(), messages, last_error_status(t), app.subtree_running(&info.id), usage, last.map(|(a, _)| (&a.id, a.completed)), (&info.model.provider, &info.model.id, &info.model.variant, &info.agent, session_project_id(app, info), app.held(id))).hash(&mut h);
     // The Context tab lists the inbox's waiting input too.
     messages_version(app, id).hash(&mut h);
     h.finish()
@@ -186,7 +199,7 @@ fn build_session(lua: &Lua, app: &App, id: &str) -> mlua::Result<Value> {
     let version = (session_version(app, id) >> 11) as f64;
     let cost = app.session_cost(id);
     let held = app.held(id);
-    let s = record(lua, 24, |s| {
+    let s = record(lua, 25, |s| {
         s.str(c"id", &info.id);
         s.str(c"serverId", &server_id(crate::servers::runtime::active(app)));
         s.str(c"directory", &info.directory);
@@ -230,8 +243,28 @@ fn build_session(lua: &Lua, app: &App, id: &str) -> mlua::Result<Value> {
         if let Some(t) = t {
             s.num(c"messages", t.messages.len() as f64);
         }
+        if let Some(status) = last_error_status(t) {
+            s.num(c"lastErrorStatus", f64::from(status));
+        }
     })?;
     Ok(Value::Table(s))
+}
+
+/// What the full model and provider catalog reads now, as a number (`Models.Changed`, `Dep::Models`).
+pub fn models_version(app: &App) -> u64 {
+    let p = &app.composer_ext.pickers;
+    let mut h = std::hash::DefaultHasher::new();
+    (p.models.len(), p.limits.len(), p.paid.len(), p.providers.len()).hash(&mut h);
+    for m in &p.models {
+        (&m.provider, &m.id, &m.name, m.free).hash(&mut h);
+    }
+    if let Some(infos) = app.provider_infos(None) {
+        infos.len().hash(&mut h);
+        for info in infos {
+            (&info.id, &info.integration).hash(&mut h);
+        }
+    }
+    h.finish()
 }
 
 /// What a model's record reads now, as a number.
@@ -267,6 +300,53 @@ fn models(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
         })?;
         cx::read(Dep::Model(provider, model));
         Ok(m)
+    })?;
+    method(lua, t, "List", |lua, ()| {
+        let list = with_app("Models:List", |app| {
+            let ver = models_version(app);
+            snapshot(lua, &format!("models:{}", server_id(crate::servers::runtime::active(app))), ver, || {
+                let p = &app.composer_ext.pickers;
+                let infos = app.provider_infos(None).unwrap_or_default();
+                let out = lua.create_table_with_capacity(p.models.len(), 0)?;
+                for m in &p.models {
+                    let provider_name = p.providers.get(&m.provider).map(String::as_str);
+                    let integration = infos.iter().find(|i| i.id == m.provider).and_then(|i| i.integration.as_deref());
+                    let paid = p.paid.contains(&m.key);
+                    out.raw_push(record(lua, 7, |e| {
+                        e.str(c"providerId", &m.provider);
+                        e.str(c"modelId", &m.id);
+                        e.str(c"name", &m.name);
+                        e.opt_str(c"providerName", provider_name);
+                        e.opt_str(c"integration", integration);
+                        e.bool(c"free", m.free);
+                        e.bool(c"paid", paid);
+                    })?)?;
+                }
+                Ok(Value::Table(out))
+            })
+        })?;
+        cx::read(Dep::Models);
+        Ok(list)
+    })?;
+    let window = vmx.half.kind == crate::plugin_host::plugin::Kind::Window;
+    let v = vmx.clone();
+    method(lua, t, "SetBadges", move |_, badges: Table| {
+        if !window {
+            return Err(mlua::Error::runtime("Models:SetBadges is only available in the window half"));
+        }
+        let mut map = std::collections::HashMap::new();
+        for item in badges.sequence_values::<Table>() {
+            let item = item?;
+            let provider: String = item.raw_get("providerId")?;
+            let model: String = item.raw_get("modelId")?;
+            let label: String = item.raw_get("label")?;
+            let critical: bool = item.raw_get::<Option<bool>>("critical")?.unwrap_or(false);
+            if !provider.is_empty() && !model.is_empty() && !label.is_empty() {
+                map.insert(format!("{provider}:{model}"), (label, critical));
+            }
+        }
+        cx::ask(&v.half.id, cx::Request::SetModelBadges { vm: v.vm.get(), badges: map });
+        Ok(())
     })?;
     lazy_signals(lua, vmx, t, "Models", &["Changed"])
 }
@@ -336,6 +416,15 @@ fn server(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
                 return Ok(crate::servers::runtime::own_server().is_some_and(|s| s.is_local()));
             }
             Ok(matches!(&*app.source, crate::Source::Live { server, .. } if server.is_local()))
+        })
+    })?;
+    method(lua, t, "IsLive", move |_, ()| {
+        cx::read(Dep::Server);
+        with_app("Server:IsLive", |app| {
+            if !window {
+                return Ok(crate::servers::runtime::own_server().is_some());
+            }
+            Ok(app.live())
         })
     })?;
     method(lua, t, "CanWrite", |_, ()| {

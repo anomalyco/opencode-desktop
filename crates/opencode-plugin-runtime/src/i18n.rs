@@ -62,7 +62,11 @@ pub fn build(lua: &Lua, t: &Table, catalogs: Rc<RefCell<Catalogs>>, is_window: b
             |k| {
                 k.push(b'N');
                 k.extend(value.to_bits().to_le_bytes());
-                k.extend([format.style.map_or(0, |s| s as u8 + 1), format.notation.map_or(0, |n| n as u8 + 1)]);
+                k.extend([
+                    format.style.map_or(0, |s| s as u8 + 1),
+                    format.notation.map_or(0, |n| n as u8 + 1),
+                    u8::from(format.locale_pattern == Some(true)),
+                ]);
                 k.extend(format.max_fraction.unwrap_or(-1).to_le_bytes());
                 k.extend(format.currency.as_deref().unwrap_or_default().as_bytes());
             },
@@ -144,7 +148,7 @@ function out.Number(self, value, format)
     if format ~= nil then
         local style, notation = format.style, format.notation
         local by = if notation == nil then style elseif style == nil then notation else nil
-        if by == nil or format.currency ~= nil or format.maxFraction ~= nil then
+        if by == nil or format.currency ~= nil or format.maxFraction ~= nil or format.localePattern ~= nil then
             return hostN(self, value, format)
         end
         bucket = numbers[by]
@@ -240,6 +244,7 @@ fn number_format(t: &Table) -> mlua::Result<spec::NumberFormat> {
     f.notation = pick("notation")?.map(|s| spec::NumberNotation::parse(&s).ok_or_else(|| bad("notation", &s))).transpose()?;
     f.currency = pick("currency")?;
     f.max_fraction = t.raw_get::<Option<f64>>("maxFraction")?.map(|n| n as i64);
+    f.locale_pattern = t.raw_get::<Option<bool>>("localePattern")?;
     Ok(f)
 }
 
@@ -289,10 +294,16 @@ fn translate(catalogs: &Catalogs, key: &str, args: Option<&Table>) -> String {
     // its full stop and numbers in order, as the app's own untranslated messages do (rune-i18n).
     let rtl = direction() == spec::TextDirection::Rtl;
     let english = |t: std::borrow::Cow<'static, str>| if rtl { format!("\u{2066}{t}\u{2069}") } else { t.into_owned() };
-    let lookup = |k: &str| catalogs.get(lang, k).map(|s| s.into_owned()).or_else(|| catalogs.get("en", k).map(english)).or_else(|| opencode_i18n::lookup(k).map(str::to_owned));
+    let own = |k: &str| catalogs.get(lang, k).map(|s| s.into_owned()).or_else(|| catalogs.get("en", k).map(english));
+    let host_plural = |n: f64| opencode_i18n::lookup_plural(key, n.abs().round() as u64).map(str::to_owned);
     let text = count
-        .and_then(|n| lookup(&format!("{key}.{}", category(n))).or_else(|| lookup(&format!("{key}.other"))))
-        .or_else(|| lookup(key))
+        .and_then(|n| {
+            own(&format!("{key}.{}", category(n)))
+                .or_else(|| own(&format!("{key}.other")))
+                .or_else(|| host_plural(n))
+        })
+        .or_else(|| own(key))
+        .or_else(|| opencode_i18n::lookup(key).map(str::to_owned))
         .unwrap_or_else(|| key.to_owned());
     fill(&text, args)
 }
@@ -332,7 +343,12 @@ pub fn number(value: f64, format: &spec::NumberFormat) -> String {
     match (style, notation) {
         (_, spec::NumberNotation::Compact) => compact(value),
         (spec::NumberStyle::Percent, _) => opencode_i18n::percent(value),
-        (spec::NumberStyle::Currency, _) => currency(value, format.currency.as_deref().unwrap_or("USD"), format.max_fraction.unwrap_or(2) as u8),
+        (spec::NumberStyle::Currency, _) => currency(
+            value,
+            format.currency.as_deref().unwrap_or("USD"),
+            format.max_fraction.unwrap_or(2) as u8,
+            format.locale_pattern == Some(true),
+        ),
         (spec::NumberStyle::Decimal, _) => opencode_i18n::decimal(value, format.max_fraction.unwrap_or(3).clamp(0, 20) as u8),
     }
 }
@@ -355,8 +371,13 @@ fn compact(v: f64) -> String {
     format!("{sign}{digits}{}", UNITS[k])
 }
 
-/// `$1,234.50`, with the language's separators: `$0.01` from 0.005, `$10.00` from 9.995.
-fn currency(v: f64, code: &str, fraction: u8) -> String {
+/// `$1,234.50`, with the language's separators (`$0.01` from 0.005, `$10.00` from 9.995). When
+/// `locale_pattern` is requested for USD, uses the interface language's localized currency pattern
+/// (`$1,234.50`, `1.234,50 $`, `1 234,50 $US`).
+fn currency(v: f64, code: &str, fraction: u8, locale_pattern: bool) -> String {
+    if locale_pattern && code == "USD" {
+        return opencode_i18n::t!("intl.currency.usd", value = opencode_i18n::fraction_digits(v, fraction, fraction));
+    }
     let symbol = match code {
         "USD" => "$",
         "EUR" => "€",
@@ -397,6 +418,10 @@ fn scaled(v: f64, fraction: i32) -> u128 {
 
 fn date(ms: i64, style: spec::DateStyle) -> String {
     use opencode_i18n::date::Style as S;
+    let local = rune::LocalTime::at(ms);
+    if style == spec::DateStyle::TimeZone {
+        return opencode_i18n::date::zone(local.offset);
+    }
     let style = match style {
         spec::DateStyle::Time => S::Time,
         spec::DateStyle::MonthDay => S::MonthDay,
@@ -405,8 +430,8 @@ fn date(ms: i64, style: spec::DateStyle) -> String {
         spec::DateStyle::MonthDayTime => S::MonthDayTime,
         spec::DateStyle::MonthDayYearTime => S::MonthDayYearTime,
         spec::DateStyle::MonthDayTimeZone => S::MonthDayTimeZone,
+        spec::DateStyle::TimeZone => unreachable!(),
     };
-    let local = rune::LocalTime::at(ms);
     let secs = ms.div_euclid(1000) + i64::from(local.offset);
     let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
     let (year, month, day) = civil(days);

@@ -1,6 +1,6 @@
 {
   "$comment": "The OpenCode plugin contract: the single source of truth for plugin types, the plugin.toml schema, the selene std, the API docs and the host's Rust decoders. Edit this file, then run `cargo run -p opencode-plugin-spec -- --write`. Type strings use Luau syntax; `integer` is a whole number (Luau `number`).",
-  "contract": "1.4",
+  "contract": "1.5",
   "versioning": {
     "format": "MAJOR.MINOR",
     "rules": [
@@ -23,6 +23,7 @@
     { "name": "surface-hover", "group": "surface", "doc": "The fill of a row or button under the pointer." },
     { "name": "surface-press", "group": "surface", "doc": "The fill of a row or button while it is pressed." },
     { "name": "surface-selected", "group": "surface", "doc": "The fill of a selected row or tab." },
+    { "name": "surface-inverse", "group": "surface", "since": "1.5", "fallback": "text-strong", "doc": "A high-contrast inverse fill, such as a progress bar fill or solid contrast indicator." },
     { "name": "text-strong", "group": "text", "doc": "Headings and the most important text." },
     { "name": "text-base", "group": "text", "doc": "Body text." },
     { "name": "text-weak", "group": "text", "doc": "Secondary text: descriptions and labels." },
@@ -48,6 +49,11 @@
     { "name": "status-warning", "group": "status", "doc": "Needs attention." },
     { "name": "status-danger", "group": "status", "doc": "Failed, blocked or destructive." },
     { "name": "status-info", "group": "status", "doc": "Neutral information." },
+    { "name": "status-success-bg", "group": "status", "since": "1.5", "fallback": "surface-2", "doc": "A tinted background for success callouts and banners." },
+    { "name": "status-warning-bg", "group": "status", "since": "1.5", "fallback": "surface-2", "doc": "A tinted background for warning callouts and banners." },
+    { "name": "status-danger-bg", "group": "status", "since": "1.5", "fallback": "surface-2", "doc": "A tinted background for danger callouts and banners." },
+    { "name": "status-info-bg", "group": "status", "since": "1.5", "fallback": "surface-2", "doc": "A tinted background for informational callouts and banners." },
+    { "name": "status-danger-strong", "group": "status", "since": "1.5", "fallback": "status-danger", "doc": "High-contrast danger ink for text and indicators on light or tinted danger surfaces." },
     { "name": "avatar-orange", "group": "avatar", "doc": "A letter tile's fill, as the app's project avatars draw: the first of eight a name hashes to." },
     { "name": "avatar-yellow", "group": "avatar", "doc": "A letter tile's fill, the second of eight." },
     { "name": "avatar-cyan", "group": "avatar", "doc": "A letter tile's fill, the third of eight." },
@@ -172,6 +178,17 @@
       { "value": "center", "doc": "Packed in the center." },
       { "value": "end", "doc": "Packed at the end." },
       { "value": "between", "doc": "The first and last child at the edges, equal space between." }
+    ] },
+    { "name": "UiDirection", "rust": true, "doc": "How a `ui.frame` container arranges its children.", "values": [
+      { "value": "col", "doc": "A vertical stack. The default." },
+      { "value": "row", "doc": "A horizontal stack." },
+      { "value": "box", "doc": "No axis: children stack on top of each other." }
+    ] },
+    { "name": "ComposerPicker", "rust": true, "doc": "Which picker overlay the composer currently has open.", "values": [
+      { "value": "agent", "doc": "The agent picker." },
+      { "value": "model", "doc": "The model picker." },
+      { "value": "effort", "doc": "The model effort/variant picker." },
+      { "value": "project", "doc": "The draft project picker." }
     ] },
     { "name": "FontWeight", "rust": true, "doc": "A text weight.", "values": [
       { "value": "regular", "doc": "400." },
@@ -351,6 +368,10 @@
       { "value": "small", "doc": "Deprecated: the same as `normal`." },
       { "value": "medium", "doc": "Deprecated: the same as `normal`." }
     ] },
+    { "name": "DialogLayer", "rust": true, "doc": "Which modal overlay layer a plugin dialog sits in.", "values": [
+      { "value": "standard", "since": "1.5", "doc": "Standard modal dialog layer, beneath elevated system recovery and server dialogs." },
+      { "value": "elevated", "since": "1.5", "doc": "Elevated modal dialog layer, above standard dialogs and recovery prompts. The default." }
+    ] },
     { "name": "StoreScope", "rust": true, "doc": "What a declared store keeps a value for.", "values": [
       { "value": "global", "doc": "One value for the whole app." },
       { "value": "session", "doc": "One value per session." }
@@ -383,7 +404,8 @@
       { "value": "dateTime", "doc": "Medium date and short time: `Nov 3, 2026, 3:45 PM`." },
       { "value": "monthDayTime", "doc": "Month, day and time: `Nov 3, 3:45 PM`." },
       { "value": "monthDayYearTime", "doc": "Month, day, year and time: `Nov 3, 2026, 3:45 PM`." },
-      { "value": "monthDayTimeZone", "doc": "Month, day, time and the zone's offset: `Nov 3, 3:45 PM GMT-7`." }
+      { "value": "monthDayTimeZone", "doc": "Month, day, time and the zone's offset: `Nov 3, 3:45 PM GMT-7`." },
+      { "value": "timeZone", "since": "1.5", "doc": "The local time zone's short offset at that moment: `GMT-7`, `GMT+5:30`, `UTC`." }
     ] },
     { "name": "TimeUnit", "rust": true, "doc": "A unit of relative time.", "values": [
       { "value": "second", "doc": "Seconds." },
@@ -542,6 +564,10 @@
       { "name": "revealOnHover", "type": "boolean?", "doc": "Shows only while the nearest hover group is hovered or focused." },
       { "name": "color", "type": "Color?", "doc": "The default text and icon color for descendants." }
     ] },
+    { "name": "UiFrameProps", "kind": "record", "extends": ["UiBoxProps"], "doc": "`ui.frame` props: a layout container whose border takes layout space snapped to device pixels (`box-sizing: border-box`).", "fields": [
+      { "name": "direction", "type": "UiDirection?", "doc": "Stack direction: `\"col\"` (default), `\"row\"` or `\"box\"`." },
+      { "name": "borderSides", "type": "{ number }?", "doc": "Per-side border widths in points: `{ top, right, bottom, left }`. Overrides `borderWidth`." }
+    ] },
     { "name": "UiTextProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "Text styling: `ui.text` and `ui.shimmer`.", "fields": [
       { "name": "size", "type": "number?", "doc": "Font size in points. Defaults to 13." },
       { "name": "weight", "type": "FontWeight?", "doc": "Weight." },
@@ -694,10 +720,11 @@
       { "name": "side", "type": "Side?", "doc": "The side of the row the nested popover opens on. Defaults to `right`; a popover at the window's right edge opens its rows' lists on the `left`." }
     ] },
     { "name": "UiDialogHeaderProps", "kind": "record", "extends": ["UiLayoutProps"], "official": "DialogHeader", "doc": "`ui.dialogHeader` props: the app's dialog header (`DialogHeader` with a `DialogTitleGroup`), 16 in from the frame, with its close button.", "fields": [
-      { "name": "title", "type": "string", "doc": "The dialog's title: 15 pt, wrapping anywhere." },
+      { "name": "title", "type": "string", "doc": "The dialog's title: 15 pt, wrapping anywhere unless `wrapTitle` is false." },
       { "name": "description", "type": "string?", "doc": "A muted line under the title." },
       { "name": "hideClose", "type": "boolean?", "doc": "Leaves out the close button." },
-      { "name": "closeLabel", "type": "string?", "doc": "The close button's accessible name. Defaults to Close." }
+      { "name": "closeLabel", "type": "string?", "doc": "The close button's accessible name. Defaults to Close." },
+      { "name": "wrapTitle", "type": "boolean?", "since": "1.5", "doc": "Whether the title wraps across lines (breaking anywhere for long identifiers). Defaults to true; set false for short single-line dialog titles." }
     ] },
     { "name": "UiMarkdownProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.markdown` props. Native: parsing, shaping, code fences and Mermaid diagrams stay in the host.", "fields": [
       { "name": "source", "type": "string", "doc": "The Markdown." },
@@ -818,7 +845,8 @@
       { "name": "style", "type": "NumberStyle?", "doc": "Defaults to `decimal`." },
       { "name": "notation", "type": "NumberNotation?", "doc": "Defaults to `standard`." },
       { "name": "currency", "type": "string?", "doc": "An ISO 4217 code for `currency`. Defaults to `\"USD\"`." },
-      { "name": "maxFraction", "type": "integer?", "doc": "The most fraction digits. Defaults to 3 for `decimal`, 2 for `currency`, 0 for `percent` and `compact`." }
+      { "name": "maxFraction", "type": "integer?", "doc": "The most fraction digits. Defaults to 3 for `decimal`, 2 for `currency`, 0 for `percent` and `compact`." },
+      { "name": "localePattern", "type": "boolean?", "since": "1.5", "doc": "For `currency`, formats with the interface language's localized currency pattern (such as `1.234,50 $` or `1,84 USD`) instead of prefixing the narrow currency symbol. Defaults to false." }
     ] },
     { "name": "SessionUsage", "kind": "record", "rust": true, "doc": "A session's token counts at its last step.", "fields": [
       { "name": "input", "type": "integer", "doc": "Input tokens." },
@@ -850,7 +878,8 @@
       { "name": "modelId", "type": "string?", "doc": "The model the session runs with." },
       { "name": "created", "type": "number?", "doc": "When it was created, in milliseconds since the Unix epoch." },
       { "name": "updated", "type": "number?", "doc": "When it last changed, in milliseconds since the Unix epoch." },
-      { "name": "messages", "type": "integer?", "doc": "How many messages the app holds for it. Nil before it has read them." }
+      { "name": "messages", "type": "integer?", "doc": "How many messages the app holds for it. Nil before it has read them." },
+      { "name": "lastErrorStatus", "type": "integer?", "since": "1.5", "doc": "The HTTP status code of the session's last assistant message failure, when it failed with one (such as 402 or 429)." }
     ] },
     { "name": "ModelInfo", "kind": "record", "rust": true, "doc": "A model as the server's catalog names it.", "fields": [
       { "name": "providerName", "type": "string?", "doc": "The provider's name. Nil when the catalog does not list the provider." },
@@ -858,6 +887,26 @@
       { "name": "contextLimit", "type": "integer?", "doc": "Its context window in tokens." },
       { "name": "outputLimit", "type": "integer?", "doc": "Its output limit in tokens." },
       { "name": "paid", "type": "boolean?", "doc": "Any of its token prices is above zero." }
+    ] },
+    { "name": "ModelEntry", "kind": "record", "rust": true, "doc": "An entry in the host's model catalog (`Models:List`).", "fields": [
+      { "name": "providerId", "type": "string", "doc": "The provider id." },
+      { "name": "modelId", "type": "string", "doc": "The model id." },
+      { "name": "name", "type": "string", "doc": "Its display name." },
+      { "name": "providerName", "type": "string?", "doc": "The provider's display name." },
+      { "name": "integration", "type": "string?", "doc": "The provider's integration id, when connected through an integration." },
+      { "name": "free", "type": "boolean", "doc": "Whether the model is marked free." },
+      { "name": "paid", "type": "boolean", "doc": "Whether any of its token prices is above zero." }
+    ] },
+    { "name": "ModelBadge", "kind": "record", "rust": true, "doc": "A short inline annotation a plugin attaches to a model row in the model picker (`Models:SetBadges`).", "fields": [
+      { "name": "providerId", "type": "string", "doc": "The provider id." },
+      { "name": "modelId", "type": "string", "doc": "The model id." },
+      { "name": "label", "type": "string", "doc": "Short text shown beside the model name and in its effort flyout." },
+      { "name": "critical", "type": "boolean?", "doc": "Emphasizes the annotation in danger ink (for example, a reached limit or blocked model)." }
+    ] },
+    { "name": "ComposerModel", "kind": "record", "rust": true, "doc": "The model selected in the composer.", "fields": [
+      { "name": "providerId", "type": "string", "doc": "The provider id." },
+      { "name": "modelId", "type": "string", "doc": "The model id." },
+      { "name": "name", "type": "string", "doc": "Its display name." }
     ] },
     { "name": "Resource", "kind": "record", "rust": true, "doc": "A cached server read.", "fields": [
       { "name": "status", "type": "ResourceStatus", "doc": "Its state." },
@@ -1320,6 +1369,7 @@
       { "name": "description", "type": "string?", "doc": "The palette's second line." },
       { "name": "keywords", "type": "string?", "doc": "More words the palette matches, separated by spaces." },
       { "name": "group", "type": "string?", "doc": "The palette category." },
+      { "name": "order", "type": "integer?", "since": "1.5", "doc": "Palette order, ascending. Commands without an order are listed after ordered commands." },
       { "name": "section", "type": "CommandSection?", "doc": "The Settings › Shortcuts section. Defaults to `general`." },
       { "name": "bind", "type": "string?", "doc": "The default keybind, such as `\"mod+shift+t\"`." },
       { "name": "slash", "type": "CommandSlash?", "doc": "Also offers it as a slash command." },
@@ -1593,6 +1643,9 @@
       { "name": "id", "type": "string", "doc": "Its id within the plugin." },
       { "name": "title", "type": "string?", "doc": "Its heading and accessible name." },
       { "name": "size", "type": "DialogSize?", "doc": "Its size preset." },
+      { "name": "layer", "type": "DialogLayer?", "since": "1.5", "doc": "Which modal overlay layer the dialog draws in (`\"standard\"` beneath elevated recovery/server dialogs, or `\"elevated\"` above them). Defaults to `\"elevated\"`." },
+      { "name": "radius", "type": "number?", "since": "1.5", "doc": "Corner radius in points. Defaults to 6 for `normal` dialogs and 12 for `large` and `x-large`." },
+      { "name": "hideScrollbar", "type": "boolean?", "since": "1.5", "doc": "Hides the scroll bar when a `normal` dialog's content overflows, as Desktop's `dialog-content` does. Defaults to false." },
       { "name": "render", "type": "(view: View, props: DialogProps) -> UiNode?", "doc": "Draws its body inside the host's dialog frame: Desktop's dialog with the overlay elevation. A normal one is as tall as its content on layer-01 with 6-point corners; a large or x-large one is its size's height on bg-base with 12-point corners, so its body can fill it (`h = \"full\"`)." },
       { "name": "onDismiss", "type": "(() -> ())?", "doc": "Runs when Esc or a click outside closes it." }
     ] },
@@ -1662,6 +1715,8 @@
     ] },
     { "name": "Models", "halves": ["window", "app"], "doc": "The server's model catalog.", "members": [
       { "name": "Get", "kind": "method", "sig": "(providerId: string, modelId: string) -> ModelInfo", "doc": "How the catalog names a model." },
+      { "name": "List", "kind": "method", "sig": "() -> { ModelEntry }", "since": "1.5", "doc": "Every model currently in the host's catalog." },
+      { "name": "SetBadges", "kind": "method", "sig": "(badges: { ModelBadge }) -> ()", "since": "1.5", "doc": "Replaces this plugin's inline model-picker badges. Pass an empty list to clear them. Window halves only." },
       { "name": "Changed", "kind": "signal", "payload": "()", "doc": "Fires when the catalog changes." }
     ] },
     { "name": "Server", "halves": ["window", "app"], "doc": "The OpenCode server this window works with: the server of the session or draft it shows, so a panel in a tab from another server talks to that server. A path that starts with `local:` goes to the app's own server. In the app half, the app's own server.", "members": [
@@ -1672,6 +1727,7 @@
       { "name": "EncodeUri", "kind": "method", "sig": "(text: string) -> string", "doc": "Percent-encodes text for a path or query." },
       { "name": "Version", "kind": "method", "sig": "() -> string?", "doc": "The version it reported." },
       { "name": "IsLocal", "kind": "method", "sig": "() -> boolean", "doc": "It runs on this machine." },
+      { "name": "IsLive", "kind": "method", "sig": "() -> boolean", "since": "1.5", "doc": "The window works with a live server rather than an offline fixture." },
       { "name": "CanWrite", "kind": "method", "sig": "() -> boolean", "doc": "The app may change things on it." },
       { "name": "Connected", "kind": "signal", "payload": "boolean", "doc": "Fires as its event connection goes up or down." }
     ] },
@@ -1822,8 +1878,13 @@
       { "name": "Changed", "kind": "signal", "payload": "string", "doc": "Fires with a page's id when its address, title or loading changes, or it closes." },
       { "name": "Picked", "kind": "signal", "payload": "BrowserPick", "doc": "Fires when the element picker picks an element." }
     ] },
-    { "name": "Composer", "halves": ["window"], "doc": "The routed session's composer.", "members": [
-      { "name": "InsertPill", "kind": "method", "sig": "(id: string, label: string) -> ()", "doc": "Puts a pill at the caret, with a space on each side, and gives the composer the keyboard." }
+    { "name": "Composer", "halves": ["window"], "doc": "The active session's or draft's composer.", "members": [
+      { "name": "InsertPill", "kind": "method", "sig": "(id: string, label: string) -> ()", "doc": "Puts a pill at the caret, with a space on each side, and gives the composer the keyboard." },
+      { "name": "Active", "kind": "method", "sig": "() -> boolean", "since": "1.5", "doc": "Whether the current screen has a composer (a draft or a root session)." },
+      { "name": "Directory", "kind": "method", "sig": "() -> string", "since": "1.5", "doc": "The composer's workspace folder (the active session's, or the draft's)." },
+      { "name": "Model", "kind": "method", "sig": "() -> ComposerModel?", "since": "1.5", "doc": "The model currently selected in the composer, when listed in the model catalog." },
+      { "name": "Picker", "kind": "method", "sig": "() -> ComposerPicker?", "since": "1.5", "doc": "Which composer picker overlay is currently open, or nil when none is open." },
+      { "name": "PickerChanged", "kind": "signal", "payload": "ComposerPicker?", "since": "1.5", "doc": "Fires when a composer picker opens or closes, with the open picker kind or nil." }
     ] },
     { "name": "Office", "halves": ["window"], "doc": "Office documents laid out and drawn by the host, each on a thread of its own.", "members": [
       { "name": "OpenAsync", "kind": "method", "sig": "(path: string, directory: string, kind: OfficeKind) -> OfficeFile", "yields": true, "doc": "Reads a file of the session's folder `directory` through the server and, when its bytes are a zip archive, opens and lays it out as `kind`." },
@@ -1886,6 +1947,7 @@
     { "name": "box", "category": "layout", "sig": "((props: UiBoxProps, children: { UiNode }?) -> UiNode) & ((style: UiBoxProps, props: UiBoxProps?, children: { UiNode }?) -> UiNode)", "props": "UiBoxProps", "doc": "A container with no direction of its own: children stack on top of each other." },
     { "name": "row", "category": "layout", "sig": "((props: UiBoxProps, children: { UiNode }?) -> UiNode) & ((style: UiBoxProps, props: UiBoxProps?, children: { UiNode }?) -> UiNode)", "props": "UiBoxProps", "doc": "A horizontal stack." },
     { "name": "col", "category": "layout", "sig": "((props: UiBoxProps, children: { UiNode }?) -> UiNode) & ((style: UiBoxProps, props: UiBoxProps?, children: { UiNode }?) -> UiNode)", "props": "UiBoxProps", "doc": "A vertical stack." },
+    { "name": "frame", "category": "layout", "sig": "((props: UiFrameProps, children: { UiNode }?) -> UiNode) & ((style: UiFrameProps, props: UiFrameProps?, children: { UiNode }?) -> UiNode)", "props": "UiFrameProps", "doc": "A layout container whose border takes room in layout, snapped to device pixels at every display scale as a CSS `border-box` border does." },
     { "name": "spacer", "category": "layout", "sig": "(props: UiSpacerProps?) -> UiNode", "props": "UiSpacerProps", "doc": "Flexible space in a stack." },
     { "name": "divider", "category": "layout", "sig": "(props: UiDividerProps?) -> UiNode", "props": "UiDividerProps", "doc": "A 1 px rule, laid out as a 1px CSS border is: one device pixel up to 1.5x, two at 2x. A box whose height counts its border holds it beside its content." },
     { "name": "text", "category": "content", "sig": "((content: string, props: UiTextProps?, ...string | number) -> UiNode) & ((content: string, style: UiTextProps, props: UiTextProps, ...string | number) -> UiNode)", "props": "UiTextProps", "doc": "Text. Values after the props fill `{1}`, `{2}`... in `content`, written straight into the text: `ui.text(\"{1} / {2}\", VALUE, read, write)`. Other braces stay as they are." },

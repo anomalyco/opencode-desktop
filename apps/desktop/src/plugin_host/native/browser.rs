@@ -13,9 +13,9 @@ use rune::time::Instant;
 
 #[cfg(not(target_arch = "wasm32"))]
 use browser_pane::EngineStatus;
-use mlua::{Lua, Table};
+use mlua::{Lua, Table, Value};
 #[cfg(not(target_arch = "wasm32"))]
-use mlua::{Function, MultiValue, Value};
+use mlua::{Function, MultiValue};
 use rune::Tx;
 #[cfg(not(target_arch = "wasm32"))]
 use rune::{El, Ime, col};
@@ -28,12 +28,10 @@ mod web;
 #[cfg(target_arch = "wasm32")]
 pub use web::{asyncs, build, ime, pages, version, view};
 
-#[cfg(not(target_arch = "wasm32"))]
 use super::super::cx::{self, Dep};
-use super::super::services::{method, with_app};
+use super::super::services::{lazy_signals, method, with_app};
 #[cfg(not(target_arch = "wasm32"))]
-use super::super::services::{json_to_data, lazy_signals, map};
-#[cfg(not(target_arch = "wasm32"))]
+use super::super::services::{json_to_data, map};
 use super::super::vm::Vmx;
 #[cfg(not(target_arch = "wasm32"))]
 use super::{handle_field, object, p};
@@ -171,7 +169,7 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
 }
 
 /// The `Composer` service.
-pub fn composer(lua: &Lua, t: &Table) -> mlua::Result<()> {
+pub fn composer(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     method(lua, t, "InsertPill", |_, (id, label): (String, String)| {
         with_app("Composer:InsertPill", |app| {
             app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
@@ -187,7 +185,42 @@ pub fn composer(lua: &Lua, t: &Table) -> mlua::Result<()> {
             }));
             Ok(())
         })
-    })
+    })?;
+    method(lua, t, "Active", |_, ()| {
+        cx::read(Dep::Composer);
+        with_app("Composer:Active", |app| Ok(app.has_composer()))
+    })?;
+    method(lua, t, "Directory", |_, ()| {
+        cx::read(Dep::Composer);
+        with_app("Composer:Directory", |app| Ok(app.composer_directory()))
+    })?;
+    method(lua, t, "Model", |lua, ()| {
+        cx::read(Dep::Composer);
+        with_app("Composer:Model", |app| {
+            use crate::pickers::PickerHost as _;
+            let selection = app.selection();
+            let found = app
+                .pickers()
+                .models
+                .iter()
+                .find(|m| m.provider == selection.model.provider && m.id == selection.model.id);
+            match found {
+                Some(m) => {
+                    let out = lua.create_table_with_capacity(0, 3)?;
+                    out.raw_set("providerId", m.provider.as_str())?;
+                    out.raw_set("modelId", m.id.as_str())?;
+                    out.raw_set("name", m.name.as_str())?;
+                    Ok(Value::Table(out))
+                }
+                None => Ok(Value::Nil),
+            }
+        })
+    })?;
+    method(lua, t, "Picker", |_, ()| {
+        cx::read(Dep::Composer);
+        with_app("Composer:Picker", |app| Ok(app.composer_ext.pickers.open().map(|k| k.key().to_owned())))
+    })?;
+    lazy_signals(lua, vmx, t, "Composer", &["PickerChanged"])
 }
 
 /// The host's async functions: `Browser:OpenAsync` and `BrowserTab`'s async methods.

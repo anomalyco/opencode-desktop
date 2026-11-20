@@ -102,6 +102,13 @@ pub fn lookup(key: &str) -> Option<&'static str> {
     rune_i18n::find(KEYS, key).map(|_| I18N.text(Key::named(KEYS, key)))
 }
 
+/// The plural message for a base key named at run time (a plugin asking for one of the app's),
+/// picking `count`'s CLDR category in the current locale and falling back to `other` and English;
+/// `None` when the catalog has no such plural base.
+pub fn lookup_plural(key: &str, count: u64) -> Option<&'static str> {
+    rune_i18n::find(PLURALS, key).map(|_| plural_text(PluralKey::named(PLURALS, key), count))
+}
+
 /// The current locale.
 pub fn locale() -> LocaleInfo {
     I18N.info()

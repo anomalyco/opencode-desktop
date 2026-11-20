@@ -1,0 +1,6 @@
+#:schema ../plugin.schema.json
+id = "usage"
+name = "Usage"
+version = "1.0.0"
+contract = "1.5"
+description = "View your OpenCode Go allowance and Console budgets"

@@ -70,7 +70,7 @@ pub(crate) use crate::surfaces::{browser, egg, files, glitch, review, terminal, 
 pub(crate) use crate::surfaces::office;
 
 #[allow(unused_imports)]
-pub(crate) use crate::dialogs::{connect, mcp, model_picker, model_prefs, settings, usage};
+pub(crate) use crate::dialogs::{connect, mcp, model_picker, model_prefs, settings};
 
 #[allow(unused_imports)]
 pub(crate) use crate::stories::{demo, demo_script, fixture_ids, open as open_story, scenes};
