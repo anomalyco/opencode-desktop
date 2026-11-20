@@ -151,12 +151,29 @@ impl crate::BrowserHost {
         Ok(request_id)
     }
 
+    pub fn engine_caps_known(&self) -> bool {
+        !matches!(self.caps, crate::machine::EngineCaps::Unknown)
+    }
+
+    /// Returns the currently registered loopback tunnel proxy for `server_id`, if live.
+    pub fn partition_proxy(&self, server_id: &str) -> Option<crate::protocol::RemoteProxyConfig> {
+        self.partition_proxies.get(server_id).cloned()
+    }
+
     /// Updates or clears the local loopback tunnel proxy on a remote server partition.
     pub fn set_partition_proxy(
         &mut self,
         server_id: &str,
         proxy: Option<crate::protocol::RemoteProxyConfig>,
     ) {
+        match &proxy {
+            Some(cfg) => {
+                self.partition_proxies.insert(server_id.to_owned(), cfg.clone());
+            }
+            None => {
+                self.partition_proxies.remove(server_id);
+            }
+        }
         for t in &mut self.tabs {
             if let crate::protocol::ContextKind::RemoteServer { server_id: id, proxy: cur } = &mut t.context
                 && id == server_id

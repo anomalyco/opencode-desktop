@@ -6,7 +6,11 @@
 
 mod exec;
 mod frames;
+mod gate;
 mod session;
+mod tunnel;
+
+pub use gate::{register_prompt_gate, should_gate_prompt};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -67,6 +71,8 @@ pub struct BrowserRpcState {
     sessions: BTreeMap<(ServerKey, String), SessionAttachment>,
     sse_connected: BTreeMap<ServerKey, bool>,
     mcp_suppressed: BTreeMap<ServerKey, (Server, bool)>,
+    tunnels: tunnel::RemoteTunnelManager,
+    prompt_gates: Vec<gate::PromptGateEntry>,
     worker_tx: Sender<WorkerMsg>,
     worker_rx: Receiver<WorkerMsg>,
     waker: Option<Waker>,
@@ -81,6 +87,8 @@ impl Default for BrowserRpcState {
             sessions: BTreeMap::new(),
             sse_connected: BTreeMap::new(),
             mcp_suppressed: BTreeMap::new(),
+            tunnels: tunnel::RemoteTunnelManager::default(),
+            prompt_gates: Vec::new(),
             worker_tx,
             worker_rx,
             waker: None,
@@ -148,7 +156,8 @@ fn is_base_connected(base: &str) -> bool {
         .contains(base)
 }
 
-/// Called when `/api/event` drops (`Incoming::StreamDown`) so stale connected bases are cleared.
+/// Called when `/api/event` drops (`Incoming::StreamDown`) so stale connected bases, pending
+/// prompt gates, and remote tunnels are cleared immediately.
 pub fn on_sse_disconnected(app: &mut App, server_key: &ServerKey) {
     if let Some(srv) = live_server_clone(app) {
         clear_base_connected(&srv.base);
@@ -158,6 +167,7 @@ pub fn on_sse_disconnected(app: &mut App, server_key: &ServerKey) {
         .get_mut(&BROWSER_RPC)
         .sse_connected
         .insert(server_key.clone(), false);
+    let _ = gate::drain_ready_gates(app, Instant::now());
 }
 
 /// Called when `/api/event` opens or reconnects (`Incoming::Opened` / `Incoming::Reconnected`).
@@ -404,6 +414,11 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
         st.ref_counter = ref_counter;
     }
     apply_batch_effects(app, tick_effects, Some(tx));
+    let (gates_released, gate_wake) = gate::drain_ready_gates(app, now);
+    changed |= gates_released;
+    if let Some(gw) = gate_wake {
+        earliest_wake = Some(earliest_wake.map_or(gw, |cur| cur.min(gw)));
+    }
 
     if let Some(at) = earliest_wake {
         // Never spin the UI thread at 0 ms if a deadline just arrived.
@@ -415,7 +430,7 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
     changed
 }
 
-fn reconcile_sessions(app: &mut App, now: Instant) -> bool {
+pub(super) fn reconcile_sessions(app: &mut App, now: Instant) -> bool {
     if !app.live() || app.browser_unsupported() {
         return false;
     }
@@ -444,6 +459,8 @@ fn reconcile_sessions(app: &mut App, now: Instant) -> bool {
         }
     }
 
+    let engine_known = app.workspace_panes.browser.host.engine_caps_known();
+    let engine_remote_proxy = app.workspace_panes.browser.host.engine_remote_proxy();
     let mut changed = false;
     let mut pending_effects = Vec::new();
     {
@@ -486,9 +503,9 @@ fn reconcile_sessions(app: &mut App, now: Instant) -> bool {
                     pending_effects.push((key.clone(), effs));
                 }
             }
-            if !same_machine {
-                // Fail-closed security rule: never attach to remote servers without engine-enforced
-                // `Ready.remote_proxy` isolation (wired with WS-1 Phase 3a in PR 4).
+            if !same_machine && engine_known && !engine_remote_proxy {
+                // Fail-closed security rule: never attach to remote servers when the running
+                // engine lacks `Ready.remote_proxy` confinement.
                 let effs = att.attach.step(AttachEvent::RequireRemoteProxy, now);
                 if !effs.is_empty() {
                     pending_effects.push((key, effs));
@@ -503,6 +520,7 @@ fn reconcile_sessions(app: &mut App, now: Instant) -> bool {
     }
     apply_batch_effects(app, pending_effects, None);
     sync_mcp_suppression(app);
+    tunnel::sync_remote_tunnels(app);
     changed
 }
 
@@ -534,7 +552,7 @@ fn sync_mcp_suppression(app: &mut App) {
     }
 }
 
-fn apply_batch_effects(
+pub(super) fn apply_batch_effects(
     app: &mut App,
     batch: Vec<((ServerKey, String), Vec<AttachEffect>)>,
     mut tx_opt: Option<&mut Tx>,
@@ -646,16 +664,18 @@ fn apply_batch_effects(
     }
     app.kernel.slots.get_mut(&BROWSER_RPC).sessions = sessions;
     sync_mcp_suppression(app);
+    tunnel::sync_remote_tunnels(app);
+    let _ = gate::drain_ready_gates(app, Instant::now());
 }
 
-fn live_server_clone(app: &App) -> Option<Server> {
+pub(super) fn live_server_clone(app: &App) -> Option<Server> {
     match &*app.source {
         Source::Live { server, .. } => Some(server.clone()),
         Source::Fixture => None,
     }
 }
 
-fn session_directory(app: &App, sid: &str, fallback: &str) -> String {
+pub(super) fn session_directory(app: &App, sid: &str, fallback: &str) -> String {
     if let Some(info) = app.session(sid)
         && !info.directory.is_empty()
     {

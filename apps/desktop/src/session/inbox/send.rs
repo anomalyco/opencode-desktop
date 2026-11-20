@@ -197,7 +197,20 @@ impl App {
                     if journal {
                         let paths=sent.paths.clone();
                         rune::marks::mark("send.enqueue");
-                        if !self.enqueue_prompt(sent,w) {self.composer_ext.attach.paths.extend(paths);return;}
+                        #[cfg(not(target_arch = "wasm32"))]
+                        let gate = !starting && crate::surfaces::browser::rpc::should_gate_prompt(self, &id);
+                        #[cfg(target_arch = "wasm32")]
+                        let gate = false;
+                        if gate {
+                            #[cfg(not(target_arch = "wasm32"))]
+                            let prompt_id = sent.id.clone();
+                            if !self.enqueue_prepared(sent,w) {self.composer_ext.attach.paths.extend(paths);return;}
+                            #[cfg(not(target_arch = "wasm32"))]
+                            crate::surfaces::browser::rpc::register_prompt_gate(self, &id, prompt_id);
+                        } else if !self.enqueue_prompt(sent,w) {
+                            self.composer_ext.attach.paths.extend(paths);
+                            return;
+                        }
                         rune::marks::mark("send.enqueued");
                     } else {
                         if !self.write(w) {self.composer_ext.attach.paths.extend(sent.paths);return;}

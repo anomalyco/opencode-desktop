@@ -315,10 +315,9 @@ mod native {
             if same_machine {
                 browser_pane::ContextKind::Default
             } else {
-                browser_pane::ContextKind::RemoteServer {
-                    server_id: server.as_str().to_owned(),
-                    proxy: None,
-                }
+                let server_id = server.as_str().to_owned();
+                let proxy = self.workspace_panes.browser.host.partition_proxy(&server_id);
+                browser_pane::ContextKind::RemoteServer { server_id, proxy }
             }
         }
 

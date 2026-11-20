@@ -119,6 +119,7 @@ pub struct BrowserHost {
     pub(crate) popup_opens: VecDeque<crate::prompts::PopupRequest>,
     pub(crate) context_menus: VecDeque<(u64, crate::protocol::PageContextMenu)>,
     pub(crate) diagnostics: VecDeque<crate::find::PageDiagnostic>,
+    pub(crate) partition_proxies: HashMap<String, crate::protocol::RemoteProxyConfig>,
     pub(crate) site_permissions: crate::prompts::SitePermissions,
     site_zoom: SiteZoom,
     pub(crate) keep_engine: bool,
@@ -176,6 +177,7 @@ impl BrowserHost {
             popup_opens: VecDeque::new(),
             context_menus: VecDeque::new(),
             diagnostics: VecDeque::new(),
+            partition_proxies: HashMap::new(),
             site_permissions: crate::prompts::SitePermissions::default(),
             site_zoom: SiteZoom::default(),
             keep_engine: false,
@@ -954,6 +956,18 @@ impl BrowserHost {
                         remote_proxy,
                         agent_tools,
                     };
+                    // Re-register cached remote-server loopback proxies BEFORE flushing pending
+                    // opens so reconnected remote tabs never open without proxy confinement.
+                    if partitions && remote_proxy {
+                        let cached: Vec<(String, crate::protocol::RemoteProxyConfig)> = self
+                            .partition_proxies
+                            .iter()
+                            .map(|(k, v)| (k.clone(), v.clone()))
+                            .collect();
+                        for (server_id, proxy) in cached {
+                            self.send(HostMsg::SetPartitionProxy { server_id, proxy: Some(proxy) });
+                        }
+                    }
                     self.flush_pending_opens();
                     // A new engine starts with an empty downloads folder and numbers its files
                     // from 1 again: the last one's files are gone. Held prompts replay if live.
