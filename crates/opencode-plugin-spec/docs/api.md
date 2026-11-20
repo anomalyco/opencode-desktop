@@ -1867,10 +1867,11 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 
 | Field | Type | Description |
 |---|---|---|
-| `title` | `string` | The dialog's title: 15 pt, wrapping anywhere. |
+| `title` | `string` | The dialog's title: 15 pt, wrapping anywhere unless `wrapTitle` is false. |
 | `description` | `string?` | A muted line under the title. |
 | `hideClose` | `boolean?` | Leaves out the close button. |
 | `closeLabel` | `string?` | The close button's accessible name. Defaults to Close. |
+| `wrapTitle` | `boolean?` | Whether the title wraps across lines (breaking anywhere for long identifiers). Defaults to true; set false for short single-line dialog titles. Since 1.5. |
 
 ### UiMarkdownProps
 

@@ -229,6 +229,7 @@ pub static UI_DIALOG_HEADER_PROPS: PropsSpec = PropsSpec::new("UiDialogHeaderPro
     PropSpec::new("description", PropType::String, false),
     PropSpec::new("hideClose", PropType::Bool, false),
     PropSpec::new("closeLabel", PropType::String, false),
+    PropSpec::new("wrapTitle", PropType::Bool, false),
 ]);
 
 /// `UiDiffViewProps`.

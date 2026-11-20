@@ -720,10 +720,11 @@
       { "name": "side", "type": "Side?", "doc": "The side of the row the nested popover opens on. Defaults to `right`; a popover at the window's right edge opens its rows' lists on the `left`." }
     ] },
     { "name": "UiDialogHeaderProps", "kind": "record", "extends": ["UiLayoutProps"], "official": "DialogHeader", "doc": "`ui.dialogHeader` props: the app's dialog header (`DialogHeader` with a `DialogTitleGroup`), 16 in from the frame, with its close button.", "fields": [
-      { "name": "title", "type": "string", "doc": "The dialog's title: 15 pt, wrapping anywhere." },
+      { "name": "title", "type": "string", "doc": "The dialog's title: 15 pt, wrapping anywhere unless `wrapTitle` is false." },
       { "name": "description", "type": "string?", "doc": "A muted line under the title." },
       { "name": "hideClose", "type": "boolean?", "doc": "Leaves out the close button." },
-      { "name": "closeLabel", "type": "string?", "doc": "The close button's accessible name. Defaults to Close." }
+      { "name": "closeLabel", "type": "string?", "doc": "The close button's accessible name. Defaults to Close." },
+      { "name": "wrapTitle", "type": "boolean?", "since": "1.5", "doc": "Whether the title wraps across lines (breaking anywhere for long identifiers). Defaults to true; set false for short single-line dialog titles." }
     ] },
     { "name": "UiMarkdownProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.markdown` props. Native: parsing, shaping, code fences and Mermaid diagrams stay in the host.", "fields": [
       { "name": "source", "type": "string", "doc": "The Markdown." },

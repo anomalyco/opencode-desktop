@@ -349,13 +349,17 @@ fn server_indicator(a: &mut NodeArgs) -> Result<El, String> {
 pub fn dialog_header(a: &mut NodeArgs, attach_close: impl FnOnce(El) -> El) -> Result<El, String> {
     let pal = p(a);
     let title = a.string("title").unwrap_or_default().to_owned();
+    let mut title_el = text(title).font(TextStyle::new(15.0, 530.0).lh(20.0).tracking(-0.13)).color(pal.text);
+    if a.get("wrapTitle").is_none() || a.flag("wrapTitle") {
+        title_el = title_el.wrap_anywhere().w_full();
+    }
     let mut group = col()
         .key("dialog-title-group")
         .grow(1.0)
         .shrink()
         .min_w(0.0)
         .gap(4.0)
-        .child(text(title).font(TextStyle::new(15.0, 530.0).lh(20.0).tracking(-0.13)).color(pal.text).wrap_anywhere().w_full());
+        .child(title_el);
     if let Some(description) = a.string("description") {
         group = group.child(text(description.to_owned()).font(widgets::BODY).color(pal.muted).wrap_anywhere().w_full());
     }

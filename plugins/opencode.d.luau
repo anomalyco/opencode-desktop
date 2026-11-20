@@ -2271,7 +2271,7 @@ export type UiDialogHeaderProps = {
     helpSide: Side?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
-    --- The dialog's title: 15 pt, wrapping anywhere.
+    --- The dialog's title: 15 pt, wrapping anywhere unless `wrapTitle` is false.
     title: string,
     --- A muted line under the title.
     description: string?,
@@ -2279,6 +2279,8 @@ export type UiDialogHeaderProps = {
     hideClose: boolean?,
     --- The close button's accessible name. Defaults to Close.
     closeLabel: string?,
+    --- Whether the title wraps across lines (breaking anywhere for long identifiers). Defaults to true; set false for short single-line dialog titles.
+    wrapTitle: boolean?,
 }
 
 --- `ui.markdown` props. Native: parsing, shaping, code fences and Mermaid diagrams stay in the host.
