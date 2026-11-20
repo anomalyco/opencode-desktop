@@ -951,7 +951,9 @@ dependencies = [
 name = "browser-policy"
 version = "0.0.1"
 dependencies = [
+ "libc",
  "serde_json",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3477,6 +3479,7 @@ dependencies = [
 name = "opencode-feature-files"
 version = "0.0.1"
 dependencies = [
+ "browser-policy",
  "opencode-code-view",
  "opencode-i18n",
  "opencode-kernel",
@@ -3613,6 +3616,7 @@ dependencies = [
 name = "opencode-feature-open-in"
 version = "0.0.1"
 dependencies = [
+ "browser-policy",
  "opencode-i18n",
  "opencode-kernel",
  "opencode-kit",
@@ -3887,6 +3891,7 @@ name = "opencode-plugin-runtime"
 version = "0.0.1"
 dependencies = [
  "base64 0.22.1",
+ "browser-policy",
  "getrandom 0.3.4",
  "libc",
  "mlua",
@@ -5554,6 +5559,7 @@ dependencies = [
 name = "session-view"
 version = "0.0.1"
 dependencies = [
+ "browser-policy",
  "image",
  "opencode-i18n",
  "opencode-kit",

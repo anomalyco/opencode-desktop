@@ -179,6 +179,11 @@ pub trait FilesHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
     fn can_open_in(&self) -> bool {
         false
     }
+    /// Whether revealing local files outside the workspace in the OS file manager is available
+    /// on this host (Windows, macOS, and Linux when connected to a local server).
+    fn can_reveal_outside(&self) -> bool {
+        self.can_open_in()
+    }
     /// Current remembered external application summary for the toolbar split button.
     fn open_in_current(&self) -> Option<OpenInCurrent> {
         None
@@ -214,8 +219,9 @@ pub trait FilesHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
     fn open_in_reveal(&mut self, rel: &str) {
         let _ = rel;
     }
-    /// Opens an absolute path outside the workspace in its default OS application.
-    fn open_in_default(&mut self, abs_path: &str) {
+    /// Reveals an absolute local fixed-drive path outside the workspace in the file manager
+    /// (never executes or opens with the default OS application, and never touches UNC paths).
+    fn open_in_reveal_abs(&mut self, abs_path: &str) {
         let _ = abs_path;
     }
 

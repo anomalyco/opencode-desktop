@@ -1359,6 +1359,7 @@ impl EngineManager {
         });
         self.close_managed_tab(tab_id);
     }
+
     fn send_color_scheme(&self, host: &BrowserHost, dark: bool) {
         let value = if dark { "dark" } else { "light" };
         self.send_internal_cdp(host, "Emulation.setEmulatedMedia", json!({ "features": [{ "name": "prefers-color-scheme", "value": value }] }));
