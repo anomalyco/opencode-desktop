@@ -193,13 +193,24 @@ pub(crate) fn view<S: 'static>(cx: &Cx<S>, path: &str, id: Option<&str>, size: S
     let b = b.effect(mark).effect_data([f32::from_bits(mark), 0.0, 0.0, 0.0]);
     let Some(hooks) = cx.hooks.cloned() else { return b };
     let (live, id, key) = (cx.live, id.map(str::to_owned), path.to_owned());
-    let (h, sid) = (hooks.clone(), id.clone());
-    b.on_pointer_move_local(move |s: &mut S, p, tx: &mut Tx| {
+    let (h, sid, hkey) = (hooks.clone(), id.clone(), key.clone());
+    let (sized, skey) = (hooks.local.clone(), key.clone());
+    b.on_layout(move |s: &mut S, [_, _, w, hgt]| (sized)(s).set_size(&skey, [w, hgt]))
+    .on_pointer_move_local(move |s: &mut S, p, tx: &mut Tx| {
         if crate::captured(&h, s, sid.as_deref(), opencode_widget::PointerKind::Move, [p.x, p.y], tx) {
             return;
         }
         let down = with_slot(mark, |s| s.pointer.is_some_and(|(_, d)| d)).unwrap_or(false);
         point(mark, Some(([p.x, p.y], down)));
+        // Hover: the template hears the pointer moving with no button held, once a frame.
+        let (Some(id), false, true) = (&sid, down, live) else { return };
+        let local = (h.local)(s);
+        let Some(size) = local.size(&hkey) else { return };
+        if local.moved_at(&hkey) == tx.clock() {
+            return;
+        }
+        local.set_moved(&hkey, tx.clock());
+        h.send(s, opencode_widget::WidgetEvent::hover(id.clone(), f64::from(p.x), f64::from(p.y), f64::from(size[0]), f64::from(size[1])), tx);
     })
     .on_hover_change(move |_: &mut S, inside, _tx: &mut Tx| {
         if !inside {

@@ -11,6 +11,20 @@ use serde_json::Value;
 
 use crate::{Action, Buttons, Hooks, Local, Look, view};
 
+/// The keyboard glyph of the focus hint.
+static KEYBOARD: rune::Icon = rune::Icon {
+    name: "widget-keyboard",
+    view: 16.0,
+    body: r#"<rect x="1.5" y="4" width="13" height="8" rx="1.5" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M4 6.5H4.5M6.5 6.5H7M9 6.5H9.5M11.5 6.5H12M5 9.5H11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>"#,
+};
+
+/// The cursor glyph of the capture hint.
+static CURSOR: rune::Icon = rune::Icon {
+    name: "widget-cursor",
+    view: 16.0,
+    body: r#"<path d="M4 2.5L12 9H8.2L10 13L8.5 13.6L6.7 9.6L4 12V2.5Z" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round" fill="none"/>"#,
+};
+
 /// The expand glyph (the diagram card's): two arrows out to the corners.
 pub static EXPAND: rune::Icon = rune::Icon {
     name: "widget-expand",
@@ -203,9 +217,18 @@ fn keyboard<S: 'static>(look: &Look, local: &Local, hooks: &Hooks<S>, frame: El)
                 press(s, crate::Input::Press, tx);
             }
         });
+    // A tiny hint: what the widget holds (the keyboard, or the pointer too) and the key that lets go.
     if local.focused() {
-        let hint = text(look.words.release.clone()).key("release").font(look.kit.ty.small.lh(16.0)).color(c.text_muted);
-        frame = frame.child(hint.pin(None, None, Some(14.0), Some(6.0)));
+        let glyph = if local.captured() { &CURSOR } else { &KEYBOARD };
+        let hint = row()
+            .key("release")
+            .gap(3.0)
+            .items_center()
+            .role("status")
+            .label(look.words.release.clone())
+            .child(icon(glyph, 12.0).color(c.icon_muted).a11y_hidden())
+            .child(text("Esc").font(look.kit.ty.small.lh(14.0)).color(c.text_muted).a11y_hidden());
+        frame = frame.child(hint.pin(None, None, Some(12.0), Some(6.0)));
     }
     if local.captured() {
         frame = frame.cursor(rune::Cursor::Hidden);

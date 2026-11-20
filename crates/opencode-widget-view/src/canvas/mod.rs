@@ -38,13 +38,23 @@ pub(crate) fn view<S: 'static>(cx: &Cx<S>, path: &str, id: Option<&str>, height:
     let (lens, key) = (hooks.local.clone(), path.to_owned());
     b = b.on_visible(move |s: &mut S, on, _tx: &mut Tx| (lens)(s).canvas_event(&key, Event::Seen(if on { Sight::Shown } else { Sight::Hidden })));
     // Hover tells `draw` where the pointer is; it isn't an event.
-    let (lens, key, h, cid) = (hooks.local.clone(), path.to_owned(), hooks.clone(), id.map(str::to_owned));
+    let (lens, key, h, cid, live) = (hooks.local.clone(), path.to_owned(), hooks.clone(), id.map(str::to_owned), cx.live);
     b = b.on_pointer_move_local(move |s: &mut S, p, tx: &mut Tx| {
         if crate::captured(&h, s, cid.as_deref(), PointerKind::Move, [p.x, p.y], tx) {
             return;
         }
         let down = (lens)(s).canvas(&key).and_then(|c| c.pointer).is_some_and(|p| p.down);
         (lens)(s).canvas_event(&key, Event::Pointer(Some(Pointer { x: f64::from(p.x), y: f64::from(p.y), down })));
+        // Hover: the template hears the pointer moving with no button held, once a frame.
+        if let (Some(id), false, true) = (&cid, down, live) {
+            let local = (lens)(s);
+            let Some((c, size)) = local.canvas(&key).and_then(|c| Some((c.moved, c.size?))) else { return };
+            if c == tx.clock() {
+                return;
+            }
+            local.canvas_moved(&key, tx.clock());
+            h.send(s, WidgetEvent::hover(id.clone(), f64::from(p.x), f64::from(p.y), f64::from(size[0]), f64::from(size[1])), tx);
+        }
     });
     let (lens, key) = (hooks.local.clone(), path.to_owned());
     b = b.on_hover_change(move |s: &mut S, inside, _tx: &mut Tx| {

@@ -109,6 +109,8 @@ pub struct Local {
     builds: std::cell::Cell<u64>,
     /// When each shader last sent a pointer `move`, by path.
     moved: HashMap<String, f64>,
+    /// Each shader's logical size, by path, once laid out.
+    sizes: HashMap<String, [f32; 2]>,
     /// The widget is full screen (`frame.fullscreen`).
     fullscreen: bool,
     /// It has keyboard focus (a ring and "Esc to release"), and holds the pointer captured.
@@ -154,6 +156,15 @@ impl Local {
 
     pub fn set_moved(&mut self, path: &str, at: f64) {
         self.moved.insert(path.to_owned(), at);
+    }
+
+    /// The shader at `path` was laid out `size` big.
+    pub fn set_size(&mut self, path: &str, size: [f32; 2]) {
+        self.sizes.insert(path.to_owned(), size);
+    }
+
+    pub fn size(&self, path: &str) -> Option<[f32; 2]> {
+        self.sizes.get(path).copied()
     }
 
     pub fn focused(&self) -> bool {
