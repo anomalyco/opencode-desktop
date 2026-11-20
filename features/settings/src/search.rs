@@ -61,6 +61,9 @@ pub struct Find {
     pub highlighted: Option<String>,
     /// The result opened last (`aria-current`), by id.
     pub selected: Option<String>,
+    /// The target id opened from search or palette, kept for the visit so collapsible sections
+    /// (such as Settings > Browser > Advanced) can auto-reveal the target row.
+    pub revealed_target: Option<String>,
     /// The row a result or the palette opened, lit then faded on the app's clock.
     reveal: Reveal,
 }
@@ -124,6 +127,11 @@ pub fn active(s: &dyn SettingsHost) -> bool {
     !s.settings_pages().find.query.text.trim().is_empty()
 }
 
+/// Target entry id opened from settings search or palette for the current visit.
+pub fn revealed_target(s: &dyn SettingsHost) -> Option<&str> {
+    s.settings_pages().find.revealed_target.as_deref()
+}
+
 /// Whether row `target` is being revealed: `Some(true)` while lit, `Some(false)` while it fades.
 pub fn reveal_of(s: &dyn SettingsHost, target: &str) -> Option<bool> {
     match &s.settings_pages().find.reveal {
@@ -143,6 +151,7 @@ pub fn clear(s: &mut dyn SettingsHost) {
 
 /// A page opened from the rail ends the reveal, as another view does.
 pub fn leave(s: &mut dyn SettingsHost) {
+    s.settings_pages_mut().find.revealed_target = None;
     s.settings_pages_mut().find.reveal.step(RevealEvent::Clear);
 }
 
@@ -504,6 +513,7 @@ fn reveal_entry(s: &mut dyn SettingsHost, e: &Entry, tx: &mut Tx) {
     if let Some(tab) = e.subtab {
         s.settings_pages_mut().tab = tab;
     }
+    s.settings_pages_mut().find.revealed_target = e.target.clone();
     match &e.target {
         Some(target) => {
             let now = s.clock();
