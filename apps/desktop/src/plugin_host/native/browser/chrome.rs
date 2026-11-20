@@ -39,9 +39,12 @@ pub(super) fn tab_methods(lua: &Lua, m: &Table) -> mlua::Result<()> {
         "IsPrivate",
         lua.create_function(|lua, this: Table| {
             read_tab(lua, &this, "BrowserTab:IsPrivate", |app, id| {
-                Ok(app.workspace_panes.browser.host.tab(id).is_some_and(|t| {
-                    matches!(t.context, browser_pane::protocol::ContextKind::IsolatedPreview { .. })
-                }))
+                Ok(app
+                    .workspace_panes
+                    .browser
+                    .host
+                    .tab(id)
+                    .is_some_and(|t| t.context.is_isolated()))
             })
         })?,
     )?;
