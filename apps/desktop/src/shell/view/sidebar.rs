@@ -6,6 +6,7 @@ use super::*;
 use crate::layout_state::{PeekEvent, SidebarPeekState};
 use opencode_i18n::t;
 
+pub(crate) mod consolidated;
 mod customized;
 mod menu;
 pub(crate) mod grouping;
@@ -90,7 +91,7 @@ pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
     let switching = s.switching_layout();
     // The aside reaches into the gap before the panel, taking it back with its end margin so the
     // panel keeps its place: the organized list's thumb runs there, past the sidebar's end, inside
-    // the aside's clip (`sidebar-organized.tsx:111-117`).
+    // the aside's clip.
     let aside = el().key("sidebar").role("navigation").h_full().mr(-GAP_ROOM).motion(if switching { GLIDE } else { SIDEBAR_SPRING });
     if !s.shows_sidebar() {
         return aside.w(GAP_ROOM).clip_soft(0.0);
@@ -191,36 +192,42 @@ fn contents(s: &App, p: &Pal, top: f32) -> El {
                 // The toggle floats above (see `sidebar_toggle`); its slot keeps the row's shape.
                 .child(el().key("toggle-slot").size(28.0, 28.0))
         }))
-        .child(
-            col()
-                .key("actions")
-                .w_full()
-                .gap(3.0)
-                .child(
-                    if s.project_navigation() { new() } else { action_row(p, "home", &ic::GRID_PLUS, t!("home.title"), &crate::keymap::Bind::Home.label(), home)
-                        .matched(super::titlebar::NAV_HOME).matched_crop().motion(GLIDE)
-                        .on_press_tx(|s: &mut App, tx: &mut Tx| {
-                            s.toggle_home(tx);
-                        }) },
-                )
-                .child(
-                    action_row(p, "search", &ic::MAGNIFYING_GLASS, t!("command.session.search"), &crate::keymap::Bind::SessionSearch.label(), false)
-                        .matched(super::titlebar::NAV_SEARCH).matched_crop().motion(GLIDE)
-                        .on_press_tx(|s: &mut App, tx: &mut Tx| {
-                            s.close_settings();
-                            s.open_session_search(tx)
-                        }),
-                )
-                .child(
-                    if s.project_navigation() {
-                        action_row(p, "sidebar-settings", &ic::SETTINGS_GEAR, t!("sidebar.settings"), &crate::keymap::Bind::Settings.label(), s.settings_open())
-                            .on_press_tx(|s: &mut App, tx| s.toggle_settings(tx))
-                    } else { new() },
-                ),
-        )
+        .child(col().key("actions").w_full().gap(3.0).children(actions(s, p, home, new)))
         .child(el().key("tabs-gap").w_full().h(16.0))
         .child(list(s, p))
         .children(crate::plugin_host::sidebar_items(s, p))
+}
+
+/// Home, Search sessions and New session; Projects and Customize trade Home for Settings at the
+/// end; the navigation prototype lists New session, Sessions and Settings (`titlebar.tsx`).
+fn actions(s: &App, p: &Pal, home: bool, new: impl Fn() -> El) -> Vec<El> {
+    let home_row = || {
+        let (label, glyph) = consolidated::home_label(s);
+        action_row(p, "home", glyph, label, &crate::keymap::Bind::Home.label(), home)
+            .matched(super::titlebar::NAV_HOME).matched_crop().motion(GLIDE)
+            .on_press_tx(|s: &mut App, tx: &mut Tx| {
+                s.toggle_home(tx);
+            })
+    };
+    let search = || {
+        action_row(p, "search", &ic::MAGNIFYING_GLASS, t!("command.session.search"), &crate::keymap::Bind::SessionSearch.label(), false)
+            .matched(super::titlebar::NAV_SEARCH).matched_crop().motion(GLIDE)
+            .on_press_tx(|s: &mut App, tx: &mut Tx| {
+                s.close_settings();
+                s.open_session_search(tx)
+            })
+    };
+    let settings = || {
+        action_row(p, "sidebar-settings", &ic::SETTINGS_GEAR, t!("sidebar.settings"), &crate::keymap::Bind::Settings.label(), s.settings_open())
+            .on_press_tx(|s: &mut App, tx| s.toggle_settings(tx))
+    };
+    if s.settings.navigation_prototype() {
+        vec![new(), home_row(), settings()]
+    } else if s.project_navigation() {
+        vec![new(), search(), settings()]
+    } else {
+        vec![home_row(), search(), new()]
+    }
 }
 
 /// The sidebar's list: the side tabs, or the inbox.
@@ -231,9 +238,11 @@ fn list(s: &App, p: &Pal) -> El {
         crate::layout_state::TabLayout::Inbox => super::inbox::inbox(s, p, (INSET_START, INSET_END)),
         // Experimental › Organize vertical sidebar: side tabs alone (`titlebar.tsx:814-826`).
         crate::layout_state::TabLayout::Vertical => match s.settings.sidebar_organize.effective() {
-            crate::settings::Organize::Projects => super::sidebar_organized::organized(s, p),
             crate::settings::Organize::Customize => customized::customized(s, p),
             crate::settings::Organize::Recent => recent::recent(s, p),
+            // The prototype's List is Recent; its pins are the prototype's (`titlebar.tsx`).
+            crate::settings::Organize::Consolidated if s.settings.navigation() == crate::settings::Navigation::List => recent::recent(s, p),
+            crate::settings::Organize::Consolidated => consolidated::tabs(s, p),
             crate::settings::Organize::List => tab_strip(s, p, "tabs", TabOrientation::Vertical, None, None),
         },
         _ => tab_strip(s, p, "tabs", TabOrientation::Vertical, None, None),

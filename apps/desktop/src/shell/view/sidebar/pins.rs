@@ -1,5 +1,6 @@
-//! Projects' leading strip (`shell/titlebar/sidebar-pins.tsx`, a1fbf98b4e).
-//! The order is Recent's `sidebar.recent` document; the close action only changes the tab store.
+//! The navigation prototype's pinned sessions above the side tabs (`pinned-area.tsx`'s
+//! `PinnedArea`, vertical). The order is Recent's `sidebar.recent` document; the close action
+//! only changes the tab store. Pin groups (`shell/tabs/pins.ts`) are not here yet.
 use super::*;
 use crate::session_menu::{Spot, Target, preferences};
 use opencode_kit::servers::ServerKey;
@@ -58,11 +59,12 @@ pub(crate) fn section(s: &App, p: &Pal) -> (Option<El>, Vec<usize>) {
 }
 
 rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
-    ("sidebar-project-pins", |s| {
+    // Consolidated's Tabs: two sessions pinned, the second muted and its tab closed.
+    ("sidebar-consolidated", |s| {
         crate::scenes::open_scene(s);
         s.finish_stream();
         crate::scenes::side_tabs(s);
-        s.settings.sidebar_organize = crate::settings::Organize::Projects;
+        s.settings.sidebar_organize = crate::settings::Organize::Consolidated;
         let server = crate::servers::runtime::active(s).clone();
         let pins: Vec<_> = s.sessions.iter().filter(|i| i.parent.is_none()).take(2).map(|i| i.id.clone()).collect();
         for id in &pins { s.project_state.recent.pin(super::state::key(server.as_str(), id)); }

@@ -64,6 +64,10 @@ impl PanelsHost for App {
         self.settings.terminal_placement
     }
 
+    fn shared_side_panel(&self) -> bool {
+        self.settings.shared_side_panel
+    }
+
     fn panel_chrome(&self) -> PanelChrome {
         let c = crate::view::chrome();
         let mut h = DefaultHasher::new();

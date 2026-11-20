@@ -111,16 +111,13 @@ rune_register::register!(SCENE_LIST: Scene = [
         s.finish_stream();
         side_tabs(s);
     }),
-    // Settings > Experimental > Organize vertical sidebar: Projects, the first project open.
-    ("sidebar-organized", |s| {
+    // Consolidated's List: Recent in the sidebar, which stays even under top tabs.
+    ("sidebar-consolidated-list", |s| {
         open_scene(s);
         s.finish_stream();
-        side_tabs(s);
-        s.settings.sidebar_organize = crate::settings::Organize::Projects;
-        if let Some(id) = s.used_projects().first().map(|p| p.id.clone()) {
-            let key = crate::view::sidebar_organized::project_key(s, &id);
-            s.project_state.organize_expanded.insert(key);
-        }
+        s.settings.sidebar_organize = crate::settings::Organize::Consolidated;
+        s.settings.navigation = crate::settings::Navigation::List;
+        *s.layout = crate::layout_state::Shell::at_rest(s.settings.effective_tab_layout());
     }),
     // Settings > Experimental > Organize vertical sidebar: One list.
     ("sidebar-list", |s| {

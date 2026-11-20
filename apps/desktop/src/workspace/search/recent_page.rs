@@ -1,6 +1,6 @@
-//! Recent ranks the shared session records by the last list response. Projects and Customize
-//! use the records' live server times (`shell/titlebar/recent-sessions-model.ts:397-417`,
-//! `sidebar-organized.tsx:238-251`, `sidebar-customized.tsx:190-275`).
+//! Recent ranks the shared session records by the last list response. Customize uses the
+//! records' live server times (`shell/titlebar/recent-sessions-model.ts:397-417`,
+//! `sidebar-customized.tsx:190-275`).
 
 use std::collections::{HashMap, VecDeque};
 use std::time::Duration;
@@ -89,18 +89,14 @@ impl Page {
     }
 }
 
-/// `recentReloadsOn`, recent-sessions-model.ts:295-311.
-pub fn reloads_on(app: &App, ty: &str, data: &Value, sid: &str) -> bool {
-    match ty {
-        "session.created" => data["parentID"].is_null(),
-        "session.archived" | "session.unarchived" => true,
-        "session.execution.interrupted" if data["reason"] == "shutdown" => false,
-        "session.execution.succeeded" | "session.execution.failed" | "session.execution.interrupted" => app.session(sid).is_none_or(|s| s.parent.is_none()),
-        _ => false,
-    }
+/// `recentReloadsOn`, recent-sessions-model.ts:290-296: only a new root session. Run ends,
+/// renames and archive reach the rows through the live records, so the order stays put until the
+/// next reconnect refresh.
+pub fn reloads_on(ty: &str, data: &Value) -> bool {
+    ty == "session.created" && data["parentID"].is_null()
 }
 
-/// One trailing-edge reload per server (`recent-sessions.tsx:133-146,319-322,334-344`).
+/// One trailing-edge reload per server (`recent-sessions.tsx:133-146,319-322`).
 #[derive(Default)]
 pub enum Reload { #[default] BeforeFirstPage, Idle, Scheduled(Instant) }
 enum Event { Invalidate, Poll, Refresh, Listed }
@@ -156,12 +152,6 @@ impl App {
             Effect::Wake(delay) => tx.wake_after(delay),
             Effect::Fetch => if let Source::Live { requests: Some(r), .. } = &*self.source { r.send(Request::Sessions).ok(); },
             Effect::None => (),
-        }
-    }
-
-    pub(crate) fn reload_recent_on_focus(&mut self) {
-        for key in self.checkout.keys() {
-            crate::servers::runtime::with_server(self, &key, |s| s.schedule_recent_reload());
         }
     }
 }

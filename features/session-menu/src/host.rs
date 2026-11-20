@@ -90,6 +90,10 @@ pub trait SessionMenuHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlay
     fn project_navigation(&self) -> bool {
         false
     }
+    /// Whether the navigation prototype (Experimental › Consolidated) is on: tabs can be pinned.
+    fn navigation_prototype(&self) -> bool {
+        false
+    }
     /// Whether the side panel region currently holds keyboard focus (used to avoid stealing Ctrl+R).
     fn side_focused(&self) -> bool {
         false

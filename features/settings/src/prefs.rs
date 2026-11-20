@@ -69,27 +69,44 @@ choice! {
 
 choice! {
     /// How side tabs list sessions (`general.sidebarOrganize`, `settings/model.tsx:141`): one
-    /// list of tabs, Projects above them, Customize's grouped, sorted and filtered sections, or
-    /// Recent's pinned and recent sessions in place of tabs.
-    Organize { List => "list", "settings.experimental.sidebarOrganize.list", Projects => "projects", "settings.experimental.sidebarOrganize.projects", Customize => "customize", "settings.experimental.sidebarOrganize.customize", Recent => "recent", "settings.experimental.sidebarOrganize.recent" } default List
+    /// list of tabs, Customize's grouped, sorted and filtered sections, Recent's pinned and recent
+    /// sessions in place of tabs, or Consolidated's navigation prototype (pinned sessions, and
+    /// Tabs or List). Projects is retired: [`Organize::resolve`] moves it on.
+    Organize { List => "list", "settings.experimental.sidebarOrganize.list", Customize => "customize", "settings.experimental.sidebarOrganize.customize", Recent => "recent", "settings.experimental.sidebarOrganize.recent", Consolidated => "consolidated", "settings.experimental.sidebarOrganize.consolidated" } default List
 }
 
 impl Organize {
-    /// What Settings offers (`sidebarOrganizeOptions`, `settings/model.tsx:352-357`): Recent only
-    /// in local and dev builds (`recentSessionsAvailable`).
+    /// What Settings offers (`sidebarOrganizeOptions`, `settings/model.tsx`): Recent and
+    /// Consolidated only in local and dev builds (`recentSessionsAvailable`).
     pub fn options() -> &'static [Organize] {
         if !cfg!(target_arch = "wasm32") && matches!(crate::build_channel(), "local" | "dev") {
-            &[Organize::List, Organize::Projects, Organize::Customize, Organize::Recent]
+            &[Organize::List, Organize::Customize, Organize::Recent, Organize::Consolidated]
         } else {
-            &[Organize::List, Organize::Projects, Organize::Customize]
+            &[Organize::List, Organize::Customize]
+        }
+    }
+
+    /// A saved name, the retired Projects moved to Consolidated where this build offers it and
+    /// to Customize elsewhere (`resolveSidebarOrganize`, `settings/model.tsx`).
+    pub fn resolve(name: Option<&str>) -> Organize {
+        match name {
+            Some("projects") if Organize::options().contains(&Organize::Consolidated) => Organize::Consolidated,
+            Some("projects") => Organize::Customize,
+            name => Organize::parse(name),
         }
     }
 
     /// The saved choice when this build offers it, else One list; the saved one stays saved, so
-    /// a build that offers it shows it again (`sidebarOrganize`, `settings/model.tsx:451-455`).
+    /// a build that offers it shows it again (`sidebarOrganize`, `settings/model.tsx`).
     pub fn effective(self) -> Organize {
         if Organize::options().contains(&self) { self } else { Organize::default() }
     }
+}
+
+choice! {
+    /// The navigation prototype's layout (`appearance.navigation`, Settings › General ›
+    /// Navigation): the sessions you're working on as tabs, or every session in one list.
+    Navigation { Tabs => "tabs", "settings.general.row.navigation.tabs", List => "list", "settings.general.row.navigation.list" } default Tabs
 }
 
 /// Desktop's sound effects (`shell/notifications/sound.ts`), by id and label key.

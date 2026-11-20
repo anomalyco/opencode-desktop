@@ -9,6 +9,7 @@ pub(crate) mod list;
 pub(crate) mod projects;
 mod search;
 mod servers;
+mod tip;
 
 pub(crate) use projects::home_projects_popover;
 
@@ -61,6 +62,8 @@ const HOME: rune::TextStyle = rune::TextStyle::new(13.0, 440.0).lh(24.0);
 const HOME_MED: rune::TextStyle = rune::TextStyle::new(13.0, 530.0).lh(24.0);
 
 const GRID_MAX: f32 = 1080.0;
+/// The navigation prototype's one column (`max-w-[768px]`).
+const SCOPED_MAX: f32 = 768.0;
 const PROJECTS_W: f32 = 280.0;
 const GRID_GAP: f32 = 32.0;
 const SESSIONS_MAX: f32 = 720.0;
@@ -81,10 +84,14 @@ pub(crate) fn home(s: &App, p: &Pal, [panel_w, panel_h]: [f32; 2], window: [f32;
     let tier = Tier::of(window_w);
     // `px-3 lg:px-6`.
     let pad = if tier == Tier::Wide { 24.0 } else { 12.0 };
-    let grid_w = panel.min(GRID_MAX) - 2.0 * pad;
-    let column_w = if tier == Tier::Wide { (grid_w - PROJECTS_W - GRID_GAP).min(SESSIONS_MAX) } else { grid_w };
+    let scope = s.home_project_scope();
+    let grid_max = if scope { SCOPED_MAX } else { GRID_MAX };
+    let grid_w = panel.min(grid_max) - 2.0 * pad;
+    let column_w = if tier == Tier::Wide && !scope { (grid_w - PROJECTS_W - GRID_GAP).min(SESSIONS_MAX) } else { grid_w };
     let sessions = sessions_column(s, p, selected, tier, column_w, window_h);
     let grid = match tier {
+        // The navigation prototype picks the project from the search field instead (`route.tsx`).
+        _ if scope => col().key("home-grid").w_full().max_w(SCOPED_MAX).px(pad).child(sessions),
         Tier::Wide => row().key("home-grid").w_full().max_w(GRID_MAX).px(pad).gap(GRID_GAP).child(projects::column(s, p, selected, true, panel_h)).child(sessions),
         Tier::Medium => col().key("home-grid").w_full().max_w(GRID_MAX).px(pad).gap(16.0).child(projects::column(s, p, selected, false, panel_h)).child(sessions),
         Tier::Narrow => col().key("home-grid").w_full().max_w(GRID_MAX).px(pad).child(sessions),
@@ -94,20 +101,21 @@ pub(crate) fn home(s: &App, p: &Pal, [panel_w, panel_h]: [f32; 2], window: [f32;
     // The thumb sits in the sessions column's 12 pt gutter under its sticky header, in a track as
     // long as the page below it, shown while the pointer is on that column (`route.tsx:34-40`,
     // `sessions/view.tsx`'s `home-session-scroll-track`).
-    let bar = ScrollBarStyle::scroll_view(crate::palette::kit(p)).hover_target().track_offset(tier.header_top(), gutter_end(panel, pad));
+    let bar = ScrollBarStyle::scroll_view(crate::palette::kit(p)).hover_target().track_offset(tier.header_top(), gutter_end(panel, grid_max, pad));
     let scroller = session_view::scroller::scroller("home")
         .bar(session_view::scroller::Bar::Styled(bar))
         .build::<App>(p, viewport, col().key("home-content").w_full().items_center().child(grid))
         .grow(1.0);
     let mut page = col().key("home-page").grow(1.0).w_full().h_full();
-    if tier == Tier::Narrow {
+    if tier == Tier::Narrow && !scope {
         // `relative z-40 -mb-3 shrink-0 px-3 pt-3`.
         // Stacks over the Home scroller only, not over the shell's drawer scrim.
         page = page.child(row().key("home-projects-bar").w_full().px(12.0).pt(12.0).mb(-12.0).child(projects::dropdown_trigger(s, p, selected)).paint_order(1));
     }
-    // The scroller takes what the dropdown and the foot leave.
-    page = page.child(scroller);
-    if tier == Tier::Medium {
+    // The scroller takes what the dropdown and the foot leave; the provider tip floats over its
+    // foot (`route.tsx`'s `HomeProviderTip`).
+    page = page.child(col().key("home-body").w_full().grow(1.0).shrink().min_h(0.0).child(scroller).children(tip::tip(s, p)));
+    if tier == Tier::Medium && !scope {
         // `hidden shrink-0 px-3 py-2 md:block lg:hidden`: a row, Settings and Help at its ends.
         page = page.child(projects::utility(p, false).key("home-utility-foot").px(12.0).py(8.0));
     }
@@ -117,8 +125,8 @@ pub(crate) fn home(s: &App, p: &Pal, [panel_w, panel_h]: [f32; 2], window: [f32;
 /// How far in from the page's end the sessions column's gutter ends: the grid is centred at most
 /// `GRID_MAX` wide, the column ends `pad` in from it, and its 12 pt track lies past the column
 /// (`-mr-3`).
-fn gutter_end(panel: f32, pad: f32) -> f32 {
-    (panel - panel.min(GRID_MAX)) / 2.0 + pad - 12.0
+fn gutter_end(panel: f32, grid_max: f32, pad: f32) -> f32 {
+    (panel - panel.min(grid_max)) / 2.0 + pad - 12.0
 }
 
 /// `HomeSessionsView`: the sticky search header, then the sessions grouped by day.
@@ -198,7 +206,12 @@ fn sessions_column(s: &App, p: &Pal, selected: Option<&model::Project>, tier: Ti
             list = list.child(el().key(format!("end-{title}")).w_full().h(23.0));
         }
     }
-    if count == 0 && !crate::launch::waiting(s) {
+    let filtering = s.settings.navigation_prototype() && !s.search.text.trim().is_empty();
+    if count == 0 && filtering && !s.home_search_loading() {
+        // The search filtering in place found nothing (`px-2 pt-6`, 13/16 muted).
+        let query = s.search.text.trim();
+        list = list.child(text(t!("home.sessions.search.noResults", query = query)).key("home-search-empty").font(UI).color(p.muted).px(8.0).pt(24.0));
+    } else if count == 0 && !crate::launch::waiting(s) {
         list = list.child(empty(p, can_create));
     }
     // The focused server's list phase (`load-machine.ts`): placeholder rows while it connects, a

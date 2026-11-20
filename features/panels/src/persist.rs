@@ -61,6 +61,7 @@ impl SideState {
             combined ^= eh.finish();
         }
         combined.hash(h);
+        self.shared_open.hash(h);
     }
 
     pub fn to_json(&self) -> Value {
@@ -75,18 +76,22 @@ impl SideState {
             .filter(|(k, _)| keep(k))
             .map(|(k, v)| (k.clone(), v.to_json()))
             .collect();
-        json!({ "sessions": sessions })
+        json!({ "sessions": sessions, "shared": { "opened": self.shared_open } })
     }
 
     /// Takes the sessions `v` holds that aren't here yet (the window's `side.rest`, read after
     /// the first frame): what the first frame drew stays as it is.
     pub fn restore_rest(&mut self, v: &Value) {
+        if self.shared_open.is_none() {
+            self.shared_open = v["shared"]["opened"].as_bool();
+        }
         for (k, val) in v["sessions"].as_object().into_iter().flatten() {
             self.sessions.entry(k.clone()).or_insert_with(|| SessionSideState::from_json(val));
         }
     }
 
     pub fn restore_json(&mut self, v: &Value) {
+        self.shared_open = v["shared"]["opened"].as_bool();
         if let Some(obj) = v["sessions"].as_object() {
             let map: HashMap<String, SessionSideState> = obj
                 .iter()

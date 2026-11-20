@@ -295,17 +295,19 @@ pub fn open_at(host: &mut dyn SessionMenuHost, t: Target, at: PopupAnchor, dialo
         return;
     }
     let mut items = lines(host, &t);
-    if host.project_navigation() && (dialog || t.spot == Spot::Tab) && !t.tab(host).is_some_and(|x| x.is_draft) {
+    let pins = host.project_navigation() || host.navigation_prototype();
+    if pins && (dialog || t.spot == Spot::Tab) && !t.tab(host).is_some_and(|x| x.is_draft) {
         let pinned = host.is_session_pinned(&t.server, &t.id);
-        let muted = preferences::muted(&t.server, &t.id);
-        items.splice(
-            0..0,
-            [
-                item("pin-toggle", if pinned { opencode_i18n::t!("sidebar.recent.unpin") } else { opencode_i18n::t!("sidebar.recent.pin") }, true),
-                item("mute-toggle", if muted { opencode_i18n::t!("sidebar.recent.unmute") } else { opencode_i18n::t!("sidebar.recent.mute") }, true),
-                Line::Sep,
-            ],
-        );
+        let pin = item("pin-toggle", if pinned { opencode_i18n::t!("sidebar.recent.unpin") } else { opencode_i18n::t!("sidebar.recent.pin") }, true);
+        // The navigation prototype's tab menu leads with Pin alone (`PinMenuItems`,
+        // `pinned-area.tsx`); its Add to group is not here yet.
+        let lead = if host.project_navigation() {
+            let muted = preferences::muted(&t.server, &t.id);
+            vec![pin, item("mute-toggle", if muted { opencode_i18n::t!("sidebar.recent.unmute") } else { opencode_i18n::t!("sidebar.recent.mute") }, true), Line::Sep]
+        } else {
+            vec![pin, Line::Sep]
+        };
+        items.splice(0..0, lead);
     }
     if items.is_empty() {
         return;

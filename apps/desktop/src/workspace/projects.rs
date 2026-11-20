@@ -154,11 +154,6 @@ impl ProjectsHost for App {
         App::project_navigation(self)
     }
 
-    fn organize_projects_visible(&self) -> bool {
-        self.tab_layout() == crate::layout_state::TabLayout::Vertical
-            && self.settings.sidebar_organize.effective() == crate::settings::Organize::Projects
-    }
-
     fn active_server(&self) -> ServerKey {
         crate::servers::runtime::active(self).clone()
     }
@@ -415,14 +410,6 @@ impl App {
         last_used_project(self)
     }
 
-    pub fn organized_projects(&self) -> Vec<&Project> {
-        organized_projects(self)
-    }
-
-    pub(crate) fn freeze_organize_order(&mut self) {
-        freeze_organize_order(self);
-    }
-
     pub fn other_projects(&self) -> Vec<&Project> {
         other_projects(self)
     }
@@ -463,6 +450,13 @@ impl App {
         tx: &mut Tx,
     ) {
         apply_project_opened(self, location, projects, session, tx);
+    }
+
+    /// The navigation prototype under side tabs: the sidebar already lists sessions, so Home
+    /// drops its projects column and picks the project from its search field (`route.tsx`'s
+    /// `projectScope`). Top tabs keep the column.
+    pub(crate) fn home_project_scope(&self) -> bool {
+        self.settings.navigation_prototype() && self.tab_layout() == crate::layout_state::TabLayout::Vertical
     }
 
     pub fn home_selected(&self) -> Option<&Project> {

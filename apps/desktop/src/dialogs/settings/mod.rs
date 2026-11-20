@@ -157,6 +157,10 @@ impl SettingsHost for App {
         App::set_tab_layout(self, layout, tx);
     }
 
+    fn sync_tab_layout(&mut self, tx: &mut Tx) {
+        App::sync_tab_layout(self, tx);
+    }
+
     fn narrow(&self) -> bool {
         App::narrow(self)
     }
