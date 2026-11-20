@@ -273,6 +273,25 @@ pub fn face(p: &Pal, radius: f32) -> El {
         .child(icon(&ARROW_DOWN, 16.0).color(p.text))
 }
 
+/// Wraps the timeline's `scroll` with its bottom fade, scroll-edge callbacks, and styled
+/// scrollbar (`timeline-fade`). Callers that keep `pills` in a sibling region can memoize this
+/// subtree independently of pill and job updates (`ours.md` §3.2) and pass it to [`over_scroll`].
+pub fn timeline_scroll<S: TimelineHost>(s: &S, p: &Pal, id: &str, scroll: El, has_pills: bool) -> El {
+    let edge = fade(s, lane(has_pills));
+    col()
+        .key("timeline-fade")
+        .grow(1.0)
+        .shrink()
+        .w_full()
+        .clip_fade_linear(0.0, 0.0, 0.0, edge)
+        .child(
+            scroll
+                .on_far_from_bottom_if(THRESHOLD, s.timeline_frame(), far::<S>(id))
+                .on_at_bottom_if(at_end::<S>(id))
+                .scroll_bar_styled(crate::palette::scroll_bar(p).hover_target()),
+        )
+}
+
 /// The timeline `scroll` with the button and the `pills` (the subagent capsule, the todo pill)
 /// floating over its bottom edge. The timeline runs down to the composer and fades out into its
 /// top edge, under the pills (p248); at its end its last row stands clear over them (t1129), and
@@ -282,6 +301,12 @@ pub fn face(p: &Pal, radius: f32) -> El {
 /// `top`: the height of the session header stuck over the timeline's top, which the
 /// older-history ring sits under.
 pub fn over<S: TimelineHost>(s: &S, p: &Pal, id: &str, scroll: El, pills: Vec<El>, top: f32) -> El {
+    let scroll_fade = timeline_scroll(s, p, id, scroll, !pills.is_empty());
+    over_scroll(s, p, id, scroll_fade, pills, top)
+}
+
+/// [`over`] taking an already-built `timeline-fade` subtree from [`timeline_scroll`].
+pub fn over_scroll<S: TimelineHost>(s: &S, p: &Pal, id: &str, scroll_fade: El, pills: Vec<El>, top: f32) -> El {
     let shown = s.ends().far(id);
     // Timeline knobs: 0.15 s in, 0.11 s out, rising 4 pt as it shows (`translate-y-1`).
     let curve = crate::knobs::jump(s.knobs(), shown);
@@ -296,7 +321,6 @@ pub fn over<S: TimelineHost>(s: &S, p: &Pal, id: &str, scroll: El, pills: Vec<El
     if !shown {
         button = button.inert();
     }
-    let edge = fade(s, lane(!pills.is_empty()));
     // A pill's height whatever shows, so the 28 pt button sits where it does beside the 32 pt
     // capsule and doesn't move 2 pt when one comes or goes.
     let lane = row().key("activity-lane").w_full().max_w(crate::style::dock_w()).min_h(chip_height()).center_y();
@@ -322,10 +346,7 @@ pub fn over<S: TimelineHost>(s: &S, p: &Pal, id: &str, scroll: El, pills: Vec<El
         // under the timeline's last row at its end there's only padding.
         // Rune's scroll bar, under the jump button and pills, which keep their presses where
         // they overlap it.
-        .child(col().key("timeline-fade").grow(1.0).shrink().w_full().clip_fade_linear(0.0, 0.0, 0.0, edge)
-            .child(scroll.on_far_from_bottom_if(THRESHOLD, s.timeline_frame(), far::<S>(id))
-                .on_at_bottom_if(at_end::<S>(id))
-                .scroll_bar_styled(crate::palette::scroll_bar(p).hover_target())))
+        .child(scroll_fade)
         .child(row().key("jump-lane").pin(Some(0.0), None, Some(0.0), Some(GAP)).px(DOCK_SIDE).center().child(lane))
         .children(centred)
         // Over the timeline's top edge, not in it: a row there would move what's on screen.

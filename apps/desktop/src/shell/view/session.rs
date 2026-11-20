@@ -42,6 +42,11 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El, with_header: bo
     session_view::style::set_content_w(content_w);
     let timeline = match s.displayed_session(id) {
         Some(shown) => {
+            let child = s.session(id).is_some_and(|i| i.parent.is_some());
+            // Pills sit outside `"timeline-area"` so job updates and activity ticks never dirty
+            // the timeline region while `has_pills` stays the same (`ours.md` §3.2).
+            let pill_list = if child { Vec::new() } else { pills(s, p, id) };
+            let has_pills = !pill_list.is_empty();
             // A long transcript's projection fills in above its newest rows on the frame after its first.
             let inputs = (
                 (p.theme, p.generation, p.dark),
@@ -58,29 +63,33 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El, with_header: bo
                     session_view::timeline::projection_wanted(),
                     session_view::scroller::device_scale().to_bits(),
                     s.kernel.slots.untracked(&crate::files::FILES).reply_version(shown),
+                    s.kernel.slots.untracked(&crate::subagents::SHELLS).follow.version(),
+                    has_pills,
                 ),
             );
-            rune::region_with("timeline-area", (id, shown, inputs), || {
+            let lane = session_view::jump::lane(has_pills);
+            let top = if with_header { session_view::style::HEADER_H } else { 0.0 };
+            let scroll_fade = rune::region_with("timeline-fade", (id, shown, inputs), || {
                 let t = rune::Tracked::untracked(&s.transcripts).get(shown).filter(|_| !s.loading_session(id));
-                let child = s.session(id).is_some_and(|i| i.parent.is_some());
-                let pills = if child { Vec::new() } else { pills(s, p, id) };
                 // The header scrolls with the timeline and sticks over its top (`virtualizer.tsx:1175`).
                 // A session its server hasn't listed yet (a launch offline) is named by what its tab saved.
                 let saved = s.session(shown).is_none().then(|| s.tabs.iter().find(|t| t.id == shown && t.kind == crate::tabs::TabKind::Session && !t.title.is_empty())).flatten().map(|t| {
                     opencode_kit::model::SessionInfo { id: t.id.clone(), title: t.title.clone(), directory: t.directory.clone(), ..Default::default() }
                 });
                 let head = with_header.then(|| header(s, p, s.session(shown).or(saved.as_ref()), t));
-                // Previous and Next message read the prompt in view from where it lies (`message_nav`).
-                session_view::timeline_area(s, p, shown, t, pills, head).on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| {
-                    s.kernel.slots.get_mut(&crate::message_nav::MESSAGE_NAV).view = Some(r);
-                    if let Some((id, row, y)) = s.layout.narrow.reading.borrow_mut().take()
-                        && s.narrow() && s.active_session_id() == Some(id.as_str()) && !s.timeline_fx.ends.due(&id)
-                    {
-                        tx.scroll_key_to(row, y - r[1]);
-                        return;
-                    }
-                    tx.live_only();
-                })
+                let scroll = session_view::timeline::timeline(s, p, shown, t, lane, head);
+                session_view::jump::timeline_scroll(s, p, shown, scroll, has_pills)
+            });
+            // Previous and Next message read the prompt in view from where it lies (`message_nav`).
+            session_view::jump::over_scroll(s, p, shown, scroll_fade, pill_list, top).on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| {
+                s.kernel.slots.get_mut(&crate::message_nav::MESSAGE_NAV).view = Some(r);
+                if let Some((id, row, y)) = s.layout.narrow.reading.borrow_mut().take()
+                    && s.narrow() && s.active_session_id() == Some(id.as_str()) && !s.timeline_fx.ends.due(&id)
+                {
+                    tx.scroll_key_to(row, y - r[1]);
+                    return;
+                }
+                tx.live_only();
             })
         }
         None => {
