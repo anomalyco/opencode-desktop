@@ -33,6 +33,19 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
     changed
 }
 
+fn live_driver(
+    captured: Option<browser_pane::TabDriver>,
+    live_tab: &browser_pane::BrowserTab,
+) -> Option<browser_pane::TabDriver> {
+    if live_tab.prompts.agent_driven {
+        let live = live_tab.prompts.driver.clone().unwrap_or(browser_pane::TabDriver::Agent);
+        if live == browser_pane::TabDriver::Agent || captured.is_none() {
+            return Some(live);
+        }
+    }
+    captured
+}
+
 fn open_page_menu(app: &mut App, tab_id: u64, info: PageContextMenu, tx: &mut Tx) {
     let Some(tab) = app.workspace_panes.browser.host.tab(tab_id) else {
         app.workspace_panes.browser.host.run_context_menu_action(tab_id, info.id, None);
@@ -144,9 +157,10 @@ fn open_page_menu(app: &mut App, tab_id: u64, info: PageContextMenu, tx: &mut Tx
             Some("open-page") => s.open_browser_tab_externally(tab_id, tx),
             Some("open-link") => {
                 if let Some(url) = link_url
-                    && s.workspace_panes.browser.host.tab(tab_id).is_some()
-                    && let Some((agent, mut ctx)) = captured_opener.clone()
+                    && let Some(live_tab) = s.workspace_panes.browser.host.tab(tab_id)
+                    && let Some((captured_driver, mut ctx)) = captured_opener.clone()
                 {
+                    let driver = live_driver(captured_driver, live_tab);
                     let proxy_ok = match &mut ctx {
                         browser_pane::ContextKind::RemoteServer { server_id, proxy } => {
                             *proxy = s.workspace_panes.browser.host.remote_proxy(server_id.trim()).cloned();
@@ -156,7 +170,7 @@ fn open_page_menu(app: &mut App, tab_id: u64, info: PageContextMenu, tx: &mut Tx
                     };
                     if proxy_ok {
                         let sid = s.browser_tab_session(tab_id).map(str::to_owned).or_else(|| captured_sid.clone());
-                        s.open_new_browser_tab_with_context(sid.as_deref(), &url, None, true, false, ctx, agent);
+                        s.open_new_browser_tab_with_context(sid.as_deref(), &url, None, true, false, ctx, driver);
                     }
                 }
             }
@@ -175,9 +189,10 @@ fn open_page_menu(app: &mut App, tab_id: u64, info: PageContextMenu, tx: &mut Tx
             }
             Some("open-image") => {
                 if let Some(url) = src_url
-                    && s.workspace_panes.browser.host.tab(tab_id).is_some()
-                    && let Some((agent, mut ctx)) = captured_opener.clone()
+                    && let Some(live_tab) = s.workspace_panes.browser.host.tab(tab_id)
+                    && let Some((captured_driver, mut ctx)) = captured_opener.clone()
                 {
+                    let driver = live_driver(captured_driver, live_tab);
                     let proxy_ok = match &mut ctx {
                         browser_pane::ContextKind::RemoteServer { server_id, proxy } => {
                             *proxy = s.workspace_panes.browser.host.remote_proxy(server_id.trim()).cloned();
@@ -187,7 +202,7 @@ fn open_page_menu(app: &mut App, tab_id: u64, info: PageContextMenu, tx: &mut Tx
                     };
                     if proxy_ok {
                         let sid = s.browser_tab_session(tab_id).map(str::to_owned).or_else(|| captured_sid.clone());
-                        s.open_new_browser_tab_with_context(sid.as_deref(), &url, None, true, false, ctx, agent);
+                        s.open_new_browser_tab_with_context(sid.as_deref(), &url, None, true, false, ctx, driver);
                     }
                 }
             }

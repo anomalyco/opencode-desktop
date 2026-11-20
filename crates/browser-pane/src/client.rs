@@ -851,7 +851,7 @@ impl BrowserHost {
         // one given another address or laid out at another size meanwhile gets them.
         for (&tab_id, (sent_url, sent_size)) in &early {
             let pending_url = self.pending_opens.iter().find(|(id, _)| *id == tab_id).map(|(_, u)| u.clone());
-            let (size, roots_to_send, nav_url) = {
+            let (size, roots_to_send, nav_url, agent_driven) = {
                 let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) else {
                     self.send(HostMsg::CloseTab { tab_id });
                     continue;
@@ -872,8 +872,11 @@ impl BrowserHost {
                     }
                     _ => None,
                 };
-                (size, roots, nav)
+                (size, roots, nav, t.prompts.agent_driven)
             };
+            if agent_driven {
+                self.send(HostMsg::SetAgentDriven { tab_id, agent_driven: true });
+            }
             if size != *sent_size {
                 self.send(HostMsg::Resize { tab_id, width_pt: size.0, height_pt: size.1, scale: size.2 });
             }
@@ -1377,6 +1380,9 @@ impl BrowserHost {
             t.load_error = snap.load_error;
             t.favicon = snap.favicon;
             t.prompts.agent_driven |= snap.agent_driven;
+            if t.prompts.agent_driven && t.prompts.driver.is_none() {
+                t.prompts.driver = Some(crate::prompts::TabDriver::Agent);
+            }
             t.has_engine_tab = true;
             t.engine_confirmed = true;
             let mut changed = changed;
@@ -1412,6 +1418,9 @@ impl BrowserHost {
         }
         let mut prompts = crate::prompts::TabPromptState::default();
         prompts.agent_driven = snap.agent_driven;
+        if snap.agent_driven {
+            prompts.driver = Some(crate::prompts::TabDriver::Agent);
+        }
         self.tabs.push(BrowserTab {
             id: snap.tab_id,
             url: snap.url,

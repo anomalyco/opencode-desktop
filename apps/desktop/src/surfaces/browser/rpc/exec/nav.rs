@@ -350,6 +350,7 @@ fn start_preview(
         same.then(|| (hid, wid.clone()))
     });
     let (host_id, wire_tab_id, close_on_fail) = if let Some((hid, wid)) = existing {
+        app.workspace_panes.browser.host.set_agent_driven(hid, true);
         app.navigate_browser_tab(hid, &file_url);
         (hid, wid, false)
     } else {

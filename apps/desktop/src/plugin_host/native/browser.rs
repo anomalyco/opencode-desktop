@@ -306,9 +306,14 @@ fn open(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
             }
             tx.instant();
             let url = if spec.url.trim().is_empty() { "about:blank" } else { spec.url.as_str() };
-            let agent = scope.tool_sid.is_some() || !scope.is_builtin_browser;
-            let id = if agent {
-                s.open_new_agent_browser_tab_for_session(sid.as_deref(), url, None, spec.background != Some(true))
+            let id = if let Some(driver) = scope.driver(s) {
+                s.open_new_controlled_browser_tab_for_session(
+                    sid.as_deref(),
+                    url,
+                    None,
+                    spec.background != Some(true),
+                    driver,
+                )
             } else {
                 s.open_new_browser_tab_for_session(sid.as_deref(), url, None, spec.background != Some(true))
             };
@@ -341,8 +346,9 @@ fn devtools(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
                 return done.complete(failed(not_running(&s.workspace_panes.browser.host.status())));
             }
             // Every `BrowserTab:DevtoolsAsync` caller (agent MCP tools and third-party Luau plugins)
-            // marks the tab `agent_driven` so OS file choosers, HTTP auth, and permissions stay guarded.
-            s.workspace_panes.browser.host.set_agent_driven(id, true);
+            // marks the tab controlled so OS file choosers, HTTP auth, and permissions stay guarded.
+            let driver = scope.driver(s).unwrap_or(browser_pane::TabDriver::Agent);
+            s.workspace_panes.browser.host.set_tab_driver(id, driver);
             let is_dialog = cdp == "Page.handleJavaScriptDialog";
             if !is_dialog && s.workspace_panes.browser.host.tab(id).is_some_and(|t| t.prompts.dialog.open().is_some()) {
                 return done.complete(failed(format!("[browser.dialog_open] A JavaScript dialog is open in tab {id}. Answer or dismiss the dialog before continuing.")));
@@ -401,6 +407,7 @@ fn clear_site(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
             if !s.workspace_panes.browser.host.has_live_sidecar() {
                 return done.complete(failed(not_running(&s.workspace_panes.browser.host.status())));
             }
+            scope.mark_tab_driven(s, id);
             match s.workspace_panes.browser.host.clear_site(id) {
                 Ok(request) => {
                     s.workspace_panes.browser.devtools.insert(request, crate::surfaces::browser::PendingDevtools { done, deadline: Instant::now() + DEVTOOLS_TIMEOUT, tab_id: id, is_dialog: false });
@@ -459,15 +466,20 @@ fn id_of(this: &Table) -> mlua::Result<u64> {
 }
 
 /// Queues `f` for page `this` on the next poll, if it's still open and owned by the caller's session.
+/// Marks the tab controlled before invoking `f` whenever an MCP tool or third-party plugin drives it.
 #[cfg(not(target_arch = "wasm32"))]
 fn later(lua: &Lua, this: &Table, what: &str, f: impl FnOnce(&mut App, u64, &mut Tx) + Send + 'static) -> mlua::Result<()> {
     let id = id_of(this)?;
     let scope = scope::TabScope::capture(lua);
+    let mark_driven = what != "BrowserTab:Close";
     with_app(what, |app| {
         scope.check_tab(app, id, true).map_err(mlua::Error::runtime)?;
         app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
             if s.workspace_panes.browser.host.tab(id).is_some() && scope.check_tab(s, id, true).is_ok() {
                 tx.instant();
+                if mark_driven {
+                    scope.mark_tab_driven(s, id);
+                }
                 f(s, id, tx);
             }
         }));
@@ -540,9 +552,7 @@ fn tab_methods(lua: &Lua) -> mlua::Result<Table> {
     m.raw_set(
         "Navigate",
         lua.create_function(|lua, (this, url): (Table, String)| {
-            let agent = scope::TabScope::capture(lua).tool_sid.is_some();
             later(lua, &this, "BrowserTab:Navigate", move |s, id, _| {
-                if agent { s.workspace_panes.browser.host.set_agent_driven(id, true); }
                 s.navigate_browser_tab(id, &url);
             })
         })?,
@@ -590,12 +600,8 @@ fn tab_methods(lua: &Lua) -> mlua::Result<Table> {
     m.raw_set(
         "Highlight",
         lua.create_function(|lua, (this, node): (Table, Option<f64>)| {
-            let id = id_of(&this)?;
-            let scope = scope::TabScope::capture(lua);
-            with_app("BrowserTab:Highlight", |app| {
-                scope.check_tab(app, id, true).map_err(mlua::Error::runtime)?;
-                app.workspace_panes.browser.host.highlight_node(id, node.map(|n| n as i64));
-                Ok(())
+            later(lua, &this, "BrowserTab:Highlight", move |s, id, _| {
+                s.workspace_panes.browser.host.highlight_node(id, node.map(|n| n as i64));
             })
         })?,
     )?;
