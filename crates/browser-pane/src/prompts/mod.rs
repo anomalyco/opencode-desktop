@@ -650,6 +650,17 @@ impl TabPromptState {
         self.popup = PopupGate::Idle;
     }
 
+    /// Context switched (`reopen_tab_as_preview` / `reopen_tab_as_web`): clears visit-scoped
+    /// permissions, auth state, and notices while keeping `agent_driven` and `driver`.
+    pub fn reset_for_context_switch(&mut self) {
+        self.visit_permissions.clear();
+        self.auth_attempts.clear();
+        self.auth_dismissed.clear();
+        self.agent_auth_required = None;
+        self.blocked_guard_notice = false;
+        self.reset_for_engine();
+    }
+
     /// User started a navigation/reload/back/forward: dismissed auth sites ask again (`prompt-machine.ts:182`).
     pub fn on_user_nav(&mut self) {
         self.auth_attempts.clear();
