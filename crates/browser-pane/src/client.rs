@@ -117,9 +117,9 @@ pub struct BrowserHost {
     pub(crate) next_req_id: u64,
     pub(crate) pending_opens: Vec<(u64, String)>,
     pub(crate) cdp_responses: HashMap<u64, Result<Value, Value>>,
-    cdp_response_order: VecDeque<u64>,
-    cancelled_cdp: VecDeque<u64>,
-    cdp_events: VecDeque<CdpEvent>,
+    pub(crate) cdp_response_order: VecDeque<u64>,
+    pub(crate) cancelled_cdp: VecDeque<u64>,
+    pub(crate) cdp_events: VecDeque<CdpEvent>,
     picked: VecDeque<PickedElement>,
     pub(crate) popup_opens: VecDeque<crate::prompts::PopupRequest>,
     pub(crate) context_menus: VecDeque<(u64, crate::protocol::PageContextMenu)>,
@@ -792,27 +792,6 @@ impl BrowserHost {
             self.cdp_response_order.remove(pos);
         }
         out
-    }
-
-    /// Discards any buffered or future CDP response for `request_id` so cancelled commands never
-    /// leak orphaned entries in `cdp_responses`.
-    pub fn cancel_cdp(&mut self, request_id: u64) {
-        self.cdp_responses.remove(&request_id);
-        if let Some(pos) = self.cdp_response_order.iter().position(|&id| id == request_id) {
-            self.cdp_response_order.remove(pos);
-        }
-        if self.cancelled_cdp.len() >= 1_024 {
-            self.cancelled_cdp.pop_front();
-        }
-        self.cancelled_cdp.push_back(request_id);
-    }
-
-    pub fn has_cdp_events(&self) -> bool {
-        !self.cdp_events.is_empty()
-    }
-
-    pub fn drain_cdp_events(&mut self) -> impl Iterator<Item = CdpEvent> + '_ {
-        self.cdp_events.drain(..)
     }
 
     /// Whether the page picked an element since the last drain.

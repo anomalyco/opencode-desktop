@@ -286,9 +286,15 @@ impl TabFrameState {
             if !name.is_empty() {
                 self.frame_names.insert(fid.to_owned(), name.to_owned());
             }
+            if !is_ext
+                && let Some(sid) = session_id
+            {
+                self.frame_sessions.insert(fid.to_owned(), sid.to_owned());
+            }
         }
         if is_ext {
             self.extension_frames.insert(fid.to_owned());
+            self.frame_sessions.remove(fid);
             self.main_contexts.remove(fid);
         }
         if let Some(children) = node.get("childFrames").and_then(Value::as_array) {
@@ -296,6 +302,18 @@ impl TabFrameState {
                 self.walk_tree(child, Some(fid), session_id, is_ext);
             }
         }
+    }
+
+    /// Returns unique active non-extension OOPIF CDP `sessionId`s tracked on this tab.
+    pub fn oopif_sessions(&self) -> Vec<String> {
+        let mut seen = HashSet::new();
+        let mut out = Vec::new();
+        for sid in self.frame_sessions.values() {
+            if !self.extension_sessions.contains_key(sid) && seen.insert(sid.as_str()) {
+                out.push(sid.clone());
+            }
+        }
+        out
     }
 
     /// Returns all known document URLs in this tab (main document + all in-process & OOPIF

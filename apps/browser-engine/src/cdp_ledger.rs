@@ -235,3 +235,53 @@ pub(crate) fn handle_typed_cdp_call(
         });
     }
 }
+
+pub(crate) fn handle_site_cookies(
+    tab_id: u64,
+    request_id: u64,
+    not_ready_reason: Option<&str>,
+    t: &crate::engine::ManagedTab,
+    next_cdp_id: &std::sync::atomic::AtomicI32,
+    out_tx: &crate::output::Output,
+) {
+    use cef::ImplBrowserHost;
+    use serde_json::json;
+    use std::sync::atomic::Ordering;
+
+    if let Some(reason) = not_ready_reason {
+        let _ = out_tx.send(crate::wire::EngineMsg::CdpResponse {
+            tab_id,
+            request_id,
+            ok: false,
+            result: json!({ "message": reason }),
+        });
+        return;
+    }
+    let url = t.snap.lock().unwrap().url.clone();
+    if browser_policy::destination_origin(&url).is_none() {
+        let _ = out_tx.send(crate::wire::EngineMsg::CdpResponse {
+            tab_id,
+            request_id,
+            ok: true,
+            result: json!({ "cookies": 0 }),
+        });
+        return;
+    }
+    let msg_id = next_cdp_id.fetch_add(1, Ordering::Relaxed);
+    t.cdp_id_map.lock().unwrap().insert(msg_id, crate::handlers::CdpPending::CookieCount(request_id));
+    let raw = json!({
+        "id": msg_id,
+        "method": "Network.getCookies",
+        "params": { "urls": [url] },
+    })
+    .to_string();
+    if t.host.send_dev_tools_message(Some(raw.as_bytes())) != 1 {
+        t.cdp_id_map.lock().unwrap().remove(&msg_id);
+        let _ = out_tx.send(crate::wire::EngineMsg::CdpResponse {
+            tab_id,
+            request_id,
+            ok: false,
+            result: json!({ "message": "send_dev_tools_message rejected" }),
+        });
+    }
+}

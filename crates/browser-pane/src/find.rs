@@ -116,6 +116,27 @@ impl crate::BrowserHost {
             && !self.pending_opens.iter().any(|(id, _)| *id == tab_id)
     }
 
+    /// Discards any buffered or future CDP response for `request_id` so cancelled commands never
+    /// leak orphaned entries in `cdp_responses`.
+    pub fn cancel_cdp(&mut self, request_id: u64) {
+        self.cdp_responses.remove(&request_id);
+        if let Some(pos) = self.cdp_response_order.iter().position(|&id| id == request_id) {
+            self.cdp_response_order.remove(pos);
+        }
+        if self.cancelled_cdp.len() >= 1_024 {
+            self.cancelled_cdp.pop_front();
+        }
+        self.cancelled_cdp.push_back(request_id);
+    }
+
+    pub fn has_cdp_events(&self) -> bool {
+        !self.cdp_events.is_empty()
+    }
+
+    pub fn drain_cdp_events(&mut self) -> impl Iterator<Item = crate::client::CdpEvent> + '_ {
+        self.cdp_events.drain(..)
+    }
+
     /// Sends a typed CDP call allowed by [`crate::policy::check_typed_cdp`] exclusively for native
     /// Rust `experimental.browser` executors (never exposed to untrusted Luau plugins). Falls back
     /// to `HostMsg::CdpCall` for methods already permitted by `check_cdp`.

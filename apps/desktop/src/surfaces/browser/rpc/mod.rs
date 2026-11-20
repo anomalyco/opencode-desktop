@@ -7,14 +7,15 @@
 mod exec;
 mod frames;
 mod session;
+mod suppression;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::mpsc::{self, Receiver, Sender};
 
 use opencode_kernel::{Feature, KernelBuilder, Slot};
 use opencode_kit::browser_rpc::{
-    AbortHandle, AttachEffect, AttachEvent, AttachOutcome, AttachState, BlockReason, Command,
-    LocationRef, Outcome, RpcCallError, decode_control, failure_code,
+    AbortHandle, AttachEffect, AttachEvent, AttachOutcome, Command, LocationRef, Outcome,
+    RpcCallError, decode_control, failure_code,
 };
 use opencode_kit::client::Server;
 use opencode_kit::servers::ServerKey;
@@ -23,6 +24,7 @@ use rune::{Tx, Waker};
 use serde_json::Value;
 
 use self::session::SessionAttachment;
+use self::suppression::{maybe_start_capability_probe, server_suppressed, sync_mcp_suppression};
 use crate::{App, Route, Source};
 
 pub static BROWSER_RPC: Slot<BrowserRpcState> = Slot::new();
@@ -47,7 +49,7 @@ impl Feature<App> for BrowserRpcFeature {
     }
 }
 
-enum WorkerMsg {
+pub(super) enum WorkerMsg {
     AttachEnded {
         server_key: ServerKey,
         session_id: String,
@@ -70,7 +72,7 @@ enum WorkerMsg {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ServerRpcVerdict {
+pub(super) enum ServerRpcVerdict {
     Probing,
     Supported,
     LegacyAllowed,
@@ -78,16 +80,16 @@ enum ServerRpcVerdict {
 }
 
 pub struct BrowserRpcState {
-    sessions: BTreeMap<(ServerKey, String), SessionAttachment>,
+    pub(super) sessions: BTreeMap<(ServerKey, String), SessionAttachment>,
     sse_connected: BTreeMap<ServerKey, bool>,
     /// Per-server endpoint capability verdict (`LegacyAllowed` stays sticky across empty
     /// sessions/tab close/slow SSE until reconnect or `plugin.updated`).
-    server_verdicts: BTreeMap<ServerKey, (Server, u64, ServerRpcVerdict)>,
-    probe_gen: u64,
-    mcp_suppressed: BTreeMap<ServerKey, (Server, bool)>,
-    worker_tx: Sender<WorkerMsg>,
+    pub(super) server_verdicts: BTreeMap<ServerKey, (Server, u64, ServerRpcVerdict)>,
+    pub(super) probe_gen: u64,
+    pub(super) mcp_suppressed: BTreeMap<ServerKey, (Server, bool)>,
+    pub(super) worker_tx: Sender<WorkerMsg>,
     worker_rx: Receiver<WorkerMsg>,
-    waker: Option<Waker>,
+    pub(super) waker: Option<Waker>,
     next_diag_scope: u64,
     ref_counter: u64,
 }
@@ -108,34 +110,6 @@ impl Default for BrowserRpcState {
             ref_counter: 0,
         }
     }
-}
-
-fn server_suppressed(st: &BrowserRpcState, server_key: &ServerKey) -> bool {
-    let mut any_proven_legacy = false;
-    for ((k, _), att) in &st.sessions {
-        if k != server_key {
-            continue;
-        }
-        if matches!(
-            att.attach.state,
-            AttachState::Attached { .. }
-                | AttachState::Blocked {
-                    reason: BlockReason::Replaced | BlockReason::Missing,
-                }
-        ) {
-            return true;
-        }
-        if matches!(att.attach.state, AttachState::Unsupported | AttachState::Unavailable) {
-            any_proven_legacy = true;
-        }
-    }
-    if any_proven_legacy {
-        return false;
-    }
-    !matches!(
-        st.server_verdicts.get(server_key),
-        Some((_, _, ServerRpcVerdict::LegacyAllowed))
-    )
 }
 
 /// Whether legacy local `browser_*` MCP tools must be suppressed on `server_key` / `session_id`:
@@ -407,6 +381,7 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
                     None,
                 );
             }
+            let mut oopif_frame_reqs: Vec<(u64, u64, String)> = Vec::new();
             for (tab_id, child_sid) in oopif_enables {
                 let _ = host.send_typed_cdp(tab_id, "Page.enable", serde_json::json!({}), Some(child_sid.clone()));
                 let _ = host.send_typed_cdp(tab_id, "Runtime.enable", serde_json::json!({}), Some(child_sid.clone()));
@@ -418,8 +393,29 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
                         "waitForDebuggerOnStart": false,
                         "flatten": true,
                     }),
-                    Some(child_sid),
+                    Some(child_sid.clone()),
                 );
+                // Immediately enumerate any already-loaded same-process child iframes inside the
+                // OOPIF so `source_urls()` and `frameID` authorization never miss them.
+                if let Ok(req_id) = host.send_typed_cdp(
+                    tab_id,
+                    "Page.getFrameTree",
+                    serde_json::json!({}),
+                    Some(child_sid.clone()),
+                ) {
+                    oopif_frame_reqs.push((tab_id, req_id, child_sid));
+                }
+            }
+            if !oopif_frame_reqs.is_empty() {
+                let st = app.kernel.slots.get_mut(&BROWSER_RPC);
+                for (tab_id, req_id, child_sid) in oopif_frame_reqs {
+                    for att in st.sessions.values_mut() {
+                        if att.host_to_wire.contains_key(&tab_id) {
+                            att.bootstrap_frame_reqs.push((tab_id, req_id, Some(child_sid.clone())));
+                            break;
+                        }
+                    }
+                }
             }
         }
     }
@@ -619,138 +615,6 @@ fn reconcile_sessions(app: &mut App, now: Instant) -> bool {
     changed
 }
 
-/// Runs a one-shot non-mutating capability probe (`POST /api/rpc/experimental.browser/state {}`)
-/// on the active same-machine local server when there is no cached verdict yet (Home, Draft,
-/// restored/background tabs, or slow SSE before any session attaches).
-fn maybe_start_capability_probe(app: &mut App) {
-    if !app.live() || app.browser_unsupported() {
-        return;
-    }
-    let Some(server) = live_server_clone(app) else {
-        return;
-    };
-    let active_server = crate::servers::runtime::active(app).clone();
-    if !(active_server.is_sidecar() && server.is_local()) {
-        return;
-    }
-    let probe_dir = app
-        .projects
-        .first()
-        .map(|p| p.directory.as_str())
-        .filter(|d| !d.is_empty())
-        .unwrap_or(&app.default_dir)
-        .to_owned();
-    let (worker_tx, waker, generation) = {
-        let st = app.kernel.slots.get_mut(&BROWSER_RPC);
-        let already_have = st
-            .server_verdicts
-            .get(&active_server)
-            .is_some_and(|(prev, _, _)| prev.endpoint_key() == server.endpoint_key());
-        if already_have {
-            return;
-        }
-        let any_session_active = st.sessions.iter().any(|((k, _), att)| {
-            *k == active_server
-                && !matches!(att.attach.state, AttachState::Idle | AttachState::Closed)
-        });
-        if any_session_active {
-            return;
-        }
-        st.probe_gen = st.probe_gen.saturating_add(1);
-        let generation = st.probe_gen;
-        st.server_verdicts
-            .insert(active_server.clone(), (server.clone(), generation, ServerRpcVerdict::Probing));
-        (st.worker_tx.clone(), st.waker.clone(), generation)
-    };
-    let location = LocationRef::new(probe_dir, None);
-    std::thread::Builder::new()
-        .name("browser-rpc-probe".into())
-        .spawn(move || {
-            let supported = server.browser_rpc_probe(&location);
-            let _ = worker_tx.send(WorkerMsg::ProbeEnded {
-                server_key: active_server,
-                server,
-                generation,
-                supported,
-            });
-            if let Some(w) = waker {
-                w();
-            }
-        })
-        .ok();
-}
-
-fn sync_mcp_suppression(app: &mut App) {
-    let window_id = app.kernel.slots.get(&crate::rune_mcp::RUNE_MCP).window_id();
-    let st = app.kernel.slots.get_mut(&BROWSER_RPC);
-    // Promote definitive session attach outcomes into `server_verdicts` so `LegacyAllowed` stays
-    // sticky across tab close/Home until reconnect or `plugin.updated`.
-    let mut session_proofs: BTreeMap<ServerKey, (Server, bool)> = BTreeMap::new();
-    for ((k, _), att) in &st.sessions {
-        match att.attach.state {
-            AttachState::Attached { .. }
-            | AttachState::Blocked {
-                reason: BlockReason::Replaced | BlockReason::Missing,
-            } => {
-                session_proofs.insert(k.clone(), (att.server.clone(), true));
-            }
-            AttachState::Unsupported | AttachState::Unavailable => {
-                session_proofs
-                    .entry(k.clone())
-                    .or_insert_with(|| (att.server.clone(), false));
-            }
-            _ => {}
-        }
-    }
-    for (k, (srv, supported)) in session_proofs {
-        let next = if supported { ServerRpcVerdict::Supported } else { ServerRpcVerdict::LegacyAllowed };
-        let needs_update = st
-            .server_verdicts
-            .get(&k)
-            .is_none_or(|(prev, _, v)| *v != next || prev.endpoint_key() != srv.endpoint_key());
-        if needs_update {
-            st.probe_gen = st.probe_gen.saturating_add(1);
-            let g = st.probe_gen;
-            st.server_verdicts.insert(k, (srv, g, next));
-        }
-    }
-
-    let mut keys: BTreeMap<ServerKey, Server> = BTreeMap::new();
-    for (k, (srv, _, _)) in &st.server_verdicts {
-        keys.insert(k.clone(), srv.clone());
-    }
-    for ((k, _), att) in &st.sessions {
-        keys.entry(k.clone()).or_insert_with(|| att.server.clone());
-    }
-    let mut current: BTreeMap<ServerKey, (Server, bool)> = BTreeMap::new();
-    for (k, srv) in keys {
-        let suppressed = server_suppressed(st, &k);
-        current.insert(k, (srv, suppressed));
-    }
-    let mut updates: Vec<(Server, Option<bool>)> = Vec::new();
-    for (k, (srv, suppressed)) in &current {
-        match st.mcp_suppressed.get(k) {
-            Some((prev_srv, _)) if prev_srv.endpoint_key() != srv.endpoint_key() => {
-                updates.push((prev_srv.clone(), None));
-                updates.push((srv.clone(), Some(*suppressed)));
-            }
-            Some((_, prev_s)) if *prev_s == *suppressed => {}
-            _ => {
-                updates.push((srv.clone(), Some(*suppressed)));
-            }
-        }
-    }
-    for (k, (srv, _)) in &st.mcp_suppressed {
-        if !current.contains_key(k) {
-            updates.push((srv.clone(), None));
-        }
-    }
-    st.mcp_suppressed = current;
-    for (srv, suppressed) in updates {
-        crate::rune_mcp::set_browser_rpc_attached(window_id, &srv, suppressed);
-    }
-}
-
 fn apply_batch_effects(
     app: &mut App,
     batch: Vec<((ServerKey, String), Vec<AttachEffect>)>,
@@ -865,7 +729,7 @@ fn apply_batch_effects(
     sync_mcp_suppression(app);
 }
 
-fn live_server_clone(app: &App) -> Option<Server> {
+pub(super) fn live_server_clone(app: &App) -> Option<Server> {
     match &*app.source {
         Source::Live { server, .. } => Some(server.clone()),
         Source::Fixture => None,

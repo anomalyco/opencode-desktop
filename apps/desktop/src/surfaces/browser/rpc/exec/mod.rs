@@ -6,6 +6,7 @@ pub(super) mod capture;
 pub(super) mod nav;
 pub(super) mod read;
 pub(super) mod snapshot;
+mod target_url;
 
 use std::time::Duration;
 
@@ -72,7 +73,9 @@ impl ExecPhase {
     ) {
         match self {
             Self::Inspect(st) => {
-                app.workspace_panes.browser.host.cancel_cdp(st.cdp_req);
+                for (req_id, _) in st.pending.drain(..) {
+                    app.workspace_panes.browser.host.cancel_cdp(req_id);
+                }
             }
             Self::WaitLoad(st) => {
                 app.workspace_panes.browser.host.stop(st.host_id);
