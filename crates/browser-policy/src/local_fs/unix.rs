@@ -226,7 +226,7 @@ pub(super) fn has_macos_bundle_marker(verified_path: &str) -> bool {
             (&raw mut attrs).cast(),
             (&raw mut out).cast(),
             std::mem::size_of::<FinderInfoBuf>(),
-            libc::FSOPT_NOFOLLOW as u64,
+            libc::FSOPT_NOFOLLOW,
         )
     };
     if rc == 0 && out.length as usize >= std::mem::size_of::<FinderInfoBuf>() {
