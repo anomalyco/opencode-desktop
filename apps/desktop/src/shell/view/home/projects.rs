@@ -85,6 +85,7 @@ fn nav_row(p: &Pal, key: &str, glyph: &'static Icon, label: &str) -> El {
         .gap(8.0)
         .center_y()
         .radius(6.0)
+        .focus_inset(p)
         .hover_group()
         .hover(p.layer1)
         .child(icon(glyph, 14.0).key("icon").color(p.icon_muted))
@@ -138,6 +139,7 @@ pub(super) fn project_row(s: &App, p: &Pal, server: &ServerKey, proj: &model::Pr
         .px(6.0)
         .gap(8.0)
         .center_y()
+        .radius(6.0).focus_inset(p)
         .hover_group()
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
@@ -299,6 +301,7 @@ pub(super) fn dropdown_trigger(s: &App, p: &Pal, selected: Option<&model::Projec
         .gap(8.0)
         .center_y()
         .radius(6.0)
+        .focus_inset(p)
         .fill(if open { p.layer1 } else { p.bg_base })
         .hover(p.layer1)
         .on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| {

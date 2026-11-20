@@ -6,6 +6,7 @@
 //! While active and no paid provider is connected, this panel replaces the session composer;
 //! connecting a paid provider or passing the reset timestamp brings the composer back on its own.
 
+use opencode_ui::focus::FocusExt;
 use std::time::Duration;
 
 use opencode_i18n::t;
@@ -213,7 +214,7 @@ pub(crate) fn panel(s: &App, p: &Pal) -> El {
         .radius(6.0)
         .hover(p.hover)
         .press(p.pressed)
-        .focus_ring(2.0, -2.0, p.v2.border_focus)
+        .focus_inset(p)
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
             crate::open_in::open_external(tx, GO_URL);
             s.open_connect(Some("opencode-go"), false, tx);

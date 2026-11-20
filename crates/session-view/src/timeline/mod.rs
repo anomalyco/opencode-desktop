@@ -6,6 +6,7 @@ use rune::{El, GrowthSpec, ScrollSpec, col, edge, el, row, text};
 
 use crate::TimelineHost;
 use crate::compaction::Run;
+use crate::focus::FocusExt;
 use crate::fold::Fold;
 use crate::palette::Pal;
 use crate::style::{UI, activity_ring};
@@ -553,13 +554,12 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
         .scroll(ScrollSpec { stick_bottom: true })
         .scroll_fade(fade)
         // A Tab stop that scrolls with the keys, as Desktop's `ScrollView` (`tabIndex={0}` and its
-        // own `onKeyDown`, `scroll-view.tsx:453-551`), and never draws a ring, focused by Tab or
-        // by a click (`.scroll-view__viewport { outline: none }`, `scroll-view.css:15`). The
-        // header's controls follow it.
+        // own `onKeyDown`, `scroll-view.tsx:453-551`), ringed inside when the keyboard focuses it
+        // (`.scroll-view__viewport:focus-visible`, `scroll-view.css`). The header's controls follow it.
         .focusable(true)
         .role("region")
         .label_static(opencode_i18n::t!("ui.scrollView.ariaLabel"))
-        .no_focus_ring()
+        .focus_inset(p)
         // `sticky top-0 z-30` (`session-identity-header.tsx:54`). It needs no fill of its own:
         // rows under it clip at its bottom edge, where their fade starts (`below_sticky`), so
         // the panel's corners and ring show as they do without it.

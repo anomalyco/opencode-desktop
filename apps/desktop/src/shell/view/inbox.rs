@@ -289,6 +289,7 @@ fn working_header(s: &App, p: &Pal, open: bool) -> El {
         .gap(6.0)
         .center_y()
         .radius(6.0)
+        .focus_inset(p)
         .hover_group()
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
             tx.instant();
@@ -317,6 +318,7 @@ fn ghost_button(p: &Pal, key: &str, label: &str) -> El {
         .gap(6.0)
         .center_y()
         .radius(6.0)
+        .focus_inset(p)
         .hover(p.hover)
         .press(p.pressed)
         .child(text(label).font(BUTTON).color(p.muted))
@@ -378,6 +380,7 @@ fn card(s: &App, p: &Pal, e: &Entry<'_>) -> El {
         .padding(8.0)
         .gap(6.0)
         .radius(6.0)
+        .focus_inset(p)
         .focusable(true)
         .focus_selected(selected)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| s.open_inbox_session(&id, tx))

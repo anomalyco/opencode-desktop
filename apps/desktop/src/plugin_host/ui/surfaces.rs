@@ -6,6 +6,7 @@
 use std::hash::{Hash, Hasher};
 
 use mlua::Function;
+use opencode_ui::focus::FocusExt;
 use rune::{El, Tx, col, el, row, text};
 use rune_luau::Data;
 use session_view::palette::Elevate as _;
@@ -217,6 +218,7 @@ fn titlebar_pills(app: &App, p: &Pal, vertical: bool) -> Vec<El> {
                 .min_w(side)
                 .center_y()
                 .radius(side / 2.0)
+                .focus_inset(p)
                 .fill(p.bg_deep)
                 .clip_rounded(side / 2.0)
                 .no_window_drag()

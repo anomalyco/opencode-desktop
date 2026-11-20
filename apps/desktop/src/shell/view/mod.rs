@@ -9,6 +9,7 @@ use rune::{
 };
 
 use rune_theme_opencode::icons as ic;
+use opencode_ui::focus::FocusExt;
 use opencode_kit::model::{self, SessionInfo, Transcript};
 use crate::palette::{Elevate as _, Pal, pal};
 use crate::{App, Route, TabStatus};
@@ -102,9 +103,9 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     }
     cx.caption_color(caption_color(p.bg_deep));
     // Text and fields left uncoloured take the theme's text, and focusable controls without a
-    // ring of their own draw button.css's: 2px `border-focus`, 2.5px out, keyboard focus only.
+    // ring of their own draw the shared one (`opencode_ui::focus`, base.css `:focus-visible`).
     cx.foreground(p.text);
-    cx.focus_ring(2.0, 2.5, crate::palette::kit(p).c.border_focus);
+    cx.focus_ring(opencode_ui::focus::WIDTH, opencode_ui::focus::OFFSET, opencode_ui::focus::color(p));
     // Every button, link and tab is a Tab stop in document order, and dialogs open focused, as
     // in Desktop's DOM.
     cx.web_focus();

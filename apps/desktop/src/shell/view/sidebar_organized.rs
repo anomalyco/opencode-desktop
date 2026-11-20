@@ -392,6 +392,7 @@ fn session(s: &App, p: &Pal, ses: &SessionInfo) -> El {
         .gap(8.0)
         .center_y()
         .radius(6.0)
+        .focus_inset(p)
         .hover(p.hover)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             s.project_state.organize_selected = Some(crate::tabs::session_uid(crate::servers::runtime::active(s), &id));

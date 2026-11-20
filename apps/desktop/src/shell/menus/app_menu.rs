@@ -4,6 +4,7 @@
 //! command's keys or the menu's own accelerator, and runs what Desktop's does.
 
 use crate::popup::MenuButton as _;
+use opencode_ui::focus::FocusExt;
 use rune::{El, Key, KeyEvent, Mods, Tx, icon};
 
 use rune_theme_opencode::icons as ic;
@@ -144,6 +145,7 @@ fn glyph_button(s: &App, p: &Pal) -> El {
         .label_static(opencode_i18n::t!("desktop.menu.ariaLabel"))
         .size(28.0, 28.0)
         .radius(6.0)
+        .focus_inset(p)
         .center()
         .fill(if open { p.pressed } else { rune::Color::TRANSPARENT })
         .hover(if open { rune::Color::TRANSPARENT } else { p.hover })

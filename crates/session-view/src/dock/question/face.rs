@@ -5,6 +5,7 @@ use rune::{Anim, Color, El, SpringPair, TextEdit, TextStyle, Transition, Tx, col
 use super::*;
 use crate::dock::{Variant, button, face_transition};
 use crate::odometer::odometer;
+use crate::focus::FocusExt;
 use crate::palette::Pal;
 use crate::style::readable;
 
@@ -80,6 +81,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
                 .label(opencode_i18n::t!("ui.tool.questions.numbered", number = i + 1))
                 .size(20.0, 20.0)
                 .radius(4.0)
+                .focus_inset(p)
                 .center()
                 .hover(p.hover)
                 .hover_motion(Anim::INSTANT, Anim::INSTANT)

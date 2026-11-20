@@ -8,6 +8,7 @@ use rune::{Color, El, Icon, Tx, col, el, icon, row, text};
 
 use super::events::{self, Event, Verb};
 use crate::TimelineHost;
+use crate::focus::FocusExt;
 use crate::palette::Pal;
 use crate::style::{INSTANT, ROW_GAP, TOOL_CODE, UI, arrow, readable};
 
@@ -130,11 +131,11 @@ pub fn mark(p: &Pal, m: Mark, word: &str) -> El {
 }
 
 /// An interactive event row's hover: a quiet fill that comes and goes at once, 6 past its words
-/// each side with a 4 radius, and a ring there while the keyboard has it. No underline.
+/// each side with a 4 radius, and the shared ring 2 outside it while the keyboard has it. No underline.
 fn hoverable(p: &Pal, row: El) -> El {
     row.ml(-6.0).px(6.0).radius(4.0).cursor(rune::Cursor::Pointer).hover(p.hover).hover_group()
         .hover_motion(INSTANT, INSTANT)
-        .focus_ring(2.0, 0.0, p.v2.border_focus)
+        .focus_default(p)
 }
 
 /// `color-mix(in srgb, a n%, b)` for opaque `a` and `b`.

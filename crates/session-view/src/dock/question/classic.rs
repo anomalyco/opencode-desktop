@@ -14,6 +14,7 @@ use rune_theme_opencode::icons as ic;
 
 use super::*;
 use crate::dock::{BUTTON, Variant, button, face_transition};
+use crate::focus::FocusExt;
 use crate::palette::{Elevate as _, Pal};
 use crate::style::readable;
 
@@ -221,8 +222,8 @@ fn card(p: &Pal, picked: bool, ring: bool, keyboard: bool) -> El {
     } else {
         c.hover(p.layer2).box_shadow(Shadow { spread: 0.5, color: p.border, inset: true, ..Shadow::default() })
     };
-    // Under a contrast theme every card has a solid edge, so the ring is three times as wide.
-    let c = if ring { c.box_shadow(Shadow { spread: if p.forced { 3.0 } else { 1.0 }, color: p.q.focus, inset: true, ..Shadow::default() }) } else { c };
+    // Under a contrast theme every card has a solid edge, so the ring is 3 wide to stand clear of it.
+    let c = if ring { c.box_shadow(Shadow { spread: if p.forced { 3.0 } else { crate::focus::WIDTH }, color: p.q.focus, inset: true, ..Shadow::default() }) } else { c };
     c.child(el().key("wash").absolute(0.0, 0.0).w_full().h_full().radius(6.0).fill(wash).opacity(if picked { 1.0 } else { 0.0 }).opacity_motion(ease))
 }
 
@@ -235,6 +236,7 @@ fn progress<S: DockHost>(s: &S, p: &Pal, f: &Form, tab: usize) -> El {
             .label(opencode_i18n::t!("ui.tool.questions.numbered", number = i + 1))
             .size(20.0, 20.0)
             .radius(4.0)
+            .focus_inset(p)
             .center()
             .hover(p.hover)
             .on_press_tx(move |s: &mut S, tx: &mut Tx| {

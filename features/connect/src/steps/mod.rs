@@ -8,6 +8,7 @@ mod auth;
 mod form;
 mod models;
 
+use opencode_ui::focus::FocusExt;
 use rune::{El, TextStyle, Tx, col, icon, row, spacer, text};
 use rune_kit::ButtonVariant;
 use rune_theme_opencode::icons as ic;
@@ -165,7 +166,7 @@ fn methods<H: ConnectHost + 'static>(s: &H, p: &Pal) -> El {
             .hover_group()
             .hover(p.hover)
             .press(p.pressed)
-            .focus_ring(2.0, -2.0, p.v2.border_focus)
+            .focus_inset(p)
             .on_press_tx(move |s: &mut H, tx: &mut Tx| input(s, Input::MethodSelected(at), tx))
             .child(icon(glyph, 16.0).color(p.icon_muted))
             .child(text(title).font(BODY_MED).color(p.text).grow(1.0).shrink().min_w(0.0).truncate())
