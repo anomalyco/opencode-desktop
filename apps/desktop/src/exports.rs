@@ -16,6 +16,7 @@ pub(crate) use crate::shell::{
     menus::{add_menu, app_menu, menubar, popover, popup},
     narrow,
     nav::{history, layout_state, pinch, route},
+    overlays,
     tabs,
     tabs::{actions as tab_actions, badges as tab_badges, recently_closed},
     view,

@@ -142,22 +142,24 @@ impl Feature<App> for McpFeature {
         );
         builder.register_overlay(
             OverlayRegistration::<App>::new(OVERLAY_ID)
-                .with_z(420)
-                .with_key_priority(110)
-                .with_render(|s, cx| {
+                .with_render(crate::overlays::layer::DIALOG, |s, cx| {
                     let p = crate::palette::pal(s.dark(cx));
                     view::layer(s, p, cx)
                 })
+                .above(crate::connect::WELCOME_OVERLAY_ID)
                 .with_key(|s, ev, tx| key(s, ev, tx))
+                // Visually above `connect`, runs after `connect` so an open Connect dialog handles
+                // Escape/picker keys ahead of `mcp::key`'s global `Bind::McpToggle` (`mod+;`).
+                .after_key(crate::connect::OVERLAY_ID)
                 .with_dismiss(|s, tx| close_dialog(s, tx)),
         );
         builder.register_overlay(
             OverlayRegistration::<App>::new(SIGN_IN_OVERLAY_ID)
-                .with_z(430)
-                .with_render(|s, cx| {
+                .with_render(crate::overlays::layer::DIALOG, |s, cx| {
                     let p = crate::palette::pal(s.dark(cx));
                     sign_in::layer(s, p, cx)
                 })
+                .above(OVERLAY_ID)
                 .with_dismiss(|s, tx| sign_in::close(s, tx)),
         );
     }

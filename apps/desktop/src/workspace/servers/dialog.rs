@@ -92,6 +92,8 @@ pub struct Dialog {
     pub password: TextEdit,
 }
 
+pub const OVERLAY_ID: &str = "dialog.servers";
+
 pub(crate) static DIALOG: opencode_kernel::Slot<Dialog> = opencode_kernel::Slot::new();
 
 /// Whether the Add/Edit server dialog is currently open.
@@ -114,6 +116,7 @@ pub fn open(s: &mut App, edit: Option<&str>, tx: &mut Tx) {
     d.password = TextEdit::new(&state.draft.password);
     focus_primary(d, state.method);
     d.session.step(SessionEvent::Open(state));
+    opencode_kernel::AppOverlays::on_overlay_opened(s, OVERLAY_ID, None);
 }
 
 fn original(server: &super::Server) -> Original {
@@ -222,6 +225,7 @@ fn run(s: &mut App, effect: Effect) {
         }
         Effect::Close { .. } => {
             s.kernel.slots.get_mut(&DIALOG).session.step(SessionEvent::Close);
+            opencode_kernel::AppOverlays::on_overlay_closed(s, OVERLAY_ID);
         }
     }
 }
@@ -265,9 +269,10 @@ fn pair(attempt: u64, value: &str, preferred: Option<String>, last: Option<(Stri
     (Event::SubmitFailed { attempt, error: Error::ConnectionFailed }, redeemed)
 }
 
-fn close(s: &mut App, tx: &mut Tx) {
+pub(crate) fn close(s: &mut App, tx: &mut Tx) {
     dispatch(s, Event::Disposed, tx);
     s.kernel.slots.get_mut(&DIALOG).session.step(SessionEvent::Close);
+    opencode_kernel::AppOverlays::on_overlay_closed(s, OVERLAY_ID);
 }
 
 fn error_words(e: &Error) -> String {

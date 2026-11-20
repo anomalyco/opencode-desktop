@@ -428,9 +428,7 @@ impl Feature<App> for SwitcherFeature {
         );
         builder.register_overlay(
             OverlayRegistration::<App>::new(OVERLAY_ID)
-                .with_z(100)
-                .with_key_priority(300)
-                .with_render(|s, cx| {
+                .with_render(crate::overlays::layer::SWITCHER, |s, cx| {
                     if s.kernel.slots.get(&SWITCHER).is_open() {
                         let p = crate::palette::pal(s.dark(cx));
                         view(s, p, cx).into()
@@ -446,9 +444,7 @@ impl Feature<App> for SwitcherFeature {
         );
         builder.register_overlay(
             OverlayRegistration::<App>::new(PROJECT_OVERLAY_ID)
-                .with_z(110)
-                .with_key_priority(310)
-                .with_render(|s, cx| {
+                .with_render(crate::overlays::layer::SWITCHER, |s, cx| {
                     if s.kernel.slots.get(&crate::project_switcher::PROJECT_SWITCHER).is_open() {
                         let p = crate::palette::pal(s.dark(cx));
                         project::view(s, p, cx).into()
@@ -456,7 +452,11 @@ impl Feature<App> for SwitcherFeature {
                         Vec::new()
                     }
                 })
+                .above(OVERLAY_ID)
                 .with_key(|s, ev, tx| s.project_switcher_key(ev, tx))
+                // Visually above `switcher`, runs after `switcher` so global palette/search chords
+                // (`Cmd+K`, `Cmd+P`, `Cmd+Shift+F`) still switch out of the project switcher.
+                .after_key(OVERLAY_ID)
                 .with_dismiss(|s, tx| {
                     tx.instant();
                     project::close(s, true);

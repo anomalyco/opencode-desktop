@@ -717,11 +717,11 @@ impl Feature<App> for SettingsFeature {
         ));
         builder.register_overlay(
             OverlayRegistration::<App>::new(WORKTREE_DELETE_OVERLAY_ID)
-                .with_z(230)
-                .with_render(|s, cx| {
+                .with_render(crate::overlays::layer::ACTION_DIALOG, |s, cx| {
                     let p = crate::palette::pal(s.dark(cx));
                     pages::worktrees::dialog(s, p, cx)
                 })
+                .above(crate::terminal::PASTE_OVERLAY_ID)
                 .with_dismiss(|s, tx| {
                     let attempt = match &s.kernel.slots.get(&SETTINGS_PAGES).worktrees.delete.phase {
                         pages::worktrees::Phase::ConfirmingOne { attempt, .. }
@@ -736,14 +736,14 @@ impl Feature<App> for SettingsFeature {
         );
         builder.register_overlay(
             OverlayRegistration::<App>::new(OVERLAY_ID)
-                .with_key_priority(320)
-                .with_key(|s, ev, tx| s.settings_key(ev, tx))
+                // Full-page Settings renders inside `shell`'s main panel (not as an overlay), so its
+                // key handler runs last in `key_band::LOW`, after both switchers.
+                .with_key_in(crate::overlays::key_band::LOW, |s, ev, tx| s.settings_key(ev, tx))
                 .with_dismiss(|s, tx| back_to_app(s, tx)),
         );
         builder.register_overlay(
             OverlayRegistration::<App>::new(PROVIDER_REMOVAL_OVERLAY_ID)
-                .with_z(500)
-                .with_render(|s, cx| {
+                .with_render(crate::overlays::layer::ELEVATED_DIALOG, |s, cx| {
                     if s.settings_open() {
                         let p = crate::palette::pal(s.dark(cx));
                         pages::providers::confirmation(s, p, cx)
@@ -751,6 +751,7 @@ impl Feature<App> for SettingsFeature {
                         Vec::new()
                     }
                 })
+                .above("dialog.servers")
                 .with_dismiss(|s, tx| {
                     pages::providers::step_accounts(s, pages::providers::Event::Cancel, tx);
                 }),

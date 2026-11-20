@@ -155,14 +155,17 @@ impl Feature<App> for FindFeature {
             .bind_id(Bind::Find.id())
             .when(|s| s.active_session_id().is_some()),
         );
-        builder.register_escape_layer(EscapeLayer::new(
-            "escape.find",
-            40,
-            |s| s.kernel.slots.get(&FIND).is_open() && matches!(*s.route, Route::Session { .. }),
-            |s, ev, tx| {
-                dismiss_key(s, ev, tx);
-            },
-        ));
+        builder.register_escape_layer(
+            EscapeLayer::<App>::new(
+                "escape.find",
+                crate::overlays::escape_band::PAGE_POPOVER,
+                |s| s.kernel.slots.get(&FIND).is_open() && matches!(*s.route, Route::Session { .. }),
+                |s, ev, tx| {
+                    dismiss_key(s, ev, tx);
+                },
+            )
+            .after("escape.todo"),
+        );
         builder.add_setup("find.waker", |s, w| setup(s, w));
         // Known: `find::matches` reads and writes `expanded` and reads timeline projection.
         builder

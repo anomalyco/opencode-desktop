@@ -227,9 +227,7 @@ impl Feature<App> for HistoryFeature {
         builder.register_slot(&crate::rewind::REWIND);
         builder.register_overlay(
             OverlayRegistration::<App>::new(crate::fork::FORK_OVERLAY_ID)
-                .with_z(300)
-                .with_key_priority(200)
-                .with_render(|s, cx| {
+                .with_render(crate::overlays::layer::DIALOG, |s, cx| {
                     if s.kernel.slots.get(&crate::fork::FORK).is_open() {
                         let p = crate::palette::pal(s.dark(cx));
                         crate::fork::view(s, p, cx).into()
@@ -237,14 +235,15 @@ impl Feature<App> for HistoryFeature {
                         Vec::new()
                     }
                 })
-                .with_key(|s, ev, tx| s.fork_key(ev, tx))
+                // Visually in DIALOG (above `overlay.diagram`), kept in `key_band::MID` after
+                // `glitch`/`demo`/`overlay.diagram` to preserve existing key precedence.
+                .with_key_in(crate::overlays::key_band::MID, |s, ev, tx| s.fork_key(ev, tx))
+                .after_key("overlay.diagram")
                 .with_dismiss(|s, _| crate::fork::close(s, true)),
         );
         builder.register_overlay(
             OverlayRegistration::<App>::new(JUMP_OVERLAY_ID)
-                .with_z(310)
-                .with_key_priority(210)
-                .with_render(|s, cx| {
+                .with_render(crate::overlays::layer::DIALOG, |s, cx| {
                     if s.kernel.slots.get(&JUMP).open() {
                         let p = crate::palette::pal(s.dark(cx));
                         jump::view(s, p, cx).into()
@@ -252,7 +251,11 @@ impl Feature<App> for HistoryFeature {
                         Vec::new()
                     }
                 })
-                .with_key(|s, ev, tx| s.jump_key(ev, tx))
+                .above(crate::fork::FORK_OVERLAY_ID)
+                // Visually above `history.fork`, kept in `key_band::MID` after `history.fork` to
+                // preserve existing key order (mutually exclusive in practice).
+                .with_key_in(crate::overlays::key_band::MID, |s, ev, tx| s.jump_key(ev, tx))
+                .after_key(crate::fork::FORK_OVERLAY_ID)
                 .with_dismiss(|s, _| jump::close(s, true)),
         );
         builder.schedule(

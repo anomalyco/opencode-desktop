@@ -525,9 +525,7 @@ impl opencode_kernel::Feature<App> for PluginHostFeature {
     fn register(&self, builder: &mut opencode_kernel::KernelBuilder<App>) {
         builder.register_overlay(
             opencode_kernel::OverlayRegistration::<App>::new("plugin.popover")
-                .with_z(600)
-                .with_key_priority(50)
-                .with_render(|s, cx| {
+                .with_render(crate::overlays::layer::PLUGIN_TOP, |s, cx| {
                     let p = crate::palette::pal(s.dark(cx));
                     popover_view(s, p)
                 })
@@ -535,22 +533,21 @@ impl opencode_kernel::Feature<App> for PluginHostFeature {
         );
         builder.register_overlay(
             opencode_kernel::OverlayRegistration::<App>::new("plugin.dialog")
-                .with_z(480)
-                .with_key_priority(60)
-                .with_render(|s, cx| {
+                .with_render(crate::overlays::layer::ELEVATED_DIALOG, |s, cx| {
                     let p = crate::palette::pal(s.dark(cx));
                     dialog_view(s, p, cx)
                 })
+                .above("dialog.move_recovery")
                 .with_key(dialog_key)
                 .with_dismiss(requests::dismiss_dialog),
         );
         builder.register_overlay(
             opencode_kernel::OverlayRegistration::<App>::new("plugin.trust")
-                .with_z(610)
-                .with_render(|s, cx| {
+                .with_render(crate::overlays::layer::PLUGIN_TOP, |s, cx| {
                     let p = crate::palette::pal(s.dark(cx));
                     trust_dialog(s, p, cx)
-                }),
+                })
+                .above("plugin.popover"),
         );
         builder.add_rest("plugin_host.rest", |s, _| {
             if s.tabs.is_empty() && matches!(&*s.route, crate::Route::Home) {

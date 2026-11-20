@@ -13,6 +13,9 @@ use crate::jobs::Apply;
 use crate::palette::{Pal, kit};
 use crate::widgets::{self, BODY, button};
 
+/// Overlay identifier for [`opencode_kernel::OverlayStack`] and [`opencode_kernel::OverlayDispatcher`].
+pub const OVERLAY_ID: &str = "dialog.move_recovery";
+
 /// `dialog-title`: 15 on 20 at 530.
 const TITLE: TextStyle = TextStyle::new(15.0, 530.0).lh(20.0).tracking(-0.13);
 /// `error-details-text`: the code face at 12 on 18.
@@ -137,11 +140,18 @@ fn open_attempt(dialog: &Dialog) -> Option<Attempt> {
 /// Moves session `sid` into the new worktree `directory` of `project`, unless it started running
 /// while the worktree was made (`worktree.created`); either failure opens the dialog.
 pub(super) fn move_into(s: &mut App, sid: String, project: String, directory: String) {
+    let was_open = s.location.recovery.as_ref().and_then(dialog).is_some();
     let running = s.busy(&sid);
     let mut issued = Seq::default();
     let attempt = issued.next();
     let state = if running { State::Recovering { dialog: attempt, reason: Reason::Running } } else { State::Moving { attempt, dialog: None } };
     s.location.recovery = Some(Recovery { session: sid, project, directory, issued, state });
+    let now_open = s.location.recovery.as_ref().and_then(dialog).is_some();
+    if !was_open && now_open {
+        opencode_kernel::AppOverlays::on_overlay_opened(s, OVERLAY_ID, None);
+    } else if was_open && !now_open {
+        opencode_kernel::AppOverlays::on_overlay_closed(s, OVERLAY_ID);
+    }
     if !running {
         run(s, vec![Effect::Move { attempt }]);
     }
@@ -149,11 +159,18 @@ pub(super) fn move_into(s: &mut App, sid: String, project: String, directory: St
 
 /// Feeds `event` to the open recovery, and runs what it asks for.
 fn recovery_step(s: &mut App, event: Event) {
+    let was_open = s.location.recovery.as_ref().and_then(dialog).is_some();
     let Some(r) = s.location.recovery.as_mut() else { return };
     let (live, effects) = step(r, event);
     let project = r.project.clone();
     if !live {
         s.location.recovery = None;
+    }
+    let now_open = s.location.recovery.as_ref().and_then(dialog).is_some();
+    if !was_open && now_open {
+        opencode_kernel::AppOverlays::on_overlay_opened(s, OVERLAY_ID, None);
+    } else if was_open && !now_open {
+        opencode_kernel::AppOverlays::on_overlay_closed(s, OVERLAY_ID);
     }
     for effect in &effects {
         match effect {
@@ -243,7 +260,7 @@ fn dialog(r: &Recovery) -> Option<Attempt> {
 
 /// Keep worktree, Esc, the close cross or a press outside: the worktree stays, and so does the
 /// session. A retry or delete still running toasts if it fails.
-fn keep(s: &mut App, tx: &mut Tx) {
+pub(crate) fn keep(s: &mut App, tx: &mut Tx) {
     let Some(attempt) = s.location.recovery.as_ref().and_then(dialog) else { return };
     tx.instant();
     recovery_step(s, Event::Dismissed { attempt });

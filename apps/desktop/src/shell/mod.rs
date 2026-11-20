@@ -7,6 +7,7 @@ pub mod input;
 pub mod menus;
 pub mod narrow;
 pub mod nav;
+pub mod overlays;
 pub mod panels;
 pub mod tabs;
 pub mod view;
