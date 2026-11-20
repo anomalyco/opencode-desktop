@@ -103,6 +103,7 @@ end,
 - Nodes are declarative: build the tree you want, return it, and never mutate it.
 - Wrap each render in [`view:Memo`](api.md#view) with a version that changes only when the output should. An unchanged frame then runs no Luau at all.
 - Colors are [semantic tokens](api.md#semantic-tokens) such as `"surface-1"` or `"status-danger"`. They follow the theme. Use `ui.hex("#RRGGBB")` only for a literal color.
+- Borders on `ui.box`, `ui.row`, and `ui.col` paint over the fill without taking layout space. Use [`ui.frame`](api.md#uiframeprops) when a container's border (or `borderSides`) should take room in layout, snapped to device pixels at every display scale as a CSS `border-box` border does.
 - Long lists go in [`ui.virtualList`](api.md#uivirtuallistprops), which builds only the rows on screen.
 - Heavy views are [native nodes](api.md#native-nodes): `ui.terminalSurface`, `ui.browserSurface`, `ui.codeView`, `ui.diffView`, `ui.fileTree`, `ui.markdown` and `ui.genUi`. Get their handles from a service, such as `Terminal:Create` or `Workspace:OpenDocument`.
 
@@ -182,7 +183,7 @@ ui.text(I18n:Number(cost, { style = "currency" }))
 ui.text(I18n:Date(session.created, "dateTime"))
 ```
 
-- [`I18n:T`](api.md#i18n) falls back to `locales/en.json`, then to the key. With a number `count`, it picks the plural form the language uses.
+- [`I18n:T`](api.md#i18n) looks up the plugin's `locales/<lang>.json`, falls back to `locales/en.json`, then to the host's own message catalog (singular and plural keys), and finally to the key itself. With a number `count`, it picks the plural form the language uses. Built-in plugins whose copy already lives in the host catalog do not need to duplicate `locales/*.json` files.
 - `Number`, `Date`, `RelativeTime`, `RelativeDay` and `List` write values as the app writes them in the interface language.
 - `I18n:Direction()` says whether the language reads right to left. Everything drawn redraws when the language changes; connect `I18n.Changed` for state you keep.
 
@@ -197,23 +198,22 @@ stylua --check --glob "**/*.luau" --glob "!**/*.d.luau" plugins
 ```
 
 - `luau-lsp` 1.70 or later checks types under both of Luau's solvers. In an editor, add `plugins/opencode.d.luau` to the `luau-lsp.types.definitionFiles` setting. `plugins/.luaurc` already turns on strict mode and maps `@opencode/*`.
-- From `init.luau`, require a sibling module as `require("@self/format")`; from another sibling module in the same folder, require a peer as `require("./format")`.
+- **Module `require` paths (`@self/` vs `./`):** the host follows Luau's standard require-by-string rules (the same rules `luau-lsp` uses). Because `init.luau` represents its folder as a module, `@self/format` resolves a child inside the plugin folder (`format.luau`), while `./format` from `init.luau` steps to the folder's parent and fails. Inside a sibling module such as `view.luau`, the module itself is already a child of the folder, so `./format` resolves a peer in the same folder (`format.luau`), while `@self/format` would look for `view/format.luau` and fail.
 - Luau's older type solver widens string unions in two places. Annotate the local (`local mode: DiffMode = store:Get()`), and cast a union-typed store through `any`: `Store:Value("mode", "split" :: any) :: StoreValue<DiffMode>`.
 
 The samples in [`samples/`](../samples) pass all three checks: `session-stats` (command, setting, panel, virtual list), `goal` (composer pill and popover, server events), `workbench` (every native node, MCP tool, link handler) and `wsl-lite` (app half, processes, server source, dialog).
 
 ## Worked example: a modal dialog (`plugins/usage/`)
 
-The built-in [`plugins/usage/`](../../../plugins/usage/) plugin implements a complete pure-UI modal dialog (command palette entry, live HTTP fetch with cached refresh and timeout, explicit state machine, localized formatting, and countdown ticking) without any Rust feature crate:
+The built-in [`plugins/usage/`](../../../plugins/usage/) plugin implements a complete pure-UI modal dialog (command palette entry, live HTTP fetch with cached refresh and timeout, explicit state machine, localized formatting, countdown ticking, and model-picker budget badges) without any Rust feature crate:
 
 ```text
 plugins/usage/
   plugin.toml       # contract = "1.5", zero [[stores]]
-  init.luau         # window half: command + dialog wiring, async fetch, timeout, countdown ticker
+  init.luau         # window half: command + dialog wiring, async fetch, timeout, countdown ticker, model badges
   machine.luau      # explicit state machine (loading | refreshing | ready | signed-out | failed)
-  limits.luau       # wire JSON parser and sorted view model (stable tie-breaking via index)
-  view.luau         # declarative ui.* layout over semantic tokens
-  locales/*.json    # translated message catalogs
+  limits.luau       # wire JSON parser, model-budget calculation, and sorted view model (stable tie-breaking via index)
+  view.luau         # declarative ui.* layout over semantic tokens (using ui.frame for border-box panels)
 ```
 
 ```luau
@@ -309,6 +309,9 @@ Key patterns from this port:
 - **Explicit state machine + attempt fencing.** Every async fetch carries a monotonically increasing `attempt` number checked in `machine.step` so slow responses or expired `task.delay` timeouts from earlier attempts cannot overwrite a retry or a closed dialog.
 - **Offline/fixture detection.** Check `Server:IsLive()` before issuing HTTP requests so offline fixture windows skip network calls and immediately show their offline state.
 - **Runtime language updates.** Because `CommandSpec.title`/`description` and `DialogSpec.title` are evaluated when registered, wrap registration in a helper and re-run it on `I18n.Changed` after calling `:Withdraw()` on the previous `Contribution` handles.
+- **Host catalog reuse.** Because all `usage.*` and `command.usage.*` strings already live in the host's catalog (`crates/opencode-i18n`), `plugins/usage/` ships no `locales/*.json` files and lets `I18n:T` fall back directly to the host catalog.
+- **Border-box panels across DPI scales.** Panels use `ui.frame` so their `0.5` pt border participates in layout and snaps to whole device pixels identically at 1x, 1.25x, 1.5x, and 2x display scales.
+- **Model-picker annotations from one source of truth.** The plugin connects to `Composer.PickerChanged`, refreshes limits when `"model"` opens, and publishes inline model badges via `Models:SetBadges` over `Models:List()`, sharing one fetch, parser, and cache between the dialog and the model picker.
 - **JSON `null` vs missing fields.** Luau represents JSON `null` as `nil`, so a server response of `{"data": null}` looks identical to `{}` in `res.json`; inspect `res.text` when an explicit `null` carries semantic meaning (such as signed-out vs malformed response).
 - **Stable sorting.** Luau's `table.sort` is not guaranteed stable; tie-break equal keys on their original 1-based index when order matters.
 
