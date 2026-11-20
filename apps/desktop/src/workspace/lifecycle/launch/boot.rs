@@ -123,10 +123,10 @@ pub fn apply_app_icon() {
         .and_then(|exe| std::fs::read(exe.parent()?.parent()?.join("Resources/icon.icns")).ok());
     match bundled {
         Some(bytes) => {
-            let _ = rune::set_app_icon(bytes.as_slice());
+            rune::set_app_icon(bytes.as_slice()).ok();
         }
         None => {
-            let _ = rune::set_app_icon(include_bytes!("../../../../assets/icon.icns").as_slice());
+            rune::set_app_icon(include_bytes!("../../../../assets/icon.icns").as_slice()).ok();
         }
     }
 }
