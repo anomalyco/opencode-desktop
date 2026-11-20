@@ -51,10 +51,10 @@ pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
     })?;
     method(lua, t, "HistoryVisit", |_, (url, title, typed, tab_id): (String, String, Option<bool>, Option<String>)| {
         with_app("Browser:HistoryVisit", |app| {
-            // Never record history from isolated/private preview tabs.
+            // Never record history from isolated tabs (private, preview, artifact, or remote-server).
             if let Some(id) = tab_id.as_deref().and_then(|s| s.parse::<u64>().ok())
                 && let Some(tab) = app.workspace_panes.browser.host.tab(id)
-                && matches!(tab.context, browser_pane::protocol::ContextKind::IsolatedPreview { .. })
+                && tab.context.is_isolated()
             {
                 return Ok(());
             }
