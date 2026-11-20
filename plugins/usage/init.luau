@@ -305,6 +305,7 @@ return plugin.defineWindow(function(ctx)
             id = "main",
             title = I18n:T("usage.title"),
             size = "normal",
+            layer = "standard",
             radius = 12,
             hideScrollbar = true,
             render = function(v, props)
