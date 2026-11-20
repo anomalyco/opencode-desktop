@@ -539,6 +539,7 @@ impl Feature<App> for ProjectsFeature {
                     remote_picker::view::view(s, p, cx)
                 })
                 .above(crate::settings::PROVIDER_REMOVAL_OVERLAY_ID)
+                .with_key(|s, ev, tx| remote_picker::overlay_key(s, ev, tx))
                 .with_dismiss(|s, tx| remote_picker::close(s, tx)),
         );
         // Known/precaution: reads `checkout`, `servers::runtime::sidecar_stamp`, and listed server state.
