@@ -238,7 +238,8 @@ fn pill(a: &mut NodeArgs) -> Result<El, String> {
             Some("accent") => pal.v2.icon_accent,
             _ => pal.icon_muted,
         };
-        chip = chip.child(rune::icon(named_icon(name), 14.0).color(ink));
+        let glyph = rune::icon(named_icon(name), 14.0).color(ink);
+        chip = chip.pl(8.0).gap(6.0).child(el().size(16.0, 16.0).center().child(glyph));
     }
     chip = chip.child(text(words).font(crate::view::UI).color(pal.text).truncate().max_w(260.0).shrink().min_w(0.0));
     Ok(a.on_press(chip, "onPress"))
