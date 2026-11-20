@@ -107,6 +107,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "browser-policy"
+version = "0.0.1"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -770,6 +777,7 @@ name = "opencode-browser-engine"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "browser-policy",
  "cef",
  "cef-dll-sys",
  "libc",

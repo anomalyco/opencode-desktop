@@ -1,0 +1,9 @@
+[package]
+name = "browser-policy"
+version = "0.0.1"
+description = "Shared URL, workspace file confinement, and CDP allow-list policy for browser-pane and opencode-browser-engine"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+serde_json = "1"
