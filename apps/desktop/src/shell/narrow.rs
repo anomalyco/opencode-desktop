@@ -70,16 +70,22 @@ impl NarrowHost for App {
     fn narrow_views(&self) -> Vec<NarrowView> {
         crate::plugin_host::panels::narrow_views(self)
             .into_iter()
-            .map(|(id, v)| NarrowView {
-                id,
-                title: v.title,
-                order: v.order,
-                kind: match v.kind {
-                    PanelMobileKind::Tab => Kind::Tab,
-                    PanelMobileKind::Drawer => Kind::Drawer,
-                    _ => Kind::Menu,
-                },
-                icon: crate::plugin_host::icons::resolve("", v.icon.as_deref().unwrap_or("window-analytics")),
+            .map(|(id, v)| {
+                let icon = {
+                    let plugin = id.split_once(':').map_or("", |(p, _)| p);
+                    crate::plugin_host::icons::resolve(plugin, v.icon.as_deref().unwrap_or("window-analytics"))
+                };
+                NarrowView {
+                    id,
+                    title: v.title,
+                    order: v.order,
+                    kind: match v.kind {
+                        PanelMobileKind::Tab => Kind::Tab,
+                        PanelMobileKind::Drawer => Kind::Drawer,
+                        _ => Kind::Menu,
+                    },
+                    icon,
+                }
             })
             .collect()
     }

@@ -9,7 +9,7 @@ use opencode_ui::style::{UI, UI_SMALL};
 use crate::host::PanelsHost;
 use crate::state::{ResolvedRegion, SideMenu, close_side_tab, reopen_closed_side_tab, resolve_side_region};
 use crate::tabs::{ClosedSideTab, split_panel_key};
-use crate::{Launch, PanelLauncherDesc, SessionPane, icon_by_name};
+use crate::{Launch, PanelLauncherDesc, SessionPane};
 
 const INSTANT: Anim = Anim::INSTANT;
 
@@ -37,7 +37,7 @@ pub fn new_tab_view<H: PanelsHost + 'static>(host: &H, p: &Pal, reg: &ResolvedRe
         );
         for (i, item) in closed_items.into_iter().enumerate() {
             let reopen_key = item.key.clone();
-            let r = closed_row_shell(p, i, item)
+            let r = closed_row_shell(host, p, i, item)
                 .on_press_tx(move |s: &mut H, tx: &mut Tx| on_reopen_closed(s, &reopen_key, tx));
             recent = recent.child(r);
         }
@@ -105,8 +105,8 @@ fn visible_closed_items<'a>(host: &'a dyn PanelsHost, reg: &ResolvedRegion) -> V
         .unwrap_or_default()
 }
 
-fn closed_row_shell(p: &Pal, i: usize, item: &ClosedSideTab) -> El {
-    let glyph = icon_by_name(item.icon_name.as_deref());
+fn closed_row_shell(host: &dyn PanelsHost, p: &Pal, i: usize, item: &ClosedSideTab) -> El {
+    let glyph = host.resolve_closed_icon(&item.key, item.icon_name.as_deref());
     let mut label_row = row()
         .gap(6.0)
         .center_y()

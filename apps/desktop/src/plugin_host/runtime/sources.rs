@@ -2,8 +2,20 @@
 //! delegating core origin/manifest/hashing primitives to `opencode_plugin_runtime::sources`.
 
 pub use opencode_plugin_runtime::sources::{
-    Found, Origin, PrecompiledModules, Tier, content_hash, intern_icons,
+    Found, Origin, PrecompiledModules, Tier, content_hash,
 };
+
+/// Sanitizes and interns `plugin`'s `icons/<name>.svg` files, logging any rejected icons to the
+/// plugin console.
+pub fn intern_icons(plugin: &str, files: &[(String, String)]) {
+    for (name, reason) in opencode_plugin_runtime::sources::intern_icons(plugin, files) {
+        crate::plugin_host::console::push(
+            plugin,
+            rune_luau::LogLevel::Warn,
+            &format!("icons/{name}.svg ignored: {reason}"),
+        );
+    }
+}
 
 #[cfg(all(debug_assertions, not(disk_builtins)))]
 use std::path::Path;

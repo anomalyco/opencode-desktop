@@ -146,6 +146,7 @@ fn icon(a: &mut NodeArgs) -> Result<El, String> {
         Some("success") => pal.success,
         Some("warning") => pal.warning,
         Some("danger") => pal.danger,
+        Some("accent") => pal.v2.icon_accent,
         _ => pal.icon,
     });
     Ok(rune_icon(named_icon(&name), size).color(color))
@@ -250,6 +251,7 @@ fn radio(a: &mut NodeArgs) -> Result<El, String> {
     // A description's tone is Desktop's `state-fg-*` (`data-tone` on a status line).
     let tone = match a.string("tone") {
         Some(t @ ("success" | "warning" | "danger")) => token(pal.dark, &format!("state-fg-{t}")),
+        Some("accent") => token(pal.dark, "text-text-accent"),
         _ => None,
     };
     let r = radio_widget(kit(&pal), a.string("text").unwrap_or_default(), a.string("description").unwrap_or_default(), checked, a.flag("disabled"), tone, a.number("lineHeight").unwrap_or(20.0) as f32);
@@ -447,7 +449,7 @@ fn segmented(a: &mut NodeArgs) -> Result<El, String> {
     for item in items {
         let id = item.get("id").as_str().unwrap_or_default().to_owned();
         let label = item.get("label").as_str().unwrap_or_default().to_owned();
-        let glyph = icons::resolve("", item.get("icon").as_str().unwrap_or_default());
+        let glyph = named_icon(item.get("icon").as_str().unwrap_or_default());
         let key = item.get("key").as_str().map_or_else(|| id.clone(), str::to_owned);
         let on = id == value;
         let b = segmented_button(&pal, key, glyph, on, label);

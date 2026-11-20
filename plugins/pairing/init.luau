@@ -453,7 +453,7 @@ return plugin.defineWindow(function(ctx)
 
     ctx:AddSettingsPage({
         id = "pairing",
-        icon = "outline-pair",
+        icon = "pair",
         title = I18n:T("title"),
         description = I18n:T("description"),
         entries = {

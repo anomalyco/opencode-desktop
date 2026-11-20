@@ -303,13 +303,17 @@ pub fn kept(rel: &str) -> bool {
         || under("icons", ".svg")
 }
 
-/// Interns plugin `plugin`'s `icons/<name>.svg` files as its icons, by file name.
-pub fn intern_icons(plugin: &str, files: &[(String, String)]) {
-    for (path, svg) in files {
-        if let Some(name) = path.strip_prefix("icons/").and_then(|p| p.strip_suffix(".svg")) {
-            crate::icons::intern_svg(plugin, name, svg);
-        }
-    }
+/// Sanitizes and interns plugin `plugin`'s `icons/<name>.svg` files as its icons, replacing any
+/// prior set for `plugin`. Returns rejected `(name, reason)` pairs for console diagnostics.
+pub fn intern_icons(plugin: &str, files: &[(String, String)]) -> Vec<(String, &'static str)> {
+    let entries: Vec<(&str, &str)> = files
+        .iter()
+        .filter_map(|(path, svg)| {
+            let name = path.strip_prefix("icons/")?.strip_suffix(".svg")?;
+            (!name.is_empty() && !name.contains('/')).then_some((name, svg.as_str()))
+        })
+        .collect();
+    crate::icons::replace_plugin(plugin, &entries)
 }
 
 /// The script sources of the half that starts at `entry`, with the plugins folder's default

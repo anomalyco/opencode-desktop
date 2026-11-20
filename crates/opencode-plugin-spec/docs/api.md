@@ -1,4 +1,4 @@
-# OpenCode plugin API reference (contract 1.5)
+# OpenCode plugin API reference (contract 1.6)
 
 > Generated from crates/opencode-plugin-spec/contract.json by `cargo run -p opencode-plugin-spec -- --write`. Do not edit. For a walkthrough, read [Writing a plugin](writing-a-plugin.md).
 
@@ -6,7 +6,7 @@ Contents: [Versioning](#versioning) · [Modules and globals](#modules-and-global
 
 ## Versioning
 
-Contract versions are `MAJOR.MINOR`. This is contract `1.5`.
+Contract versions are `MAJOR.MINOR`. This is contract `1.6`.
 
 - A plugin names the contract it targets in plugin.toml: `contract = "1.0"`.
 - Minor versions (1.1, 1.2, …) only add: new optional properties on `ui.*` nodes and specs, new semantic tokens (each with a 1.0 fallback token), new services, methods, signals, contribution kinds and enum values. A plugin that targets 1.0 runs unchanged on every 1.x host.
@@ -706,6 +706,7 @@ A status color for an icon or a pill.
 | `"success"` | Done or passing. |
 | `"warning"` | Needs attention. |
 | `"danger"` | Failed or blocked. |
+| `"accent"` | Under way, in the accent color. |
 
 ### ToastVariant
 
@@ -1332,7 +1333,7 @@ A semantic token, or a literal color from `ui.hex`.
 
 ### IconName
 
-The name of one of the app's icons, such as `"circle-check"`, or `file:<name>` for the type icon of a file so named. A plugin's own `icons/<name>.svg` files go by their file name and win over the app's in that plugin.
+The name of one of the app's icons, such as `"circle-check"`, `file:<name>` for the type icon of a file so named, or `<plugin>:<name>` for an icon declared by another plugin. A plugin's own `icons/<name>.svg` files go by their file name and win over the app's wherever that plugin names an icon: its `ui.*` nodes and every icon field it hands the host (a settings page, composer pill, titlebar item, session panel tab, closed tab, launcher, mobile view, or code block action). Each is a sanitized SVG document whose `viewBox` (or `width` and `height`) frames safe vector geometry and optional SMIL animation elements (`animate`, `animateTransform`, `set`, held on frame 0 under reduced motion) drawn with `currentColor`. Malformed, oversized, or disallowed SVGs fall back to a default icon.
 
 `type IconName = string`
 
@@ -3244,7 +3245,7 @@ What a composer pill shows above one session's composer.
 | `label` | `string` | The capsule's text. |
 | `icon` | `IconName?` | The capsule's icon. |
 | `tone` | `Tone?` | Colors the icon. |
-| `title` | `string?` | The accessible name and the popover heading, when it differs from `label`. |
+| `title` | `string?` | The accessible name, when it differs from `label`. It names the popover `renderMenu` fills, which has no heading of the host's. |
 | `rows` | `{ ComposerPillRow }?` | The menu it opens, when the pill has no `renderMenu`. |
 
 ### ComposerPillSpec
@@ -3256,7 +3257,7 @@ A pill in the row above a session's composer. Desktop's plugin API calls it `Com
 | `id` | `string` | Its id within the plugin. |
 | `order` | `number?` | Ascending order among plugin pills. |
 | `show` | `(props: ComposerPillProps) -> ComposerPillView?` | What it shows above this session's composer, or nil for nothing. It must not yield. |
-| `renderMenu` | `((view: View, props: ComposerPillProps) -> UiNode?)?` | Content for the popover the pill opens. The host owns the capsule, the popover, its heading and its dismissal. |
+| `renderMenu` | `((view: View, props: ComposerPillProps) -> UiNode?)?` | Content for the popover the pill opens. The host owns the capsule and the popover's frame (its width, a 4 pt inset, placement, focus and dismissal); everything inside, any heading included, is yours. |
 | `run` | `((props: ComposerPillProps) -> ())?` | Runs on a click when the pill has no menu. |
 
 ### CodeBlockProps

@@ -1,4 +1,4 @@
--- OpenCode plugin contract 1.5: global types for luau-lsp.
+-- OpenCode plugin contract 1.6: global types for luau-lsp.
 -- Generated from crates/opencode-plugin-spec/contract.json by `cargo run -p opencode-plugin-spec -- --write`. Do not edit.
 -- Load it with `luau-lsp analyze --definitions=@opencode=plugins/opencode.d.luau`.
 
@@ -73,7 +73,7 @@ export type Channel = "local" | "dev" | "beta" | "prod"
 export type ColorScheme = "light" | "dark"
 
 --- A status color for an icon or a pill.
-export type Tone = "success" | "warning" | "danger"
+export type Tone = "success" | "warning" | "danger" | "accent"
 
 --- A toast's tone.
 export type ToastVariant = "default" | "success" | "error" | "loading"
@@ -262,7 +262,7 @@ declare extern type PluginHalf with end
 --- A semantic token, or a literal color from `ui.hex`.
 export type Color = SemanticToken | HexColor
 
---- The name of one of the app's icons, such as `"circle-check"`, or `file:<name>` for the type icon of a file so named. A plugin's own `icons/<name>.svg` files go by their file name and win over the app's in that plugin.
+--- The name of one of the app's icons, such as `"circle-check"`, `file:<name>` for the type icon of a file so named, or `<plugin>:<name>` for an icon declared by another plugin. A plugin's own `icons/<name>.svg` files go by their file name and win over the app's wherever that plugin names an icon: its `ui.*` nodes and every icon field it hands the host (a settings page, composer pill, titlebar item, session panel tab, closed tab, launcher, mobile view, or code block action). Each is a sanitized SVG document whose `viewBox` (or `width` and `height`) frames safe vector geometry and optional SMIL animation elements (`animate`, `animateTransform`, `set`, held on frame 0 under reduced motion) drawn with `currentColor`. Malformed, oversized, or disallowed SVGs fall back to a default icon.
 export type IconName = string
 
 --- A memo's version. The host rebuilds the memo only when it changes.
@@ -4739,7 +4739,7 @@ export type ComposerPillView = {
     icon: IconName?,
     --- Colors the icon.
     tone: Tone?,
-    --- The accessible name and the popover heading, when it differs from `label`.
+    --- The accessible name, when it differs from `label`. It names the popover `renderMenu` fills, which has no heading of the host's.
     title: string?,
     --- The menu it opens, when the pill has no `renderMenu`.
     rows: { ComposerPillRow }?,
@@ -4753,7 +4753,7 @@ export type ComposerPillSpec = {
     order: number?,
     --- What it shows above this session's composer, or nil for nothing. It must not yield.
     show: (props: ComposerPillProps) -> ComposerPillView?,
-    --- Content for the popover the pill opens. The host owns the capsule, the popover, its heading and its dismissal.
+    --- Content for the popover the pill opens. The host owns the capsule and the popover's frame (its width, a 4 pt inset, placement, focus and dismissal); everything inside, any heading included, is yours.
     renderMenu: ((view: View, props: ComposerPillProps) -> UiNode?)?,
     --- Runs on a click when the pill has no menu.
     run: ((props: ComposerPillProps) -> ())?,

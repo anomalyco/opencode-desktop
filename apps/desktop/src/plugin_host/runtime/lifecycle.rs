@@ -128,6 +128,7 @@ fn stop(app: &mut App, i: usize, script: Script) {
     services::store::withdraw_owner(&half.id, plugin::Kind::Window, None);
     app.plugins.clear_model_badges(&half.id, None);
     app.plugins.shared.images.borrow_mut().forget(&half.id);
+    crate::plugin_host::icons::clear_plugin(&half.id);
     app.plugins.overlay.close_for(&half.id);
     if app.plugins.dialog.as_ref().is_some_and(|d| d.plugin == half.id) {
         app.plugins.dialog = None;

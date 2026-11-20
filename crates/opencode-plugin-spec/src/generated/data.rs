@@ -1090,7 +1090,7 @@ pub struct ComposerPillView {
     pub icon: Option<String>,
     /// Colors the icon.
     pub tone: Option<Tone>,
-    /// The accessible name and the popover heading, when it differs from `label`.
+    /// The accessible name, when it differs from `label`. It names the popover `renderMenu` fills, which has no heading of the host's.
     pub title: Option<String>,
     /// The menu it opens, when the pill has no `renderMenu`.
     #[serde(default, deserialize_with = "crate::lenient::opt_seq")]

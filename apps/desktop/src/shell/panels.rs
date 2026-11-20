@@ -113,6 +113,12 @@ impl PanelsHost for App {
         crate::keymap::command_chord(self, id)
     }
 
+    fn resolve_closed_icon(&self, key: &str, name: Option<&str>) -> &'static rune::Icon {
+        let Some(name) = name else { return opencode_feature_panels::icon_by_name(None) };
+        let plugin = key.split_once(':').map_or("", |(p, _)| p);
+        crate::plugin_host::icons::resolve(plugin, name)
+    }
+
     fn plugin_surfaces_version(&self) -> u64 {
         crate::plugin_host::surfaces_version(self)
     }

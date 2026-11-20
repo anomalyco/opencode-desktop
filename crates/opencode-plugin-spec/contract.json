@@ -1,6 +1,6 @@
 {
   "$comment": "The OpenCode plugin contract: the single source of truth for plugin types, the plugin.toml schema, the selene std, the API docs and the host's Rust decoders. Edit this file, then run `cargo run -p opencode-plugin-spec -- --write`. Type strings use Luau syntax; `integer` is a whole number (Luau `number`).",
-  "contract": "1.5",
+  "contract": "1.6",
   "versioning": {
     "format": "MAJOR.MINOR",
     "rules": [
@@ -89,7 +89,8 @@
     { "name": "Tone", "rust": true, "doc": "A status color for an icon or a pill.", "values": [
       { "value": "success", "doc": "Done or passing." },
       { "value": "warning", "doc": "Needs attention." },
-      { "value": "danger", "doc": "Failed or blocked." }
+      { "value": "danger", "doc": "Failed or blocked." },
+      { "value": "accent", "doc": "Under way, in the accent color." }
     ] },
     { "name": "ToastVariant", "rust": true, "doc": "A toast's tone.", "values": [
       { "value": "default", "doc": "Neutral information." },
@@ -430,7 +431,7 @@
     { "name": "SemanticToken", "kind": "tokens", "doc": "A theme color by meaning. The host resolves it for the current theme and color scheme." },
     { "name": "HexColor", "kind": "opaque", "doc": "A literal color from `ui.hex(\"#RRGGBB\")` or `ui.hex(\"#RRGGBBAA\")`. Prefer a `SemanticToken`: a literal color does not follow the theme." },
     { "name": "Color", "kind": "alias", "type": "SemanticToken | HexColor", "doc": "A semantic token, or a literal color from `ui.hex`." },
-    { "name": "IconName", "kind": "alias", "type": "string", "doc": "The name of one of the app's icons, such as `\"circle-check\"`, or `file:<name>` for the type icon of a file so named. A plugin's own `icons/<name>.svg` files go by their file name and win over the app's in that plugin." },
+    { "name": "IconName", "kind": "alias", "type": "string", "doc": "The name of one of the app's icons, such as `\"circle-check\"`, `file:<name>` for the type icon of a file so named, or `<plugin>:<name>` for an icon declared by another plugin. A plugin's own `icons/<name>.svg` files go by their file name and win over the app's wherever that plugin names an icon: its `ui.*` nodes and every icon field it hands the host (a settings page, composer pill, titlebar item, session panel tab, closed tab, launcher, mobile view, or code block action). Each is a sanitized SVG document whose `viewBox` (or `width` and `height`) frames safe vector geometry and optional SMIL animation elements (`animate`, `animateTransform`, `set`, held on frame 0 under reduced motion) drawn with `currentColor`. Malformed, oversized, or disallowed SVGs fall back to a default icon." },
     { "name": "MemoVersion", "kind": "alias", "type": "string | number | boolean", "doc": "A memo's version. The host rebuilds the memo only when it changes." },
     { "name": "UiSize", "kind": "alias", "type": "number | \"full\"", "doc": "A length in logical points, or `\"full\"` to fill the parent." },
     { "name": "UiNode", "kind": "opaque", "doc": "An element a `ui.*` constructor built. Pass it to a parent or return it from a render." },
@@ -1536,14 +1537,14 @@
       { "name": "label", "type": "string", "doc": "The capsule's text." },
       { "name": "icon", "type": "IconName?", "doc": "The capsule's icon." },
       { "name": "tone", "type": "Tone?", "doc": "Colors the icon." },
-      { "name": "title", "type": "string?", "doc": "The accessible name and the popover heading, when it differs from `label`." },
+      { "name": "title", "type": "string?", "doc": "The accessible name, when it differs from `label`. It names the popover `renderMenu` fills, which has no heading of the host's." },
       { "name": "rows", "type": "{ ComposerPillRow }?", "doc": "The menu it opens, when the pill has no `renderMenu`." }
     ] },
     { "name": "ComposerPillSpec", "kind": "record", "rust": true, "official": "ComposerPill", "doc": "A pill in the row above a session's composer.", "fields": [
       { "name": "id", "type": "string", "doc": "Its id within the plugin." },
       { "name": "order", "type": "integer?", "doc": "Ascending order among plugin pills." },
       { "name": "show", "type": "(props: ComposerPillProps) -> ComposerPillView?", "doc": "What it shows above this session's composer, or nil for nothing. It must not yield." },
-      { "name": "renderMenu", "type": "((view: View, props: ComposerPillProps) -> UiNode?)?", "doc": "Content for the popover the pill opens. The host owns the capsule, the popover, its heading and its dismissal." },
+      { "name": "renderMenu", "type": "((view: View, props: ComposerPillProps) -> UiNode?)?", "doc": "Content for the popover the pill opens. The host owns the capsule and the popover's frame (its width, a 4 pt inset, placement, focus and dismissal); everything inside, any heading included, is yours." },
       { "name": "run", "type": "((props: ComposerPillProps) -> ())?", "doc": "Runs on a click when the pill has no menu." }
     ] },
     { "name": "CodeBlockProps", "kind": "record", "doc": "One complete fenced code block.", "fields": [
