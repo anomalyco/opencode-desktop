@@ -72,7 +72,7 @@ Start an OpenCode server locally (`opencode serve --port 4096` or **OpenCode Des
 cargo run -p opencode-desktop -- --live
 ```
 
-For fast local or mesh iteration (skips debuginfo, Office fonts, and standalone story modules, and enables Luau `--plugin-hot` live reload):
+For fast local iteration (skips debuginfo, Office fonts, and standalone story modules, and enables Luau `--plugin-hot` live reload):
 
 ```sh
 scripts/dev-fast.sh          # macOS / Linux
@@ -111,7 +111,7 @@ Organized by **progressive disclosure** across four tiers: start at Tier 1 and s
 | **Tier 4** | `apps/*` | Host shells and packaging: `apps/desktop` (`opencode-desktop` lib + native bin), `apps/web` (`opencode-web` wasm32/WebGPU), `apps/installer` (`opencode-rune-setup`), and `apps/browser-engine` (on-demand CEF sidecar, excluded from workspace) |
 
 <details>
-<summary><strong>Embedding <code>session-view</code> in another Rune app (such as Seer)</strong></summary>
+<summary><strong>Embedding <code>session-view</code> in another Rune app</strong></summary>
 
 <br>
 

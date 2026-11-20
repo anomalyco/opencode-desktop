@@ -16,7 +16,7 @@ pub const KEYS: &[Trigger] = &[
 pub const VARIANTS: &[(&str, usize)] = &[("Folded", 0), ("Expanded", 1), ("Fold off", 2), ("Steer", 3), ("Queued", 4), ("Long link", 5)];
 
 /// A prompt that is only a Slack link: its second line is one long word, which breaks inside itself.
-pub const LINK: &str = "https://anoma-ly.slack.com/archives/D0AF31JMF0A/p1793485494761169?thread_ts=1793300250.459359&channel=D0AF31JMF0A&message_ts=1793485494.761169";
+pub const LINK: &str = "https://acme.slack.com/archives/C0000000001/p1793485494761169?thread_ts=1793300250.459359&channel=C0000000001&message_ts=1793485494.761169";
 
 /// What the story sends: the long call notes, or just the link in the Long link variant.
 fn prompt(s: &App) -> &'static str {

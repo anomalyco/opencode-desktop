@@ -42,4 +42,4 @@ Scrawl records your screen, voice, cursor clicks, and drawn marks into a bundle 
    ```
 2. Focus the **OpenCode (Rune)** window you are testing and press `⌥⇧S` to start recording (or hold `⌥⇧S` to pick a single window).
 3. Show the issue, draw on the part that looks wrong, explain what you expected out loud, and press `⌥⇧S` again to finish.
-4. From Scrawl's review window, copy the capture or export an `.mp4`, then paste it on the PR thread or post it in `#abattoir` with the PR number (shown on the Dock icon badge).
+4. From Scrawl's review window, copy the capture or export an `.mp4`, then paste it on the PR thread or attach it to a GitHub issue with the PR number (shown on the Dock icon badge).

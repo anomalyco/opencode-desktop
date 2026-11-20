@@ -1,4 +1,4 @@
-//! Times a page load the way Seer's browser tab sees it: engine up, first frame on the surface,
+//! Times a page load the way a browser tab sees it: engine up, first frame on the surface,
 //! loading done. On Linux, use a private directory for the socket and a separate profile:
 //! ```sh
 //! d=$(mktemp -d /tmp/browser-pane.XXXXXX) && \

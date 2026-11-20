@@ -38,8 +38,10 @@ fn open_site(host: &mut dyn SettingsHost, tx: &mut Tx) {
     host.open_external("https://opencode.ai", tx);
 }
 
+// Official Desktop opens an in-app notices dialog (`packages/app/src/settings/about/notices/dialog.tsx`);
+// OpenCode (Rune) links directly to its repository third-party notices document.
 fn open_notices(host: &mut dyn SettingsHost, tx: &mut Tx) {
-    host.open_external("https://github.com/anomalyco/opencode/blob/dev/LICENSE", tx);
+    host.open_external("https://github.com/anomalyco/rune-desktop/blob/dev/THIRD_PARTY_NOTICES.md", tx);
 }
 
 pub fn view<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {

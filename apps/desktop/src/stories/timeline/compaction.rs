@@ -178,8 +178,8 @@ pub fn add_long_summary(s: &mut App, session: &str) {
     let tokens = Tokens { input: 181_000, output: 4_300, ..Default::default() };
     let c = Compaction { id: LONG.into(), status: CompactionStatus::Completed, summary: long_summary(), tokens: Some(tokens), ..Default::default() };
     t.messages.push(Message::Compaction(c));
-    t.messages.push(Message::User { id: "msg_zzlongafter0".into(), text: "Open this in my Seer sidebar.".into() });
-    let answer = vec![Part::Text { text: "Opened it in your Seer sidebar.".into() }];
+    t.messages.push(Message::User { id: "msg_zzlongafter0".into(), text: "Open this in my sidebar.".into() });
+    let answer = vec![Part::Text { text: "Opened it in your sidebar.".into() }];
     t.messages.push(Message::Assistant(Assistant { id: "msg_zzlongafter1".into(), completed: Some(1), parts: answer, ..Default::default() }));
 }
 

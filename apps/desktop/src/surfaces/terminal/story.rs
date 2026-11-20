@@ -53,7 +53,7 @@ pub const TERMINAL_KEYS: &[Trigger] = &[
     },
 ];
 
-const STORY_WS: &str = "story\0/workspace/seer";
+const STORY_WS: &str = "story\0/workspace/lumen";
 const STORY_MAX_W: f32 = 720.0;
 const STORY_MAX_H: f32 = 440.0;
 

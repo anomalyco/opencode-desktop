@@ -17,11 +17,15 @@ esac
 stem="$out/OpenCode-Rune-$version-linux-$arch"
 work=$(mktemp -d "$out/.package.XXXXXXXX")
 trap 'rm -rf "$work"' EXIT
+repo_root=$(realpath "$(dirname "$0")/../../..")
 root=$work/root
 icon=share/icons/hicolor/1024x1024/apps/opencode-rune.png
 desktop=share/applications/opencode-rune.desktop
+doc=share/doc/opencode-rune
 install -Dm755 "$bin" "$root/usr/bin/opencode-rune"
 install -Dm644 "$(dirname "$0")/../assets/icon/icon-1024.png" "$root/usr/$icon"
+install -Dm644 "$repo_root/LICENSE" "$root/usr/$doc/LICENSE"
+install -Dm644 "$repo_root/THIRD_PARTY_NOTICES.md" "$root/usr/$doc/THIRD_PARTY_NOTICES.md"
 mkdir -p "$root/usr/share/applications"
 cat > "$root/usr/$desktop" <<'EOF'
 [Desktop Entry]
@@ -69,6 +73,8 @@ cp -a "$root/usr" "%{buildroot}/"
 /usr/bin/opencode-rune
 /usr/$icon
 /usr/$desktop
+/usr/$doc/LICENSE
+/usr/$doc/THIRD_PARTY_NOTICES.md
 EOF
 rpmbuild -bb --define "_topdir $work/rpm" --define 'debug_package %{nil}' "$work/app.spec"
 cp "$work/rpm/RPMS/$machine/"*.rpm "$stem.rpm"

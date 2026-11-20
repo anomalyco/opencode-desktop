@@ -1,5 +1,5 @@
 //! Reusable, `App`-independent Luau plugin runtime primitives for Rune hosts (`opencode-desktop`,
-//! `opencode-web`, Seer, and future Rune apps).
+//! `opencode-web`, and other Rune apps).
 //!
 //! Contains the pure state machines, resource pools, background workers, hot-reload compiler,
 //! supervised child-process manager, display-sleep blocker, QR encoder, and Luau service helpers

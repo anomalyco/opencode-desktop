@@ -1,7 +1,7 @@
 //! What stands in the composer's place while the open session waits on someone: a question's
 //! form (`question`), else a permission (`permission`). The composer's surface morphs into it
 //! (`ComposerHost::composer_face`) and back once it's answered, here or anywhere else. Desktop
-//! and Seer both draw it from here; the host says what's pending and sends the replies.
+//! and embedder apps both draw it from here; the host says what's pending and sends the replies.
 
 use opencode_kit::model::Pending;
 use rune::{Anim, Color, El, KeyEvent, Shadow, SpringPair, TextStyle, Transition, Tx, row, text};

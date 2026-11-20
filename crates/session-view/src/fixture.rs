@@ -3,7 +3,7 @@
 use opencode_kit::model::{Transcript, parse_messages};
 use serde_json::json;
 
-pub const SESSION_ID: &str = "ses_seer_demo";
+pub const SESSION_ID: &str = "ses_embed_demo";
 
 /// A multi-turn transcript exercising user bubbles, folded long prompts, tool groups, reasoning,
 /// Markdown + code + `genui` + Mermaid diagram, subagent cards, and turn actions.
@@ -19,7 +19,7 @@ pub fn transcript(now_ms: i64, streaming: bool) -> Transcript {
                 "id": "msg_sv_1",
                 "type": "user",
                 "time": { "created": now_ms - 240_000 },
-                "text": "Can Seer render an OpenCode session directly from crates/session-view?"
+                "text": "Can another Rune app render an OpenCode session directly from crates/session-view?"
             },
             {
                 "id": "msg_sv_2",
@@ -79,7 +79,7 @@ pub fn transcript(now_ms: i64, streaming: bool) -> Transcript {
                     },
                     {
                         "type": "text",
-                        "text": "Long prompts fold to 8 lines with **Read more**, subagent calls group into a card, and diagrams open full-size:\n\n```mermaid\ngraph LR\n  Kit[opencode-kit] --> View[session-view]\n  View --> Desktop[opencode-desktop]\n  View --> Seer[seer-sketch]\n```"
+                        "text": "Long prompts fold to 8 lines with **Read more**, subagent calls group into a card, and diagrams open full-size:\n\n```mermaid\ngraph LR\n  Kit[opencode-kit] --> View[session-view]\n  View --> Desktop[opencode-desktop]\n  View --> Embed[embedder-app]\n```"
                     }
                 ]
             }
@@ -92,7 +92,7 @@ pub fn transcript(now_ms: i64, streaming: bool) -> Transcript {
 /// calls (`c-prt_m1`, `t-msg_m2-0`).
 pub fn motion(now_ms: i64) -> Transcript {
     let messages = parse_messages(&json!({"data": [
-        {"id": "msg_m1", "type": "user", "time": {"created": now_ms - 20_000}, "text": "Why doesn't the timeline move in Seer?"},
+        {"id": "msg_m1", "type": "user", "time": {"created": now_ms - 20_000}, "text": "Why doesn't the timeline move in the embedder?"},
         {"id": "msg_m2", "type": "assistant", "time": {"created": now_ms - 18_000}, "content": [
             {"type": "tool", "id": "prt_m1", "name": "read", "state": {"status": "completed", "input": {"filePath": "crates/session-view/src/lib.rs"}}},
             {"type": "tool", "id": "prt_m2", "name": "grep", "state": {"status": "completed", "input": {"pattern": "fn poll"}}},

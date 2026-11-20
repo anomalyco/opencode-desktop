@@ -50,7 +50,7 @@ fn main() {
     }
     // A release build is a windowed program: no console window opens beside it from the Start
     // menu, a link or a toast (`launch::attach_console` still prints to a terminal that starts
-    // it), and no console host starts with it (about 17,000 µs per launch on blade). A local
+    // it), and no console host starts with it (about 17,000 µs per launch on a Windows dev box). A local
     // `--release` build is one too, so what it measures is what ships. Debug builds keep their
     // console for logs.
     if env("OPENCODE_RUNE_BUILD_CHANNEL").is_some_and(|c| c != "local") || env("PROFILE").as_deref() == Some("release") {
@@ -58,7 +58,7 @@ fn main() {
         println!("cargo:rustc-link-arg-bin=opencode-desktop=/ENTRY:mainCRTStartup");
     }
     // System DLLs a first frame doesn't call load on first use instead of before `main`: the
-    // loader maps every static import first (43 DLLs, about 14,100 µs on blade; comctl32 alone
+    // loader maps every static import first (43 DLLs, about 14,100 µs on a Windows dev box; comctl32 alone
     // 2,800). The delay-load helper resolves each on its first call.
     for dll in DELAY_LOADED {
         println!("cargo:rustc-link-arg-bin=opencode-desktop=/DELAYLOAD:{dll}");
@@ -108,7 +108,7 @@ pub static LUAURC: &str = \"\";
 /// `luau_builtins.rs`: the fallback when no folder on disk has them. Each `.luau` file's bytecode
 /// replaces its text in the module table, compiled here with Rune's settings,
 /// so a launch doesn't compile them: compiling was most of each plugin's start (about 120,000 µs of
-/// the 175,000 µs plugins took before the first frame on blade).
+/// the 175,000 µs plugins took before the first frame on a Windows dev box).
 fn embed_luau_plugins(manifest_dir: &std::path::Path, out: &std::path::Path) {
     use std::fmt::Write as _;
     let root = manifest_dir.join("../../plugins");

@@ -184,7 +184,7 @@ pub(crate) fn auto_focus_composer(tx: &Tx) -> bool {
 }
 
 /// As in Desktop: the server's image for a project or its letter, never a file found in its
-/// folder (Seer's repo holds this app's icon, `~/code` every app's).
+/// folder (a repo may hold another app's icon, `~/code` every app's).
 fn desktop_icons() -> project_icon::Icons {
     let mut icons = project_icon::Icons::default();
     icons.set_repo_icons(false);
