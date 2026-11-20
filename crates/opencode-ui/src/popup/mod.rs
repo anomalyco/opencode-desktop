@@ -23,6 +23,7 @@ mod rows;
 mod search;
 mod standard;
 mod state;
+mod submenu;
 pub mod trigger;
 mod view;
 
@@ -193,6 +194,14 @@ pub struct Popup<S> {
     /// as its view last built: a layout read only works while the view builds, and `pick_at`
     /// runs from an input handler.
     pub(super) rows: RefCell<Vec<(String, [f32; 4])>>,
+    /// Each open submenu's edge facing the menu that opened it, by that menu's level, as the view
+    /// last built: where a pointer leaving its row may be heading.
+    pub(super) targets: RefCell<Vec<submenu::Target>>,
+    /// The pointer's last two positions over the drawn menu, in window points (earlier, latest).
+    /// Kept out of the view's state: a move alone redraws nothing.
+    pub(super) pointer: std::cell::Cell<[[f32; 2]; 2]>,
+    /// Whether an open submenu outlives the pointer crossing its menu ([submenu]).
+    pub(super) submenu: submenu::State,
 }
 
 impl<S> Default for Popup<S> {
@@ -210,6 +219,9 @@ impl<S> Popup<S> {
             press: trigger::Press::Idle,
             native: native::State::Closed,
             rows: RefCell::new(Vec::new()),
+            targets: RefCell::new(Vec::new()),
+            pointer: std::cell::Cell::new([[0.0; 2]; 2]),
+            submenu: submenu::State::Steady,
         }
     }
 

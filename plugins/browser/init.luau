@@ -17,6 +17,7 @@ local mcp = require("@self/mcp")
 local options = require("@self/options")
 local panel = require("@self/panel")
 local refusal = require("@self/refusal")
+local settings = require("@self/settings")
 local site = require("@self/site")
 
 -- The panel's id: its tabs key as `browser:<page id>`, as Desktop's.
@@ -44,7 +45,11 @@ return plugin.defineWindow(function(ctx)
     local editor = ctx:CreateEditor("")
     local findEditor = ctx:CreateEditor("")
     local stored = Store:Value("history", { visits = {} })
+    local prefsStore = Store:Value("preferences", { links = true, agentPages = true, advanced = false, welcomed = false })
+    local sitePermsStore = Store:Value("rune.sitePermissions", {})
     local recorder = Contracts:Use("browser.history")
+    local extContract = Contracts:Use("browser.extensions")
+    local profileContract = Contracts:Use("browser.profile")
 
     local state = address.initial()
     local epochs: { [string]: address.Epoch } = {}
@@ -86,9 +91,11 @@ return plugin.defineWindow(function(ctx)
     local function workspaceSourcePath(url: string): string?
         if string.sub(url, 1, 8) == "file:///" then
             local path = string.sub(url, 8)
-            -- Strip query/fragment and decode simple `%20`.
             path = string.match(path, "^([^?#]*)") or path
-            path = string.gsub(path, "%%20", " ")
+            path = string.gsub(path, "%%(%x%x)", function(hex: string)
+                local byte = tonumber(hex, 16)
+                return if byte then string.char(byte) else `%{hex}`
+            end)
             if App.Platform == "windows" and string.match(path, "^/[A-Za-z]:") ~= nil then
                 path = string.sub(path, 2)
             end
@@ -272,19 +279,47 @@ return plugin.defineWindow(function(ctx)
         end
     end)
 
+    -- Drains any queued conversation app-scheme link reviews into timestamped guarded notices.
+    local function drainAppLinkReviews()
+        local bAny = Browser :: any
+        if type(bAny.TakeAppLinkReview) ~= "function" then
+            return
+        end
+        while true do
+            local review = bAny:TakeAppLinkReview()
+            if review == nil or type(review.tabId) ~= "string" or type(review.url) ~= "string" then
+                break
+            end
+            local action = refusal.externalTarget(review.url, "conversation")
+            if action ~= nil then
+                nextNoticeId += 1
+                refusalNotices[review.tabId] = {
+                    token = `app:{nextNoticeId}`,
+                    origin = I18n:T("notice.conversation"),
+                    text = I18n:T("refused.scheme"),
+                    target = review.url,
+                    action = action,
+                    shownAtMs = System:Now(),
+                }
+            end
+        end
+    end
+
     -- Syncs a tab's policy refusal into a timestamped `refusal.Notice` for the 500 ms guard.
-    local function syncRefusal(tab: BrowserTab)
+    local function syncRefusal(tab: BrowserTab, navigated: boolean)
         local code = tab:Refusal()
         local rej = tab:Rejected()
+        local existing = refusalNotices[tab.Id]
         if code == nil then
-            refusalNotices[tab.Id] = nil
+            if existing ~= nil and (navigated or string.sub(existing.token, 1, 4) ~= "app:") then
+                refusalNotices[tab.Id] = nil
+            end
             return
         end
         if dismissedRefusals[tab.Id] == rej then
             return
         end
         local token = `{tab.Id}:{rej}:{code}`
-        local existing = refusalNotices[tab.Id]
         if existing and existing.token == token then
             return
         end
@@ -300,6 +335,7 @@ return plugin.defineWindow(function(ctx)
 
     -- A page that moved: its counts, refusal notice, activity dot, history once loaded, and pane.
     Browser.Changed:Connect(function(id: string)
+        drainAppLinkReviews()
         local tab = Browser:Get(id)
         if tab == nil then
             epochs[id] = nil
@@ -319,8 +355,15 @@ return plugin.defineWindow(function(ctx)
         local prev = epochs[id]
         local prevUrl = if prev then prev.url else ""
         epoch(tab)
-        syncRefusal(tab)
         local url = pageUrl(tab)
+        local navigated = prev ~= nil and url ~= prevUrl
+        syncRefusal(tab, navigated)
+        if navigated and findStates[id] ~= nil and findStates[id].status ~= "closed" then
+            findStates[id] = find.step(findStates[id], { type = "close" })
+            if activeFindTab == id then
+                activeFindTab = nil
+            end
+        end
         -- Mark unseen activity dot when an existing background tab navigates while another tab is selected.
         local selected = Browser:Selected(nil)
         if prev ~= nil and url ~= "" and url ~= prevUrl and (selected == nil or selected.Id ~= id) then
@@ -578,6 +621,8 @@ return plugin.defineWindow(function(ctx)
             local srcPath = workspaceSourcePath(url)
             local session = Sessions:Routed()
             local canSource = srcPath ~= nil and session ~= nil and Workspace:Relative(srcPath, session.directory) ~= nil
+            local eng = Browser:Engine() :: any
+            local canFind = eng == nil or eng.state ~= "ready" or eng.find == true
             local menuData: options.MenuData = {
                 tabId = tab.Id,
                 url = url,
@@ -589,7 +634,7 @@ return plugin.defineWindow(function(ctx)
                 canOpenExternal = reachable(url),
                 canRevealFile = srcPath ~= nil and Server:IsLocal(),
                 canViewSource = canSource,
-                canFind = true,
+                canFind = canFind,
                 canHardReload = true,
                 canClearHistory = #visits() > 0,
             }
@@ -668,7 +713,18 @@ return plugin.defineWindow(function(ctx)
             return failureNotices[tab.Id]
         end,
         findView = function(tab: BrowserTab)
-            return find.view(getFind(tab.Id))
+            local v = find.view(getFind(tab.Id))
+            if v == nil then
+                return nil
+            end
+            local tAny = tab :: any
+            if v.query ~= "" and type(tAny.FindResult) == "function" then
+                local res = tAny:FindResult()
+                if type(res) == "table" and type(res.active) == "number" and type(res.total) == "number" then
+                    return { query = v.query, result = { active = res.active, total = res.total } }
+                end
+            end
+            return v
         end,
         revealGuarded = function(tab: BrowserTab)
             local untilMs = revealUntil[tab.Id]
@@ -724,8 +780,18 @@ return plugin.defineWindow(function(ctx)
                 return nil
             end
             local title = tabText(tab)
+            local tAny = tab :: any
+            local fav = if type(tAny.Favicon) == "function" then tAny:Favicon() else nil
+            local iconNode: ui.Node
+            if type(fav) == "string" and string.sub(fav, 1, 11) == "data:image/" then
+                iconNode = ui.image({ src = fav, w = 16, h = 16, radius = 2 }, {
+                    ui.icon("globe", { size = 16, color = "icon-weak" }),
+                })
+            else
+                iconNode = ui.icon("globe", { size = 16, color = "icon-weak" })
+            end
             local children: { ui.Node } = {
-                ui.icon("globe", { size = 16, color = "icon-weak" }),
+                iconNode,
                 ui.text(title, {
                     size = 13,
                     weight = "regular",
@@ -965,6 +1031,153 @@ return plugin.defineWindow(function(ctx)
             }
             refresh()
             return true
+        end,
+    })
+
+    local function preferences(): settings.Preferences
+        return settings.normalizePreferences(prefsStore:Get())
+    end
+
+    local function updatePreferences(patch: { [string]: any })
+        local nextPrefs: { [string]: any } = table.clone(preferences())
+        for k, v in patch do
+            nextPrefs[k] = v
+        end
+        prefsStore:Set(nextPrefs)
+    end
+
+    local function sitePermissionsList(): { settings.SiteDecision }
+        local raw = sitePermsStore:Get()
+        if type(raw) ~= "table" then
+            return {}
+        end
+        local out: { settings.SiteDecision } = {}
+        for _, item in raw :: { any } do
+            if type(item) == "table" and type(item.origin) == "string" and type(item.permission) == "string" and (item.setting == "allow" or item.setting == "block") then
+                table.insert(out, {
+                    origin = item.origin,
+                    permission = item.permission,
+                    setting = item.setting,
+                })
+            end
+        end
+        return out
+    end
+
+    local function setSitePermission(origin: string, permission: string, setting: "allow" | "block")
+        local list = sitePermissionsList()
+        local updated = false
+        for _, d in list do
+            if d.origin == origin and d.permission == permission then
+                d.setting = setting
+                updated = true
+                break
+            end
+        end
+        if not updated then
+            table.insert(list, { origin = origin, permission = permission, setting = setting })
+        end
+        sitePermsStore:Set(list :: any)
+    end
+
+    local function removeSitePermission(origin: string, permission: string)
+        local list = sitePermissionsList()
+        local nextList: { settings.SiteDecision } = {}
+        for _, d in list do
+            if not (d.origin == origin and d.permission == permission) then
+                table.insert(nextList, d)
+            end
+        end
+        sitePermsStore:Set(nextList :: any)
+    end
+
+    local function settingsCapabilities(): settings.Capabilities
+        local prof = profileContract:Get()
+        local ext = extContract:Get()
+        return {
+            available = Browser:Available(),
+            import = type(prof) == "table" and type(prof.renderImport) == "function",
+            extensions = type(ext) == "table" and type(ext.renderSettings) == "function",
+            remoteSignIns = type(prof) == "table" and type(prof.remoteSignIns) == "function" and type(prof.setRemoteSignIns) == "function",
+            cookieFile = type(prof) == "table" and type(prof.pickCookieFile) == "function",
+        }
+    end
+
+    local settingsHandle: Contribution? = nil
+    local function refreshSettings()
+        if settingsHandle then
+            settingsHandle:Refresh()
+        end
+    end
+
+    local settingsPage = settings.create({
+        I18n = I18n,
+        preferences = preferences,
+        updatePreferences = function(patch)
+            updatePreferences(patch)
+            refreshSettings()
+        end,
+        capabilities = settingsCapabilities,
+        sitePermissions = sitePermissionsList,
+        setSitePermission = function(origin, permission, setting)
+            setSitePermission(origin, permission, setting)
+            refreshSettings()
+        end,
+        removeSitePermission = function(origin, permission)
+            removeSitePermission(origin, permission)
+            refreshSettings()
+        end,
+        clearBrowsingData = function(): boolean
+            local keeper = recorder:Get()
+            if keeper then
+                keeper.clear()
+            end
+            local prof = profileContract:Get()
+            if type(prof) == "table" and type(prof.clearData) == "function" then
+                local ok = pcall(prof.clearData)
+                return ok
+            end
+            return true
+        end,
+        renderImport = function(view)
+            local prof = profileContract:Get()
+            if type(prof) == "table" and type(prof.renderImport) == "function" then
+                return prof.renderImport(view)
+            end
+            return nil
+        end,
+        renderExtensions = function(view)
+            local ext = extContract:Get()
+            if type(ext) == "table" and type(ext.renderSettings) == "function" then
+                return ext.renderSettings(view)
+            end
+            return nil
+        end,
+        remoteSignInsEnabled = function()
+            local prof = profileContract:Get()
+            return type(prof) == "table" and type(prof.remoteSignIns) == "function" and prof.remoteSignIns() == true
+        end,
+        setRemoteSignIns = function(enabled: boolean)
+            local prof = profileContract:Get()
+            if type(prof) == "table" and type(prof.setRemoteSignIns) == "function" then
+                prof.setRemoteSignIns(enabled)
+            end
+        end,
+        pickCookieFile = function()
+            local prof = profileContract:Get()
+            if type(prof) == "table" and type(prof.pickCookieFile) == "function" then
+                prof.pickCookieFile()
+            end
+        end,
+    }, refreshSettings)
+
+    settingsHandle = ctx:AddSettingsPage({
+        id = "browser",
+        icon = "globe",
+        title = I18n:T("settings.title"),
+        entries = settings.entries(I18n, settingsCapabilities()),
+        render = function(view, props)
+            return settingsPage.render(view, props)
         end,
     })
 

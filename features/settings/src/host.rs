@@ -70,6 +70,8 @@ pub struct CommandItem {
     pub section: Option<KeymapSection>,
     pub chord: Option<Chord>,
     pub has_keys: bool,
+    /// Left out of the palette and Settings › Shortcuts (a plugin command's `hidden`).
+    pub hidden: bool,
 }
 
 /// One plugin-contributed search row indexed by Settings search.

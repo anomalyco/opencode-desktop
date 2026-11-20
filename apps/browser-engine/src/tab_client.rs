@@ -1,8 +1,8 @@
 use cef::rc::Rc as _;
 use cef::{
-    Client, DialogHandler, DisplayHandler, DownloadHandler, ImplClient, JsdialogHandler,
-    LifeSpanHandler, LoadHandler, PermissionHandler, RenderHandler, RequestHandler, WrapClient,
-    wrap_client,
+    Client, ContextMenuHandler, DialogHandler, DisplayHandler, DownloadHandler, FindHandler,
+    ImplClient, JsdialogHandler, LifeSpanHandler, LoadHandler, PermissionHandler, RenderHandler,
+    RequestHandler, WrapClient, wrap_client,
 };
 
 wrap_client! {
@@ -16,6 +16,8 @@ wrap_client! {
         jsdialog: JsdialogHandler,
         permission: PermissionHandler,
         dialog: DialogHandler,
+        find: FindHandler,
+        context_menu: ContextMenuHandler,
     }
 
     impl Client {
@@ -45,6 +47,12 @@ wrap_client! {
         }
         fn dialog_handler(&self) -> Option<DialogHandler> {
             Some(self.dialog.clone())
+        }
+        fn find_handler(&self) -> Option<FindHandler> {
+            Some(self.find.clone())
+        }
+        fn context_menu_handler(&self) -> Option<ContextMenuHandler> {
+            Some(self.context_menu.clone())
         }
     }
 }

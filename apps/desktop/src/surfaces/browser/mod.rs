@@ -6,14 +6,21 @@
 //! On `wasm32`, no CEF sidecar engine exists (`EngineStatus::Unsupported`), so `browser-pane` is
 //! omitted and this module exposes zero-sized no-op stubs.
 
+pub mod links;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod context_menu;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod prompts;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod rpc;
 #[cfg(not(target_arch = "wasm32"))]
 mod scene;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod view;
 #[cfg(not(target_arch = "wasm32"))]
 pub use prompts::BrowserFeature;
+#[cfg(not(target_arch = "wasm32"))]
+pub use rpc::BrowserRpcFeature;
 
 /// The browser plugin's id: its tabs key as `browser:<page id>`.
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
@@ -54,6 +61,14 @@ mod web {
         pub fn open_new_browser_tab_for_session(&mut self, _: Option<&str>, _: &str, _: Option<SessionPane>, _: bool) -> u64 {
             0
         }
+
+        pub fn browser_links_enabled(&self) -> bool {
+            false
+        }
+
+        pub fn browser_agent_pages_enabled(&self) -> bool {
+            true
+        }
     }
 }
 
@@ -88,6 +103,11 @@ mod native {
         pub session_tabs: HashMap<String, Vec<u64>>,
         /// DevTools calls a plugin waits on, by the engine's request id.
         pub devtools: HashMap<u64, PendingDevtools>,
+        /// Last observed Luau store version for `plugin.browser/rune.sitePermissions`.
+        pub site_permissions_version: u64,
+        /// Conversation app-scheme links waiting to display inside the browser pane's guarded
+        /// `RefusalBar` (`(tab_id, href)`).
+        pub pending_app_links: std::cell::RefCell<std::collections::VecDeque<(u64, String)>>,
     }
 
     /// App-level shortcuts that a focused web page must yield to OpenCode (Rune) rather than swallow,
@@ -154,9 +174,30 @@ mod native {
                 });
                 self.workspace_panes.browser.host.remember_site_permissions(browser_pane::PermissionStore {
                     read: Box::new(|| crate::storage::text("plugin.browser", "rune.sitePermissions").map(|t| t.to_string())),
-                    write: Box::new(|json| crate::storage::set("plugin.browser", "rune.sitePermissions", json)),
+                    write: Box::new(|json| {
+                        crate::storage::set("plugin.browser", "rune.sitePermissions", json);
+                        crate::plugin_host::services::store::store_changed("browser", "rune.sitePermissions");
+                    }),
                 });
+                self.workspace_panes.browser.site_permissions_version =
+                    crate::plugin_host::services::store::store_version("browser", "rune.sitePermissions");
             }
+        }
+
+        /// Whether "Open links in OpenCode" (`Settings > Browser`) is enabled (defaults to `true`).
+        pub fn browser_links_enabled(&self) -> bool {
+            crate::storage::text("plugin.browser", "preferences")
+                .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+                .and_then(|v| v.get("links").and_then(serde_json::Value::as_bool))
+                .unwrap_or(true)
+        }
+
+        /// Whether "Open browser automatically" (`Settings > Browser`) is enabled (defaults to `true`).
+        pub fn browser_agent_pages_enabled(&self) -> bool {
+            crate::storage::text("plugin.browser", "preferences")
+                .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+                .and_then(|v| v.get("agentPages").and_then(serde_json::Value::as_bool))
+                .unwrap_or(true)
         }
 
         /// No engine drives live tabs in this build: they show the unsupported card and have no address
@@ -259,6 +300,21 @@ mod native {
             }
         }
 
+        /// Default browser isolation context for tabs opened on the active server: local sidecar
+        /// uses `ContextKind::Default`, while remote servers use a dedicated `RemoteServer`
+        /// partition whenever the engine advertises `partitions: true`.
+        pub fn default_browser_context(&self) -> browser_pane::ContextKind {
+            let server = crate::servers::runtime::active(self);
+            if server.is_sidecar() || !self.workspace_panes.browser.host.engine_partitions() {
+                browser_pane::ContextKind::Default
+            } else {
+                browser_pane::ContextKind::RemoteServer {
+                    partition: format!("server:{}", server.as_str()),
+                    proxy: None,
+                }
+            }
+        }
+
         pub fn open_new_browser_tab(&mut self, url: &str) -> u64 {
             self.open_new_browser_tab_in(url, None)
         }
@@ -280,7 +336,24 @@ mod native {
             steal_focus: bool,
             from_address: bool,
         ) -> u64 {
-            let roots = self.browser_file_roots(sid);
+            let context = self.default_browser_context();
+            self.open_new_browser_tab_with_context(sid, url, target_pane, steal_focus, from_address, context)
+        }
+
+        pub fn open_new_browser_tab_with_context(
+            &mut self,
+            sid: Option<&str>,
+            url: &str,
+            target_pane: Option<SessionPane>,
+            steal_focus: bool,
+            from_address: bool,
+            context: browser_pane::ContextKind,
+        ) -> u64 {
+            let roots = if matches!(context, browser_pane::ContextKind::RemoteServer { .. }) {
+                Vec::new()
+            } else {
+                self.browser_file_roots(sid)
+            };
             let id = if self.use_mock_browser() {
                 let candidate = if from_address { browser_pane::resolve_address(url) } else { browser_pane::with_scheme(url) };
                 let refused = browser_pane::refusal(&candidate, &roots);
@@ -293,7 +366,7 @@ mod native {
                 }
                 id
             } else {
-                self.workspace_panes.browser.host.open_tab_with_roots(url, roots, from_address)
+                self.workspace_panes.browser.host.open_tab_with_context(url, roots, context, from_address)
             };
             if let Some(sid) = sid {
                 self.workspace_panes.browser.session_tabs.entry(sid.to_owned()).or_default().push(id);
@@ -399,17 +472,44 @@ mod native {
                 let popups: Vec<_> = self.workspace_panes.browser.host.drain_popup_opens().collect();
                 for popup in popups {
                     let sid = self.browser_tab_session(popup.opener_tab_id).map(str::to_owned);
-                    let agent = self
+                    let (agent, opener_ctx) = self
                         .workspace_panes
                         .browser
                         .host
                         .tab(popup.opener_tab_id)
-                        .is_some_and(|t| t.prompts.agent_driven);
-                    let new_id = self.open_new_browser_tab_for_session(sid.as_deref(), &popup.url, None, !popup.background);
+                        .map_or((false, self.default_browser_context()), |t| {
+                            let ctx = match &t.context {
+                                browser_pane::ContextKind::RemoteServer { .. } => t.context.clone(),
+                                _ => self.default_browser_context(),
+                            };
+                            (t.prompts.agent_driven, ctx)
+                        });
+                    let new_id = self.open_new_browser_tab_with_context(
+                        sid.as_deref(),
+                        &popup.url,
+                        None,
+                        !popup.background,
+                        false,
+                        opener_ctx,
+                    );
                     if agent {
                         self.workspace_panes.browser.host.set_agent_driven(new_id, true);
                     }
                     changed = true;
+                }
+            }
+            // Reload persisted site permissions when Settings > Browser edits `rune.sitePermissions`.
+            let perm_ver = crate::plugin_host::services::store::store_version("browser", "rune.sitePermissions");
+            if perm_ver != self.workspace_panes.browser.site_permissions_version {
+                self.workspace_panes.browser.site_permissions_version = perm_ver;
+                if self.persists() {
+                    self.workspace_panes.browser.host.remember_site_permissions(browser_pane::PermissionStore {
+                        read: Box::new(|| crate::storage::text("plugin.browser", "rune.sitePermissions").map(|t| t.to_string())),
+                        write: Box::new(|json| {
+                            crate::storage::set("plugin.browser", "rune.sitePermissions", json);
+                            crate::plugin_host::services::store::store_changed("browser", "rune.sitePermissions");
+                        }),
+                    });
                 }
             }
             // The engine paints only its focused tab, so the page on screen must be that tab (after a

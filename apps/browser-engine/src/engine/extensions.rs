@@ -1,13 +1,9 @@
-//! Extension host effect runner, hidden seed-probe browser, and isolated `CefRequestContext`
-//! accessor for `EngineManager`.
+//! Extension host effect runner and hidden seed-probe browser for `EngineManager`.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use cef::{
-    BrowserSettings, CefString, ImplBrowser, ImplBrowserHost, ImplFrame, RequestContext,
-    WindowInfo,
-};
+use cef::{BrowserSettings, CefString, ImplBrowser, ImplBrowserHost, ImplFrame, WindowInfo};
 
 use super::{BASE_COLOR, EngineManager};
 use crate::handlers::{
@@ -20,7 +16,10 @@ use crate::prompts::{
     TabPermissionHandler, TabPrompts,
 };
 use crate::tab_client::SidecarTabClient;
-use crate::wire::{CursorKind, EngineMsg, TabSnapshot};
+use crate::wire::{ContextKind, CursorKind, EngineMsg, TabSnapshot};
+
+const MAX_PENDING_EXT_OPENS: usize = 16;
+const MAX_UNMANAGED_EXT_TABS: usize = 16;
 
 impl EngineManager {
     pub(super) fn run_ext_effects(&mut self, effects: Vec<crate::extensions::ExtEffect>) {
@@ -29,15 +28,18 @@ impl EngineManager {
             match effect {
                 ExtEffect::OpenTab { ext_id, url, active, reply_to } => {
                     if self.app_handles_ext_tabs {
+                        if self.pending_ext_opens.len() >= MAX_PENDING_EXT_OPENS {
+                            if let Some((sid, rpc_id, _)) = reply_to
+                                && let Some(ext) = &mut self.extensions
+                            {
+                                ext.fail_tab_create(&sid, rpc_id, "Too many pending tab requests.");
+                            }
+                            continue;
+                        }
                         let request_id = self.next_ext_open_req;
                         self.next_ext_open_req += 1;
                         if let Some(reply) = reply_to {
-                            if self.pending_ext_opens.len() < 64 {
-                                self.pending_ext_opens.insert(request_id, reply);
-                            } else if let Some(ext) = &mut self.extensions {
-                                ext.fail_tab_create(&reply.0, reply.1, "Too many pending tab requests.");
-                                continue;
-                            }
+                            self.pending_ext_opens.insert(request_id, reply);
                         }
                         let _ = self.out_tx.send(EngineMsg::ExtensionOpenTab {
                             request_id,
@@ -46,6 +48,15 @@ impl EngineManager {
                             active,
                         });
                     } else {
+                        if self.unmanaged_ext_tabs >= MAX_UNMANAGED_EXT_TABS {
+                            if let Some((sid, rpc_id, _)) = reply_to
+                                && let Some(ext) = &mut self.extensions
+                            {
+                                ext.fail_tab_create(&sid, rpc_id, "Too many extension tabs open.");
+                            }
+                            continue;
+                        }
+                        self.unmanaged_ext_tabs += 1;
                         let tab_id = self.next_ext_tab_id;
                         self.next_ext_tab_id += 1;
                         self.open_tab(
@@ -56,6 +67,7 @@ impl EngineManager {
                             1.0,
                             active,
                             Vec::new(),
+                            ContextKind::Default,
                             false,
                             true,
                             false,
@@ -70,9 +82,7 @@ impl EngineManager {
                 }
                 ExtEffect::NavigateTab { engine_tab_id, url } => {
                     if let Some(t) = self.tabs.get(&engine_tab_id) {
-                        if t.prompts.agent_driven.load(Ordering::Relaxed)
-                            && crate::extensions::manifest::is_extension_scheme(&url)
-                        {
+                        if t.prompts.agent_driven.load(Ordering::Relaxed) {
                             continue;
                         }
                         if let Some(frame) = t.browser.main_frame() {
@@ -94,10 +104,22 @@ impl EngineManager {
                     let _ = self.out_tx.send(EngineMsg::ExtensionFocusTab { tab_id: engine_tab_id });
                 }
                 ExtEffect::CloseTab { engine_tab_id } => {
+                    if self
+                        .tabs
+                        .get(&engine_tab_id)
+                        .is_some_and(|t| t.prompts.agent_driven.load(Ordering::Relaxed))
+                    {
+                        continue;
+                    }
                     if let Some(tab) = self.tabs.remove(&engine_tab_id) {
+                        tab.menu.cancel_all();
                         tab.prompts.dismiss_all();
                         tab.host.close_browser(1);
                         self.downloads.close_tab(engine_tab_id);
+                        self.contexts.drop_private_tab(engine_tab_id);
+                        if engine_tab_id >= 1_000_000 {
+                            self.unmanaged_ext_tabs = self.unmanaged_ext_tabs.saturating_sub(1);
+                        }
                         if !tab.isolated
                             && !tab.is_popup
                             && let Some(ext) = &mut self.extensions
@@ -109,6 +131,9 @@ impl EngineManager {
                 }
                 ExtEffect::ReloadTab { engine_tab_id, ignore_cache } => {
                     if let Some(t) = self.tabs.get(&engine_tab_id) {
+                        if t.prompts.agent_driven.load(Ordering::Relaxed) {
+                            continue;
+                        }
                         if ignore_cache {
                             t.browser.reload_ignore_cache();
                         } else {
@@ -161,6 +186,7 @@ impl EngineManager {
                             .collect();
                         for pid in stale_popups {
                             if let Some(tab) = self.tabs.remove(&pid) {
+                                tab.menu.cancel_all();
                                 tab.prompts.dismiss_all();
                                 tab.host.close_browser(1);
                                 self.downloads.close_tab(pid);
@@ -200,14 +226,27 @@ impl EngineManager {
 
     pub(super) fn open_seed_probe(&mut self, url: &str) {
         if self.seed_probe.is_some() {
+            if let Some(ext) = &mut self.extensions {
+                ext.cancel_expected_target();
+            }
             return;
         }
+        let Some(ext_id) = crate::extensions::manifest::extension_id_from_url(url).map(str::to_owned) else {
+            if let Some(ext) = &mut self.extensions {
+                ext.cancel_expected_target();
+            }
+            return;
+        };
         // Null output sink so this short-lived internal probe never emits wire messages
         // (`tab_id = u64::MAX`) to the desktop app.
         let null_out = Output::null();
         let prompt_shared = PromptShared::default();
+        // Do NOT set `agent_driven = true` (which blocks `chrome-extension://` in `on_before_browse`);
+        // instead pin `popup_ext_id = Some(ext_id)` so this probe can ONLY load that single origin.
         let prompts = Arc::new(TabPrompts::default());
-        prompts.agent_driven.store(true, Ordering::Relaxed);
+        let favicon = Arc::new(crate::favicon::TabFavicon::default());
+        let diagnostics = Arc::new(crate::diagnostics::TabDiagnostics::default());
+        let menu_state = Arc::new(crate::menu::TabMenuState::default());
         let view_state = Arc::new(Mutex::new(ViewRectState { width_pt: 2.0, height_pt: 2.0, scale: 1.0 }));
         let snap = Arc::new(Mutex::new(TabSnapshot {
             tab_id: u64::MAX,
@@ -219,10 +258,9 @@ impl EngineManager {
             zoom: 1.0,
             cursor: CursorKind::Default,
             load_error: None,
+            favicon: None,
         }));
-        let allowed_ext = crate::extensions::manifest::extension_id_from_url(url)
-            .map(|id| vec![id.to_owned()])
-            .unwrap_or_default();
+        let allowed_ext = vec![ext_id.clone()];
         let file_roots = Arc::new(Mutex::new(Vec::new()));
         let render = TabRenderHandler::new(
             u64::MAX,
@@ -245,6 +283,7 @@ impl EngineManager {
             u64::MAX,
             snap.clone(),
             prompts.clone(),
+            favicon,
             null_out.clone(),
             self.events.clone(),
         );
@@ -253,6 +292,7 @@ impl EngineManager {
             file_roots.clone(),
             snap.clone(),
             prompts.clone(),
+            diagnostics.clone(),
             null_out.clone(),
             self.events.clone(),
         );
@@ -261,17 +301,19 @@ impl EngineManager {
             file_roots.clone(),
             TabExtPolicy {
                 allowed_ext_ids: Arc::new(Mutex::new(allowed_ext)),
-                popup_ext_id: None,
+                popup_ext_id: Some(ext_id),
                 isolated: false,
             },
             snap.clone(),
             prompt_shared.clone(),
             prompts.clone(),
+            diagnostics,
             null_out.clone(),
         );
         let download = crate::downloads::TabDownloadHandler::new(
             u64::MAX,
-            file_roots,
+            file_roots.clone(),
+            true,
             self.downloads.clone(),
             null_out.clone(),
         );
@@ -279,12 +321,20 @@ impl EngineManager {
         let jsdialog = TabDialogHandler::new(u64::MAX, prompt_shared.clone(), prompts.clone(), null_out.clone());
         let permission = TabPermissionHandler::new(
             u64::MAX,
-            prompt_shared,
+            prompt_shared.clone(),
             prompts.clone(),
             snap,
             null_out.clone(),
         );
-        let dialog = TabFileDialogHandler::new(u64::MAX, prompts, null_out);
+        let dialog = TabFileDialogHandler::new(u64::MAX, prompts, null_out.clone());
+        let find = crate::find::TabFindHandler::new(u64::MAX, null_out.clone());
+        let context_menu = crate::menu::TabContextMenuHandler::new(
+            u64::MAX,
+            prompt_shared,
+            file_roots,
+            menu_state,
+            null_out,
+        );
         let mut client = SidecarTabClient::new(
             render,
             display,
@@ -295,8 +345,11 @@ impl EngineManager {
             jsdialog,
             permission,
             dialog,
+            find,
+            context_menu,
         );
-        let win_info = WindowInfo::default().set_as_windowless(Default::default());
+        let mut win_info = WindowInfo::default().set_as_windowless(Default::default());
+        win_info.shared_texture_enabled = 0;
         let browser_settings = BrowserSettings {
             windowless_frame_rate: 1,
             background_color: BASE_COLOR,
@@ -309,19 +362,15 @@ impl EngineManager {
             Some(&browser_settings),
             None,
             None,
-        ) && let Some(host) = browser.host()
-        {
-            host.was_hidden(1);
-            self.seed_probe = Some(host);
+        ) {
+            if let Some(host) = browser.host() {
+                host.was_hidden(1);
+                self.seed_probe = Some(host);
+            } else if let Some(ext) = &mut self.extensions {
+                ext.cancel_expected_target();
+            }
         } else if let Some(ext) = &mut self.extensions {
             ext.cancel_expected_target();
         }
-    }
-
-    pub(super) fn isolated_request_context(&mut self) -> Option<RequestContext> {
-        if self.isolated_ctx.is_none() {
-            self.isolated_ctx = crate::context::create_isolated_context();
-        }
-        self.isolated_ctx.clone()
     }
 }

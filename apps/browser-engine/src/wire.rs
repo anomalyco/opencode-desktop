@@ -50,6 +50,9 @@ pub struct TabSnapshot {
     /// `page_crashed` when its renderer went away. Cleared by the next document.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub load_error: Option<String>,
+    /// Site favicon as a bounded `data:image/png;base64,...` data URL (`UP-109` `#65094`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub favicon: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -88,11 +91,15 @@ pub enum HostMsg {
         focused: bool,
         #[serde(default)]
         file_roots: Vec<String>,
-        /// Opens in a separate in-memory `CefRequestContext` (invisible to extensions).
+        /// Partitioned `CefRequestContext` (`Default`, `IsolatedPreview`, `RemoteServer`, or
+        /// `PrivateTab`). Non-default contexts are strictly invisible to extensions.
+        #[serde(default)]
+        context: ContextKind,
+        /// Legacy shorthand for `ContextKind::PrivateTab` when `context` is `Default`.
         #[serde(default)]
         isolated: bool,
         /// Allows navigating to loaded `chrome-extension://` pages (user tabs & popups only;
-        /// never set for agent-driven or isolated tabs).
+        /// never set for agent-driven or non-default context tabs).
         #[serde(default)]
         allow_extension_pages: bool,
         /// True when this tab is an anchored extension popup (enables content auto-sizing).
@@ -114,7 +121,11 @@ pub enum HostMsg {
     Navigate { tab_id: u64, url: String },
     Back { tab_id: u64 },
     Forward { tab_id: u64 },
-    Reload { tab_id: u64 },
+    Reload {
+        tab_id: u64,
+        #[serde(default)]
+        ignore_cache: bool,
+    },
     Stop { tab_id: u64 },
     SetZoom { tab_id: u64, factor: f64 },
     SetColorScheme { dark: bool },
@@ -131,6 +142,17 @@ pub enum HostMsg {
     CdpCall { tab_id: u64, request_id: u64, method: String, params: Value, session_id: Option<String> },
     SiteCookies { tab_id: u64, request_id: u64 },
     ClearSite { tab_id: u64, request_id: u64 },
+    /// Clears origin-scoped cache storage, service workers, and HTTP cache while keeping cookies.
+    ClearSiteCache { tab_id: u64, request_id: u64 },
+    /// In-page text search (`FindHandler`).
+    Find { tab_id: u64, query: String, forward: bool, match_case: bool, find_next: bool },
+    StopFind { tab_id: u64, clear_selection: bool },
+    /// Executes or cancels a held page right-click context menu (`EngineMsg::ContextMenu`).
+    ContextMenuAction { tab_id: u64, id: u64, action: Option<ContextMenuCommand> },
+    /// Updates or clears the local loopback tunnel proxy on a remote server partition.
+    SetPartitionProxy { partition: String, proxy: Option<RemoteProxyConfig> },
+    /// Closes all connections and drops a non-default preview or remote server context.
+    DropContext { context: ContextKind },
     /// Linux: the app's GPU has finished reading `frame_id` (and every frame before it) of
     /// buffer set `pool`; a read of a set the tab no longer has frees nothing.
     FrameRead { tab_id: u64, pool: u64, frame_id: u64 },
@@ -151,8 +173,10 @@ pub enum HostMsg {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum EngineMsg {
     /// `downloads`: keeps page downloads; `policy`: enforces URL/CDP policy; `prompts`: holds
-    /// dialogs/permissions/auth for the app; `popups`: routes pop-ups to managed tabs;
-    /// `extensions`: hosts verified MV3 extensions over the private in-process CDP pipe.
+    /// dialogs/permissions/auth for the app; `popups`: routes pop-ups to managed tabs; `find`:
+    /// supports in-page `FindHandler`; `context_menu`: routes right-click menus to the app;
+    /// `partitions` / `remote_proxy`: isolated `CefRequestContext` partitions; `extensions`: hosts
+    /// verified MV3 extensions over the private in-process CDP pipe.
     Ready {
         chromium_major: u32,
         pid: u32,
@@ -162,6 +186,14 @@ pub enum EngineMsg {
         prompts: bool,
         #[serde(default)]
         popups: bool,
+        #[serde(default)]
+        find: bool,
+        #[serde(default)]
+        context_menu: bool,
+        #[serde(default)]
+        partitions: bool,
+        #[serde(default)]
+        remote_proxy: bool,
         #[serde(default)]
         extensions: bool,
     },
@@ -176,6 +208,9 @@ pub enum EngineMsg {
     PopupOpen { tab_id: u64, url: String, background: bool },
     PopupBlocked { tab_id: u64, url: String },
     FileChooserBlocked { tab_id: u64 },
+    FindResult { tab_id: u64, count: u32, active_match: u32, final_update: bool },
+    ContextMenu { tab_id: u64, menu: PageContextMenu },
+    PageDiagnostic { tab_id: u64, level: String, event: String, fields: Value },
     TabList { tabs: Vec<TabSnapshot> },
     TabUpdate { tab: TabSnapshot },
     TabClosed { tab_id: u64 },
@@ -318,4 +353,85 @@ pub struct AuthChallenge {
     #[serde(default)]
     pub realm: String,
     pub scheme: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PageContextMenu {
+    pub id: u64,
+    pub x: i32,
+    pub y: i32,
+    #[serde(default)]
+    pub page_url: String,
+    #[serde(default)]
+    pub frame_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub src_url: Option<String>,
+    #[serde(default)]
+    pub is_image: bool,
+    #[serde(default)]
+    pub has_image_contents: bool,
+    #[serde(default)]
+    pub is_editable: bool,
+    #[serde(default)]
+    pub selection_text: String,
+    #[serde(default)]
+    pub can_cut: bool,
+    #[serde(default)]
+    pub can_copy: bool,
+    #[serde(default)]
+    pub can_paste: bool,
+    #[serde(default)]
+    pub can_select_all: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub misspelled_word: Option<String>,
+    #[serde(default)]
+    pub suggestions: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteProxyConfig {
+    pub host: String,
+    pub port: u16,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub password: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub realm: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ContextKind {
+    #[default]
+    Default,
+    /// Dedicated per-tab ephemeral in-memory context (never shared; dropped when the tab closes).
+    PrivateTab,
+    IsolatedPreview {
+        grant: String,
+    },
+    RemoteServer {
+        partition: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        proxy: Option<RemoteProxyConfig>,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ContextMenuCommand {
+    Back,
+    Forward,
+    Reload,
+    HardReload,
+    Cut,
+    Copy,
+    Paste,
+    PastePlain,
+    SelectAll,
+    SaveImage { url: String },
+    ReplaceMisspelling { word: String },
+    AddToDictionary { word: String },
 }

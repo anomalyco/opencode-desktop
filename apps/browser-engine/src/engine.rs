@@ -2,16 +2,11 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicI32, AtomicU32, AtomicU64, Ordering};
-use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 
-use cef::rc::Rc as _;
 use cef::{
-    App, Browser, BrowserHost, BrowserProcessHandler, BrowserSettings, CefString,
-    CommandLine, ImplApp, ImplBrowser, ImplBrowserHost, ImplBrowserProcessHandler,
-    ImplCommandLine, ImplFrame, MouseButtonType,
-    MouseEvent, PaintElementType, Registration, RequestContext, Settings,
-    WindowInfo, WrapApp, WrapBrowserProcessHandler, sys, wrap_app, wrap_browser_process_handler,
+    Browser, BrowserHost, BrowserSettings, CefString, ImplBrowser, ImplBrowserHost, ImplFrame,
+    MouseButtonType, MouseEvent, PaintElementType, Registration, WindowInfo, sys,
 };
 use serde_json::{Value, json};
 
@@ -20,206 +15,15 @@ use crate::handlers::{
     TabLoadHandler, TabRenderHandler, TabRequestHandler, ViewRectState, cef_mods, event_flag,
 };
 use crate::keys::send_key;
-use crate::profile::Profile;
 use crate::tab_client::SidecarTabClient;
 use crate::wire::{
     CursorKind, EngineMsg, HostMsg, PickedElement, PointerBtn, TabSnapshot,
 };
 
+pub use runtime::CefRuntime;
+
 /// Opaque page background (ARGB) for pages that specify none. macOS uses Rune's dark base.
 const BASE_COLOR: u32 = if cfg!(target_os = "macos") { 0xFF11_1318 } else { 0xFFFF_FFFF };
-
-pub struct CefRuntime {
-    profile: Profile,
-    #[cfg(target_os = "macos")]
-    _loader: cef::library_loader::LibraryLoader,
-}
-
-impl CefRuntime {
-    /// `adapter_luid`: the app's GPU (`HighPart`, `LowPart`), for Chromium to render on;
-    /// `locale`: the app's language as Chromium names it; `pump`: where CEF's requests for its
-    /// next work call go.
-    pub fn initialize(
-        profile: Profile,
-        adapter_luid: Option<(i32, u32)>,
-        locale: Option<&str>,
-        ext_dirs: &[std::path::PathBuf],
-        io_pipes: Option<String>,
-        pump: Sender<crate::Event>,
-    ) -> Self {
-        #[cfg(target_os = "macos")]
-        crate::mac_app::ensure_ns_application();
-
-        #[cfg(target_os = "macos")]
-        let loader = {
-            let exe = std::env::current_exe().expect("current_exe");
-            let loader = cef::library_loader::LibraryLoader::new(&exe, false);
-            assert!(loader.load(), "failed to load Chromium Embedded Framework");
-            loader
-        };
-
-        let _ = cef::api_hash(sys::CEF_API_VERSION_LAST, 0);
-
-        #[cfg(unix)]
-        let exe_str = std::env::current_exe()
-            .ok()
-            .and_then(|p| p.into_os_string().into_string().ok())
-            .unwrap_or_else(|| "opencode-browser-engine".into());
-        #[cfg(unix)]
-        let c_exe = std::ffi::CString::new(exe_str).unwrap();
-        #[cfg(unix)]
-        let argv = [c_exe.as_ptr()];
-        #[cfg(unix)]
-        let main_args = cef::MainArgs { argc: 1, argv: argv.as_ptr() as *mut *mut _ };
-        #[cfg(windows)]
-        let main_args = cef::args::Args::new().as_main_args().clone();
-
-        // macOS finds its helper apps by bundle convention; elsewhere CEF would start this
-        // executable again for its renderer and GPU processes, so point it at the helper.
-        #[cfg(not(target_os = "macos"))]
-        let browser_subprocess_path = std::env::current_exe()
-            .ok()
-            .map(|exe| exe.with_file_name(format!("opencode-browser-engine-helper{}", std::env::consts::EXE_SUFFIX)))
-            .map(|helper| CefString::from(helper.to_string_lossy().as_ref()))
-            .unwrap_or_default();
-        #[cfg(target_os = "macos")]
-        let browser_subprocess_path = CefString::default();
-
-        let ext_except = (!ext_dirs.is_empty()).then(|| {
-            ext_dirs
-                .iter()
-                .map(|p| p.to_string_lossy().into_owned())
-                .collect::<Vec<_>>()
-                .join(",")
-        });
-        let mut app = SidecarCefApp::new(
-            adapter_luid.map(|(high, low)| format!("{high},{low}")),
-            ext_except,
-            io_pipes,
-            pump,
-        );
-        let settings = Settings {
-            browser_subprocess_path,
-            windowless_rendering_enabled: 1,
-            external_message_pump: 1,
-            no_sandbox: 1,
-            root_cache_path: CefString::from(profile.root.to_string_lossy().as_ref()),
-            cache_path: CefString::from(profile.cache.to_string_lossy().as_ref()),
-            persist_session_cookies: 1,
-            log_severity: sys::cef_log_severity_t::LOGSEVERITY_WARNING.into(),
-            // In the profile, not beside the executable (CEF's default), whose folder is the install.
-            log_file: CefString::from(profile.root.join("debug.log").to_string_lossy().as_ref()),
-            // Without one, Chromium follows the system's language. Pages hear the same language
-            // first (Accept-Language, navigator.languages), then English.
-            locale: locale.map(CefString::from).unwrap_or_default(),
-            accept_language_list: locale
-                .map(|l| if l.starts_with("en") { format!("{l},en") } else { format!("{l},en-US,en") })
-                .map(|list| CefString::from(list.as_str()))
-                .unwrap_or_default(),
-            ..Default::default()
-        };
-        let ok = cef::initialize(Some(&main_args), Some(&settings), Some(&mut app), std::ptr::null_mut());
-        assert_eq!(ok, 1, "cef::initialize failed");
-
-        Self {
-            profile,
-            #[cfg(target_os = "macos")]
-            _loader: loader,
-        }
-    }
-}
-
-impl CefRuntime {
-    /// The profile the pages' downloads go in (`downloads::DIR_NAME`), so a throwaway profile's go with it.
-    pub fn profile_root(&self) -> std::path::PathBuf {
-        self.profile.root.clone()
-    }
-}
-
-impl Drop for CefRuntime {
-    fn drop(&mut self) {
-        cef::shutdown();
-        // The pages' downloads end with the engine, as Desktop's go with its pages.
-        crate::downloads::remove_owned(&self.profile.root);
-        if self.profile.temporary {
-            let _ = std::fs::remove_dir_all(&self.profile.root);
-        }
-    }
-}
-
-wrap_app! {
-    struct SidecarCefApp {
-        // Chromium's `use-adapter-luid` (`HIGH,LOW`): the GPU the app's frames open on.
-        adapter_luid: Option<String>,
-        // Managed user-approved extension directories (`--disable-extensions-except`), or None to
-        // pass `--disable-extensions`. Never allows host registry or external loaders.
-        ext_except: Option<String>,
-        // Windows only: anonymous non-inheritable pipe HANDLE pair for `--remote-debugging-pipe`.
-        io_pipes: Option<String>,
-        pump: Sender<crate::Event>,
-    }
-    impl App {
-        fn on_before_command_line_processing(
-            &self,
-            _process_type: Option<&cef::CefStringUtf16>,
-            command_line: Option<&mut CommandLine>,
-        ) {
-            let Some(cmd) = command_line else { return };
-            // Rune owns the window. CEF paints offscreen even when no display server is running.
-            #[cfg(target_os = "linux")]
-            crate::linux_gpu::configure(cmd);
-            // Keep Chrome's host registry & external extension loaders permanently disabled:
-            // with 0 user-approved extensions pass `--disable-extensions`; with >= 1 pass
-            // `--disable-extensions-except=<inert_stub_dirs>` plus our private in-process CDP pipe.
-            if let Some(dirs) = &self.ext_except {
-                cmd.append_switch_with_value(Some(&"disable-extensions-except".into()), Some(&dirs.as_str().into()));
-                cmd.append_switch(Some(&"remote-debugging-pipe".into()));
-                if let Some(pipes) = &self.io_pipes {
-                    cmd.append_switch_with_value(Some(&"remote-debugging-io-pipes".into()), Some(&pipes.as_str().into()));
-                }
-            } else {
-                cmd.append_switch(Some(&"disable-extensions".into()));
-            }
-            // Let `TabRequestHandler::auth_credentials` handle HTTP 401 challenges in OSR instead
-            // of Chrome's native login dialog (which fails with `ERR_INVALID_AUTH_CREDENTIALS` on
-            // windowless browsers; CEF issue #3603).
-            cmd.append_switch(Some(&"disable-chrome-login-prompt".into()));
-            // Route script-initiated pop-ups through `TabLifeSpanHandler::on_before_popup` (which
-            // always returns `1` to cancel native windows and holds `user_gesture == 0` in the
-            // host's "Pop-up blocked" bar) instead of silently swallowing them before CEF sees them.
-            cmd.append_switch(Some(&"disable-popup-blocking".into()));
-            cmd.append_switch(Some(&"mute-audio".into()));
-            cmd.append_switch(Some(&"use-mock-keychain".into()));
-            cmd.append_switch(Some(&"no-startup-window".into()));
-            cmd.append_switch(Some(&"noerrdialogs".into()));
-            cmd.append_switch(Some(&"hide-crash-restore-bubble".into()));
-            // A side panel's pages, as Desktop's Electron shows them: no component downloads
-            // (Widevine, Safe Browsing lists, on-device models), no field-trial or other
-            // background fetches, which cost network, disk and CPU while nothing is open.
-            cmd.append_switch(Some(&"disable-component-update".into()));
-            cmd.append_switch(Some(&"disable-background-networking".into()));
-            if let Some(luid) = &self.adapter_luid {
-                cmd.append_switch_with_value(Some(&"use-adapter-luid".into()), Some(&luid.as_str().into()));
-            }
-        }
-
-        fn browser_process_handler(&self) -> Option<BrowserProcessHandler> {
-            Some(SidecarProcessHandler::new(self.pump.clone()))
-        }
-    }
-}
-
-wrap_browser_process_handler! {
-    struct SidecarProcessHandler {
-        pump: Sender<crate::Event>,
-    }
-    impl BrowserProcessHandler {
-        // Any thread: the main loop wakes for it.
-        fn on_schedule_message_pump_work(&self, delay_ms: i64) {
-            let _ = self.pump.send(crate::Event::Pump(delay_ms));
-        }
-    }
-}
 
 struct ManagedTab {
     browser: Browser,
@@ -235,6 +39,8 @@ struct ManagedTab {
     internal_picked: Arc<Mutex<Vec<i64>>>,
     pending_clears: Arc<Mutex<Vec<PendingClear>>>,
     prompts: Arc<crate::prompts::TabPrompts>,
+    menu: Arc<crate::menu::TabMenuState>,
+    context: crate::wire::ContextKind,
     _cdp_reg: Option<Registration>,
     held_buttons: u32,
     /// Linux: whether it's the tab the app shows (`HostMsg::FocusTab`), to open it again so.
@@ -255,7 +61,7 @@ pub struct EngineManager {
     app_handles_ext_tabs: bool,
     next_ext_open_req: u64,
     pending_ext_opens: HashMap<u64, (String, i64, String)>,
-    isolated_ctx: Option<RequestContext>,
+    unmanaged_ext_tabs: usize,
     seed_probe: Option<BrowserHost>,
     next_ext_tab_id: u64,
     next_cdp_id: AtomicI32,
@@ -268,6 +74,8 @@ pub struct EngineManager {
     downloads: Arc<crate::downloads::Downloads>,
     /// Shared prompt-handling toggle (`Hello.prompts`) and monotonic ID counter.
     prompt_shared: crate::prompts::PromptShared,
+    /// Shared pool of isolated `CefRequestContext`s for previews and remote servers.
+    contexts: crate::context::ContextPool,
     /// Windows: the D3D11 device frames are copied on; None renders on the CPU instead.
     #[cfg(windows)]
     gpu: Option<Arc<crate::d3d_frames::Gpu>>,
@@ -282,9 +90,9 @@ impl EngineManager {
     pub fn new(
         out_tx: crate::output::Output,
         downloads: std::path::PathBuf,
+        events: std::sync::mpsc::Sender<crate::Event>,
         #[cfg(windows)] gpu: Option<Arc<crate::d3d_frames::Gpu>>,
         #[cfg(target_os = "linux")] transport: crate::dmabuf_frames::Transport,
-        events: std::sync::mpsc::Sender<crate::Event>,
         extensions: Option<crate::extensions::ExtensionHost>,
         rejected_exts: Vec<String>,
         stub_root: Option<std::path::PathBuf>,
@@ -293,14 +101,14 @@ impl EngineManager {
             tabs: HashMap::new(),
             mach_port: Arc::new(AtomicU32::new(0)),
             out_tx,
-            events,
+            events: events.clone(),
             extensions,
             rejected_exts,
             stub_root,
             app_handles_ext_tabs: false,
             next_ext_open_req: 1,
             pending_ext_opens: HashMap::new(),
-            isolated_ctx: None,
+            unmanaged_ext_tabs: 0,
             seed_probe: None,
             next_ext_tab_id: 1_000_000,
             next_cdp_id: AtomicI32::new(100),
@@ -309,6 +117,7 @@ impl EngineManager {
             home: crate::profile::home_dir(),
             downloads: crate::downloads::Downloads::open(&downloads),
             prompt_shared: crate::prompts::PromptShared::default(),
+            contexts: crate::context::ContextPool::new(events),
             #[cfg(windows)]
             gpu,
             #[cfg(target_os = "linux")]
@@ -336,12 +145,14 @@ impl EngineManager {
         self.run_ext_effects(effects);
     }
 
-    pub fn on_extension_cdp(&mut self, val: Value) {
+    pub fn poll_extensions(&mut self) -> bool {
         let effects = match &mut self.extensions {
-            Some(ext) => ext.on_cdp_message(val),
-            None => return,
+            Some(ext) => ext.drain_inbound(),
+            None => return false,
         };
+        let had = !effects.is_empty();
         self.run_ext_effects(effects);
+        had
     }
 
     pub fn on_tab_meta(
@@ -426,8 +237,30 @@ impl EngineManager {
                     let url = tab.snap.lock().unwrap().url.clone();
                     let v = tab.view_state.lock().unwrap().clone();
                     let roots = tab.file_roots.lock().unwrap().clone();
-                    let allow_ext = tab.allow_extension_pages;
-                    self.open_tab(tab_id, &url, v.width_pt, v.height_pt, v.scale, tab.shown, roots, tab.isolated, allow_ext, tab.is_popup, None);
+                    let was_agent = tab.prompts.agent_driven.load(Ordering::Relaxed);
+                    let allow_ext = tab.allow_extension_pages && !was_agent;
+                    let ctx = tab.context.clone();
+                    self.open_tab(
+                        tab_id,
+                        &url,
+                        v.width_pt,
+                        v.height_pt,
+                        v.scale,
+                        tab.shown,
+                        roots,
+                        ctx,
+                        tab.isolated,
+                        allow_ext,
+                        tab.is_popup,
+                        None,
+                    );
+                    if was_agent && let Some(reopened) = self.tabs.get(&tab_id) {
+                        reopened.prompts.agent_driven.store(true, Ordering::Relaxed);
+                        reopened.allowed_ext_ids.lock().unwrap().clear();
+                        if let Some(ext) = &mut self.extensions {
+                            ext.set_tab_agent_driven(tab_id, true);
+                        }
+                    }
                 }
             }
             None => {}
@@ -435,6 +268,23 @@ impl EngineManager {
     }
 
     pub fn poll_picks(&mut self) {
+        for outcome in self.contexts.drain_ready_loads() {
+            match outcome {
+                crate::context::DeferredOutcome::Load { tab_id, url } => {
+                    if let Some(tab) = self.tabs.get(&tab_id)
+                        && let Some(frame) = tab.browser.main_frame()
+                    {
+                        frame.load_url(Some(&CefString::from(url.as_str())));
+                    }
+                }
+                crate::context::DeferredOutcome::Refuse { tab_id, reason } => {
+                    let _ = self.out_tx.send(EngineMsg::Refused {
+                        tab_id,
+                        reason: reason.to_owned(),
+                    });
+                }
+            }
+        }
         let mut ready = Vec::new();
         let mut clears = Vec::new();
         for (&tab_id, tab) in &self.tabs {
@@ -531,9 +381,14 @@ impl EngineManager {
                     policy: true,
                     prompts,
                     popups: true,
+                    find: true,
+                    context_menu: prompts,
+                    partitions: true,
+                    remote_proxy: true,
                     extensions: true,
                 });
                 for (&tab_id, t) in &self.tabs {
+                    t.menu.cancel_all();
                     if prompts {
                         t.prompts.replay_pending(tab_id, &self.out_tx);
                     } else {
@@ -576,12 +431,18 @@ impl EngineManager {
                 scale,
                 focused,
                 file_roots,
+                context,
                 isolated,
                 allow_extension_pages,
                 is_popup,
                 ext_open_request_id,
             } => {
-                let roots = self.safe_roots(file_roots);
+                // Remote-server tabs never receive local filesystem roots.
+                let roots = if matches!(context, crate::wire::ContextKind::RemoteServer { .. }) {
+                    Vec::new()
+                } else {
+                    self.safe_roots(file_roots)
+                };
                 self.open_tab(
                     tab_id,
                     &url,
@@ -590,6 +451,7 @@ impl EngineManager {
                     scale,
                     focused,
                     roots,
+                    context,
                     isolated,
                     allow_extension_pages,
                     is_popup,
@@ -647,16 +509,22 @@ impl EngineManager {
                 let _ = self.out_tx.send(EngineMsg::ExtensionMetrics { request_id, metrics });
             }
             HostMsg::SetTabPolicy { tab_id, file_roots } => {
-                let roots = self.safe_roots(file_roots);
                 if let Some(t) = self.tabs.get(&tab_id) {
-                    *t.file_roots.lock().unwrap() = roots;
+                    if matches!(t.context, crate::wire::ContextKind::RemoteServer { .. }) {
+                        t.file_roots.lock().unwrap().clear();
+                    } else {
+                        let roots = self.safe_roots(file_roots);
+                        *t.file_roots.lock().unwrap() = roots;
+                    }
                 }
             }
             HostMsg::CloseTab { tab_id } => {
                 if let Some(tab) = self.tabs.remove(&tab_id) {
+                    tab.menu.cancel_all();
                     tab.prompts.dismiss_all();
                     tab.host.close_browser(1);
                     self.downloads.close_tab(tab_id);
+                    self.contexts.drop_private_tab(tab_id);
                     if !tab.isolated && !tab.is_popup
                         && let Some(ext) = &mut self.extensions
                     {
@@ -729,9 +597,13 @@ impl EngineManager {
                     t.browser.go_forward();
                 }
             }
-            HostMsg::Reload { tab_id } => {
+            HostMsg::Reload { tab_id, ignore_cache } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
-                    t.browser.reload();
+                    if ignore_cache {
+                        t.browser.reload_ignore_cache();
+                    } else {
+                        t.browser.reload();
+                    }
                 }
             }
             HostMsg::Stop { tab_id } => {
@@ -873,9 +745,7 @@ impl EngineManager {
             }
             HostMsg::SetInspect { tab_id, enabled } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
-                    if t.is_popup
-                        || crate::extensions::manifest::is_extension_scheme(&t.snap.lock().unwrap().url)
-                    {
+                    if tab_is_extension_surface(t) {
                         return true;
                     }
                     let host = t.host.clone();
@@ -912,9 +782,7 @@ impl EngineManager {
             }
             HostMsg::HighlightNode { tab_id, backend_node_id } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
-                    if t.is_popup
-                        || crate::extensions::manifest::is_extension_scheme(&t.snap.lock().unwrap().url)
-                    {
+                    if tab_is_extension_surface(t) {
                         return true;
                     }
                     let host = t.host.clone();
@@ -943,9 +811,20 @@ impl EngineManager {
             }
             HostMsg::CdpCall { tab_id, request_id, method, params, session_id } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
-                    // Agent browser tools must never read, evaluate, or act on `chrome-extension://` pages.
-                    let cur_url = t.snap.lock().unwrap().url.clone();
-                    if crate::extensions::manifest::is_extension_scheme(&cur_url) || t.is_popup {
+                    // Reject any cross-session / OOPIF sessionId so external callers can never
+                    // target extension iframes or non-page targets (`review-rd274.md` §1).
+                    if session_id.is_some() {
+                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                            tab_id,
+                            request_id,
+                            ok: false,
+                            result: json!({ "message": "Cross-session DevTools targeting is not permitted." }),
+                        });
+                        return true;
+                    }
+                    // Agent browser tools must never read, evaluate, or act on extension pages
+                    // (checks popup flag, snapshot URL, live main-frame URL, and pending nav URL).
+                    if tab_is_extension_surface(t) {
                         let _ = self.out_tx.send(EngineMsg::CdpResponse {
                             tab_id,
                             request_id,
@@ -965,14 +844,11 @@ impl EngineManager {
                     }
                     let msg_id = self.next_cdp_id.fetch_add(1, Ordering::Relaxed);
                     t.cdp_id_map.lock().unwrap().insert(msg_id, CdpPending::Raw(request_id));
-                    let mut payload = json!({
+                    let payload = json!({
                         "id": msg_id,
                         "method": method,
                         "params": params,
                     });
-                    if let Some(sid) = session_id {
-                        payload["sessionId"] = Value::String(sid);
-                    }
                     let raw = payload.to_string();
                     if t.host.send_dev_tools_message(Some(raw.as_bytes())) != 1 {
                         t.cdp_id_map.lock().unwrap().remove(&msg_id);
@@ -1082,10 +958,74 @@ impl EngineManager {
                         // Agent-driven tabs may never navigate to `chrome-extension://` pages.
                         t.allowed_ext_ids.lock().unwrap().clear();
                     }
+                    if let Some(ext) = &mut self.extensions {
+                        ext.set_tab_agent_driven(tab_id, agent_driven);
+                    }
                 }
+            }
+            HostMsg::ClearSiteCache { tab_id, request_id } => {
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    let url = t.snap.lock().unwrap().url.clone();
+                    if let Some(origin) = browser_policy::destination_origin(&url) {
+                        self.send_internal_cdp(
+                            &t.host,
+                            "Storage.clearDataForOrigin",
+                            json!({
+                                "origin": origin,
+                                "storageTypes": "cache_storage,service_workers,shader_cache",
+                            }),
+                        );
+                        self.send_internal_cdp(&t.host, "Network.clearBrowserCache", json!({}));
+                        t.browser.reload_ignore_cache();
+                    }
+                    let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                        tab_id,
+                        request_id,
+                        ok: true,
+                        result: json!({ "cleared": true }),
+                    });
+                }
+            }
+            HostMsg::Find { tab_id, query, forward, match_case, find_next } => {
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    if query.is_empty() {
+                        t.host.stop_finding(1);
+                    } else {
+                        t.host.find(
+                            Some(&CefString::from(query.as_str())),
+                            i32::from(forward),
+                            i32::from(match_case),
+                            i32::from(find_next),
+                        );
+                    }
+                }
+            }
+            HostMsg::StopFind { tab_id, clear_selection } => {
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    t.host.stop_finding(i32::from(clear_selection));
+                }
+            }
+            HostMsg::ContextMenuAction { tab_id, id, action } => {
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    let roots = t.file_roots.lock().unwrap().clone();
+                    t.menu.execute(id, action, &t.browser, &t.host, &roots);
+                }
+            }
+            HostMsg::SetPartitionProxy { partition, proxy } => {
+                if let Ok(applied) = self.contexts.set_partition_proxy(&partition, proxy) {
+                    for t in self.tabs.values() {
+                        if matches!(&t.context, crate::wire::ContextKind::RemoteServer { partition: p, .. } if p == &partition) {
+                            *t.prompts.proxy.lock().unwrap() = applied.clone();
+                        }
+                    }
+                }
+            }
+            HostMsg::DropContext { context } => {
+                self.contexts.drop_context(&context);
             }
             HostMsg::Shutdown => {
                 for (_, t) in self.tabs.drain() {
+                    t.menu.cancel_all();
                     t.prompts.dismiss_all();
                     t.host.close_browser(1);
                 }
@@ -1105,14 +1045,24 @@ impl EngineManager {
         scale: f32,
         focused: bool,
         file_roots: Vec<String>,
-        isolated: bool,
+        context: crate::wire::ContextKind,
+        isolated_flag: bool,
         allow_extension_pages: bool,
         is_popup: bool,
         ext_open_request_id: Option<u64>,
     ) {
-        // Isolated tabs (preview, artifact, remote, private) may NEVER open extension pages or popups.
+        // Normalize legacy `isolated: true` into a dedicated per-tab `ContextKind::PrivateTab`
+        // so private tabs NEVER share cookies/storage/cache with previews, artifacts, remote
+        // servers, or each other (`review-rd274.md` §5).
+        let effective_context = if isolated_flag && matches!(context, crate::wire::ContextKind::Default) {
+            crate::wire::ContextKind::PrivateTab
+        } else {
+            context
+        };
+        let isolated = !matches!(effective_context, crate::wire::ContextKind::Default);
+        // Non-default context tabs (preview, artifact, remote, private) NEVER open extension pages or popups.
         let allow_extension_pages = allow_extension_pages && !isolated;
-        let is_popup = is_popup && allow_extension_pages;
+        let is_popup_valid = is_popup && allow_extension_pages;
         let allowed_ext_list: Vec<String> = if allow_extension_pages {
             self.extensions
                 .as_ref()
@@ -1123,6 +1073,15 @@ impl EngineManager {
         };
         let is_allowed_ext_url = crate::extensions::manifest::extension_id_from_url(url)
             .filter(|id| allowed_ext_list.iter().any(|allowed| allowed == id));
+        // If `is_popup` was requested for a non-extension or disallowed URL, fail closed immediately.
+        if is_popup && (!is_popup_valid || is_allowed_ext_url.is_none()) {
+            let _ = self.out_tx.send(EngineMsg::Refused {
+                tab_id,
+                reason: browser_policy::Refusal::Blocked.code().to_owned(),
+            });
+            return;
+        }
+        let is_popup = is_popup_valid;
         // A popup tab may only ever navigate inside its own extension's origin.
         let allowed_ext_list = if is_popup {
             is_allowed_ext_url.map(|id| vec![id.to_owned()]).unwrap_or_default()
@@ -1134,7 +1093,21 @@ impl EngineManager {
         } else {
             browser_policy::frame_guard(url, true, &file_roots)
         };
-        let initial_url = if refused.is_some() { "about:blank" } else { url };
+        let target_url = if refused.is_some() { "about:blank" } else { url };
+        // Fail closed if a non-default `CefRequestContext` cannot be created (never falls back to
+        // the default profile with user cookies and extensions).
+        let resolved_ctx = match self.contexts.resolve(&effective_context, tab_id, target_url) {
+            Ok(r) => r,
+            Err(reason) => {
+                let _ = self.out_tx.send(EngineMsg::Refused {
+                    tab_id,
+                    reason: reason.to_owned(),
+                });
+                return;
+            }
+        };
+        let initial_url = if resolved_ctx.defer_initial_load { "about:blank" } else { target_url };
+        let mut req_ctx = resolved_ctx.request_context;
         let file_roots = Arc::new(Mutex::new(file_roots));
         let allowed_ext_ids = Arc::new(Mutex::new(allowed_ext_list));
         let view_state = Arc::new(Mutex::new(ViewRectState {
@@ -1152,6 +1125,7 @@ impl EngineManager {
             zoom: 1.0,
             cursor: CursorKind::Default,
             load_error: None,
+            favicon: None,
         }));
         #[cfg(windows)]
         let frames: FrameRing = self
@@ -1179,10 +1153,15 @@ impl EngineManager {
             (),
         );
         let prompts = Arc::new(crate::prompts::TabPrompts::default());
+        *prompts.proxy.lock().unwrap() = resolved_ctx.proxy;
+        let favicon = Arc::new(crate::favicon::TabFavicon::default());
+        let diagnostics = Arc::new(crate::diagnostics::TabDiagnostics::default());
+        let menu_state = Arc::new(crate::menu::TabMenuState::default());
         let display = TabDisplayHandler::new(
             tab_id,
             snap.clone(),
             prompts.clone(),
+            favicon,
             self.out_tx.clone(),
             self.events.clone(),
         );
@@ -1191,6 +1170,7 @@ impl EngineManager {
             file_roots.clone(),
             snap.clone(),
             prompts.clone(),
+            diagnostics.clone(),
             self.out_tx.clone(),
             self.events.clone(),
         );
@@ -1205,11 +1185,13 @@ impl EngineManager {
             snap.clone(),
             self.prompt_shared.clone(),
             prompts.clone(),
+            diagnostics,
             self.out_tx.clone(),
         );
         let download = crate::downloads::TabDownloadHandler::new(
             tab_id,
             file_roots.clone(),
+            is_popup,
             self.downloads.clone(),
             self.out_tx.clone(),
         );
@@ -1228,6 +1210,14 @@ impl EngineManager {
             self.out_tx.clone(),
         );
         let dialog = crate::prompts::TabFileDialogHandler::new(tab_id, prompts.clone(), self.out_tx.clone());
+        let find = crate::find::TabFindHandler::new(tab_id, self.out_tx.clone());
+        let context_menu = crate::menu::TabContextMenuHandler::new(
+            tab_id,
+            self.prompt_shared.clone(),
+            file_roots.clone(),
+            menu_state.clone(),
+            self.out_tx.clone(),
+        );
         let mut client = SidecarTabClient::new(
             render,
             display,
@@ -1238,6 +1228,8 @@ impl EngineManager {
             jsdialog,
             permission,
             dialog,
+            find,
+            context_menu,
         );
 
         let mut win_info = WindowInfo::default().set_as_windowless(Default::default());
@@ -1248,12 +1240,6 @@ impl EngineManager {
             windowless_frame_rate: 60,
             background_color: BASE_COLOR,
             ..Default::default()
-        };
-
-        let mut req_ctx = if isolated {
-            self.isolated_request_context()
-        } else {
-            None
         };
 
         // Tell ExtensionHost what kind of OSR target CEF is about to create synchronously.
@@ -1279,6 +1265,7 @@ impl EngineManager {
             None,
             req_ctx.as_mut(),
         ) else {
+            self.contexts.drop_private_tab(tab_id);
             if let Some(ext) = &mut self.extensions {
                 ext.cancel_expected_target();
             }
@@ -1290,7 +1277,13 @@ impl EngineManager {
             }
             return;
         };
-        let Some(host) = browser.host() else { return };
+        let Some(host) = browser.host() else {
+            self.contexts.drop_private_tab(tab_id);
+            if let Some(ext) = &mut self.extensions {
+                ext.cancel_expected_target();
+            }
+            return;
+        };
         if is_popup {
             host.was_hidden(0);
             host.set_focus(1);
@@ -1337,6 +1330,8 @@ impl EngineManager {
                 internal_picked,
                 pending_clears,
                 prompts,
+                menu: menu_state,
+                context: effective_context,
                 _cdp_reg: cdp_reg,
                 held_buttons: 0,
                 #[cfg(target_os = "linux")]
@@ -1394,5 +1389,30 @@ impl EngineManager {
     }
 }
 
+/// Whether `t` is currently displaying or navigating to an extension page or popup
+/// (checks popup flag, snapshot URL, live CEF main-frame URL, and pending navigation URL to
+/// close the navigation TOCTOU race; `review-rd274.md` §1).
+fn tab_is_extension_surface(t: &ManagedTab) -> bool {
+    if t.is_popup {
+        return true;
+    }
+    if crate::extensions::manifest::is_extension_scheme(&t.snap.lock().unwrap().url) {
+        return true;
+    }
+    if let Some(frame) = t.browser.main_frame() {
+        let live_url = CefString::from(&frame.url()).to_string();
+        if crate::extensions::manifest::is_extension_scheme(&live_url) {
+            return true;
+        }
+    }
+    if let Some(pending) = t.prompts.pending_top_url()
+        && crate::extensions::manifest::is_extension_scheme(&pending)
+    {
+        return true;
+    }
+    false
+}
+
 mod emulation;
 mod extensions;
+mod runtime;

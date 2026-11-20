@@ -24,6 +24,7 @@ mod download;
 mod dmabuf;
 #[cfg(all(feature = "engine", target_os = "linux"))]
 mod fd_lines;
+pub mod find;
 mod frame;
 pub mod installer;
 mod keys;
@@ -43,6 +44,7 @@ mod site_zoom;
 #[cfg(feature = "engine")]
 mod source;
 mod surface;
+pub mod tools;
 #[cfg(feature = "engine")]
 mod transport;
 #[cfg(feature = "engine")]
@@ -51,8 +53,8 @@ mod trust;
 mod unpack;
 
 pub use address::{bare_url, host_of, resolve_address};
-pub use client::BrowserHost;
-pub use client::BrowserTab;
+pub use client::{BrowserHost, BrowserTab, CdpEvent};
+pub use find::{FindEvent, FindState, PageDiagnostic};
 pub use frame::TabSurface;
 pub use installer::{Distrust, ENGINE_DOWNLOAD_MB, ENGINE_REVISION, EngineStatus, Failure, Fault, Net, PauseReason, Version};
 pub use policy::{
@@ -62,7 +64,10 @@ pub use policy::{
 #[cfg(feature = "engine")]
 pub use profile::shared_profile_dir;
 pub use protocol::CursorKind;
-pub use protocol::{AuthChallenge, DialogKind, DownloadFile, DownloadState, PageDialog, PermissionKind, PermissionPrompt};
+pub use protocol::{
+    AuthChallenge, ContextKind, ContextMenuCommand, DialogKind, DownloadFile, DownloadState,
+    PageContextMenu, PageDialog, PermissionKind, PermissionPrompt, RemoteProxyConfig,
+};
 pub use protocol::PickedElement;
 pub use prompts::{PermissionDecision, PermissionStore, SiteDecision, SitePermissions, SiteSetting};
 pub use site_zoom::ZoomStore;

@@ -26,6 +26,10 @@ mod keys;
 mod linux_gpu;
 #[cfg(target_os = "macos")]
 mod mac_app;
+mod diagnostics;
+mod favicon;
+mod find;
+mod menu;
 mod profile;
 mod prompts;
 mod tab_client;
@@ -79,8 +83,6 @@ pub enum Event {
     Host(HostMsg),
     /// CEF wants `cef::do_message_loop_work` in this many milliseconds (now when 0 or less).
     Pump(i64),
-    /// Private in-process CDP message from Chromium's `DevToolsPipeHandler` for extensions.
-    ExtensionCdp(serde_json::Value),
     /// Background parallel SHA-256 tree verification finished for startup `--extension` specs.
     ExtensionsVerified(extensions::integrity::StartupExtensions),
     /// Main-frame metadata update for a non-isolated tab (feeds extension `tabs`/`webNavigation`).
@@ -191,22 +193,38 @@ fn main() {
     // inert exemption stubs (0 perms, 0 scripts, 0 DNR) so `--disable-extensions-except` locks
     // Chromium's exemption set without adding ~1.7 s to `cef::initialize()`.
     let prepared = extensions::integrity::prepare_startup_stubs(&ext_specs, &profile.root);
-    let pre_rejected = prepared.pre_rejected_ids;
-    let stub_root = prepared.stub_root;
-    let stub_dirs = prepared.stub_dirs;
-    let candidates = prepared.candidates;
+    let mut pre_rejected = prepared.pre_rejected_ids;
+    let mut stub_root = prepared.stub_root;
+    let mut stub_dirs = prepared.stub_dirs;
+    let mut stub_dirs_by_id = prepared.stub_dirs_by_id;
+    let mut candidates = prepared.candidates;
 
     // Create the private in-process anonymous CDP pipe BEFORE spawning any threads or
     // `cef::initialize` (single-threaded on Unix so `dup2` + `FD_CLOEXEC` has zero fork race).
-    let ext_pipe = if !stub_dirs.is_empty() {
-        extensions::pipe::CdpPipe::create(events.clone())
+    // Fail closed to `--disable-extensions` if pipe creation fails (`review-rd274.md` §7).
+    let ext_pipe_bundle = if !stub_dirs.is_empty() {
+        let created = extensions::pipe::CdpPipe::create(events.clone());
+        if created.is_none() {
+            for cand in std::mem::take(&mut candidates) {
+                pre_rejected.push(cand.id);
+            }
+            stub_dirs.clear();
+            stub_dirs_by_id.clear();
+            if let Some(root) = stub_root.take() {
+                extensions::integrity::cleanup_stub_root(&root);
+            }
+            extensions::pipe::release_reserved_unix_fds();
+        }
+        created
     } else {
         if !ext_specs.is_empty() {
             extensions::pipe::release_reserved_unix_fds();
         }
         None
     };
-    let io_pipes_switch = ext_pipe.as_ref().and_then(|p| p.io_pipes_switch().map(str::to_owned));
+    let io_pipes_switch = ext_pipe_bundle
+        .as_ref()
+        .and_then(|(p, _, _)| p.io_pipes_switch().map(str::to_owned));
 
     // Full parallel hardware-accelerated SHA-256 tree verification runs concurrently with
     // `cef::initialize()` (~35-60 ms hidden completely behind CEF's ~135 ms init).
@@ -255,10 +273,10 @@ fn main() {
         io_pipes_switch,
         events.clone(),
     );
-    if let Some(ref p) = ext_pipe {
-        p.mark_adopted_by_cef();
-    }
-    let ext_host = ext_pipe.map(extensions::ExtensionHost::new);
+    let ext_host = ext_pipe_bundle.map(|(pipe, rx_in, wake)| {
+        pipe.mark_adopted_by_cef();
+        extensions::ExtensionHost::new(pipe, rx_in, wake, stub_dirs_by_id)
+    });
     step("cef_initialized");
 
     let (out_tx, out_rx) = output::Output::channel();
@@ -294,8 +312,8 @@ fn main() {
     let mut manager = EngineManager::new(
         out_tx,
         _cef.profile_root(),
-        gpu.join().ok().flatten(),
         events.clone(),
+        gpu.join().ok().flatten(),
         ext_host,
         pre_rejected,
         stub_root,
@@ -304,14 +322,21 @@ fn main() {
     let mut manager = EngineManager::new(
         out_tx,
         _cef.profile_root(),
-        linux_gpu::transport(gpu.join().ok().flatten()),
         events.clone(),
+        linux_gpu::transport(gpu.join().ok().flatten()),
         ext_host,
         pre_rejected,
         stub_root,
     );
     #[cfg(target_os = "macos")]
-    let mut manager = EngineManager::new(out_tx, _cef.profile_root(), events.clone(), ext_host, pre_rejected, stub_root);
+    let mut manager = EngineManager::new(
+        out_tx,
+        _cef.profile_root(),
+        events.clone(),
+        ext_host,
+        pre_rejected,
+        stub_root,
+    );
     step("manager");
     let mut first_message = true;
     let start = Instant::now();
@@ -354,12 +379,6 @@ fn main() {
                     pump_at = Some(pump_at.map_or(at, |current| current.min(at)));
                     true
                 }
-                Event::ExtensionCdp(val) => {
-                    busy_until = Instant::now() + BUSY_FOR;
-                    pump_at = Some(Instant::now());
-                    manager.on_extension_cdp(val);
-                    true
-                }
                 Event::ExtensionsVerified(startup) => {
                     step("extensions_verified");
                     busy_until = Instant::now() + BUSY_FOR;
@@ -388,6 +407,10 @@ fn main() {
                 Err(mpsc::TryRecvError::Empty) => break,
                 Err(mpsc::TryRecvError::Disconnected) => break 'run,
             }
+        }
+        if manager.poll_extensions() {
+            busy_until = Instant::now() + BUSY_FOR;
+            pump_at = Some(Instant::now());
         }
         let now = Instant::now();
         if pump_at.is_some_and(|at| at <= now) {

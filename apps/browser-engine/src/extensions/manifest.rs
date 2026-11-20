@@ -1,5 +1,5 @@
-//! Extension manifest parsing, match patterns, private-URL redaction, and icon loading.
-//! Mirrors upstream `packages/gui-plugins/src/browser/profile/{extensions.ts,extension-api/{manifest,match-pattern,label,resource}.ts}`.
+//! Extension manifest parsing (from verified hashed bytes), match patterns, private-URL
+//! redaction, bounded `_locales` loading, and magic-byte/dimension-verified icon loading.
 
 #![forbid(unsafe_code)]
 
@@ -9,8 +9,26 @@ use std::path::{Component, Path, PathBuf};
 use base64::Engine as _;
 use serde_json::Value;
 
+use super::integrity::read_regular_file_bounded;
+
 const ICON_TARGET: u32 = 40;
 const ICON_MAX_BYTES: u64 = 65_536;
+const ICON_MAX_DIM: u32 = 1024;
+const MAX_MESSAGES_BYTES: u64 = 1024 * 1024;
+const MAX_LIST_ITEMS: usize = 256;
+const MAX_ITEM_CHARS: usize = 256;
+
+/// Native Chromium permissions refused at load because they can bypass the extension host
+/// boundary (`debugger`, `nativeMessaging`, `downloads`, `proxy`, `management`). Checked on
+/// required `permissions` only (never `optional_permissions`, which Chromium does not grant at
+/// install and our `permissions.request` shim refuses at runtime).
+pub const DISALLOWED_REQUIRED_PERMS: &[&str] = &[
+    "debugger",
+    "nativeMessaging",
+    "downloads",
+    "proxy",
+    "management",
+];
 
 #[derive(Clone, Debug)]
 pub struct ActionDefaults {
@@ -37,31 +55,62 @@ pub struct ExtensionManifest {
 }
 
 impl ExtensionManifest {
-    pub fn read(dir: &Path) -> Option<Self> {
-        let raw = std::fs::read_to_string(dir.join("manifest.json")).ok()?;
+    /// Parses `ExtensionManifest` strictly from already-hashed `manifest.json` bytes (zero
+    /// re-read TOCTOU). Refuses non-MV3 manifests, themes, and disallowed required permissions.
+    pub fn from_verified_bytes(dir: &Path, bytes: &[u8]) -> Option<Self> {
+        let raw = std::str::from_utf8(bytes).ok()?;
         let val: Value = serde_json::from_str(raw.trim_start_matches('\u{feff}')).ok()?;
         let obj = val.as_object()?;
-        let _manifest_version = obj.get("manifest_version")?.as_u64()? as u32;
+        if obj.get("manifest_version")?.as_u64()? != 3 {
+            return None;
+        }
+        if obj.get("theme").is_some_and(|v| !v.is_null()) {
+            return None;
+        }
         let raw_name = obj.get("name")?.as_str()?;
-        let version = obj.get("version")?.as_str()?.to_owned();
+        let version = extension_label(obj.get("version")?.as_str()?);
+        if version.is_empty() {
+            return None;
+        }
         let default_locale = obj.get("default_locale").and_then(Value::as_str);
-        let name = resolve_display_name(dir, raw_name, default_locale);
 
         let permissions: Vec<String> = obj
             .get("permissions")
             .and_then(Value::as_array)
-            .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(Value::as_str)
+                    .filter(|s| s.len() <= MAX_ITEM_CHARS)
+                    .take(MAX_LIST_ITEMS)
+                    .map(str::to_owned)
+                    .collect()
+            })
             .unwrap_or_default();
-        let mut hosts: Vec<String> = obj
+        if permissions
+            .iter()
+            .any(|p| DISALLOWED_REQUIRED_PERMS.contains(&p.as_str()))
+        {
+            return None;
+        }
+
+        // MV3 host permissions come strictly from `host_permissions` (never promote MV2-style URL
+        // patterns placed inside `"permissions"`, which Chromium 156 ignores; `review-rd274.md` §6).
+        let hosts: Vec<String> = obj
             .get("host_permissions")
             .and_then(Value::as_array)
-            .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(Value::as_str)
+                    .filter(|s| s.len() <= MAX_ITEM_CHARS)
+                    .take(MAX_LIST_ITEMS)
+                    .map(str::to_owned)
+                    .collect()
+            })
             .unwrap_or_default();
-        for p in &permissions {
-            if p == "<all_urls>" || p.contains("://") {
-                hosts.push(p.clone());
-            }
-        }
+
+        // Parse `_locales/<locale>/messages.json` at most ONCE (bounded <= 1 MiB, symlink-free).
+        let locale_messages = load_locale_messages(dir, default_locale);
+        let name = resolve_display_name(raw_name, locale_messages.as_ref());
 
         let action_obj = obj
             .get("action")
@@ -72,7 +121,7 @@ impl ExtensionManifest {
             default_title: a
                 .get("default_title")
                 .and_then(Value::as_str)
-                .map(|s| resolve_display_name(dir, s, default_locale)),
+                .map(|s| resolve_display_name(s, locale_messages.as_ref())),
             default_popup: a.get("default_popup").and_then(Value::as_str).map(str::to_owned),
         });
 
@@ -88,6 +137,7 @@ impl ExtensionManifest {
             .and_then(Value::as_object)
             .map(|m| {
                 m.iter()
+                    .take(32)
                     .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned())))
                     .collect()
             })
@@ -99,6 +149,7 @@ impl ExtensionManifest {
                 Some(Value::Object(m)) => {
                     let map: HashMap<String, String> = m
                         .iter()
+                        .take(32)
                         .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned())))
                         .collect();
                     closest_icon(&map)
@@ -113,13 +164,12 @@ impl ExtensionManifest {
             .and_then(Value::as_object)
             .map(|m| {
                 m.iter()
+                    .take(MAX_LIST_ITEMS)
                     .map(|(k, v)| CommandInfo {
-                        name: k.clone(),
-                        description: v
-                            .get("description")
-                            .and_then(Value::as_str)
-                            .unwrap_or("")
-                            .to_owned(),
+                        name: extension_label(k),
+                        description: extension_label(
+                            v.get("description").and_then(Value::as_str).unwrap_or(""),
+                        ),
                     })
                     .collect()
             })
@@ -148,14 +198,15 @@ impl ExtensionManifest {
     }
 
     pub fn reveals_tab(&self, url: &str) -> bool {
-        !is_private_url(url) && (self.has_permission("tabs") || matches_host(&self.hosts, url))
+        !is_private_url(url)
+            && !is_extension_scheme(url)
+            && (self.has_permission("tabs") || matches_host(&self.hosts, url))
     }
 }
 
-/// Whether `url` uses the `chrome-extension:` scheme (case-insensitive).
+/// Whether `url` uses any extension scheme (`chrome-extension:`, `blob:chrome-extension:`, etc.).
 pub fn is_extension_scheme(url: &str) -> bool {
-    let t = url.trim();
-    t.len() >= 17 && t.as_bytes()[..17].eq_ignore_ascii_case(b"chrome-extension:")
+    browser_policy::extension_origin(url)
 }
 
 /// Extension-supplied text on a browser-owned surface fits one line and cannot reorder bidi labels.
@@ -181,17 +232,28 @@ pub fn extension_label(text: &str) -> String {
 
 /// Internal preview, artifact, and local file URLs that extensions must never observe.
 pub fn is_private_url(url: &str) -> bool {
-    let lower = url.trim().to_ascii_lowercase();
-    let stripped = lower.strip_prefix("blob:").unwrap_or(&lower);
-    stripped.starts_with("file:")
-        || stripped.starts_with("oc-preview:")
-        || stripped.starts_with("artifact:")
-        || stripped.starts_with("workspace:")
+    let mut cur = url.trim();
+    while cur.len() >= 5 && cur.as_bytes()[..5].eq_ignore_ascii_case(b"blob:") {
+        cur = cur[5..].trim();
+    }
+    let lower = cur.to_ascii_lowercase();
+    lower.starts_with("file:")
+        || lower.starts_with("oc-preview:")
+        || lower.starts_with("artifact:")
+        || lower.starts_with("workspace:")
 }
 
 pub fn extension_page_url(id: &str, file: &str) -> Option<String> {
+    if !is_valid_ext_id(id) {
+        return None;
+    }
     let clean = file.trim_start_matches(['/', '\\']);
-    if clean.is_empty() || clean.contains("..") || clean.contains('\\') {
+    if clean.is_empty()
+        || clean.len() > 512
+        || clean.contains("..")
+        || clean.contains('\\')
+        || clean.chars().any(|c| c.is_control() || c.is_whitespace())
+    {
         return None;
     }
     Some(format!("chrome-extension://{id}/{clean}"))
@@ -224,18 +286,26 @@ pub fn within_root(root: &Path, rel: &str) -> Option<PathBuf> {
         return None;
     }
     let mut cur = root.to_path_buf();
+    let mut pushed = false;
     for c in rel_path.components() {
-        if matches!(c, Component::ParentDir | Component::RootDir | Component::Prefix(_)) {
-            return None;
+        match c {
+            Component::CurDir => continue,
+            Component::Normal(seg) => {
+                pushed = true;
+                cur.push(seg);
+                if std::fs::symlink_metadata(&cur).ok()?.file_type().is_symlink() {
+                    return None;
+                }
+            }
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => return None,
         }
-        cur.push(c);
-        if std::fs::symlink_metadata(&cur).ok()?.file_type().is_symlink() {
-            return None;
-        }
+    }
+    if !pushed {
+        return None;
     }
     let canon_root = std::fs::canonicalize(root).ok()?;
     let canon_target = std::fs::canonicalize(&cur).ok()?;
-    canon_target.starts_with(&canon_root).then_some(canon_target)
+    (canon_target != canon_root && canon_target.starts_with(&canon_root)).then_some(canon_target)
 }
 
 pub fn closest_icon(sizes: &HashMap<String, String>) -> Option<String> {
@@ -252,16 +322,12 @@ pub fn closest_icon(sizes: &HashMap<String, String>) -> Option<String> {
 
 pub fn read_icon_data_url(root: &Path, file: &str) -> Option<String> {
     let path = within_root(root, file)?;
-    let meta = std::fs::symlink_metadata(&path).ok()?;
-    if !meta.is_file() || meta.file_type().is_symlink() || meta.len() > ICON_MAX_BYTES {
-        return None;
-    }
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("")
         .to_ascii_lowercase();
-    let mime = match ext.as_str() {
+    let expected_mime = match ext.as_str() {
         "png" => "image/png",
         "webp" => "image/webp",
         "jpg" | "jpeg" => "image/jpeg",
@@ -269,53 +335,131 @@ pub fn read_icon_data_url(root: &Path, file: &str) -> Option<String> {
         "ico" => "image/x-icon",
         _ => return None,
     };
-    let bytes = std::fs::read(&path).ok()?;
-    if bytes.len() as u64 > ICON_MAX_BYTES {
+    let bytes = read_regular_file_bounded(&path, ICON_MAX_BYTES)?;
+    let (sniffed, w, h) = inspect_raster_icon(&bytes)?;
+    if sniffed != expected_mime || w == 0 || h == 0 || w > ICON_MAX_DIM || h > ICON_MAX_DIM {
         return None;
     }
     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
-    Some(format!("data:{mime};base64,{b64}"))
+    Some(format!("data:{sniffed};base64,{b64}"))
 }
 
-fn resolve_display_name(dir: &Path, raw: &str, default_locale: Option<&str>) -> String {
-    let Some(key) = raw.strip_prefix("__MSG_").and_then(|s| s.strip_suffix("__")) else {
-        return extension_label(raw);
-    };
-    let Some(locale) = default_locale else {
-        return extension_label(raw);
-    };
+fn inspect_raster_icon(bytes: &[u8]) -> Option<(&'static str, u32, u32)> {
+    if bytes.len() >= 24 && &bytes[0..8] == b"\x89PNG\r\n\x1a\n" && &bytes[8..16] == b"\x00\x00\x00\x0dIHDR" {
+        let w = u32::from_be_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]);
+        let h = u32::from_be_bytes([bytes[20], bytes[21], bytes[22], bytes[23]]);
+        return Some(("image/png", w, h));
+    }
+    if bytes.len() >= 10 && (&bytes[0..6] == b"GIF87a" || &bytes[0..6] == b"GIF89a") {
+        let w = u32::from(u16::from_le_bytes([bytes[6], bytes[7]]));
+        let h = u32::from(u16::from_le_bytes([bytes[8], bytes[9]]));
+        return Some(("image/gif", w, h));
+    }
+    if bytes.len() >= 30 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        let chunk = &bytes[12..16];
+        if chunk == b"VP8X" {
+            let w = 1 + (u32::from(bytes[24]) | (u32::from(bytes[25]) << 8) | (u32::from(bytes[26]) << 16));
+            let h = 1 + (u32::from(bytes[27]) | (u32::from(bytes[28]) << 8) | (u32::from(bytes[29]) << 16));
+            return Some(("image/webp", w, h));
+        }
+        if chunk == b"VP8L" && bytes[20] == 0x2f {
+            let bits = u32::from_le_bytes([bytes[21], bytes[22], bytes[23], bytes[24]]);
+            return Some(("image/webp", (bits & 0x3fff) + 1, ((bits >> 14) & 0x3fff) + 1));
+        }
+        if chunk == b"VP8 " && &bytes[23..26] == b"\x9d\x01\x2a" {
+            let w = u32::from(u16::from_le_bytes([bytes[26], bytes[27]]) & 0x3fff);
+            let h = u32::from(u16::from_le_bytes([bytes[28], bytes[29]]) & 0x3fff);
+            return Some(("image/webp", w, h));
+        }
+        return None;
+    }
+    if bytes.len() >= 4 && bytes[0] == 0xff && bytes[1] == 0xd8 && bytes[2] == 0xff {
+        let mut i = 2usize;
+        let mut steps = 0usize;
+        while i + 4 <= bytes.len() && steps < 128 {
+            steps += 1;
+            if bytes[i] != 0xff { return None; }
+            while i < bytes.len() && bytes[i] == 0xff { i += 1; }
+            if i >= bytes.len() { return None; }
+            let marker = bytes[i];
+            i += 1;
+            if marker == 0xd9 || marker == 0xda { return None; }
+            if (0xd0..=0xd7).contains(&marker) || marker == 0x01 { continue; }
+            if i + 2 > bytes.len() { return None; }
+            let seg_len = u16::from_be_bytes([bytes[i], bytes[i + 1]]) as usize;
+            if seg_len < 2 || i.checked_add(seg_len)? > bytes.len() { return None; }
+            if matches!(marker, 0xc0..=0xc2) {
+                if seg_len < 7 { return None; }
+                let h = u32::from(u16::from_be_bytes([bytes[i + 3], bytes[i + 4]]));
+                let w = u32::from(u16::from_be_bytes([bytes[i + 5], bytes[i + 6]]));
+                return Some(("image/jpeg", w, h));
+            }
+            i += seg_len;
+        }
+        return None;
+    }
+    if bytes.len() >= 6 && &bytes[0..4] == b"\x00\x00\x01\x00" {
+        let count = u16::from_le_bytes([bytes[4], bytes[5]]) as usize;
+        if count == 0 || count > 64 || bytes.len() < 6usize.checked_add(count.checked_mul(16)?)? {
+            return None;
+        }
+        let mut max_w = 0u32;
+        let mut max_h = 0u32;
+        for idx in 0..count {
+            let base = 6 + idx * 16;
+            max_w = max_w.max(if bytes[base] == 0 { 256 } else { u32::from(bytes[base]) });
+            max_h = max_h.max(if bytes[base + 1] == 0 { 256 } else { u32::from(bytes[base + 1]) });
+        }
+        return Some(("image/x-icon", max_w, max_h));
+    }
+    None
+}
+
+fn load_locale_messages(dir: &Path, default_locale: Option<&str>) -> Option<HashMap<String, String>> {
+    let locale = default_locale?;
     if locale.is_empty()
         || locale.len() > 16
         || !locale.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
     {
-        return extension_label(raw);
+        return None;
     }
-    let Some(msg_path) = within_root(dir, &format!("_locales/{locale}/messages.json")) else {
-        return extension_label(raw);
+    let msg_path = within_root(dir, &format!("_locales/{locale}/messages.json"))?;
+    let bytes = read_regular_file_bounded(&msg_path, MAX_MESSAGES_BYTES)?;
+    let text = std::str::from_utf8(&bytes).ok()?;
+    let Value::Object(map) = serde_json::from_str::<Value>(text.trim_start_matches('\u{feff}')).ok()? else {
+        return None;
     };
-    let Ok(text) = std::fs::read_to_string(msg_path) else {
-        return extension_label(raw);
-    };
-    let Ok(Value::Object(map)) = serde_json::from_str::<Value>(text.trim_start_matches('\u{feff}')) else {
-        return extension_label(raw);
-    };
-    let key_lower = key.to_ascii_lowercase();
+    let mut out = HashMap::with_capacity(map.len().min(256));
     for (k, v) in map {
-        if k.to_ascii_lowercase() == key_lower
-            && let Some(msg) = v.get("message").and_then(Value::as_str)
-        {
-            return extension_label(msg);
+        if let Some(msg) = v.get("message").and_then(Value::as_str) {
+            out.insert(k.to_ascii_lowercase(), extension_label(msg));
         }
+    }
+    Some(out)
+}
+
+fn resolve_display_name(raw: &str, messages: Option<&HashMap<String, String>>) -> String {
+    let Some(key) = raw.strip_prefix("__MSG_").and_then(|s| s.strip_suffix("__")) else {
+        return extension_label(raw);
+    };
+    if let Some(map) = messages
+        && let Some(msg) = map.get(&key.to_ascii_lowercase())
+    {
+        return msg.clone();
     }
     extension_label(raw)
 }
 
-/// Chrome match-pattern matching (`match-pattern.ts`).
+/// Chrome match-pattern matching restricted strictly to web (`http`/`https`) targets
+/// (never matches `chrome-extension://` or `file://` URLs; `review-rd274.md` §6).
 pub fn matches_host(patterns: &[String], input: &str) -> bool {
     let Some((scheme, rest)) = input.split_once("://") else {
         return false;
     };
     let scheme_lower = scheme.to_ascii_lowercase();
+    if !matches!(scheme_lower.as_str(), "http" | "https") {
+        return false;
+    }
     let (authority, path_and_query) = match rest.find('/') {
         Some(idx) => (&rest[..idx], &rest[idx..]),
         None => (rest, "/"),
@@ -329,16 +473,21 @@ pub fn matches_host(patterns: &[String], input: &str) -> bool {
     let path_no_hash = path_and_query.split('#').next().unwrap_or(path_and_query);
 
     patterns.iter().any(|pat| {
+        if pat.len() > MAX_ITEM_CHARS {
+            return false;
+        }
         if pat == "<all_urls>" {
-            return matches!(scheme_lower.as_str(), "http" | "https" | "ws" | "wss" | "file" | "ftp");
+            return true;
         }
         let Some((p_scheme, p_rest)) = pat.split_once("://") else {
             return false;
         };
         let scheme_ok = if p_scheme == "*" {
-            matches!(scheme_lower.as_str(), "http" | "https" | "ws" | "wss")
-        } else {
+            true
+        } else if matches!(p_scheme.to_ascii_lowercase().as_str(), "http" | "https") {
             p_scheme.eq_ignore_ascii_case(&scheme_lower)
+        } else {
+            false
         };
         if !scheme_ok {
             return false;
@@ -358,18 +507,25 @@ pub fn matches_host(patterns: &[String], input: &str) -> bool {
 }
 
 fn host_covers(pattern: &str, host: &str) -> bool {
-    if pattern == "*" {
+    let pat_host = match pattern.split_once(':') {
+        Some((h, port)) if port == "*" || (!port.is_empty() && port.bytes().all(|b| b.is_ascii_digit())) => h,
+        _ => pattern,
+    };
+    if pat_host == "*" {
         return true;
     }
-    if let Some(domain) = pattern.strip_prefix("*.") {
+    if let Some(domain) = pat_host.strip_prefix("*.") {
         let bare = host.strip_prefix("*.").unwrap_or(host);
         return bare == domain || bare.ends_with(&format!(".{domain}"));
     }
     pattern == host
 }
 
-/// Linear-backtracking glob match (`*` matches any substring).
+/// Linear-backtracking glob match (`*` matches any substring), bounded on length.
 pub fn glob_match(pattern: &str, text: &str) -> bool {
+    if pattern.len() > MAX_ITEM_CHARS || text.len() > 4096 {
+        return false;
+    }
     let p: Vec<char> = pattern.chars().collect();
     let t: Vec<char> = text.chars().collect();
     let (mut pi, mut ti, mut star, mut resume) = (0usize, 0usize, None::<usize>, 0usize);

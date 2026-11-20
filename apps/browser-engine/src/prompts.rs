@@ -31,7 +31,8 @@ use cef::{
 
 use crate::output::Output;
 use crate::wire::{
-    AuthChallenge, DialogKind, EngineMsg, PageDialog, PermissionKind, PermissionPrompt, TabSnapshot,
+    AuthChallenge, DialogKind, EngineMsg, PageDialog, PermissionKind, PermissionPrompt,
+    RemoteProxyConfig, TabSnapshot,
 };
 
 /// Shared across all tabs in the engine: whether the connected app handles prompts (`Hello.prompts`)
@@ -65,6 +66,7 @@ enum HeldPermission {
 #[derive(Default)]
 pub struct TabPrompts {
     pub agent_driven: AtomicBool,
+    pub proxy: Mutex<Option<RemoteProxyConfig>>,
     dialogs: Mutex<Vec<(PageDialog, JsdialogCallback)>>,
     permissions: Mutex<Vec<HeldPermission>>,
     auth: Mutex<Vec<(AuthChallenge, AuthCallback)>>,
@@ -74,6 +76,10 @@ pub struct TabPrompts {
 impl TabPrompts {
     pub fn set_pending_top_url(&self, url: Option<String>) {
         *self.pending_top_url.lock().unwrap() = url;
+    }
+
+    pub fn pending_top_url(&self) -> Option<String> {
+        self.pending_top_url.lock().unwrap().clone()
     }
 
     pub fn answer_dialog(&self, id: u64, accept: bool, text: &str) -> bool {
@@ -243,7 +249,19 @@ pub fn handle_auth_credentials(
     callback: Option<&mut AuthCallback>,
 ) -> i32 {
     if is_proxy != 0 {
-        return 0;
+        let Some(callback) = callback else { return 1 };
+        let scheme_str = scheme.map(CefString::to_string).unwrap_or_default();
+        let host_str = host.map(CefString::to_string).unwrap_or_default();
+        let realm_str = realm.map(CefString::to_string).unwrap_or_default();
+        if let Some(cfg) = prompts.proxy.lock().unwrap().as_ref()
+            && crate::context::proxy_matches_challenge(cfg, &scheme_str, &host_str, port, &realm_str)
+            && let (Some(u), Some(p)) = (&cfg.username, &cfg.password)
+        {
+            callback.cont(Some(&CefString::from(u.as_str())), Some(&CefString::from(p.as_str())));
+            return 1;
+        }
+        callback.cancel();
+        return 1;
     }
     let Some(callback) = callback else { return 1 };
     let scheme_str = scheme.map(CefString::to_string).unwrap_or_default();

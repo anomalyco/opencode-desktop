@@ -5,33 +5,59 @@
 //!   passed to Chromium inside this same process via `--remote-debugging-pipe` and
 //!   `--remote-debugging-io-pipes=<read>,<write>`. Because `bInheritHandle = FALSE`, no CEF
 //!   renderer/GPU/utility child process can inherit or open the pipe handles.
-//! - Unix (macOS / Linux): FDs 3 and 4 are reserved with `O_CLOEXEC` before `UnixListener::bind`
-//!   so the app IPC socket never occupies FD 3/4; two `pipe()` pairs are dup'd above FD 4 first
-//!   and then placed on FDs 3 and 4 with `FD_CLOEXEC` set on every descriptor so child processes
-//!   never inherit them, paired with `--remote-debugging-pipe`.
+//! - Unix (macOS / Linux): verifies FDs 3 and 4 are vacant before reserving them with `O_CLOEXEC`
+//!   placeholders (never clobbering pre-existing caller FDs); two `pipe()` pairs are dup'd >= 5
+//!   first, placed on FDs 3 and 4 with `FD_CLOEXEC` (rolling back FD 3 on partial `dup2` failure),
+//!   paired with `--remote-debugging-pipe`.
+//! - Both directions use bounded `sync_channel` queues (256 inbound / 512 outbound) with a
+//!   coalesced `Pump(0)` wake and a dedicated writer thread, so neither a hostile extension flood
+//!   nor a stalled browser reader can OOM or deadlock the engine main thread.
 
 #![allow(unsafe_code)]
 
 use std::fs::File;
 use std::io::{Read, Write};
+#[cfg(unix)]
+use std::sync::atomic::AtomicU8;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
 use std::sync::{Arc, Mutex};
 
 use serde_json::{Value, json};
 
 /// Hard ceiling on a single NUL-delimited CDP frame read from the pipe (4 MiB).
-/// A hostile extension calling `__ocExtCall` with a giant payload cannot OOM the engine.
 const MAX_CDP_MSG_BYTES: usize = 4 * 1024 * 1024;
+/// Bounded inbound CDP queue capacity (applies OS pipe backpressure against tight JS floods).
+const INBOUND_CAP: usize = 256;
+/// Bounded outbound CDP queue capacity (non-blocking `try_send` prevents main-thread deadlock).
+const OUTBOUND_CAP: usize = 512;
 
-/// Unix only: reserves FDs 3 and 4 with `O_CLOEXEC` placeholders before `UnixListener::bind` so
-/// the engine's IPC listener socket lands on FD >= 5 and is never clobbered when
-/// `CdpPipe::create()` places Chromium's `--remote-debugging-pipe` ends on FDs 3 and 4.
-/// Must be called single-threaded before any other FD opens in `main()`.
+/// Bitmask of Unix FDs 3 (bit 0) and 4 (bit 1) that were confirmed vacant and reserved by us.
+#[cfg(unix)]
+static RESERVED_FDS: AtomicU8 = AtomicU8::new(0);
+
+/// Messages delivered from the background CDP pipe reader to the engine main loop.
+pub enum PipeInbound {
+    Message(Value),
+    FrameDropped,
+    Closed,
+}
+
+/// Unix only: checks whether FDs 3 and 4 are vacant and reserves them with `O_CLOEXEC`
+/// placeholders before `UnixListener::bind` so the engine's IPC socket lands on FD >= 5.
+/// Never clobbers or closes pre-existing open FDs 3 or 4 inherited from the environment.
 #[cfg(unix)]
 pub fn reserve_unix_fds() {
-    // SAFETY: opening `/dev/null` with `O_CLOEXEC` only fills vacant low FDs <= 4.
+    // SAFETY: inspects vacant FDs 3 and 4 via `fcntl(F_GETFD)` and fills only vacant slots with
+    // `/dev/null` (`O_CLOEXEC`), recording exactly which slots we own in `RESERVED_FDS`.
     unsafe {
+        let mut owned: u8 = 0;
+        let fd3_vacant = libc::fcntl(3, libc::F_GETFD) < 0;
+        let fd4_vacant = libc::fcntl(4, libc::F_GETFD) < 0;
+        if !fd3_vacant || !fd4_vacant {
+            RESERVED_FDS.store(0, Ordering::SeqCst);
+            return;
+        }
         let mut placeholders = Vec::new();
         loop {
             let fd = libc::open(c"/dev/null".as_ptr(), libc::O_RDONLY | libc::O_CLOEXEC);
@@ -42,28 +68,37 @@ pub fn reserve_unix_fds() {
                 libc::close(fd);
                 break;
             }
+            if fd == 3 {
+                owned |= 1;
+            } else if fd == 4 {
+                owned |= 2;
+            }
             placeholders.push(fd);
         }
-        // Keep FDs 3 and 4 occupied until `create_unix_pipes()` replaces them atomically via dup2.
         for fd in placeholders {
             if fd < 3 {
                 libc::close(fd);
             }
         }
+        RESERVED_FDS.store(owned, Ordering::SeqCst);
     }
 }
 
 #[cfg(not(unix))]
 pub fn reserve_unix_fds() {}
 
-/// Unix only: releases reserved FDs 3 and 4 if all `--extension` args failed pre-checks and
-/// `--remote-debugging-pipe` will not be enabled.
+/// Unix only: releases ONLY the FDs 3/4 that `reserve_unix_fds()` confirmed vacant and opened.
 #[cfg(unix)]
 pub fn release_reserved_unix_fds() {
-    // SAFETY: only called when `reserve_unix_fds` ran and `CdpPipe::create` was skipped.
+    let owned = RESERVED_FDS.swap(0, Ordering::SeqCst);
+    // SAFETY: closes only descriptors opened by `reserve_unix_fds()` above.
     unsafe {
-        libc::close(3);
-        libc::close(4);
+        if (owned & 1) != 0 {
+            libc::close(3);
+        }
+        if (owned & 2) != 0 {
+            libc::close(4);
+        }
     }
 }
 
@@ -71,8 +106,10 @@ pub fn release_reserved_unix_fds() {
 pub fn release_reserved_unix_fds() {}
 
 pub struct CdpPipe {
-    writer: Arc<Mutex<Option<File>>>,
+    tx: Mutex<Option<SyncSender<Vec<u8>>>>,
     adopted_by_cef: AtomicBool,
+    /// Coalesces `Event::Pump(0)` wakeups from the reader thread.
+    wake_pending: Arc<AtomicBool>,
     /// Windows only: raw HANDLE values (`browser_read,browser_write`) owned by Chromium once
     /// `cef::initialize` starts `DevToolsPipeHandler`.
     #[cfg(windows)]
@@ -82,27 +119,19 @@ pub struct CdpPipe {
 }
 
 impl CdpPipe {
-    /// Creates the private anonymous pipe pair, pre-writes `Target.setAutoAttach` into the kernel
-    /// pipe buffer before `cef::initialize()` starts (eliminating any startup race with
-    /// `--disable-extensions-except` service workers), and starts the background reader thread.
-    pub fn create(events: Sender<crate::Event>) -> Option<Self> {
+    /// Creates the private anonymous pipe pair, pre-writes `Target.setAutoAttach` directly into
+    /// the kernel pipe buffer before `cef::initialize()` starts, spawns bounded reader & writer
+    /// threads, and returns `(pipe, inbound_rx, wake_pending)`.
+    pub fn create(events: Sender<crate::Event>) -> Option<(Self, Receiver<PipeInbound>, Arc<AtomicBool>)> {
         #[cfg(windows)]
-        let (our_write, our_read, browser_read_raw, browser_write_raw) = create_win_pipes()?;
+        let (mut our_write, our_read, browser_read_raw, browser_write_raw) = create_win_pipes()?;
         #[cfg(unix)]
-        let (our_write, our_read) = create_unix_pipes()?;
+        let (mut our_write, our_read) = create_unix_pipes()?;
 
-        let pipe = Self {
-            writer: Arc::new(Mutex::new(Some(our_write))),
-            adopted_by_cef: AtomicBool::new(false),
-            #[cfg(windows)]
-            io_pipes_arg: format!("{browser_read_raw},{browser_write_raw}"),
-            #[cfg(windows)]
-            browser_handles: Mutex::new(Some((browser_read_raw, browser_write_raw))),
-        };
-
-        // Pre-write Target.setAutoAttach into the OS pipe buffer before CEF boots so Chromium's
-        // DevToolsPipeHandler processes it before any extension service worker runs line 1.
-        pipe.send(&json!({
+        // Pre-write Target.setAutoAttach directly into the OS pipe buffer before CEF boots so
+        // Chromium's DevToolsPipeHandler processes it before any extension service worker runs
+        // line 1.
+        let mut init_cmd = json!({
             "id": 1,
             "method": "Target.setAutoAttach",
             "params": {
@@ -110,10 +139,42 @@ impl CdpPipe {
                 "waitForDebuggerOnStart": true,
                 "flatten": true
             }
-        }));
+        })
+        .to_string()
+        .into_bytes();
+        init_cmd.push(0);
+        if our_write.write_all(&init_cmd).is_err() || our_write.flush().is_err() {
+            #[cfg(windows)]
+            {
+                use windows::Win32::Foundation::{CloseHandle, HANDLE};
+                // SAFETY: handles were just created and not yet adopted by CEF.
+                unsafe {
+                    let _ = CloseHandle(HANDLE(browser_read_raw as *mut _));
+                    let _ = CloseHandle(HANDLE(browser_write_raw as *mut _));
+                }
+            }
+            #[cfg(unix)]
+            release_reserved_unix_fds();
+            return None;
+        }
 
-        spawn_reader(our_read, events);
-        Some(pipe)
+        let (out_tx, out_rx) = mpsc::sync_channel::<Vec<u8>>(OUTBOUND_CAP);
+        spawn_writer(our_write, out_rx);
+
+        let (in_tx, in_rx) = mpsc::sync_channel::<PipeInbound>(INBOUND_CAP);
+        let wake_pending = Arc::new(AtomicBool::new(false));
+        spawn_reader(our_read, in_tx, wake_pending.clone(), events);
+
+        let pipe = Self {
+            tx: Mutex::new(Some(out_tx)),
+            adopted_by_cef: AtomicBool::new(false),
+            wake_pending: wake_pending.clone(),
+            #[cfg(windows)]
+            io_pipes_arg: format!("{browser_read_raw},{browser_write_raw}"),
+            #[cfg(windows)]
+            browser_handles: Mutex::new(Some((browser_read_raw, browser_write_raw))),
+        };
+        Some((pipe, in_rx, wake_pending))
     }
 
     /// Marks the browser-owned handles/FDs as transferred to Chromium (`cef::initialize` started).
@@ -122,6 +183,10 @@ impl CdpPipe {
         #[cfg(windows)]
         {
             *self.browser_handles.lock().unwrap() = None;
+        }
+        #[cfg(unix)]
+        {
+            RESERVED_FDS.store(0, Ordering::SeqCst);
         }
     }
 
@@ -137,17 +202,16 @@ impl CdpPipe {
         }
     }
 
-    /// Sends one CDP JSON command (NUL-terminated) to Chromium's `DevToolsPipeHandler`.
+    /// Non-blocking enqueue of one NUL-terminated CDP command to the writer thread.
     pub fn send(&self, msg: &Value) {
         let mut bytes = msg.to_string().into_bytes();
         bytes.push(0);
-        if let Some(ref mut file) = *self.writer.lock().unwrap() {
-            let _ = file.write_all(&bytes);
-            let _ = file.flush();
+        if let Some(ref tx) = *self.tx.lock().unwrap() {
+            let _ = tx.try_send(bytes);
         }
     }
 
-    /// Pipelines multiple CDP JSON commands in a single write syscall.
+    /// Non-blocking enqueue of a pipelined CDP command batch in a single write buffer.
     pub fn send_batch(&self, msgs: &[Value]) {
         if msgs.is_empty() {
             return;
@@ -158,16 +222,16 @@ impl CdpPipe {
             buf.extend_from_slice(s.as_bytes());
             buf.push(0);
         }
-        if let Some(ref mut file) = *self.writer.lock().unwrap() {
-            let _ = file.write_all(&buf);
-            let _ = file.flush();
+        if let Some(ref tx) = *self.tx.lock().unwrap() {
+            let _ = tx.try_send(buf);
         }
     }
 
     /// Closes our write end so Chromium's `DevToolsPipeHandlerReadThread` sees clean EOF before
     /// `cef::shutdown()`.
     pub fn close(&self) {
-        let _ = self.writer.lock().unwrap().take();
+        let _ = self.tx.lock().unwrap().take();
+        self.wake_pending.store(false, Ordering::Relaxed);
     }
 }
 
@@ -185,16 +249,35 @@ impl Drop for CdpPipe {
         }
         #[cfg(unix)]
         if !self.adopted_by_cef.load(Ordering::Relaxed) {
-            // SAFETY: FDs 3 and 4 belong to this pipe when `cef::initialize` never adopted them.
-            unsafe {
-                libc::close(3);
-                libc::close(4);
-            }
+            release_reserved_unix_fds();
         }
     }
 }
 
-fn spawn_reader(mut reader: File, events: Sender<crate::Event>) {
+fn spawn_writer(mut writer: File, rx: Receiver<Vec<u8>>) {
+    let _ = std::thread::Builder::new()
+        .name("engine-ext-cdp-tx".into())
+        .spawn(move || {
+            while let Ok(bytes) = rx.recv() {
+                if writer.write_all(&bytes).is_err() || writer.flush().is_err() {
+                    break;
+                }
+            }
+        });
+}
+
+fn wake_main(wake_pending: &AtomicBool, events: &Sender<crate::Event>) {
+    if !wake_pending.swap(true, Ordering::AcqRel) {
+        let _ = events.send(crate::Event::Pump(0));
+    }
+}
+
+fn spawn_reader(
+    mut reader: File,
+    inbound: SyncSender<PipeInbound>,
+    wake_pending: Arc<AtomicBool>,
+    events: Sender<crate::Event>,
+) {
     let _ = std::thread::Builder::new()
         .name("engine-ext-cdp-rx".into())
         .spawn(move || {
@@ -203,16 +286,24 @@ fn spawn_reader(mut reader: File, events: Sender<crate::Event>) {
             let mut skipping = false;
             loop {
                 match reader.read(&mut chunk) {
-                    Ok(0) | Err(_) => break,
+                    Ok(0) | Err(_) => {
+                        let _ = inbound.try_send(PipeInbound::Closed);
+                        wake_main(&wake_pending, &events);
+                        break;
+                    }
                     Ok(n) => {
                         for &b in &chunk[..n] {
                             if b == 0 {
-                                if !skipping
-                                    && !acc.is_empty()
+                                if skipping {
+                                    let _ = inbound.send(PipeInbound::FrameDropped);
+                                    wake_main(&wake_pending, &events);
+                                } else if !acc.is_empty()
                                     && let Ok(val) = serde_json::from_slice::<Value>(&acc)
-                                    && events.send(crate::Event::ExtensionCdp(val)).is_err()
                                 {
-                                    return;
+                                    if inbound.send(PipeInbound::Message(val)).is_err() {
+                                        return;
+                                    }
+                                    wake_main(&wake_pending, &events);
                                 }
                                 acc.clear();
                                 skipping = false;
@@ -265,10 +356,15 @@ fn create_win_pipes() -> Option<(File, File, isize, isize)> {
 fn create_unix_pipes() -> Option<(File, File)> {
     use std::os::unix::io::FromRawFd;
 
+    // Fail closed if FDs 3 and 4 were not both vacant and reserved by us at startup.
+    if RESERVED_FDS.load(Ordering::SeqCst) != 0b11 {
+        return None;
+    }
+
     let mut to_browser = [-1i32; 2];
     let mut from_browser = [-1i32; 2];
     // SAFETY: single-threaded POSIX pipe setup; every descriptor is moved >= 5 before placing
-    // Chromium's ends on FDs 3 and 4 with FD_CLOEXEC so no child process inherits any end.
+    // Chromium's ends on our reserved FDs 3 and 4 with FD_CLOEXEC so no child inherits any end.
     unsafe {
         if libc::pipe(to_browser.as_mut_ptr()) != 0 {
             return None;
@@ -297,10 +393,15 @@ fn create_unix_pipes() -> Option<(File, File)> {
             }
             return None;
         }
-        let dup_ok = libc::dup2(browser_read_tmp, 3) >= 0 && libc::dup2(browser_write_tmp, 4) >= 0;
+        let dup3_ok = libc::dup2(browser_read_tmp, 3) >= 0;
+        let dup4_ok = dup3_ok && libc::dup2(browser_write_tmp, 4) >= 0;
         libc::close(browser_read_tmp);
         libc::close(browser_write_tmp);
-        if !dup_ok {
+        if !dup4_ok {
+            if dup3_ok {
+                libc::close(3);
+                RESERVED_FDS.fetch_and(!1, Ordering::SeqCst);
+            }
             libc::close(our_write_fd);
             libc::close(our_read_fd);
             return None;

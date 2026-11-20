@@ -2,28 +2,28 @@
   "generated_at": "2026-11-20",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "92d35f8e18959da9fe01bde6491d870da532d9ab",
+  "upstream_head": "bfee96a859aa0d225b845d67625d34ea6ae773d2",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "4af26464e6b46296f871d79e52e81f4f8853c2b3",
-  "post_1114_commit_count": 328,
-  "post_1114_in_ledger": 113,
-  "post_1114_skipped": 215,
+  "rune_desktop_head": "ce53bfa4f48656463dcad933a6cf69219bf56f54",
+  "post_1114_commit_count": 339,
+  "post_1114_in_ledger": 117,
+  "post_1114_skipped": 222,
   "post_1114_skipped_breakdown": {
-    "test-only": 15,
+    "test-only": 16,
     "ci-bench-deps": 15,
     "docs-site-data": 36,
     "tui-only": 10,
     "cli-acp-only": 3,
-    "server-core-ai-codemode-internal": 136
+    "server-core-ai-codemode-internal": 142
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 129,
+  "total_ledger_rows": 136,
   "status_counts": {
-    "have it": 87,
+    "have it": 97,
     "partly": 9,
-    "missing": 18,
     "not applicable": 14,
+    "missing": 15,
     "differs on purpose": 1
   },
   "rows": [
@@ -163,12 +163,12 @@
       ],
       "summary": "Show OpenCode Console-managed MCPs and skills in Settings > Extensions with manage/connect links to Console, a 'Replaces OpenCode Console' badge when overridden locally, and a temporary-override notice.",
       "size": "M",
-      "status": "partly",
-      "status_evidence": "Typed Console managed-gateway MCP/skill detection and link builders landed in #255 (62a214e2, crates/opencode-kit/src/model/console_extensions.rs + client/plugins.rs); Settings > Extensions UI remains in WS-7.",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #255 (62a214e2, Console MCP/skill model & link builders) and #267 (e4de1510, Settings > Extensions & Project > Extensions Console manage links, 'Replaces OpenCode Console' badge, Connect button + amber needs_auth dot, temporary-override notice, and Retry banner).",
       "depends_on": "Server extension-sources endpoint (gracefully omitted on older servers that do not expose it)",
       "risks": "none",
-      "workstream": "WS-7",
-      "rune_pr": "#255 (model/client)"
+      "workstream": "none",
+      "rune_pr": "#255, #267"
     },
     {
       "id": "PRE-07",
@@ -209,11 +209,12 @@
       ],
       "summary": "Retry attaching the desktop browser pane automatically once server-side plugins finish booting instead of leaving browser tools unattached.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "plugins/browser/mcp.luau uses local rune_mcp registration rather than server plugin-browser attachment; relevant when WS-1 aligns server browser attachment / BuiltinPromptGate.",
+      "status": "partly",
+      "status_evidence": "AttachMachine rpc.unavailable -> plugin.updated / server.connected retry state machine landed in BROWSER-TOOLS #275 (c397d0b9, crates/opencode-kit/src/client/browser_rpc/machine.rs); desktop SSE event & runtime wiring lands in BROWSER-TOOLS PR 2.",
       "depends_on": "UP-095 (#63002)",
       "risks": "none",
-      "workstream": "WS-1"
+      "workstream": "BROWSER-TOOLS",
+      "rune_pr": "#275"
     },
     {
       "id": "PRE-09",
@@ -370,11 +371,12 @@
       ],
       "summary": "Keep submenus open along the pointer aim corridor and avoid flashing when moving between sibling submenu triggers.",
       "size": "S",
-      "status": "partly",
-      "status_evidence": "Rune already has drawn nested submenus (23ba1b39) and pointer-aim flyouts in Details (LU-3B, e2172c1); verify opencode-ui/src/popup submenu hover switching does not blink or drop along diagonal paths (checked in WS-8).",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #271 (08f28f82): explicit submenu pointer-corridor aiming + 150 ms leave delay machine in crates/opencode-ui/src/popup/submenu.rs.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "WS-8"
+      "workstream": "none",
+      "rune_pr": "#271"
     },
     {
       "id": "UP-001",
@@ -452,11 +454,12 @@
       ],
       "summary": "Dismiss open tooltips immediately when their trigger is pressed, and unify copy-feedback state in the BTW panel.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "No tooltip dismiss-on-trigger-press wiring in Rune/apps/desktop, and plugins/btw uses its own copy handling rather than shared copy feedback.",
+      "status": "partly",
+      "status_evidence": "Rune #1300 (pinned in #282 ce53bfa4) lands 600 ms OpenCode tooltip delay, immediate tooltip on keyboard focus, press dismissal, and El::help_open; wiring help_open on Copy buttons (crate::copied) and plugins/btw 2 s copy feedback remains in WS-8.",
       "depends_on": "Rune tooltip controller (dismiss on pointer down on trigger)",
       "risks": "none",
-      "workstream": "WS-8"
+      "workstream": "WS-8",
+      "rune_pr": "#282 (Rune #1300)"
     },
     {
       "id": "UP-004",
@@ -1356,11 +1359,11 @@
       "summary": "Add the browser device emulation toolbar (phone/tablet/desktop presets, custom dimensions, zoom/fit, drag handles, Mod+Shift+M) to local/dev builds.",
       "size": "L",
       "status": "have it",
-      "status_evidence": "Ported in rune-desktop #162 (7bcb1f24), #239 (bf343867, shared browser-policy crate), and #245 (5f83182b: per-session SetViewport isolation, engine-side width/height/scale bounds in emulation.rs, and re-applying active HostMsg::Emulate on engine reconnect). Release builds await a published signed engine binary.",
+      "status_evidence": "Ported across #162, #239, #245 (engine Emulate bounds + reconnect re-send), and #270 (17194075: full device toolbar polish with localized categorized presets, More devices submenu, Fit/manual scale popover, rotate, zoom-conflict prompt, Contract 1.6 icons, and FocusExt resize grips).",
       "depends_on": "Updated published browser engine binary for HostMsg::Emulate",
       "risks": "Security: cross-session SetViewport mutation in local/dev builds (follow-up checklist, fixed in WS-1).",
       "workstream": "none",
-      "rune_pr": "#162, #239, #245"
+      "rune_pr": "#162, #239, #245, #270"
     },
     {
       "id": "UP-040",
@@ -1745,13 +1748,13 @@
       ],
       "summary": "Add Check for updates and per-plugin Update actions to Settings > Extensions > Plugins backed by `/api/plugin/check` and `/api/plugin/update`.",
       "size": "M",
-      "status": "partly",
-      "status_evidence": "Typed /api/plugin, /api/plugin/check, and /api/plugin/update client with 404/405/501 Unsupported fallback landed in #255 (62a214e2, crates/opencode-kit/src/{model/plugin.rs,client/plugins.rs}); Settings > Extensions UI and machine remain in WS-7.",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #255 (62a214e2, typed /api/plugin/{,check,update} client with 404/405/501 Unsupported fallback) and #267 (e4de1510, explicit PluginUpdateState machine, Check for updates & per-package Update buttons in Settings > Extensions > Plugins, SSE refreshes, quiet older-server hiding).",
       "depends_on": "Server `/api/plugin/check` and `/api/plugin/update` (hide or gracefully disable on older servers); UP-058 (#64525), UP-059 (#64527)",
       "risks": "none",
-      "workstream": "WS-7",
+      "workstream": "none",
       "open_pr_note": "unmerged PR #227",
-      "rune_pr": "#255 (model/client)"
+      "rune_pr": "#255, #267"
     },
     {
       "id": "UP-056",
@@ -1822,13 +1825,13 @@
       ],
       "summary": "Retain outdated-plugin findings in Settings > Extensions until a settled plugin list agrees, preventing stale reload responses from hiding Update buttons.",
       "size": "S",
-      "status": "partly",
-      "status_evidence": "Client/SSE support landed in #255 (62a214e2); plugin-update-machine UI retention remains in WS-7.",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #255 (62a214e2) and #267 (e4de1510): plugin_update::Event::ListLoaded retains check/update findings until a settled GET /api/plugin agrees or drops the target, preventing stale reloads from flickering Update buttons back.",
       "depends_on": "UP-055 (#64511)",
       "risks": "none",
-      "workstream": "WS-7",
+      "workstream": "none",
       "open_pr_note": "unmerged PR #227",
-      "rune_pr": "#255 (model/client)"
+      "rune_pr": "#255, #267"
     },
     {
       "id": "UP-059",
@@ -1846,13 +1849,13 @@
       ],
       "summary": "Stop reading the removed `ready` flag in `plugin-update-machine.ts`.",
       "size": "S",
-      "status": "partly",
-      "status_evidence": "PluginInfo parser in #255 (62a214e2, crates/opencode-kit/src/model/plugin.rs) never reads removed ready field; Settings > Extensions UI wiring remains in WS-7.",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #255 (62a214e2) and #267 (e4de1510): PluginInfo parser and PluginUpdateState never read or expect the removed ready field from GET /api/plugin.",
       "depends_on": "UP-055 (#64511), UP-058 (#64525)",
       "risks": "none",
-      "workstream": "WS-7",
+      "workstream": "none",
       "open_pr_note": "unmerged PR #227",
-      "rune_pr": "#255 (model/client)"
+      "rune_pr": "#255, #267"
     },
     {
       "id": "UP-060",
@@ -1929,12 +1932,14 @@
       ],
       "summary": "Add experimental browser-style colored, collapsible, draggable tab groups to vertical side tabs behind a Settings > Experimental toggle.",
       "size": "XL",
-      "status": "missing",
-      "status_evidence": "No tab groups model, drag machine, group headers, or `tabGroups` setting exist anywhere in apps/desktop or features/settings.",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #259 (3869c29e): experimental side tab groups (features/tab-groups) with 4-intent drag machine (incl. 220 ms dwell combine), filter/grouping menu, colored collapsible headers, RTL rail, tear-out handoff, #262 focus_inset rings, and verified 2-window migration/downgrade. [OPEN REGRESSION (WS-2): features/settings/src/lib.rs:224-226 defaults tab_groups() ON in packaged local builds (+176,165 restPx across 4 side-tab screens); fix PR #278 open to default false matching Official packaged builds.]",
       "depends_on": "UP-072 (#64668) / UP-074 (#64727) (shares side-tab strip and settings layout)",
       "risks": "Persists group metadata and tab-to-group assignments in `opencode-storage` / `opencode-servers` window tabs schema; must stay lossless across upgrades and tear-out across multi-window.",
-      "workstream": "WS-2",
-      "open_pr_note": "unmerged PR #232 (partial; cross-group tab drag skipped)"
+      "workstream": "none",
+      "open_pr_note": "unmerged PR #232 (partial; cross-group tab drag skipped); PR #278 (ws2/tab-groups-default-off, open regression fix)",
+      "rune_pr": "#259",
+      "open_regression": "WS-2: Settings::tab_groups() defaults ON in packaged local builds (+176,165 restPx across 4 side-tab screens; fix PR #278 open)"
     },
     {
       "id": "UP-063",
@@ -1988,12 +1993,12 @@
       "summary": "Route desktop command shortcuts (including composer Stop on Escape/Ctrl+G and Attach file on Mod+U) through `@opentui/keymap`.",
       "size": "M",
       "status": "have it",
-      "status_evidence": "Ported in rune-desktop #264 (77cc154c): prompt.stop (Esc + Ctrl+G, reading legacy session.stop without rewriting for downgrade compatibility) and file.attach registered in the unified keymap and palette.",
+      "status_evidence": "Ported in rune-desktop #264 (77cc154c): prompt.stop (Esc + Ctrl+G, reading legacy session.stop without rewriting for downgrade compatibility) and file.attach registered in the unified keymap and palette. Standing-guard Settings > Shortcuts hidden-command regression (browser.close listed when hidden: true, +9,845 restPx) fixed on dev in WS-8 #279 (b2bcf1c7, pending standing-guard re-verify).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "none",
       "open_pr_note": "unmerged PR #230",
-      "rune_pr": "#264"
+      "rune_pr": "#264, #279"
     },
     {
       "id": "UP-065",
@@ -2090,12 +2095,12 @@
       "summary": "Let GUI plugins declare custom SVG icons (including animated SVGs paused under reduced motion) via `ctx.icons` so any surface draws them by name and cleans them up on unload.",
       "size": "L",
       "status": "have it",
-      "status_evidence": "Ported in rune-desktop #251 (51986c66, Contract 1.6, iterative hostile-SVG sanitizer, atomic replace_plugin, unload withdrawal, <plugin>:<name> lookup across all surfaces incl. dormant closed tabs) and #261 (b8cdd71b, plain-geometry boundary incl. clip-rule/fill-rule + dev diagnostics).",
+      "status_evidence": "Ported in rune-desktop #251 (51986c66, Contract 1.6, iterative hostile-SVG sanitizer, atomic replace_plugin, unload withdrawal, <plugin>:<name> lookup across all surfaces incl. dormant closed tabs), #261 (b8cdd71b, plain-geometry boundary incl. clip-rule/fill-rule + dev diagnostics), and #273 (e456830d, SVG sanitizer caps synced 1:1 with Rune #1291 + dev warning on multi-colour SMIL icons).",
       "depends_on": "Luau contract bump (1.5 -> 1.6 in `crates/opencode-plugin-spec/contract.json`); Rune SVG animation support or host-animated glyph primitive for `goal/active.svg` ripple",
       "risks": "Security: sanitize/restrict custom plugin SVG markup before rasterization so untrusted third-party plugins cannot abuse SVG parsing.",
       "workstream": "none",
       "open_pr_note": "unmerged PR #227",
-      "rune_pr": "#251, #261"
+      "rune_pr": "#251, #261, #273"
     },
     {
       "id": "UP-069",
@@ -2120,12 +2125,12 @@
       "summary": "Redesign the Goal composer pill with custom active/paused/reached SVG icons, new labels ('Following goal', 'Goal paused', 'Goal reached'), objective-first popover with reason divider and red Clear / Dismiss actions, and tighter 8 px / 6 px icon-pill spacing.",
       "size": "M",
       "status": "partly",
-      "status_evidence": "Goal pill redesign, icons/{active,paused,complete}.svg, labels, reason-aware popover, host popover heading removal, and shared 8px/6px leading-icon pill geometry landed in #256 (757edbae); live SMIL ripple animation on active.svg awaits Rune PR #1291 (static t=0 frame draws cleanly today).",
+      "status_evidence": "Goal pill redesign, icons/{active,paused,complete}.svg, labels, reason-aware popover, host popover heading removal, and shared 8px/6px leading-icon pill geometry landed in #256 (757edbae), with SVG caps synced in #273 (e456830d); live SMIL ripple animation on monochrome active.svg awaits Rune PR #1291 (deliberate difference: multi-colour plugin icons stay static with dev warning).",
       "depends_on": "UP-068 (#64577) for plugin-declared SVG icons + Rune reduced-motion animation handling",
       "risks": "none",
       "workstream": "WS-6",
       "open_pr_note": "unmerged PR #230 (static SVG icon)",
-      "rune_pr": "#256"
+      "rune_pr": "#256, #273"
     },
     {
       "id": "UP-070",
@@ -2627,12 +2632,12 @@
       "summary": "Unify the keyboard focus ring token/rendering across all interactive controls, add missing `:focus-visible` states app-wide, and install Focus Rescue so removing a focused item moves focus to a neighbor.",
       "size": "XL",
       "status": "partly",
-      "status_evidence": "App-wide unified 2 pt focus ring (opencode_ui::focus::FocusExt), dark blue-400 border-focus across all themes (#262 e6fe564c), and Rune kit control rings (#1296 pinned in #265) are on dev; Settings layout cards, keyboard-only within-rings, focus_scope rescue, and overlay focus remain in WS-8.",
+      "status_evidence": "Unified 2 pt focus ring & dark blue-400 border-focus (#262 e6fe564c), Rune kit rings (#265/Rune #1296), settings mode cards / project swatches / project rows / sidebar pins (#269 2d05cd80), and disabled-control focus rescue (#282/Rune #1298) are live on dev; whole-row within-rings and field select rings remain in WS-8 (unblocked by Rune #1297 in #282). Note: Rune #1298 follow-up needed in RuntimeCore::fallback_in_new (focus.rs:570) so disabled controls inside rune::region_with (e.g. composer submit) also hand focus on instead of dropping to window.",
       "depends_on": "Rune focus-rescue / scope-based fallback focus API",
       "risks": "Must preserve Rune's existing accessibility tree, screen-reader announcements, and zero-allocation idle path.",
       "workstream": "WS-8",
       "open_pr_note": "unmerged PR #228 (partial; rune-kit offsets pending)",
-      "rune_pr": "#262, #265 (Rune #1296)"
+      "rune_pr": "#262, #265 (Rune #1296), #269, #282 (Rune #1298)"
     },
     {
       "id": "UP-089",
@@ -2731,7 +2736,7 @@
       "summary": "Show the composer's keyboard focus ring only when focus arrives via keyboard navigation or shortcuts, not on pointer clicks or mode toggles.",
       "size": "M",
       "status": "missing",
-      "status_evidence": "crates/session-view/src/composer/mod.rs and apps/desktop/src/shell/view/composer.rs do not track keyboard-vs-pointer focus handoff (`handOffFocus`/`handoffRing`).",
+      "status_evidence": "Rune #1297 (El::focus_visible_within_ring + Entry tracking) is now live on dev via #282 (ce53bfa4); WS-8 to wire composer frame & Home search keyboard-only rings and handOffFocus paths.",
       "depends_on": "UP-088 (#64909); Rune focus-visible / programmatic focus origin tracking",
       "risks": "none",
       "workstream": "WS-8"
@@ -2826,11 +2831,12 @@
       "summary": "Overhaul the desktop browser pane with one encrypted persistent profile, cookie import from 15 browsers + site chooser, remote partition/sharing, Settings > Browser, `oc-preview://` local/remote workspace & artifact previews, chat/terminal link routing + app-link review, full browser chrome (right-click, find, hard reload, pop-up blocking, notices, plain errors), in-app JS dialogs/permissions/HTTP auth, and hardened/upgraded agent browser tools (`tabs.open({ path })` replacing `browser.preview`, deep snapshots with field-value redaction, hidden screenshots, BuiltinPromptGate, deny rules, agent-driven tab isolation). (Chrome extensions tracked separately in UP-095-EXT under WS-9.)",
       "size": "XL",
       "status": "partly",
-      "status_evidence": "Rune has: out-of-process CEF 156 sidecar (`apps/browser-engine`, `crates/browser-pane`) with GPU frames on macOS/Windows/Linux (#107), per-app persistent profile, strict URL + canonical `file://` policy (`0b540fd8`), 22-method CDP allow-list (`a5a71a0d`), confined page downloads (`2832a9cd`/`344a2087`), site-info cookie count/clear, `@eN` picker, device toolbar (`#162`), and local `rune_mcp` `browser_*` tools. Missing: everything new in #63002 (cookie import/encryption/remote-sharing/passkey gate, Settings > Browser, `oc-preview://` local/remote/artifact scheme replacing `file://`, chat/terminal/OSC-8/app-link routing, page right-click/find/hard-reload/pop-ups/refusal-notices/host-elision/menu-reorg, in-app JS dialogs/permissions/HTTP auth/client-cert cancel, CRX3 extensions, upgraded agent tools/snapshots/hidden captures/prompt-gate/agent-driven tab safeguards). Full item-by-item gap in plan.md. Hardening landed in #239 (bf343867, shared browser-policy + Windows superscript device names) and #245 (5f83182b: --disable-extensions, per-session tab isolation, safe workspace root checks).",
+      "status_evidence": "WS-1 engine core: Phase 1 complete (#239 shared browser-policy, #245 session tab isolation/hardening, #268 CEF popups/permissions/JS dialogs/HTTP auth/client-cert/agent file-chooser + native Rune overlays, #272 CEF Find/context-menu/hard-reload/cache-clear/favicons/crash-log) and Phase 3a landed (#277 be1dd10d: shared isolated CefRequestContext pool, remote proxy/WebRTC/DoH/QUIC confinement, Ready { partitions, remote_proxy }); Phase 3b/3c (real OS cookie encryption/importer, passkey gate) in flight. UI, previews, RPC tools, and extensions are tracked separately as UP-095-UI, UP-095-PREVIEWS, UP-095-TOOLS, and UP-095-EXT.",
       "depends_on": "CEF engine updates + new signed browser engine publishes for macOS/Windows/Linux; Luau contract bump for Browser service; server `plugin-browser` alignment (or rune_mcp parity); Rune framework checks for extension popup anchoring",
       "risks": "HIGH SECURITY & ARCHITECTURE: (1) CEF OSR Alloy vs Chrome-runtime extension support spike required; (2) must NOT regress Rune's stricter URL/CDP/download security (`0b540fd8`, `a5a71a0d`, `344a2087`, `bb41d149`) and must address `no_sandbox: 1` (`engine.rs:100`); (3) cookie encryption is one-way; (4) `browser.preview` removal is breaking for scripts/prompts; (5) publishing signed macOS/Windows/Linux engines requires release signing keys and release workflow.",
       "workstream": "WS-1",
-      "open_pr_note": "unmerged PR #234 (partial: JS dialogs, snapshot, evaluate, wait)"
+      "open_pr_note": "unmerged PR #234 (partial: JS dialogs, snapshot, evaluate, wait)",
+      "rune_pr": "#239, #245, #268, #272, #277"
     },
     {
       "id": "UP-096",
@@ -2958,10 +2964,10 @@
       "summary": "Persist saved browser tabs so reopening the app shows saved tabs immediately and holds them cleanly while the browser engine loads them.",
       "size": "M",
       "status": "missing",
-      "status_evidence": "Verified on dev: Rune browser pane does not yet persist and restore saved browser tabs on reopen with a loading hold state.",
+      "status_evidence": "Reassigned to BROWSER-UI: purely UI/plugin tab persistence + loading hold in plugins/browser (browser-pane already holds pending_opens while CEF boots).",
       "depends_on": "UP-095 (#63002)",
       "risks": "Persisted browser tab restore state must use opencode-storage and survive downgrade cleanly.",
-      "workstream": "WS-1"
+      "workstream": "BROWSER-UI"
     },
     {
       "id": "UP-101",
@@ -3043,7 +3049,7 @@
       "summary": "Suppress the composer keyboard focus ring when focus returns to the already-active composer upon switching back to the app window.",
       "size": "S",
       "status": "missing",
-      "status_evidence": "Paired with UP-092 (#64976) keyboard-only composer focus ring in WS-8.",
+      "status_evidence": "Rune #1297 (WindowReturned focus event suppressing focus-visible ring on window return) is now live on dev via #282 (ce53bfa4); WS-8 to wire composer & Home search fields.",
       "depends_on": "UP-092 (#64976)",
       "risks": "none",
       "workstream": "WS-8"
@@ -3090,10 +3096,11 @@
       "summary": "Support Chrome extensions in the embedded browser pane: CRX3 store download + RSA/ECDSA signature and listing-ID check, import from other browsers, unpacked developer folder, permission review modal with one-use token, startup file-digest integrity check, toolbar Extensions button + anchored popups, core extension APIs, private-tab redaction, and ad-blocker startup wait.",
       "size": "XL",
       "status": "missing",
-      "status_evidence": "Split out of UP-095 (#63002) for dedicated WS-9 ownership; apps/browser-engine currently passes --disable-extensions (#245) until managed extension loading is built.",
+      "status_evidence": "Split from UP-095 (#63002) into WS-9. CEF 156 OSR private-pipe MV3 extension host, isolation, and CRX3 verification proved; PR #274 (apps/browser-engine/src/extensions/*) and PR #280 (crates/browser-extensions, 0 new third-party deps) open awaiting independent security review; Settings/toolbar UI follows.",
       "depends_on": "UP-095 (#63002 browser engine & settings hooks)",
       "risks": "CEF 156 OSR extension runtime constraints (popup APIs, service-worker shim, private-tab redaction, per-server isolation, and engine publishing).",
-      "workstream": "WS-9"
+      "workstream": "WS-9",
+      "open_pr_note": "PR #274 (ws9/pr1-engine-extensions) & PR #280 (ws9/pr2-browser-extensions-crate), open awaiting security review"
     },
     {
       "id": "UP-106",
@@ -3161,11 +3168,12 @@
       ],
       "summary": "Use 'sign-ins' wording instead of 'cookies' across browser import and site-data UI copy.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Tracked with Settings > Browser and browser chrome copy in BROWSER-UI.",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #270 (17194075) and #276 (c6bd83d0): plugins/browser/locales/en.json and settings.luau use upstream 'sign-ins' and 'Browser data' / 'Clear browsing data' copy across Settings > Browser and site data menus.",
       "depends_on": "UP-095 (#63002)",
       "risks": "none",
-      "workstream": "BROWSER-UI"
+      "workstream": "none",
+      "rune_pr": "#270, #276"
     },
     {
       "id": "UP-109",
@@ -3184,11 +3192,12 @@
       ],
       "summary": "Fetch/normalize site favicons and display each page's icon in its browser panel tab.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Browser tabs currently render a generic globe icon; requires CEF DisplayHandler::on_favicon_urlchange (WS-1) + safe icon decoding and tab icon rendering (BROWSER-UI).",
+      "status": "partly",
+      "status_evidence": "Engine-side favicon fetching (DisplayHandler::on_favicon_urlchange -> download_image PNG data URL <= 64 KiB, generation-guarded) and BrowserTab::favicon landed in WS-1 #272 (2b3d6e13); rendering per-tab site icons in the panel tab strip remains in BROWSER-UI.",
       "depends_on": "UP-095 (#63002)",
       "risks": "Red flag: gui-plugins/browser; favicon image decode must enforce size/format bounds.",
-      "workstream": "WS-1"
+      "workstream": "BROWSER-UI",
+      "rune_pr": "#272"
     },
     {
       "id": "UP-110",
@@ -3209,11 +3218,12 @@
       ],
       "summary": "Record structured diagnostics when a browser page renderer process terminates unexpectedly and surface the reason in error handling.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "CEF RequestHandler::on_render_process_terminated logs minimal info without structured page-log diagnostics.",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #272 (2b3d6e13): privacy-safe structured renderer crash & load-failure diagnostics (origin-only via log_origin, NTSTATUS exit code) in apps/browser-engine/src/diagnostics.rs appended off UI thread to browser-page.log for Export Logs (engine binary inert on macOS release 156.0.14.1 until next engine publish).",
       "depends_on": "UP-095 (#63002)",
       "risks": "Red flag: gui-plugins/browser; diagnostics must not leak page URLs or secrets to global logs.",
-      "workstream": "WS-1"
+      "workstream": "none",
+      "rune_pr": "#272"
     },
     {
       "id": "UP-111",
@@ -3232,11 +3242,12 @@
       ],
       "summary": "Tighten and shorten Settings > Browser row descriptions and labels.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Tracked with Settings > Browser page in BROWSER-UI.",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #270 (17194075) and #276 (c6bd83d0): shortened Settings > Browser labels and descriptions ('Open links in OpenCode', 'Open browser automatically', concise site permissions note) matching #65101.",
       "depends_on": "UP-095 (#63002)",
       "risks": "none",
-      "workstream": "BROWSER-UI"
+      "workstream": "none",
+      "rune_pr": "#270, #276"
     },
     {
       "id": "UP-112",
@@ -3256,11 +3267,12 @@
       ],
       "summary": "Open middle-clicked links inside the embedded browser pane as a new managed browser tab subject to URL policy.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Requires CEF LifeSpanHandler::on_before_popup / middle-click disposition routing into a managed browser tab (WS-1).",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #268 (52801613): LifeSpanHandler::on_before_popup + on_open_urlfrom_tab route middle-clicked links and user-activated HTTP(S) popups into policy-checked managed browser tabs in the opener's session (engine binary inert until next engine publish).",
       "depends_on": "UP-095 (#63002)",
       "risks": "Red flag: gui-plugins/browser; new-tab opens must pass browser-policy checks and inherit agent-tab isolation.",
-      "workstream": "WS-1"
+      "workstream": "none",
+      "rune_pr": "#268"
     },
     {
       "id": "UP-113",
@@ -3283,6 +3295,176 @@
       "depends_on": "none",
       "risks": "none",
       "workstream": "none"
+    },
+    {
+      "id": "UP-095-UI",
+      "window": "post-1114",
+      "pr": 63002,
+      "sha": "3aa3e133b6",
+      "title": "feat(desktop): browser pane UI, chrome polish, Settings > Browser, and app links [split from #63002]",
+      "merged": "2026-11-19",
+      "packages": [
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/browser/panel.tsx",
+        "packages/gui-plugins/src/browser/settings.tsx",
+        "packages/gui-plugins/src/browser/address.ts"
+      ],
+      "summary": "App-side browser chrome polish, refusal notices, plain errors, Find UI, Settings > Browser page, and chat/terminal link routing into the browser pane.",
+      "size": "L",
+      "status": "partly",
+      "rune_pr": "#270, #276",
+      "status_evidence": "Chrome polish, refusal notices + 500 ms guard, plain errors, Find UI, device toolbar (#270 17194075), and Settings > Browser with capability gating, live two-way sitePermissions sync, and search Advanced reveal (#276 c6bd83d0) landed on dev; chat/terminal/OSC-8 link routing remains in BROWSER-UI PR 3.",
+      "depends_on": "UP-095 (#63002)",
+      "risks": "Link routing must always delegate scheme/URL decisions to crates/browser-policy.",
+      "workstream": "BROWSER-UI"
+    },
+    {
+      "id": "UP-095-PREVIEWS",
+      "window": "post-1114",
+      "pr": 63002,
+      "sha": "3aa3e133b6",
+      "title": "feat(desktop): oc-preview:// scheme, isolated preview contexts, raw file:// ban, and Files/chat HTML preview routing [split from #63002]",
+      "merged": "2026-11-19",
+      "packages": [
+        "desktop",
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/browser/scheme.ts",
+        "packages/gui-plugins/src/browser/preview.ts",
+        "packages/gui-plugins/src/browser/disk/handle-path.ts"
+      ],
+      "summary": "Serve local, remote, and artifact previews through isolated per-preview CefRequestContexts and oc-preview:// with open-handle path verification, strict CSP/Connection-Allowlist, and raw file:// ban.",
+      "size": "XL",
+      "status": "missing",
+      "status_evidence": "Split from UP-095 (#63002) into PREVIEWS (threat model & 3-PR plan documented; PR #281 oc-preview:// engine scheme + isolated CefRequestContext open for review).",
+      "depends_on": "UP-095 (#63002)",
+      "risks": "Security-critical: symlink/TOCTOU, loopback/LAN/WebRTC exfiltration, credential isolation, raw file:// ban; requires newly published engine binary.",
+      "workstream": "PREVIEWS",
+      "open_pr_note": "PR #281 (previews/pr1-engine-scheme, open)"
+    },
+    {
+      "id": "UP-095-TOOLS",
+      "window": "post-1114",
+      "pr": 63002,
+      "sha": "3aa3e133b6",
+      "title": "feat(desktop): experimental.browser v4 RPC client, typed agent executors, PromptGate, and tunnel proxy [split from #63002]",
+      "merged": "2026-11-19",
+      "packages": [
+        "plugin-browser",
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/plugin-browser/src/tools.ts",
+        "packages/plugin-browser/src/rpc.ts",
+        "packages/plugin-browser/src/proxy-machine.ts"
+      ],
+      "summary": "Replace local rune_mcp browser tools on modern servers with pure-Rust experimental.browser v4 RPC client, 45 typed executors, <=1 s durable PromptGate, and authenticated remote tunnel proxy.",
+      "size": "XL",
+      "status": "partly",
+      "rune_pr": "#275",
+      "status_evidence": "Pure-Rust experimental.browser v4 RPC client, AttachMachine, authenticated half-open TunnelProxy, and browser-policy::agent landed in #275 (c397d0b9); navigation/read/act/profile executors, BuiltinPromptGate, and rune_mcp cutover follow in BROWSER-TOOLS PR 2-4.",
+      "depends_on": "UP-095 (#63002), PRE-08 (#63500)",
+      "risks": "Remote server attachment must fail closed until engine Ready.remote_proxy lands (WS-1 Phase 3a); older servers must keep full rune_mcp fallback.",
+      "workstream": "BROWSER-TOOLS"
+    },
+    {
+      "id": "UP-114",
+      "window": "post-1120",
+      "pr": 65100,
+      "sha": "10e26d9d6c",
+      "title": "fix(ui): show text field and line comment focus in high contrast mode",
+      "merged": "2026-11-20",
+      "packages": [
+        "app",
+        "session-ui",
+        "ui"
+      ],
+      "main_files": [
+        "packages/ui/src/forms/text-input/text-input.css",
+        "packages/ui/src/forms/textarea/textarea.css",
+        "packages/session-ui/src/components/line-comment-styles.ts",
+        "packages/app/src/session/timeline/search-bar.css",
+        "packages/app/src/shell/palette-menu.css",
+        "packages/app/src/shell/search-list.css"
+      ],
+      "summary": "Keep text field, search bar, palette search, and line-comment focus rings and borders visible under forced-colors / Windows High Contrast mode.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Rune maps Windows Contrast themes via opencode-ui::themes::contrast; text fields, search inputs, and line comment boxes need forced-colors border/invalid/focus-ring verification and parity.",
+      "depends_on": "UP-088 (#64909)",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-115",
+      "window": "post-1120",
+      "pr": 65120,
+      "sha": "f0df6070f9",
+      "title": "fix(app): recover child session permissions after reconnect",
+      "merged": "2026-11-20",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/session/requests/model.ts",
+        "packages/app/src/session/requests/session-request-tree.ts",
+        "packages/app/src/shell/titlebar/inbox-model.ts",
+        "packages/app/src/shell/titlebar/tab-strip.tsx"
+      ],
+      "summary": "Sync both permissions and forms across running descendants and any child session with cached requests on open, inactive tab poll, inbox settle, and reconnect.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Verified on dev: apps/desktop/src/session/meta/status.rs read_open_requests() only fetches running descendants (skipping idle children with stale cached requests), and poll() for inactive tabs/Inbox only fetches the root session id.",
+      "depends_on": "none",
+      "risks": "Must still avoid booting cold idle subagent locations that have no running work or cached requests.",
+      "workstream": "WS-4"
+    },
+    {
+      "id": "UP-116",
+      "window": "post-1120",
+      "pr": 65129,
+      "sha": "13efefcfd3",
+      "title": "fix(app): go back and forward with the mouse buttons on desktop",
+      "merged": "2026-11-20",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/shell/titlebar/titlebar.tsx"
+      ],
+      "summary": "Navigate back and forward through desktop route history when mouse Back/Forward side buttons are released.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Rune already maps mouse side buttons to PointerButton::Back and PointerButton::Forward (crates/rune/src/window.rs:762-763), and GoBack/GoForward exist in keymap, but apps/desktop does not handle PointerButton::Back/Forward yet.",
+      "depends_on": "none",
+      "risks": "Ensure embedded browser pane / pointer capture does not conflict with desktop history navigation.",
+      "workstream": "WS-2"
+    },
+    {
+      "id": "UP-117",
+      "window": "post-1120",
+      "pr": 65124,
+      "sha": "bfee96a859",
+      "title": "fix(browser): confirm before clearing browsing data",
+      "merged": "2026-11-20",
+      "packages": [
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/browser/jobs-machine.ts",
+        "packages/gui-plugins/src/browser/jobs.ts",
+        "packages/gui-plugins/src/browser/i18n/en.ts"
+      ],
+      "summary": "Require an explicit confirmation step before clearing browsing data in Settings > Browser.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Settings > Browser Clear browsing data (#276 c6bd83d0) currently clears immediately on button press without a confirmation prompt.",
+      "depends_on": "UP-095-UI (#63002)",
+      "risks": "none",
+      "workstream": "BROWSER-UI"
     }
   ]
 }

@@ -3,21 +3,18 @@
 //! Architecture & trust boundaries:
 //! - Starts Chromium with `--disable-extensions` (0 extensions) or
 //!   `--disable-extensions-except=<inert 100-byte stub manifests>` (>=1 extension), permanently
-//!   blocking Windows Registry (`external_registry_loader_win.cc`) and macOS/Linux external JSON
-//!   loaders while keeping `cef::initialize()` at ~170 ms.
+//!   blocking Windows Registry and macOS/Linux external JSON loaders while keeping
+//!   `cef::initialize()` at ~170 ms.
 //! - Full parallel hardware-accelerated SHA-256 tree verification runs concurrently with
-//!   `cef::initialize()`; verified extensions then upgrade asynchronously via
-//!   `Extensions.loadUnpacked` (DNR filter extensions first), while any tampered extension has its
-//!   inert stub immediately uninstalled and never runs.
-//! - Private anonymous OS pipe (`pipe.rs`: `bInheritHandle = FALSE` on Windows, `FD_CLOEXEC` +
-//!   reserved FDs 3/4 on Unix) pre-writes `Target.setAutoAttach(waitForDebuggerOnStart: true,
-//!   flatten: true)` before `cef::initialize()` — zero TCP ports, zero named pipes, uninheritable.
-//! - Only verified extension IDs receive `Runtime.addBinding("__ocExtCall")` and `shim.js`;
-//!   regular web tabs and isolated `CefRequestContext` tabs detach immediately; every
-//!   `Runtime.bindingCalled` additionally verifies `executionContextId`'s tracked origin equals
-//!   `chrome-extension://<ext_id>`.
-//! - Every shimmed RPC call and event subscription checks `rpc::is_api_allowed` against the
-//!   extension's verified manifest on the Rust side.
+//!   `cef::initialize()`; verified extensions parse `ExtensionManifest` from the exact hashed
+//!   bytes (zero re-read TOCTOU) and upgrade via `Extensions.loadUnpacked` (DNR filters first).
+//! - Private anonymous OS pipe (`pipe.rs`: `bInheritHandle = FALSE` on Windows, verified vacant
+//!   `FD_CLOEXEC` FDs 3/4 on Unix) with bounded inbound/outbound queues and non-blocking writes.
+//! - Every `Runtime.bindingCalled` requires verified default world (`isDefault == true`,
+//!   `type == "default"`, `origin == chrome-extension://<ext_id>`, and main frame on pages),
+//!   and `Page.frameNavigated` immediately detaches any page that navigates off-origin.
+//! - Every shimmed RPC method and event subscription enforces an exact allow-list, MV3
+//!   permission gates, agent-tab protection, and per-extension rate limits on the Rust side.
 
 #![deny(unsafe_code)]
 
@@ -30,18 +27,46 @@ mod rpc;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
-use std::time::Instant;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::Receiver;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use self::integrity::{StartupExtensions, VerifiedExtension, verify_extension_dir};
-use self::manifest::{ExtensionManifest, extension_label, extension_page_url, is_private_url};
-use self::pipe::CdpPipe;
+use self::integrity::{StartupExtensions, VerifiedExtension, verify_extension_dir_and_manifest};
+use self::manifest::{
+    ExtensionManifest, extension_label, extension_page_url, is_extension_scheme, is_private_url,
+};
+use self::pipe::{CdpPipe, PipeInbound};
 
 pub(super) const WINDOW_ID: i32 = 1;
 pub(super) const WINDOW_ID_CURRENT: i32 = -2;
 const SHIM_TEMPLATE: &str = include_str!("shim.js");
+
+/// Sliding-window per-extension rate limiter (blocks tab bombs and icon/resize floods).
+#[derive(Clone, Debug, Default)]
+pub(super) struct RateWindow {
+    stamps: VecDeque<Instant>,
+}
+
+impl RateWindow {
+    pub(super) fn allow(&mut self, now: Instant, window: Duration, max: usize) -> bool {
+        while self
+            .stamps
+            .front()
+            .is_some_and(|t| now.saturating_duration_since(*t) >= window)
+        {
+            self.stamps.pop_front();
+        }
+        if self.stamps.len() >= max {
+            return false;
+        }
+        self.stamps.push_back(now);
+        true
+    }
+}
 
 /// Effects the extension host asks `EngineManager` to perform on CEF browsers or the wire.
 #[derive(Debug)]
@@ -98,6 +123,7 @@ pub(super) struct ExtTab {
     pub title: String,
     pub loading: bool,
     pub active: bool,
+    pub agent_driven: bool,
     pub width: i32,
     pub height: i32,
     pub muted: bool,
@@ -110,12 +136,25 @@ pub(super) enum SessionKind {
     ExtensionPage,
     PopupPage,
     SeedProbe,
+    /// Extension dedicated/shared worker or extension iframe: receives ONLY `Fetch.enable`
+    /// (`file://*` blocker) and NEVER `__ocExtCall` or `shim.js`.
+    FileGuardOnly,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct ExecutionContextMeta {
+    pub origin: String,
+    pub is_default: bool,
+    pub ctx_type: String,
+    pub frame_id: Option<String>,
 }
 
 #[derive(Debug)]
 pub(super) struct AttachedSession {
     pub ext_id: String,
     pub kind: SessionKind,
+    pub main_frame_id: Option<String>,
+    pub last_popup_size: Option<(u32, u32)>,
     pub attach_started: Instant,
     pub pause_started: Option<Instant>,
     pub pending_shim_eval_id: Option<i64>,
@@ -179,7 +218,7 @@ pub(super) struct LoadedExt {
     pub boot_count: u64,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum ExpectedTarget {
     WebTab,
     Popup { ext_id: String },
@@ -196,15 +235,25 @@ pub(super) struct PendingRpc {
     pub args: Vec<Value>,
 }
 
+pub(super) struct ProbeInFlight {
+    pub probe_id: i64,
+    pub sid: String,
+    pub sent_at: Instant,
+    pub candidates: Vec<i32>,
+}
+
 pub struct ExtensionHost {
     pub(super) pipe: CdpPipe,
+    inbound_rx: Receiver<PipeInbound>,
+    wake_pending: Arc<AtomicBool>,
     next_cdp_id: i64,
     pub(super) extensions: HashMap<String, LoadedExt>,
     pub(super) verified_startup: HashMap<String, VerifiedExtension>,
+    pub(super) stub_dirs_by_id: HashMap<String, PathBuf>,
     pub(super) sessions: HashMap<String, AttachedSession>,
-    /// Tracks `(session_id, executionContextId) -> origin` from `Runtime.executionContextCreated`
-    /// so `Runtime.bindingCalled` only accepts calls from `chrome-extension://<ext_id>`.
-    pub(super) execution_contexts: HashMap<(String, i64), String>,
+    /// Tracks `(session_id, executionContextId) -> ExecutionContextMeta` (origin, isDefault,
+    /// type, frameId) so `Runtime.bindingCalled` only accepts verified default-world calls.
+    pub(super) execution_contexts: HashMap<(String, i64), ExecutionContextMeta>,
     pub(super) subscribers: HashMap<String, HashMap<String, HashSet<String>>>,
     pub(super) tabs: Vec<ExtTab>,
     pub(super) actions: HashMap<String, ActionState>,
@@ -216,24 +265,37 @@ pub struct ExtensionHost {
     pub(super) last_known_session_id: i32,
     pub(super) next_probe_id: i64,
     pub(super) pending_rpcs: Vec<PendingRpc>,
-    pub(super) probe_in_flight: Option<(i64, String)>,
+    pub(super) probe_in_flight: Option<ProbeInFlight>,
+    pub(super) failed_probe_sessions: HashSet<String>,
     pub(super) pending_startup_loads: HashMap<i64, String>,
     pub(super) pending_filter_ids: HashSet<String>,
     pub(super) filters_ready_emitted: bool,
     pub(super) queued_clicks: Vec<String>,
     pub(super) pending_uninstall_upgrade: HashMap<i64, String>,
+    pub(super) pending_stub_cleanup: HashMap<i64, String>,
     pub(super) pending_uninstall_cmd: HashMap<i64, String>,
     pub(super) pending_reload_cmd: HashMap<i64, String>,
+    pub(super) open_tab_rates: HashMap<String, RateWindow>,
+    pub(super) action_rates: HashMap<String, RateWindow>,
+    pub(super) popup_resize_rates: HashMap<String, RateWindow>,
     pub metrics: ShimMetrics,
 }
 
 impl ExtensionHost {
-    pub fn new(pipe: CdpPipe) -> Self {
+    pub fn new(
+        pipe: CdpPipe,
+        inbound_rx: Receiver<PipeInbound>,
+        wake_pending: Arc<AtomicBool>,
+        stub_dirs_by_id: HashMap<String, PathBuf>,
+    ) -> Self {
         Self {
             pipe,
+            inbound_rx,
+            wake_pending,
             next_cdp_id: 2, // id=1 was pre-written Target.setAutoAttach
             extensions: HashMap::new(),
             verified_startup: HashMap::new(),
+            stub_dirs_by_id,
             sessions: HashMap::new(),
             execution_contexts: HashMap::new(),
             subscribers: HashMap::new(),
@@ -248,25 +310,45 @@ impl ExtensionHost {
             next_probe_id: 1,
             pending_rpcs: Vec::new(),
             probe_in_flight: None,
+            failed_probe_sessions: HashSet::new(),
             pending_startup_loads: HashMap::new(),
             pending_filter_ids: HashSet::new(),
             filters_ready_emitted: false,
             queued_clicks: Vec::new(),
             pending_uninstall_upgrade: HashMap::new(),
+            pending_stub_cleanup: HashMap::new(),
             pending_uninstall_cmd: HashMap::new(),
             pending_reload_cmd: HashMap::new(),
+            open_tab_rates: HashMap::new(),
+            action_rates: HashMap::new(),
+            popup_resize_rates: HashMap::new(),
             metrics: ShimMetrics::default(),
         }
     }
 
+    /// Drains up to 64 inbound CDP pipe messages per pump tick plus checks probe timeouts.
+    pub fn drain_inbound(&mut self) -> Vec<ExtEffect> {
+        self.wake_pending.store(false, Ordering::Release);
+        let mut effects = Vec::new();
+        for _ in 0..64 {
+            match self.inbound_rx.try_recv() {
+                Ok(PipeInbound::Message(val)) => effects.extend(self.on_cdp_message(val)),
+                Ok(PipeInbound::FrameDropped) => effects.extend(self.on_frame_dropped()),
+                Ok(PipeInbound::Closed) => effects.extend(self.on_pipe_closed()),
+                Err(_) => break,
+            }
+        }
+        effects.extend(self.tick_timeouts());
+        effects
+    }
+
     /// Delivers the background parallel SHA-256 verification outcome once `cef::initialize()`
-    /// finishes: uninstalls inert stubs for tampered extensions, and asynchronously upgrades
-    /// verified extensions via `Extensions.loadUnpacked` (DNR filter extensions first).
+    /// finishes: upgrades & uninstalls inert stubs for tampered extensions, and asynchronously
+    /// upgrades verified extensions via `Extensions.loadUnpacked` (DNR filter extensions first).
     pub fn on_startup_verified(&mut self, startup: StartupExtensions) -> Vec<ExtEffect> {
         let mut effects = Vec::new();
         for bad_id in startup.rejected_ids {
-            // Remove the inert exemption stub from Chromium immediately.
-            let _ = self.send_cdp("Extensions.uninstall", json!({ "id": bad_id }), None);
+            self.uninstall_inert_stub(&bad_id);
             effects.push(ExtEffect::IntegrityFailed { ext_id: bad_id });
         }
 
@@ -283,6 +365,7 @@ impl ExtensionHost {
             }
             self.verified_startup.insert(id.clone(), item.clone());
             self.register_extension(id.clone(), item.dir, item.sha256, item.manifest, false, false);
+            crate::context::disallow_extension_file_access(&id);
             let cmd_id = self.send_cdp("Extensions.loadUnpacked", json!({ "path": path_str }), None);
             self.pending_startup_loads.insert(cmd_id, id);
         }
@@ -292,6 +375,18 @@ impl ExtensionHost {
             effects.push(ExtEffect::FiltersReady);
         }
         effects
+    }
+
+    /// Upgrades a `kCommandLine` inert stub dir to `kUnpacked` so `Extensions.uninstall` removes
+    /// it cleanly (Chromium rejects `Extensions.uninstall` directly on `kCommandLine` extensions).
+    pub(super) fn uninstall_inert_stub(&mut self, bad_id: &str) {
+        if let Some(stub_dir) = self.stub_dirs_by_id.get(bad_id).cloned() {
+            let path_str = stub_dir.to_string_lossy().into_owned();
+            let cid = self.send_cdp("Extensions.loadUnpacked", json!({ "path": path_str }), None);
+            self.pending_stub_cleanup.insert(cid, bad_id.to_owned());
+        } else {
+            let _ = self.send_cdp("Extensions.uninstall", json!({ "id": bad_id }), None);
+        }
     }
 
     pub fn filters_ready(&self) -> bool {
@@ -360,7 +455,11 @@ impl ExtensionHost {
             && !is_private_url(&tab.url)
             && let Some(ext) = self.extensions.get(ext_id).cloned()
         {
-            let info = self.tab_json(&tab, &ext.manifest, true);
+            // Reveal active tab URL/title on toolbar click ONLY if the extension has `activeTab`
+            // (and never reveal another extension's `chrome-extension://` page; `review-rd274.md` §6).
+            let reveal_via_active_tab =
+                ext.manifest.has_permission("activeTab") && !is_extension_scheme(&tab.url);
+            let info = self.tab_json(&tab, &ext.manifest, reveal_via_active_tab);
             self.emit_event("action.onClicked", vec![info], Some(ext_id));
         }
         Vec::new()
@@ -379,9 +478,7 @@ impl ExtensionHost {
             let id = self.send_cdp("Extensions.uninstall", json!({ "id": ext_id }), None);
             self.pending_uninstall_cmd.insert(id, ext_id.to_owned());
         } else {
-            // Re-verify tree digest before upgrading kCommandLine -> kUnpacked so a tampered dir
-            // can never be re-loaded during an uninstall.
-            if !verify_extension_dir(&ext.dir, ext_id, &ext.sha256) {
+            if verify_extension_dir_and_manifest(&ext.dir, ext_id, &ext.sha256).is_none() {
                 return vec![ExtEffect::ExtensionUninstalled {
                     ext_id: ext_id.to_owned(),
                     ok: false,
@@ -396,7 +493,9 @@ impl ExtensionHost {
     }
 
     /// Runtime reload / re-enable of a previously verified startup-exempt extension by ID.
-    /// Never accepts arbitrary filesystem paths over IPC; re-verifies SHA-256 tree digest first.
+    /// Re-verifies SHA-256 tree digest & parses manifest from hashed bytes, pre-registers
+    /// `ext_id` BEFORE `Extensions.loadUnpacked` so `Target.attachedToTarget` never detaches the
+    /// reloaded service worker unshimmed (`review-rd274.md` §7).
     pub fn reload_extension(&mut self, ext_id: &str) -> Vec<ExtEffect> {
         let Some(item) = self.verified_startup.get(ext_id).cloned() else {
             return vec![ExtEffect::ExtensionReloaded {
@@ -405,14 +504,16 @@ impl ExtensionHost {
                 error: Some("Extension was not exempted at engine startup; restart required.".into()),
             }];
         };
-        if !verify_extension_dir(&item.dir, &item.id, &item.sha256) {
+        let Some(manifest) = verify_extension_dir_and_manifest(&item.dir, &item.id, &item.sha256) else {
             return vec![ExtEffect::ExtensionReloaded {
                 ext_id: ext_id.to_owned(),
                 ok: false,
                 error: Some("Extension integrity digest mismatch.".into()),
             }];
-        }
+        };
         let path_str = item.dir.to_string_lossy().into_owned();
+        self.register_extension(item.id.clone(), item.dir, item.sha256, manifest, true, false);
+        crate::context::disallow_extension_file_access(&item.id);
         let id = self.send_cdp("Extensions.loadUnpacked", json!({ "path": path_str }), None);
         self.pending_reload_cmd.insert(id, item.id);
         Vec::new()
@@ -435,9 +536,15 @@ impl ExtensionHost {
     }
 
     /// Pops the last pushed expected target if `cef::browser_host_create_browser_sync` returned
-    /// `None`, keeping the target queue synchronized.
+    /// `None` or `browser.host()` failed, keeping the target queue synchronized.
     pub fn cancel_expected_target(&mut self) {
         let _ = self.expected_targets.pop_back();
+    }
+
+    pub fn set_tab_agent_driven(&mut self, engine_tab_id: u64, agent_driven: bool) {
+        if let Some(tab) = self.tabs.iter_mut().find(|t| t.engine_tab_id == engine_tab_id) {
+            tab.agent_driven = agent_driven;
+        }
     }
 
     pub fn on_tab_opened(
@@ -460,6 +567,7 @@ impl ExtensionHost {
             title: String::new(),
             loading: true,
             active,
+            agent_driven: false,
             width,
             height,
             muted: false,
@@ -511,14 +619,16 @@ impl ExtensionHost {
             && !is_private_url(url)
         {
             self.emit_tab_updated(&tab_clone, json!({ "url": url }), true);
-            self.emit_event(
-                "webNavigation.onCommitted",
-                vec![json!({
-                    "tabId": cid, "url": url, "processId": 0, "frameId": 0, "parentFrameId": -1,
-                    "transitionType": "link", "transitionQualifiers": [], "timeStamp": now_ms(),
-                })],
-                None,
-            );
+            if !is_extension_scheme(url) {
+                self.emit_event(
+                    "webNavigation.onCommitted",
+                    vec![json!({
+                        "tabId": cid, "url": url, "processId": 0, "frameId": 0, "parentFrameId": -1,
+                        "transitionType": "link", "transitionQualifiers": [], "timeStamp": now_ms(),
+                    })],
+                    None,
+                );
+            }
         }
     }
 
@@ -548,7 +658,7 @@ impl ExtensionHost {
         if let Some(cid) = tab_clone.chromium_tab_id {
             let status = if loading { "loading" } else { "complete" };
             self.emit_tab_updated(&tab_clone, json!({ "status": status }), false);
-            if !loading && !is_private_url(&tab_clone.url) {
+            if !loading && !is_private_url(&tab_clone.url) && !is_extension_scheme(&tab_clone.url) {
                 self.emit_event(
                     "webNavigation.onCompleted",
                     vec![json!({
@@ -611,7 +721,9 @@ impl ExtensionHost {
         let sids: Vec<String> = self
             .sessions
             .iter()
-            .filter(|(_, s)| s.shimmed && s.kind != SessionKind::SeedProbe)
+            .filter(|(_, s)| {
+                s.shimmed && !matches!(s.kind, SessionKind::SeedProbe | SessionKind::FileGuardOnly)
+            })
             .map(|(sid, _)| sid.clone())
             .collect();
         let msg = json!({ "kind": "active_tab", "tabId": cid });
@@ -650,6 +762,27 @@ impl ExtensionHost {
             id,
             LoadedExt { dir, sha256, manifest, is_unpacked, loaded, boot_count: 0 },
         );
+    }
+
+    pub(super) fn allow_open_tab(&mut self, ext_id: &str) -> bool {
+        self.open_tab_rates
+            .entry(ext_id.to_owned())
+            .or_default()
+            .allow(Instant::now(), Duration::from_secs(10), 8)
+    }
+
+    pub(super) fn allow_action_update(&mut self, ext_id: &str) -> bool {
+        self.action_rates
+            .entry(ext_id.to_owned())
+            .or_default()
+            .allow(Instant::now(), Duration::from_secs(1), 30)
+    }
+
+    pub(super) fn allow_popup_resize(&mut self, ext_id: &str) -> bool {
+        self.popup_resize_rates
+            .entry(ext_id.to_owned())
+            .or_default()
+            .allow(Instant::now(), Duration::from_secs(1), 30)
     }
 
     pub(super) fn alloc_id(&mut self) -> i64 {

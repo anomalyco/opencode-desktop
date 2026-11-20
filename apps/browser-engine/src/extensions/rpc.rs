@@ -10,40 +10,120 @@ use base64::Engine as _;
 use serde_json::{Value, json};
 
 use super::manifest::{
-    ExtensionManifest, closest_icon, extension_page_url, glob_match, is_private_url, matches_host,
-    read_icon_data_url,
+    ExtensionManifest, closest_icon, extension_id_from_url, extension_label, extension_page_url,
+    glob_match, is_extension_scheme, is_private_url, matches_host, read_icon_data_url,
 };
 use super::png::rgba_to_png_data_url;
 use super::{ExtEffect, ExtTab, ExtensionHost, WINDOW_ID, WINDOW_ID_CURRENT};
 
-/// Trust gate enforced in Rust before every shimmed method call and event subscription
-/// (matching upstream `extension-api/host.ts:83,101` — never relies on `shim.js`).
-pub(super) fn is_api_allowed(manifest: &ExtensionManifest, name: &str) -> bool {
+const MAX_NAV_URL_BYTES: usize = 8192;
+
+/// Exact finite allow-list of supported shimmed event names (prevents unbounded `subscribers` OOM;
+/// `review-rd274.md` §4).
+pub(super) fn is_supported_event(name: &str) -> bool {
+    matches!(
+        name,
+        "tabs.onCreated"
+            | "tabs.onRemoved"
+            | "tabs.onUpdated"
+            | "tabs.onActivated"
+            | "windows.onCreated"
+            | "windows.onRemoved"
+            | "windows.onFocusChanged"
+            | "action.onClicked"
+            | "webNavigation.onBeforeNavigate"
+            | "webNavigation.onCommitted"
+            | "webNavigation.onDOMContentLoaded"
+            | "webNavigation.onCompleted"
+            | "contextMenus.onClicked"
+            | "notifications.onClicked"
+            | "notifications.onClosed"
+            | "commands.onCommand"
+    )
+}
+
+pub(super) fn is_event_allowed(manifest: &ExtensionManifest, name: &str) -> bool {
+    if !is_supported_event(name) {
+        return false;
+    }
     let required: Option<&str> = if name.starts_with("webNavigation.") {
         Some("webNavigation")
     } else if name.starts_with("contextMenus.") {
         Some("contextMenus")
     } else if name.starts_with("notifications.") {
         Some("notifications")
-    } else if name.starts_with("cookies.") {
-        Some("cookies")
-    } else if name.starts_with("sidePanel.") {
-        Some("sidePanel")
-    } else if name.starts_with("fontSettings.") {
-        Some("fontSettings")
-    } else if name.starts_with("privacy.") {
-        Some("privacy")
-    } else if name.starts_with("tabs.")
-        || name.starts_with("windows.")
-        || name.starts_with("action.")
-        || name.starts_with("permissions.")
-        || name.starts_with("commands.")
-        || name.starts_with("extension.")
-        || name == "runtime.openOptionsPage"
-    {
-        None
     } else {
-        return false;
+        None
+    };
+    required.is_none_or(|perm| manifest.has_permission(perm))
+}
+
+/// Exact method allow-list enforced in Rust before every shimmed RPC call (`review-rd274.md` §4).
+pub(super) fn is_api_allowed(manifest: &ExtensionManifest, name: &str) -> bool {
+    let required: Option<&str> = match name {
+        "webNavigation.getFrame" | "webNavigation.getAllFrames" => Some("webNavigation"),
+        "contextMenus.create"
+        | "contextMenus.update"
+        | "contextMenus.remove"
+        | "contextMenus.removeAll" => Some("contextMenus"),
+        "notifications.create"
+        | "notifications.update"
+        | "notifications.clear"
+        | "notifications.getAll"
+        | "notifications.getPermissionLevel" => Some("notifications"),
+        "cookies.getAllCookieStores" | "cookies.getPartitionKey" => Some("cookies"),
+        "sidePanel.setOptions"
+        | "sidePanel.getOptions"
+        | "sidePanel.setPanelBehavior"
+        | "sidePanel.getPanelBehavior"
+        | "sidePanel.open"
+        | "sidePanel.close" => Some("sidePanel"),
+        "fontSettings.getFontList"
+        | "fontSettings.getFont"
+        | "fontSettings.setFont"
+        | "fontSettings.clearFont" => Some("fontSettings"),
+        "tabs.query"
+        | "tabs.get"
+        | "tabs.getCurrent"
+        | "tabs.create"
+        | "tabs.update"
+        | "tabs.remove"
+        | "tabs.reload"
+        | "tabs.highlight"
+        | "windows.get"
+        | "windows.getCurrent"
+        | "windows.getLastFocused"
+        | "windows.getAll"
+        | "windows.create"
+        | "windows.update"
+        | "windows.remove"
+        | "action.setTitle"
+        | "action.getTitle"
+        | "action.setIcon"
+        | "action.setPopup"
+        | "action.getPopup"
+        | "action.setBadgeText"
+        | "action.getBadgeText"
+        | "action.setBadgeBackgroundColor"
+        | "action.getBadgeBackgroundColor"
+        | "action.setBadgeTextColor"
+        | "action.getBadgeTextColor"
+        | "action.enable"
+        | "action.disable"
+        | "action.isEnabled"
+        | "action.getUserSettings"
+        | "action.openPopup"
+        | "permissions.getAll"
+        | "permissions.contains"
+        | "permissions.request"
+        | "permissions.remove"
+        | "commands.getAll"
+        | "extension.isAllowedFileSchemeAccess"
+        | "extension.isAllowedIncognitoAccess"
+        | "extension.setUpdateUrlData"
+        | "runtime.openOptionsPage" => None,
+        other if other.starts_with("privacy.") && other.len() <= 96 => Some("privacy"),
+        _ => return false,
     };
     required.is_none_or(|perm| manifest.has_permission(perm))
 }
@@ -82,31 +162,38 @@ impl ExtensionHost {
             }
             "tabs.getCurrent" => Ok(Value::Null),
             "tabs.create" => {
-                let opts = args.first().and_then(Value::as_object);
-                let active = opts.and_then(|o| o.get("active")).and_then(Value::as_bool).unwrap_or(true);
-                let raw_url = opts.and_then(|o| o.get("url")).and_then(Value::as_str).unwrap_or("about:blank");
-                match resolve_extension_nav_url(ext_id, raw_url) {
-                    Ok(url) => {
-                        effects.push(ExtEffect::OpenTab {
-                            ext_id: ext_id.to_owned(),
-                            url,
-                            active,
-                            reply_to: Some((sid.to_owned(), req_id, ext_id.to_owned())),
-                        });
-                        return effects;
+                if !self.allow_open_tab(ext_id) {
+                    Err("Too many tabs opened by this extension.".into())
+                } else {
+                    let opts = args.first().and_then(Value::as_object);
+                    let active = opts.and_then(|o| o.get("active")).and_then(Value::as_bool).unwrap_or(true);
+                    let raw_url = opts.and_then(|o| o.get("url")).and_then(Value::as_str).unwrap_or("about:blank");
+                    match resolve_extension_nav_url(ext_id, raw_url) {
+                        Ok(url) => {
+                            effects.push(ExtEffect::OpenTab {
+                                ext_id: ext_id.to_owned(),
+                                url,
+                                active,
+                                reply_to: Some((sid.to_owned(), req_id, ext_id.to_owned())),
+                            });
+                            return effects;
+                        }
+                        Err(e) => Err(e),
                     }
-                    Err(e) => Err(e),
                 }
             }
             "tabs.update" => self.rpc_tabs_update(sid, ext_id, req_id, &ext.manifest, args, &mut effects),
             "tabs.remove" => {
                 let ids: Vec<i32> = match args.first() {
                     Some(Value::Number(n)) => n.as_i64().map(|v| vec![v as i32]).unwrap_or_default(),
-                    Some(Value::Array(arr)) => arr.iter().filter_map(|v| v.as_i64().map(|n| n as i32)).collect(),
+                    Some(Value::Array(arr)) => arr.iter().take(16).filter_map(|v| v.as_i64().map(|n| n as i32)).collect(),
                     _ => Vec::new(),
                 };
                 for cid in ids {
                     if let Some(t) = self.tabs.iter().find(|t| t.chromium_tab_id == Some(cid)) {
+                        if t.agent_driven {
+                            continue;
+                        }
                         effects.push(ExtEffect::CloseTab { engine_tab_id: t.engine_tab_id });
                     }
                 }
@@ -124,20 +211,24 @@ impl ExtensionHost {
                     None => self.tabs.iter().find(|t| t.active),
                 };
                 if let Some(t) = tab {
-                    effects.push(ExtEffect::ReloadTab { engine_tab_id: t.engine_tab_id, ignore_cache });
-                    Ok(Value::Null)
+                    if t.agent_driven {
+                        Err("Extensions cannot reload agent-driven tabs.".into())
+                    } else {
+                        effects.push(ExtEffect::ReloadTab { engine_tab_id: t.engine_tab_id, ignore_cache });
+                        Ok(Value::Null)
+                    }
                 } else {
                     Err("No tab to reload.".into())
                 }
             }
             "tabs.highlight" => {
-                let cid = args
+                let idx_opt = args
                     .first()
                     .and_then(|v| v.get("tabs"))
-                    .and_then(|t| t.as_i64().or_else(|| t.as_array()?.first()?.as_i64()))
-                    .map(|n| n as i32);
-                if let Some(cid) = cid
-                    && let Some(t) = self.tabs.iter().find(|t| t.chromium_tab_id == Some(cid))
+                    .and_then(|t| t.as_u64().or_else(|| t.as_array()?.first()?.as_u64()))
+                    .map(|n| n as usize);
+                if let Some(idx) = idx_opt
+                    && let Some(t) = self.tabs.get(idx)
                 {
                     effects.push(ExtEffect::FocusTab { engine_tab_id: t.engine_tab_id });
                 }
@@ -161,22 +252,26 @@ impl ExtensionHost {
                 Ok(Value::Array(vec![self.window_json(&ext.manifest, populate)]))
             }
             "windows.create" => {
-                let url = args
-                    .first()
-                    .and_then(|v| v.get("url"))
-                    .and_then(|u| u.as_str().or_else(|| u.as_array()?.first()?.as_str()))
-                    .unwrap_or("about:blank");
-                match resolve_extension_nav_url(ext_id, url) {
-                    Ok(u) => {
-                        effects.push(ExtEffect::OpenTab {
-                            ext_id: ext_id.to_owned(),
-                            url: u,
-                            active: true,
-                            reply_to: None,
-                        });
-                        Ok(self.window_json(&ext.manifest, true))
+                if !self.allow_open_tab(ext_id) {
+                    Err("Too many tabs opened by this extension.".into())
+                } else {
+                    let url = args
+                        .first()
+                        .and_then(|v| v.get("url"))
+                        .and_then(|u| u.as_str().or_else(|| u.as_array()?.first()?.as_str()))
+                        .unwrap_or("about:blank");
+                    match resolve_extension_nav_url(ext_id, url) {
+                        Ok(u) => {
+                            effects.push(ExtEffect::OpenTab {
+                                ext_id: ext_id.to_owned(),
+                                url: u,
+                                active: true,
+                                reply_to: None,
+                            });
+                            Ok(self.window_json(&ext.manifest, true))
+                        }
+                        Err(e) => Err(e),
                     }
-                    Err(e) => Err(e),
                 }
             }
             "windows.update" => {
@@ -193,7 +288,9 @@ impl ExtensionHost {
             n if n.starts_with("action.") => self.rpc_action(ext_id, &ext.dir, &ext.manifest, n, args, &mut effects),
 
             "runtime.openOptionsPage" => {
-                if let Some(page) = ext.manifest.options_page.as_deref()
+                if !self.allow_open_tab(ext_id) {
+                    Err("Too many tabs opened by this extension.".into())
+                } else if let Some(page) = ext.manifest.options_page.as_deref()
                     && let Some(url) = extension_page_url(ext_id, page)
                 {
                     effects.push(ExtEffect::OpenTab {
@@ -214,6 +311,7 @@ impl ExtensionHost {
                 if fid == 0
                     && let Some(t) = tid.and_then(|id| self.tabs.iter().find(|t| t.chromium_tab_id == Some(id)))
                     && !is_private_url(&t.url)
+                    && (!is_extension_scheme(&t.url) || extension_id_from_url(&t.url) == Some(ext_id))
                 {
                     Ok(json!({ "url": t.url, "errorOccurred": false, "processId": 0, "frameId": 0, "parentFrameId": -1 }))
                 } else {
@@ -224,6 +322,7 @@ impl ExtensionHost {
                 let tid = args.first().and_then(|v| v.get("tabId")).and_then(Value::as_i64).map(|n| n as i32);
                 if let Some(t) = tid.and_then(|id| self.tabs.iter().find(|t| t.chromium_tab_id == Some(id)))
                     && !is_private_url(&t.url)
+                    && (!is_extension_scheme(&t.url) || extension_id_from_url(&t.url) == Some(ext_id))
                 {
                     Ok(json!([{ "url": t.url, "errorOccurred": false, "processId": 0, "frameId": 0, "parentFrameId": -1 }]))
                 } else {
@@ -260,8 +359,8 @@ impl ExtensionHost {
                 let id = args
                     .first()
                     .and_then(Value::as_str)
+                    .map(extension_label)
                     .filter(|s| !s.is_empty())
-                    .map(str::to_owned)
                     .unwrap_or_else(|| format!("n-{}", self.alloc_id()));
                 Ok(Value::String(id))
             }
@@ -283,14 +382,19 @@ impl ExtensionHost {
                 let ok_perms = req
                     .and_then(|o| o.get("permissions"))
                     .and_then(Value::as_array)
-                    .is_none_or(|arr| arr.iter().filter_map(Value::as_str).all(|p| ext.manifest.has_permission(p)));
+                    .is_none_or(|arr| {
+                        arr.iter()
+                            .all(|v| v.as_str().is_some_and(|p| ext.manifest.has_permission(p)))
+                    });
                 let ok_origins = req
                     .and_then(|o| o.get("origins"))
                     .and_then(Value::as_array)
                     .is_none_or(|arr| {
-                        arr.iter()
-                            .filter_map(Value::as_str)
-                            .all(|o| ext.manifest.hosts.iter().any(|h| h == o || h == "<all_urls>" || h == "*://*/*"))
+                        arr.iter().all(|v| {
+                            v.as_str().is_some_and(|o| {
+                                ext.manifest.hosts.iter().any(|h| h == o || h == "<all_urls>" || h == "*://*/*")
+                            })
+                        })
                     });
                 Ok(Value::Bool(ok_perms && ok_origins))
             }
@@ -358,6 +462,14 @@ impl ExtensionHost {
         let Some(idx) = target_idx else {
             return Err("No tab to update.".into());
         };
+        if self.tabs[idx].agent_driven {
+            return Err("Extensions cannot modify agent-driven tabs.".into());
+        }
+        if is_extension_scheme(&self.tabs[idx].url)
+            && extension_id_from_url(&self.tabs[idx].url) != Some(ext_id)
+        {
+            return Err("Extensions cannot navigate another extension's page.".into());
+        }
         let engine_tab_id = self.tabs[idx].engine_tab_id;
         if let Some(ch) = change {
             if let Some(raw_url) = ch.get("url").and_then(Value::as_str) {
@@ -387,6 +499,9 @@ impl ExtensionHost {
     ) -> Result<Value, String> {
         match name {
             "action.setTitle" => {
+                if !self.allow_action_update(ext_id) {
+                    return Ok(Value::Null);
+                }
                 let title: String = args
                     .first()
                     .and_then(|v| v.get("title"))
@@ -413,6 +528,9 @@ impl ExtensionHost {
                 Ok(Value::String(title))
             }
             "action.setIcon" => {
+                if !self.allow_action_update(ext_id) {
+                    return Ok(Value::Null);
+                }
                 let tid = arg_tab_id(args.first());
                 if let Some(url) = args.first().and_then(|d| resolve_action_icon(dir, d)) {
                     self.actions.entry(ext_id.to_owned()).or_default().apply(tid, |a| a.icon = Some(url));
@@ -452,6 +570,9 @@ impl ExtensionHost {
                 Ok(Value::String(extension_page_url(ext_id, &rel).unwrap_or_default()))
             }
             "action.setBadgeText" => {
+                if !self.allow_action_update(ext_id) {
+                    return Ok(Value::Null);
+                }
                 let text: String = args
                     .first()
                     .and_then(|v| v.get("text"))
@@ -726,6 +847,9 @@ fn resolve_action_icon(dir: &Path, details: &Value) -> Option<String> {
 
 fn resolve_extension_nav_url(ext_id: &str, raw: &str) -> Result<String, String> {
     let trimmed = raw.trim();
+    if trimmed.len() > MAX_NAV_URL_BYTES {
+        return Err("URL exceeds maximum allowed length.".into());
+    }
     if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("about:blank") {
         return Ok("about:blank".into());
     }

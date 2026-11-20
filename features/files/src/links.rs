@@ -235,34 +235,34 @@ pub fn open_reply_link(host: &mut dyn FilesHost, href: &str, tx: &mut Tx) {
     // A new session's page: no side panel to open a file in.
     let draft_dir = host.draft_directory().to_owned();
     let home = host.home_directory().to_owned();
+    let is_file_uri = href.trim().get(..5).is_some_and(|s| s.eq_ignore_ascii_case("file:"));
     match classify(href, "", &draft_dir, &home) {
-        Link::Web(url) => open_web(host, &url, tx),
+        Link::Web(_) => open_web(host, None, href, false, tx),
         Link::Heading(_) => {}
-        Link::Inside { path, .. } => {
+        Link::Inside { path, .. } if !is_file_uri => {
             let abs = format!("{}/{path}", draft_dir.trim_end_matches('/'));
             open_outside_file(host, &abs);
         }
-        Link::Outside { path } => open_outside_file(host, &path),
+        Link::Outside { path } if !is_file_uri => open_outside_file(host, &path),
+        Link::Inside { .. } | Link::Outside { .. } => {}
     }
 }
 
-/// A middle click on `href`: a web or mail address opens in its app, as Desktop's anchor does
-/// (`target="_blank"`, which its window-open handler hands to `openExternalURL`, http, https and
-/// mailto only). A file link has no address there (`markdown-cache.tsx` drops its `href`), and
-/// no plugin's link handler hears it, so it does nothing.
+/// A middle click on `href`: routes web and mail addresses through browser URL policy (always
+/// external for valid `http:`/`https:`, mail client for safe `mailto:`, copy-only for `mailto:`
+/// with attachment params, never `file:` or credentialed URLs).
 fn open_middle_link(host: &mut dyn FilesHost, href: &str, tx: &mut Tx) {
     let web = ["http:", "https:", "mailto:"]
         .iter()
         .any(|s| href.get(..s.len()).is_some_and(|p| p.eq_ignore_ascii_case(s)));
     if web {
-        open_web(host, href, tx);
+        let sid = host.active_session_id().map(str::to_owned);
+        open_web(host, sid.as_deref(), href, false, tx);
     }
 }
 
-fn open_web(host: &mut dyn FilesHost, url: &str, tx: &mut Tx) {
-    if host.is_live() {
-        host.open_external(url, tx);
-    }
+fn open_web(host: &mut dyn FilesHost, sid: Option<&str>, url: &str, from_file: bool, tx: &mut Tx) {
+    host.route_web_link(sid, url, from_file, tx);
 }
 
 /// Follows `href` clicked in session `sid`'s timeline, or in its file `from` (`Some`) rendered
@@ -277,8 +277,9 @@ pub fn open_link(host: &mut dyn FilesHost, sid: &str, from: Option<&str>, href: 
     let base = from.map_or("", opencode_kit::path::parent);
     let dir = link_directory(host, sid);
     let home = host.home_directory().to_owned();
+    let is_file_uri = href.trim().get(..5).is_some_and(|s| s.eq_ignore_ascii_case("file:"));
     match classify(href, base, &dir, &home) {
-        Link::Web(url) => open_web(host, &url, tx),
+        Link::Web(_) => open_web(host, Some(sid), href, from.is_some(), tx),
         Link::Heading(h) => {
             if let Some(f) = from {
                 markdown::scroll_to_heading(host, sid, f, &h, tx);
@@ -289,7 +290,7 @@ pub fn open_link(host: &mut dyn FilesHost, sid: &str, from: Option<&str>, href: 
                 markdown::scroll_to_heading(host, sid, &path, &h, tx);
             }
         }
-        Link::Inside { path, .. } if host.opens_as_page(&path) => {
+        Link::Inside { path, lines, .. } if lines.is_none() && host.opens_as_page(&path) => {
             let url = format!(
                 "file://{}",
                 opencode_kit::path::encode_path(&opencode_kit::path::absolute(&dir, &path))
@@ -297,7 +298,9 @@ pub fn open_link(host: &mut dyn FilesHost, sid: &str, from: Option<&str>, href: 
             host.open_page_tab(sid, &url);
         }
         Link::Inside { path, lines, heading } => open_file_link(host, sid, &path, lines, heading, tx),
-        Link::Outside { path } => open_outside_file(host, &path),
+        Link::Outside { path } if !is_file_uri => open_outside_file(host, &path),
+        // Never hand a raw `file://` URL outside the workspace to the OS shell (`ours.md` §4).
+        Link::Outside { .. } => {}
     }
 }
 

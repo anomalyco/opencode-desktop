@@ -15,6 +15,9 @@
 
 #![forbid(unsafe_code)]
 
+mod app_links;
+pub use app_links::{AppSchemeAction, AppSchemeSource, classify_app_link};
+
 /// Why a navigation was refused (`policy.ts:68-83`, `chromium.ts:442`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Refusal {
@@ -91,7 +94,7 @@ pub fn is_windows_device_name(stem: &str) -> bool {
     if matches!(prefix.as_str(), "com" | "lpt")
         && let Some(digit) = chars.next()
         && chars.next().is_none()
-        && matches!(digit, '1'..='9' | '\u{00B9}' | '\u{00B2}' | '\u{00B3}')
+        && matches!(digit, '0'..='9' | '\u{00B9}' | '\u{00B2}' | '\u{00B3}')
     {
         return true;
     }
@@ -203,6 +206,10 @@ pub fn subresource_allowed(url: &str, roots: &[String]) -> bool {
     !is_file_scheme(url) || file_url_within(url, roots)
 }
 
+mod agent;
+
+pub use agent::{check_typed_cdp, extension_origin, extension_page_refusal, matches_url};
+
 /// Validates a DevTools Protocol call against the 22-method allow-list: 17 protocol calls used by
 /// OpenCode Desktop's fixed actions (`packages/gui-plugins/src/browser/chromium.ts:592,796-880,
 /// 912,938,974,1003,1026,1205,1267-1389,1469-1484,1698-1722`) plus 5 read-only `DOM` inspection
@@ -221,7 +228,6 @@ pub fn check_cdp(method: &str, params: &serde_json::Value, engine_has_policy: bo
         | "DOM.enable"
         | "DOM.getDocument"
         | "DOM.describeNode"
-        | "DOM.resolveNode"
         | "DOM.getBoxModel"
         | "DOM.getContentQuads"
         | "DOM.scrollIntoViewIfNeeded"
@@ -236,7 +242,9 @@ pub fn check_cdp(method: &str, params: &serde_json::Value, engine_has_policy: bo
         | "Page.captureScreenshot"
         | "Page.handleJavaScriptDialog"
         | "Runtime.releaseObject" => Ok(()),
-        "Runtime.evaluate" | "Runtime.callFunctionOn" => check_runtime_params(method, params),
+        "DOM.resolveNode" | "Runtime.evaluate" | "Runtime.callFunctionOn" => {
+            check_runtime_params(method, params)
+        }
         "Input.dispatchKeyEvent" => check_key_params(params),
         _ => Err(format!("DevTools method '{method}' is not permitted in the built-in browser.")),
     }
@@ -248,6 +256,15 @@ fn check_runtime_params(method: &str, params: &serde_json::Value) -> Result<(), 
         && v != &serde_json::Value::Bool(false)
     {
         return Err(format!("DevTools method '{method}' cannot enable includeCommandLineAPI."));
+    }
+    // Reject explicit V8 execution-context targeting so agent tools can never jump into an
+    // extension content script's isolated world (`review-rd274.md` §1).
+    for field in ["contextId", "executionContextId", "uniqueContextId"] {
+        if params.get(field).is_some_and(|v| !v.is_null()) {
+            return Err(format!(
+                "DevTools method '{method}' cannot target explicit execution contexts ('{field}')."
+            ));
+        }
     }
     Ok(())
 }

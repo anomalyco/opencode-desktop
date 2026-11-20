@@ -549,7 +549,8 @@ fn page_actions(app: &App, p: &Pal, i: usize, spec: &opencode_plugin_spec::Setti
 }
 
 fn page_body(app: &App, p: &Pal, i: usize, spec: &opencode_plugin_spec::SettingsPageSpec, f: &Function) -> El {
-    render(app, p, i, &format!("page:{}", spec.id), f, map([("target", Data::Nil)]))
+    let target = crate::settings::search::revealed_target(app).map(str::to_owned);
+    render(app, p, i, &format!("page:{}", spec.id), f, map([("target", target.map_or(Data::Nil, Data::String))]))
 }
 
 /// The settings pages plugins add on host page `page` (`general`, `servers`), as sections of

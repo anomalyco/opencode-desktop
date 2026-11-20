@@ -187,7 +187,7 @@ fn open_artifact_menu(
     tx: &mut Tx,
 ) {
     tx.instant();
-    let menu = artifact_menu(host, source, previewable, rendered);
+    let menu = artifact_menu(host, path, source, previewable, rendered);
     let (sid, at, name) = (sid.to_owned(), path.to_owned(), name.to_owned());
     host.open_context_menu(
         menu,
@@ -211,6 +211,7 @@ fn open_artifact_menu(
                     }
                 }
                 Some("mode") => markdown::toggle_rendered(h, &sid, &at, tx),
+                Some("open-browser") => crate::ops::open_html_in_browser(h, &sid, &at),
                 Some("reveal") => h.open_in_reveal(&at),
                 Some("copy") => {
                     if let Some(full) = h.open_in_path(&at) {
@@ -316,7 +317,7 @@ fn open_in_apps_menu(host: &dyn FilesHost) -> Menu {
 }
 
 /// The `...` menu's rows.
-fn artifact_menu(host: &dyn FilesHost, source: bool, previewable: bool, rendered: bool) -> Menu {
+fn artifact_menu(host: &dyn FilesHost, path: &str, source: bool, previewable: bool, rendered: bool) -> Menu {
     let mut menu = Menu::new(opencode_i18n::t!("plugin.file.view.actions"))
         .min_width(160.0)
         .align(Align::End);
@@ -330,6 +331,9 @@ fn artifact_menu(host: &dyn FilesHost, source: bool, previewable: bool, rendered
             opencode_i18n::t!("plugin.file.view.viewPreview")
         };
         menu = menu.item(Item::new("mode", label));
+    }
+    if host.opens_as_page(path) {
+        menu = menu.item(Item::new("open-browser", opencode_i18n::t!("plugin.file.view.openInBrowser")));
     }
     if host.can_open_in() {
         menu = menu.item(Item::new(

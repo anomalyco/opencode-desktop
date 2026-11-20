@@ -19,10 +19,13 @@ use std::fmt::Write as _;
 use validate::{validate_anim, validate_group, validate_root, validate_shape};
 
 /// Hard caps protecting the UI thread and `IconPool` from hostile or oversized plugin SVGs.
+/// Numbers match Rune's backstop caps (`rune-text::icon::anim::parse`) 1:1; this validator
+/// refuses first with plugin, icon, and attribute diagnostics.
 pub const MAX_SVG_BYTES: usize = 32 * 1024;
 pub const MAX_DEPTH: usize = 16;
 pub const MAX_ELEMENTS: usize = 128;
 pub const MAX_SHAPES: usize = 64;
+pub const MAX_LAYERS: usize = 8;
 pub const MAX_ANIMATIONS: usize = 16;
 pub const MAX_PATH_BYTES: usize = 16 * 1024;
 pub const MAX_PATH_COMMANDS: usize = 1024;
@@ -35,6 +38,13 @@ pub(super) const MIN_VIEW_DIM: f32 = 1.0;
 pub(super) const MAX_VIEW_DIM: f32 = 4096.0;
 pub(super) const MIN_DUR_SECS: f32 = 0.016;
 pub(super) const MAX_CLOCK_SECS: f32 = 3600.0;
+pub(super) const MAX_REPEAT_COUNT: f32 = 10_000.0;
+pub(super) const MAX_COORD: f32 = 4096.0;
+pub(super) const MAX_STROKE_WIDTH: f32 = 256.0;
+pub(super) const MAX_SCALE: f32 = 64.0;
+pub(super) const MAX_SKEW_DEG: f32 = 85.0;
+pub(super) const MIN_SPLINE_Y: f32 = -4.0;
+pub(super) const MAX_SPLINE_Y: f32 = 5.0;
 
 /// Canonicalized safe icon ready for [`crate::icons::intern_icon`].
 #[derive(Clone, Debug)]
@@ -42,6 +52,9 @@ pub struct SanitizedIcon {
     pub view: f32,
     pub body: String,
     pub animated: bool,
+    /// True when the body paints explicit hex colours (`fill="#..."` / `stroke="#..."`);
+    /// Rune renders multi-colour icons statically even if they declare SMIL tags.
+    pub is_color: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -139,6 +152,7 @@ pub fn sanitize(svg: &str) -> Result<SanitizedIcon, String> {
     let mut stack: Vec<(&str, TagKind)> = Vec::new();
     let mut elements = 0usize;
     let mut shapes = 0usize;
+    let mut layers = 0usize;
     let mut animations = 0usize;
     let mut saw_root = false;
     let mut view_side = 16.0f32;
@@ -221,6 +235,12 @@ pub fn sanitize(svg: &str) -> Result<SanitizedIcon, String> {
                     }
                     TagKind::Group => {
                         let kept = validate_group(&attrs)?;
+                        if kept.iter().any(|(k, v)| *k == "opacity" && v.parse::<f32>().is_ok_and(|o| o < 1.0)) {
+                            layers += 1;
+                            if layers > MAX_LAYERS {
+                                return Err(format!("SVG exceeds opacity layer limit ({MAX_LAYERS})"));
+                            }
+                        }
                         body.push_str("<g");
                         emit_attrs(&mut body, &kept);
                         if self_closing {
@@ -274,7 +294,8 @@ pub fn sanitize(svg: &str) -> Result<SanitizedIcon, String> {
     if shapes == 0 {
         return Err("SVG draws no geometry".into());
     }
-    Ok(SanitizedIcon { view: view_side, body, animated: animations > 0 })
+    let is_color = ["fill=\"#", "stroke=\"#", "stop-color=\"#"].iter().any(|p| body.contains(p));
+    Ok(SanitizedIcon { view: view_side, body, animated: animations > 0, is_color })
 }
 
 fn classify_tag(name: &str) -> Result<TagKind, String> {

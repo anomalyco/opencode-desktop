@@ -47,7 +47,7 @@ impl BrowserHost {
         crate::frame::draw(page, &tab.surface)
             .surface_anchor(Align::Start, Align::Start)
             .surface_unscaled(true)
-            .on_layout(move |s: &mut S, [_x, _y, w, h]| {
+            .on_layout(move |s: &mut S, [x, y, w, h]| {
                 let width_pt = (w * z).max(1.0);
                 let height_pt = (h * z).max(1.0);
                 let sc = scale.max(1.0);
@@ -56,6 +56,8 @@ impl BrowserHost {
                 let connected = host.is_connected();
                 let mut should_send = false;
                 if let Some(t) = host.tabs.iter_mut().find(|t| t.id == tab_id) {
+                    t.surface_origin = (x, y);
+                    t.view_zoom = z;
                     t.viewport_pt = (width_pt, height_pt);
                     t.scale = sc;
                     let changed = t.sent_resize.is_none_or(|(pw, ph, ps)| {

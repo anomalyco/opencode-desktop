@@ -60,9 +60,16 @@ fn entries(s: &dyn SettingsHost) -> Vec<Entry> {
         if c.has_keys || out.iter().any(|e| e.id == c.id) {
             continue;
         }
-        let keybind = overrides::command(c.id).cloned().or_else(|| c.chord.map(Keybind::from)).unwrap_or_default();
+        let stored = overrides::command(c.id).cloned();
+        // A hidden command isn't listed (`keybinds.tsx`), unless the user bound it: then, as
+        // Desktop lists any stored binding it has no command for, under its id.
+        if c.hidden && stored.is_none() {
+            continue;
+        }
+        let keybind = stored.or_else(|| c.chord.map(Keybind::from)).unwrap_or_default();
         let section = c.section.unwrap_or_else(|| group_for(c.id));
-        out.push(Entry { id: c.id.to_owned(), title: c.title, section, keybind });
+        let title = if c.hidden { c.id.to_owned() } else { c.title };
+        out.push(Entry { id: c.id.to_owned(), title, section, keybind });
     }
     out
 }

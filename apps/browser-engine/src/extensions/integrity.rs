@@ -1,26 +1,18 @@
 //! Hardware-accelerated parallel SHA-256 tree digest verification and inert-stub exemption builder.
 //!
-//! Matches upstream `packages/gui-plugins/src/browser/profile/integrity.ts`:
-//! - Strips `_metadata` (Chromium's compiled DNR rules cache) before hashing.
-//! - Walks recursively (depth <= 64, <= 10,000 entries, <= 64 MiB per file, <= 256 MiB total).
-//! - Refuses any symlink or non-regular file/directory.
-//! - Re-checks file length after reading (detects concurrent growth/mutation).
-//! - Captures `manifest.json` bytes during the hash walk so the derived key ID is checked against
-//!   the exact bytes that were hashed (zero re-read / zero TOCTOU between digest and key check).
-//! - Hashes sorted JSON records `["dir"]` and `["rel/path","<sha256>"]` joined by `\n`.
-//!
-//! Fast-boot architecture:
-//! - Before `cef::initialize()`, `prepare_startup_stubs` validates only each candidate's small
-//!   `manifest.json` (MV3 + key derives `id`) and emits a 100-byte inert stub manifest (0 perms,
-//!   0 scripts, 0 DNR rules) for `--disable-extensions-except` so Chromium starts in ~170 ms with
-//!   0 registry scans.
-//! - Full parallel SHA-256 tree verification runs on a background thread concurrently with
-//!   `cef::initialize()`; verified extensions then load via `Extensions.loadUnpacked`, while any
-//!   tampered extension has its inert stub uninstalled immediately and never loads.
+//! Security invariants:
+//! - Strips `_metadata` (refusing symlinks) before hashing.
+//! - Walks recursively (`depth <= 64`, `<= 10,000` entries, `<= 64 MiB` per file, `<= 256 MiB` total),
+//!   opens every file with `O_NOFOLLOW` + `(dev, ino)` verification on Unix and `Read::take`,
+//!   re-checks length after read, and fails closed if any worker thread panics.
+//! - Parses `ExtensionManifest` strictly from the exact hashed `manifest.json` bytes (zero
+//!   post-verification re-read TOCTOU) and refuses MV2 / themes / disallowed native permissions.
+//! - Uses a comma-free stub directory path so `--disable-extensions-except` never splits on commas.
 
 #![forbid(unsafe_code)]
 
-use std::fs::File;
+use std::collections::HashMap;
+use std::fs::{File, OpenOptions};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -29,7 +21,9 @@ use base64::Engine as _;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-use crate::extensions::manifest::{ExtensionManifest, is_valid_ext_id};
+use crate::extensions::manifest::{
+    DISALLOWED_REQUIRED_PERMS, ExtensionManifest, is_valid_ext_id,
+};
 
 const MAX_DEPTH: usize = 64;
 const MAX_ENTRIES: usize = 10_000;
@@ -51,6 +45,7 @@ pub struct ExtensionCandidate {
 pub struct PreparedStartup {
     pub stub_root: Option<PathBuf>,
     pub stub_dirs: Vec<PathBuf>,
+    pub stub_dirs_by_id: HashMap<String, PathBuf>,
     pub candidates: Vec<ExtensionCandidate>,
     pub pre_rejected_ids: Vec<String>,
 }
@@ -71,6 +66,48 @@ pub struct StartupExtensions {
     pub rejected_ids: Vec<String>,
 }
 
+/// Opens a regular non-symlink file (`O_NOFOLLOW` + `(dev, ino)` check on Unix).
+pub(crate) fn open_regular_no_follow(path: &Path) -> Option<(File, u64)> {
+    let lmeta = std::fs::symlink_metadata(path).ok()?;
+    if !lmeta.is_file() || lmeta.file_type().is_symlink() {
+        return None;
+    }
+    let mut opts = OpenOptions::new();
+    opts.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        opts.custom_flags(libc::O_NOFOLLOW);
+    }
+    let file = opts.open(path).ok()?;
+    let fmeta = file.metadata().ok()?;
+    if !fmeta.is_file() {
+        return None;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        if fmeta.dev() != lmeta.dev() || fmeta.ino() != lmeta.ino() {
+            return None;
+        }
+    }
+    Some((file, fmeta.len()))
+}
+
+/// Reads a regular non-symlink file with a hard byte cap (`Read::take(max_bytes + 1)`).
+pub(crate) fn read_regular_file_bounded(path: &Path, max_bytes: u64) -> Option<Vec<u8>> {
+    let (file, size) = open_regular_no_follow(path)?;
+    if size > max_bytes {
+        return None;
+    }
+    let mut buf = Vec::with_capacity((size as usize).min(1024 * 1024));
+    file.take(max_bytes.saturating_add(1)).read_to_end(&mut buf).ok()?;
+    if buf.len() as u64 > max_bytes {
+        return None;
+    }
+    Some(buf)
+}
+
 pub fn parse_spec(raw: &str) -> Option<ExtensionCandidate> {
     let (id, rest) = raw.split_once(':')?;
     let (sha, dir_str) = rest.split_once(':')?;
@@ -84,17 +121,28 @@ pub fn parse_spec(raw: &str) -> Option<ExtensionCandidate> {
     })
 }
 
-/// Fast (<1 ms) pre-CEF preparation: reads only each candidate's `manifest.json` (MV3 + key -> id),
-/// rejecting malformed/MV2/mismatched specs up front, and writes a 100-byte inert stub manifest
-/// (zero permissions, zero scripts, zero DNR) per valid candidate so `--disable-extensions-except`
-/// registers their exact IDs in Chromium's exemption set without delaying `cef::initialize()`.
+/// Fast (<1 ms) pre-CEF preparation: reads only each candidate's `manifest.json` (MV3, key -> id,
+/// and no disallowed required permissions) and emits a 100-byte inert stub manifest (0 perms,
+/// 0 scripts, 0 DNR) in a comma-free user-only directory for `--disable-extensions-except`.
 pub fn prepare_startup_stubs(specs: &[String], profile_root: &Path) -> PreparedStartup {
     sweep_stale_stubs(profile_root);
     let parsed: Vec<ExtensionCandidate> = specs.iter().filter_map(|s| parse_spec(s)).collect();
     if parsed.is_empty() {
         return PreparedStartup::default();
     }
-    let stub_root = profile_root.join(format!("{STUB_PREFIX}{}", std::process::id()));
+    // Chromium splits `--disable-extensions-except` on commas; fall back to temp dir if needed.
+    let base_parent = if profile_root.to_string_lossy().contains(',') {
+        std::env::temp_dir()
+    } else {
+        profile_root.to_path_buf()
+    };
+    let stub_root = base_parent.join(format!("{STUB_PREFIX}{}", std::process::id()));
+    if stub_root.to_string_lossy().contains(',') {
+        return PreparedStartup {
+            pre_rejected_ids: parsed.into_iter().map(|c| c.id).collect(),
+            ..PreparedStartup::default()
+        };
+    }
     let mut out = PreparedStartup::default();
     for cand in parsed {
         let Some((version, key)) = read_mv3_stub_fields(&cand.dir, &cand.id) else {
@@ -106,6 +154,12 @@ pub fn prepare_startup_stubs(specs: &[String], profile_root: &Path) -> PreparedS
             out.pre_rejected_ids.push(cand.id);
             continue;
         }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let _ = std::fs::set_permissions(&stub_root, std::fs::Permissions::from_mode(0o700));
+            let _ = std::fs::set_permissions(&stub_dir, std::fs::Permissions::from_mode(0o700));
+        }
         let stub = json!({
             "manifest_version": 3,
             "name": "_",
@@ -116,7 +170,8 @@ pub fn prepare_startup_stubs(specs: &[String], profile_root: &Path) -> PreparedS
             out.pre_rejected_ids.push(cand.id);
             continue;
         }
-        out.stub_dirs.push(stub_dir);
+        out.stub_dirs.push(stub_dir.clone());
+        out.stub_dirs_by_id.insert(cand.id.clone(), stub_dir);
         out.candidates.push(cand);
     }
     if !out.stub_dirs.is_empty() {
@@ -155,19 +210,22 @@ fn read_mv3_stub_fields(dir: &Path, expected_id: &str) -> Option<(String, String
     if !dir_meta.is_dir() || dir_meta.file_type().is_symlink() {
         return None;
     }
-    let manifest_path = dir.join("manifest.json");
-    let m_meta = std::fs::symlink_metadata(&manifest_path).ok()?;
-    if !m_meta.is_file() || m_meta.file_type().is_symlink() || m_meta.len() > MAX_MANIFEST_BYTES {
-        return None;
-    }
-    let bytes = std::fs::read(&manifest_path).ok()?;
-    if bytes.len() as u64 > MAX_MANIFEST_BYTES {
-        return None;
-    }
+    let bytes = read_regular_file_bounded(&dir.join("manifest.json"), MAX_MANIFEST_BYTES)?;
     let text = std::str::from_utf8(&bytes).ok()?;
     let val: Value = serde_json::from_str(text.trim_start_matches('\u{feff}')).ok()?;
     let obj = val.as_object()?;
     if obj.get("manifest_version")?.as_u64()? != 3 {
+        return None;
+    }
+    if obj.get("theme").is_some_and(|v| !v.is_null()) {
+        return None;
+    }
+    if let Some(perms) = obj.get("permissions").and_then(Value::as_array)
+        && perms
+            .iter()
+            .filter_map(Value::as_str)
+            .any(|p| DISALLOWED_REQUIRED_PERMS.contains(&p))
+    {
         return None;
     }
     let version = obj.get("version")?.as_str()?.to_owned();
@@ -178,13 +236,12 @@ fn read_mv3_stub_fields(dir: &Path, expected_id: &str) -> Option<(String, String
     Some((version, key))
 }
 
-/// Cryptographically verifies all startup candidates in parallel (per-file hardware SHA-256).
+/// Cryptographically verifies all startup candidates in parallel (per-file hardware SHA-256),
+/// parsing each manifest directly from the exact hashed `manifest.json` bytes (zero re-read).
 pub fn verify_candidates_parallel(candidates: Vec<ExtensionCandidate>) -> StartupExtensions {
     let mut out = StartupExtensions::default();
     for cand in candidates {
-        if verify_extension_dir(&cand.dir, &cand.id, &cand.sha256)
-            && let Some(manifest) = ExtensionManifest::read(&cand.dir)
-        {
+        if let Some(manifest) = verify_extension_dir_and_manifest(&cand.dir, &cand.id, &cand.sha256) {
             out.verified.push(VerifiedExtension {
                 id: cand.id,
                 sha256: cand.sha256,
@@ -198,39 +255,37 @@ pub fn verify_candidates_parallel(candidates: Vec<ExtensionCandidate>) -> Startu
     out
 }
 
-/// Verifies `dir` against `expected_id` (derived from the hashed `manifest.json` `key`) and
-/// `expected_sha256`. Strips `_metadata` first (Chromium's compiled DNR cache is never trusted).
-pub fn verify_extension_dir(dir: &Path, expected_id: &str, expected_sha256: &str) -> bool {
+/// Verifies `dir` against `expected_id` and `expected_sha256`, then parses `ExtensionManifest`
+/// directly from the exact hashed `manifest.json` bytes (zero post-verify re-read TOCTOU).
+pub fn verify_extension_dir_and_manifest(
+    dir: &Path,
+    expected_id: &str,
+    expected_sha256: &str,
+) -> Option<ExtensionManifest> {
     if !is_valid_ext_id(expected_id) || !is_hex_sha256(expected_sha256) {
-        return false;
+        return None;
     }
-    let Ok(root_meta) = std::fs::symlink_metadata(dir) else {
-        return false;
-    };
+    let root_meta = std::fs::symlink_metadata(dir).ok()?;
     if !root_meta.is_dir() || root_meta.file_type().is_symlink() {
-        return false;
+        return None;
     }
-    // Strip Chromium's compiled DNR rules cache before hashing (upstream `profile/index.ts:239`).
-    // Refuse immediately if `_metadata` was replaced with a symlink.
     let metadata_dir = dir.join("_metadata");
     if let Ok(meta) = std::fs::symlink_metadata(&metadata_dir) {
         if meta.file_type().is_symlink() {
-            return false;
+            return None;
         }
-        if std::fs::remove_dir_all(&metadata_dir).is_err() {
-            return false;
-        }
+        std::fs::remove_dir_all(&metadata_dir).ok()?;
     }
-    let Some((actual_digest, manifest_bytes)) = extension_tree_digest_and_manifest(dir) else {
-        return false;
+    let (actual_digest, Some(manifest_bytes)) = extension_tree_digest_and_manifest(dir)? else {
+        return None;
     };
-    if !constant_time_eq(actual_digest.as_bytes(), expected_sha256.as_bytes()) {
-        return false;
+    if !constant_time_eq(actual_digest.as_bytes(), expected_sha256.to_ascii_lowercase().as_bytes()) {
+        return None;
     }
-    let Some(bytes) = manifest_bytes else {
-        return false;
-    };
-    derive_id_from_manifest_bytes(&bytes).as_deref() == Some(expected_id)
+    if derive_id_from_manifest_bytes(&manifest_bytes).as_deref() != Some(expected_id) {
+        return None;
+    }
+    ExtensionManifest::from_verified_bytes(dir, &manifest_bytes)
 }
 
 struct FileJob {
@@ -371,9 +426,16 @@ pub fn extension_tree_digest_and_manifest(root: &Path) -> Option<(String, Option
                     })
                 })
                 .collect();
-            handles.into_iter().filter_map(|h| h.join().ok()).collect()
+            let mut out = Vec::with_capacity(handles.len());
+            for h in handles {
+                match h.join() {
+                    Ok(partial) => out.push(partial),
+                    Err(_) => failed.store(true, Ordering::Relaxed),
+                }
+            }
+            out
         });
-        if failed.load(Ordering::Relaxed) {
+        if failed.load(Ordering::Relaxed) || partials.len() != workers {
             return None;
         }
         for (mut local, mbytes) in partials {
@@ -391,18 +453,17 @@ pub fn extension_tree_digest_and_manifest(root: &Path) -> Option<(String, Option
 }
 
 fn hash_file_job(job: &FileJob, chunk: &mut [u8]) -> Option<(String, Option<Vec<u8>>)> {
-    let mut file = File::open(&job.path).ok()?;
-    let info = file.metadata().ok()?;
-    let size = info.len();
-    if !info.is_file() || size != job.size || size > MAX_FILE_BYTES {
+    let (file, size) = open_regular_no_follow(&job.path)?;
+    if size != job.size || size > MAX_FILE_BYTES {
         return None;
     }
     let mut hasher = Sha256::new();
     let mut read_total: u64 = 0;
     let mut captured = (job.is_root_manifest && size <= MAX_MANIFEST_BYTES)
         .then(|| Vec::with_capacity(size as usize));
+    let mut limited = (&file).take(size.saturating_add(1));
     loop {
-        let n = file.read(chunk).ok()?;
+        let n = limited.read(chunk).ok()?;
         if n == 0 {
             break;
         }
@@ -459,7 +520,7 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     diff == 0
 }
 
-pub fn to_hex(bytes: &[u8]) -> String {
+fn to_hex(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut out = String::with_capacity(bytes.len() * 2);
     for &b in bytes {

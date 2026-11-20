@@ -20,8 +20,8 @@
 //!   `@import` reference, arbitrary CSS properties in `style`, and unknown attributes.
 
 use super::{
-    AnimKind, MAX_CLOCK_SECS, MAX_DASH_ENTRIES, MAX_KEYFRAMES, MAX_PATH_BYTES, MAX_PATH_COMMANDS, MAX_POINTS_NUMBERS, MAX_TRANSFORM_OPS, MAX_VIEW_DIM, MIN_DASH_SUM, MIN_DUR_SECS, MIN_VIEW_DIM,
-    PRESENTATION_ATTRS, ShapeKind,
+    AnimKind, MAX_CLOCK_SECS, MAX_COORD, MAX_DASH_ENTRIES, MAX_KEYFRAMES, MAX_PATH_BYTES, MAX_PATH_COMMANDS, MAX_POINTS_NUMBERS, MAX_REPEAT_COUNT, MAX_SCALE, MAX_SKEW_DEG, MAX_SPLINE_Y,
+    MAX_STROKE_WIDTH, MAX_TRANSFORM_OPS, MAX_VIEW_DIM, MIN_DASH_SUM, MIN_DUR_SECS, MIN_SPLINE_Y, MIN_VIEW_DIM, PRESENTATION_ATTRS, ShapeKind,
 };
 
 enum Pres {
@@ -275,7 +275,7 @@ pub(super) fn validate_anim(kind: AnimKind, attrs: &[(&str, String)]) -> Result<
             }
             "begin" => {
                 let secs = parse_clock(val)?;
-                if !(0.0..=MAX_CLOCK_SECS).contains(&secs) {
+                if !(-MAX_CLOCK_SECS..=MAX_CLOCK_SECS).contains(&secs) {
                     return Err(format!("begin {val:?} out of bounds on <{tag}>"));
                 }
                 out.push(("begin", format!("{secs}s")));
@@ -286,7 +286,7 @@ pub(super) fn validate_anim(kind: AnimKind, attrs: &[(&str, String)]) -> Result<
                     out.push(("repeatCount", "indefinite".to_owned()));
                 } else {
                     let n = parse_finite(t)?;
-                    if !(0.001..=10_000.0).contains(&n) {
+                    if !(0.001..=MAX_REPEAT_COUNT).contains(&n) {
                         return Err(format!("invalid repeatCount {val:?} on <{tag}>"));
                     }
                     out.push(("repeatCount", fmt_num(n)));
@@ -311,28 +311,41 @@ pub(super) fn validate_anim(kind: AnimKind, attrs: &[(&str, String)]) -> Result<
                 out.push(("additive", val.clone()));
             }
             "values" => {
-                let parts: Vec<&str> = val.split(';').map(str::trim).filter(|s| !s.is_empty()).collect();
-                if parts.is_empty() || parts.len() > MAX_KEYFRAMES {
-                    return Err(format!("values count out of bounds on <{tag}>"));
-                }
-                let mut clean = Vec::with_capacity(parts.len());
-                for p in parts {
+                let mut clean = Vec::new();
+                for (raw_count, p) in val.split(';').enumerate() {
+                    if raw_count > MAX_KEYFRAMES {
+                        return Err(format!("values count out of bounds on <{tag}>"));
+                    }
+                    let p = p.trim();
+                    if p.is_empty() {
+                        continue;
+                    }
+                    if clean.len() >= MAX_KEYFRAMES {
+                        return Err(format!("values count out of bounds on <{tag}>"));
+                    }
                     let nums = parse_numbers(p, 3)?;
-                    if nums.is_empty() {
+                    if nums.is_empty() || nums.iter().any(|&n| n.abs() > 36_000.0) {
                         return Err(format!("invalid keyframe value {p:?} on <{tag}>"));
                     }
                     clean.push(nums.iter().map(|&n| fmt_num(n)).collect::<Vec<_>>().join(" "));
                 }
+                if clean.is_empty() {
+                    return Err(format!("empty values on <{tag}>"));
+                }
                 has_values_or_to = true;
                 out.push(("values", clean.join(";")));
             }
-            "from" | "to" => {
+            "from" | "to" | "by" => {
                 let nums = parse_numbers(val, 3)?;
-                if nums.is_empty() {
+                if nums.is_empty() || nums.iter().any(|&n| n.abs() > 36_000.0) {
                     return Err(format!("invalid {name} {val:?} on <{tag}>"));
                 }
-                let key = if *name == "from" { "from" } else { "to" };
-                if key == "to" {
+                let key = match *name {
+                    "from" => "from",
+                    "to" => "to",
+                    _ => "by",
+                };
+                if key != "from" {
                     has_values_or_to = true;
                 }
                 out.push((key, nums.iter().map(|&n| fmt_num(n)).collect::<Vec<_>>().join(" ")));
@@ -360,7 +373,12 @@ pub(super) fn validate_anim(kind: AnimKind, attrs: &[(&str, String)]) -> Result<
                 let mut clean = Vec::with_capacity(parts.len());
                 for p in parts {
                     let nums = parse_numbers(p, 4)?;
-                    if nums.len() != 4 || !(0.0..=1.0).contains(&nums[0]) || !(0.0..=1.0).contains(&nums[2]) {
+                    if nums.len() != 4
+                        || !(0.0..=1.0).contains(&nums[0])
+                        || !(0.0..=1.0).contains(&nums[2])
+                        || !(MIN_SPLINE_Y..=MAX_SPLINE_Y).contains(&nums[1])
+                        || !(MIN_SPLINE_Y..=MAX_SPLINE_Y).contains(&nums[3])
+                    {
                         return Err(format!("invalid keySplines segment {p:?} on <{tag}>"));
                     }
                     clean.push(nums.iter().map(|&n| fmt_num(n)).collect::<Vec<_>>().join(" "));
@@ -383,7 +401,7 @@ fn validate_presentation(tag: &str, name: &str, val: &str) -> Result<Pres, Strin
     };
     let v = match canon {
         "fill" | "stroke" | "color" => validate_paint(tag, canon, val)?,
-        "stroke-width" => fmt_num(parse_length(val, 0.0, 256.0).map_err(|e| format!("invalid stroke-width on <{tag}>: {e}"))?),
+        "stroke-width" => fmt_num(parse_length(val, 0.0, MAX_STROKE_WIDTH).map_err(|e| format!("invalid stroke-width on <{tag}>: {e}"))?),
         "stroke-miterlimit" => fmt_num(parse_length(val, 1.0, 100.0).map_err(|e| format!("invalid stroke-miterlimit on <{tag}>: {e}"))?),
         "stroke-linecap" => match val.trim() {
             "butt" | "round" | "square" => val.trim().to_owned(),
@@ -630,14 +648,15 @@ fn validate_transform(tag: &str, raw: &str) -> Result<String, String> {
         let op = name.trim().trim_start_matches(',').trim();
         let nums = parse_numbers(args, 6)?;
         let valid_arity = match op {
-            "matrix" => nums.len() == 6,
-            "translate" | "scale" => matches!(nums.len(), 1 | 2),
-            "rotate" => matches!(nums.len(), 1 | 3),
-            "skewX" | "skewY" => nums.len() == 1,
+            "matrix" => nums.len() == 6 && nums[..4].iter().all(|v| (-MAX_SCALE..=MAX_SCALE).contains(v)) && nums[4..].iter().all(|v| (-MAX_COORD..=MAX_COORD).contains(v)),
+            "translate" => matches!(nums.len(), 1 | 2) && nums.iter().all(|v| (-MAX_COORD..=MAX_COORD).contains(v)),
+            "scale" => matches!(nums.len(), 1 | 2) && nums.iter().all(|v| (-MAX_SCALE..=MAX_SCALE).contains(v)),
+            "rotate" => matches!(nums.len(), 1 | 3) && nums[0].abs() <= 36_000.0 && nums[1..].iter().all(|v| (-MAX_COORD..=MAX_COORD).contains(v)),
+            "skewX" | "skewY" => nums.len() == 1 && (-MAX_SKEW_DEG..=MAX_SKEW_DEG).contains(&nums[0]),
             _ => return Err(format!("disallowed transform function {op:?} on <{tag}>")),
         };
         if !valid_arity {
-            return Err(format!("invalid transform {op:?} argument count on <{tag}>"));
+            return Err(format!("invalid transform {op:?} arguments on <{tag}>"));
         }
         let formatted = nums.iter().map(|&n| fmt_num(n)).collect::<Vec<_>>().join(" ");
         ops.push(format!("{op}({formatted})"));
@@ -685,7 +704,7 @@ fn parse_finite(s: &str) -> Result<f32, String> {
 
 fn parse_coord(tag: &str, attr: &str, s: &str) -> Result<f32, String> {
     let v = parse_finite(s.trim().trim_end_matches("px")).map_err(|e| format!("invalid {attr} on <{tag}>: {e}"))?;
-    if !(-1e6..=1e6).contains(&v) {
+    if !(-MAX_COORD..=MAX_COORD).contains(&v) {
         return Err(format!("{attr} coordinate {s:?} out of bounds on <{tag}>"));
     }
     Ok(v)
