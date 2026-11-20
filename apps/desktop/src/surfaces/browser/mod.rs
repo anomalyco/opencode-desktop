@@ -225,16 +225,23 @@ mod native {
         }
 
         /// Workspace directories whose `file://` documents may open in session `sid` (`pane.ts:162`):
-        /// the session's folder when the active server shares this disk (`is_sidecar`), else empty.
+        /// the session's folder when the active server shares this disk (`is_sidecar`) and the
+        /// directory is narrower than a filesystem root, drive root, or home folder
+        /// (`review-browser-policy.md` §5), else empty. Tabs with no owning session get no roots.
         pub fn browser_file_roots(&self, sid: Option<&str>) -> Vec<String> {
             if !crate::servers::runtime::active(self).is_sidecar() {
                 return Vec::new();
             }
-            let dir = sid
-                .or_else(|| self.active_session_id())
-                .map(|id| self.link_directory(id))
-                .unwrap_or_else(|| self.draft_dir().to_owned());
-            if dir.is_empty() { Vec::new() } else { vec![dir] }
+            let Some(id) = sid else {
+                return Vec::new();
+            };
+            let dir = self.link_directory(id);
+            let home = (!self.home.is_empty()).then_some(self.home.as_str());
+            if browser_pane::policy::is_safe_workspace_root(&dir, home) {
+                vec![dir]
+            } else {
+                Vec::new()
+            }
         }
 
         pub fn open_new_browser_tab(&mut self, url: &str) -> u64 {

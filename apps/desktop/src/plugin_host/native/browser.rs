@@ -22,6 +22,8 @@ use rune::{El, Ime, col};
 #[cfg(not(target_arch = "wasm32"))]
 use rune_luau::{Completer, Data, Host, NodeArgs};
 #[cfg(not(target_arch = "wasm32"))]
+mod scope;
+#[cfg(not(target_arch = "wasm32"))]
 mod viewport;
 #[cfg(target_arch = "wasm32")]
 mod web;
@@ -52,8 +54,17 @@ const PREPARE_HOLD_MAX_S: f64 = 60.0;
 pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     method(lua, t, "Tabs", |lua, sid: Option<String>| {
         cx::read(Dep::Browser);
+        let scope = scope::TabScope::capture(lua);
         let ids: Vec<u64> = with_app("Browser:Tabs", |app| {
-            Ok(match sid {
+            let scoped = if scope.tool_sid.is_some() || !scope.is_builtin_browser {
+                let Some(target) = scope.target_session(app, sid.as_deref()) else {
+                    return Ok(Vec::new());
+                };
+                Some(target)
+            } else {
+                sid
+            };
+            Ok(match scoped {
                 Some(sid) => app.workspace_panes.browser.session_tabs.get(&sid).map(|ids| ids.iter().copied().filter(|&id| app.workspace_panes.browser.host.tab(id).is_some()).collect()).unwrap_or_default(),
                 None => app.workspace_panes.browser.host.tabs().iter().map(|t| t.id).collect(),
             })
@@ -66,7 +77,12 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     })?;
     method(lua, t, "Get", |lua, id: String| {
         cx::read(Dep::Browser);
-        let found = with_app("Browser:Get", |app| Ok(id.parse::<u64>().ok().filter(|&id| app.workspace_panes.browser.host.tab(id).is_some())))?;
+        let scope = scope::TabScope::capture(lua);
+        let found = with_app("Browser:Get", |app| {
+            Ok(id.parse::<u64>().ok().filter(|&id| {
+                app.workspace_panes.browser.host.tab(id).is_some() && scope.check_tab(app, id, false).is_ok()
+            }))
+        })?;
         match found {
             Some(id) => Ok(Value::Table(tab(lua, id)?)),
             None => Ok(Value::Nil),
@@ -74,11 +90,16 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     })?;
     method(lua, t, "List", |lua, (_sid, open): (String, Vec<String>)| {
         cx::read(Dep::Browser);
+        let scope = scope::TabScope::capture(lua);
         let rows = with_app("Browser:List", |app| {
             Ok(open
                 .iter()
                 .map(|raw| {
-                    let page = raw.parse::<u64>().ok().and_then(|id| app.workspace_panes.browser.host.tab(id));
+                    let page = raw
+                        .parse::<u64>()
+                        .ok()
+                        .filter(|&id| scope.check_tab(app, id, false).is_ok())
+                        .and_then(|id| app.workspace_panes.browser.host.tab(id));
                     map([
                         ("id", Data::String(raw.clone())),
                         ("url", Data::String(page.map(|t| t.url.clone()).filter(|u| u != "about:blank").unwrap_or_default())),
@@ -92,7 +113,13 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     })?;
     method(lua, t, "Active", |lua, sid: String| {
         cx::read(Dep::Browser);
-        let found = with_app("Browser:Active", |app| Ok(app.default_browser_tab_for_session(&sid).filter(|&id| app.workspace_panes.browser.host.tab(id).is_some())))?;
+        let scope = scope::TabScope::capture(lua);
+        let found = with_app("Browser:Active", |app| {
+            let Some(sid) = scope.target_session(app, Some(&sid)) else { return Ok(None) };
+            Ok(app.default_browser_tab_for_session(&sid).filter(|&id| {
+                app.workspace_panes.browser.host.tab(id).is_some() && scope.check_tab(app, id, false).is_ok()
+            }))
+        })?;
         match found {
             Some(id) => Ok(Value::Table(tab(lua, id)?)),
             None => Ok(Value::Nil),
@@ -100,10 +127,13 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     })?;
     method(lua, t, "Selected", |lua, sid: Option<String>| {
         cx::read(Dep::Browser);
+        let scope = scope::TabScope::capture(lua);
         let found = with_app("Browser:Selected", |app| {
-            let Some(sid) = sid.or_else(|| app.active_session_id().map(str::to_owned)) else { return Ok(None) };
+            let Some(sid) = scope.target_session(app, sid.as_deref()) else { return Ok(None) };
             let open = app.kernel.slots.get(&crate::panels::SIDE).sessions.get(&sid).is_some_and(|st| st.visibility.open()) && !app.narrow();
-            Ok(app.active_browser_tab_for_session(&sid).filter(|&id| open && app.workspace_panes.browser.host.tab(id).is_some()))
+            Ok(app.active_browser_tab_for_session(&sid).filter(|&id| {
+                open && app.workspace_panes.browser.host.tab(id).is_some() && scope.check_tab(app, id, false).is_ok()
+            }))
         })?;
         match found {
             Some(id) => Ok(Value::Table(tab(lua, id)?)),
@@ -113,9 +143,13 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     let plugin = vmx.half.id.clone();
     method(lua, t, "Focused", move |lua, ()| {
         cx::read(Dep::Browser);
+        let scope = scope::TabScope::capture(lua);
         let found = with_app("Browser:Focused", |app| {
             let field = super::super::editors::plugin_focused(app, &plugin);
-            Ok(app.focused_browser_pane(field).and(app.active_browser_tab_id()))
+            Ok(app
+                .focused_browser_pane(field)
+                .and(app.active_browser_tab_id())
+                .filter(|&id| scope.check_tab(app, id, false).is_ok()))
         })?;
         match found {
             Some(id) => Ok(Value::Table(tab(lua, id)?)),
@@ -141,13 +175,14 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
             )
         })
     })?;
-    method(lua, t, "NormalizeUrl", |_, (url, sid): (String, Option<String>)| {
+    method(lua, t, "NormalizeUrl", |lua, (url, sid): (String, Option<String>)| {
+        let scope = scope::TabScope::capture(lua);
         let roots = with_app("Browser:NormalizeUrl", |app| {
-            Ok(if app.workspace_panes.browser.host.has_live_sidecar() && !app.workspace_panes.browser.host.engine_policy() {
-                Vec::new()
-            } else {
-                app.browser_file_roots(sid.as_deref())
-            })
+            if app.workspace_panes.browser.host.has_live_sidecar() && !app.workspace_panes.browser.host.engine_policy() {
+                return Ok(Vec::new());
+            }
+            let target = scope.target_session(app, sid.as_deref());
+            Ok(app.browser_file_roots(target.as_deref()))
         })?;
         browser_pane::normalize_url(&url, &roots).map_err(mlua::Error::runtime)
     })?;
@@ -250,11 +285,17 @@ fn file_json(f: &browser_pane::DownloadFile) -> serde_json::Value {
 fn read_file(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
     const MAX: u64 = 5 * 1024 * 1024;
     let (id, file_id): (String, String) = mlua::FromLuaMulti::from_lua_multi(a, lua)?;
+    let scope = scope::TabScope::capture(lua);
     with_app("BrowserTab:ReadFileAsync", |app| {
         app.later(Box::new(move |s: &mut App, _: &mut Tx| {
             let failed = |message: String| map([("error", Data::String(message))]);
-            let tab = id.parse::<u64>().ok().and_then(|id| s.workspace_panes.browser.host.tab(id));
-            let tab_id = id.parse::<u64>().unwrap_or_default();
+            let Some(tab_id) = id.parse::<u64>().ok().filter(|&id| s.workspace_panes.browser.host.tab(id).is_some()) else {
+                return done.complete(failed(format!("No browser tab with tabID {id}")));
+            };
+            if let Err(err) = scope.check_tab(s, tab_id, true) {
+                return done.complete(failed(err));
+            }
+            let tab = s.workspace_panes.browser.host.tab(tab_id);
             let Some(file) = tab.and_then(|t| t.files.iter().find(|f| f.id == file_id)).cloned() else {
                 return done.complete(failed(format!("No downloaded file {file_id} in browser tab {id}: list them with browser_files")));
             };
@@ -296,13 +337,17 @@ fn read_file(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
 fn open(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
     let (spec,): (Value,) = mlua::FromLuaMulti::from_lua_multi(a, lua)?;
     let spec: opencode_plugin_spec::BrowserOpenSpec = mlua::FromLua::from_lua(spec, lua).and_then(|d: Data| d.decode().map_err(mlua::Error::runtime))?;
+    let scope = scope::TabScope::capture(lua);
     with_app("Browser:OpenAsync", |app| {
         app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
             if s.browser_unsupported() {
                 return done.complete(Data::Nil);
             }
+            let sid = scope.target_session(s, spec.session_id.as_deref());
+            if sid.is_none() && (scope.tool_sid.is_some() || !scope.is_builtin_browser) {
+                return done.complete(Data::Nil);
+            }
             tx.instant();
-            let sid = spec.session_id.or_else(|| s.active_session_id().map(str::to_owned));
             let url = if spec.url.trim().is_empty() { "about:blank" } else { spec.url.as_str() };
             let id = s.open_new_browser_tab_for_session(sid.as_deref(), url, None, spec.background != Some(true));
             done.complete(Data::String(id.to_string()));
@@ -316,6 +361,7 @@ fn open(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
 #[cfg(not(target_arch = "wasm32"))]
 fn devtools(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
     let (id, cdp, params, target): (String, String, Value, Option<String>) = mlua::FromLuaMulti::from_lua_multi(a, lua)?;
+    let scope = scope::TabScope::capture(lua);
     let params = match <Data as mlua::FromLua>::from_lua(params, lua)?.to_json() {
         serde_json::Value::Object(o) => serde_json::Value::Object(o),
         _ => serde_json::json!({}),
@@ -326,6 +372,9 @@ fn devtools(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
             let Some(id) = id.parse::<u64>().ok().filter(|&id| s.workspace_panes.browser.host.tab(id).is_some()) else {
                 return done.complete(failed(format!("No browser tab with tabID {id}")));
             };
+            if let Err(err) = scope.check_tab(s, id, true) {
+                return done.complete(failed(err));
+            }
             if !s.workspace_panes.browser.host.has_live_sidecar() {
                 return done.complete(failed(not_running(&s.workspace_panes.browser.host.status())));
             }
@@ -343,12 +392,16 @@ fn devtools(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
 #[cfg(not(target_arch = "wasm32"))]
 fn site_cookies(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
     let (id,): (String,) = mlua::FromLuaMulti::from_lua_multi(a, lua)?;
+    let scope = scope::TabScope::capture(lua);
     with_app("BrowserTab:SiteCookiesAsync", |app| {
         app.later(Box::new(move |s: &mut App, _: &mut Tx| {
             let failed = |message: String| map([("error", Data::String(message))]);
             let Some(id) = id.parse::<u64>().ok().filter(|&id| s.workspace_panes.browser.host.tab(id).is_some()) else {
                 return done.complete(failed(format!("No browser tab with tabID {id}")));
             };
+            if let Err(err) = scope.check_tab(s, id, true) {
+                return done.complete(failed(err));
+            }
             if !s.workspace_panes.browser.host.has_live_sidecar() {
                 return done.complete(failed(not_running(&s.workspace_panes.browser.host.status())));
             }
@@ -366,28 +419,15 @@ fn site_cookies(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
 #[cfg(not(target_arch = "wasm32"))]
 fn clear_site(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
     let (id,): (String,) = mlua::FromLuaMulti::from_lua_multi(a, lua)?;
-    let is_builtin_browser = lua
-        .app_data_ref::<std::rc::Rc<Vmx>>()
-        .is_some_and(|vmx| &*vmx.half.id == "browser");
-    let (tool_sid, in_flight) = super::super::commands::current_tool_scope(lua);
+    let scope = scope::TabScope::capture(lua);
     with_app("BrowserTab:ClearSiteAsync", |app| {
         app.later(Box::new(move |s: &mut App, _: &mut Tx| {
             let failed = |message: String| map([("error", Data::String(message))]);
             let Some(id) = id.parse::<u64>().ok().filter(|&id| s.workspace_panes.browser.host.tab(id).is_some()) else {
                 return done.complete(failed(format!("No browser tab with tabID {id}")));
             };
-            let Some(owner) = s.browser_tab_session(id) else {
-                return done.complete(failed(format!("Browser tab {id} does not belong to an open session.")));
-            };
-            let allowed = match &tool_sid {
-                Some(caller) => caller.as_deref() == Some(owner),
-                None => {
-                    s.active_session_id() == Some(owner)
-                        && (is_builtin_browser || in_flight.iter().all(|sid| sid == owner))
-                }
-            };
-            if !allowed {
-                return done.complete(failed(format!("Browser tab {id} belongs to another session.")));
+            if let Err(err) = scope.check_tab(s, id, true) {
+                return done.complete(failed(err));
             }
             if !s.workspace_panes.browser.host.has_live_sidecar() {
                 return done.complete(failed(not_running(&s.workspace_panes.browser.host.status())));
@@ -449,13 +489,15 @@ fn id_of(this: &Table) -> mlua::Result<u64> {
     this.raw_get::<String>("Id")?.parse::<u64>().map_err(|_| mlua::Error::runtime("not a BrowserTab"))
 }
 
-/// Queues `f` for page `this` on the next poll, if it's still open then.
+/// Queues `f` for page `this` on the next poll, if it's still open and owned by the caller's session.
 #[cfg(not(target_arch = "wasm32"))]
-fn later(this: &Table, what: &str, f: impl FnOnce(&mut App, u64, &mut Tx) + Send + 'static) -> mlua::Result<()> {
+fn later(lua: &Lua, this: &Table, what: &str, f: impl FnOnce(&mut App, u64, &mut Tx) + Send + 'static) -> mlua::Result<()> {
     let id = id_of(this)?;
+    let scope = scope::TabScope::capture(lua);
     with_app(what, |app| {
+        scope.check_tab(app, id, true).map_err(mlua::Error::runtime)?;
         app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
-            if s.workspace_panes.browser.host.tab(id).is_some() {
+            if s.workspace_panes.browser.host.tab(id).is_some() && scope.check_tab(s, id, true).is_ok() {
                 tx.instant();
                 f(s, id, tx);
             }
@@ -465,64 +507,75 @@ fn later(this: &Table, what: &str, f: impl FnOnce(&mut App, u64, &mut Tx) + Send
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn read_tab<R>(this: &Table, what: &str, f: impl FnOnce(&App, u64) -> mlua::Result<R>) -> mlua::Result<R> {
+fn read_tab<R>(lua: &Lua, this: &Table, what: &str, f: impl FnOnce(&App, u64) -> mlua::Result<R>) -> mlua::Result<R> {
     cx::read(Dep::Browser);
     let id = id_of(this)?;
-    with_app(what, |app| f(app, id))
+    let scope = scope::TabScope::capture(lua);
+    with_app(what, |app| {
+        scope.check_tab(app, id, false).map_err(mlua::Error::runtime)?;
+        f(app, id)
+    })
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 fn tab_methods(lua: &Lua) -> mlua::Result<Table> {
     let m = lua.create_table()?;
-    m.raw_set("IsOpen", lua.create_function(|_, this: Table| read_tab(&this, "BrowserTab:IsOpen", |app, id| Ok(app.workspace_panes.browser.host.tab(id).is_some())))?)?;
+    m.raw_set("IsOpen", lua.create_function(|lua, this: Table| {
+        cx::read(Dep::Browser);
+        let id = id_of(&this)?;
+        let scope = scope::TabScope::capture(lua);
+        with_app("BrowserTab:IsOpen", |app| {
+            Ok(app.workspace_panes.browser.host.tab(id).is_some() && scope.check_tab(app, id, false).is_ok())
+        })
+    })?)?;
     m.raw_set(
         "Url",
-        lua.create_function(|_, this: Table| read_tab(&this, "BrowserTab:Url", |app, id| Ok(app.workspace_panes.browser.host.tab(id).map(|t| t.url.clone()).unwrap_or_default())))?,
+        lua.create_function(|lua, this: Table| read_tab(lua, &this, "BrowserTab:Url", |app, id| Ok(app.workspace_panes.browser.host.tab(id).map(|t| t.url.clone()).unwrap_or_default())))?,
     )?;
     m.raw_set(
         "Title",
-        lua.create_function(|_, this: Table| read_tab(&this, "BrowserTab:Title", |app, id| Ok(app.workspace_panes.browser.host.tab(id).map(|t| t.title.clone()).unwrap_or_default())))?,
+        lua.create_function(|lua, this: Table| read_tab(lua, &this, "BrowserTab:Title", |app, id| Ok(app.workspace_panes.browser.host.tab(id).map(|t| t.title.clone()).unwrap_or_default())))?,
     )?;
     for (name, field) in [("Loading", 0), ("CanGoBack", 1), ("CanGoForward", 2), ("Inspecting", 3)] {
         m.raw_set(
             name,
-            lua.create_function(move |_, this: Table| {
-                read_tab(&this, "BrowserTab", |app, id| Ok(app.workspace_panes.browser.host.tab(id).is_some_and(|t| [t.loading, t.can_go_back, t.can_go_forward, t.inspecting][field])))
+            lua.create_function(move |lua, this: Table| {
+                read_tab(lua, &this, "BrowserTab", |app, id| Ok(app.workspace_panes.browser.host.tab(id).is_some_and(|t| [t.loading, t.can_go_back, t.can_go_forward, t.inspecting][field])))
             })?,
         )?;
     }
     m.raw_set(
         "LoadError",
-        lua.create_function(|_, this: Table| read_tab(&this, "BrowserTab:LoadError", |app, id| Ok(app.workspace_panes.browser.host.tab(id).and_then(|t| t.load_error.clone()))))?,
+        lua.create_function(|lua, this: Table| read_tab(lua, &this, "BrowserTab:LoadError", |app, id| Ok(app.workspace_panes.browser.host.tab(id).and_then(|t| t.load_error.clone()))))?,
     )?;
     m.raw_set(
         "Refusal",
-        lua.create_function(|_, this: Table| read_tab(&this, "BrowserTab:Refusal", |app, id| Ok(app.workspace_panes.browser.host.tab(id).and_then(|t| t.refusal.clone()))))?,
+        lua.create_function(|lua, this: Table| read_tab(lua, &this, "BrowserTab:Refusal", |app, id| Ok(app.workspace_panes.browser.host.tab(id).and_then(|t| t.refusal.clone()))))?,
     )?;
     m.raw_set(
         "Rejected",
-        lua.create_function(|_, this: Table| read_tab(&this, "BrowserTab:Rejected", |app, id| Ok(app.workspace_panes.browser.host.tab(id).map_or(0i64, |t| t.rejected as i64))))?,
+        lua.create_function(|lua, this: Table| read_tab(lua, &this, "BrowserTab:Rejected", |app, id| Ok(app.workspace_panes.browser.host.tab(id).map_or(0i64, |t| t.rejected as i64))))?,
     )?;
     m.raw_set(
         "Files",
         lua.create_function(|lua, this: Table| {
-            let files = read_tab(&this, "BrowserTab:Files", |app, id| {
+            let files = read_tab(lua, &this, "BrowserTab:Files", |app, id| {
                 Ok(app.workspace_panes.browser.host.tab(id).map(|t| t.files.iter().map(|f| json_to_data(&file_json(f))).collect()).unwrap_or_default())
             })?;
             mlua::IntoLua::into_lua(Data::List(files), lua)
         })?,
     )?;
-    m.raw_set("Zoom", lua.create_function(|_, this: Table| read_tab(&this, "BrowserTab:Zoom", |app, id| Ok(app.workspace_panes.browser.host.tab(id).map_or(1.0, |t| t.zoom))))?)?;
+    m.raw_set("Zoom", lua.create_function(|lua, this: Table| read_tab(lua, &this, "BrowserTab:Zoom", |app, id| Ok(app.workspace_panes.browser.host.tab(id).map_or(1.0, |t| t.zoom))))?)?;
     viewport::methods(lua, &m)?;
     m.raw_set(
         "Navigate",
-        lua.create_function(|_, (this, url): (Table, String)| later(&this, "BrowserTab:Navigate", move |s, id, _| s.navigate_browser_tab(id, &url)))?,
+        lua.create_function(|lua, (this, url): (Table, String)| later(lua, &this, "BrowserTab:Navigate", move |s, id, _| s.navigate_browser_tab(id, &url)))?,
     )?;
     for name in ["Back", "Forward", "Reload", "Stop"] {
         m.raw_set(
             name,
-            lua.create_function(move |_, this: Table| {
-                later(&this, "BrowserTab", move |s, id, _| {
+            lua.create_function(move |lua, this: Table| {
+                later(lua, &this, "BrowserTab", move |s, id, _| {
                     if name != "Stop" {
                         s.workspace_panes.browser.host.clear_refusal(id);
                     }
@@ -539,20 +592,20 @@ fn tab_methods(lua: &Lua) -> mlua::Result<Table> {
     }
     m.raw_set(
         "SetZoom",
-        lua.create_function(|_, (this, direction): (Table, String)| {
+        lua.create_function(|lua, (this, direction): (Table, String)| {
             let step = match direction.as_str() {
                 "in" => 1,
                 "out" => -1,
                 "reset" => 0,
                 other => return Err(mlua::Error::runtime(format!("BrowserTab:SetZoom: unknown direction {other:?}"))),
             };
-            later(&this, "BrowserTab:SetZoom", move |s, id, _| s.workspace_panes.browser.host.step_zoom(id, step))
+            later(lua, &this, "BrowserTab:SetZoom", move |s, id, _| s.workspace_panes.browser.host.step_zoom(id, step))
         })?,
     )?;
     m.raw_set(
         "Inspect",
-        lua.create_function(|_, (this, enabled): (Table, Option<bool>)| {
-            later(&this, "BrowserTab:Inspect", move |s, id, _| {
+        lua.create_function(|lua, (this, enabled): (Table, Option<bool>)| {
+            later(lua, &this, "BrowserTab:Inspect", move |s, id, _| {
                 let on = s.workspace_panes.browser.host.tab(id).is_some_and(|t| t.inspecting);
                 if enabled.is_none_or(|want| want != on) {
                     s.workspace_panes.browser.host.toggle_inspect(id);
@@ -562,9 +615,11 @@ fn tab_methods(lua: &Lua) -> mlua::Result<Table> {
     )?;
     m.raw_set(
         "Highlight",
-        lua.create_function(|_, (this, node): (Table, Option<f64>)| {
+        lua.create_function(|lua, (this, node): (Table, Option<f64>)| {
             let id = id_of(&this)?;
+            let scope = scope::TabScope::capture(lua);
             with_app("BrowserTab:Highlight", |app| {
+                scope.check_tab(app, id, true).map_err(mlua::Error::runtime)?;
                 app.workspace_panes.browser.host.highlight_node(id, node.map(|n| n as i64));
                 Ok(())
             })
@@ -574,8 +629,9 @@ fn tab_methods(lua: &Lua) -> mlua::Result<Table> {
         "Show",
         lua.create_function(|lua, (this, options): (Table, Value)| {
             let o: opencode_plugin_spec::BrowserShowOptions = if options.is_nil() { Default::default() } else { mlua::FromLua::from_lua(options, lua).and_then(|d: Data| d.decode().map_err(mlua::Error::runtime))? };
-            later(&this, "BrowserTab:Show", move |s, id, _| {
-                let Some(sid) = o.session_id.or_else(|| s.active_session_id().map(str::to_owned)) else { return };
+            let scope = scope::TabScope::capture(lua);
+            later(lua, &this, "BrowserTab:Show", move |s, id, _| {
+                let Some(sid) = scope.target_session(s, o.session_id.as_deref()) else { return };
                 s.register_existing_browser_tab_for_session(&sid, id, o.background != Some(true));
                 s.workspace_panes.browser.host.focus_tab(id);
             })
@@ -583,8 +639,8 @@ fn tab_methods(lua: &Lua) -> mlua::Result<Table> {
     )?;
     m.raw_set(
         "Close",
-        lua.create_function(|_, this: Table| {
-            later(&this, "BrowserTab:Close", |s, id, tx| match s.browser_tab_session(id).map(str::to_owned).or_else(|| s.active_session_id().map(str::to_owned)) {
+        lua.create_function(|lua, this: Table| {
+            later(lua, &this, "BrowserTab:Close", |s, id, tx| match s.browser_tab_session(id).map(str::to_owned).or_else(|| s.active_session_id().map(str::to_owned)) {
                 Some(sid) => s.close_browser_tab_for_session(&sid, id, tx),
                 None => s.forget_browser_tab(id),
             })

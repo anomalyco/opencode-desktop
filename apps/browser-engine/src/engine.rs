@@ -158,6 +158,9 @@ wrap_app! {
             // Rune owns the window. CEF paints offscreen even when no display server is running.
             #[cfg(target_os = "linux")]
             crate::linux_gpu::configure(cmd);
+            // Disable Chrome's default extension subsystem so CEF's Chrome bootstrap never scans
+            // host OS extension registries (`external_registry_loader_win.cc`) on startup.
+            cmd.append_switch(Some(&"disable-extensions".into()));
             cmd.append_switch(Some(&"mute-audio".into()));
             cmd.append_switch(Some(&"use-mock-keychain".into()));
             cmd.append_switch(Some(&"no-startup-window".into()));
@@ -217,6 +220,8 @@ pub struct EngineManager {
     next_eref: u64,
     /// The app's scheme, once it said (`HostMsg::SetColorScheme`).
     dark: Option<bool>,
+    /// The user's home directory, for filtering overly broad workspace `file_roots`.
+    home: Option<String>,
     /// The pages' downloads, in the profile's `opencode-page-downloads` folder.
     downloads: Arc<crate::downloads::Downloads>,
     /// Windows: the D3D11 device frames are copied on; None renders on the CPU instead.
@@ -246,6 +251,7 @@ impl EngineManager {
             next_cdp_id: AtomicI32::new(100),
             next_eref: 1,
             dark: None,
+            home: crate::profile::home_dir(),
             downloads: crate::downloads::Downloads::open(&downloads),
             #[cfg(windows)]
             gpu,
@@ -434,11 +440,13 @@ impl EngineManager {
                 }
             }
             HostMsg::OpenTab { tab_id, url, width_pt, height_pt, scale, focused, file_roots } => {
-                self.open_tab(tab_id, &url, width_pt, height_pt, scale, focused, file_roots);
+                let roots = self.safe_roots(file_roots);
+                self.open_tab(tab_id, &url, width_pt, height_pt, scale, focused, roots);
             }
             HostMsg::SetTabPolicy { tab_id, file_roots } => {
+                let roots = self.safe_roots(file_roots);
                 if let Some(t) = self.tabs.get(&tab_id) {
-                    *t.file_roots.lock().unwrap() = file_roots;
+                    *t.file_roots.lock().unwrap() = roots;
                 }
             }
             HostMsg::CloseTab { tab_id } => {
@@ -943,6 +951,13 @@ impl EngineManager {
                 reason: why.code().to_owned(),
             });
         }
+    }
+
+    fn safe_roots(&self, roots: Vec<String>) -> Vec<String> {
+        roots
+            .into_iter()
+            .filter(|r| browser_policy::is_safe_workspace_root(r, self.home.as_deref()))
+            .collect()
     }
 
     fn send_color_scheme(&self, host: &BrowserHost, dark: bool) {
