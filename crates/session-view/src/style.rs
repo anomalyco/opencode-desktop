@@ -119,13 +119,19 @@ pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
             false => tips.iter().find(|(l, _)| l == url).map(|(_, t)| t.clone()).or_else(|| S::reply_link_help(url)),
         });
     if has_session_refs {
-        // Only a reply with session references takes right-clicks on its links; others keep the reply's menu.
-        md = md.link_style(move |url| crate::session_chips::look(&pal, url)).on_link_secondary(|s: &mut S, url: &str, press, tx: &mut Tx| {
-            if let Some(id) = session_of_link(url).or_else(|| session_of_raw_link(url)) {
-                s.session_chip_menu(id, press, tx);
-            }
-        });
+        md = md.link_style(move |url| crate::session_chips::look(&pal, url));
     }
+    let message = media.as_ref().and_then(|m| m.message.clone());
+    md = md.on_link_secondary(move |s: &mut S, url: &str, press, tx: &mut Tx| {
+        if let Some(id) = session_of_link(url).or_else(|| session_of_raw_link(url)) {
+            s.session_chip_menu(id, press, tx);
+        } else if !s.reply_link_menu(url, press, tx) && let Some(mid) = &message {
+            let at = crate::images::menu::MenuAt {
+                session: s.active_session_id().map(str::to_owned), message: Some(mid.to_string()), image: None,
+            };
+            s.context_menu(at, press, tx);
+        }
+    });
     // A path a finished reply names that the host found is a link in `text-code-path`, without
     // its chip (`markdown.css:443-450`), underlined under the pointer; a press opens it.
     if let Some(found) = code_links {

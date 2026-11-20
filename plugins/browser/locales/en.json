@@ -144,7 +144,7 @@
   "settings.open": "Browser settings",
   "settings.unavailable": "The browser is available in the desktop app.",
   "settings.links.title": "Open links in OpenCode",
-  "settings.links.description": "Hold Shift and click a link to use your default browser.",
+  "settings.links.description": "Turn off to open web links in your default browser. When on, Shift-click a link to open it there once.",
   "settings.remote.title": "Share sign-ins with remote servers",
   "settings.remote.description": "Only turn on for servers you trust, since they can access your signed‑in sites.",
   "settings.agentPages.title": "Open browser automatically",
