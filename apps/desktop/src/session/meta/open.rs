@@ -96,6 +96,7 @@ impl App {
                 if let Some(dir) = self.session(id).map(|i| i.directory.clone()) {
                     crate::subagents::shells::list(self, &dir);
                 }
+                crate::subagents::jobs::list(self, id);
             }
             Source::Live { .. } => {}
             Source::Fixture => self.start_stream_if_due(id),
@@ -129,6 +130,9 @@ impl App {
         let dir = match &*self.route { Route::Session { id, .. } => self.session(id).map(|i| i.directory.clone()), _ => None };
         if let Some(dir) = dir {
             crate::subagents::shells::list(self, &dir);
+        }
+        if let Route::Session { id, .. } = (*self.route).clone() {
+            crate::subagents::jobs::list(self, &id);
         }
         let Source::Live { requests: Some(r), .. } = &*self.source else { return };
         if let Route::Session { id, .. } = (*self.route).clone() {

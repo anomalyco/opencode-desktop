@@ -68,8 +68,9 @@ pub enum NoticeKind {
     Restart,
     /// A background shell or subagent came back (`Shell finished`, `Explore failed`).
     Finished(Finished),
-    /// A background tool report, linked to the initiating call by its job ID.
-    Job { id: String, description: String },
+    /// A background tool report, linked to the initiating call by its job ID. `script`: a
+    /// background Code Mode script's report (`source: "codemode"`), and how it ended.
+    Job { id: String, description: String, script: Option<Outcome> },
     Text(String),
     /// The run ended (an `idle` message): never shown, it closes the turn whose changed files
     /// Changed files lists.
@@ -182,7 +183,15 @@ fn kind(ty: &str, m: &Value) -> Option<NoticeKind> {
                 return finished(m, description);
             }
             if let Some(id) = m["metadata"]["jobID"].as_str().filter(|id| !id.is_empty()) {
-                return Some(NoticeKind::Job { id: id.to_owned(), description: description?.to_owned() });
+                // A script reports back as a background shell does: who, and how it ended
+                // (`session-ui/src/timeline-next/row.tsx`, anomalyco/opencode#64741).
+                let script = (m["metadata"]["source"] == "codemode").then(|| match m["metadata"]["state"].as_str() {
+                    Some("error") => Outcome::Error,
+                    Some("cancelled") => Outcome::Cancelled,
+                    _ => Outcome::Completed,
+                });
+                let description = if script.is_some() { description.unwrap_or_default() } else { description? };
+                return Some(NoticeKind::Job { id: id.to_owned(), description: description.to_owned(), script });
             }
             NoticeKind::Text(description?.to_owned())
         }

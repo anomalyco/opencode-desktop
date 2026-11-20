@@ -9,7 +9,8 @@ use session_view::style::{INSTANT, UI};
 
 use super::tail;
 use super::{Shell, dispatch};
-use crate::activity::{End, EndStatus, Event, Phase};
+use crate::activity::{End, EndStatus, Event, Kind, Phase};
+use crate::jobs::Script;
 use crate::{ELAPSED, PANEL_PAD, SubagentsHost, elapsed, panel_row, run_clock, run_time};
 
 /// The command in a row and the panel's header: the code face at 13/16 (`session-activity-shell-command`).
@@ -24,16 +25,24 @@ const TAIL_LINES: usize = 14;
 /// and its run time, which hover swaps for a stop button.
 pub fn row_of<H: SubagentsHost + 'static>(host: &H, p: &Pal, sh: &Shell, span: f32, time_w: f32) -> El {
     let open = sh.clone();
-    let end_el = end(host, p, &sh.id, false, (sh.started > 0).then(|| run_clock(host) - sh.started), time_w);
-    build_row_shell(p, sh, span, end_el).on_press_tx(move |s: &mut H, tx: &mut Tx| select_shell(s, open.clone(), tx))
+    let end_el = end(host, p, &sh.id, Kind::Shell, (sh.started > 0).then(|| run_clock(host) - sh.started), time_w);
+    build_row_shell(p, &format!("shell-{}", sh.id), &ic::CONSOLE, &sh.command, span, end_el).on_press_tx(move |s: &mut H, tx: &mut Tx| select_shell(s, open.clone(), tx))
+}
+
+/// A background script's row: the code mark, its first line across the agent and task columns,
+/// and its run time, which hover swaps for a stop button. It has nowhere to open
+/// (`activity-chips.tsx`'s `row`).
+pub fn script_row<H: SubagentsHost + 'static>(host: &H, p: &Pal, sc: &Script, span: f32, time_w: f32) -> El {
+    let end_el = end(host, p, &sc.id, Kind::Script, (sc.started > 0).then(|| run_clock(host) - sc.started), time_w);
+    build_row_shell(p, &format!("script-{}", sc.id), &ic::CODE, &sc.label, span, end_el)
 }
 
 /// A row's end (`session-activity-end`): its run time, and the stop button over it, shown under
 /// the pointer or while its Stop is out.
-pub fn end<H: SubagentsHost + 'static>(host: &H, p: &Pal, key: &str, subagent: bool, ms: Option<i64>, time_w: f32) -> El {
+pub fn end<H: SubagentsHost + 'static>(host: &H, p: &Pal, key: &str, kind: Kind, ms: Option<i64>, time_w: f32) -> El {
     let stopping = host.shells().activity.stopping.contains_key(key);
     let target = key.to_owned();
-    let stop = build_stop_button_shell(p, subagent, stopping).on_press_tx(move |s: &mut H, tx: &mut Tx| request_stop(s, target.clone(), subagent, tx));
+    let stop = build_stop_button_shell(p, kind, stopping).on_press_tx(move |s: &mut H, tx: &mut Tx| request_stop(s, target.clone(), kind, tx));
     build_end_layout(p, key, ms, time_w, stopping, stop)
 }
 
@@ -54,7 +63,7 @@ pub fn panel<H: SubagentsHost + 'static>(host: &H, p: &Pal) -> Option<El> {
                 stop
             } else {
                 let id = sh.id.clone();
-                stop.on_press_tx(move |s: &mut H, tx: &mut Tx| request_stop(s, id.clone(), false, tx))
+                stop.on_press_tx(move |s: &mut H, tx: &mut Tx| request_stop(s, id.clone(), Kind::Shell, tx))
             }
         }
     };
@@ -69,9 +78,9 @@ fn select_shell(host: &mut dyn SubagentsHost, shell: Shell, tx: &mut Tx) {
     dispatch(host, Event::Selected(shell));
 }
 
-fn request_stop(host: &mut dyn SubagentsHost, key: String, subagent: bool, tx: &mut Tx) {
+fn request_stop(host: &mut dyn SubagentsHost, key: String, kind: Kind, tx: &mut Tx) {
     tx.instant();
-    dispatch(host, Event::StopRequested { key, subagent });
+    dispatch(host, Event::StopRequested { key, kind });
 }
 
 fn back_hover_changed(host: &mut dyn SubagentsHost, inside: bool) {
@@ -85,11 +94,11 @@ fn back_pressed(host: &mut dyn SubagentsHost, tx: &mut Tx) {
     dispatch(host, Event::Back);
 }
 
-fn build_row_shell(p: &Pal, sh: &Shell, span: f32, end_el: El) -> El {
+fn build_row_shell(p: &Pal, key: &str, mark: &'static rune::Icon, command: &str, span: f32, end_el: El) -> El {
     row()
-        .key(format!("shell-{}", sh.id))
+        .key(key)
         .role("menuitem")
-        .label(sh.command.clone())
+        .label(command.to_owned())
         .w_full()
         .h(panel_row())
         .px(6.0)
@@ -99,13 +108,17 @@ fn build_row_shell(p: &Pal, sh: &Shell, span: f32, end_el: El) -> El {
         .hover(p.hover)
         .hover_motion(INSTANT, INSTANT)
         .hover_group()
-        .child(icon(&ic::CONSOLE, 16.0).key("mark").color(p.icon_muted))
-        .child(text(sh.command.clone()).key("command").font(COMMAND).color(p.text).truncate_fade().w(span).grow(1.0).shrink().min_w(0.0))
+        .child(icon(mark, 16.0).key("mark").color(p.icon_muted))
+        .child(text(command.to_owned()).key("command").font(COMMAND).color(p.text).truncate_fade().w(span).grow(1.0).shrink().min_w(0.0))
         .child(end_el)
 }
 
-fn build_stop_button_shell(p: &Pal, subagent: bool, stopping: bool) -> El {
-    let label = if subagent { opencode_i18n::t!("session.running.stop.subagent") } else { opencode_i18n::t!("session.running.stop.shell") };
+fn build_stop_button_shell(p: &Pal, kind: Kind, stopping: bool) -> El {
+    let label = match kind {
+        Kind::Subagent => opencode_i18n::t!("session.running.stop.subagent"),
+        Kind::Script => opencode_i18n::t!("session.running.stop.script"),
+        Kind::Shell => opencode_i18n::t!("session.running.stop.shell"),
+    };
     let mark = if stopping { rune_kit::Loader::new().size(14.0).build(kit(p)) } else { icon(&ic::OUTLINE_XMARK, 14.0).color(p.icon_muted) };
     row()
         .key("stop")

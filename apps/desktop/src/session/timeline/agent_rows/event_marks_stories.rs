@@ -103,7 +103,7 @@ fn notices() -> (Vec<Part>, Vec<NoticeKind>) {
         NoticeKind::Moved { directory: "examples/parser".into() },
         NoticeKind::Instructions { sources: vec!["AGENTS.md".into()] },
         NoticeKind::Restart,
-        NoticeKind::Job { id: "job_story".into(), description: "Background job reported progress".into() },
+        NoticeKind::Job { id: "job_story".into(), description: "Background job reported progress".into(), script: None },
         NoticeKind::Text("Session notice".into()),
     ];
     (parts, notices)
