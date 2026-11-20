@@ -13,8 +13,8 @@ use rune::Tx;
 use rune::time::Instant;
 use serde_json::{Value, json};
 
-use super::exec::{ExecPhase, StepOutcome, check_page_guards};
-use super::session::SessionAttachment;
+use super::super::session::SessionAttachment;
+use super::{ExecPhase, StepOutcome, check_page_guards};
 use crate::App;
 
 const LOAD_TIMEOUT: Duration = Duration::from_secs(25);

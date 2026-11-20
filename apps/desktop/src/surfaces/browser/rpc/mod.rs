@@ -5,8 +5,6 @@
 //! keeps every session's tab namespace (`tab_<uuid>`) isolated by construction.
 
 mod exec;
-mod exec_nav;
-mod exec_read;
 mod session;
 
 use std::collections::{BTreeMap, BTreeSet};

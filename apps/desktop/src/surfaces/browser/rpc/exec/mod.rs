@@ -1,15 +1,21 @@
 //! Explicit non-blocking command executor state machine and per-tab safeguard guards
 //! (dialogs, HTTP auth, extension-origin isolation, cancellation).
 
+pub(super) mod capture;
+pub(super) mod nav;
+pub(super) mod read;
+pub(super) mod snapshot;
+
 use browser_pane::policy::{extension_origin, extension_page_refusal};
 use opencode_kit::browser_rpc::{AttachEvent, Command, Outcome, failure_code};
 use rune::Tx;
 use rune::time::Instant;
+use serde_json::Value;
 
-use super::exec_nav::{self, WaitLoadState};
-use super::exec_read::{
-    self, EvalState, FramesState, ScreenshotState, SnapshotState, WaitState,
-};
+use self::capture::ScreenshotState;
+use self::nav::WaitLoadState;
+use self::read::{EvalState, WaitState};
+use self::snapshot::{FramesState, SnapshotState};
 use super::session::SessionAttachment;
 use crate::App;
 
@@ -110,13 +116,15 @@ pub(super) fn start_command(
         return;
     }
     if cmd.is_inspect() {
-        let outcome = exec_read::inspect_target(att, app, &cmd);
+        let outcome = read::inspect_target(att, app, &cmd);
         finish_and_reply(att, app, &connection_id, request_id, outcome, now);
         return;
     }
     let is_dialog = cmd.action_type() == Some("dialog");
-    let step = exec_nav::try_start(att, app, &cmd, now, tx)
-        .or_else(|| exec_read::try_start(att, app, &cmd, now))
+    let step = nav::try_start(att, app, &cmd, now, tx)
+        .or_else(|| snapshot::try_start(att, app, &cmd))
+        .or_else(|| read::try_start(att, app, &cmd, now))
+        .or_else(|| capture::try_start(att, app, &cmd))
         .unwrap_or_else(|| {
             let name = cmd.action_type().unwrap_or("unknown");
             StepOutcome::Done(Outcome::fail(
@@ -188,12 +196,12 @@ pub(super) fn poll_commands(
             Some(fail)
         } else {
             match &mut cmd.phase {
-                ExecPhase::WaitLoad(st) => exec_nav::step_wait_load(att, app, st, now, tx),
-                ExecPhase::Frames(st) => exec_read::step_frames(att, app, st),
-                ExecPhase::Snapshot(st) => exec_read::step_snapshot(att, app, st, ref_counter),
-                ExecPhase::Eval(st) => exec_read::step_eval(att, app, st),
-                ExecPhase::Wait(st) => exec_read::step_wait(att, app, st, now),
-                ExecPhase::Screenshot(st) => exec_read::step_screenshot(att, app, st),
+                ExecPhase::WaitLoad(st) => nav::step_wait_load(att, app, st, now, tx),
+                ExecPhase::Frames(st) => snapshot::step_frames(att, app, st),
+                ExecPhase::Snapshot(st) => snapshot::step_snapshot(att, app, st, ref_counter),
+                ExecPhase::Eval(st) => read::step_eval(att, app, st),
+                ExecPhase::Wait(st) => read::step_wait(att, app, st, now),
+                ExecPhase::Screenshot(st) => capture::step_screenshot(att, app, st),
             }
         };
 
@@ -233,4 +241,12 @@ fn finish_and_reply(
     att.enqueue_state(connection_id, state, hash);
     att.enqueue_result(connection_id, request_id.clone(), outcome);
     let _ = att.attach.step(AttachEvent::CommandFinished { request_id }, now);
+}
+
+pub(super) fn cdp_err_msg(err: &Value) -> String {
+    err.get("message")
+        .and_then(Value::as_str)
+        .or_else(|| err.get("error").and_then(Value::as_str))
+        .map(str::to_owned)
+        .unwrap_or_else(|| err.to_string())
 }
