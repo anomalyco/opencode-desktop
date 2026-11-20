@@ -79,6 +79,12 @@ impl Half {
         })
     }
 
+    /// Whether this half belongs to the genuinely bundled built-in plugin `id` (`Tier::Bundled`,
+    /// never a user, override, or dev plugin replacing that id).
+    pub fn is_builtin(&self, id: &str) -> bool {
+        self.tier == crate::plugin_host::Tier::Bundled && &*self.id == id
+    }
+
     /// Takes what VM `vm` contributed, if its setup is the one that ran last. Forgets the
     /// signals, events and cached values of the VM it replaces.
     pub fn adopt(&self, vm: Option<u64>) -> bool {

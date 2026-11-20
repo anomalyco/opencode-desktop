@@ -203,7 +203,27 @@ pub enum HostMsg {
     /// The app's answer to a held JavaScript dialog or `beforeunload` (`EngineMsg::Dialog`).
     AnswerDialog { tab_id: u64, id: u64, accept: bool, text: String },
     /// The app's answer to a held permission request (`EngineMsg::PermissionRequest`).
-    AnswerPermission { tab_id: u64, id: u64, allow: bool },
+    AnswerPermission {
+        tab_id: u64,
+        id: u64,
+        allow: bool,
+        /// When `true` and `!allow`, answers with `CEF_PERMISSION_RESULT_DISMISS` so Chromium does
+        /// not permanently block the origin (for `"Not now"`, timeouts, and origin changes).
+        #[serde(default)]
+        dismiss: bool,
+        /// When `true` (`"Always allow"` / `"Never allow"` in `Default`), keeps the grant/block
+        /// persistent in Chromium's `HostContentSettingsMap` until changed in `Settings > Browser`.
+        /// When `false` (`"Allow this time"`), tracked as a per-tab visit grant and reset on
+        /// cross-origin navigation, tab close, or shutdown.
+        #[serde(default)]
+        persist: bool,
+    },
+    /// Resets Chromium's `HostContentSettingsMap` entry for `(origin, kind)` back to `DEFAULT`
+    /// when a site permission is revoked or changed in `Settings > Browser`.
+    ResetPermission { origin: String, kind: PermissionKind },
+    /// Syncs Chromium's `Default` `HostContentSettingsMap` to match Rune's persisted
+    /// `rune.sitePermissions` (`Default` `"Always allow"` / `"Never allow"` decisions).
+    SyncSitePermissions { entries: Vec<SitePermissionEntry> },
     /// The app's answer to an HTTP 401 auth challenge (`EngineMsg::AuthRequest`); `None` cancels.
     AnswerAuth { tab_id: u64, id: u64, username: Option<String>, password: Option<String> },
     /// Marks a tab as agent-driven (cancels native file choosers, skips `beforeunload`, rejects HTTP auth).
@@ -254,6 +274,12 @@ pub enum EngineMsg {
         remote_proxy: bool,
         #[serde(default)]
         preview: bool,
+        /// The engine tracks one-time vs persistent permissions and supports
+        /// `HostMsg::SyncSitePermissions`, `HostMsg::ResetPermission`, and `AnswerPermission.{dismiss,persist}`.
+        #[serde(default)]
+        permission_sync: bool,
+        #[serde(default)]
+        preview_credit: bool,
         #[serde(default)]
         extensions: bool,
     },
@@ -346,6 +372,13 @@ pub enum EngineMsg {
         request_id: u64,
         metrics: crate::extensions::ShimMetrics,
     },
+    /// Byte-credit replenishment (or immediate cancellation) for an in-flight `PreviewFetch`.
+    PreviewCredit {
+        req_id: u64,
+        bytes: u32,
+        #[serde(default)]
+        cancel: bool,
+    },
 }
 
 /// A file a page downloaded, kept in the engine's private downloads folder for the agent's tools
@@ -405,6 +438,13 @@ pub enum PermissionKind {
     Location,
     Notifications,
     ClipboardRead,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SitePermissionEntry {
+    pub origin: String,
+    pub kind: PermissionKind,
+    pub allow: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

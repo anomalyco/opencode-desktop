@@ -176,7 +176,9 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
                     ("message", message.map_or(Data::Nil, Data::String)),
                     ("downloads", Data::Bool(app.workspace_panes.browser.host.engine_downloads())),
                     ("policy", Data::Bool(app.workspace_panes.browser.host.engine_policy())),
+                    ("preview", Data::Bool(app.workspace_panes.browser.host.engine_preview() || app.use_mock_browser())),
                     ("find", Data::Bool(app.workspace_panes.browser.host.engine_find())),
+                    ("permissionSync", Data::Bool(app.workspace_panes.browser.host.engine_permission_sync())),
                     ("clearCache", Data::Bool(app.workspace_panes.browser.host.engine_policy())),
                     ("hardReload", Data::Bool(true)),
                 ]),
@@ -186,14 +188,16 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     })?;
     method(lua, t, "NormalizeUrl", |lua, (url, sid): (String, Option<String>)| {
         let scope = scope::TabScope::capture(lua);
-        let roots = with_app("Browser:NormalizeUrl", |app| {
-            if app.workspace_panes.browser.host.has_live_sidecar() && !app.workspace_panes.browser.host.engine_policy() {
-                return Ok(Vec::new());
-            }
+        with_app("Browser:NormalizeUrl", |app| {
+            scope.check_local_mcp_allowed(app).map_err(mlua::Error::runtime)?;
             let target = scope.target_session(app, sid.as_deref());
-            Ok(app.browser_file_roots(target.as_deref()))
-        })?;
-        browser_pane::normalize_url(&url, &roots).map_err(mlua::Error::runtime)
+            if !scope.is_builtin_browser {
+                return browser_pane::normalize_url(&browser_pane::with_scheme(&url), &[])
+                    .map_err(mlua::Error::runtime);
+            }
+            app.normalize_browser_url_for_session(target.as_deref(), &url, true)
+                .map_err(mlua::Error::runtime)
+        })
     })?;
     method(lua, t, "Prepare", |_, seconds: Option<f64>| {
         let hold = Duration::from_secs_f64(seconds.unwrap_or(PREPARE_HOLD_S).clamp(1.0, PREPARE_HOLD_MAX_S));
@@ -221,71 +225,7 @@ pub fn asyncs(host: &Host<'_>, t: &Table) -> mlua::Result<()> {
     t.raw_set("BrowserTab.DevtoolsAsync", host.async_function("BrowserTab:DevtoolsAsync", devtools)?)?;
     t.raw_set("BrowserTab.SiteCookiesAsync", host.async_function("BrowserTab:SiteCookiesAsync", site_cookies)?)?;
     t.raw_set("BrowserTab.ClearSiteAsync", host.async_function("BrowserTab:ClearSiteAsync", clear_site)?)?;
-    t.raw_set("BrowserTab.ReadFileAsync", host.async_function("BrowserTab:ReadFileAsync", read_file)?)?;
     chrome::asyncs(host, t)
-}
-
-/// A downloaded file as the plugin sees it: Desktop's `files.list` fields (no path).
-#[cfg(not(target_arch = "wasm32"))]
-fn file_json(f: &browser_pane::DownloadFile) -> serde_json::Value {
-    let state = match f.state {
-        browser_pane::DownloadState::Pending => "pending",
-        browser_pane::DownloadState::Completed => "completed",
-        browser_pane::DownloadState::Failed => "failed",
-    };
-    serde_json::json!({ "id": f.id, "name": f.name, "mime": f.mime, "bytes": f.bytes, "state": state, "error": f.error })
-}
-
-/// Reads a completed download of the page, off the UI thread: its text when it's UTF-8, else
-/// its bytes in base64, as Desktop's `files.get` hands a file over; at most 5 MiB, its limit.
-#[cfg(not(target_arch = "wasm32"))]
-fn read_file(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
-    const MAX: u64 = 5 * 1024 * 1024;
-    let (id, file_id): (String, String) = mlua::FromLuaMulti::from_lua_multi(a, lua)?;
-    let scope = scope::TabScope::capture(lua);
-    with_app("BrowserTab:ReadFileAsync", |app| {
-        app.later(Box::new(move |s: &mut App, _: &mut Tx| {
-            let failed = |message: String| map([("error", Data::String(message))]);
-            let Some(tab_id) = id.parse::<u64>().ok().filter(|&id| s.workspace_panes.browser.host.tab(id).is_some()) else {
-                return done.complete(failed(format!("No browser tab with tabID {id}")));
-            };
-            if let Err(err) = scope.check_tab(s, tab_id, true) {
-                return done.complete(failed(err));
-            }
-            let tab = s.workspace_panes.browser.host.tab(tab_id);
-            let Some(file) = tab.and_then(|t| t.files.iter().find(|f| f.id == file_id)).cloned() else {
-                return done.complete(failed(format!("No downloaded file {file_id} in browser tab {id}: list them with browser_files")));
-            };
-            match file.state {
-                browser_pane::DownloadState::Pending => return done.complete(failed(format!("{} is still downloading: check browser_files again", file.name))),
-                browser_pane::DownloadState::Failed => return done.complete(failed(format!("{} didn't download ({})", file.name, file.error.as_deref().unwrap_or("failed")))),
-                browser_pane::DownloadState::Completed => {}
-            }
-            // Opened only where the engine keeps downloads, never at a path the engine merely named.
-            let Some(path) = s.workspace_panes.browser.host.download_path(tab_id, &file) else {
-                return done.complete(failed(format!("Couldn't read {}: it isn't in the browser's downloads folder", file.name)));
-            };
-            rune_luau::spawn_blocking(move || {
-                use base64::Engine as _;
-                use std::io::Read as _;
-                let mut bytes = Vec::new();
-                let read = std::fs::File::open(&path).and_then(|f| f.take(MAX + 1).read_to_end(&mut bytes));
-                if let Err(e) = read {
-                    return done.complete(failed(format!("Couldn't read {}: {e}", file.name)));
-                }
-                if bytes.len() as u64 > MAX {
-                    return done.complete(failed(format!("{} is over the 5 MiB limit", file.name)));
-                }
-                let size = Data::Integer(bytes.len() as i64);
-                let body = match String::from_utf8(bytes) {
-                    Ok(text) => ("text", Data::String(text)),
-                    Err(e) => ("base64", Data::String(base64::engine::general_purpose::STANDARD.encode(e.into_bytes()))),
-                };
-                done.complete(map([("name", Data::String(file.name)), ("mime", Data::String(file.mime)), ("bytes", size), body]));
-            });
-        }));
-        Ok(())
-    })
 }
 
 /// Opens the page on the next poll, in a new tab of its session's side region, and answers with
@@ -306,7 +246,26 @@ fn open(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
             }
             tx.instant();
             let url = if spec.url.trim().is_empty() { "about:blank" } else { spec.url.as_str() };
-            let id = if let Some(driver) = scope.driver(s) {
+            let candidate = browser_pane::with_scheme(url);
+            let driver = scope.driver(s);
+            // Third-party plugins may never mint preview/artifact grants (`notes/review-rd281.md` §9).
+            let id = if !scope.is_builtin_browser
+                && !matches!(
+                    s.resolve_preview_target(sid.as_deref(), &candidate, true),
+                    crate::browser::preview::PreviewTarget::NotPreview
+                )
+            {
+                let refused_id = s.open_refused_browser_tab(
+                    sid.as_deref(),
+                    "browser.address.web",
+                    None,
+                    spec.background != Some(true),
+                );
+                if let Some(driver) = driver {
+                    s.workspace_panes.browser.host.set_tab_driver(refused_id, driver);
+                }
+                refused_id
+            } else if let Some(driver) = driver {
                 s.open_new_controlled_browser_tab_for_session(
                     sid.as_deref(),
                     url,
@@ -530,6 +489,18 @@ fn tab_methods(lua: &Lua) -> mlua::Result<Table> {
         lua.create_function(|lua, this: Table| read_tab(lua, &this, "BrowserTab:LoadError", |app, id| Ok(app.workspace_panes.browser.host.tab(id).and_then(|t| t.load_error.clone()))))?,
     )?;
     m.raw_set(
+        "PreviewKind",
+        lua.create_function(|lua, this: Table| {
+            read_tab(lua, &this, "BrowserTab:PreviewKind", |app, id| {
+                Ok(app.workspace_panes.browser.host.tab(id).and_then(|t| t.preview).map(|k| match k {
+                    browser_pane::PreviewKindTag::Local => "local",
+                    browser_pane::PreviewKindTag::Remote => "remote",
+                    browser_pane::PreviewKindTag::Artifact => "artifact",
+                }))
+            })
+        })?,
+    )?;
+    m.raw_set(
         "Refusal",
         lua.create_function(|lua, this: Table| read_tab(lua, &this, "BrowserTab:Refusal", |app, id| Ok(app.workspace_panes.browser.host.tab(id).and_then(|t| t.refusal.clone()))))?,
     )?;
@@ -541,7 +512,7 @@ fn tab_methods(lua: &Lua) -> mlua::Result<Table> {
         "Files",
         lua.create_function(|lua, this: Table| {
             let files = read_tab(lua, &this, "BrowserTab:Files", |app, id| {
-                Ok(app.workspace_panes.browser.host.tab(id).map(|t| t.files.iter().map(|f| json_to_data(&file_json(f))).collect()).unwrap_or_default())
+                Ok(app.workspace_panes.browser.host.tab(id).map(|t| t.files.iter().map(|f| json_to_data(&chrome::file_json(f))).collect()).unwrap_or_default())
             })?;
             mlua::IntoLua::into_lua(Data::List(files), lua)
         })?,
@@ -552,8 +523,22 @@ fn tab_methods(lua: &Lua) -> mlua::Result<Table> {
     m.raw_set(
         "Navigate",
         lua.create_function(|lua, (this, url): (Table, String)| {
+            let cap = scope::TabScope::capture(lua);
             later(lua, &this, "BrowserTab:Navigate", move |s, id, _| {
-                s.navigate_browser_tab(id, &url);
+                cap.mark_tab_driven(s, id);
+                let agent = cap.driver(s).is_some();
+                let sid = s.browser_tab_session(id).map(str::to_owned);
+                let resolved = browser_pane::resolve_address(&url);
+                if !cap.is_builtin_browser
+                    && !matches!(
+                        s.resolve_preview_target(sid.as_deref(), &resolved, true),
+                        crate::browser::preview::PreviewTarget::NotPreview
+                    )
+                {
+                    s.workspace_panes.browser.host.set_mock_refusal(id, "browser.address.web");
+                    return;
+                }
+                s.navigate_browser_tab_with_agent(id, &url, agent);
             })
         })?,
     )?;
@@ -672,9 +657,12 @@ pub fn version(app: &App) -> u64 {
     format!("{:?}", app.workspace_panes.browser.host.status()).hash(&mut h);
     app.workspace_panes.browser.host.engine_downloads().hash(&mut h);
     app.workspace_panes.browser.host.engine_policy().hash(&mut h);
+    app.workspace_panes.browser.host.engine_permission_sync().hash(&mut h);
+    app.workspace_panes.browser.host.engine_preview().hash(&mut h);
     for t in app.workspace_panes.browser.host.tabs() {
         if let Some(d) = &t.device { (&d.preset, d.width, d.height, d.scale.map(f32::to_bits)).hash(&mut h); }
         (t.id, &t.url, &t.title, t.loading, t.can_go_back, t.can_go_forward, t.zoom.to_bits(), t.inspecting, &t.load_error, &t.favicon, &t.refusal, t.rejected).hash(&mut h);
+        t.preview.map(|p| p as u8).hash(&mut h);
         t.prompts.hash_state(&mut h);
         t.find.hash_state(&mut h);
         // A download's step or end: `BrowserTab:Files` reads them.
@@ -704,7 +692,7 @@ pub fn pages(app: &App, include_find: bool) -> Vec<(String, u64)> {
         .iter()
         .map(|t| {
             let mut h = std::hash::DefaultHasher::new();
-            (&t.url, &t.title, t.loading, &t.refusal, t.rejected, &t.favicon).hash(&mut h);
+            (&t.url, &t.title, t.loading, t.preview.map(|p| p as u8), &t.refusal, t.rejected, &t.favicon).hash(&mut h);
             if include_find {
                 t.find.hash_state(&mut h);
             }

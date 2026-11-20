@@ -20,11 +20,11 @@ use browser_policy::preview::{
 };
 use cef::rc::Rc as _;
 use cef::{
-    Browser, Callback, CefString, Frame, ImplCallback, ImplRequest, ImplResourceHandler,
-    ImplResourceReadCallback, ImplResourceSkipCallback, ImplResponse, ImplSchemeHandlerFactory,
-    Request, ResourceHandler, ResourceReadCallback, ResourceSkipCallback, Response,
-    SchemeHandlerFactory, WrapResourceHandler, WrapSchemeHandlerFactory, wrap_resource_handler,
-    wrap_scheme_handler_factory,
+    Browser, Callback, CefString, Frame, ImplCallback, ImplRequest, ImplRequestContext,
+    ImplResourceHandler, ImplResourceReadCallback, ImplResourceSkipCallback, ImplResponse,
+    ImplSchemeHandlerFactory, Request, RequestContext, ResourceHandler, ResourceReadCallback,
+    ResourceSkipCallback, Response, SchemeHandlerFactory, WrapResourceHandler,
+    WrapSchemeHandlerFactory, wrap_resource_handler, wrap_scheme_handler_factory,
 };
 
 use super::handle_path::{OpenOutcome, RootPin, open_verified_file};
@@ -33,6 +33,58 @@ use crate::output::Output;
 use crate::wire::EngineMsg;
 
 const LOCAL_READ_CHUNK_MAX: usize = 64 * 1024;
+
+// Fail-closed `CefSchemeHandlerFactory` registered for `"file"` on the global `Default`
+// `CefRequestContext` and every isolated context so raw `file://` requests are blocked engine-wide
+// across main frames, sub-frames, subresources, `fetch`, and Web Workers (`notes/review-rd281.md`).
+wrap_scheme_handler_factory! {
+    struct FileSchemeBanFactory;
+
+    impl SchemeHandlerFactory {
+        fn create(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            _scheme_name: Option<&CefString>,
+            _request: Option<&mut Request>,
+        ) -> Option<ResourceHandler> {
+            Some(FileSchemeDenyHandler::new())
+        }
+    }
+}
+
+wrap_resource_handler! {
+    struct FileSchemeDenyHandler;
+
+    impl ResourceHandler {
+        fn open(
+            &self,
+            _request: Option<&mut Request>,
+            handle_request: Option<&mut ::std::os::raw::c_int>,
+            _callback: Option<&mut Callback>,
+        ) -> ::std::os::raw::c_int {
+            if let Some(h) = handle_request {
+                *h = 1;
+            }
+            0
+        }
+
+        fn cancel(&self) {}
+    }
+}
+
+/// Registers a fail-closed `"file"` scheme handler on `ctx` blocking all native `file://` loads.
+pub fn ban_file_scheme(ctx: &RequestContext) {
+    let mut factory = FileSchemeBanFactory::new();
+    let ok = ctx.register_scheme_handler_factory(
+        Some(&CefString::from("file")),
+        Some(&CefString::from("")),
+        Some(&mut factory),
+    );
+    if ok == 0 {
+        eprintln!("browser-engine: register_scheme_handler_factory(file) returned 0");
+    }
+}
 
 wrap_scheme_handler_factory! {
     pub struct PreviewSchemeHandlerFactory {
@@ -125,12 +177,16 @@ wrap_scheme_handler_factory! {
                     // Per-segment percent-encode `rel` and validate single-range syntax before host fetch.
                     let encoded_rel = encode_rel_path(&rel);
                     let safe_range = normalize_range_header(raw_range.as_deref());
-                    let (req_id, proxy) = self.registry.register_proxy(
+                    let Some((req_id, proxy)) = self.registry.register_proxy(
                         self.grant.tab_id,
                         self.grant.clone(),
+                        self.out_tx.clone(),
                         head_only,
                         Some(rel),
-                    );
+                        safe_range.clone(),
+                    ) else {
+                        return None;
+                    };
                     let _ = self.out_tx.send(EngineMsg::PreviewFetch {
                         req_id,
                         tab_id: self.grant.tab_id,
@@ -145,12 +201,16 @@ wrap_scheme_handler_factory! {
                     let Some((_, route)) = artifact_resource(&url, &self.grant.grant_host, artifact_id) else {
                         return None;
                     };
-                    let (req_id, proxy) = self.registry.register_proxy(
+                    let Some((req_id, proxy)) = self.registry.register_proxy(
                         self.grant.tab_id,
                         self.grant.clone(),
+                        self.out_tx.clone(),
                         head_only,
                         None,
-                    );
+                        None,
+                    ) else {
+                        return None;
+                    };
                     let _ = self.out_tx.send(EngineMsg::PreviewFetch {
                         req_id,
                         tab_id: self.grant.tab_id,
@@ -626,18 +686,78 @@ wrap_resource_handler! {
             bytes_skipped: Option<&mut i64>,
             _callback: Option<&mut ResourceSkipCallback>,
         ) -> ::std::os::raw::c_int {
-            let st = self.proxy.state.lock().unwrap();
+            let mut st = self.proxy.state.lock().unwrap();
             if bytes_to_skip < 0 || st.canceled || self.proxy.grant.is_revoked() || st.status == 416 {
                 if let Some(s) = bytes_skipped {
                     *s = -2;
                 }
                 return 0;
             }
-            // Remote `/api/fs/read/*` already served the exact requested byte slice for `206`.
-            if let Some(s) = bytes_skipped {
-                *s = bytes_to_skip;
+            if bytes_to_skip == 0 {
+                if let Some(s) = bytes_skipped {
+                    *s = 0;
+                }
+                return 1;
             }
-            1
+            let want = bytes_to_skip as u64;
+            if st.status == 206 {
+                // For `206 Partial Content`, accept ONLY the exact verified `Content-Range` start
+                // offset once (the server already sliced at `range_start`); refuse any other skip.
+                if !st.skipped_initial && st.range_start == Some(want) {
+                    st.skipped_initial = true;
+                    if let Some(s) = bytes_skipped {
+                        *s = bytes_to_skip;
+                    }
+                    return 1;
+                }
+                if let Some(s) = bytes_skipped {
+                    *s = -2;
+                }
+                return 0;
+            }
+            if st.status == 200 {
+                // On a `200 OK` response, actually discard `want` bytes from buffered & incoming
+                // chunks so CEF never receives offset-0 bytes when skipping to an offset.
+                let max_bytes = self.proxy.grant.kind.max_bytes();
+                let next_skip = st.skip_remaining.saturating_add(want);
+                if next_skip > max_bytes {
+                    if let Some(s) = bytes_skipped {
+                        *s = -2;
+                    }
+                    return 0;
+                }
+                let mut left = want;
+                let mut dropped = 0usize;
+                while left > 0 {
+                    let Some(mut front) = st.chunks.pop_front() else { break };
+                    let drop_n = (front.len() as u64).min(left) as usize;
+                    st.queued_bytes = st.queued_bytes.saturating_sub(drop_n);
+                    dropped = dropped.saturating_add(drop_n);
+                    left -= drop_n as u64;
+                    if drop_n < front.len() {
+                        st.chunks.push_front(front.split_off(drop_n));
+                    }
+                }
+                st.skip_remaining = st.skip_remaining.saturating_add(left);
+                st.unacked_bytes = st.unacked_bytes.saturating_add(dropped);
+                let credit = if st.unacked_bytes >= super::PREVIEW_CREDIT_BATCH_BYTES {
+                    std::mem::take(&mut st.unacked_bytes)
+                } else {
+                    0
+                };
+                drop(st);
+                if credit > 0 {
+                    self.proxy.send_credit(credit);
+                }
+                if let Some(s) = bytes_skipped {
+                    *s = bytes_to_skip;
+                }
+                return 1;
+            }
+            if let Some(s) = bytes_skipped {
+                *s = -2;
+            }
+            0
         }
 
         fn read(
@@ -673,14 +793,42 @@ wrap_resource_handler! {
                     std::ptr::copy_nonoverlapping(chunk.as_ptr(), data_out, n);
                 }
                 st.queued_bytes = st.queued_bytes.saturating_sub(n);
+                st.unacked_bytes = st.unacked_bytes.saturating_add(n);
                 if n < chunk.len() {
                     st.chunks.push_front(chunk.split_off(n));
+                }
+                let credit = if st.unacked_bytes >= super::PREVIEW_CREDIT_BATCH_BYTES {
+                    std::mem::take(&mut st.unacked_bytes)
+                } else {
+                    0
+                };
+                drop(st);
+                if credit > 0 {
+                    self.proxy.send_credit(credit);
                 }
                 *out_n = n as i32;
                 return 1;
             }
+            if st.remaining_to_deliver == Some(0) && st.skip_remaining == 0 {
+                let notify_cancel = !st.cancel_notified;
+                st.cancel_notified = true;
+                drop(st);
+                if notify_cancel {
+                    self.proxy.send_cancel();
+                }
+                self.registry.remove_proxy(self.req_id);
+                *out_n = 0;
+                return 0;
+            }
             if st.ended {
-                *out_n = if st.end_ok { 0 } else { -2 };
+                *out_n = if st.end_ok
+                    && st.skip_remaining == 0
+                    && st.remaining_to_deliver.is_none_or(|r| r == 0)
+                {
+                    0
+                } else {
+                    -2
+                };
                 return 0;
             }
             let Some(cb) = callback.cloned() else {
@@ -692,6 +840,11 @@ wrap_resource_handler! {
                 max_len: bytes_to_read as usize,
                 callback: cb,
             });
+            let credit = std::mem::take(&mut st.unacked_bytes);
+            drop(st);
+            if credit > 0 {
+                self.proxy.send_credit(credit);
+            }
             *out_n = 0;
             1
         }

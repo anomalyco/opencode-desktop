@@ -11,15 +11,15 @@ use cef::rc::Rc as _;
 use cef::{
     AcceleratedPaintInfo, AuthCallback, Browser, Callback, CefString, CefStringList, CursorInfo,
     CursorType, DevToolsMessageObserver, DisplayHandler, Errorcode, Frame, ImplAuthCallback,
-    ImplDevToolsMessageObserver,
-    ImplDisplayHandler, ImplFrame, ImplLoadHandler, ImplRenderHandler, ImplRequest,
-    ImplRequestHandler, ImplResourceRequestHandler, ImplSelectClientCertificateCallback,
-    LoadHandler, PaintElementType, Rect, RenderHandler, Request, RequestHandler,
-    ResourceRequestHandler, Response, ReturnValue, ScreenInfo, SelectClientCertificateCallback,
-    TerminationStatus, TransitionType, WindowOpenDisposition, WrapDevToolsMessageObserver, WrapDisplayHandler,
-    WrapLoadHandler, WrapRenderHandler, WrapRequestHandler, WrapResourceRequestHandler,
-    X509Certificate, sys, wrap_dev_tools_message_observer, wrap_display_handler,
-    wrap_load_handler, wrap_render_handler, wrap_request_handler, wrap_resource_request_handler,
+    ImplBrowser, ImplBrowserHost, ImplDevToolsMessageObserver, ImplDisplayHandler, ImplFrame,
+    ImplLoadHandler, ImplRenderHandler, ImplRequest, ImplRequestHandler,
+    ImplResourceRequestHandler, ImplSelectClientCertificateCallback, LoadHandler, PaintElementType,
+    Rect, RenderHandler, Request, RequestHandler, ResourceRequestHandler, Response, ReturnValue,
+    ScreenInfo, SelectClientCertificateCallback, TerminationStatus, TransitionType,
+    WindowOpenDisposition, WrapDevToolsMessageObserver, WrapDisplayHandler, WrapLoadHandler,
+    WrapRenderHandler, WrapRequestHandler, WrapResourceRequestHandler, X509Certificate, sys,
+    wrap_dev_tools_message_observer, wrap_display_handler, wrap_load_handler, wrap_render_handler,
+    wrap_request_handler, wrap_resource_request_handler,
 };
 use serde_json::Value;
 
@@ -325,6 +325,8 @@ wrap_display_handler! {
         preview: Option<Arc<crate::preview::PreviewGrant>>,
         snap: Arc<Mutex<TabSnapshot>>,
         prompts: Arc<crate::prompts::TabPrompts>,
+        permissions: Arc<crate::permissions::PermissionTracker>,
+        context_scope_id: Option<String>,
         favicon: Arc<crate::favicon::TabFavicon>,
         out_tx: Output,
         events: std::sync::mpsc::Sender<crate::Event>,
@@ -333,7 +335,7 @@ wrap_display_handler! {
     impl DisplayHandler {
         fn on_address_change(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             frame: Option<&mut Frame>,
             url: Option<&CefString>,
         ) {
@@ -358,6 +360,17 @@ wrap_display_handler! {
                             new_origin.as_deref(),
                             &self.out_tx,
                         );
+                        self.permissions.on_origin_changed(
+                            self.context_scope_id.as_deref(),
+                            self.tab_id,
+                            new_origin.as_deref(),
+                        );
+                    }
+                    if self.context_scope_id.is_some()
+                        && let Some(orig) = new_origin.as_deref()
+                        && let Some(ctx) = browser.as_ref().and_then(|b| b.host()).and_then(|h| h.request_context())
+                    {
+                        crate::permissions::block_device_permission_guards_for_origin(&ctx, orig);
                     }
                 }
                 self.prompts.set_pending_top_url(None);
@@ -561,7 +574,15 @@ wrap_load_handler! {
             // Chromium blocks unsafe cross-scheme redirects (`302 -> file://` or `302 -> data:`)
             // and disallowed schemes in the network layer before `on_before_browse`: keep the
             // open page and report the policy refusal, matching Desktop's `will-redirect`.
-            if matches!(code, E::ERR_UNSAFE_REDIRECT | E::ERR_DISALLOWED_URL_SCHEME | E::ERR_UNKNOWN_URL_SCHEME) {
+            // Skip for a preview tab's own canceled `oc-preview://<grant>` URL (e.g. artifact 404).
+            let own_preview_fail = self.preview.as_ref().is_some_and(|g| {
+                failed_url
+                    .map(CefString::to_string)
+                    .is_some_and(|u| g.compute_display_url(&u).is_some())
+            });
+            if !own_preview_fail
+                && matches!(code, E::ERR_UNSAFE_REDIRECT | E::ERR_DISALLOWED_URL_SCHEME | E::ERR_UNKNOWN_URL_SCHEME)
+            {
                 let roots = self.file_roots.lock().unwrap().clone();
                 let why = if roots.is_empty() {
                     browser_policy::Refusal::Web
@@ -702,6 +723,7 @@ wrap_request_handler! {
         snap: Arc<Mutex<TabSnapshot>>,
         prompt_shared: crate::prompts::PromptShared,
         prompts: Arc<crate::prompts::TabPrompts>,
+        context_scope_id: Option<String>,
         diagnostics: Arc<crate::diagnostics::TabDiagnostics>,
         out_tx: Output,
     }
@@ -716,7 +738,7 @@ wrap_request_handler! {
         // `file:` URLs outside `file_roots`.
         fn on_before_browse(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             frame: Option<&mut Frame>,
             request: Option<&mut Request>,
             user_gesture: ::std::os::raw::c_int,
@@ -731,6 +753,11 @@ wrap_request_handler! {
             // (and while a remote context is suspended): cancel every non-`about:blank` navigation.
             if !self.context_ready.load(Ordering::Acquire) {
                 return i32::from(!url.trim().eq_ignore_ascii_case("about:blank"));
+            }
+            if self.context_scope_id.is_some()
+                && let Some(ctx) = browser.as_ref().and_then(|b| b.host()).and_then(|h| h.request_context())
+            {
+                crate::permissions::block_device_permission_guards_for_origin(&ctx, &url);
             }
             if let Some(grant) = &self.preview {
                 if is_main {

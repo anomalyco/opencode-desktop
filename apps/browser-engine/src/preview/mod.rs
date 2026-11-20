@@ -13,9 +13,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use browser_policy::preview::{
-    MAX_ARTIFACT_BYTES, MAX_PREVIEW_FILE_BYTES, artifact_resource, is_preview_scheme,
-    local_display_url, mime_for_path, parse_content_range, parse_preview_url, preview_allowed,
-    preview_url, root_is_windows,
+    MAX_ARTIFACT_BYTES, MAX_PREVIEW_FILE_BYTES, RangeSpec, artifact_resource, is_preview_scheme,
+    local_display_url, mime_for_path, parse_content_range, parse_preview_url, parse_range,
+    preview_allowed, preview_url, root_is_windows,
 };
 use cef::{Callback, ImplCallback, ImplResourceReadCallback, ResourceReadCallback};
 
@@ -26,8 +26,15 @@ use io_pool::PreviewIoPool;
 
 /// Maximum pending initiator entries remembered per grant (strictly bounded in both map and queue).
 const MAX_INITIATOR_CACHE: usize = 4096;
-/// Maximum unread buffered bytes per in-flight remote/artifact proxy request (backpressure cap).
-const MAX_PROXY_QUEUE_BYTES: usize = 8 * 1024 * 1024;
+/// Maximum unread buffered bytes per in-flight remote/artifact proxy request (hard safety cap
+/// above the host's 1 MiB byte-credit window).
+const MAX_PROXY_QUEUE_BYTES: usize = 2 * 1024 * 1024;
+/// Batch threshold for returning consumed preview bytes as `EngineMsg::PreviewCredit`.
+pub const PREVIEW_CREDIT_BATCH_BYTES: usize = 256 * 1024;
+/// Maximum concurrent in-flight remote/artifact proxy requests per preview tab.
+const MAX_PROXIES_PER_TAB: usize = 16;
+/// Maximum concurrent in-flight remote/artifact proxy requests engine-wide.
+const MAX_PROXIES_GLOBAL: usize = 64;
 
 #[derive(Clone, Debug)]
 pub enum PreviewKind {
@@ -306,13 +313,18 @@ impl PreviewGrant {
     }
 
     /// Sanitizes any URL reported by CEF (`on_address_change`, `on_load_error`, context menu, JS
-    /// dialogs) so the internal random `oc-preview://<uuid>` origin never escapes into `TabSnapshot`.
+    /// dialogs) so the internal random `oc-preview://<uuid>` origin (and the pre-init deferred
+    /// `about:blank` placeholder) never escapes into `TabSnapshot` or overwrites the display URL.
     pub fn sanitize_reported_url(&self, raw_url: &str) -> String {
         if let Some(display) = self.display_url(raw_url) {
             return display;
         }
+        let trimmed = raw_url.trim();
         let own = format!("{}://{}/", scheme::PREVIEW_SCHEME, self.grant_host);
-        if raw_url.len() >= own.len() && raw_url.as_bytes()[..own.len()].eq_ignore_ascii_case(own.as_bytes()) {
+        if trimmed.eq_ignore_ascii_case("about:blank")
+            || (trimmed.len() >= own.len()
+                && trimmed.as_bytes()[..own.len()].eq_ignore_ascii_case(own.as_bytes()))
+        {
             let last = self.last_display_url();
             if !last.is_empty() {
                 return last;
@@ -328,28 +340,44 @@ impl PreviewGrant {
 /// Shared state between an in-flight async `ProxyResourceHandler` (CEF IO thread) and the
 /// engine main thread receiving `HostMsg::PreviewResponse*` frames.
 pub struct PendingProxy {
+    pub req_id: u64,
     pub tab_id: u64,
     pub grant: Arc<PreviewGrant>,
+    pub out_tx: Output,
     pub head_only: bool,
     /// For `PreviewKind::Remote`, verified workspace-relative path used to derive MIME strictly
     /// from extension (never trusting server-supplied `Content-Type`). `None` for artifacts.
     pub remote_rel: Option<String>,
+    /// Canonical single-range header requested for this fetch (`None` for artifacts / non-ranged).
+    pub requested_range: Option<String>,
     pub state: Mutex<ProxyStreamState>,
 }
 
 pub struct ProxyStreamState {
     pub canceled: bool,
+    pub cancel_notified: bool,
     pub head_ready: bool,
     pub head_ok: bool,
     pub status: u16,
     pub mime: String,
     pub charset: Option<String>,
     pub content_length: Option<u64>,
+    /// Expected upstream body length (equals `total` when slicing a ranged `200` into `206`).
+    pub upstream_length: Option<u64>,
     pub total_size: Option<u64>,
     pub content_range: Option<String>,
+    /// Verified starting byte offset of a `206 Partial Content` response.
+    pub range_start: Option<u64>,
+    /// Whether `skip()` already acknowledged the initial `206` starting offset.
+    pub skipped_initial: bool,
+    /// Leading body bytes still to discard for a `200 OK` response sliced to a requested range.
+    pub skip_remaining: u64,
+    /// Exact remaining bytes to deliver after `skip_remaining` reaches 0 when slicing a ranged `200`.
+    pub remaining_to_deliver: Option<u64>,
     pub open_callback: Option<Callback>,
     pub chunks: VecDeque<Vec<u8>>,
     pub queued_bytes: usize,
+    pub unacked_bytes: usize,
     pub total_received: u64,
     pub ended: bool,
     pub end_ok: bool,
@@ -363,25 +391,43 @@ pub struct WaitingRead {
 }
 
 impl PendingProxy {
-    pub fn new(tab_id: u64, grant: Arc<PreviewGrant>, head_only: bool, remote_rel: Option<String>) -> Arc<Self> {
+    pub fn new(
+        req_id: u64,
+        tab_id: u64,
+        grant: Arc<PreviewGrant>,
+        out_tx: Output,
+        head_only: bool,
+        remote_rel: Option<String>,
+        requested_range: Option<String>,
+    ) -> Arc<Self> {
         Arc::new(Self {
+            req_id,
             tab_id,
             grant,
+            out_tx,
             head_only,
             remote_rel,
+            requested_range,
             state: Mutex::new(ProxyStreamState {
                 canceled: false,
+                cancel_notified: false,
                 head_ready: false,
                 head_ok: false,
                 status: 404,
                 mime: "application/octet-stream".into(),
                 charset: None,
                 content_length: None,
+                upstream_length: None,
                 total_size: None,
                 content_range: None,
+                range_start: None,
+                skipped_initial: false,
+                skip_remaining: 0,
+                remaining_to_deliver: None,
                 open_callback: None,
                 chunks: VecDeque::new(),
                 queued_bytes: 0,
+                unacked_bytes: 0,
                 total_received: 0,
                 ended: false,
                 end_ok: false,
@@ -390,16 +436,40 @@ impl PendingProxy {
         })
     }
 
+    pub fn send_credit(&self, bytes: usize) {
+        if bytes == 0 {
+            return;
+        }
+        let _ = self.out_tx.send(EngineMsg::PreviewCredit {
+            req_id: self.req_id,
+            bytes: bytes.min(u32::MAX as usize) as u32,
+            cancel: false,
+        });
+    }
+
+    pub fn send_cancel(&self) {
+        let _ = self.out_tx.send(EngineMsg::PreviewCredit {
+            req_id: self.req_id,
+            bytes: 0,
+            cancel: true,
+        });
+    }
+
     pub fn cancel(&self) {
-        let (open_cb, read_cb) = {
+        let (open_cb, read_cb, notify_cancel) = {
             let mut st = self.state.lock().unwrap();
             st.canceled = true;
             st.ended = true;
             st.end_ok = false;
             st.chunks.clear();
             st.queued_bytes = 0;
-            (st.open_callback.take(), st.waiting_read.take())
+            let notify = !st.cancel_notified;
+            st.cancel_notified = true;
+            (st.open_callback.take(), st.waiting_read.take(), notify)
         };
+        if notify_cancel {
+            self.send_cancel();
+        }
         if let Some(cb) = open_cb {
             cb.cancel();
         }
@@ -420,36 +490,80 @@ impl PendingProxy {
     ) -> bool {
         let max_bytes = self.grant.kind.max_bytes();
         let is_artifact = self.grant.is_artifact();
-        let (open_cb, failed_early) = {
+        let (open_cb, failed_early, notify_cancel) = {
             let mut st = self.state.lock().unwrap();
             if st.canceled || self.grant.is_revoked() {
                 st.canceled = true;
+                let notify = !st.cancel_notified;
+                st.cancel_notified = true;
                 let cb = st.open_callback.take();
-                (cb, true)
+                (cb, true, notify)
             } else {
                 let over_cap = content_length.is_some_and(|n| n > max_bytes);
-                let (valid_status, total_size) = if is_artifact {
+                let mut eff_status = status;
+                let mut eff_content_length = content_length;
+                let mut eff_content_range = content_range;
+                let mut skip_remaining = 0u64;
+                let mut remaining_to_deliver: Option<u64> = None;
+                let (valid_status, total_size, range_start) = if is_artifact {
                     // Upstream `serve.ts:25`: artifacts require strictly 200 OK.
-                    (status == 200, content_length)
+                    (status == 200, content_length, None)
                 } else {
                     match status {
-                        200 => (true, content_length),
-                        206 => match parse_content_range(content_range.as_deref()) {
-                            Some((start, end, total))
-                                if total <= max_bytes
-                                    && content_length == Some(end - start + 1) =>
-                            {
-                                (true, Some(total))
+                        200 if self.requested_range.is_some() => {
+                            // Server ignored `Range:` and answered `200 OK`: slice it into a
+                            // spec-compliant `206` (or `416`) so CEF's `StreamReaderURLLoader`
+                            // receives exact requested bytes and never trailing/offset-0 bytes.
+                            match content_length {
+                                Some(total) if total <= max_bytes => {
+                                    match parse_range(self.requested_range.as_deref(), total) {
+                                        RangeSpec::Partial { start, length, content_range, .. } => {
+                                            eff_status = 206;
+                                            eff_content_length = Some(length);
+                                            eff_content_range = Some(content_range);
+                                            skip_remaining = start;
+                                            remaining_to_deliver = Some(length);
+                                            (true, Some(total), Some(start))
+                                        }
+                                        RangeSpec::Unsatisfiable { content_range } => {
+                                            eff_status = 416;
+                                            eff_content_length = Some(0);
+                                            eff_content_range = Some(content_range);
+                                            (true, Some(0), None)
+                                        }
+                                        RangeSpec::Full { .. } => (true, Some(total), None),
+                                    }
+                                }
+                                _ => (false, None, None),
                             }
-                            _ => (false, None),
-                        },
-                        416 => (true, Some(0)),
-                        _ => (false, None),
+                        }
+                        200 => (true, content_length, None),
+                        206 if self.requested_range.is_some() => {
+                            match parse_content_range(eff_content_range.as_deref()) {
+                                Some((start, end, total)) if total <= max_bytes => {
+                                    let expected_slice = parse_range(self.requested_range.as_deref(), total);
+                                    let matches_req = matches!(
+                                        expected_slice,
+                                        RangeSpec::Partial { start: ws, end: we, length: wl, .. }
+                                            if start == ws && end == we && content_length == Some(wl)
+                                    );
+                                    if matches_req {
+                                        remaining_to_deliver = content_length;
+                                        (true, Some(total), Some(start))
+                                    } else {
+                                        (false, None, None)
+                                    }
+                                }
+                                _ => (false, None, None),
+                            }
+                        }
+                        416 if self.requested_range.is_some() => (true, Some(0), None),
+                        _ => (false, None, None),
                     }
                 };
                 st.head_ready = true;
                 st.head_ok = ok && valid_status && !over_cap;
-                st.status = status;
+                st.status = eff_status;
                 if let Some(rel) = &self.remote_rel {
                     // Remote workspace files derive MIME strictly from extension (`serve.ts:78`).
                     let (ext_mime, ext_cs) = mime_for_path(rel);
@@ -460,14 +574,29 @@ impl PendingProxy {
                     st.mime = clean_mime;
                     st.charset = charset;
                 }
-                st.content_length = content_length;
+                st.content_length = eff_content_length;
+                st.upstream_length = content_length;
                 st.total_size = total_size;
-                st.content_range = content_range;
+                st.range_start = range_start;
+                st.skip_remaining = skip_remaining;
+                st.remaining_to_deliver = remaining_to_deliver;
+                st.content_range = eff_content_range;
+                if eff_status == 416 && st.head_ok {
+                    st.ended = true;
+                    st.end_ok = true;
+                }
                 let cb = st.open_callback.take();
-                let should_remove = !st.head_ok;
-                (cb, should_remove)
+                let should_remove = !st.head_ok || eff_status == 416;
+                let notify_cancel = !st.head_ok && !st.cancel_notified;
+                if notify_cancel {
+                    st.cancel_notified = true;
+                }
+                (cb, should_remove, notify_cancel)
             }
         };
+        if notify_cancel {
+            self.send_cancel();
+        }
         if let Some(cb) = open_cb {
             let ok_now = {
                 let st = self.state.lock().unwrap();
@@ -487,41 +616,114 @@ impl PendingProxy {
         if bytes.is_empty() {
             return false;
         }
-        let (wake, canceled_now) = {
+        let raw_len = bytes.len();
+        let (wake, canceled_now, credit_to_send, notify_cancel) = {
             let mut st = self.state.lock().unwrap();
             if st.canceled || st.ended || self.grant.is_revoked() {
-                return st.canceled;
+                let notify = !st.cancel_notified;
+                st.cancel_notified = true;
+                return if notify {
+                    drop(st);
+                    self.send_cancel();
+                    true
+                } else {
+                    true
+                };
             }
-            st.total_received = st.total_received.saturating_add(bytes.len() as u64);
-            let exceeds_len = st.content_length.is_some_and(|cl| st.total_received > cl);
+            st.total_received = st.total_received.saturating_add(raw_len as u64);
+            let exceeds_len = st.upstream_length.is_some_and(|cl| st.total_received > cl);
             let exceeds_cap = st.total_received > self.grant.kind.max_bytes();
-            let exceeds_queue = st.queued_bytes.saturating_add(bytes.len()) > MAX_PROXY_QUEUE_BYTES;
+            // Discard any leading skipped bytes (and trailing bytes past the requested range end)
+            // when slicing a ranged `200 OK` response into `206 Partial Content`.
+            let mut slice = bytes.as_slice();
+            if st.skip_remaining > 0 {
+                let drop_n = (slice.len() as u64).min(st.skip_remaining) as usize;
+                st.skip_remaining -= drop_n as u64;
+                slice = &slice[drop_n..];
+            }
+            if let Some(rem) = st.remaining_to_deliver {
+                let keep = (slice.len() as u64).min(rem) as usize;
+                slice = &slice[..keep];
+                st.remaining_to_deliver = Some(rem - keep as u64);
+            }
+            let discarded = raw_len.saturating_sub(slice.len());
+            let range_done = st.remaining_to_deliver == Some(0) && st.skip_remaining == 0;
+            let exceeds_queue = st.queued_bytes.saturating_add(slice.len()) > MAX_PROXY_QUEUE_BYTES;
             if exceeds_cap || exceeds_len || exceeds_queue {
                 st.canceled = true;
                 st.ended = true;
                 st.end_ok = false;
                 st.chunks.clear();
                 st.queued_bytes = 0;
-                (st.waiting_read.take().map(|w| (w.callback, -2i32)), true)
+                let notify = !st.cancel_notified;
+                st.cancel_notified = true;
+                (st.waiting_read.take().map(|w| (w.callback, -2i32)), true, 0usize, notify)
+            } else if slice.is_empty() {
+                if range_done {
+                    let notify = !st.cancel_notified;
+                    st.cancel_notified = true;
+                    let wake_eof = st.chunks.is_empty().then(|| st.waiting_read.take().map(|w| (w.callback, 0i32))).flatten();
+                    (wake_eof, true, 0usize, notify)
+                } else {
+                    st.unacked_bytes = st.unacked_bytes.saturating_add(discarded);
+                    let credit = if st.unacked_bytes >= PREVIEW_CREDIT_BATCH_BYTES
+                        || (st.chunks.is_empty() && st.waiting_read.is_some())
+                    {
+                        std::mem::take(&mut st.unacked_bytes)
+                    } else {
+                        0
+                    };
+                    (None, false, credit, false)
+                }
             } else if let Some(wait) = st.waiting_read.take() {
-                let n = bytes.len().min(wait.max_len);
+                let n = slice.len().min(wait.max_len);
                 // SAFETY: CEF guarantees `data_out` remains valid until `wait.callback.cont` runs
                 // or `cancel()` returns; `cancel()` acquires `self.state` first.
                 unsafe {
-                    std::ptr::copy_nonoverlapping(bytes.as_ptr(), wait.data_out as *mut u8, n);
+                    std::ptr::copy_nonoverlapping(slice.as_ptr(), wait.data_out as *mut u8, n);
                 }
-                if n < bytes.len() {
-                    let rem = bytes[n..].to_vec();
+                if n < slice.len() {
+                    let rem = slice[n..].to_vec();
                     st.queued_bytes = st.queued_bytes.saturating_add(rem.len());
                     st.chunks.push_front(rem);
                 }
-                (Some((wait.callback, n as i32)), false)
+                if range_done {
+                    let notify = !st.cancel_notified;
+                    st.cancel_notified = true;
+                    (Some((wait.callback, n as i32)), true, 0usize, notify)
+                } else {
+                    st.unacked_bytes = st.unacked_bytes.saturating_add(discarded + n);
+                    let credit = if st.unacked_bytes >= PREVIEW_CREDIT_BATCH_BYTES {
+                        std::mem::take(&mut st.unacked_bytes)
+                    } else {
+                        0
+                    };
+                    (Some((wait.callback, n as i32)), false, credit, false)
+                }
             } else {
-                st.queued_bytes = st.queued_bytes.saturating_add(bytes.len());
-                st.chunks.push_back(bytes);
-                (None, false)
+                let owned = slice.to_vec();
+                st.queued_bytes = st.queued_bytes.saturating_add(owned.len());
+                st.chunks.push_back(owned);
+                if range_done {
+                    let notify = !st.cancel_notified;
+                    st.cancel_notified = true;
+                    (None, true, 0usize, notify)
+                } else {
+                    st.unacked_bytes = st.unacked_bytes.saturating_add(discarded);
+                    let credit = if st.unacked_bytes >= PREVIEW_CREDIT_BATCH_BYTES {
+                        std::mem::take(&mut st.unacked_bytes)
+                    } else {
+                        0
+                    };
+                    (None, false, credit, false)
+                }
             }
         };
+        if notify_cancel {
+            self.send_cancel();
+        } else if credit_to_send > 0 {
+            self.send_credit(credit_to_send);
+        }
         if let Some((cb, n)) = wake {
             cb.cont(n);
         }
@@ -532,7 +734,11 @@ impl PendingProxy {
         let wake = {
             let mut st = self.state.lock().unwrap();
             st.ended = true;
-            st.end_ok = ok && !st.canceled && !self.grant.is_revoked();
+            st.end_ok = ok
+                && !st.canceled
+                && !self.grant.is_revoked()
+                && st.skip_remaining == 0
+                && st.remaining_to_deliver.is_none_or(|r| r == 0);
             if !st.end_ok {
                 st.chunks.clear();
                 st.queued_bytes = 0;
@@ -670,13 +876,23 @@ impl PreviewRegistry {
         &self,
         tab_id: u64,
         grant: Arc<PreviewGrant>,
+        out_tx: Output,
         head_only: bool,
         remote_rel: Option<String>,
-    ) -> (u64, Arc<PendingProxy>) {
+        requested_range: Option<String>,
+    ) -> Option<(u64, Arc<PendingProxy>)> {
+        let mut map = self.proxies.lock().unwrap();
+        if map.len() >= MAX_PROXIES_GLOBAL {
+            return None;
+        }
+        let tab_count = map.values().filter(|p| p.tab_id == tab_id).count();
+        if tab_count >= MAX_PROXIES_PER_TAB {
+            return None;
+        }
         let req_id = self.next_req_id.fetch_add(1, Ordering::Relaxed);
-        let proxy = PendingProxy::new(tab_id, grant, head_only, remote_rel);
-        self.proxies.lock().unwrap().insert(req_id, proxy.clone());
-        (req_id, proxy)
+        let proxy = PendingProxy::new(req_id, tab_id, grant, out_tx, head_only, remote_rel, requested_range);
+        map.insert(req_id, proxy.clone());
+        Some((req_id, proxy))
     }
 
     pub fn remove_proxy(&self, req_id: u64) {
