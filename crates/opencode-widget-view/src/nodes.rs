@@ -90,6 +90,8 @@ fn row_node<S: 'static>(cx: &Cx<S>, children: &[Node], g: Option<u8>, align: Opt
         _ if cards > 0 => r.items_stretch(),
         _ => r.items_start(),
     };
+    // Buttons can't shrink: a row of them wraps rather than run past a narrow column.
+    let wrap = wrap || children.iter().any(|c| matches!(c, Node::Button { .. }));
     let r = if wrap { r.flex_wrap() } else { r };
     r.children(kids(cx, children, path, if wrap { Share::Wrap } else { Share::Line }))
 }

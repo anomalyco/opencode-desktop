@@ -125,12 +125,14 @@ pub(crate) fn view<S: 'static>(cx: &Cx<S>, id: Option<&str>, children: &[Node], 
 
 /// A round arrow over the stage's edge; faint and inert at the first or last page.
 fn arrow(k: &Kit, name: &str, left: bool, enabled: bool) -> El {
-    let glyph = icon(k.glyph.caret_right, 12.0).color(k.c.icon_base).icon_rotation(if left { std::f32::consts::PI } else { 0.0 });
+    // Over a picture in either theme: a dark glass disc with a white caret.
+    let glyph = icon(k.glyph.caret_right, 12.0).color(k.c.white).icon_rotation(if left { std::f32::consts::PI } else { 0.0 });
     let mut b = el()
         .size(28.0, 28.0)
         .radius(14.0)
         .center()
-        .fill(k.c.surface_float)
+        .fill(k.c.black.alpha(0.55))
+        .border(0.5, k.c.white.alpha(0.18))
         .role("button")
         .label(name.to_owned())
         .child(glyph)
