@@ -34,6 +34,7 @@ members = [
     "features/workspace-tools",
     "crates/authenticode",
     "crates/browser-pane",
+    "crates/browser-policy",
     "crates/hex-client",
     "crates/office-preview",
     "crates/opencode-code-view",

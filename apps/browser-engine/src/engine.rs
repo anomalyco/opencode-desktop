@@ -469,7 +469,7 @@ impl EngineManager {
             HostMsg::Navigate { tab_id, url } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
                     let roots = t.file_roots.lock().unwrap().clone();
-                    if let Some(why) = crate::policy::frame_guard(&url, true, &roots) {
+                    if let Some(why) = browser_policy::frame_guard(&url, true, &roots) {
                         let _ = self.out_tx.send(EngineMsg::Refused {
                             tab_id,
                             reason: why.code().to_owned(),
@@ -691,7 +691,7 @@ impl EngineManager {
             }
             HostMsg::CdpCall { tab_id, request_id, method, params, session_id } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
-                    if let Err(err) = crate::policy::check_cdp(&method, &params) {
+                    if let Err(err) = browser_policy::check_cdp(&method, &params, true) {
                         let _ = self.out_tx.send(EngineMsg::CdpResponse {
                             tab_id,
                             request_id,
@@ -725,7 +725,7 @@ impl EngineManager {
             HostMsg::SiteCookies { tab_id, request_id } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
                     let url = t.snap.lock().unwrap().url.clone();
-                    if crate::policy::destination_origin(&url).is_none() {
+                    if browser_policy::destination_origin(&url).is_none() {
                         let _ = self.out_tx.send(EngineMsg::CdpResponse {
                             tab_id,
                             request_id,
@@ -756,7 +756,7 @@ impl EngineManager {
             HostMsg::ClearSite { tab_id, request_id } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
                     let url = t.snap.lock().unwrap().url.clone();
-                    let Some(origin) = crate::policy::destination_origin(&url) else {
+                    let Some(origin) = browser_policy::destination_origin(&url) else {
                         let _ = self.out_tx.send(EngineMsg::CdpResponse {
                             tab_id,
                             request_id,
@@ -817,7 +817,7 @@ impl EngineManager {
         focused: bool,
         file_roots: Vec<String>,
     ) {
-        let refused = crate::policy::frame_guard(url, true, &file_roots);
+        let refused = browser_policy::frame_guard(url, true, &file_roots);
         let initial_url = if refused.is_some() { "about:blank" } else { url };
         let file_roots = Arc::new(Mutex::new(file_roots));
         let view_state = Arc::new(Mutex::new(ViewRectState {

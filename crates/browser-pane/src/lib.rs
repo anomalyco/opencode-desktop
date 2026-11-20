@@ -30,7 +30,7 @@ mod keys;
 #[cfg(all(feature = "engine", target_os = "macos"))]
 pub mod mach_pipe;
 mod machine;
-pub mod policy;
+pub use browser_policy as policy;
 #[cfg(feature = "engine")]
 mod prefetch;
 #[cfg(feature = "engine")]

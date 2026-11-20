@@ -447,9 +447,9 @@ wrap_load_handler! {
             if matches!(code, E::ERR_UNSAFE_REDIRECT | E::ERR_DISALLOWED_URL_SCHEME | E::ERR_UNKNOWN_URL_SCHEME) {
                 let roots = self.file_roots.lock().unwrap().clone();
                 let why = if roots.is_empty() {
-                    crate::policy::Refusal::Web
+                    browser_policy::Refusal::Web
                 } else {
-                    crate::policy::Refusal::Workspace
+                    browser_policy::Refusal::Workspace
                 };
                 let _ = self.out_tx.send(EngineMsg::Refused {
                     tab_id: self.tab_id,
@@ -488,7 +488,7 @@ wrap_resource_request_handler! {
         ) -> ReturnValue {
             let url = request.map(|r| CefString::from(&r.url()).to_string()).unwrap_or_default();
             let roots = self.file_roots.lock().unwrap().clone();
-            if crate::policy::subresource_allowed(&url, &roots) {
+            if browser_policy::subresource_allowed(&url, &roots) {
                 ReturnValue::CONTINUE
             } else {
                 ReturnValue::CANCEL
@@ -506,7 +506,7 @@ wrap_resource_request_handler! {
             let Some(new_url) = new_url else { return };
             let target = new_url.to_string();
             let roots = self.file_roots.lock().unwrap().clone();
-            if !crate::policy::subresource_allowed(&target, &roots) {
+            if !browser_policy::subresource_allowed(&target, &roots) {
                 *new_url = CefString::from("");
             }
         }
@@ -549,7 +549,7 @@ wrap_request_handler! {
             let is_main = frame.map_or(true, |f| f.is_main() == 1);
             let url = request.map(|r| CefString::from(&r.url()).to_string()).unwrap_or_default();
             let roots = self.file_roots.lock().unwrap().clone();
-            if let Some(why) = crate::policy::frame_guard(&url, is_main, &roots) {
+            if let Some(why) = browser_policy::frame_guard(&url, is_main, &roots) {
                 let _ = self.out_tx.send(EngineMsg::Refused {
                     tab_id: self.tab_id,
                     reason: why.code().to_owned(),
@@ -569,7 +569,7 @@ wrap_request_handler! {
         ) -> ::std::os::raw::c_int {
             let url = target_url.map(CefString::to_string).unwrap_or_default();
             let roots = self.file_roots.lock().unwrap().clone();
-            if let Some(why) = crate::policy::frame_guard(&url, true, &roots) {
+            if let Some(why) = browser_policy::frame_guard(&url, true, &roots) {
                 let _ = self.out_tx.send(EngineMsg::Refused {
                     tab_id: self.tab_id,
                     reason: why.code().to_owned(),
