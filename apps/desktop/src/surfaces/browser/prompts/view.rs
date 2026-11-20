@@ -44,10 +44,7 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
                     && let Some((agent, ctx)) = app.browser_context_for_opener(tab_id)
                 {
                     let sid = app.browser_tab_session(tab_id).map(str::to_owned);
-                    let new_id = app.open_new_browser_tab_with_context(sid.as_deref(), &url, None, true, false, ctx);
-                    if agent {
-                        app.workspace_panes.browser.host.set_agent_driven(new_id, true);
-                    }
+                    app.open_new_browser_tab_with_context(sid.as_deref(), &url, None, true, false, ctx, agent);
                 }
             })
             .build(k)

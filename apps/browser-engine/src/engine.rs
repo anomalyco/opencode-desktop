@@ -170,10 +170,8 @@ impl EngineManager {
                     let v = tab.view_state.lock().unwrap().clone();
                     let roots = tab.file_roots.lock().unwrap().clone();
                     let ctx = tab.context.clone();
-                    self.open_tab(tab_id, &url, v.width_pt, v.height_pt, v.scale, tab.shown, roots, ctx, tab.preview_spec);
-                    if let Some(reopened) = self.tabs.get(&tab_id) {
-                        reopened.prompts.agent_driven.store(was_agent, Ordering::Release);
-                    } else {
+                    self.open_tab(tab_id, &url, v.width_pt, v.height_pt, v.scale, tab.shown, roots, ctx, tab.preview_spec, was_agent);
+                    if !self.tabs.contains_key(&tab_id) {
                         self.contexts.release_tab(tab_id);
                     }
                 }
@@ -348,14 +346,14 @@ impl EngineManager {
                     }
                 }
             }
-            HostMsg::OpenTab { tab_id, url, width_pt, height_pt, scale, focused, file_roots, context, preview } => {
+            HostMsg::OpenTab { tab_id, url, width_pt, height_pt, scale, focused, file_roots, context, preview, agent_driven } => {
                 // Only `Default` non-preview tabs receive local `file://` roots; all isolated & preview scopes strip them.
                 let roots = if preview.is_some() || context.is_isolated() {
                     Vec::new()
                 } else {
                     self.safe_roots(file_roots)
                 };
-                self.open_tab(tab_id, &url, width_pt, height_pt, scale, focused, roots, context, preview);
+                self.open_tab(tab_id, &url, width_pt, height_pt, scale, focused, roots, context, preview, agent_driven);
             }
             HostMsg::SetTabPolicy { tab_id, file_roots } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
@@ -840,7 +838,8 @@ impl EngineManager {
             }
             HostMsg::SetAgentDriven { tab_id, agent_driven } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
-                    t.prompts.agent_driven.store(agent_driven, Ordering::Relaxed);
+                    t.prompts.agent_driven.store(agent_driven, Ordering::Release);
+                    t.snap.lock().unwrap().agent_driven = agent_driven;
                 }
             }
             HostMsg::ClearSiteCache { tab_id, request_id } => {
@@ -1001,6 +1000,7 @@ impl EngineManager {
         file_roots: Vec<String>,
         context: crate::wire::ContextKind,
         preview_spec: Option<PreviewSpec>,
+        agent_driven: bool,
     ) {
         // Cleanly release any prior browser/grant/context on duplicate `tab_id` before opening.
         if let Some(prev) = self.tabs.remove(&tab_id) {
@@ -1125,6 +1125,7 @@ impl EngineManager {
             favicon: None,
             context: effective_context.redacted(),
             preview: preview_grant.as_ref().map(|g| g.kind.tag()),
+            agent_driven,
         }));
         #[cfg(windows)]
         let frames: FrameRing = self
@@ -1152,6 +1153,7 @@ impl EngineManager {
             (),
         );
         let prompts = Arc::new(crate::prompts::TabPrompts::default());
+        prompts.agent_driven.store(agent_driven, Ordering::Release);
         *prompts.proxy.lock().unwrap() = proxy_cfg;
         let favicon = Arc::new(crate::favicon::TabFavicon::default());
         let diagnostics = Arc::new(crate::diagnostics::TabDiagnostics::default());

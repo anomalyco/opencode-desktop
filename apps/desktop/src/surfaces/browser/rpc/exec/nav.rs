@@ -93,8 +93,7 @@ fn start_tabs_open(
         "about:blank".to_owned()
     };
 
-    let host_id = app.open_new_browser_tab_for_session(Some(&att.session_id), &target_url, None, focus);
-    app.workspace_panes.browser.host.set_agent_driven(host_id, true);
+    let host_id = app.open_new_agent_browser_tab_for_session(Some(&att.session_id), &target_url, None, focus);
     let _ = att.sync_tabs(app);
     let Some(wire_tab_id) = att.host_to_wire.get(&host_id).cloned() else {
         return StepOutcome::Done(Outcome::fail(
@@ -354,7 +353,7 @@ fn start_preview(
         app.navigate_browser_tab(hid, &file_url);
         (hid, wid, false)
     } else {
-        let hid = app.open_new_browser_tab_for_session(Some(&att.session_id), &file_url, None, true);
+        let hid = app.open_new_agent_browser_tab_for_session(Some(&att.session_id), &file_url, None, true);
         let _ = att.sync_tabs(app);
         let Some(wid) = att.host_to_wire.get(&hid).cloned() else {
             return StepOutcome::Done(Outcome::fail(

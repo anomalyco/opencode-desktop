@@ -306,10 +306,12 @@ fn open(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
             }
             tx.instant();
             let url = if spec.url.trim().is_empty() { "about:blank" } else { spec.url.as_str() };
-            let id = s.open_new_browser_tab_for_session(sid.as_deref(), url, None, spec.background != Some(true));
-            if scope.tool_sid.is_some() {
-                s.workspace_panes.browser.host.set_agent_driven(id, true);
-            }
+            let agent = scope.tool_sid.is_some() || !scope.is_builtin_browser;
+            let id = if agent {
+                s.open_new_agent_browser_tab_for_session(sid.as_deref(), url, None, spec.background != Some(true))
+            } else {
+                s.open_new_browser_tab_for_session(sid.as_deref(), url, None, spec.background != Some(true))
+            };
             done.complete(Data::String(id.to_string()));
         }));
         Ok(())
@@ -338,9 +340,9 @@ fn devtools(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
             if !s.workspace_panes.browser.host.has_live_sidecar() {
                 return done.complete(failed(not_running(&s.workspace_panes.browser.host.status())));
             }
-            if scope.tool_sid.is_some() {
-                s.workspace_panes.browser.host.set_agent_driven(id, true);
-            }
+            // Every `BrowserTab:DevtoolsAsync` caller (agent MCP tools and third-party Luau plugins)
+            // marks the tab `agent_driven` so OS file choosers, HTTP auth, and permissions stay guarded.
+            s.workspace_panes.browser.host.set_agent_driven(id, true);
             let is_dialog = cdp == "Page.handleJavaScriptDialog";
             if !is_dialog && s.workspace_panes.browser.host.tab(id).is_some_and(|t| t.prompts.dialog.open().is_some()) {
                 return done.complete(failed(format!("[browser.dialog_open] A JavaScript dialog is open in tab {id}. Answer or dismiss the dialog before continuing.")));

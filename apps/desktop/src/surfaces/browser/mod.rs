@@ -423,9 +423,21 @@ mod native {
             from_address: bool,
         ) -> u64 {
             let context = self.browser_context_for_session(sid);
-            self.open_new_browser_tab_with_context(sid, url, target_pane, steal_focus, from_address, context)
+            self.open_new_browser_tab_with_context(sid, url, target_pane, steal_focus, from_address, context, false)
         }
 
+        pub fn open_new_agent_browser_tab_for_session(
+            &mut self,
+            sid: Option<&str>,
+            url: &str,
+            target_pane: Option<SessionPane>,
+            steal_focus: bool,
+        ) -> u64 {
+            let context = self.browser_context_for_session(sid);
+            self.open_new_browser_tab_with_context(sid, url, target_pane, steal_focus, false, context, true)
+        }
+
+        #[allow(clippy::too_many_arguments)]
         pub fn open_new_browser_tab_with_context(
             &mut self,
             sid: Option<&str>,
@@ -434,6 +446,7 @@ mod native {
             steal_focus: bool,
             from_address: bool,
             context: browser_pane::ContextKind,
+            agent_driven: bool,
         ) -> u64 {
             let roots = if context.is_isolated() {
                 Vec::new()
@@ -450,9 +463,15 @@ mod native {
                 if let Some(why) = refused {
                     self.workspace_panes.browser.host.set_mock_refusal(id, why.code());
                 }
+                if agent_driven {
+                    self.workspace_panes.browser.host.set_agent_driven(id, true);
+                }
                 id
             } else {
-                self.workspace_panes.browser.host.open_tab_with_context(url, roots, context, from_address)
+                self.workspace_panes
+                    .browser
+                    .host
+                    .open_tab_with_context(url, roots, context, from_address, agent_driven)
             };
             if let Some(sid) = sid {
                 self.workspace_panes.browser.session_tabs.entry(sid.to_owned()).or_default().push(id);
@@ -589,17 +608,15 @@ mod native {
                         continue;
                     };
                     let sid = self.browser_tab_session(popup.opener_tab_id).map(str::to_owned);
-                    let new_id = self.open_new_browser_tab_with_context(
+                    let _new_id = self.open_new_browser_tab_with_context(
                         sid.as_deref(),
                         &popup.url,
                         None,
                         !popup.background,
                         false,
                         opener_ctx,
+                        agent,
                     );
-                    if agent {
-                        self.workspace_panes.browser.host.set_agent_driven(new_id, true);
-                    }
                     changed = true;
                 }
             }
