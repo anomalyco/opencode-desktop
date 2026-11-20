@@ -3,6 +3,7 @@
 //! requested CSS dimensions travel separately in the protocol (`HostMsg::Emulate`).
 use super::{App, Dep, El, Lua, NodeArgs, Table, col, cx, id_of, later, p as pal_of, scope, with_app};
 use browser_pane::device::{Device, Profile};
+use opencode_ui::focus::FocusExt as _;
 use opencode_ui::palette::Elevate as _;
 use rune::{Cursor, Drag, Phase, Tx, el};
 
@@ -115,7 +116,7 @@ pub(super) fn frame(a: &NodeArgs, app: &App, id: u64, surface: El) -> El {
 
     let make_grip = |axis: GripAxis| {
         let device = d.clone();
-        let base = el().role("separator").focusable(true).center();
+        let base = el().role("separator").focusable(true).focus_inset(&p).center();
         let face = match axis {
             GripAxis::Width => base
                 .key("browser-device-width-grip")
