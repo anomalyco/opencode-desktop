@@ -221,6 +221,8 @@ struct ManagedTab {
     internal_picked: Arc<Mutex<Vec<i64>>>,
     pending_clears: Arc<Mutex<Vec<PendingClear>>>,
     prompts: Arc<crate::prompts::TabPrompts>,
+    menu: Arc<crate::menu::TabMenuState>,
+    context: crate::wire::ContextKind,
     _cdp_reg: Option<Registration>,
     held_buttons: u32,
     /// Linux: whether it's the tab the app shows (`HostMsg::FocusTab`), to open it again so.
@@ -246,6 +248,8 @@ pub struct EngineManager {
     prompt_shared: crate::prompts::PromptShared,
     /// Isolated `oc-preview://` grant & async remote/artifact proxy registry.
     previews: Arc<PreviewRegistry>,
+    /// Shared pool of isolated `CefRequestContext`s for previews and remote servers.
+    contexts: crate::context::ContextPool,
     /// Windows: the D3D11 device frames are copied on; None renders on the CPU instead.
     #[cfg(windows)]
     gpu: Option<Arc<crate::d3d_frames::Gpu>>,
@@ -262,9 +266,9 @@ impl EngineManager {
     pub fn new(
         out_tx: crate::output::Output,
         downloads: std::path::PathBuf,
+        events: std::sync::mpsc::Sender<crate::Event>,
         #[cfg(windows)] gpu: Option<Arc<crate::d3d_frames::Gpu>>,
         #[cfg(target_os = "linux")] transport: crate::dmabuf_frames::Transport,
-        #[cfg(target_os = "linux")] events: std::sync::mpsc::Sender<crate::Event>,
     ) -> Self {
         Self {
             tabs: HashMap::new(),
@@ -277,6 +281,7 @@ impl EngineManager {
             downloads: crate::downloads::Downloads::open(&downloads),
             prompt_shared: crate::prompts::PromptShared::default(),
             previews: PreviewRegistry::new(),
+            contexts: crate::context::ContextPool::new(events.clone()),
             #[cfg(windows)]
             gpu,
             #[cfg(target_os = "linux")]
@@ -343,7 +348,8 @@ impl EngineManager {
                     let url = tab.snap.lock().unwrap().url.clone();
                     let v = tab.view_state.lock().unwrap().clone();
                     let roots = tab.file_roots.lock().unwrap().clone();
-                    self.open_tab(tab_id, &url, v.width_pt, v.height_pt, v.scale, tab.shown, roots, tab.preview_spec);
+                    let ctx = tab.context.clone();
+                    self.open_tab(tab_id, &url, v.width_pt, v.height_pt, v.scale, tab.shown, roots, ctx, tab.preview_spec);
                 }
             }
             None => {}
@@ -351,6 +357,23 @@ impl EngineManager {
     }
 
     pub fn poll_picks(&mut self) {
+        for outcome in self.contexts.drain_ready_loads() {
+            match outcome {
+                crate::context::DeferredOutcome::Load { tab_id, url } => {
+                    if let Some(tab) = self.tabs.get(&tab_id)
+                        && let Some(frame) = tab.browser.main_frame()
+                    {
+                        frame.load_url(Some(&CefString::from(url.as_str())));
+                    }
+                }
+                crate::context::DeferredOutcome::Refuse { tab_id, reason } => {
+                    let _ = self.out_tx.send(EngineMsg::Refused {
+                        tab_id,
+                        reason: reason.to_owned(),
+                    });
+                }
+            }
+        }
         let mut ready = Vec::new();
         let mut clears = Vec::new();
         for (&tab_id, tab) in &self.tabs {
@@ -446,9 +469,14 @@ impl EngineManager {
                     policy: true,
                     prompts,
                     popups: true,
+                    find: true,
+                    context_menu: prompts,
+                    partitions: true,
+                    remote_proxy: true,
                     preview: true,
                 });
                 for (&tab_id, t) in &self.tabs {
+                    t.menu.cancel_all();
                     if prompts {
                         t.prompts.replay_pending(tab_id, &self.out_tx);
                     } else {
@@ -475,19 +503,29 @@ impl EngineManager {
                     }
                 }
             }
-            HostMsg::OpenTab { tab_id, url, width_pt, height_pt, scale, focused, file_roots, preview } => {
-                let roots = self.safe_roots(file_roots);
-                self.open_tab(tab_id, &url, width_pt, height_pt, scale, focused, roots, preview);
+            HostMsg::OpenTab { tab_id, url, width_pt, height_pt, scale, focused, file_roots, context, preview } => {
+                // Remote-server and preview tabs never receive raw `file://` roots.
+                let roots = if preview.is_some() || matches!(context, crate::wire::ContextKind::RemoteServer { .. }) {
+                    Vec::new()
+                } else {
+                    self.safe_roots(file_roots)
+                };
+                self.open_tab(tab_id, &url, width_pt, height_pt, scale, focused, roots, context, preview);
             }
             HostMsg::SetTabPolicy { tab_id, file_roots } => {
-                let roots = self.safe_roots(file_roots);
                 if let Some(t) = self.tabs.get(&tab_id) {
-                    *t.file_roots.lock().unwrap() = roots;
+                    if matches!(t.context, crate::wire::ContextKind::RemoteServer { .. }) {
+                        t.file_roots.lock().unwrap().clear();
+                    } else {
+                        let roots = self.safe_roots(file_roots);
+                        *t.file_roots.lock().unwrap() = roots;
+                    }
                 }
             }
             HostMsg::CloseTab { tab_id } => {
                 if let Some(tab) = self.tabs.remove(&tab_id) {
                     self.release_preview(tab_id, tab.preview.as_ref(), tab.preview_ctx.as_ref());
+                    tab.menu.cancel_all();
                     tab.prompts.dismiss_all();
                     tab.host.close_browser(1);
                     self.downloads.close_tab(tab_id);
@@ -543,9 +581,13 @@ impl EngineManager {
                     t.browser.go_forward();
                 }
             }
-            HostMsg::Reload { tab_id } => {
+            HostMsg::Reload { tab_id, ignore_cache } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
-                    t.browser.reload();
+                    if ignore_cache {
+                        t.browser.reload_ignore_cache();
+                    } else {
+                        t.browser.reload();
+                    }
                 }
             }
             HostMsg::Stop { tab_id } => {
@@ -871,6 +913,66 @@ impl EngineManager {
                     t.prompts.agent_driven.store(agent_driven, Ordering::Relaxed);
                 }
             }
+            HostMsg::ClearSiteCache { tab_id, request_id } => {
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    let url = t.snap.lock().unwrap().url.clone();
+                    if let Some(origin) = browser_policy::destination_origin(&url) {
+                        self.send_internal_cdp(
+                            &t.host,
+                            "Storage.clearDataForOrigin",
+                            json!({
+                                "origin": origin,
+                                "storageTypes": "cache_storage,service_workers,shader_cache",
+                            }),
+                        );
+                        self.send_internal_cdp(&t.host, "Network.clearBrowserCache", json!({}));
+                        t.browser.reload_ignore_cache();
+                    }
+                    let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                        tab_id,
+                        request_id,
+                        ok: true,
+                        result: json!({ "cleared": true }),
+                    });
+                }
+            }
+            HostMsg::Find { tab_id, query, forward, match_case, find_next } => {
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    if query.is_empty() {
+                        t.host.stop_finding(1);
+                    } else {
+                        t.host.find(
+                            Some(&CefString::from(query.as_str())),
+                            i32::from(forward),
+                            i32::from(match_case),
+                            i32::from(find_next),
+                        );
+                    }
+                }
+            }
+            HostMsg::StopFind { tab_id, clear_selection } => {
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    t.host.stop_finding(i32::from(clear_selection));
+                }
+            }
+            HostMsg::ContextMenuAction { tab_id, id, action } => {
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    let roots = t.file_roots.lock().unwrap().clone();
+                    t.menu.execute(id, action, &t.browser, &t.host, &roots);
+                }
+            }
+            HostMsg::SetPartitionProxy { partition, proxy } => {
+                if let Ok(applied) = self.contexts.set_partition_proxy(&partition, proxy) {
+                    for t in self.tabs.values() {
+                        if matches!(&t.context, crate::wire::ContextKind::RemoteServer { partition: p, .. } if p == &partition) {
+                            *t.prompts.proxy.lock().unwrap() = applied.clone();
+                        }
+                    }
+                }
+            }
+            HostMsg::DropContext { context } => {
+                self.contexts.drop_context(&context);
+            }
             HostMsg::PreviewResponseHead { req_id, ok, status, mime, content_length, content_range } => {
                 self.previews.on_response_head(req_id, ok, status, &mime, content_length, content_range);
             }
@@ -884,6 +986,7 @@ impl EngineManager {
                 let drained: Vec<_> = self.tabs.drain().collect();
                 for (tab_id, t) in drained {
                     self.release_preview(tab_id, t.preview.as_ref(), t.preview_ctx.as_ref());
+                    t.menu.cancel_all();
                     t.prompts.dismiss_all();
                     t.host.close_browser(1);
                 }
@@ -900,6 +1003,7 @@ impl EngineManager {
         self.previews.cancel_tab_proxies(tab_id);
         if let Some(c) = ctx {
             let _ = c.clear_scheme_handler_factories();
+            c.close_all_connections(None);
         }
     }
 
@@ -913,11 +1017,14 @@ impl EngineManager {
         scale: f32,
         focused: bool,
         file_roots: Vec<String>,
+        context: crate::wire::ContextKind,
         preview_spec: Option<PreviewSpec>,
     ) {
         let mut preview_grant: Option<Arc<PreviewGrant>> = None;
         let mut preview_ctx: Option<RequestContext> = None;
         let mut refused_reason: Option<String> = None;
+        let mut req_ctx: Option<RequestContext> = None;
+        let mut proxy_cfg = None;
         let (initial_url, display_url) = if let Some(spec) = preview_spec.clone() {
             match self.previews.create_grant(tab_id, spec, self.home.as_deref()) {
                 Ok((grant, internal, display)) => {
@@ -927,7 +1034,8 @@ impl EngineManager {
                         self.out_tx.clone(),
                     ) {
                         preview_grant = Some(grant);
-                        preview_ctx = Some(ctx);
+                        preview_ctx = Some(ctx.clone());
+                        req_ctx = Some(ctx);
                         (internal, display)
                     } else {
                         grant.revoke();
@@ -942,12 +1050,26 @@ impl EngineManager {
             }
         } else {
             let refused = browser_policy::frame_guard(url, true, &file_roots);
-            if let Some(why) = refused {
+            let target_url = if let Some(why) = refused {
                 refused_reason = Some(why.code().to_owned());
-                ("about:blank".to_owned(), "about:blank".to_owned())
+                "about:blank"
             } else {
-                (url.to_owned(), url.to_owned())
-            }
+                url
+            };
+            let resolved_ctx = match self.contexts.resolve(&context, tab_id, target_url) {
+                Ok(r) => r,
+                Err(reason) => {
+                    let _ = self.out_tx.send(EngineMsg::Refused {
+                        tab_id,
+                        reason: reason.to_owned(),
+                    });
+                    return;
+                }
+            };
+            proxy_cfg = resolved_ctx.proxy;
+            req_ctx = resolved_ctx.request_context;
+            let init = if resolved_ctx.defer_initial_load { "about:blank" } else { target_url };
+            (init.to_owned(), init.to_owned())
         };
         let is_preview = preview_grant.is_some();
         let file_roots = Arc::new(Mutex::new(if is_preview { Vec::new() } else { file_roots }));
@@ -966,6 +1088,7 @@ impl EngineManager {
             zoom: 1.0,
             cursor: CursorKind::Default,
             load_error: None,
+            favicon: None,
             preview: preview_grant.as_ref().map(|g| g.kind.tag()),
         }));
         #[cfg(windows)]
@@ -994,11 +1117,16 @@ impl EngineManager {
             (),
         );
         let prompts = Arc::new(crate::prompts::TabPrompts::default());
+        *prompts.proxy.lock().unwrap() = proxy_cfg;
+        let favicon = Arc::new(crate::favicon::TabFavicon::default());
+        let diagnostics = Arc::new(crate::diagnostics::TabDiagnostics::default());
+        let menu_state = Arc::new(crate::menu::TabMenuState::default());
         let display = TabDisplayHandler::new(
             tab_id,
             preview_grant.clone(),
             snap.clone(),
             prompts.clone(),
+            favicon,
             self.out_tx.clone(),
         );
         let load = TabLoadHandler::new(
@@ -1007,6 +1135,7 @@ impl EngineManager {
             preview_grant.clone(),
             snap.clone(),
             prompts.clone(),
+            diagnostics.clone(),
             self.out_tx.clone(),
         );
         let request = TabRequestHandler::new(
@@ -1016,6 +1145,7 @@ impl EngineManager {
             snap.clone(),
             self.prompt_shared.clone(),
             prompts.clone(),
+            diagnostics,
             self.out_tx.clone(),
         );
         let download = crate::downloads::TabDownloadHandler::new(
@@ -1041,6 +1171,14 @@ impl EngineManager {
             self.out_tx.clone(),
         );
         let dialog = crate::prompts::TabFileDialogHandler::new(tab_id, prompts.clone(), self.out_tx.clone());
+        let find = crate::find::TabFindHandler::new(tab_id, self.out_tx.clone());
+        let context_menu = crate::menu::TabContextMenuHandler::new(
+            tab_id,
+            self.prompt_shared.clone(),
+            file_roots.clone(),
+            menu_state.clone(),
+            self.out_tx.clone(),
+        );
         let mut client = SidecarTabClient::new(
             render,
             display,
@@ -1051,6 +1189,8 @@ impl EngineManager {
             jsdialog,
             permission,
             dialog,
+            find,
+            context_menu,
         );
 
         let mut win_info = WindowInfo::default().set_as_windowless(Default::default());
@@ -1069,7 +1209,7 @@ impl EngineManager {
             Some(&CefString::from(initial_url.as_str())),
             Some(&browser_settings),
             None,
-            preview_ctx.as_mut(),
+            req_ctx.as_mut(),
         ) else {
             self.release_preview(tab_id, preview_grant.as_ref(), preview_ctx.as_ref());
             return;
@@ -1116,6 +1256,8 @@ impl EngineManager {
                 internal_picked,
                 pending_clears,
                 prompts,
+                menu: menu_state,
+                context,
                 _cdp_reg: cdp_reg,
                 held_buttons: 0,
                 #[cfg(target_os = "linux")]

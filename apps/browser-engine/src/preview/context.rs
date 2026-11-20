@@ -85,11 +85,13 @@ wrap_request_context_handler! {
     impl RequestContextHandler {
         fn on_request_context_initialized(&self, request_context: Option<&mut RequestContext>) {
             let Some(ctx) = request_context else { return };
-            // Lock down WebRTC IP leaks / UDP STUN and DNS prefetching / network prediction on
-            // this preview context (`T7`, `T8`).
+            // Lock down WebRTC IP leaks / UDP STUN, QUIC, DoH, and DNS prefetching / network
+            // prediction on this preview context (`T7`, `T8`).
             set_string_pref(ctx, "webrtc.ip_handling_policy", "disable_non_proxied_udp");
             set_bool_pref(ctx, "webrtc.multiple_routes_enabled", false);
             set_bool_pref(ctx, "webrtc.nonproxied_udp_enabled", false);
+            set_string_pref(ctx, "dns_over_https.mode", "off");
+            set_bool_pref(ctx, "net.quic_allowed", false);
             // 2 == NETWORK_PREDICTION_NEVER in Chromium's PrefService.
             set_int_pref(ctx, "net.network_prediction_options", 2);
             set_bool_pref(ctx, "dns_prefetching.enabled", false);
@@ -167,22 +169,35 @@ wrap_resource_request_handler! {
 }
 
 fn set_string_pref(ctx: &RequestContext, name: &str, val: &str) {
+    let key = CefString::from(name);
+    if ctx.has_preference(Some(&key)) == 0 {
+        return;
+    }
     let Some(mut v) = cef::value_create() else { return };
     v.set_string(Some(&CefString::from(val)));
-    let mut err = CefString::default();
-    let _ = ctx.set_preference(Some(&CefString::from(name)), Some(&mut v), Some(&mut err));
+    // `CefString::default()` maps to NULL in `cef-rs`, which CEF's `SetPreference` rejects.
+    let mut err = CefString::from(" ");
+    let _ = ctx.set_preference(Some(&key), Some(&mut v), Some(&mut err));
 }
 
 fn set_bool_pref(ctx: &RequestContext, name: &str, val: bool) {
+    let key = CefString::from(name);
+    if ctx.has_preference(Some(&key)) == 0 {
+        return;
+    }
     let Some(mut v) = cef::value_create() else { return };
     v.set_bool(i32::from(val));
-    let mut err = CefString::default();
-    let _ = ctx.set_preference(Some(&CefString::from(name)), Some(&mut v), Some(&mut err));
+    let mut err = CefString::from(" ");
+    let _ = ctx.set_preference(Some(&key), Some(&mut v), Some(&mut err));
 }
 
 fn set_int_pref(ctx: &RequestContext, name: &str, val: i32) {
+    let key = CefString::from(name);
+    if ctx.has_preference(Some(&key)) == 0 {
+        return;
+    }
     let Some(mut v) = cef::value_create() else { return };
     v.set_int(val);
-    let mut err = CefString::default();
-    let _ = ctx.set_preference(Some(&CefString::from(name)), Some(&mut v), Some(&mut err));
+    let mut err = CefString::from(" ");
+    let _ = ctx.set_preference(Some(&key), Some(&mut v), Some(&mut err));
 }

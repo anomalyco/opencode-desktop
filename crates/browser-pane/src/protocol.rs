@@ -97,6 +97,9 @@ pub struct TabSnapshot {
     /// `page_crashed` when its renderer went away. An engine from before it sends none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub load_error: Option<String>,
+    /// Site favicon as a bounded `data:image/png;base64,...` data URL (`UP-109` `#65094`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub favicon: Option<String>,
     /// Set on isolated `oc-preview://` tabs so browser chrome marks them as previews.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preview: Option<PreviewKindTag>,
@@ -152,6 +155,8 @@ pub enum HostMsg {
         focused: bool,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         file_roots: Vec<String>,
+        #[serde(default, skip_serializing_if = "ContextKind::is_default")]
+        context: ContextKind,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         preview: Option<PreviewSpec>,
     },
@@ -177,6 +182,8 @@ pub enum HostMsg {
     },
     Reload {
         tab_id: u64,
+        #[serde(default)]
+        ignore_cache: bool,
     },
     Stop {
         tab_id: u64,
@@ -292,6 +299,33 @@ pub enum HostMsg {
         tab_id: u64,
         agent_driven: bool,
     },
+    ClearSiteCache {
+        tab_id: u64,
+        request_id: u64,
+    },
+    Find {
+        tab_id: u64,
+        query: String,
+        forward: bool,
+        match_case: bool,
+        find_next: bool,
+    },
+    StopFind {
+        tab_id: u64,
+        clear_selection: bool,
+    },
+    ContextMenuAction {
+        tab_id: u64,
+        id: u64,
+        action: Option<ContextMenuCommand>,
+    },
+    SetPartitionProxy {
+        partition: String,
+        proxy: Option<RemoteProxyConfig>,
+    },
+    DropContext {
+        context: ContextKind,
+    },
     /// App-proxied response headers for a remote workspace or artifact `EngineMsg::PreviewFetch`.
     PreviewResponseHead {
         req_id: u64,
@@ -334,6 +368,18 @@ pub enum EngineMsg {
         /// The engine manages pop-ups (`PopupOpen` / `PopupBlocked`) via `LifeSpanHandler`.
         #[serde(default)]
         popups: bool,
+        /// The engine supports in-page `FindHandler`.
+        #[serde(default)]
+        find: bool,
+        /// The engine routes page right-click context menus to the app.
+        #[serde(default)]
+        context_menu: bool,
+        /// The engine isolates `IsolatedPreview` and `RemoteServer` tabs in dedicated `CefRequestContext`s.
+        #[serde(default)]
+        partitions: bool,
+        /// The engine confines proxied `RemoteServer` partitions via `fixed_servers` + `<-loopback>` + WebRTC/DoH hardening.
+        #[serde(default)]
+        remote_proxy: bool,
         /// The engine serves isolated `oc-preview://` tabs.
         #[serde(default)]
         preview: bool,
@@ -394,6 +440,22 @@ pub enum EngineMsg {
     },
     FileChooserBlocked {
         tab_id: u64,
+    },
+    FindResult {
+        tab_id: u64,
+        count: u32,
+        active_match: u32,
+        final_update: bool,
+    },
+    ContextMenu {
+        tab_id: u64,
+        menu: PageContextMenu,
+    },
+    PageDiagnostic {
+        tab_id: u64,
+        level: String,
+        event: String,
+        fields: Value,
     },
     TabList {
         tabs: Vec<TabSnapshot>,
@@ -565,4 +627,98 @@ pub struct AuthChallenge {
     #[serde(default)]
     pub realm: String,
     pub scheme: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PageContextMenu {
+    pub id: u64,
+    pub x: i32,
+    pub y: i32,
+    #[serde(default)]
+    pub page_url: String,
+    #[serde(default)]
+    pub frame_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub src_url: Option<String>,
+    #[serde(default)]
+    pub is_image: bool,
+    #[serde(default)]
+    pub has_image_contents: bool,
+    #[serde(default)]
+    pub is_editable: bool,
+    #[serde(default)]
+    pub selection_text: String,
+    #[serde(default)]
+    pub can_cut: bool,
+    #[serde(default)]
+    pub can_copy: bool,
+    #[serde(default)]
+    pub can_paste: bool,
+    #[serde(default)]
+    pub can_select_all: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub misspelled_word: Option<String>,
+    #[serde(default)]
+    pub suggestions: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteProxyConfig {
+    pub host: String,
+    pub port: u16,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub password: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub realm: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ContextKind {
+    #[default]
+    Default,
+    IsolatedPreview {
+        grant: String,
+    },
+    RemoteServer {
+        partition: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        proxy: Option<RemoteProxyConfig>,
+    },
+}
+
+impl ContextKind {
+    pub fn is_default(&self) -> bool {
+        matches!(self, Self::Default)
+    }
+
+    pub fn is_supported(&self, partitions: bool, remote_proxy: bool) -> bool {
+        match self {
+            Self::Default => true,
+            Self::IsolatedPreview { .. } => partitions,
+            Self::RemoteServer { proxy: None, .. } => partitions,
+            Self::RemoteServer { proxy: Some(_), .. } => partitions && remote_proxy,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ContextMenuCommand {
+    Back,
+    Forward,
+    Reload,
+    HardReload,
+    Cut,
+    Copy,
+    Paste,
+    PastePlain,
+    SelectAll,
+    SaveImage { url: String },
+    ReplaceMisspelling { word: String },
+    AddToDictionary { word: String },
 }

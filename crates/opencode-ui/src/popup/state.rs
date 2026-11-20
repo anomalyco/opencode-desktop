@@ -24,6 +24,12 @@ pub(super) fn focus_lit<S: PopupHost + 'static>(s: &S, level: usize, ring: bool,
 
 /// Settles [`super::Popup`]'s native AppKit repost window once it elapses.
 pub fn poll<S: PopupHost + 'static>(s: &mut S, tx: &mut Tx) {
+    // A submenu kept past the pointer crossing its menu closes, or the row it waited over lights.
+    if s.popup().submenu != super::submenu::State::Steady {
+        let now = s.clock();
+        let effect = super::submenu::step(&mut s.popup_mut().submenu, super::submenu::Event::Tick { now });
+        apply(s, effect, tx);
+    }
     if !matches!(s.popup().native, native::State::JustClosed { .. } | native::State::Dismissing { .. }) {
         return;
     }
@@ -137,6 +143,7 @@ fn open_drawn_inner<S: PopupHost + 'static>(
         tx.focus(key, ring);
     }
     s.popup_mut().shown = Some(Shown { menu, anchor, active, subs: Vec::new(), opened, search, pick: Box::new(pick) });
+    s.popup_mut().submenu = super::submenu::State::Steady;
     refresh(s);
     popover::motion::opening(s.knobs(), tx);
 }
@@ -182,6 +189,7 @@ pub(super) fn close<S: PopupHost + 'static>(s: &mut S, picked: Option<&str>, rea
         return;
     }
     let Some(shown) = s.popup_mut().shown.take() else { return };
+    s.popup_mut().submenu = super::submenu::State::Steady;
     s.popup_mut().query.focused = false;
     // A menu that never took focus leaves it where it is, but the keys still hand it to the trigger.
     let trigger = matches!(shown.opened.origin, focus::Origin::Trigger(_));
@@ -251,6 +259,7 @@ pub(super) fn open_sub_at<S: PopupHost + 'static>(s: &mut S, level: usize, n: us
         }
     };
     if opened {
+        s.popup_mut().submenu = super::submenu::State::Steady;
         popover::motion::opening(s.knobs(), tx);
     }
 }
@@ -270,37 +279,60 @@ pub(super) fn pick_at<S: PopupHost + 'static>(s: &mut S, at: [f32; 2], tx: &mut 
 }
 
 /// The pointer over the root's row `n`: it lights, and opens its submenu or closes the open one.
-pub(super) fn hover<S: PopupHost + 'static>(s: &mut S, n: usize) {
+pub(super) fn hover<S: PopupHost + 'static>(s: &mut S, n: usize, tx: &mut Tx) {
     refresh(s);
-    hover_at(s, 0, n);
+    hover_at(s, 0, n, tx);
 }
 
 /// The pointer over row `n` of the menu `level` deep, which takes focus without a ring, as a
 /// Kobalte item does on hover.
 pub(super) fn hover_focus<S: PopupHost + 'static>(s: &mut S, level: usize, n: usize, tx: &mut Tx) {
-    if level == 0 { hover(s, n) } else { hover_at(s, level, n) }
+    if level == 0 { hover(s, n, tx) } else { hover_at(s, level, n, tx) }
     focus_lit(s, level, false, tx);
 }
 
 /// The pointer over row `m` of the first open submenu.
-pub(super) fn hover_sub<S: PopupHost + 'static>(s: &mut S, m: usize) {
-    hover_at(s, 1, m);
+pub(super) fn hover_sub<S: PopupHost + 'static>(s: &mut S, m: usize, tx: &mut Tx) {
+    hover_at(s, 1, m, tx);
 }
 
-/// The pointer over row `n` of the menu `level` deep: it lights, and opens its submenu or
-/// closes the ones open from its other rows.
-fn hover_at<S: PopupHost + 'static>(s: &mut S, level: usize, n: usize) {
-    if s.popup().shown.is_none() {
-        return;
-    }
-    let Some(shown) = s.popup_mut().shown.as_mut() else { return };
+/// The pointer over row `n` of the menu `level` deep. Back on the open submenu's row or inside
+/// the submenu, nothing waits any more. Over another row while a submenu is open, the
+/// [`submenu`](super::submenu) machine decides whether the row lights yet (the pointer may be on
+/// its way into the submenu) and keeps the submenu a moment after it does.
+fn hover_at<S: PopupHost + 'static>(s: &mut S, level: usize, n: usize, tx: &mut Tx) {
+    let Some(shown) = s.popup().shown.as_ref() else { return };
     if level > shown.subs.len() {
         return;
     }
+    let open = shown.subs.get(level).map(|o| o.at);
+    // The pointer only just left the submenu's row when that row is still the lit one.
+    let left = open.filter(|&o| o != n && shown.active_at(level) == Some(o)).map(|_| s.popup().pointer.get()[0]);
+    match open {
+        Some(o) if o != n => {
+            let now = s.clock();
+            let event = super::submenu::Event::Crossed { level, row: n, at: s.popup().pointer.get()[1], left, target: s.popup().targets.borrow().get(level).copied(), now };
+            let effect = super::submenu::step(&mut s.popup_mut().submenu, event);
+            apply(s, effect, tx);
+        }
+        _ => {
+            if s.popup().submenu != super::submenu::State::Steady {
+                super::submenu::step(&mut s.popup_mut().submenu, super::submenu::Event::Returned);
+            }
+            light(s, level, n);
+        }
+    }
+}
+
+/// Row `n` of the menu `level` deep lights, opening its submenu in place of the open one; a row
+/// without one leaves the open submenu to the machine's delay.
+fn light<S: PopupHost + 'static>(s: &mut S, level: usize, n: usize) {
+    let Some(shown) = s.popup_mut().shown.as_mut() else { return };
     shown.set_active(level, n);
     let opens = shown.menu_at(level).is_some_and(|m| m.sub_at(n).is_some());
     match shown.subs.get(level) {
         Some(o) if o.at == n => {}
+        Some(_) if !opens => {}
         _ => {
             shown.subs.truncate(level);
             if opens {
@@ -308,4 +340,40 @@ fn hover_at<S: PopupHost + 'static>(s: &mut S, level: usize, n: usize) {
             }
         }
     }
+    if opens {
+        super::submenu::step(&mut s.popup_mut().submenu, super::submenu::Event::Returned);
+    }
+}
+
+fn apply<S: PopupHost + 'static>(s: &mut S, effect: super::submenu::Effect, tx: &mut Tx) {
+    use super::submenu::Effect;
+    match effect {
+        Effect::None => {}
+        Effect::WakeAt(at) => tx.wake_after(std::time::Duration::from_secs_f64((at - s.clock()).max(0.0))),
+        Effect::Light { level, row, wake } => {
+            light(s, level, row);
+            focus_lit(s, level, false, tx);
+            tx.wake_after(std::time::Duration::from_secs_f64((wake - s.clock()).max(0.0)));
+        }
+        Effect::Close(level) => {
+            if let Some(shown) = s.popup_mut().shown.as_mut() {
+                shown.subs.truncate(level);
+            }
+        }
+    }
+}
+
+/// The pointer moved over the drawn menu, to `at` in window points. Only a pointer on its way into
+/// a submenu acts on it; otherwise nothing redraws.
+pub(super) fn moved<S: PopupHost + 'static>(s: &mut S, at: [f32; 2], tx: &mut Tx) {
+    let [_, last] = s.popup().pointer.get();
+    s.popup().pointer.set([last, at]);
+    let super::submenu::State::Aiming { level, .. } = s.popup().submenu else {
+        tx.live_only();
+        return;
+    };
+    let (target, now) = (s.popup().targets.borrow().get(level).copied(), s.clock());
+    let event = super::submenu::Event::Moved { at, target, now };
+    let effect = super::submenu::step(&mut s.popup_mut().submenu, event);
+    apply(s, effect, tx);
 }

@@ -24,6 +24,11 @@ mod keys;
 mod linux_gpu;
 #[cfg(target_os = "macos")]
 mod mac_app;
+mod context;
+mod diagnostics;
+mod favicon;
+mod find;
+mod menu;
 mod preview;
 mod profile;
 mod prompts;
@@ -208,11 +213,11 @@ fn main() {
     }
 
     #[cfg(windows)]
-    let mut manager = EngineManager::new(out_tx, _cef.profile_root(), gpu.join().ok().flatten());
+    let mut manager = EngineManager::new(out_tx, _cef.profile_root(), events.clone(), gpu.join().ok().flatten());
     #[cfg(target_os = "linux")]
-    let mut manager = EngineManager::new(out_tx, _cef.profile_root(), linux_gpu::transport(gpu.join().ok().flatten()), events.clone());
+    let mut manager = EngineManager::new(out_tx, _cef.profile_root(), events.clone(), linux_gpu::transport(gpu.join().ok().flatten()));
     #[cfg(target_os = "macos")]
-    let mut manager = EngineManager::new(out_tx, _cef.profile_root());
+    let mut manager = EngineManager::new(out_tx, _cef.profile_root(), events.clone());
     step("manager");
     let mut first_message = true;
     let start = Instant::now();

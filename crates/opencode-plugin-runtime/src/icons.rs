@@ -93,6 +93,10 @@ pub fn intern_svg(plugin: &str, name: &str, svg: &str) -> Result<(), String> {
             return Err(why);
         }
     };
+    #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+    if clean.animated && clean.is_color {
+        eprintln!("plugin {plugin}: icons/{name}.svg is multi-colour; SVG animation elements are ignored and the icon renders static");
+    }
     if intern_icon(plugin, name, &clean.body, clean.view) == 0 {
         return Err("failed to intern sanitized icon".into());
     }
@@ -116,6 +120,10 @@ pub fn replace_plugin(plugin: &str, entries: &[(&str, &str)]) -> Vec<(String, St
         }
         match crate::svg::sanitize(svg) {
             Ok(clean) => {
+                #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+                if clean.animated && clean.is_color {
+                    eprintln!("plugin {plugin}: icons/{name}.svg is multi-colour; SVG animation elements are ignored and the icon renders static");
+                }
                 let id = intern_icon_raw(plugin, name, &clean.body, clean.view);
                 if id != 0 {
                     next_ids.push((name.to_owned(), id));

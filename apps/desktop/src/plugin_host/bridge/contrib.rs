@@ -159,7 +159,26 @@ pub fn settings_search(app: &App) -> Vec<SearchEntry> {
     let mut out: Vec<SearchEntry> = Vec::new();
     for lp in &app.plugins.list {
         let owner = lp.manifest.name.clone();
-        out.extend(lp.half.contribs.borrow().settings.iter().map(|c| SearchEntry { owner: owner.clone(), page: "plugins".to_owned(), id: c.spec.id.clone(), title: c.spec.title.clone(), description: c.spec.description.clone().unwrap_or_default(), keywords: c.spec.keywords.clone().unwrap_or_default() }));
+        let contribs = lp.half.contribs.borrow();
+        out.extend(contribs.settings.iter().map(|c| SearchEntry { owner: owner.clone(), page: "plugins".to_owned(), id: c.spec.id.clone(), title: c.spec.title.clone(), description: c.spec.description.clone().unwrap_or_default(), keywords: c.spec.keywords.clone().unwrap_or_default() }));
+        for sp in &contribs.settings_pages {
+            let page = sp.spec.page.map(|p| p.as_str().to_owned()).unwrap_or_else(|| sp.key.to_owned());
+            if let Some(entries) = &sp.spec.entries {
+                for e in entries {
+                    if !out.iter().any(|o| o.id == e.id) {
+                        out.push(SearchEntry {
+                            owner: owner.clone(),
+                            page: page.clone(),
+                            id: e.id.clone(),
+                            title: e.title.clone(),
+                            description: e.description.clone().unwrap_or_default(),
+                            keywords: e.keywords.clone().unwrap_or_default(),
+                        });
+                    }
+                }
+            }
+        }
+        drop(contribs);
         out.extend(lp.manifest.settings_search.iter().filter(|e| !out.iter().any(|o| o.id == e.id)).map(|e| SearchEntry { owner: owner.clone(), page: e.page.clone(), id: e.id.clone(), title: e.title.clone(), description: e.description.clone().unwrap_or_default(), keywords: e.keywords.clone().unwrap_or_default() }).collect::<Vec<_>>());
     }
     out

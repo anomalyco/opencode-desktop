@@ -208,6 +208,10 @@ pub fn subresource_allowed(url: &str, roots: &[String]) -> bool {
     !preview::is_preview_scheme(url) && (!is_file_scheme(url) || file_url_within(url, roots))
 }
 
+mod agent;
+
+pub use agent::{check_typed_cdp, extension_origin, extension_page_refusal, matches_url};
+
 /// Validates a DevTools Protocol call against the 22-method allow-list: 17 protocol calls used by
 /// OpenCode Desktop's fixed actions (`packages/gui-plugins/src/browser/chromium.ts:592,796-880,
 /// 912,938,974,1003,1026,1205,1267-1389,1469-1484,1698-1722`) plus 5 read-only `DOM` inspection
