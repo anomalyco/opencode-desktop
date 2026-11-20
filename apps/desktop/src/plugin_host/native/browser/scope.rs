@@ -32,9 +32,40 @@ impl TabScope {
         Self { is_builtin_browser, tool_sid, in_flight }
     }
 
+    /// Central enforcement for EVERY Luau MCP tool call (`tool_sid.is_some()`), regardless of
+    /// tool name or whether the call yielded before `experimental.browser` attached:
+    /// refuses local `Browser:*` / `BrowserTab:*` access on remote servers and whenever
+    /// `experimental.browser` v4 suppresses local MCP for that server/session.
+    pub(super) fn check_local_mcp_allowed(&self, app: &App) -> Result<(), String> {
+        let Some(caller_opt) = &self.tool_sid else {
+            return Ok(());
+        };
+        let server_key = crate::servers::runtime::active(app);
+        let same_machine = server_key.is_sidecar()
+            && match &*app.source {
+                crate::Source::Live { server, .. } => server.is_local(),
+                crate::Source::Fixture => true,
+            };
+        if !same_machine {
+            return Err(crate::rune_mcp::REMOTE_BROWSER_MCP_ERROR.to_owned());
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        if crate::surfaces::browser::rpc::is_mcp_browser_suppressed(
+            app,
+            server_key,
+            caller_opt.as_deref(),
+        ) {
+            return Err(crate::rune_mcp::RPC_ATTACHED_BROWSER_MCP_ERROR.to_owned());
+        }
+        #[cfg(target_arch = "wasm32")]
+        let _ = caller_opt;
+        Ok(())
+    }
+
     /// Whether the caller may access tab `id` (`mutate = true` for actions/CDP/cookies/viewport/
     /// downloads/navigation/close; `false` for passive metadata reads).
     pub(super) fn check_tab(&self, app: &App, id: u64, mutate: bool) -> Result<(), String> {
+        self.check_local_mcp_allowed(app)?;
         let Some(owner) = app.browser_tab_session(id) else {
             if self.tool_sid.is_none() && self.is_builtin_browser && self.in_flight.is_empty() {
                 return Ok(());
@@ -62,6 +93,9 @@ impl TabScope {
     /// `NormalizeUrl`, `OpenAsync`, or `BrowserTab:Show`. Returns `None` when a scoped caller
     /// tries to cross into another session.
     pub(super) fn target_session(&self, app: &App, requested: Option<&str>) -> Option<String> {
+        if self.check_local_mcp_allowed(app).is_err() {
+            return None;
+        }
         match &self.tool_sid {
             Some(Some(caller)) => match requested {
                 Some(req) if req != caller => None,

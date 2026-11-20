@@ -773,6 +773,24 @@ impl EngineManager {
             }
             HostMsg::CdpCall { tab_id, request_id, method, params, session_id } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
+                    if session_id.is_some() {
+                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                            tab_id,
+                            request_id,
+                            ok: false,
+                            result: json!({ "message": "DevTools CdpCall does not permit targeting a child sessionId." }),
+                        });
+                        return true;
+                    }
+                    if tab_has_extension_frame(&t.browser, &t.snap) {
+                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                            tab_id,
+                            request_id,
+                            ok: false,
+                            result: json!({ "message": "DevTools calls are not permitted on tabs containing extension documents." }),
+                        });
+                        return true;
+                    }
                     if let Err(err) = browser_policy::check_cdp(&method, &params, true) {
                         let _ = self.out_tx.send(EngineMsg::CdpResponse {
                             tab_id,
@@ -784,15 +802,12 @@ impl EngineManager {
                     }
                     let msg_id = self.next_cdp_id.fetch_add(1, Ordering::Relaxed);
                     t.cdp_id_map.lock().unwrap().insert(msg_id, CdpPending::Raw(request_id));
-                    let mut payload = json!({
+                    let raw = json!({
                         "id": msg_id,
                         "method": method,
                         "params": params,
-                    });
-                    if let Some(sid) = session_id {
-                        payload["sessionId"] = Value::String(sid);
-                    }
-                    let raw = payload.to_string();
+                    })
+                    .to_string();
                     if t.host.send_dev_tools_message(Some(raw.as_bytes())) != 1 {
                         t.cdp_id_map.lock().unwrap().remove(&msg_id);
                         let _ = self.out_tx.send(EngineMsg::CdpResponse {
@@ -1229,6 +1244,31 @@ impl EngineManager {
         let raw = json!({ "id": id, "method": method, "params": params }).to_string();
         let _ = host.send_dev_tools_message(Some(raw.as_bytes()));
     }
+}
+
+/// Checks whether the tab's snapshot, live main frame, or any live sub-frame is an extension origin.
+pub(crate) fn tab_has_extension_frame(browser: &Browser, snap: &Mutex<TabSnapshot>) -> bool {
+    if browser_policy::extension_origin(&snap.lock().unwrap().url) {
+        return true;
+    }
+    if let Some(frame) = browser.main_frame() {
+        let url = CefString::from(&frame.url()).to_string();
+        if browser_policy::extension_origin(&url) {
+            return true;
+        }
+    }
+    let mut ids = cef::CefStringList::new();
+    browser.frame_identifiers(Some(&mut ids));
+    for id in crate::menu::read_cef_string_list(&ids) {
+        let cef_id = CefString::from(id.as_str());
+        if let Some(frame) = browser.frame_by_identifier(Some(&cef_id)) {
+            let url = CefString::from(&frame.url()).to_string();
+            if browser_policy::extension_origin(&url) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 mod emulation;

@@ -115,6 +115,10 @@ pub enum AttachEffect {
 pub struct AttachMachine {
     pub state: AttachState,
     next_attempt: u64,
+    /// True once this session has attached on a modern server; keeps local `rune_mcp` `browser_*`
+    /// suppressed across transient `Backoff`/`Connecting` reconnects until `Unsupported` or
+    /// `Unavailable` proves the server no longer serves `experimental.browser`.
+    ever_attached: bool,
 }
 
 impl AttachMachine {
@@ -124,6 +128,15 @@ impl AttachMachine {
 
     pub fn is_attached(&self) -> bool {
         matches!(self.state, AttachState::Attached { .. })
+    }
+
+    /// Whether local `rune_mcp` `browser_*` / `browser_cdp` tools must stay suppressed for this
+    /// session: active while `Attached`, and sticky across transient `Backoff`/`Connecting` after
+    /// a prior `Attached` state so reconnect glitches never re-advertise raw `browser_cdp`.
+    pub fn suppresses_local_mcp(&self) -> bool {
+        matches!(self.state, AttachState::Attached { .. })
+            || (self.ever_attached
+                && matches!(self.state, AttachState::Backoff { .. } | AttachState::Connecting { .. }))
     }
 
     pub fn is_connecting(&self) -> bool {
@@ -284,6 +297,7 @@ impl AttachMachine {
             ControlFrame::Foreign | ControlFrame::Unrecognized { .. } => Vec::new(),
             ControlFrame::Incompatible => {
                 let mut effects = self.abort_current();
+                self.ever_attached = false;
                 self.state = AttachState::Unsupported;
                 effects.push(AttachEffect::SetMcpSuppressed { suppressed: false });
                 effects.push(AttachEffect::SettlePromptGates);
@@ -294,6 +308,7 @@ impl AttachMachine {
                     return Vec::new();
                 };
                 let (attempt, connection_id) = (*attempt, connection_id.clone());
+                self.ever_attached = true;
                 self.state = AttachState::Attached {
                     attempt,
                     connection_id: connection_id.clone(),
@@ -348,12 +363,13 @@ impl AttachMachine {
         if !in_flight.is_empty() {
             effects.push(AttachEffect::CancelCommands { request_ids: in_flight });
         }
-        if was_attached {
-            effects.push(AttachEffect::SetMcpSuppressed { suppressed: false });
-        }
         match outcome {
             AttachOutcome::Unsupported => {
+                self.ever_attached = false;
                 self.state = AttachState::Unsupported;
+                if was_attached {
+                    effects.push(AttachEffect::SetMcpSuppressed { suppressed: false });
+                }
             }
             AttachOutcome::Unavailable if saw_plugin_update => {
                 // `plugin.updated` arrived while this cold attach was in flight (`PRE-08`):
@@ -362,15 +378,25 @@ impl AttachMachine {
                 return effects;
             }
             AttachOutcome::Unavailable => {
+                self.ever_attached = false;
                 self.state = AttachState::Unavailable;
+                if was_attached {
+                    effects.push(AttachEffect::SetMcpSuppressed { suppressed: false });
+                }
             }
             AttachOutcome::Replaced => {
                 self.state = AttachState::Blocked { reason: BlockReason::Replaced };
             }
             AttachOutcome::Missing => {
+                self.ever_attached = false;
                 self.state = AttachState::Blocked { reason: BlockReason::Missing };
+                if was_attached {
+                    effects.push(AttachEffect::SetMcpSuppressed { suppressed: false });
+                }
             }
             AttachOutcome::Closed | AttachOutcome::Transport(_) => {
+                // Keep `ever_attached` sticky across transient Backoff/Connecting so reconnect
+                // glitches never re-advertise raw `browser_cdp` on a modern server.
                 let failures = prev_failures.saturating_add(1);
                 let delay = backoff_delay(failures);
                 let next_at = now + delay;
@@ -415,6 +441,7 @@ impl AttachMachine {
 
     fn dispose(&mut self) -> Vec<AttachEffect> {
         let mut effects = self.abort_current();
+        self.ever_attached = false;
         self.state = AttachState::Closed;
         effects.push(AttachEffect::SettlePromptGates);
         effects

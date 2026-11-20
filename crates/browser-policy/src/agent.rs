@@ -69,17 +69,13 @@ fn strip_ascii_prefix<'a>(input: &'a str, prefix: &str) -> Option<&'a str> {
 /// `Input.dispatchDragEvent` with `files`), cookie mutations, `Browser.*`, and `Extensions.*`.
 pub fn check_typed_cdp(method: &str, params: &serde_json::Value, engine_has_policy: bool) -> Result<(), String> {
     if matches!(method, "Runtime.evaluate" | "Runtime.callFunctionOn") {
-        if params
-            .get("userGesture")
-            .is_some_and(|v| !v.is_null() && v != &serde_json::Value::Bool(false))
-        {
-            return Err(format!("DevTools method '{method}' cannot enable userGesture."));
-        }
-        if params
-            .get("includeCommandLineAPI")
-            .is_some_and(|v| !v.is_null() && v != &serde_json::Value::Bool(false))
-        {
-            return Err(format!("DevTools method '{method}' cannot enable includeCommandLineAPI."));
+        for flag in ["userGesture", "includeCommandLineAPI", "allowUnsafeEvalBlockedByCSP"] {
+            if params
+                .get(flag)
+                .is_some_and(|v| !v.is_null() && v != &serde_json::Value::Bool(false))
+            {
+                return Err(format!("DevTools method '{method}' cannot enable {flag}."));
+            }
         }
         for forbidden in ["executionContextId", "uniqueContextId"] {
             if params.get(forbidden).is_some_and(|v| !v.is_null()) {

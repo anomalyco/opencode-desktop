@@ -235,7 +235,6 @@ pub fn check_cdp(method: &str, params: &serde_json::Value, engine_has_policy: bo
         | "DOM.getFrameOwner"
         | "DOM.querySelector"
         | "DOM.querySelectorAll"
-        | "Input.dispatchMouseEvent"
         | "Input.insertText"
         | "Page.getFrameTree"
         | "Page.getLayoutMetrics"
@@ -243,10 +242,25 @@ pub fn check_cdp(method: &str, params: &serde_json::Value, engine_has_policy: bo
         | "Page.handleJavaScriptDialog"
         | "Runtime.releaseObject" => Ok(()),
         "DOM.resolveNode" => check_no_context_params(method, params),
+        "Input.dispatchMouseEvent" => check_mouse_params(params),
         "Runtime.evaluate" | "Runtime.callFunctionOn" => check_runtime_params(method, params),
         "Input.dispatchKeyEvent" => check_key_params(params),
         _ => Err(format!("DevTools method '{method}' is not permitted in the built-in browser.")),
     }
+}
+
+fn check_mouse_params(params: &serde_json::Value) -> Result<(), String> {
+    if let Some(btn) = params.get("button").and_then(serde_json::Value::as_str)
+        && btn.eq_ignore_ascii_case("middle")
+    {
+        return Err("DevTools method 'Input.dispatchMouseEvent' does not permit middle-click paste.".into());
+    }
+    if let Some(btns) = params.get("buttons").and_then(serde_json::Value::as_i64)
+        && (btns & 4) != 0
+    {
+        return Err("DevTools method 'Input.dispatchMouseEvent' does not permit middle-button paste.".into());
+    }
+    Ok(())
 }
 
 fn check_no_context_params(method: &str, params: &serde_json::Value) -> Result<(), String> {
@@ -261,17 +275,13 @@ fn check_no_context_params(method: &str, params: &serde_json::Value) -> Result<(
 }
 
 fn check_runtime_params(method: &str, params: &serde_json::Value) -> Result<(), String> {
-    if let Some(v) = params.get("includeCommandLineAPI")
-        && !v.is_null()
-        && v != &serde_json::Value::Bool(false)
-    {
-        return Err(format!("DevTools method '{method}' cannot enable includeCommandLineAPI."));
-    }
-    if let Some(v) = params.get("userGesture")
-        && !v.is_null()
-        && v != &serde_json::Value::Bool(false)
-    {
-        return Err(format!("DevTools method '{method}' cannot enable userGesture."));
+    for flag in ["includeCommandLineAPI", "userGesture", "allowUnsafeEvalBlockedByCSP"] {
+        if let Some(v) = params.get(flag)
+            && !v.is_null()
+            && v != &serde_json::Value::Bool(false)
+        {
+            return Err(format!("DevTools method '{method}' cannot enable {flag}."));
+        }
     }
     check_no_context_params(method, params)
 }
@@ -322,7 +332,11 @@ fn check_key_params(params: &serde_json::Value) -> Result<(), String> {
         || code.eq_ignore_ascii_case("F10")
         || matches!(wvk, 46 | 121)
         || matches!(nvk, 46 | 121);
-    if (shortcuts && is_cvx) || (is_insert && (shift || ctrl)) || (shift && is_del_or_f10) {
+    let is_menu = key.eq_ignore_ascii_case("ContextMenu")
+        || code.eq_ignore_ascii_case("ContextMenu")
+        || wvk == 93
+        || nvk == 93;
+    if (shortcuts && is_cvx) || (is_insert && (shift || ctrl)) || (shift && is_del_or_f10) || is_menu {
         return Err("DevTools method 'Input.dispatchKeyEvent' cannot send clipboard or context-menu shortcuts.".into());
     }
     Ok(())
