@@ -256,6 +256,14 @@ impl Feature<App> for WorkspaceToolsFeature {
             .bind_id(Bind::BranchChoose.id())
             .when(git_draft),
         );
+        builder.register_overlay(
+            opencode_kernel::OverlayRegistration::<App>::new("overlay.worktree_picker")
+                .with_render(crate::overlays::layer::SURFACE_POPOVER, |s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    picker(s, p).into_iter().flatten().collect()
+                })
+                .above(crate::view::home::browse::OVERLAY_ID),
+        );
         builder.add_setup("workspace_tools.home_search_waker", |s, waker| s.kernel.slots.get_mut(&crate::home_search::HOME_SEARCH).set_waker(waker));
         builder.add_setup("workspace_tools.rune_mcp", |s, waker| {
             s.setup_rune_mcp(waker);

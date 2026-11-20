@@ -318,14 +318,17 @@ impl Feature<App> for InboxFeature {
             .register_slot(&QUEUE_OPS)
             .register_slot(&QUEUE_DRAG)
             .register_slot(&QUEUE_RUNS);
-        builder.register_escape_layer(EscapeLayer::new(
-            "escape.run",
-            80,
-            crate::stop::escape_stops,
-            |s, ev, tx| {
-                crate::stop::key(s, ev, tx);
-            },
-        ));
+        builder.register_escape_layer(
+            EscapeLayer::new(
+                "escape.run",
+                crate::overlays::escape_band::SESSION_ACTION,
+                crate::stop::escape_stops,
+                |s, ev, tx| {
+                    crate::stop::key(s, ev, tx);
+                },
+            )
+            .after("escape.opening"),
+        );
         // Precaution: shares `App::toast` with `app.output_errors`.
         builder
             .schedule(crate::tick::stage::INGEST_PAGES, "inbox.sends", |s, _, _| s.poll_sends())

@@ -1,6 +1,5 @@
 use rune::{Key, KeyEvent, Tx};
 
-use crate::keymap::Bind;
 use crate::pickers::PickerHost as _;
 use crate::{App, Route, knobs};
 
@@ -12,22 +11,23 @@ pub(crate) fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if s.kernel.slots.get(&crate::panels::SIDE).focus.is_quiet() && tx.focused().is_some() && !s.composer.focused {
         s.kernel.slots.get_mut(&crate::panels::SIDE).focus.wake_on_key();
     }
+    // Every declared key band in `overlays::key_band::ALL` must be dispatched below.
+    const _: () = assert!(crate::overlays::key_band::ALL.len() == 4);
     let overlays = s.kernel.overlay_dispatcher.clone();
-    if crate::popup::key(s, ev, tx)
-        || crate::narrow::key(s, ev, tx)
-        || overlays.handle_key_band(s, ev, tx, 0, 160)
+    if overlays.handle_key_band(crate::overlays::key_band::POPUP, s, ev, tx)
+        || overlays.handle_key_band(crate::overlays::key_band::MODAL, s, ev, tx)
         || crate::glitch::key(s, ev, tx)
         || crate::demo::key(s, ev, tx)
-        || overlays.handle_key_band(s, ev, tx, 190, 299)
+        || overlays.handle_key_band(crate::overlays::key_band::MID, s, ev, tx)
         || crate::dictation::key(s, ev, tx)
         || knobs::key(s, ev, tx)
-        || overlays.handle_key_band(s, ev, tx, 300, 499)
+        || overlays.handle_key_band(crate::overlays::key_band::LOW, s, ev, tx)
         || s.panels_key(ev, tx)
         || (s.opening.is_none() && s.question_key(ev, tx))
         || s.add_key(ev, tx)
         || s.draft_location_key(ev, tx)
-        || crate::app_menu::accelerator(s, ev, tx)
-        || s.shortcut(ev, tx)
+        || crate::shortcuts::run_window_accelerators(s, ev, tx)
+        || s.shortcut_without_dictation(ev, tx)
         || s.picker_key(ev, tx)
     {
         return true;
@@ -54,17 +54,7 @@ pub(crate) fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 
 /// The window's commands that a focused field doesn't keep for itself, as Desktop matches its
 /// command keybinds on the document before the field (`command.tsx` `handleKeyDown`, capture):
-/// the composer asks for them first too, so Alt+Home goes Home from it.
+/// the composer and Home search ask for them first too, so Alt+Home goes Home from them.
 pub(crate) fn global(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    // Top tabs have no sidebar: the keys pass through, as Desktop registers no command there.
-    if s.shows_sidebar() && Bind::Sidebar.matches_tx(ev, tx) {
-        return s.toggle_sidebar(tx);
-    }
-    if Bind::Home.matches_tx(ev, tx) {
-        if s.toggle_home(tx) {
-            s.focus_home_search(tx);
-        }
-        return true;
-    }
-    false
+    crate::shortcuts::run_global(s, ev, tx)
 }

@@ -87,6 +87,9 @@ impl AppOverlays for App {
 pub fn build() -> Kernel<App> {
     let mut b = KernelBuilder::new();
     b.add_stages(crate::tick::stage::ALL);
+    b.add_overlay_layers(crate::overlays::layer::ALL);
+    b.add_overlay_key_bands(crate::overlays::key_band::ALL);
+    b.add_escape_bands(crate::overlays::escape_band::ALL);
     register_core_systems(&mut b);
     b.with_feature(&crate::surfaces::egg::EggFeature);
     #[cfg(feature = "office")]
@@ -124,44 +127,90 @@ pub fn build() -> Kernel<App> {
     b.with_feature(&crate::new_worktree::WorkspaceToolsFeature);
     b.with_feature(&crate::plugin_host::PluginHostFeature);
     b.register_overlay(
+        OverlayRegistration::<App>::new("overlay.pickers")
+            .with_render(crate::overlays::layer::SURFACE_POPOVER, |s, cx| {
+                let p = crate::palette::pal(s.dark(cx));
+                session_view::pickers::view::layer(s, p)
+            })
+            .above("narrow.sheet"),
+    );
+    b.register_overlay(
         OverlayRegistration::<App>::new("overlay.diagram")
-            .with_z(170)
-            .with_key_priority(195)
-            .with_render(|s, cx| {
+            .with_render(crate::overlays::layer::MEDIA_LIGHTBOX, |s, cx| {
                 let p = crate::palette::pal(s.dark(cx));
                 crate::diagram::view(s, p, cx)
             })
+            .above("overlay.attachments.viewer")
             .with_key(crate::diagram::key),
     );
     b.register_overlay(
-        OverlayRegistration::<App>::new("dialog.move_recovery")
-            .with_z(470)
-            .with_key_priority(150)
-            .with_render(|s, cx| {
+        OverlayRegistration::<App>::new("overlay.tool_details")
+            .with_render(crate::overlays::layer::MEDIA_LIGHTBOX, |s, cx| {
+                let p = crate::palette::pal(s.dark(cx));
+                session_view::tools::details_overlay(s, p, cx)
+            })
+            .above("overlay.diagram"),
+    );
+    b.register_overlay(
+        OverlayRegistration::<App>::new("overlay.tab_preview")
+            .with_render(crate::overlays::layer::CHROME_POPUP, |s, cx| {
+                let p = crate::palette::pal(s.dark(cx));
+                crate::view::tab_preview::view(s, p).into_iter().collect()
+            }),
+    );
+    b.register_overlay(
+        OverlayRegistration::<App>::new("overlay.popup")
+            .with_render(crate::overlays::layer::CHROME_POPUP, |s, cx| {
+                let p = crate::palette::pal(s.dark(cx));
+                crate::popup::view(s, p)
+            })
+            .above("overlay.tab_preview")
+            // Visually below `plugin.popover` (PLUGIN_TOP), runs first in `key_band::POPUP` so an
+            // open context/dropdown menu takes Escape and navigation keys before every other overlay.
+            .with_key(crate::popup::key),
+    );
+    b.register_overlay(
+        OverlayRegistration::<App>::new("overlay.status_toast")
+            .with_render(crate::overlays::layer::TOAST, |s, cx| {
+                let p = crate::palette::pal(s.dark(cx));
+                crate::status_toast::view(s, p).into_iter().collect()
+            }),
+    );
+    b.register_overlay(
+        OverlayRegistration::<App>::new(crate::view::move_recovery::OVERLAY_ID)
+            .with_render(crate::overlays::layer::ELEVATED_DIALOG, |s, cx| {
                 let p = crate::palette::pal(s.dark(cx));
                 crate::view::move_recovery::view(s, p, cx)
             })
-            .with_key(crate::view::move_recovery::key),
+            .with_key(crate::view::move_recovery::key)
+            // Visually above `connect`/`mcp` in ELEVATED_DIALOG, kept after `mcp` in MODAL keys
+            // to preserve existing key order (mutually exclusive in practice; swallows all keys while open).
+            .after_key(crate::mcp::OVERLAY_ID)
+            .with_dismiss(crate::view::move_recovery::keep),
     );
     b.register_overlay(
-        OverlayRegistration::<App>::new("dialog.servers")
-            .with_z(490)
-            .with_render(|s, cx| {
+        OverlayRegistration::<App>::new(crate::servers::dialog::OVERLAY_ID)
+            .with_render(crate::overlays::layer::ELEVATED_DIALOG, |s, cx| {
                 let p = crate::palette::pal(s.dark(cx));
                 crate::servers::dialog::view(s, p, cx)
-            }),
+            })
+            .above("plugin.dialog")
+            .with_dismiss(crate::servers::dialog::close),
+    );
+    b.register_escape_layer(
+        EscapeLayer::<App>::new(
+            "escape.tool_step",
+            crate::overlays::escape_band::FALLBACK,
+            |s| s.tool_view_open(),
+            |s, _, tx| {
+                s.dismiss_tool_step(tx);
+            },
+        )
+        .after("escape.toast"),
     );
     b.register_escape_layer(EscapeLayer::new(
-        "escape.tool_step",
-        20,
-        |s| s.tool_view_open(),
-        |s, _, tx| {
-            s.dismiss_tool_step(tx);
-        },
-    ));
-    b.register_escape_layer(EscapeLayer::new(
         "escape.toast",
-        30,
+        crate::overlays::escape_band::FALLBACK,
         |s| s.toast.current().is_some_and(|t| t.persistent),
         |s, ev, tx| {
             crate::status_toast::key(s, ev, tx);
@@ -169,7 +218,7 @@ pub fn build() -> Kernel<App> {
     ));
     b.register_escape_layer(EscapeLayer::new(
         "escape.opening",
-        90,
+        crate::overlays::escape_band::SESSION_ACTION,
         |s| s.opening.is_some(),
         |s, _, tx| {
             s.cancel_open(tx);
@@ -177,7 +226,7 @@ pub fn build() -> Kernel<App> {
     ));
     b.register_escape_layer(EscapeLayer::new(
         "escape.peek",
-        120,
+        crate::overlays::escape_band::CHROME,
         |s| !*s.sidebar_open && s.layout.peek.shown(),
         |s, _, tx| {
             s.queue_peek(crate::layout_state::PeekEvent::Escape, tx);
@@ -192,7 +241,9 @@ pub fn build() -> Kernel<App> {
         .register_slot(&crate::speech::SPEECH)
         .register_slot(&crate::crash_notice::CRASH_NOTICE)
         .register_slot(&crate::servers::dialog::DIALOG);
-    b.build()
+    let kernel = b.build();
+    crate::shortcuts::validate(&kernel.commands);
+    kernel
 }
 
 /// Core shell and subsystem lifecycle polls registered into declared [`crate::tick::stage`]

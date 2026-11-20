@@ -296,17 +296,3 @@ fn edit_key(key: EditKey) -> KeyEvent {
     };
     KeyEvent { key, mods }
 }
-
-/// Ctrl+Shift+N and Ctrl+Shift+W, the menu's accelerators that no command binds; true when
-/// `ev` was one.
-pub fn accelerator(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if Bind::WindowNew.matches_tx(ev, tx) {
-        crate::windows::new_window(s);
-        return true;
-    }
-    if Bind::WindowClose.matches_tx(ev, tx) {
-        s.close_window(tx);
-        return true;
-    }
-    false
-}

@@ -129,11 +129,11 @@ impl Feature<App> for UsageFeature {
         );
         builder.register_overlay(
             OverlayRegistration::<App>::new(OVERLAY_ID)
-                .with_z(440)
-                .with_render(|s, cx| {
+                .with_render(crate::overlays::layer::DIALOG, |s, cx| {
                     let p = crate::palette::pal(s.dark(cx));
                     layer(s, p, cx)
                 })
+                .above(crate::mcp::SIGN_IN_OVERLAY_ID)
                 .with_dismiss(|s, tx| {
                     tx.instant();
                     s.close_usage();

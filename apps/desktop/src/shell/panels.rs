@@ -584,6 +584,22 @@ impl Feature<App> for PanelsFeature {
         builder
             .register_slot(&SIDE)
             .register_slot(&PLUGIN_WATCHED_STAMP);
+        builder.register_overlay(
+            opencode_kernel::OverlayRegistration::<App>::new("overlay.panel_menus")
+                .with_render(crate::overlays::layer::FLOATING_CHROME, |s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    view::context_menus(s, p).into_iter().collect()
+                })
+                .above("overlay.line_comment_toolbar"),
+        );
+        builder.register_overlay(
+            opencode_kernel::OverlayRegistration::<App>::new("overlay.panel_drag")
+                .with_render(crate::overlays::layer::FLOATING_CHROME, |s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    drag::layer(s, p).into_iter().collect()
+                })
+                .above("overlay.panel_menus"),
+        );
         // After Copy project ID and before the message keys, as Desktop registers it (`use-session-commands.tsx:610`).
         builder.add_command(
             CommandEntry::<App>::from_key(

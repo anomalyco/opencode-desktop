@@ -512,9 +512,26 @@ impl Feature<App> for ProjectsFeature {
             )
             .when(|s| s.active_session_id().and_then(|id| s.session(id)).is_some_and(|i| !i.project.is_empty())),
         );
+        builder.register_overlay(
+            OverlayRegistration::<App>::new(crate::view::home::browse::OVERLAY_ID)
+                .with_render(crate::overlays::layer::SURFACE_POPOVER, |s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    crate::view::home::browse::view(s, p, cx)
+                })
+                .above("overlay.add_menu")
+                .with_dismiss(crate::view::home::browse::close),
+        );
+        builder.register_overlay(
+            OverlayRegistration::<App>::new("overlay.home_projects")
+                .with_render(crate::overlays::layer::SURFACE_POPOVER, |s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    crate::view::home::home_projects_popover(s, p).into_iter().flatten().collect()
+                })
+                .above("overlay.worktree_picker"),
+        );
         builder.register_escape_layer(EscapeLayer::new(
             "escape.home_menu",
-            70,
+            crate::overlays::escape_band::PAGE_POPOVER,
             |s| s.project_state.home_menu_open,
             |s, _, tx| {
                 tx.instant();
@@ -523,11 +540,11 @@ impl Feature<App> for ProjectsFeature {
         ));
         builder.register_overlay(
             OverlayRegistration::<App>::new(REMOTE_PICKER_OVERLAY_ID)
-                .with_z(510)
-                .with_render(|s, cx| {
+                .with_render(crate::overlays::layer::ELEVATED_DIALOG, |s, cx| {
                     let p = crate::palette::pal(s.dark(cx));
                     remote_picker::view::view(s, p, cx)
                 })
+                .above(crate::settings::PROVIDER_REMOVAL_OVERLAY_ID)
                 .with_dismiss(|s, tx| remote_picker::close(s, tx)),
         );
         // Known/precaution: reads `checkout`, `servers::runtime::sidecar_stamp`, and listed server state.

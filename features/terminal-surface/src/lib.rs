@@ -45,7 +45,7 @@ pub use ops::{
     select_session_terminal, select_terminal_tab, server_id_str, start_terminal, terminal_dark,
     terminal_tab_mut, terminal_waker, terminal_workspace_key_for_session,
 };
-pub use paste::{answer_paste, paste_into_terminal};
+pub use paste::{PASTE_OVERLAY_ID, answer_paste, paste_into_terminal};
 pub use persist::{ensure_terminal_workspace_hydrated, load_persisted_terminals, queue_terminal_save};
 pub use poll::poll_terminal;
 pub use rename::stamp as rename_stamp;
@@ -524,7 +524,7 @@ impl TerminalPane {
 
 /// Object-safe host boundary for the terminal surface, workspace tabs, persistence,
 /// inline tab rename, hyperlinks, context menus, paste guard, and narrow mobile view.
-pub trait TerminalSurfaceHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
+pub trait TerminalSurfaceHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback + opencode_kernel::AppOverlays {
     /// Terminal pane state (tracked read).
     fn terminal(&self) -> &TerminalPane;
     /// Terminal pane state (tracked write — callers only invoke when mutating).

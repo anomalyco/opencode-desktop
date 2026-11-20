@@ -229,9 +229,32 @@ impl Feature<App> for ComposerInputFeature {
             .when(App::can_add_selection),
         );
         builder.register_overlay(
+            OverlayRegistration::<App>::new("overlay.slash")
+                .with_render(crate::overlays::layer::SURFACE_POPOVER, |s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    crate::slash::commands_view(s, p, cx).into_iter().collect()
+                })
+                .above("overlay.mentions"),
+        );
+        builder.register_overlay(
+            OverlayRegistration::<App>::new("overlay.history_suggestions")
+                .with_render(crate::overlays::layer::SURFACE_POPOVER, |s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    crate::suggestions::history::view(s, p, cx).into_iter().collect()
+                })
+                .above("overlay.slash"),
+        );
+        builder.register_overlay(
+            OverlayRegistration::<App>::new("overlay.add_menu")
+                .with_render(crate::overlays::layer::SURFACE_POPOVER, |s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    crate::add_menu::menu(s, p).into_iter().collect()
+                })
+                .above("overlay.history_suggestions"),
+        );
+        builder.register_overlay(
             OverlayRegistration::<App>::new("overlay.attachments.viewer")
-                .with_z(160)
-                .with_render(|s, cx| {
+                .with_render(crate::overlays::layer::MEDIA_LIGHTBOX, |s, cx| {
                     let p = crate::palette::pal(s.dark(cx));
                     viewer(s, p, cx)
                 }),

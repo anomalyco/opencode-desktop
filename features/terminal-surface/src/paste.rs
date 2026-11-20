@@ -18,6 +18,8 @@ use opencode_ui::palette::{Elevate as _, Pal, kit};
 
 use crate::{FocusClaimEvent, TerminalSurfaceHost, ops};
 
+pub const PASTE_OVERLAY_ID: &str = "dialog.terminal.paste";
+
 /// `dialog-title`: 15 on 20 at 530, as the session delete confirmation's.
 const TITLE: TextStyle = TextStyle::new(15.0, 530.0).lh(20.0).tracking(-0.13);
 /// The pasted lines, in the code font.
@@ -98,6 +100,7 @@ pub fn paste_into_terminal(host: &mut dyn TerminalSurfaceHost, ws: &str, tab: &s
         Paste::Ask => {
             tx.instant();
             host.terminal_mut().pending_paste = Some(Pending { ws: ws.to_owned(), tab: tab.to_owned(), text });
+            host.on_overlay_opened(PASTE_OVERLAY_ID, None);
         }
     }
 }
@@ -106,6 +109,7 @@ pub fn paste_into_terminal(host: &mut dyn TerminalSurfaceHost, ws: &str, tab: &s
 pub fn answer_paste(host: &mut dyn TerminalSurfaceHost, send: bool, tx: &mut Tx) {
     tx.instant();
     let Some(p) = host.terminal_mut().pending_paste.take() else { return };
+    host.on_overlay_closed(PASTE_OVERLAY_ID);
     if send && let Some(t) = ops::terminal_tab_mut(host, &p.ws, &p.tab) {
         t.session.paste(without_last_break(&p.text).to_owned());
     }

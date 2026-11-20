@@ -270,6 +270,14 @@ impl Feature<App> for MentionsFeature {
         builder
             .register_slot(&MENTIONS)
             .register_slot(&SESSION_REFS);
+        builder.register_overlay(
+            opencode_kernel::OverlayRegistration::<App>::new("overlay.mentions")
+                .with_render(crate::overlays::layer::SURFACE_POPOVER, |s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    view(s, p, cx).into_iter().collect()
+                })
+                .above("overlay.todos"),
+        );
         builder.add_setup("mentions.waker", |s, w| s.kernel.slots.get_mut(&MENTIONS).set_waker(w));
         builder.schedule(crate::tick::stage::DERIVE_COMPOSER, "mentions.poll", |s, _, tx| {
             s.poll_mentions(tx)

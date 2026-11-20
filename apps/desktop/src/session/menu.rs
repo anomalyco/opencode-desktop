@@ -346,22 +346,23 @@ impl Feature<App> for SessionMenuFeature {
         );
         builder.register_overlay(
             OverlayRegistration::<App>::new(DELETE_OVERLAY_ID)
-                .with_z(200)
-                .with_key_priority(220)
-                .with_render(|s, cx| {
+                .with_render(crate::overlays::layer::ACTION_DIALOG, |s, cx| {
                     let p = crate::palette::pal(s.dark(cx));
                     view::confirm(s, p, cx)
                 })
                 .with_key(|s, ev, tx| key(s, ev, tx))
+                // Runs after `history.jump` (and `history.fork` visually above it) because
+                // `session_menu::key` also handles global `Bind::Rename` (`Ctrl+R`).
+                .after_key(crate::message_nav::JUMP_OVERLAY_ID)
                 .with_dismiss(|s, tx| cancel_delete(s, tx)),
         );
         builder.register_overlay(
             OverlayRegistration::<App>::new(RENAME_OVERLAY_ID)
-                .with_z(210)
-                .with_render(|s, cx| {
+                .with_render(crate::overlays::layer::ACTION_DIALOG, |s, cx| {
                     let p = crate::palette::pal(s.dark(cx));
                     rename_dialog::view(s, p, cx)
                 })
+                .above(DELETE_OVERLAY_ID)
                 .with_dismiss(|s, tx| close_rename_dialog(s, tx)),
         );
         builder.schedule(

@@ -427,8 +427,27 @@ impl App {
     }
 
     /// OpenCode Desktop's key defaults; true when `ev` was one.
+    ///
+    /// Called from focused text inputs (`on_input_key`), which run ahead of `keys::on_key` and
+    /// therefore include `dictation::key`. `keys::on_key` already invokes `dictation::key` earlier
+    /// (between `key_band::MID` and `knobs::key`) and calls [`Self::shortcut_without_dictation`] so
+    /// one key press never evaluates `dictation::key` twice.
     pub fn shortcut(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
-        if settings::pages::shortcuts::run_bound(self, ev, tx) || dictation::key(self, ev, tx) || background::key(self, ev, tx) || find::shortcut(self, ev, tx) || commands::key(self, ev, tx) || plugin_host::key(self, ev, tx) {
+        self.shortcut_inner(ev, tx, true)
+    }
+
+    pub(crate) fn shortcut_without_dictation(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
+        self.shortcut_inner(ev, tx, false)
+    }
+
+    fn shortcut_inner(&mut self, ev: &KeyEvent, tx: &mut Tx, check_dictation: bool) -> bool {
+        if settings::pages::shortcuts::run_bound(self, ev, tx)
+            || (check_dictation && dictation::key(self, ev, tx))
+            || background::key(self, ev, tx)
+            || find::shortcut(self, ev, tx)
+            || commands::key(self, ev, tx)
+            || plugin_host::key(self, ev, tx)
+        {
             return true;
         }
         if tx.focused().is_some() && keymap::Bind::PastePlain.matches_tx(ev, tx) {
