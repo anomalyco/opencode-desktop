@@ -157,7 +157,7 @@ fn start_later(app: &mut App) {
             adopt_later_kinds(app, &["Command", "Setting", "SettingsPage"]);
         }
         if let Some(kind) = app.composer_ext.pickers.open() {
-            crate::plugin_host::notify_picker_opening(app, kind, tx);
+            crate::plugin_host::notify_picker_after_boot(app, kind, tx);
         }
         #[cfg(target_arch = "wasm32")]
         {

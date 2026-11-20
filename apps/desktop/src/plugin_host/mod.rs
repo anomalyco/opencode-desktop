@@ -298,8 +298,24 @@ impl PluginHost {
 /// `Composer.PickerChanged` and fires it synchronously in this same turn so plugin-provided
 /// picker annotations and refreshes run with zero frame delay.
 pub fn notify_picker_opening(app: &mut App, kind: crate::pickers::Kind, tx: &mut Tx) {
+    notify_picker_inner(app, kind, false, tx);
+}
+
+/// Completes picker notification after deferred boot finishes when a picker opened before
+/// stage B storage was ready: fires only on plugins that just started, avoiding duplicate
+/// delivery to plugins already notified by [`notify_picker_opening`].
+pub(crate) fn notify_picker_after_boot(app: &mut App, kind: crate::pickers::Kind, tx: &mut Tx) {
+    notify_picker_inner(app, kind, true, tx);
+}
+
+fn notify_picker_inner(app: &mut App, kind: crate::pickers::Kind, only_new: bool, tx: &mut Tx) {
     use std::hash::{Hash, Hasher};
     const SIGNAL: &str = "Composer.PickerChanged";
+    let already_running: HashSet<String> = if only_new {
+        app.plugins.running().map(|(_, p)| p.manifest.id.clone()).collect()
+    } else {
+        HashSet::new()
+    };
     runtime::boot::doze_owed(app);
     runtime::boot::adopt_later_signal(app, SIGNAL);
     dormant::wake_signal(app, SIGNAL);
@@ -311,6 +327,9 @@ pub fn notify_picker_opening(app: &mut App, kind: crate::pickers::Kind, tx: &mut
     let mut fired = false;
     for i in 0..app.plugins.list.len() {
         let Some(vm) = app.plugins.list[i].script().and_then(Script::vm_id) else { continue };
+        if only_new && already_running.contains(&app.plugins.list[i].manifest.id) {
+            continue;
+        }
         let has_signal = app.plugins.list[i].half.signals.borrow().contains_key(&(vm, SIGNAL.to_owned()));
         if !has_signal {
             continue;
