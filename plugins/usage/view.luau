@@ -62,7 +62,10 @@ export type Callbacks = {
 -- off a whole amount.
 local function money(I18n: I18nService, value: number, auto: boolean): string
     local whole = auto and (math.fmod(value, 1) == 0)
-    return I18n:Number(value, { style = "currency", currency = "USD", maxFraction = if whole then 0 else 2 })
+    return I18n:Number(
+        value,
+        { style = "currency", currency = "USD", maxFraction = if whole then 0 else 2, localePattern = true }
+    )
 end
 view.money = money
 
