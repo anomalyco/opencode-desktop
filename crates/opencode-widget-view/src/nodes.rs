@@ -38,9 +38,9 @@ pub(crate) fn node<S: 'static>(cx: &Cx<S>, n: &Node, path: &str) -> El {
         Node::Select { id, label, options, value, multiple } => controls::select(cx, id, label.as_deref(), options, value.as_ref(), *multiple),
         Node::Input { id, label, placeholder, multiline, .. } => controls::input(cx, id, label.as_deref(), placeholder.as_deref(), *multiline),
         Node::Divider => rune::rule(1.0, k.c.border_weak).w_full(),
-        // Drawn in the next change; until then their room, quiet, with what they show in words.
-        Node::Canvas { height, alt, .. } | Node::Shader { height, alt, .. } => {
-            el().w_full().h(*height as f32).radius(RADIUS).fill(k.c.surface_weak).role("img").label(alt.clone().unwrap_or_default())
+        Node::Canvas { id, height, width, alt, .. } => crate::canvas::view(cx, path, id.as_deref(), *height, *width, alt.as_deref()),
+        Node::Shader { height, width, wgsl, values, fps, alt, poster, .. } => {
+            crate::shader::view(cx, path, *height, *width, wgsl, values, *fps, alt.as_deref(), poster.as_deref())
         }
         Node::Unknown => {
             #[cfg(debug_assertions)]

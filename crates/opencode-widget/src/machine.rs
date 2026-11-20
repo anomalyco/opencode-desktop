@@ -58,8 +58,9 @@ pub enum Phase {
     /// The step answered (submit or dismiss): the response is on its way to the server. The
     /// view stays, read-only.
     Responding { state: Value, view: Node, response: Response, attempt: u32 },
-    /// Submitted or dismissed: the final view (when `init` could draw one), read-only.
-    Closed { view: Option<Node>, how: Closed },
+    /// Submitted or dismissed: the final view (when `init` could draw one), read-only, with the
+    /// state it was drawn from (a canvas in it still draws from it).
+    Closed { view: Option<Node>, state: Value, how: Closed },
     /// The template couldn't load, or `init` failed: an error card.
     Failed { message: String, status: Status },
 }
@@ -139,7 +140,24 @@ impl Widget {
             Phase::Ready { view, error, .. } => Face::Live { view, live: true, sending: false, error: error.as_deref() },
             Phase::Stepping { view, .. } => Face::Live { view, live: false, sending: false, error: None },
             Phase::Responding { view, .. } => Face::Live { view, live: false, sending: true, error: None },
-            Phase::Closed { view, how } => Face::Closed { view: view.as_ref(), how },
+            Phase::Closed { view, how, .. } => Face::Closed { view: view.as_ref(), how },
+        }
+    }
+
+    /// The state the view shown now was drawn from (what a canvas in it draws from).
+    pub fn state(&self) -> Option<&Value> {
+        match &self.phase {
+            Phase::Ready { state, .. } | Phase::Stepping { state, .. } | Phase::Responding { state, .. } | Phase::Closed { state, .. } => Some(state),
+            Phase::Loading { .. } | Phase::Starting { .. } | Phase::Failed { .. } => None,
+        }
+    }
+
+    /// The view shown now, when there is one.
+    pub fn view(&self) -> Option<&Node> {
+        match &self.phase {
+            Phase::Ready { view, .. } | Phase::Stepping { view, .. } | Phase::Responding { view, .. } => Some(view),
+            Phase::Closed { view, .. } => view.as_ref(),
+            Phase::Loading { .. } | Phase::Starting { .. } | Phase::Failed { .. } => None,
         }
     }
 
@@ -158,19 +176,19 @@ pub fn step(w: &mut Widget, event: Event) -> Vec<Effect> {
         (Phase::Loading { status }, Event::Loaded) => (Phase::Starting { status }, vec![Effect::Run(StepInput::Init { data: data.clone() })]),
         (Phase::Loading { status }, Event::LoadFailed(message)) => match status {
             // A closed widget still says how it ended without its view.
-            Status::Closed(how) => (Phase::Closed { view: None, how }, vec![]),
+            Status::Closed(how) => (Phase::Closed { view: None, state: Value::Null, how }, vec![]),
             status => (Phase::Failed { message, status }, vec![]),
         },
         // Still loading or starting, it waits for the template or init, which then draws the
         // final view read-only; a failed one just says how it ended.
         (Phase::Loading { .. }, Event::Status(status @ Status::Closed(_))) => (Phase::Loading { status }, vec![]),
         (Phase::Starting { .. }, Event::Status(status @ Status::Closed(_))) => (Phase::Starting { status }, vec![]),
-        (Phase::Failed { .. }, Event::Status(Status::Closed(how))) => (Phase::Closed { view: None, how }, vec![]),
+        (Phase::Failed { .. }, Event::Status(Status::Closed(how))) => (Phase::Closed { view: None, state: Value::Null, how }, vec![]),
         (Phase::Starting { status }, Event::Ran(result)) => match (result, status) {
             (Ok(out), Status::Open) => (Phase::Ready { state: out.state, view: out.view, error: None }, vec![]),
-            (Ok(out), Status::Closed(how)) => (Phase::Closed { view: Some(out.view), how }, vec![]),
+            (Ok(out), Status::Closed(how)) => (Phase::Closed { view: Some(out.view), state: out.state, how }, vec![]),
             (Err(message), Status::Open) => (Phase::Failed { message, status: Status::Open }, vec![]),
-            (Err(_), Status::Closed(how)) => (Phase::Closed { view: None, how }, vec![]),
+            (Err(_), Status::Closed(how)) => (Phase::Closed { view: None, state: Value::Null, how }, vec![]),
         },
         (Phase::Ready { state, view, .. }, Event::Input(event)) => {
             let input = StepInput::Event { data: data.clone(), state: state.clone(), event };
@@ -190,13 +208,13 @@ pub fn step(w: &mut Widget, event: Event) -> Vec<Effect> {
             Err(message) => (Phase::Ready { state, view, error: Some(message) }, vec![]),
         },
         (Phase::Responding { state, view, response, attempt }, Event::Responded { attempt: due, result }) if attempt == due => match result {
-            Ok(()) => (Phase::Closed { view: Some(view), how: Closed::from_response(&response) }, vec![]),
+            Ok(()) => (Phase::Closed { view: Some(view), state, how: Closed::from_response(&response) }, vec![]),
             // Answered elsewhere first: its update closes it; meanwhile it says so.
             Err(RespondError::Conflict) => (Phase::Ready { state, view, error: Some("This widget was already answered.".into()) }, vec![]),
             Err(RespondError::Failed(message)) => (Phase::Ready { state, view, error: Some(message) }, vec![]),
         },
-        (Phase::Ready { view, .. } | Phase::Stepping { view, .. } | Phase::Responding { view, .. }, Event::Status(Status::Closed(how))) => {
-            (Phase::Closed { view: Some(view), how }, vec![])
+        (Phase::Ready { view, state, .. } | Phase::Stepping { view, state } | Phase::Responding { view, state, .. }, Event::Status(Status::Closed(how))) => {
+            (Phase::Closed { view: Some(view), state, how }, vec![])
         }
         // A message that didn't go says so inline; the widget stays open either way.
         (Phase::Ready { state, view, .. }, Event::Sent(Err(e))) => {

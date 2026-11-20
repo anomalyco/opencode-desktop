@@ -12,7 +12,10 @@
 
 use std::collections::HashMap;
 
-use opencode_widget::{Node, WidgetEvent};
+use opencode_widget::{Command, Node, WidgetEvent};
+use opencode_widget::draw::Frame;
+
+use crate::canvas::state::{Canvas, Event as CanvasEvent, Motion};
 use rune::{GesturePhase, TextEdit, WheelEvent};
 
 /// How long typing rests before an input's text goes to the template (the contract's >= 300 ms).
@@ -86,6 +89,8 @@ pub struct Local {
     drafts: HashMap<String, Draft>,
     drag: Drag,
     pagers: HashMap<String, Pager>,
+    /// Each canvas's drawing, by its path.
+    canvases: HashMap<String, Canvas>,
     /// Bumped on every change a build reads, for hosts that memoize the widget's row.
     version: u64,
 }
@@ -107,6 +112,11 @@ impl Local {
             _ => {}
         });
         self.drafts.retain(|id, _| inputs.iter().any(|(i, _)| i == id));
+        let canvases = canvases(view);
+        self.canvases.retain(|path, _| canvases.iter().any(|(p, ..)| p == path));
+        for (path, ..) in canvases {
+            self.canvases.entry(path).or_default().step(CanvasEvent::Changed);
+        }
         for (id, value) in inputs {
             match self.drafts.get_mut(id) {
                 Some(d) if d.phase == DraftPhase::Synced => {
@@ -221,6 +231,53 @@ impl Local {
         }
     }
 
+    pub fn canvas(&self, path: &str) -> Option<&Canvas> {
+        self.canvases.get(path)
+    }
+
+    /// Something happened to canvas `path` (laid out, seen, pointed at).
+    pub fn canvas_event(&mut self, path: &str, event: CanvasEvent) {
+        self.canvases.entry(path.to_owned()).or_default().step(event);
+        self.version += 1;
+    }
+
+    /// Canvas `path` sent a pointer `move` at clock `at`.
+    pub fn canvas_moved(&mut self, path: &str, at: f64) {
+        if let Some(c) = self.canvases.get_mut(path) {
+            c.moved = at;
+        }
+    }
+
+    /// The canvases of `view` that want a draw at clock `now`, with their frames.
+    pub fn canvases_due(&mut self, view: &Node, now: f64, scale: f64, dark: bool) -> Vec<(String, Frame)> {
+        canvases(view)
+            .into_iter()
+            .filter_map(|(path, id, motion)| {
+                let frame = self.canvases.entry(path.clone()).or_default().due(now, motion, id.as_deref(), scale, dark)?;
+                Some((path, frame))
+            })
+            .collect()
+    }
+
+    /// Whether a canvas of `view` wants a draw at clock `now` (without touching anything).
+    pub fn canvases_want(&self, view: &Node, now: f64) -> bool {
+        canvases(view).iter().any(|(path, id, motion)| self.canvases.get(path).is_some_and(|c| c.due(now, *motion, id.as_deref(), 1.0, false).is_some()))
+    }
+
+    /// Canvas `path`'s draw at clock `at` came back.
+    pub fn canvas_drawn(&mut self, view: &Node, path: &str, at: f64, result: Result<Vec<Command>, String>) {
+        let Some((_, _, motion)) = canvases(view).into_iter().find(|(p, ..)| p == path) else { return };
+        if let Some(c) = self.canvases.get_mut(path) {
+            c.step(CanvasEvent::Drawn { at, result, motion });
+            self.version += 1;
+        }
+    }
+
+    /// When the next canvas frame of `view` is due, for the host's wake.
+    pub fn canvas_next(&self, view: &Node) -> Option<f64> {
+        canvases(view).iter().filter_map(|(path, _, motion)| self.canvases.get(path)?.next(*motion)).reduce(f64::min)
+    }
+
     pub fn pager(&self, key: &str) -> Pager {
         self.pagers.get(key).copied().unwrap_or_default()
     }
@@ -273,6 +330,17 @@ fn step_wheel(dx: f32) -> (Wheel, bool, Option<bool>) {
     } else {
         (Wheel::Tracking(dx), true, None)
     }
+}
+
+/// `view`'s canvases: path, id and how they animate.
+fn canvases(view: &Node) -> Vec<(String, Option<String>, Motion)> {
+    let mut out = Vec::new();
+    walk(view, "w", &mut |path, n| {
+        if let Node::Canvas { id, fps, duration, .. } = n {
+            out.push((path.to_owned(), id.clone(), Motion::new(*fps, *duration)));
+        }
+    });
+    out
 }
 
 /// Calls `f` with each node under `n` and its path, as the renderer keys them (`w`, `w.0`, `w.0.1`…).

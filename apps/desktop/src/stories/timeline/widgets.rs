@@ -1,8 +1,9 @@
 //! The storybook's Widgets story (Timeline › Widgets): the agent posts a widget and it runs in
 //! the timeline on the Rust PsychoScript, with the built-in templates (`suggestions`, `form`,
 //! `confirm`) and their fixture data. Variants: each built-in, one another client already
-//! answered (read-only, its final view and answer), and a template whose `init` throws (the
-//! error card). R replays; E answers it from another client, D dismisses it from one. Pictures
+//! answered (read-only, its final view and answer), a template whose `init` throws (the error
+//! card), the `chart` canvas (bars, and a line you can choose a point on), the `backdrop`
+//! shader (plasma, aurora), and a shader whose WGSL doesn't compile. R replays; E answers it from another client, D dismisses it from one. Pictures
 //! come from the storybook, never the web.
 
 use std::sync::Arc;
@@ -15,7 +16,18 @@ use crate::App;
 use crate::session::widgets::preload;
 use crate::stories::{Trigger, emit, replay};
 
-pub const VARIANTS: &[(&str, usize)] = &[("Suggestions", 0), ("Form", 1), ("Confirm", 2), ("Answered elsewhere", 3), ("Broken template", 4)];
+pub const VARIANTS: &[(&str, usize)] = &[
+    ("Suggestions", 0),
+    ("Form", 1),
+    ("Confirm", 2),
+    ("Answered elsewhere", 3),
+    ("Broken template", 4),
+    ("Chart", 5),
+    ("Line chart", 6),
+    ("Backdrop", 7),
+    ("Backdrop aurora", 8),
+    ("Broken shader", 9),
+];
 pub const KEYS: &[Trigger] = &[
     replay(open),
     Trigger { key: 'e', label: "Answer it from another client", run: |s, tx| {
@@ -30,6 +42,7 @@ pub const KEYS: &[Trigger] = &[
 
 const ID: &str = "msg_zzzzstorywidget";
 const BROKEN: &str = "story-broken";
+const BROKEN_SHADER: &str = "story-broken-shader";
 /// Where the story's pictures say they are; [`serve`] answers for them.
 const PICTURES: &str = "https://pictures.story.example/";
 
@@ -44,6 +57,9 @@ fn template(v: usize) -> &'static str {
         1 => "form",
         2 => "confirm",
         4 => BROKEN,
+        5 | 6 => "chart",
+        7 | 8 => "backdrop",
+        9 => BROKEN_SHADER,
         _ => "suggestions",
     }
 }
@@ -80,6 +96,27 @@ fn data(v: usize) -> (&'static str, Value) {
             "danger": true,
         })),
         4 => ("Release notes", json!({ "title": "Release notes" })),
+        5 => ("Build times", json!({
+            "title": "Build times this week",
+            "kind": "bar",
+            "unit": "s",
+            "labels": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+            "series": [
+                { "label": "Cold", "values": [412, 398, 455, 380, 362, 401, 377] },
+                { "label": "Warm", "values": [61, 58, 72, 55, 49, 66, 52] },
+            ],
+        })),
+        6 => ("Latency", json!({
+            "title": "p95 latency after the cache change",
+            "kind": "line",
+            "unit": "ms",
+            "labels": ["09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00"],
+            "series": [{ "label": "p95", "values": [182, 176, 169, 121, 98, 94, 97, 91] }],
+            "choose": true,
+        })),
+        7 => ("Launch banner", json!({ "title": "Rune 1.0 is out", "text": "Native **GPU** rendering, now with widgets.", "preset": "plasma" })),
+        8 => ("Aurora", json!({ "title": "Northern lights", "text": "An aurora drawn by a WGSL shader.", "preset": "aurora" })),
+        9 => ("Broken shader", json!({})),
         _ => ("Pick a hero image", json!({
             "title": "Which hero image should the landing page use?",
             "options": [
@@ -115,6 +152,12 @@ fn open(s: &mut App, tx: &mut Play<App>) {
     // Throws in `init`: the error card, with Try again.
     let broken = format!("{}\nfunction view(state, data) {{\n  return ui.text(data.sections.length + \" sections\")\n}}", fixtures::PRELUDE);
     preload(s, BROKEN, &version(BROKEN), &broken);
+    // A shader whose WGSL doesn't compile: its alt, with the compiler's message.
+    let shader = format!(
+        "{}\nfunction view(state, data) {{\n  return ui.column({{ gap: 2 }}, [ui.text(\"A broken shader\", {{ style: \"title\" }}), ui.shader(\"fn shade(frag: vec2f) -> vec4f {{ return vec4f(glow, 0.0, 0.0, 1.0); }}\", {{ height: 120, alt: \"A red glow\" }})])\n}}",
+        fixtures::PRELUDE
+    );
+    preload(s, BROKEN_SHADER, &version(BROKEN_SHADER), &shader);
     tx.after(0.3, |s, tx| post(s, tx));
     if *s.fixture_run.variant == 3 {
         tx.after(0.9, |s, tx| answer_elsewhere(s, tx));

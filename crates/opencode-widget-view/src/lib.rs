@@ -12,11 +12,13 @@
 
 #![forbid(unsafe_code)]
 
+pub mod canvas;
 mod carousel;
 mod controls;
 mod face;
 pub mod local;
 mod nodes;
+pub mod shader;
 
 use std::rc::Rc;
 
@@ -39,6 +41,12 @@ pub struct Look<'a> {
     pub words: &'a Words,
     /// Room the widget may take, in points: rows of cards fall to a column below it.
     pub width: f32,
+    /// Device pixels per point: how finely canvas curves tessellate.
+    pub scale: f32,
+    /// The theme is dark (a canvas's `frame.dark`).
+    pub dark: bool,
+    /// What the widget is to the host (its message id): keeps each shader slot apart.
+    pub scope: &'a str,
 }
 
 /// A lens from the host's state to a widget's [`Local`].
@@ -96,9 +104,20 @@ pub(crate) fn gap(g: Option<u8>) -> f32 {
     }
 }
 
+thread_local! {
+    static APPEARANCE: std::cell::Cell<(f32, bool)> = const { std::cell::Cell::new((2.0, true)) };
+}
+
+/// The device scale and darkness the last widget built with, for the host's draw steps
+/// (`frame.scale`, `frame.dark`), which run outside a build.
+pub fn appearance() -> (f32, bool) {
+    APPEARANCE.get()
+}
+
 /// The widget's view tree: `live` when it takes input, else every control shows disabled.
 /// Without `hooks` nothing in it responds, carousels included.
 pub fn view<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, node: &Node, live: bool) -> El {
+    APPEARANCE.set((look.scale, look.dark));
     let cx = Cx { look, local, hooks, live: live && hooks.is_some() };
     nodes::node(&cx, node, "w")
 }

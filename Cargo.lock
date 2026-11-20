@@ -4269,10 +4269,12 @@ dependencies = [
 name = "opencode-widget-view"
 version = "0.0.1"
 dependencies = [
+ "naga",
  "opencode-widget",
  "rune",
  "rune-kit",
  "serde_json",
+ "wgpu",
 ]
 
 [[package]]

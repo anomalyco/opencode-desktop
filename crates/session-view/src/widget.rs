@@ -62,7 +62,7 @@ pub fn frame<S: TimelineHost>(s: &S, p: &Pal, session: &str, w: &Widget, face: F
     let image = |src: &str| if src.starts_with("data:") { store.data_image(src) } else { store.image(directory, src) };
     let markdown = |src: &str| crate::style::markdown_tinted::<S>(p, src, 1.0, false, p.text, width - 2.0 * FRAME_PAD);
     let words = words();
-    let look = Look { kit: crate::palette::kit(p), markdown: &markdown, image: &image, words: &words, width };
+    let look = Look { kit: crate::palette::kit(p), markdown: &markdown, image: &image, words: &words, width, scale: crate::scroller::device_scale(), dark: p.dark, scope: &w.id };
     opencode_widget_view::frame(&look, local, hooks, face, w.label(), retry).key(format!("widget-{}", w.id))
 }
 

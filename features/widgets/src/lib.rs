@@ -25,6 +25,8 @@ use serde_json::Value;
 
 pub use engine::{Program, compile};
 pub use opencode_widget::{RespondError, fixtures};
+/// The shader slots' GPU side, for the host's compositor.
+pub use opencode_widget_view::shader;
 
 /// A template version's program, as far as this window has it.
 pub enum Template {
@@ -251,14 +253,51 @@ pub fn sync(host: &mut dyn WidgetsHost) -> bool {
     changed
 }
 
-/// Commits typing whose debounce ran out or whose field lost focus, and asks to wake for the
-/// next debounce.
-pub fn poll(host: &mut dyn WidgetsHost, now: f64, tx: &mut Tx) -> bool {
-    if !host.widgets().pending() {
+/// Draws the canvases that are due (shown, sized, and changed or at their next frame), and asks
+/// to wake for the next frame of those that animate.
+pub fn draw_canvases(host: &mut dyn WidgetsHost, now: f64, tx: &mut Tx) -> bool {
+    let mut wake: Option<f64> = None;
+    let mut any = false;
+    for e in host.widgets().entries.values() {
+        let Some(view) = e.machine.view() else { continue };
+        any |= e.local.canvases_want(view, now);
+        if let Some(at) = e.local.canvas_next(view) {
+            wake = Some(wake.map_or(at, |w: f64| w.min(at)));
+        }
+    }
+    if let Some(at) = wake {
+        tx.wake_at(at.max(now));
+    }
+    if !any {
         return false;
     }
+    let (scale, dark) = opencode_widget_view::appearance();
+    let Widgets { templates, entries, .. } = host.widgets_mut();
+    for e in entries.values_mut() {
+        let Entry { machine, local, template, .. } = e;
+        let (Some(view), Some(state)) = (machine.view(), machine.state()) else { continue };
+        let Some(Template::Ready(program)) = templates.get(template.as_str()) else { continue };
+        for (path, frame) in local.canvases_due(view, now, f64::from(scale), dark) {
+            let result = engine::draw(program, &machine.data, state, &frame);
+            local.canvas_drawn(view, &path, now, result);
+        }
+    }
+    true
+}
+
+/// Commits typing whose debounce ran out or whose field lost focus, and asks to wake for the
+/// next debounce; draws due canvases; and builds widgets again whose shader's status changed.
+pub fn poll(host: &mut dyn WidgetsHost, now: f64, tx: &mut Tx) -> bool {
+    let mut changed = draw_canvases(host, now, tx);
+    if opencode_widget_view::shader::take_changed() {
+        // The shader's slot failed or froze: its widget builds again to say so.
+        host.widgets_mut();
+        changed = true;
+    }
+    if !host.widgets().pending() {
+        return changed;
+    }
     let ids: Vec<String> = host.widgets().entries.iter().filter(|(_, e)| e.local.has_pending()).map(|(id, _)| id.clone()).collect();
-    let mut changed = false;
     for id in ids {
         let events = host.widgets_mut().local_mut(&id).poll(now);
         for ev in events {

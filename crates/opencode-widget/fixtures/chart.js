@@ -63,7 +63,8 @@ function layout(data, width, height) {
   const range = nice(Math.min(0, ...values), Math.max(0, ...values))
   const left = 12 + 7 * Math.max(...range.ticks.map((tick) => compact(tick).length))
   const top = data.series.length > 1 ? 30 : 14
-  const plot = { x: left, y: top, w: Math.max(1, width - left - 12), h: Math.max(1, height - top - 26) }
+  const right = data.kind === "line" ? 20 : 12
+  const plot = { x: left, y: top, w: Math.max(1, width - left - right), h: Math.max(1, height - top - 26) }
   const labels = []
   for (let index = 0; index < count; index++) labels.push(label(data, index))
   return { count, range, plot, slot: plot.w / count, labels }
@@ -226,7 +227,9 @@ function summary(data) {
     (series) =>
       series.label +
       ": " +
-      series.values.map((value, index) => label(data, index) + " " + amount(value, data.unit)).join(", "),
+      series.values
+        .map((value, index) => (data.labels?.[index] ? data.labels[index] + " " : "") + amount(value, data.unit))
+        .join(", "),
   )
   return kind + ". " + series.join("; ")
 }
@@ -242,7 +245,7 @@ function color(series, index) {
 function amount(value, unit) {
   const text = String(Math.round(value * 100) / 100)
   if (!unit) return text
-  return /^[a-z]/i.test(unit) ? text + " " + unit : text + unit
+  return unit.length > 1 && /^[a-z]/i.test(unit) ? text + " " + unit : text + unit
 }
 
 function compact(value) {
