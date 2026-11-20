@@ -582,10 +582,32 @@ impl PopupGate {
     }
 }
 
+/// Who is driving a controlled browser tab (for honest UI copy in permission and notice bars).
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum TabDriver {
+    /// An AI agent (native MCP browser RPC or built-in browser MCP tools).
+    Agent,
+    /// A third-party Luau plugin, carrying its sanitized display name.
+    Plugin(String),
+}
+
+impl TabDriver {
+    pub fn plugin(name: &str) -> Self {
+        let clean: String = sanitize_prompt_text(name, 64)
+            .chars()
+            .map(|c| if c == '\n' || c == '\t' { ' ' } else { c })
+            .collect();
+        let trimmed = clean.trim();
+        Self::Plugin(if trimmed.is_empty() { "Plugin".to_owned() } else { trimmed.to_owned() })
+    }
+}
+
 /// All prompt, permission, auth, and pop-up states owned by one `BrowserTab`.
 #[derive(Clone, Debug, Default)]
 pub struct TabPromptState {
     pub agent_driven: bool,
+    /// Honest attribution for why this tab is controlled (`Agent` vs third-party `Plugin(name)`).
+    pub driver: Option<TabDriver>,
     pub dialog: DialogGate,
     pub permission: PermissionGate,
     pub auth: AuthGate,
@@ -600,6 +622,8 @@ pub struct TabPromptState {
     pub agent_auth_required: Option<String>,
     /// Count of blocked native file choosers on agent-driven tabs.
     pub file_chooser_blocked: u64,
+    /// True after a sign-in prompt or file picker was blocked on this document (dismissible UI notice).
+    pub blocked_guard_notice: bool,
 }
 
 impl TabPromptState {
@@ -640,6 +664,7 @@ impl TabPromptState {
         self.dialog.on_document_committed();
         self.popup.dismiss();
         self.agent_auth_required = None;
+        self.blocked_guard_notice = false;
         let same_origin = crate::policy::destination_origin(old_url)
             == crate::policy::destination_origin(new_url);
         if same_origin {
@@ -669,6 +694,8 @@ impl TabPromptState {
     /// Zero-allocation state hash for `Dep::Browser` invalidation (`ours.md` §3.2).
     pub fn hash_state(&self, h: &mut impl Hasher) {
         self.agent_driven.hash(h);
+        self.driver.hash(h);
+        self.blocked_guard_notice.hash(h);
         match &self.dialog {
             DialogGate::Idle { stopped, .. } => (0u8, *stopped).hash(h),
             DialogGate::Open { dialog, queue, repeat, input } => {

@@ -59,6 +59,9 @@ pub struct TabSnapshot {
     /// Set on isolated `oc-preview://` tabs so browser chrome marks them as previews.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preview: Option<PreviewKindTag>,
+    /// Whether this tab is agent-driven (preserved across reconnects so file choosers / HTTP auth stay guarded).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub agent_driven: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -119,6 +122,9 @@ pub enum HostMsg {
         context: ContextKind,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         preview: Option<PreviewSpec>,
+        /// Set before browser creation so cold-start / restarted agent tabs never race OS file choosers or HTTP auth.
+        #[serde(default)]
+        agent_driven: bool,
         /// Legacy shorthand for `ContextKind::Private` when `context` is `Default`.
         #[serde(default)]
         isolated: bool,

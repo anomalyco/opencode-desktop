@@ -85,20 +85,13 @@ impl EngineManager {
                         roots,
                         ctx,
                         tab.preview_spec,
+                        was_agent,
                         tab.isolated,
                         allow_ext,
                         tab.is_popup,
                         None,
                     );
-                    if let Some(reopened) = self.tabs.get(&tab_id) {
-                        reopened.prompts.agent_driven.store(was_agent, Ordering::Release);
-                        if was_agent {
-                            reopened.allowed_ext_ids.lock().unwrap().clear();
-                            if let Some(ext) = &mut self.extensions {
-                                ext.set_tab_agent_driven(tab_id, true);
-                            }
-                        }
-                    } else {
+                    if !self.tabs.contains_key(&tab_id) {
                         self.contexts.release_tab(tab_id);
                     }
                 }
