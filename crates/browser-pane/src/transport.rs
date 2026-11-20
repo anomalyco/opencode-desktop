@@ -52,6 +52,7 @@ pub(crate) struct Link {
     /// held them for 20-650 ms); stored into `Connected::early` on attach so that turn doesn't
     /// send them again and corrects what changed meanwhile.
     pub opens: Vec<(u64, HostMsg)>,
+    pub preview_chunk_budget: Arc<crate::preview::PreviewChunkBudget>,
 }
 
 impl Link {
@@ -614,26 +615,36 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
     std::thread::Builder::new().name("rune-browser-answers".into()).spawn(move || watched.watch(&watcher)).ok();
 
     let asked = answers.clone();
+    let chunk_budget = link.preview_chunk_budget.clone();
     std::thread::Builder::new()
         .name("rune-browser-tx".into())
         .spawn(move || {
             let mut writer = stream;
             while let Ok(msg) = rx.recv() {
                 let is_shutdown = matches!(msg, HostMsg::Shutdown);
+                let is_chunk = matches!(msg, HostMsg::PreviewResponseChunk { .. });
                 if let Ok(mut line) = serde_json::to_string(&msg) {
                     line.push('\n');
-                    if writer.write_all(line.as_bytes()).is_err() {
+                    let write_err = writer.write_all(line.as_bytes()).is_err();
+                    if is_chunk {
+                        chunk_budget.release_one();
+                    }
+                    if write_err {
                         break;
                     }
                     writer.flush().ok();
                     if expects_answer(&msg) {
                         asked.ask();
                     }
+                } else if is_chunk {
+                    chunk_budget.release_one();
                 }
                 if is_shutdown {
                     break;
                 }
             }
+            // Release any waiting preview workers when the engine disconnects or shuts down.
+            chunk_budget.reset();
             // The app let the engine go (or it went): nothing more is waited for.
             asked.end();
         })

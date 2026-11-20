@@ -1,18 +1,68 @@
 //! App-side `oc-preview://` tab orchestration and async remote/artifact proxy queue on
 //! [`BrowserHost`], with fail-closed fallback for older engines lacking `Ready.preview`.
 
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
+use std::time::Duration;
 
 use crate::client::{BrowserHost, BrowserTab};
 use crate::frame::TabSurface;
 use crate::machine::SharedEngine;
 use crate::protocol::{ContextKind, CursorKind, HostMsg, PreviewKindTag, PreviewSpec};
 
+/// Hard cap on unread `HostMsg::PreviewResponseChunk` frames buffered in the host's outbound
+/// socket writer queue (`32 * 64 KiB = 2 MiB` max queued across all active preview fetches).
+const MAX_OUTBOX_PREVIEW_CHUNKS: usize = 32;
+
+/// Bounded back-pressure semaphore shared between `PreviewResponder` workers and `rune-browser-tx`
+/// so streaming 128 MiB files never floods the outbound channel or starves UI control messages.
+#[derive(Default)]
+pub(crate) struct PreviewChunkBudget {
+    in_flight: Mutex<usize>,
+    ready: Condvar,
+}
+
+impl PreviewChunkBudget {
+    pub(crate) fn acquire(&self, alive: &AtomicBool, shared: &Mutex<SharedEngine>) -> bool {
+        let mut count = self.in_flight.lock().unwrap_or_else(PoisonError::into_inner);
+        while *count >= MAX_OUTBOX_PREVIEW_CHUNKS {
+            if !alive.load(Ordering::Acquire)
+                || !shared.lock().unwrap_or_else(PoisonError::into_inner).is_connected()
+            {
+                return false;
+            }
+            let (next, _) = self
+                .ready
+                .wait_timeout(count, Duration::from_millis(50))
+                .unwrap_or_else(PoisonError::into_inner);
+            count = next;
+        }
+        if !alive.load(Ordering::Acquire) {
+            return false;
+        }
+        *count += 1;
+        true
+    }
+
+    pub(crate) fn release_one(&self) {
+        let mut count = self.in_flight.lock().unwrap_or_else(PoisonError::into_inner);
+        *count = count.saturating_sub(1);
+        self.ready.notify_one();
+    }
+
+    pub(crate) fn reset(&self) {
+        let mut count = self.in_flight.lock().unwrap_or_else(PoisonError::into_inner);
+        *count = 0;
+        self.ready.notify_all();
+    }
+}
+
 /// Thread-safe handle allowing background remote/artifact preview HTTP readers to stream
-/// response headers and 64 KiB chunks directly to the engine sidecar without blocking the UI.
+/// response headers and 64 KiB chunks directly to the engine sidecar with bounded back-pressure.
 #[derive(Clone)]
 pub struct PreviewResponder {
     shared: Arc<Mutex<SharedEngine>>,
+    budget: Arc<PreviewChunkBudget>,
 }
 
 impl PreviewResponder {
@@ -40,8 +90,17 @@ impl PreviewResponder {
         })
     }
 
-    pub fn send_chunk(&self, req_id: u64, data_b64: String) -> bool {
-        self.send(HostMsg::PreviewResponseChunk { req_id, data_b64 })
+    /// Streams one base64 chunk with bounded outbox back-pressure; returns `false` immediately if
+    /// `alive` flips `false` or the engine disconnects.
+    pub fn send_chunk(&self, req_id: u64, data_b64: String, alive: &AtomicBool) -> bool {
+        if !self.budget.acquire(alive, &self.shared) {
+            return false;
+        }
+        if !self.send(HostMsg::PreviewResponseChunk { req_id, data_b64 }) {
+            self.budget.release_one();
+            return false;
+        }
+        true
     }
 
     pub fn send_end(&self, req_id: u64, ok: bool) -> bool {
@@ -286,9 +345,56 @@ impl BrowserHost {
         std::mem::take(&mut self.unsupported_local_previews)
     }
 
-    /// Returns a cloneable responder that streams preview responses directly to the engine outbox.
+    /// Inserts a locally refused tab (e.g., `browser.preview.unsupported` or policy refusal)
+    /// WITHOUT sending any `HostMsg::OpenTab` to the engine (`notes/review-rd281.md` PR 2 Blocker #4).
+    pub fn open_refused_tab(&mut self, code: &str, context: ContextKind) -> u64 {
+        let id = self.alloc_tab_id();
+        let surface = TabSurface::new();
+        self.surfaces
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(id, surface.clone());
+        let ((width_pt, height_pt), scale) = self.last_viewport;
+        self.tabs.push(BrowserTab {
+            id,
+            url: "about:blank".into(),
+            title: String::new(),
+            loading: false,
+            can_go_back: false,
+            can_go_forward: false,
+            zoom: 1.0,
+            cursor: CursorKind::Default,
+            load_error: None,
+            favicon: None,
+            preview: None,
+            preview_spec: None,
+            refusal: Some(code.to_owned()),
+            rejected: 1,
+            inspecting: false,
+            files: Vec::new(),
+            prompts: Default::default(),
+            find: Default::default(),
+            surface,
+            surface_origin: (0.0, 0.0),
+            view_zoom: 1.0,
+            context,
+            file_roots: Vec::new(),
+            viewport_pt: (width_pt, height_pt),
+            device: None,
+            scale,
+            sent_resize: None,
+        });
+        self.focused_tab = Some(id);
+        id
+    }
+
+    /// Returns a cloneable responder that streams preview responses directly to the engine outbox
+    /// with bounded chunk back-pressure.
     pub fn preview_responder(&self) -> PreviewResponder {
-        PreviewResponder { shared: Arc::clone(&self.shared) }
+        PreviewResponder {
+            shared: Arc::clone(&self.shared),
+            budget: Arc::clone(&self.preview_chunk_budget),
+        }
     }
 
     /// Sets an explicit load error on a tab (for example `browser.artifact.missing`).

@@ -165,9 +165,11 @@ function history.suggestMerged(text: string, visits: { Visit }, answer: { Histor
     local leadTrimmed = string.gsub(text, "^%s+", "")
     local listed: { [string]: Visit } = {}
     for _, v in visits do
-        local k = history.pageKey(v.url) or v.url
-        if listed[k] == nil then
-            listed[k] = v
+        if history.recordable(v.url) then
+            local k = history.pageKey(v.url) or v.url
+            if listed[k] == nil then
+                listed[k] = v
+            end
         end
     end
 
@@ -176,6 +178,9 @@ function history.suggestMerged(text: string, visits: { Visit }, answer: { Histor
     local cands: { Cand } = {}
 
     for _, page in answer do
+        if not history.recordable(page.url) then
+            continue
+        end
         local k = history.pageKey(page.url) or page.url
         answered[k] = true
         local known = listed[k]
@@ -190,6 +195,9 @@ function history.suggestMerged(text: string, visits: { Visit }, answer: { Histor
     end
 
     for idx, v in visits do
+        if not history.recordable(v.url) then
+            continue
+        end
         local k = history.pageKey(v.url) or v.url
         if not answered[k] then
             local q = matchQuality(words, v.url, v.title)

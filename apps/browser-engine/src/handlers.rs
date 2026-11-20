@@ -178,7 +178,7 @@ pub type FrameRing = ();
 
 /// Linux: where a tab reports frames that can't come the way they do.
 #[cfg(target_os = "linux")]
-pub type Failures = std::sync::mpsc::Sender<crate::Event>;
+pub type Failures = std::sync::mpsc::SyncSender<crate::Event>;
 #[cfg(not(target_os = "linux"))]
 pub type Failures = ();
 
@@ -283,7 +283,7 @@ wrap_render_handler! {
                 let host = _browser.and_then(|b| cef::ImplBrowser::host(b));
                 let failures = self.failures.clone();
                 crate::dmabuf_frames::run(effects, self.tab_id, &self.out_tx, host.as_ref(), &move |f| {
-                    let _ = failures.send(crate::Event::FramesFailed(f));
+                    let _ = failures.try_send(crate::Event::FramesFailed(f));
                 });
             }
             #[cfg(not(target_os = "linux"))]

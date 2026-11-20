@@ -115,14 +115,16 @@ mod native {
         pub devtools: HashMap<u64, PendingDevtools>,
         /// Last observed Luau store version for `plugin.browser/rune.sitePermissions`.
         pub site_permissions_version: u64,
-        /// Async preview proxy errors (e.g. artifact 404 -> `browser.artifact.missing`).
+        /// Async preview proxy errors `(tab_id, binding_generation, code)` (e.g. artifact 404).
         pub preview_errors: Option<(
-            std::sync::mpsc::Sender<(u64, String)>,
-            std::sync::mpsc::Receiver<(u64, String)>,
+            std::sync::mpsc::Sender<(u64, u64, String)>,
+            std::sync::mpsc::Receiver<(u64, u64, String)>,
         )>,
         /// Per-tab server & grant-liveness bindings for `PreviewFetch` (strictly bound by `tab_id`
         /// to the owning session's live server — never consulting the window's active server).
         pub(crate) preview_bindings: HashMap<u64, super::preview::PreviewTabBinding>,
+        /// Monotonic generation assigned to each `PreviewTabBinding` to guard `preview_errors`.
+        pub(crate) next_preview_gen: u64,
         /// Conversation app-scheme links waiting to display inside the browser pane's guarded
         /// `RefusalBar` (`(tab_id, href)`).
         pub pending_app_links: std::cell::RefCell<std::collections::VecDeque<(u64, String)>>,

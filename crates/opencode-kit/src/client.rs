@@ -33,7 +33,7 @@ mod plugins;
 #[cfg(not(target_arch = "wasm32"))]
 mod preview;
 #[cfg(not(target_arch = "wasm32"))]
-pub use preview::PreviewHttpHead;
+pub use preview::{PreviewAbort, PreviewHttpHead};
 #[cfg(not(target_arch = "wasm32"))]
 mod reach;
 #[cfg(not(target_arch = "wasm32"))]

@@ -274,6 +274,12 @@ impl PluginHost {
         self.list.iter().position(|p| p.manifest.id == id)
     }
 
+    /// Whether `id` is a genuinely bundled built-in plugin (`Tier::BuiltIn`, never a user plugin
+    /// shadowing a built-in ID).
+    pub fn is_builtin_plugin(&self, id: &str) -> bool {
+        self.list.iter().any(|p| &*p.half.id == id && p.tier == Tier::BuiltIn)
+    }
+
     /// The running plugins.
     pub fn running(&self) -> impl Iterator<Item = (usize, &Plugin)> {
         self.list.iter().enumerate().filter(|(_, p)| p.running())

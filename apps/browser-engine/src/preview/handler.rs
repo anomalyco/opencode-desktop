@@ -76,11 +76,14 @@ wrap_resource_handler! {
 /// Registers a fail-closed `"file"` scheme handler on `ctx` blocking all native `file://` loads.
 pub fn ban_file_scheme(ctx: &RequestContext) {
     let mut factory = FileSchemeBanFactory::new();
-    let _ = ctx.register_scheme_handler_factory(
+    let ok = ctx.register_scheme_handler_factory(
         Some(&CefString::from("file")),
         Some(&CefString::from("")),
         Some(&mut factory),
     );
+    if ok == 0 {
+        eprintln!("browser-engine: register_scheme_handler_factory(file) returned 0");
+    }
 }
 
 wrap_scheme_handler_factory! {
@@ -174,12 +177,15 @@ wrap_scheme_handler_factory! {
                     // Per-segment percent-encode `rel` and validate single-range syntax before host fetch.
                     let encoded_rel = encode_rel_path(&rel);
                     let safe_range = normalize_range_header(raw_range.as_deref());
-                    let (req_id, proxy) = self.registry.register_proxy(
+                    let Some((req_id, proxy)) = self.registry.register_proxy(
                         self.grant.tab_id,
                         self.grant.clone(),
                         head_only,
                         Some(rel),
-                    );
+                        safe_range.clone(),
+                    ) else {
+                        return None;
+                    };
                     let _ = self.out_tx.send(EngineMsg::PreviewFetch {
                         req_id,
                         tab_id: self.grant.tab_id,
@@ -194,12 +200,15 @@ wrap_scheme_handler_factory! {
                     let Some((_, route)) = artifact_resource(&url, &self.grant.grant_host, artifact_id) else {
                         return None;
                     };
-                    let (req_id, proxy) = self.registry.register_proxy(
+                    let Some((req_id, proxy)) = self.registry.register_proxy(
                         self.grant.tab_id,
                         self.grant.clone(),
                         head_only,
                         None,
-                    );
+                        None,
+                    ) else {
+                        return None;
+                    };
                     let _ = self.out_tx.send(EngineMsg::PreviewFetch {
                         req_id,
                         tab_id: self.grant.tab_id,
@@ -675,18 +684,66 @@ wrap_resource_handler! {
             bytes_skipped: Option<&mut i64>,
             _callback: Option<&mut ResourceSkipCallback>,
         ) -> ::std::os::raw::c_int {
-            let st = self.proxy.state.lock().unwrap();
+            let mut st = self.proxy.state.lock().unwrap();
             if bytes_to_skip < 0 || st.canceled || self.proxy.grant.is_revoked() || st.status == 416 {
                 if let Some(s) = bytes_skipped {
                     *s = -2;
                 }
                 return 0;
             }
-            // Remote `/api/fs/read/*` already served the exact requested byte slice for `206`.
-            if let Some(s) = bytes_skipped {
-                *s = bytes_to_skip;
+            if bytes_to_skip == 0 {
+                if let Some(s) = bytes_skipped {
+                    *s = 0;
+                }
+                return 1;
             }
-            1
+            let want = bytes_to_skip as u64;
+            if st.status == 206 {
+                // For `206 Partial Content`, accept ONLY the exact verified `Content-Range` start
+                // offset once (the server already sliced at `range_start`); refuse any other skip.
+                if !st.skipped_initial && st.range_start == Some(want) {
+                    st.skipped_initial = true;
+                    if let Some(s) = bytes_skipped {
+                        *s = bytes_to_skip;
+                    }
+                    return 1;
+                }
+                if let Some(s) = bytes_skipped {
+                    *s = -2;
+                }
+                return 0;
+            }
+            if st.status == 200 {
+                // On a `200 OK` response, actually discard `want` bytes from buffered & incoming
+                // chunks so CEF never receives offset-0 bytes when skipping to an offset.
+                let max_bytes = self.proxy.grant.kind.max_bytes();
+                let next_skip = st.skip_remaining.saturating_add(want);
+                if next_skip > max_bytes {
+                    if let Some(s) = bytes_skipped {
+                        *s = -2;
+                    }
+                    return 0;
+                }
+                let mut left = want;
+                while left > 0 {
+                    let Some(mut front) = st.chunks.pop_front() else { break };
+                    let drop_n = (front.len() as u64).min(left) as usize;
+                    st.queued_bytes = st.queued_bytes.saturating_sub(drop_n);
+                    left -= drop_n as u64;
+                    if drop_n < front.len() {
+                        st.chunks.push_front(front.split_off(drop_n));
+                    }
+                }
+                st.skip_remaining = st.skip_remaining.saturating_add(left);
+                if let Some(s) = bytes_skipped {
+                    *s = bytes_to_skip;
+                }
+                return 1;
+            }
+            if let Some(s) = bytes_skipped {
+                *s = -2;
+            }
+            0
         }
 
         fn read(

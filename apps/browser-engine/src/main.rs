@@ -39,7 +39,7 @@ use std::io::{BufRead, BufReader, Write};
 #[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
-use std::sync::mpsc::{self, RecvTimeoutError, Sender};
+use std::sync::mpsc::{self, RecvTimeoutError, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -157,7 +157,9 @@ fn main() {
     }
     step("listening");
 
-    let (events, rx) = mpsc::channel::<Event>();
+    // Bounded event channel applies real OS AF_UNIX socket back-pressure when preview streams or
+    // bursts outpace CEF's main loop (`notes/review-rd281.md` PR 2 Blocker #3).
+    let (events, rx) = mpsc::sync_channel::<Event>(256);
     let client_writer: Arc<Mutex<Option<(u64, Arc<UnixStream>)>>> = Arc::default();
     accept_connections(listener, events.clone());
 
@@ -328,7 +330,7 @@ fn main() {
 
 /// Accepts the app's connections on a thread of its own (the last one is the app) and starts
 /// reading each at once, so its first messages wait in the queue while CEF starts.
-fn accept_connections(listener: UnixListener, events: Sender<Event>) {
+fn accept_connections(listener: UnixListener, events: SyncSender<Event>) {
     std::thread::Builder::new()
         .name("engine-sock-accept".into())
         .spawn(move || {
@@ -345,7 +347,7 @@ fn accept_connections(listener: UnixListener, events: Sender<Event>) {
 }
 
 /// Reads connection `id`'s messages on a thread of its own until it closes.
-fn read_messages(id: u64, stream: UnixStream, events: Sender<Event>) {
+fn read_messages(id: u64, stream: UnixStream, events: SyncSender<Event>) {
     let _ = std::thread::Builder::new().name("engine-sock-rx".into()).spawn(move || {
         for line in BufReader::new(stream).lines() {
             let Ok(line) = line else { break };

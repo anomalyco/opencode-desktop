@@ -55,6 +55,9 @@ pub fn build(lua: &Lua, t: &Table) -> mlua::Result<()> {
         object(lua, "CodeDocument", &fields, document(lua)?)
     })?;
     method(lua, t, "OpenFile", |lua, (sid, path, options): (String, String, Value)| {
+        let caller = lua
+            .app_data_ref::<std::rc::Rc<super::super::vm::Vmx>>()
+            .map(|v| v.half.id.to_string());
         let o: opencode_plugin_spec::OpenFileOptions = if options.is_nil() { Default::default() } else { mlua::FromLua::from_lua(options, lua).and_then(|d: rune_luau::Data| d.decode().map_err(mlua::Error::runtime))? };
         let lines = o.start_line.map(|a| {
             let a = a.max(1) as u32;
@@ -65,6 +68,16 @@ pub fn build(lua: &Lua, t: &Table) -> mlua::Result<()> {
         with_app("Workspace:OpenFile", |app| {
             app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
+                let is_builtin = caller.as_deref().is_some_and(|id| s.plugins.is_builtin_plugin(id));
+                if !is_builtin {
+                    // Third-party plugins always open workspace files in the Files source viewer
+                    // on the active session only — never minting an `oc-preview://` grant
+                    // (`notes/review-rd281.md` PR 2 Blocker #1).
+                    if s.active_session_id() == Some(sid.as_str()) {
+                        s.open_workspace_file_source(&sid, &path, preview, lines, false, tx);
+                    }
+                    return;
+                }
                 s.open_workspace_file_for_session(&sid, &path, preview, lines, false, tx);
                 // When opened explicitly via Workspace:OpenFile (for example browser's "View source"),
                 // show raw HTML source rather than Rune's simplified static HTML reader.
@@ -79,10 +92,17 @@ pub fn build(lua: &Lua, t: &Table) -> mlua::Result<()> {
             Ok(())
         })
     })?;
-    method(lua, t, "OpenFileSource", |_, (sid, path): (String, String)| {
+    method(lua, t, "OpenFileSource", |lua, (sid, path): (String, String)| {
+        let caller = lua
+            .app_data_ref::<std::rc::Rc<super::super::vm::Vmx>>()
+            .map(|v| v.half.id.to_string());
         let path = crate::review::data::normalize_path(&path);
         with_app("Workspace:OpenFileSource", |app| {
             app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
+                let is_builtin = caller.as_deref().is_some_and(|id| s.plugins.is_builtin_plugin(id));
+                if !is_builtin && s.active_session_id() != Some(sid.as_str()) {
+                    return;
+                }
                 tx.instant();
                 s.open_workspace_file_source(&sid, &path, false, None, true, tx);
             }));

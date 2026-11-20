@@ -414,6 +414,29 @@ impl App {
         open_reply_link(self, href, tx);
     }
 
+    /// Handles `Links:Open` from a third-party plugin: workspace files open strictly in the Files
+    /// source viewer (never minting an `oc-preview://` grant), artifact/preview/file links are
+    /// refused, outside local files are ignored, and regular web links route normally.
+    pub fn open_third_party_plugin_link(&mut self, href: &str, tx: &mut Tx) {
+        let Some(sid) = self.active_session_id().map(str::to_owned) else { return };
+        let dir = link_directory(self, &sid);
+        let home = self.home.clone();
+        match crate::files::links::classify(href, "", &dir, &home) {
+            crate::files::links::Link::Inside { path, lines, .. } => {
+                self.open_workspace_file_source(&sid, &path, false, lines, true, tx);
+            }
+            crate::files::links::Link::Web(url) => {
+                self.route_plugin_web_or_app_link(
+                    Some(&sid),
+                    &url,
+                    crate::browser::links::LinkSource::Chat,
+                    tx,
+                );
+            }
+            crate::files::links::Link::Heading(_) | crate::files::links::Link::Outside { .. } => {}
+        }
+    }
+
     pub fn open_link(&mut self, sid: &str, from: Option<&str>, href: &str, tx: &mut Tx) {
         open_link(self, sid, from, href, tx);
     }

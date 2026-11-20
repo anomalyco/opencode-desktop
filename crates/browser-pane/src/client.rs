@@ -116,6 +116,8 @@ pub struct BrowserHost {
     pub(crate) next_req_id: u64,
     pub(crate) pending_opens: Vec<(u64, String)>,
     pub(crate) preview_fetches: Vec<crate::preview::PreviewFetchRequest>,
+    /// Shared outbox back-pressure budget for streaming `HostMsg::PreviewResponseChunk` frames.
+    pub(crate) preview_chunk_budget: Arc<crate::preview::PreviewChunkBudget>,
     /// Local preview tabs that waited for `Ready` on an older engine (`!Ready.preview`): the host
     /// closes the pending browser tab and opens the file in the Files source viewer ("show source").
     pub(crate) unsupported_local_previews: Vec<(u64, String)>,
@@ -178,6 +180,7 @@ impl BrowserHost {
             next_req_id: 1,
             pending_opens: Vec::new(),
             preview_fetches: Vec::new(),
+            preview_chunk_budget: Arc::default(),
             unsupported_local_previews: Vec::new(),
             reopening_tabs: HashMap::new(),
             cdp_responses: HashMap::new(),
@@ -232,6 +235,12 @@ impl BrowserHost {
 
     pub fn engine_policy(&self) -> bool {
         self.caps.policy()
+    }
+
+    /// Whether the connected engine has completed `EngineMsg::Ready` capability handshake.
+    /// Returns `false` while disconnected OR still in `Connecting` before `Ready` arrives.
+    pub fn engine_caps_known(&self) -> bool {
+        !matches!(self.caps, EngineCaps::Unknown)
     }
 
     /// Whether the connected engine serves isolated `oc-preview://` tabs.

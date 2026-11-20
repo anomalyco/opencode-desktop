@@ -169,12 +169,15 @@ pub fn sanitize_response_mime(server_ct: &str, path: &str, prefer_server: bool) 
         && base.len() <= 128
         && base.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'/' | b'-' | b'+' | b'.'));
     if valid_token && base != "application/octet-stream" {
-        return match ext_charset {
-            Some(cs) if base.starts_with("text/") || base.ends_with("javascript") || base.ends_with("+xml") || base == "application/json" => {
-                format!("{base}; charset={cs}")
-            }
-            _ => base,
-        };
+        let is_textual = base.starts_with("text/")
+            || base.ends_with("javascript")
+            || base.ends_with("+xml")
+            || base == "application/json";
+        if is_textual {
+            let cs = ext_charset.unwrap_or("utf-8");
+            return format!("{base}; charset={cs}");
+        }
+        return base;
     }
     if ext_mime != "application/octet-stream" {
         return match ext_charset {

@@ -1,18 +1,22 @@
-//! Authenticated, redirect-forbidding streaming reader for remote workspace (`/api/fs/read/*`)
-//! and artifact (`/api/experimental/artifacts/<id>/view/*`) browser previews (`#63002`:
-//! `remote-preview.ts`, `artifact-preview.ts`).
+//! Authenticated, redirect-forbidding, abortable streaming reader for remote workspace
+//! (`/api/fs/read/*`) and artifact (`/api/experimental/artifacts/<id>/view/*`) browser previews
+//! (`#63002`: `remote-preview.ts`, `artifact-preview.ts`).
 //!
-//! Security invariants:
-//! - Uses ONLY `self.agent` (which sets `max_redirects(0)` and bypasses proxies on loopback) and
-//!   `self.auth` (the owning session's credentials — never any header supplied by the page).
-//! - Sends `Accept-Encoding: identity` so byte sizes and `Range` offsets match verbatim.
-//! - Streams in 64 KiB chunks and aborts immediately if the body exceeds `max_bytes` or the
-//!   caller's `on_chunk` callback returns `false` (tab closed / grant revoked).
+//! Security & resource-control invariants (`notes/review-rd281.md` PR 2 Blocker #3):
+//! - Uses a dedicated per-request `ureq::Agent` (`max_redirects(0)`, `max_idle_connections(0)`,
+//!   `http_status_as_error(false)`, loopback proxy bypass, connect 10 s, header 15 s, body read
+//!   30 s, global 120 s) registered in the tab's [`PreviewAbort`] handle so closing a tab or
+//!   signing out shuts down every blocked socket immediately via `ureq::Agent::shutdown`.
+//! - Sends `Accept-Encoding: identity` and ONLY `self.auth` (owning session's server credentials).
+//! - Streams in 64 KiB chunks, caps bytes at `min(max_bytes, content_length)`, and requires exact
+//!   `Content-Length` completion when declared.
 
 use std::io::Read as _;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use super::Server;
+use super::{Server, http};
 
 /// Header metadata observed from a preview `HEAD` or `GET` request.
 #[derive(Clone, Debug)]
@@ -23,84 +27,146 @@ pub struct PreviewHttpHead {
     pub content_range: Option<String>,
 }
 
+const PREVIEW_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const PREVIEW_HEADER_TIMEOUT: Duration = Duration::from_secs(15);
+const PREVIEW_BODY_READ_TIMEOUT: Duration = Duration::from_secs(30);
+const PREVIEW_GLOBAL_TIMEOUT: Duration = Duration::from_secs(120);
 const PREVIEW_CHUNK_BYTES: usize = 64 * 1024;
 
-impl Server {
-    /// Issues a `HEAD` probe against `path` using this server's credentials with `max_redirects(0)`
-    /// and `Accept-Encoding: identity`. Returns `None` on transport failure.
-    pub fn preview_head(&self, path: &str) -> Option<PreviewHttpHead> {
-        let url = format!("{}{path}", self.base);
-        let mut req = self.agent.head(&url).header("Accept-Encoding", "identity");
-        if let Some(auth) = &self.auth {
-            req = req.header("Authorization", auth);
+#[derive(Default)]
+struct AbortState {
+    aborted: bool,
+    agents: Vec<(u64, ureq::Agent)>,
+}
+
+/// Shared cancellation handle owned by a preview tab binding: calling [`PreviewAbort::abort`]
+/// marks the tab aborted and immediately shuts down every in-flight HTTP socket via
+/// `ureq::Agent::shutdown`, unblocking stalled reads on tab close, navigation, or sign-out.
+#[derive(Clone, Default)]
+pub struct PreviewAbort {
+    inner: Arc<Mutex<AbortState>>,
+}
+
+static NEXT_ABORT_TOKEN: AtomicU64 = AtomicU64::new(1);
+
+impl PreviewAbort {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn is_aborted(&self) -> bool {
+        self.inner.lock().unwrap_or_else(PoisonError::into_inner).aborted
+    }
+
+    pub fn abort(&self) {
+        let agents: Vec<ureq::Agent> = {
+            let mut g = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+            g.aborted = true;
+            g.agents.drain(..).map(|(_, a)| a).collect()
+        };
+        for agent in agents {
+            agent.shutdown();
         }
-        let resp = req
-            .config()
+    }
+
+    fn register(&self, agent: &ureq::Agent) -> Option<AgentLease> {
+        let token = NEXT_ABORT_TOKEN.fetch_add(1, Ordering::Relaxed);
+        let mut g = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        if g.aborted {
+            drop(g);
+            agent.shutdown();
+            return None;
+        }
+        g.agents.push((token, agent.clone()));
+        Some(AgentLease { inner: Arc::clone(&self.inner), token })
+    }
+}
+
+struct AgentLease {
+    inner: Arc<Mutex<AbortState>>,
+    token: u64,
+}
+
+impl Drop for AgentLease {
+    fn drop(&mut self) {
+        let mut g = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(pos) = g.agents.iter().position(|(t, _)| *t == self.token) {
+            let (_, agent) = g.agents.swap_remove(pos);
+            drop(g);
+            agent.shutdown();
+        }
+    }
+}
+
+impl Server {
+    fn preview_agent(&self) -> ureq::Agent {
+        let cfg = ureq::Agent::config_builder()
             .http_status_as_error(false)
             .max_redirects(0)
+            .max_idle_connections(0)
+            .timeout_connect(Some(PREVIEW_CONNECT_TIMEOUT))
             .timeout_recv_response(Some(PREVIEW_HEADER_TIMEOUT))
-            .build()
-            .call()
-            .ok()?;
-        Some(extract_head(&resp))
+            .timeout_recv_body(Some(PREVIEW_BODY_READ_TIMEOUT))
+            .timeout_global(Some(PREVIEW_GLOBAL_TIMEOUT));
+        if http::loopback(&self.base) {
+            cfg.proxy(None).build().into()
+        } else {
+            cfg.build().into()
+        }
     }
 
     /// Streams a `GET` or `HEAD` preview response from `path` with optional `Range` header,
     /// calling `on_head` first; if `on_head` returns `true` and `method == "GET"`, streams 64 KiB
-    /// chunks into `on_chunk` up to `min(max_bytes, content_length)`. Returns `true` only on clean
-    /// completion (including exact `Content-Length` match when declared).
+    /// chunks into `on_chunk` up to `min(max_bytes, content_length)`. Immediately aborts on
+    /// `abort.abort()` or body read/global timeout. Returns `true` only on clean completion.
     pub fn preview_stream(
         &self,
         method: &str,
         path: &str,
         range: Option<&str>,
         max_bytes: u64,
+        abort: &PreviewAbort,
         on_head: impl FnOnce(&PreviewHttpHead) -> bool,
         mut on_chunk: impl FnMut(&[u8]) -> bool,
     ) -> bool {
+        if abort.is_aborted() {
+            return false;
+        }
+        let agent = self.preview_agent();
+        let Some(_lease) = abort.register(&agent) else {
+            return false;
+        };
         let url = format!("{}{path}", self.base);
         let is_head = method.eq_ignore_ascii_case("HEAD");
         let mut resp = if is_head {
-            let mut req = self.agent.head(&url).header("Accept-Encoding", "identity");
+            let mut req = agent.head(&url).header("Accept-Encoding", "identity");
             if let Some(auth) = &self.auth {
                 req = req.header("Authorization", auth);
             }
             if let Some(r) = range {
                 req = req.header("Range", r);
             }
-            let Ok(r) = req
-                .config()
-                .http_status_as_error(false)
-                .max_redirects(0)
-                .timeout_recv_response(Some(PREVIEW_HEADER_TIMEOUT))
-                .build()
-                .call()
-            else {
+            let Ok(r) = req.call() else {
                 return false;
             };
             r
         } else {
-            let mut req = self.agent.get(&url).header("Accept-Encoding", "identity");
+            let mut req = agent.get(&url).header("Accept-Encoding", "identity");
             if let Some(auth) = &self.auth {
                 req = req.header("Authorization", auth);
             }
             if let Some(r) = range {
                 req = req.header("Range", r);
             }
-            let Ok(r) = req
-                .config()
-                .http_status_as_error(false)
-                .max_redirects(0)
-                .timeout_recv_response(Some(PREVIEW_HEADER_TIMEOUT))
-                .build()
-                .call()
-            else {
+            let Ok(r) = req.call() else {
                 return false;
             };
             r
         };
 
+        if abort.is_aborted() {
+            return false;
+        }
         let head = extract_head(&resp);
         if !on_head(&head) {
             return false;
@@ -114,11 +180,14 @@ impl Server {
         let mut buf = vec![0u8; PREVIEW_CHUNK_BYTES];
         let mut total = 0u64;
         loop {
+            if abort.is_aborted() {
+                return false;
+            }
             match reader.read(&mut buf) {
-                Ok(0) => return head.content_length.is_none_or(|cl| total == cl),
+                Ok(0) => return !abort.is_aborted() && head.content_length.is_none_or(|cl| total == cl),
                 Ok(n) => {
                     total = total.saturating_add(n as u64);
-                    if total > stream_cap || !on_chunk(&buf[..n]) {
+                    if abort.is_aborted() || total > stream_cap || !on_chunk(&buf[..n]) {
                         return false;
                     }
                 }

@@ -36,8 +36,33 @@ impl App {
         &mut self,
         sid: Option<&str>,
         href: &str,
+        source: LinkSource,
+        shift_override: Option<bool>,
+        tx: &mut Tx,
+    ) {
+        self.route_web_or_app_link_inner(sid, href, source, shift_override, true, tx);
+    }
+
+    /// Routes a web/app link initiated by a third-party plugin (`Links:Open`): refuses all
+    /// `artifact://` and same-server `/api/experimental/artifacts/...` links so third-party
+    /// plugins can never mint artifact preview grants (`notes/review-rd281.md` PR 2 Blocker #1).
+    pub fn route_plugin_web_or_app_link(
+        &mut self,
+        sid: Option<&str>,
+        href: &str,
+        source: LinkSource,
+        tx: &mut Tx,
+    ) {
+        self.route_web_or_app_link_inner(sid, href, source, None, false, tx);
+    }
+
+    fn route_web_or_app_link_inner(
+        &mut self,
+        sid: Option<&str>,
+        href: &str,
         _source: LinkSource,
         shift_override: Option<bool>,
+        allow_artifacts: bool,
         tx: &mut Tx,
     ) {
         let trimmed = href.trim();
@@ -48,9 +73,21 @@ impl App {
         {
             return;
         }
+        if !allow_artifacts {
+            if browser_policy::preview::is_artifact_scheme(trimmed) {
+                return;
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            if let Some((_, srv)) = self.preview_server_for(sid)
+                && browser_policy::preview::artifact_link(trimmed, &srv.base).is_some()
+            {
+                return;
+            }
+        }
         // Artifact links (`artifact://<id>/<path>` or same-server `/api/experimental/artifacts/<id>/view/...`)
-        // open directly in an isolated preview tab when a session is active.
-        if let Some(sid) = sid
+        // open directly in an isolated preview tab when a session is active (built-in/user only).
+        if allow_artifacts
+            && let Some(sid) = sid
             && self.try_open_artifact_link(sid, trimmed)
         {
             return;

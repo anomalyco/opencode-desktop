@@ -179,7 +179,13 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
             }
             (None, None) => app.run_command(&id, tx),
         },
-        Request::OpenLink { href } => app.open_reply_link(&href, tx),
+        Request::OpenLink { href } => {
+            if app.plugins.is_builtin_plugin(plugin) {
+                app.open_reply_link(&href, tx);
+            } else {
+                app.open_third_party_plugin_link(&href, tx);
+            }
+        }
         Request::OpenExternal(url) => {
             if app.live() {
                 crate::open_in::open_external(tx, &url);

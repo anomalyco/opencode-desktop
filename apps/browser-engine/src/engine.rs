@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicI32, AtomicU32, AtomicU64, Ordering};
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::SyncSender;
 use std::sync::{Arc, Mutex};
 
 use cef::rc::Rc as _;
@@ -40,7 +40,7 @@ impl CefRuntime {
     /// `adapter_luid`: the app's GPU (`HighPart`, `LowPart`), for Chromium to render on;
     /// `locale`: the app's language as Chromium names it; `pump`: where CEF's requests for its
     /// next work call go.
-    pub fn initialize(adapter_luid: Option<(i32, u32)>, locale: Option<&str>, pump: Sender<crate::Event>) -> Self {
+    pub fn initialize(adapter_luid: Option<(i32, u32)>, locale: Option<&str>, pump: SyncSender<crate::Event>) -> Self {
         #[cfg(target_os = "macos")]
         crate::mac_app::ensure_ns_application();
 
@@ -150,7 +150,7 @@ wrap_app! {
     struct SidecarCefApp {
         // Chromium's `use-adapter-luid` (`HIGH,LOW`): the GPU the app's frames open on.
         adapter_luid: Option<String>,
-        pump: Sender<crate::Event>,
+        pump: SyncSender<crate::Event>,
     }
     impl App {
         fn on_before_command_line_processing(
@@ -200,12 +200,12 @@ wrap_app! {
 
 wrap_browser_process_handler! {
     struct SidecarProcessHandler {
-        pump: Sender<crate::Event>,
+        pump: SyncSender<crate::Event>,
     }
     impl BrowserProcessHandler {
         // Any thread: the main loop wakes for it.
         fn on_schedule_message_pump_work(&self, delay_ms: i64) {
-            let _ = self.pump.send(crate::Event::Pump(delay_ms));
+            let _ = self.pump.try_send(crate::Event::Pump(delay_ms));
         }
     }
 }
@@ -261,7 +261,7 @@ pub struct EngineManager {
     #[cfg(target_os = "linux")]
     transport: crate::dmabuf_frames::Transport,
     #[cfg(target_os = "linux")]
-    events: std::sync::mpsc::Sender<crate::Event>,
+    events: std::sync::mpsc::SyncSender<crate::Event>,
 }
 
 impl EngineManager {
@@ -269,7 +269,7 @@ impl EngineManager {
     pub fn new(
         out_tx: crate::output::Output,
         downloads: std::path::PathBuf,
-        events: std::sync::mpsc::Sender<crate::Event>,
+        events: std::sync::mpsc::SyncSender<crate::Event>,
         #[cfg(windows)] gpu: Option<Arc<crate::d3d_frames::Gpu>>,
         #[cfg(target_os = "linux")] transport: crate::dmabuf_frames::Transport,
     ) -> Self {
@@ -327,7 +327,7 @@ impl EngineManager {
         let host = self.tabs.get(&tab_id).map(|t| &t.host);
         let events = self.events.clone();
         crate::dmabuf_frames::run(effects, tab_id, &self.out_tx, host, &move |f| {
-            let _ = events.send(crate::Event::FramesFailed(f));
+            let _ = events.try_send(crate::Event::FramesFailed(f));
         });
     }
 

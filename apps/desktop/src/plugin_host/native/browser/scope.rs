@@ -32,11 +32,24 @@ impl TabScope {
         Self { is_builtin_browser, tool_sid, in_flight }
     }
 
+    pub(super) fn is_verified_builtin_browser(&self, app: &App) -> bool {
+        self.is_builtin_browser && app.plugins.is_builtin_plugin("browser")
+    }
+
     /// Whether the caller may access tab `id` (`mutate = true` for actions/CDP/cookies/viewport/
     /// downloads/navigation/close; `false` for passive metadata reads).
     pub(super) fn check_tab(&self, app: &App, id: u64, mutate: bool) -> Result<(), String> {
+        let builtin_browser = self.is_verified_builtin_browser(app);
+        // Third-party plugins may NEVER script, navigate, or attach DevTools to preview/artifact tabs
+        // (`notes/review-rd281.md` PR 2 Blocker #1).
+        if mutate
+            && !builtin_browser
+            && app.workspace_panes.browser.host.tab(id).is_some_and(|t| t.preview.is_some())
+        {
+            return Err("Third-party plugins cannot control or attach DevTools to preview tabs.".into());
+        }
         let Some(owner) = app.browser_tab_session(id) else {
-            if self.tool_sid.is_none() && self.is_builtin_browser && self.in_flight.is_empty() {
+            if self.tool_sid.is_none() && builtin_browser && self.in_flight.is_empty() {
                 return Ok(());
             }
             return Err(format!("Browser tab {id} does not belong to an open session."));
@@ -44,11 +57,11 @@ impl TabScope {
         let allowed = match &self.tool_sid {
             Some(caller) => caller.as_deref() == Some(owner),
             None => {
-                if !mutate && self.is_builtin_browser {
+                if !mutate && builtin_browser {
                     true
                 } else {
                     app.active_session_id() == Some(owner)
-                        && (self.is_builtin_browser || self.in_flight.iter().all(|sid| sid == owner))
+                        && (builtin_browser || self.in_flight.iter().all(|sid| sid == owner))
                 }
             }
         };
@@ -62,13 +75,14 @@ impl TabScope {
     /// `NormalizeUrl`, `OpenAsync`, or `BrowserTab:Show`. Returns `None` when a scoped caller
     /// tries to cross into another session.
     pub(super) fn target_session(&self, app: &App, requested: Option<&str>) -> Option<String> {
+        let builtin_browser = self.is_verified_builtin_browser(app);
         match &self.tool_sid {
             Some(Some(caller)) => match requested {
                 Some(req) if req != caller => None,
                 _ => Some(caller.clone()),
             },
             Some(None) => None,
-            None if self.is_builtin_browser => requested
+            None if builtin_browser => requested
                 .map(str::to_owned)
                 .or_else(|| app.active_session_id().map(str::to_owned)),
             None => {

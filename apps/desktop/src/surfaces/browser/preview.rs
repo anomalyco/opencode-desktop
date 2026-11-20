@@ -5,36 +5,135 @@
 //!   same-server `/api/experimental/artifacts/<id>/view/...` URLs into isolated [`PreviewSpec`]s.
 //! - Reject direct `oc-preview://`, cross-session `workspace://`, outside-workspace `file://`,
 //!   and (for agent requests) hidden/secret entry HTML documents.
-//! - Fail closed on older engines lacking `Ready.preview` (`browser.preview.unsupported`, never
-//!   falling back to native `file://`).
-//! - Answer `EngineMsg::PreviewFetch` off the UI thread using strictly the tab's bound owning
-//!   session `Server` handle (`max_redirects(0)`, `Accept-Encoding: identity`, 15 s header timeout,
-//!   exact status/length/range checks, single-encoded remote paths, and grant-liveness checks).
+//! - Fail closed on older engines once `Ready { preview: false }` is known (never failing during
+//!   `Connecting`, never falling back to `file://`, and never sending `OpenTab("about:blank")`).
+//! - Answer `EngineMsg::PreviewFetch` on a bounded worker pool (8 workers, 64 global slots,
+//!   16/tab RAII permit, `catch_unwind`) using strictly the tab's bound owning session `Server`
+//!   handle (`max_redirects(0)`, `Accept-Encoding: identity`, 15 s header / 30 s read / 120 s
+//!   global timeouts, immediate socket shutdown via `PreviewAbort`, bounded chunk back-pressure,
+//!   exact status/length/range checks, single-encoded remote paths, and generation-guarded errors).
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::mpsc::{self, SyncSender, TrySendError};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use base64::Engine as _;
 use browser_pane::policy::preview::{
-    MAX_ARTIFACT_BYTES, MAX_PREVIEW_FILE_BYTES, artifact_address, artifact_link, encode_rel_path,
-    is_artifact_scheme, is_preview_scheme, is_valid_artifact_id, is_workspace_scheme,
-    local_display_url, normalize_range_header, parse_content_range, parse_prefixed_path,
-    preview_allowed, preview_path_valid, relative_to_root, root_is_windows, sanitize_response_mime,
-    workspace_prefix,
+    MAX_ARTIFACT_BYTES, MAX_PREVIEW_FILE_BYTES, RangeSpec, artifact_address, artifact_link,
+    encode_rel_path, is_artifact_scheme, is_preview_scheme, is_valid_artifact_id,
+    is_workspace_scheme, local_display_url, normalize_range_header, parse_content_range,
+    parse_prefixed_path, parse_range, preview_allowed, preview_path_valid, relative_to_root,
+    root_is_windows, sanitize_response_mime, workspace_prefix,
 };
 use browser_pane::{EngineStatus, PreviewFetchRequest, PreviewKindTag, PreviewResponder, PreviewSpec};
+use opencode_kit::client::PreviewAbort;
 use opencode_servers::ServerKey;
 
 use super::PLUGIN;
 use crate::App;
 use crate::panels::{SessionPane, panel_key};
 
-/// Tab-scoped binding pinning a preview tab strictly to the owning session's live server handle
-/// and an atomic liveness flag revoked on tab close, navigation away, or server sign-out.
+const FETCH_WORKERS: usize = 8;
+const FETCH_QUEUE_CAP: usize = 64;
+const MAX_FETCHES_PER_TAB: usize = 16;
+
+struct FetchPermit(Arc<AtomicUsize>);
+
+impl Drop for FetchPermit {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+fn try_acquire_permit(counter: &Arc<AtomicUsize>, cap: usize) -> Option<FetchPermit> {
+    let mut cur = counter.load(Ordering::Acquire);
+    loop {
+        if cur >= cap {
+            return None;
+        }
+        match counter.compare_exchange_weak(cur, cur + 1, Ordering::AcqRel, Ordering::Acquire) {
+            Ok(_) => return Some(FetchPermit(Arc::clone(counter))),
+            Err(next) => cur = next,
+        }
+    }
+}
+
+struct FetchTask {
+    _permit: FetchPermit,
+    job: Box<dyn FnOnce() + Send + 'static>,
+    on_panic: Box<dyn FnOnce() + Send + 'static>,
+}
+
+struct PreviewFetchPool {
+    tx: SyncSender<FetchTask>,
+}
+
+impl PreviewFetchPool {
+    fn global() -> &'static Self {
+        static POOL: OnceLock<PreviewFetchPool> = OnceLock::new();
+        POOL.get_or_init(|| {
+            let (tx, rx) = mpsc::sync_channel::<FetchTask>(FETCH_QUEUE_CAP);
+            let shared_rx = Arc::new(Mutex::new(rx));
+            for idx in 0..FETCH_WORKERS {
+                let rx_clone = Arc::clone(&shared_rx);
+                let _ = std::thread::Builder::new()
+                    .name(format!("preview-fetch-{idx}"))
+                    .spawn(move || loop {
+                        let task = {
+                            let guard = rx_clone.lock().unwrap_or_else(PoisonError::into_inner);
+                            guard.recv()
+                        };
+                        let Ok(task) = task else { break };
+                        let FetchTask { _permit, job, on_panic } = task;
+                        if std::panic::catch_unwind(std::panic::AssertUnwindSafe(job)).is_err() {
+                            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(on_panic));
+                        }
+                        drop(_permit);
+                    });
+            }
+            Self { tx }
+        })
+    }
+
+    fn try_spawn(
+        &self,
+        tab_counter: &Arc<AtomicUsize>,
+        on_panic: impl FnOnce() + Send + 'static,
+        job: impl FnOnce() + Send + 'static,
+    ) -> bool {
+        let Some(permit) = try_acquire_permit(tab_counter, MAX_FETCHES_PER_TAB) else {
+            return false;
+        };
+        let task = FetchTask {
+            _permit: permit,
+            job: Box::new(job),
+            on_panic: Box::new(on_panic),
+        };
+        match self.tx.try_send(task) {
+            Ok(()) => true,
+            Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => false,
+        }
+    }
+}
+
+/// Tab-scoped binding pinning a preview tab strictly to the owning session's live server handle,
+/// a monotonic generation, an atomic liveness flag, an HTTP socket abort group, and a per-tab
+/// concurrent-fetch counter.
 pub(crate) struct PreviewTabBinding {
     pub server_key: ServerKey,
     pub server: opencode_kit::client::Server,
+    pub generation: u64,
     pub alive: Arc<AtomicBool>,
+    pub abort: PreviewAbort,
+    pub in_flight: Arc<AtomicUsize>,
+}
+
+struct BoundFetch {
+    server: opencode_kit::client::Server,
+    generation: u64,
+    alive: Arc<AtomicBool>,
+    abort: PreviewAbort,
+    in_flight: Arc<AtomicUsize>,
 }
 
 pub enum PreviewTarget {
@@ -51,11 +150,13 @@ impl App {
         (!self.home.is_empty()).then_some(self.home.as_str())
     }
 
-    /// Whether the active browser engine supports isolated `oc-preview://` tabs. Returns `false`
-    /// when connected to a live older engine lacking `Ready.preview` (never falling back to `file://`).
+    /// Whether the active browser engine supports isolated `oc-preview://` tabs.
+    /// Returns `true` while disconnected OR still in `Connecting` (before `Ready` arrives) so
+    /// tabs wait cleanly in `pending_opens`; returns `false` ONLY once `Ready { preview: false }`
+    /// is known (`notes/review-rd281.md` PR 2 Blocker #4).
     pub fn browser_preview_supported(&self) -> bool {
         self.use_mock_browser()
-            || !self.workspace_panes.browser.host.has_live_sidecar()
+            || !self.workspace_panes.browser.host.engine_caps_known()
             || self.workspace_panes.browser.host.engine_preview()
     }
 
@@ -85,12 +186,18 @@ impl App {
     pub(crate) fn bind_preview_tab(&mut self, tab_id: u64, sid: Option<&str>) {
         self.revoke_preview_binding(tab_id);
         if let Some((server_key, server)) = self.preview_server_for(sid) {
+            self.workspace_panes.browser.next_preview_gen =
+                self.workspace_panes.browser.next_preview_gen.wrapping_add(1).max(1);
+            let generation = self.workspace_panes.browser.next_preview_gen;
             self.workspace_panes.browser.preview_bindings.insert(
                 tab_id,
                 PreviewTabBinding {
                     server_key,
                     server,
+                    generation,
                     alive: Arc::new(AtomicBool::new(true)),
+                    abort: PreviewAbort::new(),
+                    in_flight: Arc::new(AtomicUsize::new(0)),
                 },
             );
         }
@@ -99,6 +206,7 @@ impl App {
     pub(crate) fn revoke_preview_binding(&mut self, tab_id: u64) {
         if let Some(binding) = self.workspace_panes.browser.preview_bindings.remove(&tab_id) {
             binding.alive.store(false, Ordering::Release);
+            binding.abort.abort();
         }
     }
 
@@ -115,24 +223,17 @@ impl App {
         };
         let allow_hidden_entry = !agent;
 
-        // Direct `oc-preview://` entry is always refused (`T1`/`T8`).
         if is_preview_scheme(trimmed) {
             return PreviewTarget::Refused(workspace_refusal);
         }
-
-        // Direct `artifact://<id>/<path>` address.
         if is_artifact_scheme(trimmed) {
             return self.resolve_artifact_target(trimmed);
         }
-
-        // Same-server `/api/experimental/artifacts/<id>/view(/<path>)?` URL -> artifact preview.
         if let Some((_, srv)) = self.preview_server_for(sid)
             && let Some(addr) = artifact_link(trimmed, &srv.base)
         {
             return self.resolve_artifact_target(&addr);
         }
-
-        // Session-scoped `workspace://<sid>/<rel>` address -> always read via `/api/fs/read/*`.
         if is_workspace_scheme(trimmed) {
             let Some(sid) = sid else {
                 return PreviewTarget::Refused("browser.address.web");
@@ -144,8 +245,6 @@ impl App {
             };
             return self.resolve_remote_workspace_target(sid, &rel, allow_hidden_entry);
         }
-
-        // Local `file:///` inside the session's safe workspace root -> isolated local preview.
         if browser_pane::policy::is_file_scheme(trimmed) {
             let roots = self.browser_file_roots(sid);
             if !browser_pane::policy::file_url_within(trimmed, &roots) {
@@ -167,7 +266,6 @@ impl App {
                 spec: PreviewSpec::Local { root, document: rel },
             };
         }
-
         PreviewTarget::NotPreview
     }
 
@@ -362,6 +460,7 @@ impl App {
         }
     }
 
+    /// Opens a locally refused tab WITHOUT sending any `HostMsg::OpenTab` to the engine.
     pub(crate) fn open_refused_browser_tab(
         &mut self,
         sid: Option<&str>,
@@ -380,14 +479,7 @@ impl App {
             id
         } else {
             let ctx = self.browser_context_for_session(sid);
-            let id = self.workspace_panes.browser.host.open_tab_with_context(
-                "about:blank",
-                Vec::new(),
-                ctx,
-                false,
-            );
-            self.workspace_panes.browser.host.set_mock_refusal(id, code);
-            id
+            self.workspace_panes.browser.host.open_refused_tab(code, ctx)
         };
         self.attach_browser_tab_to_session(sid, id, target_pane, steal_focus);
         id
@@ -419,8 +511,7 @@ impl App {
     }
 
     /// Normalizes a URL for agent tools (`Browser:NormalizeUrl`), allowing local workspace `file://`,
-    /// same-session `workspace://<sid>/...`, and `artifact://<id>/...` only when the engine supports
-    /// isolated `oc-preview://` tabs and the entry document is not hidden/secret (`agent = true`).
+    /// same-session `workspace://<sid>/...`, and `artifact://<id>/...` when supported and non-hidden.
     pub fn normalize_browser_url_for_session(
         &self,
         sid: Option<&str>,
@@ -428,7 +519,7 @@ impl App {
         agent: bool,
     ) -> Result<String, String> {
         let candidate = browser_pane::with_scheme(raw);
-        let live_no_preview = self.workspace_panes.browser.host.has_live_sidecar()
+        let live_no_preview = self.workspace_panes.browser.host.engine_caps_known()
             && !self.workspace_panes.browser.host.engine_preview();
         match self.resolve_preview_target(sid, &candidate, agent) {
             PreviewTarget::Preview { display_url, .. } => {
@@ -451,22 +542,30 @@ impl App {
         }
     }
 
-    /// Drains `EngineMsg::PreviewFetch` items and spawns authenticated streaming readers on worker
-    /// threads using strictly the tab's bound owning session `Server` credentials.
+    /// Drains `EngineMsg::PreviewFetch` items and schedules authenticated streaming readers on the
+    /// bounded `PreviewFetchPool` using strictly the tab's bound owning session `Server`.
     pub(crate) fn pump_preview_fetches(&mut self) -> bool {
         let mut changed = false;
-        let errs: Vec<(u64, String)> = self
+        let errs: Vec<(u64, u64, String)> = self
             .workspace_panes
             .browser
             .preview_errors
             .as_ref()
             .map(|(_, rx)| std::iter::from_fn(|| rx.try_recv().ok()).collect())
             .unwrap_or_default();
-        for (tab_id, code) in errs {
-            self.workspace_panes.browser.host.set_tab_load_error(tab_id, Some(code));
-            changed = true;
+        for (tab_id, gen, code) in errs {
+            let gen_ok = self
+                .workspace_panes
+                .browser
+                .preview_bindings
+                .get(&tab_id)
+                .is_some_and(|b| b.generation == gen);
+            if gen_ok {
+                self.workspace_panes.browser.host.set_tab_load_error(tab_id, Some(code));
+                changed = true;
+            }
         }
-        // Revoke bindings for any tab closed by the engine or whose server signed out.
+        // Revoke bindings (and immediately close sockets) for closed tabs or signed-out servers.
         let dead_tabs: Vec<u64> = self
             .workspace_panes
             .browser
@@ -507,7 +606,13 @@ impl App {
                 .preview_bindings
                 .get(&req.tab_id)
                 .filter(|b| b.alive.load(Ordering::Acquire))
-                .map(|b| (b.server.clone(), b.alive.clone()));
+                .map(|b| BoundFetch {
+                    server: b.server.clone(),
+                    generation: b.generation,
+                    alive: Arc::clone(&b.alive),
+                    abort: b.abort.clone(),
+                    in_flight: Arc::clone(&b.in_flight),
+                });
             dispatch_preview_fetch(req, spec, bound, responder.clone(), err_tx.clone(), waker.clone());
         }
         true
@@ -517,9 +622,9 @@ impl App {
 fn dispatch_preview_fetch(
     req: PreviewFetchRequest,
     spec: Option<PreviewSpec>,
-    bound: Option<(opencode_kit::client::Server, Arc<AtomicBool>)>,
+    bound: Option<BoundFetch>,
     responder: PreviewResponder,
-    err_tx: std::sync::mpsc::Sender<(u64, String)>,
+    err_tx: std::sync::mpsc::Sender<(u64, u64, String)>,
     waker: Option<rune::Waker>,
 ) {
     let method_ok = req.method.eq_ignore_ascii_case("GET") || req.method.eq_ignore_ascii_case("HEAD");
@@ -527,7 +632,7 @@ fn dispatch_preview_fetch(
         responder.send_head(req.req_id, false, 405, "application/octet-stream".into(), None, None);
         return;
     }
-    let Some((server, alive)) = bound else {
+    let Some(bound) = bound else {
         responder.send_head(req.req_id, false, 403, "application/octet-stream".into(), None, None);
         return;
     };
@@ -568,18 +673,32 @@ fn dispatch_preview_fetch(
                     responder.send_head(req.req_id, false, 403, "application/octet-stream".into(), None, None);
                     return;
                 };
-                if tail.contains(['?', '#', '\\'])
-                    || (!tail.is_empty() && parse_prefixed_path(tail, "", true).is_none())
-                {
+                if tail.contains(['?', '#', '\\']) {
                     responder.send_head(req.req_id, false, 403, "application/octet-stream".into(), None, None);
                     return;
                 }
+                let rebuilt_tail = if tail.is_empty() {
+                    String::new()
+                } else {
+                    let Some(decoded_tail) = parse_prefixed_path(tail, "", true) else {
+                        responder.send_head(req.req_id, false, 403, "application/octet-stream".into(), None, None);
+                        return;
+                    };
+                    encode_rel_path(&decoded_tail)
+                };
                 let encoded_entry = if entry_path.is_empty() {
                     String::new()
                 } else {
                     encode_rel_path(&entry_path)
                 };
-                (req.path.clone(), MAX_ARTIFACT_BYTES, true, tail.to_owned(), tail == encoded_entry, true)
+                (
+                    format!("{expected_prefix}{rebuilt_tail}"),
+                    MAX_ARTIFACT_BYTES,
+                    true,
+                    rebuilt_tail.clone(),
+                    rebuilt_tail == encoded_entry,
+                    true,
+                )
             }
             _ => {
                 responder.send_head(req.req_id, false, 403, "application/octet-stream".into(), None, None);
@@ -595,28 +714,36 @@ fn dispatch_preview_fetch(
     let method = if req.method.eq_ignore_ascii_case("HEAD") { "HEAD" } else { "GET" };
     let req_id = req.req_id;
     let tab_id = req.tab_id;
-    let _ = std::thread::Builder::new()
-        .name(format!("preview-fetch-{req_id}"))
-        .spawn(move || {
-            if !alive.load(Ordering::Acquire) {
+    let responder_panic = responder.clone();
+    let responder_full = responder.clone();
+    let in_flight = Arc::clone(&bound.in_flight);
+    let spawned = PreviewFetchPool::global().try_spawn(
+        &in_flight,
+        move || {
+            responder_panic.send_head(req_id, false, 500, "application/octet-stream".into(), None, None);
+        },
+        move || {
+            if !bound.alive.load(Ordering::Acquire) || bound.abort.is_aborted() {
                 responder.send_head(req_id, false, 403, "application/octet-stream".into(), None, None);
                 return;
             }
             let mut head_sent = false;
             let mut accepted = false;
-            let ok = server.preview_stream(
+            let mut is_416 = false;
+            let ok = bound.server.preview_stream(
                 method,
                 &route,
                 range.as_deref(),
                 max_bytes,
+                &bound.abort,
                 |head| {
                     head_sent = true;
-                    if !alive.load(Ordering::Acquire) {
+                    if !bound.alive.load(Ordering::Acquire) || bound.abort.is_aborted() {
                         responder.send_head(req_id, false, 403, "application/octet-stream".into(), None, None);
                         return false;
                     }
                     if is_artifact_entry && head.status == 404 {
-                        let _ = err_tx.send((tab_id, "browser.artifact.missing".into()));
+                        let _ = err_tx.send((tab_id, bound.generation, "browser.artifact.missing".into()));
                         if let Some(w) = &waker {
                             w();
                         }
@@ -626,12 +753,18 @@ fn dispatch_preview_fetch(
                         head.status == 200
                     } else if range.is_some() {
                         match head.status {
-                            200 | 416 => true,
+                            200 => true,
+                            416 => true,
                             206 => parse_content_range(head.content_range.as_deref())
                                 .is_some_and(|(start, end, total)| {
-                                    let expected = end - start + 1;
                                     total <= max_bytes
-                                        && head.content_length.is_none_or(|cl| cl == expected)
+                                        && matches!(
+                                            parse_range(range.as_deref(), total),
+                                            RangeSpec::Partial { start: ws, end: we, length: wl, .. }
+                                                if start == ws
+                                                    && end == we
+                                                    && head.content_length == Some(wl)
+                                        )
                                 }),
                             _ => false,
                         }
@@ -639,6 +772,7 @@ fn dispatch_preview_fetch(
                         head.status == 200
                     };
                     let head_ok = valid_status && !over_cap;
+                    is_416 = head_ok && head.status == 416;
                     let mime = sanitize_response_mime(&head.content_type, &mime_hint, prefer_server_mime);
                     let sent = responder.send_head(
                         req_id,
@@ -648,23 +782,29 @@ fn dispatch_preview_fetch(
                         head.content_length,
                         head.content_range.clone(),
                     );
-                    accepted = sent && head_ok && head.status != 416;
+                    accepted = sent && head_ok && !is_416;
                     accepted
                 },
                 |chunk| {
-                    if !alive.load(Ordering::Acquire) {
+                    if !bound.alive.load(Ordering::Acquire) || bound.abort.is_aborted() {
                         return false;
                     }
                     let b64 = base64::engine::general_purpose::STANDARD.encode(chunk);
-                    responder.send_chunk(req_id, b64)
+                    responder.send_chunk(req_id, b64, &bound.alive)
                 },
             );
             if !head_sent {
                 responder.send_head(req_id, false, 502, "application/octet-stream".into(), None, None);
+            } else if is_416 {
+                responder.send_end(req_id, true);
             } else if accepted {
-                responder.send_end(req_id, ok && alive.load(Ordering::Acquire));
+                responder.send_end(req_id, ok && bound.alive.load(Ordering::Acquire) && !bound.abort.is_aborted());
             }
-        });
+        },
+    );
+    if !spawned {
+        responder_full.send_head(req_id, false, 429, "application/octet-stream".into(), None, None);
+    }
 }
 
 fn preview_title(display_url: &str) -> String {
