@@ -58,8 +58,17 @@ impl Group<'_> {
 pub(crate) use crate::home_search::HomeHold as Hold;
 
 impl App {
-    /// Home's day groups for `selected` project (`groupSessions`).
+    /// Home's day groups for `selected` project (`groupSessions`); while Consolidated's inline
+    /// search has text, its matches grouped the same way (`search.ts`'s `groups`), preserving
+    /// Flow automation folding and hover-held order (`ours.md` §5.8).
     pub(crate) fn home_groups(&self, selected: Option<&Project>) -> Vec<Group<'_>> {
+        if self.settings.navigation_prototype() && !self.search.text.trim().is_empty() {
+            return self.home_groups_in(self.home_search_results(selected));
+        }
+        self.home_groups_in(self.home_roots(selected).collect())
+    }
+
+    fn home_groups_in<'a>(&'a self, roots: Vec<&'a SessionInfo>) -> Vec<Group<'a>> {
         let day = |ms: i64| {
             let t = rune::LocalTime::at(ms);
             (t.year, t.month, t.day)
@@ -80,7 +89,7 @@ impl App {
         let mut rows: [Vec<&SessionInfo>; 3] = Default::default();
         let mut folds: [Vec<Fold<'_>>; 3] = Default::default();
         let mut people = 0;
-        for ses in self.home_roots(selected) {
+        for ses in roots {
             let b = bucket(ses);
             match automation(&ses.title) {
                 None if people < LIMIT => {

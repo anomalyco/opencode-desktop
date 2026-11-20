@@ -111,16 +111,33 @@ rune_register::register!(SCENE_LIST: Scene = [
         s.finish_stream();
         side_tabs(s);
     }),
-    // Settings > Experimental > Organize vertical sidebar: Projects, the first project open.
-    ("sidebar-organized", |s| {
+    // Consolidated List: pinned area + grouped/sorted Recent in the sidebar (forces vertical).
+    ("sidebar-consolidated-list", |s| {
         open_scene(s);
         s.finish_stream();
-        side_tabs(s);
-        s.settings.sidebar_organize = crate::settings::Organize::Projects;
-        if let Some(id) = s.used_projects().first().map(|p| p.id.clone()) {
-            let key = crate::view::sidebar_organized::project_key(s, &id);
-            s.project_state.organize_expanded.insert(key);
-        }
+        s.settings.sidebar_organize = crate::settings::Organize::Consolidated;
+        s.settings.navigation = crate::settings::Navigation::List;
+        *s.layout = crate::layout_state::Shell::at_rest(s.settings.effective_tab_layout());
+    }),
+    // Consolidated List grouped by status with metadata on.
+    ("sidebar-consolidated-list-grouped", |s| {
+        open_scene(s);
+        s.finish_stream();
+        s.settings.sidebar_organize = crate::settings::Organize::Consolidated;
+        s.settings.navigation = crate::settings::Navigation::List;
+        *s.layout = crate::layout_state::Shell::at_rest(s.settings.effective_tab_layout());
+        crate::view::sidebar::recent_view::update(s, |v| {
+            v.group_by = crate::view::sidebar::recent_view::GroupBy::Status;
+            v.metadata = true;
+        });
+    }),
+    // Consolidated Home with compact project scope picker and ProviderTip.
+    ("home-consolidated", |s| {
+        s.settings.sidebar_organize = crate::settings::Organize::Consolidated;
+        s.settings.navigation = crate::settings::Navigation::Tabs;
+        s.settings.tab_layout = crate::layout_state::TabLayout::Vertical;
+        *s.layout = crate::layout_state::Shell::at_rest(s.settings.effective_tab_layout());
+        *s.route = crate::Route::Home;
     }),
     // Settings > Experimental > Organize vertical sidebar: One list.
     ("sidebar-list", |s| {

@@ -4,7 +4,7 @@
 //! its header and its other sessions after them, five at a time (ten in one ungrouped list).
 //!
 //! The tabs are every server's; the sessions that aren't open are those of the server the window
-//! works against, as the Projects list's are (`sidebar_organized`).
+//! works against.
 
 use std::collections::{HashMap, HashSet};
 

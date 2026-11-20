@@ -39,6 +39,10 @@ impl HomeSearchHost for App {
         App::settings_open(self)
     }
 
+    fn search_inline(&self) -> bool {
+        self.settings.navigation_prototype()
+    }
+
     fn live_server(&self) -> Option<Server> {
         match &*self.source {
             Source::Live { server, .. } => Some(server.clone()),

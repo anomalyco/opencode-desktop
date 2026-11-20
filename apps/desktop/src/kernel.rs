@@ -253,6 +253,10 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
     use crate::tick::stage;
 
     b.register_slot(&crate::tab_hints::TAB_HINTS);
+    b.register_slot(&crate::tabs::pins::PINS);
+    b.register_slot(&crate::tabs::navigation_switch::NAV_SWITCH);
+    b.register_slot(&crate::view::sidebar::recent_view::RECENT_VIEW);
+    b.register_slot(&crate::view::home::tip::PROVIDER_TIP);
     b.add_visibility("status_toast.visibility", |s, shown, tx| {
         crate::status_toast::visibility(s, shown, tx);
     });
@@ -496,6 +500,9 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
     .after("narrow.poll");
     b.schedule(stage::REACT_SHELL, "tab_hints.poll", |s, now, tx| {
         crate::tab_hints::poll(s, now, tx)
+    });
+    b.schedule(stage::REACT_SHELL, "pins.poll", |s, _, tx| {
+        crate::tabs::pins::poll(s, tx)
     });
     // Known: reads `tab_layout()` and `settings_open()` settled by `layout_state.poll` -> `narrow.poll`.
     b.schedule(stage::REACT_SHELL, "session_status.poll", |s, now, tx| {

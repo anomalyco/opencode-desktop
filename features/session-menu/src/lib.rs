@@ -188,6 +188,10 @@ pub struct Item {
 pub enum Line {
     Item(Item),
     Sep,
+    /// Host-provided item row (`pin_menu_extra` / `tab_menu_extra`).
+    Extra(popup::Item),
+    /// Host-provided submenu row (`Add to group`).
+    Sub { id: String, title: String, menu: Menu },
 }
 
 fn item(id: &'static str, title: impl Into<String>, enabled: bool) -> Line {
@@ -246,13 +250,18 @@ pub fn lines(host: &dyn SessionMenuHost, t: &Target) -> Vec<Line> {
                     at.is_some_and(|i| i + 1 < tabs.len()),
                 ),
             ];
+            let extra = host.tab_menu_extra(uid);
             // A draft has no session to rename or delete: only the close items (`DraftTabItem`).
             if draft {
-                return close.into();
+                let sep = (!extra.is_empty()).then_some(Line::Sep);
+                return extra.into_iter().chain(sep).chain(close).collect();
             }
+            let sep = (!extra.is_empty()).then_some(Line::Sep);
             std::iter::once(item("rename", opencode_i18n::t!("common.rename"), known))
                 .chain([item("export", asks(opencode_i18n::t!("common.export")), known && !exporting(host, &t.server, &t.id))])
                 .chain(read_item)
+                .chain(sep)
+                .chain(extra)
                 .chain([Line::Sep])
                 .chain(close)
                 .chain([Line::Sep, item("delete", asks(opencode_i18n::t!("common.delete")), known)])
@@ -275,6 +284,8 @@ pub fn menu(lines: &[Line]) -> Menu {
     lines.iter().fold(Menu::new(opencode_i18n::t!("command.category.session")), |m, l| match l {
         Line::Item(i) => m.item(popup::Item::new(i.id, i.title.clone()).enabled(i.enabled).danger(i.danger)),
         Line::Sep => m.separator(),
+        Line::Extra(i) => m.item(i.clone()),
+        Line::Sub { id, title, menu } => m.submenu(id.clone(), title.clone(), menu.clone()),
     })
 }
 
@@ -295,17 +306,26 @@ pub fn open_at(host: &mut dyn SessionMenuHost, t: Target, at: PopupAnchor, dialo
         return;
     }
     let mut items = lines(host, &t);
-    if host.project_navigation() && (dialog || t.spot == Spot::Tab) && !t.tab(host).is_some_and(|x| x.is_draft) {
-        let pinned = host.is_session_pinned(&t.server, &t.id);
-        let muted = preferences::muted(&t.server, &t.id);
-        items.splice(
-            0..0,
-            [
-                item("pin-toggle", if pinned { opencode_i18n::t!("sidebar.recent.unpin") } else { opencode_i18n::t!("sidebar.recent.pin") }, true),
-                item("mute-toggle", if muted { opencode_i18n::t!("sidebar.recent.unmute") } else { opencode_i18n::t!("sidebar.recent.mute") }, true),
-                Line::Sep,
-            ],
-        );
+    let is_draft = t.tab(host).is_some_and(|x| x.is_draft);
+    if !is_draft && (dialog || t.spot == Spot::Tab) {
+        if host.navigation_prototype() {
+            let mut lead = host.pin_menu_extra(&t.server, &t.id);
+            if !lead.is_empty() {
+                lead.push(Line::Sep);
+                items.splice(0..0, lead);
+            }
+        } else if host.project_navigation() {
+            let pinned = host.is_session_pinned(&t.server, &t.id);
+            let muted = preferences::muted(&t.server, &t.id);
+            items.splice(
+                0..0,
+                [
+                    item("pin-toggle", if pinned { opencode_i18n::t!("sidebar.recent.unpin") } else { opencode_i18n::t!("sidebar.recent.pin") }, true),
+                    item("mute-toggle", if muted { opencode_i18n::t!("sidebar.recent.unmute") } else { opencode_i18n::t!("sidebar.recent.mute") }, true),
+                    Line::Sep,
+                ],
+            );
+        }
     }
     if items.is_empty() {
         return;
@@ -352,6 +372,15 @@ pub fn on_dialog<H: SessionMenuHost + 'static>(e: El, t: Target) -> El {
 
 /// Runs the menu item `id` on `t`.
 pub fn run(host: &mut dyn SessionMenuHost, t: &Target, id: &str, tx: &mut Tx) {
+    if host.run_pin_menu_extra(&t.server, &t.id, id, tx) {
+        return;
+    }
+    if t.spot == Spot::Tab
+        && let Some(tab) = t.tab(host)
+        && host.run_tab_menu_extra(&tab.uid, id, tx)
+    {
+        return;
+    }
     match id {
         "pin-toggle" => host.toggle_session_pin(&t.server, &t.id),
         "mute-toggle" => preferences::update(host, preferences::Kind::Muted, &t.server, &t.id, !preferences::muted(&t.server, &t.id)),

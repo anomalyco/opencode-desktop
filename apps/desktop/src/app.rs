@@ -246,12 +246,17 @@ impl App {
 
     /// Back to Home, dropping a session that was still opening.
     pub(crate) fn go_home(&mut self, tx: &mut Tx) {
-        if self.route != Route::Home {
+        let arrived = self.route != Route::Home;
+        if arrived {
             *self.gestures.home_return_tab = self.current_tab();
         }
         self.close_settings();
         *self.opening = None;
         *self.route = Route::Home;
+        // Consolidated navigation has no search dialog, so Home's search field starts focused (#64668).
+        if arrived && self.settings.navigation_prototype() {
+            self.focus_home_search(tx);
+        }
         tx.settle();
     }
 
@@ -287,7 +292,7 @@ impl App {
         appearance::apply_args(&mut app);
         if let Some(layout) = arg("--tab-layout") {
             app.settings.tab_layout = layout_state::TabLayout::parse(Some(&layout));
-            *app.layout = layout_state::Shell::at_rest(app.settings.tab_layout);
+            *app.layout = layout_state::Shell::at_rest(app.settings.effective_tab_layout());
         }
         app.apply_appearance();
         if let Some(name) = arg("--preset") {
@@ -387,7 +392,10 @@ impl App {
             *self.zoom = z.clamp(shortcuts::ZOOM_MIN, shortcuts::ZOOM_MAX);
         }
         *self.settings = settings::load();
-        *self.layout = layout_state::Shell::at_rest(self.settings.tab_layout);
+        *self.layout = layout_state::Shell::at_rest(self.settings.effective_tab_layout());
+        tabs::pins::restore(self);
+        tabs::navigation_switch::restore(self);
+        view::sidebar::recent_view::restore(self);
         self.load_open_in();
         if self.persists() {
             let wrap = files::markdown::WrapPrefs::load(self);
