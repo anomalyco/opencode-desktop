@@ -10,6 +10,8 @@ pub mod links;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod context_menu;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod extensions;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod preview;
 #[cfg(not(target_arch = "wasm32"))]
 mod preview_pool;

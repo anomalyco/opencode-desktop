@@ -1,0 +1,256 @@
+//! Desktop-side MV3 browser extension lifecycle, verified startup spec sync, and monotonic
+//! [`InstallMachine`] state stored in an `opencode_kernel::Slot` (zero `struct App` fields).
+//!
+//! Security invariants (`notes/review-rd274.md` & `notes/review-rd280.md`):
+//! - Always constructs [`ExtensionManager`] via [`ExtensionManager::in_user_data`] anchored at the
+//!   per-user app data directory (`crate::dirs::data()`), never `ExtensionManager::new`.
+//! - Never writes profile files during unattended runs without `RUNE_DIRS_ROOT`.
+//! - Drives install/review/swap transitions strictly through [`InstallMachine::step`] with a
+//!   monotonic [`Instant`]-derived millisecond clock (never wall-clock `SystemTime`).
+//! - Persisted [`StoredExtension`] records live in `opencode-storage` (`plugin.browser/extensions`),
+//!   updated ONLY after disk swap + verification succeed.
+
+#![forbid(unsafe_code)]
+
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+
+use browser_extensions::manager::{ExtensionManager, StagedInstall};
+use browser_extensions::manifest::read_manifest;
+use browser_extensions::review::{InstallEffect, InstallEvent, InstallMachine};
+use browser_extensions::sources::PlatformDirs;
+use browser_extensions::{InstallFailure, StoredExtension};
+use browser_pane::StartupExtensionSpec;
+use opencode_kernel::Slot;
+use rune::time::Instant;
+
+use crate::App;
+
+/// Chrome version token advertised when requesting CRX3 updates from the Chrome Web Store / Edge Add-ons.
+pub const CHROME_STORE_VERSION: &str = "156.0.0.0";
+
+/// Synchronized install/review state shared safely between the UI thread and blocking worker threads.
+pub struct ExtInstallCore {
+    started_at: Instant,
+    pub machine: InstallMachine,
+    pub staged: Option<StagedInstall>,
+    next_gen: u64,
+}
+
+impl Default for ExtInstallCore {
+    fn default() -> Self {
+        Self {
+            started_at: Instant::now(),
+            machine: InstallMachine::new(),
+            staged: None,
+            next_gen: 1,
+        }
+    }
+}
+
+impl ExtInstallCore {
+    /// Monotonic milliseconds elapsed since this runtime started (safe against wall-clock rollback).
+    pub fn now_ms(&self) -> u64 {
+        u64::try_from(self.started_at.elapsed().as_millis()).unwrap_or(u64::MAX)
+    }
+
+    pub fn next_generation(&mut self) -> u64 {
+        let generation = self.next_gen;
+        self.next_gen = self.next_gen.saturating_add(1);
+        generation
+    }
+
+    pub fn step(&mut self, event: InstallEvent) -> Vec<InstallEffect> {
+        let now = self.now_ms();
+        self.machine.step(event, now)
+    }
+}
+
+/// Per-window runtime state for browser extension staging, review approval, and integrity alerts.
+#[derive(Default)]
+pub struct BrowserExtensionsRuntime {
+    pub core: Arc<Mutex<ExtInstallCore>>,
+    pub integrity_failed: HashSet<String>,
+    swept_staging: bool,
+}
+
+pub static BROWSER_EXTENSIONS: Slot<BrowserExtensionsRuntime> = Slot::new();
+
+/// Resolves the production [`ExtensionManager`] anchored inside the per-user app data directory.
+/// Refuses unattended non-rooted runs so fixtures/tests never touch real user profile data.
+pub fn manager() -> Result<ExtensionManager, String> {
+    if !crate::attended() && !crate::dirs::rooted() {
+        return Err("Browser extensions are unavailable in unattended fixture runs.".into());
+    }
+    let user_data = crate::dirs::data()
+        .ok_or_else(|| "Application data directory is unavailable.".to_owned())?;
+    if !user_data.exists() {
+        std::fs::create_dir_all(&user_data)
+            .map_err(|e| format!("Could not prepare application data directory: {e}"))?;
+    }
+    ExtensionManager::in_user_data(&user_data)
+}
+
+/// Ensures leftover `.staging-*` directories from earlier crashes are swept once per window.
+pub fn sweep_staging_once(app: &mut App) {
+    let rt = app.kernel.slots.get_mut(&BROWSER_EXTENSIONS);
+    if rt.swept_staging {
+        return;
+    }
+    rt.swept_staging = true;
+    if let Ok(mgr) = manager() {
+        mgr.sweep_staging();
+    }
+}
+
+/// Platform directories for explicit user-triggered "From your browsers" Chromium extension discovery.
+pub fn platform_dirs() -> PlatformDirs {
+    #[allow(clippy::disallowed_methods)]
+    let env_path = |key: &str| std::env::var_os(key).filter(|v| !v.is_empty()).map(PathBuf::from);
+    if let Some(root) = env_path("OPENCODE_BROWSER_IMPORT_ROOT") {
+        return PlatformDirs {
+            home: Some(root.clone()),
+            local_app_data: Some(root.clone()),
+            app_data: Some(root.clone()),
+            xdg_config_home: Some(root),
+        };
+    }
+    PlatformDirs {
+        home: env_path("HOME").or_else(|| env_path("USERPROFILE")),
+        local_app_data: env_path("LOCALAPPDATA"),
+        app_data: env_path("APPDATA"),
+        xdg_config_home: env_path("XDG_CONFIG_HOME"),
+    }
+}
+
+/// Re-verifies every enabled [`StoredExtension`] on disk and pushes verified
+/// `--extension <id>:<sha256>:<dir>` specs into [`browser_pane::BrowserHost`].
+/// Returns IDs whose on-disk integrity failed verification (including any engine integrity alerts).
+pub fn sync_startup_specs(app: &mut App, stored: &[StoredExtension]) -> HashSet<String> {
+    sweep_staging_once(app);
+    let mut changed: HashSet<String> = app
+        .kernel
+        .slots
+        .get(&BROWSER_EXTENSIONS)
+        .integrity_failed
+        .clone();
+    let Ok(mgr) = manager() else {
+        app.workspace_panes.browser.host.set_startup_extensions(Vec::new(), false);
+        return changed;
+    };
+    let verified = mgr.verify_enabled_for_startup(stored);
+    for id in verified.changed_ids {
+        changed.insert(id);
+    }
+    let mut specs: Vec<StartupExtensionSpec> = Vec::with_capacity(verified.specs.len());
+    let mut has_filters = false;
+    for spec in verified.specs {
+        if changed.contains(&spec.id) {
+            continue;
+        }
+        if !has_filters
+            && let Some(manifest) = read_manifest(Path::new(&spec.dir))
+            && manifest
+                .permissions
+                .iter()
+                .any(|p| p == "declarativeNetRequest" || p == "declarativeNetRequestWithHostAccess")
+        {
+            has_filters = true;
+        }
+        specs.push(StartupExtensionSpec::from(spec));
+    }
+    app.workspace_panes.browser.host.set_startup_extensions(specs, has_filters);
+    changed
+}
+
+/// Maps crate [`InstallFailure`] values to stable i18n catalog codes (never raw Rust strings).
+pub fn failure_code_str(reason: InstallFailure) -> &'static str {
+    match reason {
+        InstallFailure::Manifest => "manifest",
+        InstallFailure::Download => "download",
+        InstallFailure::Load => "load",
+        InstallFailure::Collision => "collision",
+        InstallFailure::Expired => "expired",
+        InstallFailure::Downgrade => "downgrade",
+    }
+}
+
+/// Executes non-swap cleanup effects returned by [`InstallMachine::step`].
+pub fn run_cleanup_effects(mgr: &ExtensionManager, effects: &[InstallEffect]) {
+    for eff in effects {
+        if let InstallEffect::RemoveStagingDir(dir) = eff {
+            mgr.remove_staging_dir(dir);
+        }
+    }
+}
+
+/// Drains engine extension events (integrity failures, extension-opened tabs, focus requests).
+pub fn poll(app: &mut App) -> bool {
+    if !app.workspace_panes.browser.host.has_extension_events() {
+        return false;
+    }
+    let mut changed = false;
+
+    let integrity_ids: Vec<String> = app
+        .workspace_panes
+        .browser
+        .host
+        .drain_extension_integrity_failures()
+        .collect();
+    if !integrity_ids.is_empty() {
+        let rt = app.kernel.slots.get_mut(&BROWSER_EXTENSIONS);
+        for id in integrity_ids {
+            rt.integrity_failed.insert(id);
+        }
+        changed = true;
+    }
+
+    let open_reqs: Vec<_> = app
+        .workspace_panes
+        .browser
+        .host
+        .drain_extension_open_requests()
+        .collect();
+    for req in open_reqs {
+        if let Some(sid) = app.active_session_id().map(str::to_owned) {
+            let tab_id = app
+                .workspace_panes
+                .browser
+                .host
+                .answer_extension_open_tab(req.request_id, &req.url, Vec::new());
+            app.workspace_panes
+                .browser
+                .session_tabs
+                .entry(sid)
+                .or_default()
+                .push(tab_id);
+            changed = true;
+        } else {
+            app.workspace_panes
+                .browser
+                .host
+                .cancel_extension_open_tab(req.request_id);
+        }
+    }
+
+    let focus_ids: Vec<u64> = app
+        .workspace_panes
+        .browser
+        .host
+        .drain_extension_focus_tabs()
+        .collect();
+    for tab_id in focus_ids {
+        app.workspace_panes.browser.host.focus_tab(tab_id);
+        changed = true;
+    }
+
+    let _ = app
+        .workspace_panes
+        .browser
+        .host
+        .drain_extension_lifecycle_events()
+        .count();
+
+    changed
+}

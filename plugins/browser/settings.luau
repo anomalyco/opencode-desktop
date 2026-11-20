@@ -154,9 +154,9 @@ function settings.entries(i18n: I18nService, caps: Capabilities): { SettingEntry
     return out
 end
 
-local NOTE = table.freeze({ size = 12, weight = "regular", lineHeight = 16, color = "text-muted", wrap = true })
+local NOTE = table.freeze({ size = 12, weight = "regular", lineHeight = 16, color = "text-faint", wrap = true })
 local MUTED = table.freeze({ size = 13, weight = "regular", lineHeight = 18, color = "text-muted", wrap = true })
-local HEADING = table.freeze({ size = 13, weight = "medium", lineHeight = 18, color = "text-chrome", noWrap = true })
+local HEADING = table.freeze({ size = 13, weight = "medium", lineHeight = 16, color = "text-chrome", noWrap = true })
 
 local function advancedSummary(i18n: I18nService, caps: Capabilities): string
     if caps.remoteSignIns and caps.cookieFile then
@@ -413,7 +413,7 @@ function settings.create(env: Env, refresh: () -> ())
                     ))
                 end
             end
-            table.insert(sections, ui.col({ key = "settings-browser-sites-section", w = "full", gap = 6 }, {
+            table.insert(sections, ui.col({ key = "settings-browser-sites-section", w = "full", gap = 16 }, {
                 ui.settingsList({ key = "settings-browser-sites-list", title = i18n:T("settings.sites.title") }, siteRows),
                 ui.text(i18n:T("settings.sites.note"), NOTE),
             }))
@@ -444,7 +444,7 @@ function settings.create(env: Env, refresh: () -> ())
             }))
         end
 
-        return ui.col({ key = "settings-browser-page", w = "full", gap = 20 }, sections)
+        return ui.col({ key = "settings-browser-page", w = "full", gap = 32 }, sections)
     end
 
     return { render = render }
