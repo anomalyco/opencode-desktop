@@ -197,8 +197,8 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
                 }
             }
         }
+        #[cfg(not(target_arch = "wasm32"))]
         Request::ConfirmAppLinkReview { token } => {
-            #[cfg(not(target_arch = "wasm32"))]
             if &**plugin == crate::surfaces::browser::PLUGIN && app.live() {
                 let ready = {
                     let reviews = app.workspace_panes.browser.active_app_reviews.borrow();
@@ -222,16 +222,12 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
                     crate::open_in::open_confirmed_app_url(tx, &review.url, review.source);
                 }
             }
-            #[cfg(target_arch = "wasm32")]
-            let _ = token;
         }
+        #[cfg(not(target_arch = "wasm32"))]
         Request::DismissAppLinkReview { token } => {
-            #[cfg(not(target_arch = "wasm32"))]
             if &**plugin == crate::surfaces::browser::PLUGIN {
                 app.workspace_panes.browser.active_app_reviews.borrow_mut().remove(&token);
             }
-            #[cfg(target_arch = "wasm32")]
-            let _ = token;
         }
         Request::Reveal(path) => crate::open_in::reveal_abs(app, path),
         Request::CopyText(text) => tx.copy(text),

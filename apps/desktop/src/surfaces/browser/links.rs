@@ -154,40 +154,33 @@ impl App {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn queue_browser_app_link_review_for_tab(
         &mut self,
         tab_id: u64,
         href: &str,
         source: AppSchemeSource,
     ) -> bool {
-        #[cfg(target_arch = "wasm32")]
+        if self.workspace_panes.browser.host.tab(tab_id).is_none()
+            || classify_app_link(href, source).is_none()
         {
-            let _ = (tab_id, href, source);
-            false
+            return false;
         }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            if self.workspace_panes.browser.host.tab(tab_id).is_none()
-                || classify_app_link(href, source).is_none()
-            {
-                return false;
-            }
-            let seq = self.workspace_panes.browser.app_review_seq.get().wrapping_add(1);
-            self.workspace_panes.browser.app_review_seq.set(seq);
-            let mut pending = self.workspace_panes.browser.pending_app_links.borrow_mut();
-            if pending.len() >= 64 {
-                pending.pop_front();
-            }
-            pending.push_back(super::AppLinkReview {
-                token: format!("rev-{seq}"),
-                tab_id,
-                url: href.to_owned(),
-                source,
-                shown_at: rune::time::Instant::now(),
-            });
-            drop(pending);
-            crate::plugin_host::bump();
-            true
+        let seq = self.workspace_panes.browser.app_review_seq.get().wrapping_add(1);
+        self.workspace_panes.browser.app_review_seq.set(seq);
+        let mut pending = self.workspace_panes.browser.pending_app_links.borrow_mut();
+        if pending.len() >= 64 {
+            pending.pop_front();
         }
+        pending.push_back(super::AppLinkReview {
+            token: format!("rev-{seq}"),
+            tab_id,
+            url: href.to_owned(),
+            source,
+            shown_at: rune::time::Instant::now(),
+        });
+        drop(pending);
+        crate::plugin_host::bump();
+        true
     }
 }

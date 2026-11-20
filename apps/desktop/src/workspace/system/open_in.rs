@@ -39,18 +39,6 @@ pub fn open_external(tx: &mut Tx, url: &str) -> bool {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub fn open_confirmed_app_url(tx: &mut Tx, url: &str, source: browser_policy::AppSchemeSource) -> bool {
-    let trimmed = url.trim();
-    if trimmed != url || !browser_policy::is_confirmed_app_scheme_url(trimmed, source) {
-        return false;
-    }
-    if trimmed.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("mailto:")) {
-        return tx.open_url(trimmed).is_ok();
-    }
-    false
-}
-
-#[cfg(target_arch = "wasm32")]
 pub fn finder_label(_: &App) -> &'static str {
     ""
 }

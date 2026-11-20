@@ -43,6 +43,7 @@ pub fn enter_ui<R>(app: &App, gesture: bool, f: impl FnOnce() -> R) -> R {
 
 /// True only while executing directly inside a Rune UI interaction handler (`vm::around` with a
 /// live transaction), never inside timers, signals, renders, or MCP tool coroutines.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn in_ui_gesture() -> bool {
     IN_UI_GESTURE.get()
 }
@@ -97,8 +98,10 @@ pub enum Request {
     OpenExternal(String),
     /// User pressed Open on the built-in browser plugin's 500 ms guarded app-link review bar
     /// (`Browser:ConfirmAppLinkReview`). Single-use token verified strictly in the host.
+    #[cfg(not(target_arch = "wasm32"))]
     ConfirmAppLinkReview { token: String },
     /// User dismissed or navigated away from an app-link review bar (`Browser:DismissAppLinkReview`).
+    #[cfg(not(target_arch = "wasm32"))]
     DismissAppLinkReview { token: String },
     Reveal(String),
     CopyText(String),
