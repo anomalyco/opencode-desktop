@@ -131,7 +131,7 @@ function extractPrFromTitle(title: string): number | null {
 
 function isExcludedTestOrStory(file: string): boolean {
   return (
-    /\.(test|spec)\.[cm]?[jt]sx?$/.test(file) ||
+    /\.(test|spec|fixture)\.[cm]?[jt]sx?$/.test(file) ||
     /\.stories\.[cm]?[jt]sx?$/.test(file) ||
     /(^|\/)(e2e|stories|__tests__|__snapshots__|test|tests)\//.test(file)
   )
@@ -156,6 +156,8 @@ function skipBucket(files: string[]): string {
 function assignWorkstream(files: string[], title: string, category: "watched" | "protocol" | "skipped"): string {
   if (category === "skipped") return "none"
   const joined = files.join("\n") + "\n" + title.toLowerCase()
+  if (/packages\/gui-plugins\/src\/browser\/extensions\/|packages\/desktop\/src\/main\/browser\/extensions/.test(joined)) return "WS-9 (Browser Extensions)"
+  if (/packages\/gui-plugins\/src\/browser\/(address|history|settings|i18n|refusal|panel|bar\.css|device|viewport)/.test(joined) && !/packages\/plugin-browser\/|chromium\.ts|window-open|page-log/.test(joined)) return "BROWSER-UI (Browser UI/History)"
   if (/packages\/(plugin-browser|gui-plugins\/src\/browser)\/|packages\/desktop\/.*browser|oc-preview|browser pane/.test(joined)) return "WS-1 (Browser)"
   if (/packages\/app\/src\/(shell\/titlebar|home\/|shell\/layout|shell\/project)|tab-group|sidebar|consolidated/.test(joined)) return "WS-2 (Navigation/Sidebar)"
   if (/packages\/session-ui\/|packages\/app\/src\/session\/timeline|packages\/app\/src\/session\/session-identity|markdown|latex|math|find/.test(joined)) return "WS-3 (Timeline)"

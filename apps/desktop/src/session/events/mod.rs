@@ -495,6 +495,16 @@ impl App {
         if ty == "worktree.updated" && let Some(project) = data["projectID"].as_str() {
             self.worktree_updated(project);
         }
+        if ty == "plugin.updated" {
+            let loc = data["eventLocation"]["directory"].as_str();
+            crate::settings::pages::extensions::on_plugin_updated(self);
+            crate::settings::pages::project_extensions::on_updated(self, loc);
+        }
+        if ty == "config.updated" {
+            let loc = data["eventLocation"]["directory"].as_str();
+            crate::settings::pages::extensions::on_config_updated(self);
+            crate::settings::pages::project_extensions::on_updated(self, loc);
+        }
         if done.project || done.renamed {
             self.session_search.invalidate();
             changed = true;

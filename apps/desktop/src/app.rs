@@ -405,6 +405,7 @@ impl App {
         *self.kernel.slots.get_mut(&prompt_history::PROMPTS) = prompt_history::PromptHistory::load(attended());
         self.composer_ext.pickers.prefs = model_prefs::load();
         telemetry::startup("launch.restore_ui", || self.restore_ui(&doc, &server.base));
+        tabs::groups::restore(self);
         *self.fixture_run.base_ms = wall_ms();
         *self.now_ms = *self.fixture_run.base_ms;
         let allow_send = !flag("--read-only") && attended();

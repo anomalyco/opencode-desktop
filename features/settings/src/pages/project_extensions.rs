@@ -1,18 +1,21 @@
-//! A project's Extensions (`workspaces/project-extensions.tsx`): MCPs, Plugins, Skills and LSPs
-//! under pill tabs. Each of the first three lists what the project's folder adds to the server's
-//! own ("Added to this project", or No MCPs yet and what will show there), with Manage in
-//! opencode.json (or How to add skills) beside it, then "Shared with all projects" folded under
-//! its count. LSPs lists the language servers the folder's configuration names, each with its
-//! file types and whether it is on.
+//! A project's Extensions (`packages/app/src/settings/workspaces/project-extensions.tsx`):
+//! MCPs, Plugins, Skills and LSPs under pill tabs. Each of the first three lists what the
+//! project's folder adds to the server's own ("Added to this project", or empty copy), then
+//! "Shared with all projects" folded under its count. Console-managed MCPs and virtual skills
+//! link to Console and show "Replaces OpenCode Console" when overridden locally
+//! (`anomalyco/opencode#63125`).
 
 use opencode_i18n::t;
-use opencode_kit::model::Project;
+use opencode_kit::integration::{McpServer, McpStatus};
+use opencode_kit::model::{ConsoleMcp, Project, SkillInfo};
+use opencode_ui::palette::Pal;
+use opencode_ui::widgets;
 use rune::{El, Icon, TextStyle, Tx, col, icon, row, text};
 use rune_theme_opencode::icons as ic;
 use serde_json::Value;
-use opencode_ui::palette::Pal;
 
-use super::{catalog, header, page};
+use super::console_link::{ConsoleSources, console_connect_button, console_name, console_replaced, console_signed_in, load_failed};
+use super::{Page, catalog, header, page};
 use crate::host::SettingsHost;
 use crate::jobs::{SettingsJob, SettingsRequest};
 
@@ -40,9 +43,8 @@ pub struct Lsp {
     pub extensions: Vec<String>,
 }
 
-/// What the tabs read, for the folder they read it for.
-/// `(server_skills, project_skills)` pairs of `(name, location)`.
-pub type SkillPairs = (Vec<(String, String)>, Vec<(String, String)>);
+/// `(server_skills, project_skills)` loaded for a project's Extensions tab.
+pub type SkillPairs = (Vec<SkillInfo>, Vec<SkillInfo>);
 
 #[derive(Default)]
 pub struct State {
@@ -52,8 +54,10 @@ pub struct State {
     pub shared: bool,
     /// (the server's, the folder's)
     plugins: Option<(Vec<String>, Vec<String>)>,
-    /// By name and path: (the server's, the folder's).
+    /// (the server's, the folder's)
     skills: Option<SkillPairs>,
+    /// Console-managed MCP sources for this project folder.
+    sources: ConsoleSources,
     /// The folder's configured servers, whether LSP is off, or a failed read.
     lsps: Option<Result<(bool, Vec<Lsp>), ()>>,
 }
@@ -63,11 +67,13 @@ impl State {
         &mut self,
         plugins: Option<(Vec<String>, Vec<String>)>,
         skills: Option<SkillPairs>,
+        sources: Result<Vec<ConsoleMcp>, ()>,
         lsps: Result<(bool, Vec<Lsp>), ()>,
     ) {
         self.plugins = plugins;
         // A failed read keeps the lists already read, as Desktop's location data does.
         self.skills = skills.or(self.skills.take());
+        self.sources.apply(sources);
         self.lsps = Some(lsps);
     }
 }
@@ -79,15 +85,32 @@ pub fn load(s: &mut dyn SettingsHost, dir: &str) {
     }
     s.sync_mcp("");
     s.sync_mcp(dir);
+    s.sync_catalogs(Some(dir));
     s.spawn_job(SettingsJob::ActiveServer(SettingsRequest::LoadProjectExtensions { dir: dir.to_owned() }));
+}
+
+/// Refreshes project extensions when `plugin.updated` or `config.updated` arrives for this folder.
+pub fn on_updated(s: &mut dyn SettingsHost, event_dir: Option<&str>) {
+    if !s.settings_open() {
+        return;
+    }
+    let Page::Project(dir, super::project::Tab::Extensions) = &s.settings_pages().page else {
+        return;
+    };
+    if let Some(loc) = event_dir
+        && loc != dir
+    {
+        return;
+    }
+    let dir = dir.clone();
+    s.spawn_job(SettingsJob::ActiveServer(SettingsRequest::LoadProjectExtensions { dir }));
 }
 
 /// The language servers a configuration's documents name, a later document's entry over an
 /// earlier one's and `lsp: false` (or `true`) replacing them all.
-pub fn configured_lsps(v: &Value) -> (bool, Vec<Lsp>) {
+pub fn configured_lsps_entries(entries: &[Value]) -> (bool, Vec<Lsp>) {
     let mut disabled = false;
     let mut servers: Vec<Lsp> = Vec::new();
-    let entries = v["data"].as_array().or(v.as_array()).cloned().unwrap_or_default();
     for e in entries.iter().filter(|e| e["type"] == "document") {
         let lsp = &e["info"]["lsp"];
         if let Some(on) = lsp.as_bool() {
@@ -125,8 +148,7 @@ fn toggle_shared(s: &mut dyn SettingsHost, tx: &mut Tx) {
     st.shared = !st.shared;
 }
 
-fn retry_lsps(s: &mut dyn SettingsHost, tx: &mut Tx) {
-    tx.instant();
+fn retry_project(s: &mut dyn SettingsHost, _tx: &mut Tx) {
     let dir = s.settings_pages().project.extensions.dir.clone();
     s.settings_pages_mut().project.extensions.dir.clear();
     load(s, &dir);
@@ -134,6 +156,7 @@ fn retry_lsps(s: &mut dyn SettingsHost, tx: &mut Tx) {
 
 pub fn view<H: SettingsHost + 'static>(s: &H, p: &Pal, x: &Project) -> El {
     let st = &s.settings_pages().project.extensions;
+    let signed_in = console_signed_in(s, Some(&x.directory));
     let body = match st.tab {
         Tab::Mcps => {
             let shared: Vec<String> = names(s.mcp_servers("").unwrap_or_default().iter().map(|m| m.name.clone()).collect());
@@ -145,18 +168,64 @@ pub fn view<H: SettingsHost + 'static>(s: &H, p: &Pal, x: &Project) -> El {
                     .filter(|n| !shared.contains(n))
                     .collect(),
             );
-            section::<H>(s, p, "mcps", manage(p), &own, &shared, &ic::MCP)
+            let make_rows = |list: &[String], key: &str| {
+                let rows = list.iter().map(|name| mcp_row::<H>(s, p, &x.directory, &st.sources, key, name)).collect();
+                catalog(p, key, rows)
+            };
+            section_with::<H>(
+                s,
+                p,
+                "mcps",
+                manage(p),
+                own.is_empty(),
+                (!own.is_empty()).then(|| make_rows(&own, "settings-project-mcps")),
+                shared.len(),
+                (!shared.is_empty()).then(|| make_rows(&shared, "settings-project-shared-mcps")),
+                st.sources.failed(),
+            )
         }
         Tab::Plugins => {
             let (shared, own) = st.plugins.clone().unwrap_or_default();
             let own: Vec<String> = own.into_iter().filter(|n| !shared.contains(n)).collect();
-            section::<H>(s, p, "plugins", manage(p), &own, &shared, &ic::CUBE)
+            let make_rows = |list: &[String], key: &str| {
+                catalog(p, key, list.iter().map(|n| plain_row(p, &format!("{key}-{n}"), &ic::CUBE, n)).collect())
+            };
+            section_with::<H>(
+                s,
+                p,
+                "plugins",
+                manage(p),
+                st.plugins.is_some() && own.is_empty(),
+                (!own.is_empty()).then(|| make_rows(&own, "settings-project-plugins")),
+                shared.len(),
+                (!shared.is_empty()).then(|| make_rows(&shared, "settings-project-shared-plugins")),
+                false,
+            )
         }
         Tab::Skills => {
-            let (shared, own) = st.skills.clone().unwrap_or_default();
-            let own: Vec<String> = own.into_iter().filter(|k| !shared.contains(k)).map(|(n, _)| n).collect();
-            let shared: Vec<String> = shared.into_iter().map(|(n, _)| n).collect();
-            section::<H>(s, p, "skills", skills_link::<H>(p), &own, &shared, &ic::POST_SKILL)
+            let (shared, own_raw) = st.skills.clone().unwrap_or_default();
+            let own: Vec<SkillInfo> = own_raw
+                .into_iter()
+                .filter(|sk| !shared.iter().any(|sh| sh.name == sk.name && sh.path == sk.path))
+                .collect();
+            let make_rows = |list: &[SkillInfo], key: &str| {
+                let rows = list
+                    .iter()
+                    .map(|sk| skill_row::<H>(p, &st.sources, signed_in, &format!("{key}-{}", sk.name), sk))
+                    .collect();
+                catalog(p, key, rows)
+            };
+            section_with::<H>(
+                s,
+                p,
+                "skills",
+                skills_link::<H>(p),
+                own.is_empty(),
+                (!own.is_empty()).then(|| make_rows(&own, "settings-project-skills")),
+                shared.len(),
+                (!shared.is_empty()).then(|| make_rows(&shared, "settings-project-shared-skills")),
+                st.sources.failed(),
+            )
         }
         Tab::Lsps => lsps::<H>(p, st.lsps.as_ref()),
     };
@@ -166,6 +235,88 @@ pub fn view<H: SettingsHost + 'static>(s: &H, p: &Pal, x: &Project) -> El {
         header(p, t!("settings.tab.extensions"), t!("project.settings.extensions.description")),
         col().key("settings-project-extensions").w_full().child(tabs::<H>(p, st.tab)).child(col().w_full().pt(24.0).child(body)),
     )
+}
+
+fn mcp_row<H: SettingsHost + 'static>(
+    s: &H,
+    p: &Pal,
+    dir: &str,
+    sources: &ConsoleSources,
+    prefix: &str,
+    name: &str,
+) -> El {
+    let server = s
+        .mcp_servers(dir)
+        .and_then(|l| l.iter().find(|m| m.name == name))
+        .or_else(|| s.mcp_servers("").and_then(|l| l.iter().find(|m| m.name == name)))
+        .cloned()
+        .unwrap_or(McpServer {
+            name: name.to_owned(),
+            status: McpStatus::Pending,
+            integration: None,
+        });
+    let disabled = server.status == McpStatus::Disabled;
+    let managed = sources.managed(name);
+    let links = sources.links(name);
+    let dot_status = if managed.is_some_and(|c| c.needs_connection) && server.status == McpStatus::Connected {
+        "needs_auth"
+    } else {
+        server.status.name()
+    };
+    let name_el = match (managed, &links) {
+        (Some(_), Some(l)) => console_name::<H>(p, format!("{prefix}-console-{name}"), name, l.manage.clone(), disabled),
+        _ => text(name.to_owned()).font(NAME).color(if disabled { p.muted } else { p.text }).truncate().shrink().min_w(0.0),
+    };
+    let badge = sources
+        .mcp(name)
+        .filter(|c| c.overridden)
+        .and(links.as_ref())
+        .map(|l| console_replaced::<H>(p, format!("{prefix}-replaced-{name}"), name, l.manage.clone()));
+    let trailing = match sources.connect(name) {
+        Some(connect_url) => console_connect_button::<H>(p, format!("{prefix}-connect-{name}"), name, connect_url),
+        None => s.mcp_row_trailing(p, dir, &server),
+    };
+    row()
+        .key(format!("{prefix}-{name}"))
+        .w_full()
+        .min_h(56.0)
+        .py(16.0)
+        .gap(16.0)
+        .center_y()
+        .child(
+            row()
+                .grow(1.0)
+                .shrink()
+                .min_w(0.0)
+                .gap(8.0)
+                .center_y()
+                .child(widgets::status_dot(p, dot_status))
+                .child(name_el)
+                .children(badge),
+        )
+        .child(trailing)
+}
+
+fn skill_row<H: SettingsHost + 'static>(
+    p: &Pal,
+    sources: &ConsoleSources,
+    signed_in: bool,
+    key: &str,
+    skill: &SkillInfo,
+) -> El {
+    let name_el = match sources.skill(skill, signed_in) {
+        Some(href) => console_name::<H>(p, format!("{key}-console"), &skill.name, href, false),
+        None => text(skill.name.clone()).font(NAME).color(p.text).truncate().shrink().min_w(0.0),
+    };
+    row()
+        .key(key.to_owned())
+        .w_full()
+        .min_h(56.0)
+        .py(16.0)
+        .gap(8.0)
+        .center_y()
+        .child(icon(&ic::POST_SKILL, 16.0).color(p.icon_muted))
+        .child(name_el)
 }
 
 fn names(mut v: Vec<String>) -> Vec<String> {
@@ -200,8 +351,17 @@ fn tabs<H: SettingsHost + 'static>(p: &Pal, on: Tab) -> El {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn section<H: SettingsHost + 'static>(s: &H, p: &Pal, kind: &str, action: El, own: &[String], shared: &[String], glyph: &'static Icon) -> El {
-    let empty = own.is_empty();
+fn section_with<H: SettingsHost + 'static>(
+    s: &H,
+    p: &Pal,
+    kind: &str,
+    action: El,
+    empty: bool,
+    own_card: Option<El>,
+    shared_count: usize,
+    shared_card: Option<El>,
+    sources_failed: bool,
+) -> El {
     let (none, none_about) = match kind {
         "mcps" => (t!("project.settings.extensions.empty.mcps.title"), t!("project.settings.extensions.empty.mcps.description")),
         "plugins" => (t!("project.settings.extensions.empty.plugins.title"), t!("project.settings.extensions.empty.plugins.description")),
@@ -216,12 +376,11 @@ fn section<H: SettingsHost + 'static>(s: &H, p: &Pal, kind: &str, action: El, ow
         .child(text(title).font(HEAD).color(p.text))
         .children(empty.then(|| text(none_about).font(BODY).color(p.muted)));
     let head = row().key("project-settings-extension-section-header").w_full().gap(16.0).items_start().child(copy).child(action);
-    let rows = |list: &[String], key: &str| catalog(p, key, list.iter().map(|n| row_of(p, &format!("{key}-{n}"), glyph, n)).collect());
     let mut c = col().key(format!("project-settings-extension-{kind}")).w_full().gap(16.0).child(head);
-    if !empty {
-        c = c.child(rows(own, &format!("settings-project-{kind}")));
+    if let Some(card) = own_card {
+        c = c.child(card);
     }
-    if !shared.is_empty() {
+    if shared_count > 0 {
         let open = s.settings_pages().project.extensions.shared;
         let trigger = row()
             .key("project-settings-shared-trigger")
@@ -248,14 +407,23 @@ fn section<H: SettingsHost + 'static>(s: &H, p: &Pal, kind: &str, action: El, ow
                     .gap(6.0)
                     .center_y()
                     .child(text(t!("project.settings.extensions.shared")).font(HEAD).color(p.text))
-                    .child(row().h(16.0).min_w(16.0).px(4.0).center().radius(3.0).fill(p.layer2).child(text(shared.len().to_string()).font(COUNT).color(p.muted))),
+                    .child(row().h(16.0).min_w(16.0).px(4.0).center().radius(3.0).fill(p.layer2).child(text(shared_count.to_string()).font(COUNT).color(p.muted))),
             );
-        c = c.child(col().w_full().gap(12.0).mt(16.0).child(trigger).children(open.then(|| rows(shared, &format!("settings-project-shared-{kind}")))));
+        c = c.child(col().w_full().gap(12.0).mt(16.0).child(trigger).children(open.then_some(shared_card).flatten()));
+    }
+    if sources_failed {
+        c = c.child(load_failed::<H>(
+            p,
+            "project-settings-sources-failed",
+            t!("settings.extensions.sources.loadFailed"),
+            t!("common.retry"),
+            retry_project,
+        ));
     }
     c
 }
 
-fn row_of(p: &Pal, key: &str, glyph: &'static Icon, name: &str) -> El {
+fn plain_row(p: &Pal, key: &str, glyph: &'static Icon, name: &str) -> El {
     row()
         .key(key.to_owned())
         .w_full()
@@ -306,20 +474,13 @@ fn lsps<H: SettingsHost + 'static>(p: &Pal, read: Option<&Result<(bool, Vec<Lsp>
     match read {
         None => c = c.child(text(t!("common.loading")).font(BODY).color(p.muted)),
         Some(Err(())) => {
-            c = c.child(
-                row()
-                    .gap(8.0)
-                    .center_y()
-                    .child(text(t!("project.settings.extensions.lsp.loadFailed")).font(BODY).color(p.danger))
-                    .child(
-                        text(t!("project.settings.extensions.lsp.retry"))
-                            .key("project-lsp-retry")
-                            .role("button")
-                            .font(BODY)
-                            .color(p.text)
-                            .on_press_tx(|s: &mut H, tx: &mut Tx| retry_lsps(s, tx)),
-                    ),
-            );
+            c = c.child(load_failed::<H>(
+                p,
+                "project-lsp-failed",
+                t!("project.settings.extensions.lsp.loadFailed"),
+                t!("project.settings.extensions.lsp.retry"),
+                retry_project,
+            ));
         }
         Some(Ok(_)) if !empty => {
             let rows = servers

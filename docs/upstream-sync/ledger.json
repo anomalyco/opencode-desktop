@@ -2,28 +2,28 @@
   "generated_at": "2026-11-20",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "bf683129fa6671b9f2ff9c8de91dbc0e751c6346",
+  "upstream_head": "92d35f8e18959da9fe01bde6491d870da532d9ab",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "259837b2332e16b9b4a687bb757e0f7522eb9907",
-  "post_1114_commit_count": 319,
-  "post_1114_in_ledger": 106,
-  "post_1114_skipped": 213,
+  "rune_desktop_head": "4af26464e6b46296f871d79e52e81f4f8853c2b3",
+  "post_1114_commit_count": 328,
+  "post_1114_in_ledger": 113,
+  "post_1114_skipped": 215,
   "post_1114_skipped_breakdown": {
-    "test-only": 14,
+    "test-only": 15,
     "ci-bench-deps": 15,
     "docs-site-data": 36,
     "tui-only": 10,
     "cli-acp-only": 3,
-    "server-core-ai-codemode-internal": 135
+    "server-core-ai-codemode-internal": 136
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 122,
+  "total_ledger_rows": 129,
   "status_counts": {
-    "have it": 60,
+    "have it": 87,
     "partly": 9,
-    "missing": 39,
-    "not applicable": 13,
+    "missing": 18,
+    "not applicable": 14,
     "differs on purpose": 1
   },
   "rows": [
@@ -69,10 +69,11 @@
       "summary": "Add right-click session menus (Open Session, Copy Session Title, Copy Session ID) on composer @session mentions and transcript session links, style composer session mentions medium-weight, and display/copy the active session ID in the Debug bar.",
       "size": "M",
       "status": "partly",
-      "status_evidence": "Have Copy Session ID command (apps/desktop/src/shell/commands/mod.rs:144) and reply chip menu (apps/desktop/src/session/composer/mentions.rs:255); missing composer @session right-click menu, Open Session / Copy Session Title items in the reference menu, and Debug bar session ID copy cell (plugins/debug/).",
+      "status_evidence": "Debug bar SESSION cell + toast, 3-item SessionReferenceMenu + toasts, and transcript @Title/raw-ID session links landed in #257 (e3ceb010); composer @session pill right-click wires next now that Rune #1293 (El::on_pill_secondary) is pinned.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "WS-3"
+      "workstream": "WS-3",
+      "rune_pr": "#257"
     },
     {
       "id": "PRE-03",
@@ -91,11 +92,12 @@
       ],
       "summary": "Holding Cmd/Ctrl alone for 400 ms overlays shortcut numbers 1-9 onto session tab avatars to advertise Mod+1..9 tab switching.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "No tab-hints state machine or modifier-held number overlay exists in apps/desktop/src/shell/view/tab_strip.rs or sidebar/.",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #247 (cd81c09e): explicit tab_hints state machine in StateSlots (apps/desktop/src/shell/tabs/hints.rs), project-icon label slide, and draft shortcut face on 400 ms bare Mod hold.",
       "depends_on": "Rune modifier-only press/release delivery (verify Rune delivers bare Mod key down/up reliably on Windows/macOS/Linux)",
       "risks": "none",
-      "workstream": "WS-2"
+      "workstream": "none",
+      "rune_pr": "#247"
     },
     {
       "id": "PRE-04",
@@ -161,11 +163,12 @@
       ],
       "summary": "Show OpenCode Console-managed MCPs and skills in Settings > Extensions with manage/connect links to Console, a 'Replaces OpenCode Console' badge when overridden locally, and a temporary-override notice.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "features/settings/src/pages/extensions.rs only lists local MCPs/plugins/skills with static 'Manage in opencode.json' and docs link; zero Console extension linking or badges.",
+      "status": "partly",
+      "status_evidence": "Typed Console managed-gateway MCP/skill detection and link builders landed in #255 (62a214e2, crates/opencode-kit/src/model/console_extensions.rs + client/plugins.rs); Settings > Extensions UI remains in WS-7.",
       "depends_on": "Server extension-sources endpoint (gracefully omitted on older servers that do not expose it)",
       "risks": "none",
-      "workstream": "WS-7"
+      "workstream": "WS-7",
+      "rune_pr": "#255 (model/client)"
     },
     {
       "id": "PRE-07",
@@ -229,11 +232,12 @@
       ],
       "summary": "Move each server's Terminal shell picker into a submenu inside that server's row '...' menu in Settings > Servers rather than rendering a separate shell row beneath each server card.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "features/settings/src/pages/servers.rs:176-190 still renders an inline `shell_row` under the single-server Preferences section and inside every multi-server card, not inside the server row menu.",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #258 (d4f6db68): multi-server Settings > Servers moves Terminal shell picker into each reachable server's row '...' radio submenu while preserving single-server Preferences and Settings search reveal.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "WS-7"
+      "workstream": "none",
+      "rune_pr": "#258"
     },
     {
       "id": "PRE-10",
@@ -275,11 +279,12 @@
       ],
       "summary": "Render inline code inside a Markdown link as part of that link (inheriting link color/underline with no code-pill background) and avoid overwriting the link target with a file/URL code-link.",
       "size": "S",
-      "status": "partly",
-      "status_evidence": "Verified in Rune crates/rune-kit/src/markdown/links.rs:98 (already preserves outer link target over code-links) and render/inline.rs:53-77 (still suppresses link underline and paints s.code_bg + CodePad on inline code inside links; needs small Rune PR in WS-3).",
+      "status": "have it",
+      "status_evidence": "Fixed in Rune #1290 (430d3ae1, pinned in #265 4af26464): inline code inside Markdown links now inherits link colour/underline without pill background/padding while preserving the outer link target.",
       "depends_on": "Rune (`rune-kit::markdown`) if inline code inside links still draws pill background or overrides href",
       "risks": "none",
-      "workstream": "WS-3"
+      "workstream": "none",
+      "rune_pr": "#265 (Rune #1290)"
     },
     {
       "id": "PRE-12",
@@ -318,11 +323,12 @@
       ],
       "summary": "Give subagent ancestor breadcrumb buttons in the session header a 28 px rounded pill hover and focus-visible background matching the location trigger.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "apps/desktop/src/shell/view/header.rs:73-89 renders `parent-crumb` with only `.pl(4.0)` and `group_color(p.muted)` — no `.h(28.0)`, `.px(6.0)`, `.radius(6.0)`, or `.hover(p.hover)`.",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #257 (e3ceb010): subagent header breadcrumb hover/focus pill and separator insets.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "WS-3"
+      "workstream": "none",
+      "rune_pr": "#257"
     },
     {
       "id": "PRE-14",
@@ -416,11 +422,12 @@
       ],
       "summary": "Polish the Connect provider dialog sign-in flows with clickable header breadcrumbs, consistent footer actions, and updated OAuth/Console/form steps.",
       "size": "L",
-      "status": "partly",
-      "status_evidence": "Verified on dev: Event::Navigate(BackTarget) header breadcrumbs, Paste::Editing toggle, WaitingButton, and right-aligned actions on entry_form/browser/command/console_sign_in already exist in features/connect/src/{dialog.rs,view.rs}; remaining step-footer/method-row polish stays in WS-5.",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #253 (1b37bccd): unified right-aligned StepActions footers across failed/no-models/Claude/OAuth/form steps, 28 pt Console device code digits, 32 pt method rows with icons/chevrons, and OAuth paste toggle dividers.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "WS-5"
+      "workstream": "none",
+      "rune_pr": "#253"
     },
     {
       "id": "UP-003",
@@ -1687,11 +1694,12 @@
       ],
       "summary": "Focus the destination composer after switching session tabs via keyboard shortcut.",
       "size": "S",
-      "status": "partly",
-      "status_evidence": "apps/desktop/src/shell/tabs/actions.rs:210 focuses the composer via `auto_focus_composer` on draft tabs; verify shortcut switching between session tabs from another focused control matches #64418 + #64504.",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #247 (cd81c09e): keyboard-shortcut tab switching focuses destination composer (apps/desktop/src/session/meta/open.rs, shell/tabs/actions.rs).",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "WS-2"
+      "workstream": "none",
+      "rune_pr": "#247"
     },
     {
       "id": "UP-054",
@@ -1709,12 +1717,13 @@
       ],
       "summary": "Reload the Recent sessions page only on root `session.created` events instead of on run ends, archive/unarchive, or window focus.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "apps/desktop/src/workspace/search/recent_page.rs:93-101 still reloads on `session.archived`, `session.unarchived`, `session.execution.*`, and `reload_recent_on_focus` (tick.rs:188).",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #247 (cd81c09e): Recent page reloads only on root session.created events (apps/desktop/src/workspace/search/recent_page.rs, tick.rs, windows/open.rs).",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "WS-2",
-      "open_pr_note": "unmerged PR #235"
+      "workstream": "none",
+      "open_pr_note": "unmerged PR #235",
+      "rune_pr": "#247"
     },
     {
       "id": "UP-055",
@@ -1736,12 +1745,13 @@
       ],
       "summary": "Add Check for updates and per-plugin Update actions to Settings > Extensions > Plugins backed by `/api/plugin/check` and `/api/plugin/update`.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "features/settings/src/pages/extensions.rs only displays plugin names with no check/update machine or endpoints in crates/opencode-kit.",
+      "status": "partly",
+      "status_evidence": "Typed /api/plugin, /api/plugin/check, and /api/plugin/update client with 404/405/501 Unsupported fallback landed in #255 (62a214e2, crates/opencode-kit/src/{model/plugin.rs,client/plugins.rs}); Settings > Extensions UI and machine remain in WS-7.",
       "depends_on": "Server `/api/plugin/check` and `/api/plugin/update` (hide or gracefully disable on older servers); UP-058 (#64525), UP-059 (#64527)",
       "risks": "none",
       "workstream": "WS-7",
-      "open_pr_note": "unmerged PR #227"
+      "open_pr_note": "unmerged PR #227",
+      "rune_pr": "#255 (model/client)"
     },
     {
       "id": "UP-056",
@@ -1788,11 +1798,12 @@
       ],
       "summary": "Track the control that held focus when opening a session so shortcut-triggered tab switches hand focus to the composer without blurring first.",
       "size": "S",
-      "status": "partly",
-      "status_evidence": "Paired with #64418; verify opener-control focus handoff in apps/desktop/src/shell/tabs/actions.rs.",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #247 (cd81c09e): tracks opener control for shortcut-triggered tab switches without blurring first (apps/desktop/src/shell/tabs/actions.rs, session/meta/open.rs).",
       "depends_on": "UP-053 (#64418)",
       "risks": "none",
-      "workstream": "WS-2"
+      "workstream": "none",
+      "rune_pr": "#247"
     },
     {
       "id": "UP-058",
@@ -1811,12 +1822,13 @@
       ],
       "summary": "Retain outdated-plugin findings in Settings > Extensions until a settled plugin list agrees, preventing stale reload responses from hiding Update buttons.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Part of `plugin-update-machine.ts` missing alongside #64511.",
+      "status": "partly",
+      "status_evidence": "Client/SSE support landed in #255 (62a214e2); plugin-update-machine UI retention remains in WS-7.",
       "depends_on": "UP-055 (#64511)",
       "risks": "none",
       "workstream": "WS-7",
-      "open_pr_note": "unmerged PR #227"
+      "open_pr_note": "unmerged PR #227",
+      "rune_pr": "#255 (model/client)"
     },
     {
       "id": "UP-059",
@@ -1834,12 +1846,13 @@
       ],
       "summary": "Stop reading the removed `ready` flag in `plugin-update-machine.ts`.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Fold directly into WS-7's port of `plugin-update-machine.ts` so it never expects `ready`.",
+      "status": "partly",
+      "status_evidence": "PluginInfo parser in #255 (62a214e2, crates/opencode-kit/src/model/plugin.rs) never reads removed ready field; Settings > Extensions UI wiring remains in WS-7.",
       "depends_on": "UP-055 (#64511), UP-058 (#64525)",
       "risks": "none",
       "workstream": "WS-7",
-      "open_pr_note": "unmerged PR #227"
+      "open_pr_note": "unmerged PR #227",
+      "rune_pr": "#255 (model/client)"
     },
     {
       "id": "UP-060",
@@ -1974,12 +1987,13 @@
       ],
       "summary": "Route desktop command shortcuts (including composer Stop on Escape/Ctrl+G and Attach file on Mod+U) through `@opentui/keymap`.",
       "size": "M",
-      "status": "partly",
-      "status_evidence": "Rune already has a single typed Rust keymap (`crates/opencode-ui/src/keymap/mod.rs` + `apps/desktop/src/shell/input/shortcuts.rs`), so `@opentui/keymap` itself is TS-only; however WS-8 should verify `prompt.stop` (Escape/Ctrl+G) and `file.attach` (Mod+U) respect user rebinds consistently.",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #264 (77cc154c): prompt.stop (Esc + Ctrl+G, reading legacy session.stop without rewriting for downgrade compatibility) and file.attach registered in the unified keymap and palette.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "WS-8",
-      "open_pr_note": "unmerged PR #230"
+      "workstream": "none",
+      "open_pr_note": "unmerged PR #230",
+      "rune_pr": "#264"
     },
     {
       "id": "UP-065",
@@ -2018,12 +2032,13 @@
       ],
       "summary": "Suppress the Hex voice-dictation onboarding tip on touch-only (`hover: none`) devices.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "features/tips/src/queue.rs:70 checks `installed.hex == Some(false)` without checking `touch_controls()` / `hover_none()`.",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #255 (62a214e2): TipsHost passes touch-only state into queue::Poll and skips Hex tip and Hex install probe on touch devices (features/tips/src/queue.rs).",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "WS-7",
-      "open_pr_note": "unmerged PR #228"
+      "workstream": "none",
+      "open_pr_note": "unmerged PR #228",
+      "rune_pr": "#255"
     },
     {
       "id": "UP-067",
@@ -2074,12 +2089,13 @@
       ],
       "summary": "Let GUI plugins declare custom SVG icons (including animated SVGs paused under reduced motion) via `ctx.icons` so any surface draws them by name and cleans them up on unload.",
       "size": "L",
-      "status": "missing",
-      "status_evidence": "crates/opencode-plugin-spec and opencode-plugin-runtime only resolve built-in icons from `rune-theme-opencode`; plugins cannot declare their own SVG icons or animated SVG glyphs.",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #251 (51986c66, Contract 1.6, iterative hostile-SVG sanitizer, atomic replace_plugin, unload withdrawal, <plugin>:<name> lookup across all surfaces incl. dormant closed tabs) and #261 (b8cdd71b, plain-geometry boundary incl. clip-rule/fill-rule + dev diagnostics).",
       "depends_on": "Luau contract bump (1.5 -> 1.6 in `crates/opencode-plugin-spec/contract.json`); Rune SVG animation support or host-animated glyph primitive for `goal/active.svg` ripple",
       "risks": "Security: sanitize/restrict custom plugin SVG markup before rasterization so untrusted third-party plugins cannot abuse SVG parsing.",
-      "workstream": "WS-6",
-      "open_pr_note": "unmerged PR #227"
+      "workstream": "none",
+      "open_pr_note": "unmerged PR #227",
+      "rune_pr": "#251, #261"
     },
     {
       "id": "UP-069",
@@ -2103,12 +2119,13 @@
       ],
       "summary": "Redesign the Goal composer pill with custom active/paused/reached SVG icons, new labels ('Following goal', 'Goal paused', 'Goal reached'), objective-first popover with reason divider and red Clear / Dismiss actions, and tighter 8 px / 6 px icon-pill spacing.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "plugins/goal/init.luau:13-15 still uses legacy `outline-steer`/`circle-exclamation`/`circle-check` icons, old 'Goal'/'Goal met' labels, and host popover header.",
+      "status": "partly",
+      "status_evidence": "Goal pill redesign, icons/{active,paused,complete}.svg, labels, reason-aware popover, host popover heading removal, and shared 8px/6px leading-icon pill geometry landed in #256 (757edbae); live SMIL ripple animation on active.svg awaits Rune PR #1291 (static t=0 frame draws cleanly today).",
       "depends_on": "UP-068 (#64577) for plugin-declared SVG icons + Rune reduced-motion animation handling",
       "risks": "none",
       "workstream": "WS-6",
-      "open_pr_note": "unmerged PR #230 (static SVG icon)"
+      "open_pr_note": "unmerged PR #230 (static SVG icon)",
+      "rune_pr": "#256"
     },
     {
       "id": "UP-070",
@@ -2130,12 +2147,13 @@
       ],
       "summary": "Keep the assistant copy button visible at rest only on the latest response in the session; hide copy on earlier replies until hover or focus.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "rune-desktop #157 ported #64478 (copy always visible on every assistant reply) but lacks #64640's `keepCopyVisible` restriction to the latest reply.",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #257 (e3ceb010): latest-only assistant Copy button visible at rest with O(1) latest_copy_message computed once per timeline build.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "WS-3",
-      "open_pr_note": "unmerged PR #231"
+      "workstream": "none",
+      "open_pr_note": "unmerged PR #231",
+      "rune_pr": "#257"
     },
     {
       "id": "UP-071",
@@ -2181,12 +2199,13 @@
       ],
       "summary": "Add the Consolidated navigation experiment: Tabs vs List mode switcher, Tab position picker, compact project scope picker in Home's search bar, and Recent group-by/sort options.",
       "size": "XL",
-      "status": "missing",
-      "status_evidence": "features/settings/src/prefs.rs:82 has no `Organize::Consolidated` variant; features/settings/src/interface_mode.rs lacks Tabs/List + Tab position controls; Home lacks compact project scope popover.",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #254 (890d14cc): full Consolidated navigation experiment with pin groups (shell/tabs/pins.rs), top/side PinnedArea, RecentView group/sort + View all, Tabs/List navigation_switch snapshot/restore, inline Home search + scope picker, and updated Settings search.",
       "depends_on": "UP-074 (#64727)",
       "risks": "Touches persisted layout/navigation preferences (`sidebarOrganize`, `tabLayout`, group-by/sort preferences).",
-      "workstream": "WS-2",
-      "open_pr_note": "unmerged PR #235 (partial)"
+      "workstream": "none",
+      "open_pr_note": "unmerged PR #235 (partial)",
+      "rune_pr": "#254"
     },
     {
       "id": "UP-073",
@@ -2234,12 +2253,13 @@
       ],
       "summary": "Retire the Projects sidebar organization mode and migrate saved `projects` settings to `consolidated` (in local/dev) or `customize` (elsewhere).",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "features/settings/src/prefs.rs:82-84, apps/desktop/src/shell/nav/route.rs:14, and sidebar.rs:234 still expose and render `Organize::Projects`.",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #254 (890d14cc): retired Projects sidebar mode (removed sidebar_organized.rs) with lossless migration to Consolidated/Customize and verified 2-window downgrade compatibility.",
       "depends_on": "UP-072 (#64668)",
       "risks": "Persisted setting migration (`sidebarOrganize: \"projects\"` -> `consolidated` or `customize`); must be lossless and not lose pinned/muted project sessions.",
-      "workstream": "WS-2",
-      "open_pr_note": "unmerged PR #235"
+      "workstream": "none",
+      "open_pr_note": "unmerged PR #235",
+      "rune_pr": "#254"
     },
     {
       "id": "UP-075",
@@ -2283,12 +2303,13 @@
       ],
       "summary": "Display finished background Code Mode script notices in the timeline with the same format, icon, and outcome styling as finished background shells.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "crates/session-view/src/activity/events.rs and turns/ do not handle `metadata.source == \"codemode\"` synthetic notices yet.",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #252 (2f05b91a): finished/failed/cancelled Code Mode script notices in crates/session-view/src/turn_errors.rs and timelineNoticeRequired in crates/opencode-runtime/src/detail.rs.",
       "depends_on": "UP-050 (#64343), UP-082 (#64790)",
       "risks": "none",
-      "workstream": "WS-4",
-      "open_pr_note": "unmerged PR #229"
+      "workstream": "none",
+      "open_pr_note": "unmerged PR #229",
+      "rune_pr": "#252"
     },
     {
       "id": "UP-077",
@@ -2339,12 +2360,13 @@
       ],
       "summary": "Add Previous match and Next match chevron buttons to the session conversation search bar and widen the bar from 200 px to 240 px.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "features/find/src/bar.rs has no Previous/Next chevron buttons (only count and close) and still uses 200 pt width.",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #257 (e3ceb010): 240 pt Find bar with Previous/Next match chevron buttons (0.4 disabled opacity on 0 matches) preserving focus in find-input.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "WS-3",
-      "open_pr_note": "unmerged PR #231"
+      "workstream": "none",
+      "open_pr_note": "unmerged PR #231",
+      "rune_pr": "#257"
     },
     {
       "id": "UP-079",
@@ -2390,12 +2412,13 @@
       ],
       "summary": "Resize the Connect/Integrations dialog from Normal (480 px) to Large (720x600) to match palette width and align Manage models and search-list padding.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "features/connect/src/view.rs:199 still renders `DialogSize::Normal` with `Fit::Anchored`.",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #253 (1b37bccd): narrowed DialogSize::Large to 680x600, resized Connect to Large, aligned .search-dialog headers to 14/16/8 with 13 pt descriptions, and updated Manage models search spacing.",
       "depends_on": "UP-002 (#63829)",
       "risks": "none",
-      "workstream": "WS-5",
-      "open_pr_note": "unmerged PR #228"
+      "workstream": "none",
+      "open_pr_note": "unmerged PR #228",
+      "rune_pr": "#253"
     },
     {
       "id": "UP-081",
@@ -2414,12 +2437,13 @@
       ],
       "summary": "Move the 'Connect a provider' hint out of the new-session view into a shared component and display it on Home when no paid provider is connected.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "apps/desktop/src/shell/view/home.rs has no `ProviderTip` banner.",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #254 (890d14cc): StateSlots-backed Home ProviderTip connect hint (apps/desktop/src/shell/view/home/tip.rs) respecting s.persists() and waiting for integrations.",
       "depends_on": "UP-080 (#64882) / UP-084 (#64927) (opens Connect dialog)",
       "risks": "none",
-      "workstream": "WS-2",
-      "open_pr_note": "unmerged PR #235"
+      "workstream": "none",
+      "open_pr_note": "unmerged PR #235",
+      "rune_pr": "#254"
     },
     {
       "id": "UP-082",
@@ -2472,12 +2496,13 @@
       ],
       "summary": "Keep each execution run's final assistant reply outside the collapsed activity group when a session wakes repeatedly (e.g., from background jobs or watches).",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "crates/session-view/src/turns/mod.rs:326 computes `commentary` across an entire user turn without resetting at `Idle` boundaries between woken runs.",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #257 (e3ceb010): Entry::Idle run splitting and Assistant::text_phases native.phase (commentary/final_answer) precedence with zero preview.rs wire break.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "WS-3",
-      "open_pr_note": "unmerged PR #231"
+      "workstream": "none",
+      "open_pr_note": "unmerged PR #231",
+      "rune_pr": "#257"
     },
     {
       "id": "UP-084",
@@ -2495,12 +2520,13 @@
       ],
       "summary": "Put OpenCode Go ahead of OpenCode Console in Connect's Popular list, show provider taglines/notes, and refine light/dark surfaces on the free-model picker.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "features/connect/src/view.rs:27 still lists `[\"opencode\", \"opencode-go\", ...]` without provider taglines/notes.",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #253 (1b37bccd): reordered Connect Popular with opencode-go first + taglines (omitted when disabled) and added DialogSelectModelUnpaid (features/connect/src/unpaid.rs).",
       "depends_on": "UP-002 (#63829), UP-080 (#64882)",
       "risks": "none",
-      "workstream": "WS-5",
-      "open_pr_note": "unmerged PR #228 (Connect part only; unpaid picker skipped)"
+      "workstream": "none",
+      "open_pr_note": "unmerged PR #228 (Connect part only; unpaid picker skipped)",
+      "rune_pr": "#253"
     },
     {
       "id": "UP-085",
@@ -2545,11 +2571,12 @@
       ],
       "summary": "Show a workspace-admin variant of the ChatGPT usage limit dialog with a copyable request message when a ChatGPT Business workspace hits its limit.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "No `workspaceDescription` or ChatGPT Business usage-limit dialog exists in features/connect/ or apps/desktop/.",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #253 (1b37bccd): added DialogChatGPTUsageLimit (features/connect/src/usage_limit.rs) with 24 h persisted throttle, personal fallback on older servers, and Business workspace-admin copyable request.",
       "depends_on": "Newer OpenCode server emitting workspace usage-limit error metadata",
       "risks": "none",
-      "workstream": "WS-5"
+      "workstream": "none",
+      "rune_pr": "#253"
     },
     {
       "id": "UP-087",
@@ -2599,12 +2626,13 @@
       ],
       "summary": "Unify the keyboard focus ring token/rendering across all interactive controls, add missing `:focus-visible` states app-wide, and install Focus Rescue so removing a focused item moves focus to a neighbor.",
       "size": "XL",
-      "status": "missing",
-      "status_evidence": "No unified focus-rescue scope mechanism exists in Rune/apps/desktop and several controls across Home, panels, menus, and dialogs still lack consistent focus-visible rings.",
+      "status": "partly",
+      "status_evidence": "App-wide unified 2 pt focus ring (opencode_ui::focus::FocusExt), dark blue-400 border-focus across all themes (#262 e6fe564c), and Rune kit control rings (#1296 pinned in #265) are on dev; Settings layout cards, keyboard-only within-rings, focus_scope rescue, and overlay focus remain in WS-8.",
       "depends_on": "Rune focus-rescue / scope-based fallback focus API",
       "risks": "Must preserve Rune's existing accessibility tree, screen-reader announcements, and zero-allocation idle path.",
       "workstream": "WS-8",
-      "open_pr_note": "unmerged PR #228 (partial; rune-kit offsets pending)"
+      "open_pr_note": "unmerged PR #228 (partial; rune-kit offsets pending)",
+      "rune_pr": "#262, #265 (Rune #1296)"
     },
     {
       "id": "UP-089",
@@ -2626,12 +2654,13 @@
       ],
       "summary": "Add a 'Keep side panel open across sessions' toggle in Settings > Preferences so the side panel open/closed state can be shared across tabs instead of per session.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "No `shared_side_panel` preference in features/settings or shared-open mode in features/panels.",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #247 (cd81c09e): general.sharedSidePanel setting and sharedOpen panel state in features/settings, features/panels, first_screen.rs, and dormant.rs without mutating per-session visibility.",
       "depends_on": "none",
       "risks": "Touches persisted Settings (`sharedSidePanel`) and panel visibility restoration (`features/restore`).",
-      "workstream": "WS-2",
-      "open_pr_note": "unmerged PR #235"
+      "workstream": "none",
+      "open_pr_note": "unmerged PR #235",
+      "rune_pr": "#247"
     },
     {
       "id": "UP-090",
@@ -2673,11 +2702,12 @@
       ],
       "summary": "Add dynamic `tailExtra` spacing (`{s: 0, m: 4, l: 16}`) to the timeline bottom tail so the Working status line never collides with the activity pill.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "crates/session-view/src/timeline/mod.rs:423,469 uses fixed `TAIL = 92.0` (104.0 touch) with no dynamic lane-gap addition.",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #257 (e3ceb010): dynamic tail_extra ({s: 0, m: 4, l: 16}) clearance above the activity pill in timeline/rhythm.rs and timeline/mod.rs.",
       "depends_on": "none",
       "risks": "Must keep whole-point timeline row stacking and bottom-pin anchoring intact.",
-      "workstream": "WS-3"
+      "workstream": "none",
+      "rune_pr": "#257"
     },
     {
       "id": "UP-092",
@@ -2851,12 +2881,12 @@
       ],
       "summary": "Wrap server background-work completion notices (shell, subagent, codemode, image) in one unified `<background-result kind=\"...\" ...>` XML block and parse it in timeline/session-ui.",
       "size": "S",
-      "status": "partly",
-      "status_evidence": "parse_background_result accepting unified <background-result kind=\"...\"> and legacy <shell>/<subagent>/<codemode>/<image>/<video> blocks landed in #242 (e6a530c4, crates/opencode-kit/src/model/background_result.rs); wiring into notice.rs and session-view remains in WS-4 Batch 3.",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #242 (e6a530c4, parse_background_result) and #252 (2f05b91a, wired into crates/opencode-kit/src/model/notice.rs, preview.rs tags 9/10, and session-view) accepting unified <background-result kind=\"...\"> and legacy blocks.",
       "depends_on": "Newer OpenCode server (must keep accepting legacy `<shell>`/`<subagent>` format for older servers)",
       "risks": "Backward compatibility with older OpenCode servers.",
-      "workstream": "WS-4",
-      "rune_pr": "#242 (parser)"
+      "workstream": "none",
+      "rune_pr": "#242, #252"
     },
     {
       "id": "UP-098",
@@ -2874,11 +2904,12 @@
       ],
       "summary": "Remove the System Prompt section (and unused systemPrompt.title key) from the Context tab because it displayed the latest instruction update instead of the actual system prompt.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Verified on dev: plugins/context/tab.luau:261-276,544-555 still renders the latest system message under systemPrompt.title.",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #263 (8bc42fb4): removed promptOf, systemPrompt, and the System Prompt section from plugins/context/tab.luau and dropped unused systemPrompt.title from all 63 plugins/context/locales/*.json files.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "WS-6"
+      "workstream": "none",
+      "rune_pr": "#263"
     },
     {
       "id": "UP-099",
@@ -2989,11 +3020,12 @@
       ],
       "summary": "Show an inset keyboard focus-visible ring on plugin titlebar item buttons instead of suppressing focus outline.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Plugin titlebar item buttons in apps/desktop/src/plugin_host/ui/ need the unified inset focus-visible ring (covered with WS-8 focus ring unification).",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #262 (e6fe564c): inset keyboard focus ring applied to plugin titlebar item buttons via opencode_ui::focus::FocusExt.",
       "depends_on": "UP-088 (#64909)",
       "risks": "none",
-      "workstream": "WS-8"
+      "workstream": "none",
+      "rune_pr": "#262"
     },
     {
       "id": "UP-104",
@@ -3087,7 +3119,170 @@
       "status_evidence": "Verified on dev: Rune browser pane does not yet import browser history or autocomplete address-bar entries from browsing history.",
       "depends_on": "UP-095 (#63002 browser profile & importer)",
       "risks": "Red flag: gui-plugins/browser; history import touches local browser profile databases and must store history via opencode-storage with site/clear-data controls.",
+      "workstream": "BROWSER-UI"
+    },
+    {
+      "id": "UP-107",
+      "window": "post-1120",
+      "pr": 64597,
+      "sha": "a96327d3e8",
+      "title": "feat(app): support building the web app under a base path",
+      "merged": "2026-11-20",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/vite.config.ts",
+        "packages/app/src/runtime/platform/base-path-router.tsx",
+        "packages/app/src/runtime/platform/base-path.ts"
+      ],
+      "summary": "Allow building the SolidJS Vite web app under a custom URL base path.",
+      "size": "M",
+      "status": "not applicable",
+      "status_evidence": "Vite/SolidJS web build configuration; Rune's browser build uses apps/web/src/browser_history.rs and scripts/web.ps1 static bundles with relative asset paths.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "none"
+    },
+    {
+      "id": "UP-108",
+      "window": "post-1120",
+      "pr": 65095,
+      "sha": "d6b7756d17",
+      "title": "fix(browser): say sign-ins, not cookies, in the import and data texts",
+      "merged": "2026-11-20",
+      "packages": [
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/browser/i18n/en.ts",
+        "packages/gui-plugins/src/browser/jobs.ts",
+        "packages/gui-plugins/src/browser/renderer.tsx"
+      ],
+      "summary": "Use 'sign-ins' wording instead of 'cookies' across browser import and site-data UI copy.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Tracked with Settings > Browser and browser chrome copy in BROWSER-UI.",
+      "depends_on": "UP-095 (#63002)",
+      "risks": "none",
+      "workstream": "BROWSER-UI"
+    },
+    {
+      "id": "UP-109",
+      "window": "post-1120",
+      "pr": 65094,
+      "sha": "98b11bc92d",
+      "title": "fix(browser): show each site's icon in its tab",
+      "merged": "2026-11-20",
+      "packages": [
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/browser/icon.ts",
+        "packages/gui-plugins/src/browser/icon-image.ts",
+        "packages/gui-plugins/src/browser/icon-samples.ts"
+      ],
+      "summary": "Fetch/normalize site favicons and display each page's icon in its browser panel tab.",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "Browser tabs currently render a generic globe icon; requires CEF DisplayHandler::on_favicon_urlchange (WS-1) + safe icon decoding and tab icon rendering (BROWSER-UI).",
+      "depends_on": "UP-095 (#63002)",
+      "risks": "Red flag: gui-plugins/browser; favicon image decode must enforce size/format bounds.",
       "workstream": "WS-1"
+    },
+    {
+      "id": "UP-110",
+      "window": "post-1120",
+      "pr": 65096,
+      "sha": "2c4352b415",
+      "title": "fix(browser): log why a page's process ended",
+      "merged": "2026-11-20",
+      "packages": [
+        "desktop",
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/browser/page-log.ts",
+        "packages/gui-plugins/src/browser/errors.ts",
+        "packages/gui-plugins/src/browser/chromium.ts",
+        "packages/gui-plugins/src/browser/pane.ts"
+      ],
+      "summary": "Record structured diagnostics when a browser page renderer process terminates unexpectedly and surface the reason in error handling.",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "CEF RequestHandler::on_render_process_terminated logs minimal info without structured page-log diagnostics.",
+      "depends_on": "UP-095 (#63002)",
+      "risks": "Red flag: gui-plugins/browser; diagnostics must not leak page URLs or secrets to global logs.",
+      "workstream": "WS-1"
+    },
+    {
+      "id": "UP-111",
+      "window": "post-1120",
+      "pr": 65101,
+      "sha": "12c4cfa3e1",
+      "title": "fix(browser): shorten the browser settings texts",
+      "merged": "2026-11-20",
+      "packages": [
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/browser/i18n/en.ts",
+        "packages/gui-plugins/src/browser/settings.tsx",
+        "packages/gui-plugins/src/browser/renderer.tsx"
+      ],
+      "summary": "Tighten and shorten Settings > Browser row descriptions and labels.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Tracked with Settings > Browser page in BROWSER-UI.",
+      "depends_on": "UP-095 (#63002)",
+      "risks": "none",
+      "workstream": "BROWSER-UI"
+    },
+    {
+      "id": "UP-112",
+      "window": "post-1120",
+      "pr": 65091,
+      "sha": "5fe4c38b96",
+      "title": "fix(browser): open a middle-clicked link in a new tab",
+      "merged": "2026-11-20",
+      "packages": [
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/browser/chromium.ts",
+        "packages/gui-plugins/src/browser/window-open.ts",
+        "packages/gui-plugins/src/browser/pane-machine.ts",
+        "packages/gui-plugins/src/browser/pane.ts"
+      ],
+      "summary": "Open middle-clicked links inside the embedded browser pane as a new managed browser tab subject to URL policy.",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "Requires CEF LifeSpanHandler::on_before_popup / middle-click disposition routing into a managed browser tab (WS-1).",
+      "depends_on": "UP-095 (#63002)",
+      "risks": "Red flag: gui-plugins/browser; new-tab opens must pass browser-policy checks and inherit agent-tab isolation.",
+      "workstream": "WS-1"
+    },
+    {
+      "id": "UP-113",
+      "window": "post-1120",
+      "pr": 65115,
+      "sha": "92d35f8e18",
+      "title": "fix(session-ui): keep execute details padding visible when code and output are long",
+      "merged": "2026-11-20",
+      "packages": [
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/components/message-part.css",
+        "packages/session-ui/src/tools/tool-renderer.tsx"
+      ],
+      "summary": "Keep bottom padding and both Code and Output sections accessible inside the Execute details dialog when code and output are long.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "Verified on dev: crates/session-view/src/tools/details.rs:108 wraps Execute Code and Output sections in scroller(\"body\") with bottom padding so both sections and padding remain reachable when long.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "none"
     }
   ]
 }

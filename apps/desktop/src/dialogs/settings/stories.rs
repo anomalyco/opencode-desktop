@@ -83,6 +83,24 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
     }),
     ("settings-models", |s| on(s, Page::Models)),
     ("settings-extensions", |s| on(s, Page::Extensions)),
+    // Extensions > Plugins matching official `app-dialog-settings--plugins` story (#64511).
+    ("settings-extensions-plugins", |s| {
+        use opencode_kit::model::{PluginFeatures, PluginInfo, PluginSource, PluginState};
+        on(s, Page::Extensions);
+        let sp = s.kernel.slots.get_mut(&super::SETTINGS_PAGES);
+        sp.tab = super::pages::ExtensionsTab::Plugins;
+        let pkg = |id: &str, target: &str, outdated: bool| PluginInfo {
+            id: Some(id.into()),
+            source: PluginSource::Package { target: target.into(), version: None, outdated, updating: false },
+            features: PluginFeatures { server: true, ..Default::default() },
+            state: PluginState::Active,
+        };
+        sp.extensions.plugins = Some(Ok(vec![
+            pkg("wakatime", "opencode-wakatime@latest", true),
+            pkg("notifier", "opencode-notifier@latest", true),
+            pkg("review", "opencode-review@latest", false),
+        ]));
+    }),
     ("settings-projects", |s| on(s, Page::Projects)),
     ("settings-worktrees", |s| on(s, Page::Worktrees)),
     ("settings-preferences", |s| on(s, Page::General)),
