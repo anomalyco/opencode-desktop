@@ -152,6 +152,8 @@ The server's model catalog. Halves: window, app.
 | Member | Type | Description |
 |---|---|---|
 | `:Get` | `(providerId: string, modelId: string) -> ModelInfo` | How the catalog names a model. |
+| `:List` | `() -> { ModelEntry }` | Every model currently in the host's catalog. Since 1.5. |
+| `:SetBadges` | `(badges: { ModelBadge }) -> ()` | Replaces this plugin's inline model-picker badges. Pass an empty list to clear them. Window halves only. Since 1.5. |
 | `.Changed` | `Signal<()>` | Fires when the catalog changes. |
 
 ### Server
@@ -433,6 +435,8 @@ The active session's or draft's composer. Halves: window.
 | `:Active` | `() -> boolean` | Whether the current screen has a composer (a draft or a root session). Since 1.5. |
 | `:Directory` | `() -> string` | The composer's workspace folder (the active session's, or the draft's). Since 1.5. |
 | `:Model` | `() -> ComposerModel?` | The model currently selected in the composer, when listed in the model catalog. Since 1.5. |
+| `:Picker` | `() -> ComposerPicker?` | Which composer picker overlay is currently open, or nil when none is open. Since 1.5. |
+| `.PickerChanged` | `Signal<ComposerPicker?>` | Fires when a composer picker opens or closes, with the open picker kind or nil. Since 1.5. |
 
 ### Office
 
@@ -875,6 +879,17 @@ How a `ui.frame` container arranges its children.
 | `"col"` | A vertical stack. The default. |
 | `"row"` | A horizontal stack. |
 | `"box"` | No axis: children stack on top of each other. |
+
+### ComposerPicker
+
+Which picker overlay the composer currently has open.
+
+| Value | Meaning |
+|---|---|
+| `"agent"` | The agent picker. |
+| `"model"` | The model picker. |
+| `"effort"` | The model effort/variant picker. |
+| `"project"` | The draft project picker. |
 
 ### FontWeight
 
@@ -2140,6 +2155,31 @@ A model as the server's catalog names it.
 | `contextLimit` | `number?` | Its context window in tokens. |
 | `outputLimit` | `number?` | Its output limit in tokens. |
 | `paid` | `boolean?` | Any of its token prices is above zero. |
+
+### ModelEntry
+
+An entry in the host's model catalog (`Models:List`).
+
+| Field | Type | Description |
+|---|---|---|
+| `providerId` | `string` | The provider id. |
+| `modelId` | `string` | The model id. |
+| `name` | `string` | Its display name. |
+| `providerName` | `string?` | The provider's display name. |
+| `integration` | `string?` | The provider's integration id, when connected through an integration. |
+| `free` | `boolean` | Whether the model is marked free. |
+| `paid` | `boolean` | Whether any of its token prices is above zero. |
+
+### ModelBadge
+
+A short inline annotation a plugin attaches to a model row in the model picker (`Models:SetBadges`).
+
+| Field | Type | Description |
+|---|---|---|
+| `providerId` | `string` | The provider id. |
+| `modelId` | `string` | The model id. |
+| `label` | `string` | Short text shown beside the model name and in its effort flyout. |
+| `critical` | `boolean?` | Emphasizes the annotation in danger ink (for example, a reached limit or blocked model). |
 
 ### ComposerModel
 

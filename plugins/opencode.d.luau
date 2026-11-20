@@ -123,6 +123,9 @@ export type UiJustify = "start" | "center" | "end" | "between"
 --- How a `ui.frame` container arranges its children.
 export type UiDirection = "col" | "row" | "box"
 
+--- Which picker overlay the composer currently has open.
+export type ComposerPicker = "agent" | "model" | "effort" | "project"
+
 --- A text weight.
 export type FontWeight = "regular" | "medium" | "semibold" | "bold"
 
@@ -3435,6 +3438,36 @@ export type ModelInfo = {
     paid: boolean?,
 }
 
+--- An entry in the host's model catalog (`Models:List`).
+export type ModelEntry = {
+    --- The provider id.
+    providerId: string,
+    --- The model id.
+    modelId: string,
+    --- Its display name.
+    name: string,
+    --- The provider's display name.
+    providerName: string?,
+    --- The provider's integration id, when connected through an integration.
+    integration: string?,
+    --- Whether the model is marked free.
+    free: boolean,
+    --- Whether any of its token prices is above zero.
+    paid: boolean,
+}
+
+--- A short inline annotation a plugin attaches to a model row in the model picker (`Models:SetBadges`).
+export type ModelBadge = {
+    --- The provider id.
+    providerId: string,
+    --- The model id.
+    modelId: string,
+    --- Short text shown beside the model name and in its effort flyout.
+    label: string,
+    --- Emphasizes the annotation in danger ink (for example, a reached limit or blocked model).
+    critical: boolean?,
+}
+
 --- The model selected in the composer.
 export type ComposerModel = {
     --- The provider id.
@@ -4991,6 +5024,10 @@ export type SessionsService = {
 export type ModelsService = {
     --- How the catalog names a model.
     Get: (self: ModelsService, providerId: string, modelId: string) -> ModelInfo,
+    --- Every model currently in the host's catalog.
+    List: (self: ModelsService) -> { ModelEntry },
+    --- Replaces this plugin's inline model-picker badges. Pass an empty list to clear them. Window halves only.
+    SetBadges: (self: ModelsService, badges: { ModelBadge }) -> (),
     --- Fires when the catalog changes.
     Changed: Signal<()>,
 }
@@ -5323,6 +5360,10 @@ export type ComposerService = {
     Directory: (self: ComposerService) -> string,
     --- The model currently selected in the composer, when listed in the model catalog.
     Model: (self: ComposerService) -> ComposerModel?,
+    --- Which composer picker overlay is currently open, or nil when none is open.
+    Picker: (self: ComposerService) -> ComposerPicker?,
+    --- Fires when a composer picker opens or closes, with the open picker kind or nil.
+    PickerChanged: Signal<ComposerPicker?>,
 }
 
 --- Office documents laid out and drawn by the host, each on a thread of its own. The window half only: `ctx:GetService("Office")`.

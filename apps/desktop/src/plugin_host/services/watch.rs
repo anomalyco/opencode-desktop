@@ -113,7 +113,11 @@ fn observe(app: &App, plugin: &str, name: &str) -> Option<(u64, Data)> {
             let id = app.active_session_id();
             Some((hash((id, id.is_some_and(|id| app.session(id).is_some()))), id.map_or(Data::Nil, |id| session_data(app, id))))
         }
-        "Models.Changed" => Some((hash((app.composer_ext.pickers.models.len(), app.composer_ext.pickers.limits.len(), app.composer_ext.pickers.paid.len())), Data::Nil)),
+        "Models.Changed" => Some((super::session::models_version(app), Data::Nil)),
+        "Composer.PickerChanged" => {
+            let kind = app.composer_ext.pickers.open().map(crate::pickers::Kind::key);
+            Some((hash(kind), kind.map_or(Data::Nil, |k| Data::String(k.to_owned()))))
+        }
         "Theme.Changed" => {
             let p = crate::palette::pal(app.plugins.dark.get());
             Some((hash((p.theme, p.generation, p.dark)), map([("scheme", Data::String(if p.dark { "dark" } else { "light" }.into()))])))

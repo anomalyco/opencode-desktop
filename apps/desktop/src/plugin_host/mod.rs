@@ -170,6 +170,9 @@ pub struct PluginHost {
     boot: runtime::boot::Boot,
     /// The built-ins waiting for their first use, and their records.
     pub dormant: dormant::Dormant,
+    /// Per-plugin model-picker row annotations (`Models:SetBadges`), keyed by plugin id and tagged
+    /// with the VM id that set them so reload/stop drops stale entries.
+    pub(crate) model_badges: BTreeMap<String, (u64, HashMap<String, (String, bool)>)>,
     pub overlay: Overlay,
     pub dialog: Option<OpenDialog>,
     /// The titlebar item the pointer is over, whose pill opens to show its label.
@@ -227,6 +230,39 @@ impl PluginHost {
         self.dialog.is_some()
     }
 
+    /// The short inline annotation any plugin attached to model `key` (`"{providerId}:{modelId}"`).
+    /// Prefers a critical badge when multiple plugins annotate the same model.
+    pub fn model_badge(&self, key: &str) -> Option<(String, bool)> {
+        let mut fallback: Option<&(String, bool)> = None;
+        for (_, badges) in self.model_badges.values() {
+            if let Some(entry) = badges.get(key) {
+                if entry.1 {
+                    return Some(entry.clone());
+                }
+                if fallback.is_none() {
+                    fallback = Some(entry);
+                }
+            }
+        }
+        fallback.cloned()
+    }
+
+    /// Replaces `plugin`'s inline model-picker badges (an empty map clears them).
+    pub fn set_model_badges(&mut self, plugin: &str, vm: u64, badges: HashMap<String, (String, bool)>) {
+        if badges.is_empty() {
+            self.model_badges.remove(plugin);
+        } else {
+            self.model_badges.insert(plugin.to_owned(), (vm, badges));
+        }
+    }
+
+    /// Drops `plugin`'s model badges unless they were written by `keep_vm`.
+    pub fn clear_model_badges(&mut self, plugin: &str, keep_vm: Option<u64>) {
+        if self.model_badges.get(plugin).is_some_and(|(vm, _)| Some(*vm) != keep_vm) {
+            self.model_badges.remove(plugin);
+        }
+    }
+
     pub fn half(&self, id: &str) -> Option<&Rc<Half>> {
         self.list.iter().find(|p| &*p.half.id == id).map(|p| &p.half)
     }
@@ -255,6 +291,35 @@ impl PluginHost {
             render_us: m.vm_time.as_secs_f64() * 1e6 / m.vm_calls.max(1) as f64,
             memo_hit_rate: self.hits.get() as f64 / (self.hits.get() as f64 + calls),
         })
+    }
+}
+
+/// The composer picker `kind` is opening: wakes or adopts any built-in listening to
+/// `Composer.PickerChanged` and fires it synchronously in this same turn so plugin-provided
+/// picker annotations and refreshes run with zero frame delay.
+pub fn notify_picker_opening(app: &mut App, kind: crate::pickers::Kind, tx: &mut Tx) {
+    use std::hash::{Hash, Hasher};
+    const SIGNAL: &str = "Composer.PickerChanged";
+    runtime::boot::doze_owed(app);
+    runtime::boot::adopt_later_signal(app, SIGNAL);
+    dormant::wake_signal(app, SIGNAL);
+    let key = kind.key();
+    let payload = Data::String(key.to_owned());
+    let mut h = std::hash::DefaultHasher::new();
+    Some(key).hash(&mut h);
+    let seen_v = h.finish();
+    let mut fired = false;
+    for i in 0..app.plugins.list.len() {
+        let Some(vm) = app.plugins.list[i].script().and_then(Script::vm_id) else { continue };
+        let has_signal = app.plugins.list[i].half.signals.borrow().contains_key(&(vm, SIGNAL.to_owned()));
+        if !has_signal {
+            continue;
+        }
+        app.plugins.list[i].half.seen.borrow_mut().insert(SIGNAL.to_owned(), seen_v);
+        fired |= fire_named(app, i, SIGNAL, payload.clone());
+    }
+    if fired {
+        requests::carry_out(app, tx);
     }
 }
 

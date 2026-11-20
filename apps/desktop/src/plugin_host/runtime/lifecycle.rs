@@ -97,6 +97,7 @@ fn start_loaded(app: &mut App, i: usize) {
     let adopted = half.adopt(vm);
     services::reap(&half, vm);
     services::store::withdraw_owner(&id, plugin::Kind::Window, vm);
+    app.plugins.clear_model_badges(&id, vm);
     let event = match (script.error(), adopted) {
         (None, true) => LifeEvent::Started(script),
         (error, _) => {
@@ -125,6 +126,7 @@ fn stop(app: &mut App, i: usize, script: Script) {
     *half.contribs.borrow_mut() = plugin::Contribs::default();
     services::reap(&half, None);
     services::store::withdraw_owner(&half.id, plugin::Kind::Window, None);
+    app.plugins.clear_model_badges(&half.id, None);
     app.plugins.shared.images.borrow_mut().forget(&half.id);
     app.plugins.overlay.close_for(&half.id);
 }
@@ -189,6 +191,7 @@ pub fn reload(app: &mut App, i: usize, prepared: Option<hot::Prepared>) {
             half.adopt(vm);
             services::reap(&half, vm);
             services::store::withdraw_owner(&id, plugin::Kind::Window, vm);
+            app.plugins.clear_model_badges(&id, vm);
             console::reloaded(&id, report);
             Ok(())
         }

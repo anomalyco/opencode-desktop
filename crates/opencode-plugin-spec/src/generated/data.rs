@@ -211,6 +211,44 @@ pub struct ModelInfo {
 }
 impl_record!(ModelInfo, ["providerName", "modelName", "contextLimit", "outputLimit", "paid"], [], []);
 
+/// An entry in the host's model catalog (`Models:List`).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct ModelEntry {
+    /// The provider id.
+    pub provider_id: String,
+    /// The model id.
+    pub model_id: String,
+    /// Its display name.
+    pub name: String,
+    /// The provider's display name.
+    pub provider_name: Option<String>,
+    /// The provider's integration id, when connected through an integration.
+    pub integration: Option<String>,
+    /// Whether the model is marked free.
+    pub free: bool,
+    /// Whether any of its token prices is above zero.
+    pub paid: bool,
+}
+impl_record!(ModelEntry, ["providerId", "modelId", "name", "providerName", "integration", "free", "paid"], [], []);
+
+/// A short inline annotation a plugin attaches to a model row in the model picker (`Models:SetBadges`).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct ModelBadge {
+    /// The provider id.
+    pub provider_id: String,
+    /// The model id.
+    pub model_id: String,
+    /// Short text shown beside the model name and in its effort flyout.
+    pub label: String,
+    /// Emphasizes the annotation in danger ink (for example, a reached limit or blocked model).
+    pub critical: Option<bool>,
+}
+impl_record!(ModelBadge, ["providerId", "modelId", "label", "critical"], [], []);
+
 /// The model selected in the composer.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

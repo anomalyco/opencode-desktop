@@ -184,6 +184,12 @@
       { "value": "row", "doc": "A horizontal stack." },
       { "value": "box", "doc": "No axis: children stack on top of each other." }
     ] },
+    { "name": "ComposerPicker", "rust": true, "doc": "Which picker overlay the composer currently has open.", "values": [
+      { "value": "agent", "doc": "The agent picker." },
+      { "value": "model", "doc": "The model picker." },
+      { "value": "effort", "doc": "The model effort/variant picker." },
+      { "value": "project", "doc": "The draft project picker." }
+    ] },
     { "name": "FontWeight", "rust": true, "doc": "A text weight.", "values": [
       { "value": "regular", "doc": "400." },
       { "value": "medium", "doc": "500." },
@@ -875,6 +881,21 @@
       { "name": "contextLimit", "type": "integer?", "doc": "Its context window in tokens." },
       { "name": "outputLimit", "type": "integer?", "doc": "Its output limit in tokens." },
       { "name": "paid", "type": "boolean?", "doc": "Any of its token prices is above zero." }
+    ] },
+    { "name": "ModelEntry", "kind": "record", "rust": true, "doc": "An entry in the host's model catalog (`Models:List`).", "fields": [
+      { "name": "providerId", "type": "string", "doc": "The provider id." },
+      { "name": "modelId", "type": "string", "doc": "The model id." },
+      { "name": "name", "type": "string", "doc": "Its display name." },
+      { "name": "providerName", "type": "string?", "doc": "The provider's display name." },
+      { "name": "integration", "type": "string?", "doc": "The provider's integration id, when connected through an integration." },
+      { "name": "free", "type": "boolean", "doc": "Whether the model is marked free." },
+      { "name": "paid", "type": "boolean", "doc": "Whether any of its token prices is above zero." }
+    ] },
+    { "name": "ModelBadge", "kind": "record", "rust": true, "doc": "A short inline annotation a plugin attaches to a model row in the model picker (`Models:SetBadges`).", "fields": [
+      { "name": "providerId", "type": "string", "doc": "The provider id." },
+      { "name": "modelId", "type": "string", "doc": "The model id." },
+      { "name": "label", "type": "string", "doc": "Short text shown beside the model name and in its effort flyout." },
+      { "name": "critical", "type": "boolean?", "doc": "Emphasizes the annotation in danger ink (for example, a reached limit or blocked model)." }
     ] },
     { "name": "ComposerModel", "kind": "record", "rust": true, "doc": "The model selected in the composer.", "fields": [
       { "name": "providerId", "type": "string", "doc": "The provider id." },
@@ -1687,6 +1708,8 @@
     ] },
     { "name": "Models", "halves": ["window", "app"], "doc": "The server's model catalog.", "members": [
       { "name": "Get", "kind": "method", "sig": "(providerId: string, modelId: string) -> ModelInfo", "doc": "How the catalog names a model." },
+      { "name": "List", "kind": "method", "sig": "() -> { ModelEntry }", "since": "1.5", "doc": "Every model currently in the host's catalog." },
+      { "name": "SetBadges", "kind": "method", "sig": "(badges: { ModelBadge }) -> ()", "since": "1.5", "doc": "Replaces this plugin's inline model-picker badges. Pass an empty list to clear them. Window halves only." },
       { "name": "Changed", "kind": "signal", "payload": "()", "doc": "Fires when the catalog changes." }
     ] },
     { "name": "Server", "halves": ["window", "app"], "doc": "The OpenCode server this window works with: the server of the session or draft it shows, so a panel in a tab from another server talks to that server. A path that starts with `local:` goes to the app's own server. In the app half, the app's own server.", "members": [
@@ -1852,7 +1875,9 @@
       { "name": "InsertPill", "kind": "method", "sig": "(id: string, label: string) -> ()", "doc": "Puts a pill at the caret, with a space on each side, and gives the composer the keyboard." },
       { "name": "Active", "kind": "method", "sig": "() -> boolean", "since": "1.5", "doc": "Whether the current screen has a composer (a draft or a root session)." },
       { "name": "Directory", "kind": "method", "sig": "() -> string", "since": "1.5", "doc": "The composer's workspace folder (the active session's, or the draft's)." },
-      { "name": "Model", "kind": "method", "sig": "() -> ComposerModel?", "since": "1.5", "doc": "The model currently selected in the composer, when listed in the model catalog." }
+      { "name": "Model", "kind": "method", "sig": "() -> ComposerModel?", "since": "1.5", "doc": "The model currently selected in the composer, when listed in the model catalog." },
+      { "name": "Picker", "kind": "method", "sig": "() -> ComposerPicker?", "since": "1.5", "doc": "Which composer picker overlay is currently open, or nil when none is open." },
+      { "name": "PickerChanged", "kind": "signal", "payload": "ComposerPicker?", "since": "1.5", "doc": "Fires when a composer picker opens or closes, with the open picker kind or nil." }
     ] },
     { "name": "Office", "halves": ["window"], "doc": "Office documents laid out and drawn by the host, each on a thread of its own.", "members": [
       { "name": "OpenAsync", "kind": "method", "sig": "(path: string, directory: string, kind: OfficeKind) -> OfficeFile", "yields": true, "doc": "Reads a file of the session's folder `directory` through the server and, when its bytes are a zip archive, opens and lays it out as `kind`." },

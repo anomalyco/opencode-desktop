@@ -89,6 +89,8 @@ pub enum Request {
     Dev { name: String, value: rune_luau::Data },
     /// A server source's list changed: the app checks the health of servers that came up.
     ServersChanged,
+    /// Replaces this plugin's inline model-picker badges (`Models:SetBadges`).
+    SetModelBadges { vm: u64, badges: std::collections::HashMap<String, (String, bool)> },
     Redraw,
 }
 
@@ -115,6 +117,8 @@ pub enum Dep {
     Routed,
     Sessions,
     Model(String, String),
+    /// The full model and provider catalog (`Models:List`).
+    Models,
     Resource(Rc<str>, String),
     Store(Rc<str>, Rc<str>),
     Editor(Rc<str>, usize),

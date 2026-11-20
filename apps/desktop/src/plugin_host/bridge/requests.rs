@@ -188,6 +188,10 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
         }
         Request::Dev { name, value } => services::diag::apply(app, &name, value, tx),
         Request::ServersChanged => crate::plugin_host::servers_changed(app, tx),
+        Request::SetModelBadges { vm, badges } => {
+            app.plugins.set_model_badges(plugin, vm, badges);
+            tx.instant();
+        }
         Request::Redraw => {}
     }
 }

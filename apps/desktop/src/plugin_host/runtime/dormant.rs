@@ -96,12 +96,24 @@ pub fn note_started(app: &mut App, i: usize) {
     let Some(hash) = super::sources::files_hash(&p.manifest.id, &p.origin, p.tier) else { return };
     let id = p.manifest.id.clone();
     let app_half = super::app_half::each(|a| (*a.half.id == *id).then(|| record_kinds(&a.half.contribs.borrow(), &["menubar_items", "mcp_tools"]))).into_iter().next().unwrap_or_default();
+    let vm = p.script().and_then(rune_luau::Script::vm_id);
+    let mut signals: Vec<String> = p
+        .half
+        .signals
+        .borrow()
+        .keys()
+        .filter(|(v, name)| Some(*v) == vm && !name.starts_with("ctx.") && !name.starts_with("editor."))
+        .map(|(_, name)| name.clone())
+        .collect();
+    signals.sort();
+    signals.dedup();
     let record = Record {
         hash,
         locale: opencode_i18n::locale().id().to_owned(),
         window: record_kinds(&p.half.contribs.borrow(), &[]),
         app: app_half,
         events: p.half.events.borrow().iter().map(|(_, prefix, _)| prefix.clone()).collect(),
+        signals,
     };
     let d = &mut app.plugins.dormant;
     d.ensure_read();
@@ -255,6 +267,23 @@ pub fn wake_owners(app: &mut App, owns: impl Fn(&Contribs) -> bool) -> bool {
     let app_ids: Vec<String> = each_app_half(|id, c| owns(c).then(|| id.to_owned()));
     let mut any = false;
     for id in ids.into_iter().chain(app_ids) {
+        any |= wake(app, &id, Why::Use);
+    }
+    any
+}
+
+/// Wakes, now, each dormant plugin whose recorded signals contain `signal`; true when one woke.
+pub fn wake_signal(app: &mut App, signal: &str) -> bool {
+    let ids: Vec<String> = app
+        .plugins
+        .dormant
+        .asleep
+        .iter()
+        .filter(|(_, a)| a.record.signals.iter().any(|s| s == signal))
+        .map(|(id, _)| id.clone())
+        .collect();
+    let mut any = false;
+    for id in ids {
         any |= wake(app, &id, Why::Use);
     }
     any

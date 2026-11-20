@@ -250,6 +250,23 @@ fn build_session(lua: &Lua, app: &App, id: &str) -> mlua::Result<Value> {
     Ok(Value::Table(s))
 }
 
+/// What the full model and provider catalog reads now, as a number (`Models.Changed`, `Dep::Models`).
+pub fn models_version(app: &App) -> u64 {
+    let p = &app.composer_ext.pickers;
+    let mut h = std::hash::DefaultHasher::new();
+    (p.models.len(), p.limits.len(), p.paid.len(), p.providers.len()).hash(&mut h);
+    for m in &p.models {
+        (&m.provider, &m.id, &m.name, m.free).hash(&mut h);
+    }
+    if let Some(infos) = app.provider_infos(None) {
+        infos.len().hash(&mut h);
+        for info in infos {
+            (&info.id, &info.integration).hash(&mut h);
+        }
+    }
+    h.finish()
+}
+
 /// What a model's record reads now, as a number.
 pub fn model_version(app: &App, provider: &str, model: &str) -> u64 {
     let p = &app.composer_ext.pickers;
@@ -283,6 +300,53 @@ fn models(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
         })?;
         cx::read(Dep::Model(provider, model));
         Ok(m)
+    })?;
+    method(lua, t, "List", |lua, ()| {
+        let list = with_app("Models:List", |app| {
+            let ver = models_version(app);
+            snapshot(lua, &format!("models:{}", server_id(crate::servers::runtime::active(app))), ver, || {
+                let p = &app.composer_ext.pickers;
+                let infos = app.provider_infos(None).unwrap_or_default();
+                let out = lua.create_table_with_capacity(p.models.len(), 0)?;
+                for m in &p.models {
+                    let provider_name = p.providers.get(&m.provider).map(String::as_str);
+                    let integration = infos.iter().find(|i| i.id == m.provider).and_then(|i| i.integration.as_deref());
+                    let paid = p.paid.contains(&m.key);
+                    out.raw_push(record(lua, 7, |e| {
+                        e.str(c"providerId", &m.provider);
+                        e.str(c"modelId", &m.id);
+                        e.str(c"name", &m.name);
+                        e.opt_str(c"providerName", provider_name);
+                        e.opt_str(c"integration", integration);
+                        e.bool(c"free", m.free);
+                        e.bool(c"paid", paid);
+                    })?)?;
+                }
+                Ok(Value::Table(out))
+            })
+        })?;
+        cx::read(Dep::Models);
+        Ok(list)
+    })?;
+    let window = vmx.half.kind == crate::plugin_host::plugin::Kind::Window;
+    let v = vmx.clone();
+    method(lua, t, "SetBadges", move |_, badges: Table| {
+        if !window {
+            return Err(mlua::Error::runtime("Models:SetBadges is only available in the window half"));
+        }
+        let mut map = std::collections::HashMap::new();
+        for item in badges.sequence_values::<Table>() {
+            let item = item?;
+            let provider: String = item.raw_get("providerId")?;
+            let model: String = item.raw_get("modelId")?;
+            let label: String = item.raw_get("label")?;
+            let critical: bool = item.raw_get::<Option<bool>>("critical")?.unwrap_or(false);
+            if !provider.is_empty() && !model.is_empty() && !label.is_empty() {
+                map.insert(format!("{provider}:{model}"), (label, critical));
+            }
+        }
+        cx::ask(&v.half.id, cx::Request::SetModelBadges { vm: v.vm.get(), badges: map });
+        Ok(())
     })?;
     lazy_signals(lua, vmx, t, "Models", &["Changed"])
 }

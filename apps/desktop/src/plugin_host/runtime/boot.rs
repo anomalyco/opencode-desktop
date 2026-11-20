@@ -149,15 +149,16 @@ fn start_later(app: &mut App) {
     stores::load(app, ids, true, |app, tx| {
         // Stage B is in: what the record couldn't say about overrides and trust, it does now.
         refresh_records(app);
+        settle_later(app);
+        if let Some(kind) = app.composer_ext.pickers.open() {
+            crate::plugin_host::notify_picker_opening(app, kind, tx);
+        }
         #[cfg(target_arch = "wasm32")]
         {
-            let _ = tx;
-            settle_later(app);
             next_later(app, PAGE_LATER_AFTER);
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            settle_later(app);
             start_one_later(app, tx);
         }
     });
@@ -195,6 +196,34 @@ pub(super) fn adopt_later_launchers(app: &mut App) -> bool {
     for found in later {
         let kinds = sources::contributions(&found.manifest.id);
         if found.tier != Tier::Bundled || kinds.contains(&"Panel") || kinds.contains(&"MenuItem") {
+            now.push(found);
+        } else {
+            keep.push(found);
+        }
+    }
+    app.plugins.boot.set_later(keep);
+    let any = !now.is_empty();
+    if any {
+        adopt(app, now);
+    }
+    any
+}
+
+/// Adopts, now, any queued plugins still in `later` that connect to watched host signal `signal`
+/// (or non-bundled plugins, whose signals aren't pre-scanned), so opening a host surface before
+/// `start_one_later` reaches them delivers the event in that same turn.
+pub(in crate::plugin_host) fn adopt_later_signal(app: &mut App, signal: &str) -> bool {
+    if app.plugins.boot.later().is_empty() {
+        return false;
+    }
+    if !refresh_records(app) && !(crate::storage::need() && refresh_records(app)) {
+        return false;
+    }
+    let later = app.plugins.boot.take_later();
+    let mut now = Vec::new();
+    let mut keep = Vec::with_capacity(later.len());
+    for found in later {
+        if found.tier != Tier::Bundled || sources::signals(&found.manifest.id).contains(&signal) {
             now.push(found);
         } else {
             keep.push(found);

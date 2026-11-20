@@ -29,10 +29,9 @@ mod web;
 pub use web::{asyncs, build, ime, pages, version, view};
 
 use super::super::cx::{self, Dep};
-use super::super::services::{method, with_app};
+use super::super::services::{lazy_signals, method, with_app};
 #[cfg(not(target_arch = "wasm32"))]
-use super::super::services::{json_to_data, lazy_signals, map};
-#[cfg(not(target_arch = "wasm32"))]
+use super::super::services::{json_to_data, map};
 use super::super::vm::Vmx;
 #[cfg(not(target_arch = "wasm32"))]
 use super::{handle_field, object, p};
@@ -170,7 +169,7 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
 }
 
 /// The `Composer` service.
-pub fn composer(lua: &Lua, t: &Table) -> mlua::Result<()> {
+pub fn composer(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     method(lua, t, "InsertPill", |_, (id, label): (String, String)| {
         with_app("Composer:InsertPill", |app| {
             app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
@@ -216,7 +215,12 @@ pub fn composer(lua: &Lua, t: &Table) -> mlua::Result<()> {
                 None => Ok(Value::Nil),
             }
         })
-    })
+    })?;
+    method(lua, t, "Picker", |_, ()| {
+        cx::read(Dep::Composer);
+        with_app("Composer:Picker", |app| Ok(app.composer_ext.pickers.open().map(|k| k.key().to_owned())))
+    })?;
+    lazy_signals(lua, vmx, t, "Composer", &["PickerChanged"])
 }
 
 /// The host's async functions: `Browser:OpenAsync` and `BrowserTab`'s async methods.

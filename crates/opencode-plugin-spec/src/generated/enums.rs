@@ -282,6 +282,20 @@ string_enum! {
 }
 
 string_enum! {
+    /// Which picker overlay the composer currently has open.
+    pub enum ComposerPicker {
+        /// The agent picker.
+        Agent = "agent",
+        /// The model picker.
+        Model = "model",
+        /// The model effort/variant picker.
+        Effort = "effort",
+        /// The draft project picker.
+        Project = "project",
+    }
+}
+
+string_enum! {
     /// A text weight.
     pub enum FontWeight {
         /// 400.
