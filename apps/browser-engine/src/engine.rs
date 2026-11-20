@@ -212,6 +212,7 @@ struct ManagedTab {
     internal_picked: Arc<Mutex<Vec<i64>>>,
     pending_clears: Arc<Mutex<Vec<PendingClear>>>,
     prompts: Arc<crate::prompts::TabPrompts>,
+    menu: Arc<crate::menu::TabMenuState>,
     _cdp_reg: Option<Registration>,
     held_buttons: u32,
     /// Linux: whether it's the tab the app shows (`HostMsg::FocusTab`), to open it again so.
@@ -433,8 +434,11 @@ impl EngineManager {
                     policy: true,
                     prompts,
                     popups: true,
+                    find: true,
+                    context_menu: prompts,
                 });
                 for (&tab_id, t) in &self.tabs {
+                    t.menu.cancel_all();
                     if prompts {
                         t.prompts.replay_pending(tab_id, &self.out_tx);
                     } else {
@@ -473,6 +477,7 @@ impl EngineManager {
             }
             HostMsg::CloseTab { tab_id } => {
                 if let Some(tab) = self.tabs.remove(&tab_id) {
+                    tab.menu.cancel_all();
                     tab.prompts.dismiss_all();
                     tab.host.close_browser(1);
                     self.downloads.close_tab(tab_id);
@@ -520,9 +525,13 @@ impl EngineManager {
                     t.browser.go_forward();
                 }
             }
-            HostMsg::Reload { tab_id } => {
+            HostMsg::Reload { tab_id, ignore_cache } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
-                    t.browser.reload();
+                    if ignore_cache {
+                        t.browser.reload_ignore_cache();
+                    } else {
+                        t.browser.reload();
+                    }
                 }
             }
             HostMsg::Stop { tab_id } => {
@@ -848,8 +857,57 @@ impl EngineManager {
                     t.prompts.agent_driven.store(agent_driven, Ordering::Relaxed);
                 }
             }
+            HostMsg::ClearSiteCache { tab_id, request_id } => {
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    let url = t.snap.lock().unwrap().url.clone();
+                    if let Some(origin) = browser_policy::destination_origin(&url) {
+                        self.send_internal_cdp(
+                            &t.host,
+                            "Storage.clearDataForOrigin",
+                            json!({
+                                "origin": origin,
+                                "storageTypes": "cache_storage,service_workers,shader_cache",
+                            }),
+                        );
+                        self.send_internal_cdp(&t.host, "Network.clearBrowserCache", json!({}));
+                        t.browser.reload_ignore_cache();
+                    }
+                    let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                        tab_id,
+                        request_id,
+                        ok: true,
+                        result: json!({ "cleared": true }),
+                    });
+                }
+            }
+            HostMsg::Find { tab_id, query, forward, match_case, find_next } => {
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    if query.is_empty() {
+                        t.host.stop_finding(1);
+                    } else {
+                        t.host.find(
+                            Some(&CefString::from(query.as_str())),
+                            i32::from(forward),
+                            i32::from(match_case),
+                            i32::from(find_next),
+                        );
+                    }
+                }
+            }
+            HostMsg::StopFind { tab_id, clear_selection } => {
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    t.host.stop_finding(i32::from(clear_selection));
+                }
+            }
+            HostMsg::ContextMenuAction { tab_id, id, action } => {
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    let roots = t.file_roots.lock().unwrap().clone();
+                    t.menu.execute(id, action, &t.browser, &t.host, &roots);
+                }
+            }
             HostMsg::Shutdown => {
                 for (_, t) in self.tabs.drain() {
+                    t.menu.cancel_all();
                     t.prompts.dismiss_all();
                     t.host.close_browser(1);
                 }
@@ -887,6 +945,7 @@ impl EngineManager {
             zoom: 1.0,
             cursor: CursorKind::Default,
             load_error: None,
+            favicon: None,
         }));
         #[cfg(windows)]
         let frames: FrameRing = self
@@ -914,12 +973,22 @@ impl EngineManager {
             (),
         );
         let prompts = Arc::new(crate::prompts::TabPrompts::default());
-        let display = TabDisplayHandler::new(tab_id, snap.clone(), prompts.clone(), self.out_tx.clone());
+        let favicon = Arc::new(crate::favicon::TabFavicon::default());
+        let diagnostics = Arc::new(crate::diagnostics::TabDiagnostics::default());
+        let menu_state = Arc::new(crate::menu::TabMenuState::default());
+        let display = TabDisplayHandler::new(
+            tab_id,
+            snap.clone(),
+            prompts.clone(),
+            favicon,
+            self.out_tx.clone(),
+        );
         let load = TabLoadHandler::new(
             tab_id,
             file_roots.clone(),
             snap.clone(),
             prompts.clone(),
+            diagnostics.clone(),
             self.out_tx.clone(),
         );
         let request = TabRequestHandler::new(
@@ -928,6 +997,7 @@ impl EngineManager {
             snap.clone(),
             self.prompt_shared.clone(),
             prompts.clone(),
+            diagnostics,
             self.out_tx.clone(),
         );
         let download = crate::downloads::TabDownloadHandler::new(
@@ -951,6 +1021,14 @@ impl EngineManager {
             self.out_tx.clone(),
         );
         let dialog = crate::prompts::TabFileDialogHandler::new(tab_id, prompts.clone(), self.out_tx.clone());
+        let find = crate::find::TabFindHandler::new(tab_id, self.out_tx.clone());
+        let context_menu = crate::menu::TabContextMenuHandler::new(
+            tab_id,
+            self.prompt_shared.clone(),
+            file_roots.clone(),
+            menu_state.clone(),
+            self.out_tx.clone(),
+        );
         let mut client = SidecarTabClient::new(
             render,
             display,
@@ -961,6 +1039,8 @@ impl EngineManager {
             jsdialog,
             permission,
             dialog,
+            find,
+            context_menu,
         );
 
         let mut win_info = WindowInfo::default().set_as_windowless(Default::default());
@@ -1021,6 +1101,7 @@ impl EngineManager {
                 internal_picked,
                 pending_clears,
                 prompts,
+                menu: menu_state,
                 _cdp_reg: cdp_reg,
                 held_buttons: 0,
                 #[cfg(target_os = "linux")]

@@ -9,8 +9,8 @@ use std::sync::{Arc, Mutex};
 
 use cef::rc::Rc as _;
 use cef::{
-    AcceleratedPaintInfo, AuthCallback, Browser, Callback, CefString, CursorInfo, CursorType,
-    DevToolsMessageObserver, DisplayHandler, Errorcode, Frame, ImplDevToolsMessageObserver,
+    AcceleratedPaintInfo, AuthCallback, Browser, Callback, CefString, CefStringList, CursorInfo,
+    CursorType, DevToolsMessageObserver, DisplayHandler, Errorcode, Frame, ImplDevToolsMessageObserver,
     ImplDisplayHandler, ImplFrame, ImplLoadHandler, ImplRenderHandler, ImplRequest,
     ImplRequestHandler, ImplResourceRequestHandler, ImplSelectClientCertificateCallback,
     LoadHandler, PaintElementType, Rect, RenderHandler, Request, RequestHandler,
@@ -323,6 +323,7 @@ wrap_display_handler! {
         tab_id: u64,
         snap: Arc<Mutex<TabSnapshot>>,
         prompts: Arc<crate::prompts::TabPrompts>,
+        favicon: Arc<crate::favicon::TabFavicon>,
         out_tx: Output,
     }
 
@@ -343,9 +344,11 @@ wrap_display_handler! {
                 if s.url != url {
                     let old_origin = crate::prompts::origin_of(&s.url);
                     let new_origin = crate::prompts::origin_of(&url);
+                    let origin_changed = old_origin != new_origin;
                     s.load_error = None;
+                    self.favicon.on_navigation(&mut s, origin_changed);
                     self.prompts.clear_auth_on_nav(self.tab_id, &self.out_tx);
-                    if old_origin != new_origin {
+                    if origin_changed {
                         self.prompts.clear_permissions_on_origin_change(
                             self.tab_id,
                             new_origin.as_deref(),
@@ -357,6 +360,21 @@ wrap_display_handler! {
                 s.url = url;
                 let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
             }
+        }
+
+        fn on_favicon_urlchange(
+            &self,
+            browser: Option<&mut Browser>,
+            icon_urls: Option<&mut CefStringList>,
+        ) {
+            let (Some(browser), Some(list)) = (browser, icon_urls) else { return };
+            let candidates = crate::menu::read_cef_string_list(list);
+            self.favicon.fetch_candidates(
+                browser,
+                candidates,
+                self.snap.clone(),
+                self.out_tx.clone(),
+            );
         }
 
         fn on_title_change(&self, _browser: Option<&mut Browser>, title: Option<&CefString>) {
@@ -411,6 +429,7 @@ wrap_load_handler! {
         file_roots: Arc<Mutex<Vec<String>>>,
         snap: Arc<Mutex<TabSnapshot>>,
         prompts: Arc<crate::prompts::TabPrompts>,
+        diagnostics: Arc<crate::diagnostics::TabDiagnostics>,
         out_tx: Output,
     }
 
@@ -491,8 +510,21 @@ wrap_load_handler! {
                 s.url = url;
             }
             let text = error_text.map(CefString::to_string).unwrap_or_default();
-            s.load_error = Some(if text.is_empty() { format!("net error {}", *error_code.as_ref() as i32) } else { text });
+            let err_code = *error_code.as_ref() as i32;
+            let url_for_log = s.url.clone();
+            let loading_now = s.loading;
+            s.load_error = Some(if text.is_empty() { format!("net error {err_code}") } else { text.clone() });
             let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
+            drop(s);
+            self.diagnostics.report_load_failed(
+                self.tab_id,
+                err_code,
+                &text,
+                &url_for_log,
+                loading_now,
+                self.prompts.agent_driven.load(std::sync::atomic::Ordering::Relaxed),
+                &self.out_tx,
+            );
         }
     }
 }
@@ -563,6 +595,7 @@ wrap_request_handler! {
         snap: Arc<Mutex<TabSnapshot>>,
         prompt_shared: crate::prompts::PromptShared,
         prompts: Arc<crate::prompts::TabPrompts>,
+        diagnostics: Arc<crate::diagnostics::TabDiagnostics>,
         out_tx: Output,
     }
 
@@ -696,15 +729,30 @@ wrap_request_handler! {
         fn on_render_process_terminated(
             &self,
             _browser: Option<&mut Browser>,
-            _status: TerminationStatus,
-            _error_code: i32,
-            _error_string: Option<&CefString>,
+            status: TerminationStatus,
+            error_code: i32,
+            error_string: Option<&CefString>,
         ) {
             self.prompts.reset_on_crash(self.tab_id, &self.out_tx);
-            let mut s = self.snap.lock().unwrap();
-            s.loading = false;
-            s.load_error = Some("page_crashed".into());
-            let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
+            let err_str = error_string.map(CefString::to_string).unwrap_or_default();
+            let (url, was_loading) = {
+                let mut s = self.snap.lock().unwrap();
+                let was_loading = s.loading;
+                s.loading = false;
+                s.load_error = Some("page_crashed".into());
+                let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
+                (s.url.clone(), was_loading)
+            };
+            self.diagnostics.report_renderer_terminated(
+                self.tab_id,
+                status,
+                error_code,
+                &err_str,
+                &url,
+                was_loading,
+                self.prompts.agent_driven.load(std::sync::atomic::Ordering::Relaxed),
+                &self.out_tx,
+            );
         }
     }
 }

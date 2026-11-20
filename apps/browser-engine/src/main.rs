@@ -24,6 +24,10 @@ mod keys;
 mod linux_gpu;
 #[cfg(target_os = "macos")]
 mod mac_app;
+mod diagnostics;
+mod favicon;
+mod find;
+mod menu;
 mod profile;
 mod prompts;
 mod tab_client;

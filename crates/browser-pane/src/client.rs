@@ -35,6 +35,8 @@ pub struct BrowserTab {
     pub cursor: CursorKind,
     /// Why the page shows no document (`TabSnapshot::load_error`).
     pub load_error: Option<String>,
+    /// Site favicon as a bounded `data:image/png;base64,...` data URL (`UP-109` `#65094`).
+    pub favicon: Option<String>,
     /// Why the last navigation on this page was refused while keeping the document (`policy::Refusal`).
     pub refusal: Option<String>,
     /// Count of refused navigations on this page, so repeated refusals end the address field's hold.
@@ -42,9 +44,14 @@ pub struct BrowserTab {
     pub inspecting: bool,
     /// What the page downloaded, oldest first (`DownloadFile`), for the agent's tools.
     pub files: Vec<DownloadFile>,
-    /// Page dialogs, permissions, HTTP auth, and blocked pop-up state (`prompts.rs`).
+    /// Page dialogs, permissions, HTTP auth, and blocked pop-up state (`prompts`).
     pub prompts: crate::prompts::TabPromptState,
+    /// Per-tab in-page search state (`find.rs`).
+    pub find: crate::find::FindState,
     pub surface: TabSurface,
+    /// Surface layout origin in zoomed window points (for anchoring page context menus).
+    pub surface_origin: (f32, f32),
+    pub view_zoom: f32,
     pub(crate) file_roots: Vec<String>,
     pub(crate) viewport_pt: (f32, f32),
     pub(crate) scale: f32,
@@ -88,11 +95,13 @@ pub struct BrowserHost {
     /// Capabilities advertised by the running (or last run) engine's `Ready`.
     pub(crate) caps: EngineCaps,
     next_tab_id: u64,
-    next_req_id: u64,
+    pub(crate) next_req_id: u64,
     pending_opens: Vec<(u64, String)>,
-    cdp_responses: HashMap<u64, Result<Value, Value>>,
+    pub(crate) cdp_responses: HashMap<u64, Result<Value, Value>>,
     picked: VecDeque<PickedElement>,
     pub(crate) popup_opens: VecDeque<crate::prompts::PopupRequest>,
+    pub(crate) context_menus: VecDeque<(u64, crate::protocol::PageContextMenu)>,
+    pub(crate) diagnostics: VecDeque<crate::find::PageDiagnostic>,
     pub(crate) site_permissions: crate::prompts::SitePermissions,
     site_zoom: SiteZoom,
     pub(crate) keep_engine: bool,
@@ -145,6 +154,8 @@ impl BrowserHost {
             cdp_responses: HashMap::new(),
             picked: VecDeque::new(),
             popup_opens: VecDeque::new(),
+            context_menus: VecDeque::new(),
+            diagnostics: VecDeque::new(),
             site_permissions: crate::prompts::SitePermissions::default(),
             site_zoom: SiteZoom::default(),
             keep_engine: false,
@@ -316,12 +327,16 @@ impl BrowserHost {
             zoom: 1.0,
             cursor: CursorKind::Default,
             load_error: None,
+            favicon: None,
             refusal: None,
             rejected: 0,
             inspecting: false,
             files: Vec::new(),
             prompts: Default::default(),
+            find: Default::default(),
             surface,
+            surface_origin: (0.0, 0.0),
+            view_zoom: 1.0,
             file_roots: Vec::new(),
             viewport_pt: (800.0, 600.0),
             device: None,
@@ -412,12 +427,16 @@ impl BrowserHost {
             zoom: 1.0,
             cursor: CursorKind::Default,
             load_error: None,
+            favicon: None,
             refusal: refused.map(|r| r.code().to_owned()),
             rejected: u64::from(refused.is_some()),
             inspecting: false,
             files: Vec::new(),
             prompts: Default::default(),
+            find: Default::default(),
             surface,
+            surface_origin: (0.0, 0.0),
+            view_zoom: 1.0,
             file_roots: file_roots.clone(),
             viewport_pt: (width_pt, height_pt),
             device: None,
@@ -540,7 +559,7 @@ impl BrowserHost {
         if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
             t.prompts.on_user_nav();
         }
-        self.send(HostMsg::Reload { tab_id });
+        self.send(HostMsg::Reload { tab_id, ignore_cache: false });
     }
 
     pub fn stop(&self, tab_id: u64) {
@@ -808,19 +827,20 @@ impl BrowserHost {
         mail.extend(std::iter::from_fn(|| self.inbox_rx.try_recv().ok()));
         for msg in mail {
             match msg {
-                EngineMsg::Ready { downloads, policy, prompts, popups, .. } => {
+                EngineMsg::Ready { downloads, policy, prompts, popups, find, context_menu, .. } => {
                     if !matches!(
                         self.shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::Ready),
                         EngineEffect::ReadyApplied
                     ) {
                         continue;
                     }
-                    self.caps = EngineCaps::Known { downloads, policy, prompts, popups };
+                    self.caps = EngineCaps::Known { downloads, policy, prompts, popups, find, context_menu };
                     // A new engine starts with an empty downloads folder and numbers its files
                     // from 1 again: the last one's files are gone. Held prompts replay if live.
                     for t in &mut self.tabs {
                         t.files.clear();
                         t.prompts.reset_for_engine();
+                        t.find.step(crate::find::FindEvent::DocumentChanged);
                     }
                     rune::marks::mark("browser.engine.ready");
                     // Before any page loads, so the first draws in the app's scheme.
@@ -928,6 +948,23 @@ impl BrowserHost {
                 | EngineMsg::FileChooserBlocked { .. } => {
                     changed |= self.handle_prompt_msg(msg);
                 }
+                EngineMsg::FindResult { tab_id, count, active_match, final_update } => {
+                    if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
+                        changed |= t.find.step(crate::find::FindEvent::Result {
+                            active: active_match,
+                            total: count,
+                            final_update,
+                        });
+                    }
+                }
+                EngineMsg::ContextMenu { tab_id, menu } => {
+                    self.context_menus.push_back((tab_id, menu));
+                    changed = true;
+                }
+                EngineMsg::PageDiagnostic { tab_id, level, event, fields } => {
+                    self.diagnostics.push_back(crate::find::PageDiagnostic { tab_id, level, event, fields });
+                    changed = true;
+                }
                 EngineMsg::CdpEvent { .. } => {}
                 // The socket reader delivers frames directly to the tab's retained Rune surface.
                 EngineMsg::SharedFrame { .. } | EngineMsg::CpuFrame { .. } | EngineMsg::DmabufPool { .. } | EngineMsg::DmabufFrame { .. } => {}
@@ -1010,6 +1047,10 @@ impl BrowserHost {
                 'x' => Some("cut"),
                 'z' if ev.mods.shift => Some("redo"),
                 'z' => Some("undo"),
+                'r' if ev.mods.shift => {
+                    self.reload_ignore_cache(tab_id);
+                    return true;
+                }
                 'r' => {
                     self.reload(tab_id);
                     return true;
@@ -1020,6 +1061,10 @@ impl BrowserHost {
                 self.send(HostMsg::EditCmd { tab_id, cmd: cmd.into() });
                 return true;
             }
+        }
+        if down && !cfg!(target_os = "macos") && ev.mods.ctrl && !ev.mods.alt && !ev.mods.cmd && ev.key == Key::Function(5) {
+            self.reload_ignore_cache(tab_id);
+            return true;
         }
         let (text, named) = match &ev.key {
             Key::Text(s) => (Some(s.clone()), None),
@@ -1077,11 +1122,15 @@ impl BrowserHost {
                 || (t.zoom - snap.zoom).abs() > 0.001
                 || t.cursor != snap.cursor
                 || t.load_error != snap.load_error
+                || t.favicon != snap.favicon
                 || clear_refusal
                 || !cancel_perms.is_empty()
                 || !cancel_auth.is_empty();
             if clear_refusal {
                 t.refusal = None;
+            }
+            if url_changed {
+                t.find.step(crate::find::FindEvent::DocumentChanged);
             }
             t.url = snap.url;
             t.title = snap.title;
@@ -1091,6 +1140,7 @@ impl BrowserHost {
             t.zoom = snap.zoom;
             t.cursor = snap.cursor;
             t.load_error = snap.load_error;
+            t.favicon = snap.favicon;
             let mut changed = changed;
             if new_site {
                 changed |= (t.zoom - want_zoom).abs() > 0.001;
@@ -1123,12 +1173,16 @@ impl BrowserHost {
             zoom: if is_site { want_zoom } else { snap.zoom },
             cursor: snap.cursor,
             load_error: snap.load_error,
+            favicon: snap.favicon,
             refusal: None,
             rejected: 0,
             inspecting: false,
             files: Vec::new(),
             prompts: Default::default(),
+            find: Default::default(),
             surface,
+            surface_origin: (0.0, 0.0),
+            view_zoom: 1.0,
             file_roots: Vec::new(),
             viewport_pt: (800.0, 600.0),
             device: None,
