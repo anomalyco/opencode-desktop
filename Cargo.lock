@@ -920,6 +920,7 @@ dependencies = [
  "memchr",
  "opencode-i18n",
  "rune",
+ "rusqlite",
  "serde",
  "serde_json",
  "sha2",
