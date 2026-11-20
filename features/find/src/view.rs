@@ -44,7 +44,25 @@ fn close_button_shell(p: &Pal) -> El {
         .child(icon(&ic::XMARK_SMALL, 16.0).color(p.icon_muted))
 }
 
-fn build_bar(s: &dyn FindHost, p: &Pal, input: El, close_btn: El) -> El {
+/// Previous (`up`) or next match (`search-bar.tsx`, anomalyco/opencode#64865): a 20 square like
+/// Close, its chevron turned up for Previous, at 40% and inert while nothing matches.
+fn step_button_shell(p: &Pal, up: bool, enabled: bool) -> El {
+    let (key, label) = if up {
+        ("find-prev", opencode_i18n::t!("ui.fileSearch.previousMatch"))
+    } else {
+        ("find-next", opencode_i18n::t!("ui.fileSearch.nextMatch"))
+    };
+    let glyph = icon(&ic::CHEVRON_DOWN, 16.0).color(p.icon_muted);
+    let glyph = if up { glyph.rotate(std::f32::consts::PI) } else { glyph };
+    let b = row().key(key).role("button").label_static(label).size(20.0, 20.0).center().radius(2.0).child(glyph);
+    if enabled {
+        b.hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT)
+    } else {
+        b.opacity(0.4).disabled(true)
+    }
+}
+
+fn build_bar(s: &dyn FindHost, p: &Pal, input: El, steps: [El; 2], close_btn: El) -> El {
     let find = s.find();
     // `{activeDisplay}/{count}` while the field holds anything, a space included (`showCount`).
     let total = find.count();
@@ -59,10 +77,10 @@ fn build_bar(s: &dyn FindHost, p: &Pal, input: El, close_btn: El) -> El {
     let bar = if find.input.focused { bar.border(1.0, p.v2.border_focus) } else { bar.box_shadow(Pal::ring_out(p.border)) };
     bar.transition(Transition::none())
         .h(28.0)
-        .w(200.0)
+        .w(240.0)
         .pl(8.0)
         .pr(4.0)
-        // The value (icon and field, 6 apart), the count and the close button, 8 apart.
+        // The value (icon and field, 6 apart), the count, Previous, Next and Close, 8 apart.
         .gap(8.0)
         .center_y()
         .radius(6.0)
@@ -79,6 +97,7 @@ fn build_bar(s: &dyn FindHost, p: &Pal, input: El, close_btn: El) -> El {
                 .child(input),
         )
         .children(count)
+        .children(steps)
         .child(close_btn)
 }
 
@@ -92,7 +111,12 @@ pub fn bar<H: FindHost + 'static>(s: &H, p: &Pal) -> Option<El> {
         .on_input_change(|s: &mut H, tx: &mut Tx| crate::typed(s, tx))
         .on_input_key(|s: &mut H, ev, tx| crate::input_key(s, ev, tx));
     let close = close_button_shell(p).on_press_tx(|s: &mut H, tx: &mut Tx| crate::close(s, tx));
-    Some(build_bar(s, p, input, close))
+    let enabled = s.find().count() > 0;
+    let step = |up: bool| {
+        let b = step_button_shell(p, up, enabled);
+        if enabled { b.on_press_tx(move |s: &mut H, tx: &mut Tx| crate::step(s, if up { -1 } else { 1 }, tx)) } else { b }
+    };
+    Some(build_bar(s, p, input, [step(true), step(false)], close))
 }
 
 fn keyed<H: 'static>(item: MenuItem<H>, bind: Bind) -> MenuItem<H> {

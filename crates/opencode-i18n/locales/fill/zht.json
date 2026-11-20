@@ -735,5 +735,9 @@
   "voice.unmute": "取消靜音",
   "voice.you": "你：",
   "dialog.directory.parent": "上層目錄",
-  "dialog.directory.root": "根目錄"
+  "dialog.directory.root": "根目錄",
+  "settings.timeline.row.wrapCodeBlocks.title": "程式碼區塊自動換行",
+  "settings.timeline.row.wrapCodeBlocks.description": "程式碼區塊中的長行自動換行而非捲動。滑鼠懸停時仍可個別切換每個區塊",
+  "ui.message.wrapLines": "自動換行",
+  "ui.message.unwrapLines": "不自動換行"
 }

@@ -170,6 +170,9 @@ impl session_view::TimelineHost for App {
     fn fold_user_messages(&self) -> bool {
         self.settings.fold_user
     }
+    fn wrap_code_blocks(&self) -> bool {
+        self.settings.wrap_code
+    }
     fn open_link(&mut self, url: &str, tx: &mut Tx) {
         self.open_reply_link(url, tx);
     }

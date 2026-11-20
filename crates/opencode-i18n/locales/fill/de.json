@@ -754,5 +754,9 @@
   "voice.unmute": "Stummschaltung aufheben",
   "voice.you": "Sie:",
   "dialog.directory.parent": "Übergeordnet",
-  "dialog.directory.root": "Stammverzeichnis"
+  "dialog.directory.root": "Stammverzeichnis",
+  "settings.timeline.row.wrapCodeBlocks.title": "Codeblöcke umbrechen",
+  "settings.timeline.row.wrapCodeBlocks.description": "Lange Zeilen in Codeblöcken umbrechen statt zu scrollen. Jeder Block lässt sich beim Überfahren weiterhin umschalten",
+  "ui.message.wrapLines": "Zeilen umbrechen",
+  "ui.message.unwrapLines": "Zeilen nicht umbrechen"
 }

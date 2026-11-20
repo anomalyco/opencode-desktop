@@ -12,7 +12,7 @@ pub(super) fn end(steps: &[Entry], messages: &[Message], first: usize) -> usize 
         match m {
             Message::User { .. } => {}
             Message::Notice(model::Notice { kind: model::NoticeKind::Job { id, .. }, .. })
-                if steps.iter().rev().take_while(|e| !matches!(e, Entry::Skip)).any(|e| matches!(e,
+                if steps.iter().rev().take_while(|e| !matches!(e, Entry::Skip | Entry::Idle)).any(|e| matches!(e,
                     Entry::Step(a) if a.parts.iter().any(|p| matches!(p,
                         Part::Tool { metadata, .. } if metadata["jobID"].as_str() == Some(id.as_str()))))) => {}
             _ => break,

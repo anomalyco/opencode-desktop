@@ -1,7 +1,7 @@
 //! Settings › Preferences › Timeline (`settings/general/general.tsx`'s Timeline section,
 //! `settings/timeline-detail.tsx` and `.css`): Timeline detail, a five-stop scale over the
 //! presets with what the chosen one does, and Advanced, each activity's visibility, Group and
-//! Collapse; Timeline width; Background activity; and Changed files.
+//! Collapse; Timeline width; Background activity; Changed files; and Wrap code blocks.
 
 use opencode_i18n::t;
 use opencode_ui::popup::PopupHost;
@@ -65,6 +65,10 @@ fn toggle_fold_user(s: &mut dyn SettingsHost) {
 
 fn toggle_turn_diffs(s: &mut dyn SettingsHost) {
     change_settings(s, |x| x.turn_diffs = !x.turn_diffs);
+}
+
+fn toggle_wrap_code(s: &mut dyn SettingsHost) {
+    change_settings(s, |x| x.wrap_code = !x.wrap_code);
 }
 
 fn drag_scale(s: &mut dyn SettingsHost, g: &Drag, tx: &mut Tx) {
@@ -165,6 +169,16 @@ pub fn section<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
                 t!("settings.timeline.row.turnDiffs.title"),
                 t!("settings.timeline.row.turnDiffs.description"),
                 switch(p, "turn-diffs-switch", st.turn_diffs).on_press(|s: &mut H| toggle_turn_diffs(s)),
+            ),
+        ),
+        (
+            "settings-wrap-code-blocks",
+            setting(
+                p,
+                "settings-wrap-code-blocks",
+                t!("settings.timeline.row.wrapCodeBlocks.title"),
+                t!("settings.timeline.row.wrapCodeBlocks.description"),
+                switch(p, "wrap-code-switch", st.wrap_code).label_static(t!("settings.timeline.row.wrapCodeBlocks.title")).on_press(|s: &mut H| toggle_wrap_code(s)),
             ),
         ),
     ];

@@ -136,7 +136,7 @@ pub(super) fn project<S: TimelineHost>(s: &S, t: &Transcript, inp: &Inputs, rang
                     diff_at = Some(out.len());
                     out.push(RowSpec { key: format!("td-{}", n.id), content: RowContent::TurnDiff { idle: mi, from, files: files.into_iter().collect(), pt: 16.0 }, streaming: false });
                 }
-                None if !steps.is_empty() => steps.push(Entry::Skip),
+                None if !steps.is_empty() => steps.push(Entry::Idle),
                 None => {}
             },
             Message::Notice(n) if !steps.is_empty() || crate::detail::notice_folds(n, detail) => {
