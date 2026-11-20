@@ -319,23 +319,24 @@ pub(crate) fn reveal_label() -> &'static str {
     opencode_i18n::t!("session.header.reveal.containingFolder")
 }
 
-/// Shows folder `dir` in the system's file manager; a headless run opens nothing. Refuses UNC,
-/// device paths, non-directories, and macOS executable bundles before touching the filesystem.
+/// Error string returned by [`reveal`] when a verified local path does not exist on disk,
+/// so callers never need to touch `Path::exists()` on a refused UNC/mapped/reparse path.
+pub(crate) const MISSING_DIR_ERR: &str = "Path doesn't exist";
+
+/// Shows folder `dir` in the system's file manager; a headless run opens nothing. Verifies local
+/// fixed drive / `MNT_LOCAL`, non-`subst`-UNC, zero symlinks/reparse points, directory kind, and
+/// non-bundle on macOS BEFORE touching disk, then reveals via `browser_policy::reveal_in_file_manager`
+/// (never spawns bare `explorer.exe <path>` or `/usr/bin/open <path>`).
 pub(crate) fn reveal(dir: &str) -> Result<(), String> {
     if crate::headless() {
         return Ok(());
     }
-    let Some(clean) = browser_policy::safe_local_reveal_path(dir) else {
-        return Err("Refusing non-local or unsafe path".into());
-    };
-    if !std::path::Path::new(&clean).is_dir() || browser_policy::is_macos_bundle_path(&clean) {
+    let verified = browser_policy::verify_local_path(dir).map_err(|e| match e {
+        browser_policy::LocalPathError::NotFound => MISSING_DIR_ERR.to_owned(),
+        other => other.to_string(),
+    })?;
+    if !verified.is_dir || browser_policy::is_macos_bundle(&verified.path) {
         return Err("Path is not a local folder".into());
     }
-    #[cfg(target_os = "windows")]
-    let mut cmd = std::process::Command::new("explorer.exe");
-    #[cfg(target_os = "macos")]
-    let mut cmd = std::process::Command::new("/usr/bin/open");
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    let mut cmd = std::process::Command::new("xdg-open");
-    cmd.arg(&clean).spawn().map(|_| ()).map_err(|e| e.to_string())
+    browser_policy::reveal_in_file_manager(&verified.path).map(|_| ()).map_err(|e| e.to_string())
 }

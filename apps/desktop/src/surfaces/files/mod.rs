@@ -108,6 +108,10 @@ impl FilesHost for App {
         App::can_open_in(self)
     }
 
+    fn can_reveal_outside(&self) -> bool {
+        App::can_reveal_outside(self)
+    }
+
     fn open_in_current(&self) -> Option<OpenInCurrent> {
         let (label, icon, busy) = crate::open_in::current_info(self)?;
         Some(OpenInCurrent { label, icon, busy })

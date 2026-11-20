@@ -151,6 +151,18 @@ impl App {
         }
     }
 
+    /// Revealing a local file in the OS file manager works on every native desktop OS (Windows, macOS, Linux).
+    pub fn can_reveal_outside(&self) -> bool {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            can_reveal(self)
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            false
+        }
+    }
+
     /// The app last picked (Desktop's `plugin.file` `openInApp`).
     pub fn load_open_in(&mut self) {
         #[cfg(not(target_arch = "wasm32"))]

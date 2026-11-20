@@ -13,12 +13,21 @@
 //! - Sub-resources (`img`, `script`, `link`, `fetch`, `XHR`, redirects, downloads) may never read
 //!   a `file:` URL outside `file_roots`.
 
-#![forbid(unsafe_code)]
+#![cfg_attr(target_arch = "wasm32", forbid(unsafe_code))]
+#![cfg_attr(not(target_arch = "wasm32"), deny(unsafe_code))]
 
 mod app_links;
+mod local_fs;
 mod local_path;
 pub use app_links::{AppSchemeAction, AppSchemeSource, classify_app_link};
-pub use local_path::{is_macos_bundle_path, is_raw_unc_href, is_unc_or_device_path, safe_local_reveal_path};
+pub use local_fs::{
+    LocalPathError, VerifiedLocalPath, is_local_fixed_drive, is_macos_bundle,
+    reveal_in_file_manager, verify_local_path, verify_within_root,
+};
+pub use local_path::{
+    is_clsid_folder_name, is_macos_bundle_path, is_raw_unc_href, is_unc_or_device_path,
+    is_unc_or_device_path_for, is_unix_autofs_path, safe_local_reveal_path,
+};
 
 /// Why a navigation was refused (`policy.ts:68-83`, `chromium.ts:442`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -583,6 +592,7 @@ fn normalize_root_lex(root: &str) -> Option<String> {
     Some(if cfg!(windows) { clean.to_ascii_lowercase() } else { clean.to_owned() })
 }
 
+#[cfg(target_arch = "wasm32")]
 fn lex_within(target: &str, root_lex: &str) -> bool {
     let cmp_target = if cfg!(windows) { target.to_ascii_lowercase() } else { target.to_owned() };
     if root_lex == "/" {
@@ -611,22 +621,29 @@ pub fn is_safe_workspace_root(root: &str, home: Option<&str>) -> bool {
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        if let Ok(canon) = std::fs::canonicalize(root)
-            && let Some(canon_lex) = normalize_root_lex(&canon.to_string_lossy())
-        {
-            if is_broad_root_lex(&canon_lex) {
-                return false;
+        if is_unc_or_device_path(root) {
+            return false;
+        }
+        match local_fs::verify_local_path(root) {
+            Ok(verified) => {
+                if let Some(canon_lex) = normalize_root_lex(&verified.path) {
+                    if is_broad_root_lex(&canon_lex) {
+                        return false;
+                    }
+                    if home_lex.as_deref().is_some_and(|h| is_home_broad_lex(&canon_lex, h)) {
+                        return false;
+                    }
+                    if let Some(h_raw) = home
+                        && let Ok(canon_home) = local_fs::verify_local_path(h_raw)
+                        && let Some(ch_lex) = normalize_root_lex(&canon_home.path)
+                        && is_home_broad_lex(&canon_lex, &ch_lex)
+                    {
+                        return false;
+                    }
+                }
             }
-            if home_lex.as_deref().is_some_and(|h| is_home_broad_lex(&canon_lex, h)) {
-                return false;
-            }
-            if let Some(h_raw) = home
-                && let Ok(canon_home) = std::fs::canonicalize(h_raw)
-                && let Some(ch_lex) = normalize_root_lex(&canon_home.to_string_lossy())
-                && is_home_broad_lex(&canon_lex, &ch_lex)
-            {
-                return false;
-            }
+            Err(local_fs::LocalPathError::NotFound) => {}
+            Err(_) => return false,
         }
     }
     true
@@ -675,33 +692,14 @@ fn path_within_root(target_lex: &str, root: &str) -> bool {
     if !is_safe_workspace_root(root, None) {
         return false;
     }
-    let Some(root_lex) = normalize_root_lex(root) else { return false };
     #[cfg(target_arch = "wasm32")]
     {
+        let Some(root_lex) = normalize_root_lex(root) else { return false };
         lex_within(target_lex, &root_lex)
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let Ok(canon_root) = std::fs::canonicalize(root) else { return false };
-        let canon_root_str = canon_root.to_string_lossy();
-        let lex_ok = lex_within(target_lex, &root_lex)
-            || normalize_root_lex(&canon_root_str).is_some_and(|cr| lex_within(target_lex, &cr));
-        if !lex_ok {
-            return false;
-        }
-        let os_target = if cfg!(windows) { target_lex.replace('/', "\\") } else { target_lex.to_owned() };
-        let mut cur: &std::path::Path = std::path::Path::new(&os_target);
-        loop {
-            if std::fs::symlink_metadata(cur).is_ok() {
-                let Ok(canon_cur) = std::fs::canonicalize(cur) else { return false };
-                return canon_cur.starts_with(&canon_root);
-            }
-            let Some(parent) = cur.parent() else { return false };
-            if parent == cur || parent.as_os_str().is_empty() {
-                return false;
-            }
-            cur = parent;
-        }
+        local_fs::verify_within_root(target_lex, root, false).is_some()
     }
 }
 

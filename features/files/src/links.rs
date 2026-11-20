@@ -7,7 +7,7 @@
 //! | `https:`, `mailto:`, `opencode-rune:`, any scheme but `file:` | The browser or the app that owns it (live runs only) |
 //! | `docs/plan.md`, `./x.md`, `../x.md`, `/abs/in/folder`, `~/…`, `file://…` | The file's tab, at `#L12`, `#L12-L20`, `:12` or `:12-20`; a `#heading` scrolls a rendered file to it |
 //! | An HTML file in the session's folder, on the app's own server with the browser on and the window wide | A page in the browser pane (`fileOrPage`, [`FilesHost::opens_as_page`]) |
-//! | A file outside the session's folder | Its default OS app (the server reads only inside the folder) |
+//! | A file outside the session's folder | Revealed in the file manager on a local fixed drive (never executed; UNC/device paths refused before touching disk) |
 //! | A file that isn't there | A toast naming it |
 //! | A bare word (`link`, `Makefile`) that isn't a file there | A toast saying it points nowhere (a bare word that is a file opens it) |
 //!
@@ -403,7 +403,7 @@ fn reveal_outside_file(host: &mut dyn FilesHost, path: &str) {
         host.toast_say(opencode_i18n::t!("rune.files.link.outside").to_owned(), path.to_owned());
         return;
     };
-    if !host.can_open_in() {
+    if !host.can_reveal_outside() {
         host.toast_say(opencode_i18n::t!("rune.files.link.outside").to_owned(), clean);
         return;
     }

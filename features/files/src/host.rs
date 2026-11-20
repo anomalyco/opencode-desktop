@@ -179,6 +179,11 @@ pub trait FilesHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
     fn can_open_in(&self) -> bool {
         false
     }
+    /// Whether revealing local files outside the workspace in the OS file manager is available
+    /// on this host (Windows, macOS, and Linux when connected to a local server).
+    fn can_reveal_outside(&self) -> bool {
+        self.can_open_in()
+    }
     /// Current remembered external application summary for the toolbar split button.
     fn open_in_current(&self) -> Option<OpenInCurrent> {
         None

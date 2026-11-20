@@ -260,7 +260,7 @@ fn handle_option_pick(s: &mut dyn SettingsHost, picked: Option<&str>, dir: &str,
         }
         Some("reveal") => {
             if let Err(e) = s.reveal_path(dir) {
-                if !std::path::Path::new(dir).exists() {
+                if e == "Path doesn't exist" {
                     let name = s
                         .projects()
                         .iter()

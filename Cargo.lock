@@ -934,7 +934,9 @@ dependencies = [
 name = "browser-policy"
 version = "0.0.1"
 dependencies = [
+ "libc",
  "serde_json",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5540,6 +5542,7 @@ dependencies = [
 name = "session-view"
 version = "0.0.1"
 dependencies = [
+ "browser-policy",
  "image",
  "opencode-i18n",
  "opencode-kit",

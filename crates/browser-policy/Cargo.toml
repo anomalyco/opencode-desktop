@@ -1,9 +1,21 @@
 [package]
 name = "browser-policy"
 version = "0.0.1"
-description = "Shared URL, workspace file confinement, and CDP allow-list policy for browser-pane and opencode-browser-engine"
+description = "Shared URL, workspace file confinement, local-path verification, and CDP allow-list policy for browser-pane, desktop, and opencode-browser-engine"
 edition = "2024"
 license = "MIT"
 
 [dependencies]
 serde_json = "1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Com",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
