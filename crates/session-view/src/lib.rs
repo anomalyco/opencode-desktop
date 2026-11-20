@@ -48,6 +48,7 @@ pub mod turn_errors;
 pub mod turns;
 pub mod usage;
 pub mod user_parts;
+pub mod widget;
 pub mod working;
 
 use std::ops::Range;
@@ -322,6 +323,11 @@ pub trait TimelineHost: Sized + 'static {
     }
     /// Included in a tool row's memo key: what [`Self::tool_row_action`] shows for call `id` can
     /// change without the call changing.
+    /// Agent widget `w` of session `session`, drawn by a host that runs widgets (with
+    /// [`widget::frame`]); `None` draws [`widget::fallback`].
+    fn widget(&self, _p: &palette::Pal, _session: &str, _w: &opencode_kit::model::Widget) -> Option<El> {
+        None
+    }
     fn tool_row_action_version(&self, _id: &str) -> u64 {
         0
     }

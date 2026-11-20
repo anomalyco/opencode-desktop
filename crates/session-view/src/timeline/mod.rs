@@ -66,6 +66,8 @@ pub enum RowContent {
     /// `from`, which changed `files`.
     /// `pt`: the room over Changed files (`pt-4`, less what the reply's footer leaves under it).
     TurnDiff { idle: usize, from: String, files: Vec<String>, pt: f32 },
+    /// An agent widget (`Message::Widget`) on its own row, and the room over it.
+    Widget { message: usize, pt: f32 },
     /// Room at the timeline's end for the pills' lane, so its last row stands clear over them
     /// (t1129); a row, so the pinned timeline glides up as it opens rather than jumping.
     Lane(f32),
@@ -283,6 +285,10 @@ impl RowSpec {
                 _ => unreachable!(),
             },
             RowContent::CompactionQueued(run) => crate::compaction::queued(s, p, *run),
+            RowContent::Widget { message, pt } => match &t.messages[*message] {
+                Message::Widget(w) => col().w_full().pt(*pt).child(s.widget(p, &t.session, w).unwrap_or_else(|| crate::widget::fallback(s, p, &t.session, w))),
+                _ => col(),
+            },
             RowContent::TurnDivider(run) => crate::compaction::divider_of(s, p, text(opencode_i18n::t!("ui.message.interrupted")).key("label").font(UI).color(p.faint), *run),
             RowContent::Lane(h) => el().w_full().h(*h),
             RowContent::TurnDiff { idle, from, files, pt } => crate::turn_diff::view(s, p, &t.session, t.messages[*idle].id(), from, files, *pt),
@@ -590,7 +596,7 @@ pub fn row_message<S: TimelineHost>(s: &S, t: &Transcript, key: &str) -> Option<
     let rows = rows(s, t);
     let r = rows.iter().find(|r| r.key == key)?;
     match &r.content {
-        RowContent::User { message, .. } | RowContent::Error { message, .. } | RowContent::Retry { message, .. } | RowContent::Compaction { message, .. } | RowContent::TurnText { message, .. } | RowContent::Actions { message, .. } => Some(*message),
+        RowContent::User { message, .. } | RowContent::Error { message, .. } | RowContent::Retry { message, .. } | RowContent::Compaction { message, .. } | RowContent::TurnText { message, .. } | RowContent::Actions { message, .. } | RowContent::Widget { message, .. } => Some(*message),
         RowContent::Notice(i, ..) => Some(*i),
         RowContent::Turn { start, .. } | RowContent::ToolImages { start, .. } => Some(*start),
         RowContent::TurnDiff { idle, .. } => Some(*idle),

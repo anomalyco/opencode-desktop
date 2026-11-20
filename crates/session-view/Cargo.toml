@@ -14,6 +14,10 @@ opencode-kit = { path = "../opencode-kit" }
 opencode-runtime = { path = "../opencode-runtime" }
 opencode-search = { path = "../opencode-search" }
 opencode-ui = { path = "../opencode-ui" }
+# Agent widgets: the contract's types and lifecycle (without the interpreter, which the host runs)
+# and their Rune renderer.
+opencode-widget = { path = "../opencode-widget", default-features = false }
+opencode-widget-view = { path = "../opencode-widget-view" }
 rune.workspace = true
 rune-kit = { workspace = true, features = ["markdown", "mermaid"] }
 rune-knobs.workspace = true

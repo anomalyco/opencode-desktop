@@ -97,6 +97,8 @@ pub struct MdStore {
     fetcher: RefCell<Fetcher>,
     cache: RefCell<Option<Arc<ImageCache>>>,
     slots: RefCell<HashMap<Source, Slot>>,
+    /// Pictures from `data:` URIs (a widget's images), decoded once, by a hash of the URI.
+    inline: RefCell<HashMap<u64, Image>>,
     /// What the readers fetched, already decoding (or a failure), waiting for the view.
     fetched: Arc<Mutex<Vec<FetchedEntry>>>,
     /// A fetch or decode finished since the host last polled: the view must run again.
@@ -167,6 +169,23 @@ impl MdStore {
         }
     }
 
+    /// The picture a `data:<mime>;base64,<bytes>` URI holds, decoded once and kept; `None` for
+    /// another URI, or until the host gives a waker.
+    pub fn data_image(&self, src: &str) -> Option<Image> {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        src.hash(&mut h);
+        let key = h.finish();
+        if let Some(image) = self.inline.borrow().get(&key) {
+            return Some(image.clone());
+        }
+        let (head, body) = src.strip_prefix("data:")?.split_once(',')?;
+        let bytes = if head.ends_with(";base64") { opencode_kit::model::base64_decode(body.trim())? } else { body.as_bytes().to_vec() };
+        let image = self.cache()?.load(bytes);
+        self.inline.borrow_mut().insert(key, image.clone());
+        Some(image)
+    }
+
     /// Markdown image `src`'s encoded bytes, once they've landed.
     pub fn bytes(&self, directory: Option<&str>, src: &str) -> Option<Arc<[u8]>> {
         match self.slots.borrow().get(&image_source(directory, src)?)? {
@@ -226,6 +245,8 @@ impl MdStore {
     /// encoded bytes, so a session opened again decodes them without fetching.
     pub fn rest(&self) {
         self.land();
+        // A `data:` picture decodes again from its URI when next shown.
+        self.inline.borrow_mut().clear();
         for slot in self.slots.borrow_mut().values_mut() {
             if let Slot::Decoding(_, bytes) = slot { *slot = Slot::Held(bytes.clone()); }
         }
