@@ -31,12 +31,18 @@ pub const VARIANTS: &[(&str, usize)] = &[
     ("Broken shader", 9),
     ("Minigame (live)", 10),
     ("Live runaway", 11),
+    ("Full screen", 12),
+    ("Live shader", 13),
 ];
 pub const KEYS: &[Trigger] = &[
     replay(open),
     Trigger { key: 'e', label: "Answer it from another client", run: |s, tx| {
         tx.clear();
         answer_elsewhere(s, tx);
+    } },
+    Trigger { key: 'f', label: "Full screen", run: |s, tx| {
+        tx.clear();
+        fullscreen(s, tx);
     } },
     Trigger { key: 'd', label: "Dismiss it from another client", run: |s, tx| {
         tx.clear();
@@ -52,6 +58,72 @@ const BROKEN_SHADER: &str = "story-broken-shader";
 /// A live template granted the network that, half a second in, runs without awaiting: the 50 ms
 /// rule stops it, and it shows its last view with why and Restart.
 const RUNAWAY: &str = "story-runaway";
+/// A live program that drives a shader game: it renders the shader again every frame with new
+/// `values` (the paddle under the pointer, the time), which reach the GPU without a build.
+const SHADER_GAME: &str = "story-shader-game";
+const SHADER_GAME_SOURCE: &str = r##"const WGSL = `fn shade(frag: vec2f) -> vec4f {
+  let uv = frag / widget.resolution;
+  let x = widget.values[0].x;
+  let t = widget.values[0].y;
+  let bar = select(0.0, 1.0, abs(uv.x - x) < 0.07 && uv.y > 0.86 && uv.y < 0.92);
+  let ball = vec2f(0.5 + 0.42 * sin(t * 1.3), 0.45 + 0.35 * sin(t * 2.1));
+  let d = distance(uv * vec2f(widget.resolution.x / widget.resolution.y, 1.0), ball * vec2f(widget.resolution.x / widget.resolution.y, 1.0));
+  let glow = smoothstep(0.06, 0.0, d);
+  let bg = vec3f(0.04, 0.06, 0.14) + vec3f(0.12, 0.04, 0.2) * uv.y;
+  return vec4f(bg + vec3f(0.95, 0.6, 0.2) * bar + vec3f(0.35, 0.85, 1.0) * glow, 1.0);
+}`
+
+async function main(data) {
+  let x = 0.5
+  while (true) {
+    const next = await widget.next({ frame: true })
+    if (next.type === "event" && next.event.type === "pointer") x = next.event.value.x / next.event.value.width
+    if (next.type !== "frame") continue
+    widget.render(
+      ui.column({ gap: 1 }, [
+        ui.text("Shader paddle", { style: "title" }),
+        ui.shader(WGSL, { id: "court", height: 220, values: [x, next.frame.t, 0, 0], alt: "A paddle and a ball" }),
+        ui.text("Drag on the court to move the paddle.", { style: "caption", tone: "muted" }),
+      ]),
+    )
+  }
+}
+"##;
+
+/// A canvas that fills the screen in full screen, and a layout that changes when it goes there.
+const FULLSCREEN: &str = "story-fullscreen";
+const FULLSCREEN_SOURCE: &str = r##"function init(data) {
+  return { full: false }
+}
+
+function view(state, data) {
+  return ui.column({ gap: 2 }, [
+    ui.text(state.full ? "Starfield, full screen" : "Starfield", { style: "title" }),
+    ui.canvas({ id: "sky", height: 180, fps: 30, fill: true, alt: "A starfield" }),
+    !state.full && ui.text("Hover the widget and press the expand button.", { style: "caption", tone: "muted" }),
+  ])
+}
+
+function update(state, event) {
+  if (event.type === "fullscreen") return { ...state, full: event.value === true }
+  return state
+}
+
+function draw(state, data, frame) {
+  const g = ui.draw()
+  g.rect(0, 0, frame.width, frame.height, { fill: { linear: [0, 0, 0, frame.height], stops: [[0, "#0b1026"], [1, "#3b1d5c"]] } })
+  for (let i = 0; i < data.stars; i++) {
+    const x = (Math.sin(i * 12.9898) * 43758.5453) % 1 + (Math.sin(i * 12.9898) < 0 ? 1 : 0)
+    const y = Math.abs(Math.sin(i * 78.233) * 12543.137) % 1
+    const twinkle = 0.5 + 0.5 * Math.sin(frame.t * 2 + i)
+    g.alpha(0.4 + 0.6 * twinkle).circle(x * frame.width, y * frame.height, 0.6 + (i % 3) * 0.6, "#ffffff")
+  }
+  g.alpha(1)
+  const words = (frame.fullscreen ? "Full screen" : "Inline") + " · " + Math.round(frame.width) + " × " + Math.round(frame.height)
+  g.text(frame.width / 2, frame.height / 2, words, { size: frame.fullscreen ? 28 : 16, weight: 600, align: "center", color: "#ffffff" })
+  return g
+}
+"##;
 /// Where the story's pictures say they are; [`serve`] answers for them.
 const PICTURES: &str = "https://pictures.story.example/";
 
@@ -71,6 +143,8 @@ fn template(v: usize) -> &'static str {
         9 => BROKEN_SHADER,
         10 => "minigame",
         11 => RUNAWAY,
+        12 => FULLSCREEN,
+        13 => SHADER_GAME,
         _ => "suggestions",
     }
 }
@@ -130,6 +204,8 @@ fn data(v: usize) -> (&'static str, Value) {
         9 => ("Broken shader", json!({})),
         10 => ("Tap the dots", json!({ "title": "Tap the dots", "seconds": 20 })),
         11 => ("Price ticker", json!({})),
+        12 => ("Starfield", json!({ "stars": 140 })),
+        13 => ("Shader paddle", json!({})),
         _ => ("Pick a hero image", json!({
             "title": "Which hero image should the landing page use?",
             "options": [
@@ -176,9 +252,14 @@ fn open(s: &mut App, tx: &mut Play<App>) {
         fixtures::PRELUDE
     );
     preload(s, RUNAWAY, &version(RUNAWAY), &runaway, "live", &json!({ "https": { "hosts": ["api.coingecko.com"] } }));
+    preload(s, SHADER_GAME, &version(SHADER_GAME), &format!("{}\n{SHADER_GAME_SOURCE}", fixtures::PRELUDE), "live", &Value::Null);
+    preload(s, FULLSCREEN, &version(FULLSCREEN), &format!("{}\n{FULLSCREEN_SOURCE}", fixtures::PRELUDE), "step", &Value::Null);
     tx.after(0.3, |s, tx| post(s, tx));
     if *s.fixture_run.variant == 3 {
         tx.after(0.9, |s, tx| answer_elsewhere(s, tx));
+    }
+    if *s.fixture_run.variant == 12 {
+        tx.after(1.8, |s, tx| fullscreen(s, tx));
     }
 }
 
@@ -211,6 +292,13 @@ fn changed(s: &mut App, status: &str, response: Value, tx: &mut Tx) {
         state["response"] = response;
     }
     emit(s, opencode_kit::model::WIDGET_CHANGED_EVENT, json!({ "sessionID": sid, "state": state }), tx);
+}
+
+/// The story's widget goes full screen, as its expand button takes it.
+fn fullscreen(s: &mut App, tx: &mut Tx) {
+    let now = tx.clock();
+    let key = opencode_kit::model::widget_key(ID, CALL);
+    crate::session::widgets::fullscreen::send(s, crate::session::widgets::fullscreen::ScreenEvent::Enter(key), now, tx);
 }
 
 fn answer_elsewhere(s: &mut App, tx: &mut Tx) {

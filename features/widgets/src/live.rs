@@ -23,8 +23,8 @@ pub struct Run {
     frame_wanted: bool,
     /// The clock of the last frame it got.
     last_frame: Option<f64>,
-    /// The widget's builds when it got that frame.
-    built_at: u64,
+    /// The widget's builds, and the frames drawn with a shader on screen, when it got that frame.
+    built_at: (u64, u64),
 }
 
 impl Run {
@@ -82,7 +82,8 @@ pub(crate) fn poll(host: &mut dyn WidgetsHost, now: f64, tx: &mut Tx) -> bool {
     let mut changed = false;
     for id in ids {
         let Some(e) = host.widgets().entries.get(&id) else { continue };
-        let visible = e.local.shown() && shown.as_deref() == Some(e.session.as_str());
+        // Full screen, it shows whatever the timeline does.
+        let visible = host.widgets().screen.is(&id) || (e.local.shown() && shown.as_deref() == Some(e.session.as_str()));
         if e.machine.waiting() {
             if visible {
                 advance(host, &id, Event::Shown);
@@ -105,7 +106,8 @@ fn drive(host: &mut dyn WidgetsHost, id: &str, visible: bool, now: f64, tx: &mut
     use engine::{Ended, Post};
     let Some(e) = host.widgets_mut().entries.get_mut(id) else { return false };
     let Some(live) = e.run.live.as_ref() else { return false };
-    let stalled = e.run.frame_wanted && e.run.last_frame.is_some_and(|t| now - t > STALL_S) && e.local.builds() == e.run.built_at;
+    let drawn = (e.local.builds(), opencode_widget_view::shader::painted());
+    let stalled = e.run.frame_wanted && e.run.last_frame.is_some_and(|t| now - t > STALL_S) && drawn == e.run.built_at;
     let on = visible && !stalled;
     if on && live.paused() {
         live.resume();
@@ -117,7 +119,24 @@ fn drive(host: &mut dyn WidgetsHost, id: &str, visible: bool, now: f64, tx: &mut
     let mut changed = false;
     for post in posts {
         let event = match post {
-            Post::Render(node) => Event::Rendered(node),
+            Post::Render(node) => {
+                // Only shader values moved (a shader game's frame): the slots take them, and the
+                // widget doesn't build again.
+                // A still shader (`fps: 0`) draws only on a build, so it builds.
+                let mut still = false;
+                node.walk(&mut |n| still |= matches!(n, opencode_widget::Node::Shader { fps: Some(f), .. } if *f <= 0.0));
+                let quiet = if still { None } else { host.widgets().entries.get(id).and_then(|e| e.machine.view()).and_then(|v| v.values_only(&node)) };
+                match quiet {
+                    Some(moved) => {
+                        for (path, values) in &moved {
+                            opencode_widget_view::shader::set_values(&format!("{id}/{path}"), values);
+                        }
+                        advance(host, id, Event::Rendered(node));
+                        continue;
+                    }
+                    None => Event::Rendered(node),
+                }
+            }
             Post::Draw { id: canvas, commands } => {
                 if let Some(e) = host.widgets_mut().entries.get_mut(id)
                     && let Some(view) = e.machine.view()
@@ -171,8 +190,8 @@ fn drive(host: &mut dyn WidgetsHost, id: &str, visible: bool, now: f64, tx: &mut
         tx.wake_at(last + FRAME_S);
         return changed;
     }
-    let Some(view) = e.machine.view() else { return changed };
-    let (canvas, size, pointer) = match e.local.live_canvas(view) {
+    // Before its first render it has no canvas yet: its first frame says so (no size).
+    let (canvas, size, pointer) = match e.machine.view().and_then(|v| e.local.live_canvas(v)) {
         Some(c) => match c.size {
             Some(size) => (c.id, size, c.pointer),
             // Its canvas isn't laid out yet: the frame waits for its size.
@@ -190,13 +209,20 @@ fn drive(host: &mut dyn WidgetsHost, id: &str, visible: bool, now: f64, tx: &mut
         scale: f64::from(scale),
         pointer,
         dark,
+        fullscreen: e.local.fullscreen(),
     };
     live.frame(&frame);
     e.run.frame_wanted = false;
     e.run.last_frame = Some(now);
-    e.run.built_at = e.local.builds();
-    // Looks again after a stall's time, to pause a window that stopped drawing; builds the
-    // widget again, which a window that draws does at once.
+    e.run.built_at = (e.local.builds(), opencode_widget_view::shader::painted());
+    // Looks again after a stall's time, to pause a window that stopped drawing. A widget with a
+    // shader shows it draws by the shader's frames; another builds again, which a window that
+    // draws does at once.
     tx.wake_at(now + STALL_S + 0.01);
-    true
+    let shaded = e.machine.view().is_some_and(|v| {
+        let mut any = false;
+        v.walk(&mut |n| any |= matches!(n, opencode_widget::Node::Shader { .. }));
+        any
+    });
+    changed || !shaded
 }

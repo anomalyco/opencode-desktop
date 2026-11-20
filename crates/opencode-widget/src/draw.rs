@@ -37,6 +37,9 @@ pub struct Frame {
     pub scale: f64,
     pub pointer: Option<Pointer>,
     pub dark: bool,
+    /// The widget is full screen.
+    #[serde(default)]
+    pub fullscreen: bool,
 }
 
 /// A theme color a command names instead of a value; the client resolves it.

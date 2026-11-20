@@ -8,7 +8,7 @@
 use std::rc::Rc;
 
 use opencode_widget::Face;
-use opencode_widget_view::{Action, Hooks, Local, Look, Words};
+use opencode_widget_view::{Action, Buttons, Hooks, Local, Look, Words};
 use rune::El;
 
 use crate::TimelineHost;
@@ -40,6 +40,9 @@ fn words() -> Rc<Words> {
             failed: opencode_i18n::t!("rune.widget.failed").to_owned(),
             retry: opencode_i18n::t!("rune.widget.retry").to_owned(),
             restart: opencode_i18n::t!("rune.widget.restart").to_owned(),
+            fullscreen: opencode_i18n::t!("rune.widget.fullscreen").to_owned(),
+            exit_fullscreen: opencode_i18n::t!("rune.widget.exitFullscreen").to_owned(),
+            elsewhere: opencode_i18n::t!("rune.widget.elsewhere").to_owned(),
             sending: opencode_i18n::t!("rune.widget.sending").to_owned(),
             submitted: opencode_i18n::t!("rune.widget.submitted").to_owned(),
             dismissed: opencode_i18n::t!("rune.widget.dismissed").to_owned(),
@@ -51,21 +54,39 @@ fn words() -> Rc<Words> {
     })
 }
 
-/// Widget `id` (its key) of session `session`, called `label`, in its frame, as `face` shows
-/// it. `retry` is what Try again (or Restart) does on a failed one; `chip` names the
-/// capabilities granted to it.
+/// Where a widget draws.
+pub enum Place<S> {
+    /// In the timeline, with its frame's buttons.
+    Inline(Buttons<S>),
+    /// In the timeline while it is full screen: a placeholder.
+    Elsewhere,
+    /// Full screen, filling a window `size` points big; `close` leaves it.
+    Screen { size: [f32; 2], close: Action<S> },
+}
+
+/// Widget `id` (its key) of session `session`, called `label`, as `face` shows it, where
+/// `place` says; `chip` names the capabilities granted to it.
 #[allow(clippy::too_many_arguments)]
-pub fn frame<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, label: &str, face: Face<'_>, local: &Local, hooks: Option<&Hooks<S>>, retry: Option<Action<S>>, chip: Option<&str>) -> El {
-    let width = crate::style::content_w();
+pub fn frame<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, label: &str, face: Face<'_>, local: &Local, hooks: Option<&Hooks<S>>, place: Place<S>, chip: Option<&str>) -> El {
+    let fullscreen = matches!(place, Place::Screen { .. });
+    let width = match &place {
+        Place::Screen { size, .. } => (size[0] - 48.0).max(200.0),
+        _ => crate::style::content_w(),
+    };
     let store = s.media_store().markdown.clone();
     let directory = s.session_directory(session);
     // Pictures come through the timeline's own store: web images and the session's files fetched
     // once on its worker, `data:` URIs decoded once, every one by Rune's image cache.
     let image = |src: &str| if src.starts_with("data:") { store.data_image(src) } else { store.image(directory, src) };
-    let markdown = |src: &str| crate::style::markdown_tinted::<S>(p, src, 1.0, false, p.text, width - 2.0 * FRAME_PAD);
+    let pad = if fullscreen { 0.0 } else { 2.0 * FRAME_PAD };
+    let markdown = |src: &str| crate::style::markdown_tinted::<S>(p, src, 1.0, false, p.text, width - pad);
     let words = words();
-    let look = Look { kit: crate::palette::kit(p), markdown: &markdown, image: &image, words: &words, width, scale: crate::scroller::device_scale(), dark: p.dark, scope: id, chip };
-    opencode_widget_view::frame(&look, local, hooks, face, label, retry).key(format!("widget-{id}"))
+    let look = Look { kit: crate::palette::kit(p), markdown: &markdown, image: &image, words: &words, width, scale: crate::scroller::device_scale(), dark: p.dark, scope: id, chip, fullscreen };
+    match place {
+        Place::Inline(buttons) => opencode_widget_view::frame(&look, local, hooks, face, label, buttons).key(format!("widget-{id}")),
+        Place::Elsewhere => opencode_widget_view::placeholder(&look, label).key(format!("widget-{id}")),
+        Place::Screen { size, close } => opencode_widget_view::screen(&look, local, hooks, face, label, size[1], close).key(format!("widget-screen-{id}")),
+    }
 }
 
 /// The chip naming a widget's granted network hosts.

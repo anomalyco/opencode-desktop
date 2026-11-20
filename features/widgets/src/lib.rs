@@ -13,24 +13,24 @@
 #![forbid(unsafe_code)]
 
 mod engine;
+pub mod fullscreen;
 mod live;
+mod view;
 #[cfg(not(target_arch = "wasm32"))]
 mod transport;
 
 use std::collections::HashMap;
-use std::rc::Rc;
 use std::sync::Arc;
 
-use opencode_kit::model::{WidgetCall, WidgetState, WidgetStatus, widget_key};
-use opencode_widget::{Closed, Effect, Event, Face, Mode, Phase, Status, Widget, WidgetEvent};
-use opencode_widget_view::{Hooks, Local};
-use rune::{El, Tx};
-use session_view::TimelineHost;
-use session_view::palette::Pal;
+use opencode_kit::model::{WidgetCall, WidgetState, WidgetStatus};
+use opencode_widget::{Closed, Effect, Event, Mode, Phase, Status, Widget, WidgetEvent};
+use opencode_widget_view::Local;
+use rune::Tx;
 use serde_json::Value;
 
 pub use engine::{Compiled, Grants, Kind, Program, compile, compile_as, offset};
 pub use opencode_widget::{RespondError, fixtures};
+pub use view::{screen_key, screen_view, view};
 /// The shader slots' GPU side, for the host's compositor.
 pub use opencode_widget_view::shader;
 
@@ -91,6 +91,10 @@ pub struct Widgets {
     read: HashMap<String, (u64, u64)>,
     /// What a lens gets for a widget that went away under a queued handler.
     spare: Local,
+    /// The widget full screen, if any.
+    pub screen: fullscreen::Screen,
+    /// The window's size in points, as full screen last laid out.
+    screen_size: [f32; 2],
 }
 
 impl Widgets {
@@ -139,6 +143,8 @@ pub trait WidgetsHost {
     /// Tells the agent widget `call` of `message` failed here (`report`, `error`: `{ phase,
     /// message, line?, column? }`), off the UI thread; nothing answers.
     fn post_report(&mut self, session: &str, message: &str, call: &str, error: Value);
+    /// Whether the window is OS full screen now; `None` without a window (a headless run).
+    fn window_full_screen(&self) -> Option<bool>;
     /// Wakes the window from another thread: a live program posted or wants a frame.
     fn widget_notify(&self) -> Arc<dyn Fn() + Send + Sync>;
 }
@@ -478,6 +484,7 @@ pub(crate) fn report(host: &mut dyn WidgetsHost, id: &str, phase: &str, message:
 /// next debounce; draws due canvases; and builds widgets again whose shader's status changed.
 pub fn poll(host: &mut dyn WidgetsHost, now: f64, tx: &mut Tx) -> bool {
     let mut changed = draw_canvases(host, now, tx);
+    changed |= fullscreen::poll(host, now, tx);
     changed |= live::poll(host, now, tx);
     if opencode_widget_view::shader::take_changed() {
         // The shader's slot failed or froze: its widget builds again to say so, and the agent
@@ -510,54 +517,4 @@ pub fn rest(host: &mut dyn WidgetsHost, keep: &dyn Fn(&str) -> bool) {
     w.entries.retain(|_, e| keep(&e.session));
     w.sessions.retain(|s, _| keep(s));
     w.read.retain(|s, _| keep(s));
-}
-
-/// Widget call `call` of assistant message `message` in session `session` as the timeline draws
-/// it: the widget, a placeholder while its state or program is on the way, or `None` to show the
-/// call as any other (the plugin isn't there, or the call failed before it posted a widget).
-pub fn view<H: WidgetsHost + TimelineHost>(s: &H, p: &Pal, session: &str, message: &str, call: &session_view::tools::Call) -> Option<El> {
-    let key = widget_key(message, call.id);
-    let Some(e) = s.widgets().entries.get(&key) else {
-        // Not opened yet (the next frame's sync opens it): a closed one already says how it
-        // ended; an open one, or one whose state is on the way, shows its placeholder.
-        let label = call.input["title"].as_str().filter(|t| !t.is_empty()).or_else(|| call.input["template"].as_str()).unwrap_or("widget");
-        let how = match s.widgets().states(session) {
-            Some(States::Ready(map)) => match map.get(&key) {
-                Some(w) => closed(&w.status),
-                None if *call.status == opencode_kit::model::ToolStatus::Running => None,
-                None => return None,
-            },
-            Some(States::Fetching) | None if *call.status != opencode_kit::model::ToolStatus::Error => None,
-            _ => return None,
-        };
-        let face = match &how {
-            Some(how) => Face::Closed { view: None, how },
-            None => Face::Loading,
-        };
-        return Some(session_view::widget::frame(s, p, session, &key, label, face, &Local::default(), None, None, None));
-    };
-    let (lens, emit, again) = (key.clone(), key.clone(), key.clone());
-    let hooks: Hooks<H> = Hooks {
-        local: Rc::new(move |s: &mut H| s.widgets_mut().local_mut(&lens)),
-        emit: Rc::new(move |s: &mut H, ev: WidgetEvent, _tx: &mut Tx| input(s, &emit, ev)),
-    };
-    let retry: opencode_widget_view::Action<H> = Rc::new(move |s: &mut H, _tx: &mut Tx| retry(s, &again));
-    // The hosts it may reach, when its template is granted the network.
-    let chip = match s.widgets().templates.get(&e.template) {
-        Some(Template::Ready(c)) => match &c.kind {
-            Kind::Live { grants: Grants { https: Some(hosts), .. }, .. } => Some(session_view::widget::network_chip(hosts)),
-            _ => None,
-        },
-        _ => None,
-    };
-    Some(session_view::widget::frame(s, p, session, &key, &e.label, e.machine.face(), &e.local, Some(&hooks), Some(retry), chip.as_deref()))
-}
-
-/// How a widget ended, from its state alone.
-fn closed(status: &WidgetStatus) -> Option<Closed> {
-    match status {
-        WidgetStatus::Open => None,
-        WidgetStatus::Submitted(v) => Some(Closed::Submitted(v.clone())),
-        WidgetStatus::Dismissed => Some(Closed::Dismissed),
-    }
 }

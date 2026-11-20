@@ -107,6 +107,10 @@ pub struct Local {
     shown: bool,
     /// Builds of the widget's frame: one that stops counting sits in a window that doesn't draw.
     builds: std::cell::Cell<u64>,
+    /// When each shader last sent a pointer `move`, by path.
+    moved: HashMap<String, f64>,
+    /// The widget is full screen (`frame.fullscreen`).
+    fullscreen: bool,
 }
 
 impl Local {
@@ -138,6 +142,30 @@ impl Local {
         let (path, id, _) = canvases(view).into_iter().next()?;
         let c = self.canvases.get(&path);
         Some(LiveCanvas { id, size: c.and_then(|c| c.size), pointer: c.and_then(|c| c.pointer) })
+    }
+
+    /// When the shader at `path` last sent a pointer `move`.
+    pub fn moved_at(&self, path: &str) -> f64 {
+        self.moved.get(path).copied().unwrap_or(f64::NEG_INFINITY)
+    }
+
+    pub fn set_moved(&mut self, path: &str, at: f64) {
+        self.moved.insert(path.to_owned(), at);
+    }
+
+    pub fn fullscreen(&self) -> bool {
+        self.fullscreen
+    }
+
+    /// The widget entered or left full screen: its canvases draw again, sized anew.
+    pub fn set_fullscreen(&mut self, on: bool) {
+        if self.fullscreen != on {
+            self.fullscreen = on;
+            for c in self.canvases.values_mut() {
+                c.step(CanvasEvent::Changed);
+            }
+            self.version += 1;
+        }
     }
 
     /// The widget's frame was built (drawn).
@@ -301,7 +329,8 @@ impl Local {
         canvases(view)
             .into_iter()
             .filter_map(|(path, id, motion)| {
-                let frame = self.canvases.entry(path.clone()).or_default().due(now, motion, id.as_deref(), scale, dark)?;
+                let mut frame = self.canvases.entry(path.clone()).or_default().due(now, motion, id.as_deref(), scale, dark)?;
+                frame.fullscreen = self.fullscreen;
                 Some((path, frame))
             })
             .collect()

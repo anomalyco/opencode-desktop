@@ -26,7 +26,7 @@ use opencode_widget::{Node, WidgetEvent};
 use rune::{El, Image, Tx};
 use rune_kit::Kit;
 
-pub use face::{Words, frame, summary};
+pub use face::{EXPAND, Words, frame, placeholder, screen, summary};
 pub use local::{DEBOUNCE_S, Local};
 
 /// What a widget's build reads from the host besides the widget.
@@ -49,6 +49,9 @@ pub struct Look<'a> {
     pub scope: &'a str,
     /// The capabilities granted to it, in a line ("Network: api.github.com"), when it has any.
     pub chip: Option<&'a str>,
+    /// It fills the window (full screen): its root fills it, and a `fill` canvas or shader takes
+    /// the height left.
+    pub fullscreen: bool,
 }
 
 /// A lens from the host's state to a widget's [`Local`].
@@ -57,6 +60,20 @@ pub type Lens<S> = Rc<dyn for<'a> Fn(&'a mut S) -> &'a mut Local>;
 pub type Emit<S> = Rc<dyn Fn(&mut S, WidgetEvent, &mut Tx)>;
 /// Something the frame's buttons do (Try again).
 pub type Action<S> = Rc<dyn Fn(&mut S, &mut Tx)>;
+
+/// What the frame's own buttons do; a button without an action doesn't show.
+pub struct Buttons<S> {
+    /// Try again on a failed widget, Restart on a stopped live one.
+    pub retry: Option<Action<S>>,
+    /// The expand button, top right, on hover and keyboard focus: full screen.
+    pub expand: Option<Action<S>>,
+}
+
+impl<S> Default for Buttons<S> {
+    fn default() -> Self {
+        Buttons { retry: None, expand: None }
+    }
+}
 
 /// Where a widget's view sends what the user does, and where its [`Local`] lives in the host.
 pub struct Hooks<S> {
@@ -114,6 +131,13 @@ thread_local! {
 /// (`frame.scale`, `frame.dark`), which run outside a build.
 pub fn appearance() -> (f32, bool) {
     APPEARANCE.get()
+}
+
+/// Whether node `n` holds a canvas or shader that fills the height left in full screen.
+pub(crate) fn fills(n: &Node) -> bool {
+    let mut any = false;
+    n.walk(&mut |n| any |= matches!(n, Node::Canvas { fill: Some(true), .. } | Node::Shader { fill: Some(true), .. }));
+    any
 }
 
 /// The widget's view tree: `live` when it takes input, else every control shows disabled.

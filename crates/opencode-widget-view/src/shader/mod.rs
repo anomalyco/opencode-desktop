@@ -55,6 +55,15 @@ struct Registry {
     next: u16,
 }
 
+/// Frames drawn with a shader on screen: a window whose widget animates only its shader draws
+/// without building again, and this still says it draws.
+pub(crate) static PAINTED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// How many frames were drawn with a shader on screen.
+pub fn painted() -> u64 {
+    PAINTED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 thread_local! {
     static REGISTRY: RefCell<Registry> = RefCell::default();
     static CHANGED: Cell<bool> = const { Cell::new(false) };
@@ -131,6 +140,25 @@ fn show(key: &str, wgsl: &str, values: &[f64], fps: f64) -> (u32, Status) {
     })
 }
 
+/// A live program re-rendered with only shader `values` changed: slot `key` (its widget's scope
+/// and the node's path) takes them now, without a build. Whether it had such a slot.
+pub fn set_values(key: &str, values: &[f64]) -> bool {
+    REGISTRY.with_borrow_mut(|r| {
+        let Some(slot) = r.marks.get(key).and_then(|m| r.slots.get_mut(m)) else { return false };
+        let mut v = opencode_widget::shader::Uniforms::default();
+        v.set_values(values);
+        slot.values = v.values;
+        true
+    })
+}
+
+/// A shader node's box: `height` (its least, when it fills full screen) and `width`.
+pub(crate) struct Size {
+    pub height: f64,
+    pub width: Option<f64>,
+    pub fill: bool,
+}
+
 fn point(mark: u32, at: Option<([f32; 2], bool)>) {
     REGISTRY.with_borrow_mut(|r| {
         if let Some(s) = r.slots.get_mut(&mark) {
@@ -140,12 +168,14 @@ fn point(mark: u32, at: Option<([f32; 2], bool)>) {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn view<S: 'static>(cx: &Cx<S>, path: &str, height: f64, width: Option<f64>, wgsl: &str, values: &[f64], fps: Option<f64>, alt: Option<&str>, poster: Option<&str>) -> El {
+pub(crate) fn view<S: 'static>(cx: &Cx<S>, path: &str, id: Option<&str>, size: Size, wgsl: &str, values: &[f64], fps: Option<f64>, alt: Option<&str>, poster: Option<&str>) -> El {
     let k = cx.look.kit;
     let fps = fps.unwrap_or(DEFAULT_FPS).clamp(0.0, opencode_widget::draw::MAX_FPS);
     let key = format!("{}/{path}", cx.look.scope);
     let (mark, status) = show(&key, wgsl, values, fps);
-    let mut b = el().h(height as f32).radius(crate::nodes::RADIUS).clip_rounded(crate::nodes::RADIUS).role("img").label(alt.unwrap_or("").to_owned());
+    let Size { height, width, fill } = size;
+    let b = if fill { el().min_h(height as f32).grow(1.0) } else { el().h(height as f32) };
+    let mut b = b.radius(crate::nodes::RADIUS).clip_rounded(crate::nodes::RADIUS).role("img").label(alt.unwrap_or("").to_owned());
     b = match width {
         Some(w) => b.w(w as f32).max_w(cx.look.width),
         None => b.w_full(),
@@ -161,9 +191,8 @@ pub(crate) fn view<S: 'static>(cx: &Cx<S>, path: &str, height: f64, width: Optio
         return rune::col().w_full().gap(4.0).child(b).child(note);
     }
     let b = b.effect(mark).effect_data([f32::from_bits(mark), 0.0, 0.0, 0.0]);
-    if cx.hooks.is_none() {
-        return b;
-    }
+    let Some(hooks) = cx.hooks.cloned() else { return b };
+    let (live, id, key) = (cx.live, id.map(str::to_owned), path.to_owned());
     b.on_pointer_move_local(move |_: &mut S, p, _tx: &mut Tx| {
         let down = with_slot(mark, |s| s.pointer.is_some_and(|(_, d)| d)).unwrap_or(false);
         point(mark, Some(([p.x, p.y], down)));
@@ -173,5 +202,24 @@ pub(crate) fn view<S: 'static>(cx: &Cx<S>, path: &str, height: f64, width: Optio
             point(mark, None);
         }
     })
-    .on_drag(move |_: &mut S, d: &mut Drag, _tx: &mut Tx| point(mark, Some(([d.x, d.y], d.phase != Phase::Up))))
+    .on_drag(move |s: &mut S, d: &mut Drag, tx: &mut Tx| {
+        point(mark, Some(([d.x, d.y], d.phase != Phase::Up)));
+        // A shader with an id sends the pointer to the template as a canvas does: `move` only
+        // while down, at most once a frame.
+        let (Some(id), true) = (&id, live) else { return };
+        let kind = match d.phase {
+            Phase::Down => opencode_widget::PointerKind::Down,
+            Phase::Move => {
+                let local = (hooks.local)(s);
+                if local.moved_at(&key) == tx.clock() {
+                    return;
+                }
+                local.set_moved(&key, tx.clock());
+                opencode_widget::PointerKind::Move
+            }
+            Phase::Up => opencode_widget::PointerKind::Up,
+        };
+        let event = opencode_widget::WidgetEvent::pointer(id.clone(), kind, f64::from(d.x), f64::from(d.y), f64::from(d.w), f64::from(d.h));
+        hooks.send(s, event, tx);
+    })
 }

@@ -97,6 +97,10 @@ pub enum Node {
         gap: Option<u8>,
         #[serde(default)]
         align: Align,
+        /// On the root: offer full screen (`true`), never (`false`); absent, offered for live
+        /// widgets and views with a canvas or shader (`widgets-fullscreen.md`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fullscreen: Option<bool>,
     },
     Row {
         #[serde(default)]
@@ -108,6 +112,10 @@ pub enum Node {
         align: Option<Align>,
         #[serde(default)]
         wrap: bool,
+        /// On the root: offer full screen (`true`), never (`false`); absent, offered for live
+        /// widgets and views with a canvas or shader (`widgets-fullscreen.md`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fullscreen: Option<bool>,
     },
     Text {
         text: String,
@@ -134,6 +142,10 @@ pub enum Node {
         index: Option<usize>,
         #[serde(default)]
         children: Vec<Node>,
+        /// On the root: offer full screen (`true`), never (`false`); absent, offered for live
+        /// widgets and views with a canvas or shader (`widgets-fullscreen.md`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fullscreen: Option<bool>,
     },
     Card {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -142,6 +154,10 @@ pub enum Node {
         selected: bool,
         #[serde(default)]
         children: Vec<Node>,
+        /// On the root: offer full screen (`true`), never (`false`); absent, offered for live
+        /// widgets and views with a canvas or shader (`widgets-fullscreen.md`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fullscreen: Option<bool>,
     },
     Button {
         id: String,
@@ -204,6 +220,13 @@ pub enum Node {
         duration: Option<f64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         alt: Option<String>,
+        /// In full screen, grows to take the remaining height (`height` is the minimum).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fill: Option<bool>,
+        /// On the root: offer full screen (`true`), never (`false`); absent, offered for live
+        /// widgets and views with a canvas or shader (`widgets-fullscreen.md`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fullscreen: Option<bool>,
     },
     /// A WGSL fragment shader (see [`crate::shader`]); full width unless `width`.
     Shader {
@@ -223,6 +246,13 @@ pub enum Node {
         alt: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         poster: Option<String>,
+        /// In full screen, grows to take the remaining height (`height` is the minimum).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fill: Option<bool>,
+        /// On the root: offer full screen (`true`), never (`false`); absent, offered for live
+        /// widgets and views with a canvas or shader (`widgets-fullscreen.md`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fullscreen: Option<bool>,
     },
     /// A node type this client doesn't know: drawn as nothing (with a warning in development).
     #[serde(other)]
@@ -230,6 +260,58 @@ pub enum Node {
 }
 
 impl Node {
+    /// Whether `other` is this view with only its shaders' `values` changed: the shaders at those
+    /// paths (as renderers key them, `w`, `w.0`, `w.0.1`…) and their new values, when it is.
+    pub fn values_only(&self, other: &Node) -> Option<Vec<(String, Vec<f64>)>> {
+        fn walk(a: &Node, b: &Node, path: &str, out: &mut Vec<(String, Vec<f64>)>) -> bool {
+            match (a, b) {
+                (Node::Shader { values: va, .. }, Node::Shader { values: vb, .. }) => {
+                    let mut bare = b.clone();
+                    if let Node::Shader { values, .. } = &mut bare {
+                        values.clone_from(va);
+                    }
+                    if &bare != a {
+                        return false;
+                    }
+                    if va != vb {
+                        out.push((path.to_owned(), vb.clone()));
+                    }
+                    true
+                }
+                _ => {
+                    let (ka, kb) = (a.children(), b.children());
+                    if ka.len() != kb.len() || std::mem::discriminant(a) != std::mem::discriminant(b) {
+                        return false;
+                    }
+                    if ka.is_empty() {
+                        return a == b;
+                    }
+                    // The node itself, without its children, must match too.
+                    if !same_shell(a, b) {
+                        return false;
+                    }
+                    ka.iter().zip(kb).enumerate().all(|(i, (x, y))| walk(x, y, &format!("{path}.{i}"), out))
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(self, other, "w", &mut out).then_some(out)
+    }
+
+    /// Whether this view, as the root, offers full screen: its `fullscreen` prop, else for a
+    /// live widget or a view with a canvas or shader.
+    pub fn offers_fullscreen(&self, live: bool) -> bool {
+        let own = match self {
+            Node::Column { fullscreen, .. } | Node::Row { fullscreen, .. } | Node::Carousel { fullscreen, .. } | Node::Card { fullscreen, .. } | Node::Canvas { fullscreen, .. } | Node::Shader { fullscreen, .. } => *fullscreen,
+            _ => None,
+        };
+        own.unwrap_or_else(|| {
+            let mut drawn = false;
+            self.walk(&mut |n| drawn |= matches!(n, Node::Canvas { .. } | Node::Shader { .. }));
+            live || drawn
+        })
+    }
+
     /// The node's children, for the containers that have them.
     pub fn children(&self) -> &[Node] {
         match self {
@@ -272,4 +354,17 @@ impl Node {
         });
         out.join("\n")
     }
+}
+
+/// Whether two containers match but for their children.
+fn same_shell(a: &Node, b: &Node) -> bool {
+    let strip = |n: &Node| {
+        let mut n = n.clone();
+        match &mut n {
+            Node::Column { children, .. } | Node::Row { children, .. } | Node::Carousel { children, .. } | Node::Card { children, .. } => children.clear(),
+            _ => {}
+        }
+        n
+    };
+    strip(a) == strip(b)
 }

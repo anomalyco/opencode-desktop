@@ -237,7 +237,7 @@ pub fn step(w: &mut Widget, event: Event) -> Vec<Effect> {
         (Phase::Running { view, error }, Event::Input(event)) => (Phase::Running { view, error }, vec![Effect::Deliver(event)]),
         (Phase::Running { view, .. }, Event::Sending(message)) => (Phase::Running { view, error: None }, vec![Effect::Send(message)]),
         (Phase::Running { view, .. }, Event::Answered(response)) => {
-            let view = view.unwrap_or_else(|| Node::Column { children: vec![], gap: None, align: Default::default() });
+            let view = view.unwrap_or_else(|| Node::Column { children: vec![], gap: None, align: Default::default(), fullscreen: None });
             let effect = Effect::Respond { response: response.clone(), attempt };
             (Phase::Responding { state: Value::Null, view, response, attempt, live: true }, vec![Effect::Stop, effect])
         }

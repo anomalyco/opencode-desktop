@@ -13,8 +13,10 @@ use crate::node::Node;
 pub enum EventKind {
     Press,
     Change,
-    /// A canvas's pointer: `value: { kind: "down" | "move" | "up", x, y }`.
+    /// A canvas's or shader's pointer: `value: { kind: "down" | "move" | "up", x, y, width, height }`.
     Pointer,
+    /// The widget entered or left full screen: `{ id: "", value: true | false }`.
+    Fullscreen,
 }
 
 /// What a canvas's pointer did.
@@ -59,6 +61,11 @@ impl WidgetEvent {
 
     /// A canvas's pointer at (`x`, `y`), logical pixels from its top-left, with the canvas's
     /// logical size so `update` can hit-test a layout that follows the width.
+    /// The widget entered (`true`) or left full screen.
+    pub fn fullscreen(on: bool) -> WidgetEvent {
+        WidgetEvent { id: String::new(), kind: EventKind::Fullscreen, value: Some(Value::Bool(on)) }
+    }
+
     pub fn pointer(id: impl Into<String>, kind: PointerKind, x: f64, y: f64, width: f64, height: f64) -> WidgetEvent {
         let value = json!({ "kind": kind.name(), "x": x, "y": y, "width": width, "height": height });
         WidgetEvent { id: id.into(), kind: EventKind::Pointer, value: Some(value) }

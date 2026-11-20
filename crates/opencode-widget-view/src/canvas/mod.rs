@@ -13,11 +13,13 @@ use crate::Cx;
 use state::{Event, Sight};
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn view<S: 'static>(cx: &Cx<S>, path: &str, id: Option<&str>, height: f64, width: Option<f64>, alt: Option<&str>) -> El {
+pub(crate) fn view<S: 'static>(cx: &Cx<S>, path: &str, id: Option<&str>, height: f64, width: Option<f64>, alt: Option<&str>, fill: bool) -> El {
     let k = cx.look.kit;
     let canvas = cx.local.canvas(path);
     let size = canvas.and_then(|c| c.size);
-    let mut b = el().h(height as f32).role("img").label(alt.unwrap_or("").to_owned()).clip_rounded(0.0);
+    // Filling (full screen), `height` is its least: it takes the height left.
+    let b = if fill { el().min_h(height as f32).grow(1.0) } else { el().h(height as f32) };
+    let mut b = b.role("img").label(alt.unwrap_or("").to_owned()).clip_rounded(0.0);
     b = match width {
         Some(w) => b.w(w as f32).max_w(cx.look.width),
         None => b.w_full(),

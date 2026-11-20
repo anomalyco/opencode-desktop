@@ -75,6 +75,10 @@ impl WidgetsHost for App {
         });
     }
 
+    fn window_full_screen(&self) -> Option<bool> {
+        crate::windows::handle(&self.window.id)?.placement().map(|p| p.full_screen)
+    }
+
     fn widget_notify(&self) -> Arc<dyn Fn() + Send + Sync> {
         // A run without a window (headless) has nothing to wake: its clock runs on its own.
         (*self.waker).clone().unwrap_or_else(|| Arc::new(|| {}))
@@ -134,6 +138,17 @@ impl Feature<App> for WidgetsFeature {
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
         builder.register_slot(&WIDGETS);
+        // A widget full screen fills the window over everything but popups and dialogs; Esc
+        // brings it back.
+        builder.register_overlay(
+            opencode_kernel::OverlayRegistration::<App>::new("widgets.fullscreen")
+                .with_render(crate::overlays::layer::MEDIA_LIGHTBOX, |s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    screen_view(s, p)
+                })
+                .above("overlay.tool_details")
+                .with_key(screen_key),
+        );
         // After the stream applied this frame's events, so a posted or answered widget opens or
         // closes the frame it arrives, before the timeline derives its rows.
         builder.schedule(crate::tick::stage::INGEST_STREAM, "widgets.sync", |s, _, _| sync(s));

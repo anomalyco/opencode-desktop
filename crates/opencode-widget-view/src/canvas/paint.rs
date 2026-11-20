@@ -186,7 +186,8 @@ impl Painter<'_> {
                 self.at = self.at.then([c, s, -s, c, 0.0, 0.0]);
             }
             Command::Scale(x, y) => self.at = self.at.then([*x, 0.0, 0.0, *y, 0.0, 0.0]),
-            Command::Alpha(a) => self.alpha *= a,
+            // `globalAlpha = a`, as a 2D canvas sets it (save and restore keep it).
+            Command::Alpha(a) => self.alpha = *a,
             Command::Rect { x, y, w, h, paint } => {
                 let pts = [[*x, *y], [x + w, *y], [x + w, y + h], [*x, y + h]];
                 self.closed(&pts, [*x, *y, *w, *h], 0.0, paint);

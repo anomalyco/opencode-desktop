@@ -16,8 +16,10 @@ pub(crate) const RADIUS: f32 = 10.0;
 pub(crate) fn node<S: 'static>(cx: &Cx<S>, n: &Node, path: &str) -> El {
     let k = cx.look.kit;
     let e = match n {
-        Node::Column { children, gap: g, align } => {
+        Node::Column { children, gap: g, align, .. } => {
             let c = col().w_full().gap(gap(*g));
+            // In full screen, a column holding a filling canvas takes the height it's given.
+            let c = if cx.look.fullscreen && crate::fills(n) { c.grow(1.0).min_h(0.0) } else { c };
             let c = match align {
                 Align::Start => c.items_start(),
                 Align::Center => c.items_center(),
@@ -26,21 +28,22 @@ pub(crate) fn node<S: 'static>(cx: &Cx<S>, n: &Node, path: &str) -> El {
             };
             c.children(kids(cx, children, path, Share::No))
         }
-        Node::Row { children, gap: g, align, wrap } => row_node(cx, children, *g, *align, *wrap, path),
+        Node::Row { children, gap: g, align, wrap, .. } => row_node(cx, children, *g, *align, *wrap, path),
         Node::Text { text: t, style, tone } => text_node(k, t, *style, *tone),
         Node::Markdown { text: t } => col().w_full().child((cx.look.markdown)(t)),
         Node::Image { src, alt, aspect } => image(cx, src, alt.as_deref(), *aspect),
         Node::Carousel { id, children, .. } => carousel::view(cx, id.as_deref(), children, path),
-        Node::Card { id, selected, children } => card(cx, id.as_deref(), *selected, children, path),
+        Node::Card { id, selected, children, .. } => card(cx, id.as_deref(), *selected, children, path),
         Node::Button { id, label, variant, disabled } => controls::button(cx, id, label, *variant, *disabled),
         Node::Checkbox { id, label, checked, disabled } => controls::checkbox(cx, id, label, *checked, *disabled),
         Node::Slider { id, label, value, min, max, step } => controls::slider(cx, id, label.as_deref(), *value, *min, *max, *step),
         Node::Select { id, label, options, value, multiple } => controls::select(cx, id, label.as_deref(), options, value.as_ref(), *multiple),
         Node::Input { id, label, placeholder, multiline, .. } => controls::input(cx, id, label.as_deref(), placeholder.as_deref(), *multiline),
         Node::Divider => rune::rule(1.0, k.c.border_weak).w_full(),
-        Node::Canvas { id, height, width, alt, .. } => crate::canvas::view(cx, path, id.as_deref(), *height, *width, alt.as_deref()),
-        Node::Shader { height, width, wgsl, values, fps, alt, poster, .. } => {
-            crate::shader::view(cx, path, *height, *width, wgsl, values, *fps, alt.as_deref(), poster.as_deref())
+        Node::Canvas { id, height, width, alt, fill, .. } => crate::canvas::view(cx, path, id.as_deref(), *height, *width, alt.as_deref(), cx.look.fullscreen && *fill == Some(true)),
+        Node::Shader { id, height, width, wgsl, values, fps, alt, poster, fill, .. } => {
+            let size = crate::shader::Size { height: *height, width: *width, fill: cx.look.fullscreen && *fill == Some(true) };
+            crate::shader::view(cx, path, id.as_deref(), size, wgsl, values, *fps, alt.as_deref(), poster.as_deref())
         }
         Node::Unknown => {
             #[cfg(debug_assertions)]
@@ -71,6 +74,9 @@ fn kids<S: 'static>(cx: &Cx<S>, children: &[Node], path: &str, share: Share) -> 
         .enumerate()
         .map(|(i, c)| {
             let e = node(cx, c, &format!("{path}.{i}"));
+            if cx.look.fullscreen && share == Share::No && crate::fills(c) {
+                return e.grow(1.0).min_h(0.0);
+            }
             match (share, c) {
                 (Share::Line, Node::Card { .. }) => e.w(0.0).grow(1.0).min_w(0.0),
                 (Share::Wrap, Node::Card { .. }) => e.w(CARD_MIN).grow(1.0),

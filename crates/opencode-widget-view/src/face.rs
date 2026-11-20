@@ -9,7 +9,14 @@ use rune::{El, Tx, col, el, icon, row, text};
 use rune_kit::{Button, ButtonVariant, Kit, Loader};
 use serde_json::Value;
 
-use crate::{Action, Hooks, Local, Look, view};
+use crate::{Action, Buttons, Hooks, Local, Look, view};
+
+/// The expand glyph (the diagram card's): two arrows out to the corners.
+pub static EXPAND: rune::Icon = rune::Icon {
+    name: "widget-expand",
+    view: 16.0,
+    body: r#"<path d="M9.5 2.5H13.5V6.5M13.5 2.5L9 7M6.5 13.5H2.5V9.5M2.5 13.5L7 9" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"#,
+};
 
 /// The frame's words, in the interface's language.
 #[derive(Clone, Debug)]
@@ -25,6 +32,12 @@ pub struct Words {
     /// A carousel's arrows.
     pub previous: String,
     pub next: String,
+    /// The expand button.
+    pub fullscreen: String,
+    /// Full screen's close button.
+    pub exit_fullscreen: String,
+    /// The inline copy while the widget is full screen.
+    pub elsewhere: String,
 }
 
 impl Default for Words {
@@ -39,6 +52,9 @@ impl Default for Words {
             dismissed: "Dismissed".into(),
             previous: "Previous".into(),
             next: "Next".into(),
+            fullscreen: "Full screen".into(),
+            exit_fullscreen: "Exit full screen".into(),
+            elsewhere: "Open in full screen".into(),
         }
     }
 }
@@ -74,8 +90,9 @@ fn status(k: &Kit, glyph: &'static rune::Icon, tint: rune::Color, words: &str, d
 }
 
 /// The widget in its frame. `title` names it (the message's title, or its template's name);
-/// `retry` is what Try again does on a failed one.
-pub fn frame<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, face: Face<'_>, title: &str, retry: Option<Action<S>>) -> El {
+/// `buttons` are what Try again (or Restart) and the expand button do.
+pub fn frame<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, face: Face<'_>, title: &str, buttons: Buttons<S>) -> El {
+    let Buttons { retry, expand } = buttons;
     local.built();
     let k = look.kit;
     let c = &k.c;
@@ -138,5 +155,93 @@ pub fn frame<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, f
         let lens = h.local.clone();
         frame = frame.on_visible(move |s: &mut S, on, _tx: &mut Tx| (lens)(s).set_shown(on));
     }
+    // Full screen, top right, on hover and keyboard focus, as a video player's.
+    if let Some(expand) = expand {
+        let words = look.words.fullscreen.clone();
+        let button = el()
+            .key("fullscreen")
+            .size(25.0, 25.0)
+            .radius(5.0)
+            .center()
+            .cursor(rune::Cursor::Pointer)
+            .fill(c.bg_base)
+            .border(0.5, c.border_weak)
+            .hover(c.surface_weak)
+            .group_opacity(0.0, 1.0)
+            .role("button")
+            .label(words.clone())
+            .help(words)
+            .on_press_tx(move |s: &mut S, tx: &mut Tx| expand(s, tx))
+            .child(icon(&EXPAND, 13.0).color(c.icon_muted));
+        frame = frame.hover_group().hover_group_focus().child(button.pin(None, Some(10.0), Some(10.0), None));
+    }
     frame
+}
+
+/// Room around a full-screen widget, each side.
+const PAD: f32 = 24.0;
+
+/// The inline copy of a widget that is full screen: its frame, saying where it is.
+pub fn placeholder(look: &Look, title: &str) -> El {
+    let k = look.kit;
+    let c = &k.c;
+    col()
+        .w_full()
+        .max_w(look.width)
+        .padding(16.0)
+        .radius(14.0)
+        .border(1.0, c.border_weak)
+        .role("group")
+        .label(title.to_owned())
+        .child(row().key("elsewhere").gap(8.0).items_center().child(icon(&EXPAND, 13.0).color(c.icon_muted).a11y_hidden()).child(text(look.words.elsewhere.clone()).font(k.ty.small.lh(16.0)).color(c.text_muted)))
+}
+
+/// A widget full screen: its view fills the window, `height` points tall (scrolling when
+/// taller), with a close button top right.
+#[allow(clippy::too_many_arguments)]
+pub fn screen<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, face: Face<'_>, title: &str, height: f32, close: Action<S>) -> El {
+    local.built();
+    let k = look.kit;
+    let c = &k.c;
+    let content = match face {
+        Face::Live { view: v, live, error, .. } => {
+            let mut b = vec![view(look, local, hooks, v, live).key("view").grow(1.0).min_h(0.0)];
+            if let Some(e) = error {
+                b.push(status(k, k.glyph.circle_x, c.danger.icon, e, None).key("error"));
+            }
+            b
+        }
+        Face::Closed { view: Some(v), .. } => vec![view(look, local, hooks, v, false).key("view")],
+        _ => vec![row().key("loading").gap(8.0).items_center().child(Loader::new().size(14.0).build(k))],
+    };
+    let words = look.words.exit_fullscreen.clone();
+    let close = el()
+        .key("close")
+        .size(32.0, 32.0)
+        .radius(8.0)
+        .center()
+        .cursor(rune::Cursor::Pointer)
+        .fill(c.bg_base)
+        .border(0.5, c.border_weak)
+        .hover(c.surface_weak)
+        .role("button")
+        .label(words.clone())
+        .help(words)
+        .on_press_tx(move |s: &mut S, tx: &mut Tx| close(s, tx))
+        .child(icon(k.glyph.close, 14.0).color(c.icon_base));
+    el().key("widget-screen")
+        .pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
+        .fill(c.bg_base)
+        .role("dialog")
+        .label(title.to_owned())
+        .child(
+            col()
+                .key("scroll")
+                .w_full()
+                .h_full()
+                .min_h(0.0)
+                .scroll(rune::ScrollSpec { stick_bottom: false })
+                .child(col().key("body").w_full().min_h(height.max(0.0)).padding(PAD).gap(12.0).children(content)),
+        )
+        .child(close.pin(None, Some(12.0), Some(12.0), None))
 }

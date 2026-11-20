@@ -162,6 +162,7 @@ impl Canvas {
             scale,
             pointer: self.pointer,
             dark,
+            fullscreen: false,
         })
     }
 
