@@ -1,0 +1,284 @@
+//! What a widget's view keeps between steps that the template never sees: text being typed
+//! (sent as one `change` when committed), a slider's value while it's dragged (sent on
+//! release), and each carousel's page. One [`Local`] per widget; the host keeps it beside the
+//! widget's lifecycle machine.
+//!
+//! Each control's behaviour is its own explicit machine:
+//! - [`Draft`]: an input is synced with the view's value, or being typed in until its debounce
+//!   is due, it loses focus, Return commits it, or another event flushes it first.
+//! - [`Drag`]: no slider is dragged (`Idle`), or one is, with its live value.
+//! - [`Wheel`]: a carousel's trackpad gesture is `Idle`, `Tracking` its sideways travel, or
+//!   `Spent` once it turned a page, until the gesture (and its momentum) ends.
+
+use std::collections::HashMap;
+
+use opencode_widget::{Node, WidgetEvent};
+use rune::{GesturePhase, TextEdit, WheelEvent};
+
+/// How long typing rests before an input's text goes to the template (the contract's >= 300 ms).
+pub const DEBOUNCE_S: f64 = 0.3;
+
+/// Sideways trackpad travel that turns a carousel's page, in points.
+const WHEEL_PAGE: f32 = 48.0;
+
+/// An input's typing: `sent` is the text the template last had, so a commit that changes
+/// nothing sends nothing.
+#[derive(Clone, Debug)]
+pub struct Draft {
+    pub edit: TextEdit,
+    sent: String,
+    phase: DraftPhase,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum DraftPhase {
+    Synced,
+    /// Typed in since; committed at `due` (window clock, seconds), on blur, or on Return.
+    Editing { due: f64 },
+}
+
+impl Draft {
+    fn synced(value: &str) -> Draft {
+        Draft { edit: TextEdit::new(value), sent: value.to_owned(), phase: DraftPhase::Synced }
+    }
+
+    pub fn editing(&self) -> bool {
+        matches!(self.phase, DraftPhase::Editing { .. })
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum Drag {
+    #[default]
+    Idle,
+    Slider { id: String, value: f64 },
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+enum Wheel {
+    #[default]
+    Idle,
+    Tracking(f32),
+    Spent,
+}
+
+/// Which side a carousel's page came in from, for its slide.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Came {
+    #[default]
+    Still,
+    FromRight,
+    FromLeft,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Pager {
+    pub page: usize,
+    pub came: Came,
+    /// The template's `index` this page was last synced with.
+    synced: Option<usize>,
+    wheel: Wheel,
+}
+
+/// One widget's view-local state.
+#[derive(Clone, Debug, Default)]
+pub struct Local {
+    drafts: HashMap<String, Draft>,
+    drag: Drag,
+    pagers: HashMap<String, Pager>,
+    /// Bumped on every change a build reads, for hosts that memoize the widget's row.
+    version: u64,
+}
+
+impl Local {
+    /// A number that moves whenever anything a build reads here changed.
+    pub fn version(&self) -> u64 {
+        self.version
+    }
+
+    /// Catches up with a new view from a step: inputs not being typed in take the view's value,
+    /// carousels whose `index` changed go to it, and controls no longer shown are let go.
+    pub fn sync(&mut self, view: &Node) {
+        let mut inputs: Vec<(&str, &str)> = Vec::new();
+        let mut carousels: Vec<(String, usize)> = Vec::new();
+        walk(view, "w", &mut |path, n| match n {
+            Node::Input { id, value, .. } => inputs.push((id, value)),
+            Node::Carousel { index: Some(i), .. } => carousels.push((path.to_owned(), *i)),
+            _ => {}
+        });
+        self.drafts.retain(|id, _| inputs.iter().any(|(i, _)| i == id));
+        for (id, value) in inputs {
+            match self.drafts.get_mut(id) {
+                Some(d) if d.phase == DraftPhase::Synced => {
+                    if d.edit.text != value {
+                        d.edit.replace_text(value);
+                    }
+                    value.clone_into(&mut d.sent);
+                }
+                Some(_) => {}
+                None => {
+                    self.drafts.insert(id.to_owned(), Draft::synced(value));
+                }
+            }
+        }
+        for (path, index) in carousels {
+            let p = self.pagers.entry(path).or_default();
+            if p.synced != Some(index) {
+                p.synced = Some(index);
+                p.came = match index.cmp(&p.page) {
+                    std::cmp::Ordering::Greater => Came::FromRight,
+                    std::cmp::Ordering::Less => Came::FromLeft,
+                    std::cmp::Ordering::Equal => p.came,
+                };
+                p.page = index;
+            }
+        }
+        self.version += 1;
+    }
+
+    pub fn draft(&self, id: &str) -> Option<&Draft> {
+        self.drafts.get(id)
+    }
+
+    /// Input `id`'s edit, for the field's `on_edit` lens.
+    pub fn edit_mut(&mut self, id: &str) -> &mut TextEdit {
+        self.version += 1;
+        &mut self.drafts.entry(id.to_owned()).or_insert_with(|| Draft::synced("")).edit
+    }
+
+    /// Input `id` was typed in at `now`: its commit is due [`DEBOUNCE_S`] later. Returns when.
+    pub fn edited(&mut self, id: &str, now: f64) -> f64 {
+        let due = now + DEBOUNCE_S;
+        self.drafts.entry(id.to_owned()).or_insert_with(|| Draft::synced("")).phase = DraftPhase::Editing { due };
+        self.version += 1;
+        due
+    }
+
+    /// Commits input `id` now (Return): its `change`, when its text moved from what the
+    /// template last had.
+    pub fn commit(&mut self, id: &str) -> Option<WidgetEvent> {
+        let draft = self.drafts.get_mut(id)?;
+        if draft.phase == DraftPhase::Synced {
+            return None;
+        }
+        draft.phase = DraftPhase::Synced;
+        self.version += 1;
+        if draft.edit.text == draft.sent {
+            return None;
+        }
+        draft.edit.text.clone_into(&mut draft.sent);
+        Some(WidgetEvent::change(id, draft.edit.text.clone()))
+    }
+
+    /// Commits every input being typed in, before another event steps the template, so that
+    /// step sees what was typed.
+    pub fn flush(&mut self) -> Vec<WidgetEvent> {
+        let ids: Vec<String> = self.drafts.iter().filter(|(_, d)| d.editing()).map(|(id, _)| id.clone()).collect();
+        ids.iter().filter_map(|id| self.commit(id)).collect()
+    }
+
+    /// The commits due at `now`: debounces that ran out, and inputs that lost focus.
+    pub fn poll(&mut self, now: f64) -> Vec<WidgetEvent> {
+        let ids: Vec<String> = self
+            .drafts
+            .iter()
+            .filter(|(_, d)| matches!(d.phase, DraftPhase::Editing { due } if now >= due || !d.edit.focused))
+            .map(|(id, _)| id.clone())
+            .collect();
+        ids.iter().filter_map(|id| self.commit(id)).collect()
+    }
+
+    /// When the next debounce is due, for the host's wake.
+    pub fn next_due(&self) -> Option<f64> {
+        self.drafts.values().filter_map(|d| if let DraftPhase::Editing { due } = d.phase { Some(due) } else { None }).reduce(f64::min)
+    }
+
+    pub fn has_pending(&self) -> bool {
+        self.drafts.values().any(Draft::editing)
+    }
+
+    /// Slider `id`'s value while it's dragged.
+    pub fn dragging(&self, id: &str) -> Option<f64> {
+        match &self.drag {
+            Drag::Slider { id: d, value } if d == id => Some(*value),
+            _ => None,
+        }
+    }
+
+    /// Slider `id` is dragged to `value` (a press starts the drag).
+    pub fn drag_to(&mut self, id: &str, value: f64) {
+        self.drag = Drag::Slider { id: id.to_owned(), value };
+        self.version += 1;
+    }
+
+    /// The drag ended: the value it released at, unless it was cancelled.
+    pub fn drag_end(&mut self, cancelled: bool) -> Option<(String, f64)> {
+        let drag = std::mem::take(&mut self.drag);
+        self.version += 1;
+        match drag {
+            Drag::Slider { id, value } if !cancelled => Some((id, value)),
+            _ => None,
+        }
+    }
+
+    pub fn pager(&self, key: &str) -> Pager {
+        self.pagers.get(key).copied().unwrap_or_default()
+    }
+
+    /// Carousel `key` (of `count` pages) goes to page `to`; whether it moved.
+    pub fn go(&mut self, key: &str, to: usize, count: usize) -> bool {
+        let p = self.pagers.entry(key.to_owned()).or_default();
+        let to = to.min(count.saturating_sub(1));
+        if to == p.page {
+            return false;
+        }
+        p.came = if to > p.page { Came::FromRight } else { Came::FromLeft };
+        p.page = to;
+        self.version += 1;
+        true
+    }
+
+    /// A trackpad scroll over carousel `key`: whether it takes the delta, and the page it turns
+    /// to (for the caller to [`Local::go`] to). A gesture that starts more vertical than sideways is left to scroll the page.
+    pub fn wheel(&mut self, key: &str, ev: &WheelEvent, count: usize) -> (bool, Option<usize>) {
+        let p = self.pagers.entry(key.to_owned()).or_default();
+        let (wheel, take, turn) = match (p.wheel, ev.phase) {
+            (_, GesturePhase::Ended) if !ev.momentum => (Wheel::Idle, !matches!(p.wheel, Wheel::Idle), None),
+            (Wheel::Idle, _) if ev.momentum => (Wheel::Idle, false, None),
+            (Wheel::Idle, _) if ev.dx.abs() <= ev.dy.abs() => (Wheel::Idle, false, None),
+            (Wheel::Idle, _) => step_wheel(ev.dx),
+            (Wheel::Tracking(dx), _) => step_wheel(dx + ev.dx),
+            // One page per gesture: the rest of it, momentum too, is spent.
+            (Wheel::Spent, _) if ev.momentum && ev.phase == GesturePhase::Ended => (Wheel::Idle, true, None),
+            (Wheel::Spent, _) => (Wheel::Spent, true, None),
+        };
+        p.wheel = wheel;
+        let page = p.page;
+        let to = match turn {
+            Some(next) if next => page + 1,
+            Some(_) => page.wrapping_sub(1),
+            None => return (take, None),
+        };
+        (take, (to < count && to != page).then_some(to))
+    }
+}
+
+/// Sideways travel `dx` so far: tracking, or spent with the page it turns (`true`: next). Content
+/// moving left (`dx < 0`, fingers swiping left) brings the next page.
+fn step_wheel(dx: f32) -> (Wheel, bool, Option<bool>) {
+    if dx <= -WHEEL_PAGE {
+        (Wheel::Spent, true, Some(true))
+    } else if dx >= WHEEL_PAGE {
+        (Wheel::Spent, true, Some(false))
+    } else {
+        (Wheel::Tracking(dx), true, None)
+    }
+}
+
+/// Calls `f` with each node under `n` and its path, as the renderer keys them (`w`, `w.0`, `w.0.1`…).
+pub fn walk<'a>(n: &'a Node, path: &str, f: &mut dyn FnMut(&str, &'a Node)) {
+    f(path, n);
+    for (i, c) in n.children().iter().enumerate() {
+        walk(c, &format!("{path}.{i}"), f);
+    }
+}
