@@ -81,6 +81,8 @@ if ($Payload) {
     New-Item -ItemType Directory $stage | Out-Null
     Copy-Item $exe $stage
     Copy-Item (Join-Path $root 'apps/desktop/assets/icon/art-512.png') (Join-Path $stage 'notification-icon.png')
+    Copy-Item (Join-Path $root 'LICENSE') (Join-Path $stage 'LICENSE')
+    Copy-Item (Join-Path $root 'THIRD_PARTY_NOTICES.md') (Join-Path $stage 'THIRD_PARTY_NOTICES.md')
     $zip = Join-Path $Out "$stem.zip"
     Remove-Item -Force $zip -ErrorAction SilentlyContinue
     Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip

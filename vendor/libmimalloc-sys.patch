@@ -2,10 +2,10 @@
 # medium and large pages already do with `mi_option_page_commit_on_demand`. Every thread that allocates holds a partly used
 # small page per size class, committed whole; most of each was never written. Measured in OpenCode: mimalloc's committed bytes
 # at Home 57.8 MB to 46.2 MB, after ten tabs closed back to Home 101.5 MB to 75.4 MB; launch and frame times unchanged.
-diff --git "a/C:\\Users\\Lukem\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\libmimalloc-sys-0.1.49\\c_src\\mimalloc\\v3\\include\\mimalloc\\types.h" "b/vendor\\libmimalloc-sys\\c_src\\mimalloc\\v3\\include\\mimalloc\\types.h"
+diff --git a/c_src/mimalloc/v3/include/mimalloc/types.h b/vendor/libmimalloc-sys/c_src/mimalloc/v3/include/mimalloc/types.h
 index 31fdace9..dc0db9cc 100644
---- "a/C:\\Users\\Lukem\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\libmimalloc-sys-0.1.49\\c_src\\mimalloc\\v3\\include\\mimalloc\\types.h"
-+++ "b/vendor\\libmimalloc-sys\\c_src\\mimalloc\\v3\\include\\mimalloc\\types.h"
+--- a/c_src/mimalloc/v3/include/mimalloc/types.h
++++ b/vendor/libmimalloc-sys/c_src/mimalloc/v3/include/mimalloc/types.h
 @@ -209,7 +209,7 @@ terms of the MIT license. A copy of the license can be found in the file
  #define MI_MAX_ALLOC_SIZE        PTRDIFF_MAX
  
@@ -15,10 +15,10 @@ index 31fdace9..dc0db9cc 100644
  
  
  // ------------------------------------------------------
-diff --git "a/C:\\Users\\Lukem\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\libmimalloc-sys-0.1.49\\c_src\\mimalloc\\v3\\src\\arena.c" "b/vendor\\libmimalloc-sys\\c_src\\mimalloc\\v3\\src\\arena.c"
+diff --git a/c_src/mimalloc/v3/src/arena.c b/vendor/libmimalloc-sys/c_src/mimalloc/v3/src/arena.c
 index a5686d55..eb59a0ce 100644
---- "a/C:\\Users\\Lukem\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\libmimalloc-sys-0.1.49\\c_src\\mimalloc\\v3\\src\\arena.c"
-+++ "b/vendor\\libmimalloc-sys\\c_src\\mimalloc\\v3\\src\\arena.c"
+--- a/c_src/mimalloc/v3/src/arena.c
++++ b/vendor/libmimalloc-sys/c_src/mimalloc/v3/src/arena.c
 @@ -960,7 +960,7 @@ static mi_page_t* mi_arenas_page_regular_alloc(mi_theap_t* theap, size_t slice_c
  
    // 2. find a free block, potentially allocating a new arena

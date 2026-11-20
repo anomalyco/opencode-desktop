@@ -355,7 +355,7 @@ pub fn plain_session_ids(src: &str) -> Vec<(Range<usize>, &str)> {
 
 /// The recorded mentions still on an `@` in `body`, minus any over an `@session:` token, and
 /// recorded session mentions once the text has tokens. Those come from a local echo of the
-/// text as typed (a session pill reading `@SEER`), so on the server's copy their offsets can
+/// text as typed (a session pill reading `@WORK`), so on the server's copy their offsets can
 /// land inside a token and cut it (p279); the token is the truth.
 pub fn recorded_mentions<'a>(body: &'a str, mentions: &'a [UserMention]) -> impl Iterator<Item = &'a UserMention> + 'a {
     let tokens = session_tokens(body);

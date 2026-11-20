@@ -16,7 +16,7 @@
 //! | [`settings::step`] | `settings/servers/machine.ts` |
 //!
 //! General protocol/client primitives (`key`, `probe`, `fs`, `link`, `sync`) remain in
-//! `opencode_kit::servers` so embedders such as Seer never pull desktop shell machines.
+//! `opencode_kit::servers` so other embedders never pull desktop shell machines.
 
 #![forbid(unsafe_code)]
 

@@ -84,6 +84,7 @@ fn default_cache_root() -> PathBuf {
     if let Some(dir) = std::env::var_os("GHOSTTY_VT_CACHE_DIR").filter(|s| !s.is_empty()) {
         return PathBuf::from(dir);
     }
+    // Keep the legacy `seer/ghostty-vt` cache directory name for CI cache compatibility.
     if cfg!(windows)
         && let Some(local) = std::env::var_os("LOCALAPPDATA").filter(|s| !s.is_empty())
     {

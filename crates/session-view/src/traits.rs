@@ -9,7 +9,7 @@
 //! - [`TimelineActions`] — user-triggered host actions (links, context menus, files, and saving tool output).
 //!
 //! Every type implementing [`TimelineHost`] automatically implements all four traits via blanket
-//! implementations, keeping existing hosts (`apps/desktop`, Seer, `examples/read_only.rs`)
+//! implementations, keeping existing hosts (`apps/desktop`, embedder apps, `examples/read_only.rs`)
 //! 100% source-compatible.
 
 use std::path::{Path, PathBuf};

@@ -1,9 +1,9 @@
 //! The boot record: everything the first frame is built from, in one row the writer keeps
 //! current, readable with one positioned file read before SQLite is opened at all.
 //!
-//! Measured on blade (`proof\storage-1\floor-2.txt`, p50, warm / cold): a raw `CreateFileW` and one
+//! Measured on a Windows workstation (p50, warm / cold): a raw `CreateFileW` and one
 //! 128 KiB `ReadFile` cost 288 / 978 µs; `sqlite3_initialize` + `sqlite3_open_v2` + one row cost
-//! 2,581 / 2,645 µs (1,118 / 1,517 µs on a quieter run, `floor-1.txt`). So the record is read raw,
+//! 2,581 / 2,645 µs (1,118 / 1,517 µs on a quieter run). So the record is read raw,
 //! and SQLite, still the source of truth, opens afterwards for everything else.
 //!
 //! Where it is: the `boot` table is created first in a new file, so its root is page 2

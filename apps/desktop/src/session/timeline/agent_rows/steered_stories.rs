@@ -27,11 +27,11 @@ const STEP: f64 = 0.9;
 type Call = (&'static str, &'static str, &'static [(&'static str, &'static str, &'static str)]);
 const CALLS: &[Call] = &[
     ("Extract Rune desktop styles", "", &[("glob", "pattern", "apps/desktop/src/**/*.rs"), ("read", "filePath", "palette.rs"), ("grep", "pattern", "radius(")]),
-    ("Extract Seer app styles", "Seer's styles matter more here, so I'll point it there instead.", &[("read", "filePath", "theme.rs"), ("read", "filePath", "space.rs"), ("grep", "pattern", "fill(")]),
+    ("Extract Lumen app styles", "Lumen's styles matter more here, so I'll point it there instead.", &[("read", "filePath", "theme.rs"), ("read", "filePath", "space.rs"), ("grep", "pattern", "fill(")]),
     ("Stop styles extraction", "That's enough to go on; I'll ask it to wrap up.", &[("write", "filePath", "styles.md")]),
 ];
 
-const ANSWER: &str = "Seer keeps a 4pt space scale and two tones per surface; notes in styles.md";
+const ANSWER: &str = "Lumen keeps a 4pt space scale and two tones per surface; notes in styles.md";
 
 /// Starts the agent, steers it at 2.6 s and 4.9 s, and it finishes at 7.6 s.
 pub fn open(s: &mut App, tx: &mut Play<App>) {

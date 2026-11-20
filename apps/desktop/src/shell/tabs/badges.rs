@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 use crate::App;
 use crate::tabs::Tab;
 
-/// The Rune app's icon, written two folders down in the repos below as Seer's repo has it: an ICNS
+/// The Rune app's icon, written two folders down in the repos below as an embedded app repo has it: an ICNS
 /// holding only the representation the icon finder takes from the app's (`icns_png`: the 256 px
 /// PNG), 57 KB where the whole `icon.icns` was 1.4 MB of the exe.
 const STRAY_ICON: &[u8] = include_bytes!("../../../assets/stray-icon.icns");

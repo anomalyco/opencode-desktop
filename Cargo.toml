@@ -155,7 +155,7 @@ inherits = "release"
 lto = false
 codegen-units = 16
 
-# Fastest edit-compile-run loop for local & mesh dev: skips DWARF/PDB emission and maximizes parallel codegen.
+# Fastest edit-compile-run loop for local dev: skips DWARF/PDB emission and maximizes parallel codegen.
 [profile.dev-fast]
 inherits = "dev"
 debug = 0
