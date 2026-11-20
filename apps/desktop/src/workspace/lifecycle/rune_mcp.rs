@@ -115,9 +115,12 @@ impl RuneMcpHost for App {
         if !same_machine {
             return Some(REMOTE_BROWSER_MCP_ERROR);
         }
+        #[cfg(not(target_arch = "wasm32"))]
         if crate::surfaces::browser::rpc::is_session_or_server_attached(self, server_key, session_id) {
             return Some(RPC_ATTACHED_BROWSER_MCP_ERROR);
         }
+        #[cfg(target_arch = "wasm32")]
+        let _ = session_id;
         None
     }
 
