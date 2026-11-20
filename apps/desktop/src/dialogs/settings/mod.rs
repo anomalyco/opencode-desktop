@@ -721,7 +721,7 @@ impl Feature<App> for SettingsFeature {
                     let p = crate::palette::pal(s.dark(cx));
                     pages::worktrees::dialog(s, p, cx)
                 })
-                .above(crate::session_menu::RENAME_OVERLAY_ID)
+                .above(crate::terminal::PASTE_OVERLAY_ID)
                 .with_dismiss(|s, tx| {
                     let attempt = match &s.kernel.slots.get(&SETTINGS_PAGES).worktrees.delete.phase {
                         pages::worktrees::Phase::ConfirmingOne { attempt, .. }
