@@ -131,7 +131,7 @@ fn shift(m: Vec<Range<usize>>, by: usize) -> Vec<Range<usize>> {
 pub type Hits<'a> = Option<(&'a [Vec<Range<usize>>], Option<usize>)>;
 
 /// Matches lying wholly in `r`, moved to start from it: `(index in the row, ranges, active)`.
-fn hits_in(hits: Hits<'_>, r: &Range<usize>) -> Vec<(usize, Vec<Range<usize>>, bool)> {
+pub(crate) fn hits_in(hits: Hits<'_>, r: &Range<usize>) -> Vec<(usize, Vec<Range<usize>>, bool)> {
     let Some((ranges, active)) = hits else { return Vec::new() };
     ranges
         .iter()
