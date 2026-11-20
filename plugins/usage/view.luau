@@ -106,13 +106,10 @@ local function line(words: string, style: UiTextProps, color: Color, extra: UiTe
 end
 
 -- `Panel`: 8 pt corners, a 0.5 `border-base` edge on `bg-base`, 16 above and below.
--- `UiBoxProps` does not expose `border_layout()` yet, so `px = 0.5, py = 16.5` reserves the
--- 0.5 pt border inset (exact at 2x HiDPI).
 local function panel(gap: number, children: { UiNode }): UiNode
-    return ui.col({
+    return ui.frame({
         w = "full",
-        px = 0.5,
-        py = 16.5,
+        py = 16,
         gap = gap,
         radius = 8,
         fill = "bg-base",
