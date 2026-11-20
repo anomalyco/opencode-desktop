@@ -9,7 +9,11 @@ local view = {}
 
 -- Preferences > Updates: the Release notes switch and Check for updates with the one action
 -- the state offers.
-function view.section(i18n: I18n, v: View, input: { releaseNotes: boolean, label: string, enabled: boolean, toggle: (on: boolean) -> (), run: () -> () }): UiNode
+function view.section(
+    i18n: I18n,
+    v: View,
+    input: { releaseNotes: boolean, label: string, description: string?, enabled: boolean, toggle: (on: boolean) -> (), run: () -> () }
+): UiNode
     return ui.settingsList({ key = "settings-updates", title = i18n:T("section.title") }, {
         ui.settingsRow(
             { id = "settings-release-notes", title = i18n:T("releaseNotes.title"), description = i18n:T("releaseNotes.description") },
@@ -23,7 +27,7 @@ function view.section(i18n: I18n, v: View, input: { releaseNotes: boolean, label
             })
         ),
         ui.settingsRow(
-            { id = "settings-check-updates", title = i18n:T("check.title"), description = i18n:T("check.description") },
+            { id = "settings-check-updates", title = i18n:T("check.title"), description = i18n:T(input.description or "check.description") },
             ui.button({
                 key = "check-updates-button",
                 text = i18n:T(input.label),

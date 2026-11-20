@@ -35,14 +35,17 @@ function indicator.usage(env: Env, s: Session): Usage
             percent = math.round(total / limit * 100)
         end
     end
-    -- Spend anywhere in the family shows the cost, even on a free model; an unknown model too.
+    -- Spend anywhere in the family shows the cost, even on a free model; an unknown model too,
+    -- except OpenCode Go at zero spend (`indicator.tsx`).
     local provider, model = s.providerId, s.modelId
     if model == nil or model == "" then
         provider, model = s.usageProviderId, s.usageModelId
     end
     local showCost = s.cost > 0
     if not showCost then
-        if model == nil or model == "" then
+        if provider == "opencode-go" then
+            showCost = false
+        elseif model == nil or model == "" then
             showCost = true
         else
             local info = env.Models:Get(provider or "", model)

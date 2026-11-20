@@ -5,7 +5,7 @@
 
 local machine = require("./machine")
 
-export type Action = { label: string, run: machine.Action? }
+export type Action = { label: string, description: string?, run: machine.Action? }
 
 local function main(state: UpdaterState?): Action
     if not state then
@@ -23,7 +23,7 @@ local function main(state: UpdaterState?): Action
     elseif phase == "installing" then
         return { label = "action.installing" }
     elseif phase == "disabled" then
-        return { label = "action.checkNow" }
+        return { label = "action.unavailable", description = "check.unavailable" }
     end
     return { label = "action.checkNow", run = "check" }
 end
