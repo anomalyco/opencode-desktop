@@ -104,6 +104,7 @@ fn nav_button(p: &Pal, key: &str, label: &str, glyph: &'static Icon, pressed: bo
         .label(label.to_owned())
         .size(36.0, 28.0)
         .radius(6.0)
+        .focus_inset(p)
         .center()
         .hover(if pressed { p.pressed } else { p.hover })
         // `ghost-muted`'s `:active` brightens the icon to `icon-base`; its pressed wash loses to the
@@ -144,6 +145,7 @@ fn new_button(p: &Pal) -> El {
         .label_static(t!("command.session.new"))
         .size(28.0, 28.0)
         .radius(6.0)
+        .focus_inset(p)
         .center()
         .hover(p.hover)
         // As `nav_button`: pressed, the icon brightens and the hover wash stays.

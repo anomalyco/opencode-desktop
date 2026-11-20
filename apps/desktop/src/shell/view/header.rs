@@ -233,17 +233,20 @@ fn header_title(s: &App, p: &Pal, info: &SessionInfo) -> Vec<El> {
     let marked = s.kernel.slots.get(&crate::session_menu::MENUS).on.as_ref() == Some(&target);
     let dots_target = target.clone();
     let title = match crate::session_menu_view::field(s, p, &target, CRUMB) {
-        Some(field) => row().key("title").h(28.0).px(4.0).center_y().min_w(0.0).shrink().child(field),
+        // Done or cancelled, the rename hands focus back to the title's button (`message-timeline.tsx`).
+        Some(field) => row().key("title").h(28.0).px(4.0).center_y().min_w(0.0).shrink().child(field.focus_return("title-button")),
         None => {
             let begin = target.clone();
-            // The title in its own direction (`session-identity-header.tsx:263`): an `h1` that renames
-            // on a click, no Tab stop (`message-timeline.tsx:540-547`).
-            let t = row().key("title").dir(rune::Direction::Auto).role("heading").level(1).label(title_of(info)).h(28.0).px(4.0).center_y().min_w(0.0).shrink().radius(6.0).hover(p.hover).hover_motion(INSTANT, INSTANT)
+            // The title in its own direction (`session-identity-header.tsx:263`): the `h1` holds a
+            // button that renames, a Tab stop with the shared ring (`message-timeline.tsx`,
+            // `.session-title-rename > button`).
+            let b = row().key("title-button").role("button").dir(rune::Direction::Auto).label(title_of(info)).h(28.0).px(4.0).center_y().min_w(0.0).shrink().radius(6.0).hover(p.hover).hover_motion(INSTANT, INSTANT)
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                     tx.instant();
                     s.begin_rename(&begin);
                 })
                 .child(crate::title_change::title(&s.diag.knobs, &format!("title-{}", info.id), title_of(info), CRUMB, p.text));
+            let t = row().key("title").dir(rune::Direction::Auto).role("heading").level(1).label(title_of(info)).min_w(0.0).shrink().child(b);
             crate::session_menu::on(t, target)
         }
     };
