@@ -240,7 +240,7 @@ fn accept_loop(listener: TcpListener, ctx: Arc<ProxyCtx>) {
             }
             Err(AdmitError::AtCapacity) => {
                 write_status(&mut stream, "503 Service Unavailable").ok();
-                stream.shutdown(Shutdown::Both).ok();
+                stream.shutdown(Shutdown::Write).ok();
             }
             Err(AdmitError::Closed) => {
                 stream.shutdown(Shutdown::Both).ok();
