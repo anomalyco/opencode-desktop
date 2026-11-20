@@ -36,8 +36,8 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::Compile(m) => write!(f, "the widget's program doesn't compile: {m}"),
-            Error::Script { message, location: Some((line, col)) } => write!(f, "{message} (line {line}, column {col})"),
-            Error::Script { message, location: None } => f.write_str(message),
+            // The interpreter's message already says where.
+            Error::Script { message, .. } => f.write_str(message),
             Error::Timeout => write!(f, "the widget took longer than {STEP_TIMEOUT_MS} ms to respond"),
             Error::Output(m) | Error::Input(m) => f.write_str(m),
         }
