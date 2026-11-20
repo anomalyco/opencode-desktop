@@ -118,7 +118,7 @@ fn edges_of<'a>(t: &'a Transcript, detail: &crate::detail::Detail, row: &RowCont
             _ => edges(Who::Event, Item::Line, 2.0),
         },
         RowContent::PendingNotice(..) => Edges { reports: true, ..edges(Who::Agent, Item::Line, LINE_INSET) },
-        RowContent::Error { .. } | RowContent::Retry { .. } | RowContent::Widget { .. } => edges(Who::Agent, Item::Line, 0.0),
+        RowContent::Error { .. } | RowContent::Retry { .. } => edges(Who::Agent, Item::Line, 0.0),
         RowContent::TurnText { message, part, live, .. } => match &t.messages[*message] {
             Message::Assistant(a) => match a.parts.get(*part) {
                 Some(Part::Text { text }) => prose(text, !live && super::turn_footer_text(t, *message, *part)),
@@ -139,7 +139,7 @@ fn edges_of<'a>(t: &'a Transcript, detail: &crate::detail::Detail, row: &RowCont
                 // counts only events rows).
                 Some(Block::Subagent { .. }) => edges(Who::Agent, Item::Line, LINE_INSET),
                 Some(Block::Group { .. } | Block::Thought { .. } | Block::Calls { .. }) => edges(Who::Agent, Item::Line, LINE_INSET),
-                Some(Block::Question { .. }) => edges(Who::Agent, Item::Line, 0.0),
+                Some(Block::Question { .. } | Block::Widget { .. }) => edges(Who::Agent, Item::Line, 0.0),
                 None => return None,
             }
         }
@@ -182,7 +182,7 @@ pub(super) fn space_at(t: &Transcript, detail: &crate::detail::Detail, out: &mut
                 // Consecutive prompts hold together as a run (`TurnGap`), which spaces them.
                 RowContent::User { reply, .. } | RowContent::Pending { reply, .. } => *reply = if prev.who != Who::User { (L - prev.bottom - prev.footer).max(0.0) } else { 0.0 },
                 RowContent::Notice(_, _, pt) | RowContent::PendingNotice(_, pt) => *pt = room,
-                RowContent::Error { pt, .. } | RowContent::Retry { pt, .. } | RowContent::TurnText { pt, .. } | RowContent::Turn { pt, .. } | RowContent::Widget { pt, .. } => *pt = room,
+                RowContent::Error { pt, .. } | RowContent::Retry { pt, .. } | RowContent::TurnText { pt, .. } | RowContent::Turn { pt, .. } => *pt = room,
                 _ => {}
             }
         }

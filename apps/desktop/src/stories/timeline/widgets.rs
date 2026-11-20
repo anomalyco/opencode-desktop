@@ -1,5 +1,6 @@
-//! The storybook's Widgets story (Timeline › Widgets): the agent posts a widget and it runs in
-//! the timeline on the Rust PsychoScript, with the built-in templates (`suggestions`, `form`,
+//! The storybook's Widgets story (Timeline › Widgets): the agent calls the `widget` tool, the
+//! widgets plugin's `changed` event brings its state, and it runs in the call's place in the
+//! timeline on the Rust PsychoScript, with the built-in templates (`suggestions`, `form`,
 //! `confirm`) and their fixture data. Variants: each built-in, one another client already
 //! answered (read-only, its final view and answer), a template whose `init` throws (the error
 //! card), the `chart` canvas (bars, and a line you can choose a point on), the `backdrop`
@@ -36,11 +37,13 @@ pub const KEYS: &[Trigger] = &[
     } },
     Trigger { key: 'd', label: "Dismiss it from another client", run: |s, tx| {
         tx.clear();
-        emit(s, "session.widget.responded", json!({ "messageID": ID, "status": "dismissed" }), tx);
+        changed(s, "dismissed", Value::Null, tx);
     } },
 ];
 
+/// The assistant message holding the call, and the call.
 const ID: &str = "msg_zzzzstorywidget";
+const CALL: &str = "call_storywidget";
 const BROKEN: &str = "story-broken";
 const BROKEN_SHADER: &str = "story-broken-shader";
 /// Where the story's pictures say they are; [`serve`] answers for them.
@@ -164,11 +167,35 @@ fn open(s: &mut App, tx: &mut Play<App>) {
     }
 }
 
+/// The agent's step: it calls `widget`, and the plugin publishes the widget it posted.
 fn post(s: &mut App, tx: &mut Tx) {
     let v = *s.fixture_run.variant;
     let name = template(v);
     let (title, data) = data(v);
-    emit(s, "session.widget.posted", json!({ "messageID": ID, "title": title, "template": { "name": name, "version": version(name) }, "data": data }), tx);
+    let input = json!({ "template": name, "data": data, "title": title });
+    emit(s, "session.step.started", json!({ "assistantMessageID": ID, "agent": "build", "model": { "id": "claude-opus-5-5", "providerID": "anthropic" } }), tx);
+    emit(s, "session.tool.input.started", json!({ "assistantMessageID": ID, "id": CALL, "name": "widget" }), tx);
+    emit(s, "session.tool.called", json!({ "assistantMessageID": ID, "id": CALL, "name": "widget", "input": input, "executed": true }), tx);
+    changed(s, "open", Value::Null, tx);
+    let text = format!("Widget \"{title}\" is shown to the user.");
+    emit(s, "session.tool.success", json!({ "assistantMessageID": ID, "id": CALL, "content": [{ "type": "text", "text": text }], "metadata": { "template": { "name": name, "version": version(name) } }, "executed": true }), tx);
+    emit(s, "session.step.ended", json!({ "assistantMessageID": ID, "finish": "stop", "cost": 0.0, "tokens": { "input": 8, "output": 40, "reasoning": 0, "cache": { "read": 0, "write": 0 } } }), tx);
+}
+
+/// The plugin's `changed` event for the story's widget, now `status`.
+fn changed(s: &mut App, status: &str, response: Value, tx: &mut Tx) {
+    let v = *s.fixture_run.variant;
+    let name = template(v);
+    let (title, _) = data(v);
+    let sid = crate::stories::sid(s);
+    let mut state = json!({
+        "sessionID": sid, "messageID": ID, "callID": CALL, "template": { "name": name, "version": version(name) },
+        "title": title, "status": status, "wait": false, "time": { "created": 0 },
+    });
+    if status == "submitted" {
+        state["response"] = response;
+    }
+    emit(s, opencode_kit::model::WIDGET_CHANGED_EVENT, json!({ "sessionID": sid, "state": state }), tx);
 }
 
 fn answer_elsewhere(s: &mut App, tx: &mut Tx) {
@@ -177,7 +204,7 @@ fn answer_elsewhere(s: &mut App, tx: &mut Tx) {
         2 => json!({ "confirmed": true }),
         _ => json!({ "choice": "Coastline", "index": 0, "note": "Crop it a little tighter" }),
     };
-    emit(s, "session.widget.responded", json!({ "messageID": ID, "status": "submitted", "response": response }), tx);
+    changed(s, "submitted", response, tx);
 }
 
 rune_register::register!(crate::stories::STORY_LIST: crate::stories::Story = [

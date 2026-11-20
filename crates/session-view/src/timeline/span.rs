@@ -208,12 +208,6 @@ pub(super) fn project<S: TimelineHost>(s: &S, t: &Transcript, inp: &Inputs, rang
                 steps.push(Entry::Step(step));
                 shell_turn = true;
             }
-            // A widget ends the steps before it and stands on its own row, where the agent
-            // posted it; the user's answer arrives as the next prompt.
-            Message::Widget(w) => {
-                turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false, detail);
-                out.push(RowSpec { key: format!("wg-{}", w.id), content: RowContent::Widget { message: mi, pt: 16.0 }, streaming: false });
-            }
             Message::Compaction(c) => {
                 turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false, detail);
                 for piece in crate::compaction::pieces(c) {

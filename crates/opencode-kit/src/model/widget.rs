@@ -1,11 +1,15 @@
-//! An agent widget in a session (`Session.Message.Widget`, anomalyco/opencode
-//! `specs/v2/widgets.md`): a named template at a version, the JSON data it runs on, and whether
-//! the user answered it. Every client runs the template's program itself; this is only the
-//! message, kept current by `session.widget.posted` and `session.widget.responded`.
+//! Agent widgets in a session (anomalyco/opencode `specs/v2/widgets.md`): a widget is the
+//! `widget` tool call in the history ([`WidgetCall`], input `{ template, data, title?, wait? }`),
+//! identified by its assistant message and call id; the widgets plugin keeps its state
+//! ([`WidgetState`], RPC `opencode.widget`: `states`, and the `changed` event). Every client runs
+//! the template's program itself.
 
 use serde_json::Value;
 
-use super::{Message, i, s};
+use super::{Message, Part, ToolStatus, i, s};
+
+/// The plugin's event for a posted or answered widget: `{ sessionID, state }`.
+pub const WIDGET_CHANGED_EVENT: &str = "rpc.opencode.widget.changed";
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum WidgetStatus {
@@ -15,24 +19,55 @@ pub enum WidgetStatus {
     Dismissed,
 }
 
+/// One widget as the plugin keeps it (`Widget.State`).
 #[derive(Clone, Debug, PartialEq)]
-pub struct Widget {
-    pub id: String,
-    pub title: Option<String>,
+pub struct WidgetState {
+    pub session: String,
+    /// The assistant message holding the `widget` tool call.
+    pub message: String,
+    pub call: String,
     /// The template's name and its content-addressed version.
     pub name: String,
     pub version: String,
-    pub data: Value,
+    pub title: Option<String>,
     pub status: WidgetStatus,
+    /// The tool call waits for the answer.
+    pub wait: bool,
     pub created: i64,
-    /// The assistant message that posted it, through its `widget` tool call.
-    pub tool_message: Option<String>,
 }
 
-impl Widget {
+impl WidgetState {
+    /// A `Widget.State` from `states` or `changed`.
+    pub fn parse(v: &Value) -> Option<WidgetState> {
+        let message = v["messageID"].as_str()?.to_owned();
+        let call = v["callID"].as_str()?.to_owned();
+        let name = v["template"]["name"].as_str()?.to_owned();
+        let status = match v["status"].as_str() {
+            Some("submitted") => WidgetStatus::Submitted(v["response"].clone()),
+            Some("dismissed") => WidgetStatus::Dismissed,
+            _ => WidgetStatus::Open,
+        };
+        Some(WidgetState {
+            session: s(&v["sessionID"]),
+            message,
+            call,
+            name,
+            version: s(&v["template"]["version"]),
+            title: v["title"].as_str().filter(|t| !t.is_empty()).map(str::to_owned),
+            status,
+            wait: v["wait"].as_bool().unwrap_or(false),
+            created: i(&v["time"]["created"]),
+        })
+    }
+
+    /// The key a client looks it up by: [`widget_key`].
+    pub fn key(&self) -> String {
+        widget_key(&self.message, &self.call)
+    }
+
     /// The name it goes by: its title, else its template's name (the server's `label`).
     pub fn label(&self) -> &str {
-        self.title.as_deref().filter(|t| !t.is_empty()).unwrap_or(&self.name)
+        self.title.as_deref().unwrap_or(&self.name)
     }
 
     /// `name@version`: its program's cache key.
@@ -41,64 +76,50 @@ impl Widget {
     }
 }
 
-fn status(v: &Value, response: &Value) -> WidgetStatus {
-    match v.as_str() {
-        Some("submitted") => WidgetStatus::Submitted(response.clone()),
-        Some("dismissed") => WidgetStatus::Dismissed,
-        _ => WidgetStatus::Open,
+/// A widget's key: its message's id and its call's (a call id is unique only within its message).
+pub fn widget_key(message: &str, call: &str) -> String {
+    format!("{message}/{call}")
+}
+
+/// A `widget` tool call in the history.
+#[derive(Clone, Debug, PartialEq)]
+pub struct WidgetCall {
+    pub message: String,
+    pub call: String,
+    pub status: ToolStatus,
+    /// `{ template, data, title?, wait? }`.
+    pub input: Value,
+    /// `{ template: { name, version } }` once completed.
+    pub metadata: Value,
+}
+
+impl WidgetCall {
+    pub fn key(&self) -> String {
+        widget_key(&self.message, &self.call)
+    }
+
+    /// The data its template runs on.
+    pub fn data(&self) -> &Value {
+        &self.input["data"]
     }
 }
 
-/// A `widget` message from `/api/session/:id/message`.
-pub(super) fn parse(m: &Value) -> Option<Message> {
-    let name = m["template"]["name"].as_str()?.to_owned();
-    Some(Message::Widget(Widget {
-        id: s(&m["id"]),
-        title: m["title"].as_str().map(str::to_owned),
-        name,
-        version: s(&m["template"]["version"]),
-        data: m["data"].clone(),
-        status: status(&m["status"], &m["response"]),
-        created: i(&m["time"]["created"]),
-        tool_message: m["tool"]["messageID"].as_str().map(str::to_owned),
-    }))
-}
-
-/// Applies `session.widget.posted` / `session.widget.responded` to `messages`; whether anything
-/// changed.
-pub(super) fn apply(messages: &mut Vec<Message>, ty: &str, d: &Value, now: i64) -> bool {
-    let id = s(&d["messageID"]);
-    if id.is_empty() {
-        return false;
-    }
-    match ty {
-        "session.widget.posted" => {
-            if messages.iter().any(|m| m.id() == id) {
-                return false;
+/// The `widget` tool calls of `messages`, oldest first.
+pub fn widget_calls(messages: &[Message]) -> Vec<WidgetCall> {
+    let mut out = Vec::new();
+    for m in messages {
+        let a = match m {
+            Message::Assistant(a) => a,
+            Message::Note { step, .. } => &**step,
+            _ => continue,
+        };
+        for p in &a.parts {
+            if let Part::Tool { id, name, status, input, metadata, .. } = p
+                && name == "widget"
+            {
+                out.push(WidgetCall { message: a.id.clone(), call: id.clone(), status: status.clone(), input: input.clone(), metadata: metadata.clone() });
             }
-            let Some(name) = d["template"]["name"].as_str() else { return false };
-            let w = Widget {
-                id,
-                title: d["title"].as_str().map(str::to_owned),
-                name: name.to_owned(),
-                version: s(&d["template"]["version"]),
-                data: d["data"].clone(),
-                status: WidgetStatus::Open,
-                created: d["time"]["created"].as_i64().unwrap_or(now),
-                tool_message: d["tool"]["messageID"].as_str().map(str::to_owned),
-            };
-            messages.push(Message::Widget(w));
-            true
         }
-        "session.widget.responded" => {
-            let Some(Message::Widget(w)) = messages.iter_mut().find(|m| m.id() == id) else { return false };
-            let next = status(&d["status"], &d["response"]);
-            if w.status == next {
-                return false;
-            }
-            w.status = next;
-            true
-        }
-        _ => false,
     }
+    out
 }

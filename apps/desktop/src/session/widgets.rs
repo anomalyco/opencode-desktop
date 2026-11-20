@@ -1,13 +1,15 @@
 //! Desktop host adapter for `opencode-feature-widgets` (`features/widgets`): agent widgets in
-//! the timeline, their template programs fetched through the server connection's job thread,
-//! and their responses posted there.
+//! the timeline, their states and template programs read through the server connection's job
+//! thread from the widgets plugin (RPC `opencode.widget` in the session's location), and their
+//! answers posted there.
 
 pub use opencode_feature_widgets::*;
 
 use std::sync::Arc;
 
 use opencode_kernel::{Feature, KernelBuilder, Slot};
-use opencode_kit::model::{Message, Widget as WidgetMessage};
+use opencode_kit::client::WidgetError;
+use opencode_kit::model::{WidgetCall, widget_calls, widget_key};
 use rune::Tx;
 use serde_json::Value;
 
@@ -31,57 +33,74 @@ impl WidgetsHost for App {
         Some((id, version))
     }
 
-    fn widget_messages(&self, session: &str) -> Vec<WidgetMessage> {
-        let Some(t) = self.transcripts.get(session) else { return Vec::new() };
-        t.messages.iter().filter_map(|m| if let Message::Widget(w) = m { Some(w.clone()) } else { None }).collect()
+    fn widget_calls(&self, session: &str) -> Vec<WidgetCall> {
+        self.transcripts.get(session).map(|t| widget_calls(&t.messages)).unwrap_or_default()
     }
 
-    fn fetch_program(&mut self, name: &str, version: &str) {
+    fn fetch_states(&mut self, session: &str) {
+        let session = session.to_owned();
+        // A fixture run or story has no server: its states are seeded.
+        if !self.live() {
+            return;
+        }
+        let directory = self.widget_directory(&session);
+        self.job(move |srv| {
+            let result = srv.widget_states(&directory, &session).map_err(|e| e.to_string());
+            Box::new(move |s: &mut App, _tx: &mut Tx| states(s, &session, result)) as Apply
+        });
+    }
+
+    fn fetch_program(&mut self, session: &str, name: &str, version: &str) {
         let (name, version) = (name.to_owned(), version.to_owned());
+        let directory = self.widget_directory(session);
         self.job(move |srv| {
             // Compiled on the job thread too: the window only takes the finished program.
-            let result = srv.widget_program(&name, &version).map_err(|e| e.to_string()).and_then(|p| compile(&p)).map(Arc::new);
+            let result = srv.widget_program(&directory, &name, &version).map_err(|e| e.to_string()).and_then(|p| compile(&p.program)).map(Arc::new);
             Box::new(move |s: &mut App, _tx: &mut Tx| loaded(s, &name, &version, result)) as Apply
         });
     }
 
-    fn post_message(&mut self, session: &str, message: &str, body: Value) {
-        let (session, message) = (session.to_owned(), message.to_owned());
+    fn post_message(&mut self, session: &str, message: &str, call: &str, value: Value, wake: bool) {
+        let id = widget_key(message, call);
         // A fixture run or story has no server to take it: it is taken, as a server would.
         if !self.live() {
-            self.later(Box::new(move |s: &mut App, _tx: &mut Tx| sent(s, &message, Ok(()))));
+            self.later(Box::new(move |s: &mut App, _tx: &mut Tx| sent(s, &id, Ok(()))));
             return;
         }
-        let (s2, m2) = (session.clone(), message.clone());
-        self.widget_write(message, move |srv| srv.send_widget_message(&s2, &m2, body), |s, id, r| sent(s, id, r));
+        let (directory, session, message, call) = (self.widget_directory(session), session.to_owned(), message.to_owned(), call.to_owned());
+        self.job(move |srv| {
+            let result = srv.widget_send(&directory, &session, &message, &call, value, wake).map_err(respond_error);
+            Box::new(move |s: &mut App, _tx: &mut Tx| sent(s, &id, result)) as Apply
+        });
     }
 
-    fn post_response(&mut self, session: &str, message: &str, body: Value, attempt: u32) {
-        let (session, message) = (session.to_owned(), message.to_owned());
+    fn post_response(&mut self, session: &str, message: &str, call: &str, response: Value, attempt: u32) {
+        let id = widget_key(message, call);
         // A fixture run or story has no server to take it: it is taken, as a server would.
         if !self.live() {
-            self.later(Box::new(move |s: &mut App, _tx: &mut Tx| responded(s, &message, attempt, Ok(()))));
+            self.later(Box::new(move |s: &mut App, _tx: &mut Tx| responded(s, &id, attempt, Ok(()))));
             return;
         }
+        let (directory, session, message, call) = (self.widget_directory(session), session.to_owned(), message.to_owned(), call.to_owned());
         self.job(move |srv| {
-            let result = srv.respond_widget(&session, &message, body).map_err(|e| match e.status() {
-                Some(409) => RespondError::Conflict,
-                _ => RespondError::Failed(e.to_string()),
-            });
-            Box::new(move |s: &mut App, _tx: &mut Tx| responded(s, &message, attempt, result)) as Apply
+            let result = srv.widget_respond(&directory, &session, &message, &call, response).map_err(respond_error);
+            Box::new(move |s: &mut App, _tx: &mut Tx| responded(s, &id, attempt, result)) as Apply
         });
     }
 }
 
+/// `closed`: answered already, here or on another client.
+fn respond_error(e: WidgetError) -> RespondError {
+    match e {
+        WidgetError::Closed => RespondError::Conflict,
+        e => RespondError::Failed(e.to_string()),
+    }
+}
+
 impl App {
-    fn widget_write(&self, message: String, work: impl FnOnce(&opencode_kit::client::Server) -> Result<(), opencode_kit::wire_error::WireError> + Send + 'static, done: fn(&mut App, &str, Result<(), RespondError>)) {
-        self.job(move |srv| {
-            let result = work(srv).map_err(|e| match e.status() {
-                Some(409) => RespondError::Conflict,
-                _ => RespondError::Failed(e.to_string()),
-            });
-            Box::new(move |s: &mut App, _tx: &mut Tx| done(s, &message, result)) as Apply
-        });
+    /// The location the widgets plugin answers `session`'s calls in: its directory.
+    fn widget_directory(&self, session: &str) -> String {
+        self.session(session).map(|i| i.directory.clone()).unwrap_or_default()
     }
 }
 

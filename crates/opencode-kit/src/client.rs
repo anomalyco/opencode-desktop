@@ -71,6 +71,7 @@ impl Server {
     }
 }
 pub use upload::UploadError;
+pub use widgets::{WidgetError, WidgetProgram};
 pub use wire::{Incoming, Request, Ticket, TicketKind, Write};
 pub use worker::{connect, connect_with_idle};
 

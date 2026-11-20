@@ -321,13 +321,14 @@ pub trait TimelineHost: Sized + 'static {
     fn tool_row_action(&self, _p: &palette::Pal, _session: &str, _call: &tools::Call) -> Option<El> {
         None
     }
-    /// Included in a tool row's memo key: what [`Self::tool_row_action`] shows for call `id` can
-    /// change without the call changing.
-    /// Agent widget `w` of session `session`, drawn by a host that runs widgets (with
-    /// [`widget::frame`]); `None` draws [`widget::fallback`].
-    fn widget(&self, _p: &palette::Pal, _session: &str, _w: &opencode_kit::model::Widget) -> Option<El> {
+    /// The agent widget of `widget` call `call` of assistant message `message` in session
+    /// `session`, drawn by a host that runs widgets (with [`widget::frame`]); `None` shows the
+    /// call as any other.
+    fn widget(&self, _p: &palette::Pal, _session: &str, _message: &str, _call: &tools::Call) -> Option<El> {
         None
     }
+    /// Included in a tool row's memo key: what [`Self::tool_row_action`] shows for call `id` can
+    /// change without the call changing.
     fn tool_row_action_version(&self, _id: &str) -> u64 {
         0
     }

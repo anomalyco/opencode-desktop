@@ -505,6 +505,9 @@ impl App {
                 crate::surfaces::browser::rpc::on_plugin_updated(self, &active_server);
             }
         }
+        if ty == opencode_kit::model::WIDGET_CHANGED_EVENT {
+            changed |= crate::session::widgets::changed(self, data);
+        }
         #[cfg(not(target_arch = "wasm32"))]
         if ty == opencode_kit::browser_rpc::CONTROL_EVENT {
             let active_server = crate::servers::runtime::active(self).clone();

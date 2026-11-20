@@ -148,7 +148,6 @@ pub fn parse_message(m: &Value) -> Option<Message> {
             id,
         },
         "compaction" => Message::Compaction(Compaction::parse(m)),
-        "widget" => return super::widget::parse(m),
         _ => return notice::parse(m),
     })
 }

@@ -12,13 +12,13 @@ use std::sync::Arc;
 
 use serde_json::{Map, Value};
 
-use super::{Assistant, Attachment, Compaction, CompactionStatus, Finished, Message, ModelRef, Notice, NoticeKind, Outcome, Part, Retry, StepError, Tokens, ToolStatus, Widget, WidgetStatus};
+use super::{Assistant, Attachment, Compaction, CompactionStatus, Finished, Message, ModelRef, Notice, NoticeKind, Outcome, Part, Retry, StepError, Tokens, ToolStatus};
 use crate::mention::{MentionKind, UserMention};
 use crate::prompt::PathAttachment;
 use crate::quote::PromptComment;
 
 /// Bumped with every change to the layout.
-pub const VERSION: u8 = 2;
+pub const VERSION: u8 = 3;
 /// An inline file larger than this keeps its name and kind but not its bytes (the server's
 /// copy fills it in once it answers): a preview stays a few pages of the database.
 const INLINE_MAX: usize = 32 * 1024;
@@ -199,24 +199,6 @@ fn message(w: &mut W, m: &Message) {
             w.0.push(4);
             notice(w, n);
         }
-        Message::Widget(x) => {
-            w.0.push(5);
-            w.s(&x.id);
-            w.os(x.title.as_deref());
-            w.s(&x.name);
-            w.s(&x.version);
-            w.s(&x.data.to_string());
-            match &x.status {
-                WidgetStatus::Open => w.0.push(0),
-                WidgetStatus::Submitted(v) => {
-                    w.0.push(1);
-                    w.s(&v.to_string());
-                }
-                WidgetStatus::Dismissed => w.0.push(2),
-            }
-            w.i(x.created);
-            w.os(x.tool_message.as_deref());
-        }
     }
 }
 
@@ -244,20 +226,6 @@ fn read_message(r: &mut R<'_>, extras: Extras) -> Option<Message> {
             created: r.i()?,
         }),
         4 => Message::Notice(read_notice(r)?),
-        5 => Message::Widget(Widget {
-            id: r.s()?,
-            title: r.os()?,
-            name: r.s()?,
-            version: r.s()?,
-            data: serde_json::from_str(&r.s()?).ok()?,
-            status: match r.u8()? {
-                0 => WidgetStatus::Open,
-                1 => WidgetStatus::Submitted(serde_json::from_str(&r.s()?).ok()?),
-                _ => WidgetStatus::Dismissed,
-            },
-            created: r.i()?,
-            tool_message: r.os()?,
-        }),
         _ => return None,
     })
 }
@@ -524,12 +492,12 @@ fn notice(w: &mut W, n: &Notice) {
             w.os(f.shell.as_deref());
             w.os(f.child.as_deref());
         }
-        NoticeKind::Widget { message, note, label, value } => {
+        NoticeKind::Widget { message, call, note, label } => {
             w.0.push(11);
             w.s(message);
+            w.s(call);
             w.b(*note == super::WidgetNote::Message);
             w.s(label);
-            w.os(value.as_deref());
         }
         NoticeKind::Text(t) => {
             w.0.push(6);
@@ -602,9 +570,9 @@ fn read_notice(r: &mut R<'_>) -> Option<Notice> {
         10 => NoticeKind::Job { id: r.s()?, description: r.s()?, script: None, required: true },
         11 => NoticeKind::Widget {
             message: r.s()?,
+            call: r.s()?,
             note: if r.b()? { super::WidgetNote::Message } else { super::WidgetNote::Response },
             label: r.s()?,
-            value: r.os()?,
         },
         _ => return None,
     };

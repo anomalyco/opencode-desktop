@@ -340,7 +340,7 @@ fn shifted(r: &RowSpec, by: usize) -> RowSpec {
     use super::RowContent::*;
     let mut r = r.clone();
     match &mut r.content {
-        User { message, .. } | Error { message, .. } | Retry { message, .. } | Compaction { message, .. } | TurnText { message, .. } | Actions { message, .. } | Widget { message, .. } => *message += by,
+        User { message, .. } | Error { message, .. } | Retry { message, .. } | Compaction { message, .. } | TurnText { message, .. } | Actions { message, .. } => *message += by,
         Notice(i, ..) => *i += by,
         Turn { start, end, .. } | ToolImages { start, end, .. } => {
             *start += by;
@@ -472,7 +472,6 @@ fn shape(m: &Message, detail: &crate::detail::Detail) -> u64 {
         }
         Message::Notice(n) => (3u8, &n.id, std::mem::discriminant(&n.kind), crate::detail::notice_placement(n, detail), crate::turn_errors::is_divider(n), n.idle_failure().is_some()).hash(&mut h),
         Message::Compaction(c) => (4u8, &c.id, crate::compaction::pieces(c).iter().map(|p| p.key("")).collect::<Vec<_>>()).hash(&mut h),
-        Message::Widget(w) => (5u8, &w.id, std::mem::discriminant(&w.status)).hash(&mut h),
     }
     h.finish()
 }

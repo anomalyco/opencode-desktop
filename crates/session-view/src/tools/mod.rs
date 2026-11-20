@@ -214,6 +214,13 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
     cached(s, p, cx, &[*c], build)
 }
 
+/// A `widget` call of assistant message `message`: the agent widget itself, which the host runs
+/// and draws ([`TimelineHost::widget`]); a host that doesn't, or a call that failed before it
+/// posted one, shows the call as any other.
+pub fn widget<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, message: &str, c: &Call) -> El {
+    s.widget(p, cx.session, message, c).unwrap_or_else(|| view(s, p, cx, c))
+}
+
 /// A shell command run from the composer (`SessionShellMessage`): its shell call, and under it
 /// the error card of a command that timed out, was cancelled or exited with another code than 0.
 fn shell_message<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {

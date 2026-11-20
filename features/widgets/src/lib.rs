@@ -1,11 +1,13 @@
 //! Agent widgets in the session timeline (`specs/v2/widgets.md`): this window runs every widget
-//! message it shows. Per widget it keeps the lifecycle machine (`opencode_widget::Widget`) and
-//! the view's local state (`opencode_widget_view::Local`); per template version, its compiled
-//! program, fetched once by `name@version` and kept (a version never changes).
+//! the timeline shows. A widget is a `widget` tool call; the widgets plugin keeps its state
+//! (RPC `opencode.widget`: `states` when a session opens, then its `changed` event). Per widget
+//! it keeps the lifecycle machine (`opencode_widget::Widget`) and the view's local state
+//! (`opencode_widget_view::Local`); per template version, its compiled program, fetched once by
+//! `name@version` and kept (a version never changes).
 //!
-//! The host fetches programs and posts responses off the UI thread ([`WidgetsHost`]); steps
-//! run here, synchronously, as the contract allows for v1 (well under a millisecond each, under
-//! a 250 ms budget). Drawing goes through `session_view::widget::frame` ([`view`]).
+//! The host fetches states and programs and posts answers off the UI thread ([`WidgetsHost`]);
+//! steps run here, synchronously, as the contract allows for v1 (well under a millisecond each,
+//! under a 250 ms budget). Drawing goes through `session_view::widget::frame` ([`view`]).
 
 #![forbid(unsafe_code)]
 
@@ -15,7 +17,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use opencode_kit::model::{Widget as Message, WidgetStatus};
+use opencode_kit::model::{WidgetCall, WidgetState, WidgetStatus, widget_key};
 use opencode_widget::{Closed, Effect, Event, Face, Phase, Status, Widget, WidgetEvent};
 use opencode_widget_view::{Hooks, Local};
 use rune::{El, Tx};
@@ -35,24 +37,50 @@ pub enum Template {
     Failed(String),
 }
 
-/// One widget message this window runs.
+/// One widget this window runs.
 pub struct Entry {
     pub session: String,
+    /// Its tool call: the assistant message and the call id.
+    pub message: String,
+    pub call: String,
     /// Its template's `name@version`.
     pub template: String,
+    /// Its title, else its template's name.
+    pub label: String,
     pub machine: Widget,
     pub local: Local,
-    /// The message's status as last read, so a change reaches the machine once.
+    /// The status as last read, so a change reaches the machine once.
     seen: WidgetStatus,
+}
+
+/// A session's widget states, as the plugin keeps them.
+#[derive(Default)]
+pub enum States {
+    /// `states` is on its way.
+    #[default]
+    Fetching,
+    /// By widget key ([`widget_key`]).
+    Ready(HashMap<String, WidgetState>),
+    /// The plugin isn't there (the `widgets` flag is off) or didn't answer: calls show as calls.
+    Failed,
+}
+
+#[derive(Default)]
+struct Session {
+    states: States,
+    /// Bumped on every change, so [`sync`] reads again.
+    version: u64,
 }
 
 /// The window's widgets, in `opencode_kernel::StateSlots`.
 #[derive(Default)]
 pub struct Widgets {
     templates: HashMap<String, Template>,
+    /// By widget key ([`widget_key`]).
     entries: HashMap<String, Entry>,
-    /// The transcript version each session's widgets were last read at.
-    read: HashMap<String, u64>,
+    sessions: HashMap<String, Session>,
+    /// The transcript and states versions each session's widgets were last read at.
+    read: HashMap<String, (u64, u64)>,
     /// What a lens gets for a widget that went away under a queued handler.
     spare: Local,
 }
@@ -70,6 +98,11 @@ impl Widgets {
         }
     }
 
+    /// Session `session`'s widget states, once read.
+    pub fn states(&self, session: &str) -> Option<&States> {
+        self.sessions.get(session).map(|s| &s.states)
+    }
+
     /// Whether any widget has typing waiting to be committed.
     fn pending(&self) -> bool {
         self.entries.values().any(|e| e.local.has_pending())
@@ -82,15 +115,19 @@ pub trait WidgetsHost {
     fn widgets_mut(&mut self) -> &mut Widgets;
     /// The session the timeline shows, and its transcript's version.
     fn widget_session(&self) -> Option<(String, u64)>;
-    /// The widget messages of `session`'s transcript.
-    fn widget_messages(&self, session: &str) -> Vec<Message>;
-    /// Fetches and compiles `name@version`'s program off the UI thread; answers with [`loaded`].
-    fn fetch_program(&mut self, name: &str, version: &str);
-    /// Posts `body` as widget `message`'s response off the UI thread; answers with [`responded`].
-    fn post_response(&mut self, session: &str, message: &str, body: Value, attempt: u32);
-    /// Posts `body` (`{ value, wake }`) as a message from open widget `message` off the UI
+    /// The `widget` tool calls of `session`'s transcript.
+    fn widget_calls(&self, session: &str) -> Vec<WidgetCall>;
+    /// Reads `session`'s widget states (`states`) off the UI thread; answers with [`states`].
+    fn fetch_states(&mut self, session: &str);
+    /// Fetches and compiles `name@version`'s program (`program`, in `session`'s location) off the
+    /// UI thread; answers with [`loaded`].
+    fn fetch_program(&mut self, session: &str, name: &str, version: &str);
+    /// Posts `response` (`{ value }` or `{ dismiss: true }`) as widget `call` of `message`'s
+    /// answer (`respond`) off the UI thread; answers with [`responded`].
+    fn post_response(&mut self, session: &str, message: &str, call: &str, response: Value, attempt: u32);
+    /// Posts `value` as a message from open widget `call` of `message` (`send`) off the UI
     /// thread; answers with [`sent`].
-    fn post_message(&mut self, session: &str, message: &str, body: Value);
+    fn post_message(&mut self, session: &str, message: &str, call: &str, value: Value, wake: bool);
 }
 
 fn status(m: &WidgetStatus) -> Status {
@@ -129,9 +166,9 @@ pub fn advance(host: &mut dyn WidgetsHost, id: &str, event: Event) {
 
 /// Runs one effect; the event it answers with at once, if any (a fetch or post answers later).
 fn run(host: &mut dyn WidgetsHost, id: &str, effect: Effect) -> Option<Event> {
-    let (session, key) = {
+    let (session, message, call, key) = {
         let e = host.widgets().entries.get(id)?;
-        (e.session.clone(), e.template.clone())
+        (e.session.clone(), e.message.clone(), e.call.clone(), e.template.clone())
     };
     match effect {
         Effect::Fetch => match host.widgets().templates.get(&key) {
@@ -142,7 +179,7 @@ fn run(host: &mut dyn WidgetsHost, id: &str, effect: Effect) -> Option<Event> {
                 host.widgets_mut().templates.insert(key.clone(), Template::Fetching);
                 let (name, version) = key.split_once('@').unwrap_or((&key, ""));
                 let (name, version) = (name.to_owned(), version.to_owned());
-                host.fetch_program(&name, &version);
+                host.fetch_program(&session, &name, &version);
                 None
             }
         },
@@ -154,11 +191,11 @@ fn run(host: &mut dyn WidgetsHost, id: &str, effect: Effect) -> Option<Event> {
             Some(Event::Ran(result))
         }
         Effect::Respond { response, attempt } => {
-            host.post_response(&session, id, response.body(), attempt);
+            host.post_response(&session, &message, &call, response.body(), attempt);
             None
         }
-        Effect::Send(message) => {
-            host.post_message(&session, id, message.body());
+        Effect::Send(sent) => {
+            host.post_message(&session, &message, &call, sent.value, sent.wake);
             None
         }
     }
@@ -218,32 +255,97 @@ pub fn retry(host: &mut dyn WidgetsHost, id: &str) {
     advance(host, id, Event::Retry);
 }
 
-/// Opens a machine for every widget message of the shown session it doesn't run yet, and tells
-/// the running ones what changed on the server. Reads the transcript only when it moved.
+/// Session `session`'s widget states came back (`states`), or the plugin isn't there. A state a
+/// `changed` event brought meanwhile that is already answered wins over an open one read
+/// before it: a widget only ever closes.
+pub fn states(host: &mut dyn WidgetsHost, session: &str, result: Result<Vec<WidgetState>, String>) {
+    let s = host.widgets_mut().sessions.entry(session.to_owned()).or_default();
+    s.version += 1;
+    let Ok(list) = result else {
+        if !matches!(s.states, States::Ready(_)) {
+            s.states = States::Failed;
+        }
+        return;
+    };
+    let mut next: HashMap<String, WidgetState> = list.into_iter().map(|w| (w.key(), w)).collect();
+    if let States::Ready(old) = &s.states {
+        for (k, w) in old {
+            if w.status != WidgetStatus::Open && next.get(k).is_none_or(|n| n.status == WidgetStatus::Open) {
+                next.insert(k.clone(), w.clone());
+            }
+        }
+    }
+    s.states = States::Ready(next);
+}
+
+/// The plugin's `changed` event (`{ sessionID, state }`): a widget was posted or answered.
+/// Whether it touched a session this window reads.
+pub fn changed(host: &mut dyn WidgetsHost, data: &Value) -> bool {
+    let Some(state) = WidgetState::parse(&data["state"]) else { return false };
+    let session = data["sessionID"].as_str().map_or_else(|| state.session.clone(), str::to_owned);
+    let Some(s) = host.widgets_mut().sessions.get_mut(&session) else { return false };
+    match &mut s.states {
+        States::Ready(map) => {
+            map.insert(state.key(), state);
+        }
+        // Read before the plugin answered, or it failed then: this one shows it's there now.
+        States::Fetching | States::Failed => s.states = States::Ready(HashMap::from([(state.key(), state)])),
+    }
+    s.version += 1;
+    true
+}
+
+/// The connection came back: events published meanwhile were missed, so each session's states
+/// are read again when it next shows.
+pub fn reconnected(host: &mut dyn WidgetsHost) {
+    let w = host.widgets_mut();
+    w.sessions.clear();
+    w.read.clear();
+}
+
+/// Opens a machine for every widget of the shown session it doesn't run yet, and tells the
+/// running ones what changed on the server. Reads the session's states once, and its widgets
+/// only when its transcript or its states moved.
 pub fn sync(host: &mut dyn WidgetsHost) -> bool {
     let Some((session, version)) = host.widget_session() else { return false };
-    if host.widgets().read.get(&session) == Some(&version) {
+    // Read once when the session first shows; a read that failed (the plugin wasn't up in the
+    // session's location yet) again when its transcript moves.
+    let moved = host.widgets().read.get(&session).is_none_or(|r| r.0 != version);
+    let fetch = match host.widgets().sessions.get(&session) {
+        None => true,
+        Some(s) => matches!(s.states, States::Failed) && moved,
+    };
+    if fetch {
+        host.widgets_mut().sessions.entry(session.clone()).or_default().states = States::Fetching;
+        host.fetch_states(&session);
+    }
+    let read = (version, host.widgets().sessions.get(&session).map_or(0, |s| s.version));
+    if host.widgets().read.get(&session) == Some(&read) {
         return false;
     }
-    host.widgets_mut().read.insert(session.clone(), version);
+    host.widgets_mut().read.insert(session.clone(), read);
     let mut changed = false;
-    for m in host.widget_messages(&session) {
-        match host.widgets().entries.get(&m.id).map(|e| e.seen == m.status) {
+    for c in host.widget_calls(&session) {
+        let key = c.key();
+        let Some(States::Ready(map)) = host.widgets().states(&session) else { break };
+        let Some(state) = map.get(&key).cloned() else { continue };
+        match host.widgets().entries.get(&key).map(|e| e.seen == state.status) {
             Some(true) => {}
             Some(false) => {
-                if let Some(e) = host.widgets_mut().entries.get_mut(&m.id) {
-                    e.seen = m.status.clone();
+                if let Some(e) = host.widgets_mut().entries.get_mut(&key) {
+                    e.seen = state.status.clone();
                 }
-                advance(host, &m.id, Event::Status(status(&m.status)));
+                advance(host, &key, Event::Status(status(&state.status)));
                 changed = true;
             }
             None => {
-                let (machine, effects) = Widget::open(m.data.clone(), status(&m.status));
-                let entry = Entry { session: session.clone(), template: m.template_key(), machine, local: Local::default(), seen: m.status.clone() };
-                host.widgets_mut().entries.insert(m.id.clone(), entry);
+                let (machine, effects) = Widget::open(c.data().clone(), status(&state.status));
+                let label = c.input["title"].as_str().filter(|t| !t.is_empty()).unwrap_or(state.label()).to_owned();
+                let entry = Entry { session: session.clone(), message: c.message.clone(), call: c.call.clone(), template: state.template_key(), label, machine, local: Local::default(), seen: state.status.clone() };
+                host.widgets_mut().entries.insert(key.clone(), entry);
                 for effect in effects {
-                    if let Some(next) = run(host, &m.id, effect) {
-                        advance(host, &m.id, next);
+                    if let Some(next) = run(host, &key, effect) {
+                        advance(host, &key, next);
                     }
                 }
                 changed = true;
@@ -315,26 +417,48 @@ pub fn poll(host: &mut dyn WidgetsHost, now: f64, tx: &mut Tx) -> bool {
 pub fn rest(host: &mut dyn WidgetsHost, keep: &dyn Fn(&str) -> bool) {
     let w = host.widgets_mut();
     w.entries.retain(|_, e| keep(&e.session));
+    w.sessions.retain(|s, _| keep(s));
     w.read.retain(|s, _| keep(s));
 }
 
-/// Widget message `m` of session `session` as the timeline draws it.
-pub fn view<H: WidgetsHost + TimelineHost>(s: &H, p: &Pal, session: &str, m: &Message) -> El {
-    let Some(e) = s.widgets().entries.get(&m.id) else {
+/// Widget call `call` of assistant message `message` in session `session` as the timeline draws
+/// it: the widget, a placeholder while its state or program is on the way, or `None` to show the
+/// call as any other (the plugin isn't there, or the call failed before it posted a widget).
+pub fn view<H: WidgetsHost + TimelineHost>(s: &H, p: &Pal, session: &str, message: &str, call: &session_view::tools::Call) -> Option<El> {
+    let key = widget_key(message, call.id);
+    let Some(e) = s.widgets().entries.get(&key) else {
         // Not opened yet (the next frame's sync opens it): a closed one already says how it
-        // ended, an open one shows its placeholder.
-        let how = session_view::widget::closed(m);
+        // ended; an open one, or one whose state is on the way, shows its placeholder.
+        let label = call.input["title"].as_str().filter(|t| !t.is_empty()).or_else(|| call.input["template"].as_str()).unwrap_or("widget");
+        let how = match s.widgets().states(session) {
+            Some(States::Ready(map)) => match map.get(&key) {
+                Some(w) => closed(&w.status),
+                None if *call.status == opencode_kit::model::ToolStatus::Running => None,
+                None => return None,
+            },
+            Some(States::Fetching) | None if *call.status != opencode_kit::model::ToolStatus::Error => None,
+            _ => return None,
+        };
         let face = match &how {
             Some(how) => Face::Closed { view: None, how },
             None => Face::Loading,
         };
-        return session_view::widget::frame(s, p, session, m, face, &Local::default(), None, None);
+        return Some(session_view::widget::frame(s, p, session, &key, label, face, &Local::default(), None, None));
     };
-    let (lens, emit, again) = (m.id.clone(), m.id.clone(), m.id.clone());
+    let (lens, emit, again) = (key.clone(), key.clone(), key.clone());
     let hooks: Hooks<H> = Hooks {
         local: Rc::new(move |s: &mut H| s.widgets_mut().local_mut(&lens)),
         emit: Rc::new(move |s: &mut H, ev: WidgetEvent, _tx: &mut Tx| input(s, &emit, ev)),
     };
     let retry: opencode_widget_view::Action<H> = Rc::new(move |s: &mut H, _tx: &mut Tx| retry(s, &again));
-    session_view::widget::frame(s, p, session, m, e.machine.face(), &e.local, Some(&hooks), Some(retry))
+    Some(session_view::widget::frame(s, p, session, &key, &e.label, e.machine.face(), &e.local, Some(&hooks), Some(retry)))
+}
+
+/// How a widget ended, from its state alone.
+fn closed(status: &WidgetStatus) -> Option<Closed> {
+    match status {
+        WidgetStatus::Open => None,
+        WidgetStatus::Submitted(v) => Some(Closed::Submitted(v.clone())),
+        WidgetStatus::Dismissed => Some(Closed::Dismissed),
+    }
 }

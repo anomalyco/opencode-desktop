@@ -214,8 +214,8 @@ impl session_view::TimelineHost for App {
     fn tool_row_action(&self, p: &palette::Pal, session: &str, call: &session_view::tools::Call) -> Option<rune::El> {
         tool_open::action(self, p, session, call)
     }
-    fn widget(&self, p: &palette::Pal, session: &str, w: &opencode_kit::model::Widget) -> Option<rune::El> {
-        Some(crate::session::widgets::view(self, p, session, w))
+    fn widget(&self, p: &palette::Pal, session: &str, message: &str, call: &session_view::tools::Call) -> Option<rune::El> {
+        crate::session::widgets::view(self, p, session, message, call)
     }
     fn tool_row_action_version(&self, id: &str) -> u64 {
         u64::from(self.tool_step_showing(id))
