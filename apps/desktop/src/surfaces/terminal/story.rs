@@ -51,6 +51,11 @@ pub const TERMINAL_KEYS: &[Trigger] = &[
         label: "Paste a script",
         run: paste_script,
     },
+    Trigger {
+        key: 'l',
+        label: "Confirm OSC 8 link",
+        run: spoofed_osc8_link,
+    },
 ];
 
 const STORY_WS: &str = "story\0/workspace/lumen";
@@ -183,6 +188,20 @@ fn paste_script(s: &mut App, play: &mut Play<'_, App>) {
     let Some(tab) = s.kernel.slots.get(&super::TERMINAL).workspaces.get(STORY_WS).and_then(|ws| ws.active.clone()) else { return };
     let script = "git fetch origin\r\ngit reset --hard origin/main\r\ncargo build --release\r\n".to_owned();
     s.paste_into_terminal(STORY_WS, &tab, script, play);
+}
+
+/// A mismatched OSC 8 hyperlink clicked in the terminal (`osc8.rs`).
+fn spoofed_osc8_link(s: &mut App, play: &mut Play<'_, App>) {
+    opencode_feature_terminal_surface::osc8::ask(
+        s,
+        opencode_feature_terminal_surface::osc8::Pending {
+            sid: "story".to_owned(),
+            visible: "https://docs.example.com".to_owned(),
+            url: "https://evil.example/phish?next=login".to_owned(),
+            shift: false,
+        },
+        play,
+    );
 }
 
 fn new_tab(s: &mut App, _play: &mut Play<'_, App>) {

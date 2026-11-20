@@ -168,6 +168,12 @@ pub trait FilesHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
     fn open_external(&mut self, url: &str, tx: &mut Tx) {
         drop(tx.open_url(url));
     }
+    /// Routes a web or app-scheme link clicked in chat or a rendered file through browser URL
+    /// policy and `Settings > Browser` (`Open links in OpenCode`).
+    fn route_web_link(&mut self, sid: Option<&str>, url: &str, from_file: bool, tx: &mut Tx) {
+        let _ = (sid, from_file);
+        self.open_external(url, tx);
+    }
 
     /// Whether opening files in external local apps is available on this host.
     fn can_open_in(&self) -> bool {

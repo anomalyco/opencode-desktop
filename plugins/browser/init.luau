@@ -91,9 +91,11 @@ return plugin.defineWindow(function(ctx)
     local function workspaceSourcePath(url: string): string?
         if string.sub(url, 1, 8) == "file:///" then
             local path = string.sub(url, 8)
-            -- Strip query/fragment and decode simple `%20`.
             path = string.match(path, "^([^?#]*)") or path
-            path = string.gsub(path, "%%20", " ")
+            path = string.gsub(path, "%%(%x%x)", function(hex: string)
+                local byte = tonumber(hex, 16)
+                return if byte then string.char(byte) else `%{hex}`
+            end)
             if App.Platform == "windows" and string.match(path, "^/[A-Za-z]:") ~= nil then
                 path = string.sub(path, 2)
             end
@@ -277,19 +279,47 @@ return plugin.defineWindow(function(ctx)
         end
     end)
 
+    -- Drains any queued conversation app-scheme link reviews into timestamped guarded notices.
+    local function drainAppLinkReviews()
+        local bAny = Browser :: any
+        if type(bAny.TakeAppLinkReview) ~= "function" then
+            return
+        end
+        while true do
+            local review = bAny:TakeAppLinkReview()
+            if review == nil or type(review.tabId) ~= "string" or type(review.url) ~= "string" then
+                break
+            end
+            local action = refusal.externalTarget(review.url, "conversation")
+            if action ~= nil then
+                nextNoticeId += 1
+                refusalNotices[review.tabId] = {
+                    token = `app:{nextNoticeId}`,
+                    origin = I18n:T("notice.conversation"),
+                    text = I18n:T("refused.scheme"),
+                    target = review.url,
+                    action = action,
+                    shownAtMs = System:Now(),
+                }
+            end
+        end
+    end
+
     -- Syncs a tab's policy refusal into a timestamped `refusal.Notice` for the 500 ms guard.
-    local function syncRefusal(tab: BrowserTab)
+    local function syncRefusal(tab: BrowserTab, navigated: boolean)
         local code = tab:Refusal()
         local rej = tab:Rejected()
+        local existing = refusalNotices[tab.Id]
         if code == nil then
-            refusalNotices[tab.Id] = nil
+            if existing ~= nil and (navigated or string.sub(existing.token, 1, 4) ~= "app:") then
+                refusalNotices[tab.Id] = nil
+            end
             return
         end
         if dismissedRefusals[tab.Id] == rej then
             return
         end
         local token = `{tab.Id}:{rej}:{code}`
-        local existing = refusalNotices[tab.Id]
         if existing and existing.token == token then
             return
         end
@@ -305,6 +335,7 @@ return plugin.defineWindow(function(ctx)
 
     -- A page that moved: its counts, refusal notice, activity dot, history once loaded, and pane.
     Browser.Changed:Connect(function(id: string)
+        drainAppLinkReviews()
         local tab = Browser:Get(id)
         if tab == nil then
             epochs[id] = nil
@@ -324,8 +355,15 @@ return plugin.defineWindow(function(ctx)
         local prev = epochs[id]
         local prevUrl = if prev then prev.url else ""
         epoch(tab)
-        syncRefusal(tab)
         local url = pageUrl(tab)
+        local navigated = prev ~= nil and url ~= prevUrl
+        syncRefusal(tab, navigated)
+        if navigated and findStates[id] ~= nil and findStates[id].status ~= "closed" then
+            findStates[id] = find.step(findStates[id], { type = "close" })
+            if activeFindTab == id then
+                activeFindTab = nil
+            end
+        end
         -- Mark unseen activity dot when an existing background tab navigates while another tab is selected.
         local selected = Browser:Selected(nil)
         if prev ~= nil and url ~= "" and url ~= prevUrl and (selected == nil or selected.Id ~= id) then
@@ -583,6 +621,8 @@ return plugin.defineWindow(function(ctx)
             local srcPath = workspaceSourcePath(url)
             local session = Sessions:Routed()
             local canSource = srcPath ~= nil and session ~= nil and Workspace:Relative(srcPath, session.directory) ~= nil
+            local eng = Browser:Engine() :: any
+            local canFind = eng == nil or eng.state ~= "ready" or eng.find == true
             local menuData: options.MenuData = {
                 tabId = tab.Id,
                 url = url,
@@ -594,7 +634,7 @@ return plugin.defineWindow(function(ctx)
                 canOpenExternal = reachable(url),
                 canRevealFile = srcPath ~= nil and Server:IsLocal(),
                 canViewSource = canSource,
-                canFind = true,
+                canFind = canFind,
                 canHardReload = true,
                 canClearHistory = #visits() > 0,
             }
@@ -673,7 +713,18 @@ return plugin.defineWindow(function(ctx)
             return failureNotices[tab.Id]
         end,
         findView = function(tab: BrowserTab)
-            return find.view(getFind(tab.Id))
+            local v = find.view(getFind(tab.Id))
+            if v == nil then
+                return nil
+            end
+            local tAny = tab :: any
+            if v.query ~= "" and type(tAny.FindResult) == "function" then
+                local res = tAny:FindResult()
+                if type(res) == "table" and type(res.active) == "number" and type(res.total) == "number" then
+                    return { query = v.query, result = { active = res.active, total = res.total } }
+                end
+            end
+            return v
         end,
         revealGuarded = function(tab: BrowserTab)
             local untilMs = revealUntil[tab.Id]
@@ -729,8 +780,18 @@ return plugin.defineWindow(function(ctx)
                 return nil
             end
             local title = tabText(tab)
+            local tAny = tab :: any
+            local fav = if type(tAny.Favicon) == "function" then tAny:Favicon() else nil
+            local iconNode: ui.Node
+            if type(fav) == "string" and string.sub(fav, 1, 11) == "data:image/" then
+                iconNode = ui.image({ src = fav, w = 16, h = 16, radius = 2 }, {
+                    ui.icon("globe", { size = 16, color = "icon-weak" }),
+                })
+            else
+                iconNode = ui.icon("globe", { size = 16, color = "icon-weak" })
+            end
             local children: { ui.Node } = {
-                ui.icon("globe", { size = 16, color = "icon-weak" }),
+                iconNode,
                 ui.text(title, {
                     size = 13,
                     weight = "regular",

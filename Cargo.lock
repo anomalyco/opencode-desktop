@@ -3296,6 +3296,7 @@ version = "0.0.1"
 dependencies = [
  "base64 0.22.1",
  "browser-pane",
+ "browser-policy",
  "crc32fast",
  "flate2",
  "getrandom 0.3.4",

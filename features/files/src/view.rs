@@ -53,7 +53,7 @@ fn on_tree_row_press(host: &mut dyn FilesHost, id: &str, is_dir: bool, tx: &mut 
     if is_dir {
         ops::toggle_workspace_dir(host, id);
     } else {
-        ops::open_workspace_file(host, id, true, None, tx);
+        ops::open_workspace_file_or_page(host, id, true, tx);
     }
 }
 
@@ -229,7 +229,7 @@ pub fn workspace_tree_view<H: FilesHost + 'static>(
                     .on_press_tx(move |s: &mut H, tx: &mut Tx| on_tree_row_press(s, &id_click, is_dir, tx));
                 if !is_dir {
                     r = r.on_double_press_tx(move |s: &mut H, tx: &mut Tx| {
-                        ops::open_workspace_file(s, &id_dbl, false, None, tx);
+                        ops::open_workspace_file_or_page(s, &id_dbl, false, tx);
                     });
                 }
                 let r = r.children(status.map(|st| chrome::change_letter(&pal, st)));
@@ -359,8 +359,8 @@ pub fn filtered_files_view<H: FilesHost + 'static>(
                     .hover_motion(INSTANT, INSTANT)
                     .cursor(Cursor::Pointer)
                     .role("option")
-                    .on_press_tx(move |s: &mut H, tx: &mut Tx| ops::open_workspace_file(s, &click_p, true, None, tx))
-                    .on_double_press_tx(move |s: &mut H, tx: &mut Tx| ops::open_workspace_file(s, &dbl_p, false, None, tx))
+                    .on_press_tx(move |s: &mut H, tx: &mut Tx| ops::open_workspace_file_or_page(s, &click_p, true, tx))
+                    .on_double_press_tx(move |s: &mut H, tx: &mut Tx| ops::open_workspace_file_or_page(s, &dbl_p, false, tx))
                     .child(icon(t.icon(), 16.0).color(if on { t.color(pal.dark) } else { pal.icon_muted }))
                     .child(label);
                 let status = kinds.as_ref().and_then(|k| k.get(path.as_str())).and_then(|k| kind_status(k));
