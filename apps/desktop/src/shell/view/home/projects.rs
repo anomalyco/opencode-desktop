@@ -112,7 +112,8 @@ pub(super) fn project_row(s: &App, p: &Pal, server: &ServerKey, proj: &model::Pr
     let actions_w = 8.0 + 20.0 + 4.0 + 20.0;
     let actions = row()
         .key("actions")
-        .pin(None, Some(0.0), Some(4.0), Some(0.0))
+        // 2 clear of the row's top and bottom, where the row's inset focus ring runs.
+        .pin(None, Some(2.0), Some(4.0), Some(2.0))
         .w(actions_w)
         .pl(8.0)
         .gap(4.0)

@@ -142,7 +142,8 @@ fn server_row(s: &App, p: &Pal, v: &ServerView, selected: bool, collapsed: bool)
     add = if add_enabled { add.on_press_tx(move |s: &mut App, tx: &mut Tx| choose_project(s, &add_target, tx)) } else { add.opacity(0.5) };
     let actions = row()
         .key("actions")
-        .pin(None, Some(0.0), Some(4.0), Some(0.0))
+        // 2 clear of the row's top and bottom, where the row's inset focus ring runs.
+        .pin(None, Some(2.0), Some(4.0), Some(2.0))
         .w(actions_w)
         .pl(8.0)
         .gap(4.0)
