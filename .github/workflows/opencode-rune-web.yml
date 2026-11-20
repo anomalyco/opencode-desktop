@@ -22,7 +22,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Dev only: a dispatch from another branch builds nothing (web needs this job).
   moved:
+    if: github.ref == 'refs/heads/dev'
     runs-on: blacksmith-2vcpu-ubuntu-2404
     outputs:
       build: ${{ steps.check.outputs.build }}
