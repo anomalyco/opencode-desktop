@@ -89,6 +89,33 @@ pub fn stopped(status: &ToolStatus, metadata: &Value) -> bool {
     message == "Command cancelled" || crate::timeline::interrupted(message)
 }
 
+/// The changes a script made to files, in order, one per change (`scriptChanges`,
+/// `session-ui/src/timeline/facts.ts`): its `metadata.files` while it runs and once it ends in the
+/// foreground. A script that failed or was stopped keeps the changes it made, which really
+/// happened; one moved to the background, or run as a job, has none. Until a script finishes, its
+/// `background` flag says only that it can move there. Entries that don't decode are dropped
+/// here, so every reader numbers the changes alike.
+pub fn script_changes<'a>(name: &str, status: &ToolStatus, metadata: &'a Value) -> Vec<&'a Value> {
+    if name != "execute" || *status == ToolStatus::Pending {
+        return Vec::new();
+    }
+    if metadata.get("jobID").is_some() || (*status == ToolStatus::Completed && metadata["background"] == true) {
+        return Vec::new();
+    }
+    metadata["files"].as_array().map(|a| a.iter().filter(|f| decodes(f)).collect()).unwrap_or_default()
+}
+
+/// `{file, additions?, deletions?, status?: added|deleted|modified, patch?}`, with a path.
+fn decodes(f: &Value) -> bool {
+    let Some(o) = f.as_object() else { return false };
+    let optional = |k: &str, ok: fn(&Value) -> bool| o.get(k).is_none_or(ok);
+    o.get("file").and_then(Value::as_str).is_some_and(|p| !p.is_empty())
+        && optional("additions", Value::is_number)
+        && optional("deletions", Value::is_number)
+        && optional("status", |v| matches!(v.as_str(), Some("added" | "deleted" | "modified")))
+        && optional("patch", Value::is_string)
+}
+
 /// Whether a call failed (`toolFailed`): a call the user stopped did not.
 pub fn failed(name: &str, status: &ToolStatus, metadata: &Value) -> bool {
     !stopped(status, metadata) && crate::detail::failed(current_name(name), status, metadata)

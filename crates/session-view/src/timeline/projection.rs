@@ -454,6 +454,8 @@ fn shape(m: &Message, detail: &crate::detail::Detail) -> u64 {
                 Part::Reasoning { text, .. } => (1u8, text.trim().is_empty()).hash(h),
                 Part::Tool { id, name, status, input, metadata, files, .. } => {
                     (2u8, id, name, std::mem::discriminant(status), crate::detail::failed(name, status, metadata), metadata["jobID"].as_str(), crate::images::shows(files)).hash(h);
+                    // A script's changes each place as a step of their own.
+                    crate::activity::rules::script_changes(name, status, metadata).len().hash(h);
                     // How a call joins the calls beside it: a read's path, a skill's name.
                     (crate::tools::path(input), metadata["loaded"].as_array().map(Vec::len), input["name"].as_str()).hash(h);
                 }

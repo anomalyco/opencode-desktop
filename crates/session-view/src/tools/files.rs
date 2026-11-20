@@ -328,6 +328,48 @@ fn change(p: &Pal, item: &Item) -> Option<El> {
         }
     }
 }
+/// A script's change without a diff to show (`ScriptChanges`' `file-counts`, past the size cap,
+/// a binary file or counts alone): the file's icon, its muted directory and name, then "Created",
+/// "Deleted" or its `+N -M`, each count only where it isn't zero (`markEmpty`). 13 px on a line
+/// 6 above and below, with no card around it, so such rows sit flush.
+pub fn counts_row<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, key: String, file: &Value) -> El {
+    let path = file["file"].as_str().unwrap_or("");
+    let shown = super::session_relative(s, cx.session, path);
+    let (dir, name) = match shown.rfind(['/', '\\']) {
+        Some(at) => (&shown[..=at], &shown[at + 1..]),
+        None => ("", shown),
+    };
+    let mut words = row().key("name").dir(rune::Direction::Ltr).grow(1.0).shrink().min_w(0.0).center_y();
+    if !dir.is_empty() {
+        words = words.child(text(dir.to_owned()).key("dir").font(PATH).color(p.muted).truncate_head().shrink().min_w(0.0));
+    }
+    words = words.child(text(name.to_owned()).key("file").font(PATH).color(p.text).truncate_fade().shrink().min_w(0.0));
+    let word = |w: &'static str, c| text(w).key("change").font(UI_MED.lh(19.5)).color(c);
+    let count = |n: u64| n as usize;
+    let (a, d) = (count(file["additions"].as_u64().unwrap_or(0)), count(file["deletions"].as_u64().unwrap_or(0)));
+    let change = match file["status"].as_str() {
+        Some("added") => Some(word(opencode_i18n::t!("ui.patch.action.created"), p.diff.add_icon)),
+        Some("deleted") => Some(word(opencode_i18n::t!("ui.patch.action.deleted"), p.diff.del_icon)),
+        _ if a + d > 0 => Some(
+            row().key("change").gap(8.0).center_y()
+                .children((a > 0).then(|| text(format!("+{a}")).dir(rune::Direction::Ltr).font(COUNTS).color(p.diff.add_text)))
+                .children((d > 0).then(|| text(format!("-{d}")).dir(rune::Direction::Ltr).font(COUNTS).color(p.diff.del_text))),
+        ),
+        _ => None,
+    };
+    row()
+        .key(key)
+        .w_full()
+        .py(6.0)
+        .gap(8.0)
+        .center_y()
+        .role("group")
+        .label(shown.to_owned())
+        .child(icon(rune_theme_opencode::file_icons::file(name), 16.0).key("icon").color(p.text))
+        .child(words)
+        .children(change)
+}
+
 /// A file's errors after the change (severity 1, the first three), as Desktop's
 /// `DiagnosticsDisplay` lists them (`[data-component="diagnostics"]`): 13/19.5 mono in
 /// `state-fg-danger` on `state-bg-danger`, 8 by 12 in, under a 0.5 pt `state-border-danger`

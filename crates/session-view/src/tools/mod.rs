@@ -22,6 +22,7 @@ mod execute;
 mod files;
 mod lists;
 mod log;
+pub mod script;
 pub(crate) mod plain;
 
 use std::borrow::Cow;
