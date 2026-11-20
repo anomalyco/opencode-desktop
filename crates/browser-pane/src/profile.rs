@@ -71,3 +71,19 @@ pub(crate) fn is_free(dir: &Path) -> bool {
     };
     file.try_lock().is_ok()
 }
+
+/// Acquires and returns an exclusive non-blocking lock on `dir/engine.lock` (matching the engine's
+/// `profile.rs`: `flock` on Unix, `LockFileEx` on Windows) so callers can hold it across a
+/// read-modify-write of `Default/Preferences`. Returns `None` if another process holds the lock.
+pub(crate) fn try_lock_exclusive(dir: &Path) -> Option<File> {
+    if !dir.is_dir() {
+        return None;
+    }
+    let file = File::options()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(dir.join("engine.lock"))
+        .ok()?;
+    file.try_lock().is_ok().then_some(file)
+}

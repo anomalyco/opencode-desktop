@@ -351,7 +351,8 @@ impl crate::BrowserHost {
     /// Closes connections and releases a non-default preview or remote server context in the engine.
     pub fn drop_context(&mut self, context: crate::protocol::ContextKind) {
         if let crate::protocol::ContextKind::RemoteServer { server_id, .. } = &context {
-            self.remote_proxies.remove(server_id.trim());
+            let sid = server_id.trim();
+            self.remote_proxies.remove(sid);
         }
         if !context.is_default() {
             self.send(crate::protocol::HostMsg::DropContext { context });
