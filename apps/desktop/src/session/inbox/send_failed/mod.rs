@@ -162,6 +162,14 @@ impl SendFailedHost for App {
     fn on_send_result(&mut self, id: &str, result: SendResult) {
         crate::quote::send_result(self, id, result);
     }
+
+    fn is_queue_busy(&self, session: &str) -> bool {
+        self.kernel.slots.get(&crate::queue::QUEUE_OPS).get(session).is_some_and(crate::queue::machine::Queue::busy)
+    }
+
+    fn on_admitted_first(&mut self, session: &str, id: &str, after: Vec<String>, force: bool) {
+        self.first_queued(session, id, after, force);
+    }
 }
 
 impl App {

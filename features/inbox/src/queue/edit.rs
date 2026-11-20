@@ -32,6 +32,16 @@ pub fn rows(host: &dyn QueueHost, session: &str) -> Vec<Row> {
     }
 }
 
+/// The session's raw server queued rows filtered only by `gone` (`queuedPromptRows(items, [], gone)`).
+pub fn base_rows(host: &dyn QueueHost, session: &str) -> Vec<Row> {
+    let items: Vec<&model::InboxItem> = host.inboxes().get(session).map(|i| i.queued().collect()).unwrap_or_default();
+    let label = |item: &model::InboxItem| (row_text(item), row_files(item));
+    match host.queue_ops().get(session) {
+        Some(q) => q.base_rows(&items, label),
+        None => Queue::default().base_rows(&items, label),
+    }
+}
+
 /// A row's words: the queued prompt goes into the composer (`edit.start`).
 pub fn edit_queued(host: &mut dyn QueueHost, session: &str, id: &str) -> bool {
     let Some(item) = host.inboxes().get(session).and_then(|i| i.queued().find(|i| i.id == id)).cloned() else { return false };
@@ -106,8 +116,9 @@ pub fn leave_edits(host: &mut dyn QueueHost) {
         .collect();
     for session in leaving {
         let current = rows(host, &session);
+        let base = base_rows(host, &session);
         let effects = match host.queue_ops_mut().get_mut(&session) {
-            Some(queue) => queue.step(Event::Leave, &current),
+            Some(queue) => queue.step(Event::Leave, &current, &base),
             None => continue,
         };
         for effect in effects {

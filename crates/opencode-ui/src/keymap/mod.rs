@@ -85,6 +85,7 @@ pub enum Bind {
     Attach,
     Dictate,
     SubmitAlternate,
+    SubmitFirst,
     PastePlain,
     SubmitAnswer,
     Stop,
@@ -231,6 +232,7 @@ fn table() -> Vec<Binding> {
         row(Dictate, "prompt.dictate", key!("rune.command.prompt.dictate"), Prompt, on("mod+shift+m")),
         // The composer's own keys, which Desktop's Settings doesn't list.
         unlisted(SubmitAlternate, "prompt.submit.alternate", key!("rune.command.prompt.submitAlternate"), Prompt, on("mod+enter, mod+shift+enter")),
+        unlisted(SubmitFirst, "prompt.submit.first", key!("session.queue.first"), Prompt, on("alt+enter")),
         // Chromium's paste as plain text, which Desktop's fields get from the browser; Rune leaves
         // Ctrl+Shift+V to the app. ⇧⌘V pasted here on macOS before, and still does.
         hidden(PastePlain, "edit.pastePlain", key!("rune.command.edit.pastePlain"), Prompt, on("mod+shift+v")),

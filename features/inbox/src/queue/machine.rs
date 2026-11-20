@@ -69,6 +69,17 @@ pub struct EditOp {
     pub admitted: bool,
 }
 
+/// How a queued-prompt reorder chooses the new order.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ReorderKind {
+    /// Drag-to-reorder: explicit full ID order.
+    Exact(Vec<String>),
+    /// Queue-first (`Alt+Enter`, `#63109`): move `id` ahead of queued prompts, or immediately after
+    /// the last still-queued item in `after` when an offline drain queued multiple queue-first
+    /// prompts in order.
+    First { id: String, after: Vec<String> },
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Operation {
     /// A queued prompt steers now (Send once the turn stopped).
@@ -82,15 +93,22 @@ pub enum Operation {
     /// A pending steer goes (its menu's Delete).
     Delete { id: String },
     Edit(Box<EditOp>),
-    /// The queue rewritten in `ids`' order. Its rows keep their keys and order until the whole
+    /// A waiting queue-first request (`first` in `queue-machine.ts`); activates into [`Self::Reorder`].
+    First { id: String, after: Vec<String> },
+    /// The queue rewritten in `kind`'s order. Its rows keep their keys and order until the whole
     /// rewrite settles, so admissions and cancellations can't grow or shrink the strip.
-    Reorder { ids: Vec<String>, rows: Vec<Row>, moved: Vec<(String, String)> },
+    Reorder { kind: ReorderKind, rows: Vec<Row>, moved: Vec<(String, String)> },
 }
 
 impl Operation {
     pub fn id(&self) -> &str {
         match self {
-            Operation::Steer { id } | Operation::Remove { id } | Operation::Undo { id, .. } | Operation::Requeue { id } | Operation::Delete { id } => id,
+            Operation::Steer { id }
+            | Operation::Remove { id }
+            | Operation::Undo { id, .. }
+            | Operation::Requeue { id }
+            | Operation::Delete { id }
+            | Operation::First { id, .. } => id,
             Operation::Edit(e) => &e.original,
             Operation::Reorder { .. } => "",
         }
@@ -103,12 +121,12 @@ impl Operation {
 
     /// Leaves the composer free, so a row can be edited while it runs (`isConcurrent`).
     fn concurrent(&self) -> bool {
-        !matches!(self, Operation::Undo { .. } | Operation::Reorder { .. })
+        !matches!(self, Operation::Undo { .. } | Operation::First { .. } | Operation::Reorder { .. })
     }
 
     /// Has a time bound (`bounded`).
     fn bounded(&self) -> bool {
-        matches!(self, Operation::Undo { .. } | Operation::Reorder { .. } | Operation::Edit(_))
+        matches!(self, Operation::Undo { .. } | Operation::First { .. } | Operation::Reorder { .. } | Operation::Edit(_))
     }
 
     fn moved(&self) -> &[(String, String)] {
@@ -188,6 +206,12 @@ pub enum Event {
     /// `ids`: fresh ids, one per queued prompt, for the replacements an edit admits.
     EditConfirm { delivery: Delivery, reverted: bool, prompt: Draft, admission: serde_json::Value, ids: Vec<String>, now: f64 },
     ReorderRequested { ids: Vec<String>, reverted: bool, rows: Vec<Row>, now: f64 },
+    /// Queue-first (`first.requested`, `#63109`): move admitted `id` ahead of queued prompts
+    /// (after any still-queued `after` IDs). When `force` is true (e.g. reopened outbox before
+    /// inbox sync), always runs against the server's live inbox.
+    FirstRequested { id: String, after: Vec<String>, reverted: bool, force: bool, now: f64 },
+    /// Steer the first queued prompt (`steer-first.requested`, `#63111`), only when idle.
+    SteerFirstRequested { now: f64 },
     Requested { operation: Operation, now: f64 },
     UndoRequested { id: String, text: String, files: Vec<Attachment>, shell: bool, now: f64 },
     Moved { attempt: Attempt, moved: Vec<(String, String)> },
@@ -349,7 +373,20 @@ impl Queue {
         }
     }
 
-    pub fn step(&mut self, event: Event, rows: &[Row]) -> Effects<Effect> {
+    /// The server's queued rows filtered only by `gone` (`queuedPromptRows(items, [], gone)`),
+    /// used when activating a queued `First` operation against freshly synced server rows.
+    pub fn base_rows(&self, items: &[&InboxItem], label: impl Fn(&InboxItem) -> (String, usize)) -> Vec<Row> {
+        items
+            .iter()
+            .filter(|i| !self.gone.iter().any(|(g, _)| g == &i.id))
+            .map(|item| {
+                let (text, files) = label(item);
+                Row { id: item.id.clone(), text, files, pending: false }
+            })
+            .collect()
+    }
+
+    pub fn step(&mut self, event: Event, rows: &[Row], base_rows: &[Row]) -> Effects<Effect> {
         match event {
             Event::Synced { ids, delivered } => {
                 let mut effects = self.synced(&ids);
@@ -371,9 +408,11 @@ impl Queue {
                 Some(edit) => Effects::one(Effect::Restore { stash: edit.stash, focus: false, keep: None }),
                 None => Effects::none(),
             },
-            Event::EditConfirm { delivery, reverted, prompt, admission, ids, now } => self.confirm(Confirm { delivery, reverted, prompt, admission, ids }, rows, now),
-            Event::ReorderRequested { ids, reverted, rows: current, now } => self.reorder(ids, reverted, current, now),
-            Event::Requested { operation, now } => self.request(operation, rows, now),
+            Event::EditConfirm { delivery, reverted, prompt, admission, ids, now } => self.confirm(Confirm { delivery, reverted, prompt, admission, ids }, rows, base_rows, now),
+            Event::ReorderRequested { ids, reverted, rows: current, now } => self.reorder(ids, reverted, current, base_rows, now),
+            Event::FirstRequested { id, after, reverted, force, now } => self.first(id, after, reverted, force, rows, base_rows, now),
+            Event::SteerFirstRequested { now } => self.steer_first(rows, base_rows, now),
+            Event::Requested { operation, now } => self.request(operation, rows, base_rows, now),
             Event::UndoRequested { id, text, files, shell, now } => {
                 if !matches!(self.state, State::Idle) || !rows.iter().any(|r| r.id == id && !r.pending) {
                     return Effects::none();
@@ -381,7 +420,7 @@ impl Queue {
                 if shell {
                     return Effects::one(Effect::UndoShell);
                 }
-                self.enqueue(Operation::Undo { id, text, files }, now)
+                self.enqueue(Operation::Undo { id, text, files }, base_rows, now)
             }
             Event::Moved { attempt, moved } => {
                 if let Some(Operation::Edit(e)) = self.current_mut(attempt) {
@@ -397,8 +436,8 @@ impl Queue {
                 }
                 Effects::none()
             }
-            Event::Succeeded { attempt, now } => self.succeeded(attempt, now),
-            Event::Failed { attempt, hidden, why, now } => self.failed(attempt, hidden, why, now),
+            Event::Succeeded { attempt, now } => self.succeeded(attempt, base_rows, now),
+            Event::Failed { attempt, hidden, why, now } => self.failed(attempt, hidden, why, base_rows, now),
             Event::Tick { now, stage, hidden } => {
                 self.gone.retain(|(_, expiry)| *expiry > now);
                 self.doubt.take_if(|d| d.expiry <= now);
@@ -413,9 +452,9 @@ impl Queue {
                 }
                 let mut effects = Effects::one(Effect::Abort { attempt });
                 effects.extend(if stage == Stage::Settled {
-                    self.succeeded(attempt, now)
+                    self.succeeded(attempt, base_rows, now)
                 } else {
-                    self.failed(attempt, hidden, Some(WireError::new("", "", WireKind::TimedOut)), now)
+                    self.failed(attempt, hidden, Some(WireError::new("", "", WireKind::TimedOut)), base_rows, now)
                 });
                 effects
             }
@@ -490,7 +529,7 @@ impl Queue {
         Some(edit)
     }
 
-    fn confirm(&mut self, c: Confirm, rows: &[Row], now: f64) -> Effects<Effect> {
+    fn confirm(&mut self, c: Confirm, rows: &[Row], base_rows: &[Row], now: f64) -> Effects<Effect> {
         let Confirm { delivery, reverted, prompt, admission, ids } = c;
         let Some(edit) = self.edit().cloned() else { return Effects::none() };
         if reverted {
@@ -509,7 +548,7 @@ impl Queue {
         }
         // An unchanged prompt steers in place instead of being replaced.
         if pristine {
-            effects.extend(self.enqueue(Operation::Steer { id: edit.id }, now));
+            effects.extend(self.enqueue(Operation::Steer { id: edit.id }, base_rows, now));
             return effects;
         }
         // A queued edit re-admits the prompts after it, so they're pending too.
@@ -522,11 +561,11 @@ impl Queue {
         let text = prompt.entry.text.trim().to_owned();
         let files = prompt.files.len() + prompt.paths.len();
         let op = EditOp { original: edit.id, delivery, prompt, admission, text, files, moved, admitted: false };
-        effects.extend(self.enqueue(Operation::Edit(Box::new(op)), now));
+        effects.extend(self.enqueue(Operation::Edit(Box::new(op)), base_rows, now));
         effects
     }
 
-    fn reorder(&mut self, ids: Vec<String>, reverted: bool, current: Vec<Row>, now: f64) -> Effects<Effect> {
+    fn reorder(&mut self, ids: Vec<String>, reverted: bool, current: Vec<Row>, base_rows: &[Row], now: f64) -> Effects<Effect> {
         if !matches!(self.state, State::Idle | State::Editing { .. }) {
             return Effects::none();
         }
@@ -537,17 +576,35 @@ impl Queue {
         if rows.is_empty() {
             return Effects::none();
         }
-        // The rewrite can replace the row being edited, so the edit closes first and keeps what
-        // was typed into it.
-        let mut effects = Effects::none();
-        if let Some(edit) = self.close_edit() {
-            effects.push(Effect::Restore { stash: edit.stash, focus: true, keep: Some(edit.loaded) });
-        }
-        effects.extend(self.enqueue(Operation::Reorder { ids, rows, moved: Vec::new() }, now));
-        effects
+        self.enqueue(Operation::Reorder { kind: ReorderKind::Exact(ids), rows, moved: Vec::new() }, base_rows, now)
     }
 
-    fn request(&mut self, operation: Operation, rows: &[Row], now: f64) -> Effects<Effect> {
+    fn first(&mut self, id: String, after: Vec<String>, reverted: bool, force: bool, rows: &[Row], base_rows: &[Row], now: f64) -> Effects<Effect> {
+        if reverted {
+            return Effects::one(Effect::Reverted);
+        }
+        if !force {
+            let Some(pos) = rows.iter().position(|r| r.id == id) else { return Effects::none() };
+            let target = after_index(rows, &id, &after);
+            if pos == target {
+                return Effects::none();
+            }
+        }
+        self.enqueue(Operation::First { id, after }, base_rows, now)
+    }
+
+    fn steer_first(&mut self, rows: &[Row], base_rows: &[Row], now: f64) -> Effects<Effect> {
+        // Only steer the first row when idle so a second Mod+Enter never skips a busy first row (`#63111`).
+        if !matches!(self.state, State::Idle) {
+            return Effects::none();
+        }
+        match rows.first().filter(|r| !r.pending) {
+            Some(first) => self.request(Operation::Steer { id: first.id.clone() }, rows, base_rows, now),
+            None => Effects::none(),
+        }
+    }
+
+    fn request(&mut self, operation: Operation, rows: &[Row], base_rows: &[Row], now: f64) -> Effects<Effect> {
         // Pending steers (Requeue, Delete) have no row in the strip; a row already changing
         // ignores another press.
         let strip = matches!(operation, Operation::Steer { .. } | Operation::Remove { .. });
@@ -560,35 +617,47 @@ impl Queue {
         {
             effects.push(Effect::Restore { stash: edit.stash, focus: true, keep: None });
         }
-        effects.extend(self.enqueue(operation, now));
+        effects.extend(self.enqueue(operation, base_rows, now));
         effects
     }
 
-    fn enqueue(&mut self, operation: Operation, now: f64) -> Effects<Effect> {
+    fn enqueue(&mut self, operation: Operation, base_rows: &[Row], now: f64) -> Effects<Effect> {
         match &mut self.state {
             State::Mutating { pending, .. } | State::EditingWhileMutating { pending, .. } => {
                 pending.push(operation);
                 Effects::none()
             }
-            State::Idle | State::Editing { .. } => self.start(operation, Vec::new(), now),
+            State::Idle | State::Editing { .. } => self.start(operation, Vec::new(), base_rows, now),
         }
     }
 
     /// `operation` runs, with `pending` waiting behind it.
-    fn start(&mut self, operation: Operation, pending: Vec<Operation>, now: f64) -> Effects<Effect> {
+    fn start(&mut self, operation: Operation, pending: Vec<Operation>, base_rows: &[Row], now: f64) -> Effects<Effect> {
+        let operation = activate(operation, base_rows);
         // A new change to the doubted prompt decides it: its words don't come back on their own.
         self.doubt.take_if(|d| d.id == operation.id());
         let attempt = self.seq.next();
         let due = operation.bounded().then_some(now + MUTATION_TIMEOUT_SECS);
+        let concurrent = operation.concurrent();
         let active = Active { attempt, operation: operation.clone(), due };
+        let mut effects = Effects::none();
+        // A non-concurrent change (reorder, queue-first, undo) can replace the row being edited,
+        // so any open edit closes first and restores its draft (`queue-machine.ts:701-751`).
         self.state = match std::mem::take(&mut self.state) {
-            State::Editing { edit } | State::EditingWhileMutating { edit, .. } => State::EditingWhileMutating { edit, active, pending },
+            State::Editing { edit } | State::EditingWhileMutating { edit, .. } if concurrent => {
+                State::EditingWhileMutating { edit, active, pending }
+            }
+            State::Editing { edit } | State::EditingWhileMutating { edit, .. } => {
+                effects.push(Effect::Restore { stash: edit.stash, focus: true, keep: Some(edit.loaded) });
+                State::Mutating { active, pending }
+            }
             State::Idle | State::Mutating { .. } => State::Mutating { active, pending },
         };
-        Effects::one(Effect::Run { attempt, operation })
+        effects.push(Effect::Run { attempt, operation });
+        effects
     }
 
-    fn succeeded(&mut self, attempt: Attempt, now: f64) -> Effects<Effect> {
+    fn succeeded(&mut self, attempt: Attempt, base_rows: &[Row], now: f64) -> Effects<Effect> {
         let Some(active) = self.active().filter(|a| a.attempt == attempt).cloned() else { return Effects::none() };
         let confirmed: Vec<String> = match &active.operation {
             Operation::Edit(e) => e.moved.iter().map(|(o, _)| o.clone()).collect(),
@@ -598,14 +667,14 @@ impl Queue {
         self.hide(confirmed, now);
         let moved = active.operation.moved().to_vec();
         self.moved.extend(moved.iter().cloned());
-        let mut effects = self.advance(&moved, now);
+        let mut effects = self.advance(&moved, base_rows, now);
         if let Operation::Undo { text, files, .. } = active.operation {
             effects.push(Effect::Merge { text, files, paths: Vec::new() });
         }
         effects
     }
 
-    fn failed(&mut self, attempt: Attempt, hidden: Vec<String>, why: Option<WireError>, now: f64) -> Effects<Effect> {
+    fn failed(&mut self, attempt: Attempt, hidden: Vec<String>, why: Option<WireError>, base_rows: &[Row], now: f64) -> Effects<Effect> {
         let Some(active) = self.active().filter(|a| a.attempt == attempt).cloned() else { return Effects::none() };
         self.hide(hidden, now);
         let mut effects = Effects::one(Effect::Failed(why));
@@ -624,7 +693,7 @@ impl Queue {
             (Some(prompt), _) => effects.push(Effect::Merge { text: prompt.entry.text, files: prompt.files, paths: prompt.paths }),
             (None, _) => {}
         }
-        effects.extend(self.advance(&[], now));
+        effects.extend(self.advance(&[], base_rows, now));
         effects
     }
 
@@ -634,7 +703,7 @@ impl Queue {
 
     /// The next waiting change starts. Prompts the finished one re-admitted carry over to their
     /// new ids, so a change asked for meanwhile never targets an id the rewrite cancelled.
-    fn advance(&mut self, moved: &[(String, String)], now: f64) -> Effects<Effect> {
+    fn advance(&mut self, moved: &[(String, String)], base_rows: &[Row], now: f64) -> Effects<Effect> {
         let remap = |id: &mut String| {
             if let Some((_, next)) = moved.iter().find(|(o, _)| o == id) {
                 id.clone_from(next);
@@ -651,6 +720,12 @@ impl Queue {
         let mut rest = pending.into_iter().map(|mut op| {
             match &mut op {
                 Operation::Steer { id } | Operation::Remove { id } | Operation::Requeue { id } | Operation::Delete { id } | Operation::Undo { id, .. } => remap(id),
+                Operation::First { id, after } => {
+                    remap(id);
+                    for a in after {
+                        remap(a);
+                    }
+                }
                 Operation::Edit(e) => {
                     remap(&mut e.original);
                     for (old, _) in &mut e.moved {
@@ -667,9 +742,36 @@ impl Queue {
         };
         match rest.next() {
             None => Effects::none(),
-            Some(next) => self.start(next, rest.collect(), now),
+            Some(next) => self.start(next, rest.collect(), base_rows, now),
         }
     }
+}
+
+/// Target index for moving `id` ahead of queued prompts, immediately after any still-queued `after` IDs.
+fn after_index(rows: &[Row], id: &str, after: &[String]) -> usize {
+    let mut at = 0;
+    let mut k = 0;
+    for r in rows {
+        if r.id == id {
+            continue;
+        }
+        k += 1;
+        if after.iter().any(|a| a == &r.id) {
+            at = k;
+        }
+    }
+    at
+}
+
+/// Turns a waiting [`Operation::First`] into an active [`Operation::Reorder`] against `base_rows`.
+fn activate(operation: Operation, base_rows: &[Row]) -> Operation {
+    let Operation::First { id, after } = operation else { return operation };
+    let mut rows: Vec<Row> = base_rows.iter().filter(|r| r.id != id).cloned().collect();
+    if let Some(first) = base_rows.iter().find(|r| r.id == id).cloned() {
+        let at = after_index(base_rows, &id, &after).min(rows.len());
+        rows.insert(at, first);
+    }
+    Operation::Reorder { kind: ReorderKind::First { id, after }, rows, moved: Vec::new() }
 }
 
 /// A failed edit's words join the draft an open edit stashed (`mergePrompt`).

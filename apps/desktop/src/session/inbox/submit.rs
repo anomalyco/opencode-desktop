@@ -7,14 +7,15 @@
 use rune::Tx;
 use rune::machine::{Attempt, Effects, Seq};
 
+use crate::send::SubmitMode;
 use crate::{App, Route};
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub enum State {
     #[default]
     Idle,
-    /// Enter (or ⌘⏎ when `alternate`) on `draft` in `route`'s composer while it opened.
-    Held { attempt: Attempt, alternate: bool, draft: String, route: Route },
+    /// Enter (or ⌘⏎ / Alt+⏎) on `draft` in `route`'s composer while it opened.
+    Held { attempt: Attempt, mode: SubmitMode, draft: String, route: Route },
 }
 
 #[derive(Default)]
@@ -24,7 +25,7 @@ pub struct Submit {
 }
 
 pub enum Event {
-    Pressed { alternate: bool, draft: String, route: Route },
+    Pressed { mode: SubmitMode, draft: String, route: Route },
     /// What the window shows now, after a frame: the draft, the route, and whether the session
     /// still opens.
     Settled { draft: String, route: Route, opening: bool },
@@ -32,17 +33,17 @@ pub enum Event {
 
 #[derive(Debug, PartialEq)]
 pub enum Effect {
-    Submit { alternate: bool },
+    Submit { mode: SubmitMode },
 }
 
 impl Submit {
     pub fn step(&mut self, event: Event) -> Effects<Effect> {
         match (&self.state, event) {
-            (State::Idle, Event::Pressed { alternate, draft, route }) => {
-                self.state = State::Held { attempt: self.seq.next(), alternate, draft, route };
+            (State::Idle, Event::Pressed { mode, draft, route }) => {
+                self.state = State::Held { attempt: self.seq.next(), mode, draft, route };
                 Effects::none()
             }
-            (State::Held { alternate, draft, route, .. }, Event::Settled { draft: now, route: at, opening }) => {
+            (State::Held { mode, draft, route, .. }, Event::Settled { draft: now, route: at, opening }) => {
                 if *draft != now || *route != at {
                     self.state = State::Idle;
                     return Effects::none();
@@ -50,9 +51,9 @@ impl Submit {
                 if opening {
                     return Effects::none();
                 }
-                let alternate = *alternate;
+                let mode = *mode;
                 self.state = State::Idle;
-                Effects::one(Effect::Submit { alternate })
+                Effects::one(Effect::Submit { mode })
             }
             _ => Effects::none(),
         }
@@ -61,11 +62,11 @@ impl Submit {
 
 impl App {
     /// Holds a send pressed while the session opens. True when it was held.
-    pub(crate) fn hold_submit(&mut self, alternate: bool) -> bool {
+    pub(crate) fn hold_submit(&mut self, mode: SubmitMode) -> bool {
         if self.opening.is_none() {
             return false;
         }
-        let event = Event::Pressed { alternate, draft: self.composer.text.clone(), route: (*self.route).clone() };
+        let event = Event::Pressed { mode, draft: self.composer.text.clone(), route: (*self.route).clone() };
         self.queue.submit.step(event);
         true
     }
@@ -80,8 +81,8 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     let event = Event::Settled { draft: s.composer.text.clone(), route: (*s.route).clone(), opening: s.opening.is_some() };
     let mut sent = false;
     for effect in s.queue.submit.step(event) {
-        let Effect::Submit { alternate } = effect;
-        s.submit(alternate, tx);
+        let Effect::Submit { mode } = effect;
+        s.submit_mode(mode, tx);
         sent = true;
     }
     sent

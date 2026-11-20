@@ -273,11 +273,15 @@ impl ComposerHost for App {
         if crate::keys::global(self, ev, tx) {
             return true;
         }
+        if crate::keymap::Bind::SubmitFirst.matches_tx(ev, tx) {
+            if !tx.key_repeat() {
+                self.submit_mode(crate::send::SubmitMode::QueueFirst, tx);
+            }
+            return true;
+        }
         if crate::keymap::Bind::SubmitAlternate.matches_tx(ev, tx) {
-            if session_view::composer::stopping(self) && self.queue_editing().is_none() {
-                session_view::composer::submit_or_stop(self, tx);
-            } else {
-                self.submit(true, tx);
+            if !tx.key_repeat() {
+                self.submit_mode(crate::send::SubmitMode::Alternate, tx);
             }
             return true;
         }
@@ -332,10 +336,12 @@ fn toolbar_items(s: &App, p: &Pal, scope: &str, queues: bool) -> Vec<El> {
         // (`editor.tsx:1430-1440`).
         let editing = s.queue_editing().is_some() && session_view::composer::ready(s);
         let steer = editing || s.settings.follow_up == crate::settings::FollowUp::Queue;
+        let has_queue = !editing
+            && matches!(&*s.route, Route::Session { id, .. } if !crate::queue::rows(s, id).is_empty());
         (queues || editing)
             .then(|| {
                 let room = rune::memo::layout_size("room").map_or(f32::INFINITY, |[w, _]| w);
-                crate::queue::alternate_hint::<App>(p, room, s.layout.narrow.sm(), steer)
+                crate::queue::alternate_hint::<App>(p, room, s.layout.narrow.sm(), steer, has_queue)
             })
             .flatten()
     };

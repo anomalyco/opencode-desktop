@@ -19,7 +19,7 @@ pub mod machine;
 pub mod run;
 pub mod view;
 
-pub use edit::{composer_draft, confirm_edit, edit_queued, editing, key, leave_edits, rows};
+pub use edit::{base_rows, composer_draft, confirm_edit, edit_queued, editing, key, leave_edits, rows};
 pub use run::{QueueJob, QueueReply, RewriteTask, Run, Runs, apply_reply, execute_rewrite};
 pub use view::{alternate_hint, panel, pending_label};
 
@@ -176,7 +176,13 @@ pub fn inbox_for<'a>(host: &'a dyn QueueHost, session: &str) -> Option<&'a Inbox
 /// Admits a prompt sent while the session is busy: shown at once, as Desktop does, and
 /// replaced by the server's copy when `session.inbox.enqueued` echoes it. A steer shows at
 /// once where it rests, flying nowhere, and the queue panel rises from behind the composer.
-pub fn admit(host: &mut dyn QueueHost, session: &str, mut prompt: Prompt, delivery: Delivery) {
+pub fn admit(host: &mut dyn QueueHost, session: &str, prompt: Prompt, delivery: Delivery) {
+    admit_with(host, session, prompt, delivery, false);
+}
+
+/// Like [`admit`], with `first = true` for `Alt+Enter` queue-first (`#63109`): queues the prompt
+/// at the front of the durable outbox and moves it ahead of existing queued prompts once admitted.
+pub fn admit_with(host: &mut dyn QueueHost, session: &str, mut prompt: Prompt, delivery: Delivery, first: bool) {
     prompt.delivery = Some(delivery);
     let id = prompt.id.clone().unwrap_or_default();
     let files = host.composer_files().to_vec();
@@ -188,9 +194,11 @@ pub fn admit(host: &mut dyn QueueHost, session: &str, mut prompt: Prompt, delive
     };
     let sent = Sent::new(session, &id, Entry::of(host.composer()), files, prompt.attachments.clone(), true).with_prompt(&prompt);
     let write = host.send_write(session, prompt);
+    let journaled = host.can_write() && host.send_failed().is_some();
     if host.can_write() {
         let paths = sent.paths.clone();
         let ok = match host.send_failed_mut() {
+            Some(sf) if first => send_failed::enqueue_prompt_first(sf, sent, write),
             Some(sf) => send_failed::enqueue_prompt(sf, sent, write),
             None => inbox_write(host, write),
         };
@@ -222,7 +230,40 @@ pub fn admit(host: &mut dyn QueueHost, session: &str, mut prompt: Prompt, delive
     host.composer_mut().clear();
     if delivery == Delivery::Steer {
         host.on_steered(session, &id);
+    } else if first && !journaled {
+        // Fixtures and non-journaled hosts admit synchronously, so move to front at once.
+        first_queued(host, session, &id, Vec::new(), false);
     }
+}
+
+/// Moves an admitted queued prompt ahead of existing queued prompts (`Alt+Enter`, `#63109`),
+/// keeping it behind any still-queued `after` anchors from earlier queue-first prompts in the
+/// same offline drain.
+pub fn first_queued(host: &mut dyn QueueHost, session: &str, id: &str, after: Vec<String>, force: bool) {
+    let reverted = host.has_staged_revert(session);
+    let now = host.clock();
+    step_queue(host, session, Event::FirstRequested { id: id.to_owned(), after, reverted, force, now });
+}
+
+/// Steers the first queued prompt when the normal-mode composer is empty (`Mod+Enter`, `#63111`).
+/// Only acts while the queue is idle so a second press never skips a busy first row.
+pub fn steer_first(host: &mut dyn QueueHost, session: &str) {
+    if host.queue_ops().get(session).is_some_and(|q| !matches!(q.state, machine::State::Idle)) {
+        return;
+    }
+    let Some(first) = edit::rows(host, session).into_iter().next().filter(|r| !r.pending) else {
+        return;
+    };
+    let promoted_waiting = host
+        .send_failed_mut()
+        .is_some_and(|sf| send_failed::steer_waiting_outbox(sf, session, &first.id));
+    if promoted_waiting {
+        host.on_steered(session, &first.id);
+        host.on_peer_touch();
+        return;
+    }
+    let now = host.clock();
+    step_queue(host, session, Event::SteerFirstRequested { now });
 }
 
 /// Steers a queued prompt (sends it now when the turn has stopped).
@@ -280,8 +321,15 @@ fn queue_op(host: &mut dyn QueueHost, session: &str, operation: Operation) {
 
 /// Steps `session`'s queue state machine and applies every resulting effect.
 pub fn step_queue(host: &mut dyn QueueHost, session: &str, event: Event) {
+    if let Event::Moved { moved, .. } = &event
+        && let Some(sf) = host.send_failed_mut()
+    {
+        send_failed::remap_first_after(sf, session, moved);
+    }
+    let was_busy = host.queue_ops().get(session).is_some_and(machine::Queue::busy);
     let current = edit::rows(host, session);
-    let effects = host.queue_ops_mut().entry(session.to_owned()).or_default().step(event, &current);
+    let base = edit::base_rows(host, session);
+    let effects = host.queue_ops_mut().entry(session.to_owned()).or_default().step(event, &current, &base);
     for effect in effects {
         let Some(effect) = edit::apply_draft_effect(host, session, effect) else { continue };
         match effect {
@@ -297,6 +345,13 @@ pub fn step_queue(host: &mut dyn QueueHost, session: &str, event: Event) {
             Effect::UndoShell => host.toast_say(opencode_i18n::t!("session.queue.undoShell").into(), String::new()),
             Effect::Load(_) | Effect::Restore { .. } | Effect::Merge { .. } => {}
         }
+    }
+    let now_busy = host.queue_ops().get(session).is_some_and(machine::Queue::busy);
+    if was_busy
+        && !now_busy
+        && let Some(sf) = host.send_failed_mut()
+    {
+        send_failed::pump_outbox(sf);
     }
 }
 
@@ -330,7 +385,7 @@ pub fn queue_settled(host: &mut dyn QueueHost, session: &str, attempt: u32, resu
                         removed_for_undo = Some((item.text, files));
                     }
                 }
-                Operation::Edit(_) | Operation::Reorder { .. } => {}
+                Operation::Edit(_) | Operation::First { .. } | Operation::Reorder { .. } => {}
             }
         }
         if let Some((text, files)) = removed_for_undo {

@@ -90,6 +90,59 @@ impl Server {
         let Some(changed) = ordered.iter().enumerate().position(|(k, i)| i["id"] != current[k]["id"] || original.is_some_and(|o| i["id"] == o)) else {
             return Ok(());
         };
+        self.rewrite_suffix(session, &current, &ordered, changed, replace, abort, progress)
+    }
+
+    /// Moves queued prompt `id` ahead of the session's queued prompts — or immediately after the
+    /// last still-queued item in `after` when an offline drain queued multiple queue-first prompts
+    /// in order — by re-admitting the changed suffix against the server's live inbox.
+    pub fn rewrite_queue_first(
+        &self,
+        session: &str,
+        id: &str,
+        after: &[String],
+        abort: &AtomicBool,
+        progress: &mut dyn FnMut(Progress),
+    ) -> Result<(), WireError> {
+        if abort.load(Ordering::SeqCst) {
+            return Err("aborted".into());
+        }
+        let pending = self.inbox_items(session)?;
+        if abort.load(Ordering::SeqCst) {
+            return Err("aborted".into());
+        }
+        if pending.iter().any(|i| i["delivery"] == "queue" && i["type"] != "user") {
+            return Err("Queued control items block reordering".into());
+        }
+        let current: Vec<&Value> = pending.iter().filter(|i| i["type"] == "user" && i["delivery"] == "queue").collect();
+        let Some(pos) = current.iter().position(|i| i["id"] == id) else {
+            // Already delivered or cancelled on the server: nothing left to reorder.
+            return Ok(());
+        };
+        let target = current[pos];
+        let mut ordered: Vec<&Value> = current.iter().enumerate().filter(|(k, _)| *k != pos).map(|(_, i)| *i).collect();
+        let insert_at = ordered
+            .iter()
+            .rposition(|i| after.iter().any(|a| i["id"] == a.as_str()))
+            .map_or(0, |k| k + 1);
+        ordered.insert(insert_at, target);
+        let Some(changed) = ordered.iter().enumerate().position(|(k, i)| i["id"] != current[k]["id"]) else {
+            return Ok(());
+        };
+        self.rewrite_suffix(session, &current, &ordered, changed, None, abort, progress)
+    }
+
+    fn rewrite_suffix(
+        &self,
+        session: &str,
+        current: &[&Value],
+        ordered: &[&Value],
+        changed: usize,
+        replace: Option<&Replace>,
+        abort: &AtomicBool,
+        progress: &mut dyn FnMut(Progress),
+    ) -> Result<(), WireError> {
+        let aborted = || abort.load(Ordering::SeqCst);
         let moved: Vec<(String, String)> = ordered[changed..]
             .iter()
             .map(|i| {

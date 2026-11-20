@@ -152,7 +152,10 @@ pub fn panel<H: QueueHost + 'static>(host: &H, p: &Pal, session: &str, busy: boo
 /// 640 wide (`sm`; `hidden sm:block`, `editor.tsx:1456-1458`). It sits in the toolbar's free
 /// `room`, which it never widens, as the word and the keys, the word alone, or nothing: in a
 /// narrow window it can't push the mic and Send aside.
-pub fn alternate_hint<H: QueueHost + 'static>(p: &Pal, room: f32, sm: bool, steer: bool) -> Option<El> {
+///
+/// When `has_queue` (queued prompts exist and none is open for edit), its tooltip lists both the
+/// alternate shortcut and `Alt+Enter` "Queue first" (`editor.tsx:1471-1495`, `#63109`).
+pub fn alternate_hint<H: QueueHost + 'static>(p: &Pal, room: f32, sm: bool, steer: bool, has_queue: bool) -> Option<El> {
     let (word, labels) = alternate_hint_spec(room, sm, steer)?;
     let hint = row()
         .key("alternate-delivery")
@@ -174,8 +177,19 @@ pub fn alternate_hint<H: QueueHost + 'static>(p: &Pal, room: f32, sm: bool, stee
         // The keys sit in a block `span` (`hidden sm:block`) whose line box sets the inline-flex
         // `Keybind` on its baseline, 2 pt below the button's centre (measured at a true 1x).
         .children((!labels.is_empty()).then(|| keymap_chips(p, labels).offset(0.0, 2.0)));
-    // Only the steer has a tooltip (`inactive={delivery !== "steer"}`).
-    Some(if steer { hint.help(opencode_i18n::t!("ui.promptInput.steerHint")) } else { hint })
+    // `inactive={delivery !== "steer" && !view.submit.queue?.count()}` (`editor.tsx:1474`).
+    let hint = if has_queue {
+        hint.help(word)
+            .help_keys(Bind::SubmitAlternate.keycaps())
+            .help_row(opencode_i18n::t!("session.queue.first"))
+            .help_keys(Bind::SubmitFirst.keycaps())
+            .help_above()
+    } else if steer {
+        hint.help(opencode_i18n::t!("ui.promptInput.steerHint")).help_above()
+    } else {
+        hint
+    };
+    Some(hint)
 }
 
 fn alternate_hint_spec(room: f32, sm: bool, steer: bool) -> Option<(&'static str, Vec<String>)> {
@@ -358,8 +372,14 @@ fn queue_row<H: QueueHost + 'static>(p: &Pal, session: &str, r: &QueueRow, ids: 
         .on_press(move |s: &mut H| super::steer_queued(s, &ss, &is))
         .child(icon(&ic::ARROW_UP, 16.0).color(p.icon_muted))
         .child(text(steer_label).font(UI_MED).color(p.faint));
-    // Its tooltip shows only while the turn runs (`inactive={!working}`).
-    let steer = if busy { steer.help(opencode_i18n::t!("session.queue.steerTooltip")) } else { steer };
+    // Its tooltip shows only while the turn runs (`inactive={!working}`); row 0 also shows the
+    // empty-composer `Mod+Enter` shortcut (`queue-panel.tsx:256-267`, `#63111`).
+    let steer = if busy {
+        let s = steer.help(opencode_i18n::t!("session.queue.steerTooltip")).help_above();
+        if st.index == 0 { s.help_keys(Bind::SubmitAlternate.keycaps()) } else { s }
+    } else {
+        steer
+    };
     let words = row()
         .key("edit")
         .role("button")

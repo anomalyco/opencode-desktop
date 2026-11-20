@@ -54,8 +54,18 @@ pub fn key_up(_: &mut App, _: &rune::KeyEvent, _: &mut rune::Tx) -> bool {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub fn submit(_: &mut App, _: bool) -> bool {
+pub(crate) fn submit_mode(_: &mut App, _: crate::send::SubmitMode) -> bool {
     false
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn submit_mode(s: &mut App, mode: crate::send::SubmitMode) -> bool {
+    let kind = match mode {
+        crate::send::SubmitMode::Default => SubmitKind::Default,
+        crate::send::SubmitMode::Alternate => SubmitKind::Alternate,
+        crate::send::SubmitMode::QueueFirst => SubmitKind::QueueFirst,
+    };
+    submit(s, kind)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -88,8 +98,13 @@ impl DictationHost for App {
         self.launch.inbox_wake.clone()
     }
 
-    fn submit_prompt(&mut self, alternate: bool, tx: &mut Tx) {
-        App::submit(self, alternate, tx);
+    fn submit_prompt(&mut self, kind: SubmitKind, tx: &mut Tx) {
+        let mode = match kind {
+            SubmitKind::Default => crate::send::SubmitMode::Default,
+            SubmitKind::Alternate => crate::send::SubmitMode::Alternate,
+            SubmitKind::QueueFirst => crate::send::SubmitMode::QueueFirst,
+        };
+        App::submit_mode(self, mode, tx);
     }
 }
 
