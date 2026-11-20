@@ -150,6 +150,12 @@ fn start_later(app: &mut App) {
         // Stage B is in: what the record couldn't say about overrides and trust, it does now.
         refresh_records(app);
         settle_later(app);
+        if app.kernel.slots.get(&crate::switcher::SWITCHER).is_open() {
+            adopt_later_kinds(app, &["Command"]);
+        }
+        if app.settings_open() {
+            adopt_later_kinds(app, &["Command", "Setting", "SettingsPage"]);
+        }
         if let Some(kind) = app.composer_ext.pickers.open() {
             crate::plugin_host::notify_picker_opening(app, kind, tx);
         }
@@ -184,18 +190,23 @@ fn settle_later(app: &mut App) {
     }
 }
 
-/// Adopts, now, any queued plugins still in `later` that register panels or menu items, so opening
-/// New tab or the `+` menu before `start_one_later` reaches them lists their entries at once.
-pub(super) fn adopt_later_launchers(app: &mut App) -> bool {
+/// Adopts, now, any queued plugins still in `later` whose static contribution kinds intersect
+/// `kinds` (or non-bundled plugins, whose contributions aren't pre-scanned), so opening a surface
+/// like the command palette, slash menu, Settings, or panel launchers on a first launch before
+/// `start_one_later` reaches them lists their entries at once.
+pub(in crate::plugin_host) fn adopt_later_kinds(app: &mut App, kinds: &[&str]) -> bool {
     if app.plugins.boot.later().is_empty() {
+        return false;
+    }
+    if !refresh_records(app) && !(crate::storage::need() && refresh_records(app)) {
         return false;
     }
     let later = app.plugins.boot.take_later();
     let mut now = Vec::new();
     let mut keep = Vec::with_capacity(later.len());
     for found in later {
-        let kinds = sources::contributions(&found.manifest.id);
-        if found.tier != Tier::Bundled || kinds.contains(&"Panel") || kinds.contains(&"MenuItem") {
+        let contrib_kinds = sources::contributions(&found.manifest.id);
+        if found.tier != Tier::Bundled || kinds.iter().any(|k| contrib_kinds.contains(k)) {
             now.push(found);
         } else {
             keep.push(found);

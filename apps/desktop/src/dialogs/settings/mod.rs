@@ -291,7 +291,7 @@ impl SettingsHost for App {
     }
 
     fn wake_settings_plugins(&mut self) {
-        crate::plugin_host::dormant::wake_owners(self, |c| !c.settings.is_empty() || !c.settings_pages.is_empty());
+        crate::plugin_host::dormant::wake_settings(self);
     }
 
     fn plugin_pages(&self) -> Vec<PluginPageMeta> {

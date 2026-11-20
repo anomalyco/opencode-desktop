@@ -289,15 +289,31 @@ pub fn wake_signal(app: &mut App, signal: &str) -> bool {
     any
 }
 
-/// The palette, the slash list or a menu is opening: the dormant plugins whose rows in it answer
-/// a function (`enabled`, `hidden`, `when`) start, so the rows it lists are the ones they say.
+/// The palette, the slash list or a menu is opening: any queued built-ins contributing to `kind`
+/// are adopted at once, and dormant plugins whose rows in it answer a function (`enabled`,
+/// `hidden`, `when`) start, so the rows it lists are complete even on a first launch.
 pub fn wake_kind(app: &mut App, kind: &str, fns: &[&str]) -> bool {
+    super::boot::doze_owed(app);
+    let adopted = match kind {
+        "commands" => super::boot::adopt_later_kinds(app, &["Command"]),
+        "menu_items" => super::boot::adopt_later_kinds(app, &["MenuItem"]),
+        _ => false,
+    };
     let ids: Vec<String> = app.plugins.dormant.asleep.iter().filter(|(_, a)| a.record.window.get(kind).is_some_and(|es| es.iter().any(|e| e.fns.iter().any(|f| fns.contains(&f.as_str()))))).map(|(id, _)| id.clone()).collect();
-    let mut any = false;
+    let mut woke = false;
     for id in ids {
-        any |= wake(app, &id, Why::Use);
+        woke |= wake(app, &id, Why::Use);
     }
-    any
+    adopted || woke
+}
+
+/// Settings is opening: adopts any queued built-ins contributing commands or settings surfaces
+/// and wakes dormant ones so Settings › Shortcuts and plugin pages are complete immediately.
+pub fn wake_settings(app: &mut App) -> bool {
+    super::boot::doze_owed(app);
+    let adopted = super::boot::adopt_later_kinds(app, &["Command", "Setting", "SettingsPage"]);
+    let woke = wake_owners(app, |c| !c.settings.is_empty() || !c.settings_pages.is_empty());
+    adopted || woke
 }
 
 /// Whether dormant plugin `id`'s recorded contribution `key` of `kind` handed over function `name`.
@@ -308,7 +324,7 @@ pub fn recorded_fn(app: &App, id: &str, kind: &str, key: &str, name: &str) -> bo
 /// The side region's New tab view or its `+` menu is opening: any queued or dormant plugins with
 /// entries there (panels, `session.panel` rows) start, so the entries are the ones they offer.
 pub fn wake_launchers(app: &mut App) -> bool {
-    let adopted = super::boot::adopt_later_launchers(app);
+    let adopted = super::boot::adopt_later_kinds(app, &["Panel", "MenuItem"]);
     let woke = wake_owners(app, |c| !c.panels.is_empty() || c.menu_items.iter().any(|m| m.spec.menu == spec::MenuName::SessionPanel));
     adopted || woke
 }
@@ -398,7 +414,7 @@ fn for_session(app: &App, session: &str) -> Vec<String> {
 /// The window routes to session `session`: what its screen draws starts before its frame.
 pub fn wake_for_route(app: &mut App, session: &str) {
     if session_shows_launchers(app, session) {
-        super::boot::adopt_later_launchers(app);
+        super::boot::adopt_later_kinds(app, &["Panel", "MenuItem"]);
     }
     for id in for_session(app, session) {
         wake(app, &id, Why::Use);

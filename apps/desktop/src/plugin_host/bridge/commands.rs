@@ -97,6 +97,7 @@ pub fn offered(app: &App, c: &Cmd) -> bool {
 /// Runs Luau command `id` with `input`; false when there is none, it is off, or it declined
 /// (returned `false` before its first yield).
 pub fn run(app: &mut App, id: &str, input: Option<&str>, tx: &mut Tx) -> bool {
+    crate::plugin_host::runtime::boot::adopt_later_kinds(app, &["Command"]);
     dormant::wake_owners(app, |c| c.commands.iter().any(|c| c.key == id));
     if !all(app).iter().any(|c| c.id == id && offered(app, c)) {
         return false;
@@ -242,6 +243,9 @@ pub fn expire_calls(app: &mut App, tx: &mut Tx) -> bool {
 /// A Luau command's keybind.
 pub fn key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     let plain = !(ev.mods.cmd || ev.mods.ctrl || ev.mods.alt);
+    if !plain {
+        crate::plugin_host::runtime::boot::adopt_later_kinds(app, &["Command"]);
+    }
     let hit = all(app).into_iter().find(|c| offered(app, c) && c.keybind.as_ref().is_some_and(|k| k.matches_tx(ev, tx)) && (!plain || c.editable || tx.focused().is_none()));
     hit.is_some_and(|c| run(app, c.id, None, tx))
 }
