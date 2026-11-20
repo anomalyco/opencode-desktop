@@ -17,10 +17,12 @@ use std::time::Duration;
 
 use rune::time::Instant;
 
+#[cfg(feature = "engine")]
+pub(crate) use store::scrub_chromium_preferences_for_older_engine;
 pub use store::{
     ACTIVATION_DELAY_MS, AGENT_PERMISSION_TIMEOUT_MS, InputGuard, MAX_SIGN_IN_ATTEMPTS,
-    PROMPT_TEXT_MAX, PermissionStore, REALM_TEXT_MAX, REPEAT_DIALOG_MS, SiteDecision,
-    SitePermissions, SiteSetting, sanitize_prompt_text,
+    PROMPT_TEXT_MAX, PermissionScope, PermissionStore, REALM_TEXT_MAX, REPEAT_DIALOG_MS,
+    SiteDecision, SitePermissions, SiteSetting, sanitize_prompt_text,
 };
 
 use crate::protocol::{AuthChallenge, DialogKind, PageDialog, PermissionKind, PermissionPrompt};
@@ -243,25 +245,34 @@ impl PermissionGate {
             .min()
     }
 
-    /// Evaluates an incoming permission request against kept + visit decisions.
-    /// Returns `Some(allow)` to answer immediately without showing a bar, else enqueues/coalesces.
+    /// Evaluates an incoming permission request against scope-partitioned kept + visit decisions.
+    /// Returns `Some((allow, dismiss, persist))` to answer immediately without showing a bar, else enqueues.
     pub fn evaluate(
         &mut self,
         request: PermissionPrompt,
         agent_driven: bool,
+        scope: &PermissionScope,
         kept: &SitePermissions,
         visit: &HashMap<(String, PermissionKind), SiteSetting>,
         now: Instant,
-    ) -> Option<bool> {
+    ) -> Option<(bool, bool, bool)> {
         if request.kinds.is_empty() || request.origin != request.top_origin {
-            return Some(false);
+            return Some((false, true, false));
         }
+        let is_profile = matches!(scope, PermissionScope::Profile);
         let mut all_allowed = true;
+        let mut all_kept = true;
         for &kind in &request.kinds {
-            let kept_val = kept.get(&request.origin, kind);
+            let kept_val = kept.get_scoped(scope, &request.origin, kind);
             let visit_val = visit.get(&(request.origin.clone(), kind)).copied();
-            if kept_val == Some(SiteSetting::Block) || visit_val == Some(SiteSetting::Block) {
-                return Some(false);
+            if kept_val == Some(SiteSetting::Block) {
+                return Some((false, false, is_profile));
+            }
+            if visit_val == Some(SiteSetting::Block) {
+                return Some((false, true, false));
+            }
+            if kept_val != Some(SiteSetting::Allow) {
+                all_kept = false;
             }
             let allowed = if agent_driven {
                 // Agent tabs never inherit kept user permissions (`site-permissions.ts`).
@@ -274,7 +285,7 @@ impl PermissionGate {
             }
         }
         if all_allowed {
-            return Some(true);
+            return Some((true, false, all_kept && is_profile));
         }
         let key = permission_key(&request, agent_driven);
         let expires_at = agent_driven.then(|| now + Duration::from_millis(AGENT_PERMISSION_TIMEOUT_MS));
@@ -637,6 +648,17 @@ impl TabPromptState {
         self.permission = PermissionGate::Idle;
         self.auth = AuthGate::Idle;
         self.popup = PopupGate::Idle;
+    }
+
+    /// Context switched (`reopen_tab_as_preview` / `reopen_tab_as_web`): clears visit-scoped
+    /// permissions, auth state, and notices while keeping `agent_driven` and `driver`.
+    pub fn reset_for_context_switch(&mut self) {
+        self.visit_permissions.clear();
+        self.auth_attempts.clear();
+        self.auth_dismissed.clear();
+        self.agent_auth_required = None;
+        self.blocked_guard_notice = false;
+        self.reset_for_engine();
     }
 
     /// User started a navigation/reload/back/forward: dismissed auth sites ask again (`prompt-machine.ts:182`).

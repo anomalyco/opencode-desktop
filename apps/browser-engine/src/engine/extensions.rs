@@ -203,6 +203,7 @@ impl EngineManager {
                         continue;
                     }
                     if let Some(tab) = self.tabs.remove(&engine_tab_id) {
+                        self.permissions.on_tab_closed(engine_tab_id);
                         tab.menu.cancel_all();
                         tab.prompts.dismiss_all();
                         tab.host.close_browser(1);
@@ -357,6 +358,8 @@ impl EngineManager {
             None,
             snap.clone(),
             prompts.clone(),
+            self.permissions.clone(),
+            None,
             favicon,
             null_out.clone(),
             self.events.clone(),
@@ -385,6 +388,7 @@ impl EngineManager {
             snap.clone(),
             prompt_shared.clone(),
             prompts.clone(),
+            None,
             diagnostics,
             null_out.clone(),
         );
@@ -397,7 +401,7 @@ impl EngineManager {
             self.downloads.clone(),
             null_out.clone(),
         );
-        let life_span = TabLifeSpanHandler::new(u64::MAX, false, context_ready, null_out.clone());
+        let life_span = TabLifeSpanHandler::new(u64::MAX, false, context_ready.clone(), null_out.clone());
         let jsdialog = TabDialogHandler::new(
             u64::MAX,
             prompt_shared.clone(),
@@ -408,9 +412,9 @@ impl EngineManager {
         let permission = TabPermissionHandler::new(
             u64::MAX,
             false,
+            context_ready,
             prompt_shared.clone(),
             prompts.clone(),
-            snap,
             null_out.clone(),
         );
         let dialog = TabFileDialogHandler::new(u64::MAX, false, prompts, null_out.clone());

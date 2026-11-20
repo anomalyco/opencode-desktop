@@ -1,6 +1,5 @@
 //! CEF display, load, DevTools observer, and Mach `IOSurface` frame sender.
 
-use std::collections::HashMap;
 #[cfg(target_os = "macos")]
 use std::ffi::{CString, c_char, c_void};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
@@ -10,18 +9,16 @@ use std::sync::{Arc, Mutex};
 use cef::rc::Rc as _;
 use cef::{
     AcceleratedPaintInfo, AuthCallback, Browser, Callback, CefString, CefStringList, CursorInfo,
-    CursorType, DevToolsMessageObserver, DisplayHandler, Errorcode, Frame, ImplAuthCallback,
-    ImplBrowser, ImplBrowserHost, ImplDevToolsMessageObserver,
+    CursorType, DisplayHandler, Errorcode, Frame, ImplAuthCallback, ImplBrowser, ImplBrowserHost,
     ImplDisplayHandler, ImplFrame, ImplLoadHandler, ImplRenderHandler, ImplRequest,
     ImplRequestHandler, ImplResourceRequestHandler, ImplSelectClientCertificateCallback,
     LoadHandler, PaintElementType, Rect, RenderHandler, Request, RequestHandler,
     ResourceRequestHandler, Response, ReturnValue, ScreenInfo, SelectClientCertificateCallback,
-    TerminationStatus, TransitionType, WindowOpenDisposition, WrapDevToolsMessageObserver, WrapDisplayHandler,
-    WrapLoadHandler, WrapRenderHandler, WrapRequestHandler, WrapResourceRequestHandler,
-    X509Certificate, sys, wrap_dev_tools_message_observer, wrap_display_handler,
-    wrap_load_handler, wrap_render_handler, wrap_request_handler, wrap_resource_request_handler,
+    TerminationStatus, TransitionType, WindowOpenDisposition, WrapDisplayHandler, WrapLoadHandler,
+    WrapRenderHandler, WrapRequestHandler, WrapResourceRequestHandler, X509Certificate, sys,
+    wrap_display_handler, wrap_load_handler, wrap_render_handler, wrap_request_handler,
+    wrap_resource_request_handler,
 };
-use serde_json::Value;
 
 use crate::wire::{CursorKind, EngineMsg, MOD_ALT, MOD_CMD, MOD_CTRL, MOD_SHIFT, TabSnapshot};
 
@@ -325,6 +322,8 @@ wrap_display_handler! {
         preview: Option<Arc<crate::preview::PreviewGrant>>,
         snap: Arc<Mutex<TabSnapshot>>,
         prompts: Arc<crate::prompts::TabPrompts>,
+        permissions: Arc<crate::permissions::PermissionTracker>,
+        context_scope_id: Option<String>,
         favicon: Arc<crate::favicon::TabFavicon>,
         out_tx: Output,
         events: std::sync::mpsc::Sender<crate::Event>,
@@ -333,7 +332,7 @@ wrap_display_handler! {
     impl DisplayHandler {
         fn on_address_change(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             frame: Option<&mut Frame>,
             url: Option<&CefString>,
         ) {
@@ -358,6 +357,17 @@ wrap_display_handler! {
                             new_origin.as_deref(),
                             &self.out_tx,
                         );
+                        self.permissions.on_origin_changed(
+                            self.context_scope_id.as_deref(),
+                            self.tab_id,
+                            new_origin.as_deref(),
+                        );
+                    }
+                    if self.context_scope_id.is_some()
+                        && let Some(orig) = new_origin.as_deref()
+                        && let Some(ctx) = browser.as_ref().and_then(|b| b.host()).and_then(|h| h.request_context())
+                    {
+                        crate::permissions::block_device_permission_guards_for_origin(&ctx, orig);
                     }
                 }
                 self.prompts.set_pending_top_url(None);
@@ -710,6 +720,7 @@ wrap_request_handler! {
         snap: Arc<Mutex<TabSnapshot>>,
         prompt_shared: crate::prompts::PromptShared,
         prompts: Arc<crate::prompts::TabPrompts>,
+        context_scope_id: Option<String>,
         diagnostics: Arc<crate::diagnostics::TabDiagnostics>,
         out_tx: Output,
     }
@@ -724,7 +735,7 @@ wrap_request_handler! {
         // `file:` URLs outside `file_roots`.
         fn on_before_browse(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             frame: Option<&mut Frame>,
             request: Option<&mut Request>,
             user_gesture: ::std::os::raw::c_int,
@@ -739,6 +750,11 @@ wrap_request_handler! {
             // (and while a remote context is suspended): cancel every non-`about:blank` navigation.
             if !self.context_ready.load(Ordering::Acquire) {
                 return i32::from(!url.trim().eq_ignore_ascii_case("about:blank"));
+            }
+            if self.context_scope_id.is_some()
+                && let Some(ctx) = browser.as_ref().and_then(|b| b.host()).and_then(|h| h.request_context())
+            {
+                crate::permissions::block_device_permission_guards_for_origin(&ctx, &url);
             }
             if let Some(grant) = &self.preview {
                 if is_main {
@@ -1034,324 +1050,7 @@ wrap_request_handler! {
     }
 }
 
-pub enum CdpPending {
-    Raw { request_id: u64, max_bytes: usize },
-    CookieCount(u64),
-    ClearSite { request_id: u64, origin: String },
-}
-
-pub struct PendingClear {
-    pub tab_id: u64,
-    pub request_id: u64,
-    pub origin: String,
-    pub cookies: Vec<(String, String, String)>,
-}
-
-wrap_dev_tools_message_observer! {
-    pub struct TabCdpObserver {
-        tab_id: u64,
-        is_popup: bool,
-        snap: Arc<Mutex<TabSnapshot>>,
-        id_map: Arc<Mutex<HashMap<i32, CdpPending>>>,
-        internal_picked: Arc<Mutex<Vec<i64>>>,
-        pending_clears: Arc<Mutex<Vec<PendingClear>>>,
-        cdp_ledger: Arc<Mutex<crate::cdp_ledger::EngineCdpLedger>>,
-        prompts: Arc<crate::prompts::TabPrompts>,
-        extensions_active: bool,
-        out_tx: Output,
-    }
-
-    impl DevToolsMessageObserver {
-        fn on_dev_tools_method_result(
-            &self,
-            browser: Option<&mut Browser>,
-            message_id: i32,
-            success: i32,
-            result: Option<&[u8]>,
-        ) {
-            let Some(pending) = self.id_map.lock().unwrap().remove(&message_id) else {
-                return;
-            };
-            if let CdpPending::Raw { request_id, max_bytes } = pending {
-                // Enforce hard byte cap BEFORE parsing JSON or forwarding across IPC.
-                if result.is_some_and(|b| b.len() > max_bytes) {
-                    let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                        tab_id: self.tab_id,
-                        request_id,
-                        ok: false,
-                        result: serde_json::json!({
-                            "message": format!("CDP response exceeded maximum allowed size ({max_bytes} bytes).")
-                        }),
-                    });
-                    return;
-                }
-                // Re-check extension surface at reply time so an extension frame appearing
-                // mid-flight (e.g. during `Page.captureScreenshot` or awaited eval) can never
-                // leak into the CDP response (`review-rd274.md` Round-5 §2).
-                if crate::engine::browser_has_extension_surface(
-                    browser.as_deref(),
-                    self.is_popup,
-                    &self.snap,
-                    &self.prompts,
-                ) {
-                    let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                        tab_id: self.tab_id,
-                        request_id,
-                        ok: false,
-                        result: serde_json::json!({
-                            "message": "Agent browser tools cannot read or act on extension pages or tabs with extension frames."
-                        }),
-                    });
-                    return;
-                }
-                let val = result
-                    .and_then(|b| serde_json::from_slice::<Value>(b).ok())
-                    .unwrap_or(Value::Null);
-                let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                    tab_id: self.tab_id,
-                    request_id,
-                    ok: success != 0,
-                    result: val,
-                });
-                return;
-            }
-            let val = result
-                .and_then(|b| serde_json::from_slice::<Value>(b).ok())
-                .unwrap_or(Value::Null);
-            match pending {
-                CdpPending::Raw { .. } => unreachable!(),
-                CdpPending::CookieCount(req_id) => {
-                    let count = val.get("cookies").and_then(Value::as_array).map_or(0, Vec::len);
-                    let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                        tab_id: self.tab_id,
-                        request_id: req_id,
-                        ok: success != 0,
-                        result: serde_json::json!({ "cookies": count }),
-                    });
-                }
-                CdpPending::ClearSite { request_id, origin } => {
-                    if success == 0 {
-                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                            tab_id: self.tab_id,
-                            request_id,
-                            ok: false,
-                            result: val,
-                        });
-                        return;
-                    }
-                    let cookies = val
-                        .get("cookies")
-                        .and_then(Value::as_array)
-                        .map(|arr| {
-                            arr.iter()
-                                .filter_map(|c| {
-                                    Some((
-                                        c.get("name")?.as_str()?.to_owned(),
-                                        c.get("domain")?.as_str()?.to_owned(),
-                                        c.get("path")?.as_str().unwrap_or("/").to_owned(),
-                                    ))
-                                })
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                    self.pending_clears.lock().unwrap().push(PendingClear {
-                        tab_id: self.tab_id,
-                        request_id,
-                        origin,
-                        cookies,
-                    });
-                }
-            }
-        }
-
-        fn on_dev_tools_message(
-            &self,
-            browser: Option<&mut Browser>,
-            message: Option<&[u8]>,
-        ) -> ::std::os::raw::c_int {
-            let Some(raw) = message else { return 0 };
-            // Pre-parse size gate using strict depth-1 top-level JSON scanning (zero AST allocation):
-            // - Events (`method` at depth 1) over `MAX_CDP_RESPONSE_BYTES` (16 MiB) are dropped
-            //   UNPARSED before `serde_json::from_slice` so `console.log("A".repeat(100e6))` never
-            //   allocates a giant JSON AST (all bookkeeping events stay well below 16 MiB).
-            // - Top-level replies (`id`, no `method`, no `sessionId`) return `0` immediately so
-            //   CEF delivers them ONCE to `on_dev_tools_method_result` (pre-parse cap check).
-            // - Flattened OOPIF replies (`id` + `sessionId`) over `max_bytes` reject BEFORE parse.
-            if raw.len() > crate::cdp_ledger::MAX_CDP_EVAL_RESPONSE_BYTES {
-                let top = crate::cdp_ledger::scan_top_level_cdp(raw);
-                if top.has_method {
-                    if raw.len() > crate::cdp_ledger::MAX_CDP_RESPONSE_BYTES {
-                        return 1;
-                    }
-                } else if let Some(msg_id) = top.id {
-                    if !top.has_session_id {
-                        return 0;
-                    }
-                    let over = {
-                        let mut map = self.id_map.lock().unwrap();
-                        match map.get(&msg_id) {
-                            Some(CdpPending::Raw { max_bytes, .. }) if raw.len() > *max_bytes => {
-                                map.remove(&msg_id)
-                            }
-                            _ => None,
-                        }
-                    };
-                    if let Some(CdpPending::Raw { request_id, max_bytes }) = over {
-                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                            tab_id: self.tab_id,
-                            request_id,
-                            ok: false,
-                            result: serde_json::json!({
-                                "message": format!("CDP response exceeded maximum allowed size ({max_bytes} bytes).")
-                            }),
-                        });
-                        return 1;
-                    }
-                    if raw.len() > crate::cdp_ledger::MAX_CDP_RESPONSE_BYTES {
-                        return 1;
-                    }
-                } else if raw.len() > crate::cdp_ledger::MAX_CDP_RESPONSE_BYTES {
-                    return 1;
-                }
-            }
-            let Ok(mut val) = serde_json::from_slice::<Value>(raw) else { return 0 };
-            // Flattened OOPIF responses carry both `"id"` and `"sessionId"`; CEF's
-            // `on_dev_tools_method_result` omits them, so handle them directly here.
-            if let Some(msg_id) = val.get("id").and_then(Value::as_i64) {
-                if val.get("sessionId").is_some()
-                    && let Some(CdpPending::Raw { request_id, max_bytes }) =
-                        self.id_map.lock().unwrap().remove(&(msg_id as i32))
-                {
-                    if raw.len() > max_bytes {
-                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                            tab_id: self.tab_id,
-                            request_id,
-                            ok: false,
-                            result: serde_json::json!({
-                                "message": format!("CDP response exceeded maximum allowed size ({max_bytes} bytes).")
-                            }),
-                        });
-                        return 1;
-                    }
-                    if crate::engine::browser_has_extension_surface(
-                        browser.as_deref(),
-                        self.is_popup,
-                        &self.snap,
-                        &self.prompts,
-                    ) {
-                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                            tab_id: self.tab_id,
-                            request_id,
-                            ok: false,
-                            result: serde_json::json!({
-                                "message": "Agent browser tools cannot read or act on extension pages or tabs with extension frames."
-                            }),
-                        });
-                        return 1;
-                    }
-                    let (ok, payload) = match val.get("error") {
-                        Some(err) => (false, err.clone()),
-                        None => (true, val.get("result").cloned().unwrap_or(Value::Null)),
-                    };
-                    let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                        tab_id: self.tab_id,
-                        request_id,
-                        ok,
-                        result: payload,
-                    });
-                    return 1;
-                }
-                return 0;
-            }
-            let Some(method) = val.get("method").and_then(Value::as_str).map(str::to_owned) else {
-                return 0;
-            };
-            let session_id = val.get("sessionId").and_then(Value::as_str).map(str::to_owned);
-            let params = val
-                .as_object_mut()
-                .and_then(|o| o.remove("params"))
-                .unwrap_or(Value::Null);
-            // Track true CDP `frameId` (`devtools_frame_token`) lifecycle for `#274`'s whole-tab
-            // extension surface guard (`review-rd274.md` Round-4 ruling).
-            match method.as_str() {
-                "Page.frameNavigated" => {
-                    if let Some(frame) = params.get("frame") {
-                        let is_main = session_id.is_none()
-                            && frame.get("parentId").and_then(Value::as_str).is_none();
-                        if is_main {
-                            self.prompts.clear_cdp_ext_frames();
-                        }
-                        let fid = frame.get("id").and_then(Value::as_str).unwrap_or("");
-                        let url = frame.get("url").and_then(Value::as_str).unwrap_or("");
-                        let origin = frame.get("securityOrigin").and_then(Value::as_str).unwrap_or("");
-                        let is_ext = crate::extensions::manifest::is_extension_scheme(url)
-                            || crate::extensions::manifest::is_extension_scheme(origin);
-                        self.prompts.set_cdp_ext_frame(fid, is_ext);
-                    }
-                }
-                "Page.navigatedWithinDocument" => {
-                    let fid = params.get("frameId").and_then(Value::as_str).unwrap_or("");
-                    let url = params.get("url").and_then(Value::as_str).unwrap_or("");
-                    let is_ext = crate::extensions::manifest::is_extension_scheme(url);
-                    self.prompts.set_cdp_ext_frame(fid, is_ext);
-                }
-                "Page.frameDetached" => {
-                    if let Some(fid) = params.get("frameId").and_then(Value::as_str) {
-                        self.prompts.set_cdp_ext_frame(fid, false);
-                    }
-                }
-                "Overlay.inspectNodeRequested" => {
-                    if let Some(backend_id) = params["backendNodeId"].as_i64() {
-                        self.internal_picked.lock().unwrap().push(backend_id);
-                    }
-                }
-                _ => {}
-            }
-            // Update engine-authoritative CDP ledger and immediately detach any extension OOPIF.
-            let detach_sid = self
-                .cdp_ledger
-                .lock()
-                .unwrap()
-                .observe_event(&method, &params, session_id.as_deref());
-            if let Some(ext_sid) = &detach_sid {
-                self.prompts.set_cdp_ext_frame(ext_sid, true);
-                if let Some(host) = browser.as_deref().and_then(|b| b.host()) {
-                    let detach = serde_json::json!({
-                        "id": -1,
-                        "method": "Target.detachFromTarget",
-                        "params": { "sessionId": ext_sid },
-                    })
-                    .to_string();
-                    let _ = host.send_dev_tools_message(Some(detach.as_bytes()));
-                }
-            }
-            // Preserve `#274` Round-5 §4 verbatim: when extensions are active, drop all `Page.*`
-            // events from `out_tx` after internal bookkeeping (OOPIF & top-level frame URLs stay
-            // tracked via `Page.getFrameTree` responses on clean web tabs); even when extensions
-            // are inactive, never forward `Page.frameRequestedNavigation` / `Page.windowOpen`, and
-            // drop any event when the tab has an extension surface or detached extension OOPIF.
-            if (self.extensions_active && method.starts_with("Page."))
-                || matches!(method.as_str(), "Page.frameRequestedNavigation" | "Page.windowOpen")
-                || detach_sid.is_some()
-                || crate::engine::browser_has_extension_surface(
-                    browser.as_deref(),
-                    self.is_popup,
-                    &self.snap,
-                    &self.prompts,
-                )
-            {
-                return 1;
-            }
-            let _ = self.out_tx.send(EngineMsg::CdpEvent {
-                tab_id: self.tab_id,
-                method,
-                params,
-                session_id,
-            });
-            1
-        }
-    }
-}
+pub use crate::cdp_ledger::{CdpPending, PendingClear, TabCdpObserver};
 
 /// An event flag as the `u32` CEF's event structs take (the flag enum is `i32` on Windows).
 #[allow(clippy::unnecessary_cast)]

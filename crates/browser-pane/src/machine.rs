@@ -415,6 +415,7 @@ pub(crate) enum EngineCaps {
         remote_proxy: bool,
         agent_tools: bool,
         preview: bool,
+        permission_sync: bool,
     },
 }
 
@@ -457,6 +458,10 @@ impl EngineCaps {
 
     pub(crate) fn preview(self) -> bool {
         matches!(self, Self::Known { preview: true, .. })
+    }
+
+    pub(crate) fn permission_sync(self) -> bool {
+        matches!(self, Self::Known { permission_sync: true, .. })
     }
 }
 

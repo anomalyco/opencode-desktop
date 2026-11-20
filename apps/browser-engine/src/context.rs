@@ -187,6 +187,10 @@ fn apply_context_prefs(
     ok &= set_optional_bool_pref(ctx, "webrtc.nonproxied_udp_enabled", false);
     ok &= set_optional_string_pref(ctx, "dns_over_https.mode", "off");
     ok &= set_optional_bool_pref(ctx, "dns_prefetching.enabled", false);
+    // Lock all 7 hardware-device and File System Access guards to `BLOCK` (2) on isolated contexts.
+    for pref in crate::permissions::DEVICE_GUARD_PREFS {
+        ok &= set_optional_int_pref(ctx, pref, 2);
+    }
     ok
 }
 
@@ -275,6 +279,14 @@ fn set_optional_bool_pref(ctx: &RequestContext, name: &str, value: bool) -> bool
         return true;
     }
     set_and_verify_bool_pref(ctx, name, value)
+}
+
+fn set_optional_int_pref(ctx: &RequestContext, name: &str, value: i32) -> bool {
+    let key = CefString::from(name);
+    if ctx.has_preference(Some(&key)) == 0 || ctx.can_set_preference(Some(&key)) == 0 {
+        return true;
+    }
+    set_and_verify_int_pref(ctx, name, value)
 }
 
 /// Outcome produced once a deferred context finishes `on_request_context_initialized`.

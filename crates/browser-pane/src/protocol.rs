@@ -296,6 +296,17 @@ pub enum HostMsg {
         tab_id: u64,
         id: u64,
         allow: bool,
+        #[serde(default)]
+        dismiss: bool,
+        #[serde(default)]
+        persist: bool,
+    },
+    ResetPermission {
+        origin: String,
+        kind: PermissionKind,
+    },
+    SyncSitePermissions {
+        entries: Vec<SitePermissionEntry>,
     },
     AnswerAuth {
         tab_id: u64,
@@ -402,6 +413,10 @@ pub enum EngineMsg {
         /// The engine serves isolated `oc-preview://` tabs.
         #[serde(default)]
         preview: bool,
+        /// The engine resets Chromium's `HostContentSettingsMap` on one-time/revoked permissions
+        /// and supports `HostMsg::ResetPermission` + `AnswerPermission.dismiss`.
+        #[serde(default)]
+        permission_sync: bool,
         /// The engine emits `EngineMsg::PreviewCredit` for end-to-end preview flow control.
         #[serde(default)]
         preview_credit: bool,
@@ -638,6 +653,13 @@ impl PermissionKind {
             Self::ClipboardRead => "clipboard-read",
         }
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SitePermissionEntry {
+    pub origin: String,
+    pub kind: PermissionKind,
+    pub allow: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
