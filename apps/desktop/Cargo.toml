@@ -60,6 +60,7 @@ opencode-feature-session-menu = { path = "../../features/session-menu" }
 opencode-feature-settings = { path = "../../features/settings" }
 opencode-feature-subagents = { path = "../../features/subagents" }
 opencode-feature-switcher = { path = "../../features/switcher" }
+opencode-feature-tab-groups = { path = "../../features/tab-groups" }
 opencode-feature-terminal-surface = { path = "../../features/terminal-surface" }
 opencode-feature-timeline-extras = { path = "../../features/timeline-extras" }
 opencode-feature-tips = { path = "../../features/tips" }

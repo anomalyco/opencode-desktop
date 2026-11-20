@@ -1,0 +1,14 @@
+[package]
+name = "opencode-feature-tab-groups"
+version = "0.0.1"
+description = "Experimental side tab groups: saved state, automatic/manual grouping, 4-intent drag machine, and inline rename for OpenCode (Rune)"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+rune.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

@@ -107,6 +107,9 @@ pub struct Settings {
     /// Questions take the keyboard-first dock instead of Classic (Desktop's `general.newQuestionUI`,
     /// Settings › Experimental › New question UI). Off unless turned on, as there.
     pub new_question_ui: bool,
+    /// Experimental side tab groups (`general.tabGroups`, #64407): `None` until set, defaulting to
+    /// on in local/dev desktop builds only (`settings/model.tsx`).
+    pub tab_groups: Option<bool>,
     /// Ease a live delivery into place: the Pending label, the tray's room and joined prompts.
     pub smooth_timeline: bool,
     /// macOS: Option in the terminal is Meta (Esc and the key, for a shell's word motions) instead
@@ -181,6 +184,7 @@ impl Default for Settings {
             navigation: Navigation::default(),
             shared_side_panel: false,
             new_question_ui: false,
+            tab_groups: None,
             smooth_timeline: false,
             terminal_option_meta: false,
             terminal_marks: Vec::new(),
@@ -209,6 +213,19 @@ impl Default for Settings {
 
 impl Settings {
     pub fn to_json(&self) -> Value {
+        let mut v = self.to_json_base();
+        if let (Some(on), Some(m)) = (self.tab_groups, v.as_object_mut()) {
+            m.insert("tabGroups".into(), json!(on));
+        }
+        v
+    }
+
+    /// Experimental › Tab groups, with local/dev desktop fallback (`general.tabGroups`, #64407).
+    pub fn tab_groups(&self) -> bool {
+        self.tab_groups.unwrap_or(!cfg!(target_arch = "wasm32") && matches!(build_channel(), "local" | "dev"))
+    }
+
+    fn to_json_base(&self) -> Value {
         json!({
             "showAgentPicker": self.show_agent,
             "appearance": self.scheme.name(),
@@ -279,6 +296,7 @@ impl Settings {
             navigation: Navigation::parse(v["navigation"].as_str().or_else(|| v["appearance"]["navigation"].as_str())),
             shared_side_panel: v["sharedSidePanel"].as_bool().unwrap_or(false),
             new_question_ui: v["newQuestionUI"].as_bool().unwrap_or(false),
+            tab_groups: v["tabGroups"].as_bool(),
             smooth_timeline: v["smoothTimeline"].as_bool().unwrap_or(false),
             terminal_option_meta: v["terminal"]["optionAsMeta"].as_bool().unwrap_or(false),
             terminal_marks: v["terminal"]["marks"]
