@@ -152,11 +152,26 @@ impl Launcher for Mac {
     fn open(&self, path: &str, bundle: Option<&str>) -> Result<(), String> {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let mut cmd = std::process::Command::new("/usr/bin/open");
-            if let Some(b) = bundle {
-                cmd.args(["-b", b]);
+            let verified = browser_policy::verify_local_path(path).map_err(|e| e.to_string())?;
+            // Never pass a path to bare `/usr/bin/open -- <path>` on macOS (which launches `.app`
+            // and other bundles/packages); Finder-only requests always use safe reveal (`-R --`).
+            let Some(b) = bundle else {
+                return self.reveal(&verified.path);
+            };
+            if !APPS.iter().any(|a| a.open_with == b) {
+                return Err("Unknown external application".into());
             }
-            run(cmd.arg(path)).map(|_| ())
+            if rune::is_headless() {
+                return Ok(());
+            }
+            #[cfg(target_os = "macos")]
+            {
+                run(std::process::Command::new("/usr/bin/open").args(["-b", b, "--", &verified.path])).map(|_| ())
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                run(std::process::Command::new(b).args(["--", &verified.path])).map(|_| ())
+            }
         }
         #[cfg(target_arch = "wasm32")]
         {
@@ -168,7 +183,14 @@ impl Launcher for Mac {
     fn reveal(&self, path: &str) -> Result<(), String> {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            run(std::process::Command::new("/usr/bin/open").args(["-R", path])).map(|_| ())
+            let verified = browser_policy::verify_local_path(path).map_err(|e| e.to_string())?;
+            if log_harness_reveal(&verified.path) {
+                return Ok(());
+            }
+            if rune::is_headless() {
+                return Ok(());
+            }
+            browser_policy::reveal_in_file_manager(&verified.path).map(|_| ()).map_err(|e| e.to_string())
         }
         #[cfg(target_arch = "wasm32")]
         {
@@ -364,13 +386,21 @@ impl OpenIn {
         self.launch == LaunchState::Launching
     }
 
-    /// Opens absolute `path` in its default app.
-    pub fn open_default(&mut self, path: String) {
-        self.launch("", path, false);
+    /// Reveals an absolute local fixed-drive `path` in the system file manager (selecting the
+    /// item; never executes or opens it with its default application, and refuses UNC/device paths
+    /// before touching the filesystem).
+    pub fn reveal_local(&mut self, path: String) {
+        if browser_policy::safe_local_reveal_path(&path).is_none() {
+            return;
+        }
+        self.launch("", path, true);
     }
 
     /// Launches `app` on `path` in the background (or reveals `path` in the file manager).
     pub fn launch(&mut self, app: &str, path: String, reveal: bool) {
+        if browser_policy::is_unc_or_device_path(&path) {
+            return;
+        }
         if self.launch == LaunchState::Launching {
             return;
         }
@@ -383,6 +413,29 @@ impl OpenIn {
             Some(b) => launcher.open(&path, Some(b)),
         });
     }
+}
+
+/// Logs a safe reveal to `HARNESS_OPEN_EXTERNAL_LOG` during headless proofs without spawning
+/// a real OS file manager window.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn log_harness_reveal(path: &str) -> bool {
+    let Some(log) = std::env::var_os("HARNESS_OPEN_EXTERNAL_LOG").filter(|v| !v.is_empty()) else {
+        return false;
+    };
+    use std::io::Write as _;
+    let log_path = Path::new(&log);
+    if let Some(parent) = log_path.parent() {
+        drop(std::fs::create_dir_all(parent));
+    }
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(log_path) {
+        let entry = json!({
+            "pid": std::process::id(),
+            "kind": "reveal",
+            "path": path,
+        });
+        drop(writeln!(f, "{entry}"));
+    }
+    true
 }
 
 /// One app choice for an "Open in" menu or picker.
@@ -444,9 +497,14 @@ pub fn plain_error(raw: &str) -> String {
     opencode_kit::plain_error::plain_error(e)
 }
 
-/// Opening only works on macOS/Windows where the server shares this machine's files.
+/// Opening in external editors/terminals works on macOS/Windows where the server shares this machine's files.
 pub fn can_open(host: &dyn OpenInHost) -> bool {
     cfg!(any(target_os = "macos", target_os = "windows")) && host.is_local_server()
+}
+
+/// Revealing a local file in the OS file manager works on every native desktop OS (Windows, macOS, Linux).
+pub fn can_reveal(host: &dyn OpenInHost) -> bool {
+    cfg!(not(target_arch = "wasm32")) && host.is_local_server()
 }
 
 /// Loads the last picked app (`plugin.file` / `openInApp`) from host storage.
@@ -487,10 +545,13 @@ pub fn open_app_as(host: &mut dyn OpenInHost, app: &str, rel: &str, remember: bo
             host.write_json(STORAGE_NS, STORAGE_KEY, &json!(app));
         }
     }
-    // Desktop's toolbar opens its panel's folder in the file manager; a file shows selected in its
-    // folder instead of opening in its default app.
-    let reveal = reveal || !Path::new(&path).is_dir();
-    host.open_in_mut().launch(app, path, reveal && app == FINDER);
+    let Ok(verified) = browser_policy::verify_local_path(&path) else {
+        return;
+    };
+    // Desktop's toolbar opens its panel's folder in the file manager; a file (or macOS bundle)
+    // shows selected in its folder instead of opening in its default app.
+    let reveal = reveal || !verified.is_dir || browser_policy::is_macos_bundle(&verified.path);
+    host.open_in_mut().launch(app, verified.path, reveal && app == FINDER);
 }
 
 /// Opens `rel` in the currently remembered app when no launch is already running.
@@ -505,14 +566,20 @@ pub fn open_current(host: &mut dyn OpenInHost, rel: &str, remember: bool, reveal
 /// `Workspace:OpenIn`: opens `path` (absolute, or inside the open session's folder) in `app`,
 /// where the server shares this machine's files; a file shows selected in the file manager.
 pub fn open_at(host: &mut dyn OpenInHost, app: &str, path: &str) {
-    if !can_open(host) || !host.open_in().options().iter().any(|(id, _)| *id == app) {
+    if !can_open(host)
+        || !host.open_in().options().iter().any(|(id, _)| *id == app)
+        || browser_policy::is_unc_or_device_path(path)
+    {
         return;
     }
     let Some(path) = (if opencode_kit::path::is_absolute(path) { Some(path.to_owned()) } else { resolve_path(host, path) }) else {
         return;
     };
-    let reveal = !Path::new(&path).is_dir();
-    host.open_in_mut().launch(app, path, reveal && app == FINDER);
+    let Ok(verified) = browser_policy::verify_local_path(&path) else {
+        return;
+    };
+    let reveal = !verified.is_dir || browser_policy::is_macos_bundle(&verified.path);
+    host.open_in_mut().launch(app, verified.path, reveal && app == FINDER);
 }
 
 /// Polls finished detection and launch work, reporting any launch error through `host.toast_fail`.
@@ -566,8 +633,9 @@ pub fn pick(host: &mut dyn OpenInHost, rel: &str, id: &str, reveal: bool, tx: &m
     }
 }
 
-/// Builds a file drag payload for `rel` when the local file exists on disk.
+/// Builds a file drag payload for `rel` when the verified local file exists on disk.
 pub fn drag_item(host: &dyn OpenInHost, rel: &str) -> Option<DragItem> {
-    let path = can_open(host).then(|| resolve_path(host, rel)).flatten().filter(|p| Path::new(p).exists())?;
-    Some(DragItem::new().file(path).within_app())
+    let raw = can_open(host).then(|| resolve_path(host, rel)).flatten()?;
+    let verified = browser_policy::verify_local_path(&raw).ok()?;
+    Some(DragItem::new().file(verified.path).within_app())
 }
