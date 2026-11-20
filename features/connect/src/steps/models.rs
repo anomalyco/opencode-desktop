@@ -35,7 +35,9 @@ pub(super) fn view<H: ConnectHost + 'static>(s: &H, p: &Pal, id: &str) -> El {
     let row_for = |m: &Model, last: bool| {
         let checked = *selected == m.key;
         let key = m.key.clone();
-        let shell = col().key(format!("connected-model-{}", m.key)).mx(4.0).py(4.0).child(
+        // The list clips its rows, so the ring sits inside the row (`providers/connect/models.css`).
+        let shell = col().key(format!("connected-model-{}", m.key)).mx(4.0).py(4.0).child(opencode_ui::focus::inset(
+            p,
             row()
                 .role("radio")
                 .label(m.name.clone())
@@ -48,7 +50,7 @@ pub(super) fn view<H: ConnectHost + 'static>(s: &H, p: &Pal, id: &str) -> El {
                 .on_press_tx(move |s: &mut H, tx: &mut Tx| select_model(s, &key, tx))
                 .child(text(m.name.clone()).font(UI).color(p.text).grow(1.0).shrink().truncate())
                 .child(el().size(16.0, 16.0).center().children(checked.then(|| icon(&ic::CHECK_SMALL, 14.0).color(p.icon)))),
-        );
+        ));
         if last { shell } else { col().w_full().child(shell).child(el().h(0.5).mx(16.0).fill(p.border)) }
     };
     let list = |models: &[Model]| {

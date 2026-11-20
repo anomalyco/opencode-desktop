@@ -9,7 +9,7 @@
 
 pub use opencode_runtime::detail;
 pub use opencode_ui::keymap::base as keymap;
-pub use opencode_ui::{dialog, odometer, palette, scroller, sheet, themes};
+pub use opencode_ui::{dialog, focus, odometer, palette, scroller, sheet, themes};
 
 pub mod activity;
 pub mod agent_start;

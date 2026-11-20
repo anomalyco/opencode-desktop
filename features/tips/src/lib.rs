@@ -52,6 +52,8 @@ pub trait TipsHost: opencode_kernel::AppEnv {
     fn route_key(&self) -> TipRoute;
     /// Whether the server's MCP list contains `browse`; `None` until the list has been fetched.
     fn browse_installed(&self) -> Option<bool>;
+    /// The pointer can't hover (`(hover: none)`): a touch screen, where Hex has nothing to offer.
+    fn hover_none(&self) -> bool;
     /// Requests a refresh of the server's MCP list when the connection comes up.
     fn sync_mcp(&mut self);
     fn read_json(&self, ns: &str, key: &str) -> Option<serde_json::Value>;
@@ -162,6 +164,7 @@ fn poll_with(host: &mut dyn TipsHost, focused: bool) -> bool {
         now,
         history,
         browse_installed: host.browse_installed(),
+        touch: host.hover_none(),
         #[cfg(target_arch = "wasm32")]
         hex_installed: Some(false),
         #[cfg(not(target_arch = "wasm32"))]

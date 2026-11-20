@@ -416,14 +416,20 @@ impl Icons {
     /// An image on Desktop's avatar surface (`project-avatar.css`): the avatar colour, its inset
     /// ring, and the `<img>` over both, so an opaque image hides the ring. A lit finish's light
     /// lies over the image.
+    ///
+    /// The square backing, the ring and the square image draw as one group that the rounded clip
+    /// cuts once (`project-avatar-media`): rounded one by one, each gets its own antialiased corner
+    /// and the backing shows through the image's corner pixels as a lighter fringe. A lit
+    /// finish's shadows go on a wrapper outside the clip, which would cut them.
     fn picture(&self, pal: &Palette, img: &Image, variant: Option<usize>, size_pt: f32) -> El {
         let radius = size_pt * styles::RADIUS;
         let (bg, border) = pal.avatars[variant.unwrap_or(8)];
-        let pic = el().key("image").absolute(0.0, 0.0).size(size_pt, size_pt).radius(radius).pixels_fit(img.pixels(), SurfaceFit::Fill);
+        let backing = el().key("backing").absolute(0.0, 0.0).size(size_pt, size_pt).fill(bg);
+        let pic = el().key("image").absolute(0.0, 0.0).size(size_pt, size_pt).pixels_fit(img.pixels(), SurfaceFit::Fill);
         let top = self.top(size_pt, true, border);
-        let tile = el().size(size_pt, size_pt).radius(radius).fill(bg);
-        let tile = if self.finish().lit() { tile.child(pic).child(top) } else { tile.child(top).child(pic) };
-        self.lift(pal, tile, size_pt)
+        let media = el().key("media").size(size_pt, size_pt).clip_rounded(radius).child(backing);
+        let media = if self.finish().lit() { media.child(pic).child(top) } else { media.child(top).child(pic) };
+        self.lift(pal, el().size(size_pt, size_pt).radius(radius).child(media), size_pt)
     }
 
     /// The procedural mark alone, in `look`.
