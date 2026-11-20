@@ -31,6 +31,11 @@ pub fn plugins(app: &App) -> Vec<&'static str> {
     if debug_bar_shown() {
         out.push("debug");
     }
+    if let Some(open) = &app.plugins.dialog
+        && let Some(id) = sources::builtin_ids().find(|id| *id == &*open.plugin)
+    {
+        out.push(id);
+    }
     let Route::Session { id: session, .. } = &*app.route else { return out };
     let transcript = app.launch.cold_transcript.is_some();
     // The debug plugin's one slot is its bar (`window.bottom`), counted above: hidden, it draws nothing.

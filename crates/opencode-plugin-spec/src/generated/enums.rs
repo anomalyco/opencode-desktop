@@ -270,6 +270,32 @@ string_enum! {
 }
 
 string_enum! {
+    /// How a `ui.frame` container arranges its children.
+    pub enum UiDirection {
+        /// A vertical stack. The default.
+        Col = "col",
+        /// A horizontal stack.
+        Row = "row",
+        /// No axis: children stack on top of each other.
+        Box = "box",
+    }
+}
+
+string_enum! {
+    /// Which picker overlay the composer currently has open.
+    pub enum ComposerPicker {
+        /// The agent picker.
+        Agent = "agent",
+        /// The model picker.
+        Model = "model",
+        /// The model effort/variant picker.
+        Effort = "effort",
+        /// The draft project picker.
+        Project = "project",
+    }
+}
+
+string_enum! {
     /// A text weight.
     pub enum FontWeight {
         /// 400.
@@ -670,6 +696,16 @@ string_enum! {
 }
 
 string_enum! {
+    /// Which modal overlay layer a plugin dialog sits in.
+    pub enum DialogLayer {
+        /// Standard modal dialog layer, beneath elevated system recovery and server dialogs.
+        Standard = "standard",
+        /// Elevated modal dialog layer, above standard dialogs and recovery prompts. The default.
+        Elevated = "elevated",
+    }
+}
+
+string_enum! {
     /// What a declared store keeps a value for.
     pub enum StoreScope {
         /// One value for the whole app.
@@ -746,6 +782,8 @@ string_enum! {
         MonthDayYearTime = "monthDayYearTime",
         /// Month, day, time and the zone's offset: `Nov 3, 3:45 PM GMT-7`.
         MonthDayTimeZone = "monthDayTimeZone",
+        /// The local time zone's short offset at that moment: `GMT-7`, `GMT+5:30`, `UTC`.
+        TimeZone = "timeZone",
     }
 }
 

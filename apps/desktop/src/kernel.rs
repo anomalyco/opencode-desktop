@@ -123,7 +123,6 @@ pub fn build() -> Kernel<App> {
     b.with_feature(&crate::surfaces::terminal::TerminalSurfaceFeature);
     b.with_feature(&crate::todos::TimelineExtrasFeature);
     b.with_feature(&crate::tips::TipsFeature);
-    b.with_feature(&crate::usage::UsageFeature);
     b.with_feature(&crate::new_worktree::WorkspaceToolsFeature);
     b.with_feature(&crate::plugin_host::PluginHostFeature);
     b.register_overlay(

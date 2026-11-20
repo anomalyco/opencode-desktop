@@ -11,6 +11,7 @@ export type Event = UiEvent
 export type LayoutProps = UiLayoutProps
 export type Pin = UiPin
 export type BoxProps = UiBoxProps
+export type FrameProps = UiFrameProps
 export type TextProps = UiTextProps
 export type SpacerProps = UiSpacerProps
 export type DividerProps = UiDividerProps
@@ -49,6 +50,7 @@ export type GenUiProps = UiGenUiProps
 export type ProgressCircleProps = UiProgressCircleProps
 export type Align = UiAlign
 export type Justify = UiJustify
+export type Direction = UiDirection
 export type EventKind = UiEventKind
 
 local ui: UiLibrary = nil :: any

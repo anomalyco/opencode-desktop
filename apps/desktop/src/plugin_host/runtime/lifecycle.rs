@@ -31,7 +31,7 @@ pub fn drive(app: &mut App, i: usize, event: LifeEvent) {
 /// `Started` or `StartFailed`.
 fn start(app: &mut App, i: usize) {
     // Its first read has its saved value: its values come into memory first.
-    if !stores::answers_for(&app.plugins.list[i].manifest.id) {
+    if !app.plugins.list[i].manifest.stores.is_empty() && !stores::answers_for(&app.plugins.list[i].manifest.id) {
         let id = app.plugins.list[i].manifest.id.clone();
         stores::load(app, vec![id.clone()], false, move |app, tx| {
             if let Some(i) = app.plugins.find(&id).filter(|&i| matches!(app.plugins.list[i].life, Life::Loading)) {
@@ -97,6 +97,7 @@ fn start_loaded(app: &mut App, i: usize) {
     let adopted = half.adopt(vm);
     services::reap(&half, vm);
     services::store::withdraw_owner(&id, plugin::Kind::Window, vm);
+    app.plugins.clear_model_badges(&id, vm);
     let event = match (script.error(), adopted) {
         (None, true) => LifeEvent::Started(script),
         (error, _) => {
@@ -125,8 +126,13 @@ fn stop(app: &mut App, i: usize, script: Script) {
     *half.contribs.borrow_mut() = plugin::Contribs::default();
     services::reap(&half, None);
     services::store::withdraw_owner(&half.id, plugin::Kind::Window, None);
+    app.plugins.clear_model_badges(&half.id, None);
     app.plugins.shared.images.borrow_mut().forget(&half.id);
     app.plugins.overlay.close_for(&half.id);
+    if app.plugins.dialog.as_ref().is_some_and(|d| d.plugin == half.id) {
+        app.plugins.dialog = None;
+        opencode_kernel::AppOverlays::on_overlay_closed(app, "plugin.dialog");
+    }
 }
 
 /// Reloads plugin `i` from its files now (`prepared`, when the watcher compiled them), keeping
@@ -189,6 +195,13 @@ pub fn reload(app: &mut App, i: usize, prepared: Option<hot::Prepared>) {
             half.adopt(vm);
             services::reap(&half, vm);
             services::store::withdraw_owner(&id, plugin::Kind::Window, vm);
+            app.plugins.clear_model_badges(&id, vm);
+            if app.plugins.dialog.as_ref().is_some_and(|d| {
+                *d.plugin == *id && !half.contribs.borrow().dialogs.iter().any(|c| c.spec.id == d.id)
+            }) {
+                app.plugins.dialog = None;
+                opencode_kernel::AppOverlays::on_overlay_closed(app, "plugin.dialog");
+            }
             console::reloaded(&id, report);
             Ok(())
         }

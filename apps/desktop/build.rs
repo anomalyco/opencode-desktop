@@ -94,6 +94,7 @@ pub type BuiltinModule = (&'static str, &'static [u8], bool);
 pub static BUILTINS: &[(&str, &[BuiltinFile], &[u8])] = &[];
 pub static MODULES: &[(&str, &[BuiltinModule])] = &[];
 pub static CONTRIBUTIONS: &[(&str, &[&str])] = &[];
+pub static SIGNALS: &[(&str, &[&str])] = &[];
 pub static HASHES: &[(&str, &str)] = &[];
 pub static LUAURC: &str = \"\";
 ";
@@ -121,6 +122,9 @@ fn embed_luau_plugins(manifest_dir: &std::path::Path, out: &std::path::Path) {
     // What each plugin contributes (`ctx:AddSlot`, `ctx:AddPanel`, ...), read from its source, so the host
     // knows which plugins a first screen shows before starting any (`plugin_host::first_screen`).
     let mut contributions = String::from("pub static CONTRIBUTIONS: &[(&str, &[&str])] = &[\n");
+    // Which watched host signals each built-in connects to (`Composer.PickerChanged`, ...), so
+    // deferred built-ins listening for a host trigger can be adopted synchronously on first launch.
+    let mut signals = String::from("pub static SIGNALS: &[(&str, &[&str])] = &[\n");
     // Each plugin's files hashed, so a record of what it contributed (`plugin_host::dormant`) is
     // known to be this build's.
     let mut hashes = String::from("pub static HASHES: &[(&str, &str)] = &[\n");
@@ -149,16 +153,23 @@ fn embed_luau_plugins(manifest_dir: &std::path::Path, out: &std::path::Path) {
         for (_, path) in &locales {
             println!("cargo:rerun-if-changed={}", path.display());
         }
-        let mut kinds: Vec<String> = files
+        let luau_sources: Vec<String> = files
             .iter()
             .filter(|(rel, _)| rel.ends_with(".luau"))
             .filter_map(|(_, path)| std::fs::read_to_string(path).ok())
+            .collect();
+        let mut kinds: Vec<String> = luau_sources
+            .iter()
             .flat_map(|src| src.split("ctx:Add").skip(1).filter_map(|rest| rest.split_once('(').map(|(name, _)| name.to_owned())).collect::<Vec<_>>())
             .filter(|name| !name.is_empty() && name.chars().all(char::is_alphanumeric))
             .collect();
         kinds.sort();
         kinds.dedup();
         writeln!(contributions, "    ({id:?}, &{kinds:?}),").ok();
+        let mut sigs: Vec<String> = luau_sources.iter().flat_map(|src| extract_signals(src)).collect();
+        sigs.sort();
+        sigs.dedup();
+        writeln!(signals, "    ({id:?}, &{sigs:?}),").ok();
         writeln!(precompiled, "    ({id:?}, &[").ok();
         for (index, (rel, path)) in files.into_iter().enumerate() {
             println!("cargo:rerun-if-changed={}", path.display());
@@ -188,12 +199,36 @@ fn embed_luau_plugins(manifest_dir: &std::path::Path, out: &std::path::Path) {
     code.push_str("];\n");
     precompiled.push_str("];\n");
     contributions.push_str("];\n");
+    signals.push_str("];\n");
     hashes.push_str("];\n");
-    code = consts + &code + &precompiled + &contributions + &hashes;
+    code = consts + &code + &precompiled + &contributions + &signals + &hashes;
     let luaurc = root.join(".luaurc");
     println!("cargo:rerun-if-changed={}", luaurc.display());
     writeln!(code, "pub static LUAURC: &str = include_str!({:?});", luaurc.display().to_string()).ok();
     std::fs::write(out.join("luau_builtins.rs"), code).ok();
+
+    fn extract_signals(src: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        for marker in [":Connect(", ":Once("] {
+            let mut rest = src;
+            while let Some(pos) = rest.find(marker) {
+                let ident = rest[..pos]
+                    .rsplit(|c: char| !(c.is_ascii_alphanumeric() || c == '.' || c == '_'))
+                    .next()
+                    .unwrap_or("");
+                if let Some((left, sig)) = ident.rsplit_once('.') {
+                    let svc = left.rsplit('.').next().unwrap_or(left);
+                    if svc.bytes().next().is_some_and(|b| b.is_ascii_uppercase())
+                        && sig.bytes().next().is_some_and(|b| b.is_ascii_uppercase())
+                    {
+                        out.push(format!("{svc}.{sig}"));
+                    }
+                }
+                rest = &rest[pos + marker.len()..];
+            }
+        }
+        out
+    }
 
     fn walk(root: &std::path::Path, dir: &std::path::Path, out: &mut Vec<(String, std::path::PathBuf)>) {
         for path in std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.path()) {

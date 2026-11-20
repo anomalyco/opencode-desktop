@@ -80,4 +80,3 @@ pub const EGG_PLAY: u16 = 520;
 pub const LOGS_EXPORT: u16 = 530;
 pub const MCP_TOGGLE: u16 = 540;
 pub const TEXT_RENDERING_CYCLE: u16 = 550;
-pub const USAGE_VIEW: u16 = 560;

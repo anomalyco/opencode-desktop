@@ -17,6 +17,7 @@ pub mod scenes;
 pub mod shell;
 #[cfg(feature = "stories")]
 pub mod timeline;
+pub mod usage;
 
 use self::fixture_ids::CHILD;
 use self::scenes::open_scene;

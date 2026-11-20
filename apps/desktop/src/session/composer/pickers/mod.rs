@@ -43,8 +43,8 @@ impl PickerHost for App {
     fn picker_search_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
         self.shortcut(ev, tx)
     }
-    fn picker_model_opening(&mut self) {
-        self.refresh_picker_usage();
+    fn picker_model_opening(&mut self, tx: &mut Tx) {
+        crate::plugin_host::notify_picker_opening(self, Kind::Model, tx);
         // A valid list can still be incomplete while a provider starts. Opening the picker is
         // a chance to ask again, without polling a genuinely empty server at rest.
         let selected = self.selection().model;
@@ -54,7 +54,9 @@ impl PickerHost for App {
         }
     }
     /// `+` connects an integration (`select-dialog.tsx:1010-1034`), then the sliders.
-    fn model_budget(&self, key: &str) -> Option<(String, bool)> { self.picker_budget_label(key) }
+    fn model_budget(&self, key: &str) -> Option<(String, bool)> {
+        self.plugins.model_badge(key)
+    }
 
     fn picker_model_actions(&self) -> Vec<ModelAction> {
         vec![ModelAction::Connect, ModelAction::Manage]

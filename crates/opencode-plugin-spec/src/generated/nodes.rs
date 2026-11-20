@@ -12,6 +12,8 @@ string_enum! {
         Row = "row",
         /// A vertical stack.
         Col = "col",
+        /// A layout container whose border takes room in layout, snapped to device pixels at every display scale as a CSS `border-box` border does.
+        Frame = "frame",
         /// Flexible space in a stack.
         Spacer = "spacer",
         /// A 1 px rule, laid out as a 1px CSS border is: one device pixel up to 1.5x, two at 2x. A box whose height counts its border holds it beside its content.
@@ -104,7 +106,7 @@ string_enum! {
 impl NodeKind {
     pub fn category(self) -> NodeCategory {
         match self {
-            Self::Box | Self::Row | Self::Col | Self::Spacer | Self::Divider => NodeCategory::Layout,
+            Self::Box | Self::Row | Self::Col | Self::Frame | Self::Spacer | Self::Divider => NodeCategory::Layout,
             Self::Text | Self::Icon | Self::Image | Self::Video | Self::Metric | Self::Shimmer | Self::Keybind | Self::ProgressCircle => NodeCategory::Content,
             Self::Button | Self::IconButton | Self::Switch | Self::Radio | Self::Field | Self::Segmented | Self::Loader | Self::ServerIndicator | Self::Pill | Self::SettingsRow | Self::SettingsList | Self::FlyoutRow | Self::DialogHeader => NodeCategory::Control,
             Self::Markdown | Self::VirtualList | Self::TerminalSurface | Self::TerminalTabLabel | Self::BrowserSurface | Self::CodeView | Self::DiffView | Self::FileTree | Self::PanelSidebar | Self::OpenInButton | Self::OfficePages | Self::OfficeSheet | Self::GenUi => NodeCategory::Native,
@@ -120,6 +122,7 @@ impl NodeKind {
     pub fn props(self) -> &'static PropsSpec {
         match self {
             Self::Box | Self::Row | Self::Col => &UI_BOX_PROPS,
+            Self::Frame => &UI_FRAME_PROPS,
             Self::Spacer => &UI_SPACER_PROPS,
             Self::Divider => &UI_DIVIDER_PROPS,
             Self::Text | Self::Shimmer => &UI_TEXT_PROPS,
@@ -226,6 +229,7 @@ pub static UI_DIALOG_HEADER_PROPS: PropsSpec = PropsSpec::new("UiDialogHeaderPro
     PropSpec::new("description", PropType::String, false),
     PropSpec::new("hideClose", PropType::Bool, false),
     PropSpec::new("closeLabel", PropType::String, false),
+    PropSpec::new("wrapTitle", PropType::Bool, false),
 ]);
 
 /// `UiDiffViewProps`.
@@ -282,6 +286,12 @@ pub static UI_FLYOUT_ROW_PROPS: PropsSpec = PropsSpec::new("UiFlyoutRowProps", S
     PropSpec::new("props", PropType::Map, false),
     PropSpec::new("alert", PropType::Bool, false),
     PropSpec::new("side", PropType::Enum("Side"), false),
+]);
+
+/// `UiFrameProps`.
+pub static UI_FRAME_PROPS: PropsSpec = PropsSpec::new("UiFrameProps", Some(&UI_BOX_PROPS), &[
+    PropSpec::new("direction", PropType::Enum("UiDirection"), false),
+    PropSpec::new("borderSides", PropType::List("number"), false),
 ]);
 
 /// `UiGenUiProps`.

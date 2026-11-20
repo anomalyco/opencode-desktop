@@ -258,6 +258,7 @@ pub fn dep_version(app: &App, dep: &Dep) -> u64 {
         Dep::Routed => app.active_session_id().hash(&mut h),
         Dep::Sessions => app.sessions.iter().map(|s| session_version(app, &s.id)).for_each(|v| v.hash(&mut h)),
         Dep::Model(provider, model) => session::model_version(app, provider, model).hash(&mut h),
+        Dep::Models => session::models_version(app).hash(&mut h),
         Dep::Resource(plugin, path) => app.plugins.half(plugin).and_then(|half| half.resources.borrow().get(path).map(|r| r.ticket.generation())).hash(&mut h),
         Dep::Store(plugin, key) => store_version(plugin, key).hash(&mut h),
         Dep::Editor(plugin, index) => super::editors::version_in(app, plugin, *index).hash(&mut h),
@@ -267,6 +268,7 @@ pub fn dep_version(app: &App, dep: &Dep) -> u64 {
         Dep::Panel(plugin, panel) => ui::panel_state(app, plugin, panel, app.active_session_id().unwrap_or_default()).hash(&mut h),
         Dep::Narrow => ui::narrow(app).hash(&mut h),
         Dep::Locale => opencode_i18n::locale().id().hash(&mut h),
+        Dep::Now => (*app.now_ms).hash(&mut h),
         Dep::Server => (app.server_key(), app.can_write()).hash(&mut h),
         Dep::Servers => servers_version(app).hash(&mut h),
         Dep::Contract(id) => store::contract_generation(id).hash(&mut h),
@@ -294,6 +296,19 @@ pub fn dep_version(app: &App, dep: &Dep) -> u64 {
         #[cfg(not(feature = "office"))]
         Dep::Office(_) => 0.hash(&mut h),
         Dep::Browser => super::native::browser::version(app).hash(&mut h),
+        Dep::Composer => {
+            use crate::pickers::PickerHost as _;
+            let sel = app.selection();
+            (
+                app.has_composer(),
+                app.composer_directory(),
+                sel.model.provider,
+                sel.model.id,
+                app.composer_ext.pickers.models.len(),
+                app.composer_ext.pickers.open().map(crate::pickers::Kind::key),
+            )
+                .hash(&mut h);
+        }
     }
     h.finish()
 }

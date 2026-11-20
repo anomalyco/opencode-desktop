@@ -4,9 +4,9 @@
 use crate::{Half, string_enum};
 
 /// The contract version this crate describes.
-pub const CONTRACT: &str = "1.4";
+pub const CONTRACT: &str = "1.5";
 pub const CONTRACT_MAJOR: u16 = 1;
-pub const CONTRACT_MINOR: u16 = 4;
+pub const CONTRACT_MINOR: u16 = 5;
 
 string_enum! {
     /// A contribution kind, by its contract name.
@@ -175,7 +175,7 @@ string_enum! {
         Terminal = "Terminal",
         /// Pages in this window's embedded browser, each a tab of a session's side region.
         Browser = "Browser",
-        /// The routed session's composer.
+        /// The active session's or draft's composer.
         Composer = "Composer",
         /// Office documents laid out and drawn by the host, each on a thread of its own.
         Office = "Office",
@@ -240,8 +240,8 @@ impl ServiceName {
     pub fn members(self) -> &'static [&'static str] {
         match self {
             Self::Sessions => &["Get", "Routed", "Open", "Changed", "RoutedChanged"],
-            Self::Models => &["Get", "Changed"],
-            Self::Server => &["RequestAsync", "Resource", "Invalidate", "OnEvent", "EncodeUri", "Version", "IsLocal", "CanWrite", "Connected"],
+            Self::Models => &["Get", "List", "SetBadges", "Changed"],
+            Self::Server => &["RequestAsync", "Resource", "Invalidate", "OnEvent", "EncodeUri", "Version", "IsLocal", "IsLive", "CanWrite", "Connected"],
             Self::Servers => &["List", "Current", "Health", "Connect", "Changed"],
             Self::Http => &["FetchAsync"],
             Self::Process => &["Spawn", "RunAsync"],
@@ -263,7 +263,7 @@ impl ServiceName {
             Self::Diff => &["Open", "Mode", "SetMode"],
             Self::Terminal => &["Create", "Attach", "List", "Available", "New", "Toggle", "Select", "OpenAsync"],
             Self::Browser => &["OpenAsync", "Tabs", "Get", "List", "Active", "Selected", "Focused", "Available", "Engine", "NormalizeUrl", "Prepare", "Changed", "Picked"],
-            Self::Composer => &["InsertPill"],
+            Self::Composer => &["InsertPill", "Active", "Directory", "Model", "Picker", "PickerChanged"],
             Self::Office => &["OpenAsync", "Version", "SetSheet", "Sheet", "Close"],
             Self::Updater => &["State", "CheckAsync", "InstallAsync", "StateChanged"],
             Self::Diagnostics => &["Memory", "Metrics", "Plugins", "Get", "Set", "HeapSnapshotAsync"],

@@ -58,8 +58,14 @@ fn open(s: &mut App, _: &mut Play<App>) {
     }
     s.composer.focused = false;
     if s.fixture_run.variant == 3 {
-        s.fixture_run.fixture["usage_limits"] = serde_json::json!({"workspace":{"name":"Acme","usageURL":"https://example.com/usage"},
-            "budgets":[{"id":"team", "limit":100, "spent":28, "coverage":"all", "resetsAt":1796083200000_i64}]});
+        let label = opencode_i18n::t!("usage.budget.left", amount = opencode_i18n::usd(72.0, 2));
+        let mut badges = std::collections::HashMap::new();
+        for id in ["opencode:claude-opus-5-5", "opencode:claude-sonnet-5-5"] {
+            badges.insert(id.to_owned(), (label.clone(), false));
+        }
+        s.plugins.set_model_badges("story", 0, badges);
+    } else {
+        s.plugins.clear_model_badges("story", None);
     }
     s.open_picker(Kind::Model);
     if s.fixture_run.variant == 1 {

@@ -27,6 +27,8 @@ string_enum! {
         SurfacePress = "surface-press",
         /// The fill of a selected row or tab.
         SurfaceSelected = "surface-selected",
+        /// A high-contrast inverse fill, such as a progress bar fill or solid contrast indicator.
+        SurfaceInverse = "surface-inverse",
         /// Headings and the most important text.
         TextStrong = "text-strong",
         /// Body text.
@@ -77,6 +79,16 @@ string_enum! {
         StatusDanger = "status-danger",
         /// Neutral information.
         StatusInfo = "status-info",
+        /// A tinted background for success callouts and banners.
+        StatusSuccessBg = "status-success-bg",
+        /// A tinted background for warning callouts and banners.
+        StatusWarningBg = "status-warning-bg",
+        /// A tinted background for danger callouts and banners.
+        StatusDangerBg = "status-danger-bg",
+        /// A tinted background for informational callouts and banners.
+        StatusInfoBg = "status-info-bg",
+        /// High-contrast danger ink for text and indicators on light or tinted danger surfaces.
+        StatusDangerStrong = "status-danger-strong",
         /// A letter tile's fill, as the app's project avatars draw: the first of eight a name hashes to.
         AvatarOrange = "avatar-orange",
         /// A letter tile's fill, the second of eight.
@@ -109,8 +121,8 @@ impl SemanticToken {
             Self::BgBase | Self::BgWeak | Self::BgStrong => "background",
             Self::BorderStrong | Self::BorderBase | Self::BorderWeak | Self::BorderFocus => "border",
             Self::IconStrong | Self::IconBase | Self::IconWeak | Self::IconWeaker | Self::IconOnAccent => "icon",
-            Self::StatusSuccess | Self::StatusWarning | Self::StatusDanger | Self::StatusInfo => "status",
-            Self::Surface1 | Self::Surface2 | Self::Surface3 | Self::Surface4 | Self::SurfaceHover | Self::SurfacePress | Self::SurfaceSelected => "surface",
+            Self::StatusSuccess | Self::StatusWarning | Self::StatusDanger | Self::StatusInfo | Self::StatusSuccessBg | Self::StatusWarningBg | Self::StatusDangerBg | Self::StatusInfoBg | Self::StatusDangerStrong => "status",
+            Self::Surface1 | Self::Surface2 | Self::Surface3 | Self::Surface4 | Self::SurfaceHover | Self::SurfacePress | Self::SurfaceSelected | Self::SurfaceInverse => "surface",
             Self::TextStrong | Self::TextBase | Self::TextWeak | Self::TextWeaker | Self::TextMuted | Self::TextFaint | Self::TextChrome | Self::TextOnAccent | Self::TextInteractive => "text",
         }
     }
