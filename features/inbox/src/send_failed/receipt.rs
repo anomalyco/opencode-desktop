@@ -6,7 +6,8 @@ use opencode_kit::wire_error::WireError;
 use serde_json::Value;
 
 pub enum Receipt {
-    Admitted,
+    /// Prompt is still in the server's inbox; carries the live inbox list just fetched.
+    Admitted(Vec<Value>),
     Delivered(Box<Message>),
     Missing,
 }
@@ -15,7 +16,7 @@ pub fn read(fetch: &dyn Fn(&str) -> Result<Value, WireError>, session: &str, id:
     let inbox = fetch(&format!("/api/session/{session}/inbox"))?;
     let items = inbox["data"].as_array().or_else(|| inbox.as_array()).ok_or("Invalid inbox response")?;
     if items.iter().any(|item| item["id"] == id) {
-        return Ok(Receipt::Admitted);
+        return Ok(Receipt::Admitted(items.clone()));
     }
     match fetch(&format!("/api/session/{session}/message/{id}")) {
         Ok(value) => parse_message(&value["data"]).filter(|m| m.id() == id).map(|m| Receipt::Delivered(Box::new(m))).ok_or_else(|| "Invalid message receipt".into()),

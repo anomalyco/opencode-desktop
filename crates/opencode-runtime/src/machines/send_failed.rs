@@ -43,6 +43,15 @@ pub enum Operation {
     Send,
     /// A reply to a subagent whose folder may be gone (`subagents/reply.rs`).
     MovingHome,
+    /// A queued follow-up submitted with Alt+Enter (`#63109`): once admitted to the server's inbox,
+    /// moves ahead of existing queued prompts (or immediately after any still-queued `after` IDs
+    /// submitted with Alt+Enter even more recently before this entry drained).
+    SendFirst {
+        #[serde(default)]
+        moving_home: bool,
+        #[serde(default)]
+        after: Vec<String>,
+    },
     Start(String),
     Worktree {
         project: String,
@@ -57,10 +66,44 @@ impl Operation {
         matches!(self, Self::Start(_) | Self::Worktree { .. })
     }
 
+    /// Marks a plain send or subagent reply to move to the front of the queue once admitted.
+    pub fn into_first(self) -> Self {
+        match self {
+            Self::Send => Self::SendFirst { moving_home: false, after: Vec::new() },
+            Self::MovingHome => Self::SendFirst { moving_home: true, after: Vec::new() },
+            other => other,
+        }
+    }
+
+    /// Drops any queue-first intent (e.g. when promoted directly to a steer before send).
+    pub fn into_plain(self) -> Self {
+        match self {
+            Self::SendFirst { moving_home: true, .. } => Self::MovingHome,
+            Self::SendFirst { moving_home: false, .. } => Self::Send,
+            other => other,
+        }
+    }
+
+    /// If this entry carries queue-first intent, returns the IDs it should remain ordered behind.
+    pub fn first_after(&self) -> Option<&[String]> {
+        match self {
+            Self::SendFirst { after, .. } => Some(after),
+            _ => None,
+        }
+    }
+
+    /// Mutable access to the queue-first `after` anchor IDs.
+    pub fn first_after_mut(&mut self) -> Option<&mut Vec<String>> {
+        match self {
+            Self::SendFirst { after, .. } => Some(after),
+            _ => None,
+        }
+    }
+
     pub fn write(&self, session: String, prompt: Prompt) -> Write {
         match self {
-            Self::Send => Write::Send { session, prompt },
-            Self::MovingHome => Write::SendMovingHome { session, prompt },
+            Self::Send | Self::SendFirst { moving_home: false, .. } => Write::Send { session, prompt },
+            Self::MovingHome | Self::SendFirst { moving_home: true, .. } => Write::SendMovingHome { session, prompt },
             Self::Start(directory) => Write::StartAs { session, directory: directory.clone(), prompt },
             Self::Worktree { project, from, branch } => {
                 Write::StartInNewWorktree { session, project: project.clone(), from: from.clone(), branch: branch.clone(), prompt }

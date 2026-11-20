@@ -5,16 +5,36 @@ use rune::{TextEdit, Tx};
 use crate::pickers::PickerHost as _;
 use crate::{App, Route, Source, attachments};
 
+/// How the user asked to submit the composer (`editor.tsx:388-394`, `#63109`, `#63111`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SubmitMode {
+    #[default]
+    Default,
+    /// `Mod+Enter` or the alternate-delivery toolbar hint: flips Steer/Queue, or steers the first
+    /// queued prompt immediately when the normal-mode composer is empty (`#63111`).
+    Alternate,
+    /// `Alt+Enter`: queues the prompt at the front of the queue while the session is busy, without
+    /// steering, regardless of the follow-up preference (`#63109`).
+    QueueFirst,
+}
+
 impl App {
     pub fn send(&mut self, tx: &mut Tx) {
-        self.submit(false, tx);
+        self.submit_mode(SubmitMode::Default, tx);
     }
 
-    /// Sends the composer's prompt. While the session is busy it steers, or queues when
-    /// `alternate` (⌘⏎); see `queue.rs`.
+    /// Sends the composer's prompt. While the session is busy it follows the follow-up preference,
+    /// or the opposite delivery when `alternate` (`⌘⏎`); see `queue.rs`.
     pub fn submit(&mut self, alternate: bool, tx: &mut Tx) {
+        self.submit_mode(if alternate { SubmitMode::Alternate } else { SubmitMode::Default }, tx);
+    }
+
+    /// Sends the composer's prompt with explicit [`SubmitMode`] (`Default`, `Alternate`, or
+    /// `QueueFirst`).
+    pub fn submit_mode(&mut self, mode: SubmitMode, tx: &mut Tx) {
+        let alternate = mode == SubmitMode::Alternate;
         // An undo of a queued prompt holds the submit; a queued prompt open in the composer goes
-        // back to the queue (Return) or steers (the other delivery) instead of a new send
+        // back to the queue (Return / Alt+Return) or steers (Mod+Return) instead of a new send
         // (`composer/model.ts:540-560`).
         if let Route::Session { id, .. } = &*self.route
             && let Some(q) = self.kernel.slots.get(&crate::queue::QUEUE_OPS).get(id)
@@ -27,9 +47,31 @@ impl App {
                 return self.confirm_queue_edit(alternate);
             }
         }
+        // With no draft to send, Mod+Enter in a normal-mode composer promotes and steers the next
+        // queued prompt immediately (`composer/model.ts:562-568`, `#63111`). Plain Enter, Alt+Enter,
+        // parked sessions, and shell mode leave the queue alone.
+        if mode == SubmitMode::Alternate
+            && !self.kernel.slots.get(&crate::add_menu::ADD_MENU).shell()
+            && !crate::dictation::is_active(self)
+            && self.composer.text.trim().is_empty()
+            && !self.composer_ext.attach.any()
+            && self.composer_ext.attach.context.is_empty()
+            && self.composer_ext.attach.uploads.is_empty()
+            && !self.kernel.slots.get(&crate::quote::QUOTE).any()
+        {
+            if self.opening.is_none()
+                && !self.dock_shown()
+                && let Route::Session { id, .. } = (*self.route).clone()
+                && self.busy(&id)
+            {
+                tx.instant();
+                self.steer_first_queued(&id);
+            }
+            return;
+        }
         let typed = !self.composer.text.is_empty();
         rune::marks::mark("send.submit");
-        self.record_sent(|s| s.send_prompt(alternate, tx));
+        self.record_sent(|s| s.send_prompt(mode, tx));
         rune::marks::mark("send.handled");
         // A narrow window lets go of the composer once it sends (`submit.ts:436`).
         if self.narrow() && typed && self.composer.text.is_empty() {
@@ -37,14 +79,15 @@ impl App {
         }
     }
 
-    fn send_prompt(&mut self, alternate: bool, tx: &mut Tx) {
+    fn send_prompt(&mut self, mode: SubmitMode, tx: &mut Tx) {
+        let alternate = mode == SubmitMode::Alternate;
         // Held, not dropped, while the session still opens (`submit.rs`).
-        if self.hold_submit(alternate) { return; }
-        if crate::dictation::submit(self, alternate) { return; }
+        if self.hold_submit(mode) { return; }
+        if crate::dictation::submit_mode(self, mode) { return; }
         if self.kernel.slots.get(&crate::add_menu::ADD_MENU).shell() {
             return self.submit_shell(alternate, tx);
         }
-        if !alternate && self.retry_restored() { return; }
+        if mode == SubmitMode::Default && self.retry_restored() { return; }
         let wire = self.mention_wire();
         if wire.text.is_empty() && !self.composer_ext.attach.any() && !self.kernel.slots.get(&crate::quote::QUOTE).any() {
             return;
@@ -104,12 +147,14 @@ impl App {
             && (self.busy(&id) || self.steers_waiting(&id))
         {
             let local = prompt.id.clone().unwrap_or_default();
-            // Enter does what Settings › Follow-up behavior says and ⌘⏎ the other; with no run to
-            // queue behind, both send as a steer does.
-            let queue = (alternate != (self.settings.follow_up == crate::settings::FollowUp::Queue)) && self.busy(&id);
+            // Alt+Enter always queues first while busy (`#63109`); Enter does what Settings ›
+            // Follow-up behavior says and ⌘⏎ the other; with no run to queue behind, both send
+            // as a steer does.
+            let queue_first = mode == SubmitMode::QueueFirst && self.busy(&id);
+            let queue = queue_first || ((alternate != (self.settings.follow_up == crate::settings::FollowUp::Queue)) && self.busy(&id));
             self.echo_mentions(&local);
             opencode_kit::mention::set_user_path_attachments(&local, prompt.attachments.clone());
-            self.admit(&id, prompt, if queue { Delivery::Queue } else { Delivery::Steer });
+            self.admit_with(&id, prompt, if queue { Delivery::Queue } else { Delivery::Steer }, queue_first);
             if queue {
                 if crate::view::shows_whole_prompt() {
                     tx.launch("prompt", format!("queued-{local}"));
@@ -235,7 +280,7 @@ impl App {
         let files = std::mem::take(&mut self.composer_ext.attach.files);
         let paths = std::mem::take(&mut self.composer_ext.attach.paths);
         let context = std::mem::take(&mut self.composer_ext.attach.context);
-        self.send_prompt(true, tx);
+        self.send_prompt(SubmitMode::Alternate, tx);
         let q = self.kernel.slots.get_mut(&crate::quote::QUOTE);
         let went = q.items.is_empty();
         q.comment = comment;

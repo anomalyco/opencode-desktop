@@ -16,7 +16,7 @@ use opencode_kit::wire_error::WireError;
 use rune::machine::Attempt;
 
 use super::QueueHost;
-use super::machine::{EditOp, Event, Operation, Stage};
+use super::machine::{EditOp, Event, Operation, ReorderKind, Stage};
 
 /// What a chain in flight has done so far (`MutationProgress`): how far it got, the ids it
 /// withdrew or cancelled, and its stop.
@@ -100,7 +100,8 @@ pub fn execute_rewrite(srv: &Server, task: RewriteTask, on_progress: impl Fn(Que
         }
     };
     let result = match &operation {
-        Operation::Reorder { ids, .. } => srv.rewrite_queue(&session, Some(ids), None, &abort, &mut progress),
+        Operation::Reorder { kind: ReorderKind::Exact(ids), .. } => srv.rewrite_queue(&session, Some(ids), None, &abort, &mut progress),
+        Operation::Reorder { kind: ReorderKind::First { id, after }, .. } => srv.rewrite_queue_first(&session, id, after, &abort, &mut progress),
         Operation::Edit(e) if e.delivery == Delivery::Queue => {
             let replace = Replace { original: e.original.clone(), admission: e.admission.clone(), moved: e.moved.iter().cloned().collect() };
             srv.rewrite_queue(&session, None, Some(&replace), &abort, &mut progress)
@@ -147,7 +148,7 @@ pub(super) fn run_queue_op(host: &mut dyn QueueHost, session: &str, attempt: Att
         Operation::Steer { .. } => Write::Deliver { session: s, item: id, delivery: Delivery::Steer },
         Operation::Requeue { .. } => Write::Deliver { session: s, item: id, delivery: Delivery::Queue },
         Operation::Remove { .. } | Operation::Undo { .. } | Operation::Delete { .. } => Write::Cancel { session: s, item: id },
-        Operation::Edit(_) | Operation::Reorder { .. } => return run_rewrite(host, session, attempt, operation),
+        Operation::Edit(_) | Operation::First { .. } | Operation::Reorder { .. } => return run_rewrite(host, session, attempt, operation),
     };
     // Fixture runs act locally, as if the server agreed at once.
     if host.is_fixture() {
@@ -207,13 +208,26 @@ fn fixture_rewrite(host: &mut dyn QueueHost, session: &str, operation: &Operatio
     {
         let inbox = host.inboxes_mut().entry(session.to_owned()).or_default();
         match operation {
-            Operation::Reorder { ids, .. } => {
+            Operation::Reorder { kind: ReorderKind::Exact(ids), .. } => {
                 let mut queued: Vec<InboxItem> = inbox.items.iter().filter(|i| i.delivery == Delivery::Queue).cloned().collect();
                 inbox.items.retain(|i| i.delivery != Delivery::Queue);
                 for id in ids {
                     if let Some(at) = queued.iter().position(|i| i.id == *id) {
                         inbox.items.push(queued.remove(at));
                     }
+                }
+                inbox.items.extend(queued);
+            }
+            Operation::Reorder { kind: ReorderKind::First { id, after }, .. } => {
+                let mut queued: Vec<InboxItem> = inbox.items.iter().filter(|i| i.delivery == Delivery::Queue).cloned().collect();
+                inbox.items.retain(|i| i.delivery != Delivery::Queue);
+                if let Some(pos) = queued.iter().position(|i| i.id == *id) {
+                    let target = queued.remove(pos);
+                    let insert_at = queued
+                        .iter()
+                        .rposition(|i| after.iter().any(|a| a == &i.id))
+                        .map_or(0, |k| k + 1);
+                    queued.insert(insert_at, target);
                 }
                 inbox.items.extend(queued);
             }

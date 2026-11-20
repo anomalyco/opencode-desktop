@@ -120,7 +120,7 @@ pub fn show_outbox(host: &mut dyn SendFailedHost) {
         .filter(|s| s.journaled && s.phase != Phase::Accepted)
         .cloned()
         .collect();
-    for s in pending {
+    for s in &pending {
         let already_in_inbox = host.inboxes().get(&s.session).is_some_and(|i| i.items.iter().any(|i| i.id == s.id));
         if already_in_inbox {
             continue;
@@ -129,7 +129,21 @@ pub fn show_outbox(host: &mut dyn SendFailedHost) {
         if s.inbox && has_steering {
             let delivery = s.prompt.as_ref().and_then(|p| p.delivery).unwrap_or(Delivery::Steer);
             let item = InboxItem { id: s.id.clone(), text: s.draft.text.clone(), files: s.files.clone(), delivery };
-            host.inboxes_mut().entry(s.session.clone()).or_default().upsert(item);
+            let later_pos = (delivery == Delivery::Queue)
+                .then(|| {
+                    host.inboxes().get(&s.session).and_then(|inbox| {
+                        inbox.items.iter().position(|other| {
+                            other.delivery == Delivery::Queue
+                                && pending.iter().any(|p| p.session == s.session && p.id == other.id && p.seq > s.seq)
+                        })
+                    })
+                })
+                .flatten();
+            let inbox = host.inboxes_mut().entry(s.session.clone()).or_default();
+            match later_pos {
+                Some(at) => inbox.items.insert(at, item),
+                None => inbox.upsert(item),
+            }
             continue;
         }
         let t = host
@@ -137,7 +151,15 @@ pub fn show_outbox(host: &mut dyn SendFailedHost) {
             .entry(s.session.clone())
             .or_insert_with(|| Transcript { session: s.session.clone(), messages: vec![] });
         if !t.messages.iter().any(|m| m.id() == s.id) {
-            t.messages.push(Message::User { id: s.id.clone(), text: s.draft.text.clone() });
+            let msg = Message::User { id: s.id.clone(), text: s.draft.text.clone() };
+            let later_pos = t
+                .messages
+                .iter()
+                .position(|m| pending.iter().any(|p| p.session == s.session && p.id == m.id() && p.seq > s.seq));
+            match later_pos {
+                Some(at) => t.messages.insert(at, msg),
+                None => t.messages.push(msg),
+            }
             opencode_kit::model::set_user_files(&s.id, s.files.clone());
             if let Some(p) = &s.prompt {
                 opencode_kit::model::set_user_comments(&s.id, p.comments.clone());
@@ -151,7 +173,7 @@ pub fn show_outbox(host: &mut dyn SendFailedHost) {
 /// nothing, and it goes once [`release_prepared`] says so. False when the outbox can't
 /// take it (a read-only window, the storage in memory still takes it for the run).
 pub fn enqueue_prepared(host: &mut dyn SendFailedHost, sent: Sent, write: Write) -> bool {
-    enqueue_prompt_as(host, sent, write, true)
+    enqueue_prompt_as(host, sent, write, true, false)
 }
 
 /// Prompt `id`, Preparing, may go: on to `directory` (its new worktree, made now) when given.
@@ -169,10 +191,57 @@ pub fn release_prepared(host: &mut dyn SendFailedHost, id: &str, directory: Opti
 /// it's next in line, the write leaves from there once the row is durable. The UI thread
 /// writes nothing. False only for a write the outbox doesn't keep.
 pub fn enqueue_prompt(host: &mut dyn SendFailedHost, sent: Sent, write: Write) -> bool {
-    enqueue_prompt_as(host, sent, write, false)
+    enqueue_prompt_as(host, sent, write, false, false)
 }
 
-fn enqueue_prompt_as(host: &mut dyn SendFailedHost, mut sent: Sent, write: Write, preparing: bool) -> bool {
+/// Like [`enqueue_prompt`], but marks the queued follow-up for Alt+Enter queue-first (`#63109`):
+/// orders it ahead of any queued follow-ups still waiting in the outbox for the same session and
+/// persists queue-first intent so it moves to the front of the server's queue once admitted.
+pub fn enqueue_prompt_first(host: &mut dyn SendFailedHost, sent: Sent, write: Write) -> bool {
+    enqueue_prompt_as(host, sent, write, false, true)
+}
+
+/// Computes a durable `seq` strictly before the earliest non-terminal queued follow-up for
+/// `session` (and strictly after any earlier entry such as a steer or another session's prompt).
+/// Returns `(seq, bumped_ids)` where any `bumped_ids` had their `seq` shifted and must be re-put.
+fn seq_before_queued(sent: &mut [Sent], session: &str, exclude: Option<&str>) -> (i64, Vec<String>) {
+    let pos = sent.iter().position(|s| {
+        exclude != Some(s.id.as_str())
+            && s.journaled
+            && s.session == session
+            && s.inbox
+            && !matches!(s.phase, Phase::Accepted | Phase::Failed { .. } | Phase::Preparing)
+            && s.prompt.as_ref().and_then(|p| p.delivery) == Some(Delivery::Queue)
+    });
+    let Some(at) = pos else {
+        return (store::next_seq(), Vec::new());
+    };
+    let next_seq = sent[at].seq;
+    let prev_seq = at.checked_sub(1).map(|i| sent[i].seq);
+    match prev_seq {
+        None => (next_seq.saturating_sub(1024), Vec::new()),
+        Some(prev) if next_seq - prev > 1 => (prev + (next_seq - prev) / 2, Vec::new()),
+        Some(prev) => {
+            let mut bumped = Vec::new();
+            for s in &mut sent[at..] {
+                s.seq = s.seq.saturating_add(1024);
+                s.row = store::Row::None;
+                bumped.push(s.id.clone());
+            }
+            (prev.saturating_add(512), bumped)
+        }
+    }
+}
+
+fn persist_ids(host: &mut dyn SendFailedHost, ids: Vec<String>) {
+    for id in ids {
+        if let Some(op) = host.unsent_mut().persist_op(&id, None) {
+            host.with_storage(op);
+        }
+    }
+}
+
+fn enqueue_prompt_as(host: &mut dyn SendFailedHost, mut sent: Sent, write: Write, preparing: bool, first: bool) -> bool {
     sent.operation = match write {
         Write::Send { .. } => Operation::Send,
         Write::SendMovingHome { .. } => Operation::MovingHome,
@@ -181,8 +250,37 @@ fn enqueue_prompt_as(host: &mut dyn SendFailedHost, mut sent: Sent, write: Write
         Write::SendFromRevert { .. } => Operation::Revert,
         _ => return false,
     };
+    if first {
+        sent.operation = sent.operation.into_first();
+    }
     sent.journaled = true;
-    sent.seq = store::next_seq();
+    let (seq, bumped) = if first {
+        seq_before_queued(&mut host.unsent_mut().sent, &sent.session, None)
+    } else {
+        (store::next_seq(), Vec::new())
+    };
+    sent.seq = seq;
+    // Earlier queue-first entries for the same session stay ordered behind this newer queue-first.
+    let updated_after: Vec<String> = if first {
+        let mut ids = Vec::new();
+        for other in &mut host.unsent_mut().sent {
+            if other.journaled
+                && other.session == sent.session
+                && other.seq > seq
+                && !matches!(other.phase, Phase::Accepted | Phase::Failed { .. })
+                && let Some(after) = other.operation.first_after_mut()
+                && !after.contains(&sent.id)
+            {
+                after.push(sent.id.clone());
+                ids.push(other.id.clone());
+            }
+        }
+        ids
+    } else {
+        Vec::new()
+    };
+    persist_ids(host, bumped);
+    persist_ids(host, updated_after);
     // Words that leave the composer leave its saved draft in the same transaction as their row.
     if host.is_session_here(&sent.session)
         && !host.composer().text.is_empty()
@@ -209,6 +307,67 @@ fn enqueue_prompt_as(host: &mut dyn SendFailedHost, mut sent: Sent, write: Write
     {
         host.with_storage(op);
     }
+    true
+}
+
+/// Remaps queue-first `after` anchors on waiting outbox rows after a server rewrite replaces IDs.
+pub fn remap_first_after(host: &mut dyn SendFailedHost, session: &str, moved: &[(String, String)]) {
+    if moved.is_empty() {
+        return;
+    }
+    let mut updated = Vec::new();
+    for s in &mut host.unsent_mut().sent {
+        if !s.journaled || s.session != session || matches!(s.phase, Phase::Accepted | Phase::Failed { .. }) {
+            continue;
+        }
+        let Some(after) = s.operation.first_after_mut() else { continue };
+        let mut changed = false;
+        for anchor in after.iter_mut() {
+            if let Some((_, next)) = moved.iter().find(|(old, _)| old == anchor) {
+                anchor.clone_from(next);
+                changed = true;
+            }
+        }
+        if changed {
+            updated.push(s.id.clone());
+        }
+    }
+    persist_ids(host, updated);
+}
+
+/// Promotes a queued prompt that is still `Waiting` in the local outbox directly to `Steer`,
+/// ordering it ahead of waiting queued prompts and persisting the updated row durably.
+pub fn steer_waiting_outbox(host: &mut dyn SendFailedHost, session: &str, id: &str) -> bool {
+    let Some(at) = host
+        .unsent()
+        .sent
+        .iter()
+        .position(|s| s.id == id && s.session == session && s.journaled && matches!(s.phase, Phase::Waiting { .. }))
+    else {
+        return false;
+    };
+    let (target_seq, mut bumped) = seq_before_queued(&mut host.unsent_mut().sent, session, Some(id));
+    bumped.retain(|b| b != id);
+    {
+        let unsent = host.unsent_mut();
+        let s = &mut unsent.sent[at];
+        if let Some(p) = &mut s.prompt {
+            p.delivery = Some(Delivery::Steer);
+        }
+        s.operation = std::mem::take(&mut s.operation).into_plain();
+        if s.seq > target_seq {
+            s.seq = target_seq;
+        }
+        // Full upsert so updated `prompt_json`, `seq`, and `operation_json` commit together.
+        s.row = store::Row::None;
+        unsent.sent.sort_by_key(|x| x.seq);
+    }
+    persist_ids(host, bumped);
+    persist_ids(host, vec![id.to_owned()]);
+    if let Some(inbox) = host.inboxes_mut().get_mut(session) {
+        inbox.set_delivery(id, Delivery::Steer);
+    }
+    pump_outbox(host);
     true
 }
 
@@ -268,26 +427,27 @@ pub fn pump_outbox(host: &mut dyn SendFailedHost) -> bool {
     let Some(writer) = host.live_writer() else {
         return false;
     };
+    // Serialize the outbox across all prompts (including when a queue-first prompt has a lower
+    // `seq` than an already-sending prompt): confirm any unconfirmed prompt first and never send
+    // two prompts in parallel.
+    if host.unsent().sent.iter().any(|s| s.journaled && matches!(s.phase, Phase::Unconfirmed { .. })) {
+        if host.unsent().check == Check::Idle {
+            super::check_sends(host);
+        }
+        return false;
+    }
+    if host.unsent().sent.iter().any(|s| s.journaled && matches!(s.phase, Phase::Sending { .. })) {
+        return false;
+    }
     let next = host
         .unsent()
         .sent
         .iter()
-        .find(|s| s.journaled && !matches!(s.phase, Phase::Accepted | Phase::Failed { .. } | Phase::Preparing))
-        .map(|s| (s.id.clone(), s.session.clone(), s.phase.clone(), s.prompt.clone(), s.operation.clone()));
-    let Some((id, session, phase, prompt, operation)) = next else {
+        .find(|s| s.journaled && matches!(s.phase, Phase::Waiting { .. }) && !host.is_queue_busy(&s.session))
+        .map(|s| (s.id.clone(), s.session.clone(), s.prompt.clone(), s.operation.clone()));
+    let Some((id, session, prompt, operation)) = next else {
         return false;
     };
-    match phase {
-        // A successful POST may have lost its SSE echo; check before releasing the next prompt.
-        Phase::Unconfirmed { .. } => {
-            if host.unsent().check == Check::Idle {
-                super::check_sends(host);
-            }
-            return false;
-        }
-        Phase::Sending { .. } => return false,
-        _ => {}
-    }
     let Some(prompt) = prompt else {
         return false;
     };

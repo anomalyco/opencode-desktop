@@ -7,7 +7,7 @@ use hex_client::{Cmd, Heard, Presence, Problem};
 use rune::machine::Attempt;
 
 use crate::watch::Backend;
-use crate::{Dictation, FINISH_LIMIT, HOLD, PREPARING_AFTER};
+use crate::{Dictation, FINISH_LIMIT, HOLD, PREPARING_AFTER, SubmitKind};
 
 /// Where a dictation is, the machine every press, key and word from Hex goes through ([`step`]).
 /// A press goes `Idle` (or `Failed`) → `Starting` → `Listening` → `Finishing` → `Idle` with the
@@ -24,9 +24,9 @@ pub(crate) enum Phase {
     /// Hex is listening; `heard` is the words so far, when its model sends them. `hold`: when
     /// the shortcut that started it went down, while it is still held.
     Listening { rec: Rec, heard: Option<Words>, hold: Option<f64> },
-    /// Stopped at `stopped`; the words are coming, and go out with a send when Send or ⏎ (`Some`,
-    /// true for ⌘⏎) finished it. The words so far stay until they land.
-    Finishing { rec: Rec, heard: Option<Words>, stopped: f64, send: Option<bool> },
+    /// Stopped at `stopped`; the words are coming, and go out with a send when Send or ⏎ (`Some`)
+    /// finished it. The words so far stay until they land.
+    Finishing { rec: Rec, heard: Option<Words>, stopped: f64, send: Option<SubmitKind> },
     /// What went wrong, until the next press or send (as iOS keeps it).
     Failed(Problem),
 }
@@ -86,8 +86,8 @@ pub(crate) enum Event {
     Toggle { now: f64, held: bool },
     /// The shortcut came up.
     Release { now: f64 },
-    /// Send or ⏎ (`alternate` for ⌘⏎).
-    Submit { now: f64, alternate: bool },
+    /// Send or ⏎ (`kind` for ⌘⏎ / Alt+⏎).
+    Submit { now: f64, kind: SubmitKind },
     Escape,
     /// The Hex worker thread for `attempt` started, with its command channel and waker flag.
     ThreadStarted { attempt: Attempt, cmd: Sender<Cmd>, wakes: bool },
@@ -110,8 +110,8 @@ pub(crate) enum Effect {
     Stop,
     /// Cancel a recording's Hex thread after leaving an active phase.
     Cancel(Sender<Cmd>),
-    /// Put the words at the caret, then send them when `Some` (true for ⌘⏎).
-    Words { words: String, send: Option<bool> },
+    /// Put the words at the caret, then send them when `Some`.
+    Words { words: String, send: Option<SubmitKind> },
     /// Finish timed out: cancel the Hex thread if any and insert any partial words heard so far.
     TimedOut { words: String, cancel: Option<Sender<Cmd>> },
 }
@@ -155,8 +155,8 @@ pub(crate) fn step(d: &mut Dictation, event: Event) -> (bool, Option<Effect>) {
         }
         (Phase::Starting { rec, .. }, Event::Toggle { now, .. }) => finish(d, rec, None, now, None),
         (Phase::Listening { rec, heard, .. }, Event::Toggle { now, .. }) => finish(d, rec, heard, now, None),
-        (Phase::Starting { rec, .. }, Event::Submit { now, alternate }) => finish(d, rec, None, now, Some(alternate)),
-        (Phase::Listening { rec, heard, .. }, Event::Submit { now, alternate }) => finish(d, rec, heard, now, Some(alternate)),
+        (Phase::Starting { rec, .. }, Event::Submit { now, kind }) => finish(d, rec, None, now, Some(kind)),
+        (Phase::Listening { rec, heard, .. }, Event::Submit { now, kind }) => finish(d, rec, heard, now, Some(kind)),
         // A hold past `HOLD` was push-to-talk, so the recording finishes as the key comes up.
         (Phase::Starting { rec, hold: Some(at), .. }, Event::Release { now }) if now - at >= HOLD => finish(d, rec, None, now, None),
         (Phase::Listening { rec, heard, hold: Some(at) }, Event::Release { now }) if now - at >= HOLD => finish(d, rec, heard, now, None),
@@ -230,7 +230,7 @@ pub(crate) fn step(d: &mut Dictation, event: Event) -> (bool, Option<Effect>) {
 }
 
 /// Into `Finishing`: the microphone stops and the words are coming.
-fn finish(d: &mut Dictation, rec: Rec, heard: Option<Words>, now: f64, send: Option<bool>) -> (bool, Option<Effect>) {
+fn finish(d: &mut Dictation, rec: Rec, heard: Option<Words>, now: f64, send: Option<SubmitKind>) -> (bool, Option<Effect>) {
     d.phase = Phase::Finishing { rec, heard, stopped: now, send };
     (true, Some(Effect::Stop))
 }

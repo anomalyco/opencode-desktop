@@ -59,6 +59,15 @@ pub(crate) const FINISH_LIMIT: f64 = 30.0;
 const FAKE_SLOW_START: f64 = 1.2;
 pub const FAKE_WORDS: &str = "keep the retry budget as it is and add a test for the reconnect";
 
+/// Which submit shortcut ended a dictation recording.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SubmitKind {
+    #[default]
+    Default,
+    Alternate,
+    QueueFirst,
+}
+
 /// Host state and callbacks required by Hex voice dictation in the composer.
 pub trait DictationHost: opencode_kernel::AppEnv {
     fn dictation(&self) -> &Dictation;
@@ -76,7 +85,7 @@ pub trait DictationHost: opencode_kernel::AppEnv {
     /// Window waker used by the Hex presence watcher and dictation thread.
     fn dictation_waker(&self) -> Option<Waker>;
     /// Submits the composer prompt after dictation finishes when Send or Return ended recording.
-    fn submit_prompt(&mut self, alternate: bool, tx: &mut Tx);
+    fn submit_prompt(&mut self, kind: SubmitKind, tx: &mut Tx);
 }
 
 pub(crate) fn resolve_backend(host: &dyn DictationHost) -> &Backend {
@@ -296,8 +305,8 @@ fn run(host: &mut dyn DictationHost, event: Event, tx: Option<&mut Tx>) -> bool 
         }
         Some(Effect::Words { words, send }) => {
             insert(host, &words);
-            if let (Some(alternate), Some(tx)) = (send, tx) {
-                host.submit_prompt(alternate, tx);
+            if let (Some(kind), Some(tx)) = (send, tx) {
+                host.submit_prompt(kind, tx);
             }
         }
         Some(Effect::TimedOut { words, cancel }) => {
@@ -312,14 +321,14 @@ fn run(host: &mut dyn DictationHost, event: Event, tx: Option<&mut Tx>) -> bool 
     took
 }
 
-/// Send or ⏎ (`alternate` for ⌘⏎): while it listens, finishes and sends with the words, as the
+/// Send or ⏎ (`kind` for ⌘⏎ / Alt+⏎): while it listens, finishes and sends with the words, as the
 /// iOS app's Send does; while the words come, waits for them. True when dictation took it.
-pub fn submit(host: &mut dyn DictationHost, alternate: bool) -> bool {
+pub fn submit(host: &mut dyn DictationHost, kind: SubmitKind) -> bool {
     if dismiss_error(host) {
         return false;
     }
     let now = host.clock();
-    run(host, Event::Submit { now, alternate }, None)
+    run(host, Event::Submit { now, kind }, None)
 }
 
 /// ⇧⌘M starts or finishes; while a recording is on, Esc throws it away.

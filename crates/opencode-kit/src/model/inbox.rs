@@ -124,6 +124,8 @@ pub fn step_notice(state: NoticeState, event: NoticeEvent) -> (NoticeState, Opti
 #[derive(Clone, Debug, Default)]
 pub struct Inbox {
     pub items: Vec<InboxItem>,
+    /// True once a full server inbox listing (`replace`) has synced this session's inbox.
+    pub synced: bool,
     /// The id of a compaction the server admitted but hasn't started.
     pub compaction: Option<String>,
     /// Background shells and subagents that came back, in admission order: the notices
@@ -198,6 +200,7 @@ impl Inbox {
 
     /// Reconcile the complete inbox returned by the server.
     pub fn replace(&mut self, rows: &[Value]) {
+        self.synced = true;
         self.compaction = rows.iter().find(|i| i["type"] == "compaction").map(|i| s(&i["id"]));
         let listed: Vec<Notice> = rows.iter().filter_map(parse_inbox_notice).collect();
         let gone: Vec<String> = self.waiting_notices().filter(|n| !listed.iter().any(|l| l.id == n.id)).map(|n| n.id.clone()).collect();

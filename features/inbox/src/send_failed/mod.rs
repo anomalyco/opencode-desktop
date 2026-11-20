@@ -25,7 +25,8 @@ pub use machine::{AfterCheck, Phase, SLOW_SEND, SlowSend};
 pub use opencode_storage::StorageOp;
 pub use opencode_runtime::SendResult;
 pub use outbox::{
-    enqueue_prepared, enqueue_prompt, listen_outbox, open_outbox, outbox_action, pump_outbox, release_prepared, restore_draft, retry_restored, show_outbox, tick_outbox,
+    enqueue_prepared, enqueue_prompt, enqueue_prompt_first, listen_outbox, open_outbox, outbox_action, pump_outbox, release_prepared, remap_first_after, restore_draft, retry_restored,
+    show_outbox, steer_waiting_outbox, tick_outbox,
 };
 pub use view::{footer, footer_version};
 
@@ -157,6 +158,21 @@ pub trait SendFailedHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback
     fn on_send_result(&mut self, id: &str, result: SendResult) {
         let _ = (id, result);
     }
+
+    /// Whether `session`'s queue state machine currently has a rewrite/mutation in flight.
+    /// While true, [`pump_outbox`] waits before sending another prompt for `session` so new
+    /// admissions cannot race with an active `rewrite_queue`.
+    fn is_queue_busy(&self, session: &str) -> bool {
+        let _ = session;
+        false
+    }
+
+    /// Notified when a queue-first prompt (`Alt+Enter`, `#63109`) is admitted to `session`'s
+    /// server inbox so it moves ahead of existing queued prompts (after any still-queued `after`
+    /// anchors). `force` is true when `session`'s inbox has not yet been synced from the server.
+    fn on_admitted_first(&mut self, session: &str, id: &str, after: Vec<String>, force: bool) {
+        let _ = (session, id, after, force);
+    }
 }
 
 /// A prompt's phase without its data, as the timeline asks about it.
@@ -241,6 +257,7 @@ impl Log {
     pub fn note(&mut self, s: Sent) {
         self.sent.retain(|x| x.id != s.id);
         self.sent.push(s);
+        self.sent.sort_by_key(|x| x.seq);
         if self.sent.len() > KEEP {
             // Never discard words the user still needs to recover.
             if let Some(i) = self.sent.iter().position(|x| x.phase == Phase::Accepted) {
@@ -569,7 +586,24 @@ fn apply_receipts(host: &mut dyn SendFailedHost, receipts: Vec<(String, Result<r
                 }
                 Found::Arrived
             }
-            Ok(receipt::Receipt::Admitted) => {
+            Ok(receipt::Receipt::Admitted(items)) => {
+                if let Some(session) = host.unsent().get(&id).map(|s| s.session.clone()) {
+                    let dropped: Vec<InboxItem> = {
+                        let inbox = host.inboxes_mut().entry(session.clone()).or_default();
+                        let previous = std::mem::take(&mut inbox.items);
+                        inbox.replace(&items);
+                        previous.into_iter().filter(|o| !inbox.items.iter().any(|i| i.id == o.id)).collect()
+                    };
+                    let kept = host.unsent().keep_in_inbox(&session, dropped);
+                    if !kept.is_empty() {
+                        let inbox = host.inboxes_mut().entry(session).or_default();
+                        for item in kept {
+                            if !inbox.items.iter().any(|i| i.id == item.id) {
+                                inbox.upsert(item);
+                            }
+                        }
+                    }
+                }
                 admitted_send(host, &id);
                 continue;
             }
@@ -609,6 +643,11 @@ pub fn judge_sends_by_inbox(host: &mut dyn SendFailedHost, _session: &str, ids: 
 /// An accepted follow-up still waits for the busy session. Move its offline echo
 /// into the inbox until delivery; an already delivered message must never move back.
 pub fn admitted_send(host: &mut dyn SendFailedHost, id: &str) -> bool {
+    let first_op = host
+        .unsent()
+        .durable(id)
+        .and_then(|s| s.operation.first_after().map(|after| (s.session.clone(), after.to_vec())));
+    let synced = first_op.as_ref().is_some_and(|(session, _)| host.inboxes().get(session).is_some_and(|i| i.synced));
     if let Some(s) = host.unsent().durable(id).filter(|s| s.inbox).cloned() {
         if let Some(t) = host.transcripts_mut().get_mut(&s.session) {
             t.messages.retain(|m| m.id() != id);
@@ -623,7 +662,11 @@ pub fn admitted_send(host: &mut dyn SendFailedHost, id: &str) -> bool {
             });
         }
     }
-    accept_send(host, id)
+    let changed = accept_send(host, id);
+    if let Some((session, after)) = first_op {
+        host.on_admitted_first(&session, id, after, !synced);
+    }
+    changed
 }
 
 /// Marks prompt `id` as admitted by the server.

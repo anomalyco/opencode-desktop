@@ -235,6 +235,18 @@ impl App {
         admit(self, session, prompt, delivery);
     }
 
+    pub fn admit_with(&mut self, session: &str, prompt: Prompt, delivery: Delivery, first: bool) {
+        admit_with(self, session, prompt, delivery, first);
+    }
+
+    pub fn first_queued(&mut self, session: &str, id: &str, after: Vec<String>, force: bool) {
+        first_queued(self, session, id, after, force);
+    }
+
+    pub fn steer_first_queued(&mut self, session: &str) {
+        steer_first(self, session);
+    }
+
     pub fn steer_queued(&mut self, session: &str, id: &str) {
         steer_queued(self, session, id);
     }

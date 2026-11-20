@@ -160,13 +160,14 @@ pub(super) fn read_op(base: &str, window: &str) -> StorageOp {
     })
 }
 
-/// Orders a server's prompts across launches: later than any stored before.
+/// Orders a server's prompts across launches: later than any stored before, with headroom for
+/// queue-first prompts inserted ahead of waiting entries.
 pub(super) fn next_seq() -> i64 {
     static LAST: AtomicI64 = AtomicI64::new(0);
     let now = opencode_platform::wall_ms().saturating_mul(1000);
     let mut last = LAST.load(Ordering::Relaxed);
     loop {
-        let next = now.max(last + 1);
+        let next = now.max(last.saturating_add(1024));
         match LAST.compare_exchange_weak(last, next, Ordering::Relaxed, Ordering::Relaxed) {
             Ok(_) => return next,
             Err(seen) => last = seen,
