@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use cef::rc::Rc as _;
 use cef::{
     AcceleratedPaintInfo, AuthCallback, Browser, Callback, CefString, CursorInfo, CursorType,
-    DevToolsMessageObserver, DisplayHandler, Errorcode, Frame, ImplDevToolsMessageObserver,
+    DevToolsMessageObserver, DisplayHandler, Errorcode, Frame, ImplAuthCallback, ImplDevToolsMessageObserver,
     ImplDisplayHandler, ImplFrame, ImplLoadHandler, ImplRenderHandler, ImplRequest,
     ImplRequestHandler, ImplResourceRequestHandler, ImplSelectClientCertificateCallback,
     LoadHandler, PaintElementType, Rect, RenderHandler, Request, RequestHandler,
@@ -321,6 +321,7 @@ wrap_render_handler! {
 wrap_display_handler! {
     pub struct TabDisplayHandler {
         tab_id: u64,
+        preview: Option<Arc<crate::preview::PreviewGrant>>,
         snap: Arc<Mutex<TabSnapshot>>,
         prompts: Arc<crate::prompts::TabPrompts>,
         out_tx: Output,
@@ -338,7 +339,8 @@ wrap_display_handler! {
             }
             if let Some(url) = url {
                 let mut s = self.snap.lock().unwrap();
-                let url = url.to_string();
+                let raw = url.to_string();
+                let url = self.preview.as_ref().map_or(raw.clone(), |g| g.sanitize_reported_url(&raw));
                 // Chromium's error page commits the failed address; another address is another document.
                 if s.url != url {
                     let old_origin = crate::prompts::origin_of(&s.url);
@@ -366,7 +368,9 @@ wrap_display_handler! {
                 if s.load_error.as_deref().is_some_and(|e| e != "page_crashed") {
                     return;
                 }
-                s.title = title.to_string();
+                let raw = title.to_string();
+                // Never leak the internal `oc-preview://<uuid>` origin when a preview document has no <title>.
+                s.title = if browser_policy::preview::is_preview_scheme(&raw) { s.url.clone() } else { raw };
                 let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
             }
         }
@@ -409,6 +413,7 @@ wrap_load_handler! {
     pub struct TabLoadHandler {
         tab_id: u64,
         file_roots: Arc<Mutex<Vec<String>>>,
+        preview: Option<Arc<crate::preview::PreviewGrant>>,
         snap: Arc<Mutex<TabSnapshot>>,
         prompts: Arc<crate::prompts::TabPrompts>,
         out_tx: Output,
@@ -484,7 +489,8 @@ wrap_load_handler! {
                 return;
             }
             let mut s = self.snap.lock().unwrap();
-            if let Some(url) = failed_url.map(CefString::to_string).filter(|u| !u.is_empty()) {
+            if let Some(raw) = failed_url.map(CefString::to_string).filter(|u| !u.is_empty()) {
+                let url = self.preview.as_ref().map_or(raw.clone(), |g| g.sanitize_reported_url(&raw));
                 // As Desktop's tab names a failed page: its host and port.
                 let rest = url.split_once("://").map_or(url.as_str(), |(_, r)| r);
                 s.title = rest.split(['/', '?', '#']).next().unwrap_or(rest).to_owned();
@@ -560,6 +566,7 @@ wrap_request_handler! {
     pub struct TabRequestHandler {
         tab_id: u64,
         file_roots: Arc<Mutex<Vec<String>>>,
+        preview: Option<Arc<crate::preview::PreviewGrant>>,
         snap: Arc<Mutex<TabSnapshot>>,
         prompt_shared: crate::prompts::PromptShared,
         prompts: Arc<crate::prompts::TabPrompts>,
@@ -569,7 +576,7 @@ wrap_request_handler! {
     impl RequestHandler {
         // Navigation and redirect guard (`chromium.ts:432-446`): main-frame navigations require
         // `about:blank`, credential-free `http:`/`https:`, or a `file:` URL inside `file_roots`;
-        // sub-frames additionally forbid `file:` URLs outside `file_roots`.
+        // preview tabs stay strictly confined to their own `oc-preview://<grant_host>/` origin.
         fn on_before_browse(
             &self,
             _browser: Option<&mut Browser>,
@@ -580,6 +587,24 @@ wrap_request_handler! {
         ) -> ::std::os::raw::c_int {
             let is_main = frame.map_or(true, |f| f.is_main() == 1);
             let url = request.map(|r| CefString::from(&r.url()).to_string()).unwrap_or_default();
+            if let Some(grant) = &self.preview {
+                if is_main {
+                    if grant.allows_main_navigation(&url) {
+                        self.prompts.set_pending_top_url(Some(url));
+                        return 0;
+                    }
+                    if browser_policy::destination_origin(&url).is_some() {
+                        let _ = self.out_tx.send(EngineMsg::PopupBlocked { tab_id: self.tab_id, url });
+                    } else {
+                        let _ = self.out_tx.send(EngineMsg::Refused {
+                            tab_id: self.tab_id,
+                            reason: browser_policy::Refusal::Workspace.code().to_owned(),
+                        });
+                    }
+                    return 1;
+                }
+                return i32::from(!browser_policy::preview::preview_subresource_allowed(&url, &grant.grant_host));
+            }
             let roots = self.file_roots.lock().unwrap().clone();
             if let Some(why) = browser_policy::frame_guard(&url, is_main, &roots) {
                 let _ = self.out_tx.send(EngineMsg::Refused {
@@ -603,6 +628,17 @@ wrap_request_handler! {
             _user_gesture: ::std::os::raw::c_int,
         ) -> ::std::os::raw::c_int {
             let url = target_url.map(CefString::to_string).unwrap_or_default();
+            if self.preview.is_some() {
+                if browser_policy::destination_origin(&url).is_some() {
+                    let _ = self.out_tx.send(EngineMsg::PopupBlocked { tab_id: self.tab_id, url });
+                } else {
+                    let _ = self.out_tx.send(EngineMsg::Refused {
+                        tab_id: self.tab_id,
+                        reason: browser_policy::Refusal::Workspace.code().to_owned(),
+                    });
+                }
+                return 1;
+            }
             let roots = self.file_roots.lock().unwrap().clone();
             if let Some(why) = browser_policy::frame_guard(&url, true, &roots) {
                 let _ = self.out_tx.send(EngineMsg::Refused {
@@ -641,6 +677,12 @@ wrap_request_handler! {
             scheme: Option<&CefString>,
             callback: Option<&mut AuthCallback>,
         ) -> ::std::os::raw::c_int {
+            if self.preview.is_some() {
+                if let Some(cb) = callback {
+                    cb.cancel();
+                }
+                return 1;
+            }
             crate::prompts::handle_auth_credentials(
                 self.tab_id,
                 &self.prompt_shared,
@@ -677,12 +719,15 @@ wrap_request_handler! {
             &self,
             _browser: Option<&mut Browser>,
             frame: Option<&mut Frame>,
-            _request: Option<&mut Request>,
+            request: Option<&mut Request>,
             is_navigation: ::std::os::raw::c_int,
             _is_download: ::std::os::raw::c_int,
-            _request_initiator: Option<&CefString>,
+            request_initiator: Option<&CefString>,
             _disable_default_handling: Option<&mut ::std::os::raw::c_int>,
         ) -> Option<ResourceRequestHandler> {
+            if let Some(grant) = &self.preview {
+                return crate::preview::context::handle_resource_request(grant, frame, request, is_navigation, request_initiator);
+            }
             let is_main_navigation = is_navigation != 0 && frame.is_none_or(|f| f.is_main() == 1);
             Some(TabResourceRequestHandler::new(
                 self.file_roots.clone(),

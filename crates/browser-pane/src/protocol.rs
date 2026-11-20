@@ -97,6 +97,25 @@ pub struct TabSnapshot {
     /// `page_crashed` when its renderer went away. An engine from before it sends none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub load_error: Option<String>,
+    /// Set on isolated `oc-preview://` tabs so browser chrome marks them as previews.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<PreviewKindTag>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PreviewKindTag {
+    Local,
+    Remote,
+    Artifact,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PreviewSpec {
+    Local { root: String, document: String },
+    Remote { root: String, session_prefix: String, document: String },
+    Artifact { artifact_id: String, path: String },
 }
 
 /// An element chosen with the visual element picker (`Overlay.setInspectMode`), ready to insert
@@ -133,6 +152,8 @@ pub enum HostMsg {
         focused: bool,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         file_roots: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        preview: Option<PreviewSpec>,
     },
     SetTabPolicy {
         tab_id: u64,
@@ -271,6 +292,27 @@ pub enum HostMsg {
         tab_id: u64,
         agent_driven: bool,
     },
+    /// App-proxied response headers for a remote workspace or artifact `EngineMsg::PreviewFetch`.
+    PreviewResponseHead {
+        req_id: u64,
+        ok: bool,
+        status: u16,
+        mime: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        content_length: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        content_range: Option<String>,
+    },
+    /// App-proxied base64 body chunk for a pending `EngineMsg::PreviewFetch`.
+    PreviewResponseChunk {
+        req_id: u64,
+        data_b64: String,
+    },
+    /// Marks EOF (`ok: true`) or failure (`ok: false`) for a pending `EngineMsg::PreviewFetch`.
+    PreviewResponseEnd {
+        req_id: u64,
+        ok: bool,
+    },
     Shutdown,
 }
 
@@ -292,6 +334,23 @@ pub enum EngineMsg {
         /// The engine manages pop-ups (`PopupOpen` / `PopupBlocked`) via `LifeSpanHandler`.
         #[serde(default)]
         popups: bool,
+        /// The engine serves isolated `oc-preview://` tabs.
+        #[serde(default)]
+        preview: bool,
+    },
+    /// Requests bytes for a remote workspace or artifact preview from the app host.
+    PreviewFetch {
+        req_id: u64,
+        tab_id: u64,
+        kind: PreviewKindTag,
+        path: String,
+        method: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        range: Option<String>,
+    },
+    /// A preview page attempted to load a file outside its grant or a secret/hidden path.
+    PreviewDenied {
+        tab_id: u64,
     },
     /// A frame navigation or redirect was refused by URL policy while keeping the current page.
     Refused {

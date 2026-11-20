@@ -62,7 +62,7 @@ pub use policy::{
 #[cfg(feature = "engine")]
 pub use profile::shared_profile_dir;
 pub use protocol::CursorKind;
-pub use protocol::{AuthChallenge, DialogKind, DownloadFile, DownloadState, PageDialog, PermissionKind, PermissionPrompt};
+pub use protocol::{AuthChallenge, DialogKind, DownloadFile, DownloadState, PageDialog, PermissionKind, PermissionPrompt, PreviewKindTag, PreviewSpec};
 pub use protocol::PickedElement;
 pub use prompts::{PermissionDecision, PermissionStore, SiteDecision, SitePermissions, SiteSetting};
 pub use site_zoom::ZoomStore;

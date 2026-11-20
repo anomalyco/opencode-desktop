@@ -9,9 +9,9 @@ use cef::rc::Rc as _;
 use cef::{
     App, Browser, BrowserHost, BrowserProcessHandler, BrowserSettings, CefString,
     CommandLine, ImplApp, ImplBrowser, ImplBrowserHost, ImplBrowserProcessHandler,
-    ImplCommandLine, ImplFrame, MouseButtonType,
-    MouseEvent, PaintElementType, Registration, Settings, WindowInfo, WrapApp,
-    WrapBrowserProcessHandler, sys, wrap_app, wrap_browser_process_handler,
+    ImplCommandLine, ImplFrame, ImplRequestContext, MouseButtonType,
+    MouseEvent, PaintElementType, Registration, RequestContext, SchemeRegistrar, Settings,
+    WindowInfo, WrapApp, WrapBrowserProcessHandler, sys, wrap_app, wrap_browser_process_handler,
 };
 use serde_json::{Value, json};
 
@@ -20,10 +20,11 @@ use crate::handlers::{
     TabRenderHandler, TabRequestHandler, ViewRectState, cef_mods, event_flag,
 };
 use crate::keys::send_key;
+use crate::preview::{PreviewGrant, PreviewRegistry};
 use crate::profile::Profile;
 use crate::tab_client::SidecarTabClient;
 use crate::wire::{
-    CursorKind, EngineMsg, HostMsg, PickedElement, PointerBtn, TabSnapshot,
+    CursorKind, EngineMsg, HostMsg, PickedElement, PointerBtn, PreviewSpec, TabSnapshot,
 };
 
 /// Opaque page background (ARGB) for pages that specify none. macOS uses Rune's dark base.
@@ -184,6 +185,10 @@ wrap_app! {
             }
         }
 
+        fn on_register_custom_schemes(&self, registrar: Option<&mut SchemeRegistrar>) {
+            crate::preview::scheme::register(registrar);
+        }
+
         fn browser_process_handler(&self) -> Option<BrowserProcessHandler> {
             Some(SidecarProcessHandler::new(self.pump.clone()))
         }
@@ -206,6 +211,10 @@ struct ManagedTab {
     browser: Browser,
     host: BrowserHost,
     file_roots: Arc<Mutex<Vec<String>>>,
+    preview: Option<Arc<PreviewGrant>>,
+    preview_ctx: Option<RequestContext>,
+    #[cfg(target_os = "linux")]
+    preview_spec: Option<PreviewSpec>,
     view_state: Arc<Mutex<ViewRectState>>,
     snap: Arc<Mutex<TabSnapshot>>,
     cdp_id_map: Arc<Mutex<HashMap<i32, CdpPending>>>,
@@ -235,6 +244,8 @@ pub struct EngineManager {
     downloads: Arc<crate::downloads::Downloads>,
     /// Shared prompt-handling toggle (`Hello.prompts`) and monotonic ID counter.
     prompt_shared: crate::prompts::PromptShared,
+    /// Isolated `oc-preview://` grant & async remote/artifact proxy registry.
+    previews: Arc<PreviewRegistry>,
     /// Windows: the D3D11 device frames are copied on; None renders on the CPU instead.
     #[cfg(windows)]
     gpu: Option<Arc<crate::d3d_frames::Gpu>>,
@@ -265,6 +276,7 @@ impl EngineManager {
             home: crate::profile::home_dir(),
             downloads: crate::downloads::Downloads::open(&downloads),
             prompt_shared: crate::prompts::PromptShared::default(),
+            previews: PreviewRegistry::new(),
             #[cfg(windows)]
             gpu,
             #[cfg(target_os = "linux")]
@@ -326,11 +338,12 @@ impl EngineManager {
                 let ids: Vec<u64> = self.tabs.keys().copied().collect();
                 for tab_id in ids {
                     let Some(tab) = self.tabs.remove(&tab_id) else { continue };
+                    self.release_preview(tab_id, tab.preview.as_ref(), tab.preview_ctx.as_ref());
                     tab.host.close_browser(1);
                     let url = tab.snap.lock().unwrap().url.clone();
                     let v = tab.view_state.lock().unwrap().clone();
                     let roots = tab.file_roots.lock().unwrap().clone();
-                    self.open_tab(tab_id, &url, v.width_pt, v.height_pt, v.scale, tab.shown, roots);
+                    self.open_tab(tab_id, &url, v.width_pt, v.height_pt, v.scale, tab.shown, roots, tab.preview_spec);
                 }
             }
             None => {}
@@ -433,6 +446,7 @@ impl EngineManager {
                     policy: true,
                     prompts,
                     popups: true,
+                    preview: true,
                 });
                 for (&tab_id, t) in &self.tabs {
                     if prompts {
@@ -461,9 +475,9 @@ impl EngineManager {
                     }
                 }
             }
-            HostMsg::OpenTab { tab_id, url, width_pt, height_pt, scale, focused, file_roots } => {
+            HostMsg::OpenTab { tab_id, url, width_pt, height_pt, scale, focused, file_roots, preview } => {
                 let roots = self.safe_roots(file_roots);
-                self.open_tab(tab_id, &url, width_pt, height_pt, scale, focused, roots);
+                self.open_tab(tab_id, &url, width_pt, height_pt, scale, focused, roots, preview);
             }
             HostMsg::SetTabPolicy { tab_id, file_roots } => {
                 let roots = self.safe_roots(file_roots);
@@ -473,6 +487,7 @@ impl EngineManager {
             }
             HostMsg::CloseTab { tab_id } => {
                 if let Some(tab) = self.tabs.remove(&tab_id) {
+                    self.release_preview(tab_id, tab.preview.as_ref(), tab.preview_ctx.as_ref());
                     tab.prompts.dismiss_all();
                     tab.host.close_browser(1);
                     self.downloads.close_tab(tab_id);
@@ -499,6 +514,14 @@ impl EngineManager {
             }
             HostMsg::Navigate { tab_id, url } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
+                    if t.preview.is_some() {
+                        // A preview tab stays inside its isolated context; web navigations open in a normal context.
+                        let _ = self.out_tx.send(EngineMsg::Refused {
+                            tab_id,
+                            reason: browser_policy::Refusal::Workspace.code().to_owned(),
+                        });
+                        return true;
+                    }
                     let roots = t.file_roots.lock().unwrap().clone();
                     if let Some(why) = browser_policy::frame_guard(&url, true, &roots) {
                         let _ = self.out_tx.send(EngineMsg::Refused {
@@ -848,8 +871,19 @@ impl EngineManager {
                     t.prompts.agent_driven.store(agent_driven, Ordering::Relaxed);
                 }
             }
+            HostMsg::PreviewResponseHead { req_id, ok, status, mime, content_length, content_range } => {
+                self.previews.on_response_head(req_id, ok, status, &mime, content_length, content_range);
+            }
+            HostMsg::PreviewResponseChunk { req_id, data_b64 } => {
+                self.previews.on_response_chunk(req_id, &data_b64);
+            }
+            HostMsg::PreviewResponseEnd { req_id, ok } => {
+                self.previews.on_response_end(req_id, ok);
+            }
             HostMsg::Shutdown => {
-                for (_, t) in self.tabs.drain() {
+                let drained: Vec<_> = self.tabs.drain().collect();
+                for (tab_id, t) in drained {
+                    self.release_preview(tab_id, t.preview.as_ref(), t.preview_ctx.as_ref());
                     t.prompts.dismiss_all();
                     t.host.close_browser(1);
                 }
@@ -859,6 +893,17 @@ impl EngineManager {
         true
     }
 
+    fn release_preview(&self, tab_id: u64, grant: Option<&Arc<PreviewGrant>>, ctx: Option<&RequestContext>) {
+        if let Some(g) = grant {
+            g.revoke();
+        }
+        self.previews.cancel_tab_proxies(tab_id);
+        if let Some(c) = ctx {
+            let _ = c.clear_scheme_handler_factories();
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn open_tab(
         &mut self,
         tab_id: u64,
@@ -868,10 +913,44 @@ impl EngineManager {
         scale: f32,
         focused: bool,
         file_roots: Vec<String>,
+        preview_spec: Option<PreviewSpec>,
     ) {
-        let refused = browser_policy::frame_guard(url, true, &file_roots);
-        let initial_url = if refused.is_some() { "about:blank" } else { url };
-        let file_roots = Arc::new(Mutex::new(file_roots));
+        let mut preview_grant: Option<Arc<PreviewGrant>> = None;
+        let mut preview_ctx: Option<RequestContext> = None;
+        let mut refused_reason: Option<String> = None;
+        let (initial_url, display_url) = if let Some(spec) = preview_spec.clone() {
+            match self.previews.create_grant(tab_id, spec, self.home.as_deref()) {
+                Ok((grant, internal, display)) => {
+                    if let Some(ctx) = crate::preview::context::create_preview_context(
+                        grant.clone(),
+                        self.previews.clone(),
+                        self.out_tx.clone(),
+                    ) {
+                        preview_grant = Some(grant);
+                        preview_ctx = Some(ctx);
+                        (internal, display)
+                    } else {
+                        grant.revoke();
+                        refused_reason = Some(browser_policy::Refusal::Workspace.code().to_owned());
+                        ("about:blank".to_owned(), "about:blank".to_owned())
+                    }
+                }
+                Err(code) => {
+                    refused_reason = Some(code.to_owned());
+                    ("about:blank".to_owned(), "about:blank".to_owned())
+                }
+            }
+        } else {
+            let refused = browser_policy::frame_guard(url, true, &file_roots);
+            if let Some(why) = refused {
+                refused_reason = Some(why.code().to_owned());
+                ("about:blank".to_owned(), "about:blank".to_owned())
+            } else {
+                (url.to_owned(), url.to_owned())
+            }
+        };
+        let is_preview = preview_grant.is_some();
+        let file_roots = Arc::new(Mutex::new(if is_preview { Vec::new() } else { file_roots }));
         let view_state = Arc::new(Mutex::new(ViewRectState {
             width_pt: width_pt.max(1.0),
             height_pt: height_pt.max(1.0),
@@ -879,14 +958,15 @@ impl EngineManager {
         }));
         let snap = Arc::new(Mutex::new(TabSnapshot {
             tab_id,
-            url: initial_url.to_owned(),
+            url: display_url,
             title: "New tab".into(),
-            loading: refused.is_none(),
+            loading: refused_reason.is_none(),
             can_go_back: false,
             can_go_forward: false,
             zoom: 1.0,
             cursor: CursorKind::Default,
             load_error: None,
+            preview: preview_grant.as_ref().map(|g| g.kind.tag()),
         }));
         #[cfg(windows)]
         let frames: FrameRing = self
@@ -914,10 +994,17 @@ impl EngineManager {
             (),
         );
         let prompts = Arc::new(crate::prompts::TabPrompts::default());
-        let display = TabDisplayHandler::new(tab_id, snap.clone(), prompts.clone(), self.out_tx.clone());
+        let display = TabDisplayHandler::new(
+            tab_id,
+            preview_grant.clone(),
+            snap.clone(),
+            prompts.clone(),
+            self.out_tx.clone(),
+        );
         let load = TabLoadHandler::new(
             tab_id,
             file_roots.clone(),
+            preview_grant.clone(),
             snap.clone(),
             prompts.clone(),
             self.out_tx.clone(),
@@ -925,6 +1012,7 @@ impl EngineManager {
         let request = TabRequestHandler::new(
             tab_id,
             file_roots.clone(),
+            preview_grant.clone(),
             snap.clone(),
             self.prompt_shared.clone(),
             prompts.clone(),
@@ -933,10 +1021,11 @@ impl EngineManager {
         let download = crate::downloads::TabDownloadHandler::new(
             tab_id,
             file_roots.clone(),
+            is_preview,
             self.downloads.clone(),
             self.out_tx.clone(),
         );
-        let life_span = crate::prompts::TabLifeSpanHandler::new(tab_id, self.out_tx.clone());
+        let life_span = crate::prompts::TabLifeSpanHandler::new(tab_id, is_preview, self.out_tx.clone());
         let jsdialog = crate::prompts::TabDialogHandler::new(
             tab_id,
             self.prompt_shared.clone(),
@@ -945,6 +1034,7 @@ impl EngineManager {
         );
         let permission = crate::prompts::TabPermissionHandler::new(
             tab_id,
+            is_preview,
             self.prompt_shared.clone(),
             prompts.clone(),
             snap.clone(),
@@ -976,11 +1066,12 @@ impl EngineManager {
         let Some(browser) = cef::browser_host_create_browser_sync(
             Some(&win_info),
             Some(&mut client),
-            Some(&CefString::from(initial_url)),
+            Some(&CefString::from(initial_url.as_str())),
             Some(&browser_settings),
             None,
-            None,
+            preview_ctx.as_mut(),
         ) else {
+            self.release_preview(tab_id, preview_grant.as_ref(), preview_ctx.as_ref());
             return;
         };
         let Some(host) = browser.host() else { return };
@@ -1015,6 +1106,10 @@ impl EngineManager {
                 browser,
                 host,
                 file_roots,
+                preview: preview_grant,
+                preview_ctx,
+                #[cfg(target_os = "linux")]
+                preview_spec,
                 view_state,
                 snap,
                 cdp_id_map,
@@ -1029,11 +1124,8 @@ impl EngineManager {
                 frames,
             },
         );
-        if let Some(why) = refused {
-            let _ = self.out_tx.send(EngineMsg::Refused {
-                tab_id,
-                reason: why.code().to_owned(),
-            });
+        if let Some(reason) = refused_reason {
+            let _ = self.out_tx.send(EngineMsg::Refused { tab_id, reason });
         }
     }
 

@@ -404,7 +404,7 @@ impl SharedEngine {
 pub(crate) enum EngineCaps {
     #[default]
     Unknown,
-    Known { downloads: bool, policy: bool, prompts: bool, popups: bool },
+    Known { downloads: bool, policy: bool, prompts: bool, popups: bool, preview: bool },
 }
 
 impl EngineCaps {
@@ -422,6 +422,10 @@ impl EngineCaps {
 
     pub(crate) fn popups(self) -> bool {
         matches!(self, Self::Known { popups: true, .. })
+    }
+
+    pub(crate) fn preview(self) -> bool {
+        matches!(self, Self::Known { preview: true, .. })
     }
 }
 

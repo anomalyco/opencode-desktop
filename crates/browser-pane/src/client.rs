@@ -193,6 +193,11 @@ impl BrowserHost {
         self.caps.policy()
     }
 
+    /// Whether the connected engine serves isolated `oc-preview://` tabs.
+    pub fn engine_preview(&self) -> bool {
+        self.caps.preview()
+    }
+
     /// Where tab `tab_id`'s download `file` is, when it's where the engine keeps it: the engine
     /// profile's `opencode-page-downloads\<tab>\<file id>\` (or a throwaway profile's beside it).
     /// None for any other path the engine named: the app opens no file another process points at.
@@ -435,6 +440,7 @@ impl BrowserHost {
                 scale,
                 focused: true,
                 file_roots: if self.engine_policy() { file_roots } else { Vec::new() },
+                preview: None,
             });
         } else {
             self.pending_opens.push((id, url));
@@ -752,6 +758,7 @@ impl BrowserHost {
                 scale,
                 focused: self.focused_tab == Some(tab_id),
                 file_roots,
+                preview: None,
             });
             if let Some((device, emu_scale)) = emulate {
                 self.send(HostMsg::Emulate { tab_id, device: Some(device), scale: emu_scale });
@@ -785,6 +792,7 @@ impl BrowserHost {
                         scale,
                         focused: focused == Some(tab_id),
                         file_roots,
+                        preview: None,
                     },
                 )
             })
@@ -808,14 +816,14 @@ impl BrowserHost {
         mail.extend(std::iter::from_fn(|| self.inbox_rx.try_recv().ok()));
         for msg in mail {
             match msg {
-                EngineMsg::Ready { downloads, policy, prompts, popups, .. } => {
+                EngineMsg::Ready { downloads, policy, prompts, popups, preview, .. } => {
                     if !matches!(
                         self.shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::Ready),
                         EngineEffect::ReadyApplied
                     ) {
                         continue;
                     }
-                    self.caps = EngineCaps::Known { downloads, policy, prompts, popups };
+                    self.caps = EngineCaps::Known { downloads, policy, prompts, popups, preview };
                     // A new engine starts with an empty downloads folder and numbers its files
                     // from 1 again: the last one's files are gone. Held prompts replay if live.
                     for t in &mut self.tabs {
@@ -927,6 +935,24 @@ impl BrowserHost {
                 | EngineMsg::PopupBlocked { .. }
                 | EngineMsg::FileChooserBlocked { .. } => {
                     changed |= self.handle_prompt_msg(msg);
+                }
+                EngineMsg::PreviewFetch { req_id, .. } => {
+                    // App-side remote/artifact fetch runner wires in PR 2; fail closed until then.
+                    self.send(HostMsg::PreviewResponseHead {
+                        req_id,
+                        ok: false,
+                        status: 404,
+                        mime: "application/octet-stream".into(),
+                        content_length: None,
+                        content_range: None,
+                    });
+                }
+                EngineMsg::PreviewDenied { tab_id } => {
+                    if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
+                        t.refusal = Some("browser.preview.restricted".into());
+                        t.rejected = t.rejected.saturating_add(1);
+                        changed = true;
+                    }
                 }
                 EngineMsg::CdpEvent { .. } => {}
                 // The socket reader delivers frames directly to the tab's retained Rune surface.

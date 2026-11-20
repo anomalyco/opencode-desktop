@@ -15,6 +15,8 @@
 
 #![forbid(unsafe_code)]
 
+pub mod preview;
+
 /// Why a navigation was refused (`policy.ts:68-83`, `chromium.ts:442`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Refusal {
@@ -189,6 +191,9 @@ pub fn frame_guard(url: &str, is_main_frame: bool, roots: &[String]) -> Option<R
     if trimmed.eq_ignore_ascii_case("about:blank") {
         return None;
     }
+    if preview::is_preview_scheme(trimmed) {
+        return Some(if roots.is_empty() { Refusal::Web } else { Refusal::Workspace });
+    }
     if is_main_frame {
         return refusal_raw(trimmed, roots);
     }
@@ -198,9 +203,9 @@ pub fn frame_guard(url: &str, is_main_frame: bool, roots: &[String]) -> Option<R
     Some(if roots.is_empty() { Refusal::Web } else { Refusal::Workspace })
 }
 
-/// Sub-resource & download guard (`pane.ts:103-107`): no `file:` read outside `roots`.
+/// Sub-resource & download guard (`pane.ts:103-107`): no `file:` read outside `roots`, and never `oc-preview:` from non-preview tabs.
 pub fn subresource_allowed(url: &str, roots: &[String]) -> bool {
-    !is_file_scheme(url) || file_url_within(url, roots)
+    !preview::is_preview_scheme(url) && (!is_file_scheme(url) || file_url_within(url, roots))
 }
 
 /// Validates a DevTools Protocol call against the 22-method allow-list: 17 protocol calls used by
@@ -426,7 +431,7 @@ fn has_opaque_scheme(input: &str) -> bool {
     let Some((scheme, _)) = input.split_once(':') else { return false };
     matches!(
         scheme.to_ascii_lowercase().as_str(),
-        "about" | "data" | "javascript" | "vbscript" | "blob" | "file" | "mailto" | "tel" | "view-source" | "chrome" | "chrome-extension" | "devtools" | "ws" | "wss"
+        "about" | "data" | "javascript" | "vbscript" | "blob" | "file" | "mailto" | "tel" | "view-source" | "chrome" | "chrome-extension" | "devtools" | "ws" | "wss" | "oc-preview" | "workspace" | "artifact"
     )
 }
 

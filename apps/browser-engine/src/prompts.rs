@@ -333,6 +333,7 @@ pub fn origin_of(url: &str) -> Option<String> {
 wrap_life_span_handler! {
     pub struct TabLifeSpanHandler {
         tab_id: u64,
+        is_preview: bool,
         out_tx: Output,
     }
 
@@ -361,6 +362,19 @@ wrap_life_span_handler! {
                     tab_id: self.tab_id,
                     reason: why.code().to_owned(),
                 });
+                return 1;
+            }
+            // Preview tabs never auto-spawn pop-ups (even with user gesture); valid http(s) links
+            // surface as a blocked-popup notice so only explicit user confirmation opens a tab.
+            if self.is_preview {
+                if browser_policy::destination_origin(&url).is_some() {
+                    let _ = self.out_tx.send(EngineMsg::PopupBlocked { tab_id: self.tab_id, url });
+                } else {
+                    let _ = self.out_tx.send(EngineMsg::Refused {
+                        tab_id: self.tab_id,
+                        reason: browser_policy::Refusal::Web.code().to_owned(),
+                    });
+                }
                 return 1;
             }
             if user_gesture != 0 {
@@ -486,6 +500,7 @@ impl TabDialogHandler {
 wrap_permission_handler! {
     pub struct TabPermissionHandler {
         tab_id: u64,
+        is_preview: bool,
         shared: PromptShared,
         prompts: Arc<TabPrompts>,
         snap: Arc<Mutex<TabSnapshot>>,
@@ -502,6 +517,10 @@ wrap_permission_handler! {
             callback: Option<&mut MediaAccessCallback>,
         ) -> ::std::os::raw::c_int {
             let Some(callback) = callback else { return 1 };
+            if self.is_preview {
+                callback.cancel();
+                return 1;
+            }
             let audio = sys::cef_media_access_permission_types_t::CEF_MEDIA_PERMISSION_DEVICE_AUDIO_CAPTURE as u32;
             let video = sys::cef_media_access_permission_types_t::CEF_MEDIA_PERMISSION_DEVICE_VIDEO_CAPTURE as u32;
             let allowed_mask = audio | video;
@@ -560,6 +579,9 @@ wrap_permission_handler! {
                 callback.cont(sys::cef_permission_request_result_t::CEF_PERMISSION_RESULT_DENY.into());
                 1
             };
+            if self.is_preview {
+                return deny();
+            }
             use sys::cef_permission_request_types_t as P;
             let cam = P::CEF_PERMISSION_TYPE_CAMERA_STREAM as u32;
             let mic = P::CEF_PERMISSION_TYPE_MIC_STREAM as u32;

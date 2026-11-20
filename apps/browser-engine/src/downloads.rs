@@ -92,12 +92,16 @@ wrap_download_handler! {
     pub struct TabDownloadHandler {
         tab_id: u64,
         file_roots: Arc<Mutex<Vec<String>>>,
+        is_preview: bool,
         downloads: Arc<Downloads>,
         out_tx: Output,
     }
 
     impl DownloadHandler {
         fn can_download(&self, _browser: Option<&mut Browser>, url: Option<&CefString>, _method: Option<&CefString>) -> ::std::os::raw::c_int {
+            if self.is_preview {
+                return 0;
+            }
             let url = url.map(CefString::to_string).unwrap_or_default();
             let roots = self.file_roots.lock().unwrap().clone();
             if !browser_policy::subresource_allowed(&url, &roots) || browser_policy::is_http_with_credentials(&url) {
