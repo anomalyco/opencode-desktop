@@ -1,4 +1,5 @@
-//! Settings › Preferences (`settings/general/general.tsx`): Interface layout, Language, Default
+//! Settings › Preferences (`settings/general/general.tsx`): Interface layout (or Navigation),
+//! Keep side panel open across sessions, Language, Default
 //! environment, Auto-accept permissions, Show agent, Follow-up behavior, Pinch to zoom and
 //! Spellcheck, this app's own rows (Terminal placement, macOS Option-as-Meta, Windows shell
 //! prompt marks), and the sections plugins put on the page (`PluginSettingsSections page="general"`).
@@ -70,19 +71,45 @@ fn toggle_terminal_mark(s: &mut dyn SettingsHost, id: &'static str) {
     });
 }
 
+fn toggle_shared_side_panel(s: &mut dyn SettingsHost) {
+    change_settings(s, |x| x.shared_side_panel = !x.shared_side_panel);
+}
+
+/// Interface layout, or under Experimental › Consolidated, Navigation and (for Tabs) Tab
+/// position (`interface-mode.tsx`'s `InterfaceModeSetting`).
+fn interface_rows<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> Vec<(&'static str, El)> {
+    let st = s.settings();
+    if !st.navigation_prototype() {
+        let control = crate::interface_mode::control(s, p);
+        let row = setting_at(p, "settings-tab-layout", t!("settings.general.row.interfaceMode.title"), t!("settings.general.row.interfaceMode.description"), control, false);
+        return vec![("settings-tab-layout", row)];
+    }
+    let control = crate::navigation_mode::control(s, p);
+    let mut rows = vec![(
+        "settings-navigation",
+        setting_at(p, "settings-navigation", t!("settings.general.row.navigation.title"), t!("settings.general.row.navigation.description"), control, false),
+    )];
+    if st.navigation() == crate::Navigation::Tabs {
+        let title = t!("settings.general.row.tabPosition.title");
+        let control = select(s, p, "settings-tab-position", title, crate::navigation_mode::positions(), st.tab_position().name(), crate::navigation_mode::pick_position);
+        rows.push(("settings-tab-position", setting(p, "settings-tab-position", title, "", control)));
+    }
+    rows
+}
+
 pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
     let st = s.settings();
     let alternate = Bind::SubmitAlternate.chord().map_or_else(String::new, opencode_ui::keymap::base::sentence);
-    let mut rows = vec![
+    let mut rows = interface_rows(s, p);
+    rows.extend([
         (
-            "settings-tab-layout",
-            setting_at(
+            "settings-shared-side-panel",
+            setting(
                 p,
-                "settings-tab-layout",
-                t!("settings.general.row.interfaceMode.title"),
-                t!("settings.general.row.interfaceMode.description"),
-                crate::interface_mode::control(s, p),
-                false,
+                "settings-shared-side-panel",
+                t!("settings.general.row.sharedSidePanel.title"),
+                t!("settings.general.row.sharedSidePanel.description"),
+                switch(p, "shared-side-panel-switch", st.shared_side_panel).on_press(|s: &mut H| toggle_shared_side_panel(s)),
             ),
         ),
         (
@@ -173,7 +200,7 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
                 switch(p, "mobile-diff-wrap-switch", st.mobile_diff_wrap).on_press(|s: &mut H| toggle_mobile_diff_wrap(s)),
             ),
         ),
-    ];
+    ]);
     if s.narrow() {
         let bottom = st.mobile_titlebar == TitlebarPosition::Bottom;
         let control = switch(p, "mobile-titlebar-bottom-switch", bottom).on_press(|s: &mut H| toggle_mobile_titlebar(s));

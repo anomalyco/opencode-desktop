@@ -12,6 +12,7 @@
 
 pub mod host;
 mod interface_mode;
+mod navigation_mode;
 pub mod jobs;
 pub mod pages;
 pub mod prefs;
@@ -33,7 +34,7 @@ pub use host::{
     build_version, configure,
 };
 pub use jobs::{SettingsJob, SettingsReply, SettingsRequest, apply_reply, execute_request};
-pub use prefs::{BackgroundActivity, Choice, Destination, FollowUp, Organize, SOUNDS, Sounds, TimelineWidth, TitlebarPosition};
+pub use prefs::{BackgroundActivity, Choice, Destination, FollowUp, Navigation, Organize, SOUNDS, Sounds, TimelineWidth, TitlebarPosition};
 pub use types::{
     CODE_FONTS, DockPlacement, Font, NotifyKind, NotifyKinds, ReduceMotion, Scheme, TERMINAL_FONTS, TabLayout, TerminalMarkShell, TextRenderer, UI_FONTS, ZOOM_LEVELS, ZOOM_MAX, ZOOM_MIN,
     css_family, custom_name, font_index, step_zoom,
@@ -96,8 +97,11 @@ pub struct Settings {
     pub terminal_font_name: String,
     /// Rune records the last minute of frames for ⌘⇧⌥R (`glitch`); on by default.
     pub record_glitches: bool,
-    /// Desktop's Interface layout (`appearance.tabLayout`): top tabs unless changed.
+    /// Desktop's Interface layout (`appearance.tabLayout`): top tabs unless changed. The shell
+    /// shows [`Settings::effective_tab_layout`].
     pub tab_layout: TabLayout,
+    /// The navigation prototype's Tabs or List (`appearance.navigation`).
+    pub navigation: Navigation,
     /// Questions take the keyboard-first dock instead of Classic (Desktop's `general.newQuestionUI`,
     /// Settings › Experimental › New question UI). Off unless turned on, as there.
     pub new_question_ui: bool,
@@ -133,6 +137,9 @@ pub struct Settings {
     pub chatgpt_welcome_seen: bool,
     /// Experimental › Organize vertical sidebar (`general.sidebarOrganize`).
     pub sidebar_organize: Organize,
+    /// General › Keep side panel open across sessions (`general.sharedSidePanel`): one side
+    /// panel open state for every session instead of one per session. Off by default.
+    pub shared_side_panel: bool,
     /// Notifications › Sound effects (`sounds`).
     pub sounds: Sounds,
     /// Shortcuts the user changed (`keybinds`): command id to keybind, "none" for unbound.
@@ -172,6 +179,7 @@ impl Default for Settings {
             terminal_font_name: String::new(),
             record_glitches: true,
             tab_layout: TabLayout::default(),
+            navigation: Navigation::default(),
             new_question_ui: false,
             smooth_timeline: false,
             terminal_option_meta: false,
@@ -188,6 +196,7 @@ impl Default for Settings {
             mobile_titlebar: TitlebarPosition::default(),
             chatgpt_welcome_seen: false,
             sidebar_organize: Organize::default(),
+            shared_side_panel: false,
             sounds: Sounds::default(),
             keybinds: BTreeMap::new(),
             keep_screen_active: false,
@@ -217,6 +226,7 @@ impl Settings {
             "terminalFontName": self.terminal_font_name,
             "developer": { "rewind": self.record_glitches },
             "tabLayout": self.tab_layout.name(),
+            "navigation": self.navigation.name(),
             "newQuestionUI": self.new_question_ui,
             "smoothTimeline": self.smooth_timeline,
             "terminal": { "optionAsMeta": self.terminal_option_meta, "marks": self.terminal_marks },
@@ -230,6 +240,7 @@ impl Settings {
             "mobileTitlebarPosition": self.mobile_titlebar.name(),
             "chatgptPlanWelcomeSeen": self.chatgpt_welcome_seen,
             "sidebarOrganize": self.sidebar_organize.name(),
+            "sharedSidePanel": self.shared_side_panel,
             "sounds": self.sounds.to_json(),
             "keybinds": self.keybinds,
             "keepScreenActive": self.keep_screen_active,
@@ -266,6 +277,7 @@ impl Settings {
             // Files from before the setting read as Desktop's default; Desktop nests it under
             // `appearance`, which here is the colour scheme.
             tab_layout: TabLayout::parse(v["tabLayout"].as_str().or_else(|| v["appearance"]["tabLayout"].as_str())),
+            navigation: Navigation::parse(v["navigation"].as_str()),
             new_question_ui: v["newQuestionUI"].as_bool().unwrap_or(false),
             smooth_timeline: v["smoothTimeline"].as_bool().unwrap_or(false),
             terminal_option_meta: v["terminal"]["optionAsMeta"].as_bool().unwrap_or(false),
@@ -296,7 +308,8 @@ impl Settings {
                 .map(|a| a.iter().filter_map(|l| Some(l.as_str()?.to_owned())).collect())
                 .unwrap_or_default(),
             chatgpt_welcome_seen: v["chatgptPlanWelcomeSeen"].as_bool().unwrap_or(false),
-            sidebar_organize: Organize::parse(v["sidebarOrganize"].as_str()),
+            sidebar_organize: Organize::resolve(v["sidebarOrganize"].as_str()),
+            shared_side_panel: v["sharedSidePanel"].as_bool().unwrap_or(false),
             sounds: if v["sounds"].is_object() { Sounds::from_json(&v["sounds"]) } else { Sounds::default() },
             keybinds: v["keybinds"]
                 .as_object()
@@ -308,6 +321,29 @@ impl Settings {
             background_activity: BackgroundActivity::parse(v["backgroundActivity"].as_str()),
             turn_diffs: v["showTurnDiffs"].as_bool().unwrap_or(false),
         }
+    }
+
+    /// Experimental › Organize vertical sidebar › Consolidated, where this build offers it
+    /// (`navigationPrototype`, `settings/model.tsx`).
+    pub fn navigation_prototype(&self) -> bool {
+        self.sidebar_organize.effective() == Organize::Consolidated
+    }
+
+    /// The navigation prototype's List, else Tabs (`navigation`, `settings/model.tsx`).
+    pub fn navigation(&self) -> Navigation {
+        if self.navigation_prototype() { self.navigation } else { Navigation::Tabs }
+    }
+
+    /// The layout the shell shows (`tabLayout`, `settings/model.tsx`): the prototype's List
+    /// always uses the sidebar and the prototype has no Inbox, so both read as side tabs.
+    pub fn effective_tab_layout(&self) -> TabLayout {
+        let forced = self.navigation_prototype() && (self.navigation == Navigation::List || self.tab_layout == TabLayout::Inbox);
+        if forced { TabLayout::Vertical } else { self.tab_layout }
+    }
+
+    /// Where tabs go under the prototype's Tabs, whatever List forces meanwhile (`tabPosition`).
+    pub fn tab_position(&self) -> TabLayout {
+        if self.tab_layout == TabLayout::Horizontal { TabLayout::Horizontal } else { TabLayout::Vertical }
     }
 
     /// The zoom as a whole percentage, as Appearance › Zoom names it.

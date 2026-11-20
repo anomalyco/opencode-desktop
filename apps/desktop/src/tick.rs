@@ -184,9 +184,6 @@ pub(crate) fn setup(s: &mut App, waker: Waker) {
 /// A window shown or hidden: hidden, what it changed lands at once, without waiting for it
 /// (Desktop flushes its stores on `visibilitychange` to hidden, `renderer/platform/storage.ts`).
 pub(crate) fn visibility(s: &mut App, shown: bool, tx: &mut Tx) {
-    if shown {
-        s.reload_recent_on_focus();
-    }
     let scheduler = s.kernel.scheduler.clone();
     scheduler.run_visibility(s, shown, tx);
     if !shown && s.persists() {

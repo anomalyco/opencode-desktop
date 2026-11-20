@@ -304,8 +304,16 @@ impl App {
         open(self);
     }
 
+    /// Search sessions (⇧⌘F): the palette's sessions, or under the navigation prototype Home's
+    /// own field, opening Home first (`titlebar.tsx`'s `session.search.dialog`).
     pub fn open_session_search(&mut self, tx: &mut Tx) {
-        open_session_search(self, tx);
+        if !self.settings.navigation_prototype() {
+            return open_session_search(self, tx);
+        }
+        if self.route != crate::Route::Home || self.settings_open() {
+            self.go_home(tx);
+        }
+        self.focus_home_search(tx);
     }
 
     pub fn open_command_search(&mut self, tx: &mut Tx) {

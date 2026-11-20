@@ -41,21 +41,31 @@ pub(super) fn field(s: &App, p: &Pal, selected: Option<&model::Project>, width: 
                 .on_input_key(|s: &mut App, ev, tx| crate::keys::global(s, ev, tx) || s.home_search_key(ev, tx)),
         );
     if !s.search.text.is_empty() {
-        // A ghost-muted small IconButton (20, `rounded-[4px]`) with the large `close` icon.
+        // A ghost-muted small IconButton (20, `rounded-[4px]`) with the large `close` icon; a
+        // normal one (24) with the normal icon while the search filters in place.
+        let (size, glyph) = if s.settings.navigation_prototype() { (24.0, 16.0) } else { (20.0, 20.0) };
         field = field.child(
             row()
                 .key("search-clear")
                 .role("button")
                 .label_static(opencode_i18n::t!("common.clear"))
-                .size(20.0, 20.0)
+                .size(size, size)
                 .center()
                 .radius(4.0)
                 .hover(p.hover)
                 .press(p.pressed)
                 .hover_motion(INSTANT, INSTANT)
                 .on_press_tx(|s: &mut App, tx: &mut Tx| s.clear_home_search(true, tx))
-                .child(icon(&ic::CLOSE, 20.0).color(p.icon_muted)),
+                .child(icon(&ic::CLOSE, glyph).color(p.icon_muted)),
         );
+    }
+    if s.home_project_scope() {
+        // The project the list is scoped to, at the field's end, a hairline before it once
+        // there's text (`searchScope`, `home/sessions/view.tsx`).
+        if !s.search.text.is_empty() {
+            field = field.child(el().key("scope-divider").mx(2.0).w(1.0).h(16.0).fill(p.border_muted));
+        }
+        field = field.child(super::projects::scope_trigger(s, p, selected));
     }
     let root = col().key("home-search-root").w_full();
     if !open {

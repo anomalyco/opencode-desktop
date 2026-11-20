@@ -148,12 +148,6 @@ pub(super) fn landing(s: &App, p: &Pal) -> El {
 }
 
 rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
-    ("sidebar-project-landing", |s| {
-        crate::scenes::side_tabs(s);
-        s.settings.sidebar_organize = crate::settings::Organize::Projects;
-        s.tabs.clear();
-        *s.route = Route::Home;
-    }),
     ("sidebar-customize-landing", |s| {
         crate::scenes::side_tabs(s);
         s.settings.sidebar_organize = crate::settings::Organize::Customize;

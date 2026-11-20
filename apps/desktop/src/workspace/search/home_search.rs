@@ -15,6 +15,10 @@ use crate::{App, Route, Source};
 pub(crate) static HOME_SEARCH: opencode_kernel::Slot<HomeSearch> = opencode_kernel::Slot::new();
 
 impl HomeSearchHost for App {
+    fn search_inline(&self) -> bool {
+        self.settings.navigation_prototype()
+    }
+
     fn home_search(&self) -> &HomeSearch {
         self.kernel.slots.get(&HOME_SEARCH)
     }

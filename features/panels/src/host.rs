@@ -65,6 +65,10 @@ pub trait PanelsHost: opencode_kernel::AppEnv {
     fn dock_placement(&self) -> DockPlacement {
         DockPlacement::Side
     }
+    /// Settings › General › Keep side panel open across sessions (`general.sharedSidePanel`).
+    fn shared_side_panel(&self) -> bool {
+        false
+    }
     /// Window chrome metrics for positioning and caching the side region.
     fn panel_chrome(&self) -> PanelChrome {
         PanelChrome { top: 8.0, foot: 0.0, stamp: 0 }

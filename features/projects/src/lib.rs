@@ -15,7 +15,7 @@ pub mod jobs;
 pub mod remote_picker;
 pub mod sidebar;
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 use opencode_kit::client::{DEFAULT_SERVER, Write};
@@ -35,16 +35,6 @@ use host::storage_update_host;
 /// Overlay stack identifier for the remote directory picker dialog (`opencode_kernel::OverlayStack`).
 pub const REMOTE_PICKER_OVERLAY_ID: &str = "dialog.remote_picker";
 
-/// Organized-sidebar project row drag lifecycle (`organize_drag` + `organize_dropped`).
-#[derive(Clone, Debug, Default)]
-pub enum OrganizeDrag {
-    #[default]
-    Idle,
-    Dragging(sidebar::ProjectDrag),
-    /// A drag just ended on a project row; the trailing release skips toggling it.
-    JustDropped,
-}
-
 #[derive(Default)]
 pub struct ProjectsState {
     /// Projects this client has opened or used, most recent first.
@@ -57,22 +47,12 @@ pub struct ProjectsState {
     pub import: import::Import,
     /// Counter for sessions opened in fixture mode.
     opened: u32,
-    /// The organized sidebar (`sidebar-organized.tsx`): Projects shut, the projects open to
-    /// their sessions, all projects shown, and how many sessions each open project shows, the
-    /// last two keyed `<server>:<project>` as Desktop keys them.
+    /// The retired Projects sidebar's saved state (`sidebar.organize`): Projects shut, the
+    /// projects open (keyed `<server>:<project>`) and the project order per server, which Home's
+    /// lists still follow.
     pub organize_collapsed: bool,
     pub organize_expanded: HashSet<String>,
-    pub organize_all: bool,
-    pub organize_limits: HashMap<String, usize>,
-    /// The session last opened from the organized list (its `Tab::uid`), which it highlights
-    /// while current.
-    pub organize_selected: Option<String>,
-    /// The organized list's project order per server (`sidebar.organize`'s `order`): frozen once
-    /// the list shows, then newly used projects join at its end and drags move them.
     pub organize_order: BTreeMap<String, Vec<String>>,
-    /// Organized-sidebar project row drag lifecycle, and each project block's height for it.
-    pub organize_drag: OrganizeDrag,
-    pub organize_heights: HashMap<String, f32>,
     /// The Customize sidebar's view, filters and Show more counts (`sidebar-customized.tsx`).
     pub customize: sidebar::Customize,
     /// The Recent sidebar's pins and Show more count (`recent-sessions.tsx`).
@@ -280,8 +260,8 @@ pub fn last_used_project(host: &dyn ProjectsHost) -> Option<&Project> {
     host.project_state().used.iter().find_map(|id| projects.iter().find(|p| &p.id == id))
 }
 
-/// The organized sidebar's projects (`sidebar-organized.tsx`'s `projects`): those in its order
-/// first, then the other used projects, most recently active first.
+/// The used projects: those in the retired Projects sidebar's saved order first, then the
+/// others, most recently active first.
 pub fn organized_projects(host: &dyn ProjectsHost) -> Vec<&Project> {
     let used = used_projects(host);
     let active = host.active_server();
@@ -289,22 +269,6 @@ pub fn organized_projects(host: &dyn ProjectsHost) -> Vec<&Project> {
     let mut list: Vec<&Project> = order.iter().filter_map(|id| used.iter().find(|p| &p.id == id).copied()).collect();
     list.extend(used.iter().filter(|p| !order.contains(&p.id)).copied());
     list
-}
-
-/// Keeps the organized list's order once it shows, so a project's activity no longer moves
-/// it and a newly used one joins at the end (`sidebar-organized.tsx`: "Freeze the initial
-/// order"). It waits for the server's projects.
-pub fn freeze_organize_order(host: &mut dyn ProjectsHost) {
-    let shown = host.organize_projects_visible() && !host.project_state().organize_collapsed;
-    if !shown || host.projects().is_empty() {
-        return;
-    }
-    // Each server's list keeps its own order (`order[server]`).
-    let ids: Vec<String> = organized_projects(host).iter().map(|p| p.id.clone()).collect();
-    let server = host.active_server().as_str().to_owned();
-    if host.project_state().organize_order.get(&server) != Some(&ids) {
-        host.project_state_mut().organize_order.insert(server, ids);
-    }
 }
 
 /// Server projects this client hasn't added or has hidden from its used list.

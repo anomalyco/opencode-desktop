@@ -41,16 +41,12 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
             add_wide(s, &id, true);
         }
     }),
-    // The organized sidebar closed and peeking over the session: its list is raised over the timeline.
+    // The Customize sidebar closed and peeking over the session: its list is raised over the timeline.
     ("scroll-sidebar-peek", |s| {
         crate::open_scene(s);
         s.finish_stream();
         crate::scenes::side_tabs(s);
-        s.settings.sidebar_organize = crate::settings::Organize::Projects;
-        if let Some(id) = s.used_projects().first().map(|p| p.id.clone()) {
-            let key = crate::view::sidebar_organized::project_key(s, &id);
-            s.project_state.organize_expanded.insert(key);
-        }
+        s.settings.sidebar_organize = crate::settings::Organize::Customize;
         *s.sidebar_open = false;
         s.layout.peek = crate::layout_state::SidebarPeekState::Peeking;
     }),

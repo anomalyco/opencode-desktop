@@ -324,6 +324,7 @@ const SOUNDS: Option<opencode_i18n::Key> = Some(key!("settings.general.section.s
 const ROWS: &[Row] = &[
     (Page::General, "settings-language", key!("settings.general.row.language.title"), None, None, ""),
     (Page::General, "settings-tab-layout", key!("settings.general.row.interfaceMode.title"), None, None, "top side tabs inbox sidebar mode layout vertical horizontal focus pro"),
+    (Page::General, "settings-shared-side-panel", key!("settings.general.row.sharedSidePanel.title"), Some(key!("settings.general.section.general")), Some(key!("settings.general.row.sharedSidePanel.description")), "right side panel review sidebar persist keep open sessions switch"),
     (Page::General, "settings-workspace-destination", key!("settings.workspaces.default.title"), None, Some(key!("settings.workspaces.default.description")), "worktree workspace default destination"),
     (Page::General, "settings-auto-accept-permissions", key!("command.permissions.autoaccept.enable"), None, Some(key!("settings.permissions.autoAccept.default.description")), "permissions approve allow auto accept default"),
     (Page::General, "settings-timeline-detail", key!("settings.timeline.detail"), TIMELINE, None, "thinking reasoning tools timeline summary detailed"),

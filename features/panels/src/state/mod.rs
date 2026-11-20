@@ -530,6 +530,10 @@ pub struct SideState {
     /// build never does.
     pub strips: Rc<[StripScroll; 3]>,
     pub sessions: HashMap<String, SessionSideState>,
+    /// Whether the side region is open in every session while Settings › General › Keep side
+    /// panel open across sessions is on (`tabs.panes.shared`, `shell/tabs/tabs.tsx`); unset
+    /// reads as shut.
+    pub shared_open: Option<bool>,
     pub adding: Vec<NewTabEntry>,
     pub chosen_new_tab: HashMap<SessionPane, String>,
     pub(crate) next_new_serial: u64,
@@ -564,6 +568,7 @@ impl Default for SideState {
             resolved_gen: Cell::new(0),
             tabs_stamp: Cell::new(None),
             sessions: HashMap::new(),
+            shared_open: None,
             adding: Vec::new(),
             chosen_new_tab: HashMap::new(),
             next_new_serial: 1,
@@ -684,6 +689,21 @@ pub fn panes_shown(host: &dyn PanelsHost) -> (bool, bool) {
     let bottom = bottom_stored_open(host)
         && resolve_side_region(host).is_some_and(|r| !r.pane_entries(SessionPane::Bottom).is_empty());
     (side_stored_open(host), bottom)
+}
+
+/// With the shared side panel on, the routed session's region shows the shared state
+/// (`region`'s `sharedSide.opened ?? fallback`, `shell/tabs/tabs.tsx`); true when it moved.
+pub fn sync_shared_side(host: &mut dyn PanelsHost) -> bool {
+    if !host.shared_side_panel() {
+        return false;
+    }
+    let Some(sid) = host.active_session_id().map(str::to_owned) else { return false };
+    let open = host.side().shared_open.unwrap_or(false);
+    if host.side().sessions.get(&sid).is_some_and(|st| st.visibility.open()) == open {
+        return false;
+    }
+    host.side_mut().sessions.entry(sid).or_default().visibility.step(open);
+    true
 }
 
 pub fn session_side<'a>(host: &'a dyn PanelsHost, session_id: &str) -> Option<&'a SessionSideState> {

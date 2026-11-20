@@ -297,9 +297,6 @@ impl RestoreHost for App {
         st.organize_order = state.order;
     }
 
-    fn freeze_organize_order(&mut self) {
-        App::freeze_organize_order(self);
-    }
 
     fn restore_sidebar_view(&mut self, value: &Value) {
         self.project_state.customize.restore(value);

@@ -18,8 +18,10 @@ fn toggle_smooth_timeline(s: &mut dyn SettingsHost) {
     change_settings(s, |x| x.smooth_timeline = !x.smooth_timeline);
 }
 
-fn pick_organize(s: &mut dyn SettingsHost, id: &str, _tx: &mut Tx) {
+fn pick_organize(s: &mut dyn SettingsHost, id: &str, tx: &mut Tx) {
     change_settings(s, |x| x.sidebar_organize = Organize::parse(Some(id)));
+    // Consolidated's List keeps the sidebar (`tabLayout`, `settings/model.tsx`).
+    s.sync_tab_layout(tx);
 }
 
 pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {

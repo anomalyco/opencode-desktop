@@ -73,6 +73,10 @@ impl SessionMenuHost for App {
         App::project_navigation(self)
     }
 
+    fn navigation_prototype(&self) -> bool {
+        self.settings.navigation_prototype()
+    }
+
     fn side_focused(&self) -> bool {
         self.kernel.slots.get(&crate::panels::SIDE).focus.is_focused()
     }

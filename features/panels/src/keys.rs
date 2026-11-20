@@ -152,6 +152,7 @@ pub fn poll_panels(host: &mut dyn PanelsHost, tx: &mut Tx) -> bool {
             host.side().tabs_stamp.set(Some(after));
         }
     }
+    changed |= crate::state::sync_shared_side(host);
     // A strip its last tab left (a terminal that exited) shows a New tab, as Desktop's does.
     changed |= sync_empty_side(host);
     changed
