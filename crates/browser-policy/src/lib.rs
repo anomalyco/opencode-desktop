@@ -1,5 +1,10 @@
-//! URL policy matching OpenCode Desktop (`packages/gui-plugins/src/browser/policy.ts`,
-//! `address.ts`, `pane.ts:103-107,162,334-340`, and `chromium.ts:432-446`).
+//! Shared browser URL policy, workspace `file://` confinement, address resolution, and CDP
+//! allow-list enforced identically by `browser-pane` (app) and `opencode-browser-engine` (sidecar).
+//!
+//! Matches OpenCode Desktop (`packages/gui-plugins/src/browser/policy.ts`, `address.ts`,
+//! `pane.ts:103-107,162,334-340`, `chromium.ts:432-446`) plus Rune's stricter physical
+//! symlink/junction confinement (matching `#63002`'s `disk/contained-file.ts`) and 22-method
+//! DevTools allow-list.
 //!
 //! - Top-level pages may open `about:blank`, `http:`/`https:` without embedded credentials, and
 //!   local `file:` URLs physically inside the session's allowed workspace roots (`file_roots`).
@@ -7,6 +12,8 @@
 //!   while any `file:` sub-frame must stay within `file_roots`.
 //! - Sub-resources (`img`, `script`, `link`, `fetch`, `XHR`, redirects, downloads) may never read
 //!   a `file:` URL outside `file_roots`.
+
+#![forbid(unsafe_code)]
 
 /// Why a navigation was refused (`policy.ts:68-83`, `chromium.ts:442`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -75,6 +82,25 @@ pub fn is_file_scheme(input: &str) -> bool {
     trimmed.len() >= 5 && trimmed.as_bytes()[..5].eq_ignore_ascii_case(b"file:")
 }
 
+/// Whether `stem` (the part before the first `.`, ignoring trailing spaces) is a reserved Windows
+/// DOS device name, including the superscript port forms `COM¹`–`COM³` and `LPT¹`–`LPT³`.
+pub fn is_windows_device_name(stem: &str) -> bool {
+    let trimmed = stem.trim_end();
+    let mut chars = trimmed.chars();
+    let prefix: String = chars.by_ref().take(3).map(|c| c.to_ascii_lowercase()).collect();
+    if matches!(prefix.as_str(), "com" | "lpt")
+        && let Some(digit) = chars.next()
+        && chars.next().is_none()
+        && matches!(digit, '1'..='9' | '\u{00B9}' | '\u{00B2}' | '\u{00B3}')
+    {
+        return true;
+    }
+    matches!(
+        trimmed.to_ascii_lowercase().as_str(),
+        "con" | "conin$" | "conout$" | "prn" | "aux" | "nul"
+    )
+}
+
 /// Decoded, dot-resolved local filesystem path of a `file://` URL with no host (`policy.ts:10-25`,
 /// `#63002` `policy.ts:32-61`), or `None` for remote/UNC hosts, encoded separators, or invalid paths.
 pub fn local_file_path(input: &str) -> Option<String> {
@@ -104,7 +130,7 @@ pub fn local_file_path(input: &str) -> Option<String> {
 }
 
 /// Whether `input` is a local `file://` URL inside `roots`, both lexically (`..` / prefix boundary)
-/// and physically after resolving symlinks/junctions (`policy.ts:32-43`, `contained-file.ts:17-18`).
+/// and physically after resolving symlinks/junctions (`policy.ts:32-43`, `#63002` `contained-file.ts`).
 pub fn file_url_within(input: &str, roots: &[String]) -> bool {
     if roots.is_empty() {
         return false;
@@ -133,16 +159,19 @@ pub fn with_scheme(input: &str) -> String {
     format!("{scheme}://{value}")
 }
 
-/// Why the pane refuses `input`, or `None` when allowed (`policy.ts:74-83`).
-pub fn refusal(input: &str, roots: &[String]) -> Option<Refusal> {
-    let url = with_scheme(input);
-    if url.eq_ignore_ascii_case("about:blank") || allowed_destination(&url, roots) {
+fn refusal_raw(trimmed: &str, roots: &[String]) -> Option<Refusal> {
+    if trimmed.eq_ignore_ascii_case("about:blank") || allowed_destination(trimmed, roots) {
         return None;
     }
-    if is_http_with_credentials(&url) {
+    if is_http_with_credentials(trimmed) {
         return Some(Refusal::Credentials);
     }
     Some(if roots.is_empty() { Refusal::Web } else { Refusal::Workspace })
+}
+
+/// Why the pane refuses `input`, or `None` when allowed (`policy.ts:74-83`).
+pub fn refusal(input: &str, roots: &[String]) -> Option<Refusal> {
+    refusal_raw(&with_scheme(input), roots)
 }
 
 /// Normalizes `input` for agent tools, returning the Official refusal error message on failure (`policy.ts:51-66`).
@@ -161,10 +190,7 @@ pub fn frame_guard(url: &str, is_main_frame: bool, roots: &[String]) -> Option<R
         return None;
     }
     if is_main_frame {
-        if allowed_destination(trimmed, roots) {
-            return None;
-        }
-        return Some(refusal(trimmed, roots).unwrap_or(Refusal::Blocked));
+        return refusal_raw(trimmed, roots);
     }
     if !is_file_scheme(trimmed) || file_url_within(trimmed, roots) {
         return None;
@@ -507,12 +533,7 @@ fn valid_windows_segment(seg: &str) -> bool {
         return false;
     }
     let stem = seg.split('.').next().unwrap_or(seg);
-    !matches!(
-        stem.to_ascii_lowercase().as_str(),
-        "con" | "conin$" | "conout$" | "prn" | "aux" | "nul"
-            | "com1" | "com2" | "com3" | "com4" | "com5" | "com6" | "com7" | "com8" | "com9"
-            | "lpt1" | "lpt2" | "lpt3" | "lpt4" | "lpt5" | "lpt6" | "lpt7" | "lpt8" | "lpt9"
-    )
+    !is_windows_device_name(stem)
 }
 
 fn resolve_unix_file_path(path: &str) -> Option<String> {

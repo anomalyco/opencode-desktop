@@ -100,7 +100,7 @@ wrap_download_handler! {
         fn can_download(&self, _browser: Option<&mut Browser>, url: Option<&CefString>, _method: Option<&CefString>) -> ::std::os::raw::c_int {
             let url = url.map(CefString::to_string).unwrap_or_default();
             let roots = self.file_roots.lock().unwrap().clone();
-            if !crate::policy::subresource_allowed(&url, &roots) || crate::policy::is_http_with_credentials(&url) {
+            if !browser_policy::subresource_allowed(&url, &roots) || browser_policy::is_http_with_credentials(&url) {
                 return 0;
             }
             1
@@ -203,9 +203,8 @@ fn safe_name(name: &str) -> PathBuf {
     let chars: Vec<char> = trimmed.chars().collect();
     let tail: String = chars[chars.len().saturating_sub(120)..].iter().collect();
     let tail = if tail.is_empty() { "file".to_owned() } else { tail };
-    let stem = tail.split('.').next().unwrap_or_default().trim_end().to_ascii_uppercase();
-    let port = stem.strip_prefix("COM").or_else(|| stem.strip_prefix("LPT")).is_some_and(|n| n.len() == 1 && n.as_bytes()[0].is_ascii_digit());
-    let device = port || matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$");
+    let stem = tail.split('.').next().unwrap_or_default().trim_end();
+    let device = browser_policy::is_windows_device_name(stem);
     PathBuf::from(if device { format!("_{tail}") } else { tail })
 }
 

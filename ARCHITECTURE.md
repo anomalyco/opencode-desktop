@@ -55,6 +55,7 @@ Shell kernel, UI foundation, headless runtime, platform utilities, and embeddabl
 | --- | --- | --- |
 | `crates/authenticode` | `authenticode` | Windows Authenticode verification (`WinVerifyTrust`) and signer lookup for the updater and browser engine |
 | `crates/browser-pane` | `browser-pane` | Pure-Rust Rune client for the on-demand `OpenCode Browser Engine` CEF sidecar (behind the `engine` feature) |
+| `crates/browser-policy` | `browser-policy` | Shared browser URL policy, workspace `file://` confinement, address resolution, and CDP allow-list used by both `browser-pane` and `opencode-browser-engine` (`#![forbid(unsafe_code)]`) |
 | `crates/hex-client` | `hex-client` | Local HTTP/capture client for driving Hex voice dictation |
 | `crates/office-preview` | `office-preview` | Read-only Word, Excel, and PowerPoint layout and Vello display-list engine over BetterOffice |
 | `crates/opencode-code-view` | `opencode-code-view` | Virtualized syntax-highlighted code and diff viewers plus review, delimited table, and label-find data models (built on `opencode-ui`, zero `session-view` dependency) |
