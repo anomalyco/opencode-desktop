@@ -11,6 +11,7 @@ mod models;
 use rune::{El, TextStyle, Tx, col, icon, row, spacer, text};
 use rune_kit::ButtonVariant;
 use rune_theme_opencode::icons as ic;
+use opencode_kit::integration::MethodKind;
 use opencode_kit::model::Model;
 use opencode_ui::palette::{Pal, kit};
 
@@ -21,7 +22,8 @@ use crate::machine::{self as conn, Event as Input, Screen, State as Conn};
 use crate::ui::{self, BODY, BODY_MED};
 use crate::ConnectHost;
 
-const CODE_DIGIT: TextStyle = TextStyle::new(20.0, 530.0).mono().lh(28.0);
+/// Console device code digit (`console.tsx:34`, `#63829`): `font-mono text-[28px] font-[530]`.
+const CODE_DIGIT: TextStyle = TextStyle::new(28.0, 530.0).mono().lh(32.0);
 
 /// Which step the inputs belong to: a new one starts them empty.
 pub fn inputs_id(d: &Dialog) -> String {
@@ -133,36 +135,57 @@ pub fn body<H: ConnectHost + 'static>(s: &H, p: &Pal, frame: Frame) -> El {
     col().key("connect-body").w_full().grow(1.0).shrink().min_h(0.0).px(px).pb(pb).child(inner)
 }
 
+fn method_icon(kind: MethodKind) -> &'static rune::Icon {
+    match kind {
+        MethodKind::Oauth => &ic::SELECT_ELEMENT,
+        MethodKind::Key | MethodKind::Env => &ic::KEYBOARD,
+        MethodKind::Command => &ic::TERMINAL,
+        MethodKind::External => &ic::SERVER,
+    }
+}
+
 fn methods<H: ConnectHost + 'static>(s: &H, p: &Pal) -> El {
     let list = conn::catalog(current(s)).map(|c| c.methods.clone()).unwrap_or_default();
     let description = opencode_i18n::t!("provider.connect.methods.description", provider = crate::provider_name(s, &provider_id(s)));
     let rows = list.into_iter().enumerate().map(|(at, m)| {
         let title = m.title();
+        let glyph = method_icon(m.kind);
+        // `MethodSelection` (`dialog.tsx:844-859`, `#63829`): 32 pt row, method icon, bold label,
+        // trailing chevron revealed on hover/focus, inset focus ring.
         row()
             .key(format!("connect-method-{at}"))
             .role("button")
             .label(title.clone())
             .w_full()
-            .h(36.0)
-            .px(12.0)
+            .h(32.0)
+            .px(8.0)
             .gap(8.0)
             .center_y()
             .radius(6.0)
+            .hover_group()
             .hover(p.hover)
             .press(p.pressed)
+            .focus_ring(2.0, -2.0, p.v2.border_focus)
             .on_press_tx(move |s: &mut H, tx: &mut Tx| input(s, Input::MethodSelected(at), tx))
-            .child(text(title).font(BODY_MED).color(p.text))
+            .child(icon(glyph, 16.0).color(p.icon_muted))
+            .child(text(title).font(BODY_MED).color(p.text).grow(1.0).shrink().min_w(0.0).truncate())
+            .child(icon(&ic::CHEVRON_RIGHT, 16.0).mirror_in_rtl().color(p.icon_muted).group_opacity(0.0, 1.0))
     });
-    col().key("connect-methods").child(step_text(p, description).px(12.0)).children(rows)
+    col().key("connect-methods").child(step_text(p, description).px(8.0).pb(12.0)).children(rows)
 }
 
-/// `ErrorRow`: the ban sign, why it failed, and Try again.
+/// `ErrorRow` (`dialog.tsx:903-916`, `#63829`): ban sign, error message, right-aligned retry.
 fn failed<H: ConnectHost + 'static>(s: &H, p: &Pal, console: bool) -> El {
     let error = match current(s) {
         Conn::Failed(_, e, _) => e.clone(),
         _ => String::new(),
     };
-    let retry = ui::button(opencode_i18n::t!("provider.connect.console.retry"), ButtonVariant::Neutral)
+    let retry_label = if console {
+        opencode_i18n::t!("provider.connect.console.retry")
+    } else {
+        opencode_i18n::t!("common.retry")
+    };
+    let retry = ui::button(retry_label, ButtonVariant::Contrast)
         .on_press_tx(|s: &mut H, tx: &mut Tx| input(s, Input::Retry, tx))
         .build(kit(p))
         .key("connect-retry");
@@ -173,7 +196,7 @@ fn build_failed_layout(p: &Pal, console: bool, error: String, retry: El) -> El {
     let words = if console { error } else { opencode_i18n::t!("provider.connect.status.failed", error = error) };
     col()
         .key("connect-failed")
-        .gap(if console { 16.0 } else { 12.0 })
+        .gap(20.0)
         .child(
             row()
                 .w_full()
@@ -181,7 +204,7 @@ fn build_failed_layout(p: &Pal, console: bool, error: String, retry: El) -> El {
                 .child(icon(&ic::CIRCLE_BAN_SIGN, 14.0).color(p.danger).mt(3.0))
                 .child(text(words).role("alert").font(BODY).color(p.text).wrap().grow(1.0).shrink()),
         )
-        .child(row().child(retry))
+        .child(ui::step_actions().child(retry))
 }
 
 /// The Console's device sign-in (`console.tsx`).
@@ -261,14 +284,15 @@ fn copy_link(host: &mut dyn ConnectHost, tx: &mut Tx) {
 
 fn no_models<H: ConnectHost + 'static>(p: &Pal, pending: bool, refreshing: bool) -> El {
     let open_again = (!pending).then(|| {
-        ui::button(opencode_i18n::t!("provider.connect.console.openAgain"), ButtonVariant::Neutral)
+        ui::button(opencode_i18n::t!("provider.connect.console.openAgain"), ButtonVariant::Ghost)
             .on_press_tx(|s: &mut H, tx: &mut Tx| open_url(s, "https://opencode.ai/console", tx))
             .build(kit(p))
     });
-    let refresh = ui::button(opencode_i18n::t!("provider.connect.console.refresh"), ButtonVariant::Neutral)
+    let refresh = ui::button(opencode_i18n::t!("provider.connect.console.refresh"), ButtonVariant::Contrast)
         .disabled(refreshing)
         .on_press_tx(|s: &mut H, tx: &mut Tx| input(s, Input::Refresh, tx))
-        .build(kit(p));
+        .build(kit(p))
+        .busy(refreshing);
     build_no_models_layout(p, pending, open_again, refresh)
 }
 
@@ -278,7 +302,7 @@ fn build_no_models_layout(p: &Pal, pending: bool, open_again: Option<El>, refres
     } else {
         opencode_i18n::t!("provider.connect.console.noModels")
     };
-    let actions = row().gap(8.0).children(open_again).child(refresh);
+    let actions = ui::step_actions().children(open_again).child(refresh);
     col()
         .key("connect-no-models")
         .role("status")
@@ -319,34 +343,34 @@ fn claude<H: ConnectHost + 'static>(s: &H, p: &Pal, checking: bool, can_check: b
                 .child(text(w).role("alert").font(BODY).color(p.text).wrap().grow(1.0).shrink()),
         );
     }
-    e = e.child(auth::copy_field::<H>(p, "claude-command", None, None, "claude auth login".into()));
-    if checking {
-        return e.child(ui::status_row(p, "claude-checking", opencode_i18n::t!("provider.connect.claudeAgent.checking")));
-    }
+    e = e.child(auth::copy_field::<H>(
+        p,
+        "claude-command",
+        None,
+        Some(opencode_i18n::t!("provider.connect.claudeAgent.signIn.command")),
+        None,
+        "claude auth login".into(),
+    ));
     let again = crate::accounts_of(s, dialog::CLAUDE).count > 0;
     let url = problem.and_then(|st| st.url).unwrap_or_else(|| "https://code.claude.com/docs/en/setup".into());
-    let submit_label = if again {
-        opencode_i18n::t!("provider.connect.claudeAgent.checkAgain")
+    let install = ui::button(opencode_i18n::t!("provider.connect.claudeAgent.install"), ButtonVariant::Ghost)
+        .on_press_tx(move |s: &mut H, tx: &mut Tx| open_url(s, &url, tx))
+        .build(kit(p));
+    let primary = if checking {
+        auth::wait_button(p, opencode_i18n::t!("provider.connect.claudeAgent.checking")).key("claude-checking")
     } else {
-        opencode_i18n::t!("provider.connect.claudeAgent.connect")
+        let submit_label = if again {
+            opencode_i18n::t!("provider.connect.claudeAgent.checkAgain")
+        } else {
+            opencode_i18n::t!("provider.connect.claudeAgent.connect")
+        };
+        ui::button(submit_label, ButtonVariant::Contrast)
+            .disabled(!can_check)
+            .on_press_tx(|s: &mut H, tx: &mut Tx| trigger_claude_check(s, tx))
+            .build(kit(p))
+            .key("connect-submit")
     };
-    e.child(
-        row()
-            .gap(8.0)
-            .child(
-                ui::button(submit_label, ButtonVariant::Contrast)
-                    .disabled(!can_check)
-                    .on_press_tx(|s: &mut H, tx: &mut Tx| trigger_claude_check(s, tx))
-                    .build(kit(p))
-                    .key("connect-submit"),
-            )
-            .child(
-                ui::button(opencode_i18n::t!("provider.connect.claudeAgent.install"), ButtonVariant::Neutral)
-                    .icon(&ic::ARROW_UP_RIGHT)
-                    .on_press_tx(move |s: &mut H, tx: &mut Tx| open_url(s, &url, tx))
-                    .build(kit(p)),
-            ),
-    )
+    e.child(ui::step_actions().child(install).child(primary))
 }
 
 fn trigger_claude_check(host: &mut dyn ConnectHost, tx: &mut Tx) {

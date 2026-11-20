@@ -15,6 +15,8 @@ pub mod picker_reads;
 pub mod run;
 pub mod steps;
 mod ui;
+pub mod unpaid;
+pub mod usage_limit;
 pub mod view;
 pub mod welcome;
 
@@ -35,6 +37,10 @@ use dialog::{Accounts, Dialog, Event, Provider, Step};
 pub const OVERLAY_ID: &str = "dialog.connect";
 /// Overlay stack identifier for the ChatGPT plan welcome dialog (`opencode_kernel::OverlayStack`).
 pub const WELCOME_OVERLAY_ID: &str = "dialog.connect.welcome";
+/// Overlay stack identifier for the ChatGPT usage limit dialog (`opencode_kernel::OverlayStack`).
+pub const USAGE_LIMIT_OVERLAY_ID: &str = "dialog.connect.usage-limit";
+/// Overlay stack identifier for the unpaid free-model picker (`opencode_kernel::OverlayStack`).
+pub const UNPAID_OVERLAY_ID: &str = "dialog.connect.unpaid";
 
 /// `providers/connect/remote.tsx::authServerName`. An HTTP connection on *any* loopback
 /// port counts as local here. A plugin's SSH tunnel remains remote even when it listens on
@@ -67,14 +73,25 @@ pub struct Open {
     pub rename: TextEdit,
 }
 
-/// Active modal owned by [`Connect`]: the provider connect dialog and the ChatGPT plan welcome
-/// card are mutually exclusive.
+/// Copy-request status inside the ChatGPT Business workspace usage limit dialog (`#64926`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CopyStatus {
+    #[default]
+    Idle,
+    Copied,
+    Failed,
+}
+
+/// Active modal owned by [`Connect`]: mutually exclusive across Connect, ChatGPT welcome,
+/// ChatGPT usage limit, and unpaid free-model picker.
 #[derive(Default)]
 pub enum Modal {
     #[default]
     Closed,
     Dialog(Box<Open>),
     Welcome,
+    UsageLimit { workspace: bool, copy: CopyStatus },
+    Unpaid { active: Option<usize> },
 }
 
 pub enum ModalEvent {
@@ -86,6 +103,16 @@ pub enum ModalEvent {
     OpenWelcome,
     /// Close the ChatGPT plan welcome modal.
     CloseWelcome,
+    /// Open the ChatGPT usage limit modal (personal or Business workspace) when closed.
+    OpenUsageLimit { workspace: bool, seen_at: i64 },
+    /// Record copy-request feedback inside an open workspace usage limit modal.
+    UsageLimitCopy(CopyStatus),
+    /// Close the ChatGPT usage limit modal.
+    CloseUsageLimit,
+    /// Open the unpaid free-model picker modal, replacing any active modal.
+    OpenUnpaid,
+    /// Close the unpaid free-model picker modal.
+    CloseUnpaid,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -93,41 +120,73 @@ pub enum ModalEffect {
     OpenOverlay(&'static str),
     CloseOverlay(&'static str),
     MarkWelcomeSeen,
+    MarkUsageLimitSeen(i64),
     FocusComposer,
 }
 
 impl Modal {
+    fn overlay_id(&self) -> Option<&'static str> {
+        match self {
+            Self::Closed => None,
+            Self::Dialog(_) => Some(OVERLAY_ID),
+            Self::Welcome => Some(WELCOME_OVERLAY_ID),
+            Self::UsageLimit { .. } => Some(USAGE_LIMIT_OVERLAY_ID),
+            Self::Unpaid { .. } => Some(UNPAID_OVERLAY_ID),
+        }
+    }
+
     pub fn step(&mut self, event: ModalEvent) -> Effects<ModalEffect> {
-        match (&*self, event) {
-            (Self::Closed | Self::Dialog(_), ModalEvent::OpenDialog(open)) => {
-                *self = Self::Dialog(open);
-                Effects::one(ModalEffect::OpenOverlay(OVERLAY_ID))
+        let prev = self.overlay_id();
+        match (self, event) {
+            (m, ModalEvent::OpenDialog(open)) => {
+                *m = Self::Dialog(open);
+                match prev {
+                    Some(id) if id != OVERLAY_ID => Effects::two(ModalEffect::CloseOverlay(id), ModalEffect::OpenOverlay(OVERLAY_ID)),
+                    _ => Effects::one(ModalEffect::OpenOverlay(OVERLAY_ID)),
+                }
             }
-            (Self::Welcome, ModalEvent::OpenDialog(open)) => {
-                *self = Self::Dialog(open);
-                Effects::two(ModalEffect::CloseOverlay(WELCOME_OVERLAY_ID), ModalEffect::OpenOverlay(OVERLAY_ID))
-            }
-            (Self::Dialog(_), ModalEvent::CloseDialog { show_welcome: true }) => {
-                *self = Self::Welcome;
+            (m @ Self::Dialog(_), ModalEvent::CloseDialog { show_welcome: true }) => {
+                *m = Self::Welcome;
                 let mut effects = Effects::two(ModalEffect::CloseOverlay(OVERLAY_ID), ModalEffect::MarkWelcomeSeen);
                 effects.push(ModalEffect::OpenOverlay(WELCOME_OVERLAY_ID));
                 effects
             }
-            (Self::Dialog(_), ModalEvent::CloseDialog { show_welcome: false }) => {
-                *self = Self::Closed;
+            (m @ Self::Dialog(_), ModalEvent::CloseDialog { show_welcome: false }) => {
+                *m = Self::Closed;
                 Effects::two(ModalEffect::CloseOverlay(OVERLAY_ID), ModalEffect::FocusComposer)
             }
-            (Self::Closed | Self::Welcome, ModalEvent::CloseDialog { .. }) => Effects::none(),
-            (Self::Closed, ModalEvent::OpenWelcome) => {
-                *self = Self::Welcome;
+            (m @ Self::Closed, ModalEvent::OpenWelcome) => {
+                *m = Self::Welcome;
                 Effects::two(ModalEffect::MarkWelcomeSeen, ModalEffect::OpenOverlay(WELCOME_OVERLAY_ID))
             }
-            (Self::Dialog(_) | Self::Welcome, ModalEvent::OpenWelcome) => Effects::none(),
-            (Self::Welcome, ModalEvent::CloseWelcome) => {
-                *self = Self::Closed;
+            (m @ Self::Welcome, ModalEvent::CloseWelcome) => {
+                *m = Self::Closed;
                 Effects::two(ModalEffect::CloseOverlay(WELCOME_OVERLAY_ID), ModalEffect::FocusComposer)
             }
-            (Self::Closed | Self::Dialog(_), ModalEvent::CloseWelcome) => Effects::none(),
+            (m @ Self::Closed, ModalEvent::OpenUsageLimit { workspace, seen_at }) => {
+                *m = Self::UsageLimit { workspace, copy: CopyStatus::Idle };
+                Effects::two(ModalEffect::MarkUsageLimitSeen(seen_at), ModalEffect::OpenOverlay(USAGE_LIMIT_OVERLAY_ID))
+            }
+            (Self::UsageLimit { copy, .. }, ModalEvent::UsageLimitCopy(next)) => {
+                *copy = next;
+                Effects::none()
+            }
+            (m @ Self::UsageLimit { .. }, ModalEvent::CloseUsageLimit) => {
+                *m = Self::Closed;
+                Effects::two(ModalEffect::CloseOverlay(USAGE_LIMIT_OVERLAY_ID), ModalEffect::FocusComposer)
+            }
+            (m, ModalEvent::OpenUnpaid) => {
+                *m = Self::Unpaid { active: None };
+                match prev {
+                    Some(id) if id != UNPAID_OVERLAY_ID => Effects::two(ModalEffect::CloseOverlay(id), ModalEffect::OpenOverlay(UNPAID_OVERLAY_ID)),
+                    _ => Effects::one(ModalEffect::OpenOverlay(UNPAID_OVERLAY_ID)),
+                }
+            }
+            (m @ Self::Unpaid { .. }, ModalEvent::CloseUnpaid) => {
+                *m = Self::Closed;
+                Effects::two(ModalEffect::CloseOverlay(UNPAID_OVERLAY_ID), ModalEffect::FocusComposer)
+            }
+            _ => Effects::none(),
         }
     }
 }
@@ -153,7 +212,34 @@ impl Connect {
         matches!(self.modal, Modal::Welcome)
     }
 
-    /// Whether either Connect modal (provider dialog or ChatGPT plan welcome) is open.
+    /// Whether the ChatGPT usage limit modal is open.
+    pub fn is_usage_limit_open(&self) -> bool {
+        matches!(self.modal, Modal::UsageLimit { .. })
+    }
+
+    /// Current `(workspace, copy_status)` when the ChatGPT usage limit modal is open.
+    pub fn usage_limit(&self) -> Option<(bool, CopyStatus)> {
+        match self.modal {
+            Modal::UsageLimit { workspace, copy } => Some((workspace, copy)),
+            _ => None,
+        }
+    }
+
+    /// Whether the unpaid free-model picker modal is open.
+    pub fn is_unpaid_open(&self) -> bool {
+        matches!(self.modal, Modal::Unpaid { .. })
+    }
+
+    /// Active keyboard index when the unpaid free-model picker is open.
+    pub fn unpaid_active(&self) -> Option<Option<usize>> {
+        match self.modal {
+            Modal::Unpaid { active } => Some(active),
+            _ => None,
+        }
+    }
+
+    /// Whether any Connect modal (provider dialog, ChatGPT welcome/usage limit, or unpaid picker)
+    /// is open.
     pub fn is_modal_open(&self) -> bool {
         !matches!(self.modal, Modal::Closed)
     }
@@ -161,42 +247,42 @@ impl Connect {
     pub fn dialog(&self) -> Option<&Open> {
         match &self.modal {
             Modal::Dialog(open) => Some(open),
-            Modal::Closed | Modal::Welcome => None,
+            _ => None,
         }
     }
 
     pub fn dialog_mut(&mut self) -> Option<&mut Open> {
         match &mut self.modal {
             Modal::Dialog(open) => Some(open),
-            Modal::Closed | Modal::Welcome => None,
+            _ => None,
         }
     }
 
     pub(crate) fn search_mut(&mut self) -> &mut TextEdit {
         match &mut self.modal {
             Modal::Dialog(o) => &mut o.search,
-            Modal::Closed | Modal::Welcome => &mut self.scratch_search,
+            _ => &mut self.scratch_search,
         }
     }
 
     pub(crate) fn entry_mut(&mut self) -> &mut TextEdit {
         match &mut self.modal {
             Modal::Dialog(o) => &mut o.entry,
-            Modal::Closed | Modal::Welcome => &mut self.scratch_entry,
+            _ => &mut self.scratch_entry,
         }
     }
 
     pub(crate) fn field_mut(&mut self) -> &mut TextEdit {
         match &mut self.modal {
             Modal::Dialog(o) => &mut o.field,
-            Modal::Closed | Modal::Welcome => &mut self.scratch_field,
+            _ => &mut self.scratch_field,
         }
     }
 
     pub(crate) fn rename_mut(&mut self) -> &mut TextEdit {
         match &mut self.modal {
             Modal::Dialog(o) => &mut o.rename,
-            Modal::Closed | Modal::Welcome => &mut self.scratch_rename,
+            _ => &mut self.scratch_rename,
         }
     }
 }
@@ -235,6 +321,18 @@ pub trait ConnectHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback + 
     }
     /// Persists that the ChatGPT plan welcome card has been shown.
     fn mark_chatgpt_welcome_seen(&mut self) {}
+    /// Epoch ms when the ChatGPT usage limit dialog was last shown (24 h throttle).
+    fn chatgpt_usage_limit_seen_at(&self) -> Option<i64> {
+        None
+    }
+    /// Persists when the ChatGPT usage limit dialog was last shown.
+    fn mark_chatgpt_usage_limit_seen(&mut self, _at_ms: i64) {}
+    /// Currently selected `provider:id` key for marking the active row in the unpaid picker.
+    fn current_model_key(&self) -> Option<String> {
+        None
+    }
+    /// Selects a free model from the unpaid free-model picker.
+    fn select_free_model(&mut self, _provider: &str, _id: &str, _tx: &mut Tx) {}
 
     /// Models currently known to the composer's pickers.
     fn models(&self) -> &[Model];
@@ -292,6 +390,7 @@ pub(crate) fn apply_modal(host: &mut dyn ConnectHost, event: ModalEvent, tx: &mu
             }
             ModalEffect::CloseOverlay(id) => host.on_overlay_closed(id),
             ModalEffect::MarkWelcomeSeen => host.mark_chatgpt_welcome_seen(),
+            ModalEffect::MarkUsageLimitSeen(at_ms) => host.mark_chatgpt_usage_limit_seen(at_ms),
             ModalEffect::FocusComposer => host.auto_focus_composer(tx),
         }
     }
@@ -445,7 +544,7 @@ pub fn provider_name(host: &dyn ConnectHost, id: &str) -> String {
 /// The dialog's keys: Escape closes it (or its open account menu), and the list's arrows and
 /// Enter pick a provider.
 pub fn key(host: &mut dyn ConnectHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if welcome::key(host, ev, tx) {
+    if welcome::key(host, ev, tx) || usage_limit::key(host, ev, tx) || unpaid::key(host, ev, tx) {
         return true;
     }
     let (menu_open, in_picker) = match host.connect().dialog() {

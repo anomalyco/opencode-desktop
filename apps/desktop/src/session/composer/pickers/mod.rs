@@ -66,6 +66,10 @@ impl PickerHost for App {
             self.open_connect(None, false, tx);
         }
     }
+    fn picker_open_unpaid(&mut self, tx: &mut Tx) -> bool {
+        crate::connect::unpaid::open(self, tx);
+        true
+    }
     fn picker_projects(&self) -> Vec<Item> {
         self.projects.iter().map(|p| Item::new(p.id.clone(), p.name.clone()))
             .chain(std::iter::once(Item::new(ADD_PROJECT_KEY, opencode_i18n::t!("session.new.project.add"))))
