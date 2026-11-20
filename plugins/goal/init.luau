@@ -1,19 +1,28 @@
 --!strict
 -- Desktop's built-in Goal plugin (`packages/gui-plugins/src/goal`): the session's `/goal` as a
--- pill above its composer, Goal, Goal paused or Goal met, and a popover headed by the objective
--- with Pause, Resume and Clear. The server's goal plugin owns the goal and serves it over its RPC
--- (`opencode.goal`): `get` reads it, `changed` keeps it current, and the actions run
--- `/goal pause|resume|clear` as the session's command.
+-- pill above its composer with its own glyph, Following goal, Goal paused or Goal reached, and a
+-- popover with the objective, the last reason and the actions that apply. The server's goal
+-- plugin owns the goal and serves it over its RPC (`opencode.goal`): `get` reads it, `changed`
+-- keeps it current, and the actions run `/goal pause|resume|clear` as the session's command.
 
 local plugin = require("@opencode/plugin")
 local ui = require("@opencode/ui")
 local machine = require("@self/machine")
 
-local VIEWS: { [machine.Status]: { label: string, icon: string, tone: Tone? } } = {
-    active = { label = "title", icon = "steer", tone = nil },
-    paused = { label = "paused", icon = "circle-exclamation", tone = "warning" },
-    complete = { label = "met", icon = "circle-check", tone = "success" },
+-- The pill and the popover's status line of each goal status (`renderer.tsx`). The glyphs are the
+-- plugin's own `icons/*.svg`, tinted by `tone`.
+local VIEWS: { [machine.Status]: { label: string, status: string, icon: string, tone: Tone, color: Color } } = {
+    active = { label = "active", status = "statusActive", icon = "active", tone = "accent", color = "text-interactive" },
+    paused = { label = "paused", status = "statusPaused", icon = "paused", tone = "warning", color = "status-warning" },
+    complete = { label = "reached", status = "statusFinished", icon = "complete", tone = "success", color = "status-success" },
 }
+
+-- `goal.css`: the objective and reason in 13 pt body text, the status line in 12 pt.
+local BODY = table.freeze({ size = 13, lineHeight = 20, tracking = -0.04, color = "text-chrome", dir = "auto", wrap = true } :: UiTextProps)
+local STATUS = table.freeze({ size = 12, lineHeight = 18, tracking = 0.05 } :: UiTextProps)
+-- The host popover is 320 wide inside a 0.5 hairline, with a 4 pt inset; the panel pads 8 more.
+local POPOVER_INNER = 319
+local INSET = 12
 
 return plugin.defineWindow(function(ctx)
     local I18n = ctx:GetService("I18n")
@@ -92,7 +101,7 @@ return plugin.defineWindow(function(ctx)
     end
 
     -- Only the routed session can have a visible pill. Starting a fetch or a retry is not
-    -- a visual change. A new objective, status or set of enabled menu actions is.
+    -- a visual change. A new objective, status, reason or set of enabled menu actions is.
     local function shown(): (string?, machine.Goal?, boolean)
         local target = state.target
         if target == nil then return nil, nil, false end
@@ -105,7 +114,8 @@ return plugin.defineWindow(function(ctx)
         local previous, oldGoal, oldBusy = shown()
         local effects = machine.step(state, event)
         local key, goal, busy = shown()
-        if key ~= previous or oldBusy ~= busy or (goal and oldGoal and (goal.status ~= oldGoal.status or goal.objective ~= oldGoal.objective)) then
+        local moved = goal and oldGoal and (goal.status ~= oldGoal.status or goal.objective ~= oldGoal.objective or goal.reason ~= oldGoal.reason)
+        if key ~= previous or oldBusy ~= busy or moved then
             changed:Fire()
         end
         run(effects)
@@ -149,21 +159,25 @@ return plugin.defineWindow(function(ctx)
                 return nil
             end
             local view = VIEWS[goal.status]
-            return { label = I18n:T(view.label), icon = view.icon, tone = view.tone, title = goal.objective }
+            return { label = I18n:T(view.label), icon = view.icon, tone = view.tone }
         end,
-        -- The actions under the objective (`flex justify-end gap-1 px-1 pt-1`): Pause while
-        -- active, Resume while paused, and Clear, each waiting while one runs.
+        -- The popover is all the plugin's (`renderer.tsx`, `goal.css`): the objective, then,
+        -- once the goal has a reason, a hairline and the colored status over the reason, then
+        -- Pause or Resume beside a red Clear, or only Dismiss once the goal is reached, each
+        -- waiting while one runs.
         renderMenu = function(view, props)
             local sid = props.sessionId
             return view:Memo(`goal-menu-{sid}`, `{changed:Version()}:{I18n:Locale().id}`, function()
                 local goal = machine.goal(state, sid)
+                if goal == nil then
+                    return nil
+                end
                 local busy = machine.busy(state, sid)
-                local function button(action: machine.Action, icon: string): ui.Node
+                local function button(action: machine.Action, labelKey: string, variant: ButtonVariant?): ui.Node
                     return ui.button({
-                        key = `goal-{action}`,
-                        text = I18n:T(action),
-                        icon = icon,
-                        variant = "ghost",
+                        key = `goal-{labelKey}`,
+                        text = I18n:T(labelKey),
+                        variant = variant,
                         size = "small",
                         disabled = busy,
                         onPress = view:Handler(function()
@@ -172,14 +186,35 @@ return plugin.defineWindow(function(ctx)
                         end),
                     })
                 end
-                local actions: { ui.Node } = { ui.spacer() }
-                if goal and goal.status == "active" then
-                    table.insert(actions, button("pause", "stop"))
-                elseif goal and goal.status == "paused" then
-                    table.insert(actions, button("resume", "refresh"))
+                local actions: { ui.Node } = {}
+                if goal.status == "active" then
+                    table.insert(actions, button("pause", "pause"))
+                elseif goal.status == "paused" then
+                    table.insert(actions, button("resume", "resume"))
                 end
-                table.insert(actions, button("clear", "outline-trash"))
-                return ui.row({ key = "goal-actions", w = "full", gap = 4, px = 4, pt = 4 }, actions)
+                -- A reached goal has nothing left to stop, so clearing it only dismisses the pill.
+                if goal.status == "complete" then
+                    table.insert(actions, button("clear", "dismiss"))
+                else
+                    table.insert(actions, button("clear", "clear", "danger"))
+                end
+                local children: { ui.Node } = {
+                    ui.col({ key = "goal-objective", w = "full", maxH = 160, scrollY = true }, {
+                        ui.text(goal.objective, BODY, { selectable = true }),
+                    }),
+                }
+                -- Until the goal has a reason, the status is the pill's alone.
+                local reason = goal.reason
+                if reason then
+                    local look = VIEWS[goal.status]
+                    table.insert(children, ui.col({ key = "goal-divider", w = POPOVER_INNER, h = 0.5, ml = -INSET, fill = "border-base" }))
+                    table.insert(children, ui.col({ key = "goal-why", w = "full" }, {
+                        ui.text(I18n:T(look.status), STATUS, { key = "goal-status", color = look.color }),
+                        ui.text(reason, BODY, { key = "goal-reason", selectable = true }),
+                    }))
+                end
+                table.insert(children, ui.row({ key = "goal-actions", w = "full", gap = 8, wrap = true, pt = 4 }, actions))
+                return ui.col({ key = "goal-panel", w = "full", gap = 8, pt = 4, px = INSET - 4, pb = 8 }, children)
             end)
         end,
     })

@@ -14,7 +14,8 @@ machine.COMMAND_TIMEOUT = 15
 local RETRY_DELAYS = { 1, 2, 4 }
 
 export type Status = "active" | "paused" | "complete"
-export type Goal = { objective: string, status: Status }
+-- `reason`: why the goal last changed, the reviewer's reason or what paused it.
+export type Goal = { objective: string, status: Status, reason: string? }
 export type Action = "pause" | "resume" | "clear"
 
 -- One session's goal, as far as this window knows it.
@@ -69,7 +70,11 @@ function machine.parse(v: any): Goal?
     if status ~= "active" and status ~= "paused" and status ~= "complete" then
         return nil
     end
-    return { objective = if type(v.objective) == "string" then v.objective else "", status = status }
+    return {
+        objective = if type(v.objective) == "string" then v.objective else "",
+        status = status,
+        reason = if type(v.reason) == "string" and v.reason ~= "" then v.reason else nil,
+    }
 end
 
 -- The goal the pill shows: a live answer, or the cached one while it revalidates.

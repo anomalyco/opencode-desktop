@@ -297,8 +297,11 @@ pub fn pill_views(app: &App, p: &Pal, session: &str) -> Vec<El> {
                 None => p.icon_muted,
             };
             let mut pill = crate::subagents::chip(app, p, &anchor, name, open).shrink().min_w(0.0);
+            // A leading icon sits 8 pt from the edge and 6 pt from its label, in a 16 pt box
+            // (`composer-lane.css:62-66`, `plugin-pills.tsx`'s `PillIcon`).
             if let Some(icon) = &view.icon {
-                pill = pill.child(rune::icon(crate::plugin_host::icons::resolve(&plugin, icon), 14.0).color(ink));
+                let glyph = rune::icon(crate::plugin_host::icons::resolve(&plugin, icon), 14.0).color(ink);
+                pill = pill.pl(8.0).gap(6.0).child(el().size(16.0, 16.0).center().child(glyph));
             }
             pill = pill.child(text(view.label).font(crate::view::UI).color(p.text).truncate().max_w(260.0).shrink().min_w(0.0));
             Some(pill.on_press_tx(move |s: &mut App, tx: &mut Tx| {
@@ -337,12 +340,13 @@ pub fn popover_view(app: &App, p: &Pal) -> Vec<El> {
         let script = app.plugins.list[i].script();
         let view: Option<opencode_plugin_spec::ComposerPillView> = script.and_then(|s| cx::enter(app, || s.eval_fn::<Data>(show.as_ref()?, data.clone()).ok())).and_then(|d| d.decode().ok());
         let content = render(app, p, i, &format!("pill:{id}"), &menu, data.clone());
-        let heading = view.map(|v| v.title.unwrap_or(v.label)).unwrap_or_default();
-        let head = text(heading.clone()).font(rune::TextStyle::new(11.0, 530.0).lh(12.0).tracking(0.05)).color(p.faint).wrap().max_lines(3).w_full();
+        // The host keeps only the frame: everything inside, any heading included, is the
+        // plugin's, and the view's title (else its label) names it (`plugin-pills.tsx`).
+        let name = view.map(|v| v.title.unwrap_or(v.label)).unwrap_or_default();
         let card = col()
             .key(format!("plugin-pill-popover-{key}"))
             .role("dialog")
-            .label(heading)
+            .label(name)
             .w(320.0)
             // `w-80 p-1` inside a 0.5 transparent border (`[data-composer-pill-panel]`).
             .padding(4.5)
@@ -350,7 +354,6 @@ pub fn popover_view(app: &App, p: &Pal) -> Vec<El> {
             .fill(p.layer1)
             .elevate(p.floating)
             .on_press(|_: &mut App| {})
-            .child(col().w_full().px(8.0).pt(4.0).pb(6.0).child(head))
             .child(content);
         return vec![scrim, crate::popover::place(&app.diag.knobs, card, anchor, rune::Side::Top, rune::Align::Start, 8.0)];
     }

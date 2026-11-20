@@ -275,15 +275,18 @@ fn counts(host: &dyn SubagentsHost, id: &str) -> (usize, usize, usize) {
 
 fn build_capsule_shell(host: &dyn SubagentsHost, p: &Pal, id: &str, subs: usize, scr: usize, sh: usize) -> El {
     let summary = activity::summary(subs, scr, sh);
-    let mut chip = chip(host, p, "activity-chip", summary.label, host.shells().activity.is_open()).child(activity_ring_sized(p, 16.0));
+    // Leading glyph sits 8 in and 6 from the words, which keep their own 8 apart
+    // (`composer-lane.css:62-66`, `session-activity-summary`'s `gap-2`).
+    let chip = chip(host, p, "activity-chip", summary.label, host.shells().activity.is_open()).pl(8.0).gap(6.0).child(activity_ring_sized(p, 16.0));
+    let mut words = row().key("chip-summary").gap(8.0).center_y();
     let groups = [("count", summary.subagents, subs), ("scripts", summary.scripts, scr), ("shells", summary.shells, sh)];
-    for (i, (key, words, n)) in groups.into_iter().filter(|g| g.2 > 0).enumerate() {
+    for (i, (key, label, n)) in groups.into_iter().filter(|g| g.2 > 0).enumerate() {
         if i > 0 {
-            chip = chip.child(text(summary.between.clone()).key(format!("chip-between-{key}")).font(UI).color(p.faint));
+            words = words.child(text(summary.between.clone()).key(format!("chip-between-{key}")).font(UI).color(p.faint));
         }
-        chip = chip.child(odometer(format!("chip-{key}-{id}"), words, n as f64, UI, p.text));
+        words = words.child(odometer(format!("chip-{key}-{id}"), label, n as f64, UI, p.text));
     }
-    chip
+    chip.child(words)
 }
 
 /// The capsule every pill over the composer shares (`[data-composer-pill]`,
@@ -400,10 +403,10 @@ fn prepare_panel_layout(host: &dyn SubagentsHost, id: &str) -> Option<PanelLayou
     // A script's or shell's command spans the agent and task columns and the gap between them.
     let commands = scripts.iter().map(|sc| sc.label.as_str()).chain(shell_items.iter().map(|sh| sh.command.as_str()));
     let command_w = commands.map(|c| width(c, shells_view::COMMAND)).fold(0.0, f32::max);
-    let span = (agent_w + 8.0 + label_w).max(command_w);
-    // Panel inset 4 + hairline 0.5, row inset 6, then the mark, agent and task (or command) and
-    // time, 8 apart, with 8 more before the time.
-    let natural = 2.0 * (PANEL_PAD + 0.5 + 6.0) + 16.0 + 8.0 + span + 16.0 + time_w + if session_view::style::hover_none() { 46.0 } else { 0.0 };
+    let span = (agent_w + 6.0 + label_w).max(command_w);
+    // Panel inset 4 + hairline 0.5, row inset 4, then the mark, agent and task (or command) and
+    // time, 6 apart, with 8 more before the time (`activity-chips.css:9-64`).
+    let natural = 2.0 * (PANEL_PAD + 0.5 + 4.0) + 16.0 + 6.0 + span + 14.0 + time_w + if session_view::style::hover_none() { 46.0 } else { 0.0 };
     let n = items.len() + scripts.len() + shell_items.len();
     let h = (n as f32 * panel_row() + 2.0 * PANEL_PAD).min(PANEL_MAX_H);
     let label = activity::summary(items.len(), scripts.len(), shell_items.len()).label;
@@ -421,8 +424,8 @@ fn build_subagent_row_shell(p: &Pal, it: &Running, name: String, agent_w: f32, e
         .label(format!("{name} {}", it.label))
         .w_full()
         .h(panel_row())
-        .px(6.0)
-        .gap(8.0)
+        .px(4.0)
+        .gap(6.0)
         .center_y()
         .radius(4.0)
         .hover(p.hover)
