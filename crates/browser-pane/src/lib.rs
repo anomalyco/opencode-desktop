@@ -35,6 +35,7 @@ pub use browser_policy as policy;
 mod prefetch;
 #[cfg(feature = "engine")]
 pub mod profile;
+pub mod prompts;
 pub mod protocol;
 #[cfg(feature = "engine")]
 mod sidecar;
@@ -61,6 +62,7 @@ pub use policy::{
 #[cfg(feature = "engine")]
 pub use profile::shared_profile_dir;
 pub use protocol::CursorKind;
-pub use protocol::{DownloadFile, DownloadState};
+pub use protocol::{AuthChallenge, DialogKind, DownloadFile, DownloadState, PageDialog, PermissionKind, PermissionPrompt};
 pub use protocol::PickedElement;
+pub use prompts::{PermissionDecision, PermissionStore, SiteDecision, SitePermissions, SiteSetting};
 pub use site_zoom::ZoomStore;

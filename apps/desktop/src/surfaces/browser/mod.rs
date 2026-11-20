@@ -7,9 +7,13 @@
 //! omitted and this module exposes zero-sized no-op stubs.
 
 #[cfg(not(target_arch = "wasm32"))]
+pub mod prompts;
+#[cfg(not(target_arch = "wasm32"))]
 mod scene;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod view;
+#[cfg(not(target_arch = "wasm32"))]
+pub use prompts::BrowserFeature;
 
 /// The browser plugin's id: its tabs key as `browser:<page id>`.
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
@@ -69,14 +73,21 @@ mod native {
     use crate::keymap::Bind;
     use crate::panels::{SessionPane, panel_key, split_panel_key};
 
+    /// One DevTools call in flight for a plugin or MCP tool.
+    pub struct PendingDevtools {
+        pub done: rune_luau::Completer,
+        pub deadline: Instant,
+        pub tab_id: u64,
+        pub is_dialog: bool,
+    }
+
     #[derive(Default)]
     pub struct BrowserPane {
         pub host: BrowserHost,
         /// Each session's pages, oldest first.
         pub session_tabs: HashMap<String, Vec<u64>>,
-        /// DevTools calls a plugin waits on, by the engine's request id: who to answer and when to
-        /// give up.
-        pub devtools: HashMap<u64, (rune_luau::Completer, Instant)>,
+        /// DevTools calls a plugin waits on, by the engine's request id.
+        pub devtools: HashMap<u64, PendingDevtools>,
     }
 
     /// App-level shortcuts that a focused web page must yield to OpenCode (Rune) rather than swallow,
@@ -140,6 +151,10 @@ mod native {
                 self.workspace_panes.browser.host.remember_site_zoom(browser_pane::ZoomStore {
                     read: Box::new(|| crate::storage::text("plugin.browser", "rune.siteZoom").map(|t| t.to_string())),
                     write: Box::new(|levels| crate::storage::set("plugin.browser", "rune.siteZoom", levels)),
+                });
+                self.workspace_panes.browser.host.remember_site_permissions(browser_pane::PermissionStore {
+                    read: Box::new(|| crate::storage::text("plugin.browser", "rune.sitePermissions").map(|t| t.to_string())),
+                    write: Box::new(|json| crate::storage::set("plugin.browser", "rune.sitePermissions", json)),
                 });
             }
         }
@@ -380,6 +395,23 @@ mod native {
         pub fn poll_browser(&mut self) -> bool {
             // Every poll comes here: the pane is written only when the engine has something.
             let mut changed = !self.workspace_panes.browser.host.quiet() && self.workspace_panes.browser.host.poll();
+            if self.workspace_panes.browser.host.has_popup_opens() {
+                let popups: Vec<_> = self.workspace_panes.browser.host.drain_popup_opens().collect();
+                for popup in popups {
+                    let sid = self.browser_tab_session(popup.opener_tab_id).map(str::to_owned);
+                    let agent = self
+                        .workspace_panes
+                        .browser
+                        .host
+                        .tab(popup.opener_tab_id)
+                        .is_some_and(|t| t.prompts.agent_driven);
+                    let new_id = self.open_new_browser_tab_for_session(sid.as_deref(), &popup.url, None, !popup.background);
+                    if agent {
+                        self.workspace_panes.browser.host.set_agent_driven(new_id, true);
+                    }
+                    changed = true;
+                }
+            }
             // The engine paints only its focused tab, so the page on screen must be that tab (after a
             // session switch, say, which shows another session's page without selecting it).
             if self.side_open()
@@ -395,4 +427,4 @@ mod native {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use native::BrowserPane;
+pub use native::{BrowserPane, PendingDevtools};

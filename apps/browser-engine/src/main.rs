@@ -25,6 +25,7 @@ mod linux_gpu;
 #[cfg(target_os = "macos")]
 mod mac_app;
 mod profile;
+mod prompts;
 mod tab_client;
 mod wire;
 

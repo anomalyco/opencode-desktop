@@ -120,6 +120,9 @@ pub enum HostMsg {
     Hello {
         mach_service: Option<String>,
         pid: u32,
+        /// This app shows and answers page dialogs, permissions, and HTTP auth (`prompts.rs`).
+        #[serde(default)]
+        prompts: bool,
     },
     OpenTab {
         tab_id: u64,
@@ -247,6 +250,27 @@ pub enum HostMsg {
     DmabufFailed {
         reason: String,
     },
+    AnswerDialog {
+        tab_id: u64,
+        id: u64,
+        accept: bool,
+        text: String,
+    },
+    AnswerPermission {
+        tab_id: u64,
+        id: u64,
+        allow: bool,
+    },
+    AnswerAuth {
+        tab_id: u64,
+        id: u64,
+        username: Option<String>,
+        password: Option<String>,
+    },
+    SetAgentDriven {
+        tab_id: u64,
+        agent_driven: bool,
+    },
     Shutdown,
 }
 
@@ -262,11 +286,55 @@ pub enum EngineMsg {
         /// The engine enforces URL and workspace `file://` policy in its request handlers.
         #[serde(default)]
         policy: bool,
+        /// The engine holds JS dialogs, permissions, and HTTP auth challenges for the app.
+        #[serde(default)]
+        prompts: bool,
+        /// The engine manages pop-ups (`PopupOpen` / `PopupBlocked`) via `LifeSpanHandler`.
+        #[serde(default)]
+        popups: bool,
     },
     /// A frame navigation or redirect was refused by URL policy while keeping the current page.
     Refused {
         tab_id: u64,
         reason: String,
+    },
+    Dialog {
+        tab_id: u64,
+        dialog: PageDialog,
+    },
+    DialogsReset {
+        tab_id: u64,
+    },
+    PermissionRequest {
+        tab_id: u64,
+        request: PermissionPrompt,
+    },
+    PermissionDismissed {
+        tab_id: u64,
+        id: u64,
+    },
+    AuthRequest {
+        tab_id: u64,
+        challenge: AuthChallenge,
+    },
+    AuthReset {
+        tab_id: u64,
+    },
+    AuthAgentRequired {
+        tab_id: u64,
+        origin: String,
+    },
+    PopupOpen {
+        tab_id: u64,
+        url: String,
+        background: bool,
+    },
+    PopupBlocked {
+        tab_id: u64,
+        url: String,
+    },
+    FileChooserBlocked {
+        tab_id: u64,
     },
     TabList {
         tabs: Vec<TabSnapshot>,
@@ -363,4 +431,79 @@ pub enum DownloadState {
     Pending,
     Completed,
     Failed,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PageDialog {
+    pub id: u64,
+    pub kind: DialogKind,
+    #[serde(default)]
+    pub origin: String,
+    #[serde(default)]
+    pub message: String,
+    #[serde(default)]
+    pub default_text: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DialogKind {
+    Alert,
+    Confirm,
+    Prompt,
+    Leave,
+}
+
+impl DialogKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Alert => "alert",
+            Self::Confirm => "confirm",
+            Self::Prompt => "prompt",
+            Self::Leave => "leave",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PermissionKind {
+    Camera,
+    Microphone,
+    Location,
+    Notifications,
+    ClipboardRead,
+}
+
+impl PermissionKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Camera => "camera",
+            Self::Microphone => "microphone",
+            Self::Location => "location",
+            Self::Notifications => "notifications",
+            Self::ClipboardRead => "clipboard-read",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PermissionPrompt {
+    pub id: u64,
+    pub origin: String,
+    pub top_origin: String,
+    pub kinds: Vec<PermissionKind>,
+    #[serde(default)]
+    pub is_media: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthChallenge {
+    pub id: u64,
+    pub origin: String,
+    pub host: String,
+    pub port: u16,
+    #[serde(default)]
+    pub realm: String,
+    pub scheme: String,
 }

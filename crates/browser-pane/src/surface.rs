@@ -79,7 +79,11 @@ impl BrowserHost {
                 }
             })
             .on_pointer_move_local(move |s: &mut S, p: PointerEvent, tx| {
-                access(s).send(HostMsg::MouseMove {
+                let host = access(s);
+                if host.tab(tab_id).is_some_and(|t| t.prompts.has_blocking_modal()) {
+                    return;
+                }
+                host.send(HostMsg::MouseMove {
                     tab_id,
                     x: p.x * z,
                     y: p.y * z,
@@ -100,6 +104,9 @@ impl BrowserHost {
                 }
             })
             .on_drag(move |s: &mut S, d: &mut Drag, tx| {
+                if access(s).tab(tab_id).is_some_and(|t| t.prompts.has_blocking_modal()) {
+                    return;
+                }
                 let mods = pack_mods(tx.mods());
                 let btn = PointerBtn::from(tx.button());
                 if d.phase == Phase::Down {
@@ -135,6 +142,9 @@ impl BrowserHost {
                 }
             })
             .on_secondary_press_local(move |s: &mut S, p: PointerEvent, tx| {
+                if access(s).tab(tab_id).is_some_and(|t| t.prompts.has_blocking_modal()) {
+                    return;
+                }
                 let mods = pack_mods(tx.mods());
                 pressed(s, tab_id);
                 let host = access(s);
@@ -151,12 +161,16 @@ impl BrowserHost {
                 }
             })
             .on_wheel(move |s: &mut S, w: WheelEvent, _tx| {
+                let host = access(s);
+                if host.tab(tab_id).is_some_and(|t| t.prompts.has_blocking_modal()) {
+                    return false;
+                }
                 let zoom_mod = if cfg!(target_os = "macos") { w.mods.cmd && !w.mods.ctrl } else { w.mods.ctrl && !w.mods.cmd };
                 if zoom_mod && !w.mods.alt && w.dy.abs() > 0.0 {
-                    access(s).step_zoom(tab_id, if w.dy > 0.0 { 1 } else { -1 });
+                    host.step_zoom(tab_id, if w.dy > 0.0 { 1 } else { -1 });
                     return true;
                 }
-                access(s).send(HostMsg::Wheel {
+                host.send(HostMsg::Wheel {
                     tab_id,
                     x: w.x * z,
                     y: w.y * z,
@@ -172,8 +186,12 @@ impl BrowserHost {
                 if cfg!(target_os = "macos") {
                     return false;
                 }
+                let host = access(s);
+                if host.tab(tab_id).is_some_and(|t| t.prompts.has_blocking_modal()) {
+                    return false;
+                }
                 if m.delta.abs() > 0.0 {
-                    access(s).step_zoom(tab_id, if m.delta > 0.0 { 1 } else { -1 });
+                    host.step_zoom(tab_id, if m.delta > 0.0 { 1 } else { -1 });
                 }
                 true
             })

@@ -76,17 +76,25 @@ pub fn surface(s: &App, p: &Pal, tab_id: u64, scale: f32) -> Option<El> {
             })),
         EngineStatus::Unchecked | EngineStatus::Installed | EngineStatus::Connecting | EngineStatus::Ready => {
             let tab = s.workspace_panes.browser.host.tab(tab_id)?;
-            // `embeds.View`: the page on the pane's base background, 10 pt corners where it meets
-            // the pane's edge.
+            let bars = super::prompts::view_bars(s, p, tab.id);
+            let modal = super::prompts::view_modal(s, p, tab.id);
+            // `embeds.View`: the page on the pane's base background, with top prompt/popup bars
+            // above the page and any page modal (JS dialog / HTTP auth) overlaid cleanly on top.
+            let page_stack = col()
+                .key("browser-page-stack")
+                .grow(1.0)
+                .min_h(0.0)
+                .w_full()
+                .child(s.workspace_panes.browser.host.surface_el("browser-surface", tab.id, scale / *s.zoom, *s.zoom, |app: &mut App| &mut app.workspace_panes.browser.host, App::focus_browser_page))
+                .children(modal);
             col()
                 .key("browser-viewport")
                 .grow(1.0)
                 .min_h(0.0)
                 .w_full()
                 .fill(p.bg_base)
-                // The page lays out in window points at the window's scale, whatever the app's zoom:
-                // `scale` is the view's, the window's times the zoom.
-                .child(s.workspace_panes.browser.host.surface_el("browser-surface", tab.id, scale / *s.zoom, *s.zoom, |app: &mut App| &mut app.workspace_panes.browser.host, App::focus_browser_page))
+                .children(bars)
+                .child(page_stack)
         }
     })
 }
