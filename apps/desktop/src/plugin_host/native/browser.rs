@@ -187,6 +187,7 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     method(lua, t, "NormalizeUrl", |lua, (url, sid): (String, Option<String>)| {
         let scope = scope::TabScope::capture(lua);
         let roots = with_app("Browser:NormalizeUrl", |app| {
+            scope.check_local_mcp_allowed(app).map_err(mlua::Error::runtime)?;
             if app.workspace_panes.browser.host.has_live_sidecar() && !app.workspace_panes.browser.host.engine_policy() {
                 return Ok(Vec::new());
             }

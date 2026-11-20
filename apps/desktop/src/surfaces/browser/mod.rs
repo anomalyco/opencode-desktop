@@ -360,7 +360,16 @@ mod native {
         /// owning server (NEVER solely from whichever server happens to be active in the window).
         pub fn browser_context_for_session(&self, sid: Option<&str>) -> browser_pane::ContextKind {
             let server = self.browser_server_for_session(sid);
-            if server.is_sidecar() {
+            let same_machine = server.is_sidecar()
+                && if server == *crate::servers::runtime::active(self) {
+                    match &*self.source {
+                        crate::Source::Live { server: live, .. } => live.is_local(),
+                        crate::Source::Fixture => true,
+                    }
+                } else {
+                    crate::servers::runtime::own_server().is_none_or(|own| own.is_local())
+                };
+            if same_machine {
                 browser_pane::ContextKind::Default
             } else {
                 let id = server.as_str();

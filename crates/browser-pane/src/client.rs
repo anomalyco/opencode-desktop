@@ -640,6 +640,11 @@ impl BrowserHost {
             }
             t.has_engine_tab = true;
             promote_open = Some((t.viewport_pt, t.scale, t.file_roots.clone(), t.context.clone(), t.prompts.agent_driven));
+        } else if matches!(t.context, crate::protocol::ContextKind::RemoteServer { proxy: None, .. }) {
+            t.loading = false;
+            t.refusal = Some("browser.proxy.required".to_owned());
+            t.rejected += 1;
+            return;
         }
         t.refusal = None;
         if from_address || !t.prompts.agent_driven {
@@ -744,27 +749,6 @@ impl BrowserHost {
 
     pub fn highlight_node(&self, tab_id: u64, backend_node_id: Option<i64>) {
         self.send(HostMsg::HighlightNode { tab_id, backend_node_id });
-    }
-
-    pub fn send_cdp(
-        &mut self,
-        tab_id: u64,
-        method: impl Into<String>,
-        params: Value,
-        session_id: Option<String>,
-    ) -> Result<u64, String> {
-        let method = method.into();
-        crate::policy::check_cdp(&method, &params, self.engine_policy())?;
-        let request_id = self.next_req_id;
-        self.next_req_id += 1;
-        self.send(HostMsg::CdpCall {
-            tab_id,
-            request_id,
-            method,
-            params,
-            session_id,
-        });
-        Ok(request_id)
     }
 
     /// Counts cookies for tab `tab_id`'s HTTP(S) destination without exposing cookie values.
