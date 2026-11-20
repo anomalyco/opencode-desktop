@@ -12,11 +12,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::crx::is_valid_ext_id;
+use crate::integrity::read_regular_file_bounded;
 use crate::manifest::{
     compare_versions, display_name, extension_access, extension_compatibility,
-    extension_icon_data_url, read_manifest,
+    extension_icon_data_url, extension_label, read_manifest,
 };
 use crate::{BrowserExtensionCandidate, ExtensionSource, StoredExtension};
+
+const MAX_LOCAL_STATE_BYTES: u64 = 8 * 1024 * 1024;
+const MAX_BROWSER_EXTENSIONS: usize = 512;
 
 /// Injected host OS directories (avoids calling `std::env::var` inside library code).
 #[derive(Clone, Debug, Default)]
@@ -50,7 +54,7 @@ struct BrowserDef {
 }
 
 /// Lists installed Chromium browsers on this machine that have at least one profile directory
-/// containing an `Extensions/` folder.
+/// containing a non-symlink `Extensions/` folder.
 pub fn list_chromium_sources(dirs: &PlatformDirs) -> Vec<ChromiumBrowserSource> {
     let mut out = Vec::new();
     for def in browser_definitions(dirs) {
@@ -79,14 +83,11 @@ pub fn chromium_profile_directory(dirs: &PlatformDirs, browser_id: &str, profile
         .map(|(_, _, path)| path)
 }
 
-/// Scans `<profile_dir>/Extensions/<id>/<newest_version>` (`sources.ts:639-655`), returning valid
-/// non-theme extension directories with their newest version folder.
+/// Scans `<profile_dir>/Extensions/<id>/<newest_version>` (`sources.ts:639-655`), returning up to
+/// `MAX_BROWSER_EXTENSIONS` valid non-theme extension directories with their newest version folder.
 pub fn profile_extension_dirs(profile_dir: &Path) -> Vec<(String, PathBuf)> {
     let ext_root = profile_dir.join("Extensions");
-    let Ok(root_meta) = std::fs::symlink_metadata(&ext_root) else {
-        return Vec::new();
-    };
-    if !root_meta.is_dir() || root_meta.file_type().is_symlink() {
+    if !is_real_dir(&ext_root) {
         return Vec::new();
     }
     let Ok(entries) = std::fs::read_dir(&ext_root) else {
@@ -94,6 +95,9 @@ pub fn profile_extension_dirs(profile_dir: &Path) -> Vec<(String, PathBuf)> {
     };
     let mut out = Vec::new();
     for entry in entries.flatten() {
+        if out.len() >= MAX_BROWSER_EXTENSIONS {
+            break;
+        }
         let Ok(ft) = entry.file_type() else { continue };
         if !ft.is_dir() || ft.is_symlink() {
             continue;
@@ -106,6 +110,7 @@ pub fn profile_extension_dirs(profile_dir: &Path) -> Vec<(String, PathBuf)> {
         let Ok(ver_entries) = std::fs::read_dir(&id_dir) else { continue };
         let mut versions: Vec<(String, PathBuf)> = ver_entries
             .flatten()
+            .take(64)
             .filter_map(|ve| {
                 let vft = ve.file_type().ok()?;
                 if !vft.is_dir() || vft.is_symlink() {
@@ -116,8 +121,13 @@ pub fn profile_extension_dirs(profile_dir: &Path) -> Vec<(String, PathBuf)> {
             })
             .collect();
         versions.sort_by(|(a, _), (b, _)| {
-            let ord = compare_versions(a, b);
-            if ord == Ordering::Equal { a.cmp(b) } else { ord }
+            // Strip Chromium's `_0` suffix when comparing version folder names.
+            let va = a.split('_').next().unwrap_or(a);
+            let vb = b.split('_').next().unwrap_or(b);
+            match compare_versions(va, vb) {
+                Some(Ordering::Equal) | None => a.cmp(b),
+                Some(ord) => ord,
+            }
         });
         if let Some((_, latest_dir)) = versions.pop() {
             out.push((id, latest_dir));
@@ -167,9 +177,16 @@ pub fn list_browser_extensions(
     out
 }
 
+fn is_real_dir(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|m| m.is_dir() && !m.file_type().is_symlink())
+}
+
 fn locate_profiles(def: &BrowserDef) -> Vec<(String, String, PathBuf)> {
+    if !is_real_dir(&def.root) {
+        return Vec::new();
+    }
     if def.flat {
-        return if def.root.join("Extensions").is_dir() {
+        return if is_real_dir(&def.root.join("Extensions")) {
             vec![("default".into(), "Default".into(), def.root.clone())]
         } else {
             Vec::new()
@@ -179,11 +196,7 @@ fn locate_profiles(def: &BrowserDef) -> Vec<(String, String, PathBuf)> {
     let mut found = Vec::new();
     for (id, name) in names {
         let dir = def.root.join(&id);
-        if let Ok(meta) = std::fs::symlink_metadata(&dir)
-            && meta.is_dir()
-            && !meta.file_type().is_symlink()
-            && dir.join("Extensions").is_dir()
-        {
+        if is_real_dir(&dir) && is_real_dir(&dir.join("Extensions")) {
             found.push((id, name, dir));
         }
     }
@@ -194,22 +207,21 @@ fn locate_profiles(def: &BrowserDef) -> Vec<(String, String, PathBuf)> {
 fn local_state_profiles(root: &Path) -> Vec<(String, String)> {
     let mut names: HashMap<String, String> = HashMap::new();
     let state_path = root.join("Local State");
-    if let Ok(meta) = std::fs::symlink_metadata(&state_path)
-        && meta.is_file()
-        && !meta.file_type().is_symlink()
-        && meta.len() <= 8 * 1024 * 1024
-        && let Ok(text) = std::fs::read_to_string(&state_path)
-        && let Ok(val) = serde_json::from_str::<Value>(&text)
+    if let Some(bytes) = read_regular_file_bounded(&state_path, MAX_LOCAL_STATE_BYTES)
+        && let Ok(text) = std::str::from_utf8(&bytes)
+        && let Ok(val) = serde_json::from_str::<Value>(text.trim_start_matches('\u{feff}'))
         && let Some(cache) = val.pointer("/profile/info_cache").and_then(Value::as_object)
     {
-        for (id, info) in cache {
+        for (id, info) in cache.iter().take(128) {
             if is_plain_dir_name(id) {
-                let display = info
+                let raw_display = info
                     .get("name")
                     .and_then(Value::as_str)
                     .filter(|s| !s.is_empty())
                     .unwrap_or(id);
-                names.insert(id.clone(), display.to_owned());
+                let clean = extension_label(raw_display);
+                let display = if clean.is_empty() { id.clone() } else { clean };
+                names.insert(id.clone(), display);
             }
         }
     }
@@ -218,12 +230,20 @@ fn local_state_profiles(root: &Path) -> Vec<(String, String)> {
 }
 
 fn is_plain_dir_name(name: &str) -> bool {
-    !name.is_empty()
-        && name != "."
-        && name != ".."
-        && !name.contains('/')
-        && !name.contains('\\')
-        && !name.contains(':')
+    if name.is_empty()
+        || name.len() > 128
+        || name == "."
+        || name == ".."
+        || name.ends_with('.')
+        || name.ends_with(' ')
+        || name.chars().any(|c| {
+            c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
+        })
+    {
+        return false;
+    }
+    let stem = name.split('.').next().unwrap_or(name);
+    !browser_policy::is_windows_device_name(stem)
 }
 
 fn browser_definitions(dirs: &PlatformDirs) -> Vec<BrowserDef> {
@@ -258,18 +278,16 @@ fn browser_definitions(dirs: &PlatformDirs) -> Vec<BrowserDef> {
     }
     #[cfg(target_os = "macos")]
     {
-        if let Some(home) = &dirs.home {
-            let s = home.join("Library/Application Support");
-            defs.push(BrowserDef { id: "chrome", name: "Google Chrome", root: s.join("Google/Chrome"), flat: false });
-            defs.push(BrowserDef { id: "edge", name: "Microsoft Edge", root: s.join("Microsoft Edge"), flat: false });
-            defs.push(BrowserDef { id: "helium", name: "Helium", root: s.join("net.imput.helium"), flat: false });
-            defs.push(BrowserDef { id: "arc", name: "Arc", root: s.join("Arc/User Data"), flat: false });
-            defs.push(BrowserDef { id: "brave", name: "Brave", root: s.join("BraveSoftware/Brave-Browser"), flat: false });
-            defs.push(BrowserDef { id: "dia", name: "Dia", root: s.join("Dia/User Data"), flat: false });
-            defs.push(BrowserDef { id: "comet", name: "Comet", root: s.join("Comet"), flat: false });
-            defs.push(BrowserDef { id: "vivaldi", name: "Vivaldi", root: s.join("Vivaldi"), flat: false });
-            defs.push(BrowserDef { id: "opera", name: "Opera", root: s.join("com.operasoftware.Opera"), flat: true });
-            defs.push(BrowserDef { id: "chromium", name: "Chromium", root: s.join("Chromium"), flat: false });
+        if let Some(home) = dirs.home.as_ref() {
+            let support = home.join("Library/Application Support");
+            defs.push(BrowserDef { id: "chrome", name: "Google Chrome", root: support.join("Google/Chrome"), flat: false });
+            defs.push(BrowserDef { id: "edge", name: "Microsoft Edge", root: support.join("Microsoft Edge"), flat: false });
+            defs.push(BrowserDef { id: "helium", name: "Helium", root: support.join("net.imput.helium"), flat: false });
+            defs.push(BrowserDef { id: "brave", name: "Brave", root: support.join("BraveSoftware/Brave-Browser"), flat: false });
+            defs.push(BrowserDef { id: "arc", name: "Arc", root: support.join("Arc/User Data"), flat: false });
+            defs.push(BrowserDef { id: "vivaldi", name: "Vivaldi", root: support.join("Vivaldi"), flat: false });
+            defs.push(BrowserDef { id: "chromium", name: "Chromium", root: support.join("Chromium"), flat: false });
+            defs.push(BrowserDef { id: "opera", name: "Opera", root: support.join("com.operasoftware.Opera"), flat: true });
         }
     }
     #[cfg(all(unix, not(target_os = "macos")))]
@@ -284,8 +302,8 @@ fn browser_definitions(dirs: &PlatformDirs) -> Vec<BrowserDef> {
             defs.push(BrowserDef { id: "helium", name: "Helium", root: c.join("net.imput.helium"), flat: false });
             defs.push(BrowserDef { id: "brave", name: "Brave", root: c.join("BraveSoftware/Brave-Browser"), flat: false });
             defs.push(BrowserDef { id: "vivaldi", name: "Vivaldi", root: c.join("vivaldi"), flat: false });
-            defs.push(BrowserDef { id: "opera", name: "Opera", root: c.join("opera"), flat: true });
             defs.push(BrowserDef { id: "chromium", name: "Chromium", root: c.join("chromium"), flat: false });
+            defs.push(BrowserDef { id: "opera", name: "Opera", root: c.join("opera"), flat: true });
         }
     }
     defs

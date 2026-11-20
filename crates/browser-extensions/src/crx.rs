@@ -44,6 +44,18 @@ pub struct VerifiedCrx<'a> {
     pub key: Vec<u8>,
 }
 
+/// Constant-time byte slice equality (used for SHA-256 digests and single-use review tokens).
+pub fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (&x, &y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
 /// Whether `id` is a valid 32-character Chromium extension ID (`a..p`).
 pub fn is_valid_ext_id(id: &str) -> bool {
     id.len() == 32 && id.bytes().all(|b| (b'a'..=b'p').contains(&b))
@@ -67,14 +79,23 @@ pub fn encode_id(bytes_16: &[u8]) -> String {
 }
 
 /// Parses a bare 32-char extension ID or HTTPS Chrome Web Store / Edge Add-ons URL
-/// (`extensions.ts:231-246`). Refuses non-HTTPS, credentials, custom ports, and other hosts.
+/// (`extensions.ts:231-246`). Refuses non-HTTPS, credentials, custom ports, control/whitespace,
+/// dot-dot segments, empty slashes, and other hosts.
 pub fn store_target(input: &str) -> Option<StoreTarget> {
     let value = input.trim();
+    if value.chars().any(|c| c.is_control() || c.is_whitespace()) {
+        return None;
+    }
     if is_valid_ext_id(value) {
         return Some(StoreTarget { id: value.to_owned(), store: StoreKind::Chrome });
     }
     let (host, path) = parse_https_no_cred_no_port(value)?;
-    let trimmed_path = path.trim_end_matches('/');
+    let trimmed_path = path.strip_suffix('/').unwrap_or(&path);
+    if trimmed_path.contains("//")
+        || trimmed_path.split('/').any(|seg| seg == ".." || seg == ".")
+    {
+        return None;
+    }
     let id = trimmed_path.rsplit('/').next()?;
     if !is_valid_ext_id(id) {
         return None;
@@ -91,15 +112,20 @@ pub fn store_target(input: &str) -> Option<StoreTarget> {
 }
 
 /// Builds the CRX3 download URL for `target` and `chrome_version` (`extensions.ts:249-256`).
-pub fn store_download_url(target: &StoreTarget, chrome_version: &str) -> String {
+/// Returns `None` if `target.id` is not a valid 32-char extension ID.
+pub fn store_download_url(target: &StoreTarget, chrome_version: &str) -> Option<String> {
+    if !is_valid_ext_id(&target.id) {
+        return None;
+    }
     let query = format!("id%3D{}%26installsource%3Dondemand%26uc", target.id);
-    match target.store {
+    Some(match target.store {
         StoreKind::Edge => {
             format!("https://edge.microsoft.com/extensionwebstorebase/v1/crx?response=redirect&x={query}")
         }
         StoreKind::Chrome => {
             let ver = if chrome_version.bytes().all(|b| b.is_ascii_digit() || b == b'.')
                 && !chrome_version.is_empty()
+                && chrome_version.len() <= 32
             {
                 chrome_version
             } else {
@@ -109,44 +135,64 @@ pub fn store_download_url(target: &StoreTarget, chrome_version: &str) -> String 
                 "https://clients2.google.com/service/update2/crx?response=redirect&prodversion={ver}&acceptformat=crx3&x={query}"
             )
         }
-    }
+    })
 }
 
 /// Enforces the store redirect host allow-list (`install.ts:67-85`), upgrading Microsoft's HTTP
 /// `msedgeextensions.[fb].` delivery hosts to HTTPS `msedgeextensions.s[fb].`.
+/// On native builds, cross-validates the resolved URL with `ureq::http::Uri` so there is zero
+/// URL parser differential between allow-list checking and the HTTP client.
 pub fn store_redirect(store: StoreKind, location: &str) -> Option<String> {
     let trimmed = location.trim();
     if trimmed.chars().any(|c| c.is_control() || c.is_whitespace()) {
         return None;
     }
-    match store {
+    let (expected_host, candidate) = match store {
         StoreKind::Chrome => {
             let (host, _) = parse_https_no_cred_no_port(trimmed)?;
-            if host == "clients2.google.com" || host == "clients2.googleusercontent.com" {
-                return Some(trimmed.to_owned());
+            if host != "clients2.google.com" && host != "clients2.googleusercontent.com" {
+                return None;
             }
-            None
+            (host, trimmed.to_owned())
         }
         StoreKind::Edge => {
             if let Some(rest) = strip_prefix_ci(trimmed, "http://") {
                 let (authority, tail) = split_authority(rest);
-                if authority.contains('@') || authority.contains(':') {
+                if authority.contains('@')
+                    || authority.contains(':')
+                    || authority.contains('\\')
+                {
                     return None;
                 }
                 let host = authority.to_ascii_lowercase();
-                if is_ms_http_delivery_host(&host) {
-                    let upgraded = host.replacen("msedgeextensions.", "msedgeextensions.s", 1);
-                    return Some(format!("https://{upgraded}{tail}"));
+                if !is_ms_http_delivery_host(&host) {
+                    return None;
                 }
-                return None;
+                let upgraded = host.replacen("msedgeextensions.", "msedgeextensions.s", 1);
+                (upgraded.clone(), format!("https://{upgraded}{tail}"))
+            } else {
+                let (host, _) = parse_https_no_cred_no_port(trimmed)?;
+                if host != "edge.microsoft.com" && !is_ms_https_delivery_host(&host) {
+                    return None;
+                }
+                (host, trimmed.to_owned())
             }
-            let (host, _) = parse_https_no_cred_no_port(trimmed)?;
-            if host == "edge.microsoft.com" || is_ms_https_delivery_host(&host) {
-                return Some(trimmed.to_owned());
-            }
-            None
+        }
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let uri: ureq::http::Uri = candidate.parse().ok()?;
+        if uri.scheme_str() != Some("https") || uri.port().is_some() {
+            return None;
+        }
+        let auth = uri.authority()?.as_str();
+        if auth.contains('@') || auth.contains(':') || !auth.eq_ignore_ascii_case(&expected_host) {
+            return None;
         }
     }
+    #[cfg(target_arch = "wasm32")]
+    let _ = expected_host;
+    Some(candidate)
 }
 
 fn is_ms_http_delivery_host(host: &str) -> bool {
@@ -199,22 +245,40 @@ fn split_authority(rest: &str) -> (&str, &str) {
 }
 
 /// Downloads a CRX3 package over HTTPS following only allow-listed store redirects
-/// (`<= 6` hops, `<= 128 MiB`, 90 s timeout, zero credentials).
+/// (`<= 6` hops, `<= 128 MiB`, one shared 90 s total deadline across all hops, HTTPS-only,
+/// OS certificate store via `PlatformVerifier`, zero credentials).
 #[cfg(not(target_arch = "wasm32"))]
 pub fn download_crx(target: &StoreTarget, chrome_version: &str) -> Option<Vec<u8>> {
     use std::io::Read as _;
     use std::time::Duration;
+    #[cfg(not(target_arch = "wasm32"))]
+    use std::time::Instant;
 
+    let mut url = store_download_url(target, chrome_version)?;
+    let deadline = Instant::now() + Duration::from_secs(DOWNLOAD_TIMEOUT_SECS);
+    let tls = ureq::tls::TlsConfig::builder()
+        .root_certs(ureq::tls::RootCerts::PlatformVerifier)
+        .build();
     let agent: ureq::Agent = ureq::Agent::config_builder()
+        .https_only(true)
         .max_redirects(0)
         .http_status_as_error(false)
-        .timeout_global(Some(Duration::from_secs(DOWNLOAD_TIMEOUT_SECS)))
+        .tls_config(tls)
         .build()
         .into();
 
-    let mut url = store_download_url(target, chrome_version);
     for _ in 0..MAX_REDIRECT_HOPS {
-        let resp = agent.get(&url).call().ok()?;
+        let remaining = deadline.checked_duration_since(Instant::now())?;
+        if remaining.is_zero() {
+            return None;
+        }
+        let resp = agent
+            .get(&url)
+            .config()
+            .timeout_global(Some(remaining))
+            .build()
+            .call()
+            .ok()?;
         let status = resp.status().as_u16();
         if matches!(status, 301 | 302 | 303 | 307 | 308) {
             let loc = resp.headers().get("location")?.to_str().ok()?;
@@ -255,7 +319,11 @@ pub fn download_crx(target: &StoreTarget, chrome_version: &str) -> Option<Vec<u8
 pub fn parse_crx<'a>(bytes: &'a [u8], expected_id: &str) -> Option<VerifiedCrx<'a>> {
     use ring::signature::{ECDSA_P256_SHA256_ASN1, RSA_PKCS1_2048_8192_SHA256, UnparsedPublicKey};
 
-    if !is_valid_ext_id(expected_id) || bytes.len() < 12 || &bytes[0..4] != b"Cr24" {
+    if !is_valid_ext_id(expected_id)
+        || bytes.len() < 12
+        || bytes.len() as u64 > MAX_DOWNLOAD_BYTES
+        || &bytes[0..4] != b"Cr24"
+    {
         return None;
     }
     let version = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
@@ -283,7 +351,8 @@ pub fn parse_crx<'a>(bytes: &'a [u8], expected_id: &str) -> Option<VerifiedCrx<'
     }
 
     // Build exact CRX3 SignedData payload once.
-    let mut signed_msg = Vec::with_capacity(16 + 4 + signed_data.len() + zip.len());
+    let signed_cap = 20usize.checked_add(signed_data.len())?.checked_add(zip.len())?;
+    let mut signed_msg = Vec::with_capacity(signed_cap);
     signed_msg.extend_from_slice(b"CRX3 SignedData\0");
     signed_msg.extend_from_slice(&(signed_data.len() as u32).to_le_bytes());
     signed_msg.extend_from_slice(signed_data);

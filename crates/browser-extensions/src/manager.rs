@@ -3,22 +3,33 @@
 //!
 //! Persisted `StoredExtension` lists are passed in and returned by value so the caller stores them
 //! through `opencode-storage` (never direct UI-thread JSON writes, honoring `holds_profile()`).
+//!
+//! Security invariants:
+//! - Managed root (`<userData>/browser-extensions`) is verified non-symlink and created user-only
+//!   (`0o700` on Unix).
+//! - `stage_common` hashes the staged directory (`extension_tree_digest_and_manifest`) FIRST,
+//!   verifies `derive_id_from_manifest_bytes(&manifest_bytes) == Some(record.id)`, and parses
+//!   `Manifest` strictly from those exact hashed bytes (zero manifest-to-digest TOCTOU).
+//! - `approve_staged` consumes `StagedInstall` by value, verifies the approval token in constant
+//!   time, hard-blocks `ManifestV2`, and re-verifies the staged SHA-256 tree digest before swap.
+//! - `rollback_swap` and `remove_managed_dir` strictly confine deletions to `canonicalize(self.root)/<id>`.
 
 use std::path::{Path, PathBuf};
 
 use base64::Engine as _;
 
 use crate::crx::{
-    download_crx, extension_id, generate_local_spki_key, is_valid_ext_id, parse_crx, random_token,
-    store_target,
+    constant_time_eq, download_crx, extension_id, generate_local_spki_key, is_valid_ext_id,
+    parse_crx, random_token, store_target,
 };
 use crate::integrity::{
-    copy_dir_safe, extension_tree_digest, pin_manifest_key, strip_metadata_dir,
-    verify_extension_dir,
+    copy_dir_safe, create_dir_user_only, derive_id_from_manifest_bytes,
+    ensure_dir_no_symlink_user_only, extension_tree_digest, extension_tree_digest_and_manifest,
+    pin_manifest_key, strip_metadata_dir, verify_extension_dir,
 };
 use crate::manifest::{
     display_name, extension_access, extension_compatibility, extension_icon_data_url,
-    extension_page_url, read_manifest,
+    extension_page_url, parse_manifest, read_manifest,
 };
 use crate::review::{is_downgrade, review_access};
 use crate::sources::{PlatformDirs, chromium_profile_directory, profile_extension_dirs};
@@ -30,7 +41,8 @@ use crate::{
 
 const STAGING_PREFIX: &str = ".staging-";
 
-/// Staged package prepared for user review; consumed once by [`ExtensionManager::approve_staged`].
+/// Staged package prepared for user review; consumed by value once by
+/// [`ExtensionManager::approve_staged`].
 #[derive(Clone, Debug)]
 pub struct StagedInstall {
     pub token: String,
@@ -72,6 +84,12 @@ impl ExtensionManager {
 
     /// Removes leftover `.staging-*` directories from earlier crashes (`install.ts:123-131`).
     pub fn sweep_staging(&self) {
+        let Ok(root_meta) = std::fs::symlink_metadata(&self.root) else {
+            return;
+        };
+        if !root_meta.is_dir() || root_meta.file_type().is_symlink() {
+            return;
+        }
         let Ok(entries) = std::fs::read_dir(&self.root) else {
             return;
         };
@@ -90,7 +108,10 @@ impl ExtensionManager {
     /// to `opencode-browser-engine` (`profile/index.ts:228-246`).
     pub fn verify_enabled_for_startup(&self, stored: &[StoredExtension]) -> StartupVerification {
         let mut out = StartupVerification::default();
-        let Ok(canon_root) = std::fs::canonicalize(&self.root) else {
+        let root_ok = std::fs::symlink_metadata(&self.root)
+            .is_ok_and(|m| m.is_dir() && !m.file_type().is_symlink());
+        let canon_root = if root_ok { std::fs::canonicalize(&self.root).ok() } else { None };
+        let Some(canon_root) = canon_root else {
             for rec in stored.iter().filter(|r| r.enabled) {
                 out.changed_ids.push(rec.id.clone());
             }
@@ -108,7 +129,8 @@ impl ExtensionManager {
             let expected_dir = self.root.join(&rec.id);
             let dir_path = PathBuf::from(&rec.directory);
             let canon_ok = dir_path == expected_dir
-                && std::fs::canonicalize(&dir_path).ok().as_deref() == Some(canon_root.join(&rec.id).as_path());
+                && std::fs::canonicalize(&dir_path).ok().as_deref()
+                    == Some(canon_root.join(&rec.id).as_path());
             if canon_ok && verify_extension_dir(&dir_path, &rec.id, digest) {
                 out.specs.push(VerifiedStartupSpec {
                     id: rec.id.clone(),
@@ -243,6 +265,10 @@ impl ExtensionManager {
         folder: &Path,
         stored: &[StoredExtension],
     ) -> Result<StagedInstall, (InstallFailure, Option<String>)> {
+        let meta = std::fs::symlink_metadata(folder).map_err(|_| (InstallFailure::Manifest, None))?;
+        if !meta.is_dir() || meta.file_type().is_symlink() {
+            return Err((InstallFailure::Manifest, None));
+        }
         let canon = std::fs::canonicalize(folder).map_err(|_| (InstallFailure::Manifest, None))?;
         let origin = canon.to_string_lossy().into_owned();
         self.stage_local_copy(&canon, ExtensionSource::Folder, origin, stored)
@@ -291,6 +317,9 @@ impl ExtensionManager {
         stored: &[StoredExtension],
         fill: impl FnOnce(&Path) -> Result<(), InstallFailure>,
     ) -> Result<StagedInstall, (InstallFailure, Option<String>)> {
+        if !is_valid_ext_id(&record.id) {
+            return Err((InstallFailure::Manifest, None));
+        }
         let previous = stored
             .iter()
             .find(|item| item.directory == record.directory || item.id == record.id);
@@ -303,10 +332,10 @@ impl ExtensionManager {
             return Err((InstallFailure::Collision, None));
         }
 
-        std::fs::create_dir_all(&self.root).map_err(|_| (InstallFailure::Manifest, None))?;
+        ensure_dir_no_symlink_user_only(&self.root).map_err(|_| (InstallFailure::Manifest, None))?;
         let nonce = random_token().ok_or((InstallFailure::Manifest, None))?;
         let staging = self.root.join(format!("{STAGING_PREFIX}{nonce}"));
-        std::fs::create_dir(&staging).map_err(|_| (InstallFailure::Manifest, None))?;
+        create_dir_user_only(&staging).map_err(|_| (InstallFailure::Manifest, None))?;
 
         let cleanup = |dir: &Path| {
             std::fs::remove_dir_all(dir).ok();
@@ -315,7 +344,21 @@ impl ExtensionManager {
             cleanup(&staging);
             return Err((err, None));
         }
-        let Some(manifest) = read_manifest(&staging) else {
+        // Hash the staged tree FIRST and parse `manifest.json` from the exact bytes covered by
+        // `digest`, binding `manifest.key -> record.id` with zero manifest-to-digest TOCTOU.
+        let Some((digest, Some(manifest_bytes))) = extension_tree_digest_and_manifest(&staging) else {
+            cleanup(&staging);
+            return Err((InstallFailure::Manifest, None));
+        };
+        if derive_id_from_manifest_bytes(&manifest_bytes).as_deref() != Some(record.id.as_str()) {
+            cleanup(&staging);
+            return Err((InstallFailure::Manifest, None));
+        }
+        let Ok(manifest_text) = std::str::from_utf8(&manifest_bytes) else {
+            cleanup(&staging);
+            return Err((InstallFailure::Manifest, None));
+        };
+        let Some(manifest) = parse_manifest(manifest_text) else {
             cleanup(&staging);
             return Err((InstallFailure::Manifest, None));
         };
@@ -323,26 +366,43 @@ impl ExtensionManager {
             cleanup(&staging);
             return Err((InstallFailure::Manifest, None));
         }
-        // Refuse store version downgrades against an already-installed store extension.
+        // Refuse store version downgrades against an already-installed store extension (falling
+        // back to reading the installed `manifest.json` if `previous.version` was omitted).
         if record.source == ExtensionSource::Store
-            && let Some(prev_ver) = previous.and_then(|p| p.version.as_deref())
-            && is_downgrade(prev_ver, &manifest.version)
+            && let Some(prev) = previous
         {
-            cleanup(&staging);
-            return Err((
-                InstallFailure::Downgrade,
-                Some(format!("Refusing to downgrade from {} to {}.", prev_ver, manifest.version)),
-            ));
+            let prev_ver = prev
+                .version
+                .clone()
+                .or_else(|| read_manifest(Path::new(&prev.directory)).map(|m| m.version));
+            match prev_ver {
+                Some(ref pv) if is_downgrade(pv, &manifest.version) => {
+                    cleanup(&staging);
+                    return Err((
+                        InstallFailure::Downgrade,
+                        Some(format!("Refusing to downgrade from {pv} to {}.", manifest.version)),
+                    ));
+                }
+                None => {
+                    cleanup(&staging);
+                    return Err((
+                        InstallFailure::Downgrade,
+                        Some("Could not verify existing extension version to prevent downgrade.".into()),
+                    ));
+                }
+                Some(_) => {}
+            }
         }
-        let Some(digest) = extension_tree_digest(&staging) else {
-            cleanup(&staging);
-            return Err((InstallFailure::Manifest, None));
-        };
 
         let name = display_name(&staging, &manifest);
         let compatibility = extension_compatibility(&manifest);
         let access_review = review_access(&manifest, previous.and_then(|p| p.grants.as_ref()));
         let icon = extension_icon_data_url(&staging, &manifest);
+        // Confirm the staging tree did not change while resolving `_locales` / icon metadata.
+        if extension_tree_digest(&staging).as_deref() != Some(digest.as_str()) {
+            cleanup(&staging);
+            return Err((InstallFailure::Expired, None));
+        }
         let token = random_token().ok_or_else(|| {
             cleanup(&staging);
             (InstallFailure::Manifest, None)
@@ -371,12 +431,37 @@ impl ExtensionManager {
         Ok(StagedInstall { token, staged_dir: staging, record, review })
     }
 
-    /// Re-verifies the staged directory's SHA-256 tree digest (detecting any swap between review
-    /// display and user click) and atomically swaps it into `<root>/<id>` with backup/rollback.
-    pub fn approve_staged(&self, staged: &StagedInstall) -> Result<SwappedInstall, InstallFailure> {
-        if staged.review.compatibility.cause == Some(crate::UnsupportedCause::ManifestV2) {
+    /// Consumes a [`StagedInstall`] by value, verifies `approval_token` in constant time,
+    /// re-verifies the staged directory's SHA-256 tree digest (detecting any swap between review
+    /// display and user click), and atomically swaps it into `<root>/<id>` with backup/rollback.
+    ///
+    /// On Windows, callers must unload any running copy of `staged.record.id` before calling this
+    /// so open handles inside `<root>/<id>` do not block the rename.
+    pub fn approve_staged(
+        &self,
+        staged: StagedInstall,
+        approval_token: &str,
+    ) -> Result<SwappedInstall, InstallFailure> {
+        if !is_valid_ext_id(&staged.record.id)
+            || !constant_time_eq(staged.token.as_bytes(), approval_token.as_bytes())
+            || !constant_time_eq(staged.review.token.as_bytes(), approval_token.as_bytes())
+        {
+            std::fs::remove_dir_all(&staged.staged_dir).ok();
+            return Err(InstallFailure::Expired);
+        }
+        if matches!(
+            staged.review.compatibility.cause,
+            Some(
+                crate::UnsupportedCause::ManifestV2
+                    | crate::UnsupportedCause::DisallowedPermission
+            )
+        ) {
             std::fs::remove_dir_all(&staged.staged_dir).ok();
             return Err(InstallFailure::Load);
+        }
+        if ensure_dir_no_symlink_user_only(&self.root).is_err() {
+            std::fs::remove_dir_all(&staged.staged_dir).ok();
+            return Err(InstallFailure::Manifest);
         }
         let Some(expected_digest) = staged.record.digest.as_deref() else {
             std::fs::remove_dir_all(&staged.staged_dir).ok();
@@ -418,7 +503,7 @@ impl ExtensionManager {
             return Err(InstallFailure::Manifest);
         };
         Ok(SwappedInstall {
-            record: staged.record.clone(),
+            record: staged.record,
             profile,
             backup_dir: had_existing.then_some(backup),
         })
@@ -426,17 +511,45 @@ impl ExtensionManager {
 
     /// Removes the backup created by [`approve_staged`] after the engine successfully loads it.
     pub fn finalize_swap(&self, swap: &SwappedInstall) {
-        if let Some(backup) = &swap.backup_dir {
-            std::fs::remove_dir_all(backup).ok();
+        if let Some(backup) = &swap.backup_dir
+            && let (Ok(canon_root), Ok(canon_backup)) = (
+                std::fs::canonicalize(&self.root),
+                std::fs::canonicalize(backup),
+            )
+            && canon_backup.parent() == Some(canon_root.as_path())
+            && canon_backup
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with(STAGING_PREFIX))
+        {
+            std::fs::remove_dir_all(canon_backup).ok();
         }
     }
 
     /// Rolls back a swapped install if Chromium fails to load it (`profile/index.ts:404-410`).
+    /// Strictly validates `swap.record.id` and `self.root` containment before deleting anything.
     pub fn rollback_swap(&self, swap: &SwappedInstall) {
-        let target = self.root.join(&swap.record.id);
-        std::fs::remove_dir_all(&target).ok();
-        if let Some(backup) = &swap.backup_dir {
-            std::fs::rename(backup, &target).ok();
+        if !is_valid_ext_id(&swap.record.id) {
+            return;
+        }
+        let expected = self.root.join(&swap.record.id);
+        let Ok(canon_root) = std::fs::canonicalize(&self.root) else {
+            return;
+        };
+        if let Ok(canon_target) = std::fs::canonicalize(&expected)
+            && canon_target == canon_root.join(&swap.record.id)
+        {
+            std::fs::remove_dir_all(&canon_target).ok();
+        }
+        if let Some(backup) = &swap.backup_dir
+            && let Ok(canon_backup) = std::fs::canonicalize(backup)
+            && canon_backup.parent() == Some(canon_root.as_path())
+            && canon_backup
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with(STAGING_PREFIX))
+        {
+            std::fs::rename(canon_backup, canon_root.join(&swap.record.id)).ok();
         }
     }
 

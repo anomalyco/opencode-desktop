@@ -5,11 +5,13 @@
 //! - Strips `_metadata` (Chromium's compiled DNR rules cache) before hashing, refusing if
 //!   `_metadata` is a symlink.
 //! - Walks recursively (`depth <= 64`, `<= 10,000` entries, `<= 64 MiB` per file, `<= 256 MiB`
-//!   total), rejecting symlinks and non-regular files, and re-checking file lengths after read.
+//!   total), rejecting symlinks and non-regular files, opening handles with `O_NOFOLLOW` +
+//!   `(dev, ino)` verification on Unix and bounded `Read::take`, and failing closed if any worker
+//!   thread fails to join.
 //! - Hashes files in parallel with hardware-accelerated `sha2::Sha256`.
 
-use std::fs::File;
-use std::io::Read as _;
+use std::fs::{File, OpenOptions};
+use std::io::{self, Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
@@ -17,7 +19,7 @@ use base64::Engine as _;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::crx::{extension_id, is_valid_ext_id};
+use crate::crx::{constant_time_eq, extension_id, is_valid_ext_id};
 
 pub const MAX_DEPTH: usize = 64;
 pub const MAX_ENTRIES: usize = 10_000;
@@ -32,6 +34,90 @@ struct FileJob {
     is_root_manifest: bool,
 }
 
+/// Opens a regular non-symlink file for reading (`O_NOFOLLOW` + `lstat`/`fstat` `(dev, ino)` match
+/// on Unix), returning the handle and its observed byte size.
+pub(crate) fn open_regular_no_follow(path: &Path) -> Option<(File, u64)> {
+    let lmeta = std::fs::symlink_metadata(path).ok()?;
+    if !lmeta.is_file() || lmeta.file_type().is_symlink() {
+        return None;
+    }
+    let mut opts = OpenOptions::new();
+    opts.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        opts.custom_flags(libc::O_NOFOLLOW);
+    }
+    let file = opts.open(path).ok()?;
+    let fmeta = file.metadata().ok()?;
+    if !fmeta.is_file() {
+        return None;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        if fmeta.dev() != lmeta.dev() || fmeta.ino() != lmeta.ino() {
+            return None;
+        }
+    }
+    Some((file, fmeta.len()))
+}
+
+/// Reads a regular non-symlink file with a hard byte cap (`Read::take(max_bytes + 1)`), eliminating
+/// `stat`-then-`read` TOCTOU races.
+pub(crate) fn read_regular_file_bounded(path: &Path, max_bytes: u64) -> Option<Vec<u8>> {
+    let (file, size) = open_regular_no_follow(path)?;
+    if size > max_bytes {
+        return None;
+    }
+    let mut buf = Vec::with_capacity((size as usize).min(1024 * 1024));
+    file.take(max_bytes.saturating_add(1)).read_to_end(&mut buf).ok()?;
+    if buf.len() as u64 > max_bytes {
+        return None;
+    }
+    Some(buf)
+}
+
+/// Creates a brand-new directory with user-only (`0o700` on Unix) permissions.
+pub(crate) fn create_dir_user_only(path: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt as _;
+        std::fs::DirBuilder::new().mode(0o700).create(path)
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::create_dir(path)
+    }
+}
+
+/// Ensures `dir` exists as a regular non-symlink directory with user-only permissions on Unix.
+pub(crate) fn ensure_dir_no_symlink_user_only(dir: &Path) -> Result<(), String> {
+    match std::fs::symlink_metadata(dir) {
+        Ok(meta) => {
+            if !meta.is_dir() || meta.file_type().is_symlink() {
+                return Err("Directory is missing or is a symbolic link.".into());
+            }
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            std::fs::create_dir_all(dir).map_err(|e| format!("Could not create directory: {e}"))?;
+            let meta = std::fs::symlink_metadata(dir)
+                .map_err(|e| format!("Could not inspect directory: {e}"))?;
+            if !meta.is_dir() || meta.file_type().is_symlink() {
+                return Err("Created path is not a regular directory.".into());
+            }
+        }
+        Err(e) => return Err(format!("Could not inspect directory: {e}")),
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+            .map_err(|e| format!("Could not set user-only permissions: {e}"))?;
+    }
+    Ok(())
+}
+
 /// Removes Chromium's `_metadata` cache directory if present (refusing symlinks).
 pub fn strip_metadata_dir(dir: &Path) -> bool {
     let metadata_dir = dir.join("_metadata");
@@ -42,7 +128,7 @@ pub fn strip_metadata_dir(dir: &Path) -> bool {
             }
             std::fs::remove_dir_all(&metadata_dir).is_ok()
         }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => true,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => true,
         Err(_) => false,
     }
 }
@@ -74,6 +160,8 @@ pub fn verify_extension_dir(dir: &Path, expected_id: &str, expected_sha256: &str
 }
 
 /// Computes `(digest_hex, root_manifest_bytes)` using parallel hardware-accelerated SHA-256.
+/// Fails closed if any entry is a symlink/non-regular file, exceeds caps, changes mid-read, or
+/// if any worker thread panics.
 pub fn extension_tree_digest_and_manifest(root: &Path) -> Option<(String, Option<Vec<u8>>)> {
     let mut dir_records: Vec<String> = Vec::new();
     let mut file_jobs: Vec<FileJob> = Vec::new();
@@ -202,9 +290,16 @@ pub fn extension_tree_digest_and_manifest(root: &Path) -> Option<(String, Option
                     })
                 })
                 .collect();
-            handles.into_iter().filter_map(|h| h.join().ok()).collect()
+            let mut out = Vec::with_capacity(handles.len());
+            for h in handles {
+                match h.join() {
+                    Ok(partial) => out.push(partial),
+                    Err(_) => failed.store(true, Ordering::Relaxed),
+                }
+            }
+            out
         });
-        if failed.load(Ordering::Relaxed) {
+        if failed.load(Ordering::Relaxed) || partials.len() != workers {
             return None;
         }
         for (mut local, mb) in partials {
@@ -221,18 +316,17 @@ pub fn extension_tree_digest_and_manifest(root: &Path) -> Option<(String, Option
 }
 
 fn hash_file_job(job: &FileJob, chunk: &mut [u8]) -> Option<(String, Option<Vec<u8>>)> {
-    let mut file = File::open(&job.path).ok()?;
-    let info = file.metadata().ok()?;
-    let size = info.len();
-    if !info.is_file() || size != job.size || size > MAX_FILE_BYTES {
+    let (file, size) = open_regular_no_follow(&job.path)?;
+    if size != job.size || size > MAX_FILE_BYTES {
         return None;
     }
     let mut hasher = Sha256::new();
     let mut read_total: u64 = 0;
     let mut captured = (job.is_root_manifest && size <= MAX_MANIFEST_BYTES)
         .then(|| Vec::with_capacity(size as usize));
+    let mut limited = (&file).take(size.saturating_add(1));
     loop {
-        let n = file.read(chunk).ok()?;
+        let n = limited.read(chunk).ok()?;
         if n == 0 {
             break;
         }
@@ -253,13 +347,20 @@ fn hash_file_job(job: &FileJob, chunk: &mut [u8]) -> Option<(String, Option<Vec<
 }
 
 /// Copies a local or browser extension directory into `dst`, skipping `_metadata` and all symlinks
-/// while enforcing entry, depth, and byte caps (`profile/index.ts:579-582`).
+/// while enforcing entry, depth, and byte caps through opened non-symlink file handles
+/// (`Read::take` + `create_new`, zero `std::fs::copy` symlink/size TOCTOU).
 pub fn copy_dir_safe(src: &Path, dst: &Path) -> Result<(), String> {
     let src_meta = std::fs::symlink_metadata(src).map_err(|e| format!("Could not inspect source folder: {e}"))?;
     if !src_meta.is_dir() || src_meta.file_type().is_symlink() {
         return Err("Extension source is not a directory.".into());
     }
-    std::fs::create_dir_all(dst).map_err(|e| format!("Could not create staging folder: {e}"))?;
+    ensure_dir_no_symlink_user_only(dst)?;
+    // Refuse copying an ancestor of `dst` into `dst` (prevents recursive self-copy).
+    if let (Ok(canon_src), Ok(canon_dst)) = (std::fs::canonicalize(src), std::fs::canonicalize(dst))
+        && (canon_dst == canon_src || canon_dst.starts_with(&canon_src))
+    {
+        return Err("Extension source folder cannot contain the staging directory.".into());
+    }
     let mut count: usize = 0;
     let mut total_bytes: u64 = 0;
 
@@ -273,6 +374,10 @@ pub fn copy_dir_safe(src: &Path, dst: &Path) -> Result<(), String> {
         if depth > MAX_DEPTH {
             return Err("Extension folder exceeds maximum nesting depth.".into());
         }
+        let dir_meta = std::fs::symlink_metadata(src).map_err(|e| format!("Could not inspect folder: {e}"))?;
+        if !dir_meta.is_dir() || dir_meta.file_type().is_symlink() {
+            return Err("Extension source directory changed or became a symlink.".into());
+        }
         let entries = std::fs::read_dir(src).map_err(|e| format!("Could not read extension folder: {e}"))?;
         for entry in entries {
             let entry = entry.map_err(|e| format!("Could not read directory entry: {e}"))?;
@@ -283,6 +388,18 @@ pub fn copy_dir_safe(src: &Path, dst: &Path) -> Result<(), String> {
             let Ok(name_str) = name.into_string() else {
                 return Err("Extension contains non-UTF-8 file name.".into());
             };
+            if name_str.is_empty()
+                || name_str.len() > 255
+                || name_str == "."
+                || name_str == ".."
+                || name_str.ends_with('.')
+                || name_str.ends_with(' ')
+                || name_str.chars().any(|c| {
+                    c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
+                })
+            {
+                return Err("Extension contains an unsafe file name.".into());
+            }
             let stem = name_str.split('.').next().unwrap_or(&name_str);
             if browser_policy::is_windows_device_name(stem) {
                 return Err("Extension contains an unsafe reserved file name.".into());
@@ -298,19 +415,36 @@ pub fn copy_dir_safe(src: &Path, dst: &Path) -> Result<(), String> {
             let from = entry.path();
             let to = dst.join(&name_str);
             if ft.is_dir() {
-                std::fs::create_dir_all(&to).map_err(|e| format!("Could not create directory: {e}"))?;
+                create_dir_user_only(&to).map_err(|e| format!("Could not create directory: {e}"))?;
                 walk_copy(&from, &to, depth + 1, count, total_bytes)?;
             } else if ft.is_file() {
-                let meta = std::fs::symlink_metadata(&from).map_err(|e| format!("Could not stat file: {e}"))?;
-                let size = meta.len();
-                if meta.file_type().is_symlink() || size > MAX_FILE_BYTES {
+                let Some((src_file, open_size)) = open_regular_no_follow(&from) else {
+                    return Err("Refusing to copy symbolic link or non-regular file.".into());
+                };
+                let remaining_total = MAX_TOTAL_BYTES.saturating_sub(*total_bytes);
+                let cap = MAX_FILE_BYTES.min(remaining_total);
+                if open_size > cap {
                     return Err("Extension file exceeds maximum allowed size.".into());
                 }
-                *total_bytes = total_bytes.saturating_add(size);
+                let mut dst_opts = OpenOptions::new();
+                dst_opts.write(true).create_new(true);
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::OpenOptionsExt as _;
+                    dst_opts.custom_flags(libc::O_NOFOLLOW);
+                }
+                let mut dst_file = dst_opts
+                    .open(&to)
+                    .map_err(|e| format!("Could not create destination file: {e}"))?;
+                let copied = io::copy(&mut (&src_file).take(cap.saturating_add(1)), &mut dst_file)
+                    .map_err(|e| format!("Could not copy extension file: {e}"))?;
+                if copied > cap || copied != open_size {
+                    return Err("Extension file changed size or exceeded cap during copy.".into());
+                }
+                *total_bytes = total_bytes.saturating_add(copied);
                 if *total_bytes > MAX_TOTAL_BYTES {
                     return Err("Extension exceeds maximum total size.".into());
                 }
-                std::fs::copy(&from, &to).map_err(|e| format!("Could not copy extension file: {e}"))?;
             }
         }
         Ok(())
@@ -322,11 +456,9 @@ pub fn copy_dir_safe(src: &Path, dst: &Path) -> Result<(), String> {
 /// Pins the base64-encoded SPKI public key into `dir/manifest.json` (`extensions.ts:481-491`).
 pub fn pin_manifest_key(dir: &Path, spki_der: &[u8]) -> Result<(), String> {
     let file = dir.join("manifest.json");
-    let meta = std::fs::symlink_metadata(&file).map_err(|_| "Extension has no manifest.json.".to_owned())?;
-    if !meta.is_file() || meta.file_type().is_symlink() || meta.len() > MAX_MANIFEST_BYTES {
-        return Err("Extension manifest.json is missing or invalid.".into());
-    }
-    let text = std::fs::read_to_string(&file).map_err(|_| "Could not read manifest.json.".to_owned())?;
+    let raw = read_regular_file_bounded(&file, MAX_MANIFEST_BYTES)
+        .ok_or_else(|| "Extension manifest.json is missing or invalid.".to_owned())?;
+    let text = std::str::from_utf8(&raw).map_err(|_| "Extension manifest.json is not valid UTF-8.".to_owned())?;
     let mut val: Value = serde_json::from_str(text.trim_start_matches('\u{feff}'))
         .map_err(|_| "Extension manifest.json is not valid JSON.".to_owned())?;
     let Some(obj) = val.as_object_mut() else {
@@ -338,7 +470,16 @@ pub fn pin_manifest_key(dir: &Path, spki_der: &[u8]) -> Result<(), String> {
     );
     let rendered = serde_json::to_string_pretty(&val)
         .map_err(|_| "Could not serialize manifest.json.".to_owned())?;
-    std::fs::write(&file, rendered).map_err(|e| format!("Could not write manifest.json: {e}"))
+    let mut opts = OpenOptions::new();
+    opts.write(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        opts.custom_flags(libc::O_NOFOLLOW);
+    }
+    let mut out = opts.open(&file).map_err(|e| format!("Could not open manifest.json: {e}"))?;
+    out.write_all(rendered.as_bytes())
+        .map_err(|e| format!("Could not write manifest.json: {e}"))
 }
 
 pub fn derive_id_from_manifest_bytes(bytes: &[u8]) -> Option<String> {
@@ -351,17 +492,6 @@ pub fn derive_id_from_manifest_bytes(bytes: &[u8]) -> Option<String> {
 
 fn is_hex_sha256(s: &str) -> bool {
     s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit())
-}
-
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff = 0u8;
-    for (&x, &y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
-    }
-    diff == 0
 }
 
 pub fn to_hex(bytes: &[u8]) -> String {

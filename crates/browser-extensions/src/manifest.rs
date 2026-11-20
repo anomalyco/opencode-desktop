@@ -1,27 +1,47 @@
-//! Manifest parsing, `__MSG_*__` localization, icon reading, match-pattern algebra,
-//! compatibility classification, and version comparison.
+//! Manifest parsing, `__MSG_*__` localization, verified raster icon reading, match-pattern
+//! algebra, compatibility classification, and strict Chrome version comparison.
 //!
 //! Mirrors upstream `packages/gui-plugins/src/browser/profile/{extensions,compatibility,extension-api/match-pattern}.ts`
-//! with honest Chromium 156 compatibility (MV2 classified `Unsupported(ManifestV2)`; native
-//! `webRequest` and content-script `storage.sync` supported natively in CEF 156).
+//! with stricter guarantees for Rune Desktop (Chromium 156):
+//! - MV2 classified `Unsupported(ManifestV2)` (Chromium 156 refuses MV2).
+//! - Strict Chrome dotted-integer version validation (1–4 segments, ASCII digits only).
+//! - Surfaces `proxy`, `declarativeNetRequest*`, `management`, `externally_connectable`, and
+//!   `web_accessible_resources` in review grants (where upstream omits them).
+//! - Handles port-wildcard all-sites patterns (`https://*:*/*`, `*://*:443/*`).
+//! - Sniffs icon magic bytes AND raster header dimensions (`1..=1024`) via bounded non-symlink reads.
 
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 #[cfg(not(target_arch = "wasm32"))]
-use std::path::{Component, Path, PathBuf};
+use std::path::Path;
 
 use serde_json::Value;
 
+use crate::crx::is_valid_ext_id;
+#[cfg(not(target_arch = "wasm32"))]
+pub use crate::icon::{extension_icon_data_url, inspect_raster_icon, within_root};
 use crate::{
     CompatibilityLevel, ExtensionAccess, ExtensionCompatibility, ExtensionFeature, UnsupportedCause,
 };
 
 #[cfg(not(target_arch = "wasm32"))]
-const ICON_TARGET: u32 = 40;
-#[cfg(not(target_arch = "wasm32"))]
-const ICON_MAX_BYTES: u64 = 65_536;
-#[cfg(not(target_arch = "wasm32"))]
 const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
+
+const MAX_LIST_ITEMS: usize = 256;
+const MAX_ITEM_CHARS: usize = 256;
+
+/// Native Chromium permissions refused at load/approval because they can bypass the extension
+/// host boundary (`debugger` attaches CDP to any tab; `nativeMessaging` launches host binaries;
+/// `downloads` writes to the user's Downloads folder; `proxy` MITMs all traffic; `management`
+/// disables or uninstalls other extensions). Checked on required `permissions` only (never
+/// `optional_permissions`, which Chromium does not grant at install and our shim refuses).
+pub const DISALLOWED_REQUIRED_PERMS: &[&str] = &[
+    "debugger",
+    "nativeMessaging",
+    "downloads",
+    "proxy",
+    "management",
+];
 
 /// Parsed fields of an extension's `manifest.json` (`extensions.ts:15-44`).
 #[derive(Clone, Debug)]
@@ -41,6 +61,8 @@ pub struct Manifest {
     pub optional_permissions: Vec<String>,
     pub optional_host_permissions: Vec<String>,
     pub content_script_matches: Vec<String>,
+    pub externally_connectable: Vec<String>,
+    pub web_accessible_resources: Vec<String>,
     pub has_background: bool,
     pub has_commands: bool,
     pub has_devtools_page: bool,
@@ -58,12 +80,16 @@ pub enum IconSpec {
 }
 
 /// Parses raw `manifest.json` text (stripping UTF-8 BOM if present).
+/// Enforces valid Chrome dotted-integer `version` and sanitizes/bounds permission & host lists.
 pub fn parse_manifest(raw: &str) -> Option<Manifest> {
     let val: Value = serde_json::from_str(raw.trim_start_matches('\u{feff}')).ok()?;
     let obj = val.as_object()?;
     let manifest_version = u32::try_from(obj.get("manifest_version")?.as_u64()?).ok()?;
     let name = obj.get("name")?.as_str()?.to_owned();
-    let version = obj.get("version")?.as_str()?.to_owned();
+    let version = obj.get("version")?.as_str()?.trim().to_owned();
+    // Enforce strict Chrome dotted-integer version (prevents bidi/newline UI spoofing and
+    // zero-coercion downgrade bypasses).
+    parse_version(&version)?;
     let default_locale = obj.get("default_locale").and_then(Value::as_str).map(str::to_owned);
     let key = obj.get("key").and_then(Value::as_str).map(str::to_owned);
     let is_theme = obj.get("theme").is_some_and(|v| !v.is_null());
@@ -87,19 +113,24 @@ pub fn parse_manifest(raw: &str) -> Option<Manifest> {
         .or_else(|| obj.get("options_page").and_then(Value::as_str))
         .map(str::to_owned);
 
-    let permissions = string_array(obj.get("permissions"));
-    let host_permissions = string_array(obj.get("host_permissions"));
-    let optional_permissions = string_array(obj.get("optional_permissions"));
-    let optional_host_permissions = string_array(obj.get("optional_host_permissions"));
+    let permissions = sanitized_string_array(obj.get("permissions"));
+    let host_permissions = sanitized_string_array(obj.get("host_permissions"));
+    let optional_permissions = sanitized_string_array(obj.get("optional_permissions"));
+    let optional_host_permissions = sanitized_string_array(obj.get("optional_host_permissions"));
 
     let mut content_script_matches = Vec::new();
     if let Some(scripts) = obj.get("content_scripts").and_then(Value::as_array) {
         for script in scripts {
-            for m in string_array(script.get("matches")) {
-                content_script_matches.push(m);
+            for m in sanitized_string_array(script.get("matches")) {
+                if content_script_matches.len() < MAX_LIST_ITEMS {
+                    content_script_matches.push(m);
+                }
             }
         }
     }
+
+    let externally_connectable = parse_externally_connectable(obj.get("externally_connectable"));
+    let web_accessible_resources = parse_web_accessible_resources(obj.get("web_accessible_resources"));
 
     Some(Manifest {
         manifest_version,
@@ -117,6 +148,8 @@ pub fn parse_manifest(raw: &str) -> Option<Manifest> {
         optional_permissions,
         optional_host_permissions,
         content_script_matches,
+        externally_connectable,
+        web_accessible_resources,
         has_background: obj.get("background").is_some_and(|v| !v.is_null()),
         has_commands: obj.get("commands").is_some_and(|v| !v.is_null()),
         has_devtools_page: obj.get("devtools_page").is_some_and(|v| !v.is_null()),
@@ -128,16 +161,12 @@ pub fn parse_manifest(raw: &str) -> Option<Manifest> {
     })
 }
 
-/// Reads and parses `dir/manifest.json` (bounded <= 1 MiB, symlink-free).
+/// Reads and parses `dir/manifest.json` using a bounded non-symlink handle (`<= 1 MiB`).
 #[cfg(not(target_arch = "wasm32"))]
 pub fn read_manifest(dir: &Path) -> Option<Manifest> {
-    let path = dir.join("manifest.json");
-    let meta = std::fs::symlink_metadata(&path).ok()?;
-    if !meta.is_file() || meta.file_type().is_symlink() || meta.len() > MAX_MANIFEST_BYTES {
-        return None;
-    }
-    let text = std::fs::read_to_string(&path).ok()?;
-    parse_manifest(&text)
+    let bytes = crate::integrity::read_regular_file_bounded(&dir.join("manifest.json"), MAX_MANIFEST_BYTES)?;
+    let text = std::str::from_utf8(&bytes).ok()?;
+    parse_manifest(text)
 }
 
 /// Resolves a `__MSG_key__` display name from `_locales/<default_locale>/messages.json`.
@@ -158,13 +187,10 @@ pub fn display_name(dir: &Path, manifest: &Manifest) -> String {
     let Some(msg_path) = within_root(dir, &format!("_locales/{locale}/messages.json")) else {
         return extension_label(&manifest.name);
     };
-    let Ok(meta) = std::fs::symlink_metadata(&msg_path) else {
+    let Some(bytes) = crate::integrity::read_regular_file_bounded(&msg_path, MAX_MANIFEST_BYTES) else {
         return extension_label(&manifest.name);
     };
-    if !meta.is_file() || meta.file_type().is_symlink() || meta.len() > MAX_MANIFEST_BYTES {
-        return extension_label(&manifest.name);
-    }
-    let Ok(text) = std::fs::read_to_string(&msg_path) else {
+    let Ok(text) = std::str::from_utf8(&bytes) else {
         return extension_label(&manifest.name);
     };
     let Ok(Value::Object(map)) = serde_json::from_str::<Value>(text.trim_start_matches('\u{feff}')) else {
@@ -183,111 +209,76 @@ pub fn display_name(dir: &Path, manifest: &Manifest) -> String {
 
 /// Sanitizes extension-supplied labels for browser-owned surfaces (single line, no bidi/control, <= 128 chars).
 pub fn extension_label(text: &str) -> String {
+    sanitize_label_capped(text, 128)
+}
+
+pub(crate) fn sanitize_label_capped(text: &str, max_chars: usize) -> String {
     let mut out = String::new();
-    for ch in text.chars().take(256) {
-        let is_bidi = matches!(
-            ch,
-            '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}'
-        );
-        if ch.is_control() || is_bidi || ch == '\u{2028}' || ch == '\u{2029}' {
+    for ch in text.chars().take(max_chars.saturating_mul(2)) {
+        if is_disallowed_ui_char(ch) {
             out.push(' ');
         } else {
             out.push(ch);
         }
     }
-    out.trim().chars().take(128).collect()
+    out.trim().chars().take(max_chars).collect()
+}
+
+pub(crate) fn is_disallowed_ui_char(ch: char) -> bool {
+    ch.is_control()
+        || matches!(
+            ch,
+            '\u{061C}'
+                | '\u{200E}'
+                | '\u{200F}'
+                | '\u{2028}'
+                | '\u{2029}'
+                | '\u{202A}'..='\u{202E}'
+                | '\u{2066}'..='\u{2069}'
+        )
 }
 
 pub fn extension_page_url(id: &str, file: &str) -> Option<String> {
+    if !is_valid_ext_id(id) {
+        return None;
+    }
     let clean = file.trim_start_matches(['/', '\\']);
-    if clean.is_empty() || clean.contains("..") || clean.contains('\\') {
+    if clean.is_empty()
+        || clean.len() > 512
+        || clean.contains("..")
+        || clean.contains('\\')
+        || clean.chars().any(|c| is_disallowed_ui_char(c) || c.is_whitespace())
+    {
         return None;
     }
     Some(format!("chrome-extension://{id}/{clean}"))
 }
 
-/// Reads the manifest's declared raster icon as a `data:` URL (`<= 64 KiB`, no symlinks, no SVG).
-#[cfg(not(target_arch = "wasm32"))]
-pub fn extension_icon_data_url(dir: &Path, manifest: &Manifest) -> Option<String> {
-    use base64::Engine as _;
-
-    let file = closest_icon(&manifest.icons).or_else(|| match manifest.action_default_icon.as_ref()? {
-        IconSpec::Single(s) => Some(s.clone()),
-        IconSpec::Sized(map) => closest_icon(map),
-    })?;
-    let path = within_root(dir, &file)?;
-    let meta = std::fs::symlink_metadata(&path).ok()?;
-    if !meta.is_file() || meta.file_type().is_symlink() || meta.len() > ICON_MAX_BYTES {
+/// Strictly parses a Chrome dotted-integer extension version (1–4 segments, ASCII digits only,
+/// each `<= 9` digits, total length `<= 32`). Returns `None` on non-numeric or malformed input.
+pub fn parse_version(s: &str) -> Option<[u32; 4]> {
+    let trimmed = s.trim();
+    if trimmed.is_empty() || trimmed.len() > 32 {
         return None;
     }
-    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-    let mime = match ext.as_str() {
-        "png" => "image/png",
-        "webp" => "image/webp",
-        "jpg" | "jpeg" => "image/jpeg",
-        "gif" => "image/gif",
-        "ico" => "image/x-icon",
-        _ => return None,
-    };
-    let bytes = std::fs::read(&path).ok()?;
-    if bytes.len() as u64 > ICON_MAX_BYTES {
-        return None;
-    }
-    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
-    Some(format!("data:{mime};base64,{b64}"))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-pub fn within_root(root: &Path, rel: &str) -> Option<PathBuf> {
-    let stripped = rel.trim_start_matches(['/', '\\']);
-    if stripped.is_empty() {
-        return None;
-    }
-    let rel_path = Path::new(stripped);
-    if rel_path.is_absolute() {
-        return None;
-    }
-    let mut cur = root.to_path_buf();
-    for c in rel_path.components() {
-        if matches!(c, Component::ParentDir | Component::RootDir | Component::Prefix(_)) {
+    let mut out = [0u32; 4];
+    let mut count = 0usize;
+    for part in trimmed.split('.') {
+        if count >= 4 || part.is_empty() || part.len() > 9 || !part.bytes().all(|b| b.is_ascii_digit()) {
             return None;
         }
-        cur.push(c);
-        if std::fs::symlink_metadata(&cur).ok()?.file_type().is_symlink() {
-            return None;
-        }
+        out[count] = part.parse::<u32>().ok()?;
+        count += 1;
     }
-    let canon_root = std::fs::canonicalize(root).ok()?;
-    let canon_target = std::fs::canonicalize(&cur).ok()?;
-    canon_target.starts_with(&canon_root).then_some(canon_target)
+    (count >= 1).then_some(out)
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-fn closest_icon(sizes: &HashMap<String, String>) -> Option<String> {
-    let mut list: Vec<(u32, &String)> = sizes
-        .iter()
-        .filter_map(|(k, v)| Some((k.parse::<u32>().ok()?, v)))
-        .collect();
-    list.sort_by_key(|(sz, _)| *sz);
-    list.iter()
-        .find(|(sz, _)| *sz >= ICON_TARGET)
-        .or_else(|| list.last())
-        .map(|(_, v)| (*v).clone())
-}
-
-/// Compares Chrome dotted numeric versions (`a.b.c.d`); returns `Less` if `a < b`.
-pub fn compare_versions(a: &str, b: &str) -> Ordering {
-    let pa: Vec<u64> = a.split('.').map(|s| s.parse::<u64>().unwrap_or(0)).collect();
-    let pb: Vec<u64> = b.split('.').map(|s| s.parse::<u64>().unwrap_or(0)).collect();
-    let max_len = pa.len().max(pb.len());
-    for i in 0..max_len {
-        let va = pa.get(i).copied().unwrap_or(0);
-        let vb = pb.get(i).copied().unwrap_or(0);
-        if va != vb {
-            return va.cmp(&vb);
-        }
-    }
-    Ordering::Equal
+/// Compares strict Chrome dotted numeric versions (`a.b.c.d`); returns `None` if either version
+/// string is invalid (never silently coerces invalid segments to `0`).
+pub fn compare_versions(a: &str, b: &str) -> Option<Ordering> {
+    let pa = parse_version(a)?;
+    let pb = parse_version(b)?;
+    Some(pa.cmp(&pb))
 }
 
 /// Permissions supported natively in CEF 156 or via our extension host shim (`compatibility.ts:10-34`
@@ -377,6 +368,17 @@ pub fn extension_compatibility(manifest: &Manifest) -> ExtensionCompatibility {
             missing,
         };
     }
+    if manifest
+        .permissions
+        .iter()
+        .any(|p| DISALLOWED_REQUIRED_PERMS.contains(&p.as_str()))
+    {
+        return ExtensionCompatibility {
+            level: CompatibilityLevel::Unsupported,
+            cause: Some(UnsupportedCause::DisallowedPermission),
+            missing,
+        };
+    }
     if manifest.has_background && manifest.permissions.iter().any(|p| STARTUP_FATAL_PERMS.contains(&p.as_str())) {
         return ExtensionCompatibility {
             level: CompatibilityLevel::Unsupported,
@@ -418,7 +420,7 @@ fn permission_feature(perm: &str) -> Option<ExtensionFeature> {
 }
 
 /// Deduplicated, breadth-sorted host patterns from `host_permissions`, `permissions`, and
-/// `content_scripts[].matches` (`compatibility.ts:130-142`).
+/// `content_scripts[].matches` (`compatibility.ts:130-142`), bounded to `MAX_LIST_ITEMS`.
 pub fn review_hosts(manifest: &Manifest) -> Vec<String> {
     let mut set = HashSet::new();
     for item in manifest
@@ -427,6 +429,9 @@ pub fn review_hosts(manifest: &Manifest) -> Vec<String> {
         .chain(manifest.permissions.iter())
         .chain(manifest.content_script_matches.iter())
     {
+        if set.len() >= MAX_LIST_ITEMS {
+            break;
+        }
         if item == "<all_urls>" || item.contains("://") {
             set.insert(item.clone());
         }
@@ -446,17 +451,27 @@ fn host_breadth(pattern: &str) -> u8 {
     }
 }
 
-fn is_all_sites_pattern(pattern: &str) -> bool {
+/// Matches `<all_urls>`, `*://*/*`, `https://*/*`, AND port-wildcard equivalents like
+/// `https://*:*/*` and `*://*:443/*`.
+pub fn is_all_sites_pattern(pattern: &str) -> bool {
     if pattern == "<all_urls>" {
         return true;
     }
     let Some((_, rest)) = pattern.split_once("://") else {
         return false;
     };
-    rest == "*" || rest.starts_with("*/")
+    let authority = rest.split('/').next().unwrap_or("");
+    let host = match authority.split_once(':') {
+        Some((h, port)) if port == "*" || (!port.is_empty() && port.bytes().all(|b| b.is_ascii_digit())) => h,
+        Some(_) => return false,
+        None => authority,
+    };
+    host == "*"
 }
 
-/// High-level access badges for the extension list & review dialog (`compatibility.ts:144-161`).
+/// High-level access badges for the extension list & review dialog (`compatibility.ts:144-161`,
+/// plus Rune Desktop's additional disclosures for `proxy`, `declarativeNetRequest*`, `management`,
+/// `externally_connectable`, and `web_accessible_resources`).
 pub fn extension_access(manifest: &Manifest) -> Vec<ExtensionAccess> {
     let sites = review_hosts(manifest);
     let all = sites.iter().any(|p| is_all_sites_pattern(p));
@@ -469,6 +484,19 @@ pub fn extension_access(manifest: &Manifest) -> Vec<ExtensionAccess> {
     if manifest.permissions.iter().any(|p| p == "cookies") {
         out.push(ExtensionAccess::Cookies);
     }
+    if manifest.permissions.iter().any(|p| p == "proxy") {
+        out.push(ExtensionAccess::Proxy);
+    }
+    if manifest.permissions.iter().any(|p| {
+        matches!(
+            p.as_str(),
+            "declarativeNetRequest"
+                | "declarativeNetRequestWithHostAccess"
+                | "declarativeNetRequestFeedback"
+        )
+    }) {
+        out.push(ExtensionAccess::BlockRequests);
+    }
     if manifest
         .permissions
         .iter()
@@ -479,11 +507,24 @@ pub fn extension_access(manifest: &Manifest) -> Vec<ExtensionAccess> {
     if manifest.permissions.iter().any(|p| p == "clipboardRead") {
         out.push(ExtensionAccess::Clipboard);
     }
+    if manifest.permissions.iter().any(|p| p == "management") {
+        out.push(ExtensionAccess::ManageExtensions);
+    }
+    if !manifest.externally_connectable.is_empty() {
+        out.push(ExtensionAccess::ExternalConnect);
+    }
+    if !manifest.web_accessible_resources.is_empty() {
+        out.push(ExtensionAccess::WebAccessible);
+    }
     out
 }
 
 /// Whether match pattern `granted` covers every URL covered by `requested` (`match-pattern.ts:43-54`).
+/// Bounded on pattern length (`<= 256` bytes) to guarantee zero worst-case CPU DoS.
 pub fn covers_pattern(granted: &str, requested: &str) -> bool {
+    if granted.len() > MAX_ITEM_CHARS || requested.len() > MAX_ITEM_CHARS {
+        return false;
+    }
     let (Some(outer), Some(inner)) = (parse_pattern(granted), parse_pattern(requested)) else {
         return false;
     };
@@ -515,65 +556,154 @@ fn parse_pattern(pattern: &str) -> Option<ParsedPattern> {
         return None;
     };
     let slash = rest.find('/')?;
-    let host = rest[..slash].to_ascii_lowercase();
+    let authority = &rest[..slash];
+    // Strip optional port/wildcard port so `https://*:*/*` normalizes host to `*`.
+    let raw_host = match authority.split_once(':') {
+        Some((h, port)) if port == "*" || (!port.is_empty() && port.bytes().all(|b| b.is_ascii_digit())) => h,
+        _ => authority,
+    };
+    let host = raw_host.to_ascii_lowercase();
     let path = rest[slash..].to_owned();
     Some(ParsedPattern { schemes, host, path })
 }
 
-fn host_covers(pattern: &str, host: &str) -> bool {
-    if pattern == "*" {
+fn host_covers(outer: &str, inner: &str) -> bool {
+    if outer == "*" {
         return true;
     }
-    if let Some(domain) = pattern.strip_prefix("*.") {
-        let bare = host.strip_prefix("*.").unwrap_or(host);
-        return bare == domain || bare.ends_with(&format!(".{domain}"));
+    if inner == "*" {
+        return false;
     }
-    pattern == host
+    if let Some(suffix) = outer.strip_prefix("*.") {
+        let target = inner.strip_prefix("*.").unwrap_or(inner);
+        return target == suffix || target.ends_with(&format!(".{suffix}"));
+    }
+    outer == inner
 }
 
-/// Linear-time glob matcher (`*` matches any substring, `match-pattern.ts:72-98`).
-pub fn glob_match(pattern: &str, text: &str) -> bool {
-    let p: Vec<char> = pattern.chars().collect();
-    let t: Vec<char> = text.chars().collect();
-    let (mut pi, mut ti, mut star, mut resume) = (0usize, 0usize, None::<usize>, 0usize);
+fn glob_match(pattern: &str, text: &str) -> bool {
+    if pattern.len() > MAX_ITEM_CHARS || text.len() > MAX_ITEM_CHARS {
+        return false;
+    }
+    let p = pattern.as_bytes();
+    let t = text.as_bytes();
+    let (mut pi, mut ti) = (0usize, 0usize);
+    let (mut star_p, mut star_t) = (None, 0usize);
     while ti < t.len() {
-        if pi < p.len() && p[pi] != '*' && p[pi] == t[ti] {
+        if pi < p.len() && p[pi] == t[ti] {
             pi += 1;
             ti += 1;
-        } else if pi < p.len() && p[pi] == '*' {
-            star = Some(pi);
+        } else if pi < p.len() && p[pi] == b'*' {
+            star_p = Some(pi);
+            star_t = ti;
             pi += 1;
-            resume = ti;
-        } else if let Some(s) = star {
-            pi = s + 1;
-            resume += 1;
-            ti = resume;
+        } else if let Some(sp) = star_p {
+            pi = sp + 1;
+            star_t += 1;
+            ti = star_t;
         } else {
             return false;
         }
     }
-    while pi < p.len() && p[pi] == '*' {
+    while pi < p.len() && p[pi] == b'*' {
         pi += 1;
     }
     pi == p.len()
 }
 
-fn string_array(val: Option<&Value>) -> Vec<String> {
-    val.and_then(Value::as_array)
-        .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
-        .unwrap_or_default()
-}
-
-fn string_map(val: Option<&Value>) -> HashMap<String, String> {
-    val.and_then(Value::as_object)
-        .map(|m| m.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned()))).collect())
-        .unwrap_or_default()
-}
-
-fn parse_icon_spec(val: &Value) -> Option<IconSpec> {
-    match val {
-        Value::String(s) => Some(IconSpec::Single(s.clone())),
-        Value::Object(_) => Some(IconSpec::Sized(string_map(Some(val)))),
-        _ => None,
+fn parse_externally_connectable(v: Option<&Value>) -> Vec<String> {
+    let Some(obj) = v.and_then(Value::as_object) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for m in sanitized_string_array(obj.get("matches")) {
+        if out.len() < MAX_LIST_ITEMS {
+            out.push(format!("match:{m}"));
+        }
     }
+    for id in sanitized_string_array(obj.get("ids")) {
+        if out.len() < MAX_LIST_ITEMS {
+            out.push(format!("id:{id}"));
+        }
+    }
+    if obj.get("accepts_tls_channel_id").and_then(Value::as_bool) == Some(true)
+        && out.len() < MAX_LIST_ITEMS
+    {
+        out.push("accepts_tls_channel_id".to_owned());
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+fn parse_web_accessible_resources(v: Option<&Value>) -> Vec<String> {
+    let Some(arr) = v.and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for item in arr {
+        if out.len() >= MAX_LIST_ITEMS {
+            break;
+        }
+        if let Some(s) = item.as_str() {
+            let clean = sanitize_label_capped(s, MAX_ITEM_CHARS);
+            if !clean.is_empty() {
+                out.push(clean);
+            }
+        } else if let Some(obj) = item.as_object() {
+            let resources = sanitized_string_array(obj.get("resources"));
+            let matches = sanitized_string_array(obj.get("matches"));
+            for r in resources {
+                if out.len() >= MAX_LIST_ITEMS {
+                    break;
+                }
+                if matches.is_empty() {
+                    out.push(r);
+                } else {
+                    for m in &matches {
+                        if out.len() >= MAX_LIST_ITEMS {
+                            break;
+                        }
+                        out.push(format!("{r} @ {m}"));
+                    }
+                }
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+fn sanitized_string_array(v: Option<&Value>) -> Vec<String> {
+    v.and_then(Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(Value::as_str)
+                .filter_map(|s| {
+                    let clean = sanitize_label_capped(s, MAX_ITEM_CHARS);
+                    (!clean.is_empty()).then_some(clean)
+                })
+                .take(MAX_LIST_ITEMS)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn string_map(v: Option<&Value>) -> HashMap<String, String> {
+    v.and_then(Value::as_object)
+        .map(|obj| {
+            obj.iter()
+                .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned())))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn parse_icon_spec(v: &Value) -> Option<IconSpec> {
+    if let Some(s) = v.as_str() {
+        return Some(IconSpec::Single(s.to_owned()));
+    }
+    let map = string_map(Some(v));
+    (!map.is_empty()).then_some(IconSpec::Sized(map))
 }

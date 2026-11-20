@@ -917,6 +917,8 @@ dependencies = [
  "browser-policy",
  "crc32fast",
  "flate2",
+ "icu_normalizer",
+ "libc",
  "ring",
  "serde",
  "serde_json",
