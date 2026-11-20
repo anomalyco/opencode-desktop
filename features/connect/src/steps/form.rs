@@ -4,7 +4,6 @@
 use opencode_kit::integration::FieldKind;
 use rune::{El, TextEdit, Tx, col, row, text};
 use rune_kit::{ButtonVariant, Checkbox, RadioItem, TextInput};
-use rune_theme_opencode::icons as ic;
 use opencode_ui::palette::{Pal, kit};
 
 use super::{auth, current, input};
@@ -64,20 +63,26 @@ pub(super) fn view<H: ConnectHost + 'static>(s: &H, p: &Pal) -> El {
 }
 
 fn build_form_layout(p: &Pal, f: &form::Form, controls: El) -> El {
-    let mut head = col().w_full().gap(4.0).child(text(f.title()).font(BODY_MED).color(p.text).wrap());
-    if let Some(d) = &f.step.field.description {
-        head = head.child(text(d.clone()).font(BODY).color(p.muted).wrap());
+    let mut e = col().key(format!("connect-form-{}", f.key())).px(12.0).gap(16.0);
+    // `dialog.tsx:619` (`#63829`): text steps render their own field label & description directly.
+    if !matches!(f.step.kind, form::Kind::Text { .. }) {
+        let mut head = col().w_full().gap(4.0).child(text(f.title()).font(BODY_MED).color(p.text).wrap());
+        if let Some(d) = &f.step.field.description {
+            head = head.child(text(d.clone()).font(BODY).color(p.muted).wrap());
+        }
+        e = e.child(head);
     }
-    let mut e = col().key(format!("connect-form-{}", f.key())).px(12.0).gap(16.0).child(head).child(controls);
-    if let Some(err) = f.error() {
-        let words = if err == FieldError::Required {
-            opencode_i18n::t!("provider.connect.form.required")
-        } else {
-            opencode_i18n::t!("provider.connect.form.number")
-        };
-        e = e.child(text(words).key("connect-form-error").role("alert").font(BODY).color(p.danger));
-    }
-    e
+    e.child(controls)
+}
+
+fn form_error_el(p: &Pal, f: &form::Form) -> Option<El> {
+    let err = f.error()?;
+    let words = if err == FieldError::Required {
+        opencode_i18n::t!("provider.connect.form.required")
+    } else {
+        opencode_i18n::t!("provider.connect.form.number")
+    };
+    Some(text(words).key("connect-form-error").role("alert").font(BODY).color(p.danger))
 }
 
 fn cont<H: ConnectHost + 'static>(p: &Pal, enabled: bool) -> El {
@@ -91,16 +96,21 @@ fn cont<H: ConnectHost + 'static>(p: &Pal, enabled: bool) -> El {
 fn external<H: ConnectHost + 'static>(p: &Pal, f: &form::Form, url: &str, browser: &form::Browser) -> El {
     let opening = matches!(browser, form::Browser::Opening { .. });
     let label = opencode_i18n::t!("provider.connect.form.open");
-    let mut e = col().w_full().gap(16.0).child(
-        row()
-            .gap(8.0)
+    let mut e = col().w_full().gap(20.0).pt(12.0);
+    if *browser == form::Browser::Failed {
+        e = e
+            .child(text(opencode_i18n::t!("provider.connect.form.browserFailed")).role("alert").font(BODY).color(p.danger))
+            .child(auth::copy_field::<H>(p, "connect-link", None, Some(&f.title()), None, url.to_owned()));
+    }
+    e.child(
+        ui::step_actions()
             .child(
-                ui::button(label, ButtonVariant::Neutral)
-                    .icon(&ic::ARROW_UP_RIGHT)
+                ui::button(label, ButtonVariant::Ghost)
                     .disabled(opening)
                     .on_press_tx(|s: &mut H, tx: &mut Tx| form_input(s, form::Input::ExternalOpen, tx))
                     .build(kit(p))
-                    .key("connect-open-link"),
+                    .key("connect-open-link")
+                    .busy(opening),
             )
             .child(
                 ui::button(opencode_i18n::t!("provider.connect.form.finished"), ButtonVariant::Contrast)
@@ -109,13 +119,7 @@ fn external<H: ConnectHost + 'static>(p: &Pal, f: &form::Form, url: &str, browse
                     .build(kit(p))
                     .key("connect-finished"),
             ),
-    );
-    if *browser == form::Browser::Failed {
-        e = e
-            .child(text(opencode_i18n::t!("provider.connect.form.browserFailed")).role("alert").font(BODY).color(p.danger))
-            .child(auth::copy_field::<H>(p, "connect-link", None, None, url.to_owned()));
-    }
-    e
+    )
 }
 
 fn multiselect<H: ConnectHost + 'static>(s: &H, p: &Pal, f: &form::Form, picked: &[String], _custom: &str) -> El {
@@ -164,7 +168,7 @@ fn multiselect<H: ConnectHost + 'static>(s: &H, p: &Pal, f: &form::Form, picked:
         };
         e = e.child(text(words).font(BODY).color(p.muted));
     }
-    e.child(row().child(cont::<H>(p, f.can_continue())))
+    e.child(ui::step_actions().child(cont::<H>(p, f.can_continue())))
 }
 
 fn choice<H: ConnectHost + 'static>(s: &H, p: &Pal, f: &form::Form) -> El {
@@ -195,6 +199,7 @@ fn choice<H: ConnectHost + 'static>(s: &H, p: &Pal, f: &form::Form) -> El {
             radios = radios.child(
                 col().pl(24.0).child(
                     TextInput::new(&open.field)
+                        .large()
                         .placeholder(placeholder)
                         .label(opencode_i18n::t!("ui.messagePart.option.typeOwnAnswer"))
                         .width(None)
@@ -206,28 +211,36 @@ fn choice<H: ConnectHost + 'static>(s: &H, p: &Pal, f: &form::Form) -> El {
             );
         }
     }
-    let mut actions = row().gap(8.0).center_y().child(cont::<H>(p, f.can_continue()));
+    let mut actions = ui::step_actions();
     if !f.step.field.required {
         actions = actions.child(
-            ui::button(opencode_i18n::t!("provider.connect.form.skip"), ButtonVariant::GhostMuted)
+            ui::button(opencode_i18n::t!("provider.connect.form.skip"), ButtonVariant::Ghost)
                 .on_press_tx(|s: &mut H, tx: &mut Tx| form_input(s, form::Input::Skipped, tx))
                 .build(kit(p)),
         );
     }
-    col().w_full().gap(16.0).child(radios).child(actions)
+    actions = actions.child(cont::<H>(p, f.can_continue()));
+    col().w_full().gap(20.0).child(radios).children(form_error_el(p, f)).child(actions)
 }
 
 fn text_step<H: ConnectHost + 'static>(s: &H, p: &Pal, f: &form::Form) -> El {
     let Some(open) = s.connect().dialog() else { return col() };
     let field = TextInput::new(&open.field)
+        .large()
         .placeholder(f.step.field.placeholder.clone().unwrap_or_default())
         .label(f.title())
         .width(None)
+        .spellcheck(false)
         .invalid(f.error().is_some())
         .on_edit(|s: &mut H| s.connect_mut().field_mut())
         .on_change(|s: &mut H, tx: &mut Tx| sync_text_field(s, tx))
         .on_submit(|s: &mut H, tx: &mut Tx| form_input(s, form::Input::Submitted, tx))
         .build(kit(p))
         .key("connect-field");
-    col().w_full().gap(16.0).child(field).child(row().child(cont::<H>(p, true)))
+    let mut group = col().w_full().gap(8.0).child(text(f.title()).font(ui::LABEL).color(p.text));
+    if let Some(d) = &f.step.field.description {
+        group = group.child(text(d.clone()).font(BODY).color(p.muted).mt(-4.0).wrap());
+    }
+    group = group.child(field).children(form_error_el(p, f));
+    col().w_full().gap(20.0).child(group).child(ui::step_actions().child(cont::<H>(p, true)))
 }

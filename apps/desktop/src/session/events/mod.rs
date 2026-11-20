@@ -482,6 +482,9 @@ impl App {
         changed |= done.transcript && self.shows_transcript(&sid);
         if ty == "session.step.failed" {
             changed |= crate::free_limit::on_step_failed(self, data);
+            if matches!(&*self.route, Route::Session { id, .. } if id == &sid) {
+                changed |= crate::connect::on_step_failed(self, data);
+            }
         }
         if ty.starts_with("session.") && !sid.is_empty() {
             // A step started in the open session may follow a prompt we haven't seen.

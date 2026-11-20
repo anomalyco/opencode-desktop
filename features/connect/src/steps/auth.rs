@@ -85,8 +85,16 @@ fn open_browser<H: ConnectHost + 'static>(p: &Pal) -> El {
 
 /// The older `TextField` read-only and copyable, in code type (`components/text-field.css` with
 /// `font-mono`): an `input-base` box in a 1 px `border-base` border that takes its room, the
-/// value 12 pt in, Copy at its end; its label above (unless hidden) and a description below.
-pub(super) fn copy_field<H: ConnectHost + 'static>(p: &Pal, key: &str, label: Option<&str>, description: Option<&str>, value: String) -> El {
+/// value 12 pt in, Copy at its end; its visible `label` above (when shown), `aria_label` for
+/// screen readers when no visible label is shown, and optional `description` below.
+pub(super) fn copy_field<H: ConnectHost + 'static>(
+    p: &Pal,
+    key: &str,
+    label: Option<&str>,
+    aria_label: Option<&str>,
+    description: Option<&str>,
+    value: String,
+) -> El {
     let weak = p.v1_text_weak;
     let copy = value.clone();
     let copy_btn = el()
@@ -99,12 +107,23 @@ pub(super) fn copy_field<H: ConnectHost + 'static>(p: &Pal, key: &str, label: Op
         .center()
         .hover(p.hover)
         .press(p.pressed)
-        .on_press_tx(move |_: &mut H, tx: &mut Tx| tx.copy(copy.clone()))
+        .on_press_tx(move |s: &mut H, tx: &mut Tx| {
+            tx.copy(copy.clone());
+            s.toast_succeed(opencode_i18n::t!("common.copied").into(), copy.clone());
+        })
         .child(icon(&ic::COPY, 16.0).color(weak));
-    build_copy_field_layout(p, key, label, description, value, copy_btn)
+    build_copy_field_layout(p, key, label, aria_label.or(label), description, value, copy_btn)
 }
 
-fn build_copy_field_layout(p: &Pal, key: &str, label: Option<&str>, description: Option<&str>, value: String, copy_btn: El) -> El {
+fn build_copy_field_layout(
+    p: &Pal,
+    key: &str,
+    label: Option<&str>,
+    aria_label: Option<&str>,
+    description: Option<&str>,
+    value: String,
+    copy_btn: El,
+) -> El {
     let weak = p.v1_text_weak;
     let fill = if p.theme == 0 {
         rune::color::hex(if p.dark { "#151515" } else { "#f8f8f8" }).unwrap_or(p.layer1)
@@ -114,7 +133,7 @@ fn build_copy_field_layout(p: &Pal, key: &str, label: Option<&str>, description:
     let wrapper = row()
         .key(key.to_owned())
         .role("textbox")
-        .label(label.unwrap_or_default().to_owned())
+        .label(aria_label.unwrap_or_default().to_owned())
         .w_full()
         .pr(4.0)
         .radius(6.0)
@@ -239,9 +258,9 @@ pub(super) fn browser<H: ConnectHost + 'static>(s: &H, p: &Pal) -> El {
         .gap(20.0)
         .child(step_text(p, opencode_i18n::t!("provider.connect.oauth.auto.description", provider = name)));
     if let Some(code) = confirmation_code(c) {
-        e = e.child(copy_field::<H>(p, "connect-confirmation", Some(opencode_i18n::t!("provider.connect.oauth.auto.confirmationCode")), None, code));
+        e = e.child(copy_field::<H>(p, "connect-confirmation", Some(opencode_i18n::t!("provider.connect.oauth.auto.confirmationCode")), None, None, code));
     }
-    let actions = row().w_full().gap(8.0).center_y().child(spacer()).child(open_browser::<H>(p));
+    let actions = ui::step_actions().child(open_browser::<H>(p));
     if let Some(conn::Signin::Browser { failed, paste, .. }) = conn::signin(c) {
         if *failed {
             e = e.child(text(opencode_i18n::t!("provider.connect.oauth.browserFailed")).role("alert").font(BODY).color(p.danger).wrap());
@@ -252,19 +271,25 @@ pub(super) fn browser<H: ConnectHost + 'static>(s: &H, p: &Pal) -> El {
                 _ => (true, true, None),
             };
             let toggle = opencode_i18n::t!("provider.connect.oauth.paste.toggle");
-            let mut block = col().w_full().child(
-                row()
-                    .key("connect-paste-toggle")
-                    .role("button")
-                    .label_static(toggle)
-                    .expanded(shown)
-                    .h(48.0)
-                    .gap(6.0)
-                    .center_y()
-                    .on_press_tx(move |s: &mut H, tx: &mut Tx| toggle_paste(s, locked, shown, tx))
-                    .child(icon(if shown { &ic::CHEVRON_DOWN } else { &ic::CHEVRON_RIGHT }, 14.0).mirror_in_rtl().color(p.icon_muted))
-                    .child(text(toggle).font(BODY).color(p.text)),
-            );
+            // `border-y border-v2-border-border-muted` (`dialog.tsx:1068`, `#63829`).
+            let mut block = col()
+                .w_full()
+                .child(el().w_full().h(0.5).fill(p.border_muted))
+                .child(
+                    row()
+                        .key("connect-paste-toggle")
+                        .role("button")
+                        .label_static(toggle)
+                        .expanded(shown)
+                        .h(48.0)
+                        .gap(6.0)
+                        .center_y()
+                        .radius(6.0)
+                        .focus_ring(2.0, -2.0, p.v2.border_focus)
+                        .on_press_tx(move |s: &mut H, tx: &mut Tx| toggle_paste(s, locked, shown, tx))
+                        .child(icon(if shown { &ic::CHEVRON_DOWN } else { &ic::CHEVRON_RIGHT }, 14.0).mirror_in_rtl().color(p.icon_muted))
+                        .child(text(toggle).font(BODY).color(p.text)),
+                );
             if shown {
                 let label = opencode_i18n::t!("ui.redirectPaste.label");
                 let message = err.map(|e| match e {
@@ -284,14 +309,18 @@ pub(super) fn browser<H: ConnectHost + 'static>(s: &H, p: &Pal) -> El {
                     .on_submit(|s: &mut H, tx: &mut Tx| submit_redirect(s, tx));
                 let field = if let Some(msg) = message { field.description(msg) } else { field };
                 let field = field.build(kit(p));
-                block = block
-                    .child(step_text(p, opencode_i18n::t!("provider.connect.oauth.paste.description").into()))
-                    .child(text(label).font(LABEL).color(p.text))
-                    .child(field.key("connect-redirect"));
+                let mut expanded_body = col()
+                    .w_full()
+                    .gap(16.0)
+                    .pb(20.0)
+                    .child(step_text(p, opencode_i18n::t!("provider.connect.oauth.paste.description").into()).mt(-8.0))
+                    .child(col().w_full().gap(8.0).child(text(label).font(LABEL).color(p.text)).child(field.key("connect-redirect")));
                 if let Some(msg) = message {
-                    block = block.child(text(msg.to_owned()).role("alert").font(BODY).color(p.danger).wrap());
+                    expanded_body = expanded_body.child(text(msg.to_owned()).role("alert").font(BODY).color(p.danger).wrap());
                 }
+                block = block.child(expanded_body);
             }
+            block = block.child(el().w_full().h(0.5).fill(p.border_muted));
             e = e.child(block);
             if shown && !open.entry.text.trim().is_empty() && *paste != conn::Paste::Accepted {
                 return e.child(

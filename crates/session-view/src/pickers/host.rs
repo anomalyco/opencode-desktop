@@ -54,6 +54,11 @@ pub trait PickerHost: ComposerHost {
     }
     /// Connect was pressed; the list has closed.
     fn picker_model_action(&mut self, _action: ModelAction, _tx: &mut Tx) {}
+    /// Opens the unpaid free-model dialog (`DialogSelectModelUnpaid`, `#64927`) when no paid
+    /// provider is connected; returns `true` when the host handled the open.
+    fn picker_open_unpaid(&mut self, _tx: &mut Tx) -> bool {
+        false
+    }
 
     /// A provider's mark beside its name in the narrow window's model drawer.
     fn picker_provider_mark(&self, _p: &Pal, _provider: &str) -> Option<El> {
@@ -223,6 +228,13 @@ pub trait PickerHost: ComposerHost {
 
     fn open_picker_with(&mut self, kind: Kind, gesture: menu::Gesture, tx: &mut Tx) {
         let opening_model = kind == Kind::Model && self.pickers().open() != Some(Kind::Model);
+        if opening_model
+            && !self.pickers().has_paid_provider()
+            && self.pickers().models.iter().any(|m| m.free)
+            && self.picker_open_unpaid(tx)
+        {
+            return;
+        }
         let item_keys: Vec<String> = self.picker_items_for(kind).into_iter().map(|i| i.key).collect();
         let pk = self.pickers_mut();
         let eff = menu::step(&mut pk.menu, menu::Event::Open { kind, gesture, items: &item_keys });

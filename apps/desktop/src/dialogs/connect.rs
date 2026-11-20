@@ -77,6 +77,39 @@ impl ConnectHost for App {
         self.change_settings(|x| x.chatgpt_welcome_seen = true);
     }
 
+    fn chatgpt_usage_limit_seen_at(&self) -> Option<i64> {
+        crate::storage::json("opencode.global.dat", "chatgpt-usage-limit")
+            .and_then(|v| v["lastSeenAt"].as_i64())
+    }
+
+    fn mark_chatgpt_usage_limit_seen(&mut self, at_ms: i64) {
+        if self.persists() {
+            crate::storage::set_json(
+                "opencode.global.dat",
+                "chatgpt-usage-limit",
+                &serde_json::json!({ "lastSeenAt": at_ms }),
+            );
+        }
+    }
+
+    fn current_model_key(&self) -> Option<String> {
+        let m = self.selection().model;
+        (!m.id.is_empty()).then(|| format!("{}:{}", m.provider, m.id))
+    }
+
+    fn select_free_model(&mut self, provider: &str, id: &str, _tx: &mut Tx) {
+        let key = format!("{provider}:{id}");
+        let scope = crate::pickers::PickerHost::picker_scope(self);
+        let mut selection = self.selection();
+        selection.model = opencode_kit::model::ModelRef {
+            id: id.to_owned(),
+            provider: provider.to_owned(),
+            variant: String::new(),
+        };
+        self.composer_ext.pickers.prefs.picked(&key);
+        self.composer_ext.pickers.selections.insert(scope, selection);
+    }
+
     fn models(&self) -> &[Model] {
         &self.composer_ext.pickers.models
     }
@@ -190,6 +223,21 @@ impl App {
     }
 }
 
+/// Handles `session.step.failed` ChatGPT usage-limit errors (`usage-exceeded-dialogs.tsx:145-154`,
+/// `#64926`): opens the personal dialog for `provider.chatgpt-limit` (including older servers) and
+/// the Business workspace-admin variant for `provider.chatgpt-workspace-limit`.
+pub(crate) fn on_step_failed(s: &mut App, data: &Value) -> bool {
+    if s.settings_open() || !s.kernel.overlays.is_empty() {
+        return false;
+    }
+    let workspace = match data["error"]["type"].as_str() {
+        Some("provider.chatgpt-limit") => false,
+        Some("provider.chatgpt-workspace-limit") => true,
+        _ => return false,
+    };
+    usage_limit::open(s, workspace, &mut Tx::default())
+}
+
 /// Kernel feature registration for the Connect provider and ChatGPT plan welcome dialogs.
 pub struct ConnectFeature;
 
@@ -231,6 +279,24 @@ impl Feature<App> for ConnectFeature {
                 })
                 .above(OVERLAY_ID)
                 .with_dismiss(|s, tx| welcome::close(s, tx)),
+        );
+        builder.register_overlay(
+            OverlayRegistration::<App>::new(USAGE_LIMIT_OVERLAY_ID)
+                .with_render(crate::overlays::layer::DIALOG, |s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    usage_limit::layer(s, p, cx)
+                })
+                .above(WELCOME_OVERLAY_ID)
+                .with_dismiss(|s, tx| usage_limit::close(s, tx)),
+        );
+        builder.register_overlay(
+            OverlayRegistration::<App>::new(UNPAID_OVERLAY_ID)
+                .with_render(crate::overlays::layer::DIALOG, |s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    unpaid::layer(s, p, cx)
+                })
+                .above(USAGE_LIMIT_OVERLAY_ID)
+                .with_dismiss(|s, tx| unpaid::close(s, tx)),
         );
     }
 }
@@ -309,6 +375,55 @@ mod scenes {
                 "poe",
                 connect(State::Waiting(sel(method.clone()), Signin::Browser { method, auth, failed: false, paste: Paste::Unsupported })),
             );
+        }),
+        ("chatgpt-usage-limit", |s| {
+            crate::scenes::open_scene(s);
+            super::usage_limit::preview(s, false, super::CopyStatus::Idle);
+        }),
+        ("chatgpt-workspace-usage-limit", |s| {
+            crate::scenes::open_scene(s);
+            super::usage_limit::preview(s, true, super::CopyStatus::Idle);
+        }),
+        ("chatgpt-workspace-usage-limit-copied", |s| {
+            crate::scenes::open_scene(s);
+            super::usage_limit::preview(s, true, super::CopyStatus::Copied);
+        }),
+        ("chatgpt-workspace-usage-limit-failed", |s| {
+            crate::scenes::open_scene(s);
+            super::usage_limit::preview(s, true, super::CopyStatus::Failed);
+        }),
+        ("unpaid-models", |s| {
+            crate::scenes::open_scene(s);
+            s.composer_ext.pickers.provider_order = vec!["opencode".into()];
+            s.composer_ext.pickers.models = vec![
+                crate::pickers::Model {
+                    key: "opencode:big-pickle".into(),
+                    id: "big-pickle".into(),
+                    provider: "opencode".into(),
+                    group: "OpenCode".into(),
+                    name: "Big Pickle (free)".into(),
+                    variants: Vec::new(),
+                    hidden: false,
+                    free: true,
+                    latest: true,
+                    inputs: Default::default(),
+                    tools: true,
+                },
+                crate::pickers::Model {
+                    key: "opencode:minimax-free".into(),
+                    id: "minimax-free".into(),
+                    provider: "opencode".into(),
+                    group: "OpenCode".into(),
+                    name: "MiniMax M2.5 Free".into(),
+                    variants: Vec::new(),
+                    hidden: false,
+                    free: true,
+                    latest: false,
+                    inputs: Default::default(),
+                    tools: true,
+                },
+            ];
+            super::unpaid::preview(s);
         }),
     ]);
 }
