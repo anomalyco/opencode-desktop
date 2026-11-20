@@ -785,8 +785,19 @@ wrap_resource_handler! {
                 *out_n = n as i32;
                 return 1;
             }
+            if st.remaining_to_deliver == Some(0) && st.skip_remaining == 0 {
+                *out_n = 0;
+                return 0;
+            }
             if st.ended {
-                *out_n = if st.end_ok && st.skip_remaining == 0 { 0 } else { -2 };
+                *out_n = if st.end_ok
+                    && st.skip_remaining == 0
+                    && st.remaining_to_deliver.is_none_or(|r| r == 0)
+                {
+                    0
+                } else {
+                    -2
+                };
                 return 0;
             }
             let Some(cb) = callback.cloned() else {

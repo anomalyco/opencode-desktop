@@ -674,7 +674,7 @@ fn dispatch_preview_fetch(
                         head.status == 200
                     } else if range.is_some() {
                         match head.status {
-                            200 => true,
+                            200 => head.content_length.is_some(),
                             416 => true,
                             206 => parse_content_range(head.content_range.as_deref())
                                 .is_some_and(|(start, end, total)| {

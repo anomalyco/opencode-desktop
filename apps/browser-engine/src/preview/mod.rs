@@ -356,14 +356,18 @@ pub struct ProxyStreamState {
     pub mime: String,
     pub charset: Option<String>,
     pub content_length: Option<u64>,
+    /// Expected upstream body length (equals `total` when slicing a ranged `200` into `206`).
+    pub upstream_length: Option<u64>,
     pub total_size: Option<u64>,
     pub content_range: Option<String>,
     /// Verified starting byte offset of a `206 Partial Content` response.
     pub range_start: Option<u64>,
     /// Whether `skip()` already acknowledged the initial `206` starting offset.
     pub skipped_initial: bool,
-    /// Leading body bytes still to discard for a `200 OK` response where CEF called `skip(n)`.
+    /// Leading body bytes still to discard for a `200 OK` response sliced to a requested range.
     pub skip_remaining: u64,
+    /// Exact remaining bytes to deliver after `skip_remaining` reaches 0 when slicing a ranged `200`.
+    pub remaining_to_deliver: Option<u64>,
     pub open_callback: Option<Callback>,
     pub chunks: VecDeque<Vec<u8>>,
     pub queued_bytes: usize,
@@ -401,11 +405,13 @@ impl PendingProxy {
                 mime: "application/octet-stream".into(),
                 charset: None,
                 content_length: None,
+                upstream_length: None,
                 total_size: None,
                 content_range: None,
                 range_start: None,
                 skipped_initial: false,
                 skip_remaining: 0,
+                remaining_to_deliver: None,
                 open_callback: None,
                 chunks: VecDeque::new(),
                 queued_bytes: 0,
@@ -455,14 +461,46 @@ impl PendingProxy {
                 (cb, true)
             } else {
                 let over_cap = content_length.is_some_and(|n| n > max_bytes);
+                let mut eff_status = status;
+                let mut eff_content_length = content_length;
+                let mut eff_content_range = content_range;
+                let mut skip_remaining = 0u64;
+                let mut remaining_to_deliver: Option<u64> = None;
                 let (valid_status, total_size, range_start) = if is_artifact {
                     // Upstream `serve.ts:25`: artifacts require strictly 200 OK.
                     (status == 200, content_length, None)
                 } else {
                     match status {
+                        200 if self.requested_range.is_some() => {
+                            // Server ignored `Range:` and answered `200 OK`: slice it into a
+                            // spec-compliant `206` (or `416`) so CEF's `StreamReaderURLLoader`
+                            // receives exact requested bytes and never trailing/offset-0 bytes.
+                            match content_length {
+                                Some(total) if total <= max_bytes => {
+                                    match parse_range(self.requested_range.as_deref(), total) {
+                                        RangeSpec::Partial { start, length, content_range, .. } => {
+                                            eff_status = 206;
+                                            eff_content_length = Some(length);
+                                            eff_content_range = Some(content_range);
+                                            skip_remaining = start;
+                                            remaining_to_deliver = Some(length);
+                                            (true, Some(total), Some(start))
+                                        }
+                                        RangeSpec::Unsatisfiable { content_range } => {
+                                            eff_status = 416;
+                                            eff_content_length = Some(0);
+                                            eff_content_range = Some(content_range);
+                                            (true, Some(0), None)
+                                        }
+                                        RangeSpec::Full { .. } => (true, Some(total), None),
+                                    }
+                                }
+                                _ => (false, None, None),
+                            }
+                        }
                         200 => (true, content_length, None),
                         206 if self.requested_range.is_some() => {
-                            match parse_content_range(content_range.as_deref()) {
+                            match parse_content_range(eff_content_range.as_deref()) {
                                 Some((start, end, total)) if total <= max_bytes => {
                                     let expected_slice = parse_range(self.requested_range.as_deref(), total);
                                     let matches_req = matches!(
@@ -471,6 +509,7 @@ impl PendingProxy {
                                             if start == ws && end == we && content_length == Some(wl)
                                     );
                                     if matches_req {
+                                        remaining_to_deliver = content_length;
                                         (true, Some(total), Some(start))
                                     } else {
                                         (false, None, None)
@@ -485,7 +524,7 @@ impl PendingProxy {
                 };
                 st.head_ready = true;
                 st.head_ok = ok && valid_status && !over_cap;
-                st.status = status;
+                st.status = eff_status;
                 if let Some(rel) = &self.remote_rel {
                     // Remote workspace files derive MIME strictly from extension (`serve.ts:78`).
                     let (ext_mime, ext_cs) = mime_for_path(rel);
@@ -496,16 +535,19 @@ impl PendingProxy {
                     st.mime = clean_mime;
                     st.charset = charset;
                 }
-                st.content_length = content_length;
+                st.content_length = eff_content_length;
+                st.upstream_length = content_length;
                 st.total_size = total_size;
                 st.range_start = range_start;
-                st.content_range = content_range;
-                if status == 416 && st.head_ok {
+                st.skip_remaining = skip_remaining;
+                st.remaining_to_deliver = remaining_to_deliver;
+                st.content_range = eff_content_range;
+                if eff_status == 416 && st.head_ok {
                     st.ended = true;
                     st.end_ok = true;
                 }
                 let cb = st.open_callback.take();
-                let should_remove = !st.head_ok || status == 416;
+                let should_remove = !st.head_ok || eff_status == 416;
                 (cb, should_remove)
             }
         };
@@ -534,14 +576,20 @@ impl PendingProxy {
                 return st.canceled;
             }
             st.total_received = st.total_received.saturating_add(bytes.len() as u64);
-            let exceeds_len = st.content_length.is_some_and(|cl| st.total_received > cl);
+            let exceeds_len = st.upstream_length.is_some_and(|cl| st.total_received > cl);
             let exceeds_cap = st.total_received > self.grant.kind.max_bytes();
-            // Discard any leading skipped bytes on a ranged `200 OK` response before buffering/delivery.
+            // Discard any leading skipped bytes (and trailing bytes past the requested range end)
+            // when slicing a ranged `200 OK` response into `206 Partial Content`.
             let mut slice = bytes.as_slice();
             if st.skip_remaining > 0 {
                 let drop_n = (slice.len() as u64).min(st.skip_remaining) as usize;
                 st.skip_remaining -= drop_n as u64;
                 slice = &slice[drop_n..];
+            }
+            if let Some(rem) = st.remaining_to_deliver {
+                let keep = (slice.len() as u64).min(rem) as usize;
+                slice = &slice[..keep];
+                st.remaining_to_deliver = Some(rem - keep as u64);
             }
             let exceeds_queue = st.queued_bytes.saturating_add(slice.len()) > MAX_PROXY_QUEUE_BYTES;
             if exceeds_cap || exceeds_len || exceeds_queue {
@@ -552,7 +600,8 @@ impl PendingProxy {
                 st.queued_bytes = 0;
                 (st.waiting_read.take().map(|w| (w.callback, -2i32)), true)
             } else if slice.is_empty() {
-                (None, false)
+                let done = st.remaining_to_deliver == Some(0) && st.skip_remaining == 0 && st.chunks.is_empty();
+                (done.then(|| st.waiting_read.take().map(|w| (w.callback, 0i32))).flatten(), false)
             } else if let Some(wait) = st.waiting_read.take() {
                 let n = slice.len().min(wait.max_len);
                 // SAFETY: CEF guarantees `data_out` remains valid until `wait.callback.cont` runs
@@ -583,7 +632,11 @@ impl PendingProxy {
         let wake = {
             let mut st = self.state.lock().unwrap();
             st.ended = true;
-            st.end_ok = ok && !st.canceled && !self.grant.is_revoked() && st.skip_remaining == 0;
+            st.end_ok = ok
+                && !st.canceled
+                && !self.grant.is_revoked()
+                && st.skip_remaining == 0
+                && st.remaining_to_deliver.is_none_or(|r| r == 0);
             if !st.end_ok {
                 st.chunks.clear();
                 st.queued_bytes = 0;
