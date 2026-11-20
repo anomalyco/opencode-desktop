@@ -34,7 +34,7 @@ pub(crate) fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 
 /// The composer's own paste, from outside it: files and images attach, text lands at the caret.
 fn paste(s: &mut App, content: &ClipboardContent, tx: &mut Tx) {
-    if !s.has_composer() {
+    if !s.has_composer() || crate::free_limit::replaces_composer(s) {
         return;
     }
     if session_view::composer::attachments::paste(s, content, tx) {
@@ -61,6 +61,7 @@ impl App {
     pub(crate) fn takes_stray_keys(&self) -> bool {
         let menus = self.kernel.slots.get(&crate::session_menu::MENUS);
         self.has_composer()
+            && !crate::free_limit::replaces_composer(self)
             && !self.settings_open()
             && !self.kernel.slots.get(&crate::panels::SIDE).focus.is_focused()
             && !self.kernel.slots.get(&crate::switcher::SWITCHER).is_open()

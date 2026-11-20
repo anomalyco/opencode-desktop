@@ -42,6 +42,11 @@ pub(super) fn composer_dock(s: &App, p: &Pal) -> El {
         };
         // A subagent's page keeps its status line under the composer, in the dock's bottom inset.
         let pb = if status.is_some() { 0.0 } else { crate::view::DOCK_SIDE };
+        let body = if crate::free_limit::replaces_composer(s) {
+            crate::free_limit::panel(s, p)
+        } else {
+            composer(s, p)
+        };
         col()
             .key("composer-dock")
             .w_full()
@@ -49,7 +54,7 @@ pub(super) fn composer_dock(s: &App, p: &Pal) -> El {
             .px(crate::view::DOCK_SIDE)
             .pb(pb)
             .children(queue)
-            .child(composer(s, p))
+            .child(body)
             .children(status)
     })
 }
