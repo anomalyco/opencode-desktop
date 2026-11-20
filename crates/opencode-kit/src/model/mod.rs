@@ -8,9 +8,11 @@ use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use serde_json::Value;
 
 mod attachment;
+mod background_result;
 mod catalog;
 mod compaction;
 mod inbox;
+mod job;
 mod notice;
 mod parse;
 mod pending;
@@ -20,11 +22,13 @@ mod transcript;
 pub mod turn;
 
 pub use attachment::{Attachment, base64_decode, media_hash, parse_attachment, prompt_extras_generation, set_user_files, user_files};
+pub use background_result::{BackgroundResult, BackgroundResultKind, parse_background_result};
 pub use catalog::{AttachmentInput, Model};
 pub(crate) use attachment::extras_changed;
 use attachment::parse_attachments;
 pub use compaction::{Compaction, CompactionStatus, background_compaction};
 pub use inbox::{Delivery, Inbox, InboxChange, InboxItem, NoticeEffect, NoticeEvent, NoticeState, inbox_payload, parse_inbox_item, step_notice};
+pub use job::{JobInfo, JobKind, JobKindFilter, JobListQuery, JobLoadPhase, JobStatus, JobTime, JobTracker, JobTrackerEffect, JobTrackerEvent, is_job_event, merge_job_list, parse_job, parse_job_updated, parse_jobs};
 pub use notice::{Finished, Notice, NoticeKind, Outcome, Retry, StepError, is_notice_event, parse_inbox_notice};
 pub use parse::{parse_message, parse_messages, parse_projects, parse_session, parse_sessions};
 use parse::tool_title;

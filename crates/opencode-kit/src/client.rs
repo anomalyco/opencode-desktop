@@ -24,6 +24,7 @@ mod downloads;
 mod http;
 mod hub;
 mod ids;
+mod jobs;
 pub mod mcp;
 mod mentions;
 mod output_head;
@@ -41,6 +42,7 @@ mod worker;
 pub use downloads::{export_filename, save_download, set_download_dir};
 pub use hub::{EventHub, HUB_AT, connect_workers, heard_at};
 pub use ids::{message_id, session_id};
+pub use jobs::{JobEndpoint, is_job_endpoint_unsupported};
 #[cfg(not(target_arch = "wasm32"))]
 pub use reach::reach_back;
 #[cfg(not(target_arch = "wasm32"))]
