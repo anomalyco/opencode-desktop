@@ -17,6 +17,7 @@ local mcp = require("@self/mcp")
 local options = require("@self/options")
 local panel = require("@self/panel")
 local refusal = require("@self/refusal")
+local settings = require("@self/settings")
 local site = require("@self/site")
 
 -- The panel's id: its tabs key as `browser:<page id>`, as Desktop's.
@@ -44,7 +45,11 @@ return plugin.defineWindow(function(ctx)
     local editor = ctx:CreateEditor("")
     local findEditor = ctx:CreateEditor("")
     local stored = Store:Value("history", { visits = {} })
+    local prefsStore = Store:Value("preferences", { links = true, agentPages = true, advanced = false, welcomed = false })
+    local sitePermsStore = Store:Value("rune.sitePermissions", {})
     local recorder = Contracts:Use("browser.history")
+    local extContract = Contracts:Use("browser.extensions")
+    local profileContract = Contracts:Use("browser.profile")
 
     local state = address.initial()
     local epochs: { [string]: address.Epoch } = {}
@@ -965,6 +970,153 @@ return plugin.defineWindow(function(ctx)
             }
             refresh()
             return true
+        end,
+    })
+
+    local function preferences(): settings.Preferences
+        return settings.normalizePreferences(prefsStore:Get())
+    end
+
+    local function updatePreferences(patch: { [string]: any })
+        local nextPrefs: { [string]: any } = table.clone(preferences())
+        for k, v in patch do
+            nextPrefs[k] = v
+        end
+        prefsStore:Set(nextPrefs)
+    end
+
+    local function sitePermissionsList(): { settings.SiteDecision }
+        local raw = sitePermsStore:Get()
+        if type(raw) ~= "table" then
+            return {}
+        end
+        local out: { settings.SiteDecision } = {}
+        for _, item in raw :: { any } do
+            if type(item) == "table" and type(item.origin) == "string" and type(item.permission) == "string" and (item.setting == "allow" or item.setting == "block") then
+                table.insert(out, {
+                    origin = item.origin,
+                    permission = item.permission,
+                    setting = item.setting,
+                })
+            end
+        end
+        return out
+    end
+
+    local function setSitePermission(origin: string, permission: string, setting: "allow" | "block")
+        local list = sitePermissionsList()
+        local updated = false
+        for _, d in list do
+            if d.origin == origin and d.permission == permission then
+                d.setting = setting
+                updated = true
+                break
+            end
+        end
+        if not updated then
+            table.insert(list, { origin = origin, permission = permission, setting = setting })
+        end
+        sitePermsStore:Set(list :: any)
+    end
+
+    local function removeSitePermission(origin: string, permission: string)
+        local list = sitePermissionsList()
+        local nextList: { settings.SiteDecision } = {}
+        for _, d in list do
+            if not (d.origin == origin and d.permission == permission) then
+                table.insert(nextList, d)
+            end
+        end
+        sitePermsStore:Set(nextList :: any)
+    end
+
+    local function settingsCapabilities(): settings.Capabilities
+        local prof = profileContract:Get()
+        local ext = extContract:Get()
+        return {
+            available = Browser:Available(),
+            import = type(prof) == "table" and type(prof.renderImport) == "function",
+            extensions = type(ext) == "table" and type(ext.renderSettings) == "function",
+            remoteSignIns = type(prof) == "table" and type(prof.remoteSignIns) == "function" and type(prof.setRemoteSignIns) == "function",
+            cookieFile = type(prof) == "table" and type(prof.pickCookieFile) == "function",
+        }
+    end
+
+    local settingsHandle: Contribution? = nil
+    local function refreshSettings()
+        if settingsHandle then
+            settingsHandle:Refresh()
+        end
+    end
+
+    local settingsPage = settings.create({
+        I18n = I18n,
+        preferences = preferences,
+        updatePreferences = function(patch)
+            updatePreferences(patch)
+            refreshSettings()
+        end,
+        capabilities = settingsCapabilities,
+        sitePermissions = sitePermissionsList,
+        setSitePermission = function(origin, permission, setting)
+            setSitePermission(origin, permission, setting)
+            refreshSettings()
+        end,
+        removeSitePermission = function(origin, permission)
+            removeSitePermission(origin, permission)
+            refreshSettings()
+        end,
+        clearBrowsingData = function(): boolean
+            local keeper = recorder:Get()
+            if keeper then
+                keeper.clear()
+            end
+            local prof = profileContract:Get()
+            if type(prof) == "table" and type(prof.clearData) == "function" then
+                local ok = pcall(prof.clearData)
+                return ok
+            end
+            return true
+        end,
+        renderImport = function(view)
+            local prof = profileContract:Get()
+            if type(prof) == "table" and type(prof.renderImport) == "function" then
+                return prof.renderImport(view)
+            end
+            return nil
+        end,
+        renderExtensions = function(view)
+            local ext = extContract:Get()
+            if type(ext) == "table" and type(ext.renderSettings) == "function" then
+                return ext.renderSettings(view)
+            end
+            return nil
+        end,
+        remoteSignInsEnabled = function()
+            local prof = profileContract:Get()
+            return type(prof) == "table" and type(prof.remoteSignIns) == "function" and prof.remoteSignIns() == true
+        end,
+        setRemoteSignIns = function(enabled: boolean)
+            local prof = profileContract:Get()
+            if type(prof) == "table" and type(prof.setRemoteSignIns) == "function" then
+                prof.setRemoteSignIns(enabled)
+            end
+        end,
+        pickCookieFile = function()
+            local prof = profileContract:Get()
+            if type(prof) == "table" and type(prof.pickCookieFile) == "function" then
+                prof.pickCookieFile()
+            end
+        end,
+    }, refreshSettings)
+
+    settingsHandle = ctx:AddSettingsPage({
+        id = "browser",
+        icon = "globe",
+        title = I18n:T("settings.title"),
+        entries = settings.entries(I18n, settingsCapabilities()),
+        render = function(view, props)
+            return settingsPage.render(view, props)
         end,
     })
 
