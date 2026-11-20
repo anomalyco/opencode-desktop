@@ -10,7 +10,7 @@ use rune::{LinkPaint, Span};
 
 use crate::TimelineHost;
 use crate::palette::Pal;
-use crate::user_parts::{mention_neutral, session_link, session_of_link};
+use crate::user_parts::{session_link, session_of_link, session_of_raw_link, session_raw_link};
 
 /// `t` with Markdown's punctuation escaped, to sit inside a link's words.
 fn escape(t: &str) -> String {
@@ -24,20 +24,23 @@ fn escape(t: &str) -> String {
     out
 }
 
-/// `src` with each id [`find`] finds and `known` knows as a link to `session:<id>` reading its
-/// [`SessionRef::label`]; `None` when nothing changes.
+/// `src` with each id [`find`] finds rewritten: known sessions become `[@Title](session:<id>)`,
+/// while unknown, archived, or active-session IDs stay inline code wrapped in `session-raw:<id>`
+/// so right-clicking still opens the session reference menu (`markdown-session-links.ts`, #63083).
 pub fn rewrite(src: &str, known: impl Fn(&str) -> Option<SessionRef>) -> Option<String> {
     let found = find(src);
+    if found.is_empty() {
+        return None;
+    }
     let mut out = String::new();
     let mut at = 0;
     for (r, id) in found {
-        let Some(info) = known(id) else { continue };
         out.push_str(&src[at..r.start]);
-        out.push_str(&format!("[{}]({})", escape(info.label(id)), session_link(id)));
+        match known(id) {
+            Some(info) => out.push_str(&format!("[@{}]({})", escape(info.label(id)), session_link(id))),
+            None => out.push_str(&format!("[`{id}`]({})", session_raw_link(id))),
+        }
         at = r.end;
-    }
-    if at == 0 {
-        return None;
     }
     out.push_str(&src[at..]);
     Some(out)
@@ -64,12 +67,18 @@ pub fn chips<S: TimelineHost>(s: &S, src: &str) -> Option<String> {
     rewrite(src, |id| s.session_ref(id))
 }
 
-/// A chip's resting look and its look under the pointer: the session mention's neutral chip.
+/// A session reference's look (`markdown.css`'s `.markdown-session-link`, anomalyco/opencode#63083):
+/// muted medium-weight text with hover underline for known sessions, plain mono for unknown IDs.
 pub fn look(p: &Pal, url: &str) -> Option<(Span, LinkPaint)> {
-    session_of_link(url)?;
-    let tint = mention_neutral(p.dark);
-    let rest = Span::new(0, 0).color(p.text).bg(p.text.alpha(tint), 3.0);
-    Some((rest, LinkPaint::new().color(p.text).bg(p.text.alpha(tint * 2.0 + 0.03))))
+    if session_of_link(url).is_some() {
+        let rest = Span::new(0, 0).color(p.muted).weight(530.0);
+        return Some((rest, LinkPaint::new().color(p.muted).underline(p.muted)));
+    }
+    if session_of_raw_link(url).is_some() {
+        let rest = Span::new(0, 0).color(p.text).bg(p.inline_code_bg, 4.0);
+        return Some((rest, LinkPaint::new()));
+    }
+    None
 }
 
 /// What resting on the chip for `id` says: its title, the session that started it, and whether

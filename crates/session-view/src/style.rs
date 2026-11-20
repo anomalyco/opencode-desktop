@@ -87,14 +87,16 @@ pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
     tentative: Option<rune::Direction>,
     code_links: Option<std::rc::Rc<std::collections::HashSet<String>>>,
 ) -> El {
-    use crate::user_parts::session_of_link;
+    use crate::user_parts::{session_of_link, session_of_raw_link};
     // Its texts join the timeline's selection group rather than forming one of their own, so
     // a drag runs on out of this reply into the rest of the timeline.
     let full = std::rc::Rc::new(style.clone());
     let pal = *p;
     let rewritten = S::rewrite_markdown(src);
+    let md_src = rewritten.as_deref().unwrap_or(src);
+    let has_session_refs = !chips.is_empty() || md_src.contains("session-raw:");
     let tips = chips.to_vec();
-    let mut md = Markdown::new(rewritten.as_deref().unwrap_or(src))
+    let mut md = Markdown::new(md_src)
         .style(style)
         .highlights(highlights)
         .reveal(fade)
@@ -108,17 +110,18 @@ pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
             // window-open handler refuses its own pages).
             Some(_) if tx.button() == rune::PointerButton::Middle => {}
             Some(id) => s.open_session(id, tx),
+            None if session_of_raw_link(url).is_some() => {}
             None => s.open_link(url, tx),
         })
-        // A path in code has no tooltip, as Desktop's `<code>` has none.
-        .link_help(move |url| match url.starts_with(CODE_LINK) {
+        // A path in code or raw unknown session ID has no tooltip, as Desktop's `<code>` has none.
+        .link_help(move |url| match url.starts_with(CODE_LINK) || session_of_raw_link(url).is_some() {
             true => None,
             false => tips.iter().find(|(l, _)| l == url).map(|(_, t)| t.clone()).or_else(|| S::reply_link_help(url)),
         });
-    if !chips.is_empty() {
-        // Only a reply with chips takes right-clicks on its links; others keep the reply's menu.
+    if has_session_refs {
+        // Only a reply with session references takes right-clicks on its links; others keep the reply's menu.
         md = md.link_style(move |url| crate::session_chips::look(&pal, url)).on_link_secondary(|s: &mut S, url: &str, press, tx: &mut Tx| {
-            if let Some(id) = session_of_link(url) {
+            if let Some(id) = session_of_link(url).or_else(|| session_of_raw_link(url)) {
                 s.session_chip_menu(id, press, tx);
             }
         });

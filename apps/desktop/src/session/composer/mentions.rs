@@ -117,14 +117,18 @@ impl MentionsHost for App {
         spec: ContextMenuSpec,
         press: PointerPress,
         tx: &mut Tx,
-        on_pick: Box<dyn FnOnce(Option<&str>, &mut Tx) + 'static>,
+        on_pick: ContextMenuPick,
     ) {
         let mut menu = crate::popup::Menu::new(spec.label).min_width(spec.min_width);
         for item in spec.items {
-            menu = menu.item(crate::popup::Item::new(item.id, item.label).icon(item.icon));
+            let entry = crate::popup::Item::new(item.id, item.label);
+            menu = menu.item(match item.icon {
+                Some(icon) => entry.icon(icon),
+                None => entry,
+            });
         }
-        crate::popup::open(self, menu, press, tx, move |_: &mut App, picked: Option<&str>, tx: &mut Tx| {
-            on_pick(picked, tx);
+        crate::popup::open(self, menu, press, tx, move |app: &mut App, picked: Option<&str>, tx: &mut Tx| {
+            on_pick(app, picked, tx);
         });
     }
 

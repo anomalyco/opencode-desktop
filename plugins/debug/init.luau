@@ -23,12 +23,24 @@ local function nextSpeed(speed: number): number
     return 1
 end
 
+-- Shortens a session ID for the bar cell (`shortSessionID` in `debug/bar.tsx`).
+local function shortSessionID(id: string?): string?
+    if id == nil or id == "" then
+        return nil
+    end
+    if #id <= 12 then
+        return id
+    end
+    return string.sub(id, 1, 8) .. "\u{2026}" .. string.sub(id, -4)
+end
+
 return plugin.defineWindow(function(ctx)
     local I18n = ctx:GetService("I18n")
     local App = ctx:GetService("App")
     local Store = ctx:GetService("Store")
     local Sessions = ctx:GetService("Sessions")
     local Server = ctx:GetService("Server")
+    local System = ctx:GetService("System")
     local Diagnostics = ctx:GetService("Diagnostics")
     local Toast = ctx:GetService("Toast")
     local Theme = ctx:GetService("Theme")
@@ -214,7 +226,8 @@ return plugin.defineWindow(function(ctx)
                 return nil
             end
             local dark = Theme:IsDark()
-            local t = latest(props.sessionId) or { duration = nil, tps = nil }
+            local sid: string? = if props.sessionId ~= nil and props.sessionId ~= "" then props.sessionId else nil
+            local t = latest(sid) or { duration = nil, tps = nil }
             local logState = if debugBuild then Diagnostics:Get("memoryLog") else "off"
             local speed = if debugBuild then (Diagnostics:Get("speed") or 1) :: number else 1
             local slow = debugBuild and Diagnostics:Get("slow") == true
@@ -222,6 +235,7 @@ return plugin.defineWindow(function(ctx)
             local direction = if devTools then (Diagnostics:Get("direction") or "ltr") :: string else "ltr"
             local focused = devTools and machine.focusActive(focus)
             local version = table.concat({
+                tostring(sid),
                 tostring(t.duration),
                 tostring(t.tps),
                 tostring(closable),
@@ -307,6 +321,47 @@ return plugin.defineWindow(function(ctx)
                         }),
                     })
                 end
+                -- A copyable reading (`CopyCell` in `debug/bar.tsx`): preserves exact value casing
+                -- while enabled; disabled renders uppercased and dimmed like `n/a`.
+                local function copyCell(
+                    key: string,
+                    label: string,
+                    tip: string,
+                    value: string,
+                    onPress: ui.Handler?
+                ): ui.Node
+                    local enabled = onPress ~= nil
+                    return ui.col({
+                        key = key,
+                        role = "button",
+                        label = `{label}: {value}`,
+                        help = tip,
+                        helpSide = "top",
+                        disabled = not enabled,
+                        minH = 20,
+                        px = 6,
+                        pt = 3,
+                        pb = 5,
+                        radius = 4,
+                        hover = if enabled then raised else nil,
+                        hoverTransition = "instant",
+                        onPress = onPress,
+                    }, {
+                        ui.row({ gap = 6 }, {
+                            name(label, 1.4),
+                            ui.text(if enabled then value else value:upper(), {
+                                size = 11,
+                                weight = "bold",
+                                lineHeight = 12,
+                                mono = true,
+                                tabular = true,
+                                color = if enabled then ink else dim,
+                                noWrap = true,
+                                dir = "ltr",
+                            }),
+                        }),
+                    })
+                end
                 local na = I18n:T("na")
                 local cells: { ui.Node } = {}
                 if closable then
@@ -330,6 +385,24 @@ return plugin.defineWindow(function(ctx)
                         }, { ui.icon("close", { size = 16, color = "icon-weak" }) })
                     )
                 end
+                local sessionTip = if sid ~= nil then I18n:T("session.tip", { id = sid }) else I18n:T("session.none")
+                local copySession = if sid ~= nil
+                    then v:Handler(function()
+                        local id = sid :: string
+                        System:CopyText(id)
+                        Toast:Show({ variant = "success", title = I18n:T("common.copied"), description = id })
+                    end)
+                    else nil
+                table.insert(
+                    cells,
+                    copyCell(
+                        "debug-bar-session",
+                        I18n:T("session.label"),
+                        sessionTip,
+                        shortSessionID(sid) or na,
+                        copySession
+                    )
+                )
                 table.insert(
                     cells,
                     cell(

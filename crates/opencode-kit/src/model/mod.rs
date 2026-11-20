@@ -285,11 +285,31 @@ pub enum Message {
     Notice(Notice),
 }
 
+/// Provider-supplied phase label on an assistant text part (`content.native.phase`,
+/// anomalyco/opencode#64917): takes precedence over tool order when grouping commentary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum TextPhase {
+    Commentary,
+    FinalAnswer,
+}
+
+impl TextPhase {
+    pub fn parse(v: &Value) -> Option<Self> {
+        match v.as_str()? {
+            "commentary" => Some(Self::Commentary),
+            "final_answer" => Some(Self::FinalAnswer),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Assistant {
     pub id: String,
     pub completed: Option<i64>,
     pub parts: Vec<Part>,
+    /// Optional provider `native.phase` labels by `parts` index (empty unless the provider sent one).
+    pub text_phases: Vec<(usize, TextPhase)>,
     pub cost: f64,
     /// What the step reported as it finished (`tokens`); none while it streams, or when it
     /// ended without them.
@@ -313,6 +333,20 @@ pub struct Assistant {
     pub agent: Option<String>,
     /// The files the step changed, by path (`snapshot.files`), for its turn's Changed files.
     pub changed: Vec<String>,
+}
+
+impl Assistant {
+    pub fn text_phase(&self, part: usize) -> Option<TextPhase> {
+        self.text_phases.iter().find_map(|&(idx, phase)| (idx == part).then_some(phase))
+    }
+
+    pub fn set_text_phase(&mut self, part: usize, phase: TextPhase) {
+        if let Some((_, existing)) = self.text_phases.iter_mut().find(|(idx, _)| *idx == part) {
+            *existing = phase;
+        } else {
+            self.text_phases.push((part, phase));
+        }
+    }
 }
 
 impl Message {

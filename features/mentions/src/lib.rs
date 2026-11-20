@@ -82,14 +82,14 @@ pub struct Skill {
 }
 
 /// Callback invoked when a context menu item is chosen (or `None` when dismissed).
-pub type ContextMenuPick = Box<dyn FnOnce(Option<&str>, &mut Tx) + 'static>;
+pub type ContextMenuPick = Box<dyn FnOnce(&mut dyn MentionsHost, Option<&str>, &mut Tx) + 'static>;
 
 /// A directory's subagents, skills and references, each `None` when its read failed.
 type Catalog = (Attempt, Option<Vec<(String, String)>>, Option<Vec<Skill>>, Option<Vec<Reference>>);
 
 /// Object-safe host boundary for the `@` mentions popover, search polling, mention badges, and
 /// session chips.
-pub trait MentionsHost: opencode_kernel::AppEnv {
+pub trait MentionsHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
     fn mentions(&self) -> &Mentions;
     fn mentions_mut(&mut self) -> &mut Mentions;
 

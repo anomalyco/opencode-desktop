@@ -110,22 +110,37 @@ pub fn parse_message(m: &Value) -> Option<Message> {
             }
             Message::User { text: quoted_text(&id, text, &m["metadata"]), id }
         }
-        "assistant" => Message::Assistant(Assistant {
-            id,
-            completed: m["time"]["completed"].as_i64(),
-            parts: m["content"].as_array().into_iter().flatten().filter_map(parse_part).collect(),
-            cost: m["cost"].as_f64().unwrap_or(0.0),
-            tokens: m["tokens"].is_object().then(|| Tokens::parse(&m["tokens"])),
-            error: m["error"]["message"].as_str().map(str::to_owned),
-            failure: StepError::parse(&m["error"]),
-            retry: Retry::parse(&m["retry"]),
-            created: i(&m["time"]["created"]),
-            first_token: m["time"]["firstToken"].as_i64(),
-            streamed: m["time"]["streamed"].as_i64(),
-            model: model_of(&m["model"]),
-            agent: m["agent"].as_str().filter(|a| !a.is_empty()).map(str::to_owned),
-            changed: strings(&m["snapshot"]["files"]),
-        }),
+        "assistant" => {
+            let mut parts = Vec::new();
+            let mut text_phases = Vec::new();
+            for c in m["content"].as_array().into_iter().flatten() {
+                if let Some(part) = parse_part(c) {
+                    if matches!(part, Part::Text { .. })
+                        && let Some(phase) = super::TextPhase::parse(&c["native"]["phase"])
+                    {
+                        text_phases.push((parts.len(), phase));
+                    }
+                    parts.push(part);
+                }
+            }
+            Message::Assistant(Assistant {
+                id,
+                completed: m["time"]["completed"].as_i64(),
+                parts,
+                text_phases,
+                cost: m["cost"].as_f64().unwrap_or(0.0),
+                tokens: m["tokens"].is_object().then(|| Tokens::parse(&m["tokens"])),
+                error: m["error"]["message"].as_str().map(str::to_owned),
+                failure: StepError::parse(&m["error"]),
+                retry: Retry::parse(&m["retry"]),
+                created: i(&m["time"]["created"]),
+                first_token: m["time"]["firstToken"].as_i64(),
+                streamed: m["time"]["streamed"].as_i64(),
+                model: model_of(&m["model"]),
+                agent: m["agent"].as_str().filter(|a| !a.is_empty()).map(str::to_owned),
+                changed: strings(&m["snapshot"]["files"]),
+            })
+        }
         "shell" => Message::Note {
             text: format!("$ {}", s(&m["command"])),
             failed: m["status"] == "timeout" || (m["status"] == "exited" && m["exit"].as_i64().is_some_and(|e| e != 0)),
