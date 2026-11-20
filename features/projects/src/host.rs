@@ -170,10 +170,6 @@ pub trait ProjectsHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlays {
     fn project_navigation(&self) -> bool {
         false
     }
-    /// Whether the vertical sidebar's organized Projects section is currently enabled in settings.
-    fn organize_projects_visible(&self) -> bool {
-        false
-    }
 
     // --- Multi-server runtime & health ---
 

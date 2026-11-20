@@ -73,6 +73,10 @@ impl SessionMenuHost for App {
         App::project_navigation(self)
     }
 
+    fn navigation_prototype(&self) -> bool {
+        self.settings.navigation_prototype()
+    }
+
     fn side_focused(&self) -> bool {
         self.kernel.slots.get(&crate::panels::SIDE).focus.is_focused()
     }
@@ -171,6 +175,14 @@ impl SessionMenuHost for App {
 
     fn open_session(&mut self, server: &ServerKey, id: &str, tx: &mut Tx) {
         crate::servers::runtime::with_server(self, server, |s| s.open(id, tx));
+    }
+
+    fn pin_menu_extra(&self, server: &ServerKey, id: &str) -> Vec<crate::session_menu::Line> {
+        crate::tabs::pins::menu_lines(self, server, id)
+    }
+
+    fn run_pin_menu_extra(&mut self, server: &ServerKey, id: &str, menu_id: &str, _tx: &mut Tx) -> bool {
+        crate::tabs::pins::run_menu(self, server, id, menu_id)
     }
 
     fn close_tab(&mut self, uid: &str, tx: &mut Tx) {

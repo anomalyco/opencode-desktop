@@ -33,7 +33,6 @@ mod rhythm_stories;
 mod session;
 pub(crate) mod server_unavailable;
 pub(crate) mod sidebar;
-pub(crate) mod sidebar_organized;
 pub(crate) mod tab_strip;
 pub(crate) mod tab_preview;
 mod titlebar;

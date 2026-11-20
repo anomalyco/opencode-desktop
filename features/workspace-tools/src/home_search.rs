@@ -58,6 +58,10 @@ pub trait HomeSearchHost: opencode_kernel::AppEnv {
     fn settings_open(&self) -> bool {
         false
     }
+    /// Whether Home search filters the list in place rather than opening a results panel (#64668).
+    fn search_inline(&self) -> bool {
+        false
+    }
     fn live_server(&self) -> Option<Server>;
 
     /// Current Home search scope key (`"<server>\0<directory>"`) and whether the focused server is
@@ -413,9 +417,10 @@ pub fn open_home_result(host: &mut dyn HomeSearchHost, id: &str, tx: &mut Tx) {
     }
 }
 
-/// Whether the results panel shows: while the search has focus and text (`selectSearchOpen`).
+/// Whether the results panel shows: while the search has focus and text (`selectSearchOpen`),
+/// never while filtering Home's list in place.
 pub fn home_search_open(host: &dyn HomeSearchHost) -> bool {
-    host.home_search().search.open() && !host.search_input().text.trim().is_empty()
+    !host.search_inline() && host.home_search().search.open() && !host.search_input().text.trim().is_empty()
 }
 
 /// Whether a typed id is being looked up, or a large list's index is still building, which
@@ -443,6 +448,20 @@ pub fn home_search_key(host: &mut dyn HomeSearchHost, ev: &KeyEvent, tx: &mut Tx
         return true;
     }
     let m = ev.mods;
+    // Filtering in place, Enter opens the first match (`HomeSessionSearch`'s `searchInline`).
+    if host.search_inline() && ev.key == Key::Enter && !m.shift && !m.alt && !m.cmd && !m.ctrl {
+        let selected = host.home_selected().cloned();
+        let first = home_search_results(host, selected.as_ref()).first().map(|s| s.id.clone());
+        if let Some(id) = first {
+            if host.session(&id).is_none()
+                && let Some(ses) = host.home_search().search.exact().filter(|s| s.id == id).cloned()
+            {
+                host.push_session(ses);
+            }
+            open_home_result(host, &id, tx);
+            return true;
+        }
+    }
     if !m.alt && !m.cmd && !m.ctrl && home_search_open(host) {
         let selected = host.home_selected().cloned();
         let ids: Vec<String> = home_search_results(host, selected.as_ref()).into_iter().map(|s| s.id.clone()).collect();

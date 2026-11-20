@@ -189,7 +189,6 @@ pub fn poll_restore(host: &mut dyn RestoreHost) {
     if host.persists() {
         draft_doc::poll_draft_files(host);
     }
-    host.freeze_organize_order();
     hydrate_restore(host);
     let stamp = restore_stamp(host);
     if host.restore().stamp == Some(stamp) {

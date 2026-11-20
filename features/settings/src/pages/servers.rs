@@ -1,7 +1,8 @@
-//! Settings › Server / Servers (`settings/servers/servers.tsx`): with one server, its connection
-//! (its health, name and address, and its row menu) and its preferences (Terminal shell, from the
-//! server's shells, written to its global config); with more, one card per server ([`inventory`]),
-//! each with its connection row and, while its pages can load, its own Terminal shell.
+//! Settings › Server / Servers (`settings/servers/servers.tsx`, `servers/registry/row-menu.tsx`):
+//! with one server, its connection (health, name, address, and row menu) and its preferences
+//! (Terminal shell, from the server's shells, written to its global config); with more, one card
+//! per server ([`inventory`]), with each reachable server's Terminal shell picker moved into a
+//! submenu of its `...` row menu (`anomalyco/opencode#63539`).
 
 pub mod inventory;
 pub mod switcher;
@@ -171,7 +172,7 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
     let mut body = col().w_full().gap(32.0);
     if single {
         if let Some(own) = servers.first() {
-            body = body.child(super::section(p, "settings-server-connection", Some(t!("settings.server.section.connection")), card(p, vec![connection_row(s, p, own)])));
+            body = body.child(super::section(p, "settings-server-connection", Some(t!("settings.server.section.connection")), card(p, vec![connection_row(s, p, own, false)])));
             if own.availability.pages_connection().is_some() {
                 body = body.child(super::section(
                     p,
@@ -183,12 +184,15 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
         }
     } else {
         for server in &servers {
-            let mut rows = vec![connection_row(s, p, server)];
-            if server.availability.pages_connection().is_some() {
+            let ready = server.availability.pages_connection().is_some();
+            let row = connection_row(s, p, server, ready);
+            let row = if ready {
                 let target = if server.key == *selected { "settings-shell".to_owned() } else { format!("settings-shell:{}", server.key) };
-                rows.extend(shell_row(s, p, server, &target));
-            }
-            body = body.child(col().key(format!("settings-server-{}", server.key)).role("region").label(server.name.clone()).w_full().child(card(p, rows)));
+                super::revealable(s, p, &target, 16.0, row)
+            } else {
+                row
+            };
+            body = body.child(col().key(format!("settings-server-{}", server.key)).role("region").label(server.name.clone()).w_full().child(card(p, vec![row])));
         }
     }
     body = body.children(s.plugin_sections_for_page(p, "servers"));
@@ -241,7 +245,8 @@ fn card(p: &Pal, rows: Vec<El>) -> El {
     )
 }
 
-fn connection_row<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, server: &Server) -> El {
+fn connection_row<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, server: &Server, shell_menu: bool) -> El {
+    let shell_key = shell_menu.then(|| server.key.clone());
     match &server.kind {
         Kind::Plugin(rec) => {
             let drawn = s.plugin_server_row(p, server.key.as_str()).unwrap_or_else(|| text(rec.name.clone()).font(BODY_MED.lh(16.0)).color(p.text));
@@ -250,14 +255,37 @@ fn connection_row<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, server:
         Kind::Http(http) => {
             let key = ServerConn::http_server(&http.url).map_or_else(|| ServerKey::new(&http.url), |c| c.key());
             let health = s.server_health(&key);
-            col().key(format!("settings-server-row-{}", server.key)).w_full().py(20.0).child(http_row::<H>(p, http, health.as_ref()))
+            col().key(format!("settings-server-row-{}", server.key)).w_full().py(20.0).child(http_row_with::<H>(p, http, health.as_ref(), shell_key))
         }
-        Kind::Own { .. } => own_row::<H>(p, server),
+        Kind::Own { .. } => own_row::<H>(p, server, shell_key),
     }
 }
 
-fn handle_own_menu_pick(s: &mut dyn SettingsHost, url: &str, picked: Option<&str>, tx: &mut Tx) {
+/// Radio-style Terminal shell submenu (`packages/app/src/servers/registry/row-menu.tsx` `ShellSubmenu`).
+fn shell_submenu(opts: &[(String, String)], current: &str) -> Menu {
+    let items = opts.iter().enumerate().map(|(i, (val, label))| {
+        Item::new(format!("shell:{i}"), label.clone()).checked(val == current)
+    });
+    Menu::new(t!("settings.general.row.shell.title"))
+        .min_width(172.0)
+        .items(items)
+        .hug()
+}
+
+fn handle_shell_pick(s: &mut dyn SettingsHost, picked: &str, shell_key: Option<&ServerKey>, opts: &[(String, String)], tx: &mut Tx) -> bool {
+    let Some(idx) = picked.strip_prefix("shell:").and_then(|n| n.parse::<usize>().ok()) else {
+        return false;
+    };
+    if let (Some(key), Some((value, _))) = (shell_key, opts.get(idx)) {
+        tx.instant();
+        set_shell(s, key, value);
+    }
+    true
+}
+
+fn handle_own_menu_pick(s: &mut dyn SettingsHost, url: &str, shell_key: Option<&ServerKey>, opts: &[(String, String)], picked: Option<&str>, tx: &mut Tx) {
     match picked {
+        Some(p) if handle_shell_pick(s, p, shell_key, opts, tx) => {}
         Some("copy") => {
             tx.copy(url.to_owned());
         }
@@ -266,19 +294,28 @@ fn handle_own_menu_pick(s: &mut dyn SettingsHost, url: &str, picked: Option<&str
     }
 }
 
-fn build_own_menu(s: &dyn SettingsHost) -> (Menu, String) {
-    let url = inventory::list(s).into_iter().next().map(|x| x.address()).unwrap_or_default();
-    let menu = Menu::new(t!("settings.section.server"))
+fn build_own_menu(s: &dyn SettingsHost, url: &str, shell_key: Option<&ServerKey>) -> (Menu, Vec<(String, String)>) {
+    let mut menu = Menu::new(t!("settings.section.server"))
         .align(Align::End)
+        .gap(6.0)
         .group(t!("settings.section.server"))
-        .item(Item::new("edit", t!("dialog.server.menu.edit")).enabled(false))
-        .item(Item::new("copy", t!("rune.settings.server.copyAddress")).enabled(!url.is_empty()));
+        .item(Item::new("edit", t!("dialog.server.menu.edit")).enabled(false));
+    let opts = if let Some(key) = shell_key {
+        let st = s.settings_pages().servers.shells.get(key).cloned().unwrap_or_default();
+        let opts = options(&st);
+        menu = menu.submenu("settings-shell-submenu", t!("settings.general.row.shell.title"), shell_submenu(&opts, &st.current));
+        opts
+    } else {
+        Vec::new()
+    };
+    menu = menu.item(Item::new("copy", t!("rune.settings.server.copyAddress")).enabled(!url.is_empty()));
     let menu = if s.can_page_sign_out() { menu.separator().item(Item::new("sign-out", t!("rune.web.signOut"))) } else { menu };
-    (menu, url)
+    (menu, opts)
 }
 
-fn own_row<H: SettingsHost + PopupHost + 'static>(p: &Pal, server: &Server) -> El {
+fn own_row<H: SettingsHost + PopupHost + 'static>(p: &Pal, server: &Server, shell_key: Option<ServerKey>) -> El {
     let url = server.address();
+    let menu_url = url.clone();
     let dots = row()
         .key("settings-server-menu")
         .role("button")
@@ -288,9 +325,21 @@ fn own_row<H: SettingsHost + PopupHost + 'static>(p: &Pal, server: &Server) -> E
         .radius(4.0)
         .hover(p.hover)
         .press(p.pressed)
-        .menu_button("settings-server-menu", |s: &mut H, tx: &mut Tx| {
-            let (menu, url) = build_own_menu(s);
-            popup::open(s, menu, "settings-server-menu", tx, move |s: &mut H, picked, tx| handle_own_menu_pick(s, &url, picked, tx));
+        .menu_button("settings-server-menu", move |s: &mut H, tx: &mut Tx| {
+            if let Some(key) = &shell_key
+                && !s.settings_pages().servers.shells.contains_key(key)
+            {
+                s.spawn_job(SettingsJob::ForServer {
+                    server: key.clone(),
+                    request: SettingsRequest::LoadServerShells { key: key.clone() },
+                });
+            }
+            let (menu, opts) = build_own_menu(s, &menu_url, shell_key.as_ref());
+            let url = menu_url.clone();
+            let key = shell_key.clone();
+            popup::open(s, menu, "settings-server-menu", tx, move |s: &mut H, picked, tx| {
+                handle_own_menu_pick(s, &url, key.as_ref(), &opts, picked, tx);
+            });
         })
         .child(icon(&ic::OUTLINE_DOTS, 16.0).color(p.icon_muted));
     row()
@@ -320,18 +369,28 @@ fn own_row<H: SettingsHost + PopupHost + 'static>(p: &Pal, server: &Server) -> E
         .child(dots)
 }
 
-fn build_http_menu(s: &dyn SettingsHost, url: &str) -> Menu {
-    let menu = Menu::new(t!("settings.section.server"))
+fn build_http_menu(s: &dyn SettingsHost, url: &str, shell_key: Option<&ServerKey>) -> (Menu, Vec<(String, String)>) {
+    let mut menu = Menu::new(t!("settings.section.server"))
         .align(Align::End)
+        .gap(6.0)
         .group(t!("settings.section.server"))
-        .item(Item::new("edit", t!("dialog.server.menu.edit")))
-        .separator()
-        .item(Item::new("remove", t!("dialog.server.menu.remove")));
-    if s.is_page_server(url) { menu.separator().item(Item::new("sign-out", t!("rune.web.signOut"))) } else { menu }
+        .item(Item::new("edit", t!("dialog.server.menu.edit")));
+    let opts = if let Some(key) = shell_key {
+        let st = s.settings_pages().servers.shells.get(key).cloned().unwrap_or_default();
+        let opts = options(&st);
+        menu = menu.submenu("settings-shell-submenu", t!("settings.general.row.shell.title"), shell_submenu(&opts, &st.current));
+        opts
+    } else {
+        Vec::new()
+    };
+    menu = menu.separator().item(Item::new("remove", t!("dialog.server.menu.remove")));
+    let menu = if s.is_page_server(url) { menu.separator().item(Item::new("sign-out", t!("rune.web.signOut"))) } else { menu };
+    (menu, opts)
 }
 
-fn handle_http_menu_pick(s: &mut dyn SettingsHost, url: &str, picked: Option<&str>, tx: &mut Tx) {
+fn handle_http_menu_pick(s: &mut dyn SettingsHost, url: &str, shell_key: Option<&ServerKey>, opts: &[(String, String)], picked: Option<&str>, tx: &mut Tx) {
     match picked {
+        Some(p) if handle_shell_pick(s, p, shell_key, opts, tx) => {}
         Some("sign-out") => s.page_sign_out(),
         Some("edit") => s.open_server_dialog(Some(url), tx),
         Some("remove") => {
@@ -349,6 +408,11 @@ fn open_edit_http(s: &mut dyn SettingsHost, url: &str, tx: &mut Tx) {
 /// A server added by address (`ServerConnectionRow`'s own row), inside its card's padding.
 #[allow(deprecated)]
 pub fn http_row<H: SettingsHost + PopupHost + 'static>(p: &Pal, server: &HttpServer, health: Option<&Health>) -> El {
+    http_row_with::<H>(p, server, health, None)
+}
+
+#[allow(deprecated)]
+fn http_row_with<H: SettingsHost + PopupHost + 'static>(p: &Pal, server: &HttpServer, health: Option<&Health>, shell_key: Option<ServerKey>) -> El {
     let anchor = format!("settings-server-menu-{}", server.url);
     let url = server.url.clone();
     let dots = row()
@@ -361,9 +425,20 @@ pub fn http_row<H: SettingsHost + PopupHost + 'static>(p: &Pal, server: &HttpSer
         .hover(p.hover)
         .press(p.pressed)
         .menu_button(anchor.clone(), move |s: &mut H, tx: &mut Tx| {
-            let menu = build_http_menu(s, &url);
+            if let Some(key) = &shell_key
+                && !s.settings_pages().servers.shells.contains_key(key)
+            {
+                s.spawn_job(SettingsJob::ForServer {
+                    server: key.clone(),
+                    request: SettingsRequest::LoadServerShells { key: key.clone() },
+                });
+            }
+            let (menu, opts) = build_http_menu(s, &url, shell_key.as_ref());
             let url = url.clone();
-            popup::open(s, menu, anchor.clone(), tx, move |s: &mut H, picked, tx| handle_http_menu_pick(s, &url, picked, tx));
+            let key = shell_key.clone();
+            popup::open(s, menu, anchor.clone(), tx, move |s: &mut H, picked, tx| {
+                handle_http_menu_pick(s, &url, key.as_ref(), &opts, picked, tx);
+            });
         })
         .child(icon(&ic::OUTLINE_DOTS, 16.0).color(p.icon_muted));
     let authenticate = is_unauthorized(health).then(|| {

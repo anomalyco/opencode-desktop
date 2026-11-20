@@ -90,6 +90,10 @@ pub trait SessionMenuHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlay
     fn project_navigation(&self) -> bool {
         false
     }
+    /// Whether Consolidated navigation prototype is active (pin & group items lead tab menus).
+    fn navigation_prototype(&self) -> bool {
+        false
+    }
     /// Whether the side panel region currently holds keyboard focus (used to avoid stealing Ctrl+R).
     fn side_focused(&self) -> bool {
         false
@@ -195,6 +199,22 @@ pub trait SessionMenuHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlay
     /// Opens session `id` on `server`.
     fn open_session(&mut self, server: &ServerKey, id: &str, tx: &mut Tx) {
         let _ = (server, id, tx);
+    }
+    /// Leading rows the host adds to a session tab's menu (Consolidated's Pin & Add to group).
+    fn pin_menu_extra(&self, _server: &ServerKey, _id: &str) -> Vec<crate::Line> {
+        Vec::new()
+    }
+    /// Runs a row [`SessionMenuHost::pin_menu_extra`] added; `false` for another id.
+    fn run_pin_menu_extra(&mut self, _server: &ServerKey, _id: &str, _menu_id: &str, _tx: &mut Tx) -> bool {
+        false
+    }
+    /// Rows the host adds to tab `uid`'s menu (Tab groups' Add to group); none by default.
+    fn tab_menu_extra(&self, _uid: &str) -> Vec<crate::Line> {
+        Vec::new()
+    }
+    /// Runs a row [`SessionMenuHost::tab_menu_extra`] added; `false` for another id.
+    fn run_tab_menu_extra(&mut self, _uid: &str, _menu_id: &str, _tx: &mut Tx) -> bool {
+        false
     }
     /// Closes window tab `uid`.
     fn close_tab(&mut self, uid: &str, tx: &mut Tx) {

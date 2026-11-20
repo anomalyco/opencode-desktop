@@ -1,18 +1,20 @@
-//! The Recent sidebar (Settings › Experimental › Organize vertical sidebar, Recent; local and dev
-//! builds only; `recent-sessions.tsx`): in place of the side tabs, the pinned sessions in their
-//! saved order, then the root sessions active in the last 7 days by recency, at most 30 until
-//! Show more reveals 30 more of any age (`windowRecentSessions`, `recent-sessions-model.ts`).
-//! Rows look like side tabs, without close buttons; a drag reorders the pins.
-//!
-//! The sessions are those of the server the window works against, as the Projects list's are:
-//! the window already holds its list, so no page of its own loads.
+//! The Recent sidebar (Settings › Experimental › Organize vertical sidebar, Recent & Consolidated
+//! List; local and dev builds only; `recent-sessions.tsx`, #64668):
+//! - Under `Organize::Recent`: pinned sessions from `sidebar.recent`, then root sessions active in
+//!   the last 7 days by recency (at most 30 until Show more reveals 30 more).
+//! - Under `Organize::Consolidated` + `Navigation::List`: `PinnedArea` (`navigation.pins`) above,
+//!   then Recent organized by `recent_view` (Group by, Sort by, Direction, Show Metadata/Empty
+//!   groups, collapsible group headers with attention/unread dots, and View all -> Sessions).
+
+use std::collections::HashSet;
 
 use rune_kit::shell::{TabItem, TabItemStatus, TabOrientation, TabStrip};
 
+use super::recent_view::{self, GroupBy, RecentStatus, ViewGroup, ViewRow};
 use super::rows::section_title;
 use super::state::key;
 use super::*;
-use crate::popup::{self, Item, Menu};
+use crate::popup::{self, Item, Menu, MenuButton as _};
 use crate::session_menu::preferences::{self, Kind};
 use crate::session_menu::{Spot, Target};
 use opencode_i18n::t;
@@ -26,20 +28,37 @@ pub(crate) const VISIBLE: usize = 30;
 fn partition(s: &App) -> (Vec<&SessionInfo>, Vec<&SessionInfo>, bool) {
     let here = crate::servers::runtime::active(s);
     let st = &s.project_state.recent;
-    // A hidden session leaves both lists, its pin kept (`partitionRecentSessions`' `hidden`).
     let shown = |i: &&SessionInfo| !preferences::hidden(here, &i.id);
-    let pinned: Vec<&SessionInfo> = st.pins.iter().filter_map(|k| super::state::split(k)).filter(|(server, _)| *server == here.as_str()).filter_map(|(_, id)| s.session(id)).filter(|i| i.archived.is_none()).filter(shown).collect();
-    let mut recent: Vec<&SessionInfo> = s.sessions.iter().filter(|i| i.parent.is_none() && i.archived.is_none() && !crate::view::is_automation(&i.title) && !pinned.iter().any(|p| p.id == i.id)).filter(shown).collect();
+    let pinned: Vec<&SessionInfo> = st
+        .pins
+        .iter()
+        .filter_map(|k| super::state::split(k))
+        .filter(|(server, _)| *server == here.as_str())
+        .filter_map(|(_, id)| s.session(id))
+        .filter(|i| i.archived.is_none())
+        .filter(shown)
+        .collect();
+    let mut recent: Vec<&SessionInfo> = s
+        .sessions
+        .iter()
+        .filter(|i| i.parent.is_none() && i.archived.is_none() && !crate::view::is_automation(&i.title) && !pinned.iter().any(|p| p.id == i.id))
+        .filter(shown)
+        .collect();
     recent.sort_by_key(|sesh| (std::cmp::Reverse(s.recent_page.time(sesh)), &sesh.id));
-    let cutoff = *s.now_ms - WINDOW_MS;
-    let in_window = recent.iter().position(|i| s.recent_page.time(i) < cutoff).unwrap_or(recent.len());
-    let limit = in_window.min(VISIBLE) + st.revealed;
-    let more = recent.len() > limit;
-    recent.truncate(limit);
-    (pinned, recent, more)
+    let (visible, more) = window_recent(s, recent);
+    (pinned, visible, more)
 }
 
-/// The Recent list in the sidebar's list slot.
+fn window_recent<'a>(s: &App, mut recent: Vec<&'a SessionInfo>) -> (Vec<&'a SessionInfo>, bool) {
+    let cutoff = *s.now_ms - WINDOW_MS;
+    let in_window = recent.iter().position(|i| s.recent_page.time(i) < cutoff).unwrap_or(recent.len());
+    let limit = in_window.min(VISIBLE) + s.project_state.recent.revealed;
+    let more = recent.len() > limit;
+    recent.truncate(limit);
+    (recent, more)
+}
+
+/// The Recent list in `Organize::Recent`.
 pub(crate) fn recent(s: &App, p: &Pal) -> El {
     let (pinned, recent, more) = partition(s);
     let mut list = col().key("recent-content").w_full().pb(4.0);
@@ -48,13 +67,13 @@ pub(crate) fn recent(s: &App, p: &Pal) -> El {
         list = list.child(
             col().key("recent-pinned").role("group").label(t!("sidebar.recent.pinned")).w_full().gap(8.0).pb(10.0)
                 .child(section_title(p, "recent-pinned-title", t!("sidebar.recent.pinned")))
-                .child(strip(s, p, "recent-pinned-tabs", &pinned, Some(ids))),
+                .child(strip(s, p, "recent-pinned-tabs", &pinned, Some(ids), false, false)),
         );
     }
     if !recent.is_empty() || more {
         let mut group = col().key("recent-list").role("group").label(t!("sidebar.recent.section.recent")).w_full().gap(8.0).pb(10.0)
             .child(section_title(p, "recent-list-title", t!("sidebar.recent.section.recent")))
-            .child(strip(s, p, "recent-tabs", &recent, None));
+            .child(strip(s, p, "recent-tabs", &recent, None, false, false));
         if more {
             group = group.child(super::rows::ghost_button(p, "recent-more", t!("sidebar.inbox.showMore"), false).on_press_tx(|s: &mut App, tx: &mut Tx| {
                 tx.instant();
@@ -71,9 +90,236 @@ pub(crate) fn recent(s: &App, p: &Pal) -> El {
     col().key("sidebar-recent").w_full().grow(1.0).shrink().min_h(0.0).child(scroll)
 }
 
+/// Visible session UIDs for Consolidated List (`nav_order()`).
+pub(crate) fn consolidated_visible_uids(s: &App) -> Vec<String> {
+    let here = crate::servers::runtime::active(s);
+    let view = recent_view::current(s);
+    let (groups, _) = consolidated_groups(s);
+    let mut out = Vec::new();
+    for g in &groups {
+        for ses in shown_rows(s, view, g) {
+            out.push(crate::tabs::session_uid(here, &ses.id));
+        }
+    }
+    out
+}
+
+fn recent_status(s: &App, here: &opencode_kit::servers::ServerKey, id: &str) -> RecentStatus {
+    let muted = preferences::muted(here, id);
+    match s.tab_status(id) {
+        Some(crate::TabStatus::Attention) => RecentStatus::Attention,
+        Some(crate::TabStatus::Busy) => RecentStatus::Working,
+        Some(crate::TabStatus::Unread | crate::TabStatus::Failed) if !muted => RecentStatus::Unread,
+        _ => RecentStatus::Read,
+    }
+}
+
+fn consolidated_groups(s: &App) -> (Vec<ViewGroup<&SessionInfo>>, bool) {
+    let here = crate::servers::runtime::active(s);
+    let view = recent_view::current(s);
+    let mut all: Vec<&SessionInfo> = s
+        .sessions
+        .iter()
+        .filter(|i| {
+            i.parent.is_none()
+                && i.archived.is_none()
+                && !crate::view::is_automation(&i.title)
+                && !preferences::hidden(here, &i.id)
+                && !crate::tabs::pins::holds_session(s, here, &i.id)
+        })
+        .collect();
+    all.sort_by_key(|sesh| (std::cmp::Reverse(s.recent_page.time(sesh)), &sesh.id));
+    let (mut visible, more) = window_recent(s, all.clone());
+    // Status grouping includes older sessions that need attention or are running (the old Inbox).
+    if view.group_by == GroupBy::Status {
+        let shown: HashSet<&str> = visible.iter().map(|i| i.id.as_str()).collect();
+        for ses in all {
+            if shown.contains(ses.id.as_str()) {
+                continue;
+            }
+            if matches!(recent_status(s, here, &ses.id), RecentStatus::Attention | RecentStatus::Working) {
+                visible.push(ses);
+            }
+        }
+    }
+    let servers: Vec<(String, String)> = crate::servers::registry::list(s)
+        .into_iter()
+        .map(|e| (e.key().as_str().to_owned(), crate::servers::registry::label(&e.conn)))
+        .collect();
+    let rows: Vec<ViewRow<&SessionInfo>> = visible
+        .into_iter()
+        .map(|ses| {
+            let project = s.project_for_session(ses).map(|p| (format!("{}\0{}", here.as_str(), p.directory), p.name.clone()));
+            ViewRow {
+                key: key(here.as_str(), &ses.id),
+                title: crate::tabs::tab_title(&ses.title),
+                updated: if ses.updated > 0 { ses.updated } else { ses.created },
+                created: ses.created,
+                status: recent_status(s, here, &ses.id),
+                project,
+                server: here.as_str().to_owned(),
+                item: ses,
+            }
+        })
+        .collect();
+    (recent_view::build_groups(rows, view, *s.now_ms, &servers), more)
+}
+
+fn is_selected_session(s: &App, id: &str) -> bool {
+    if s.settings_open() {
+        return false;
+    }
+    let here = crate::servers::runtime::active(s);
+    matches!(&*s.route, crate::Route::Session { id: cur, server } if server == here && s.root_of(cur) == id)
+}
+
+/// Collapsed group still keeps the currently viewed session visible (`shownRows`).
+fn shown_rows<'a>(s: &App, view: &recent_view::RecentView, group: &ViewGroup<&'a SessionInfo>) -> Vec<&'a SessionInfo> {
+    if !view.is_collapsed(&group.key) {
+        return group.rows.iter().map(|r| r.item).collect();
+    }
+    group.rows.iter().filter(|r| is_selected_session(s, &r.item.id)).map(|r| r.item).collect()
+}
+
+fn hidden_group_mark(s: &App, view: &recent_view::RecentView, group: &ViewGroup<&SessionInfo>) -> Option<RecentStatus> {
+    if !view.is_collapsed(&group.key) {
+        return None;
+    }
+    let mut unread = false;
+    for r in &group.rows {
+        if is_selected_session(s, &r.item.id) {
+            continue;
+        }
+        match r.status {
+            RecentStatus::Attention => return Some(RecentStatus::Attention),
+            RecentStatus::Unread => unread = true,
+            _ => {}
+        }
+    }
+    unread.then_some(RecentStatus::Unread)
+}
+
+/// Consolidated navigation's List view (`PinnedArea` + grouped/sorted Recent with `RecentViewMenu`).
+pub(crate) fn recent_consolidated(s: &App, p: &Pal) -> El {
+    let view = recent_view::current(s);
+    let (groups, more) = consolidated_groups(s);
+    let pinned_el = super::pinned_area::vertical(s, p, false);
+    let has_groups = groups.iter().any(|g| !g.rows.is_empty() || view.empty_groups) || more;
+    let hide_avatars = view.group_by == GroupBy::Project;
+
+    let mut list = col().key("recent-content").w_full().pb(4.0);
+    if let Some(pins) = pinned_el {
+        list = list.child(pins);
+    }
+    if has_groups {
+        let mut stack = col().key("sidebar-recent-groups").w_full().gap(10.0).pb(10.0);
+        for g in &groups {
+            let rows = shown_rows(s, view, g);
+            let collapsible = view.group_by != GroupBy::None;
+            let collapsed = view.is_collapsed(&g.key);
+            let count = (view.metadata && collapsible).then_some(g.rows.len());
+            let mark = hidden_group_mark(s, view, g);
+            let mut section = col()
+                .key(format!("recent-group-{}", g.key))
+                .role("group")
+                .label(g.label.clone())
+                .w_full()
+                .gap(8.0)
+                .child(group_header(s, p, &g.key, &g.label, count, collapsible, collapsed, mark));
+            if !rows.is_empty() {
+                section = section.child(strip(s, p, &format!("recent-g-{}", g.key), &rows, None, true, hide_avatars));
+            }
+            stack = stack.child(section);
+        }
+        if more {
+            stack = stack.child(super::rows::ghost_button(p, "recent-more", t!("sidebar.inbox.showMore"), false).on_press_tx(|s: &mut App, tx: &mut Tx| {
+                tx.instant();
+                s.project_state.recent.revealed += VISIBLE;
+            }));
+        }
+        list = list.child(stack);
+    } else if crate::tabs::pins::state(s).doc.items.is_empty() {
+        list = list.child(text(t!("sidebar.recent.empty")).key("recent-empty").font(UI).color(p.faint).px(6.0).py(8.0));
+    }
+    let viewport = col().grow(1.0).shrink().min_h(0.0);
+    let scroll = session_view::scroller::scroller("recent-scroll").build::<App>(p, viewport, list);
+    col().key("sidebar-recent").w_full().grow(1.0).shrink().min_h(0.0).child(scroll)
+}
+
+fn group_header(
+    s: &App,
+    p: &Pal,
+    group_key: &str,
+    label: &str,
+    count: Option<usize>,
+    collapsible: bool,
+    collapsed: bool,
+    mark: Option<RecentStatus>,
+) -> El {
+    let trigger_key = format!("recent-view-trigger-{group_key}");
+    let menu_open = s.popup.open_at(&trigger_key);
+    let open_key = trigger_key.clone();
+    let sliders = super::super::home::projects::icon_button(p, &trigger_key, t!("sidebar.recent.view.options"), &ic::OUTLINE_SLIDERS, menu_open)
+        .help(t!("sidebar.recent.view.options"))
+        .menu_button(trigger_key.clone(), move |s: &mut App, tx: &mut Tx| recent_view::open_menu(s, open_key.clone(), tx));
+    let sliders = el().pin(None, Some(2.0), Some(4.0), None).child(if menu_open { sliders } else { session_view::style::hover_reveal(sliders) });
+
+    let heading = if collapsible {
+        let toggle_key = group_key.to_owned();
+        let mut btn = row()
+            .key(format!("recent-header-{group_key}"))
+            .role("button")
+            .label(label.to_owned())
+            .expanded(!collapsed)
+            .grow(1.0)
+            .shrink()
+            .min_w(0.0)
+            .h(24.0)
+            .pl(8.0)
+            .pr(32.0)
+            .gap(4.0)
+            .center_y()
+            .radius(6.0)
+            .hover(p.hover)
+            .on_press_tx(move |s: &mut App, tx: &mut Tx| {
+                tx.instant();
+                recent_view::toggle_collapsed(s, &toggle_key);
+            })
+            .child(text(label.to_owned()).font(UI_MED).color(p.muted).shrink().truncate());
+        if let Some(n) = count {
+            btn = btn.child(text(n.to_string()).font(UI_SMALL).color(p.faint));
+        }
+        if let Some(m) = mark {
+            let dot_color = if m == RecentStatus::Attention { p.warning } else { p.accent };
+            btn = btn.child(el().key("group-dot").size(6.0, 6.0).radius(3.0).fill(dot_color).a11y_hidden());
+        }
+        btn.child(icon(&ic::FILL_TRIANGLE_DOWN, 14.0).color(p.icon_muted).rotate(if collapsed { -std::f32::consts::FRAC_PI_2 } else { 0.0 }).mirror_in_rtl())
+    } else {
+        row()
+            .key(format!("recent-header-{group_key}"))
+            .grow(1.0)
+            .shrink()
+            .min_w(0.0)
+            .h(24.0)
+            .pl(8.0)
+            .pr(32.0)
+            .center_y()
+            .child(text(label.to_owned()).font(UI_MED).color(p.muted).shrink().truncate())
+    };
+    row().key(format!("recent-head-row-{group_key}")).w_full().h(24.0).center_y().hover_group().child(heading).child(sliders)
+}
+
 /// One section's rows, drawn as side tabs (`TabNavItem`, vertical): `pins` makes them the pinned
-/// list, which a drag reorders.
-fn strip(s: &App, p: &Pal, strip_key: &str, sessions: &[&SessionInfo], pins: Option<Vec<String>>) -> El {
+/// list (in `Organize::Recent`), which a drag reorders.
+fn strip(
+    s: &App,
+    p: &Pal,
+    strip_key: &str,
+    sessions: &[&SessionInfo],
+    pins: Option<Vec<String>>,
+    consolidated: bool,
+    hide_avatars: bool,
+) -> El {
     let here = crate::servers::runtime::active(s).clone();
     let selected = match &*s.route {
         crate::Route::Session { id, server } if *server == here && !s.settings_open() => Some(s.root_of(id).to_owned()),
@@ -82,6 +328,7 @@ fn strip(s: &App, p: &Pal, strip_key: &str, sessions: &[&SessionInfo], pins: Opt
     let pinned = pins.is_some();
     let show_hints = crate::tab_hints::shown(s);
     let nav_order = s.nav_order();
+    let view = recent_view::current(s);
     let items = sessions.iter().enumerate().map(|(index, info)| {
         let target = Target::on(&here, &info.id, Spot::Row);
         let muted = preferences::muted(&here, &info.id);
@@ -91,15 +338,27 @@ fn strip(s: &App, p: &Pal, strip_key: &str, sessions: &[&SessionInfo], pins: Opt
         let mut item = TabItem::new(info.id.as_str(), crate::tabs::tab_title(&info.title))
             .status(status(s, &info.id, muted))
             .closable(false)
-            .marked(s.kernel.slots.get(&crate::session_menu::MENUS).on.as_ref() == Some(&target))
-            .avatar(crate::icons::tab_badge(s, p, s.project_for_session(info), &info.title, shortcut, show_hints));
+            .marked(s.kernel.slots.get(&crate::session_menu::MENUS).on.as_ref() == Some(&target));
+        item = if hide_avatars {
+            item.avatar(el().size(16.0, 16.0))
+        } else {
+            item.avatar(crate::icons::tab_badge(s, p, s.project_for_session(info), &info.title, shortcut, show_hints))
+        };
+        if consolidated && !muted {
+            let st = recent_status(s, &here, &info.id);
+            if let Some(meta) = recent_view::meta_label(view, st, info.created, info.updated, *s.now_ms) {
+                item = item.subtitle(meta);
+            }
+        }
         if let Some(field) = crate::session_menu_view::field(s, p, &target, UI_MED) {
             item = item.editor(field);
         }
         let (id, server, count) = (info.id.clone(), here.clone(), sessions.len());
         item.decorate(move |slot, _| {
             let slot = if muted { super::pins::marked_slot(slot, super::pins::muted_mark(p), raw_mark) } else { slot };
-            slot.on_secondary_press(move |s: &mut App, press: rune::PointerPress, tx: &mut Tx| open_menu(s, &server, &id, pinned.then_some((index, count)), press, tx))
+            slot.on_secondary_press(move |s: &mut App, press: rune::PointerPress, tx: &mut Tx| {
+                open_menu(s, &server, &id, pinned.then_some((index, count)), consolidated, press, tx)
+            })
         })
     });
     let mut strip = TabStrip::new(strip_key, TabOrientation::Vertical)
@@ -116,18 +375,18 @@ fn strip(s: &App, p: &Pal, strip_key: &str, sessions: &[&SessionInfo], pins: Opt
                 s.prefetch_session(id);
             }
         })
-        // A row opens as the mouse button goes down (`TabNavItem`'s `onMouseDown`), which takes
-        // the strip's press tracking; only the pins reorder.
-        .drag_state(&s.gestures.tab_drag, |s: &mut App| &mut s.gestures.tab_drag)
         .select_on_drag_start(!session_view::style::touch_controls());
     if let Some(visible) = pins {
         let server = here.as_str().to_owned();
-        strip = strip.on_reorder(move |s: &mut App, r, _| {
-            let visible: Vec<String> = visible.iter().map(|id| key(&server, id)).collect();
-            s.project_state.recent.reorder(&visible, r.from, r.to);
-        });
+        strip = strip
+            .drag_state(&s.gestures.tab_drag, |s: &mut App| &mut s.gestures.tab_drag)
+            .on_reorder(move |s: &mut App, r, _| {
+                let visible: Vec<String> = visible.iter().map(|id| key(&server, id)).collect();
+                s.project_state.recent.reorder(&visible, r.from, r.to);
+            });
     }
-    let h = rune::memo::layout_with(&format!("{strip_key}-list"), |r| r[3]).unwrap_or(0.0);
+    let row_h = if consolidated && view.metadata { 48.0 } else { 31.0 };
+    let h = rune::memo::layout_with(&format!("{strip_key}-list"), |r| r[3]).unwrap_or(sessions.len() as f32 * row_h);
     col().key(format!("{strip_key}-box")).w_full().h(h).child(strip.build(crate::palette::kit(p)))
 }
 
@@ -143,18 +402,36 @@ fn status(s: &App, id: &str, muted: bool) -> Option<TabItemStatus> {
     })
 }
 
-/// A row's menu (`RecentSessionTab`'s `menu`): Pin, or Unpin, Move up and Move down for a pinned
-/// one, then Mute or Unmute and Hide; then Rename and Archive; then Delete….
-fn open_menu(s: &mut App, server: &opencode_kit::servers::ServerKey, id: &str, pinned: Option<(usize, usize)>, press: rune::PointerPress, tx: &mut Tx) {
+/// A row's menu (`RecentSessionTab`'s `menu`).
+fn open_menu(
+    s: &mut App,
+    server: &opencode_kit::servers::ServerKey,
+    id: &str,
+    pinned: Option<(usize, usize)>,
+    consolidated: bool,
+    press: rune::PointerPress,
+    tx: &mut Tx,
+) {
     let target = Target::on(server, id, Spot::Row);
     let mut menu = Menu::new(t!("command.category.session"));
-    menu = match pinned {
-        None => menu.item(Item::new("pin", t!("sidebar.recent.pin"))),
-        Some((at, count)) => menu
-            .item(Item::new("unpin", t!("sidebar.recent.unpin")))
-            .item(Item::new("up", t!("sidebar.recent.moveUp")).enabled(at > 0))
-            .item(Item::new("down", t!("sidebar.recent.moveDown")).enabled(at + 1 < count)),
-    };
+    if consolidated {
+        for line in crate::tabs::pins::menu_lines(s, server, id) {
+            menu = match line {
+                crate::session_menu::Line::Extra(i) => menu.item(i),
+                crate::session_menu::Line::Sub { id, title, menu: sub } => menu.submenu(id, title, sub),
+                crate::session_menu::Line::Sep => menu.separator(),
+                crate::session_menu::Line::Item(i) => menu.item(Item::new(i.id, i.title).enabled(i.enabled).danger(i.danger)),
+            };
+        }
+    } else {
+        menu = match pinned {
+            None => menu.item(Item::new("pin", t!("sidebar.recent.pin"))),
+            Some((at, count)) => menu
+                .item(Item::new("unpin", t!("sidebar.recent.unpin")))
+                .item(Item::new("up", t!("sidebar.recent.moveUp")).enabled(at > 0))
+                .item(Item::new("down", t!("sidebar.recent.moveDown")).enabled(at + 1 < count)),
+        };
+    }
     let muted = preferences::muted(server, id);
     menu = menu
         .item(Item::new("mute", if muted { t!("sidebar.recent.unmute") } else { t!("sidebar.recent.mute") }))
@@ -168,25 +445,29 @@ fn open_menu(s: &mut App, server: &opencode_kit::servers::ServerKey, id: &str, p
     s.kernel.slots.get_mut(&crate::session_menu::MENUS).on = Some(target.clone());
     tx.instant();
     let pin = key(server.as_str(), id);
+    let (srv, sid) = (server.clone(), id.to_owned());
     popup::open(s, menu, press, tx, move |s: &mut App, picked, tx| {
         s.kernel.slots.get_mut(&crate::session_menu::MENUS).on = None;
         tx.instant();
+        let Some(picked) = picked else { return };
+        if consolidated && crate::tabs::pins::run_menu(s, &srv, &sid, picked) {
+            return;
+        }
         let visible = || pinned_keys(s);
         match picked {
-            Some("pin") => s.project_state.recent.pin(pin),
-            Some("unpin") => s.project_state.recent.unpin(&pin),
-            Some(dir @ ("up" | "down")) => {
+            "pin" => s.project_state.recent.pin(pin),
+            "unpin" => s.project_state.recent.unpin(&pin),
+            dir @ ("up" | "down") => {
                 let visible = visible();
                 s.project_state.recent.shift(&visible, &pin, dir == "up");
             }
-            Some("mute") => preferences::update(s, Kind::Muted, &target.server, &target.id, !muted),
-            Some("hide") => preferences::update(s, Kind::Hidden, &target.server, &target.id, true),
-            Some("archive") => {
+            "mute" => preferences::update(s, Kind::Muted, &target.server, &target.id, !muted),
+            "hide" => preferences::update(s, Kind::Hidden, &target.server, &target.id, true),
+            "archive" => {
                 let id = target.id.clone();
                 s.archive_session(&id, tx);
             }
-            Some(other) => crate::session_menu::run(s, &target, other, tx),
-            None => {}
+            other => crate::session_menu::run(s, &target, other, tx),
         }
     });
 }
