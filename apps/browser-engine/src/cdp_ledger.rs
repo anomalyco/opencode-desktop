@@ -128,8 +128,8 @@ impl EngineCdpLedger {
     }
 
     /// Verifies that a `TypedCdpCall`'s `(method, params, session_id)` targets ONLY an
-    /// engine-verified non-extension session and (when `contextId` is supplied on
-    /// `Runtime.evaluate`) an engine-verified default main-world context ID.
+    /// engine-verified non-extension session and (for `Runtime.evaluate`) an engine-verified
+    /// default main-world `contextId` (fail-closed: `contextId` is REQUIRED on `TypedCdpCall`).
     pub fn verify_typed_call(
         &self,
         method: &str,
@@ -143,12 +143,9 @@ impl EngineCdpLedger {
                 return Err("TypedCdpCall sessionId is not an engine-verified non-extension iframe session.");
             }
         }
-        if method == "Runtime.evaluate"
-            && let Some(cid_val) = params.get("contextId")
-            && !cid_val.is_null()
-        {
-            let Some(cid) = cid_val.as_i64() else {
-                return Err("TypedCdpCall contextId must be a verified integer.");
+        if method == "Runtime.evaluate" {
+            let Some(cid) = params.get("contextId").and_then(Value::as_i64) else {
+                return Err("TypedCdpCall Runtime.evaluate requires a verified integer contextId.");
             };
             let key = (cid, session_id.map(str::to_owned));
             if !self.allowed_contexts.contains(&key) {
@@ -159,74 +156,132 @@ impl EngineCdpLedger {
     }
 }
 
-/// Checks whether the tab's snapshot, live main frame, or any live sub-frame is an extension origin.
-pub(crate) fn tab_has_extension_frame(
-    browser: &cef::Browser,
-    snap: &std::sync::Mutex<crate::wire::TabSnapshot>,
-) -> bool {
-    use cef::{CefString, ImplBrowser, ImplFrame};
+/// Hard engine-side byte cap on `Runtime.evaluate` / `Runtime.callFunctionOn` CDP responses
+/// (enforced BEFORE JSON parsing and IPC forwarding so giant eval results cannot OOM engine or UI).
+pub(crate) const MAX_CDP_EVAL_RESPONSE_BYTES: usize = 1024 * 1024;
+/// Hard engine-side byte cap on all other CDP responses (`Page.captureScreenshot`, AX tree, etc.).
+pub(crate) const MAX_CDP_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 
-    if browser_policy::extension_origin(&snap.lock().unwrap().url) {
-        return true;
+pub(crate) fn max_cdp_response_bytes(method: &str) -> usize {
+    if matches!(method, "Runtime.evaluate" | "Runtime.callFunctionOn") {
+        MAX_CDP_EVAL_RESPONSE_BYTES
+    } else {
+        MAX_CDP_RESPONSE_BYTES
     }
-    if let Some(frame) = browser.main_frame() {
-        let url = CefString::from(&frame.url()).to_string();
-        if browser_policy::extension_origin(&url) {
-            return true;
-        }
-    }
-    let mut ids = cef::CefStringList::new();
-    browser.frame_identifiers(Some(&mut ids));
-    for id in crate::menu::read_cef_string_list(&ids) {
-        let cef_id = CefString::from(id.as_str());
-        if let Some(frame) = browser.frame_by_identifier(Some(&cef_id)) {
-            let url = CefString::from(&frame.url()).to_string();
-            if browser_policy::extension_origin(&url) {
-                return true;
-            }
-        }
-    }
-    false
 }
 
-/// Validates a `HostMsg::CdpCall` against readiness, child `sessionId`, extension frames, and `check_cdp`.
-pub(crate) fn check_raw_cdp_call_allowed(
-    tab_ready: bool,
-    browser: &cef::Browser,
-    snap: &std::sync::Mutex<crate::wire::TabSnapshot>,
-    method: &str,
-    params: &Value,
-    session_id: Option<&str>,
-) -> Result<(), String> {
-    if !tab_ready {
-        return Err("browser.context.initializing".into());
+/// Validates and dispatches one `HostMsg::TypedCdpCall` against readiness, `#274`'s full
+/// whole-tab extension surface guard (`tab_is_extension_surface`), `check_typed_cdp`, and the
+/// engine-authoritative `EngineCdpLedger`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn handle_typed_cdp_call(
+    tab_id: u64,
+    request_id: u64,
+    not_ready_reason: Option<&str>,
+    t: &crate::engine::ManagedTab,
+    next_cdp_id: &std::sync::atomic::AtomicI32,
+    out_tx: &crate::output::Output,
+    method: String,
+    params: Value,
+    session_id: Option<String>,
+) {
+    use cef::ImplBrowserHost;
+    use serde_json::json;
+    use std::sync::atomic::Ordering;
+
+    let err = if let Some(reason) = not_ready_reason {
+        Some(reason.to_owned())
+    } else if crate::engine::tab_is_extension_surface(t) {
+        Some("Agent browser tools cannot read or act on extension pages or tabs with extension frames.".into())
+    } else if let Err(e) = browser_policy::check_typed_cdp(&method, &params, true) {
+        Some(e)
+    } else {
+        t.cdp_ledger
+            .lock()
+            .unwrap()
+            .verify_typed_call(&method, &params, session_id.as_deref())
+            .err()
+            .map(str::to_owned)
+    };
+    if let Some(err) = err {
+        let _ = out_tx.send(crate::wire::EngineMsg::CdpResponse {
+            tab_id,
+            request_id,
+            ok: false,
+            result: json!({ "message": err }),
+        });
+        return;
     }
-    if session_id.is_some() {
-        return Err("DevTools CdpCall does not permit targeting a child sessionId.".into());
+    let msg_id = next_cdp_id.fetch_add(1, Ordering::Relaxed);
+    t.cdp_id_map.lock().unwrap().insert(
+        msg_id,
+        crate::handlers::CdpPending::Raw {
+            request_id,
+            max_bytes: max_cdp_response_bytes(&method),
+        },
+    );
+    let mut payload = json!({ "id": msg_id, "method": method, "params": params });
+    if let Some(sid) = session_id {
+        payload["sessionId"] = Value::String(sid);
     }
-    if tab_has_extension_frame(browser, snap) {
-        return Err("DevTools calls are not permitted on tabs containing extension documents.".into());
+    let raw = payload.to_string();
+    if t.host.send_dev_tools_message(Some(raw.as_bytes())) != 1 {
+        t.cdp_id_map.lock().unwrap().remove(&msg_id);
+        let _ = out_tx.send(crate::wire::EngineMsg::CdpResponse {
+            tab_id,
+            request_id,
+            ok: false,
+            result: json!({ "message": "send_dev_tools_message rejected" }),
+        });
     }
-    browser_policy::check_cdp(method, params, true)
 }
 
-/// Validates a `HostMsg::TypedCdpCall` against readiness, extension frames, `check_typed_cdp`,
-/// and the engine-authoritative `EngineCdpLedger`.
-pub(crate) fn check_typed_call_allowed(
-    tab_ready: bool,
-    browser: &cef::Browser,
-    snap: &std::sync::Mutex<crate::wire::TabSnapshot>,
-    ledger: &std::sync::Mutex<EngineCdpLedger>,
-    method: &str,
-    params: &Value,
-    session_id: Option<&str>,
-) -> Result<(), String> {
-    if !tab_ready {
-        return Err("browser.context.initializing".into());
+pub(crate) fn handle_site_cookies(
+    tab_id: u64,
+    request_id: u64,
+    not_ready_reason: Option<&str>,
+    t: &crate::engine::ManagedTab,
+    next_cdp_id: &std::sync::atomic::AtomicI32,
+    out_tx: &crate::output::Output,
+) {
+    use cef::ImplBrowserHost;
+    use serde_json::json;
+    use std::sync::atomic::Ordering;
+
+    if let Some(reason) = not_ready_reason {
+        let _ = out_tx.send(crate::wire::EngineMsg::CdpResponse {
+            tab_id,
+            request_id,
+            ok: false,
+            result: json!({ "message": reason }),
+        });
+        return;
     }
-    if tab_has_extension_frame(browser, snap) {
-        return Err("Agent browser tools cannot run DevTools methods on tabs containing extension documents.".into());
+    let url = t.snap.lock().unwrap().url.clone();
+    if browser_policy::destination_origin(&url).is_none() {
+        let _ = out_tx.send(crate::wire::EngineMsg::CdpResponse {
+            tab_id,
+            request_id,
+            ok: true,
+            result: json!({ "cookies": 0 }),
+        });
+        return;
     }
-    browser_policy::check_typed_cdp(method, params, true)?;
-    ledger.lock().unwrap().verify_typed_call(method, params, session_id).map_err(str::to_owned)
+    let msg_id = next_cdp_id.fetch_add(1, Ordering::Relaxed);
+    t.cdp_id_map.lock().unwrap().insert(msg_id, crate::handlers::CdpPending::CookieCount(request_id));
+    let raw = json!({
+        "id": msg_id,
+        "method": "Network.getCookies",
+        "params": { "urls": [url] },
+    })
+    .to_string();
+    if t.host.send_dev_tools_message(Some(raw.as_bytes())) != 1 {
+        t.cdp_id_map.lock().unwrap().remove(&msg_id);
+        let _ = out_tx.send(crate::wire::EngineMsg::CdpResponse {
+            tab_id,
+            request_id,
+            ok: false,
+            result: json!({ "message": "send_dev_tools_message rejected" }),
+        });
+    }
 }

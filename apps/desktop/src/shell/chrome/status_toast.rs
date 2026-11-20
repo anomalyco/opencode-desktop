@@ -181,7 +181,7 @@ impl ToastHost for App {
     }
 
     fn reveal_path(&mut self, path: &Path) {
-        crate::plugin_host::reveal(&path.to_string_lossy());
+        crate::open_in::reveal_abs(self, path.to_string_lossy().into_owned());
     }
 }
 

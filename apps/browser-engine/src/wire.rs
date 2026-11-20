@@ -53,9 +53,15 @@ pub struct TabSnapshot {
     /// Site favicon as a bounded `data:image/png;base64,...` data URL (`UP-109` `#65094`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub favicon: Option<String>,
+    /// Isolation scope of this tab (with proxy credentials stripped), preserved across reconnects.
+    #[serde(default, skip_serializing_if = "ContextKind::is_default")]
+    pub context: ContextKind,
     /// Set on isolated `oc-preview://` tabs so browser chrome marks them as previews.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preview: Option<PreviewKindTag>,
+    /// Whether this tab is agent-driven (preserved across reconnects so file choosers / HTTP auth stay guarded).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub agent_driven: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -92,11 +98,14 @@ pub struct PickedElement {
 pub enum HostMsg {
     /// `prompts`: the app shows and answers page dialogs, permission prompts, and HTTP auth;
     /// older apps leave it false so the engine suppresses dialogs and denies permissions/auth.
+    /// `extensions`: the app handles extension-initiated tab opens (`EngineMsg::ExtensionOpenTab`).
     Hello {
         mach_service: Option<String>,
         pid: u32,
         #[serde(default)]
         prompts: bool,
+        #[serde(default)]
+        extensions: bool,
     },
     OpenTab {
         tab_id: u64,
@@ -107,11 +116,35 @@ pub enum HostMsg {
         focused: bool,
         #[serde(default)]
         file_roots: Vec<String>,
+        /// Partitioned `CefRequestContext` (`Default`, `IsolatedPreview`, `RemoteServer`, or
+        /// `Private`). Non-default contexts are strictly invisible to extensions.
         #[serde(default)]
         context: ContextKind,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         preview: Option<PreviewSpec>,
+        /// Set before browser creation so cold-start / restarted agent tabs never race OS file choosers or HTTP auth.
+        #[serde(default)]
+        agent_driven: bool,
+        /// Legacy shorthand for `ContextKind::Private` when `context` is `Default`.
+        #[serde(default)]
+        isolated: bool,
+        /// Allows navigating to loaded `chrome-extension://` pages (user tabs & popups only;
+        /// never set for agent-driven or non-default context tabs).
+        #[serde(default)]
+        allow_extension_pages: bool,
+        /// True when this tab is an anchored extension popup (enables content auto-sizing).
+        #[serde(default)]
+        is_popup: bool,
+        /// When answering `EngineMsg::ExtensionOpenTab`, correlates this newly opened pane tab.
+        #[serde(default)]
+        ext_open_request_id: Option<u64>,
     },
+    ClickExtension { ext_id: String },
+    ListExtensions { request_id: u64 },
+    UninstallExtension { ext_id: String },
+    ReloadExtension { ext_id: String },
+    CancelExtensionOpenTab { request_id: u64 },
+    ExtensionMetrics { request_id: u64 },
     SetTabPolicy { tab_id: u64, file_roots: Vec<String> },
     CloseTab { tab_id: u64 },
     FocusTab { tab_id: u64 },
@@ -194,8 +227,10 @@ pub enum EngineMsg {
     /// `downloads`: keeps page downloads; `policy`: enforces URL/CDP policy; `prompts`: holds
     /// dialogs/permissions/auth for the app; `popups`: routes pop-ups to managed tabs; `find`:
     /// supports in-page `FindHandler`; `context_menu`: routes right-click menus to the app;
-    /// `agent_tools`: supports `TypedCdpCall` and flattened OOPIF `sessionId` CDP events;
-    /// `preview`: serves isolated `oc-preview://` tabs.
+    /// `partitions` / `remote_proxy`: isolated `CefRequestContext` partitions; `agent_tools`:
+    /// supports `TypedCdpCall` and flattened OOPIF `sessionId` CDP events; `preview`: serves
+    /// isolated `oc-preview://` tabs; `extensions`: hosts verified MV3 extensions over the private
+    /// in-process CDP pipe.
     Ready {
         chromium_major: u32,
         pid: u32,
@@ -217,6 +252,8 @@ pub enum EngineMsg {
         agent_tools: bool,
         #[serde(default)]
         preview: bool,
+        #[serde(default)]
+        extensions: bool,
     },
     /// Requests bytes for a remote workspace or artifact preview from the app host (server
     /// credentials never enter the engine process).
@@ -264,6 +301,49 @@ pub enum EngineMsg {
     /// Linux: a finished frame in buffer `slot` of `pool`. The app says when it has read it
     /// (`HostMsg::FrameRead`), and the engine writes that buffer again only after.
     DmabufFrame { tab_id: u64, frame_id: u64, pool: u64, slot: u32 },
+    ExtensionsState {
+        request_id: Option<u64>,
+        extensions: Vec<crate::extensions::ExtensionActionSnapshot>,
+    },
+    ExtensionAction {
+        action: crate::extensions::ExtensionActionSnapshot,
+    },
+    ExtensionPopupRequested {
+        ext_id: String,
+        url: String,
+    },
+    ExtensionPopupResized {
+        ext_id: String,
+        width: u32,
+        height: u32,
+    },
+    ExtensionOpenTab {
+        request_id: u64,
+        ext_id: String,
+        url: String,
+        active: bool,
+    },
+    ExtensionFocusTab {
+        tab_id: u64,
+    },
+    ExtensionFiltersReady,
+    ExtensionUninstalled {
+        ext_id: String,
+        ok: bool,
+        error: Option<String>,
+    },
+    ExtensionReloaded {
+        ext_id: String,
+        ok: bool,
+        error: Option<String>,
+    },
+    ExtensionIntegrityFailed {
+        ext_id: String,
+    },
+    ExtensionMetrics {
+        request_id: u64,
+        metrics: crate::extensions::ShimMetrics,
+    },
 }
 
 /// A file a page downloaded, kept in the engine's private downloads folder for the agent's tools
@@ -384,7 +464,7 @@ pub struct PageContextMenu {
     pub suggestions: Vec<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RemoteProxyConfig {
     pub host: String,
     pub port: u16,
@@ -394,6 +474,18 @@ pub struct RemoteProxyConfig {
     pub password: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub realm: Option<String>,
+}
+
+impl std::fmt::Debug for RemoteProxyConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RemoteProxyConfig")
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("username", &self.username.as_ref().map(|_| "<redacted>"))
+            .field("password", &self.password.as_ref().map(|_| "<redacted>"))
+            .field("realm", &self.realm)
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -428,6 +520,24 @@ impl ContextKind {
 
     pub fn is_isolated(&self) -> bool {
         !self.is_default()
+    }
+
+    /// Returns a wire-safe copy with `RemoteProxyConfig` credentials omitted for `TabSnapshot`.
+    pub fn redacted(&self) -> Self {
+        match self {
+            Self::RemoteServer { server_id, .. } => Self::RemoteServer {
+                server_id: server_id.trim().to_owned(),
+                proxy: None,
+            },
+            Self::Preview { workspace, grant } => Self::Preview {
+                workspace: workspace.trim().to_owned(),
+                grant: grant.trim().to_owned(),
+            },
+            Self::Artifact { artifact_id } => Self::Artifact {
+                artifact_id: artifact_id.trim().to_owned(),
+            },
+            other => other.clone(),
+        }
     }
 }
 

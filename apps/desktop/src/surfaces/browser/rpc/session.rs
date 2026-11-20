@@ -91,7 +91,7 @@ pub(super) struct SessionAttachment {
     pub refs: HashMap<u64, TabRefs>,
     pub frames: HashMap<u64, TabFrameState>,
     pub cdp_bootstrapped: HashSet<u64>,
-    pub bootstrap_frame_reqs: HashMap<u64, u64>,
+    pub bootstrap_frame_reqs: Vec<(u64, u64, Option<String>)>,
     pub diagnostics: HashMap<u64, TabDiagnostics>,
     pub captures: HashMap<u64, Vec<CapturedFile>>,
     pub download_wire_ids: HashMap<(u64, String), String>,
@@ -126,7 +126,7 @@ impl SessionAttachment {
             refs: HashMap::new(),
             frames: HashMap::new(),
             cdp_bootstrapped: HashSet::new(),
-            bootstrap_frame_reqs: HashMap::new(),
+            bootstrap_frame_reqs: Vec::new(),
             diagnostics: HashMap::new(),
             captures: HashMap::new(),
             download_wire_ids: HashMap::new(),
@@ -231,34 +231,38 @@ impl SessionAttachment {
             None,
         );
         if let Ok(req_id) = host.send_typed_cdp(host_id, "Page.getFrameTree", serde_json::json!({}), None) {
-            self.bootstrap_frame_reqs.insert(host_id, req_id);
+            self.bootstrap_frame_reqs.push((host_id, req_id, None));
         }
         self.cdp_bootstrapped.insert(host_id);
     }
 
-    /// Drains any completed bootstrap `Page.getFrameTree` responses into `self.frames`.
+    /// Drains any completed bootstrap `Page.getFrameTree` responses (top-level and OOPIF) into `self.frames`.
     /// Returns `true` when an isolated context was still initializing and should retry bootstrap.
     pub fn drain_bootstrap_frames(&mut self, app: &mut App) -> bool {
         let mut retry_needed = false;
-        let pending: Vec<(u64, u64)> = self.bootstrap_frame_reqs.iter().map(|(&h, &r)| (h, r)).collect();
-        for (host_id, req_id) in pending {
+        let pending = std::mem::take(&mut self.bootstrap_frame_reqs);
+        let mut remaining = Vec::new();
+        for (host_id, req_id, sid) in pending {
             if let Some(resp) = app.workspace_panes.browser.host.take_cdp_response(req_id) {
-                self.bootstrap_frame_reqs.remove(&host_id);
                 match resp {
                     Ok(val) => {
-                        self.frames.entry(host_id).or_default().ingest_frame_tree(&val, None);
+                        self.frames.entry(host_id).or_default().ingest_frame_tree(&val, sid.as_deref());
                     }
                     Err(err)
-                        if err.get("message").and_then(serde_json::Value::as_str)
-                            == Some("browser.context.initializing") =>
+                        if sid.is_none()
+                            && err.get("message").and_then(serde_json::Value::as_str)
+                                == Some("browser.context.initializing") =>
                     {
                         self.cdp_bootstrapped.remove(&host_id);
                         retry_needed = true;
                     }
                     Err(_) => {}
                 }
+            } else {
+                remaining.push((host_id, req_id, sid));
             }
         }
+        self.bootstrap_frame_reqs = remaining;
         retry_needed
     }
 
@@ -357,7 +361,7 @@ impl SessionAttachment {
             self.refs.remove(&host_id);
             self.frames.remove(&host_id);
             self.cdp_bootstrapped.remove(&host_id);
-            self.bootstrap_frame_reqs.remove(&host_id);
+            self.bootstrap_frame_reqs.retain(|(h, _, _)| *h != host_id);
             self.diagnostics.remove(&host_id);
             self.captures.remove(&host_id);
             self.download_wire_ids.retain(|(hid, _), _| *hid != host_id);
@@ -495,6 +499,15 @@ impl SessionAttachment {
             } else {
                 break;
             }
+        }
+    }
+}
+
+impl Drop for SessionAttachment {
+    fn drop(&mut self) {
+        self.stop_outbound();
+        if let Some((_, abort)) = self.attach_abort.take() {
+            abort.abort();
         }
     }
 }

@@ -251,6 +251,7 @@ pub trait TimelineHost: Sized + 'static {
     /// Desktop supplies contextual actions and resolves media on the session's own machine.
     fn reply_link_menu(&mut self, _url: &str, _press: rune::PointerPress, _tx: &mut Tx) -> bool { false }
     fn reply_video_source(&self, _url: &str) -> Option<String> { None }
+    fn load_reply_video(&mut self, _url: &str, _tx: &mut Tx) -> Option<String> { None }
 
     fn open_link(&mut self, _url: &str, _tx: &mut Tx) {}
     /// A right-click in the timeline on `at`: a message, an image, or an image in a message.

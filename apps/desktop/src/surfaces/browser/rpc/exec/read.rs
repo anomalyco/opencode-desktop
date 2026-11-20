@@ -3,13 +3,14 @@
 
 use std::time::Duration;
 
-use browser_pane::policy::{extension_origin, extension_page_refusal, matches_url, with_scheme};
+use browser_pane::policy::{extension_origin, extension_page_refusal, matches_url};
 use opencode_kit::browser_rpc::{Command, MAX_WAIT_MS, Outcome, TargetMeta, failure_code};
 use rune::time::Instant;
 use serde_json::{Value, json};
 
 use super::super::frames::EvalTargetError;
 use super::super::session::SessionAttachment;
+use super::target_url::canonical_target_url;
 use super::{ExecPhase, StepOutcome, cdp_err_msg, check_page_guards, send_rpc_cdp};
 use crate::App;
 
@@ -19,7 +20,7 @@ const MAX_EVAL_JSON_CHARS: usize = 512_000;
 
 pub(super) struct InspectState {
     pub host_id: u64,
-    pub cdp_req: u64,
+    pub pending: Vec<(u64, Option<String>)>,
     pub cmd: Command,
 }
 
@@ -74,62 +75,6 @@ impl WaitState {
             app.workspace_panes.browser.host.cancel_cdp(req);
         }
     }
-}
-
-/// Canonicalizes a URL for server permission matching: adds default `https://` scheme, lowercases
-/// scheme & host, strips default `:80`/`:443` ports, and normalizes `.`/`..` path segments.
-pub(super) fn canonical_target_url(raw: &str) -> String {
-    let with_s = with_scheme(raw.trim());
-    let Some((scheme_raw, rest)) = with_s.split_once("://") else {
-        return with_s;
-    };
-    let scheme = scheme_raw.to_ascii_lowercase();
-    if !matches!(scheme.as_str(), "http" | "https") {
-        return with_s;
-    }
-    let (before_frag, frag) = match rest.split_once('#') {
-        Some((a, b)) => (a, Some(b)),
-        None => (rest, None),
-    };
-    let (before_q, query) = match before_frag.split_once('?') {
-        Some((a, b)) => (a, Some(b)),
-        None => (before_frag, None),
-    };
-    let (auth_raw, path_raw) = match before_q.find('/') {
-        Some(idx) => (&before_q[..idx], &before_q[idx..]),
-        None => (before_q, ""),
-    };
-    let auth_lower = auth_raw.to_ascii_lowercase();
-    let default_port = if scheme == "http" { ":80" } else { ":443" };
-    let auth = auth_lower.strip_suffix(default_port).unwrap_or(&auth_lower);
-    let mut segs: Vec<&str> = Vec::new();
-    let trailing_slash = path_raw.ends_with('/') && path_raw.len() > 1;
-    for seg in path_raw.split('/') {
-        match seg {
-            "" | "." => {}
-            ".." => {
-                segs.pop();
-            }
-            other => segs.push(other),
-        }
-    }
-    let mut out = format!("{scheme}://{auth}");
-    if !segs.is_empty() || path_raw.starts_with('/') {
-        out.push('/');
-        out.push_str(&segs.join("/"));
-        if trailing_slash && !segs.is_empty() {
-            out.push('/');
-        }
-    }
-    if let Some(q) = query {
-        out.push('?');
-        out.push_str(q);
-    }
-    if let Some(f) = frag {
-        out.push('#');
-        out.push_str(f);
-    }
-    out
 }
 
 /// Computes metadata-only authorization target (`resources`, `key`) for `cmd`
@@ -208,12 +153,24 @@ pub(super) fn compute_target(
             .to_owned();
         TargetMeta { resources: vec![path.clone()], key: format!("navigate.path:{generation}:{path}") }
     } else if let Some(fid) = cmd.action.get("frameID").and_then(Value::as_str) {
-        let frame_url = att
-            .frames
-            .get(&host_id)
-            .and_then(|f| f.frame_urls.get(fid))
-            .cloned()
-            .unwrap_or_else(|| tab.url.clone());
+        let Some(frames) = att.frames.get(&host_id) else {
+            return Err(Outcome::fail(
+                failure_code::OPERATION_FAILED,
+                "Frame state unavailable for this tab. Call browser.frames({tabID}) and retry.",
+            ));
+        };
+        if frames.frame_cap_exceeded {
+            return Err(Outcome::fail(
+                failure_code::OPERATION_FAILED,
+                "Tab exceeded tracked frame cap; cannot verify frame authorization safely.",
+            ));
+        }
+        let Some(frame_url) = frames.frame_urls.get(fid).cloned() else {
+            return Err(Outcome::fail(
+                failure_code::OPERATION_FAILED,
+                "Frame ID was not found in tracked frames. Call browser.frames({tabID}) and retry.",
+            ));
+        };
         let mut resources = vec![frame_url];
         if !tab.url.is_empty() {
             resources.push(tab.url.clone());
@@ -230,8 +187,9 @@ pub(super) fn compute_target(
     Ok(target)
 }
 
-/// Starts `inspect: true`: refreshes live `Page.getFrameTree` on tab-scoped calls that inspect
-/// page content so pre-existing in-process child iframes are never missed from `resources`.
+/// Starts `inspect: true`: refreshes live `Page.getFrameTree` on BOTH the top-level target AND
+/// every tracked non-extension OOPIF session so pre-existing in-process child iframes inside
+/// OOPIFs are never missed from `resources`.
 pub(super) fn start_inspect(att: &mut SessionAttachment, app: &mut App, cmd: Command) -> StepOutcome {
     let ty = cmd.action_type().unwrap_or("");
     let needs_live_frames = cmd.tab_id().is_some()
@@ -240,13 +198,36 @@ pub(super) fn start_inspect(att: &mut SessionAttachment, app: &mut App, cmd: Com
         && let Some(wire_id) = cmd.tab_id()
         && let Ok(host_id) = att.resolve_tab(app, wire_id)
         && app.workspace_panes.browser.host.tab_open_in_engine(host_id)
-        && let Ok(cdp_req) = app
+    {
+        let mut pending = Vec::new();
+        if let Ok(req) = app
             .workspace_panes
             .browser
             .host
             .send_cdp(host_id, "Page.getFrameTree", json!({}), None)
-    {
-        return StepOutcome::Pending(ExecPhase::Inspect(InspectState { host_id, cdp_req, cmd }));
+        {
+            pending.push((req, None));
+        }
+        if app.workspace_panes.browser.host.engine_agent_tools() {
+            let oopif_sids = att
+                .frames
+                .get(&host_id)
+                .map(|f| f.oopif_sessions())
+                .unwrap_or_default();
+            for sid in oopif_sids {
+                if let Ok(req) = app.workspace_panes.browser.host.send_typed_cdp(
+                    host_id,
+                    "Page.getFrameTree",
+                    json!({}),
+                    Some(sid.clone()),
+                ) {
+                    pending.push((req, Some(sid)));
+                }
+            }
+        }
+        if !pending.is_empty() {
+            return StepOutcome::Pending(ExecPhase::Inspect(InspectState { host_id, pending, cmd }));
+        }
     }
     match compute_target(att, app, &cmd) {
         Ok(target) => StepOutcome::Done(Outcome::ok(serde_json::to_value(target).unwrap_or(Value::Null), Vec::new())),
@@ -257,11 +238,41 @@ pub(super) fn start_inspect(att: &mut SessionAttachment, app: &mut App, cmd: Com
 pub(super) fn step_inspect(
     att: &mut SessionAttachment,
     app: &mut App,
-    st: &InspectState,
+    st: &mut InspectState,
 ) -> Option<Outcome> {
-    let resp = app.workspace_panes.browser.host.take_cdp_response(st.cdp_req)?;
-    if let Ok(val) = resp {
-        att.frames.entry(st.host_id).or_default().ingest_frame_tree(&val, None);
+    let mut remaining = Vec::with_capacity(st.pending.len());
+    let mut fatal_err: Option<String> = None;
+    for (req_id, sid) in st.pending.drain(..) {
+        match app.workspace_panes.browser.host.take_cdp_response(req_id) {
+            Some(Ok(val)) => {
+                att.frames
+                    .entry(st.host_id)
+                    .or_default()
+                    .ingest_frame_tree(&val, sid.as_deref());
+            }
+            Some(Err(err)) => {
+                let msg = cdp_err_msg(&err);
+                let still_active_oopif = sid.as_deref().is_some_and(|s| {
+                    att.frames
+                        .get(&st.host_id)
+                        .is_some_and(|f| f.frame_sessions.values().any(|v| v == s))
+                });
+                if sid.is_none() || still_active_oopif || msg.to_ascii_lowercase().contains("extension") {
+                    fatal_err = Some(msg);
+                }
+            }
+            None => remaining.push((req_id, sid)),
+        }
+    }
+    st.pending = remaining;
+    if let Some(msg) = fatal_err {
+        for (req_id, _) in st.pending.drain(..) {
+            app.workspace_panes.browser.host.cancel_cdp(req_id);
+        }
+        return Some(Outcome::fail(failure_code::OPERATION_FAILED, msg));
+    }
+    if !st.pending.is_empty() {
+        return None;
     }
     match compute_target(att, app, &st.cmd) {
         Ok(target) => Some(Outcome::ok(serde_json::to_value(target).unwrap_or(Value::Null), Vec::new())),

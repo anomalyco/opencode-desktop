@@ -256,18 +256,34 @@ pub(super) fn step_snapshot(
                     "Agent browser tools cannot inspect extension frames.",
                 ));
             }
-            let oopif_session = att
+            let (cap_exceeded, tracked_known, oopif_session, is_oopif_subframe) = att
                 .frames
                 .get(&st.host_id)
-                .and_then(|f| f.frame_sessions.get(want).cloned());
-            if !tree.frames.iter().any(|f| f.id == want) && oopif_session.is_none() {
+                .map(|f| {
+                    let sid = f.frame_sessions.get(want).cloned();
+                    let subframe = sid.as_ref().is_some_and(|s| {
+                        f.frame_parents
+                            .get(want)
+                            .and_then(|p| f.frame_sessions.get(p))
+                            .is_some_and(|ps| ps == s)
+                    });
+                    (f.frame_cap_exceeded, f.frame_urls.contains_key(want), sid, subframe)
+                })
+                .unwrap_or((false, false, None, false));
+            if cap_exceeded {
                 return Some(Outcome::fail(
                     failure_code::OPERATION_FAILED,
-                    "Frame ID not found in this tab. Call browser.frames({tabID}).",
+                    "Tab exceeded tracked frame cap; cannot verify frame authorization safely.",
+                ));
+            }
+            if !tracked_known || (!tree.frames.iter().any(|f| f.id == want) && oopif_session.is_none()) {
+                return Some(Outcome::fail(
+                    failure_code::OPERATION_FAILED,
+                    "Frame ID not found in tracked frames. Call browser.frames({tabID}).",
                 ));
             }
             st.cdp_session = oopif_session.clone();
-            let ax_params = if oopif_session.is_some() {
+            let ax_params = if oopif_session.is_some() && !is_oopif_subframe {
                 json!({})
             } else {
                 json!({ "frameId": want })

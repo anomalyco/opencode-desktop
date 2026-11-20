@@ -116,6 +116,27 @@ impl crate::BrowserHost {
             && !self.pending_opens.iter().any(|(id, _)| *id == tab_id)
     }
 
+    /// Discards any buffered or future CDP response for `request_id` so cancelled commands never
+    /// leak orphaned entries in `cdp_responses`.
+    pub fn cancel_cdp(&mut self, request_id: u64) {
+        self.cdp_responses.remove(&request_id);
+        if let Some(pos) = self.cdp_response_order.iter().position(|&id| id == request_id) {
+            self.cdp_response_order.remove(pos);
+        }
+        if self.cancelled_cdp.len() >= 1_024 {
+            self.cancelled_cdp.pop_front();
+        }
+        self.cancelled_cdp.push_back(request_id);
+    }
+
+    pub fn has_cdp_events(&self) -> bool {
+        !self.cdp_events.is_empty()
+    }
+
+    pub fn drain_cdp_events(&mut self) -> impl Iterator<Item = crate::client::CdpEvent> + '_ {
+        self.cdp_events.drain(..)
+    }
+
     /// Sends a typed CDP call allowed by [`crate::policy::check_typed_cdp`] exclusively for native
     /// Rust `experimental.browser` executors (never exposed to untrusted Luau plugins). Falls back
     /// to `HostMsg::CdpCall` for methods already permitted by `check_cdp`.
@@ -151,49 +172,186 @@ impl crate::BrowserHost {
         Ok(request_id)
     }
 
-    pub fn engine_caps_known(&self) -> bool {
-        !matches!(self.caps, crate::machine::EngineCaps::Unknown)
+    /// Returns the currently registered loopback tunnel proxy for `server_id`, if any.
+    pub fn remote_proxy(&self, server_id: &str) -> Option<&crate::protocol::RemoteProxyConfig> {
+        self.remote_proxies.get(server_id.trim())
     }
 
-    /// Returns the currently registered loopback tunnel proxy for `server_id`, if live.
-    pub fn partition_proxy(&self, server_id: &str) -> Option<crate::protocol::RemoteProxyConfig> {
-        self.partition_proxies.get(server_id).cloned()
+    /// Drains `(tab_id, fatal_close)` for tabs closed by the engine (`EngineMsg::TabClosed`) so the
+    /// desktop shell can prune `session_tabs`/strip and show a notice only on fatal proxy/context loss.
+    pub fn drain_closed_tabs(&mut self) -> impl Iterator<Item = (u64, bool)> + '_ {
+        self.closed_tabs.drain(..)
     }
 
-    /// Updates or clears the local loopback tunnel proxy on a remote server partition.
-    /// Rejects non-loopback IP literals, zero ports, or empty credentials before caching.
+    /// Resolves & validates a `RemoteServer` context's loopback proxy before opening a tab;
+    /// when a valid explicit `Some(cfg)` updates `remote_proxies`, clears suspended banners on
+    /// existing tabs for that server.
+    pub(crate) fn resolve_remote_context(
+        &mut self,
+        context: &mut crate::protocol::ContextKind,
+    ) -> Option<&'static str> {
+        let crate::protocol::ContextKind::RemoteServer { server_id, proxy } = context else {
+            return None;
+        };
+        let sid = server_id.trim().to_owned();
+        *server_id = sid.clone();
+        if sid.is_empty() {
+            return Some("browser.context.invalid");
+        }
+        let explicit = proxy.is_some();
+        if !explicit {
+            *proxy = self.remote_proxies.get(&sid).cloned();
+        }
+        let Some(cfg) = proxy.as_ref() else {
+            return Some("browser.proxy.required");
+        };
+        if let Err(reason) = crate::policy::validate_proxy_endpoint(
+            &cfg.host,
+            cfg.port,
+            cfg.username.as_deref(),
+            cfg.password.as_deref(),
+        ) {
+            return Some(reason);
+        }
+        if explicit {
+            self.remote_proxies.insert(sid.clone(), cfg.clone());
+            for t in &mut self.tabs {
+                if let crate::protocol::ContextKind::RemoteServer { server_id: id, proxy: cur } = &mut t.context
+                    && id.trim() == sid
+                {
+                    *cur = Some(cfg.clone());
+                    if t.refusal.as_deref() == Some("browser.proxy.required") {
+                        t.refusal = None;
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Updates or suspends the local loopback tunnel proxy on a remote server partition.
+    /// Rejects invalid proxy configs (must be a strict loopback IP literal + non-empty Basic creds).
+    /// Clearing (`None`) suspends live tabs in the engine without destroying unsaved user state;
+    /// supplying `Some(cfg)` clears the suspended refusal banner on matching tabs.
     pub fn set_partition_proxy(
         &mut self,
         server_id: &str,
         proxy: Option<crate::protocol::RemoteProxyConfig>,
-    ) {
-        if server_id.trim().is_empty() {
-            return;
+    ) -> bool {
+        let sid = server_id.trim();
+        if sid.is_empty() {
+            return false;
         }
-        let proxy = proxy.filter(is_valid_remote_proxy);
-        match &proxy {
-            Some(cfg) => {
-                self.partition_proxies.insert(server_id.to_owned(), cfg.clone());
+        if let Some(cfg) = &proxy {
+            if crate::policy::validate_proxy_endpoint(
+                &cfg.host,
+                cfg.port,
+                cfg.username.as_deref(),
+                cfg.password.as_deref(),
+            )
+            .is_err()
+            {
+                return false;
             }
-            None => {
-                self.partition_proxies.remove(server_id);
-            }
+            self.remote_proxies.insert(sid.to_owned(), cfg.clone());
+        } else {
+            self.remote_proxies.remove(sid);
         }
         for t in &mut self.tabs {
             if let crate::protocol::ContextKind::RemoteServer { server_id: id, proxy: cur } = &mut t.context
-                && id == server_id
+                && id.trim() == sid
             {
                 *cur = proxy.clone();
+                if proxy.is_some() && t.refusal.as_deref() == Some("browser.proxy.required") {
+                    t.refusal = None;
+                }
             }
         }
-        self.send(crate::protocol::HostMsg::SetPartitionProxy {
-            server_id: server_id.to_owned(),
-            proxy,
+        if self.is_connected() && self.engine_partitions() && self.engine_remote_proxy() {
+            self.send(crate::protocol::HostMsg::SetPartitionProxy {
+                server_id: sid.to_owned(),
+                proxy,
+            });
+        }
+        true
+    }
+
+    /// Sends `HostMsg::OpenTab` (carrying `agent_driven`) and mirrors `HostMsg::SetAgentDriven`
+    /// when `agent_driven` is true so older engines without `OpenTab.agent_driven` still guard the tab.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn send_open_tab(
+        &self,
+        tab_id: u64,
+        url: String,
+        width_pt: f32,
+        height_pt: f32,
+        scale: f32,
+        focused: bool,
+        file_roots: Vec<String>,
+        context: crate::protocol::ContextKind,
+        agent_driven: bool,
+    ) {
+        self.send(crate::protocol::HostMsg::OpenTab {
+            tab_id,
+            url,
+            width_pt,
+            height_pt,
+            scale,
+            focused,
+            file_roots,
+            context,
+            preview: None,
+            agent_driven,
         });
+        if agent_driven {
+            self.send(crate::protocol::HostMsg::SetAgentDriven { tab_id, agent_driven: true });
+        }
+    }
+
+    /// What `flush_pending_opens` would send for the tabs that wait now, for a connect to send
+    /// itself. `file:` and isolated/remote tabs wait for `Ready` so an older engine never opens one.
+    #[cfg_attr(not(feature = "engine"), allow(dead_code))]
+    pub(crate) fn pending_open_msgs(&self) -> Vec<(u64, crate::protocol::HostMsg)> {
+        let focused = self.focused_tab;
+        self.pending_opens
+            .iter()
+            .filter(|(tab_id, url)| {
+                !crate::policy::is_file_scheme(url)
+                    && self.tabs.iter().any(|t| t.id == *tab_id && t.context.is_default())
+            })
+            .cloned()
+            .map(|(tab_id, url)| {
+                let (((width_pt, height_pt), scale), file_roots, agent_driven) = self
+                    .tabs
+                    .iter()
+                    .find(|t| t.id == tab_id)
+                    .map_or((((800.0, 600.0), 2.0), Vec::new(), false), |t| {
+                        ((t.viewport_pt, t.scale), t.file_roots.clone(), t.prompts.agent_driven)
+                    });
+                (
+                    tab_id,
+                    crate::protocol::HostMsg::OpenTab {
+                        tab_id,
+                        url,
+                        width_pt,
+                        height_pt,
+                        scale,
+                        focused: focused == Some(tab_id),
+                        file_roots,
+                        context: crate::protocol::ContextKind::Default,
+                        preview: None,
+                        agent_driven,
+                    },
+                )
+            })
+            .collect()
     }
 
     /// Closes connections and releases a non-default preview or remote server context in the engine.
     pub fn drop_context(&mut self, context: crate::protocol::ContextKind) {
+        if let crate::protocol::ContextKind::RemoteServer { server_id, .. } = &context {
+            self.remote_proxies.remove(server_id.trim());
+        }
         if !context.is_default() {
             self.send(crate::protocol::HostMsg::DropContext { context });
         }
@@ -219,6 +377,38 @@ impl crate::BrowserHost {
         let request_id = self.next_req_id;
         self.next_req_id += 1;
         self.send(crate::protocol::HostMsg::ClearSiteCache { tab_id, request_id });
+        Ok(request_id)
+    }
+
+    pub fn send_cdp(
+        &mut self,
+        tab_id: u64,
+        method: impl Into<String>,
+        params: serde_json::Value,
+        session_id: Option<String>,
+    ) -> Result<u64, String> {
+        if session_id.is_some() {
+            return Err("DevTools CdpCall does not permit targeting a child sessionId.".into());
+        }
+        if self
+            .tabs
+            .iter()
+            .find(|t| t.id == tab_id)
+            .is_some_and(|t| crate::policy::extension_origin(&t.url))
+        {
+            return Err("DevTools calls are not permitted on extension pages.".into());
+        }
+        let method = method.into();
+        crate::policy::check_cdp(&method, &params, self.engine_policy())?;
+        let request_id = self.next_req_id;
+        self.next_req_id += 1;
+        self.send(crate::protocol::HostMsg::CdpCall {
+            tab_id,
+            request_id,
+            method,
+            params,
+            session_id: None,
+        });
         Ok(request_id)
     }
 
@@ -286,18 +476,4 @@ impl crate::BrowserHost {
     pub fn drain_diagnostics(&mut self) -> impl Iterator<Item = PageDiagnostic> + '_ {
         self.diagnostics.drain(..)
     }
-}
-
-fn is_valid_remote_proxy(cfg: &crate::protocol::RemoteProxyConfig) -> bool {
-    let host = cfg.host.trim();
-    if host.is_empty() || cfg.port == 0 {
-        return false;
-    }
-    let unbracketed = host.strip_prefix('[').and_then(|s| s.strip_suffix(']')).unwrap_or(host);
-    let Ok(ip) = unbracketed.parse::<std::net::IpAddr>() else {
-        return false;
-    };
-    ip.is_loopback()
-        && cfg.username.as_deref().is_some_and(|u| !u.is_empty())
-        && cfg.password.as_deref().is_some_and(|p| !p.is_empty())
 }

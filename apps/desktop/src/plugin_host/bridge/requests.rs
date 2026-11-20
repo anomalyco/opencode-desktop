@@ -182,10 +182,17 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
         Request::OpenLink { href } => app.open_reply_link(&href, tx),
         Request::OpenExternal(url) => {
             if app.live() {
-                crate::open_in::open_external(tx, &url);
+                let trimmed = url.trim();
+                let is_http = trimmed.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("http://"))
+                    || trimmed.get(..8).is_some_and(|s| s.eq_ignore_ascii_case("https://"));
+                if is_http && !app.external_url_allowed_for_session(app.active_session_id(), trimmed) {
+                    app.toast_fail(opencode_i18n::t!("rune.browser.menu.pageUnavailable").to_owned(), String::new());
+                } else {
+                    crate::open_in::open_external(tx, &url);
+                }
             }
         }
-        Request::Reveal(path) => crate::plugin_host::reveal(&path),
+        Request::Reveal(path) => crate::open_in::reveal_abs(app, path),
         Request::CopyText(text) => tx.copy(text),
         // A muted session, or one under a muted root, shows nothing (`host-apis.tsx`'s notify).
         Request::Notify { session: Some(id), .. } if crate::session_menu::preferences::silenced(app, crate::servers::runtime::active(app), &id) => {}

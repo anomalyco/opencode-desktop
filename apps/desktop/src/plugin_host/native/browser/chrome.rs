@@ -49,6 +49,14 @@ pub(super) fn tab_methods(lua: &Lua, m: &Table) -> mlua::Result<()> {
         })?,
     )?;
     m.raw_set(
+        "CanOpenExternally",
+        lua.create_function(|lua, this: Table| {
+            read_tab(lua, &this, "BrowserTab:CanOpenExternally", |app, id| {
+                Ok(app.browser_tab_external_url(id).is_some())
+            })
+        })?,
+    )?;
+    m.raw_set(
         "Favicon",
         lua.create_function(|lua, this: Table| {
             read_tab(lua, &this, "BrowserTab:Favicon", |app, id| {
@@ -132,6 +140,7 @@ fn clear_cache(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
             if !s.workspace_panes.browser.host.has_live_sidecar() {
                 return done.complete(failed(not_running(&s.workspace_panes.browser.host.status())));
             }
+            scope.mark_tab_driven(s, id);
             match s.workspace_panes.browser.host.clear_site_cache(id) {
                 Ok(request) => {
                     s.workspace_panes.browser.devtools.insert(
