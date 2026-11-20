@@ -9,7 +9,7 @@ pub mod io_pool;
 pub mod scheme;
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use browser_policy::preview::{
@@ -71,8 +71,12 @@ pub struct PreviewGrant {
     pub grant_host: String,
     pub kind: PreviewKind,
     revoked: AtomicBool,
+    /// Becomes `true` ONLY after `on_request_context_initialized` has applied & verified lockdown prefs.
+    ready: AtomicBool,
     entry_taken: AtomicBool,
     notified_denied: AtomicBool,
+    /// Count of in-flight + queued `PreviewIoPool` tasks owned by this grant (capped at `MAX_GRANT_IO_JOBS`).
+    in_flight_io: AtomicUsize,
     last_display: Mutex<String>,
     /// Strictly bounded request-id -> initiator map (populated only for allowed same-grant requests).
     initiators: Mutex<InitiatorCache>,
@@ -133,6 +137,36 @@ pub struct InitiatorRecord {
 impl PreviewGrant {
     pub fn is_revoked(&self) -> bool {
         self.revoked.load(Ordering::Acquire)
+    }
+
+    pub fn is_ready(&self) -> bool {
+        self.ready.load(Ordering::Acquire) && !self.is_revoked()
+    }
+
+    pub fn mark_ready(&self) {
+        self.ready.store(true, Ordering::Release);
+    }
+
+    pub fn try_acquire_io_slot(&self, cap: usize) -> bool {
+        let mut cur = self.in_flight_io.load(Ordering::Acquire);
+        loop {
+            if cur >= cap {
+                return false;
+            }
+            match self.in_flight_io.compare_exchange_weak(
+                cur,
+                cur + 1,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return true,
+                Err(next) => cur = next,
+            }
+        }
+    }
+
+    pub fn release_io_slot(&self) {
+        self.in_flight_io.fetch_sub(1, Ordering::AcqRel);
     }
 
     pub fn is_artifact(&self) -> bool {
@@ -430,8 +464,8 @@ impl PendingProxy {
                 st.total_size = total_size;
                 st.content_range = content_range;
                 let cb = st.open_callback.take();
-                let early_fail = !st.head_ok && cb.is_none();
-                (cb, early_fail)
+                let should_remove = !st.head_ok;
+                (cb, should_remove)
             }
         };
         if let Some(cb) = open_cb {
@@ -448,14 +482,15 @@ impl PendingProxy {
         failed_early
     }
 
-    pub fn deliver_chunk(&self, bytes: Vec<u8>) {
+    /// Appends a chunk; returns `true` if the proxy overflowed/canceled and should be removed.
+    pub fn deliver_chunk(&self, bytes: Vec<u8>) -> bool {
         if bytes.is_empty() {
-            return;
+            return false;
         }
-        let wake = {
+        let (wake, canceled_now) = {
             let mut st = self.state.lock().unwrap();
             if st.canceled || st.ended || self.grant.is_revoked() {
-                return;
+                return st.canceled;
             }
             st.total_received = st.total_received.saturating_add(bytes.len() as u64);
             let exceeds_len = st.content_length.is_some_and(|cl| st.total_received > cl);
@@ -467,7 +502,7 @@ impl PendingProxy {
                 st.end_ok = false;
                 st.chunks.clear();
                 st.queued_bytes = 0;
-                st.waiting_read.take().map(|w| (w.callback, -2i32))
+                (st.waiting_read.take().map(|w| (w.callback, -2i32)), true)
             } else if let Some(wait) = st.waiting_read.take() {
                 let n = bytes.len().min(wait.max_len);
                 // SAFETY: CEF guarantees `data_out` remains valid until `wait.callback.cont` runs
@@ -480,16 +515,17 @@ impl PendingProxy {
                     st.queued_bytes = st.queued_bytes.saturating_add(rem.len());
                     st.chunks.push_front(rem);
                 }
-                Some((wait.callback, n as i32))
+                (Some((wait.callback, n as i32)), false)
             } else {
                 st.queued_bytes = st.queued_bytes.saturating_add(bytes.len());
                 st.chunks.push_back(bytes);
-                None
+                (None, false)
             }
         };
         if let Some((cb, n)) = wake {
             cb.cont(n);
         }
+        canceled_now
     }
 
     pub fn deliver_end(&self, ok: bool) {
@@ -561,8 +597,10 @@ impl PreviewRegistry {
                     grant_host,
                     kind: PreviewKind::Local { root, pin, document: doc, home: home.map(str::to_owned) },
                     revoked: AtomicBool::new(false),
+                    ready: AtomicBool::new(false),
                     entry_taken: AtomicBool::new(false),
                     notified_denied: AtomicBool::new(false),
+                    in_flight_io: AtomicUsize::new(0),
                     last_display: Mutex::new(display.clone()),
                     initiators: Mutex::new(InitiatorCache::default()),
                 });
@@ -587,8 +625,10 @@ impl PreviewRegistry {
                     grant_host,
                     kind: PreviewKind::Remote { root, session_prefix: prefix, document: doc },
                     revoked: AtomicBool::new(false),
+                    ready: AtomicBool::new(false),
                     entry_taken: AtomicBool::new(false),
                     notified_denied: AtomicBool::new(false),
+                    in_flight_io: AtomicUsize::new(0),
                     last_display: Mutex::new(display.clone()),
                     initiators: Mutex::new(InitiatorCache::default()),
                 });
@@ -614,8 +654,10 @@ impl PreviewRegistry {
                     grant_host,
                     kind: PreviewKind::Artifact { artifact_id },
                     revoked: AtomicBool::new(false),
+                    ready: AtomicBool::new(false),
                     entry_taken: AtomicBool::new(false),
                     notified_denied: AtomicBool::new(false),
+                    in_flight_io: AtomicUsize::new(0),
                     last_display: Mutex::new(display.clone()),
                     initiators: Mutex::new(InitiatorCache::default()),
                 });
@@ -688,7 +730,11 @@ impl PreviewRegistry {
         let proxy = self.proxies.lock().unwrap().get(&req_id).cloned();
         if let Some(p) = proxy {
             match base64::engine::general_purpose::STANDARD.decode(data_b64) {
-                Ok(bytes) => p.deliver_chunk(bytes),
+                Ok(bytes) => {
+                    if p.deliver_chunk(bytes) {
+                        self.remove_proxy(req_id);
+                    }
+                }
                 Err(_) => {
                     p.cancel();
                     self.remove_proxy(req_id);

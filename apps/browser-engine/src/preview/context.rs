@@ -41,7 +41,10 @@ pub fn preview_context_hooks(
         })),
         exclude_default_cookie_schemes: true,
         require_lockdown_prefs: true,
-        on_created: Some(Box::new(move |ctx| {
+        on_initialized: Some(Box::new(move |ctx| {
+            // Register `PreviewSchemeHandlerFactory` ONLY after `apply_context_prefs` verified
+            // all lockdown preferences on this context (`notes/review-rd281.md` Finding #1).
+            factory_grant.mark_ready();
             let mut factory = PreviewSchemeHandlerFactory::new(factory_grant.clone(), registry, out_tx);
             let _ = ctx.register_scheme_handler_factory(
                 Some(&CefString::from(scheme::PREVIEW_SCHEME)),
@@ -70,13 +73,15 @@ pub fn handle_resource_request(
     // Only a main-frame navigation accepts an empty/`"null"` initiator; ALL subresources, workers,
     // and subframes MUST carry the exact `oc-preview://<grant_host>` initiator (`T5`/`T6`).
     let browser_initiated = is_main_nav && matches!(trimmed, None | Some("") | Some("null"));
-    let initiator_ok = browser_initiated || preview_initiator_allowed(trimmed, &grant.grant_host);
+    let initiator_ok =
+        grant.is_ready() && (browser_initiated || preview_initiator_allowed(trimmed, &grant.grant_host));
     if let Some(req) = request {
         let req_id = req.identifier();
         let url = CefString::from(&req.url()).to_string();
-        // Only record valid, allowed same-grant `oc-preview://` requests (with non-zero id) so
-        // foreign/blocked URLs that `PreviewResourceFilter` cancels can never pollute `InitiatorCache`.
+        // Only record valid, allowed same-grant `oc-preview://` requests (with non-zero id) once
+        // the context is ready so foreign/blocked/pre-init URLs never pollute `InitiatorCache`.
         if req_id != 0
+            && grant.is_ready()
             && is_preview_scheme(&url)
             && preview_subresource_allowed(&url, &grant.grant_host)
             && initiator_ok
@@ -108,6 +113,15 @@ wrap_resource_request_handler! {
                 return ReturnValue::CANCEL;
             };
             let url = CefString::from(&req.url()).to_string();
+            // Before `on_request_context_initialized` finishes verifying lockdown prefs, cancel
+            // EVERY non-`about:blank` resource load (`notes/review-rd281.md` Finding #1).
+            if !self.grant.is_ready() {
+                return if url.trim().eq_ignore_ascii_case("about:blank") {
+                    ReturnValue::CONTINUE
+                } else {
+                    ReturnValue::CANCEL
+                };
+            }
             if !preview_subresource_allowed(&url, &self.grant.grant_host) {
                 return ReturnValue::CANCEL;
             }

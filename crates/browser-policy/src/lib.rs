@@ -568,11 +568,22 @@ fn normalize_root_lex(root: &str) -> Option<String> {
     if trimmed.is_empty() || trimmed.chars().any(char::is_control) {
         return None;
     }
-    let stripped = trimmed
-        .strip_prefix(r"\\?\")
-        .or_else(|| trimmed.strip_prefix("//?/"))
-        .unwrap_or(trimmed)
-        .replace('\\', "/");
+    let norm_raw = trimmed.replace('\\', "/");
+    // Reject Win32 device (`\\.\...`) and NT object (`\??\...`) namespaces.
+    if norm_raw.starts_with("//./") || norm_raw.starts_with("/??/") {
+        return None;
+    }
+    // Extended-length prefix `\\?\...` is accepted ONLY for local drive paths (`\\?\C:\...`);
+    // `\\?\UNC\...`, `\\?\Volume{...}`, `\\?\GlobalRoot\...`, etc. are rejected.
+    let stripped = if let Some(after_ext) = norm_raw.strip_prefix("//?/") {
+        let ab = after_ext.as_bytes();
+        if ab.len() < 3 || !ab[0].is_ascii_alphabetic() || ab[1] != b':' || ab[2] != b'/' {
+            return None;
+        }
+        after_ext
+    } else {
+        norm_raw.as_str()
+    };
     let stripped = if stripped.len() >= 3
         && stripped.as_bytes()[0] == b'/'
         && stripped.as_bytes()[1].is_ascii_alphabetic()
@@ -580,10 +591,28 @@ fn normalize_root_lex(root: &str) -> Option<String> {
     {
         &stripped[1..]
     } else {
-        stripped.as_str()
+        stripped
     };
+    // Reject leading `///...` (which Unix collapses to `/` and would evade UNC/prefix checks).
+    if stripped.starts_with("///") {
+        return None;
+    }
+    // Reject drive-relative roots (`C:Windows`) and non-absolute paths (`foo/bar`).
+    let sb = stripped.as_bytes();
+    let is_drive_abs = sb.len() >= 3 && sb[0].is_ascii_alphabetic() && sb[1] == b':' && sb[2] == b'/';
+    let is_drive_bare = sb.len() == 2 && sb[0].is_ascii_alphabetic() && sb[1] == b':';
+    let is_slash_abs = stripped.starts_with('/');
+    if !(is_drive_abs || is_drive_bare || is_slash_abs) {
+        return None;
+    }
     let clean = if stripped == "/" { "/" } else { stripped.trim_end_matches('/') };
     if clean.is_empty() {
+        return None;
+    }
+    // Reject internal `//` empty segments (after optional leading UNC `//`) so `C://Windows` or
+    // `/etc//passwd` cannot bypass broad-root prefix matching on remote workspaces.
+    let body = clean.strip_prefix("//").unwrap_or(clean);
+    if body.is_empty() || body.contains("//") {
         return None;
     }
     // Reject any dot-traversal segment so non-existent remote roots like `/foo/..` cannot evade checks.

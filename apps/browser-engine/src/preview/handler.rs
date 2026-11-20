@@ -50,7 +50,7 @@ wrap_scheme_handler_factory! {
             request: Option<&mut Request>,
         ) -> Option<ResourceHandler> {
             let req = request?;
-            if self.grant.is_revoked() {
+            if !self.grant.is_ready() {
                 return None;
             }
             let req_id = req.identifier();
@@ -252,59 +252,71 @@ wrap_resource_handler! {
             let state = self.state.clone();
             let grant = self.grant.clone();
             let out_tx = self.out_tx.clone();
-            let spawned = self.registry.io().try_spawn(move || {
-                if grant.is_revoked() || state.lock().unwrap().canceled {
-                    cb.cancel();
-                    return;
-                }
-                match open_verified_file(
-                    &spec.root,
-                    &spec.pin,
-                    &spec.document,
-                    &spec.rel,
-                    spec.entry,
-                    spec.home.as_deref(),
-                ) {
-                    OpenOutcome::Opened { file, verified_rel, size } => {
-                        let range = parse_range(spec.range_header.as_deref(), size);
-                        let (status, status_text, content_range, advertised_len) = match &range {
-                            RangeSpec::Full { length } => (200, "OK", None, *length),
-                            RangeSpec::Partial { length, content_range, .. } => {
-                                (206, "Partial Content", Some(content_range.clone()), *length)
+            let cb_panic = cb.clone();
+            let state_panic = self.state.clone();
+            let spawned = self.registry.io().try_spawn_for(
+                &self.grant,
+                move || {
+                    let mut st = state_panic.lock().unwrap_or_else(|e| e.into_inner());
+                    st.canceled = true;
+                    st.file = None;
+                    drop(st);
+                    cb_panic.cancel();
+                },
+                move || {
+                    if grant.is_revoked() || state.lock().unwrap().canceled {
+                        cb.cancel();
+                        return;
+                    }
+                    match open_verified_file(
+                        &spec.root,
+                        &spec.pin,
+                        &spec.document,
+                        &spec.rel,
+                        spec.entry,
+                        spec.home.as_deref(),
+                    ) {
+                        OpenOutcome::Opened { file, verified_rel, size } => {
+                            let range = parse_range(spec.range_header.as_deref(), size);
+                            let (status, status_text, content_range, advertised_len) = match &range {
+                                RangeSpec::Full { length } => (200, "OK", None, *length),
+                                RangeSpec::Partial { length, content_range, .. } => {
+                                    (206, "Partial Content", Some(content_range.clone()), *length)
+                                }
+                                RangeSpec::Unsatisfiable { content_range } => {
+                                    (416, "Range Not Satisfiable", Some(content_range.clone()), 0)
+                                }
+                            };
+                            let (mime, charset) = mime_for_path(&verified_rel);
+                            let mut st = state.lock().unwrap();
+                            if st.canceled || grant.is_revoked() {
+                                drop(st);
+                                cb.cancel();
+                                return;
                             }
-                            RangeSpec::Unsatisfiable { content_range } => {
-                                (416, "Range Not Satisfiable", Some(content_range.clone()), 0)
-                            }
-                        };
-                        let (mime, charset) = mime_for_path(&verified_rel);
-                        let mut st = state.lock().unwrap();
-                        if st.canceled || grant.is_revoked() {
+                            st.file = (!spec.head_only && status != 416).then_some(file);
+                            st.status = status;
+                            st.status_text = status_text;
+                            st.mime = mime;
+                            st.charset = charset;
+                            st.file_size = size;
+                            st.offset = 0;
+                            st.advertised_len = advertised_len;
+                            st.remaining = if spec.head_only || status == 416 { 0 } else { advertised_len };
+                            st.content_range = content_range;
                             drop(st);
-                            cb.cancel();
-                            return;
+                            cb.cont();
                         }
-                        st.file = (!spec.head_only && status != 416).then_some(file);
-                        st.status = status;
-                        st.status_text = status_text;
-                        st.mime = mime;
-                        st.charset = charset;
-                        st.file_size = size;
-                        st.offset = 0;
-                        st.advertised_len = advertised_len;
-                        st.remaining = if spec.head_only || status == 416 { 0 } else { advertised_len };
-                        st.content_range = content_range;
-                        drop(st);
-                        cb.cont();
+                        OpenOutcome::Denied => {
+                            grant.mark_denied(&out_tx);
+                            cb.cancel();
+                        }
+                        OpenOutcome::Missing => {
+                            cb.cancel();
+                        }
                     }
-                    OpenOutcome::Denied => {
-                        grant.mark_denied(&out_tx);
-                        cb.cancel();
-                    }
-                    OpenOutcome::Missing => {
-                        cb.cancel();
-                    }
-                }
-            });
+                },
+            );
             if !spawned {
                 if let Some(h) = handle_request {
                     *h = 1;
@@ -383,21 +395,33 @@ wrap_resource_handler! {
             };
             let state = self.state.clone();
             let grant = self.grant.clone();
-            let spawned = self.registry.io().try_spawn(move || {
-                let mut file = file;
-                let seek_ok = file.seek(SeekFrom::Start(next_offset)).is_ok();
-                let mut st = state.lock().unwrap();
-                if !seek_ok || st.canceled || grant.is_revoked() {
+            let cb_panic = cb.clone();
+            let state_panic = self.state.clone();
+            let spawned = self.registry.io().try_spawn_for(
+                &self.grant,
+                move || {
+                    let mut st = state_panic.lock().unwrap_or_else(|e| e.into_inner());
+                    st.canceled = true;
+                    st.file = None;
                     drop(st);
-                    cb.cont(-2);
-                    return;
-                }
-                st.file = Some(file);
-                st.offset = next_offset;
-                st.remaining = st.advertised_len.min(st.file_size.saturating_sub(next_offset));
-                drop(st);
-                cb.cont(skip as i64);
-            });
+                    cb_panic.cont(-2);
+                },
+                move || {
+                    let mut file = file;
+                    let seek_ok = file.seek(SeekFrom::Start(next_offset)).is_ok();
+                    let mut st = state.lock().unwrap();
+                    if !seek_ok || st.canceled || grant.is_revoked() {
+                        drop(st);
+                        cb.cont(-2);
+                        return;
+                    }
+                    st.file = Some(file);
+                    st.offset = next_offset;
+                    st.remaining = st.advertised_len.min(st.file_size.saturating_sub(next_offset));
+                    drop(st);
+                    cb.cont(skip as i64);
+                },
+            );
             if !spawned {
                 *out_s = -2;
                 return 0;
@@ -445,46 +469,58 @@ wrap_resource_handler! {
             let data_out_addr = data_out as usize;
             let state = self.state.clone();
             let grant = self.grant.clone();
-            let spawned = self.registry.io().try_spawn(move || {
-                let mut file = file;
-                let mut buf = vec![0u8; want];
-                let res = file.read(&mut buf);
-                // Hold `state` mutex across the `data_out` copy so `cancel()` cannot return to
-                // CEF until any in-flight write finishes (zero UAF risk).
-                let mut st = state.lock().unwrap();
-                if st.canceled || grant.is_revoked() {
+            let cb_panic = cb.clone();
+            let state_panic = self.state.clone();
+            let spawned = self.registry.io().try_spawn_for(
+                &self.grant,
+                move || {
+                    let mut st = state_panic.lock().unwrap_or_else(|e| e.into_inner());
+                    st.canceled = true;
+                    st.file = None;
                     drop(st);
-                    cb.cont(-2);
-                    return;
-                }
-                match res {
-                    Ok(0) => {
-                        st.remaining = 0;
-                        st.file = None;
-                        drop(st);
-                        cb.cont(0);
-                    }
-                    Ok(n) => {
-                        // SAFETY: `!st.canceled` under mutex guarantees CEF's `data_out` buffer
-                        // of at least `bytes_to_read >= want >= n` bytes is still valid.
-                        unsafe {
-                            std::ptr::copy_nonoverlapping(buf.as_ptr(), data_out_addr as *mut u8, n);
-                        }
-                        st.offset = st.offset.saturating_add(n as u64);
-                        st.remaining = st.remaining.saturating_sub(n as u64);
-                        if st.remaining > 0 {
-                            st.file = Some(file);
-                        }
-                        drop(st);
-                        cb.cont(n as i32);
-                    }
-                    Err(_) => {
-                        st.file = None;
+                    cb_panic.cont(-2);
+                },
+                move || {
+                    let mut file = file;
+                    let mut buf = vec![0u8; want];
+                    let res = file.read(&mut buf);
+                    // Hold `state` mutex across the `data_out` copy so `cancel()` cannot return to
+                    // CEF until any in-flight write finishes (zero UAF risk).
+                    let mut st = state.lock().unwrap();
+                    if st.canceled || grant.is_revoked() {
                         drop(st);
                         cb.cont(-2);
+                        return;
                     }
-                }
-            });
+                    match res {
+                        Ok(0) => {
+                            st.remaining = 0;
+                            st.file = None;
+                            drop(st);
+                            cb.cont(0);
+                        }
+                        Ok(n) => {
+                            // SAFETY: `!st.canceled` under mutex guarantees CEF's `data_out` buffer
+                            // of at least `bytes_to_read >= want >= n` bytes is still valid.
+                            unsafe {
+                                std::ptr::copy_nonoverlapping(buf.as_ptr(), data_out_addr as *mut u8, n);
+                            }
+                            st.offset = st.offset.saturating_add(n as u64);
+                            st.remaining = st.remaining.saturating_sub(n as u64);
+                            if st.remaining > 0 {
+                                st.file = Some(file);
+                            }
+                            drop(st);
+                            cb.cont(n as i32);
+                        }
+                        Err(_) => {
+                            st.file = None;
+                            drop(st);
+                            cb.cont(-2);
+                        }
+                    }
+                },
+            );
             if !spawned {
                 *out_n = -2;
                 return 0;
@@ -494,7 +530,7 @@ wrap_resource_handler! {
         }
 
         fn cancel(&self) {
-            let mut st = self.state.lock().unwrap();
+            let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
             st.canceled = true;
             st.open_spec = None;
             st.file = None;

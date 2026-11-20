@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 #[cfg(target_os = "macos")]
 use std::ffi::{CString, c_char, c_void};
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use crate::output::{Output, Paint};
 use std::sync::{Arc, Mutex};
 
@@ -540,13 +540,15 @@ wrap_load_handler! {
 wrap_resource_request_handler! {
     pub struct TabResourceRequestHandler {
         file_roots: Arc<Mutex<Vec<String>>>,
+        context_ready: Arc<AtomicBool>,
         prompts: Arc<crate::prompts::TabPrompts>,
         is_main_navigation: bool,
     }
 
     impl ResourceRequestHandler {
         // Sub-resources (`img`, `script`, `link`, `fetch`, `XHR`) may never read `file:` URLs
-        // outside the tab's allowed workspace roots (`pane.ts:103-107`).
+        // outside the tab's allowed workspace roots (`pane.ts:103-107`), and no non-`about:blank`
+        // request may run before an isolated context finishes preference initialization.
         fn on_before_resource_load(
             &self,
             _browser: Option<&mut Browser>,
@@ -555,6 +557,13 @@ wrap_resource_request_handler! {
             _callback: Option<&mut Callback>,
         ) -> ReturnValue {
             let url = request.map(|r| CefString::from(&r.url()).to_string()).unwrap_or_default();
+            if !self.context_ready.load(Ordering::Acquire) {
+                return if url.trim().eq_ignore_ascii_case("about:blank") {
+                    ReturnValue::CONTINUE
+                } else {
+                    ReturnValue::CANCEL
+                };
+            }
             let roots = self.file_roots.lock().unwrap().clone();
             if browser_policy::subresource_allowed(&url, &roots) {
                 ReturnValue::CONTINUE
@@ -572,6 +581,10 @@ wrap_resource_request_handler! {
             new_url: Option<&mut CefString>,
         ) {
             let Some(new_url) = new_url else { return };
+            if !self.context_ready.load(Ordering::Acquire) {
+                *new_url = CefString::from("");
+                return;
+            }
             let target = new_url.to_string();
             let roots = self.file_roots.lock().unwrap().clone();
             if !browser_policy::subresource_allowed(&target, &roots) {
@@ -601,6 +614,7 @@ wrap_request_handler! {
         tab_id: u64,
         file_roots: Arc<Mutex<Vec<String>>>,
         preview: Option<Arc<crate::preview::PreviewGrant>>,
+        context_ready: Arc<AtomicBool>,
         snap: Arc<Mutex<TabSnapshot>>,
         prompt_shared: crate::prompts::PromptShared,
         prompts: Arc<crate::prompts::TabPrompts>,
@@ -622,6 +636,11 @@ wrap_request_handler! {
         ) -> ::std::os::raw::c_int {
             let is_main = frame.map_or(true, |f| f.is_main() == 1);
             let url = request.map(|r| CefString::from(&r.url()).to_string()).unwrap_or_default();
+            // Fail closed before `on_request_context_initialized` finishes verifying prefs:
+            // cancel every non-`about:blank` navigation (`review-rd281.md` #1, `review-rd-engine.md` #292 #1).
+            if !self.context_ready.load(Ordering::Acquire) {
+                return i32::from(!url.trim().eq_ignore_ascii_case("about:blank"));
+            }
             if let Some(grant) = &self.preview {
                 if is_main {
                     if grant.allows_main_navigation(&url) {
@@ -665,6 +684,9 @@ wrap_request_handler! {
             target_disposition: WindowOpenDisposition,
             user_gesture: ::std::os::raw::c_int,
         ) -> ::std::os::raw::c_int {
+            if !self.context_ready.load(Ordering::Acquire) {
+                return 1;
+            }
             let url = target_url.map(CefString::to_string).unwrap_or_default();
             if self.preview.is_some() {
                 if user_gesture != 0
@@ -772,6 +794,7 @@ wrap_request_handler! {
             let is_main_navigation = is_navigation != 0 && frame.is_none_or(|f| f.is_main() == 1);
             Some(TabResourceRequestHandler::new(
                 self.file_roots.clone(),
+                self.context_ready.clone(),
                 self.prompts.clone(),
                 is_main_navigation,
             ))

@@ -5,15 +5,22 @@
 //! 1. Validates the workspace-relative path against `browser_policy::preview::{preview_path_valid, preview_allowed}`.
 //! 2. Verifies the workspace root directory still matches its pinned `(canonical_path, volume/dev,
 //!    file_index/inode[, creation/birth_time])` before opening.
-//! 3. Walks every intermediate directory component WITHOUT following symlinks/junctions/reparse points:
-//!    - Windows: opens each intermediate component with `FILE_READ_ATTRIBUTES` +
-//!      `FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT`, rejecting any reparse point
-//!      before touching any child (preventing outbound SMB/NTLMv2 handshakes via `\\attacker\share`).
+//! 3. Walks every intermediate directory component strictly relative to the parent handle WITHOUT
+//!    following symlinks/junctions/mount points:
+//!    - Windows: opens the verified pinned root handle and walks each child segment via
+//!      `NtCreateFile` (`OBJECT_ATTRIBUTES.RootDirectory`) with `FILE_OPEN_REPARSE_POINT`,
+//!      inspecting `GetFileInformationByHandleEx(FileAttributeTagInfo)` to allow ONLY non-redirecting
+//!      Windows Cloud Filter tags (`IO_REPARSE_TAG_CLOUD*` / `IO_REPARSE_TAG_ONEDRIVE`) while
+//!      rejecting every name-surrogate/redirecting/unknown tag (symlinks, junctions, mount points,
+//!      `APPEXECLINK`), eliminating both outbound SMB/NTLMv2 handshakes and full-path check-then-use
+//!      walk races.
 //!    - Unix (macOS/Linux): opens the pinned root directory fd and walks each intermediate segment
 //!      with `openat(..., O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)` (preventing `/dev` opens
 //!      or symlink traversal before touching the leaf).
-//! 4. Opens the leaf file ONCE without following a leaf symlink/reparse point (`O_NOFOLLOW |
-//!    O_NONBLOCK | O_CLOEXEC` via `openat` on Unix; `FILE_FLAG_OPEN_REPARSE_POINT` on Windows).
+//! 4. Opens the leaf file relative to the verified parent directory handle without following a leaf
+//!    symlink/reparse point (`O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC` via `openat` on Unix;
+//!    `NtCreateFile` with `FILE_OPEN_REPARSE_POINT` on Windows, hydrating Cloud Filter placeholders
+//!    only after verifying their `FileAttributeTagInfo` reparse tag and re-verifying post-open).
 //! 5. Resolves the kernel's final path for that exact open handle (`GetFinalPathNameByHandleW` on
 //!    Windows accepting local `\\?\<drive>:\...` only, `fcntl(F_GETPATH)` on macOS,
 //!    `/proc/self/fd/<fd>` on Linux), checks regular disk file (`FILE_TYPE_DISK` / `S_ISREG`),
@@ -122,20 +129,168 @@ enum OpenErr {
 
 #[cfg(windows)]
 mod os {
+    use std::ffi::c_void;
     use std::fs::{File, OpenOptions};
+    use std::mem::size_of;
+    use std::os::windows::ffi::OsStrExt;
     use std::os::windows::fs::OpenOptionsExt;
-    use std::os::windows::io::AsRawHandle;
-    use std::path::{Path, PathBuf};
+    use std::os::windows::io::{AsRawHandle, FromRawHandle};
+    use std::path::Path;
 
     use windows::Win32::Foundation::HANDLE;
     use windows::Win32::Storage::FileSystem::{
         BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT,
-        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_NAME_NORMALIZED,
-        FILE_READ_ATTRIBUTES, FILE_TYPE_DISK, GETFINALPATHNAMEBYHANDLE_FLAGS,
-        GetFileInformationByHandle, GetFileType, GetFinalPathNameByHandleW, VOLUME_NAME_DOS,
+        FILE_ATTRIBUTE_TAG_INFO, FILE_FLAG_BACKUP_SEMANTICS, FILE_NAME_NORMALIZED,
+        FILE_READ_ATTRIBUTES, FILE_TYPE_DISK, FileAttributeTagInfo,
+        GETFINALPATHNAMEBYHANDLE_FLAGS, GetFileInformationByHandle,
+        GetFileInformationByHandleEx, GetFileType, GetFinalPathNameByHandleW, VOLUME_NAME_DOS,
     };
 
     use super::{OpenErr, RootPin, relative_inside};
+
+    const OBJ_CASE_INSENSITIVE: u32 = 0x0000_0040;
+    const FILE_OPEN: u32 = 1;
+    const FILE_DIRECTORY_FILE: u32 = 0x0000_0001;
+    const FILE_SYNCHRONOUS_IO_NONALERT: u32 = 0x0000_0020;
+    const FILE_NON_DIRECTORY_FILE: u32 = 0x0000_0040;
+    const FILE_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    const FILE_SHARE_ALL: u32 = 0x0000_0007;
+    const SYNCHRONIZE: u32 = 0x0010_0000;
+    const FILE_TRAVERSE: u32 = 0x0000_0020;
+    /// Standard read access + `SYNCHRONIZE` matching `OpenOptions::read(true)`.
+    const FILE_READ_SYNC: u32 = 0x0012_0089;
+    const STATUS_OBJECT_NAME_NOT_FOUND: i32 = 0xC000_0034u32 as i32;
+    const STATUS_OBJECT_PATH_NOT_FOUND: i32 = 0xC000_003Au32 as i32;
+    const STATUS_NO_SUCH_FILE: i32 = 0xC000_000Fu32 as i32;
+
+    #[repr(C)]
+    struct UnicodeString {
+        length: u16,
+        maximum_length: u16,
+        buffer: *mut u16,
+    }
+
+    #[repr(C)]
+    struct ObjectAttributes {
+        length: u32,
+        root_directory: HANDLE,
+        object_name: *mut UnicodeString,
+        attributes: u32,
+        security_descriptor: *mut c_void,
+        security_quality_of_service: *mut c_void,
+    }
+
+    #[repr(C)]
+    struct IoStatusBlock {
+        status_or_ptr: usize,
+        information: usize,
+    }
+
+    #[link(name = "ntdll")]
+    unsafe extern "system" {
+        fn NtCreateFile(
+            file_handle: *mut HANDLE,
+            desired_access: u32,
+            object_attributes: *mut ObjectAttributes,
+            io_status_block: *mut IoStatusBlock,
+            allocation_size: *mut i64,
+            file_attributes: u32,
+            share_access: u32,
+            create_disposition: u32,
+            create_options: u32,
+            ea_buffer: *mut c_void,
+            ea_length: u32,
+        ) -> i32;
+    }
+
+    /// Allow-lists ONLY non-redirecting Windows Cloud Filter placeholder tags (`IO_REPARSE_TAG_CLOUD*`
+    /// and legacy `IO_REPARSE_TAG_ONEDRIVE`). Strictly refuses every name-surrogate / redirecting tag
+    /// (bit 29 `0x2000_0000`: symlinks, junctions, volume mount points, WSL symlinks), `APPEXECLINK`,
+    /// and every unknown tag (`notes/review-rd281.md` Finding #2).
+    fn is_allowed_cloud_reparse_tag(tag: u32) -> bool {
+        if (tag & 0x2000_0000) != 0 {
+            return false;
+        }
+        (tag & !0x0000_F000) == 0x9000_001A || tag == 0x8000_0021
+    }
+
+    /// Inspects `FileAttributeTagInfo` whenever `FILE_ATTRIBUTE_REPARSE_POINT` is set.
+    /// Returns `Ok(true)` for an allowed Cloud Filter placeholder, `Ok(false)` for a regular
+    /// non-reparse entry, and `Err(OpenErr::Denied)` for symlinks, junctions, mount points, or unknown tags.
+    fn verify_reparse_tag(handle: HANDLE, attrs: u32) -> Result<bool, OpenErr> {
+        if (attrs & FILE_ATTRIBUTE_REPARSE_POINT.0) == 0 {
+            return Ok(false);
+        }
+        let mut tag_info = FILE_ATTRIBUTE_TAG_INFO::default();
+        let ok = unsafe {
+            GetFileInformationByHandleEx(
+                handle,
+                FileAttributeTagInfo,
+                (&mut tag_info as *mut FILE_ATTRIBUTE_TAG_INFO).cast::<c_void>(),
+                size_of::<FILE_ATTRIBUTE_TAG_INFO>() as u32,
+            )
+        };
+        if ok.is_err() || !is_allowed_cloud_reparse_tag(tag_info.ReparseTag) {
+            return Err(OpenErr::Denied);
+        }
+        Ok(true)
+    }
+
+    /// Opens a single child path segment strictly relative to an already-verified parent directory
+    /// handle via `NtCreateFile` (`OBJECT_ATTRIBUTES.RootDirectory`), eliminating the Windows
+    /// intermediate-walk check-then-use race.
+    fn nt_open_relative(
+        parent: HANDLE,
+        segment: &str,
+        desired_access: u32,
+        create_options: u32,
+    ) -> Result<File, OpenErr> {
+        if segment.is_empty() || segment.contains(['/', '\\', '\0']) {
+            return Err(OpenErr::Denied);
+        }
+        let mut wide: Vec<u16> = std::ffi::OsStr::new(segment).encode_wide().collect();
+        let byte_len = u16::try_from(wide.len().saturating_mul(2)).map_err(|_| OpenErr::Denied)?;
+        let mut uname = UnicodeString {
+            length: byte_len,
+            maximum_length: byte_len,
+            buffer: wide.as_mut_ptr(),
+        };
+        let mut oa = ObjectAttributes {
+            length: size_of::<ObjectAttributes>() as u32,
+            root_directory: parent,
+            object_name: &mut uname,
+            attributes: OBJ_CASE_INSENSITIVE,
+            security_descriptor: std::ptr::null_mut(),
+            security_quality_of_service: std::ptr::null_mut(),
+        };
+        let mut iosb = IoStatusBlock { status_or_ptr: 0, information: 0 };
+        let mut handle = HANDLE::default();
+        let status = unsafe {
+            NtCreateFile(
+                &mut handle,
+                desired_access,
+                &mut oa,
+                &mut iosb,
+                std::ptr::null_mut(),
+                0,
+                FILE_SHARE_ALL,
+                FILE_OPEN,
+                create_options,
+                std::ptr::null_mut(),
+                0,
+            )
+        };
+        if status < 0 || handle.is_invalid() {
+            return Err(match status {
+                STATUS_OBJECT_NAME_NOT_FOUND | STATUS_OBJECT_PATH_NOT_FOUND | STATUS_NO_SUCH_FILE => {
+                    OpenErr::NotFound
+                }
+                _ => OpenErr::Denied,
+            });
+        }
+        // SAFETY: `handle` is a newly created valid Win32 file/dir handle owned exclusively by us.
+        Ok(unsafe { File::from_raw_handle(handle.0) })
+    }
 
     fn final_path_of(handle: HANDLE) -> Option<String> {
         let mut buf = vec![0u16; 32_768];
@@ -161,6 +316,18 @@ mod os {
         Some(info)
     }
 
+    fn identity_of(canonical_path: &str, info: &BY_HANDLE_FILE_INFORMATION) -> String {
+        format!(
+            "{}:{}:{}:{}:{}:{}",
+            canonical_path,
+            info.dwVolumeSerialNumber,
+            info.nFileIndexHigh,
+            info.nFileIndexLow,
+            info.ftCreationTime.dwHighDateTime,
+            info.ftCreationTime.dwLowDateTime,
+        )
+    }
+
     pub fn pin_dir(dir: &Path) -> Option<RootPin> {
         // Resolve the workspace root once (allowing a workspace opened via a directory alias),
         // then capture the physical directory's handle identity and final path.
@@ -178,15 +345,7 @@ mod os {
             return None;
         }
         let canonical_path = final_path_of(handle)?;
-        let identity = format!(
-            "{}:{}:{}:{}:{}:{}",
-            canonical_path,
-            info.dwVolumeSerialNumber,
-            info.nFileIndexHigh,
-            info.nFileIndexLow,
-            info.ftCreationTime.dwHighDateTime,
-            info.ftCreationTime.dwLowDateTime,
-        );
+        let identity = identity_of(&canonical_path, &info);
         Some(RootPin { canonical_path, identity })
     }
 
@@ -195,53 +354,108 @@ mod os {
         if segments.is_empty() {
             return Err(OpenErr::Denied);
         }
-        // Pre-open walk: inspect every intermediate directory WITHOUT following reparse points
-        // so a junction/symlink pointing to `\\attacker\share` is rejected before Windows ever
-        // touches a child path or initiates an outbound SMB handshake.
-        let mut cur = PathBuf::from(&pin.canonical_path);
+        // Open pinned root handle (using `\\?\` extended path for >260 char safety) and verify its
+        // identity matches `pin` before walking children.
+        let root_win = format!(r"\\?\{}", pin.canonical_path.replace('/', "\\"));
+        let mut cur_dir = OpenOptions::new()
+            .access_mode(FILE_READ_ATTRIBUTES.0 | FILE_TRAVERSE | SYNCHRONIZE)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS.0)
+            .open(Path::new(&root_win))
+            .map_err(|_| OpenErr::Denied)?;
+        {
+            let rh = HANDLE(cur_dir.as_raw_handle());
+            if unsafe { GetFileType(rh) } != FILE_TYPE_DISK {
+                return Err(OpenErr::Denied);
+            }
+            let rinfo = info_of(rh).ok_or(OpenErr::Denied)?;
+            let rfinal = final_path_of(rh).ok_or(OpenErr::Denied)?;
+            if identity_of(&rfinal, &rinfo) != pin.identity {
+                return Err(OpenErr::Denied);
+            }
+        }
+
+        // Parent-handle-relative walk via `NtCreateFile`: each intermediate directory is opened
+        // relative to `cur_dir` with `FILE_OPEN_REPARSE_POINT`, rejecting symlinks/junctions/mount
+        // points while permitting non-redirecting Cloud Filter folders (OneDrive/iCloud/Dropbox/GDrive).
         for &seg in &segments[..segments.len() - 1] {
-            cur.push(seg);
-            let dir_handle = OpenOptions::new()
-                .access_mode(FILE_READ_ATTRIBUTES.0)
-                .custom_flags(FILE_FLAG_BACKUP_SEMANTICS.0 | FILE_FLAG_OPEN_REPARSE_POINT.0)
-                .open(&cur)
-                .map_err(|e| match e.kind() {
-                    std::io::ErrorKind::NotFound => OpenErr::NotFound,
-                    _ => OpenErr::Denied,
-                })?;
-            let h = HANDLE(dir_handle.as_raw_handle());
+            let mut next_dir = nt_open_relative(
+                HANDLE(cur_dir.as_raw_handle()),
+                seg,
+                FILE_READ_ATTRIBUTES.0 | FILE_TRAVERSE | SYNCHRONIZE,
+                FILE_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT,
+            )?;
+            let mut h = HANDLE(next_dir.as_raw_handle());
             if unsafe { GetFileType(h) } != FILE_TYPE_DISK {
                 return Err(OpenErr::Denied);
             }
-            let info = info_of(h).ok_or(OpenErr::Denied)?;
-            if (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT.0) != 0
-                || (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY.0) == 0
-            {
+            let mut info = info_of(h).ok_or(OpenErr::Denied)?;
+            if (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY.0) == 0 {
                 return Err(OpenErr::Denied);
+            }
+            let is_cloud_dir = verify_reparse_tag(h, info.dwFileAttributes)?;
+            if is_cloud_dir {
+                // Re-open verified Cloud Filter placeholder directory relative to `cur_dir` WITHOUT
+                // `FILE_OPEN_REPARSE_POINT` so `cldflt.sys` can traverse/populate children, then re-verify.
+                drop(next_dir);
+                next_dir = nt_open_relative(
+                    HANDLE(cur_dir.as_raw_handle()),
+                    seg,
+                    FILE_READ_ATTRIBUTES.0 | FILE_TRAVERSE | SYNCHRONIZE,
+                    FILE_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
+                )?;
+                h = HANDLE(next_dir.as_raw_handle());
+                if unsafe { GetFileType(h) } != FILE_TYPE_DISK {
+                    return Err(OpenErr::Denied);
+                }
+                info = info_of(h).ok_or(OpenErr::Denied)?;
+                if (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY.0) == 0 {
+                    return Err(OpenErr::Denied);
+                }
+                let _ = verify_reparse_tag(h, info.dwFileAttributes)?;
             }
             let dir_final = final_path_of(h).ok_or(OpenErr::Denied)?;
             if relative_inside(&pin.canonical_path, &dir_final).is_none() {
                 return Err(OpenErr::Denied);
             }
+            cur_dir = next_dir;
         }
 
-        // Open the leaf file once without following a leaf symlink/reparse point.
-        cur.push(segments[segments.len() - 1]);
-        let file = OpenOptions::new()
-            .read(true)
-            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0)
-            .open(&cur)
-            .map_err(|e| match e.kind() {
-                std::io::ErrorKind::NotFound => OpenErr::NotFound,
-                _ => OpenErr::Denied,
-            })?;
-        let handle = HANDLE(file.as_raw_handle());
+        // Open the leaf file relative to `cur_dir` with `FILE_OPEN_REPARSE_POINT`.
+        let leaf = segments[segments.len() - 1];
+        let mut file = nt_open_relative(
+            HANDLE(cur_dir.as_raw_handle()),
+            leaf,
+            FILE_READ_SYNC,
+            FILE_NON_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT,
+        )?;
+        let mut handle = HANDLE(file.as_raw_handle());
         if unsafe { GetFileType(handle) } != FILE_TYPE_DISK {
             return Err(OpenErr::Denied);
         }
-        let info = info_of(handle).ok_or(OpenErr::Denied)?;
-        if (info.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY.0 | FILE_ATTRIBUTE_REPARSE_POINT.0)) != 0 {
+        let mut info = info_of(handle).ok_or(OpenErr::Denied)?;
+        if (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY.0) != 0 {
             return Err(OpenErr::Denied);
+        }
+        let is_cloud = verify_reparse_tag(handle, info.dwFileAttributes)?;
+        if is_cloud {
+            // Re-open Cloud Filter placeholder relative to the same verified `cur_dir` WITHOUT
+            // `FILE_OPEN_REPARSE_POINT` so `cldflt.sys` hydrates its bytes, then re-verify handle.
+            drop(file);
+            file = nt_open_relative(
+                HANDLE(cur_dir.as_raw_handle()),
+                leaf,
+                FILE_READ_SYNC,
+                FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
+            )?;
+            handle = HANDLE(file.as_raw_handle());
+            if unsafe { GetFileType(handle) } != FILE_TYPE_DISK {
+                return Err(OpenErr::Denied);
+            }
+            info = info_of(handle).ok_or(OpenErr::Denied)?;
+            if (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY.0) != 0 {
+                return Err(OpenErr::Denied);
+            }
+            let _ = verify_reparse_tag(handle, info.dwFileAttributes)?;
         }
         let final_path = final_path_of(handle).ok_or(OpenErr::Denied)?;
         let size = ((info.nFileSizeHigh as u64) << 32) | (info.nFileSizeLow as u64);

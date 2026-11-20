@@ -44,10 +44,12 @@ use std::sync::{Arc, Mutex};
 
 use cef::rc::Rc as _;
 use cef::{
-    Browser, CefString, Frame, ImplCookieManager, ImplDictionaryValue, ImplPreferenceManager,
-    ImplRequestContext, ImplRequestContextHandler, ImplValue, Request, RequestContext,
-    RequestContextHandler, RequestContextSettings, ResourceRequestHandler,
-    WrapRequestContextHandler, sys, wrap_request_context_handler,
+    Browser, Callback, CefString, Frame, ImplCookieManager, ImplDictionaryValue,
+    ImplPreferenceManager, ImplRequest, ImplRequestContext, ImplRequestContextHandler,
+    ImplResourceRequestHandler, ImplValue, Request, RequestContext, RequestContextHandler,
+    RequestContextSettings, ResourceRequestHandler, Response, ReturnValue,
+    WrapRequestContextHandler, WrapResourceRequestHandler, sys, wrap_request_context_handler,
+    wrap_resource_request_handler,
 };
 
 use crate::wire::{ContextKind, RemoteProxyConfig};
@@ -88,7 +90,9 @@ pub struct ContextHooks {
     /// When `true`, defer initial navigation until `on_request_context_initialized` verifies
     /// WebRTC/DNS lockdown preferences succeeded (failing closed on failure).
     pub require_lockdown_prefs: bool,
-    pub on_created: Option<Box<dyn FnOnce(&RequestContext)>>,
+    /// Invoked inside `on_request_context_initialized` ONLY AFTER `apply_context_prefs` succeeds
+    /// (e.g. registering `PreviewSchemeHandlerFactory` only once lockdown prefs are verified).
+    pub on_initialized: Option<Box<dyn FnOnce(&RequestContext) + Send>>,
 }
 
 /// Validates that a `RemoteProxyConfig` points strictly at a loopback host and non-zero port.
@@ -239,8 +243,16 @@ fn set_int_pref(ctx: &RequestContext, name: &str, value: i32) -> PrefStatus {
 
 /// Outcome produced once a deferred context finishes `on_request_context_initialized`.
 pub enum DeferredOutcome {
-    Load { tab_id: u64, url: String },
-    Refuse { tab_id: u64, reason: &'static str },
+    Load { tab_id: u64, generation: u64, url: String },
+    Refuse { tab_id: u64, generation: u64, reason: &'static str },
+}
+
+impl DeferredOutcome {
+    pub fn tab_id(&self) -> u64 {
+        match self {
+            Self::Load { tab_id, .. } | Self::Refuse { tab_id, .. } => *tab_id,
+        }
+    }
 }
 
 struct ContextEntry {
@@ -248,14 +260,17 @@ struct ContextEntry {
     tabs: HashSet<u64>,
     initialized: Arc<AtomicBool>,
     prefs_ok: Arc<AtomicBool>,
+    /// True ONLY after `on_request_context_initialized` verified prefs and ran `on_initialized`.
+    ready: Arc<AtomicBool>,
     require_lockdown: bool,
     proxy: Arc<Mutex<Option<RemoteProxyConfig>>>,
-    /// `(tab_id, url)` loads waiting for `on_request_context_initialized` to finish applying prefs.
-    deferred_loads: Arc<Mutex<Vec<(u64, String)>>>,
+    /// `(tab_id, generation, url)` loads waiting for `on_request_context_initialized`.
+    deferred_loads: Arc<Mutex<Vec<(u64, u64, String)>>>,
 }
 
 impl ContextEntry {
     fn teardown(&self) {
+        self.ready.store(false, Ordering::Release);
         self.deferred_loads.lock().unwrap().clear();
         self.ctx.clear_scheme_handler_factories();
         self.ctx.close_all_connections(None);
@@ -265,14 +280,65 @@ impl ContextEntry {
     }
 }
 
+// Fail-closed pre-initialization resource filter attached by `IsolatedContextHandler` while
+// `!ready` so NO non-`about:blank` subresource, worker, beacon, or redirect can leave an
+// isolated context before `on_request_context_initialized` has applied & verified preferences.
+wrap_resource_request_handler! {
+    struct PreInitBlockResourceHandler;
+
+    impl ResourceRequestHandler {
+        fn on_before_resource_load(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            request: Option<&mut Request>,
+            _callback: Option<&mut Callback>,
+        ) -> ReturnValue {
+            let url = request.map(|r| CefString::from(&r.url()).to_string()).unwrap_or_default();
+            if url.trim().eq_ignore_ascii_case("about:blank") {
+                ReturnValue::CONTINUE
+            } else {
+                ReturnValue::CANCEL
+            }
+        }
+
+        fn on_resource_redirect(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            _request: Option<&mut Request>,
+            _response: Option<&mut Response>,
+            new_url: Option<&mut CefString>,
+        ) {
+            if let Some(target) = new_url {
+                *target = CefString::from("");
+            }
+        }
+
+        fn on_protocol_execution(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            _request: Option<&mut Request>,
+            allow_os_execution: Option<&mut ::std::os::raw::c_int>,
+        ) {
+            if let Some(allow) = allow_os_execution {
+                *allow = 0;
+            }
+        }
+    }
+}
+
 wrap_request_context_handler! {
     struct IsolatedContextHandler {
         initialized: Arc<AtomicBool>,
         prefs_ok: Arc<AtomicBool>,
+        ready: Arc<AtomicBool>,
         require_lockdown: bool,
         proxy: Arc<Mutex<Option<RemoteProxyConfig>>>,
         ready_loads: Arc<Mutex<Vec<DeferredOutcome>>>,
-        deferred_loads: Arc<Mutex<Vec<(u64, String)>>>,
+        deferred_loads: Arc<Mutex<Vec<(u64, u64, String)>>>,
+        on_initialized: Arc<Mutex<Option<Box<dyn FnOnce(&RequestContext) + Send>>>>,
         resource_filter: Option<ResourceHook>,
         pump: Sender<crate::Event>,
     }
@@ -281,22 +347,30 @@ wrap_request_context_handler! {
         fn on_request_context_initialized(&self, request_context: Option<&mut RequestContext>) {
             let proxy = self.proxy.lock().unwrap().clone();
             let applied = request_context
+                .as_deref()
                 .is_some_and(|ctx| apply_context_prefs(ctx, proxy.as_ref(), self.require_lockdown));
+            if applied
+                && let Some(ctx) = request_context.as_deref()
+                && let Some(hook) = self.on_initialized.lock().unwrap().take()
+            {
+                hook(ctx);
+            }
             self.prefs_ok.store(applied, Ordering::Release);
+            self.ready.store(applied, Ordering::Release);
             self.initialized.store(true, Ordering::Release);
             let pending = std::mem::take(&mut *self.deferred_loads.lock().unwrap());
             if !pending.is_empty() {
                 let mut out = self.ready_loads.lock().unwrap();
-                for (tab_id, url) in pending {
+                for (tab_id, generation, url) in pending {
                     if applied {
-                        out.push(DeferredOutcome::Load { tab_id, url });
+                        out.push(DeferredOutcome::Load { tab_id, generation, url });
                     } else {
                         let reason = if proxy.is_some() {
                             "browser.proxy.invalid"
                         } else {
                             "browser.context.unavailable"
                         };
-                        out.push(DeferredOutcome::Refuse { tab_id, reason });
+                        out.push(DeferredOutcome::Refuse { tab_id, generation, reason });
                     }
                 }
                 let _ = self.pump.send(crate::Event::Pump(0));
@@ -313,6 +387,10 @@ wrap_request_context_handler! {
             request_initiator: Option<&CefString>,
             disable_default_handling: Option<&mut ::std::os::raw::c_int>,
         ) -> Option<ResourceRequestHandler> {
+            // Cancel every non-`about:blank` request before `on_request_context_initialized` finishes.
+            if !self.ready.load(Ordering::Acquire) {
+                return Some(PreInitBlockResourceHandler::new());
+            }
             self.resource_filter.as_ref().and_then(|hook| {
                 hook(
                     browser,
@@ -331,12 +409,16 @@ wrap_request_context_handler! {
 /// Pool of non-default partitioned `CefRequestContext` instances managed by `EngineManager`.
 pub struct ContextPool {
     entries: HashMap<ContextKey, ContextEntry>,
-    /// Tracks which pooled context each open `tab_id` belongs to for immediate teardown on close.
+    /// Tracks which pooled context each open isolated `tab_id` belongs to for immediate teardown.
     tab_keys: HashMap<u64, ContextKey>,
+    /// Live `ContextKind::Default` tabs (ready immediately) so `is_tab_ready(tab_id)` stays fail-closed
+    /// (`false`) for any unknown or already-torn-down `tab_id`.
+    default_tabs: HashSet<u64>,
     /// Pre-configured remote server proxies kept across tab close/reopen until `DropContext`.
     remote_proxies: HashMap<String, RemoteProxyConfig>,
     /// Outcomes promoted by `on_request_context_initialized` ready for `EngineManager::poll_picks`.
     ready_loads: Arc<Mutex<Vec<DeferredOutcome>>>,
+    next_generation: u64,
     pump: Sender<crate::Event>,
 }
 
@@ -344,6 +426,11 @@ pub struct ContextPool {
 pub struct ResolvedContext {
     pub request_context: Option<RequestContext>,
     pub proxy: Option<RemoteProxyConfig>,
+    /// Shared readiness flag (`true` immediately for `Default`; becomes `true` for isolated
+    /// contexts ONLY once `on_request_context_initialized` has applied & verified preferences).
+    pub ready: Arc<AtomicBool>,
+    /// Monotonic generation token guarding deferred load/refusal outcomes against tab_id reuse.
+    pub generation: u64,
     /// When `true`, open on `about:blank` and defer `initial_url` until context preferences apply.
     pub defer_initial_load: bool,
 }
@@ -353,10 +440,43 @@ impl ContextPool {
         Self {
             entries: HashMap::new(),
             tab_keys: HashMap::new(),
+            default_tabs: HashSet::new(),
             remote_proxies: HashMap::new(),
             ready_loads: Arc::new(Mutex::new(Vec::new())),
+            next_generation: 1,
             pump,
         }
+    }
+
+    /// Fail-closed readiness check for any tab (`notes/review-rd281.md` #1 & `review-rd-engine.md` #292 #1):
+    /// - `false` for any unknown, closed, or uninitialized/failed-pref tab;
+    /// - `true` for live `ContextKind::Default` tabs;
+    /// - `e.ready` (`initialized && prefs_ok && on_initialized ran`) for live isolated tabs.
+    pub fn is_tab_ready(&self, tab_id: u64) -> bool {
+        if self.default_tabs.contains(&tab_id) {
+            return true;
+        }
+        let Some(key) = self.tab_keys.get(&tab_id) else {
+            return false;
+        };
+        self.entries
+            .get(key)
+            .is_some_and(|e| e.ready.load(Ordering::Acquire))
+    }
+
+    /// Prunes any queued `ready_loads` entry for `tab_id` (prevents stale deferred load clobber
+    /// if a ready tab receives a fresh `HostMsg::Navigate` before `poll_picks` drains).
+    pub fn clear_pending_load(&self, tab_id: u64) {
+        self.ready_loads
+            .lock()
+            .unwrap()
+            .retain(|outcome| outcome.tab_id() != tab_id);
+    }
+
+    fn alloc_generation(&mut self) -> u64 {
+        let g = self.next_generation;
+        self.next_generation = self.next_generation.wrapping_add(1).max(1);
+        g
     }
 
     /// Resolves (or creates) the partitioned `CefRequestContext` for `kind` with default hooks.
@@ -378,11 +498,16 @@ impl ContextPool {
         initial_url: &str,
         hooks: ContextHooks,
     ) -> Result<ResolvedContext, &'static str> {
+        let generation = self.alloc_generation();
         let (key, explicit_proxy) = match kind {
             ContextKind::Default => {
+                self.release_tab(tab_id);
+                self.default_tabs.insert(tab_id);
                 return Ok(ResolvedContext {
                     request_context: None,
                     proxy: None,
+                    ready: Arc::new(AtomicBool::new(true)),
+                    generation,
                     defer_initial_load: false,
                 });
             }
@@ -423,12 +548,12 @@ impl ContextPool {
             }
         };
 
-        // Ensure a reused `tab_id` never leaks a stale ref-count in a previous context.
+        // Ensure a reused `tab_id` never leaks a stale ref-count or `default_tabs` entry.
+        self.default_tabs.remove(&tab_id);
         if self.tab_keys.get(&tab_id).is_some_and(|prev| prev != &key) {
             self.release_tab(tab_id);
         }
 
-        let require_lockdown = hooks.require_lockdown_prefs;
         if !self.entries.contains_key(&key) {
             let entry = create_isolated_context(
                 explicit_proxy.clone(),
@@ -445,6 +570,7 @@ impl ContextPool {
                 if existing.initialized.load(Ordering::Acquire) {
                     let ok = apply_context_prefs(&existing.ctx, Some(&cfg), existing.require_lockdown);
                     existing.prefs_ok.store(ok, Ordering::Release);
+                    existing.ready.store(ok, Ordering::Release);
                     existing.ctx.close_all_connections(None);
                     if !ok {
                         return Err("browser.proxy.invalid");
@@ -455,9 +581,8 @@ impl ContextPool {
 
         let entry = self.entries.get_mut(&key).unwrap();
         let effective_proxy = entry.proxy.lock().unwrap().clone();
-        let must_verify = effective_proxy.is_some() || require_lockdown || entry.require_lockdown;
         let is_init = entry.initialized.load(Ordering::Acquire);
-        if must_verify && is_init && !entry.prefs_ok.load(Ordering::Acquire) {
+        if is_init && !entry.prefs_ok.load(Ordering::Acquire) {
             if entry.tabs.is_empty() {
                 let removed = self.entries.remove(&key);
                 if let Some(e) = removed {
@@ -474,35 +599,39 @@ impl ContextPool {
         entry.tabs.insert(tab_id);
         self.tab_keys.insert(tab_id, key);
 
-        let need_defer = must_verify
-            && !is_init
-            && !initial_url.eq_ignore_ascii_case("about:blank");
+        // Defer EVERY uninitialized isolated context onto `about:blank` until
+        // `on_request_context_initialized` finishes applying & verifying prefs and sets `ready = true`.
+        let need_defer = !is_init;
         if need_defer {
             entry
                 .deferred_loads
                 .lock()
                 .unwrap()
-                .push((tab_id, initial_url.to_owned()));
+                .push((tab_id, generation, initial_url.to_owned()));
         }
 
         Ok(ResolvedContext {
             request_context: Some(entry.ctx.clone()),
             proxy: effective_proxy,
+            ready: entry.ready.clone(),
+            generation,
             defer_initial_load: need_defer,
         })
     }
 
-    /// Releases `tab_id` from its pooled context. When the context's last tab closes, the context
-    /// is removed from the pool immediately, its connections are closed, its in-memory cookies are
-    /// wiped, and its `CefRequestContext` handle is dropped so all in-memory storage, caches, and
-    /// service workers are destroyed.
+    /// Releases `tab_id` from its pooled context and prunes any queued `ready_loads` for `tab_id`.
+    /// When the context's last tab closes, the context is removed from the pool immediately, its
+    /// connections are closed, its in-memory cookies are wiped, and its `CefRequestContext` handle
+    /// is dropped so all in-memory storage, caches, and service workers are destroyed.
     pub fn release_tab(&mut self, tab_id: u64) {
+        self.default_tabs.remove(&tab_id);
+        self.clear_pending_load(tab_id);
         let Some(key) = self.tab_keys.remove(&tab_id) else {
             return;
         };
         let empty = if let Some(entry) = self.entries.get_mut(&key) {
             entry.tabs.remove(&tab_id);
-            entry.deferred_loads.lock().unwrap().retain(|(id, _)| *id != tab_id);
+            entry.deferred_loads.lock().unwrap().retain(|(id, _, _)| *id != tab_id);
             entry.tabs.is_empty()
         } else {
             false
@@ -514,8 +643,10 @@ impl ContextPool {
 
     /// Tears down every pooled isolated context on engine shutdown.
     pub fn release_all(&mut self) {
+        self.default_tabs.clear();
         self.tab_keys.clear();
         self.remote_proxies.clear();
+        self.ready_loads.lock().unwrap().clear();
         for (_, entry) in self.entries.drain() {
             entry.teardown();
         }
@@ -543,6 +674,7 @@ impl ContextPool {
             if entry.initialized.load(Ordering::Acquire) {
                 let ok = apply_context_prefs(&entry.ctx, proxy.as_ref(), entry.require_lockdown);
                 entry.prefs_ok.store(ok, Ordering::Release);
+                entry.ready.store(ok && proxy.is_some(), Ordering::Release);
                 entry.ctx.close_all_connections(None);
                 if proxy.is_some() && !ok {
                     return Err("browser.proxy.invalid");
@@ -617,16 +749,19 @@ fn create_isolated_context(
 ) -> Result<ContextEntry, &'static str> {
     let initialized = Arc::new(AtomicBool::new(false));
     let prefs_ok = Arc::new(AtomicBool::new(false));
+    let ready = Arc::new(AtomicBool::new(false));
     let require_lockdown = hooks.require_lockdown_prefs;
-    let proxy_arc = Arc::new(Mutex::new(proxy.clone()));
+    let proxy_arc = Arc::new(Mutex::new(proxy));
     let deferred_loads = Arc::new(Mutex::new(Vec::new()));
     let mut handler = IsolatedContextHandler::new(
         initialized.clone(),
         prefs_ok.clone(),
+        ready.clone(),
         require_lockdown,
         proxy_arc.clone(),
         ready_loads,
         deferred_loads.clone(),
+        Arc::new(Mutex::new(hooks.on_initialized)),
         hooks.resource_filter,
         pump,
     );
@@ -643,19 +778,12 @@ fn create_isolated_context(
     let Some(ctx) = cef::request_context_create_context(Some(&settings), Some(&mut handler)) else {
         return Err("browser.context.unavailable");
     };
-    if let Some(on_created) = hooks.on_created {
-        on_created(&ctx);
-    }
-    // If CEF initialized the context synchronously, apply prefs immediately.
-    if initialized.load(Ordering::Acquire) {
-        let ok = apply_context_prefs(&ctx, proxy.as_ref(), require_lockdown);
-        prefs_ok.store(ok, Ordering::Release);
-    }
     Ok(ContextEntry {
         ctx,
         tabs: HashSet::new(),
         initialized,
         prefs_ok,
+        ready,
         require_lockdown,
         proxy: proxy_arc,
         deferred_loads,
