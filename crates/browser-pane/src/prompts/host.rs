@@ -31,6 +31,9 @@ impl crate::BrowserHost {
 
     pub fn set_agent_driven(&mut self, tab_id: u64, agent_driven: bool) {
         let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) else { return };
+        if agent_driven {
+            t.allow_extension_pages = false;
+        }
         if t.prompts.agent_driven == agent_driven {
             return;
         }

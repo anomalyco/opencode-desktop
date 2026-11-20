@@ -411,6 +411,7 @@ pub(crate) enum EngineCaps {
         popups: bool,
         find: bool,
         context_menu: bool,
+        extensions: bool,
     },
 }
 
@@ -437,6 +438,10 @@ impl EngineCaps {
 
     pub(crate) fn context_menu(self) -> bool {
         matches!(self, Self::Known { context_menu: true, .. })
+    }
+
+    pub(crate) fn extensions(self) -> bool {
+        matches!(self, Self::Known { extensions: true, .. })
     }
 }
 

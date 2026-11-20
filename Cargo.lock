@@ -930,6 +930,7 @@ version = "0.0.1"
 dependencies = [
  "authenticode",
  "base64 0.22.1",
+ "browser-extensions",
  "browser-policy",
  "libc",
  "memchr",

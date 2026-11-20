@@ -17,6 +17,7 @@ faults = ["engine"]
 
 [dependencies]
 base64.workspace = true
+browser-extensions = { path = "../browser-extensions" }
 browser-policy = { path = "../browser-policy" }
 opencode-i18n = { path = "../opencode-i18n" }
 rune.workspace = true

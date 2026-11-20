@@ -52,6 +52,8 @@ pub(crate) struct Link {
     /// held them for 20-650 ms); stored into `Connected::early` on attach so that turn doesn't
     /// send them again and corrects what changed meanwhile.
     pub opens: Vec<(u64, HostMsg)>,
+    /// Verified `<id>:<sha256>:<dir>` specs passed as `--extension` arguments when spawning.
+    pub extension_args: Vec<String>,
 }
 
 impl Link {
@@ -97,9 +99,12 @@ impl Link {
 /// The engine at `bin`, serving `sock` and keeping its sign-ins in `profile`, in the app's
 /// language. On Windows it renders on the GPU Rune draws this app's windows with, so its frames
 /// open there.
-pub(crate) fn engine_command(bin: &Path, sock: &Path, profile: &Path) -> Command {
+pub(crate) fn engine_command(bin: &Path, sock: &Path, profile: &Path, extension_args: &[String]) -> Command {
     let mut cmd = Command::new(bin);
     cmd.arg("--socket").arg(sock).arg("--lang").arg(chromium_locale(opencode_i18n::locale().id())).env(profile::PROFILE_ENV, profile);
+    for spec in extension_args {
+        cmd.arg("--extension").arg(spec);
+    }
     // The engine's own log goes nowhere, unless its start is being traced (OPENCODE_BROWSER_ENGINE_TRACE).
     let trace = std::env::var_os("OPENCODE_BROWSER_ENGINE_TRACE").is_some();
     cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(if trace { Stdio::inherit() } else { Stdio::null() });
@@ -140,7 +145,7 @@ pub(crate) fn spawn_and_attach(engine: &Installed, sock: &Path, profile: &Path, 
     if !link.current() {
         return;
     }
-    let mut child = match engine_command(&engine.bin, sock, profile).spawn() {
+    let mut child = match engine_command(&engine.bin, sock, profile, &link.extension_args).spawn() {
         Ok(child) => child,
         Err(e) => {
             let fault = spawn_fault(&e);
@@ -452,6 +457,10 @@ fn expects_answer(msg: &HostMsg) -> bool {
             | HostMsg::CdpCall { .. }
             | HostMsg::SiteCookies { .. }
             | HostMsg::ClearSite { .. }
+            | HostMsg::ListExtensions { .. }
+            | HostMsg::UninstallExtension { .. }
+            | HostMsg::ReloadExtension { .. }
+            | HostMsg::ClickExtension { .. }
     )
 }
 
@@ -587,7 +596,7 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
         return if lost(link, None) { WireResult::Failed } else { WireResult::Stale };
     };
     let (tx, rx) = mpsc::channel::<HostMsg>();
-    tx.send(HostMsg::Hello { mach_service, pid: std::process::id(), prompts: true }).ok();
+    tx.send(HostMsg::Hello { mach_service, pid: std::process::id(), prompts: true, extensions: true }).ok();
     let mut early = EarlyOpensMap::new();
     for (id, open) in &link.opens {
         if let HostMsg::OpenTab { url, width_pt, height_pt, scale, .. } = open {
