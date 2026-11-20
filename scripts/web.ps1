@@ -124,10 +124,11 @@ if (-not $NoBuild) {
   if ($LASTEXITCODE) { throw "web-warm failed ($LASTEXITCODE)" }
   # The fonts the page fetches after its first frame (apps/desktop/src/lib.rs's LATE_FONTS), and the terminal's when one attaches (TERMINAL_FONTS).
   New-Item -ItemType Directory -Force (Join-Path $next 'fonts') | Out-Null
-  Copy-Item (Join-Path $root 'apps/desktop/assets/fonts/*') (Join-Path $next 'fonts') -Include 'IBMPlexMono-TextItalic.ttf', 'CommitMono-*.otf', 'JetBrainsMonoNerdFontMono-*.ttf'
+  Copy-Item (Join-Path $root 'apps/desktop/assets/fonts/*') (Join-Path $next 'fonts') -Include 'IBMPlexMono-TextItalic.ttf', 'CommitMono-*.otf', 'JetBrainsMonoNerdFontMono-*.ttf', '*-LICENSE.txt'
   # The spell checker's Hunspell dictionaries (SCOWL's en_US, wooorm/dictionaries `dictionary-en`), fetched when a field first checks.
   New-Item -ItemType Directory -Force (Join-Path $next 'spell') | Out-Null
-  Copy-Item (Join-Path $root 'apps/web/spell/*') (Join-Path $next 'spell') -Include '*.aff', '*.dic'
+  Copy-Item (Join-Path $root 'apps/web/spell/*') (Join-Path $next 'spell') -Include '*.aff', '*.dic', '*.LICENSE.txt'
+  Copy-Item (Join-Path $root 'LICENSE'), (Join-Path $root 'THIRD_PARTY_NOTICES.md') $next
   # Every locale's messages but English, which the module carries; the page fetches the one it shows.
   & $js (Join-Path $PSScriptRoot 'web-i18n.mjs') (Join-Path $next 'i18n')
   if ($LASTEXITCODE) { throw "web-i18n failed ($LASTEXITCODE)" }
