@@ -74,7 +74,7 @@ impl PreviewAbort {
         let mut g = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         if g.aborted {
             drop(g);
-            agent.shutdown();
+            agent.clone().shutdown();
             return None;
         }
         g.agents.push((token, agent.clone()));

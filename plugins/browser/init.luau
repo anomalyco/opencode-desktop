@@ -507,7 +507,7 @@ return plugin.defineWindow(function(ctx)
             end
         end
         -- Sync saved tabs for immediate restore & loading hold (`UP-100` `#65067`).
-        -- Private, preview, artifact, and isolated tabs are strictly excluded from `savedTabs`.
+        -- Isolated tabs (`Preview`, `Artifact`, `Private`, `RemoteServer`) NEVER persist to disk.
         local routed = Sessions:Routed()
         if routed ~= nil then
             local curSaved = savedTabs.normalize(savedTabsStore:Get())
@@ -552,17 +552,22 @@ return plugin.defineWindow(function(ctx)
     end)
 
     -- A loopback address opens on the machine that runs the server; the system browser here
-    -- reaches it only when the server runs here too.
-    local function reachable(url: string): boolean
+    -- reaches it only when the server runs here too (authoritative Rust policy via CanOpenExternally).
+    local function reachable(url: string, tab: BrowserTab?): boolean
+        local tAny = tab :: any
+        if tAny ~= nil and type(tAny.CanOpenExternally) == "function" then
+            return tAny:CanOpenExternally() == true
+        end
         local scheme, host = address.parts(url)
         local lower = string.lower(scheme)
-        if lower == "file://" then
-            return false
-        end
         if lower ~= "http://" and lower ~= "https://" then
             return false
         end
+        if string.find(host, "@", 1, true) ~= nil then
+            return false
+        end
         local name = string.match(host, "^%[[^%]]*%]") or string.match(host, "^[^:]*") or host
+        name = string.gsub(name, "%.+$", "")
         return Server:IsLocal() or not address.loopback(name)
     end
 
@@ -716,7 +721,7 @@ return plugin.defineWindow(function(ctx)
         elseif what == "external" then
             Popover:Close()
             local url = pageUrl(tab)
-            if reachable(url) then
+            if reachable(url, tab) then
                 System:OpenExternal(url)
             else
                 Toast:Error(I18n:T("menu.failed"))
@@ -807,10 +812,10 @@ return plugin.defineWindow(function(ctx)
                 url = url,
                 zoom = tab:Zoom(),
                 inspectable = url ~= "" and tab:LoadError() == nil,
-                suspended = false,
+                suspended = tab:Refusal() == "browser.proxy.required",
                 failed = tab:LoadError() ~= nil,
                 serverFile = isServerFile(url),
-                canOpenExternal = reachable(url),
+                canOpenExternal = reachable(url, tab),
                 canRevealFile = localPath ~= nil and Server:IsLocal(),
                 canViewSource = canSource,
                 canFind = canFind,

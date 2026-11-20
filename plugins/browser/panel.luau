@@ -34,7 +34,7 @@ export type Env = {
     epoch: (tab: BrowserTab) -> address.Epoch,
     visits: () -> { history.Visit },
     -- The system browser here can open the address.
-    reachable: (url: string) -> boolean,
+    reachable: (url: string, tab: BrowserTab?) -> boolean,
     -- Popover states.
     siteOpen: () -> boolean,
     optionsOpen: () -> boolean,
@@ -476,7 +476,7 @@ local function failed(env: Env, view: View, tab: BrowserTab, loadError: string):
     if info.kind == "insecure" and url ~= "" and url ~= "about:blank" then
         local _, rawHost = address.parts(url)
         local hostName = string.match(rawHost, "^%[[^%]]*%]") or string.match(rawHost, "^[^:]*") or rawHost
-        if address.loopback(hostName) and env.reachable(url) then
+        if address.loopback(hostName) and env.reachable(url, tab) then
             table.insert(actions, {
                 key = "browser-failed-external",
                 label = env.I18n:T("external.open"),

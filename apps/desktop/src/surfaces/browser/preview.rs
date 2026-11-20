@@ -13,9 +13,8 @@
 //!   global timeouts, immediate socket shutdown via `PreviewAbort`, bounded chunk back-pressure,
 //!   exact status/length/range checks, single-encoded remote paths, and generation-guarded errors).
 
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::mpsc::{self, SyncSender, TrySendError};
-use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use base64::Engine as _;
 use browser_pane::policy::preview::{
@@ -30,91 +29,9 @@ use opencode_kit::client::PreviewAbort;
 use opencode_servers::ServerKey;
 
 use super::PLUGIN;
+use super::preview_pool::PreviewFetchPool;
 use crate::App;
 use crate::panels::{SessionPane, panel_key};
-
-const FETCH_WORKERS: usize = 8;
-const FETCH_QUEUE_CAP: usize = 64;
-const MAX_FETCHES_PER_TAB: usize = 16;
-
-struct FetchPermit(Arc<AtomicUsize>);
-
-impl Drop for FetchPermit {
-    fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::AcqRel);
-    }
-}
-
-fn try_acquire_permit(counter: &Arc<AtomicUsize>, cap: usize) -> Option<FetchPermit> {
-    let mut cur = counter.load(Ordering::Acquire);
-    loop {
-        if cur >= cap {
-            return None;
-        }
-        match counter.compare_exchange_weak(cur, cur + 1, Ordering::AcqRel, Ordering::Acquire) {
-            Ok(_) => return Some(FetchPermit(Arc::clone(counter))),
-            Err(next) => cur = next,
-        }
-    }
-}
-
-struct FetchTask {
-    _permit: FetchPermit,
-    job: Box<dyn FnOnce() + Send + 'static>,
-    on_panic: Box<dyn FnOnce() + Send + 'static>,
-}
-
-struct PreviewFetchPool {
-    tx: SyncSender<FetchTask>,
-}
-
-impl PreviewFetchPool {
-    fn global() -> &'static Self {
-        static POOL: OnceLock<PreviewFetchPool> = OnceLock::new();
-        POOL.get_or_init(|| {
-            let (tx, rx) = mpsc::sync_channel::<FetchTask>(FETCH_QUEUE_CAP);
-            let shared_rx = Arc::new(Mutex::new(rx));
-            for idx in 0..FETCH_WORKERS {
-                let rx_clone = Arc::clone(&shared_rx);
-                let _ = std::thread::Builder::new()
-                    .name(format!("preview-fetch-{idx}"))
-                    .spawn(move || loop {
-                        let task = {
-                            let guard = rx_clone.lock().unwrap_or_else(PoisonError::into_inner);
-                            guard.recv()
-                        };
-                        let Ok(task) = task else { break };
-                        let FetchTask { _permit, job, on_panic } = task;
-                        if std::panic::catch_unwind(std::panic::AssertUnwindSafe(job)).is_err() {
-                            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(on_panic));
-                        }
-                        drop(_permit);
-                    });
-            }
-            Self { tx }
-        })
-    }
-
-    fn try_spawn(
-        &self,
-        tab_counter: &Arc<AtomicUsize>,
-        on_panic: impl FnOnce() + Send + 'static,
-        job: impl FnOnce() + Send + 'static,
-    ) -> bool {
-        let Some(permit) = try_acquire_permit(tab_counter, MAX_FETCHES_PER_TAB) else {
-            return false;
-        };
-        let task = FetchTask {
-            _permit: permit,
-            job: Box::new(job),
-            on_panic: Box::new(on_panic),
-        };
-        match self.tx.try_send(task) {
-            Ok(()) => true,
-            Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => false,
-        }
-    }
-}
 
 /// Tab-scoped binding pinning a preview tab strictly to the owning session's live server handle,
 /// a monotonic generation, an atomic liveness flag, an HTTP socket abort group, and a per-tab
@@ -164,7 +81,10 @@ impl App {
     /// session). Only falls back to `active` when `sid` is `None`.
     pub(crate) fn preview_server_for(&self, sid: Option<&str>) -> Option<(ServerKey, opencode_kit::client::Server)> {
         if let Some(id) = sid {
-            return crate::servers::runtime::session_server(self, id);
+            let key = crate::servers::runtime::session_server_key(self, id)
+                .or_else(|| crate::surfaces::browser::rpc::server_for_session(self, id))?;
+            let srv = crate::servers::runtime::live_server_for_key(self, &key)?;
+            return Some((key, srv));
         }
         let key = crate::servers::runtime::active(self).clone();
         crate::servers::runtime::live_server_for_key(self, &key).map(|srv| (key, srv))
@@ -177,6 +97,7 @@ impl App {
         }
         if let Some(id) = sid
             && let Some(key) = crate::servers::runtime::session_server_key(self, id)
+                .or_else(|| crate::surfaces::browser::rpc::server_for_session(self, id))
         {
             return key.is_sidecar();
         }
@@ -553,13 +474,13 @@ impl App {
             .as_ref()
             .map(|(_, rx)| std::iter::from_fn(|| rx.try_recv().ok()).collect())
             .unwrap_or_default();
-        for (tab_id, gen, code) in errs {
+        for (tab_id, generation, code) in errs {
             let gen_ok = self
                 .workspace_panes
                 .browser
                 .preview_bindings
                 .get(&tab_id)
-                .is_some_and(|b| b.generation == gen);
+                .is_some_and(|b| b.generation == generation);
             if gen_ok {
                 self.workspace_panes.browser.host.set_tab_load_error(tab_id, Some(code));
                 changed = true;

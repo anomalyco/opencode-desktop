@@ -114,6 +114,14 @@ pub(super) fn tab_methods(lua: &Lua, m: &Table) -> mlua::Result<()> {
         })?,
     )?;
     m.raw_set(
+        "CanOpenExternally",
+        lua.create_function(|lua, this: Table| {
+            read_tab(lua, &this, "BrowserTab:CanOpenExternally", |app, id| {
+                Ok(app.browser_tab_external_url(id).is_some())
+            })
+        })?,
+    )?;
+    m.raw_set(
         "Favicon",
         lua.create_function(|lua, this: Table| {
             read_tab(lua, &this, "BrowserTab:Favicon", |app, id| {

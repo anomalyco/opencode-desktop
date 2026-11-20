@@ -189,25 +189,6 @@ pub fn normalize_url(input: &str, roots: &[String]) -> Result<String, String> {
     }
 }
 
-/// Whether `url` uses a banned raw scheme (`file:` or `oc-preview:`), including nested prefixes
-/// such as `view-source:file:`, `filesystem:file:`, `blob:file:`, or `blob:oc-preview:`.
-fn has_banned_scheme(url: &str) -> bool {
-    let mut cur = url.trim();
-    loop {
-        if preview::is_preview_scheme(cur) || is_file_scheme(cur) {
-            return true;
-        }
-        let next = ["view-source:", "filesystem:", "blob:"].iter().find_map(|p| {
-            (cur.len() >= p.len() && cur.as_bytes()[..p.len()].eq_ignore_ascii_case(p.as_bytes()))
-                .then(|| cur[p.len()..].trim())
-        });
-        match next {
-            Some(rest) => cur = rest,
-            None => return false,
-        }
-    }
-}
-
 /// Frame navigation & redirect guard (`chromium.ts:432-446`): bans raw `file:` and `oc-preview:`
 /// (and nested `view-source:`/`filesystem:`/`blob:` wrappers) unconditionally on all non-preview tabs.
 pub fn frame_guard(url: &str, is_main_frame: bool, roots: &[String]) -> Option<Refusal> {
@@ -215,7 +196,7 @@ pub fn frame_guard(url: &str, is_main_frame: bool, roots: &[String]) -> Option<R
     if trimmed.eq_ignore_ascii_case("about:blank") {
         return None;
     }
-    if has_banned_scheme(trimmed) {
+    if preview::has_banned_scheme(trimmed) {
         return Some(if is_file_scheme(trimmed) || !roots.is_empty() { Refusal::Workspace } else { Refusal::Web });
     }
     if is_main_frame {
@@ -227,7 +208,7 @@ pub fn frame_guard(url: &str, is_main_frame: bool, roots: &[String]) -> Option<R
 /// Sub-resource & download guard: bans raw `file:` and `oc-preview:` (including nested prefixes)
 /// unconditionally on non-preview tabs.
 pub fn subresource_allowed(url: &str, _roots: &[String]) -> bool {
-    !has_banned_scheme(url)
+    !preview::has_banned_scheme(url)
 }
 
 mod agent;
@@ -397,23 +378,10 @@ pub fn resolve_address(input: &str) -> String {
     with_scheme(value)
 }
 
-pub fn loopback_host(hostname: &str) -> bool {
-    let h = hostname.trim_end_matches('.');
-    if h.eq_ignore_ascii_case("localhost") || h == "::1" || h == "[::1]" {
-        return true;
-    }
-    if h.len() > 10 && h.as_bytes()[h.len() - 10..].eq_ignore_ascii_case(b".localhost") {
-        return true;
-    }
-    let mut parts = h.split('.');
-    if let (Some(a), Some(b), Some(c), Some(d), None) = (parts.next(), parts.next(), parts.next(), parts.next(), parts.next())
-        && a == "127"
-        && [b, c, d].into_iter().all(|p| p.parse::<u8>().is_ok())
-    {
-        return true;
-    }
-    false
-}
+mod network;
+pub use network::{
+    is_local_or_loopback_host, is_strict_loopback_ip, loopback_host, validate_proxy_endpoint,
+};
 
 fn is_loopback_authority(value: &str) -> bool {
     let authority = value.split(['/', '\\', '?', '#']).next().unwrap_or("");

@@ -45,30 +45,16 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
             .size(rune_kit::ButtonSize::Small)
             .on_press(move |app: &mut App| {
                 // `take_blocked_popup_url` enforces the 500 ms activation delay.
-                if let Some(url) = app.workspace_panes.browser.host.take_blocked_popup_url(tab_id) {
-                    if url.len() > 16_384 || browser_pane::policy::destination_origin(&url).is_none() {
-                        return;
-                    }
+                if let Some(url) = app.workspace_panes.browser.host.take_blocked_popup_url(tab_id)
+                    && url.len() <= 16_384
+                    && browser_pane::policy::destination_origin(&url).is_some()
+                    && let Some((agent, ctx)) = app.browser_context_for_opener(tab_id)
+                {
                     let sid = app.browser_tab_session(tab_id).map(str::to_owned);
-                    // Preserve isolation when opening a blocked pop-up from an isolated/preview tab
-                    // so untrusted preview/artifact/remote URLs never silently bridge into `Default`.
-                    let ctx = app.workspace_panes.browser.host.tab(tab_id).map_or_else(
-                        || app.browser_context_for_session(sid.as_deref()),
-                        |t| match &t.context {
-                            browser_pane::ContextKind::RemoteServer { .. } => t.context.clone(),
-                            browser_pane::ContextKind::Preview { .. }
-                            | browser_pane::ContextKind::Artifact { .. }
-                            | browser_pane::ContextKind::Private => browser_pane::ContextKind::Private,
-                            browser_pane::ContextKind::Default => {
-                                if t.preview.is_some() {
-                                    browser_pane::ContextKind::Private
-                                } else {
-                                    app.browser_context_for_session(sid.as_deref())
-                                }
-                            }
-                        },
-                    );
-                    app.open_new_browser_tab_with_context(sid.as_deref(), &url, None, true, false, ctx);
+                    let new_id = app.open_new_browser_tab_with_context(sid.as_deref(), &url, None, true, false, ctx);
+                    if agent {
+                        app.workspace_panes.browser.host.set_agent_driven(new_id, true);
+                    }
                 }
             })
             .build(k)

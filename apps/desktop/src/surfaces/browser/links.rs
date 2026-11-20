@@ -117,7 +117,15 @@ impl App {
             if open_in_pane {
                 self.open_new_browser_tab_for_session(sid, trimmed, None, true);
             } else if self.live() {
-                crate::open_in::open_external(tx, trimmed);
+                if self.external_url_allowed_for_session(sid, trimmed) {
+                    crate::open_in::open_external(tx, trimmed);
+                } else {
+                    crate::status_toast::fail(
+                        self,
+                        opencode_i18n::t!("rune.browser.menu.pageUnavailable").to_owned(),
+                        String::new(),
+                    );
+                }
             }
             return;
         }

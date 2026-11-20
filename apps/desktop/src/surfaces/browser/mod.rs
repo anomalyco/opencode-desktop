@@ -12,6 +12,8 @@ pub mod context_menu;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod preview;
 #[cfg(not(target_arch = "wasm32"))]
+mod preview_pool;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod prompts;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod rpc;
@@ -50,6 +52,10 @@ mod web {
     impl App {
         pub fn browser_tab_external_url(&self, _: u64) -> Option<String> {
             None
+        }
+
+        pub fn external_url_allowed_for_session(&self, _: Option<&str>, _: &str) -> bool {
+            true
         }
 
         pub fn open_browser_tab_externally(&mut self, _: u64, _: &mut Tx) {}
@@ -164,17 +170,67 @@ mod native {
             .collect()
     });
 
-    /// `url` when the default browser can open it: an `http:` or `https:` page, not `about:blank`,
-    /// `chrome:` or `data:`.
+    /// `url` when the default browser can open it: a credential-free `http:` or `https:` page,
+    /// not `about:blank`, `chrome:`, `data:`, or embedded credentials.
     pub fn external_url(url: &str) -> Option<&str> {
-        let scheme = url.split_once("://")?.0;
-        (scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https")).then_some(url)
+        browser_pane::destination_origin(url).map(|_| url.trim())
+    }
+
+    /// Whether `url` is a local/loopback/unspecified HTTP(S) address (`127.0.0.0/8`, `0.0.0.0/8`,
+    /// `localhost`, `*.localhost`, `[::1]`, `[::]`, IPv4-mapped IPv6, octal/hex/decimal forms).
+    fn is_local_or_loopback_http_url(url: &str) -> bool {
+        let Some(origin) = browser_pane::destination_origin(url) else { return false };
+        let Some((_, authority)) = origin.split_once("://") else { return false };
+        let host = if let Some(rest) = authority.strip_prefix('[') {
+            rest.split(']').next().unwrap_or("")
+        } else {
+            authority.split(':').next().unwrap_or("")
+        };
+        browser_pane::policy::is_local_or_loopback_host(host)
     }
 
     impl App {
-        /// The page browser tab `id` shows, when the default browser can open it.
+        /// Resolves the canonical `ServerKey` that owns session `sid` (checking open tabs,
+        /// `BROWSER_RPC`, and parked server snapshots before falling back to `active`).
+        pub fn browser_server_for_session(&self, sid: Option<&str>) -> opencode_kit::servers::ServerKey {
+            if let Some(id) = sid {
+                if let Some(k) = crate::servers::runtime::server_for_session(self, id) {
+                    return k;
+                }
+                if let Some(k) = crate::surfaces::browser::rpc::server_for_session(self, id) {
+                    return k;
+                }
+            }
+            crate::servers::runtime::active(self).clone()
+        }
+
+        /// Whether `url` clicked in session `sid` may be handed to the local OS default browser:
+        /// refuses non-HTTP(S), credentialed URLs, and any local/loopback URL on a remote server.
+        pub fn external_url_allowed_for_session(&self, sid: Option<&str>, url: &str) -> bool {
+            let Some(clean) = external_url(url) else { return false };
+            let remote = !self.browser_server_for_session(sid).is_sidecar();
+            !(remote && is_local_or_loopback_http_url(clean))
+        }
+
+        /// Whether `url` shown in tab `id` may be handed to the local OS default browser:
+        /// refuses non-HTTP(S), credentialed URLs, and any local/loopback URL from remote-server tabs.
+        pub fn external_url_allowed_for_tab(&self, id: u64, url: &str) -> bool {
+            let Some(clean) = external_url(url) else { return false };
+            let sid = self.browser_tab_session(id).map(str::to_owned);
+            let remote = self
+                .workspace_panes
+                .browser
+                .host
+                .tab(id)
+                .is_some_and(|t| matches!(t.context, browser_pane::ContextKind::RemoteServer { .. }))
+                || !self.browser_server_for_session(sid.as_deref()).is_sidecar();
+            !(remote && is_local_or_loopback_http_url(clean))
+        }
+
+        /// The page browser tab `id` shows, when the default browser can safely open it.
         pub fn browser_tab_external_url(&self, id: u64) -> Option<String> {
-            external_url(&self.workspace_panes.browser.host.tab(id)?.url).map(str::to_owned)
+            let url = self.workspace_panes.browser.host.tab(id)?.url.clone();
+            self.external_url_allowed_for_tab(id, &url).then(|| url.trim().to_owned())
         }
 
         /// Opens browser tab `id`'s page in the default browser.
@@ -325,18 +381,17 @@ mod native {
             }
         }
 
-        /// Browser isolation context for session `sid`'s owning server (never substituting `active`
-        /// when `sid` belongs to a parked remote server).
+        /// Default browser isolation context for tabs opened in session `sid`: derived from `sid`'s
+        /// owning server (NEVER solely from whichever server happens to be active in the window).
         pub fn browser_context_for_session(&self, sid: Option<&str>) -> browser_pane::ContextKind {
-            let key = sid
-                .and_then(|id| crate::servers::runtime::session_server_key(self, id))
-                .unwrap_or_else(|| crate::servers::runtime::active(self).clone());
-            if key.is_sidecar() {
+            let server = self.browser_server_for_session(sid);
+            if server.is_sidecar() {
                 browser_pane::ContextKind::Default
             } else {
+                let id = server.as_str();
                 browser_pane::ContextKind::RemoteServer {
-                    server_id: key.as_str().to_owned(),
-                    proxy: None,
+                    server_id: id.to_owned(),
+                    proxy: self.workspace_panes.browser.host.remote_proxy(id).cloned(),
                 }
             }
         }
@@ -344,6 +399,42 @@ mod native {
         /// Default browser isolation context for tabs opened on the active server.
         pub fn default_browser_context(&self) -> browser_pane::ContextKind {
             self.browser_context_for_session(None)
+        }
+
+        /// Context and `agent_driven` flag inherited by a pop-up or "Open link/image in new tab"
+        /// triggered from `opener_tab_id`:
+        /// - Live `RemoteServer` opener -> same `RemoteServer` with current registered loopback proxy.
+        /// - Live `Preview` / `Artifact` / `Private` opener -> fresh `ContextKind::Private`.
+        /// - Live `Default` opener -> `ContextKind::Default` (never active server).
+        /// - Already-closed opener -> `None` (refuse the open; NEVER downgrade to direct `Private`).
+        pub fn browser_context_for_opener(&self, opener_tab_id: u64) -> Option<(bool, browser_pane::ContextKind)> {
+            let t = self.workspace_panes.browser.host.tab(opener_tab_id)?;
+            let ctx = match &t.context {
+                browser_pane::ContextKind::RemoteServer { server_id, proxy } => {
+                    let sid = server_id.trim();
+                    browser_pane::ContextKind::RemoteServer {
+                        server_id: sid.to_owned(),
+                        proxy: self
+                            .workspace_panes
+                            .browser
+                            .host
+                            .remote_proxy(sid)
+                            .cloned()
+                            .or_else(|| proxy.clone()),
+                    }
+                }
+                browser_pane::ContextKind::Preview { .. }
+                | browser_pane::ContextKind::Artifact { .. }
+                | browser_pane::ContextKind::Private => browser_pane::ContextKind::Private,
+                browser_pane::ContextKind::Default => {
+                    if t.preview.is_some() {
+                        browser_pane::ContextKind::Private
+                    } else {
+                        browser_pane::ContextKind::Default
+                    }
+                }
+            };
+            Some((t.prompts.agent_driven, ctx))
         }
 
         pub fn open_new_browser_tab(&mut self, url: &str) -> u64 {
@@ -575,31 +666,42 @@ mod native {
                     changed = true;
                 }
             }
+            // Prune `session_tabs` and side-panel strip entries for any tab closed by the engine,
+            // surfacing a plain-language toast only for fatal proxy/context teardown (never `DropContext`).
+            let engine_closed: Vec<(u64, bool)> =
+                self.workspace_panes.browser.host.drain_closed_tabs().collect();
+            for (closed_id, fatal_close) in engine_closed {
+                self.revoke_preview_binding(closed_id);
+                let owner_sid = self.browser_tab_session(closed_id).map(str::to_owned);
+                for ids in self.workspace_panes.browser.session_tabs.values_mut() {
+                    ids.retain(|&x| x != closed_id);
+                }
+                if let Some(sid) = owner_sid {
+                    let key = panel_key(PLUGIN, &closed_id.to_string());
+                    let st = self.session_side_mut(&sid);
+                    st.tab_state = crate::panels::tabs::close_session_tab(&st.tab_state, &key);
+                    if st.tab_state.tabs.all.is_empty() {
+                        st.visibility.step(false);
+                    }
+                    changed = true;
+                }
+                if fatal_close {
+                    crate::status_toast::fail(
+                        self,
+                        opencode_i18n::t!("rune.browser.proxy.closed").to_owned(),
+                        String::new(),
+                    );
+                    changed = true;
+                }
+            }
             if self.workspace_panes.browser.host.has_popup_opens() {
                 let popups: Vec<_> = self.workspace_panes.browser.host.drain_popup_opens().collect();
                 for popup in popups {
+                    let Some((agent, opener_ctx)) = self.browser_context_for_opener(popup.opener_tab_id) else {
+                        // Opener closed before drain: refuse rather than downgrading to direct `Private`.
+                        continue;
+                    };
                     let sid = self.browser_tab_session(popup.opener_tab_id).map(str::to_owned);
-                    let (agent, opener_ctx) = self
-                        .workspace_panes
-                        .browser
-                        .host
-                        .tab(popup.opener_tab_id)
-                        .map_or((false, self.browser_context_for_session(sid.as_deref())), |t| {
-                            let ctx = match &t.context {
-                                browser_pane::ContextKind::RemoteServer { .. } => t.context.clone(),
-                                browser_pane::ContextKind::Preview { .. }
-                                | browser_pane::ContextKind::Artifact { .. }
-                                | browser_pane::ContextKind::Private => browser_pane::ContextKind::Private,
-                                browser_pane::ContextKind::Default => {
-                                    if t.preview.is_some() {
-                                        browser_pane::ContextKind::Private
-                                    } else {
-                                        self.browser_context_for_session(sid.as_deref())
-                                    }
-                                }
-                            };
-                            (t.prompts.agent_driven, ctx)
-                        });
                     let new_id = self.open_new_browser_tab_with_context(
                         sid.as_deref(),
                         &popup.url,

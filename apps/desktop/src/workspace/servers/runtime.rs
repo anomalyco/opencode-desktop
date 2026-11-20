@@ -402,12 +402,34 @@ pub fn active(s: &App) -> &ServerKey {
     &s.checkout.active
 }
 
+/// Resolves the canonical `ServerKey` that owns session `sid` across the checked-out server and
+/// parked servers' snapshots (returns `None` when `sid` is unknown to the window).
+#[cfg(not(target_arch = "wasm32"))]
+pub fn server_for_session(s: &App, sid: &str) -> Option<ServerKey> {
+    if let Some(tab) = s
+        .tabs
+        .iter()
+        .find(|t| t.id == sid && t.kind == crate::tabs::TabKind::Session)
+    {
+        return Some(tab.server.clone());
+    }
+    if s.session(sid).is_some() {
+        return Some(s.checkout.active.clone());
+    }
+    for ((key, id), snap) in &s.checkout.snaps {
+        if id == sid && snap.known {
+            return Some(key.clone());
+        }
+    }
+    None
+}
+
 /// Resolves the [`ServerKey`] that owns session `sid` (checking open tabs, active route, active
 /// store, and parked server stores — never silently substituting `active` for a parked session).
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn session_server_key(s: &App, sid: &str) -> Option<ServerKey> {
-    if let Some(t) = s.tabs.iter().find(|t| t.id == sid) {
-        return Some(t.server.clone());
+    if let Some(key) = server_for_session(s, sid) {
+        return Some(key);
     }
     if let Route::Session { id, server } = &*s.route
         && id == sid

@@ -1,27 +1,22 @@
 //! Multi-tab CEF OSR manager inside the sidecar process.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicI32, AtomicU32, AtomicU64, Ordering};
-use std::sync::mpsc::SyncSender;
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use cef::rc::Rc as _;
 use cef::{
-    App, Browser, BrowserHost, BrowserProcessHandler, BrowserSettings, CefString,
-    CommandLine, ImplApp, ImplBrowser, ImplBrowserHost, ImplBrowserProcessHandler,
-    ImplCommandLine, ImplFrame, MouseButtonType,
-    MouseEvent, PaintElementType, Registration, RequestContext, SchemeRegistrar, Settings,
-    WindowInfo, WrapApp, WrapBrowserProcessHandler, sys, wrap_app, wrap_browser_process_handler,
+    Browser, BrowserHost, BrowserSettings, CefString, ImplBrowser, ImplBrowserHost, ImplFrame,
+    MouseButtonType, MouseEvent, PaintElementType, Registration, RequestContext, WindowInfo, sys,
 };
 use serde_json::{Value, json};
 
+pub use crate::cef_runtime::CefRuntime;
 use crate::handlers::{
     CdpPending, FrameRing, PendingClear, TabCdpObserver, TabDisplayHandler, TabLoadHandler,
     TabRenderHandler, TabRequestHandler, ViewRectState, cef_mods, event_flag,
 };
 use crate::keys::send_key;
 use crate::preview::{PreviewGrant, PreviewRegistry};
-use crate::profile::Profile;
 use crate::tab_client::SidecarTabClient;
 use crate::wire::{
     CursorKind, EngineMsg, HostMsg, PickedElement, PointerBtn, PreviewSpec, TabSnapshot,
@@ -29,186 +24,6 @@ use crate::wire::{
 
 /// Opaque page background (ARGB) for pages that specify none. macOS uses Rune's dark base.
 const BASE_COLOR: u32 = if cfg!(target_os = "macos") { 0xFF11_1318 } else { 0xFFFF_FFFF };
-
-pub struct CefRuntime {
-    profile: Profile,
-    #[cfg(target_os = "macos")]
-    _loader: cef::library_loader::LibraryLoader,
-}
-
-impl CefRuntime {
-    /// `adapter_luid`: the app's GPU (`HighPart`, `LowPart`), for Chromium to render on;
-    /// `locale`: the app's language as Chromium names it; `pump`: where CEF's requests for its
-    /// next work call go.
-    pub fn initialize(adapter_luid: Option<(i32, u32)>, locale: Option<&str>, pump: SyncSender<crate::Event>) -> Self {
-        #[cfg(target_os = "macos")]
-        crate::mac_app::ensure_ns_application();
-
-        #[cfg(target_os = "macos")]
-        let loader = {
-            let exe = std::env::current_exe().expect("current_exe");
-            let loader = cef::library_loader::LibraryLoader::new(&exe, false);
-            assert!(loader.load(), "failed to load Chromium Embedded Framework");
-            loader
-        };
-
-        let _ = cef::api_hash(sys::CEF_API_VERSION_LAST, 0);
-
-        let profile = Profile::open();
-        // Chromium's temporary files (and its helpers', which inherit this) go in the profile, not
-        // the user's temp folder: everything the engine writes is under the root the app gave it.
-        // An earlier run's leftovers go first.
-        let temp = profile.root.join("Temp");
-        let _ = std::fs::remove_dir_all(&temp);
-        let _ = std::fs::create_dir_all(&temp);
-        // SAFETY: no other thread of this process reads the environment while it changes (the
-        // socket's accept thread doesn't), and CEF starts after.
-        unsafe {
-            std::env::set_var("TMP", &temp);
-            std::env::set_var("TEMP", &temp);
-        }
-
-        #[cfg(unix)]
-        let exe_str = std::env::current_exe()
-            .ok()
-            .and_then(|p| p.into_os_string().into_string().ok())
-            .unwrap_or_else(|| "opencode-browser-engine".into());
-        #[cfg(unix)]
-        let c_exe = std::ffi::CString::new(exe_str).unwrap();
-        #[cfg(unix)]
-        let argv = [c_exe.as_ptr()];
-        #[cfg(unix)]
-        let main_args = cef::MainArgs { argc: 1, argv: argv.as_ptr() as *mut *mut _ };
-        #[cfg(windows)]
-        let main_args = cef::args::Args::new().as_main_args().clone();
-
-        // macOS finds its helper apps by bundle convention; elsewhere CEF would start this
-        // executable again for its renderer and GPU processes, so point it at the helper.
-        #[cfg(not(target_os = "macos"))]
-        let browser_subprocess_path = std::env::current_exe()
-            .ok()
-            .map(|exe| exe.with_file_name(format!("opencode-browser-engine-helper{}", std::env::consts::EXE_SUFFIX)))
-            .map(|helper| CefString::from(helper.to_string_lossy().as_ref()))
-            .unwrap_or_default();
-        #[cfg(target_os = "macos")]
-        let browser_subprocess_path = CefString::default();
-
-        let mut app = SidecarCefApp::new(adapter_luid.map(|(high, low)| format!("{high},{low}")), pump);
-        let settings = Settings {
-            browser_subprocess_path,
-            windowless_rendering_enabled: 1,
-            external_message_pump: 1,
-            no_sandbox: 1,
-            root_cache_path: CefString::from(profile.root.to_string_lossy().as_ref()),
-            cache_path: CefString::from(profile.cache.to_string_lossy().as_ref()),
-            persist_session_cookies: 1,
-            log_severity: sys::cef_log_severity_t::LOGSEVERITY_WARNING.into(),
-            // In the profile, not beside the executable (CEF's default), whose folder is the install.
-            log_file: CefString::from(profile.root.join("debug.log").to_string_lossy().as_ref()),
-            // Without one, Chromium follows the system's language. Pages hear the same language
-            // first (Accept-Language, navigator.languages), then English.
-            locale: locale.map(CefString::from).unwrap_or_default(),
-            accept_language_list: locale
-                .map(|l| if l.starts_with("en") { format!("{l},en") } else { format!("{l},en-US,en") })
-                .map(|list| CefString::from(list.as_str()))
-                .unwrap_or_default(),
-            ..Default::default()
-        };
-        let ok = cef::initialize(Some(&main_args), Some(&settings), Some(&mut app), std::ptr::null_mut());
-        assert_eq!(ok, 1, "cef::initialize failed");
-        if let Some(global) = cef::request_context_get_global_context() {
-            crate::preview::handler::ban_file_scheme(&global);
-        }
-
-        Self {
-            profile,
-            #[cfg(target_os = "macos")]
-            _loader: loader,
-        }
-    }
-}
-
-impl CefRuntime {
-    /// The profile the pages' downloads go in (`downloads::DIR_NAME`), so a throwaway profile's go with it.
-    pub fn profile_root(&self) -> std::path::PathBuf {
-        self.profile.root.clone()
-    }
-}
-
-impl Drop for CefRuntime {
-    fn drop(&mut self) {
-        cef::shutdown();
-        // The pages' downloads end with the engine, as Desktop's go with its pages.
-        crate::downloads::remove_owned(&self.profile.root);
-        if self.profile.temporary {
-            let _ = std::fs::remove_dir_all(&self.profile.root);
-        }
-    }
-}
-
-wrap_app! {
-    struct SidecarCefApp {
-        // Chromium's `use-adapter-luid` (`HIGH,LOW`): the GPU the app's frames open on.
-        adapter_luid: Option<String>,
-        pump: SyncSender<crate::Event>,
-    }
-    impl App {
-        fn on_before_command_line_processing(
-            &self,
-            _process_type: Option<&cef::CefStringUtf16>,
-            command_line: Option<&mut CommandLine>,
-        ) {
-            let Some(cmd) = command_line else { return };
-            // Rune owns the window. CEF paints offscreen even when no display server is running.
-            #[cfg(target_os = "linux")]
-            crate::linux_gpu::configure(cmd);
-            // Disable Chrome's default extension subsystem so CEF's Chrome bootstrap never scans
-            // host OS extension registries (`external_registry_loader_win.cc`) on startup.
-            cmd.append_switch(Some(&"disable-extensions".into()));
-            // Let `TabRequestHandler::auth_credentials` handle HTTP 401 challenges in OSR instead
-            // of Chrome's native login dialog (which fails with `ERR_INVALID_AUTH_CREDENTIALS` on
-            // windowless browsers; CEF issue #3603).
-            cmd.append_switch(Some(&"disable-chrome-login-prompt".into()));
-            // Route script-initiated pop-ups through `TabLifeSpanHandler::on_before_popup` (which
-            // always returns `1` to cancel native windows and holds `user_gesture == 0` in the
-            // host's "Pop-up blocked" bar) instead of silently swallowing them before CEF sees them.
-            cmd.append_switch(Some(&"disable-popup-blocking".into()));
-            cmd.append_switch(Some(&"mute-audio".into()));
-            cmd.append_switch(Some(&"use-mock-keychain".into()));
-            cmd.append_switch(Some(&"no-startup-window".into()));
-            cmd.append_switch(Some(&"noerrdialogs".into()));
-            cmd.append_switch(Some(&"hide-crash-restore-bubble".into()));
-            // A side panel's pages, as Desktop's Electron shows them: no component downloads
-            // (Widevine, Safe Browsing lists, on-device models), no field-trial or other
-            // background fetches, which cost network, disk and CPU while nothing is open.
-            cmd.append_switch(Some(&"disable-component-update".into()));
-            cmd.append_switch(Some(&"disable-background-networking".into()));
-            if let Some(luid) = &self.adapter_luid {
-                cmd.append_switch_with_value(Some(&"use-adapter-luid".into()), Some(&luid.as_str().into()));
-            }
-        }
-
-        fn on_register_custom_schemes(&self, registrar: Option<&mut SchemeRegistrar>) {
-            crate::preview::scheme::register(registrar);
-        }
-
-        fn browser_process_handler(&self) -> Option<BrowserProcessHandler> {
-            Some(SidecarProcessHandler::new(self.pump.clone()))
-        }
-    }
-}
-
-wrap_browser_process_handler! {
-    struct SidecarProcessHandler {
-        pump: SyncSender<crate::Event>,
-    }
-    impl BrowserProcessHandler {
-        // Any thread: the main loop wakes for it.
-        fn on_schedule_message_pump_work(&self, delay_ms: i64) {
-            let _ = self.pump.try_send(crate::Event::Pump(delay_ms));
-        }
-    }
-}
 
 struct ManagedTab {
     browser: Browser,
@@ -226,6 +41,7 @@ struct ManagedTab {
     menu: Arc<crate::menu::TabMenuState>,
     context: crate::wire::ContextKind,
     generation: u64,
+    deferred_initial: Arc<AtomicBool>,
     _cdp_reg: Option<Registration>,
     held_buttons: u32,
     /// Linux: whether it's the tab the app shows (`HostMsg::FocusTab`), to open it again so.
@@ -377,26 +193,18 @@ impl EngineManager {
                     if let Some(tab) = self.tabs.get(&tab_id)
                         && tab.generation == generation
                         && self.contexts.is_tab_ready(tab_id)
-                        && !url.trim().eq_ignore_ascii_case("about:blank")
-                        && let Some(frame) = tab.browser.main_frame()
                     {
-                        frame.load_url(Some(&CefString::from(url.as_str())));
+                        tab.deferred_initial.store(false, Ordering::Release);
+                        if !url.trim().eq_ignore_ascii_case("about:blank")
+                            && let Some(frame) = tab.browser.main_frame()
+                        {
+                            frame.load_url(Some(&CefString::from(url.as_str())));
+                        }
                     }
                 }
                 crate::context::DeferredOutcome::Refuse { tab_id, generation, reason } => {
                     if self.tabs.get(&tab_id).is_some_and(|t| t.generation == generation) {
-                        if let Some(tab) = self.tabs.remove(&tab_id) {
-                            self.release_preview(tab_id, tab.preview.as_ref());
-                            tab.menu.cancel_all();
-                            tab.prompts.dismiss_all();
-                            tab.host.close_browser(1);
-                            self.downloads.close_tab(tab_id);
-                            self.contexts.release_tab(tab_id);
-                        }
-                        let _ = self.out_tx.send(EngineMsg::Refused {
-                            tab_id,
-                            reason: reason.to_owned(),
-                        });
+                        self.close_and_refuse_tab(tab_id, reason);
                     }
                 }
             }
@@ -412,9 +220,17 @@ impl EngineManager {
             }
         }
         for clear in clears {
-            if let Some(tab) = self.tabs.get(&clear.tab_id)
-                && self.contexts.is_tab_ready(clear.tab_id)
-            {
+            if let Some(tab) = self.tabs.get(&clear.tab_id) {
+                if !self.contexts.is_tab_ready(clear.tab_id) {
+                    let reason = self.contexts.not_ready_reason(clear.tab_id);
+                    let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                        tab_id: clear.tab_id,
+                        request_id: clear.request_id,
+                        ok: false,
+                        result: json!({ "message": reason }),
+                    });
+                    continue;
+                }
                 for (name, domain, path) in clear.cookies {
                     self.send_internal_cdp(
                         &tab.host,
@@ -574,8 +390,12 @@ impl EngineManager {
                 }
             }
             HostMsg::Navigate { tab_id, url } => {
-                if let Some(t) = self.tabs.get(&tab_id) {
-                    if t.preview.is_some() {
+                if let Some((is_preview, roots)) = self
+                    .tabs
+                    .get(&tab_id)
+                    .map(|t| (t.preview.is_some(), t.file_roots.lock().unwrap().clone()))
+                {
+                    if is_preview {
                         // A preview tab stays inside its isolated context; web navigations open in a normal context.
                         let _ = self.out_tx.send(EngineMsg::Refused {
                             tab_id,
@@ -583,47 +403,79 @@ impl EngineManager {
                         });
                         return true;
                     }
-                    if !self.contexts.is_tab_ready(tab_id) {
-                        let _ = self.out_tx.send(EngineMsg::Refused {
-                            tab_id,
-                            reason: "browser.context.initializing".to_owned(),
-                        });
-                        return true;
-                    }
-                    self.contexts.clear_pending_load(tab_id);
-                    let roots = t.file_roots.lock().unwrap().clone();
                     if let Some(why) = browser_policy::frame_guard(&url, true, &roots) {
                         let _ = self.out_tx.send(EngineMsg::Refused {
                             tab_id,
                             reason: why.code().to_owned(),
                         });
-                    } else if let Some(frame) = t.browser.main_frame() {
-                        frame.load_url(Some(&CefString::from(url.as_str())));
+                    } else {
+                        match self.contexts.gate_navigation(tab_id, &url) {
+                            Ok(true) => {
+                                if let Some(t) = self.tabs.get(&tab_id) {
+                                    t.deferred_initial.store(false, Ordering::Release);
+                                    if let Some(frame) = t.browser.main_frame() {
+                                        frame.load_url(Some(&CefString::from(url.as_str())));
+                                    }
+                                }
+                            }
+                            Ok(false) => {
+                                if let Some(t) = self.tabs.get(&tab_id) {
+                                    t.deferred_initial.store(
+                                        !url.trim().eq_ignore_ascii_case("about:blank"),
+                                        Ordering::Release,
+                                    );
+                                }
+                            }
+                            Err("browser.proxy.required") => {
+                                // Transient proxy suspension: hold navigation & report refusal
+                                // without destroying the user's open page.
+                                let _ = self.out_tx.send(EngineMsg::Refused {
+                                    tab_id,
+                                    reason: "browser.proxy.required".to_owned(),
+                                });
+                            }
+                            Err(reason) => self.close_and_refuse_tab(tab_id, reason),
+                        }
                     }
                 }
             }
             HostMsg::Back { tab_id } => {
-                if let Some(t) = self.tabs.get(&tab_id)
-                    && self.contexts.is_tab_ready(tab_id)
-                {
-                    t.browser.go_back();
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    if self.contexts.is_tab_ready(tab_id) {
+                        t.browser.go_back();
+                    } else if self.contexts.is_tab_suspended(tab_id) {
+                        let _ = self.out_tx.send(EngineMsg::Refused {
+                            tab_id,
+                            reason: "browser.proxy.required".to_owned(),
+                        });
+                    }
                 }
             }
             HostMsg::Forward { tab_id } => {
-                if let Some(t) = self.tabs.get(&tab_id)
-                    && self.contexts.is_tab_ready(tab_id)
-                {
-                    t.browser.go_forward();
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    if self.contexts.is_tab_ready(tab_id) {
+                        t.browser.go_forward();
+                    } else if self.contexts.is_tab_suspended(tab_id) {
+                        let _ = self.out_tx.send(EngineMsg::Refused {
+                            tab_id,
+                            reason: "browser.proxy.required".to_owned(),
+                        });
+                    }
                 }
             }
             HostMsg::Reload { tab_id, ignore_cache } => {
-                if let Some(t) = self.tabs.get(&tab_id)
-                    && self.contexts.is_tab_ready(tab_id)
-                {
-                    if ignore_cache {
-                        t.browser.reload_ignore_cache();
-                    } else {
-                        t.browser.reload();
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    if self.contexts.is_tab_ready(tab_id) {
+                        if ignore_cache {
+                            t.browser.reload_ignore_cache();
+                        } else {
+                            t.browser.reload();
+                        }
+                    } else if self.contexts.is_tab_suspended(tab_id) {
+                        let _ = self.out_tx.send(EngineMsg::Refused {
+                            tab_id,
+                            reason: "browser.proxy.required".to_owned(),
+                        });
                     }
                 }
             }
@@ -827,11 +679,12 @@ impl EngineManager {
             HostMsg::CdpCall { tab_id, request_id, method, params, session_id } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
                     if !self.contexts.is_tab_ready(tab_id) {
+                        let reason = self.contexts.not_ready_reason(tab_id);
                         let _ = self.out_tx.send(EngineMsg::CdpResponse {
                             tab_id,
                             request_id,
                             ok: false,
-                            result: json!({ "message": "browser.context.initializing" }),
+                            result: json!({ "message": reason }),
                         });
                         return true;
                     }
@@ -869,11 +722,12 @@ impl EngineManager {
             HostMsg::SiteCookies { tab_id, request_id } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
                     if !self.contexts.is_tab_ready(tab_id) {
+                        let reason = self.contexts.not_ready_reason(tab_id);
                         let _ = self.out_tx.send(EngineMsg::CdpResponse {
                             tab_id,
                             request_id,
                             ok: false,
-                            result: json!({ "message": "browser.context.initializing" }),
+                            result: json!({ "message": reason }),
                         });
                         return true;
                     }
@@ -909,11 +763,12 @@ impl EngineManager {
             HostMsg::ClearSite { tab_id, request_id } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
                     if !self.contexts.is_tab_ready(tab_id) {
+                        let reason = self.contexts.not_ready_reason(tab_id);
                         let _ = self.out_tx.send(EngineMsg::CdpResponse {
                             tab_id,
                             request_id,
                             ok: false,
-                            result: json!({ "message": "browser.context.initializing" }),
+                            result: json!({ "message": reason }),
                         });
                         return true;
                     }
@@ -982,11 +837,12 @@ impl EngineManager {
             HostMsg::ClearSiteCache { tab_id, request_id } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
                     if !self.contexts.is_tab_ready(tab_id) {
+                        let reason = self.contexts.not_ready_reason(tab_id);
                         let _ = self.out_tx.send(EngineMsg::CdpResponse {
                             tab_id,
                             request_id,
                             ok: false,
-                            result: json!({ "message": "browser.context.initializing" }),
+                            result: json!({ "message": reason }),
                         });
                         return true;
                     }
@@ -1041,15 +897,55 @@ impl EngineManager {
                 }
             }
             HostMsg::SetPartitionProxy { server_id, proxy } => {
-                if let Ok(applied) = self.contexts.set_partition_proxy(&server_id, proxy) {
-                    for t in self.tabs.values() {
-                        if matches!(&t.context, crate::wire::ContextKind::RemoteServer { server_id: id, .. } if id == &server_id) {
-                            *t.prompts.proxy.lock().unwrap() = applied.clone();
+                let sid = server_id.trim();
+                match self.contexts.set_partition_proxy(sid, proxy) {
+                    Ok(crate::context::ProxyUpdate::Applied { config, activate_ready }) => {
+                        for t in self.tabs.values_mut() {
+                            if let crate::wire::ContextKind::RemoteServer { server_id: id, proxy: cur } = &mut t.context
+                                && id.trim() == sid
+                            {
+                                *cur = Some(config.clone());
+                                *t.prompts.proxy.lock().unwrap() = Some(config.clone());
+                            }
+                        }
+                        if let Some(ready) = activate_ready {
+                            ready.store(true, Ordering::Release);
+                        }
+                    }
+                    Ok(crate::context::ProxyUpdate::Suspended(tabs)) => {
+                        // Transient proxy loss: keep live tabs & unsaved state intact while blocking
+                        // every request/CDP/menu/navigation fail-closed until a new proxy arrives.
+                        for tid in tabs {
+                            if let Some(t) = self.tabs.get_mut(&tid) {
+                                if let crate::wire::ContextKind::RemoteServer { proxy: cur, .. } = &mut t.context {
+                                    *cur = None;
+                                }
+                                *t.prompts.proxy.lock().unwrap() = None;
+                                t.deferred_initial.store(false, Ordering::Release);
+                                let mut s = t.snap.lock().unwrap();
+                                if s.loading {
+                                    s.loading = false;
+                                    let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
+                                }
+                            }
+                            let _ = self.out_tx.send(EngineMsg::Refused {
+                                tab_id: tid,
+                                reason: "browser.proxy.required".to_owned(),
+                            });
+                        }
+                    }
+                    Err(fatal) => {
+                        for tid in fatal.close_tabs {
+                            self.close_and_refuse_tab(tid, fatal.reason);
                         }
                     }
                 }
             }
             HostMsg::DropContext { context } => {
+                let live_tabs = self.contexts.tabs_for_context(&context);
+                for tid in live_tabs {
+                    self.close_managed_tab(tid);
+                }
                 self.contexts.drop_context(&context);
             }
             HostMsg::PreviewResponseHead { req_id, ok, status, mime, content_length, content_range } => {
@@ -1110,6 +1006,7 @@ impl EngineManager {
         let mut refused_reason: Option<String> = None;
         let mut req_ctx: Option<RequestContext>;
         let context_ready;
+        let deferred_initial;
         let tab_generation;
         let mut proxy_cfg = None;
         let mut effective_context = context;
@@ -1133,11 +1030,14 @@ impl EngineManager {
             );
             let resolved_ctx = match self.contexts.resolve_with_hooks(&ctx_kind, tab_id, &internal, hooks) {
                 Ok(r) => r,
-                Err(reason) => {
+                Err(fatal) => {
                     self.release_preview(tab_id, Some(&grant));
+                    for tid in fatal.close_tabs {
+                        self.close_and_refuse_tab(tid, fatal.reason);
+                    }
                     let _ = self.out_tx.send(EngineMsg::Refused {
                         tab_id,
-                        reason: reason.to_owned(),
+                        reason: fatal.reason.to_owned(),
                     });
                     return;
                 }
@@ -1146,6 +1046,7 @@ impl EngineManager {
             preview_grant = Some(grant);
             req_ctx = resolved_ctx.request_context;
             context_ready = resolved_ctx.ready;
+            deferred_initial = resolved_ctx.deferred_initial;
             tab_generation = resolved_ctx.generation;
             let init = if resolved_ctx.defer_initial_load {
                 "about:blank".to_owned()
@@ -1163,17 +1064,34 @@ impl EngineManager {
             };
             let resolved_ctx = match self.contexts.resolve(&effective_context, tab_id, target_url) {
                 Ok(r) => r,
-                Err(reason) => {
+                Err(fatal) => {
+                    for tid in fatal.close_tabs {
+                        self.close_and_refuse_tab(tid, fatal.reason);
+                    }
                     let _ = self.out_tx.send(EngineMsg::Refused {
                         tab_id,
-                        reason: reason.to_owned(),
+                        reason: fatal.reason.to_owned(),
                     });
                     return;
                 }
             };
+            if let Some((sid, applied, activate_ready)) = resolved_ctx.proxy_updated {
+                for t in self.tabs.values_mut() {
+                    if let crate::wire::ContextKind::RemoteServer { server_id: id, proxy: cur } = &mut t.context
+                        && id.trim() == sid
+                    {
+                        *cur = Some(applied.clone());
+                        *t.prompts.proxy.lock().unwrap() = Some(applied.clone());
+                    }
+                }
+                if let Some(ready) = activate_ready {
+                    ready.store(true, Ordering::Release);
+                }
+            }
             proxy_cfg = resolved_ctx.proxy;
             req_ctx = resolved_ctx.request_context;
             context_ready = resolved_ctx.ready;
+            deferred_initial = resolved_ctx.deferred_initial;
             tab_generation = resolved_ctx.generation;
             let init = if resolved_ctx.defer_initial_load { "about:blank" } else { target_url };
             (init.to_owned(), init.to_owned())
@@ -1196,6 +1114,7 @@ impl EngineManager {
             cursor: CursorKind::Default,
             load_error: None,
             favicon: None,
+            context: effective_context.redacted(),
             preview: preview_grant.as_ref().map(|g| g.kind.tag()),
         }));
         #[cfg(windows)]
@@ -1243,6 +1162,7 @@ impl EngineManager {
             snap.clone(),
             prompts.clone(),
             diagnostics.clone(),
+            deferred_initial.clone(),
             self.out_tx.clone(),
         );
         let request = TabRequestHandler::new(
@@ -1260,6 +1180,7 @@ impl EngineManager {
             tab_id,
             file_roots.clone(),
             is_preview,
+            context_ready.clone(),
             self.downloads.clone(),
             self.out_tx.clone(),
         );
@@ -1403,6 +1324,7 @@ impl EngineManager {
                 menu: menu_state,
                 context: effective_context,
                 generation: tab_generation,
+                deferred_initial,
                 _cdp_reg: cdp_reg,
                 held_buttons: 0,
                 #[cfg(target_os = "linux")]
@@ -1416,6 +1338,27 @@ impl EngineManager {
         }
     }
 
+    fn close_managed_tab(&mut self, tab_id: u64) {
+        if let Some(tab) = self.tabs.remove(&tab_id) {
+            self.release_preview(tab_id, tab.preview.as_ref());
+            tab.menu.cancel_all();
+            tab.prompts.dismiss_all();
+            tab.host.close_browser(1);
+            self.downloads.close_tab(tab_id);
+            self.contexts.release_tab(tab_id);
+            let _ = self.out_tx.send(EngineMsg::TabClosed { tab_id });
+        } else {
+            self.contexts.release_tab(tab_id);
+        }
+    }
+
+    fn close_and_refuse_tab(&mut self, tab_id: u64, reason: &str) {
+        let _ = self.out_tx.send(EngineMsg::Refused {
+            tab_id,
+            reason: reason.to_owned(),
+        });
+        self.close_managed_tab(tab_id);
+    }
     fn send_color_scheme(&self, host: &BrowserHost, dark: bool) {
         let value = if dark { "dark" } else { "light" };
         self.send_internal_cdp(host, "Emulation.setEmulatedMedia", json!({ "features": [{ "name": "prefers-color-scheme", "value": value }] }));

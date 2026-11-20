@@ -38,6 +38,25 @@ pub fn is_preview_scheme(input: &str) -> bool {
     t.len() >= 11 && t.as_bytes()[..11].eq_ignore_ascii_case(b"oc-preview:")
 }
 
+/// Whether `url` uses a banned raw scheme (`file:` or `oc-preview:`), including nested prefixes
+/// such as `view-source:file:`, `filesystem:file:`, `blob:file:`, or `blob:oc-preview:`.
+pub fn has_banned_scheme(url: &str) -> bool {
+    let mut cur = url.trim();
+    loop {
+        if is_preview_scheme(cur) || crate::is_file_scheme(cur) {
+            return true;
+        }
+        let next = ["view-source:", "filesystem:", "blob:"].iter().find_map(|p| {
+            (cur.len() >= p.len() && cur.as_bytes()[..p.len()].eq_ignore_ascii_case(p.as_bytes()))
+                .then(|| cur[p.len()..].trim())
+        });
+        match next {
+            Some(rest) => cur = rest,
+            None => return false,
+        }
+    }
+}
+
 pub fn is_workspace_scheme(input: &str) -> bool {
     let t = input.trim();
     t.len() >= 10 && t.as_bytes()[..10].eq_ignore_ascii_case(b"workspace:")

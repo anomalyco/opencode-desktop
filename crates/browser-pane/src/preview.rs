@@ -50,6 +50,7 @@ impl PreviewChunkBudget {
         self.ready.notify_one();
     }
 
+    #[cfg_attr(not(feature = "engine"), allow(dead_code))]
     pub(crate) fn reset(&self) {
         let mut count = self.in_flight.lock().unwrap_or_else(PoisonError::into_inner);
         *count = 0;
@@ -228,6 +229,8 @@ impl BrowserHost {
             device: None,
             scale,
             sent_resize: can_send.then_some((width_pt, height_pt, scale)),
+            has_engine_tab: send_msg.is_some() || !can_send,
+            engine_confirmed: false,
         });
         self.focused_tab = Some(id);
 
@@ -245,25 +248,53 @@ impl BrowserHost {
     /// Replaces the CEF browser behind `tab_id` when navigating between a preview tab and a normal
     /// web tab (or vice versa), so web pages always run in the user's normal signed-in context and
     /// previews always run in a fresh isolated preview context.
-    pub fn reopen_tab_as_web(&mut self, tab_id: u64, url: &str, context: ContextKind) {
+    pub fn reopen_tab_as_web(&mut self, tab_id: u64, url: &str, mut context: ContextKind) {
         let focused = self.focused_tab == Some(tab_id);
         let connected = self.is_connected();
-        let ready = !matches!(self.caps, crate::machine::EngineCaps::Unknown);
-        let ((width_pt, height_pt), scale) = {
+        let ready = self.engine_caps_known();
+        let proxy_err = self.resolve_remote_context(&mut context);
+        let ctx_ok = !ready || context.is_supported(self.engine_partitions(), self.engine_remote_proxy());
+        let refused = proxy_err
+            .map(str::to_owned)
+            .or_else(|| (!ctx_ok).then(|| "browser.partitions.unsupported".to_owned()));
+        let ((width_pt, height_pt), scale, had_engine_tab) = {
             let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) else { return };
+            let had = t.has_engine_tab;
             t.preview = None;
             t.preview_spec = None;
             t.context = context.clone();
             t.file_roots.clear();
-            t.url = url.to_owned();
-            t.loading = true;
             t.load_error = None;
-            t.refusal = None;
-            (t.viewport_pt, t.scale)
+            t.engine_confirmed = false;
+            if let Some(code) = &refused {
+                t.url = "about:blank".into();
+                t.loading = false;
+                t.refusal = Some(code.clone());
+                t.rejected += 1;
+                t.has_engine_tab = false;
+            } else {
+                t.url = url.to_owned();
+                t.loading = true;
+                t.refusal = None;
+                t.has_engine_tab = true;
+            }
+            (t.viewport_pt, t.scale, had)
         };
+        let had_live_engine = had_engine_tab && !self.pending_opens.iter().any(|(id, _)| *id == tab_id);
+        if refused.is_some() {
+            self.pending_opens.retain(|(id, _)| *id != tab_id);
+            if connected && had_live_engine {
+                *self.reopening_tabs.entry(tab_id).or_default() += 1;
+                self.send(HostMsg::CloseTab { tab_id });
+            }
+            return;
+        }
         if connected && (context.is_default() || ready) {
-            *self.reopening_tabs.entry(tab_id).or_default() += 1;
-            self.send(HostMsg::CloseTab { tab_id });
+            if had_live_engine {
+                *self.reopening_tabs.entry(tab_id).or_default() += 1;
+                self.send(HostMsg::CloseTab { tab_id });
+            }
+            self.pending_opens.retain(|(id, _)| *id != tab_id);
             self.send(HostMsg::OpenTab {
                 tab_id,
                 url: url.to_owned(),
@@ -276,6 +307,10 @@ impl BrowserHost {
                 preview: None,
             });
         } else {
+            if connected && had_live_engine {
+                *self.reopening_tabs.entry(tab_id).or_default() += 1;
+                self.send(HostMsg::CloseTab { tab_id });
+            }
             self.pending_opens.retain(|(id, _)| *id != tab_id);
             self.pending_opens.push((tab_id, url.to_owned()));
             self.ensure_connected();
@@ -286,11 +321,12 @@ impl BrowserHost {
     pub fn reopen_tab_as_preview(&mut self, tab_id: u64, display_url: &str, spec: PreviewSpec) {
         let focused = self.focused_tab == Some(tab_id);
         let connected = self.is_connected();
-        let ready = !matches!(self.caps, crate::machine::EngineCaps::Unknown);
+        let ready = self.engine_caps_known();
         let engine_preview = self.engine_preview();
         let ctx_kind = spec.context_kind(tab_id);
-        let ((width_pt, height_pt), scale) = {
+        let ((width_pt, height_pt), scale, had_engine_tab) = {
             let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) else { return };
+            let had = t.has_engine_tab;
             t.preview = Some(spec.tag());
             t.preview_spec = Some(spec.clone());
             t.context = ctx_kind.clone();
@@ -299,12 +335,18 @@ impl BrowserHost {
             t.loading = true;
             t.load_error = None;
             t.refusal = None;
-            (t.viewport_pt, t.scale)
+            t.engine_confirmed = false;
+            t.has_engine_tab = !(connected && ready && !engine_preview);
+            (t.viewport_pt, t.scale, had)
         };
+        let had_live_engine = had_engine_tab && !self.pending_opens.iter().any(|(id, _)| *id == tab_id);
         if connected && ready {
             if engine_preview {
-                *self.reopening_tabs.entry(tab_id).or_default() += 1;
-                self.send(HostMsg::CloseTab { tab_id });
+                if had_live_engine {
+                    *self.reopening_tabs.entry(tab_id).or_default() += 1;
+                    self.send(HostMsg::CloseTab { tab_id });
+                }
+                self.pending_opens.retain(|(id, _)| *id != tab_id);
                 self.send(HostMsg::OpenTab {
                     tab_id,
                     url: "about:blank".into(),
@@ -316,13 +358,24 @@ impl BrowserHost {
                     context: ctx_kind,
                     preview: Some(spec),
                 });
-            } else if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
-                t.url = "about:blank".into();
-                t.loading = false;
-                t.refusal = Some("browser.preview.unsupported".to_owned());
-                t.rejected += 1;
+            } else {
+                if had_live_engine {
+                    *self.reopening_tabs.entry(tab_id).or_default() += 1;
+                    self.send(HostMsg::CloseTab { tab_id });
+                }
+                self.pending_opens.retain(|(id, _)| *id != tab_id);
+                if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
+                    t.url = "about:blank".into();
+                    t.loading = false;
+                    t.refusal = Some("browser.preview.unsupported".to_owned());
+                    t.rejected += 1;
+                }
             }
         } else {
+            if connected && had_live_engine {
+                *self.reopening_tabs.entry(tab_id).or_default() += 1;
+                self.send(HostMsg::CloseTab { tab_id });
+            }
             self.pending_opens.retain(|(id, _)| *id != tab_id);
             self.pending_opens.push((tab_id, display_url.to_owned()));
             self.ensure_connected();
@@ -383,6 +436,8 @@ impl BrowserHost {
             device: None,
             scale,
             sent_resize: None,
+            has_engine_tab: false,
+            engine_confirmed: false,
         });
         self.focused_tab = Some(id);
         id
@@ -445,5 +500,106 @@ impl BrowserHost {
             t.preview = Some(kind);
             t.preview_spec = Some(spec);
         }
+    }
+
+    /// Creates a synthetic preview tab without spawning CEF, used by deterministic Storybook stages
+    /// and headless UI tests.
+    pub fn insert_mock_tab(&mut self, url: &str, title: &str, status: crate::installer::EngineStatus) -> u64 {
+        let id = self.alloc_tab_id();
+        let surface = crate::frame::preview();
+        if let Some(w) = &self.waker {
+            crate::frame::wake_window(&surface, w);
+        }
+        self.surfaces.lock().unwrap_or_else(PoisonError::into_inner).insert(id, surface.clone());
+        self.tabs.push(BrowserTab {
+            id,
+            url: url.to_owned(),
+            title: title.to_owned(),
+            loading: false,
+            can_go_back: true,
+            can_go_forward: false,
+            zoom: 1.0,
+            cursor: CursorKind::Default,
+            load_error: None,
+            favicon: None,
+            preview: None,
+            preview_spec: None,
+            refusal: None,
+            rejected: 0,
+            inspecting: false,
+            files: Vec::new(),
+            prompts: Default::default(),
+            find: Default::default(),
+            surface,
+            surface_origin: (0.0, 0.0),
+            view_zoom: 1.0,
+            context: ContextKind::Default,
+            file_roots: Vec::new(),
+            viewport_pt: (800.0, 600.0),
+            device: None,
+            scale: 2.0,
+            sent_resize: None,
+            has_engine_tab: false,
+            engine_confirmed: false,
+        });
+        self.focused_tab = Some(id);
+        self.last_polled_status = status.clone();
+        self.shared
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .step(crate::machine::EngineEvent::MockStatus(status));
+        id
+    }
+
+    /// Shows `url` titled `title` in mock tab `id`, loaded at once, as an engine would report a
+    /// finished navigation (stories, captures and tests have no engine).
+    pub fn set_mock_page(&mut self, id: u64, url: &str, title: &str) {
+        if let Some(t) = self.tabs.iter_mut().find(|t| t.id == id) {
+            t.can_go_back |= !t.url.is_empty() && t.url != "about:blank";
+            t.url = url.to_owned();
+            t.title = title.to_owned();
+            t.loading = false;
+            t.refusal = None;
+        }
+    }
+
+    pub fn set_mock_refusal(&mut self, id: u64, reason: &str) {
+        if let Some(t) = self.tabs.iter_mut().find(|t| t.id == id) {
+            t.loading = false;
+            t.refusal = Some(reason.to_owned());
+            t.rejected += 1;
+        }
+    }
+
+    pub fn clear_refusal(&mut self, id: u64) {
+        if let Some(t) = self.tabs.iter_mut().find(|t| t.id == id) {
+            t.refusal = None;
+        }
+    }
+
+    /// Sets whether mock tab `id` has an earlier and a later page.
+    pub fn set_mock_history(&mut self, id: u64, back: bool, forward: bool) {
+        if let Some(t) = self.tabs.iter_mut().find(|t| t.id == id) {
+            t.can_go_back = back;
+            t.can_go_forward = forward;
+        }
+    }
+
+    /// Sends every message to the returned receiver instead of an engine (tests).
+    pub fn capture_sent(&mut self) -> std::sync::mpsc::Receiver<HostMsg> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.shared
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .step(crate::machine::EngineEvent::Capture(tx));
+        rx
+    }
+
+    pub fn set_mock_status(&mut self, status: crate::installer::EngineStatus) {
+        self.last_polled_status = status.clone();
+        self.shared
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .step(crate::machine::EngineEvent::MockStatus(status));
     }
 }
