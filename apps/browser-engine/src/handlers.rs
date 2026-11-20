@@ -455,6 +455,7 @@ wrap_load_handler! {
         snap: Arc<Mutex<TabSnapshot>>,
         prompts: Arc<crate::prompts::TabPrompts>,
         diagnostics: Arc<crate::diagnostics::TabDiagnostics>,
+        deferred_initial: Arc<AtomicBool>,
         out_tx: Output,
         events: std::sync::mpsc::Sender<crate::Event>,
     }
@@ -472,7 +473,11 @@ wrap_load_handler! {
                 self.prompts.set_pending_top_url(None);
             }
             let mut s = self.snap.lock().unwrap();
-            s.loading = loading;
+            let waiting_deferred = !loading
+                && s.url.eq_ignore_ascii_case("about:blank")
+                && self.deferred_initial.load(Ordering::Acquire);
+            let effective_loading = loading || waiting_deferred;
+            s.loading = effective_loading;
             s.can_go_back = can_go_back != 0;
             s.can_go_forward = can_go_forward != 0;
             let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
@@ -480,7 +485,7 @@ wrap_load_handler! {
                 tab_id: self.tab_id,
                 url: None,
                 title: None,
-                loading: Some(loading),
+                loading: Some(effective_loading),
             });
         }
 
@@ -609,7 +614,7 @@ wrap_resource_request_handler! {
     impl ResourceRequestHandler {
         // Sub-resources (`img`, `script`, `link`, `fetch`, `XHR`) may never read `file:` URLs
         // outside the tab's allowed workspace roots (`pane.ts:103-107`), and no non-`about:blank`
-        // request may run before an isolated context finishes preference initialization.
+        // request may run before an isolated context finishes preference verification (or while suspended).
         fn on_before_resource_load(
             &self,
             _browser: Option<&mut Browser>,
@@ -722,8 +727,8 @@ wrap_request_handler! {
                 _ => (true, None),
             };
             let url = request.map(|r| CefString::from(&r.url()).to_string()).unwrap_or_default();
-            // Fail closed before `on_request_context_initialized` finishes verifying prefs:
-            // cancel every non-`about:blank` navigation (`review-rd281.md` #1, `review-rd-engine.md` #292 #1).
+            // Fail closed before `on_request_context_initialized` finishes verifying prefs
+            // (and while a remote context is suspended): cancel every non-`about:blank` navigation.
             if !self.context_ready.load(Ordering::Acquire) {
                 return i32::from(!url.trim().eq_ignore_ascii_case("about:blank"));
             }

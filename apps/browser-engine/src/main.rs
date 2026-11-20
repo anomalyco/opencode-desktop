@@ -26,6 +26,7 @@ mod keys;
 mod linux_gpu;
 #[cfg(target_os = "macos")]
 mod mac_app;
+mod cef_runtime;
 mod diagnostics;
 mod favicon;
 mod find;

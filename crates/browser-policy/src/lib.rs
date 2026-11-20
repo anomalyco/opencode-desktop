@@ -375,23 +375,10 @@ pub fn resolve_address(input: &str) -> String {
     with_scheme(value)
 }
 
-pub fn loopback_host(hostname: &str) -> bool {
-    let h = hostname.trim_end_matches('.');
-    if h.eq_ignore_ascii_case("localhost") || h == "::1" || h == "[::1]" {
-        return true;
-    }
-    if h.len() > 10 && h.as_bytes()[h.len() - 10..].eq_ignore_ascii_case(b".localhost") {
-        return true;
-    }
-    let mut parts = h.split('.');
-    if let (Some(a), Some(b), Some(c), Some(d), None) = (parts.next(), parts.next(), parts.next(), parts.next(), parts.next())
-        && a == "127"
-        && [b, c, d].into_iter().all(|p| p.parse::<u8>().is_ok())
-    {
-        return true;
-    }
-    false
-}
+mod network;
+pub use network::{
+    is_local_or_loopback_host, is_strict_loopback_ip, loopback_host, validate_proxy_endpoint,
+};
 
 fn is_loopback_authority(value: &str) -> bool {
     let authority = value.split(['/', '\\', '?', '#']).next().unwrap_or("");

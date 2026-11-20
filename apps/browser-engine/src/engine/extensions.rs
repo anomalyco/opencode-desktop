@@ -327,6 +327,7 @@ impl EngineManager {
             cursor: CursorKind::Default,
             load_error: None,
             favicon: None,
+            context: ContextKind::Default,
             preview: None,
         }));
         let allowed_ext = vec![ext_id.clone()];
@@ -365,6 +366,7 @@ impl EngineManager {
             snap.clone(),
             prompts.clone(),
             diagnostics.clone(),
+            Arc::new(AtomicBool::new(false)),
             null_out.clone(),
             self.events.clone(),
         );
@@ -389,6 +391,7 @@ impl EngineManager {
             file_roots.clone(),
             true,
             false,
+            context_ready.clone(),
             self.downloads.clone(),
             null_out.clone(),
         );
@@ -469,11 +472,12 @@ impl EngineManager {
             return;
         };
         if !self.contexts.is_tab_ready(tab_id) {
+            let reason = self.contexts.not_ready_reason(tab_id);
             let _ = self.out_tx.send(EngineMsg::CdpResponse {
                 tab_id,
                 request_id,
                 ok: false,
-                result: json!({ "message": "browser.context.initializing" }),
+                result: json!({ "message": reason }),
             });
             return;
         }
@@ -525,6 +529,170 @@ impl EngineManager {
                 ok: false,
                 result: json!({ "error": "send_dev_tools_message rejected" }),
             });
+        }
+    }
+
+    pub(super) fn handle_set_inspect(&self, tab_id: u64, enabled: bool) {
+        let Some(t) = self.tabs.get(&tab_id).filter(|_| self.contexts.is_tab_ready(tab_id)) else {
+            return;
+        };
+        if tab_is_extension_surface(t) {
+            return;
+        }
+        let host = t.host.clone();
+        if enabled {
+            self.send_internal_cdp(&host, "DOM.enable", json!({}));
+            self.send_internal_cdp(&host, "Overlay.enable", json!({}));
+            self.send_internal_cdp(
+                &host,
+                "Overlay.setInspectMode",
+                json!({
+                    "mode": "searchForNode",
+                    "highlightConfig": {
+                        "showInfo": true,
+                        "contentColor": { "r": 56, "g": 189, "b": 248, "a": 0.24 },
+                        "paddingColor": { "r": 52, "g": 211, "b": 153, "a": 0.18 },
+                        "borderColor": { "r": 251, "g": 191, "b": 36, "a": 0.90 }
+                    }
+                }),
+            );
+        } else {
+            self.send_internal_cdp(
+                &host,
+                "Overlay.setInspectMode",
+                json!({ "mode": "none", "highlightConfig": {} }),
+            );
+            self.send_internal_cdp(&host, "Overlay.hideHighlight", json!({}));
+        }
+        let _ = self.out_tx.send(EngineMsg::InspectState {
+            tab_id,
+            active: enabled,
+            picked: None,
+        });
+    }
+
+    pub(super) fn handle_highlight_node(&self, tab_id: u64, backend_node_id: Option<i64>) {
+        let Some(t) = self.tabs.get(&tab_id).filter(|_| self.contexts.is_tab_ready(tab_id)) else {
+            return;
+        };
+        if tab_is_extension_surface(t) {
+            return;
+        }
+        let host = t.host.clone();
+        match backend_node_id {
+            Some(id) => {
+                self.send_internal_cdp(&host, "DOM.enable", json!({}));
+                self.send_internal_cdp(&host, "Overlay.enable", json!({}));
+                self.send_internal_cdp(
+                    &host,
+                    "Overlay.highlightNode",
+                    json!({
+                        "backendNodeId": id,
+                        "highlightConfig": {
+                            "showInfo": false,
+                            "contentColor": { "r": 56, "g": 189, "b": 248, "a": 0.25 },
+                            "borderColor": { "r": 56, "g": 189, "b": 248, "a": 0.9 }
+                        }
+                    }),
+                );
+            }
+            None => {
+                self.send_internal_cdp(&host, "Overlay.hideHighlight", json!({}));
+            }
+        }
+    }
+
+    pub(super) fn handle_find(
+        &self,
+        tab_id: u64,
+        query: &str,
+        forward: bool,
+        match_case: bool,
+        find_next: bool,
+    ) {
+        let Some(t) = self.tabs.get(&tab_id) else {
+            return;
+        };
+        if !self.contexts.is_tab_ready(tab_id) || tab_is_extension_surface(t) {
+            t.host.stop_finding(1);
+            return;
+        }
+        if query.is_empty() {
+            t.host.stop_finding(1);
+        } else {
+            t.host.find(
+                Some(&CefString::from(query)),
+                i32::from(forward),
+                i32::from(match_case),
+                i32::from(find_next),
+            );
+        }
+    }
+
+    pub(super) fn handle_set_agent_driven(&mut self, tab_id: u64, agent_driven: bool) {
+        if let Some(t) = self.tabs.get(&tab_id) {
+            t.prompts.agent_driven.store(agent_driven, Ordering::Relaxed);
+            if agent_driven {
+                // Agent-driven tabs may never navigate to `chrome-extension://` pages.
+                t.allowed_ext_ids.lock().unwrap().clear();
+            }
+            if let Some(ext) = &mut self.extensions {
+                ext.set_tab_agent_driven(tab_id, agent_driven);
+            }
+        }
+    }
+
+    pub(super) fn expect_ext_tab_target(
+        &mut self,
+        isolated: bool,
+        is_preview: bool,
+        is_popup: bool,
+        allowed_ext_url: Option<&str>,
+    ) {
+        let Some(ext) = &mut self.extensions else {
+            return;
+        };
+        if isolated || is_preview {
+            ext.expect_isolated_tab();
+        } else if let Some(ext_id) = allowed_ext_url {
+            if is_popup {
+                ext.expect_popup(ext_id);
+            } else {
+                ext.expect_extension_page(ext_id);
+            }
+        } else {
+            ext.expect_web_tab();
+        }
+    }
+
+    pub(super) fn notify_ext_tab_opened(
+        &mut self,
+        tab_id: u64,
+        initial_url: &str,
+        width_pt: f32,
+        height_pt: f32,
+        focused: bool,
+        ext_open_request_id: Option<u64>,
+    ) {
+        let effects = self
+            .extensions
+            .as_mut()
+            .map(|ext| {
+                ext.on_tab_opened(
+                    tab_id,
+                    initial_url,
+                    width_pt.round() as i32,
+                    height_pt.round() as i32,
+                    focused,
+                )
+            })
+            .unwrap_or_default();
+        self.run_ext_effects(effects);
+        if let Some(req_id) = ext_open_request_id
+            && let Some((sid, rpc_id, ext_id)) = self.pending_ext_opens.remove(&req_id)
+            && let Some(ext) = &mut self.extensions
+        {
+            ext.finish_tab_create(&sid, rpc_id, &ext_id, tab_id);
         }
     }
 }

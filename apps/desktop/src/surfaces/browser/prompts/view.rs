@@ -40,9 +40,14 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
             .size(rune_kit::ButtonSize::Small)
             .on_press(move |app: &mut App| {
                 // `take_blocked_popup_url` enforces the 500 ms activation delay.
-                if let Some(url) = app.workspace_panes.browser.host.take_blocked_popup_url(tab_id) {
+                if let Some(url) = app.workspace_panes.browser.host.take_blocked_popup_url(tab_id)
+                    && let Some((agent, ctx)) = app.browser_context_for_opener(tab_id)
+                {
                     let sid = app.browser_tab_session(tab_id).map(str::to_owned);
-                    app.open_new_browser_tab_for_session(sid.as_deref(), &url, None, true);
+                    let new_id = app.open_new_browser_tab_with_context(sid.as_deref(), &url, None, true, false, ctx);
+                    if agent {
+                        app.workspace_panes.browser.host.set_agent_driven(new_id, true);
+                    }
                 }
             })
             .build(k)

@@ -98,6 +98,18 @@ pub fn is_server_attached(app: &App, server_key: &ServerKey) -> bool {
         .any(|((k, _), att)| k == server_key && att.attach.is_attached())
 }
 
+/// Returns the owning `ServerKey` of any session tracked in `BROWSER_RPC` (including background
+/// remote-server sessions not currently active in the window).
+pub fn server_for_session(app: &App, session_id: &str) -> Option<ServerKey> {
+    app.kernel
+        .slots
+        .get(&BROWSER_RPC)
+        .sessions
+        .keys()
+        .find(|(_, sid)| sid == session_id)
+        .map(|(k, _)| k.clone())
+}
+
 /// Whether `session_id` on `server_key` has settled its attachment attempt for `BuiltinPromptGate`.
 #[allow(dead_code)]
 pub fn session_prompt_gate_settled(app: &App, server_key: &ServerKey, session_id: &str) -> bool {
