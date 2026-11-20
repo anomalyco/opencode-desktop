@@ -22,6 +22,7 @@ mod cdp;
 pub mod frame_guard;
 pub mod integrity;
 pub mod manifest;
+mod mask_ops;
 pub mod mask_queue;
 pub mod pipe;
 mod png;
