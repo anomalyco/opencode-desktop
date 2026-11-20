@@ -14,6 +14,7 @@ pub(crate) mod recent;
 pub(crate) mod recent_view;
 pub(crate) mod pins;
 pub(super) mod rows;
+mod tab_groups;
 pub(crate) mod state;
 
 // ---------------------------------------------------------------------------------------------
@@ -194,7 +195,7 @@ fn contents(s: &App, p: &Pal, top: f32) -> El {
                 .child(el().key("toggle-slot").size(28.0, 28.0))
         }))
         .child(col().key("actions").w_full().gap(3.0).children(actions(s, p, home, new)))
-        .child(el().key("tabs-gap").w_full().h(16.0))
+        .child(if crate::tabs::groups::on(s) { tab_groups::controls(s, p) } else { el().key("tabs-gap").w_full().h(16.0) })
         .child(list(s, p))
         .children(crate::plugin_host::sidebar_items(s, p))
 }
@@ -245,6 +246,7 @@ fn list(s: &App, p: &Pal) -> El {
                 recent::recent_consolidated(s, p)
             }
             crate::settings::Organize::Consolidated => pinned_area::side_tabs(s, p),
+            crate::settings::Organize::List if crate::tabs::groups::on(s) => tab_groups::list(s, p),
             crate::settings::Organize::List | crate::settings::Organize::Projects => {
                 tab_strip(s, p, "tabs", TabOrientation::Vertical, None, None)
             }

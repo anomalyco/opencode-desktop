@@ -9,6 +9,7 @@
 
 pub mod actions;
 pub mod badges;
+pub mod groups;
 pub mod hints;
 pub mod navigation_switch;
 pub mod pins;

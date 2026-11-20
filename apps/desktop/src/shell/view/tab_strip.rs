@@ -14,7 +14,7 @@ pub(crate) const MATCHED: &str = "shell-tab";
 pub(crate) const ACTIVE: &str = "shell-active";
 
 /// A draft tab's pencil, drawn inline in `DraftTabItem` (not the catalog's `edit`).
-static DRAFT_PENCIL: Icon = Icon {
+pub(crate) static DRAFT_PENCIL: Icon = Icon {
     name: "draft-pencil",
     view: 16.0,
     body: r#"<path d="M9.00002 13.5H14M2.60419 10.9167V13.3958H5.08335L13.3959 5.08333L10.9167 2.60416L2.60419 10.9167Z" stroke="currentColor"/>"#,
@@ -203,7 +203,7 @@ fn item<'a>(
 
 /// A draft tab's 16×16 leading face (`DraftTabItem` in `tab-nav.tsx`, #63089): the pencil icon
 /// slides up while the outline shortcut badge rises in when Mod is held.
-fn draft_avatar(p: &Pal, active: bool, shortcut: usize, show_hints: bool) -> El {
+pub(crate) fn draft_avatar(p: &Pal, active: bool, shortcut: usize, show_hints: bool) -> El {
     let anim = rune::Anim::new(Curve::tween(0.16, Easing::EASE_OUT));
     let font = TextStyle::new(11.0, 530.0).lh(11.0).tracking(0.05).features("\"tnum\"");
     let pencil = icon(&DRAFT_PENCIL, 16.0)
@@ -280,7 +280,7 @@ pub(crate) fn tab_words() -> rune_kit::shell::TabWords {
 
 /// Desktop's tab mark (`tab-nav.tsx`'s `status`): busy while the family runs, then nothing on
 /// the open tab, then attention, then the unread dot, red when the run failed.
-fn status(s: &App, t: &crate::tabs::Tab) -> Option<TabItemStatus> {
+pub(crate) fn status(s: &App, t: &crate::tabs::Tab) -> Option<TabItemStatus> {
     let mark = if t.is_draft() { s.tab_status(&t.id) } else { s.tab_status_of(t) };
     Some(match mark? {
         TabStatus::Busy => TabItemStatus::Busy,

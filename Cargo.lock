@@ -3330,6 +3330,7 @@ dependencies = [
  "opencode-feature-settings",
  "opencode-feature-subagents",
  "opencode-feature-switcher",
+ "opencode-feature-tab-groups",
  "opencode-feature-terminal-surface",
  "opencode-feature-timeline-extras",
  "opencode-feature-tips",
@@ -3725,6 +3726,14 @@ dependencies = [
  "rune",
  "rune-kit",
  "rune-theme-opencode",
+]
+
+[[package]]
+name = "opencode-feature-tab-groups"
+version = "0.0.1"
+dependencies = [
+ "rune",
+ "serde_json",
 ]
 
 [[package]]
