@@ -57,6 +57,21 @@ pub struct Notice {
     pub kind: NoticeKind,
 }
 
+impl Notice {
+    /// An idle marker: the run ended.
+    pub fn is_idle(&self) -> bool {
+        matches!(self.kind, NoticeKind::Idle { .. })
+    }
+
+    /// An idle marker's failure, when the run failed outside its steps.
+    pub fn idle_failure(&self) -> Option<&StepError> {
+        match &self.kind {
+            NoticeKind::Idle { failure } => failure.as_ref(),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum NoticeKind {
     Agent { agent: String, previous: Option<String> },
@@ -73,9 +88,14 @@ pub enum NoticeKind {
     /// anomalyco/opencode#64741). `required`: true when the job errored (`timelineNoticeRequired`).
     Job { id: String, description: String, script: Option<Outcome>, required: bool },
     Text(String),
-    /// The run ended (an `idle` message): never shown, it closes the turn whose changed files
-    /// Changed files lists.
-    Idle,
+    /// The user answered an agent widget (`metadata.widget`): the prompt the server sends the
+    /// agent for it, which the timeline shows as one quiet line (`Responded to "Hero image"`)
+    /// under the widget, which already shows the answer.
+    Widget { message: String, label: String },
+    /// The run ended (an `idle` message): it closes the turn whose changed files Changed files
+    /// lists. `failure`: the run failed before or between its steps (`outcome: "failed"` with an
+    /// `error`, a model with no route, say), which the turn shows as its error.
+    Idle { failure: Option<StepError> },
 }
 
 /// A synthetic message a background shell or subagent sends back when it ends, as Desktop's
@@ -174,7 +194,7 @@ pub(super) fn parse(m: &Value) -> Option<Message> {
 fn kind(ty: &str, m: &Value) -> Option<NoticeKind> {
     let description = m["description"].as_str().map(str::trim).filter(|d| !d.is_empty());
     Some(match ty {
-        "idle" => NoticeKind::Idle,
+        "idle" => NoticeKind::Idle { failure: if m["outcome"] == "failed" { StepError::parse(&m["error"]) } else { None } },
         "agent-switched" => NoticeKind::Agent { agent: s(&m["agent"]), previous: m["previous"].as_str().map(str::to_owned) },
         "model-switched" => NoticeKind::Model { model: ModelRef::parse(&m["model"]), previous: model_ref(&m["previous"]) },
         "location-switched" => NoticeKind::Moved { directory: s(&m["location"]["directory"]) },
@@ -187,6 +207,10 @@ fn kind(ty: &str, m: &Value) -> Option<NoticeKind> {
                 Some(keys) => instructions(keys.split(',').map(str::trim).filter(|k| !k.is_empty()).map(str::to_owned).collect()),
                 None => NoticeKind::Text(description.map_or_else(|| s(&m["text"]), str::to_owned)),
             }
+        }
+        "synthetic" if m["metadata"]["widget"].is_object() => {
+            let label = description.map(str::to_owned).unwrap_or_else(|| widget_label(m["text"].as_str().unwrap_or("")));
+            NoticeKind::Widget { message: s(&m["metadata"]["widget"]["messageID"]), label }
         }
         "synthetic" => {
             if m["metadata"]["notice"] == "restart" || description == Some("Continuing after restart") {
@@ -242,6 +266,19 @@ fn kind(ty: &str, m: &Value) -> Option<NoticeKind> {
     })
 }
 
+/// `Responded to "<title>"` from the prompt text a response sends, for a server that gives no
+/// `description` (`User responded to widget "<title>": <value>`, `User dismissed widget "<title>"`).
+fn widget_label(text: &str) -> String {
+    let quoted = |rest: &str| rest.strip_prefix('"').and_then(|r| r.split_once('"')).map(|(t, _)| t.to_owned());
+    if let Some(title) = text.strip_prefix("User responded to widget ").and_then(quoted) {
+        return format!("Responded to \"{title}\"");
+    }
+    if let Some(title) = text.strip_prefix("User dismissed widget ").and_then(quoted) {
+        return format!("Dismissed \"{title}\"");
+    }
+    text.lines().next().unwrap_or("").to_owned()
+}
+
 /// The notice a `session.*` event appends, under the id its message takes (`evt_` → `msg_`).
 fn from_event(ty: &str, d: &Value) -> Option<Notice> {
     let id = d["eventID"].as_str()?.replacen("evt_", "msg_", 1);
@@ -282,7 +319,9 @@ impl Transcript {
         if self.messages.iter().any(|m| m.id() == id) {
             return false;
         }
-        self.messages.push(Message::Notice(Notice { id, kind: NoticeKind::Idle }));
+        // `session.execution.failed` carries the error its idle message records.
+        let failure = StepError::parse(&d["error"]);
+        self.messages.push(Message::Notice(Notice { id, kind: NoticeKind::Idle { failure } }));
         true
     }
 

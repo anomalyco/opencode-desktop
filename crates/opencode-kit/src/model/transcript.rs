@@ -31,8 +31,9 @@ impl Transcript {
 
     /// The assistant step still producing output, if any.
     pub fn busy(&self) -> bool {
-        // A notice (a model switched with the prompt) doesn't end the turn it lands in.
-        let last = self.messages.iter().rev().find(|m| !matches!(m, Message::Notice(_)));
+        // A notice (a model switched with the prompt) doesn't end the turn it lands in; the idle
+        // marker does, also a run that failed before any step (no reply after the prompt).
+        let last = self.messages.iter().rev().find(|m| !matches!(m, Message::Notice(n) if !n.is_idle()));
         matches!(last, Some(Message::Assistant(a)) if a.completed.is_none() && a.error.is_none())
             || matches!(last, Some(Message::User { .. }))
     }

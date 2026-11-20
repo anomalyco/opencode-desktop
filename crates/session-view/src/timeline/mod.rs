@@ -274,6 +274,12 @@ impl RowSpec {
             },
             RowContent::Error { message, pt } => match &t.messages[*message] {
                 Message::Assistant(a) => crate::turn_errors::error(s, p, a).pt(*pt),
+                // A run that failed outside its steps (`span::idle_reports`): its error as a step's.
+                Message::Notice(n) if n.idle_failure().is_some() => {
+                    let failure = n.idle_failure().cloned();
+                    let a = Assistant { id: n.id.clone(), error: failure.as_ref().map(|f| f.message.clone()), failure, ..Default::default() };
+                    crate::turn_errors::error(s, p, &a).pt(*pt)
+                }
                 _ => unreachable!(),
             },
             RowContent::Retry { message, pt } => match &t.messages[*message] {
@@ -346,7 +352,7 @@ pub fn entries<'a>(messages: &'a [Message], detail: &crate::detail::Detail) -> V
     messages.iter().map(|m| match m {
         Message::Assistant(a) => Entry::Step(a),
         Message::Note { step, .. } => Entry::Step(step),
-        Message::Notice(n) if n.kind == model::NoticeKind::Idle => Entry::Idle,
+        Message::Notice(n) if n.is_idle() => Entry::Idle,
         Message::Notice(n) if crate::detail::notice_folds(n, detail) => Entry::Notice(n),
         _ => Entry::Skip,
     }).collect()

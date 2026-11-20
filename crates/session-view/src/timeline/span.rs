@@ -74,7 +74,7 @@ pub(super) fn boundary(messages: &[Message], c: usize) -> bool {
 /// The run under way where message `c` starts (`execution`): its first prompt since the last run
 /// ended, and the files its steps changed since.
 pub(super) fn run_at(messages: &[Message], c: usize) -> Option<(String, BTreeSet<String>)> {
-    let from = messages[..c].iter().rposition(|m| matches!(m, Message::Notice(n) if n.kind == model::NoticeKind::Idle)).map_or(0, |i| i + 1);
+    let from = messages[..c].iter().rposition(|m| matches!(m, Message::Notice(n) if n.is_idle())).map_or(0, |i| i + 1);
     let first = (from..c).find(|&i| matches!(messages[i], Message::User { .. }))?;
     let Message::User { id, .. } = &messages[first] else { return None };
     let files = messages[first..c].iter().filter_map(|m| match m {
@@ -82,6 +82,28 @@ pub(super) fn run_at(messages: &[Message], c: usize) -> Option<(String, BTreeSet
         _ => None,
     }).flatten().collect();
     Some((id.clone(), files))
+}
+
+/// Whether idle marker `mi` reports its run's failure as the turn's error, as Desktop's
+/// `appendIdle` decides (`packages/session-ui/src/timeline/projection.ts`, `isFailedIdle`): it
+/// failed with an error that isn't an interruption, and neither the turn's last step reported an
+/// error of its own nor a failed compaction just before it did.
+pub(super) fn idle_reports(messages: &[Message], mi: usize) -> bool {
+    let Some(Message::Notice(n)) = messages.get(mi) else { return false };
+    let Some(f) = n.idle_failure() else { return false };
+    if super::interrupted(&f.kind) {
+        return false;
+    }
+    if matches!(mi.checked_sub(1).and_then(|i| messages.get(i)), Some(Message::Compaction(c)) if c.status == model::CompactionStatus::Failed && !c.error.as_ref().is_some_and(|(k, _)| super::interrupted(k))) {
+        return false;
+    }
+    // The turn's last step since the run before it ended: a reply step, or an earlier failed idle.
+    let turn = messages[..mi].iter().rposition(|m| matches!(m, Message::Notice(x) if x.is_idle() && x.idle_failure().is_none())).map_or(0, |i| i + 1);
+    let last = messages[turn..mi].iter().rev().find_map(|m| match m {
+        Message::Assistant(a) => Some(a.error.is_some() && !a.failure.as_ref().is_some_and(|f| super::interrupted(&f.kind))),
+        _ => None,
+    });
+    last != Some(true)
 }
 
 /// The rows of messages `range` of `t`, spaced among themselves. A span that isn't the `last`
@@ -130,15 +152,22 @@ pub(super) fn project<S: TimelineHost>(s: &S, t: &Transcript, inp: &Inputs, rang
                 }
             }
             // A run ends: with Changed files on, the files it changed list after its work.
-            Message::Notice(n) if n.kind == model::NoticeKind::Idle => match run.take().filter(|r| inp.turn_diffs && !r.1.is_empty()) {
-                Some((from, files)) => {
+            Message::Notice(n) if n.is_idle() => {
+                // A run that failed outside its steps reports its error where it ended.
+                if idle_reports(messages, mi) {
                     turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false, detail);
-                    diff_at = Some(out.len());
-                    out.push(RowSpec { key: format!("td-{}", n.id), content: RowContent::TurnDiff { idle: mi, from, files: files.into_iter().collect(), pt: 16.0 }, streaming: false });
+                    out.push(RowSpec { key: format!("e-{}", n.id), content: RowContent::Error { message: mi, pt: 24.0 }, streaming: false });
                 }
-                None if !steps.is_empty() => steps.push(Entry::Idle),
-                None => {}
-            },
+                match run.take().filter(|r| inp.turn_diffs && !r.1.is_empty()) {
+                    Some((from, files)) => {
+                        turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false, detail);
+                        diff_at = Some(out.len());
+                        out.push(RowSpec { key: format!("td-{}", n.id), content: RowContent::TurnDiff { idle: mi, from, files: files.into_iter().collect(), pt: 16.0 }, streaming: false });
+                    }
+                    None if !steps.is_empty() => steps.push(Entry::Idle),
+                    None => {}
+                }
+            }
             Message::Notice(n) if !steps.is_empty() || crate::detail::notice_folds(n, detail) => {
                 match notice_placement(n, detail) {
                     _ if crate::detail::notice_folds(n, detail) => {

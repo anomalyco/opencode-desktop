@@ -198,7 +198,7 @@ pub fn part_category(part: &Part) -> Option<Category> {
 pub fn notice_placement(n: &opencode_kit::model::Notice, d: &Detail) -> Placement {
     use opencode_kit::model::NoticeKind;
     match (&n.kind, d.placement(Category::Notices)) {
-        (NoticeKind::Idle, _) => Placement::Hidden,
+        (NoticeKind::Idle { .. }, _) => Placement::Hidden,
         (NoticeKind::Finished(f), _) => {
             let placement = d.placement(if f.subagent { Category::Subagents } else { Category::Shell });
             if placement == Placement::Hidden && !f.required { Placement::Hidden } else { Placement::Separate }
@@ -209,6 +209,8 @@ pub fn notice_placement(n: &opencode_kit::model::Notice, d: &Detail) -> Placemen
         // What changed the session always stands on its own, whatever the setting
         // (`timeline-next/rules.ts`'s `sessionEvent`).
         (NoticeKind::Agent { .. } | NoticeKind::Model { .. } | NoticeKind::Moved { .. }, _) => Placement::Separate,
+        // An answered widget says so under it whatever the setting, as the TUI always shows it.
+        (NoticeKind::Widget { .. }, _) => Placement::Separate,
         (_, p) => p,
     }
 }

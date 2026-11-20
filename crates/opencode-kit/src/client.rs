@@ -781,8 +781,10 @@ fn event_line(line: &str) -> Option<Incoming> {
         return None;
     }
     let mut data = v["data"].clone();
-    // A compaction message, and a notice's, takes its id from the event that started it.
-    if (ty.starts_with("session.compaction.") || crate::model::is_notice_event(&ty))
+    // A compaction message, and a notice's, takes its id from the event that started it; so does
+    // the idle marker a run's end records (`session.execution.*`), which ends a turn that failed
+    // before any step, with its error.
+    if (ty.starts_with("session.compaction.") || ty.starts_with("session.execution.") || crate::model::is_notice_event(&ty))
         && let Some(id) = v["id"].as_str()
     {
         data["eventID"] = id.into();
