@@ -3,6 +3,7 @@
 //! Element construction stays non-generic (`&dyn DictationHost`); only [`toolbar`] and [`status`]
 //! are generic over `H: DictationHost + 'static` to bind 1-line `rune::El` press callbacks.
 
+use opencode_ui::focus::FocusExt;
 use hex_client::Fix;
 use rune::{El, Icon, MotionIntent, Spring, Tx, el, icon, row, text};
 use opencode_ui::palette::Pal;
@@ -48,7 +49,7 @@ fn toolbar_button(host: &dyn DictationHost, p: &Pal) -> Option<(El, bool)> {
         // titlebar, so the mic keeps out of the Tab order (its shortcut still toggles it).
         .tab_index(-1)
         // Inside the composer's clip its keyboard ring sits 2 in (`editor.css:70-73`).
-        .focus_ring(2.0, -2.0, p.v2.border_focus);
+        .focus_inset(p);
     b = match &d.phase {
         Phase::Idle | Phase::Failed(_) => b
             .label_static(opencode_i18n::t!("rune.command.prompt.dictate"))

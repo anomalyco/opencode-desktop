@@ -95,8 +95,8 @@ pub(crate) fn home(s: &App, p: &Pal, [panel_w, panel_h]: [f32; 2], window: [f32;
         Tier::Medium => col().key("home-grid").w_full().max_w(GRID_MAX).px(pad).gap(16.0).child(projects::column(s, p, selected, false, panel_h)).child(sessions),
         Tier::Narrow => col().key("home-grid").w_full().max_w(GRID_MAX).px(pad).child(sessions),
     };
-    // A Tab stop, as Desktop's `ScrollView` (`tabIndex={0}`), drawing no ring.
-    let viewport = col().w_full().shrink().min_h(0.0).clip_soft(0.0).focusable(true).role("region").label_static(opencode_i18n::t!("ui.scrollView.ariaLabel")).no_focus_ring();
+    // A Tab stop, as Desktop's `ScrollView` (`tabIndex={0}`), ringed inside (`scroll-view.css`).
+    let viewport = col().w_full().shrink().min_h(0.0).clip_soft(0.0).focusable(true).role("region").label_static(opencode_i18n::t!("ui.scrollView.ariaLabel")).focus_inset(p);
     // The thumb sits in the sessions column's 12 pt gutter under its sticky header, in a track as
     // long as the page below it, shown while the pointer is on that column (`route.tsx:34-40`,
     // `sessions/view.tsx`'s `home-session-scroll-track`).
@@ -379,6 +379,7 @@ fn list_row(s: &App, p: &Pal, ses: &SessionInfo, nav_ids: &std::rc::Rc<Vec<Strin
         .gap(ROW_GAP)
         .center_y()
         .radius(6.0)
+        .focus_inset(p)
         .hover_group()
         .hover(p.hover)
         .press(p.pressed)

@@ -148,7 +148,7 @@ impl App {
     /// `poll`: a gesture that ended without a release (Escape, the window losing focus) takes
     /// its window back.
     pub(crate) fn poll_tear(&mut self) {
-        if matches!(self.window.tear, Tear::Out(_)) && !self.gestures.tab_drag.torn_out() {
+        if matches!(self.window.tear, Tear::Out(_)) && !self.gestures.tab_drag.torn_out() && !crate::tabs::groups::torn_out(self) {
             self.tear_back();
         }
     }

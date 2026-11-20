@@ -12,6 +12,10 @@ use rune::Keybind;
 
 use super::{Bind, all};
 
+/// Rows saved under another id before (old, now): `session.stop` became Desktop's `prompt.stop`
+/// (opencode#64394).
+const RENAMES: [(&str, &str); 1] = [("session.stop", "prompt.stop")];
+
 /// The table's overrides, by `Bind`.
 static TABLE: RwLock<Vec<Option<&'static Keybind>>> = RwLock::new(Vec::new());
 /// Commands without a row in the table, by id.
@@ -75,13 +79,16 @@ pub fn clear_on_changed() {
 /// [`set_on_changed`] host hook.
 pub fn apply(map: &BTreeMap<String, String>) {
     let rows = all();
-    let table: Vec<Option<&'static Keybind>> = rows.iter().map(|b| map.get(b.id).and_then(|spec| parse(spec))).collect();
+    // A row's change, else one saved under the id it had before. Nothing saved is rewritten, so an
+    // older build still reads its own id.
+    let saved = |id: &str| map.get(id).or_else(|| RENAMES.iter().find(|(_, now)| *now == id).and_then(|(old, _)| map.get(*old)));
+    let table: Vec<Option<&'static Keybind>> = rows.iter().map(|b| saved(b.id).and_then(|spec| parse(spec))).collect();
     for b in rows {
         if let Some(v) = view_bind(b.bind) {
             super::base::set_override(v, table[b.bind as usize]);
         }
     }
-    let commands = map.iter().filter(|(id, _)| !rows.iter().any(|b| b.id == id.as_str())).filter_map(|(id, spec)| Some((id.clone(), parse(spec)?))).collect();
+    let commands = map.iter().filter(|(id, _)| !rows.iter().any(|b| b.id == id.as_str()) && !RENAMES.iter().any(|(old, _)| old == id)).filter_map(|(id, spec)| Some((id.clone(), parse(spec)?))).collect();
     *TABLE.write().unwrap_or_else(|e| e.into_inner()) = table;
     *COMMANDS.write().unwrap_or_else(|e| e.into_inner()) = commands;
     VERSION.fetch_add(1, Ordering::Release);

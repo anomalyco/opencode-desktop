@@ -1,6 +1,7 @@
 //! The pickers on screen: the toolbar's triggers, the open menu, and the layer a host mounts
 //! over its window ([`layer`]). The model picker is a dialog of its own ([`super::dialog`]).
 
+use crate::focus::FocusExt;
 use opencode_kit::model::capitalize;
 use rune::{Align, Color, El, Side, Spring, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
@@ -83,7 +84,7 @@ pub fn agent_icon<S: PickerHost>(_: &S, p: &Pal, name: &str) -> El {
         .hover(p.hover)
         .press(p.pressed)
         .motion(Spring::NONE)
-        .focus_ring(2.0, -2.0, p.v2.border_focus)
+        .focus_inset(p)
         .child(icon(&ic::BRAIN, 16.0).color(p.icon_muted));
     b.on_press_tx(|s: &mut S, tx: &mut Tx| open::<S>(s, Kind::Agent, tx)).press_on_down()
 }

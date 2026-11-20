@@ -185,6 +185,14 @@ impl SessionMenuHost for App {
         crate::tabs::pins::run_menu(self, server, id, menu_id)
     }
 
+    fn tab_menu_extra(&self, uid: &str) -> Vec<crate::session_menu::Line> {
+        crate::tabs::groups::tab_menu(self, uid)
+    }
+
+    fn run_tab_menu_extra(&mut self, uid: &str, menu_id: &str, _tx: &mut Tx) -> bool {
+        crate::tabs::groups::run_tab_menu(self, uid, menu_id)
+    }
+
     fn close_tab(&mut self, uid: &str, tx: &mut Tx) {
         App::close_tab(self, uid, tx);
     }

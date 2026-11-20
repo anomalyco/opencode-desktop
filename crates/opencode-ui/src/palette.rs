@@ -655,6 +655,9 @@ pub fn scroll_bar(p: &Pal) -> ScrollBarStyle {
 
 fn kit_from(p: &Pal) -> Kit {
     let mut k = rune_theme_opencode::kit(p.dark).clone();
+    // The kit's controls ring in the app's `border-focus` (`assets/theme.json`), the same as
+    // `crate::focus`, in the default theme too.
+    k.c.border_focus = p.v2.border_focus;
     if p.theme == 0 {
         return k;
     }
@@ -666,7 +669,7 @@ fn kit_from(p: &Pal) -> Kit {
     (c.border_base, c.border_muted, c.border_strong) = (p.border, p.border_muted, p.q.border_strong);
     (c.hover, c.pressed, c.scrim) = (p.hover, p.pressed, p.scrim);
     let v = &p.v2;
-    (c.bg_inverse, c.text_inverse, c.icon_inverse, c.icon_accent, c.border_focus) = (v.bg_inverse, v.text_inverse, v.icon_inverse, v.icon_accent, v.border_focus);
+    (c.bg_inverse, c.text_inverse, c.icon_inverse, c.icon_accent) = (v.bg_inverse, v.text_inverse, v.icon_inverse, v.icon_accent);
     for (state, theirs, fg) in [(&mut c.success, v.success, p.diff_add), (&mut c.danger, v.danger, p.diff_del), (&mut c.warning, v.warning, p.warning), (&mut c.info, v.info, p.info)] {
         *state = rune_kit::StateColors { fg, icon: fg, ..theirs };
     }

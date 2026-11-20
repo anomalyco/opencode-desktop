@@ -3,6 +3,7 @@
 //! Layout and chrome live in non-generic `&dyn FindHost` builders; thin `H: FindHost + 'static`
 //! entrypoints attach only the `rune::El` / `MenuItem` callbacks delegating to non-generic logic.
 
+use opencode_ui::focus::FocusExt;
 use opencode_ui::keymap::Bind;
 use rune::{El, MenuItem, TextStyle, Transition, Tx, icon, row, text};
 use rune_theme_opencode::icons as ic;
@@ -37,7 +38,8 @@ fn close_button_shell(p: &Pal) -> El {
         .label_static(opencode_i18n::t!("session.search.placeholder"))
         .size(20.0, 20.0)
         .center()
-        .radius(2.0)
+        .radius(4.0)
+        .focus_inset(p)
         .hover(p.hover)
         .press(p.pressed)
         .hover_motion(INSTANT, INSTANT)

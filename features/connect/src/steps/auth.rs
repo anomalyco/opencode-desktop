@@ -1,6 +1,7 @@
 //! Sign-in steps: API key entry, OAuth code entry, browser OAuth wait (with optional redirect
 //! URL paste), and server-side command execution output.
 
+use opencode_ui::focus::FocusExt;
 use rune::{El, TextStyle, Tx, col, el, icon, row, spacer, text};
 use rune_kit::{ButtonVariant, TextInput};
 use rune_theme_opencode::icons as ic;
@@ -285,7 +286,7 @@ pub(super) fn browser<H: ConnectHost + 'static>(s: &H, p: &Pal) -> El {
                         .gap(6.0)
                         .center_y()
                         .radius(6.0)
-                        .focus_ring(2.0, -2.0, p.v2.border_focus)
+                        .focus_inset(p)
                         .on_press_tx(move |s: &mut H, tx: &mut Tx| toggle_paste(s, locked, shown, tx))
                         .child(icon(if shown { &ic::CHEVRON_DOWN } else { &ic::CHEVRON_RIGHT }, 14.0).mirror_in_rtl().color(p.icon_muted))
                         .child(text(toggle).font(BODY).color(p.text)),

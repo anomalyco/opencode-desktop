@@ -2,17 +2,19 @@
 //! `SettingsReply`) and applied back on the UI thread via [`apply_reply`].
 
 use opencode_i18n::t;
-use opencode_kit::client::Server;
-use opencode_kit::model::{Project, parse_project};
+use opencode_kit::client::{PluginEndpoint, Server};
+use opencode_kit::model::{ConsoleMcp, PluginInfo, Project, SkillInfo, console_mcps, parse_project, plugin_labels};
 use opencode_kit::servers::ServerKey;
-use opencode_kit::wire_error::WireError;
+use opencode_kit::wire_error::{WireError, WireKind};
 use opencode_search::query::percent_encode;
 use rune::Tx;
 use serde_json::{Value, json};
 
 use crate::host::SettingsHost;
+use crate::pages::extensions;
+use crate::pages::plugin_update;
 use crate::pages::project::Field as ProjectField;
-use crate::pages::project_extensions::{Lsp, SkillPairs, configured_lsps};
+use crate::pages::project_extensions::{Lsp, SkillPairs, configured_lsps_entries};
 use crate::pages::servers::global_shell;
 use crate::pages::worktrees::{self, Inspection, Skip, Target};
 
@@ -28,7 +30,26 @@ pub enum SettingsJob {
 /// Off-thread server work executed by [`execute_request`].
 #[derive(Clone, Debug)]
 pub enum SettingsRequest {
-    LoadExtensions,
+    LoadExtensions {
+        server: ServerKey,
+        active_dir: Option<String>,
+    },
+    ReloadPlugins {
+        server: ServerKey,
+    },
+    ReloadConsoleSources {
+        server: ServerKey,
+        active_dir: Option<String>,
+    },
+    CheckPluginUpdates {
+        server: ServerKey,
+        attempt: u64,
+    },
+    UpdatePlugin {
+        server: ServerKey,
+        id: u64,
+        target: String,
+    },
     LoadProjectExtensions {
         dir: String,
     },
@@ -82,17 +103,54 @@ pub enum SettingsRequest {
     },
 }
 
+/// Outcome of `POST /api/plugin/check`.
+#[derive(Clone, Debug)]
+pub enum PluginCheckResult {
+    Supported(Vec<PluginInfo>),
+    Unsupported,
+    Failed(String),
+}
+
+/// Outcome of `POST /api/plugin/update`.
+#[derive(Clone, Debug)]
+pub enum PluginUpdateResult {
+    Succeeded,
+    Unsupported,
+    Failed(String),
+}
+
 /// Result of a [`SettingsRequest`], applied on the UI thread by [`apply_reply`].
 #[derive(Clone, Debug)]
 pub enum SettingsReply {
     ExtensionsLoaded {
-        plugins: Option<Vec<String>>,
-        skills: Option<Vec<String>>,
+        server: ServerKey,
+        plugins: Result<Vec<PluginInfo>, ()>,
+        skills: Option<Vec<SkillInfo>>,
+        sources: Result<Vec<ConsoleMcp>, ()>,
+    },
+    PluginsReloaded {
+        server: ServerKey,
+        plugins: Result<Vec<PluginInfo>, ()>,
+    },
+    ConsoleSourcesReloaded {
+        server: ServerKey,
+        sources: Result<Vec<ConsoleMcp>, ()>,
+    },
+    PluginCheckSettled {
+        server: ServerKey,
+        attempt: u64,
+        result: PluginCheckResult,
+    },
+    PluginUpdateSettled {
+        server: ServerKey,
+        id: u64,
+        result: PluginUpdateResult,
     },
     ProjectExtensionsLoaded {
         dir: String,
         plugins: Option<(Vec<String>, Vec<String>)>,
         skills: Option<SkillPairs>,
+        sources: Result<Vec<ConsoleMcp>, ()>,
         lsps: Result<(bool, Vec<Lsp>), ()>,
     },
     ProjectPatched {
@@ -132,63 +190,93 @@ pub enum SettingsReply {
     },
 }
 
+fn format_wire_error(err: &WireError) -> String {
+    match &err.kind {
+        WireKind::Status { message: Some(m), .. } if !m.is_empty() => m.clone(),
+        _ => err.to_string(),
+    }
+}
+
+fn load_plugins(srv: &Server, dir: Option<&str>) -> Result<Vec<PluginInfo>, ()> {
+    match srv.list_plugins(dir) {
+        Ok(PluginEndpoint::Supported(list)) => Ok(list),
+        Ok(PluginEndpoint::Unsupported) => Ok(Vec::new()),
+        Err(_) => Err(()),
+    }
+}
+
+fn load_console_sources(srv: &Server, active_dir: Option<&str>) -> Result<Vec<ConsoleMcp>, ()> {
+    let entries = match srv.config_entries(None) {
+        Ok(PluginEndpoint::Supported(entries)) => entries,
+        Ok(PluginEndpoint::Unsupported) => return Ok(Vec::new()),
+        Err(_) => return Err(()),
+    };
+    let active = match active_dir.filter(|d| !d.is_empty()) {
+        Some(dir) => match srv.config_entries(Some(dir)) {
+            Ok(PluginEndpoint::Supported(a)) => Some(a),
+            Ok(PluginEndpoint::Unsupported) => None,
+            Err(_) => return Err(()),
+        },
+        None => None,
+    };
+    Ok(console_mcps(&entries, active.as_deref()))
+}
+
 /// Executes a [`SettingsRequest`] off the UI thread against `srv`.
 pub fn execute_request(srv: &Server, request: SettingsRequest) -> SettingsReply {
     match request {
-        SettingsRequest::LoadExtensions => {
-            let plugins = srv.get("/api/plugin").ok().map(|v| {
-                v["data"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter(|p| p["source"]["type"].as_str() != Some("builtin"))
-                    .filter_map(|p| p["id"].as_str().map(str::to_owned))
-                    .collect::<Vec<_>>()
-            });
+        SettingsRequest::LoadExtensions { server, active_dir } => {
+            let plugins = load_plugins(srv, None);
             // 503 until the server's plugins load; a list that still fails keeps the last one.
-            let skills = srv.get_ready("/api/skill").ok().map(|v| {
-                v["data"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|p| p["name"].as_str().map(str::to_owned))
-                    .collect::<Vec<_>>()
-            });
-            SettingsReply::ExtensionsLoaded { plugins, skills }
+            let skills = srv.list_skills(None).ok().map(|ep| ep.into_option().unwrap_or_default());
+            let sources = load_console_sources(srv, active_dir.as_deref());
+            SettingsReply::ExtensionsLoaded { server, plugins, skills, sources }
+        }
+        SettingsRequest::ReloadPlugins { server } => {
+            let plugins = load_plugins(srv, None);
+            SettingsReply::PluginsReloaded { server, plugins }
+        }
+        SettingsRequest::ReloadConsoleSources { server, active_dir } => {
+            let sources = load_console_sources(srv, active_dir.as_deref());
+            SettingsReply::ConsoleSourcesReloaded { server, sources }
+        }
+        SettingsRequest::CheckPluginUpdates { server, attempt } => {
+            let result = match srv.check_plugin_updates(None) {
+                Ok(PluginEndpoint::Supported(list)) => PluginCheckResult::Supported(list),
+                Ok(PluginEndpoint::Unsupported) => PluginCheckResult::Unsupported,
+                Err(e) => PluginCheckResult::Failed(format_wire_error(&e)),
+            };
+            SettingsReply::PluginCheckSettled { server, attempt, result }
+        }
+        SettingsRequest::UpdatePlugin { server, id, target } => {
+            let result = match srv.update_plugins(&[target]) {
+                Ok(PluginEndpoint::Supported(())) => PluginUpdateResult::Succeeded,
+                Ok(PluginEndpoint::Unsupported) => PluginUpdateResult::Unsupported,
+                Err(e) => PluginUpdateResult::Failed(format_wire_error(&e)),
+            };
+            SettingsReply::PluginUpdateSettled { server, id, result }
         }
         SettingsRequest::LoadProjectExtensions { dir } => {
-            let plugins_at = |q: &str| {
-                srv.get(&format!("/api/plugin{q}")).ok().map(|v| {
-                    v["data"]
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                        .filter(|p| p["source"]["type"].as_str() != Some("builtin"))
-                        .filter_map(|p| p["id"].as_str().map(str::to_owned))
-                        .collect::<Vec<_>>()
-                })
+            let global_plugins = load_plugins(srv, None).ok().map(|v| plugin_labels(&v));
+            let project_plugins = load_plugins(srv, Some(&dir)).ok().map(|v| plugin_labels(&v));
+            let plugins = global_plugins.zip(project_plugins);
+            let global_skills = srv.list_skills(None).ok().map(|ep| ep.into_option().unwrap_or_default());
+            let project_skills = srv.list_skills(Some(&dir)).ok().map(|ep| ep.into_option().unwrap_or_default());
+            let skills = global_skills.zip(project_skills);
+            let global_cfg = srv.config_entries(None);
+            let project_cfg = srv.config_entries(Some(&dir));
+            let lsps = match &project_cfg {
+                Ok(PluginEndpoint::Supported(entries)) => Ok(configured_lsps_entries(entries)),
+                Ok(PluginEndpoint::Unsupported) => Ok((false, Vec::new())),
+                Err(_) => Err(()),
             };
-            let skills_at = |q: &str| {
-                srv.get_ready(&format!("/api/skill{q}")).ok().map(|v| {
-                    v["data"]
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                        .filter_map(|p| {
-                            Some((
-                                p["name"].as_str()?.to_owned(),
-                                p["location"].as_str().or(p["path"].as_str()).unwrap_or("").to_owned(),
-                            ))
-                        })
-                        .collect::<Vec<_>>()
-                })
+            let sources = match (global_cfg, project_cfg) {
+                (Ok(PluginEndpoint::Unsupported), _) => Ok(Vec::new()),
+                (Ok(PluginEndpoint::Supported(entries)), Ok(PluginEndpoint::Supported(active))) => Ok(console_mcps(&entries, Some(&active))),
+                (Ok(PluginEndpoint::Supported(entries)), Ok(PluginEndpoint::Unsupported)) => Ok(console_mcps(&entries, None)),
+                _ => Err(()),
             };
-            let loc = format!("location%5Bdirectory%5D={}", percent_encode(&dir));
-            let q = format!("?{loc}");
-            let plugins = plugins_at("").zip(plugins_at(&q));
-            let skills = skills_at("").zip(skills_at(&q));
-            let lsps = srv.get(&format!("/api/config?{loc}")).map(|v| configured_lsps(&v)).map_err(|_| ());
-            SettingsReply::ProjectExtensionsLoaded { dir, plugins, skills, lsps }
+            SettingsReply::ProjectExtensionsLoaded { dir, plugins, skills, sources, lsps }
         }
         SettingsRequest::PatchProject { id, field, body } => {
             let path = format!("/api/project/{}", percent_encode(&id));
@@ -294,23 +382,76 @@ pub fn execute_request(srv: &Server, request: SettingsRequest) -> SettingsReply 
 /// Applies a completed [`SettingsReply`] back onto `host` on the UI thread.
 pub fn apply_reply(host: &mut dyn SettingsHost, reply: SettingsReply, tx: &mut Tx) {
     match reply {
-        SettingsReply::ExtensionsLoaded { plugins, skills } => {
+        SettingsReply::ExtensionsLoaded { server, plugins, skills, sources } => {
             tx.instant();
-            let pages = host.settings_pages_mut();
-            if plugins.is_some() {
-                pages.plugins = plugins;
+            if host.settings_pages().extensions.server != server {
+                return;
             }
-            if skills.is_some() {
-                pages.skills = skills;
+            let flags = plugins.as_ref().ok().map(|list| plugin_update::package_flags(list));
+            {
+                let ext = &mut host.settings_pages_mut().extensions;
+                ext.plugins = Some(plugins);
+                if skills.is_some() {
+                    ext.skills = skills;
+                }
+                ext.sources.apply(sources);
+            }
+            if let Some(outdated) = flags {
+                extensions::dispatch_update(host, plugin_update::Event::ListLoaded { outdated }, tx);
             }
         }
-        SettingsReply::ProjectExtensionsLoaded { dir, plugins, skills, lsps } => {
+        SettingsReply::PluginsReloaded { server, plugins } => {
+            tx.instant();
+            if host.settings_pages().extensions.server != server {
+                return;
+            }
+            let flags = plugins.as_ref().ok().map(|list| plugin_update::package_flags(list));
+            host.settings_pages_mut().extensions.plugins = Some(plugins);
+            if let Some(outdated) = flags {
+                extensions::dispatch_update(host, plugin_update::Event::ListLoaded { outdated }, tx);
+            }
+        }
+        SettingsReply::ConsoleSourcesReloaded { server, sources } => {
+            tx.instant();
+            if host.settings_pages().extensions.server != server {
+                return;
+            }
+            host.settings_pages_mut().extensions.sources.apply(sources);
+        }
+        SettingsReply::PluginCheckSettled { server, attempt, result } => {
+            tx.instant();
+            if host.settings_pages().extensions.server != server {
+                return;
+            }
+            let event = match result {
+                PluginCheckResult::Supported(list) => plugin_update::Event::CheckSucceeded {
+                    attempt,
+                    outdated: plugin_update::package_flags(&list),
+                },
+                PluginCheckResult::Unsupported => plugin_update::Event::CheckUnsupported { attempt },
+                PluginCheckResult::Failed(message) => plugin_update::Event::CheckFailed { attempt, message },
+            };
+            extensions::dispatch_update(host, event, tx);
+        }
+        SettingsReply::PluginUpdateSettled { server, id, result } => {
+            tx.instant();
+            if host.settings_pages().extensions.server != server {
+                return;
+            }
+            let event = match result {
+                PluginUpdateResult::Succeeded => plugin_update::Event::UpdateSucceeded { id },
+                PluginUpdateResult::Unsupported => plugin_update::Event::UpdateUnsupported { id },
+                PluginUpdateResult::Failed(message) => plugin_update::Event::UpdateFailed { id, message },
+            };
+            extensions::dispatch_update(host, event, tx);
+        }
+        SettingsReply::ProjectExtensionsLoaded { dir, plugins, skills, sources, lsps } => {
             tx.instant();
             let st = &mut host.settings_pages_mut().project.extensions;
             if st.dir != dir {
                 return;
             }
-            st.apply_loaded(plugins, skills, lsps);
+            st.apply_loaded(plugins, skills, sources, lsps);
         }
         SettingsReply::ProjectPatched { field, updated } => {
             tx.instant();

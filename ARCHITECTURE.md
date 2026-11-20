@@ -41,6 +41,7 @@ Decoupled Rust feature crates in a flat, parallel layer with zero cross-feature 
 | `features/settings` | `opencode-feature-settings` | Settings two-pane shell, preferences persistence, search index, and built-in settings pages |
 | `features/subagents` | `opencode-feature-subagents` | Running-work activity capsule, background shells state machine and output followers, and subagent reply bar |
 | `features/switcher` | `opencode-feature-switcher` | Command/file/session palette switcher, shared session search index, and project/worktree/branch switcher |
+| `features/tab-groups` | `opencode-feature-tab-groups` | Experimental side tab groups: saved `tabs.groups` state, server/project/manual grouping, 4-intent drag machine (with 220 ms dwell combine), and inline rename |
 | `features/terminal-surface` | `opencode-feature-terminal-surface` | Ghostty-VT terminal pane, workspace tabs, persistence, shell integration, inline rename, find, links, and paste guard |
 | `features/timeline-extras` | `opencode-feature-timeline-extras` | Agent todo pill/list, permission/question reply state machines, live subagent step rows, auto-accept, and timeline capture helpers |
 | `features/tips` | `opencode-feature-tips` | Paced one-time onboarding tip queue state machine and persistence |

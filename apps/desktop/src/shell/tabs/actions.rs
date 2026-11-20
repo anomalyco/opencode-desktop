@@ -381,6 +381,9 @@ impl App {
             }
             return order;
         }
+        if let Some(order) = crate::tabs::groups::visible_uids(self) {
+            return order;
+        }
         self.tabs.iter().map(Tab::uid).collect()
     }
 

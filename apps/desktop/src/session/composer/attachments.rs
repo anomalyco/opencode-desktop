@@ -179,6 +179,18 @@ impl Feature<App> for ComposerInputFeature {
             .bind_id(Bind::FocusInput.id())
             .when(App::has_composer),
         );
+        // The composer's `file.attach` and `prompt.stop` (`composer/model.ts`, opencode#64394); their
+        // keys stay with the composer's own handlers (`add_menu`, `stop::key`).
+        builder.add_command(
+            CommandEntry::<App>::from_key("file.attach", opencode_i18n::key!("prompt.action.attachFile"), crate::commands::order::FILE_ATTACH, |s, tx| s.pick_attachment(tx))
+                .bind_id(Bind::Attach.id())
+                .when(|s| s.has_composer() && !s.kernel.slots.get(&crate::add_menu::ADD_MENU).shell()),
+        );
+        builder.add_command(
+            CommandEntry::<App>::from_key("prompt.stop", opencode_i18n::key!("command.prompt.stop"), crate::commands::order::PROMPT_STOP, |s, tx| crate::stop::press(s, tx))
+                .bind_id(Bind::Stop.id())
+                .when(|s| matches!(&*s.route, crate::Route::Session { id, .. } if s.busy(id))),
+        );
         // The composer's modes (`composer/model.ts:579-599`).
         builder.add_command(
             CommandEntry::<App>::from_key(

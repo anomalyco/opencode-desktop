@@ -11,12 +11,13 @@ use std::cell::Cell;
 use opencode_kit::client::PathAttachment;
 use opencode_kit::model::Attachment;
 use rune::{
-    Color, El, Key, KeyEvent, MotionIntent, Shadow, Spring, SpringPair, TextEdit, TextStyle,
+    Color, El, KeyEvent, MotionIntent, Shadow, Spring, SpringPair, TextEdit, TextStyle,
     Transition, Tx, col, el, icon, row, spacer, text,
 };
 use rune_theme_opencode::icons as ic;
 
 use crate::TimelineHost;
+use crate::focus::FocusExt;
 use crate::palette::{Elevate as _, Pal};
 use crate::style::{DOCK_SIDE, UI};
 use crate::user_parts::mention_pill_style;
@@ -77,11 +78,10 @@ pub fn stop_glyph_swap() -> Transition {
         .springs(SpringPair::new(Spring::new(0.2, 0.0), Spring::new(0.14, 0.0)))
 }
 
-/// Whether `ev` is `Esc` or `⌃G` without extra modifiers (stops a running session in the composer).
+/// Whether `ev` is one of `prompt.stop`'s keys (Esc and Ctrl+G unless Settings changed them),
+/// which stop a running session in the composer.
 pub fn is_stop_shortcut(ev: &KeyEvent) -> bool {
-    let m = ev.mods;
-    let esc = ev.key == Key::Escape && !m.cmd && !m.ctrl && !m.alt && !m.shift;
-    esc || crate::keymap::Bind::Stop.matches(ev)
+    crate::keymap::Bind::Stop.matches(ev)
 }
 
 /// Ghost toolbar button shared by Desktop's agent/model/effort pickers.
@@ -106,7 +106,7 @@ pub fn ghost_with(p: &Pal, key: &str, label: El, chevron: bool, open: bool) -> E
         .radius(6.0)
         .hover(p.hover)
         .press(p.pressed)
-        .focus_ring(2.0, -2.0, p.v2.border_focus)
+        .focus_inset(p)
         .child(label)
         .children(chevron.then(|| icon(&ic::CHEVRON_DOWN, 16.0).key("chevron").color(if open { p.icon } else { p.icon_muted })))
 }
@@ -135,7 +135,7 @@ pub fn attach_button<S: ComposerHost>(p: &Pal) -> El {
         .center()
         .hover(p.hover)
         .press(p.pressed)
-        .focus_ring(2.0, -2.0, p.v2.border_focus)
+        .focus_inset(p)
         .on_press_tx(S::composer_pick_attachment)
         .child(icon(&ic::PLUS, 16.0).color(p.icon_muted))
 }
@@ -381,7 +381,7 @@ pub fn submit_surface(base: El, p: &Pal, live: bool) -> El {
         return b.opacity(0.4).focusable(false);
     }
     let (hover, pressed) = if p.dark { (black.alpha(0.08), black.alpha(0.4)) } else { (white.alpha(0.12), white.alpha(0.24)) };
-    b.hover(hover).press(pressed).focus_ring(2.0, -2.0, p.v2.border_focus)
+    b.hover(hover).press(pressed).focus_default(p)
 }
 
 /// Renders the shared composer (`key("composer")`).
