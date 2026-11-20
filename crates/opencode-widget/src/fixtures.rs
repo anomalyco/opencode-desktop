@@ -1,6 +1,7 @@
-//! Stand-ins for `@opencode/widget`'s prelude and built-in templates (`suggestions`, `form`,
-//! `confirm`), written from the contract, for stories, fixtures and local runs without a server.
-//! A live client always runs the program the server serves, never these.
+//! Copies of `@opencode/widget`'s prelude and built-in templates (`suggestions`, `form`,
+//! `confirm`; anomalyco/opencode `packages/widget/src/prelude.js` and `templates/*.js`), for
+//! stories, fixtures and local runs without a server. A live client always runs the program the
+//! server serves, never these; refresh them when the canonical ones change.
 
 /// The prelude (`ui`, `submit`, `dismiss`, `__widget_step`).
 pub const PRELUDE: &str = include_str!("../fixtures/prelude.js");
