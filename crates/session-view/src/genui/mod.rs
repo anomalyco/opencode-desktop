@@ -145,7 +145,7 @@ fn hits_in(hits: Hits<'_>, r: &Range<usize>) -> Vec<(usize, Vec<Range<usize>>, b
 /// `chips` are its session chips' tooltips (`session_chips::tips`); `links` its code naming
 /// files (`TimelineHost::code_links`).
 #[allow(clippy::too_many_arguments)]
-pub fn reply<S: TimelineHost>(s: &S, p: &Pal, src: &str, fade: f32, streaming: bool, hits: Hits<'_>, chips: &[(String, String)], links: Option<std::rc::Rc<std::collections::HashSet<String>>>) -> Option<El> {
+pub fn reply<S: TimelineHost>(s: &S, p: &Pal, row_key: &str, src: &str, fade: f32, streaming: bool, hits: Hits<'_>, chips: &[(String, String)], links: Option<std::rc::Rc<std::collections::HashSet<String>>>) -> Option<El> {
     // Outlines draw as parts only while a plugin renders `ui` blocks (Rune UI); else as code.
     if !s.code_block_lang("ui") {
         return None;
@@ -159,7 +159,8 @@ pub fn reply<S: TimelineHost>(s: &S, p: &Pal, src: &str, fade: f32, streaming: b
         let (el, (top, bottom)) = match seg {
             Seg::Md(r) => {
                 let marks = hits_in(hits, &r).into_iter().map(|(i, m, on)| (m, markdown_mark(p, i, on))).collect();
-                let el = markdown_styled::<S, _>(p, &src[r.clone()], fade, streaming && i + 1 == count, markdown_style(p, p.text, width), marks, crate::copied::current(s), Some(crate::images::md_media(s)), chips, None, links.clone());
+                let seg_scope = format!("{row_key}-md-{}", r.start);
+                let el = crate::style::markdown_styled_wrap::<S, _>(p, &src[r.clone()], fade, streaming && i + 1 == count, markdown_style(p, p.text, width), marks, crate::copied::current(s), Some(crate::images::md_media(s)), chips, None, links.clone(), crate::style::CodeWrap::of(s, &seg_scope));
                 // The first run is the root and keeps its blocks' keys from before any fence.
                 let el = if i == 0 { el } else { el.key(format!("md-{}", r.start)) };
                 (el, md_edges(&src[r]))

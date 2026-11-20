@@ -156,6 +156,7 @@ pub struct Settings {
     pub timeline_width: TimelineWidth,
     pub background_activity: BackgroundActivity,
     pub turn_diffs: bool,
+    pub wrap_code_blocks: bool,
 }
 
 impl Default for Settings {
@@ -207,6 +208,7 @@ impl Default for Settings {
             timeline_width: TimelineWidth::default(),
             background_activity: BackgroundActivity::default(),
             turn_diffs: false,
+            wrap_code_blocks: false,
         }
     }
 }
@@ -264,6 +266,7 @@ impl Settings {
             "timelineWidth": self.timeline_width.name(),
             "backgroundActivity": self.background_activity.name(),
             "showTurnDiffs": self.turn_diffs,
+            "wrapCodeBlocks": self.wrap_code_blocks,
         })
     }
 
@@ -337,6 +340,7 @@ impl Settings {
             timeline_width: TimelineWidth::parse(v["timelineWidth"].as_str()),
             background_activity: BackgroundActivity::parse(v["backgroundActivity"].as_str()),
             turn_diffs: v["showTurnDiffs"].as_bool().unwrap_or(false),
+            wrap_code_blocks: v["wrapCodeBlocks"].as_bool().unwrap_or(false),
         }
     }
 

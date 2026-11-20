@@ -80,7 +80,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     if was_narrow != narrow {
         let reading = narrow.then(|| s.active_session_id()).flatten()
             .filter(|id| !s.timeline_fx.ends.due(id) && s.displayed_session(id) == Some(*id) && !s.settings_open())
-            .and_then(|id| s.timeline_fx.ends.recall.screen_place(id).map(|(key, y)| (id.to_owned(), key, y)));
+            .and_then(|id| s.timeline_fx.ends.recall.place(id).map(|(key, y)| (id.to_owned(), key, y)));
         *s.layout.narrow.reading.borrow_mut() = reading;
     }
     // A narrow window keeps top tabs' titlebar row in every layout, its tabs in a drawer.

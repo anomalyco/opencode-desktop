@@ -163,8 +163,28 @@ impl RowSpec {
                         let dw = if body.contains("mermaid") { crate::genui::width(s).to_bits() } else { 0 };
                         let reveal = crate::line_reveal::reveal(k);
                         let line = (reveal, k.get(&crate::line_reveal::LINE_GROW).to_bits(), crate::line_reveal::feather(k).to_bits(), s.line_hold().shown(&a.id, *part), s.line_hold().paced(&a.id, *part));
-                        // A code block's Copy shows its tick, so the copy in hand rebuilds the row.
-                        let copied = body.contains("```").then(|| crate::copied::current(s));
+                        // A code block's Copy shows its tick, and its wrapping follows Settings
+                        // and any per-block toggle; rows without fences read neither.
+                        let has_fence = body.contains("```");
+                        let copied = has_fence.then(|| crate::copied::current(s));
+                        let wrap = has_fence.then(|| {
+                            let default = s.wrap_code_blocks();
+                            let overrides = s
+                                .code_wrap_overrides()
+                                .filter(|m| !m.is_empty())
+                                .map(|m| {
+                                    let prefix = format!("{}:", self.key);
+                                    let mut v: Vec<(String, bool)> = m
+                                        .iter()
+                                        .filter(|(k, _)| k.starts_with(&prefix))
+                                        .map(|(k, &on)| (k.clone(), on))
+                                        .collect();
+                                    v.sort();
+                                    v
+                                })
+                                .unwrap_or_default();
+                            (default, overrides)
+                        });
                         // A picture landing (an image, a link's favicon), the viewer opening one, or
                         // the session's directory its paths read from becoming known rebuilds the row.
                         let footer = footer_text(t, *message, *part);
@@ -186,7 +206,7 @@ impl RowSpec {
                         let code = (!*live && body.contains('`')).then(|| s.code_links_version());
                         let scale_bits = crate::scroller::device_scale().to_bits();
                         let look = (p.theme, p.generation, p.dark, opencode_i18n::locale().id(), crate::style::hover_none());
-                        let ver = (&t.session, body.as_str(), *live, pt.to_bits(), fade.to_bits(), look, self.streaming, find_ver, dw, s.diagrams().hidden_in(body), line, (copied, pictures, footer, crate::style::content_w().to_bits(), scale_bits, chips, own, code));
+                        let ver = (&t.session, body.as_str(), *live, pt.to_bits(), fade.to_bits(), look, self.streaming, find_ver, dw, s.diagrams().hidden_in(body), line, (copied, wrap, pictures, footer, crate::style::content_w().to_bits(), scale_bits, chips, own, code));
                         return rune::memo(self.key.clone(), ver, || {
                             ROW_BUILDS.set(ROW_BUILDS.get() + 1);
                             self.text_row(s, p, t, *message, *part, body, fade, *live, *pt, footer, keep_copy)

@@ -535,9 +535,22 @@ pub fn markdown_view_find<S: TimelineHost>(s: &S, p: &Pal, row_key: &str, src: &
     let src = chips.as_deref().unwrap_or(src);
     let links = s.code_links(src, streaming);
     // A reply with a ```ui outline in it draws it as parts (`genui`); any other takes this path.
-    let el = crate::genui::reply(s, p, src, fade, streaming, hits, &tips, links.clone()).unwrap_or_else(|| {
+    let el = crate::genui::reply(s, p, row_key, src, fade, streaming, hits, &tips, links.clone()).unwrap_or_else(|| {
         let media = crate::images::markdown::MdMedia { message: message.map(std::rc::Rc::from), scope: Some(std::rc::Rc::from(row_key)), ..crate::images::md_media(s) };
-        markdown_with_highlights::<S>(p, src, fade, streaming, p.text, crate::genui::width(s), s.find_markdown_highlights(p, row_key), crate::copied::current(s), Some(media), &tips, prompt, links)
+        crate::style::markdown_styled_wrap::<S, _>(
+            p,
+            src,
+            fade,
+            streaming,
+            markdown_style(p, p.text, crate::genui::width(s)),
+            s.find_markdown_highlights(p, row_key),
+            crate::copied::current(s),
+            Some(media),
+            &tips,
+            prompt,
+            links,
+            crate::style::CodeWrap::of(s, row_key),
+        )
     });
     match message {
         Some(id) => crate::images::menu::on_message::<S>(el, "", id),

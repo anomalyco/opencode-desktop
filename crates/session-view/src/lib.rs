@@ -432,6 +432,16 @@ pub trait TimelineHost: Sized + 'static {
     fn turn_diffs(&self) -> bool {
         false
     }
+    /// Settings › Preferences › Wrap code blocks (`general.wrapCodeBlocks`, anomalyco/opencode#64545).
+    fn wrap_code_blocks(&self) -> bool {
+        false
+    }
+    /// Per-block code-wrap overrides keyed by `"{row_key}:{block_index}"`.
+    fn code_wrap_overrides(&self) -> Option<&std::collections::HashMap<String, bool>> {
+        None
+    }
+    /// Sets or clears a per-block code-wrap override (`None` resumes following `wrap_code_blocks`).
+    fn set_code_wrap_override(&mut self, _key: String, _override: Option<bool>) {}
     /// The diff of session `session`'s run from prompt `from`, for Changed files; a host loads
     /// it when first asked.
     fn turn_diff(&self, _session: &str, _from: &str) -> turn_diff::State<'_> {
