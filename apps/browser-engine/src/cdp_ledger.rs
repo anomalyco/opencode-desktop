@@ -158,3 +158,54 @@ impl EngineCdpLedger {
         Ok(())
     }
 }
+
+/// Checks whether the tab's snapshot, live main frame, or any live sub-frame is an extension origin.
+pub(crate) fn tab_has_extension_frame(
+    browser: &cef::Browser,
+    snap: &std::sync::Mutex<crate::wire::TabSnapshot>,
+) -> bool {
+    use cef::{CefString, ImplBrowser, ImplFrame};
+
+    if browser_policy::extension_origin(&snap.lock().unwrap().url) {
+        return true;
+    }
+    if let Some(frame) = browser.main_frame() {
+        let url = CefString::from(&frame.url()).to_string();
+        if browser_policy::extension_origin(&url) {
+            return true;
+        }
+    }
+    let mut ids = cef::CefStringList::new();
+    browser.frame_identifiers(Some(&mut ids));
+    for id in crate::menu::read_cef_string_list(&ids) {
+        let cef_id = CefString::from(id.as_str());
+        if let Some(frame) = browser.frame_by_identifier(Some(&cef_id)) {
+            let url = CefString::from(&frame.url()).to_string();
+            if browser_policy::extension_origin(&url) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Validates a `HostMsg::TypedCdpCall` against readiness, extension frames, `check_typed_cdp`,
+/// and the engine-authoritative `EngineCdpLedger`.
+pub(crate) fn check_typed_call_allowed(
+    tab_ready: bool,
+    browser: &cef::Browser,
+    snap: &std::sync::Mutex<crate::wire::TabSnapshot>,
+    ledger: &std::sync::Mutex<EngineCdpLedger>,
+    method: &str,
+    params: &Value,
+    session_id: Option<&str>,
+) -> Result<(), String> {
+    if !tab_ready {
+        return Err("browser.context.initializing".into());
+    }
+    if tab_has_extension_frame(browser, snap) {
+        return Err("Agent browser tools cannot run DevTools methods on tabs containing extension documents.".into());
+    }
+    browser_policy::check_typed_cdp(method, params, true)?;
+    ledger.lock().unwrap().verify_typed_call(method, params, session_id).map_err(str::to_owned)
+}

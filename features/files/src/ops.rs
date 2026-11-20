@@ -3,7 +3,6 @@
 
 use opencode_code_view::prepared::Prior;
 use opencode_kit::client::Server;
-use opencode_search::query::{encode_fs_path, percent_encode};
 use rune::Tx;
 use serde_json::Value;
 
@@ -209,15 +208,7 @@ pub fn ensure_file_loaded(host: &mut dyn FilesHost, session_id: &str, path: &str
         .and_then(|w| w.videos.get(path))
         .is_some_and(video::FileVideo::failed);
     if video::is_video(path) && !failed {
-        let source = if server.is_local() {
-            std::path::Path::new(&directory).join(path).to_string_lossy().into_owned()
-        } else {
-            server.stream_url(&format!(
-                "/api/fs/read/{}?location%5Bdirectory%5D={}",
-                encode_fs_path(path),
-                percent_encode(&directory)
-            ))
-        };
+        let source = video::source(Some(&server), &directory, path);
         let pane = host.files_mut();
         let wrap = pane.wrap;
         let clip = video::FileVideo::new(&source, pane.waker.clone());

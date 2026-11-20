@@ -224,6 +224,11 @@ impl BrowserHost {
         self.caps.policy()
     }
 
+    /// Whether the connected engine serves isolated `oc-preview://` tabs.
+    pub fn engine_preview(&self) -> bool {
+        self.caps.preview()
+    }
+
     /// Where tab `tab_id`'s download `file` is, when it's where the engine keeps it: the engine
     /// profile's `opencode-page-downloads\<tab>\<file id>\` (or a throwaway profile's beside it).
     /// None for any other path the engine named: the app opens no file another process points at.
@@ -502,6 +507,7 @@ impl BrowserHost {
                     focused: true,
                     file_roots: if self.engine_policy() { file_roots } else { Vec::new() },
                     context,
+                    preview: None,
                 });
             }
         } else if !unproxied_remote {
@@ -885,6 +891,7 @@ impl BrowserHost {
                 focused: self.focused_tab == Some(tab_id),
                 file_roots,
                 context,
+                preview: None,
             });
             if let Some((device, emu_scale)) = emulate {
                 self.send(HostMsg::Emulate { tab_id, device: Some(device), scale: emu_scale });
@@ -922,6 +929,7 @@ impl BrowserHost {
                         focused: focused == Some(tab_id),
                         file_roots,
                         context: crate::protocol::ContextKind::Default,
+                        preview: None,
                     },
                 )
             })
@@ -955,6 +963,7 @@ impl BrowserHost {
                     partitions,
                     remote_proxy,
                     agent_tools,
+                    preview,
                     ..
                 } => {
                     if !matches!(
@@ -973,6 +982,7 @@ impl BrowserHost {
                         partitions,
                         remote_proxy,
                         agent_tools,
+                        preview,
                     };
                     self.flush_pending_opens();
                     // A new engine starts with an empty downloads folder and numbers its files
@@ -1113,6 +1123,24 @@ impl BrowserHost {
                 EngineMsg::PageDiagnostic { tab_id, level, event, fields } => {
                     self.diagnostics.push_back(crate::find::PageDiagnostic { tab_id, level, event, fields });
                     changed = true;
+                }
+                EngineMsg::PreviewFetch { req_id, .. } => {
+                    // App-side remote/artifact fetch runner wires in PR 2; fail closed until then.
+                    self.send(HostMsg::PreviewResponseHead {
+                        req_id,
+                        ok: false,
+                        status: 404,
+                        mime: "application/octet-stream".into(),
+                        content_length: None,
+                        content_range: None,
+                    });
+                }
+                EngineMsg::PreviewDenied { tab_id } => {
+                    if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
+                        t.refusal = Some("browser.preview.restricted".into());
+                        t.rejected = t.rejected.saturating_add(1);
+                        changed = true;
+                    }
                 }
                 EngineMsg::CdpEvent { tab_id, method, params, session_id } => {
                     if self.cdp_events.len() >= MAX_QUEUED_CDP_EVENTS {

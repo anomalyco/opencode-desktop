@@ -16,6 +16,7 @@
 #![forbid(unsafe_code)]
 
 mod app_links;
+pub mod preview;
 pub use app_links::{AppSchemeAction, AppSchemeSource, classify_app_link};
 
 /// Why a navigation was refused (`policy.ts:68-83`, `chromium.ts:442`).
@@ -121,7 +122,7 @@ pub fn local_file_path(input: &str) -> Option<String> {
         return None;
     }
     let decoded = percent_decode(raw_path)?;
-    if decoded.chars().any(|c| (c as u32) <= 0x1f) {
+    if decoded.chars().any(char::is_control) {
         return None;
     }
     let normalized = decoded.replace('\\', "/");
@@ -192,6 +193,9 @@ pub fn frame_guard(url: &str, is_main_frame: bool, roots: &[String]) -> Option<R
     if trimmed.eq_ignore_ascii_case("about:blank") {
         return None;
     }
+    if preview::is_preview_scheme(trimmed) {
+        return Some(if roots.is_empty() { Refusal::Web } else { Refusal::Workspace });
+    }
     if is_main_frame {
         return refusal_raw(trimmed, roots);
     }
@@ -201,146 +205,16 @@ pub fn frame_guard(url: &str, is_main_frame: bool, roots: &[String]) -> Option<R
     Some(if roots.is_empty() { Refusal::Web } else { Refusal::Workspace })
 }
 
-/// Sub-resource & download guard (`pane.ts:103-107`): no `file:` read outside `roots`.
+/// Sub-resource & download guard (`pane.ts:103-107`): no `file:` read outside `roots`, and never `oc-preview:` from non-preview tabs.
 pub fn subresource_allowed(url: &str, roots: &[String]) -> bool {
-    !is_file_scheme(url) || file_url_within(url, roots)
+    !preview::is_preview_scheme(url) && (!is_file_scheme(url) || file_url_within(url, roots))
 }
 
 mod agent;
+mod cdp;
 
 pub use agent::{check_typed_cdp, extension_origin, extension_page_refusal, matches_url};
-
-/// Validates a DevTools Protocol call against the 22-method allow-list: 17 protocol calls used by
-/// OpenCode Desktop's fixed actions (`packages/gui-plugins/src/browser/chromium.ts:592,796-880,
-/// 912,938,974,1003,1026,1205,1267-1389,1469-1484,1698-1722`) plus 5 read-only `DOM` inspection
-/// methods (`DOM.getDocument`, `DOM.getBoxModel`, `DOM.getContentQuads`, `DOM.querySelector`,
-/// `DOM.querySelectorAll`) used by Rune's tools. Enforced in both the app and the sidecar.
-pub fn check_cdp(method: &str, params: &serde_json::Value, engine_has_policy: bool) -> Result<(), String> {
-    if !engine_has_policy {
-        return match method {
-            "Accessibility.getFullAXTree" | "Page.captureScreenshot" => Ok(()),
-            "Runtime.evaluate" => check_runtime_params(method, params),
-            _ => Err(format!("DevTools method '{method}' requires an updated browser engine that enforces URL policy.")),
-        };
-    }
-    match method {
-        "Accessibility.getFullAXTree"
-        | "DOM.enable"
-        | "DOM.getDocument"
-        | "DOM.describeNode"
-        | "DOM.getBoxModel"
-        | "DOM.getContentQuads"
-        | "DOM.scrollIntoViewIfNeeded"
-        | "DOM.focus"
-        | "DOM.getFrameOwner"
-        | "DOM.querySelector"
-        | "DOM.querySelectorAll"
-        | "Input.insertText"
-        | "Page.getFrameTree"
-        | "Page.getLayoutMetrics"
-        | "Page.captureScreenshot"
-        | "Page.handleJavaScriptDialog"
-        | "Runtime.releaseObject" => Ok(()),
-        "DOM.resolveNode" => check_no_context_params(method, params),
-        "Input.dispatchMouseEvent" => check_mouse_params(params),
-        "Runtime.evaluate" | "Runtime.callFunctionOn" => check_runtime_params(method, params),
-        "Input.dispatchKeyEvent" => check_key_params(params),
-        _ => Err(format!("DevTools method '{method}' is not permitted in the built-in browser.")),
-    }
-}
-
-fn check_mouse_params(params: &serde_json::Value) -> Result<(), String> {
-    if let Some(btn) = params.get("button").and_then(serde_json::Value::as_str)
-        && btn.eq_ignore_ascii_case("middle")
-    {
-        return Err("DevTools method 'Input.dispatchMouseEvent' does not permit middle-click paste.".into());
-    }
-    if let Some(btns) = params.get("buttons").and_then(serde_json::Value::as_i64)
-        && (btns & 4) != 0
-    {
-        return Err("DevTools method 'Input.dispatchMouseEvent' does not permit middle-button paste.".into());
-    }
-    Ok(())
-}
-
-fn check_no_context_params(method: &str, params: &serde_json::Value) -> Result<(), String> {
-    for field in ["contextId", "executionContextId", "uniqueContextId"] {
-        if params.get(field).is_some_and(|v| !v.is_null()) {
-            return Err(format!(
-                "DevTools method '{method}' cannot target an explicit execution context ('{field}')."
-            ));
-        }
-    }
-    Ok(())
-}
-
-fn check_runtime_params(method: &str, params: &serde_json::Value) -> Result<(), String> {
-    for flag in ["includeCommandLineAPI", "userGesture", "allowUnsafeEvalBlockedByCSP"] {
-        if let Some(v) = params.get(flag)
-            && !v.is_null()
-            && v != &serde_json::Value::Bool(false)
-        {
-            return Err(format!("DevTools method '{method}' cannot enable {flag}."));
-        }
-    }
-    check_no_context_params(method, params)
-}
-
-fn check_bounded_key_int(params: &serde_json::Value, field: &str, max: i64) -> Result<u64, String> {
-    let Some(val) = params.get(field) else { return Ok(0) };
-    if val.is_null() {
-        return Ok(0);
-    }
-    let Some(n) = val.as_i64() else {
-        return Err(format!(
-            "DevTools method 'Input.dispatchKeyEvent' requires '{field}' to be an integer in 0..={max}."
-        ));
-    };
-    if !(0..=max).contains(&n) {
-        return Err(format!(
-            "DevTools method 'Input.dispatchKeyEvent' requires '{field}' to be in 0..={max}."
-        ));
-    }
-    Ok(n as u64)
-}
-
-fn check_key_params(params: &serde_json::Value) -> Result<(), String> {
-    if params.get("commands").is_some_and(|v| !v.is_null()) {
-        return Err("DevTools method 'Input.dispatchKeyEvent' does not permit editing commands.".into());
-    }
-    let modifiers = check_bounded_key_int(params, "modifiers", 15)?;
-    let wvk = check_bounded_key_int(params, "windowsVirtualKeyCode", 255)?;
-    let nvk = check_bounded_key_int(params, "nativeVirtualKeyCode", 255)?;
-    let shortcuts = (modifiers & 6) != 0;
-    let ctrl = (modifiers & 2) != 0;
-    let shift = (modifiers & 8) != 0;
-    let key = params.get("key").and_then(serde_json::Value::as_str).unwrap_or("");
-    let code = params.get("code").and_then(serde_json::Value::as_str).unwrap_or("");
-    let is_cvx = matches!(key, "c" | "C" | "v" | "V" | "x" | "X")
-        || code.eq_ignore_ascii_case("KeyC")
-        || code.eq_ignore_ascii_case("KeyV")
-        || code.eq_ignore_ascii_case("KeyX")
-        || matches!(wvk, 67 | 86 | 88)
-        || matches!(nvk, 67 | 86 | 88);
-    let is_insert = key.eq_ignore_ascii_case("Insert")
-        || code.eq_ignore_ascii_case("Insert")
-        || wvk == 45
-        || nvk == 45;
-    let is_del_or_f10 = key.eq_ignore_ascii_case("Delete")
-        || code.eq_ignore_ascii_case("Delete")
-        || key.eq_ignore_ascii_case("F10")
-        || code.eq_ignore_ascii_case("F10")
-        || matches!(wvk, 46 | 121)
-        || matches!(nvk, 46 | 121);
-    let is_menu = key.eq_ignore_ascii_case("ContextMenu")
-        || code.eq_ignore_ascii_case("ContextMenu")
-        || wvk == 93
-        || nvk == 93;
-    if (shortcuts && is_cvx) || (is_insert && (shift || ctrl)) || (shift && is_del_or_f10) || is_menu {
-        return Err("DevTools method 'Input.dispatchKeyEvent' cannot send clipboard or context-menu shortcuts.".into());
-    }
-    Ok(())
-}
+pub use cdp::check_cdp;
 
 /// Whether the user's address field treats `input` as a web search rather than an address (`address.ts:23-38`).
 pub fn searches(input: &str) -> bool {
@@ -464,7 +338,7 @@ fn has_opaque_scheme(input: &str) -> bool {
     let Some((scheme, _)) = input.split_once(':') else { return false };
     matches!(
         scheme.to_ascii_lowercase().as_str(),
-        "about" | "data" | "javascript" | "vbscript" | "blob" | "file" | "mailto" | "tel" | "view-source" | "chrome" | "chrome-extension" | "devtools" | "ws" | "wss"
+        "about" | "data" | "javascript" | "vbscript" | "blob" | "file" | "mailto" | "tel" | "view-source" | "chrome" | "chrome-extension" | "devtools" | "ws" | "wss" | "oc-preview" | "workspace" | "artifact"
     )
 }
 
@@ -592,21 +466,58 @@ fn resolve_unix_file_path(path: &str) -> Option<String> {
 
 fn normalize_root_lex(root: &str) -> Option<String> {
     let trimmed = root.trim();
-    if trimmed.is_empty() {
+    if trimmed.is_empty() || trimmed.chars().any(char::is_control) {
         return None;
     }
-    let stripped = trimmed
-        .strip_prefix(r"\\?\")
-        .or_else(|| trimmed.strip_prefix("//?/"))
-        .unwrap_or(trimmed)
-        .replace('\\', "/");
-    let stripped = if stripped.len() >= 3 && stripped.as_bytes()[0] == b'/' && stripped.as_bytes()[1].is_ascii_alphabetic() && stripped.as_bytes()[2] == b':' {
+    let norm_raw = trimmed.replace('\\', "/");
+    // Reject Win32 device (`\\.\...`) and NT object (`\??\...`) namespaces.
+    if norm_raw.starts_with("//./") || norm_raw.starts_with("/??/") {
+        return None;
+    }
+    // Extended-length prefix `\\?\...` is accepted ONLY for local drive paths (`\\?\C:\...`);
+    // `\\?\UNC\...`, `\\?\Volume{...}`, `\\?\GlobalRoot\...`, etc. are rejected.
+    let stripped = if let Some(after_ext) = norm_raw.strip_prefix("//?/") {
+        let ab = after_ext.as_bytes();
+        if ab.len() < 3 || !ab[0].is_ascii_alphabetic() || ab[1] != b':' || ab[2] != b'/' {
+            return None;
+        }
+        after_ext
+    } else {
+        norm_raw.as_str()
+    };
+    let stripped = if stripped.len() >= 3
+        && stripped.as_bytes()[0] == b'/'
+        && stripped.as_bytes()[1].is_ascii_alphabetic()
+        && stripped.as_bytes()[2] == b':'
+    {
         &stripped[1..]
     } else {
-        stripped.as_str()
+        stripped
     };
+    // Reject leading `///...` (which Unix collapses to `/` and would evade UNC/prefix checks).
+    if stripped.starts_with("///") {
+        return None;
+    }
+    // Reject drive-relative roots (`C:Windows`) and non-absolute paths (`foo/bar`).
+    let sb = stripped.as_bytes();
+    let is_drive_abs = sb.len() >= 3 && sb[0].is_ascii_alphabetic() && sb[1] == b':' && sb[2] == b'/';
+    let is_drive_bare = sb.len() == 2 && sb[0].is_ascii_alphabetic() && sb[1] == b':';
+    let is_slash_abs = stripped.starts_with('/');
+    if !(is_drive_abs || is_drive_bare || is_slash_abs) {
+        return None;
+    }
     let clean = if stripped == "/" { "/" } else { stripped.trim_end_matches('/') };
     if clean.is_empty() {
+        return None;
+    }
+    // Reject internal `//` empty segments (after optional leading UNC `//`) so `C://Windows` or
+    // `/etc//passwd` cannot bypass broad-root prefix matching on remote workspaces.
+    let body = clean.strip_prefix("//").unwrap_or(clean);
+    if body.is_empty() || body.contains("//") {
+        return None;
+    }
+    // Reject any dot-traversal segment so non-existent remote roots like `/foo/..` cannot evade checks.
+    if clean.split('/').any(|seg| seg == "." || seg == "..") {
         return None;
     }
     Some(if cfg!(windows) { clean.to_ascii_lowercase() } else { clean.to_owned() })
@@ -662,17 +573,54 @@ pub fn is_safe_workspace_root(root: &str, home: Option<&str>) -> bool {
 }
 
 fn is_broad_root_lex(lex: &str) -> bool {
-    if lex == "/" {
+    let lower = lex.to_ascii_lowercase();
+    if lower == "/" {
         return true;
     }
-    if lex.len() == 2 && lex.as_bytes()[0].is_ascii_alphabetic() && lex.as_bytes()[1] == b':' {
+    if lower.len() == 2 && lower.as_bytes()[0].is_ascii_alphabetic() && lower.as_bytes()[1] == b':' {
         return true;
     }
-    if let Some(rest) = lex.strip_prefix("//") {
+    if let Some(rest) = lower.strip_prefix("//") {
         // UNC server (`//server`) or share root (`//server/share`).
         return rest.split('/').filter(|s| !s.is_empty()).count() <= 2;
     }
-    false
+    // Exact broad container roots (users parent dirs, `/var`, `/private/var`).
+    if matches!(lower.as_str(), "/users" | "/home" | "/var" | "/private/var") {
+        return true;
+    }
+    // Windows broad / OS system roots (`C:/Users`, `C:/Windows`, `C:/Program Files*`, `C:/ProgramData`).
+    if lower.len() >= 3 && lower.as_bytes()[0].is_ascii_alphabetic() && lower.as_bytes()[1] == b':' && lower.as_bytes()[2] == b'/' {
+        let tail = &lower[2..];
+        if tail == "/users" {
+            return true;
+        }
+        const WIN_SYSTEM_TREES: &[&str] = &[
+            "/windows",
+            "/program files",
+            "/program files (x86)",
+            "/programdata",
+            "/system volume information",
+        ];
+        if WIN_SYSTEM_TREES.iter().any(|sys| tail == *sys || tail.starts_with(&format!("{sys}/"))) {
+            return true;
+        }
+    }
+    // Unix / macOS OS system trees (exact or subtree).
+    const UNIX_SYSTEM_TREES: &[&str] = &[
+        "/etc",
+        "/private/etc",
+        "/system",
+        "/library",
+        "/usr",
+        "/bin",
+        "/sbin",
+        "/dev",
+        "/proc",
+        "/sys",
+        "/boot",
+        "/root",
+    ];
+    UNIX_SYSTEM_TREES.iter().any(|sys| lower == *sys || lower.starts_with(&format!("{sys}/")))
 }
 
 fn is_home_broad_lex(lex: &str, home_lex: &str) -> bool {

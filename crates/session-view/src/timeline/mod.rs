@@ -184,9 +184,10 @@ impl RowSpec {
                         // A path its code names being found (`TimelineHost::code_links`); a streaming
                         // reply asks nothing, so its rows don't look.
                         let code = (!*live && body.contains('`')).then(|| s.code_links_version());
+                        let videos = (!*live && opencode_kit::path::mentions_video(body)).then(|| (s.media_store().videos.version(), s.active_session_id().and_then(|id| s.session_directory(id))));
                         let scale_bits = crate::scroller::device_scale().to_bits();
                         let look = (p.theme, p.generation, p.dark, opencode_i18n::locale().id(), crate::style::hover_none());
-                        let ver = (&t.session, body.as_str(), *live, pt.to_bits(), fade.to_bits(), look, self.streaming, find_ver, dw, s.diagrams().hidden_in(body), line, (copied, pictures, footer, crate::style::content_w().to_bits(), scale_bits, chips, own, code));
+                        let ver = (&t.session, body.as_str(), *live, pt.to_bits(), fade.to_bits(), look, self.streaming, find_ver, dw, s.diagrams().hidden_in(body), line, (copied, pictures, footer, crate::style::content_w().to_bits(), scale_bits, chips, own, (code, videos)));
                         return rune::memo(self.key.clone(), ver, || {
                             ROW_BUILDS.set(ROW_BUILDS.get() + 1);
                             self.text_row(s, p, t, *message, *part, body, fade, *live, *pt, footer, keep_copy)
