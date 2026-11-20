@@ -398,7 +398,7 @@ fn read_assistant(r: &mut R<'_>) -> Option<Assistant> {
         None
     };
     let retry = if r.b()? { Some(Retry { attempt: u32::try_from(r.n()?).ok()?, at: r.i()?, message: r.s()? }) } else { None };
-    Some(Assistant { id, completed, parts, cost, tokens, error, failure, retry, created: r.i()?, first_token: r.oi()?, streamed: r.oi()?, model: read_model(r)?, agent: r.os()?, changed: (0..r.n()?).map(|_| r.s()).collect::<Option<Vec<_>>>()? })
+    Some(Assistant { id, completed, parts, text_phases: Vec::new(), cost, tokens, error, failure, retry, created: r.i()?, first_token: r.oi()?, streamed: r.oi()?, model: read_model(r)?, agent: r.os()?, changed: (0..r.n()?).map(|_| r.s()).collect::<Option<Vec<_>>>()? })
 }
 
 fn part(w: &mut W, p: &Part) {

@@ -189,3 +189,23 @@ pub(super) fn space_at(t: &Transcript, detail: &crate::detail::Detail, out: &mut
         above = Some(here);
     }
 }
+
+/// Extra bottom tail room past the 36 pt Working lane (`tailExtra` in `message-timeline.tsx:226`,
+/// `spacing.ts`'s `laneGap`): 0 (`s`), 4 (`m`), or 16 (`l`) so the Working status line keeps its
+/// clearance above the floating activity pill.
+pub(super) fn tail_extra(t: &Transcript, detail: &crate::detail::Detail, rows: &super::projection::Projection) -> f32 {
+    let mut folded: Folded = None;
+    let end = (0..rows.len())
+        .rev()
+        .find(|&i| matches!(rows.get(i), Some(RowSpec { content: RowContent::Actions { .. }, .. })))
+        .unwrap_or(rows.len());
+    let last = (0..end).rev().find_map(|i| {
+        let r = rows.get(i)?;
+        if matches!(r.content, RowContent::Lane(_)) {
+            return None;
+        }
+        edges_of(t, detail, &r.content, &mut folded)
+    });
+    let Some(prev) = last else { return 0.0 };
+    (gap(prev, edges(Who::Agent, Item::Line, LINE_INSET)) - S).max(0.0)
+}

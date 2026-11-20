@@ -29,6 +29,9 @@ pub enum Entry<'a> {
     Notice(&'a Notice),
     /// A message the turn passes over without showing (a hidden notice).
     Skip,
+    /// The run ended (an idle marker), unshown: a wake-up (a watch, a subagent, a job) can start
+    /// another run in the same turn, and each run keeps its own answer ([`commentary`]).
+    Idle,
 }
 
 /// One step inside a group, or on its own row.
@@ -198,7 +201,7 @@ pub fn fold_with<'a>(entries: &[Entry<'a>], live: bool, detail: &Detail) -> Vec<
                 at.push(Loc { entry: mi as u32, part: Loc::NOTICE, n: 0 });
                 continue;
             }
-            Entry::Skip => continue,
+            Entry::Skip | Entry::Idle => continue,
             Entry::Step(a) => *a,
         };
         let live_msg = live && Some(mi) == last;
@@ -323,25 +326,65 @@ pub fn fold_with<'a>(entries: &[Entry<'a>], live: bool, detail: &Detail) -> Vec<
     out
 }
 
-/// The turn's commentary (`turnCommentary`), by entry and part: text a later tool call in the
-/// turn follows. A `settled` turn whose every text would be commentary keeps its last as the
-/// answer, so it still ends with something to read. Sorted, for `binary_search`.
+/// The turn's commentary (`turnCommentary`, `session-ui/src/timeline/commentary.ts`,
+/// anomalyco/opencode#64917), by entry and part, run by run: a prompt starts a turn, but wake-ups
+/// from watches, subagents and jobs add idle-bounded runs to it, and each run keeps its own answer
+/// out of the activity group. A run an idle marker closed is settled; the turn's last run is
+/// settled once the turn is (`settled`). Sorted, for `binary_search`.
 fn commentary(entries: &[Entry], settled: bool) -> Vec<(usize, usize)> {
-    let parts = || entries.iter().enumerate().flat_map(|(mi, e)| {
-        let parts: &[Part] = match e {
-            Entry::Step(a) => &a.parts,
-            Entry::Notice(_) | Entry::Skip => &[],
-        };
-        parts.iter().enumerate().map(move |(pi, p)| ((mi, pi), p))
-    });
-    let Some(last_tool) = parts().rfind(|(_, p)| matches!(p, Part::Tool { .. })).map(|(at, _)| at) else { return Vec::new() };
-    let mut out: Vec<(usize, usize)> = parts().take_while(|(at, _)| *at < last_tool).filter(|(_, p)| matches!(p, Part::Text { .. })).map(|(at, _)| at).collect();
-    // Every text that shows is commentary only when the last of them comes before the last call.
-    let answer = parts().rfind(|(_, p)| matches!(p, Part::Text { text } if !text.trim().is_empty())).map(|(at, _)| at);
-    if settled && let Some(answer) = answer.filter(|a| *a < last_tool) {
-        out.retain(|t| *t != answer);
+    let mut out = Vec::new();
+    let mut from = 0;
+    for (i, e) in entries.iter().enumerate() {
+        if matches!(e, Entry::Idle) {
+            run_commentary(entries, from..i, true, &mut out);
+            from = i + 1;
+        }
     }
+    run_commentary(entries, from..entries.len(), settled, &mut out);
     out
+}
+
+/// One run's commentary (`runCommentary`): provider `native.phase` labels take precedence over
+/// tool order (`commentary` always groups, `final_answer` never groups); otherwise text before
+/// the run's last tool call is commentary. A `settled` run whose every visible text would be
+/// commentary keeps its last as the answer, so an interrupted or tool-ending run still leaves
+/// something to read.
+fn run_commentary(entries: &[Entry], run: std::ops::Range<usize>, settled: bool, out: &mut Vec<(usize, usize)>) {
+    use opencode_kit::model::TextPhase;
+    let parts = || entries[run.clone()].iter().zip(run.clone()).flat_map(|(e, mi)| {
+        let step = match e {
+            Entry::Step(a) => Some(*a),
+            Entry::Notice(_) | Entry::Skip | Entry::Idle => None,
+        };
+        step.into_iter().flat_map(move |a| a.parts.iter().enumerate().map(move |(pi, p)| ((mi, pi), p, a.text_phase(pi))))
+    });
+    let last_tool = parts().rfind(|(_, p, _)| matches!(p, Part::Tool { .. })).map(|(at, _, _)| at);
+    let start = out.len();
+    for (at, p, phase) in parts() {
+        if !matches!(p, Part::Text { .. }) {
+            continue;
+        }
+        let is_commentary = phase == Some(TextPhase::Commentary)
+            || (phase != Some(TextPhase::FinalAnswer) && last_tool.is_some_and(|lt| at < lt));
+        if is_commentary {
+            out.push(at);
+        }
+    }
+    if start == out.len() {
+        return;
+    }
+    let slice = &out[start..];
+    let has_answer = parts().any(|(at, p, _)| {
+        matches!(p, Part::Text { text } if !text.trim().is_empty()) && slice.binary_search(&at).is_err()
+    });
+    if settled && !has_answer {
+        let last_visible = parts().rfind(|(_, p, _)| matches!(p, Part::Text { text } if !text.trim().is_empty())).map(|(at, _, _)| at);
+        if let Some(answer) = last_visible
+            && let Some(i) = out[start..].iter().position(|t| *t == answer)
+        {
+            out.remove(start + i);
+        }
+    }
 }
 
 /// A tool's name in a group's label (`toolTitle`).

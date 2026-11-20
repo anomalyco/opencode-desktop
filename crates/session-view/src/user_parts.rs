@@ -5,7 +5,7 @@ use std::ops::Range;
 use opencode_kit::mention::{self, MentionKind};
 pub use opencode_kit::mention::{
     BubbleMark, bubble_marks, mention_bubble, mention_kind_of, recorded_mentions, session_link,
-    session_of_link, short_session_id,
+    session_of_link, session_of_raw_link, session_raw_link, short_session_id,
 };
 use opencode_kit::model::{FileComment, PromptComment, Quote};
 use rune::{Color, El, Icon, PillStyle, TextStyle, Tx, col, el, icon, row, text};

@@ -218,6 +218,15 @@ pub fn session_of_link(link: &str) -> Option<&str> {
     link.strip_prefix("session:")
 }
 
+/// The `on_link` id a plain/unknown session ID reports for its right-click reference menu.
+pub fn session_raw_link(id: &str) -> String {
+    format!("session-raw:{id}")
+}
+
+pub fn session_of_raw_link(link: &str) -> Option<&str> {
+    link.strip_prefix("session-raw:")
+}
+
 /// What a session id in a reply stands for, as the host knows it.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct SessionRef {

@@ -125,6 +125,11 @@ impl Transcript {
                             _ => {}
                         }
                     }
+                    for &(idx, phase) in &old.text_phases {
+                        if new.text_phase(idx).is_none() {
+                            new.set_text_phase(idx, phase);
+                        }
+                    }
                 }
                 // Nor rewind a compaction that ended to a copy read while it ran.
                 if let (Message::Compaction(old), Message::Compaction(new)) = (&*slot, &m)
@@ -203,13 +208,18 @@ impl Transcript {
             ty if notice::is_notice_event(ty) => return self.apply_notice(ty, d),
             "session.text.started" | "session.reasoning.started" => {
                 let Some(a) = self.assistant(&mid) else { return false };
-                let part = if ty == "session.text.started" {
+                let is_text = ty == "session.text.started";
+                let part = if is_text {
                     Part::Text { text: String::new() }
                 } else {
                     Part::Reasoning { text: String::new(), started: now, completed: None }
                 };
-                let at = slot(&a.parts, ty == "session.text.started", ordinal);
+                let at = slot(&a.parts, is_text, ordinal);
+                let idx = at.unwrap_or(a.parts.len());
                 place(&mut a.parts, at, part);
+                if is_text && let Some(phase) = super::TextPhase::parse(&d["native"]["phase"]) {
+                    a.set_text_phase(idx, phase);
+                }
             }
             "session.text.delta" | "session.reasoning.delta" => {
                 let Some(a) = self.assistant(&mid) else { return false };
@@ -233,13 +243,17 @@ impl Transcript {
                 let Some(a) = self.assistant(&mid) else { return false };
                 let full = d["text"].as_str().map(str::to_owned);
                 let want_text = ty == "session.text.ended";
-                match slot(&a.parts, want_text, ordinal).or_else(|| slot(&a.parts, want_text, None)).map(|k| &mut a.parts[k]) {
-                    Some(Part::Text { text }) => {
+                let idx = slot(&a.parts, want_text, ordinal).or_else(|| slot(&a.parts, want_text, None));
+                match idx.map(|k| (k, &mut a.parts[k])) {
+                    Some((k, Part::Text { text })) => {
                         if let Some(f) = full {
                             *text = f;
                         }
+                        if let Some(phase) = super::TextPhase::parse(&d["native"]["phase"]) {
+                            a.set_text_phase(k, phase);
+                        }
                     }
-                    Some(Part::Reasoning { text, completed, .. }) => {
+                    Some((_, Part::Reasoning { text, completed, .. })) => {
                         if let Some(f) = full {
                             *text = f;
                         }
