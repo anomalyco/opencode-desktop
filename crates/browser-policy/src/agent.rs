@@ -62,6 +62,16 @@ fn strip_ascii_prefix<'a>(input: &'a str, prefix: &str) -> Option<&'a str> {
     }
 }
 
+pub(crate) fn check_dom_pierce_params(method: &str, params: &serde_json::Value) -> Result<(), String> {
+    if params
+        .get("pierce")
+        .is_some_and(|v| !v.is_null() && v != &serde_json::Value::Bool(false))
+    {
+        return Err(format!("DevTools method '{method}' cannot enable pierce."));
+    }
+    Ok(())
+}
+
 /// Validates a DevTools Protocol call issued exclusively by Rune's typed Rust `experimental.browser`
 /// executors (never exposed to untrusted Luau plugins or raw `browser_cdp`). Extends [`check_cdp`]
 /// with read-only diagnostics, hit-testing, drag interception, and profiling while strictly

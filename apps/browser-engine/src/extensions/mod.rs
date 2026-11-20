@@ -19,11 +19,14 @@
 #![deny(unsafe_code)]
 
 mod cdp;
+pub mod frame_guard;
 pub mod integrity;
 pub mod manifest;
+pub mod mask_queue;
 pub mod pipe;
 mod png;
 mod rpc;
+pub mod screenshot_mask;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;

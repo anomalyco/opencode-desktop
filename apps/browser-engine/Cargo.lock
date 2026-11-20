@@ -830,6 +830,8 @@ dependencies = [
  "browser-policy",
  "cef",
  "cef-dll-sys",
+ "crc32fast",
+ "flate2",
  "libc",
  "objc2",
  "objc2-app-kit",

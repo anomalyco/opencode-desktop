@@ -243,7 +243,17 @@ impl crate::BrowserHost {
     }
 
     /// Starts or advances an in-page text search (`FindHandler`).
-    pub fn find(&mut self, tab_id: u64, query: &str, forward: bool, match_case: bool, find_next: bool) {
+    /// `user_initiated` MUST be `true` ONLY when triggered directly by the user via the built-in
+    /// browser find bar (`scope.is_builtin_browser && scope.tool_sid.is_none()`).
+    pub fn find(
+        &mut self,
+        tab_id: u64,
+        query: &str,
+        forward: bool,
+        match_case: bool,
+        find_next: bool,
+        user_initiated: bool,
+    ) {
         if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
             t.find.step(FindEvent::Open);
             if t.find.query() != query {
@@ -259,6 +269,7 @@ impl crate::BrowserHost {
             forward,
             match_case,
             find_next,
+            user_initiated,
         });
     }
 

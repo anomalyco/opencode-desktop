@@ -312,6 +312,8 @@ pub enum HostMsg {
         forward: bool,
         match_case: bool,
         find_next: bool,
+        #[serde(default)]
+        user_initiated: bool,
     },
     StopFind {
         tab_id: u64,

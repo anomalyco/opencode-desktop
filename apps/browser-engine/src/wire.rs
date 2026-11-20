@@ -169,7 +169,15 @@ pub enum HostMsg {
     /// Clears origin-scoped cache storage, service workers, and HTTP cache while keeping cookies.
     ClearSiteCache { tab_id: u64, request_id: u64 },
     /// In-page text search (`FindHandler`).
-    Find { tab_id: u64, query: String, forward: bool, match_case: bool, find_next: bool },
+    Find {
+        tab_id: u64,
+        query: String,
+        forward: bool,
+        match_case: bool,
+        find_next: bool,
+        #[serde(default)]
+        user_initiated: bool,
+    },
     StopFind { tab_id: u64, clear_selection: bool },
     /// Executes or cancels a held page right-click context menu (`EngineMsg::ContextMenu`).
     ContextMenuAction { tab_id: u64, id: u64, action: Option<ContextMenuCommand> },

@@ -244,8 +244,6 @@ pub fn check_cdp(method: &str, params: &serde_json::Value, engine_has_policy: bo
     match method {
         "Accessibility.getFullAXTree"
         | "DOM.enable"
-        | "DOM.getDocument"
-        | "DOM.describeNode"
         | "DOM.getBoxModel"
         | "DOM.getContentQuads"
         | "DOM.scrollIntoViewIfNeeded"
@@ -260,6 +258,7 @@ pub fn check_cdp(method: &str, params: &serde_json::Value, engine_has_policy: bo
         | "Page.captureScreenshot"
         | "Page.handleJavaScriptDialog"
         | "Runtime.releaseObject" => Ok(()),
+        "DOM.getDocument" | "DOM.describeNode" => agent::check_dom_pierce_params(method, params),
         "DOM.resolveNode" | "Runtime.evaluate" | "Runtime.callFunctionOn" => {
             check_runtime_params(method, params)
         }

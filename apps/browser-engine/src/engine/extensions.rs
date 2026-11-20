@@ -1,6 +1,5 @@
 //! Extension host effect runner and hidden seed-probe browser for `EngineManager`.
 
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -460,6 +459,90 @@ impl EngineManager {
         }
     }
 
+    pub(super) fn poll_mask_jobs(&mut self) {
+        let mut crashed_tabs = Vec::new();
+        let mut replies = Vec::new();
+        for (&tab_id, tab) in &self.tabs {
+            if tab.prompts.take_renderer_crashed() {
+                crashed_tabs.push(tab_id);
+            }
+            for r in tab.mask_replies.lock().unwrap().drain(..) {
+                replies.push(r);
+            }
+        }
+        for tab_id in crashed_tabs {
+            let eff = self
+                .tabs
+                .get_mut(&tab_id)
+                .map(|t| t.mask_queue.fail_all("Renderer process terminated."))
+                .unwrap_or_default();
+            self.run_mask_effects(tab_id, eff);
+        }
+        for reply in replies {
+            let ctx = match self.tabs.get(&reply.tab_id) {
+                Some(t) => mask_ctx_for_tab(t, self.extensions.is_some()),
+                None => continue,
+            };
+            let eff = match self.tabs.get_mut(&reply.tab_id) {
+                Some(t) => t.mask_queue.on_reply(reply.job_id, reply.ok, reply.result, &ctx),
+                None => continue,
+            };
+            self.run_mask_effects(reply.tab_id, eff);
+        }
+    }
+
+    pub(super) fn run_mask_effects(
+        &mut self,
+        tab_id: u64,
+        effects: Vec<crate::extensions::mask_queue::MaskEffect>,
+    ) {
+        use crate::extensions::mask_queue::MaskEffect;
+        for eff in effects {
+            match eff {
+                MaskEffect::SendInternal { job_id, method, params } => {
+                    let Some(t) = self.tabs.get(&tab_id) else {
+                        continue;
+                    };
+                    let msg_id = self.next_cdp_id.fetch_add(1, Ordering::Relaxed);
+                    t.cdp_id_map
+                        .lock()
+                        .unwrap()
+                        .insert(msg_id, CdpPending::MaskStep { job_id });
+                    let raw = json!({ "id": msg_id, "method": method, "params": params }).to_string();
+                    if t.host.send_dev_tools_message(Some(raw.as_bytes())) != 1 {
+                        t.cdp_id_map.lock().unwrap().remove(&msg_id);
+                        t.mask_replies.lock().unwrap().push(
+                            crate::extensions::mask_queue::MaskReply {
+                                tab_id,
+                                job_id,
+                                ok: false,
+                                result: json!({ "error": "send_dev_tools_message rejected" }),
+                            },
+                        );
+                        let _ = self.events.send(crate::Event::Pump(0));
+                    }
+                }
+                MaskEffect::ReleaseObject { object_id } => {
+                    if let Some(t) = self.tabs.get(&tab_id) {
+                        self.send_internal_cdp(
+                            &t.host,
+                            "Runtime.releaseObject",
+                            json!({ "objectId": object_id }),
+                        );
+                    }
+                }
+                MaskEffect::Respond { request_id, ok, result } => {
+                    let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                        tab_id,
+                        request_id,
+                        ok,
+                        result,
+                    });
+                }
+            }
+        }
+    }
+
     pub(super) fn handle_cdp_call(
         &mut self,
         tab_id: u64,
@@ -468,9 +551,9 @@ impl EngineManager {
         params: Value,
         session_id: Option<String>,
     ) {
-        let Some(t) = self.tabs.get(&tab_id) else {
+        if !self.tabs.contains_key(&tab_id) {
             return;
-        };
+        }
         if !self.contexts.is_tab_ready(tab_id) {
             let reason = self.contexts.not_ready_reason(tab_id);
             let _ = self.out_tx.send(EngineMsg::CdpResponse {
@@ -492,18 +575,6 @@ impl EngineManager {
             });
             return;
         }
-        // Fail closed on the entire tab whenever ANY frame (main OR sub-frame) is, or is about to
-        // become, an extension frame — checked at dispatch time on both agent-driven tabs and
-        // unflagged 3P plugin `DevtoolsAsync` tabs (`review-rd274.md` Round-4 ruling).
-        if tab_is_extension_surface(t) {
-            let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                tab_id,
-                request_id,
-                ok: false,
-                result: json!({ "message": "Agent browser tools cannot read or act on extension pages or tabs with extension frames." }),
-            });
-            return;
-        }
         if let Err(err) = browser_policy::check_cdp(&method, &params, true) {
             let _ = self.out_tx.send(EngineMsg::CdpResponse {
                 tab_id,
@@ -513,14 +584,58 @@ impl EngineManager {
             });
             return;
         }
+        let ctx = {
+            let Some(t) = self.tabs.get(&tab_id) else {
+                return;
+            };
+            mask_ctx_for_tab(t, self.extensions.is_some())
+        };
+        if ctx.surface.is_whole_tab() {
+            let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                tab_id,
+                request_id,
+                ok: false,
+                result: json!({
+                    "message": "Agent browser tools cannot read or act on extension pages or tabs with extension frames."
+                }),
+            });
+            return;
+        }
+        // When extension sub-frames exist, a prior guarded op is still draining, or extensions are
+        // active on a node-targeted call (closed-ShadowRoot brute-force protection), route through
+        // the per-tab serialized masking state machine (`review-rd274.md` Rounds 4 & 6).
+        let guard_clean_node = ctx.extensions_active
+            && crate::extensions::frame_guard::is_node_guard_method(&method);
+        let use_queue = !ctx.surface.is_clean()
+            || guard_clean_node
+            || self.tabs.get(&tab_id).is_some_and(|t| !t.mask_queue.is_idle());
+        if use_queue {
+            let eff = match self.tabs.get_mut(&tab_id) {
+                Some(t) => t.mask_queue.enqueue(
+                    crate::extensions::mask_queue::QueuedCdpCall {
+                        request_id,
+                        method,
+                        params,
+                    },
+                    &ctx,
+                ),
+                None => return,
+            };
+            self.run_mask_effects(tab_id, eff);
+            return;
+        }
+        // Fast path on clean web tabs: direct dispatch with reply-time surface re-check.
+        let Some(t) = self.tabs.get(&tab_id) else {
+            return;
+        };
         let msg_id = self.next_cdp_id.fetch_add(1, Ordering::Relaxed);
-        t.cdp_id_map.lock().unwrap().insert(msg_id, CdpPending::Raw(request_id));
-        let payload = json!({
-            "id": msg_id,
-            "method": method,
-            "params": params,
-        });
-        let raw = payload.to_string();
+        let redact_ext = ctx.extensions_active
+            && crate::extensions::frame_guard::read_filter_for_method(&method).is_some();
+        t.cdp_id_map
+            .lock()
+            .unwrap()
+            .insert(msg_id, CdpPending::Raw { request_id, redact_ext });
+        let raw = json!({ "id": msg_id, "method": method, "params": params }).to_string();
         if t.host.send_dev_tools_message(Some(raw.as_bytes())) != 1 {
             t.cdp_id_map.lock().unwrap().remove(&msg_id);
             let _ = self.out_tx.send(EngineMsg::CdpResponse {
@@ -609,11 +724,12 @@ impl EngineManager {
         forward: bool,
         match_case: bool,
         find_next: bool,
+        user_initiated: bool,
     ) {
         let Some(t) = self.tabs.get(&tab_id) else {
             return;
         };
-        if !self.contexts.is_tab_ready(tab_id) || tab_is_extension_surface(t) {
+        if !self.contexts.is_tab_ready(tab_id) || (!user_initiated && tab_is_extension_surface(t)) {
             t.host.stop_finding(1);
             return;
         }
@@ -626,6 +742,80 @@ impl EngineManager {
                 i32::from(match_case),
                 i32::from(find_next),
             );
+        }
+    }
+
+    pub(super) fn handle_navigate(&mut self, tab_id: u64, url: String) {
+        let Some((is_preview, is_popup, snap_url, is_agent, isolated, ext_allowed, roots)) =
+            self.tabs.get(&tab_id).map(|t| {
+                let snap_url = t.snap.lock().unwrap().url.clone();
+                let is_agent = t.prompts.agent_driven.load(Ordering::Relaxed);
+                let ext_allowed = crate::extensions::manifest::extension_id_from_url(&url)
+                    .is_some_and(|id| t.allowed_ext_ids.lock().unwrap().iter().any(|a| a == id));
+                (
+                    t.preview.is_some(),
+                    t.is_popup,
+                    snap_url,
+                    is_agent,
+                    t.isolated,
+                    ext_allowed,
+                    t.file_roots.lock().unwrap().clone(),
+                )
+            })
+        else {
+            return;
+        };
+        if is_preview {
+            let _ = self.out_tx.send(EngineMsg::Refused {
+                tab_id,
+                reason: browser_policy::Refusal::Workspace.code().to_owned(),
+            });
+            return;
+        }
+        if is_popup {
+            let own = crate::extensions::manifest::extension_id_from_url(&snap_url);
+            let target = crate::extensions::manifest::extension_id_from_url(&url);
+            if own != target || target.is_none() {
+                let _ = self.out_tx.send(EngineMsg::Refused {
+                    tab_id,
+                    reason: browser_policy::Refusal::Blocked.code().to_owned(),
+                });
+                return;
+            }
+        }
+        let ext_ok = !is_agent && !isolated && ext_allowed;
+        if !ext_ok && let Some(why) = browser_policy::frame_guard(&url, true, &roots) {
+            let _ = self.out_tx.send(EngineMsg::Refused {
+                tab_id,
+                reason: why.code().to_owned(),
+            });
+            return;
+        }
+        match self.contexts.gate_navigation(tab_id, &url) {
+            Ok(true) => {
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    t.deferred_initial.store(false, Ordering::Release);
+                    if let Some(frame) = t.browser.main_frame() {
+                        t.prompts.set_pending_top_url(Some(url.clone()));
+                        frame.load_url(Some(&CefString::from(url.as_str())));
+                    }
+                }
+            }
+            Ok(false) => {
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    t.deferred_initial.store(
+                        !url.trim().eq_ignore_ascii_case("about:blank"),
+                        Ordering::Release,
+                    );
+                }
+            }
+            Err("browser.proxy.required") => {
+                let _ = self.out_tx.send(EngineMsg::Refused {
+                    tab_id,
+                    reason: "browser.proxy.required".to_owned(),
+                });
+            }
+            Err(reason) => self.close_and_refuse_tab(tab_id, reason),
         }
     }
 
@@ -697,53 +887,32 @@ impl EngineManager {
     }
 }
 
-/// Fail-closed whole-tab extension guard checked at dispatch AND reply time for `HostMsg::CdpCall`,
-/// `HostMsg::Find`, `SetInspect`, and `HighlightNode` (`review-rd274.md` Round-4 & Round-5).
-pub(super) fn tab_is_extension_surface(t: &ManagedTab) -> bool {
-    browser_has_extension_surface(Some(&t.browser), t.is_popup, &t.snap, &t.prompts)
+fn mask_ctx_for_tab(
+    t: &ManagedTab,
+    host_has_extensions: bool,
+) -> crate::extensions::mask_queue::TabMaskCtx {
+    let surface = crate::extensions::frame_guard::classify_surface(
+        Some(&t.browser),
+        t.is_popup,
+        &t.snap,
+        &t.prompts,
+    );
+    let focused_is_ext = crate::extensions::frame_guard::focused_frame_is_extension(&t.browser);
+    let extensions_active = host_has_extensions && !t.isolated;
+    crate::extensions::mask_queue::TabMaskCtx {
+        surface,
+        focused_is_ext,
+        extensions_active,
+    }
 }
 
-pub(crate) fn browser_has_extension_surface(
-    browser: Option<&cef::Browser>,
-    is_popup: bool,
-    snap: &Mutex<TabSnapshot>,
-    prompts: &TabPrompts,
-) -> bool {
-    if is_popup {
-        return true;
-    }
-    if crate::extensions::manifest::is_extension_scheme(&snap.lock().unwrap().url) {
-        return true;
-    }
-    if let Some(pending) = prompts.pending_top_url()
-        && crate::extensions::manifest::is_extension_scheme(&pending)
-    {
-        return true;
-    }
-    if prompts.has_cdp_ext_frames() {
-        return true;
-    }
-    let Some(browser) = browser else {
-        return prompts.has_any_pending_ext_subframes();
-    };
-    if let Some(frame) = browser.main_frame() {
-        let live_url = CefString::from(&frame.url()).to_string();
-        if crate::extensions::manifest::is_extension_scheme(&live_url) {
-            return true;
-        }
-    }
-    let mut ids = cef::CefStringList::new();
-    browser.frame_identifiers(Some(&mut ids));
-    let mut live_frames: HashMap<String, String> = HashMap::new();
-    for id in ids {
-        let Some(frame) = browser.frame_by_identifier(Some(&CefString::from(id.as_str()))) else {
-            continue;
-        };
-        let furl = CefString::from(&frame.url()).to_string();
-        if crate::extensions::manifest::is_extension_scheme(&furl) {
-            return true;
-        }
-        live_frames.insert(id, furl);
-    }
-    prompts.has_pending_ext_subframes(&live_frames)
+/// True whenever ANY extension surface (main OR sub-frame, committed OR pending) exists on `t`.
+pub(super) fn tab_is_extension_surface(t: &ManagedTab) -> bool {
+    !crate::extensions::frame_guard::classify_surface(
+        Some(&t.browser),
+        t.is_popup,
+        &t.snap,
+        &t.prompts,
+    )
+    .is_clean()
 }
