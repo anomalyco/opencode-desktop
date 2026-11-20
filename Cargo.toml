@@ -51,6 +51,7 @@ members = [
     "crates/opencode-servers",
     "crates/opencode-storage",
     "crates/opencode-ui",
+    "crates/opencode-widget",
     "crates/otlp-lite",
     "crates/project-icon",
     "crates/rune-parts",

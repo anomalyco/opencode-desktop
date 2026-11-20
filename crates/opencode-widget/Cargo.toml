@@ -1,0 +1,23 @@
+[package]
+name = "opencode-widget"
+version = "0.0.1"
+description = "OpenCode agent widgets without UI: the node, event and step types of the widget contract, the per-widget lifecycle machine, and the PsychoScript step runner (pure Rust, embeddable on desktop and mobile)"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[features]
+default = ["runner"]
+# The step runner over the Rust PsychoScript (`Program`, `step_json`). Off, the crate is the contract's
+# types and the lifecycle machine alone: what a renderer needs, without the interpreter.
+runner = ["dep:psychoscript"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+# The `rust` branch of anomalyco/psychoscript: the Rust implementation, at parity with the TypeScript
+# reference. Pure Rust (oxc, ICU4X), no platform dependencies, so it builds for iOS and Android too.
+psychoscript = { git = "https://github.com/anomalyco/psychoscript", rev = "ddc33be36258659456062e13700e8683863dec6d", optional = true }
+
+[lints]
+workspace = true
