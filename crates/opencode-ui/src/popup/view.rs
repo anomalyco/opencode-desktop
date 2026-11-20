@@ -6,10 +6,10 @@ use crate::palette::Pal;
 use crate::popover::{self, MENU, Opt};
 
 use super::keys::key;
-use super::menu::{Entry, Glyph, Look, Menu, hug_width, row_key};
+use super::menu::{Entry, Glyph, Look, Menu, hug_width, key_at, row_key};
 use super::rows::{self, CHEVRON, detail_row, diff_note};
 use super::search::{SEARCH_H, search_field};
-use super::state::{choose, choose_at, close, hover_focus, open_sub_at};
+use super::state::{choose, choose_at, close, hover_focus, moved, open_sub_at};
 use super::{CARD, CONTEXT_MIN_W, GAP, GROUP, GROUP_H, PRESS_ON_DOWN, PopupHost, SURFACE, focus, standard};
 
 /// The drawn menu and the scrim under it that dismisses it, for the window's top layer.
@@ -21,6 +21,21 @@ pub fn view<S: PopupHost + 'static>(s: &S, p: &Pal) -> Vec<El> {
     {
         let mut rows = s.popup().rows.borrow_mut();
         rows.clear();
+        let mut targets = s.popup().targets.borrow_mut();
+        targets.clear();
+        for (level, o) in shown.subs.iter().enumerate() {
+            let Some(menu) = shown.menu_at(level) else { break };
+            let (Some(trigger), Some(sub)) = (key_at(menu, o.at).and_then(|k| rune::memo::layout(&k)), shown.menu_at(level + 1)) else { break };
+            let rects: Vec<[f32; 4]> = sub.entries.iter().filter_map(|e| match e {
+                Entry::Item(i) => rune::memo::layout(&row_key(&i.id)),
+                Entry::Sub(x) => rune::memo::layout(&row_key(&x.id)),
+                _ => None,
+            }).collect();
+            let Some(first) = rects.first() else { break };
+            let (left, right, top, bottom) = rects.iter().fold((first[0], first[0] + first[2], first[1], first[1] + first[3]), |(l, r, t, b), x| (l.min(x[0]), r.max(x[0] + x[2]), t.min(x[1]), b.max(x[1] + x[3])));
+            let opens_right = left >= trigger[0];
+            targets.push(super::submenu::Target { edge: if opens_right { left } else { right }, top, bottom, right: opens_right });
+        }
         for level in 0..=shown.subs.len() {
             let Some(menu) = shown.menu_at(level) else { continue };
             for e in &menu.entries {
@@ -232,7 +247,9 @@ fn build<S: PopupHost + 'static>(
             }
         }
     }
-    let surface = popover::surface::<S>(p, MENU, &name(SURFACE, "popup-submenu"), menu.label.clone()).min_w(menu.min_w);
+    let surface = popover::surface::<S>(p, MENU, &name(SURFACE, "popup-submenu"), menu.label.clone())
+        .min_w(menu.min_w)
+        .on_pointer_move_local(|s: &mut S, e: rune::PointerEvent, tx: &mut Tx| moved(s, [e.window_x, e.window_y], tx));
     // An open menu holds focus (`menu-v2-content`, tabindex -1) and takes the keys from there.
     let holds_focus = search_placeholder.is_none();
     let surface = match s {
