@@ -598,12 +598,6 @@ impl BrowserHost {
         let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) else {
             return;
         };
-        if matches!(t.context, crate::protocol::ContextKind::RemoteServer { proxy: None, .. }) {
-            t.loading = false;
-            t.refusal = Some("browser.proxy.required".to_owned());
-            t.rejected += 1;
-            return;
-        }
         let effective_roots: &[String] = if connected && !engine_policy { &[] } else { &t.file_roots };
         if let Some(why) = crate::policy::refusal(&url, effective_roots) {
             t.loading = false;
@@ -643,6 +637,11 @@ impl BrowserHost {
             }
             t.has_engine_tab = true;
             promote_open = Some((t.viewport_pt, t.scale, t.file_roots.clone(), t.context.clone()));
+        } else if matches!(t.context, crate::protocol::ContextKind::RemoteServer { proxy: None, .. }) {
+            t.loading = false;
+            t.refusal = Some("browser.proxy.required".to_owned());
+            t.rejected += 1;
+            return;
         }
         t.refusal = None;
         if from_address || !t.prompts.agent_driven {

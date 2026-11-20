@@ -92,19 +92,30 @@ impl Default for BrowserRpcState {
 /// Whether local `rune_mcp` `browser_*` / native MCP `Browser:*` bindings must be refused for
 /// `(server_key, session_id)`: true while attached AND sticky across transient `Backoff` /
 /// `Connecting` reconnects so a modern server never re-admits raw `browser_cdp`.
+/// Whether legacy local `browser_*` MCP tools must be suppressed on `server_key` / `session_id`:
+/// fail closed on live servers until at least one session proves `Unsupported` or `Unavailable`
+/// and no session on `server_key` is suppressing (`Idle`/`Connecting`/`Attached`/`Backoff`/`Blocked`).
 pub fn is_mcp_browser_suppressed(app: &App, server_key: &ServerKey, session_id: Option<&str>) -> bool {
+    if !app.live() {
+        return false;
+    }
     let st = app.kernel.slots.get(&BROWSER_RPC);
     if let Some(sid) = session_id
-        && st
-            .sessions
-            .get(&(server_key.clone(), sid.to_owned()))
-            .is_some_and(|att| att.attach.suppresses_local_mcp())
+        && let Some(att) = st.sessions.get(&(server_key.clone(), sid.to_owned()))
+        && att.attach.suppresses_local_mcp()
     {
         return true;
     }
-    st.sessions
-        .iter()
-        .any(|((k, _), att)| k == server_key && att.attach.suppresses_local_mcp())
+    let mut saw_server = false;
+    for ((k, _), att) in &st.sessions {
+        if k == server_key {
+            saw_server = true;
+            if att.attach.suppresses_local_mcp() {
+                return true;
+            }
+        }
+    }
+    !saw_server
 }
 
 /// Returns the owning `ServerKey` of any session tracked in `BROWSER_RPC` (including background
@@ -461,16 +472,16 @@ fn sync_mcp_suppression(app: &mut App) {
             .and_modify(|(_, s)| *s |= suppressed)
             .or_insert_with(|| (att.server.clone(), suppressed));
     }
-    let mut updates: Vec<(Server, bool)> = Vec::new();
+    let mut updates: Vec<(Server, Option<bool>)> = Vec::new();
     for (k, (srv, suppressed)) in &current {
         let prev = st.mcp_suppressed.get(k).map(|(_, s)| *s);
         if prev != Some(*suppressed) {
-            updates.push((srv.clone(), *suppressed));
+            updates.push((srv.clone(), Some(*suppressed)));
         }
     }
-    for (k, (srv, was_suppressed)) in &st.mcp_suppressed {
-        if !current.contains_key(k) && *was_suppressed {
-            updates.push((srv.clone(), false));
+    for (k, (srv, _)) in &st.mcp_suppressed {
+        if !current.contains_key(k) {
+            updates.push((srv.clone(), None));
         }
     }
     st.mcp_suppressed = current;
