@@ -27,7 +27,9 @@ impl TabScope {
     pub(super) fn capture(lua: &Lua) -> Self {
         let is_builtin_browser = lua
             .app_data_ref::<std::rc::Rc<Vmx>>()
-            .is_some_and(|vmx| &*vmx.half.id == "browser");
+            .is_some_and(|vmx| {
+                vmx.half.tier == crate::plugin_host::Tier::Bundled && &*vmx.half.id == "browser"
+            });
         let (tool_sid, in_flight) = current_tool_scope(lua);
         Self { is_builtin_browser, tool_sid, in_flight }
     }

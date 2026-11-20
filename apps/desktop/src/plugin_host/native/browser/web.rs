@@ -143,7 +143,7 @@ pub fn version(app: &App) -> u64 {
     h.finish()
 }
 
-pub fn pages(_: &App) -> Vec<(String, u64)> {
+pub fn pages(_: &App, _include_find: bool) -> Vec<(String, u64)> {
     Vec::new()
 }
 

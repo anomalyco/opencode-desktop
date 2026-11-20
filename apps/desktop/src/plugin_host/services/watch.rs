@@ -75,7 +75,8 @@ pub fn fire_watched(app: &App, i: usize, vm: u64) -> bool {
         }
         // Each page whose address, title or loading moved, or that closed, by its id.
         if name == "Browser.Changed" {
-            let pages = super::super::native::browser::pages(app);
+            let include_find = half.tier == crate::plugin_host::Tier::Bundled && &*half.id == "browser";
+            let pages = super::super::native::browser::pages(app, include_find);
             let mut seen = half.seen.borrow_mut();
             let gone: Vec<String> = seen.keys().filter_map(|k| k.strip_prefix("Browser.Changed:")).filter(|id| !pages.iter().any(|(p, _)| p == id)).map(str::to_owned).collect();
             let mut moved: Vec<String> = Vec::new();
