@@ -43,12 +43,13 @@ impl Run {
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn start(host: &mut dyn WidgetsHost, id: &str) {
     let notify = host.widget_notify();
+    let allow_local_network = host.widget_dev_mode();
     let w = host.widgets_mut();
     let Some(e) = w.entries.get(id) else { return };
     let Some(Template::Ready(c)) = w.templates.get(&e.template) else { return };
     let engine::Kind::Live { program, grants } = &c.kind else { return };
     let transport: Option<std::sync::Arc<dyn opencode_widget::live::Transport>> = grants.https.as_ref().map(|_| std::sync::Arc::new(crate::transport::Ureq) as _);
-    let live = engine::Live::start(program.clone(), e.machine.data.clone(), engine::Setup { grants: grants.clone(), transport, notify });
+    let live = engine::Live::start(program.clone(), e.machine.data.clone(), engine::Setup { grants: grants.clone(), transport, notify, allow_local_network });
     if let Some(e) = w.entries.get_mut(id) {
         e.run = Run { live: Some(live), ..Run::default() };
     }

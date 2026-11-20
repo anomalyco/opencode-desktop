@@ -4,6 +4,11 @@
 //! the methods the contract lists, a request body up to 256 KB and a response up to 2 MB, 15 s
 //! in all, at most 4 in flight and 10 a second per widget. A response crosses as
 //! `{ status, headers, body | body64 }`; a failure as `{ kind, message }`.
+//!
+//! Loopback, private and link-local destinations, and plain `http:`, are refused unless the app
+//! runs in dev mode (`allow_local_network`), and then only to hosts the template declares (a
+//! declared `localhost:4097` names its port). The host checks the address it actually connects
+//! to: it resolves once, checks every answer, and connects to exactly those (no DNS rebinding).
 
 use std::collections::VecDeque;
 use std::net::IpAddr;
@@ -72,6 +77,8 @@ pub struct Request {
     pub method: String,
     pub headers: Vec<(String, String)>,
     pub body: Option<String>,
+    /// Dev mode: the host may connect to loopback, private and link-local addresses.
+    pub local: bool,
 }
 
 /// What one hop answered: its body read up to [`MAX_RESPONSE`] (more is [`FetchErrorKind::TooLarge`]).
@@ -83,8 +90,9 @@ pub struct Response {
     pub body: Vec<u8>,
 }
 
-/// Sends one hop. The host refuses addresses that resolve to loopback, private or link-local
-/// networks, and gives up at `timeout`.
+/// Sends one hop. The host resolves the host once, refuses loopback, private and link-local
+/// answers unless `request.local`, connects to exactly the answers it checked, and gives up at
+/// `timeout`.
 pub trait Transport: Send + Sync {
     fn send(&self, request: &Request, timeout: Duration) -> Result<Response, FetchError>;
 }
@@ -96,13 +104,22 @@ pub struct Grants {
 }
 
 impl Grants {
-    /// Whether `host` is one the grant names: exactly, under a `*.` wildcard, or any with `*`.
-    pub fn allows(&self, host: &str) -> bool {
+    /// Whether `host` (on `port`) is one the grant names: exactly, under a `*.` wildcard, or any
+    /// with `*`; an entry with a port (`localhost:4097`) names only that port.
+    pub fn allows(&self, host: &str, port: Option<u16>) -> bool {
         let Some(hosts) = &self.https else { return false };
         let host = host.trim_end_matches('.').to_ascii_lowercase();
+        let host = host.trim_start_matches('[').trim_end_matches(']');
         hosts.iter().any(|h| {
             let h = h.to_ascii_lowercase();
-            h == "*" || h == host || h.strip_prefix("*.").is_some_and(|suffix| host.len() > suffix.len() && host.ends_with(suffix) && host[..host.len() - suffix.len()].ends_with('.'))
+            let (name, wanted) = match h.rsplit_once(':') {
+                Some((n, p)) if !n.contains(':') || n.ends_with(']') => (n.trim_start_matches('[').trim_end_matches(']').to_owned(), p.parse::<u16>().ok()),
+                _ => (h.clone(), None),
+            };
+            if wanted.is_some_and(|w| Some(w) != port) {
+                return false;
+            }
+            name == "*" || name == host || name.strip_prefix("*.").is_some_and(|suffix| host.len() > suffix.len() && host.ends_with(suffix) && host[..host.len() - suffix.len()].ends_with('.'))
         })
     }
 
@@ -143,41 +160,34 @@ fn denied(message: impl Into<String>) -> FetchError {
 }
 
 /// `url`, if the grant lets a widget reach it: `https:`, a granted host, not an address on this
-/// machine or its networks.
-fn check_url(url: &str, grants: &Grants) -> Result<Url, FetchError> {
+/// machine or its networks; with `local` (dev mode), also those, and `http:` to them.
+fn check_url(url: &str, grants: &Grants, local: bool) -> Result<Url, FetchError> {
     let parsed = Url::parse(url).map_err(|e| denied(format!("not a URL: {url} ({e})")))?;
-    if parsed.scheme() != "https" {
-        return Err(denied(format!("only https: URLs may be fetched, not {}:", parsed.scheme())));
-    }
     if !parsed.username().is_empty() || parsed.password().is_some() {
         return Err(denied("URLs with credentials may not be fetched"));
     }
-    let host = match parsed.host() {
+    let (host, near) = match parsed.host() {
         Some(Host::Domain(d)) => {
             let d = d.trim_end_matches('.').to_ascii_lowercase();
-            if d == "localhost" || d.ends_with(".localhost") || d.ends_with(".local") {
-                return Err(denied(format!("{d} is on this machine or its network")));
-            }
-            d
+            let near = d == "localhost" || d.ends_with(".localhost") || d.ends_with(".local");
+            (d, near)
         }
-        Some(Host::Ipv4(ip)) => {
-            if !public(&IpAddr::V4(ip)) {
-                return Err(denied(format!("{ip} is a private address")));
-            }
-            ip.to_string()
-        }
-        Some(Host::Ipv6(ip)) => {
-            if !public(&IpAddr::V6(ip)) {
-                return Err(denied(format!("{ip} is a private address")));
-            }
-            ip.to_string()
-        }
+        Some(Host::Ipv4(ip)) => (ip.to_string(), !public(&IpAddr::V4(ip))),
+        Some(Host::Ipv6(ip)) => (ip.to_string(), !public(&IpAddr::V6(ip))),
         None => return Err(denied("the URL has no host")),
     };
+    if near && !local {
+        return Err(denied(format!("{host} is on this machine or its network")));
+    }
+    match parsed.scheme() {
+        "https" => {}
+        "http" if near => {}
+        s => return Err(denied(format!("only https: URLs may be fetched, not {s}:"))),
+    }
     if grants.https.is_none() {
         return Err(denied("this widget has no https capability"));
     }
-    if !grants.allows(&host) {
+    if !grants.allows(&host, parsed.port_or_known_default()) {
         return Err(denied(format!("{host} isn't among the hosts this widget may reach")));
     }
     Ok(parsed)
@@ -201,14 +211,14 @@ pub fn public(ip: &IpAddr) -> bool {
     }
 }
 
-/// The program's request (`{ url, method, headers, body? }`), checked.
-pub fn request(v: &Value, grants: &Grants) -> Result<Request, FetchError> {
+/// The program's request (`{ url, method, headers, body? }`), checked; `local`: dev mode.
+pub fn request(v: &Value, grants: &Grants, local: bool) -> Result<Request, FetchError> {
     let url = v["url"].as_str().ok_or_else(|| denied("a request needs a url"))?;
     let method = v["method"].as_str().unwrap_or("GET").to_ascii_uppercase();
     if !METHODS.contains(&method.as_str()) {
         return Err(denied(format!("{method} requests aren't allowed")));
     }
-    let url = check_url(url, grants)?;
+    let url = check_url(url, grants, local)?;
     let headers: Vec<(String, String)> = v["headers"]
         .as_object()
         .into_iter()
@@ -221,7 +231,7 @@ pub fn request(v: &Value, grants: &Grants) -> Result<Request, FetchError> {
     if body.as_ref().is_some_and(|b| b.len() > MAX_REQUEST) {
         return Err(FetchError::new(FetchErrorKind::TooLarge, format!("a request body may be at most {} KB", MAX_REQUEST / 1024)));
     }
-    Ok(Request { url: url.into(), method, headers, body })
+    Ok(Request { url: url.into(), method, headers, body, local })
 }
 
 /// Sends `request` through `transport`, following up to [`MAX_REDIRECTS`] redirects that stay
@@ -239,7 +249,7 @@ pub fn run(transport: &dyn Transport, mut request: Request, grants: &Grants) -> 
             (301 | 302 | 303 | 307 | 308, Some(location)) => {
                 let base = Url::parse(&request.url).map_err(|e| FetchError::new(FetchErrorKind::Network, e.to_string()))?;
                 let next = base.join(&location).map_err(|e| FetchError::new(FetchErrorKind::Network, format!("a bad redirect: {e}")))?;
-                let next = check_url(next.as_str(), grants)?;
+                let next = check_url(next.as_str(), grants, request.local)?;
                 // A 303, and a 301 or 302 after a POST, go on as a GET without a body, as fetch does.
                 if response.status == 303 || (matches!(response.status, 301 | 302) && request.method == "POST") {
                     request.method = "GET".into();

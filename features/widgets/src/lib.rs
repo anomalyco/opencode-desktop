@@ -163,6 +163,10 @@ pub trait WidgetsHost {
     fn warp_pointer(&mut self, to: [f64; 2]);
     /// Whether the window is OS full screen now; `None` without a window (a headless run).
     fn window_full_screen(&self) -> Option<bool>;
+    /// Dev mode: a live widget's `fetch` may reach the local network (`allowLocalNetwork`).
+    fn widget_dev_mode(&self) -> bool {
+        false
+    }
     /// Wakes the window from another thread: a live program posted or wants a frame.
     fn widget_notify(&self) -> Arc<dyn Fn() + Send + Sync>;
 }

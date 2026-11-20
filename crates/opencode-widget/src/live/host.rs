@@ -287,7 +287,7 @@ impl Future for Fetch {
 /// Checks `request` and sends it on a thread of its own; its answer comes to `link.fetched`.
 fn start(link: &Arc<Link>, st: &mut super::link::St, this: &mut Fetch, request: Value, cx: &Context<'_>, now: Instant) -> Result<(), fetch::FetchError> {
     let grants = &link.setup.grants;
-    let request = fetch::request(&request, grants)?;
+    let request = fetch::request(&request, grants, link.setup.allow_local_network)?;
     let transport = link.setup.transport.clone().ok_or_else(|| fetch::FetchError::new(fetch::FetchErrorKind::Network, "this client can't fetch"))?;
     st.rate.take(now)?;
     st.fetch_ids += 1;

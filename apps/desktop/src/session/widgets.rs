@@ -87,6 +87,11 @@ impl WidgetsHost for App {
         crate::windows::handle(&self.window.id)?.placement().map(|p| p.full_screen)
     }
 
+    /// Debug builds are this app's dev mode (it has no developer setting of its own).
+    fn widget_dev_mode(&self) -> bool {
+        cfg!(debug_assertions)
+    }
+
     fn widget_notify(&self) -> Arc<dyn Fn() + Send + Sync> {
         // A run without a window (headless) has nothing to wake: its clock runs on its own.
         (*self.waker).clone().unwrap_or_else(|| Arc::new(|| {}))

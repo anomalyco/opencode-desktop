@@ -105,6 +105,9 @@ pub struct Setup {
     pub grants: Grants,
     /// Sends `fetch`'s requests; none, and `fetch` fails as `Network`.
     pub transport: Option<Arc<dyn Transport>>,
+    /// Dev mode: `fetch` may also reach loopback, private and link-local hosts the template
+    /// declares, over `http:` too (`allowLocalNetwork`). Off by default.
+    pub allow_local_network: bool,
     /// Wakes the client when the program posted, ended or a frame is due.
     pub notify: Arc<dyn Fn() + Send + Sync>,
 }
