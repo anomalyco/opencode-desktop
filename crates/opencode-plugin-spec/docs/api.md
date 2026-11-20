@@ -2109,6 +2109,7 @@ How `I18n:Number` writes a number.
 | `notation` | `NumberNotation?` | Defaults to `standard`. |
 | `currency` | `string?` | An ISO 4217 code for `currency`. Defaults to `"USD"`. |
 | `maxFraction` | `number?` | The most fraction digits. Defaults to 3 for `decimal`, 2 for `currency`, 0 for `percent` and `compact`. |
+| `localePattern` | `boolean?` | For `currency`, formats with the interface language's localized currency pattern (such as `1.234,50 $` or `1,84 USD`) instead of prefixing the narrow currency symbol. Defaults to false. Since 1.5. |
 
 ### SessionUsage
 

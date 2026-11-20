@@ -3359,6 +3359,8 @@ export type NumberFormat = {
     currency: string?,
     --- The most fraction digits. Defaults to 3 for `decimal`, 2 for `currency`, 0 for `percent` and `compact`.
     maxFraction: number?,
+    --- For `currency`, formats with the interface language's localized currency pattern (such as `1.234,50 $` or `1,84 USD`) instead of prefixing the narrow currency symbol. Defaults to false.
+    localePattern: boolean?,
 }
 
 --- A session's token counts at its last step.

@@ -184,7 +184,7 @@ ui.text(I18n:Date(session.created, "dateTime"))
 ```
 
 - [`I18n:T`](api.md#i18n) looks up the plugin's `locales/<lang>.json`, falls back to `locales/en.json`, then to the host's own message catalog (singular and plural keys), and finally to the key itself. With a number `count`, it picks the plural form the language uses. Built-in plugins whose copy already lives in the host catalog do not need to duplicate `locales/*.json` files.
-- `Number`, `Date`, `RelativeTime`, `RelativeDay` and `List` write values as the app writes them in the interface language.
+- `Number`, `Date`, `RelativeTime`, `RelativeDay` and `List` write values as the app writes them in the interface language. For currency amounts that should follow the locale's full currency pattern (such as `1.234,50 $` or `1,84 USD`) rather than a compact `$` prefix, pass `localePattern = true` to `I18n:Number`.
 - `I18n:Direction()` says whether the language reads right to left. Everything drawn redraws when the language changes; connect `I18n.Changed` for state you keep.
 
 ## 7. Check it
