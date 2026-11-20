@@ -1,12 +1,13 @@
-//! CEF 156 process initialization, command-line switches, and shutdown lifecycle.
+//! CEF 156 runtime initialization, browser command-line sanitization, and global
+//! `RequestContextHandler` attachment (`DefaultRequestContextHandler`).
 
 use std::sync::mpsc::Sender;
 
 use cef::rc::Rc as _;
 use cef::{
     App, BrowserProcessHandler, CefString, CommandLine, ImplApp, ImplBrowserProcessHandler,
-    ImplCommandLine, SchemeRegistrar, Settings, WrapApp, WrapBrowserProcessHandler, sys, wrap_app,
-    wrap_browser_process_handler,
+    ImplCommandLine, RequestContextHandler, SchemeRegistrar, Settings, WrapApp,
+    WrapBrowserProcessHandler, sys, wrap_app, wrap_browser_process_handler,
 };
 
 use crate::profile::Profile;
@@ -22,8 +23,11 @@ impl CefRuntime {
     /// `locale`: the app's language as Chromium names it; `pump`: where CEF's requests for its
     /// next work call go.
     pub fn initialize(
+        profile: Profile,
         adapter_luid: Option<(i32, u32)>,
         locale: Option<&str>,
+        ext_dirs: &[std::path::PathBuf],
+        io_pipes: Option<String>,
         pump: Sender<crate::Event>,
     ) -> Self {
         #[cfg(target_os = "macos")]
@@ -38,20 +42,6 @@ impl CefRuntime {
         };
 
         let _ = cef::api_hash(sys::CEF_API_VERSION_LAST, 0);
-
-        let profile = Profile::open();
-        // Chromium's temporary files (and its helpers', which inherit this) go in the profile, not
-        // the user's temp folder: everything the engine writes is under the root the app gave it.
-        // An earlier run's leftovers go first.
-        let temp = profile.root.join("Temp");
-        let _ = std::fs::remove_dir_all(&temp);
-        let _ = std::fs::create_dir_all(&temp);
-        // SAFETY: no other thread of this process reads the environment while it changes (the
-        // socket's accept thread doesn't), and CEF starts after.
-        unsafe {
-            std::env::set_var("TMP", &temp);
-            std::env::set_var("TEMP", &temp);
-        }
 
         #[cfg(unix)]
         let exe_str = std::env::current_exe()
@@ -78,7 +68,19 @@ impl CefRuntime {
         #[cfg(target_os = "macos")]
         let browser_subprocess_path = CefString::default();
 
-        let mut app = SidecarCefApp::new(adapter_luid.map(|(high, low)| format!("{high},{low}")), pump);
+        let ext_except = (!ext_dirs.is_empty()).then(|| {
+            ext_dirs
+                .iter()
+                .map(|p| p.to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+                .join(",")
+        });
+        let mut app = SidecarCefApp::new(
+            adapter_luid.map(|(high, low)| format!("{high},{low}")),
+            ext_except,
+            io_pipes,
+            pump,
+        );
         let settings = Settings {
             browser_subprocess_path,
             windowless_rendering_enabled: 1,
@@ -130,21 +132,56 @@ wrap_app! {
     struct SidecarCefApp {
         // Chromium's `use-adapter-luid` (`HIGH,LOW`): the GPU the app's frames open on.
         adapter_luid: Option<String>,
+        // Managed user-approved extension directories (`--disable-extensions-except`), or None to
+        // pass `--disable-extensions`. Never allows host registry or external loaders.
+        ext_except: Option<String>,
+        // Windows only: anonymous non-inheritable pipe HANDLE pair for `--remote-debugging-pipe`.
+        io_pipes: Option<String>,
         pump: Sender<crate::Event>,
     }
     impl App {
         fn on_before_command_line_processing(
             &self,
-            _process_type: Option<&cef::CefStringUtf16>,
+            process_type: Option<&cef::CefStringUtf16>,
             command_line: Option<&mut CommandLine>,
         ) {
             let Some(cmd) = command_line else { return };
+            // Strip untrusted external switches on the browser process (`GetCommandLineW()` passes
+            // through on Windows; `review-rd274.md` §7) before appending our controlled flags.
+            let is_browser_process = process_type.is_none_or(|p| p.to_string().is_empty());
+            if is_browser_process {
+                for sw in [
+                    "remote-debugging-port",
+                    "remote-debugging-pipe",
+                    "remote-debugging-io-pipes",
+                    "load-extension",
+                    "load-component-extension",
+                    "disable-extensions-except",
+                    "disable-extensions",
+                    "disable-web-security",
+                    "allow-file-access-from-files",
+                    "user-data-dir",
+                    "disable-site-isolation-trials",
+                ] {
+                    cmd.remove_switch(Some(&sw.into()));
+                }
+            }
             // Rune owns the window. CEF paints offscreen even when no display server is running.
             #[cfg(target_os = "linux")]
             crate::linux_gpu::configure(cmd);
-            // Disable Chrome's default extension subsystem so CEF's Chrome bootstrap never scans
-            // host OS extension registries (`external_registry_loader_win.cc`) on startup.
-            cmd.append_switch(Some(&"disable-extensions".into()));
+            // Keep Chrome's host registry, component background extensions, & external loaders off:
+            // with 0 user-approved extensions pass `--disable-extensions`; with >= 1 pass
+            // `--disable-extensions-except=<inert_stub_dirs>` plus our private in-process CDP pipe.
+            cmd.append_switch(Some(&"disable-component-extensions-with-background-pages".into()));
+            if let Some(dirs) = &self.ext_except {
+                cmd.append_switch_with_value(Some(&"disable-extensions-except".into()), Some(&dirs.as_str().into()));
+                cmd.append_switch(Some(&"remote-debugging-pipe".into()));
+                if let Some(pipes) = &self.io_pipes {
+                    cmd.append_switch_with_value(Some(&"remote-debugging-io-pipes".into()), Some(&pipes.as_str().into()));
+                }
+            } else {
+                cmd.append_switch(Some(&"disable-extensions".into()));
+            }
             // Let `TabRequestHandler::auth_credentials` handle HTTP 401 challenges in OSR instead
             // of Chrome's native login dialog (which fails with `ERR_INVALID_AUTH_CREDENTIALS` on
             // windowless browsers; CEF issue #3603).
@@ -186,6 +223,12 @@ wrap_browser_process_handler! {
         // Any thread: the main loop wakes for it.
         fn on_schedule_message_pump_work(&self, delay_ms: i64) {
             let _ = self.pump.send(crate::Event::Pump(delay_ms));
+        }
+
+        // Attach our global RequestContextHandler so extension service workers, offscreen
+        // documents, and extension-origin initiators can never fetch or redirect to `file://`.
+        fn default_request_context_handler(&self) -> Option<RequestContextHandler> {
+            Some(crate::context::DefaultRequestContextHandler::new())
         }
     }
 }
