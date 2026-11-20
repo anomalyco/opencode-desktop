@@ -63,20 +63,17 @@ jobs:
     outputs:
       pr-number: ${{ steps.plan.outputs.pr-number }}
       head-sha: ${{ steps.plan.outputs.head-sha }}
-      short-sha: ${{ steps.plan.outputs.short-sha }}
-      base-sha: ${{ steps.plan.outputs.base-sha }}
-      branch-slug: ${{ steps.plan.outputs.branch-slug }}
       app-name: ${{ steps.plan.outputs.app-name }}
       bundle-id: ${{ steps.plan.outputs.bundle-id }}
       url-scheme: ${{ steps.plan.outputs.url-scheme }}
       version: ${{ steps.plan.outputs.version }}
       channel: ${{ steps.plan.outputs.channel }}
       file-stem: ${{ steps.plan.outputs.file-stem }}
-      release-tag: ${{ steps.plan.outputs.release-tag }}
     steps:
+      # The plan script from the base branch: its outputs come only from the event, never PR files.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.base.sha }}
           sparse-checkout: /.github/release/
           sparse-checkout-cone-mode: false
           persist-credentials: false
@@ -195,21 +192,22 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+    # What it runs, which tag it moves and which PR it comments on come from the event, not plan
+    # outputs (as in retire-pr-build); plan only supplies display names and the build version.
     env:
       GH_TOKEN: ${{ github.token }}
-      PR_NUMBER: ${{ needs.plan.outputs.pr-number }}
-      HEAD_SHA: ${{ needs.plan.outputs.head-sha }}
-      SHORT_SHA: ${{ needs.plan.outputs.short-sha }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       APP_NAME: ${{ needs.plan.outputs.app-name }}
       BUNDLE_ID: ${{ needs.plan.outputs.bundle-id }}
       VERSION: ${{ needs.plan.outputs.version }}
-      FILE_STEM: ${{ needs.plan.outputs.file-stem }}
-      RELEASE_TAG: ${{ needs.plan.outputs.release-tag }}
+      FILE_STEM: OpenCode-Rune-PR-${{ github.event.pull_request.number }}
+      RELEASE_TAG: opencode-rune-pr-${{ github.event.pull_request.number }}
     steps:
       - name: Check out the release helpers from the base branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.plan.outputs.base-sha }}
+          ref: ${{ github.event.pull_request.base.sha }}
           sparse-checkout: /.github/release/
           sparse-checkout-cone-mode: false
           persist-credentials: false
@@ -229,6 +227,7 @@ jobs:
             build-opencode-rune-pr-windows-arm64=${{ needs.build-windows.outputs.digest-arm64 }}
       - name: Upload PR DMG and update sticky PR comment
         run: |
+          SHORT_SHA=${HEAD_SHA:0:9}
           mkdir -p "$RUNNER_TEMP/publish"
           dmg_name="$FILE_STEM-macos-arm64.dmg"
           dmg="$RUNNER_TEMP/publish/$dmg_name"
