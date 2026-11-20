@@ -46,6 +46,8 @@ pub struct CommandSpec {
     pub section: Option<CommandSection>,
     /// The default keybind, such as `"mod+shift+t"`.
     pub bind: Option<String>,
+    /// The id of the command whose keybind this one shares, such as `"tab.close"`: Settings > Shortcuts lists that one and leaves this one out, unless the user has bound this one itself (Desktop's `follows`).
+    pub follows: Option<String>,
     /// Also offers it as a slash command.
     pub slash: Option<CommandSlash>,
     /// Keeps it out of the palette. The keybind still works. A function makes it reactive: the host calls it as it lists commands, and again only once something it read changes. Keep it cheap, and don't yield.
@@ -61,7 +63,7 @@ pub struct CommandSpec {
     /// Offered only while a session is open.
     pub requires_session: Option<bool>,
 }
-impl_record!(CommandSpec, ["id", "title", "description", "keywords", "group", "order", "section", "bind", "slash", "hidden", "suggested", "featured", "enabled", "editable", "requiresSession"], ["hidden", "enabled", "run"], []);
+impl_record!(CommandSpec, ["id", "title", "description", "keywords", "group", "order", "section", "bind", "follows", "slash", "hidden", "suggested", "featured", "enabled", "editable", "requiresSession"], ["hidden", "enabled", "run"], []);
 
 /// What Recently closed lists for a panel's closed tab.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

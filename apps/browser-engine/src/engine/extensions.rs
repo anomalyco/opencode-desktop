@@ -116,7 +116,7 @@ impl EngineManager {
                         tab.prompts.dismiss_all();
                         tab.host.close_browser(1);
                         self.downloads.close_tab(engine_tab_id);
-                        self.contexts.drop_private_tab(engine_tab_id);
+                        self.contexts.release_tab(engine_tab_id);
                         if engine_tab_id >= 1_000_000 {
                             self.unmanaged_ext_tabs = self.unmanaged_ext_tabs.saturating_sub(1);
                         }

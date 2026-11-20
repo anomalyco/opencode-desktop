@@ -233,11 +233,11 @@ impl EngineManager {
                 let ids: Vec<u64> = self.tabs.keys().copied().collect();
                 for tab_id in ids {
                     let Some(tab) = self.tabs.remove(&tab_id) else { continue };
+                    let was_agent = tab.prompts.agent_driven.load(Ordering::Acquire);
                     tab.host.close_browser(1);
                     let url = tab.snap.lock().unwrap().url.clone();
                     let v = tab.view_state.lock().unwrap().clone();
                     let roots = tab.file_roots.lock().unwrap().clone();
-                    let was_agent = tab.prompts.agent_driven.load(Ordering::Relaxed);
                     let allow_ext = tab.allow_extension_pages && !was_agent;
                     let ctx = tab.context.clone();
                     self.open_tab(
@@ -254,12 +254,16 @@ impl EngineManager {
                         tab.is_popup,
                         None,
                     );
-                    if was_agent && let Some(reopened) = self.tabs.get(&tab_id) {
-                        reopened.prompts.agent_driven.store(true, Ordering::Relaxed);
-                        reopened.allowed_ext_ids.lock().unwrap().clear();
-                        if let Some(ext) = &mut self.extensions {
-                            ext.set_tab_agent_driven(tab_id, true);
+                    if let Some(reopened) = self.tabs.get(&tab_id) {
+                        reopened.prompts.agent_driven.store(was_agent, Ordering::Release);
+                        if was_agent {
+                            reopened.allowed_ext_ids.lock().unwrap().clear();
+                            if let Some(ext) = &mut self.extensions {
+                                ext.set_tab_agent_driven(tab_id, true);
+                            }
                         }
+                    } else {
+                        self.contexts.release_tab(tab_id);
                     }
                 }
             }
@@ -437,8 +441,8 @@ impl EngineManager {
                 is_popup,
                 ext_open_request_id,
             } => {
-                // Remote-server tabs never receive local filesystem roots.
-                let roots = if matches!(context, crate::wire::ContextKind::RemoteServer { .. }) {
+                // Only `Default` non-isolated tabs receive local `file://` roots; all isolated scopes strip them.
+                let roots = if context.is_isolated() || isolated {
                     Vec::new()
                 } else {
                     self.safe_roots(file_roots)
@@ -510,7 +514,7 @@ impl EngineManager {
             }
             HostMsg::SetTabPolicy { tab_id, file_roots } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
-                    if matches!(t.context, crate::wire::ContextKind::RemoteServer { .. }) {
+                    if t.context.is_isolated() {
                         t.file_roots.lock().unwrap().clear();
                     } else {
                         let roots = self.safe_roots(file_roots);
@@ -524,13 +528,15 @@ impl EngineManager {
                     tab.prompts.dismiss_all();
                     tab.host.close_browser(1);
                     self.downloads.close_tab(tab_id);
-                    self.contexts.drop_private_tab(tab_id);
+                    self.contexts.release_tab(tab_id);
                     if !tab.isolated && !tab.is_popup
                         && let Some(ext) = &mut self.extensions
                     {
                         ext.on_tab_closed(tab_id);
                     }
                     let _ = self.out_tx.send(EngineMsg::TabClosed { tab_id });
+                } else {
+                    self.contexts.release_tab(tab_id);
                 }
             }
             HostMsg::FocusTab { tab_id } => {
@@ -1011,10 +1017,10 @@ impl EngineManager {
                     t.menu.execute(id, action, &t.browser, &t.host, &roots);
                 }
             }
-            HostMsg::SetPartitionProxy { partition, proxy } => {
-                if let Ok(applied) = self.contexts.set_partition_proxy(&partition, proxy) {
+            HostMsg::SetPartitionProxy { server_id, proxy } => {
+                if let Ok(applied) = self.contexts.set_partition_proxy(&server_id, proxy) {
                     for t in self.tabs.values() {
-                        if matches!(&t.context, crate::wire::ContextKind::RemoteServer { partition: p, .. } if p == &partition) {
+                        if matches!(&t.context, crate::wire::ContextKind::RemoteServer { server_id: id, .. } if id == &server_id) {
                             *t.prompts.proxy.lock().unwrap() = applied.clone();
                         }
                     }
@@ -1029,6 +1035,7 @@ impl EngineManager {
                     t.prompts.dismiss_all();
                     t.host.close_browser(1);
                 }
+                self.contexts.release_all();
                 return false;
             }
         }
@@ -1051,15 +1058,15 @@ impl EngineManager {
         is_popup: bool,
         ext_open_request_id: Option<u64>,
     ) {
-        // Normalize legacy `isolated: true` into a dedicated per-tab `ContextKind::PrivateTab`
+        // Normalize legacy `isolated: true` into a dedicated per-tab `ContextKind::Private`
         // so private tabs NEVER share cookies/storage/cache with previews, artifacts, remote
-        // servers, or each other (`review-rd274.md` §5).
-        let effective_context = if isolated_flag && matches!(context, crate::wire::ContextKind::Default) {
-            crate::wire::ContextKind::PrivateTab
+        // servers, or each other (`#288` / `review-rd274.md` §5).
+        let effective_context = if isolated_flag && context.is_default() {
+            crate::wire::ContextKind::Private
         } else {
             context
         };
-        let isolated = !matches!(effective_context, crate::wire::ContextKind::Default);
+        let isolated = effective_context.is_isolated();
         // Non-default context tabs (preview, artifact, remote, private) NEVER open extension pages or popups.
         let allow_extension_pages = allow_extension_pages && !isolated;
         let is_popup_valid = is_popup && allow_extension_pages;
@@ -1242,6 +1249,17 @@ impl EngineManager {
             ..Default::default()
         };
 
+        // Hard fail-closed invariant: an isolated tab must NEVER open without a dedicated
+        // `CefRequestContext` (falling back to `None` would open it inside the signed-in profile).
+        if effective_context.is_isolated() && req_ctx.is_none() {
+            self.contexts.release_tab(tab_id);
+            let _ = self.out_tx.send(EngineMsg::Refused {
+                tab_id,
+                reason: "browser.context.unavailable".to_owned(),
+            });
+            return;
+        }
+
         // Tell ExtensionHost what kind of OSR target CEF is about to create synchronously.
         if let Some(ext) = &mut self.extensions {
             if isolated {
@@ -1265,7 +1283,7 @@ impl EngineManager {
             None,
             req_ctx.as_mut(),
         ) else {
-            self.contexts.drop_private_tab(tab_id);
+            self.contexts.release_tab(tab_id);
             if let Some(ext) = &mut self.extensions {
                 ext.cancel_expected_target();
             }
@@ -1275,13 +1293,21 @@ impl EngineManager {
             {
                 ext.fail_tab_create(&sid, rpc_id, "Could not create browser tab.");
             }
+            let _ = self.out_tx.send(EngineMsg::Refused {
+                tab_id,
+                reason: "browser.context.unavailable".to_owned(),
+            });
             return;
         };
         let Some(host) = browser.host() else {
-            self.contexts.drop_private_tab(tab_id);
+            self.contexts.release_tab(tab_id);
             if let Some(ext) = &mut self.extensions {
                 ext.cancel_expected_target();
             }
+            let _ = self.out_tx.send(EngineMsg::Refused {
+                tab_id,
+                reason: "browser.context.unavailable".to_owned(),
+            });
             return;
         };
         if is_popup {

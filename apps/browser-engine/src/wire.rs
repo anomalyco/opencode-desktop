@@ -92,10 +92,10 @@ pub enum HostMsg {
         #[serde(default)]
         file_roots: Vec<String>,
         /// Partitioned `CefRequestContext` (`Default`, `IsolatedPreview`, `RemoteServer`, or
-        /// `PrivateTab`). Non-default contexts are strictly invisible to extensions.
+        /// `Private`). Non-default contexts are strictly invisible to extensions.
         #[serde(default)]
         context: ContextKind,
-        /// Legacy shorthand for `ContextKind::PrivateTab` when `context` is `Default`.
+        /// Legacy shorthand for `ContextKind::Private` when `context` is `Default`.
         #[serde(default)]
         isolated: bool,
         /// Allows navigating to loaded `chrome-extension://` pages (user tabs & popups only;
@@ -150,7 +150,11 @@ pub enum HostMsg {
     /// Executes or cancels a held page right-click context menu (`EngineMsg::ContextMenu`).
     ContextMenuAction { tab_id: u64, id: u64, action: Option<ContextMenuCommand> },
     /// Updates or clears the local loopback tunnel proxy on a remote server partition.
-    SetPartitionProxy { partition: String, proxy: Option<RemoteProxyConfig> },
+    SetPartitionProxy {
+        #[serde(alias = "partition")]
+        server_id: String,
+        proxy: Option<RemoteProxyConfig>,
+    },
     /// Closes all connections and drops a non-default preview or remote server context.
     DropContext { context: ContextKind },
     /// Linux: the app's GPU has finished reading `frame_id` (and every frame before it) of
@@ -407,16 +411,34 @@ pub struct RemoteProxyConfig {
 pub enum ContextKind {
     #[default]
     Default,
-    /// Dedicated per-tab ephemeral in-memory context (never shared; dropped when the tab closes).
-    PrivateTab,
-    IsolatedPreview {
+    /// Workspace preview (`oc-preview://`): distinct per `(workspace, grant)`.
+    Preview {
+        workspace: String,
         grant: String,
     },
+    /// Artifact preview: distinct namespace from workspace previews.
+    Artifact {
+        artifact_id: String,
+    },
+    /// Per-tab ephemeral private context (keyed strictly by `tab_id`).
+    Private,
+    /// Per-remote-server isolated context keyed strictly by canonical server identity.
     RemoteServer {
-        partition: String,
+        #[serde(alias = "partition")]
+        server_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         proxy: Option<RemoteProxyConfig>,
     },
+}
+
+impl ContextKind {
+    pub fn is_default(&self) -> bool {
+        matches!(self, Self::Default)
+    }
+
+    pub fn is_isolated(&self) -> bool {
+        !self.is_default()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
