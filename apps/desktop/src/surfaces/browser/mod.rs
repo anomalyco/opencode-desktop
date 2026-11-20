@@ -295,7 +295,7 @@ mod native {
             };
             let dir = self.link_directory(id);
             let home = (!self.home.is_empty()).then_some(self.home.as_str());
-            if browser_pane::policy::is_safe_workspace_root(&dir, home) {
+            if browser_pane::policy::is_safe_local_workspace_root(&dir, home) {
                 vec![dir]
             } else {
                 Vec::new()

@@ -314,14 +314,21 @@ fn strip_file_scheme_slashes(s: &str) -> Option<&str> {
 }
 
 /// Allow-lists ONLY non-redirecting local Windows reparse tags carried by ordinary files and
-/// Windows 11 OneDrive / Cloud Filter folders:
+/// Windows 11 OneDrive / Cloud Filter folders (shared by `browser-policy` and
+/// `opencode-browser-engine`'s `oc-preview://` handler):
 /// - `IO_REPARSE_TAG_CLOUD`..`IO_REPARSE_TAG_CLOUD_F` (`(tag & !0x0000_F000) == 0x9000_001A`)
-///   and legacy `IO_REPARSE_TAG_ONEDRIVE` (`0x8000_0021`): Windows Cloud Filter placeholders
-///   (OneDrive Known Folder Move Desktop/Documents, iCloud, Dropbox, Google Drive).
-/// - `IO_REPARSE_TAG_WOF` (`0x8000_0017`): Windows Overlay Filter transparent NTFS/WIM compression
-///   (`Wof.sys`, e.g. `compact /exe:lzx`); stores local data metadata and never redirects paths.
-/// - `IO_REPARSE_TAG_DEDUP` (`0x8000_0013`): NTFS Data Deduplication (`ddp.sys`) local volume
-///   chunk-store metadata; never redirects path lookup.
+///   and legacy `IO_REPARSE_TAG_ONEDRIVE` (`0x8000_0021`): Windows Cloud Filter (`cldflt.sys`)
+///   placeholders (OneDrive Known Folder Move Desktop/Documents, iCloud, Dropbox, Google Drive);
+///   bit 29 is clear and lookup stays within the same local path.
+/// - `IO_REPARSE_TAG_WOF` (`0x8000_0017`): Windows Overlay Filter (`Wof.sys`); bit 29 is clear
+///   and path lookup is never redirected. Unprivileged `WOF_PROVIDER_FILE` (`compact /exe:lzx` /
+///   `xpress*`) transparently decompresses only the file's own `WofCompressedData` stream, whereas
+///   registering a backing `.wim` (`FSCTL_ADD_OVERLAY`) and setting `WOF_PROVIDER_WIM` require
+///   Administrator (`SeManageVolumePrivilege`), so checkouts/archives cannot serve outside bytes.
+/// - `IO_REPARSE_TAG_DEDUP` (`0x8000_0013`): NTFS Data Deduplication (`ddp.sys`); bit 29 is clear
+///   and path lookup is never redirected. Data chunks live in the volume's `SYSTEM`-ACLed
+///   `ChunkStore`, and creating/writing dedup reparse points requires Administrator
+///   (`SeManageVolumePrivilege`), so unprivileged files cannot redirect reads outside the root.
 ///
 /// Strictly refuses every name-surrogate / redirecting tag (bit 29 `0x2000_0000`: symlinks
 /// `0xA000_000C`, mount points / junctions `0xA000_0003`, WSL symlinks `0xA000_001D`, global
