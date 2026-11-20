@@ -55,7 +55,7 @@ fn card(p: &Pal, mode: Navigation, checked: bool) -> El {
         .w_full()
         .items_center()
         .clip_rounded(8.0)
-        .child(sketch(p, mode))
+        .child(sketch(p, mode).opacity(if checked { 1.0 } else { 0.45 }))
         .child(row().key("name").w_full().px(10.0).pt(6.0).pb(8.0).center().child(name));
     let ring = |key: &'static str, color: Color, w: f32| el().key(key).pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).radius(8.0).border(w, color);
     el().key(match mode {
@@ -75,9 +75,10 @@ fn card(p: &Pal, mode: Navigation, checked: bool) -> El {
     .hover_group()
     .hover_motion(ease, ease)
     .child(body)
-    .child(ring("border", c.border_base, 1.0).group_opacity(1.0, 0.0))
+    .child(ring("border", c.border_muted, 1.0).group_opacity(1.0, 0.0))
     .child(ring("hover-border", c.border_strong, 1.0).group_opacity(0.0, 1.0))
-    .child(ring("checked-border", c.border_focus, 2.0).opacity(if checked { 1.0 } else { 0.0 }).opacity_motion(ease))
+    .child(ring("checked-border", c.border_strong, 2.0).opacity(if checked { 1.0 } else { 0.0 }).opacity_motion(ease))
+    .children(checked.then(|| crate::interface_mode::check_badge(p)))
 }
 
 fn sketch(p: &Pal, mode: Navigation) -> El {

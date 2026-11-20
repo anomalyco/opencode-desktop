@@ -222,6 +222,7 @@ fn vertical_session(s: &App, p: &Pal, r: &PinRef, nav_order: &[String], show_hin
         .gap(8.0)
         .center_y()
         .radius(6.0)
+        .focus_inset(p)
         .fill(if d.active { p.pressed } else if marked { p.hover } else { Color::TRANSPARENT })
         .hover(if d.active { p.pressed } else { p.hover })
         .hover_motion(INSTANT, INSTANT)
@@ -267,6 +268,7 @@ fn horizontal_session(s: &App, p: &Pal, r: &PinRef, nav_order: &[String], show_h
         .size(28.0, 28.0)
         .center()
         .radius(6.0)
+        .focus_inset(p)
         .fill(if d.active { p.pressed } else if marked { p.hover } else { Color::TRANSPARENT })
         .hover(if d.active { p.pressed } else { p.hover })
         .hover_motion(INSTANT, INSTANT)
@@ -342,6 +344,7 @@ fn vertical_group(s: &App, p: &Pal, g: &PinGroup, nav_order: &[String], show_hin
         .gap(8.0)
         .center_y()
         .radius(6.0)
+        .focus_inset(p)
         .hover(p.hover)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
@@ -392,6 +395,7 @@ fn horizontal_group(s: &App, p: &Pal, g: &PinGroup, nav_order: &[String], show_h
         .size(28.0, 28.0)
         .center()
         .radius(6.0)
+        .focus_inset(p)
         .hover(p.hover)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();

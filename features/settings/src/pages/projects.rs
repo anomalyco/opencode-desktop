@@ -6,6 +6,7 @@
 use opencode_i18n::t;
 use opencode_kit::model::Project;
 use opencode_kit::path;
+use opencode_ui::focus::FocusExt;
 use opencode_ui::popup::PopupHost;
 use opencode_ui::widgets;
 use rune::{El, Key, KeyEvent, TextEdit, TextStyle, Tx, col, el, icon, row, text};
@@ -211,21 +212,25 @@ fn card<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, x: &Project, _oth
         return card.child(row().grow(1.0).shrink().min_w(0.0).gap(8.0).center_y().child(SettingsHost::project_badge(s, p, Some(x), &label)).child(field));
     }
     let dir = x.directory.clone();
+    // The button opens the project and covers the whole row, so its inset ring is the row's, as
+    // `.settings-project-card:has(> button:first-child:focus-visible)` draws it (opencode#64909);
+    // the menu's button sits over its end with a ring of its own.
     let open = row()
         .key("open")
         .role("button")
         .label(label.clone())
         .help(x.directory.clone())
-        .grow(1.0)
-        .shrink()
-        .min_w(0.0)
-        .h_full()
+        .pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
+        .pl(if alone { 16.0 } else { 12.0 })
+        .pr(if alone { 16.0 } else { 12.0 } + 24.0 + 8.0)
+        .radius(if alone { 8.0 } else { 4.0 })
+        .focus_inset(p)
         .gap(8.0)
         .center_y()
         .on_press_tx(move |s: &mut H, tx: &mut Tx| open_project_general(s, &dir, tx))
         .child(SettingsHost::project_badge(s, p, Some(x), &label))
         .child(text(label).font(NAME).color(p.text).truncate());
-    card.child(open).child(super::project::options_with(s, p, x, &format!("settings-project-menu-{}", x.id), 24.0, true))
+    card.child(open).child(rune::spacer()).child(super::project::options_with(s, p, x, &format!("settings-project-menu-{}", x.id), 24.0, true))
 }
 
 /// A row's field lost focus: the rename is dropped, as a click away drops Desktop's.
