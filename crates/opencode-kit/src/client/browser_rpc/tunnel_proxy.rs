@@ -196,7 +196,7 @@ struct ConnGuard {
 impl ConnGuard {
     fn track_abort(&mut self, abort: &AbortHandle) -> bool {
         let mut g = self.ctx.shared.lock().unwrap_or_else(PoisonError::into_inner);
-        if !g.state.admits() {
+        if !g.state.admits() || g.suspended {
             abort.abort();
             return false;
         }
@@ -559,6 +559,9 @@ fn pump_bidirectional_stream(
     loop {
         match client_read.read(&mut buf) {
             Ok(0) => {
+                if !ctx.admits() {
+                    return false;
+                }
                 let _ = write_all_chunks(ctx, tunnel_id, &[], true, abort);
                 return true;
             }
