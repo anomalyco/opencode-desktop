@@ -1,8 +1,13 @@
-//! Native portion of the device preview. CEF receives the displayed surface's actual
-//! window-point bounds; the requested CSS dimensions travel separately in the protocol.
-use super::{App, Dep, El, Lua, NodeArgs, Table, col, cx, id_of, later, scope, with_app};
+//! Native portion of the device preview (`#63819`, `viewport-layout.ts`, `viewport-handles.tsx`,
+//! `bar.css:172-282`). CEF receives the displayed surface's actual window-point bounds; the
+//! requested CSS dimensions travel separately in the protocol (`HostMsg::Emulate`).
+use super::{App, Dep, El, Lua, NodeArgs, Table, col, cx, id_of, later, p as pal_of, scope, with_app};
 use browser_pane::device::{Device, Profile};
+use opencode_ui::palette::Elevate as _;
 use rune::{Cursor, Drag, Phase, Tx, el};
+
+/// Grip gutter around the fixed viewport frame (`--viewport-grip: 14px`).
+const GRIP: f32 = 14.0;
 
 pub(super) fn methods(lua: &Lua, m: &Table) -> mlua::Result<()> {
     m.raw_set(
@@ -85,74 +90,108 @@ fn decode(t: Table) -> mlua::Result<Device> {
     })
 }
 
+#[derive(Clone, Copy)]
+enum GripAxis {
+    Width,
+    Height,
+    Corner,
+}
+
 pub(super) fn frame(a: &NodeArgs, app: &App, id: u64, surface: El) -> El {
     let Some(d) = app.workspace_panes.browser.host.tab(id).and_then(|t| t.device.as_ref()) else {
         return surface;
     };
+    let p = pal_of(a);
     let zoom = *app.zoom;
     let area = [
         a.number("areaWidth").unwrap_or(1.0) as f32,
         a.number("areaHeight").unwrap_or(1.0) as f32,
     ];
-    let scale = d.fit(area.map(|n| (n - 16.0) * zoom));
+    let scale = d.fit(area.map(|n| (n - GRIP * 2.0).max(1.0) * zoom));
     let width = (d.width as f32 * scale).ceil() / zoom;
     let height = (d.height as f32 * scale).ceil() / zoom;
-    let page = col().w(width).h(height).child(surface);
-    let grip = |width_axis: bool| {
+    let centered_w = width <= area[0] - GRIP * 2.0;
+    let centered_h = height <= area[1] - GRIP * 2.0;
+
+    let make_grip = |axis: GripAxis| {
         let device = d.clone();
-        let base = el().role("separator").focusable(true);
-        let face = if width_axis {
-            base.key("browser-device-width-grip")
+        let base = el().role("separator").focusable(true).center();
+        let face = match axis {
+            GripAxis::Width => base
+                .key("browser-device-width-grip")
                 .label_static(opencode_i18n::t!("plugin.browser.viewport.resizeWidth"))
-                .w(8.0)
-                .pin(None, Some(0.0), Some(-8.0), Some(0.0))
+                .w(GRIP)
+                .h(44.0_f32.min(height))
+                .pin(None, Some(((height - 44.0_f32.min(height)) * 0.5).max(0.0)), Some(-GRIP), None)
                 .cursor(Cursor::ResizeColumn)
-        } else {
-            base.key("browser-device-height-grip")
+                .child(el().w(3.0).h(24.0_f32.min(height * 0.75)).radius(1.5).fill(p.icon_faint)),
+            GripAxis::Height => base
+                .key("browser-device-height-grip")
                 .label_static(opencode_i18n::t!("plugin.browser.viewport.resizeHeight"))
-                .h(8.0)
-                .pin(Some(0.0), None, Some(0.0), Some(-8.0))
+                .w(44.0_f32.min(width))
+                .h(GRIP)
+                .pin(Some(((width - 44.0_f32.min(width)) * 0.5).max(0.0)), None, None, Some(-GRIP))
                 .cursor(Cursor::ResizeRow)
+                .child(el().w(24.0_f32.min(width * 0.75)).h(3.0).radius(1.5).fill(p.icon_faint)),
+            GripAxis::Corner => base
+                .key("browser-device-corner-grip")
+                .label_static(opencode_i18n::t!("plugin.browser.viewport.dimensions"))
+                .size(GRIP, GRIP)
+                .pin(None, None, Some(-GRIP), Some(-GRIP))
+                .cursor(Cursor::ResizeColumn)
+                .child(el().size(6.0, 6.0).radius(1.5).fill(p.icon_faint)),
         };
-        let centered = if width_axis {
-            width < area[0]
-        } else {
-            height < area[1]
-        };
-        face.on_drag(
-            move |s: &mut App, drag: &mut Drag, _: &mut Tx| match drag.phase {
-                Phase::Down => {
-                    drag.data = if width_axis {
-                        device.width
-                    } else {
-                        device.height
-                    } as f32
+        let drag_start = std::rc::Rc::new(std::cell::Cell::new((device.width, device.height)));
+        face.on_drag(move |s: &mut App, drag: &mut Drag, _: &mut Tx| match drag.phase {
+            Phase::Down => {
+                drag_start.set((device.width, device.height));
+            }
+            Phase::Move | Phase::Up if !drag.cancelled() => {
+                let (w0, h0) = drag_start.get();
+                let mut next = device.clone();
+                if matches!(axis, GripAxis::Width | GripAxis::Corner) {
+                    let mult = if centered_w { 2.0 } else { 1.0 };
+                    next.width = (w0 as f32 + drag.dx / scale * mult).round().clamp(1.0, 4096.0) as u16;
                 }
-                Phase::Move | Phase::Up if !drag.cancelled() => {
-                    let delta = if width_axis { drag.dx } else { drag.dy };
-                    let extent = (drag.data + delta / scale * if centered { 2.0 } else { 1.0 })
-                        .round()
-                        .clamp(1.0, 4096.0) as u16;
-                    let mut next = device.clone();
-                    if width_axis {
-                        next.width = extent;
-                    } else {
-                        next.height = extent;
-                    }
-                    next.profile = Profile::Desktop;
-                    next.preset = None;
-                    s.workspace_panes.browser.host.set_device(id, Some(next));
+                if matches!(axis, GripAxis::Height | GripAxis::Corner) {
+                    let mult = if centered_h { 2.0 } else { 1.0 };
+                    next.height = (h0 as f32 + drag.dy / scale * mult).round().clamp(1.0, 4096.0) as u16;
                 }
-                _ => (),
-            },
-        )
+                next.profile = Profile::Desktop;
+                next.preset = None;
+                s.workspace_panes.browser.host.set_device(id, Some(next));
+            }
+            _ => (),
+        })
     };
-    col().grow(1.0).min_h(0.0).w_full().scroll_xy().child(
-        col()
-            .min_w(area[0])
-            .min_h(area[1])
-            .padding(8.0)
-            .center()
-            .child(page.child(grip(true)).child(grip(false))),
-    )
+
+    let page = col()
+        .key("browser-device-frame")
+        .w(width)
+        .h(height)
+        .fill(p.bg_base)
+        .elevate(p.raised)
+        .child(surface)
+        .child(make_grip(GripAxis::Width))
+        .child(make_grip(GripAxis::Height))
+        .child(make_grip(GripAxis::Corner));
+
+    col()
+        .key("browser-device-backdrop")
+        .grow(1.0)
+        .min_h(0.0)
+        .w_full()
+        .fill(p.layer1)
+        .scroll_xy()
+        .child(
+            col()
+                .min_w(area[0])
+                .min_h(area[1])
+                .pt(4.0)
+                .pr(GRIP)
+                .pb(GRIP)
+                .pl(GRIP)
+                .center()
+                .child(page),
+        )
 }

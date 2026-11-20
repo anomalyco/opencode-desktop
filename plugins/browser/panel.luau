@@ -1,11 +1,17 @@
 --!strict
--- The browser pane (panel.tsx, bar.css): the bar (back, forward, reload, the address field with
--- its site button, zoom and page actions, the element picker and the options menu), the
--- suggestions under the field, and the page, or the new tab page while the tab is blank.
+-- The browser pane matching upstream `packages/gui-plugins/src/browser/panel.tsx` and `bar.css`:
+-- toolbar (Back, Forward, Reload/Stop, left-elided punycode address bar with Site info & zoom
+-- badge, Device toolbar toggle, '...' options menu), stacked bars (refusal notice with 500 ms
+-- activation delay, failure notice, Find in page bar, Device toolbar), and page / home /
+-- plain-language failure page.
 
 local ui = require("@opencode/ui")
 local address = require("./address")
+local failure = require("./failure")
+local find = require("./find")
 local history = require("./history")
+local hostDisplay = require("./host_display")
+local refusal = require("./refusal")
 
 local panel = {}
 
@@ -14,23 +20,30 @@ local RECENT = 5
 
 export type Env = {
     device: ((View, BrowserTab, PanelProps) -> ui.Node?)?,
+    deviceOpen: ((BrowserTab) -> boolean)?,
     I18n: I18nService,
     Browser: BrowserService,
     Server: ServerService,
+    System: SystemService,
     menuTrigger: boolean,
-    -- The window's address editor.
+    -- The window's address editor and find editor.
     editor: Editor,
+    findEditor: Editor,
     -- The address machine and each page's report counts.
     state: () -> address.State,
     epoch: (tab: BrowserTab) -> address.Epoch,
     visits: () -> { history.Visit },
-    -- The pointer is over the address field.
-    hovered: () -> boolean,
-    -- The system browser here can open the address: a web page that isn't on the server's
-    -- machine only, or a file when the server runs here.
+    -- The system browser here can open the address.
     reachable: (url: string) -> boolean,
-    -- Site information is open.
+    -- Popover states.
     siteOpen: () -> boolean,
+    optionsOpen: () -> boolean,
+    -- Active notices and find state per tab.
+    refusalNotice: (tab: BrowserTab) -> refusal.Notice?,
+    failureNotice: (tab: BrowserTab) -> failure.Notice?,
+    findView: (tab: BrowserTab) -> find.View?,
+    -- Whether an agent just revealed `tab` within the 500 ms click-guard window.
+    revealGuarded: (tab: BrowserTab) -> boolean,
     -- What the pane's controls do.
     act: (what: string, tab: BrowserTab?, arg: any?) -> (),
 }
@@ -49,8 +62,7 @@ local function text(content: string, color: string, extra: { [string]: any }?): 
     return ui.text(content, props :: any)
 end
 
--- Desktop's `IconButton variant="ghost-muted" size="large"`: 28 square, its icon 16 in
--- icon-muted, the hover and pressed overlays, half opacity when disabled.
+-- Desktop's `IconButton variant="ghost-muted" size="large"`: 28 square, 16 pt icon.
 local function large(view: View, key: string, icon: string, tip: string, enabled: boolean, press: () -> (), extra: { [string]: any }?): ui.Node
     local props: { [string]: any } = {
         key = key,
@@ -73,43 +85,55 @@ local function large(view: View, key: string, icon: string, tip: string, enabled
     return ui.iconButton(props :: any)
 end
 
--- Desktop's `IconButton variant="ghost-muted" size="small"`: 20 square with 4 corners.
--- An open popover's trigger (`[data-expanded]`) keeps the pressed overlay and icon-base.
-local function small(view: View, key: string, icon: string, tip: string, enabled: boolean, press: () -> (), expanded: boolean?): ui.Node
-    local pageAction = expanded == nil
-    local glyph = ui.icon(icon :: any, { size = 16, color = if expanded then "icon-base" else "icon-weak" })
+-- Site button inside the address bar: 20 square with 4 corners; keeps pressed overlay while open.
+local function siteButton(view: View, tip: string, expanded: boolean, press: () -> ()): ui.Node
+    local glyph = ui.icon("outline-sliders", { size = 16, color = if expanded then "icon-base" else "icon-weak" })
     return ui.row({
         fill = if expanded then "surface-press" else nil,
-        key = key,
+        key = "browser-site",
         role = "button",
         label = tip,
         help = tip,
         helpSide = "top",
-        -- bar.css at fd95bf0d21: only page actions cover the gap and field edges.
-        w = if pageAction then 26 else 20,
-        h = if pageAction then 28 else 20,
-        ml = if pageAction then -3 else nil,
-        mr = if pageAction then -3 else nil,
+        w = 20,
+        h = 20,
         radius = 4,
         center = true,
-        hover = if enabled and not pageAction then "surface-hover" else nil,
-        press = if enabled and not pageAction then "surface-press" else nil,
-        hoverGroup = pageAction and enabled,
+        hover = "surface-hover",
+        press = "surface-press",
         hoverTransition = "instant",
-        opacity = if enabled then nil else 0.5,
-        onPress = if enabled then view:Handler(function()
+        onPress = view:Handler(function()
             press()
-        end) else nil,
-    }, if pageAction and enabled then {
-        ui.row({ w = 20, h = 20, center = true, radius = 4, revealOnHover = true,
-            fill = "surface-hover", press = "surface-press", pin = { left = 3, top = 4 } }, {}),
-        glyph,
-    } else { glyph })
+        end),
+    }, { glyph })
 end
 
--- The URL at rest: the whole address on one line, its host at full strength and the scheme and
--- path faint around it. An address without a host keeps its path at full strength.
-local function display(url: string): ui.Node
+-- The URL at rest (`host-display.ts` + `bar.css:110-118`):
+-- - Canonical ASCII/punycode authority for HTTP(S) without credentials.
+-- - Path drops first (`truncate = true, shrink = true`).
+-- - When the host itself is wider than the field, elide from the LEFT (`…registrable.example`)
+--   so the registrable right edge is never hidden behind a spoofed subdomain prefix.
+local function display(url: string, availWidth: number): ui.Node
+    local web = hostDisplay.parts(url)
+    if web ~= nil then
+        -- Conservative average glyph width (7.2 pt at 13 pt UI sans) for left-elision budget.
+        local schemeW = #web.scheme * 7.0
+        local maxHostChars = math.max(12, math.floor((availWidth - schemeW) / 7.2))
+        local shownHost = hostDisplay.elideLeft(web.host, maxHostChars)
+        local elided = shownHost ~= web.host
+        local hostProps: { [string]: any } = { noWrap = true }
+        if elided then
+            hostProps.help = web.host
+        end
+        local items: { ui.Node } = {
+            text(web.scheme, "text-faint"),
+            text(shownHost, "text-chrome", hostProps),
+        }
+        if not elided and web.rest ~= "" then
+            table.insert(items, text(web.rest, "text-faint", { truncate = true, shrink = true, minW = 0 }))
+        end
+        return ui.row({ key = "browser-address-url", dir = "ltr", grow = 1, shrink = true, minW = 0, align = "center" }, items)
+    end
     local scheme, host, rest = address.parts(url)
     if host == "" then
         return text(url, "text-chrome", { truncate = true, shrink = true, minW = 0 })
@@ -122,29 +146,31 @@ local function display(url: string): ui.Node
     if rest ~= "" then
         table.insert(items, text(rest, "text-faint", { truncate = true, shrink = true, minW = 0 }))
     end
-    return ui.row({ grow = 1, shrink = true, minW = 0, align = "center" }, items)
+    return ui.row({ key = "browser-address-url", dir = "ltr", grow = 1, shrink = true, minW = 0, align = "center" }, items)
 end
 
--- `browser-address`: 28 tall, 6 corners, layer-01 (layer-02 under the pointer at rest), the
--- focus outline while editing.
-local function field(env: Env, view: View, tab: BrowserTab, bar: address.View, zoom: number): ui.Node
+-- `browser-address` (`panel.tsx:969-1097`, `live-browser-loaded-dark.png`):
+-- 28 tall, 6 corners, surface-1 (surface-2 on hover at rest), focus outline while editing.
+-- Contains Site info button / globe, address text/input, and Zoom badge when zoom != 100%.
+local function field(env: Env, view: View, tab: BrowserTab, bar: address.View, zoom: number, fieldWidth: number): ui.Node
     local url = tab:Url()
     local page = if url == "about:blank" then "" else url
     local site = bar.field ~= "" and not bar.editing
-    local shown = page ~= "" and (bar.editing or env.hovered())
+    local zoomed = page ~= "" and math.abs(zoom - 1) > 0.001
     local items: { ui.Node } = {}
     if site then
         -- Site information opens 10 left of the button (`shift={-10}`), from a mark there.
         table.insert(items, ui.box({ key = "browser-site-frame" }, {
-            small(view, "browser-site", "outline-sliders", env.I18n:T("site.info"), true, function()
+            siteButton(view, env.I18n:T("site.info"), env.siteOpen(), function()
                 env.act("site", tab)
-            end, env.siteOpen()),
+            end),
             ui.box({ key = "browser-site-anchor", pin = { left = -10, top = 0, bottom = 0 }, w = 1 }),
         }))
     else
         table.insert(items, ui.icon("outline-globe", { size = 16, color = "icon-weak" }))
     end
     local body: { ui.Node } = {}
+    local textAvail = math.max(80, fieldWidth - 44 - (if zoomed then 48 else 0))
     if bar.editing then
         table.insert(body, ui.field({
             key = "browser-address-input",
@@ -164,13 +190,13 @@ local function field(env: Env, view: View, tab: BrowserTab, bar: address.View, z
             }))
         end
     elseif bar.field ~= "" then
-        table.insert(body, display(bar.field))
+        table.insert(body, display(bar.field, textAvail))
     else
         table.insert(body, text(env.I18n:T("address.search"), "text-faint", { truncate = true, shrink = true, minW = 0 }))
     end
     table.insert(items, ui.box({ key = "browser-address-text", grow = 1, shrink = true, minW = 0, h = "full", align = "center" }, { ui.row({ w = "full", h = "full", align = "center" }, body) }))
     -- Any zoom but 100% stays in sight; a click resets it.
-    if page ~= "" and math.abs(zoom - 1) > 0.001 then
+    if zoomed then
         table.insert(items, ui.row({
             key = "browser-address-zoom",
             role = "button",
@@ -190,18 +216,7 @@ local function field(env: Env, view: View, tab: BrowserTab, bar: address.View, z
             end),
         }, { ui.text(env.I18n:T("zoom.percent", { percent = math.floor(zoom * 100 + 0.5) }), { size = 11, weight = "medium", lineHeight = 12, tracking = 0.05, tabular = true, noWrap = true, color = "text-muted", hoverGroupColor = "text-chrome" }) }))
     end
-    if shown then
-        table.insert(items, ui.row({ key = "browser-address-actions", gap = 6, align = "center" }, {
-            small(view, "browser-page-add", "outline-globe-plus", env.I18n:T("page.add"), true, function()
-                env.act("page", tab)
-            end),
-            small(view, "browser-open-external", "outline-arrow-up-right", env.I18n:T(if env.reachable(page) then "external.open" else "external.unavailable"), env.reachable(page), function()
-                env.act("external", tab)
-            end),
-        }))
-    end
     local editingPage = bar.editing and not bar.typed and bar.field ~= ""
-    -- An address reads left to right in any window (panel.tsx's `<form dir="ltr">`).
     return ui.row({
         key = "browser-address",
         dir = "ltr",
@@ -209,8 +224,8 @@ local function field(env: Env, view: View, tab: BrowserTab, bar: address.View, z
         shrink = true,
         minW = 0,
         h = 28,
-        pl = if site then 4 elseif bar.editing then 8 else 8,
-        pr = if shown then 4 else 8,
+        pl = if site then 4 else 8,
+        pr = 8,
         gap = if site or editingPage then 8 else 6,
         radius = 6,
         align = "center",
@@ -219,20 +234,20 @@ local function field(env: Env, view: View, tab: BrowserTab, bar: address.View, z
         hoverTransition = "instant",
         border = if bar.editing then "border-focus" else nil,
         borderWidth = if bar.editing then 1 else nil,
-        onHover = view:Handler(function(event)
-            env.act("hover", tab, event.entered == true)
-        end),
         onPress = if bar.editing then nil else view:Handler(function()
             env.act("edit", tab)
         end),
     }, items)
 end
 
--- The bar: 44 tall, 12 in, 8 between its groups, a hairline under it.
-local function bar(env: Env, view: View, tab: BrowserTab, state: address.View): ui.Node
+-- The bar (`panel.tsx:910-1325`): 44 tall, 12 in, 8 between groups, hairline under it.
+-- Right controls: [Extensions slot for WS-9] -> Device toolbar toggle -> '...' Options trigger
+-- (accented while element picker is active, since Comment on part of the page lives in More tools).
+local function bar(env: Env, view: View, tab: BrowserTab, state: address.View, width: number): ui.Node
     local loading = tab:Loading()
     local url = tab:Url()
     local page = if url == "about:blank" then "" else url
+    local inspectable = page ~= "" and tab:LoadError() == nil
     local reload: ui.Node
     if loading then
         reload = ui.row({
@@ -258,10 +273,42 @@ local function bar(env: Env, view: View, tab: BrowserTab, state: address.View): 
         end, { keybind = "browser.reload" })
     end
     local picking = tab:Inspecting()
+    local rightCount = 1 + (if env.device then 1 else 0)
+    local rightW = rightCount * 28 + math.max(0, rightCount - 1) * 4
+    local fieldW = math.max(120, width - 24 - 92 - 8 - 8 - rightW)
+    local rightControls: { ui.Node } = {}
+    if env.device then
+        local devOpen = if env.deviceOpen then env.deviceOpen(tab) else false
+        table.insert(rightControls, large(
+            view,
+            "browser-device-toggle",
+            "viewport-devices",
+            env.I18n:T("command.toggleToolbar"),
+            inspectable,
+            function()
+                env.act("device", tab)
+            end,
+            { pressed = devOpen, keybind = "browser.toggleToolbar" }
+        ))
+    end
+    table.insert(rightControls, large(
+        view,
+        "browser-options",
+        "outline-dots",
+        env.I18n:T("options"),
+        true,
+        function()
+            env.act("options", tab)
+        end,
+        {
+            pressed = env.optionsOpen(),
+            color = if picking then "accent" else nil,
+            menuTrigger = env.menuTrigger,
+        }
+    ))
     return ui.col({ key = "browser-bar-frame", w = "full" }, {
-        -- Chromium lays the 28 tall controls out 8 under the top of the 43.5 the hairline leaves.
         ui.row({ key = "browser-bar", w = "full", h = 43, pt = 1, px = 12, gap = 8, align = "center" }, {
-            ui.row({ align = "center" }, {
+            ui.row({ align = "center", gap = 4 }, {
                 large(view, "browser-back", "outline-arrow-left", env.I18n:T("common.goBack"), tab:CanGoBack(), function()
                     tab:Back()
                 end),
@@ -270,26 +317,15 @@ local function bar(env: Env, view: View, tab: BrowserTab, state: address.View): 
                 end),
                 reload,
             }),
-            field(env, view, tab, state, tab:Zoom()),
-            ui.row({ align = "center", gap = 4 }, {
-                if env.device then large(view, "browser-device-toggle", "outline-sliders", env.I18n:T("plugin.browser.command.toggleToolbar"), true, function()
-                    env.act("device", tab)
-                end) else nil,
-                large(view, "browser-inspect", "outline-browser-annotate", env.I18n:T("inspect"), page ~= "", function()
-                    tab:Inspect()
-                end, { pressed = picking, color = if picking then "accent" else nil, keybind = "browser.inspect" }),
-                large(view, "browser-options", "outline-dots", env.I18n:T("options"), true, function()
-                    env.act("options", tab)
-                end, { menuTrigger = env.menuTrigger }),
-            }),
+            field(env, view, tab, state, tab:Zoom(), fieldW),
+            ui.row({ align = "center", gap = 4 }, rightControls),
         }),
         -- `border-b-[0.5px]`: one device pixel at half the colour.
         ui.col({ w = "full", h = 1, fill = "border-weak", opacity = 0.5 }),
     })
 end
 
--- A page in the suggestions or the new tab page: its icon, title and address, the query's
--- matches drawn heavier (`PageRow`).
+-- A page in the suggestions or the new tab page: its icon, title and address, matches heavier.
 local function marked(content: string, query: string, color: string, extra: { [string]: any }): ui.Node
     local parts = history.highlight(content, query)
     if #parts == 1 then
@@ -369,25 +405,44 @@ local function home(env: Env, view: View, tab: BrowserTab, width: number): ui.No
     })
 end
 
--- A page that failed to load or whose renderer crashed (panel.tsx's failed state, over the page):
--- the globe, what happened and what to do, centred above the file empty state's 200 bottom pad.
-local function failed(env: Env): ui.Node
-    return ui.col({ key = "browser-failed", dir = "auto", w = "full", grow = 1, minH = 0, px = 24, pt = 24, pb = 200, gap = 8, align = "center", justify = "center" }, {
-        ui.icon("outline-globe", { size = 20, color = "text-weak", mb = 8 }),
-        ui.text(env.I18n:T("failed.title"), { size = 13, weight = "medium", lineHeight = 16, color = "text-strong", textAlign = "center" }),
-        ui.text(env.I18n:T("failed.description"), { size = 13, weight = "regular", lineHeight = 20, color = "text-weak", textAlign = "center", wrap = true }),
-    })
+-- Plain-language failed-load error page (`failure.ts`, `failure-view.tsx`, `story-browser-load-failed-dark.png`).
+local function failed(env: Env, view: View, tab: BrowserTab, loadError: string): ui.Node
+    local info = failure.load(loadError)
+    local actions: { failure.Action } = {}
+    if info.reload then
+        table.insert(actions, {
+            key = "browser-failed-reload",
+            label = env.I18n:T("action.reload"),
+            run = function()
+                tab:Reload()
+            end,
+        })
+    end
+    local url = tab:Url()
+    if info.kind == "insecure" and url ~= "" and url ~= "about:blank" then
+        local _, rawHost = address.parts(url)
+        local hostName = string.match(rawHost, "^%[[^%]]*%]") or string.match(rawHost, "^[^:]*") or rawHost
+        if address.loopback(hostName) and env.reachable(url) then
+            table.insert(actions, {
+                key = "browser-failed-external",
+                label = env.I18n:T("external.open"),
+                run = function()
+                    env.act("external", tab)
+                end,
+            })
+        end
+    end
+    return failure.renderPage(view, env.I18n, info, actions)
 end
 
--- The suggestions under the field (`browser-suggestions`): the field's width and 8 more on each
--- side, so their icons and text line up with the field's; 8 in, 12 corners, the floating shadow.
+-- The suggestions under the field (`browser-suggestions`).
 local function suggestions(env: Env, view: View, tab: BrowserTab, state: address.View, width: number): ui.Node?
     if not state.listed then
         return nil
     end
-    -- The field starts past the bar's 12 and its three 28 buttons and 8, and ends before 8 and
-    -- the 28 + 4 + 28 on the right.
-    local fieldW = math.max(0, width - 24 - 84 - 8 - 8 - 60)
+    local rightCount = 1 + (if env.device then 1 else 0)
+    local rightW = rightCount * 28 + math.max(0, rightCount - 1) * 4
+    local fieldW = math.max(0, width - 24 - 92 - 8 - 8 - rightW)
     local rows: { ui.Node } = {}
     for n, visit in state.suggestions do
         table.insert(rows, panel.row(view, `browser-suggestion-{n}`, visit, state.query, fieldW, true, n == state.active, function()
@@ -398,7 +453,7 @@ local function suggestions(env: Env, view: View, tab: BrowserTab, state: address
         key = "browser-suggestions",
         role = "list",
         label = env.I18n:T("address.suggestions"),
-        pin = { left = 12 + 84 + 8 - 8, top = 8 + 28 + 4 },
+        pin = { left = 12 + 92 + 8 - 8, top = 8 + 28 + 4 },
         w = fieldW + 16,
         pad = 8,
         radius = 12,
@@ -407,37 +462,8 @@ local function suggestions(env: Env, view: View, tab: BrowserTab, state: address
     }, rows)
 end
 
-local function alertRow(key: string, words: string): ui.Node
-    return ui.col({ key = key, role = "alert", w = "full" }, {
-        ui.col({ dir = "auto", w = "full", px = 12, py = 6 }, {
-            ui.text(words, { size = 12, weight = "regular", lineHeight = 16, color = "status-danger", wrap = true }),
-        }),
-        ui.divider(),
-    })
-end
-
--- Refused navigation notice (`panel.tsx:713-721`, `model.ts:121-131`), shown while keeping the page.
-local function refusal(env: Env, tab: BrowserTab): ui.Node?
-    if tab:LoadError() ~= nil then
-        return nil
-    end
-    local code = tab:Refusal()
-    if code == nil then
-        return nil
-    end
-    local words = if code == "browser.address.credentials"
-        then env.I18n:T("refused.credentials")
-        elseif code == "browser.address.workspace" then env.I18n:T("refused.workspace")
-        elseif code == "browser.address.web" then env.I18n:T("refused.web")
-        else env.I18n:T("common.requestFailed")
-    return alertRow("browser-refusal", words)
-end
-
--- The page's last download, when it failed: one line under the bar, as Desktop's published error
--- (panel.tsx's `role="alert"` row: 12 regular, the danger colour, 12 and 6 in, a muted rule
--- under it). A successful download shows nothing there, as Desktop's doesn't: it's for the
--- agent's tools (`browser_files`).
-local function download(env: Env, tab: BrowserTab): ui.Node?
+-- Failed download alert rendered through `FailureBar` (never generic "Request failed").
+local function downloadFailure(env: Env, view: View, tab: BrowserTab): ui.Node?
     local files = tab:Files()
     local last = files[#files]
     if last == nil or last.state ~= "failed" then
@@ -448,7 +474,9 @@ local function download(env: Env, tab: BrowserTab): ui.Node?
         elseif last.error == "canceled" then env.I18n:T("download.failed.canceled", { name = last.name })
         elseif last.error == "too_many" then env.I18n:T("download.failed.tooMany", { name = last.name })
         else env.I18n:T("download.failed.other", { name = last.name, reason = last.error or "failed" })
-    return alertRow("browser-download-error", words)
+    return failure.renderBar(view, env.I18n, "browser-download-error", words, nil, function()
+        env.act("dismiss.download", tab)
+    end)
 end
 
 -- A tab's pane.
@@ -459,27 +487,98 @@ function panel.render(env: Env, view: View, props: PanelProps): ui.Node
     end
     local state = address.view(env.state(), tab.Id, env.epoch(tab), env.visits())
     local engine = env.Browser:Engine().state
+    local held = env.revealGuarded(tab)
     local items: { ui.Node } = {}
+    local chromeH = 0
+
     if engine ~= "unsupported" then
-        table.insert(items, bar(env, view, tab, state))
+        table.insert(items, bar(env, view, tab, state, props.width))
+        chromeH += 44
     end
+
+    -- Stacked bars in exact upstream order (`panel.tsx:1326-1417`):
+    -- 1. Refusal notice (with 500 ms activation delay + agent reveal hold)
+    local loadErr = tab:LoadError()
+    local refNotice = if loadErr == nil then env.refusalNotice(tab) else nil
+    if refNotice ~= nil then
+        table.insert(items, refusal.renderBar(
+            view,
+            env.I18n,
+            refNotice,
+            function()
+                return env.System:Now()
+            end,
+            held,
+            function()
+                env.act("refusal.action", tab, refNotice)
+            end,
+            function()
+                env.act("refusal.dismiss", tab, refNotice.token)
+            end
+        ))
+        chromeH += 44
+    end
+
+    -- 2. Command / download failure bar
+    local failNotice = env.failureNotice(tab)
+    if failNotice ~= nil then
+        table.insert(items, failure.renderBar(view, env.I18n, "browser-failure-bar", failNotice.text, failNotice.retry, function()
+            env.act("failure.dismiss", tab, failNotice.id)
+        end))
+        chromeH += 40
+    else
+        local dlBar = downloadFailure(env, view, tab)
+        if dlBar ~= nil then
+            table.insert(items, dlBar)
+            chromeH += 40
+        end
+    end
+
+    -- 3. Find in page bar (`live-browser-find-dark.png`)
+    local findView = if engine ~= "unsupported" and loadErr == nil then env.findView(tab) else nil
+    if findView ~= nil then
+        table.insert(items, find.render(
+            view,
+            env.I18n,
+            env.findEditor,
+            findView,
+            function()
+                env.act("find.previous", tab)
+            end,
+            function()
+                env.act("find.next", tab)
+            end,
+            function()
+                env.act("find.close", tab)
+            end
+        ))
+        chromeH += 36
+    end
+
+    -- 4. Device emulation toolbar (`UP-039`, `#63819`)
     local toolbar = if env.device and engine ~= "unsupported" then env.device(view, tab, props) else nil
-    if toolbar then table.insert(items, toolbar) end
-    local alert = refusal(env, tab) or download(env, tab)
-    if alert then
-        table.insert(items, alert)
+    if toolbar then
+        table.insert(items, toolbar)
+        chromeH += 36
     end
+
+    -- 5. Page area: failed-load plain page, empty new tab home, or live browser surface.
     local url = tab:Url()
     local blank = (url == "" or url == "about:blank") and not tab:Loading() and not state.navigating
-    -- As Desktop's: the error shows once the load stops, so a reload shows its progress.
-    if tab:LoadError() ~= nil and not tab:Loading() then
-        table.insert(items, failed(env))
+    if loadErr ~= nil and not tab:Loading() then
+        table.insert(items, failed(env, view, tab, loadErr))
     elseif blank and (engine == "ready" or engine == "starting") then
         table.insert(items, home(env, view, tab, props.width))
     else
-        table.insert(items, ui.browserSurface({ key = "browser-page", tab = tab, grow = 1,
-            areaWidth = props.width, areaHeight = props.height - 44 - (if toolbar then 36 else 0) }))
+        table.insert(items, ui.browserSurface({
+            key = "browser-page",
+            tab = tab,
+            grow = 1,
+            areaWidth = props.width,
+            areaHeight = math.max(1, props.height - chromeH),
+        }))
     end
+
     local list = suggestions(env, view, tab, state, props.width)
     if list then
         table.insert(items, list)
