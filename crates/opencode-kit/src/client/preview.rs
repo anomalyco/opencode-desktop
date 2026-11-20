@@ -29,7 +29,7 @@ pub struct PreviewHttpHead {
 
 const PREVIEW_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const PREVIEW_HEADER_TIMEOUT: Duration = Duration::from_secs(15);
-const PREVIEW_BODY_READ_TIMEOUT: Duration = Duration::from_secs(30);
+const PREVIEW_PER_READ_TIMEOUT: Duration = Duration::from_secs(20);
 const PREVIEW_GLOBAL_TIMEOUT: Duration = Duration::from_secs(120);
 const PREVIEW_CHUNK_BYTES: usize = 64 * 1024;
 
@@ -106,7 +106,7 @@ impl Server {
             .max_idle_connections(0)
             .timeout_connect(Some(PREVIEW_CONNECT_TIMEOUT))
             .timeout_recv_response(Some(PREVIEW_HEADER_TIMEOUT))
-            .timeout_recv_body(Some(PREVIEW_BODY_READ_TIMEOUT))
+            .timeout_per_read(Some(PREVIEW_PER_READ_TIMEOUT))
             .timeout_global(Some(PREVIEW_GLOBAL_TIMEOUT));
         if http::loopback(&self.base) {
             cfg.proxy(None).build().into()

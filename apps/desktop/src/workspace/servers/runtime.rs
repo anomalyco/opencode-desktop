@@ -468,14 +468,6 @@ pub(crate) fn live_server_for_key(s: &App, key: &ServerKey) -> Option<Server> {
         })
 }
 
-/// Returns `(ServerKey, Server)` strictly for the server owning session `sid`.
-#[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn session_server(s: &App, sid: &str) -> Option<(ServerKey, Server)> {
-    let key = session_server_key(s, sid)?;
-    let server = live_server_for_key(s, &key)?;
-    Some((key, server))
-}
-
 impl App {
     /// The server the window works against, when it isn't the app's own (a plugin's `<plugin>:<id>`,
     /// an added server's address): what plugins see as the current server.

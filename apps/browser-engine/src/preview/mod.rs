@@ -583,7 +583,7 @@ impl PendingProxy {
         let wake = {
             let mut st = self.state.lock().unwrap();
             st.ended = true;
-            st.end_ok = ok && !st.canceled && !self.grant.is_revoked();
+            st.end_ok = ok && !st.canceled && !self.grant.is_revoked() && st.skip_remaining == 0;
             if !st.end_ok {
                 st.chunks.clear();
                 st.queued_bytes = 0;

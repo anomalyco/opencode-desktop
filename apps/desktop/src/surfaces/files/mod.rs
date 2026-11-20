@@ -418,14 +418,25 @@ impl App {
         open_reply_link(self, href, tx);
     }
 
-    /// Handles `Links:Open` from a third-party plugin: workspace files open strictly in the Files
-    /// source viewer (never minting an `oc-preview://` grant), artifact/preview/file links are
-    /// refused, outside local files are ignored, and regular web links route normally.
+    /// Handles `Links:Open` from a third-party plugin: refuses raw UNC, `file://`, `oc-preview://`,
+    /// `workspace://`, and `artifact://` links; opens workspace relative files strictly in the
+    /// Files source viewer (never minting an `oc-preview://` grant); ignores outside local files;
+    /// and routes regular web links safely (still refusing same-server artifact URLs).
     pub fn open_third_party_plugin_link(&mut self, href: &str, tx: &mut Tx) {
+        let trimmed = href.trim();
+        if trimmed.is_empty()
+            || browser_policy::is_raw_unc_href(trimmed)
+            || browser_policy::is_file_scheme(trimmed)
+            || browser_policy::preview::is_preview_scheme(trimmed)
+            || browser_policy::preview::is_workspace_scheme(trimmed)
+            || browser_policy::preview::is_artifact_scheme(trimmed)
+        {
+            return;
+        }
         let Some(sid) = self.active_session_id().map(str::to_owned) else { return };
         let dir = link_directory(self, &sid);
         let home = self.home.clone();
-        match crate::files::links::classify(href, "", &dir, &home) {
+        match crate::files::links::classify(trimmed, "", &dir, &home) {
             crate::files::links::Link::Inside { path, lines, .. } => {
                 self.open_workspace_file_source(&sid, &path, false, lines, true, tx);
             }

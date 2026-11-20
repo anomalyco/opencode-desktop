@@ -273,10 +273,12 @@ impl PluginHost {
         self.list.iter().position(|p| p.manifest.id == id)
     }
 
-    /// Whether `id` is a genuinely bundled built-in plugin (`Tier::Bundled`, never a user plugin
-    /// shadowing a built-in ID).
+    /// Whether `id` is a live, genuinely bundled built-in plugin (`Tier::Bundled`, never a user,
+    /// override, or dev plugin shadowing a built-in ID).
     pub fn is_builtin_plugin(&self, id: &str) -> bool {
-        self.list.iter().any(|p| &*p.half.id == id && p.tier == Tier::Bundled)
+        self.list
+            .iter()
+            .any(|p| &*p.half.id == id && p.tier == Tier::Bundled && p.running())
     }
 
     /// The running plugins.

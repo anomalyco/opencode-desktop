@@ -786,7 +786,7 @@ wrap_resource_handler! {
                 return 1;
             }
             if st.ended {
-                *out_n = if st.end_ok { 0 } else { -2 };
+                *out_n = if st.end_ok && st.skip_remaining == 0 { 0 } else { -2 };
                 return 0;
             }
             let Some(cb) = callback.cloned() else {
