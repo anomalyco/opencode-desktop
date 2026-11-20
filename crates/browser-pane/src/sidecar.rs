@@ -163,6 +163,7 @@ impl BrowserHost {
             sock: sock.clone(),
             opens: self.pending_open_msgs(),
             profile_permissions: self.site_permissions.list().to_vec(),
+            preview_chunk_budget: self.preview_chunk_budget.clone(),
         };
         let prefetch = self.prefetch.clone();
         let spawned = std::thread::Builder::new().name("opencode-browser-connect".into()).spawn(move || {

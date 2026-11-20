@@ -85,9 +85,39 @@ local function large(view: View, key: string, icon: string, tip: string, enabled
     return ui.iconButton(props :: any)
 end
 
+-- Preview kind for chrome markers (`local` | `remote` | `artifact` | nil).
+local function tabPreviewKind(tab: BrowserTab, url: string): string?
+    local tAny = tab :: any
+    if type(tAny.PreviewKind) == "function" then
+        local k = tAny:PreviewKind()
+        if type(k) == "string" and k ~= "" then
+            return k
+        end
+    end
+    local lower = string.lower(url)
+    if string.sub(lower, 1, 7) == "file://" then
+        return "local"
+    elseif string.sub(lower, 1, 12) == "workspace://" then
+        return "remote"
+    elseif string.sub(lower, 1, 11) == "artifact://" then
+        return "artifact"
+    end
+    return nil
+end
+
+local function previewLabelKey(kind: string): string
+    if kind == "remote" then
+        return "preview.workspace"
+    elseif kind == "artifact" then
+        return "preview.artifact"
+    end
+    return "site.file"
+end
+
 -- Site button inside the address bar: 20 square with 4 corners; keeps pressed overlay while open.
-local function siteButton(view: View, tip: string, expanded: boolean, press: () -> ()): ui.Node
-    local glyph = ui.icon("outline-sliders", { size = 16, color = if expanded then "icon-base" else "icon-weak" })
+-- Preview tabs show a folder glyph instead of sliders so users never mistake previews for live sites.
+local function siteButton(view: View, iconName: IconName, tip: string, expanded: boolean, press: () -> ()): ui.Node
+    local glyph = ui.icon(iconName, { size = 16, color = if expanded then "icon-base" else "icon-weak" })
     return ui.row({
         fill = if expanded then "surface-press" else nil,
         key = "browser-site",
@@ -155,22 +185,46 @@ end
 local function field(env: Env, view: View, tab: BrowserTab, bar: address.View, zoom: number, fieldWidth: number): ui.Node
     local url = tab:Url()
     local page = if url == "about:blank" then "" else url
+    local previewKind = tabPreviewKind(tab, bar.field)
     local site = bar.field ~= "" and not bar.editing
     local zoomed = page ~= "" and math.abs(zoom - 1) > 0.001
     local items: { ui.Node } = {}
     if site then
+        local siteIcon: IconName = if previewKind then "folder" else "outline-sliders"
+        local siteTip = if previewKind then env.I18n:T(previewLabelKey(previewKind)) else env.I18n:T("site.info")
         -- Site information opens 10 left of the button (`shift={-10}`), from a mark there.
         table.insert(items, ui.box({ key = "browser-site-frame" }, {
-            siteButton(view, env.I18n:T("site.info"), env.siteOpen(), function()
+            siteButton(view, siteIcon, siteTip, env.siteOpen(), function()
                 env.act("site", tab)
             end),
             ui.box({ key = "browser-site-anchor", pin = { left = -10, top = 0, bottom = 0 }, w = 1 }),
         }))
+        if previewKind then
+            table.insert(items, ui.row({
+                key = "browser-preview-badge",
+                h = 18,
+                px = 6,
+                radius = 4,
+                border = "border-base",
+                borderWidth = 0.5,
+                fill = "surface-2",
+                align = "center",
+            }, {
+                ui.text(env.I18n:T(previewLabelKey(previewKind)), {
+                    size = 11,
+                    weight = "medium",
+                    lineHeight = 14,
+                    noWrap = true,
+                    color = "text-muted",
+                }),
+            }))
+        end
     else
         table.insert(items, ui.icon("outline-globe", { size = 16, color = "icon-weak" }))
     end
     local body: { ui.Node } = {}
-    local textAvail = math.max(80, fieldWidth - 44 - (if zoomed then 48 else 0))
+    local badgeW = if site and previewKind then 108 else 0
+    local textAvail = math.max(80, fieldWidth - 44 - badgeW - (if zoomed then 48 else 0))
     if bar.editing then
         table.insert(body, ui.field({
             key = "browser-address-input",

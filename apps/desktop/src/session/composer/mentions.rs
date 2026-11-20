@@ -53,6 +53,10 @@ impl MentionsHost for App {
         &self.sessions
     }
 
+    fn session_active_ms(&self, session: &SessionInfo) -> i64 {
+        self.recent_page.active_ms(session)
+    }
+
     fn is_session_live(&self, id: &str) -> bool {
         session_view::TimelineHost::is_session_live(self, id)
     }
@@ -71,7 +75,11 @@ impl MentionsHost for App {
 
     fn sessions_stamp(&self) -> SessionsStamp {
         SessionsStamp {
-            sessions: (rune::Tracked::id(&self.sessions), rune::Tracked::version(&self.sessions)),
+            sessions: (
+                rune::Tracked::id(&self.sessions),
+                rune::Tracked::version(&self.sessions)
+                    .wrapping_add(rune::Tracked::version(&self.recent_page)),
+            ),
             projects: (rune::Tracked::id(&self.projects), rune::Tracked::version(&self.projects)),
             tabs_version: rune::Tracked::version(&self.tabs),
             tabs_len: self.tabs.len(),

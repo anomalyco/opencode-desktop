@@ -53,6 +53,7 @@ pub(crate) struct Link {
     /// send them again and corrects what changed meanwhile.
     pub opens: Vec<(u64, HostMsg)>,
     pub profile_permissions: Vec<crate::prompts::SiteDecision>,
+    pub preview_chunk_budget: Arc<crate::preview::PreviewChunkBudget>,
 }
 
 impl Link {
@@ -620,6 +621,7 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
     std::thread::Builder::new().name("rune-browser-answers".into()).spawn(move || watched.watch(&watcher)).ok();
 
     let asked = answers.clone();
+    let chunk_budget = link.preview_chunk_budget.clone();
     std::thread::Builder::new()
         .name("rune-browser-tx".into())
         .spawn(move || {
@@ -640,6 +642,8 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
                     break;
                 }
             }
+            // Release any waiting preview workers when the engine disconnects or shuts down.
+            chunk_budget.reset();
             // The app let the engine go (or it went): nothing more is waited for.
             asked.end();
         })
@@ -709,6 +713,22 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
                     WirePaint { tab_id, frame_id, width, height, bgra_b64: &bgra_b64 }.push(&link.surfaces);
                     continue;
                 }
+                // Track whether this engine speaks `EngineMsg::PreviewCredit` before any `PreviewFetch`.
+                if let EngineMsg::Ready { preview_credit, .. } = &msg {
+                    link.preview_chunk_budget.set_credit_enabled(*preview_credit);
+                }
+                // Handle per-proxy preview credit/cancel directly on the rx thread so streaming
+                // workers wake immediately without waiting for a UI frame.
+                if let EngineMsg::PreviewCredit { req_id, bytes, cancel } = msg {
+                    link.preview_chunk_budget.on_credit(req_id, bytes as usize, cancel);
+                    continue;
+                }
+                if let EngineMsg::PreviewFetch { req_id, tab_id, .. } = &msg {
+                    link.preview_chunk_budget.on_fetch(*req_id, *tab_id);
+                }
+                if let EngineMsg::TabClosed { tab_id } = &msg {
+                    link.preview_chunk_budget.cancel_tab(*tab_id);
+                }
                 // On reconnect the engine repaints immediately after TabList. Give those paints
                 // their destination before the UI thread has a chance to adopt the restored tabs.
                 if let EngineMsg::TabList { tabs } = &msg {
@@ -720,6 +740,7 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
                 link.inbox_tx.send(msg).ok();
                 link.wake();
             }
+            link.preview_chunk_budget.reset();
             answers.end();
             lost(&link, None);
         })

@@ -52,7 +52,7 @@ pub use markdown::{
 pub use ops::{
     apply_reply, ensure_file_loaded, ensure_workspace_files, execute_job, filtered_files,
     filtered_sidebar_files, open_workspace_file, open_workspace_file_at,
-    open_workspace_file_for_session, read_file, relist_workspace_dir, request_file_search,
+    open_workspace_file_for_session, open_workspace_file_source, read_file, relist_workspace_dir, request_file_search,
     request_sidebar_file_search, start_read, submit_files_filter, toggle_workspace_dir,
 };
 pub use poll::{key_files, poll_files, poll_reply_links};

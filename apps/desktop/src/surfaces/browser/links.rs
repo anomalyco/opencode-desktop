@@ -36,12 +36,62 @@ impl App {
         &mut self,
         sid: Option<&str>,
         href: &str,
-        _source: LinkSource,
+        source: LinkSource,
         shift_override: Option<bool>,
         tx: &mut Tx,
     ) {
+        self.route_web_or_app_link_inner(sid, href, source, shift_override, true, false, tx);
+    }
+
+    /// Routes a web/app link initiated by a third-party plugin or tool call (`Links:Open`):
+    /// refuses all `artifact://` and same-server `/api/experimental/artifacts/...` links so
+    /// untrusted plugins or tools can never mint artifact preview grants (`notes/review-rd281.md`).
+    pub fn route_plugin_web_or_app_link(
+        &mut self,
+        sid: Option<&str>,
+        href: &str,
+        source: LinkSource,
+        agent: bool,
+        tx: &mut Tx,
+    ) {
+        self.route_web_or_app_link_inner(sid, href, source, None, false, agent, tx);
+    }
+
+    fn route_web_or_app_link_inner(
+        &mut self,
+        sid: Option<&str>,
+        href: &str,
+        _source: LinkSource,
+        shift_override: Option<bool>,
+        allow_artifacts: bool,
+        agent: bool,
+        tx: &mut Tx,
+    ) {
         let trimmed = href.trim();
-        if trimmed.is_empty() || is_file_scheme(trimmed) {
+        if trimmed.is_empty()
+            || is_file_scheme(trimmed)
+            || browser_policy::preview::is_preview_scheme(trimmed)
+            || browser_policy::preview::is_workspace_scheme(trimmed)
+        {
+            return;
+        }
+        if !allow_artifacts {
+            if browser_policy::preview::is_artifact_scheme(trimmed) {
+                return;
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            if let Some((_, srv)) = self.preview_server_for(sid)
+                && browser_policy::preview::artifact_link(trimmed, &srv.base).is_some()
+            {
+                return;
+            }
+        }
+        // Artifact links (`artifact://<id>/<path>` or same-server `/api/experimental/artifacts/<id>/view/...`)
+        // open directly in an isolated preview tab when a session is active (built-in/user only).
+        if allow_artifacts
+            && let Some(sid) = sid
+            && self.try_open_artifact_link(sid, trimmed)
+        {
             return;
         }
         let is_http = trimmed.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("http://"))
@@ -67,8 +117,18 @@ impl App {
                 && self.browser_links_enabled()
                 && !self.browser_unsupported_for_links();
             if open_in_pane {
-                self.open_new_browser_tab_for_session(sid, trimmed, None, true);
-            } else if self.live() {
+                #[cfg(not(target_arch = "wasm32"))]
+                if agent {
+                    self.open_new_agent_browser_tab_for_session(sid, trimmed, None, true);
+                } else {
+                    self.open_new_browser_tab_for_session(sid, trimmed, None, true);
+                }
+                #[cfg(target_arch = "wasm32")]
+                {
+                    let _ = agent;
+                    self.open_new_browser_tab_for_session(sid, trimmed, None, true);
+                }
+            } else if !agent && self.live() {
                 if self.external_url_allowed_for_session(sid, trimmed) {
                     crate::open_in::open_external(tx, trimmed);
                 } else {
@@ -82,6 +142,9 @@ impl App {
             return;
         }
 
+        if agent {
+            return;
+        }
         // Non-HTTP(S) scheme: validate the ORIGINAL string without trimming away unsafe characters.
         match classify_app_link(href, AppSchemeSource::Conversation) {
             Some(AppSchemeAction::Mail) => {

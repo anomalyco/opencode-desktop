@@ -134,9 +134,13 @@ impl crate::BrowserHost {
         let origin = item.request.origin;
         let kinds = item.request.kinds;
         let allow = matches!(decision, PermissionDecision::AllowOnce | PermissionDecision::AllowAlways);
-        let can_keep = !item.agent_driven && !matches!(scope, PermissionScope::VisitOnly);
+        let can_keep = !item.agent_driven
+            && !matches!(scope, PermissionScope::VisitOnly)
+            && t.preview.is_none()
+            && crate::policy::destination_origin(&origin).is_some();
         let permanent_block = matches!(decision, PermissionDecision::BlockAlways) && can_keep;
-        // Agent-driven tabs never persist permissions and an allow applies only once (`page-prompts.ts:503`).
+        // Agent-driven and isolated/preview tabs never persist permissions into global `sitePermissions`,
+        // and an allow on an agent-driven tab applies only once (`page-prompts.ts:503`).
         if !(item.agent_driven && allow) {
             match decision {
                 PermissionDecision::AllowAlways if can_keep => {
@@ -275,16 +279,20 @@ impl crate::BrowserHost {
             EngineMsg::PermissionRequest { tab_id, request } => {
                 let id = request.id;
                 let auto = if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
-                    let agent = t.prompts.agent_driven;
-                    let scope = PermissionScope::from_context(&t.context);
-                    t.prompts.permission.evaluate(
-                        request,
-                        agent,
-                        &scope,
-                        &self.site_permissions,
-                        &t.prompts.visit_permissions,
-                        now,
-                    )
+                    if t.preview.is_some() {
+                        Some((false, true, false))
+                    } else {
+                        let agent = t.prompts.agent_driven;
+                        let scope = PermissionScope::from_context(&t.context);
+                        t.prompts.permission.evaluate(
+                            request,
+                            agent,
+                            &scope,
+                            &self.site_permissions,
+                            &t.prompts.visit_permissions,
+                            now,
+                        )
+                    }
                 } else {
                     Some((false, true, false))
                 };

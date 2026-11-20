@@ -271,6 +271,8 @@ pub enum EngineMsg {
         #[serde(default)]
         permission_sync: bool,
         #[serde(default)]
+        preview_credit: bool,
+        #[serde(default)]
         extensions: bool,
     },
     /// Requests bytes for a remote workspace or artifact preview from the app host (server
@@ -361,6 +363,13 @@ pub enum EngineMsg {
     ExtensionMetrics {
         request_id: u64,
         metrics: crate::extensions::ShimMetrics,
+    },
+    /// Byte-credit replenishment (or immediate cancellation) for an in-flight `PreviewFetch`.
+    PreviewCredit {
+        req_id: u64,
+        bytes: u32,
+        #[serde(default)]
+        cancel: bool,
     },
 }
 
