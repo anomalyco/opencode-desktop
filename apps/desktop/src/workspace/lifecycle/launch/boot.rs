@@ -479,5 +479,6 @@ pub(super) fn connect(s: &mut App, tx: &mut Tx) {
         if let Some(dir) = s.session(&id).map(|i| i.directory.clone()) {
             crate::subagents::shells::list(s, &dir);
         }
+        crate::subagents::jobs::list(s, &id);
     }
 }

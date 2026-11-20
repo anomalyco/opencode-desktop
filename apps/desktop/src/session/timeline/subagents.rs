@@ -15,6 +15,9 @@ use crate::keymap::Bind;
 use crate::{App, Source};
 
 pub(crate) static SHELLS: Slot<Shells> = Slot::new();
+/// Whole-second elapsed-time clock for the open activity panel, isolated from [`SHELLS`] so
+/// 1-second ticks dirty only the open activity overlay, never the timeline or capsule (`ours.md` §3.2).
+pub(crate) static ACTIVITY_CLOCK: Slot<i64> = Slot::new();
 
 impl SubagentsHost for App {
     fn shells(&self) -> &Shells {
@@ -101,7 +104,7 @@ impl SubagentsHost for App {
     fn spawn_shell_request(&mut self, job: SubagentJob) {
         match job {
             SubagentJob::Server { request, sync_if_headless } => {
-                if sync_if_headless && crate::headless() {
+                if sync_if_headless && crate::headless() && !crate::harness_writes() {
                     if let Source::Live { server, .. } = &*self.source {
                         let srv = server.clone();
                         let reply = execute_request(&srv, request);
@@ -115,6 +118,19 @@ impl SubagentsHost for App {
                 });
             }
         }
+    }
+
+    fn server_scope(&self) -> &str {
+        if self.live() { crate::servers::runtime::active(self).as_str() } else { "" }
+    }
+
+    fn activity_clock_sec(&self) -> i64 {
+        let sec = *self.kernel.slots.get(&ACTIVITY_CLOCK);
+        if sec > 0 { sec } else { rune::Tracked::untracked(&self.now_ms).div_euclid(1000) }
+    }
+
+    fn set_activity_clock_sec(&mut self, second: i64) {
+        *self.kernel.slots.get_mut(&ACTIVITY_CLOCK) = second;
     }
 }
 
@@ -194,6 +210,7 @@ impl Feature<App> for SubagentsFeature {
             .after("escape.tool_step"),
         );
         builder.register_slot(&SHELLS);
+        builder.register_slot(&ACTIVITY_CLOCK);
         builder.register_overlay(
             opencode_kernel::OverlayRegistration::<App>::new("overlay.subagents")
                 .with_render(crate::overlays::layer::SURFACE_POPOVER, |s, cx| {

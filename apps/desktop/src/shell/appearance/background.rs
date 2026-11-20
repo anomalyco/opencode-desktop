@@ -105,8 +105,10 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     fx.changed
 }
 
-/// The session's blocking work: the running shell and subagent calls of its latest unfinished
-/// reply, by part id. A subagent's own session has none: moving stays with the primary session.
+/// The session's blocking work: the running shell calls and backgroundable Code Mode scripts
+/// (`metadata.background == true`) of its latest unfinished reply, by part id
+/// (`requests/background.ts`'s `blocking`, anomalyco/opencode#63391, #64790). Subagents always
+/// run in the background, and a subagent's own session has no blocking moves.
 pub fn blocking(s: &App, session: &str) -> Vec<String> {
     blocking_calls(s, session).into_iter().map(|(id, _)| id).collect()
 }
@@ -120,7 +122,11 @@ fn blocking_calls(s: &App, session: &str) -> Vec<(String, Option<i64>)> {
     let reply = t.open_reply();
     reply.map_or_else(Vec::new, |a| {
         a.parts.iter().filter_map(|p| match p {
-            Part::Tool { id, name, status: ToolStatus::Running, metadata, .. } if name == "shell" || name == "subagent" => Some((id.clone(), opencode_kit::model::tool_ran(metadata))),
+            Part::Tool { id, name, status: ToolStatus::Running, metadata, .. }
+                if name == "shell" || (name == "execute" && metadata["background"] == true) =>
+            {
+                Some((id.clone(), opencode_kit::model::tool_ran(metadata)))
+            }
             _ => None,
         }).collect()
     })

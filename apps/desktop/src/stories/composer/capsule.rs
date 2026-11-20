@@ -1,7 +1,7 @@
 //! The storybook's Subagents capsule story (Composer › Subagents capsule, 30 running): thirty
 //! background agents run below the open session, some for minutes and some woken again hours
-//! after they started, and the capsule's list is open over the composer. O opens and closes it,
-//! R replays.
+//! after they started, two Code Mode scripts run in the background, and the capsule's list is
+//! open over the composer. O opens and closes it, R replays.
 
 use opencode_kit::model::SessionInfo;
 use rune::Play;
@@ -48,10 +48,21 @@ fn child(k: usize) -> String {
     format!("ses_story_capsule_{k:02}")
 }
 
-/// Thirty agents run and the list is open.
+/// Thirty agents and two background scripts run, and the list is open.
 fn open(s: &mut App, _: &mut Play<App>) {
     s.finish_stream();
     run_thirty(s);
+    let parent = sid(s);
+    for (k, ago) in [(1, 95_000), (2, 12_000)] {
+        let info = serde_json::json!({
+            "id": format!("cm_story_script_{k}"),
+            "kind": "codemode",
+            "status": "running",
+            "sessionID": parent,
+            "time": { "started": *s.now_ms - ago },
+        });
+        crate::subagents::jobs::event(s, "experimental.job.updated", &serde_json::json!({ "info": info }));
+    }
     crate::subagents::shells::set_open(s, true);
 }
 

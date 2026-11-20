@@ -2,19 +2,21 @@
 //! (`app/src/session/composer/activity-chips.tsx`), background shell tracking and output
 //! followers (`shells`), and a subagent's own page status bar (`reply`).
 //!
-//! A subagent runs while its child session, or any session below it, runs. A background call's
-//! tool part finishes at once, so the call's own status only counts until it names its child.
+//! A subagent runs while its child session, or any session below it, runs, or while its tree
+//! still runs a background job. A background call's tool part finishes at once, so the call's
+//! own status only counts until it names its child.
 
 #![forbid(unsafe_code)]
 
 pub mod activity;
+pub mod jobs;
 pub mod reply;
 pub mod shells;
 
 use std::collections::HashSet;
 
 use opencode_kit::model::{self, Message, Part, SessionInfo, Transcript};
-use rune::{El, Tx, col, row, text};
+use rune::{El, KeyEvent, Tx, col, row, text};
 use rune_knobs::{Knob, Knobs};
 use session_view::odometer::odometer;
 use session_view::palette::{Elevate as _, Pal};
@@ -25,7 +27,7 @@ pub use session_view::subagent_card::{elapsed, run_time};
 pub use shells::follow as shell_follow;
 pub use shells::tail as shell_tail;
 pub use shells::view as shells_view;
-pub use shells::{Shell, Shells, SubagentJob, SubagentReply, SubagentRequest, apply_reply, execute_request};
+pub use shells::{JobListReply, Shell, Shells, StopTarget, SubagentJob, SubagentReply, SubagentRequest, apply_reply, execute_request};
 
 /// The subagent capsule's fill: 1 is Desktop's (the composer's surface), 0 a bare hairline.
 pub const CAPSULE_FILL: Knob = Knob::new("Capsule fill", 0.0, 1.0, 1.0).about("How solid the subagent capsule fill is");
@@ -115,6 +117,21 @@ pub trait SubagentsHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback 
     /// Schedules a background shell/subagent server request (or executes inline when
     /// `sync_if_headless` is true in headless mode).
     fn spawn_shell_request(&mut self, job: SubagentJob);
+
+    /// Identifies the currently active server so per-server job trackers and `Unsupported` flags
+    /// stay isolated across server switches.
+    fn server_scope(&self) -> &str {
+        ""
+    }
+
+    /// Dedicated whole-second clock for the open activity panel's elapsed labels. Kept outside
+    /// [`Shells`] so 1-second ticks dirty only the open panel, never the timeline (`ours.md` §3.2).
+    fn activity_clock_sec(&self) -> i64 {
+        self.now_ms().div_euclid(1000)
+    }
+
+    /// Updates the host's dedicated activity-panel clock second.
+    fn set_activity_clock_sec(&mut self, _second: i64) {}
 }
 
 /// `id` and its loaded parents, up to 32 steps.
@@ -137,10 +154,21 @@ pub fn run_clock(host: &dyn SubagentsHost) -> i64 {
     host.now_ms().div_euclid(1000) * 1000
 }
 
-/// The sessions running below `id`, oldest first, named and dated by their latest call in
-/// `id`'s transcript when there is one.
+/// The open activity panel's elapsed-time clock, backed by the host's dedicated clock slot so
+/// ticking never dirties [`Shells`] or the timeline (`ours.md` §3.2).
+pub(crate) fn panel_clock(host: &dyn SubagentsHost) -> i64 {
+    host.activity_clock_sec() * 1000
+}
+
+/// The sessions running below `id`, and idle descendants whose tree still runs a background job,
+/// oldest first, named and dated by their latest call in `id`'s transcript when there is one
+/// (`requests/background.ts`'s `subagents`, anomalyco/opencode#64790, #64951).
 pub fn running_subagents(host: &dyn SubagentsHost, id: &str) -> Vec<Running> {
-    let below: Vec<&String> = host.running_sessions().iter().filter(|r| r.as_str() != id && descends(host, r, id)).collect();
+    let mut below: Vec<&str> = host.running_sessions().iter().map(String::as_str).collect();
+    below.extend(jobs::running(host).flat_map(|j| ancestors(host, j.owner()).take(32)));
+    below.sort_unstable();
+    below.dedup();
+    below.retain(|r| *r != id && descends(host, r, id));
     if below.is_empty() {
         return Vec::new();
     }
@@ -163,9 +191,13 @@ pub fn running_subagents(host: &dyn SubagentsHost, id: &str) -> Vec<Running> {
             let info = host.session_info(r);
             let call = calls.iter().rev().find(|c| c.0 == r);
             let agent = call.map(|c| c.2).filter(|a| !a.is_empty()).or(info.map(|i| i.agent.as_str())).unwrap_or("");
-            let label = call.map(|c| c.1.to_owned()).filter(|l| !l.is_empty()).or(info.map(|i| i.title.clone())).unwrap_or_else(|| r.clone());
+            let label = call
+                .map(|c| c.1.to_owned())
+                .filter(|l| !l.is_empty())
+                .or(info.map(|i| i.title.clone()))
+                .unwrap_or_else(|| r.to_owned());
             let started = if info.is_some_and(|i| i.created > 0) { host.run_started(r, call.and_then(|c| c.3)) } else { 0 };
-            Running { session: r.clone(), agent: agent.to_owned(), label, started }
+            Running { session: r.to_owned(), agent: agent.to_owned(), label, started }
         })
         .collect();
     out.sort_by(|a, b| (a.started, &a.session).cmp(&(b.started, &b.session)));
@@ -212,35 +244,44 @@ pub fn toggle_activity(host: &mut dyn SubagentsHost, tx: &mut Tx) {
     session_view::popover::motion::toggled(host.knobs(), tx, open);
 }
 
-/// "2 subagents · 1 shell" over the composer while anything below the session or one of its
-/// background shells runs; it opens a list. Desktop's capsule (`activity-chips.tsx`): a 28pt
-/// hairline capsule filled like the composer (layer 1 in dark, the page in light) with its
-/// raised shadow, 10pt insets, the 16pt spinner and the counts in 13pt text, the separator faint
-/// (`session.activity.summary`). The fill's strength is the "Capsule fill" knob.
+/// Whether the activity capsule currently has any running work to show for session `id`.
+pub fn has_capsule(host: &dyn SubagentsHost, id: &str) -> bool {
+    let (subs, scr, sh) = counts(host, id);
+    subs + scr + sh > 0
+}
+
+/// "2 subagents · 1 script · 1 shell" over the composer while anything below the session or one
+/// of its background scripts or shells runs; it opens a list. Desktop's capsule
+/// (`activity-chips.tsx`): a 28pt hairline capsule filled like the composer (layer 1 in dark,
+/// the page in light) with its raised shadow, 10pt insets, the 16pt spinner and the counts in
+/// 13pt text, the separator faint (`session.activity.summary`).
 pub fn capsule<H: SubagentsHost + 'static>(host: &H, p: &Pal, id: &str) -> Option<El> {
-    let (subs, sh) = counts(host, id);
-    if subs + sh == 0 {
+    let (subs, scr, sh) = counts(host, id);
+    if subs + scr + sh == 0 {
         return None;
     }
-    Some(build_capsule_shell(host, p, id, subs, sh).on_press_tx(|s: &mut H, tx: &mut Tx| toggle_activity(s, tx)))
+    Some(build_capsule_shell(host, p, id, subs, scr, sh).on_press_tx(|s: &mut H, tx: &mut Tx| toggle_activity(s, tx)))
 }
 
-/// The capsule's counts: running subagents, and background shells with the one its list shows.
-fn counts(host: &dyn SubagentsHost, id: &str) -> (usize, usize) {
-    (running_subagents(host, id).len(), shells::running_for(host, id).len() + usize::from(shells::held(host)))
+/// The capsule's counts: running subagents, background scripts, and background shells with the
+/// one its list shows.
+fn counts(host: &dyn SubagentsHost, id: &str) -> (usize, usize, usize) {
+    (
+        running_subagents(host, id).len(),
+        jobs::scripts(host, id).len(),
+        shells::running_for(host, id).len() + usize::from(shells::held(host)),
+    )
 }
 
-fn build_capsule_shell(host: &dyn SubagentsHost, p: &Pal, id: &str, subs: usize, sh: usize) -> El {
-    let summary = activity::summary(subs, sh);
+fn build_capsule_shell(host: &dyn SubagentsHost, p: &Pal, id: &str, subs: usize, scr: usize, sh: usize) -> El {
+    let summary = activity::summary(subs, scr, sh);
     let mut chip = chip(host, p, "activity-chip", summary.label, host.shells().activity.is_open()).child(activity_ring_sized(p, 16.0));
-    if subs > 0 {
-        chip = chip.child(odometer(format!("chip-count-{id}"), summary.subagents, subs as f64, UI, p.text));
-    }
-    if subs > 0 && sh > 0 {
-        chip = chip.child(text(summary.between).key("chip-between").font(UI).color(p.faint));
-    }
-    if sh > 0 {
-        chip = chip.child(odometer(format!("chip-shells-{id}"), summary.shells, sh as f64, UI, p.text));
+    let groups = [("count", summary.subagents, subs), ("scripts", summary.scripts, scr), ("shells", summary.shells, sh)];
+    for (i, (key, words, n)) in groups.into_iter().filter(|g| g.2 > 0).enumerate() {
+        if i > 0 {
+            chip = chip.child(text(summary.between.clone()).key(format!("chip-between-{key}")).font(UI).color(p.faint));
+        }
+        chip = chip.child(odometer(format!("chip-{key}-{id}"), words, n as f64, UI, p.text));
     }
     chip
 }
@@ -300,20 +341,24 @@ pub fn panel<H: SubagentsHost + 'static>(host: &H, p: &Pal, id: &str) -> Option<
         return shells_view::panel(host, p);
     }
     let layout = prepare_panel_layout(host, id)?;
-    let clock = run_clock(host);
+    let clock = panel_clock(host);
     let mut list = col().key("activity-list").w_full().padding(PANEL_PAD);
     for it in &layout.items {
         let (parent, child, title, agent) = (id.to_owned(), it.session.clone(), it.label.clone(), it.agent.clone());
-        let (visible, hover) = (child.clone(), child.clone());
+        let (visible, hover, stop_key) = (child.clone(), child.clone(), child.clone());
         let name = subagent_name(it);
         let ms = (it.started > 0).then(|| clock - it.started);
-        let end_el = shells_view::end(host, p, &it.session, true, ms, layout.time_w);
+        let end_el = shells_view::end(host, p, &it.session, activity::Kind::Subagent, ms, layout.time_w);
         list = list.child(
             build_subagent_row_shell(p, it, name, layout.agent_w, end_el)
                 .on_layout_tx(move |s: &mut H, _, tx: &mut Tx| prefetch_on_layout(s, &visible, tx))
                 .on_hover_change(move |s: &mut H, inside, tx: &mut Tx| prefetch_on_hover(s, &hover, inside, tx))
-                .on_press_tx(move |s: &mut H, tx: &mut Tx| open_child_instant(s, &parent, &child, &title, &agent, tx)),
+                .on_press_tx(move |s: &mut H, tx: &mut Tx| open_child_instant(s, &parent, &child, &title, &agent, tx))
+                .on_key(move |s: &mut H, ev: &KeyEvent, tx: &mut Tx| shells_view::stop_on_delete(s, &stop_key, activity::Kind::Subagent, ev, tx)),
         );
+    }
+    for sc in &layout.scripts {
+        list = list.child(shells_view::script_row(host, p, sc, layout.span, layout.time_w));
     }
     for sh in &layout.shell_items {
         list = list.child(shells_view::row_of(host, p, sh, layout.span, layout.time_w));
@@ -328,38 +373,41 @@ pub fn panel<H: SubagentsHost + 'static>(host: &H, p: &Pal, id: &str) -> Option<
 
 struct PanelLayout {
     items: Vec<Running>,
+    scripts: Vec<jobs::Script>,
     shell_items: Vec<Shell>,
     agent_w: f32,
     time_w: f32,
     span: f32,
     natural: f32,
     h: f32,
-    label: &'static str,
+    label: String,
 }
 
 fn prepare_panel_layout(host: &dyn SubagentsHost, id: &str) -> Option<PanelLayout> {
     let items = running_subagents(host, id);
+    let scripts = jobs::scripts(host, id);
     let shell_items: Vec<Shell> = shells::running_for(host, id).into_iter().cloned().collect();
-    if items.is_empty() && shell_items.is_empty() {
+    if items.is_empty() && scripts.is_empty() && shell_items.is_empty() {
         return None;
     }
-    let clock = run_clock(host);
-    let time_of = |it: &Running| if it.started > 0 { elapsed(clock - it.started) } else { String::new() };
+    let clock = panel_clock(host);
+    let time_at = |started: i64| if started > 0 { elapsed(clock - started) } else { String::new() };
     let width = |t: &str, style| rune::text::measure(t, &[], style, None).0;
     let agent_w = items.iter().map(|it| width(&subagent_name(it), UI_MED)).fold(0.0, f32::max);
-    let shell_times = shell_items.iter().map(|sh| if sh.started > 0 { elapsed(clock - sh.started) } else { String::new() });
-    let time_w = time_column(items.iter().map(time_of).chain(shell_times), &width);
+    let times = items.iter().map(|it| it.started).chain(scripts.iter().map(|sc| sc.started)).chain(shell_items.iter().map(|sh| sh.started));
+    let time_w = time_column(times.map(time_at), &width);
     let label_w = items.iter().map(|it| width(&it.label, UI)).fold(0.0, f32::max);
-    // A shell's command spans the agent and task columns and the gap between them.
-    let command_w = shell_items.iter().map(|sh| width(&sh.command, shells_view::COMMAND)).fold(0.0, f32::max);
+    // A script's or shell's command spans the agent and task columns and the gap between them.
+    let commands = scripts.iter().map(|sc| sc.label.as_str()).chain(shell_items.iter().map(|sh| sh.command.as_str()));
+    let command_w = commands.map(|c| width(c, shells_view::COMMAND)).fold(0.0, f32::max);
     let span = (agent_w + 8.0 + label_w).max(command_w);
     // Panel inset 4 + hairline 0.5, row inset 6, then the mark, agent and task (or command) and
     // time, 8 apart, with 8 more before the time.
     let natural = 2.0 * (PANEL_PAD + 0.5 + 6.0) + 16.0 + 8.0 + span + 16.0 + time_w + if session_view::style::hover_none() { 46.0 } else { 0.0 };
-    let n = items.len() + shell_items.len();
+    let n = items.len() + scripts.len() + shell_items.len();
     let h = (n as f32 * panel_row() + 2.0 * PANEL_PAD).min(PANEL_MAX_H);
-    let label = if items.is_empty() { opencode_i18n::t!("session.activity.section.shells") } else { opencode_i18n::t!("session.activity.section.subagents") };
-    Some(PanelLayout { items, shell_items, agent_w, time_w, span, natural, h, label })
+    let label = activity::summary(items.len(), scripts.len(), shell_items.len()).label;
+    Some(PanelLayout { items, scripts, shell_items, agent_w, time_w, span, natural, h, label })
 }
 
 fn subagent_name(it: &Running) -> String {
@@ -386,7 +434,7 @@ fn build_subagent_row_shell(p: &Pal, it: &Running, name: String, agent_w: f32, e
         .child(end_el)
 }
 
-fn build_panel_frame(knobs: &Knobs, p: &Pal, natural: f32, label: &'static str, rows: El) -> El {
+fn build_panel_frame(knobs: &Knobs, p: &Pal, natural: f32, label: String, rows: El) -> El {
     col()
         .key("activity-panel")
         .role("menu")

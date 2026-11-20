@@ -14,29 +14,43 @@ pub const STOP_TIMEOUT_MS: i64 = 10_000;
 /// How long a shown shell that left the list waits to hear how it ended (`SHELL_END_TIMEOUT_MS`).
 pub const END_TIMEOUT_MS: i64 = 5_000;
 
-/// Localized parts of the activity capsule's label ("2 subagents · 1 shell").
+/// Localized parts of the activity capsule's label ("2 subagents · 1 script · 1 shell").
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Summary {
     pub subagents: String,
+    pub scripts: String,
     pub shells: String,
     pub between: String,
     pub label: String,
 }
 
-/// Formats the localized subagent and shell counts, the separator between them, and the combined
-/// accessible label (`session.activity.summary`).
-pub fn summary(subs: usize, sh: usize) -> Summary {
+/// Formats the localized subagent, script and shell counts, the separator between them, and the
+/// combined accessible label: each group joins the rest via `session.activity.summary`, omitting
+/// empty groups (`activitySummary` in `packages/app/src/runtime/i18n/language.tsx`).
+pub fn summary(subs: usize, scr: usize, sh: usize) -> Summary {
     let subagents = opencode_i18n::plural!("session.activity.subagents", subs);
+    let scripts = opencode_i18n::plural!("session.activity.scripts", scr);
     let shells = opencode_i18n::plural!("session.activity.shells", sh);
     // The summary's words between its two counts, in the language's order.
     let template = opencode_i18n::t!("session.activity.summary", subagents = "\u{1}", shells = "\u{2}");
     let between = template.split(['\u{1}', '\u{2}']).nth(1).unwrap_or("").trim().to_owned();
-    let label = match (subs, sh) {
-        (0, _) => shells.clone(),
-        (_, 0) => subagents.clone(),
-        _ => opencode_i18n::t!("session.activity.summary", subagents = subagents.clone(), shells = shells.clone()).to_string(),
-    };
-    Summary { subagents, shells, between, label }
+    let groups = [(subs, &subagents), (scr, &scripts), (sh, &shells)];
+    let label = groups.iter().rev().filter(|(n, _)| *n > 0).fold(String::new(), |rest, (_, group)| {
+        if rest.is_empty() {
+            (*group).clone()
+        } else {
+            opencode_i18n::t!("session.activity.summary", subagents = (*group).clone(), shells = rest).to_string()
+        }
+    });
+    Summary { subagents, scripts, shells, between, label }
+}
+
+/// Which kind of running work an activity list row represents.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    Subagent,
+    Script,
+    Shell,
 }
 
 /// How a shell ended (`ShellEnd`): `completed` freezes its run time.
@@ -95,6 +109,8 @@ pub struct Activity {
 pub struct Work {
     pub enabled: bool,
     pub subagents: Vec<String>,
+    /// Running Code Mode scripts' job ids.
+    pub scripts: Vec<String>,
     pub shells: Vec<String>,
 }
 
@@ -104,7 +120,7 @@ pub enum Event {
     Toggled(bool),
     Selected(Shell),
     Back,
-    StopRequested { key: String, subagent: bool },
+    StopRequested { key: String, kind: Kind },
     StopSettled { attempt: u64, stopped: bool, now: i64 },
     StopTimedOut { attempt: u64 },
     EndedSettled { attempt: u64, info: Option<EndInfo>, now: i64 },
@@ -122,7 +138,7 @@ pub enum Timer {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Effect {
-    RunStop { attempt: u64, key: String, subagent: bool },
+    RunStop { attempt: u64, key: String, kind: Kind },
     LoadEnded { attempt: u64, id: String },
     TimerStart { attempt: u64, timer: Timer },
     /// `None` cancels every timer.
@@ -170,7 +186,7 @@ pub fn step(state: Activity, event: Event, work: &Work) -> (Activity, Vec<Effect
 fn transition(state: Activity, event: Event, work: &Work) -> (Activity, Vec<Effect>) {
     match event {
         Event::WorkSynced => work_synced(state, work),
-        Event::StopRequested { key, subagent } => request_stop(state, key, subagent, work),
+        Event::StopRequested { key, kind } => request_stop(state, key, kind, work),
         Event::StopSettled { attempt, stopped, now } => settle_stop(state, attempt, Some((stopped, now)), work),
         Event::StopTimedOut { attempt } => settle_stop(state, attempt, None, work),
         Event::Toggled(false) if state.panel == Panel::Closed => (state, Vec::new()),
@@ -237,8 +253,12 @@ fn work_synced(state: Activity, work: &Work) -> (Activity, Vec<Effect>) {
     }
 }
 
-fn request_stop(state: Activity, key: String, subagent: bool, work: &Work) -> (Activity, Vec<Effect>) {
-    let stoppable = if subagent { work.subagents.contains(&key) } else { work.shells.contains(&key) };
+fn request_stop(state: Activity, key: String, kind: Kind, work: &Work) -> (Activity, Vec<Effect>) {
+    let stoppable = match kind {
+        Kind::Subagent => work.subagents.contains(&key),
+        Kind::Script => work.scripts.contains(&key),
+        Kind::Shell => work.shells.contains(&key),
+    };
     if state.stopping.contains_key(&key) || !stoppable {
         return (state, Vec::new());
     }
@@ -249,7 +269,7 @@ fn request_stop(state: Activity, key: String, subagent: bool, work: &Work) -> (A
     let issued = state.issued + 1;
     let mut stopping = state.stopping;
     stopping.insert(key.clone(), issued);
-    (Activity { issued, stopping, ..state }, vec![Effect::RunStop { attempt: issued, key, subagent }, Effect::TimerStart { attempt: issued, timer: Timer::Stopping }])
+    (Activity { issued, stopping, ..state }, vec![Effect::RunStop { attempt: issued, key, kind }, Effect::TimerStart { attempt: issued, timer: Timer::Stopping }])
 }
 
 /// A Stop settled (`Some((stopped, now))`) or timed out.
@@ -321,5 +341,5 @@ fn active(state: &Activity, work: &Work) -> bool {
 }
 
 fn count(work: &Work) -> usize {
-    work.subagents.len() + work.shells.len()
+    work.subagents.len() + work.scripts.len() + work.shells.len()
 }
