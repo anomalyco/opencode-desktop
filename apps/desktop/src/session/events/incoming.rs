@@ -58,6 +58,8 @@ fn message(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             s.windows_forgotten();
             crate::session_state::reconnected(s, tx);
             s.sidebar_inbox.branches.reconnected();
+            // Widget changes published while away were missed: states are read again.
+            crate::session::widgets::reconnected(s);
             reconnect::back(s);
             // Terminals that failed under the old connection attach again (`server.connected`).
             s.kernel.slots.get_mut(&crate::terminal::TERMINAL).connections += 1;

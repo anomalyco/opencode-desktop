@@ -60,7 +60,7 @@ fn input_index(messages: &[Message], end: usize, legacy: bool) -> Option<usize> 
 }
 
 fn idle(m: &Message) -> bool {
-    matches!(m, Message::Notice(Notice { kind: NoticeKind::Idle, .. }))
+    matches!(m, Message::Notice(Notice { kind: NoticeKind::Idle { .. }, .. }))
 }
 
 /// A `user` or `synthetic` message: a prompt, or what a run started from without one (a

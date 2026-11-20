@@ -142,6 +142,8 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
             if focused { crate::launch::network_available(s, tx); }
             // The coordinator's `tip` opens on the window's `focus`.
             crate::tips::on_focus(s, focused);
+            // A widget with the keyboard or the pointer lets go of both.
+            crate::session::widgets::input::window_focus(s, focused);
         })
         // A resize across the breakpoint reaches the drawers in the frame it lands.
         .on_layout_tx(|s: &mut App, _, tx: &mut Tx| { if !crate::narrow::settle(s, tx) { tx.live_only(); } })

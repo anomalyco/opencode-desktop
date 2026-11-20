@@ -22,6 +22,7 @@ pub mod preview;
 mod tool;
 mod transcript;
 pub mod turn;
+mod widget;
 
 pub use attachment::{Attachment, base64_decode, media_hash, parse_attachment, prompt_extras_generation, set_user_files, user_files};
 pub use background_result::{BackgroundResult, BackgroundResultKind, parse_background_result};
@@ -32,7 +33,7 @@ pub use compaction::{Compaction, CompactionStatus, background_compaction};
 pub use console_extensions::{CONSOLE_URL, ConsoleMcp, ConsoleMcpLinks, ConsoleWorkspace, console_mcp_links, console_mcps, console_skill_link, console_workspace};
 pub use inbox::{Delivery, Inbox, InboxChange, InboxItem, NoticeEffect, NoticeEvent, NoticeState, inbox_payload, parse_inbox_item, step_notice};
 pub use job::{JobInfo, JobKind, JobKindFilter, JobListQuery, JobLoadPhase, JobStatus, JobTime, JobTracker, JobTrackerEffect, JobTrackerEvent, is_job_event, merge_job_list, parse_job, parse_job_updated, parse_jobs};
-pub use notice::{Finished, Notice, NoticeKind, Outcome, Retry, StepError, is_notice_event, parse_inbox_notice};
+pub use notice::{Finished, Notice, NoticeKind, Outcome, Retry, StepError, WidgetNote, is_notice_event, parse_inbox_notice};
 pub use parse::{parse_message, parse_messages, parse_projects, parse_session, parse_sessions};
 use parse::tool_title;
 pub use pending::{Field, FieldKind, FieldOption, Pending, parse_form, parse_permission};
@@ -40,6 +41,7 @@ pub use plugin::{PluginFeatures, PluginInfo, PluginSource, PluginState, SkillInf
 pub use tool::{shell_message, tool_error, tool_error_metadata, tool_output, tool_ran};
 use tool::{keep_tool_error, keep_tool_output, keep_tool_ran, replace_tool_metadata};
 pub use transcript::{Transcript, UNSEEN};
+pub use widget::{WIDGET_CHANGED_EVENT, WidgetCall, WidgetState, WidgetStatus, widget_calls, widget_key};
 pub use crate::project::{LocationInfo, ProjectMeta, parse_location, parse_project, parse_worktrees, project_git, project_meta, project_sandboxes, project_sandboxes_version, set_project_sandboxes};
 pub use crate::quote::{CommentOrigin, FileComment, PromptComment, Quote, set_user_comments, user_comments};
 

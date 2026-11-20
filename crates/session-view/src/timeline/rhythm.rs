@@ -139,7 +139,7 @@ fn edges_of<'a>(t: &'a Transcript, detail: &crate::detail::Detail, row: &RowCont
                 // counts only events rows).
                 Some(Block::Subagent { .. }) => edges(Who::Agent, Item::Line, LINE_INSET),
                 Some(Block::Group { .. } | Block::Thought { .. } | Block::Calls { .. }) => edges(Who::Agent, Item::Line, LINE_INSET),
-                Some(Block::Question { .. }) => edges(Who::Agent, Item::Line, 0.0),
+                Some(Block::Question { .. } | Block::Widget { .. }) => edges(Who::Agent, Item::Line, 0.0),
                 None => return None,
             }
         }

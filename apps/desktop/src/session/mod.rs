@@ -5,3 +5,5 @@ pub mod menu;
 pub mod meta;
 pub mod pages;
 pub mod timeline;
+pub mod pointer_lock;
+pub mod widgets;

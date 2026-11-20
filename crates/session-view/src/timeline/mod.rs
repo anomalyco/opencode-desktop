@@ -272,6 +272,12 @@ impl RowSpec {
             },
             RowContent::Error { message, pt } => match &t.messages[*message] {
                 Message::Assistant(a) => crate::turn_errors::error(s, p, a).pt(*pt),
+                // A run that failed outside its steps (`span::idle_reports`): its error as a step's.
+                Message::Notice(n) if n.idle_failure().is_some() => {
+                    let failure = n.idle_failure().cloned();
+                    let a = Assistant { id: n.id.clone(), error: failure.as_ref().map(|f| f.message.clone()), failure, ..Default::default() };
+                    crate::turn_errors::error(s, p, &a).pt(*pt)
+                }
                 _ => unreachable!(),
             },
             RowContent::Retry { message, pt } => match &t.messages[*message] {
@@ -326,6 +332,7 @@ impl RowSpec {
                         crate::question_row::view(s, p, &t.session, id, status, input, metadata).pt(*pt),
                     Some(Block::Thought { step, live: streaming, .. }) => turns::thought(s, p, step, *live && *streaming, fade).pt(*pt),
                     Some(Block::Calls { kind, steps, .. }) => turns::calls(s, p, &t.session, *kind, steps, *live).pt(*pt),
+                    Some(Block::Widget { message, step, .. }) => turns::widget(s, p, &t.session, message, step, *live).pt(*pt),
                     None => col(),
                 }
             }
@@ -340,7 +347,7 @@ pub fn entries<'a>(messages: &'a [Message], detail: &crate::detail::Detail) -> V
     messages.iter().map(|m| match m {
         Message::Assistant(a) => Entry::Step(a),
         Message::Note { step, .. } => Entry::Step(step),
-        Message::Notice(n) if n.kind == model::NoticeKind::Idle => Entry::Idle,
+        Message::Notice(n) if n.is_idle() => Entry::Idle,
         Message::Notice(n) if crate::detail::notice_folds(n, detail) => Entry::Notice(n),
         _ => Entry::Skip,
     }).collect()
@@ -666,7 +673,7 @@ pub fn turn_rows(out: &mut Vec<RowSpec>, steps: &[Entry], start: usize, end: usi
             }
             Block::Events { key, .. } | Block::Subagent { key, .. } => out.push(RowSpec { key, content, streaming: false }),
             Block::Question { id, .. } => out.push(RowSpec { key: format!("q-{id}"), content, streaming: false }),
-            Block::Thought { key, .. } | Block::Calls { key, .. } => out.push(RowSpec { key, content, streaming: false }),
+            Block::Thought { key, .. } | Block::Calls { key, .. } | Block::Widget { key, .. } => out.push(RowSpec { key, content, streaming: false }),
         }
         prev = Some(tool);
     }

@@ -496,6 +496,8 @@ impl App {
             self.worktree_updated(project);
         }
         if ty == "plugin.updated" {
+            // The widgets plugin may have just loaded where its states couldn't be read.
+            crate::session::widgets::plugins_changed(self);
             let loc = data["eventLocation"]["directory"].as_str();
             crate::settings::pages::extensions::on_plugin_updated(self);
             crate::settings::pages::project_extensions::on_updated(self, loc);
@@ -504,6 +506,9 @@ impl App {
                 let active_server = crate::servers::runtime::active(self).clone();
                 crate::surfaces::browser::rpc::on_plugin_updated(self, &active_server);
             }
+        }
+        if ty == opencode_kit::model::WIDGET_CHANGED_EVENT {
+            changed |= crate::session::widgets::changed(self, data);
         }
         #[cfg(not(target_arch = "wasm32"))]
         if ty == opencode_kit::browser_rpc::CONTROL_EVENT {

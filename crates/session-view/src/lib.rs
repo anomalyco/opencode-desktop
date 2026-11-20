@@ -48,6 +48,7 @@ pub mod turn_errors;
 pub mod turns;
 pub mod usage;
 pub mod user_parts;
+pub mod widget;
 pub mod working;
 
 use std::ops::Range;
@@ -319,6 +320,12 @@ pub trait TimelineHost: Sized + 'static {
     /// shows while the tool is hovered and stays pressable. An edit card's file rows take none,
     /// as Desktop's `accordion-trigger` has none.
     fn tool_row_action(&self, _p: &palette::Pal, _session: &str, _call: &tools::Call) -> Option<El> {
+        None
+    }
+    /// The agent widget of `widget` call `call` of assistant message `message` in session
+    /// `session`, drawn by a host that runs widgets (with [`widget::frame`]); `None` shows the
+    /// call as any other.
+    fn widget(&self, _p: &palette::Pal, _session: &str, _message: &str, _call: &tools::Call) -> Option<El> {
         None
     }
     /// Included in a tool row's memo key: what [`Self::tool_row_action`] shows for call `id` can

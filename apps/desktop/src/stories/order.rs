@@ -46,6 +46,8 @@ pub(crate) const ORDER: &[&str] = &[
     "Timeline/Rewind",
     "Timeline/Fork",
     "Timeline/Question answers",
+    "Timeline/Widgets",
+    "Timeline/Widget diagrams",
     "Timeline/Compaction",
     "Timeline/Working",
     "Timeline/Streaming line growth",

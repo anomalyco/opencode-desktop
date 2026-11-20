@@ -307,7 +307,7 @@ pub fn notice<S: TimelineHost>(s: &S, p: &Pal, n: &Notice, run: crate::compactio
             let events: Vec<_> = crate::activity::events::notice_event(n).into_iter().collect();
             crate::activity::event_row::view(s, p, session_of(s), &events, open, crate::disclosure::set::<S>(key.clone(), open, String::new()))
         }
-        NoticeKind::Idle => col(),
+        NoticeKind::Idle { .. } => col(),
         // Finished background Code Mode script (`timeline-next/row.tsx`, anomalyco/opencode#64741):
         // "Script finished · cm_…" (or failed / cancelled) in its outcome's ink (`p.cancelled`
         // maps to `yellow-900` in light and `state-fg-warning` in dark, matching `outcomeNoticeColor`).
@@ -326,6 +326,21 @@ pub fn notice<S: TimelineHost>(s: &S, p: &Pal, n: &Notice, run: crate::compactio
             line(m, &words, kids)
         }
         NoticeKind::Text(t) | NoticeKind::Job { description: t, .. } => line(Mark::Info, t, vec![faint_med("label", t.clone())]),
+        // A widget's answer or message: one quiet line, as the TUI's `◈ Responded to "<title>"`
+        // or `◈ <title>: <short value>`.
+        NoticeKind::Widget { label, .. } => {
+            let label = label.clone();
+            row()
+                .key("notice")
+                .w_full()
+                .gap(8.0)
+                .center_y()
+                .min_h(20.0)
+                .role("status")
+                .label(label.clone())
+                .child(text("◈").key("mark").font(UI).color(p.faint).a11y_hidden())
+                .child(faint("label", label))
+        }
         NoticeKind::Moved { directory } => {
             let words = row().key("words").gap(6.0).center_y().shrink().min_w(0.0)
                 .child(text(opencode_i18n::t!("ui.sessionTimeline.notice.movedTo")).key("label").font(UI).color(p.faint))

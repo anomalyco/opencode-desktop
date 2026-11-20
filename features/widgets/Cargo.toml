@@ -1,0 +1,27 @@
+[package]
+name = "opencode-feature-widgets"
+version = "0.0.1"
+description = "Agent widgets in the session timeline for OpenCode (Rune): template fetch and cache, the PsychoScript step runner, per-widget lifecycle and view-local state, and responses"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+opencode-i18n = { path = "../../crates/opencode-i18n" }
+opencode-kit = { path = "../../crates/opencode-kit" }
+opencode-widget = { path = "../../crates/opencode-widget", default-features = false }
+opencode-widget-view = { path = "../../crates/opencode-widget-view" }
+rune.workspace = true
+serde_json.workspace = true
+session-view = { path = "../../crates/session-view" }
+
+# The Rust PsychoScript runs natively only: in a page the runtime's clock isn't there, so widgets
+# show as unsupported in the browser build.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+opencode-widget = { path = "../../crates/opencode-widget", features = ["runner"] }
+# A live widget's `fetch` (`transport.rs`).
+ureq = { workspace = true, features = ["rustls"] }
+url = "2"
+
+[lints]
+workspace = true

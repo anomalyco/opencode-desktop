@@ -644,7 +644,7 @@ fn reply_picture() -> &'static [u8] {
 }
 
 /// A `w`×`h` PNG shading from `a` to `b`.
-fn gradient((w, h): (u32, u32), a: [f32; 3], b: [f32; 3]) -> Vec<u8> {
+pub(crate) fn gradient((w, h): (u32, u32), a: [f32; 3], b: [f32; 3]) -> Vec<u8> {
     let img = image::RgbaImage::from_fn(w, h, |x, y| {
         let t = (x as f32 / w as f32 * 0.7 + y as f32 / h as f32 * 0.3).clamp(0.0, 1.0);
         let c = |i: usize| ((a[i] + (b[i] - a[i]) * t) * 255.0) as u8;

@@ -1,0 +1,21 @@
+[package]
+name = "opencode-widget-view"
+version = "0.0.1"
+description = "Rune renderer for OpenCode agent widgets: draws an `opencode-widget` node tree with rune-kit's components and Kit tokens, with no session, window or desktop assumptions (embeddable on mobile through Rune's LayerHost)"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+# The contract's types and lifecycle machine only: the host runs the steps.
+opencode-widget = { path = "../opencode-widget", default-features = false }
+rune = { workspace = true, default-features = false }
+rune-kit = { workspace = true, default-features = false }
+serde_json.workspace = true
+# Shader nodes: their pipelines on the window's GPU (Rune's own wgpu), their WGSL checked first
+# with naga (wgpu's own), so a template's mistake comes back as a message.
+wgpu = { version = "30", default-features = false }
+naga = { version = "30", default-features = false, features = ["wgsl-in"] }
+
+[lints]
+workspace = true

@@ -18,7 +18,7 @@ use crate::prompt::PathAttachment;
 use crate::quote::PromptComment;
 
 /// Bumped with every change to the layout.
-pub const VERSION: u8 = 2;
+pub const VERSION: u8 = 3;
 /// An inline file larger than this keeps its name and kind but not its bytes (the server's
 /// copy fills it in once it answers): a preview stays a few pages of the database.
 const INLINE_MAX: usize = 32 * 1024;
@@ -492,11 +492,27 @@ fn notice(w: &mut W, n: &Notice) {
             w.os(f.shell.as_deref());
             w.os(f.child.as_deref());
         }
+        NoticeKind::Widget { message, call, note, label } => {
+            w.0.push(11);
+            w.s(message);
+            w.s(call);
+            w.0.push(match note {
+                super::WidgetNote::Response => 0,
+                super::WidgetNote::Message => 1,
+                super::WidgetNote::Error => 2,
+            });
+            w.s(label);
+        }
         NoticeKind::Text(t) => {
             w.0.push(6);
             w.s(t);
         }
-        NoticeKind::Idle => w.0.push(7),
+        NoticeKind::Idle { failure: None } => w.0.push(7),
+        NoticeKind::Idle { failure: Some(e) } => {
+            w.0.push(12);
+            w.s(&e.kind);
+            w.s(&e.message);
+        }
         NoticeKind::Job { id, description, script: None, required: false } => {
             w.0.push(8);
             w.s(id);
@@ -542,7 +558,8 @@ fn read_notice(r: &mut R<'_>) -> Option<Notice> {
             child: r.os()?,
         }),
         6 => NoticeKind::Text(r.s()?),
-        7 => NoticeKind::Idle,
+        7 => NoticeKind::Idle { failure: None },
+        12 => NoticeKind::Idle { failure: Some(StepError { kind: r.s()?, message: r.s()?, ..Default::default() }) },
         8 => NoticeKind::Job { id: r.s()?, description: r.s()?, script: None, required: false },
         9 => {
             let id = r.s()?;
@@ -555,6 +572,16 @@ fn read_notice(r: &mut R<'_>) -> Option<Notice> {
             NoticeKind::Job { id, description, script: Some(outcome), required: outcome == Outcome::Error }
         }
         10 => NoticeKind::Job { id: r.s()?, description: r.s()?, script: None, required: true },
+        11 => NoticeKind::Widget {
+            message: r.s()?,
+            call: r.s()?,
+            note: match r.u8()? {
+                1 => super::WidgetNote::Message,
+                2 => super::WidgetNote::Error,
+                _ => super::WidgetNote::Response,
+            },
+            label: r.s()?,
+        },
         _ => return None,
     };
     Some(Notice { id, kind })

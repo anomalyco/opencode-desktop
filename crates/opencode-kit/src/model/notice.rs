@@ -51,10 +51,36 @@ impl Retry {
     }
 }
 
+/// What a widget's note to the agent was.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WidgetNote {
+    /// Its final answer (or dismissal).
+    Response,
+    /// A message it sent while staying open (`send`).
+    Message,
+    /// A client reported that running it failed (`report`).
+    Error,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Notice {
     pub id: String,
     pub kind: NoticeKind,
+}
+
+impl Notice {
+    /// An idle marker: the run ended.
+    pub fn is_idle(&self) -> bool {
+        matches!(self.kind, NoticeKind::Idle { .. })
+    }
+
+    /// An idle marker's failure, when the run failed outside its steps.
+    pub fn idle_failure(&self) -> Option<&StepError> {
+        match &self.kind {
+            NoticeKind::Idle { failure } => failure.as_ref(),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -73,9 +99,15 @@ pub enum NoticeKind {
     /// anomalyco/opencode#64741). `required`: true when the job errored (`timelineNoticeRequired`).
     Job { id: String, description: String, script: Option<Outcome>, required: bool },
     Text(String),
-    /// The run ended (an `idle` message): never shown, it closes the turn whose changed files
-    /// Changed files lists.
-    Idle,
+    /// An agent widget's answer or message to the agent (`metadata.widget`): the synthetic
+    /// message the server admits for it, which the timeline shows as one quiet line
+    /// (`Responded to "Hero image"`, `Hero image: blue`). `message` and `call`: the widget's
+    /// tool call; `label`: the server's `description` of it.
+    Widget { message: String, call: String, note: WidgetNote, label: String },
+    /// The run ended (an `idle` message): it closes the turn whose changed files Changed files
+    /// lists. `failure`: the run failed before or between its steps (`outcome: "failed"` with an
+    /// `error`, a model with no route, say), which the turn shows as its error.
+    Idle { failure: Option<StepError> },
 }
 
 /// A synthetic message a background shell or subagent sends back when it ends, as Desktop's
@@ -174,10 +206,22 @@ pub(super) fn parse(m: &Value) -> Option<Message> {
 fn kind(ty: &str, m: &Value) -> Option<NoticeKind> {
     let description = m["description"].as_str().map(str::trim).filter(|d| !d.is_empty());
     Some(match ty {
-        "idle" => NoticeKind::Idle,
+        "idle" => NoticeKind::Idle { failure: if m["outcome"] == "failed" { StepError::parse(&m["error"]) } else { None } },
         "agent-switched" => NoticeKind::Agent { agent: s(&m["agent"]), previous: m["previous"].as_str().map(str::to_owned) },
         "model-switched" => NoticeKind::Model { model: ModelRef::parse(&m["model"]), previous: model_ref(&m["previous"]) },
         "location-switched" => NoticeKind::Moved { directory: s(&m["location"]["directory"]) },
+        // A widget's answer or message (`metadata.widget = { messageID, callID, kind }`).
+        "synthetic" if m["metadata"]["widget"].is_object() => {
+            let w = &m["metadata"]["widget"];
+            let text = m["text"].as_str().unwrap_or("");
+            let note = match w["kind"].as_str() {
+                Some("message") => WidgetNote::Message,
+                Some("error") => WidgetNote::Error,
+                _ => WidgetNote::Response,
+            };
+            let label = description.map(str::to_owned).unwrap_or_else(|| text.lines().next().unwrap_or("").to_owned());
+            NoticeKind::Widget { message: s(&w["messageID"]), call: s(&w["callID"]), note, label }
+        }
         "system" => {
             let sources: Vec<String> = m["metadata"]["instructionSources"].as_array().into_iter().flatten().filter_map(|x| x.as_str().map(str::to_owned)).collect();
             if m["metadata"]["notice"] == "instructions" && !sources.is_empty() {
@@ -282,7 +326,9 @@ impl Transcript {
         if self.messages.iter().any(|m| m.id() == id) {
             return false;
         }
-        self.messages.push(Message::Notice(Notice { id, kind: NoticeKind::Idle }));
+        // `session.execution.failed` carries the error its idle message records.
+        let failure = StepError::parse(&d["error"]);
+        self.messages.push(Message::Notice(Notice { id, kind: NoticeKind::Idle { failure } }));
         true
     }
 

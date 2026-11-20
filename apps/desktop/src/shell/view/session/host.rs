@@ -102,7 +102,8 @@ impl session_view::TimelineHost for App {
             || (rune::Tracked::untracked(&self.transcripts).get(session).is_some_and(|t| self.timeline_busy(t)) && !self.stops.has(session))
     }
     fn timeline_busy(&self,t:&Transcript)->bool {
-        let last=t.messages.iter().rev().find(|m| !matches!(m,Message::Notice(_)) && !matches!(self.unsent.state(m.id()),Some(send_failed::State::Waiting|send_failed::State::Unconfirmed|send_failed::State::Failed)));
+        // The idle marker ends the turn, also one that failed before any step (`Transcript::busy`).
+        let last=t.messages.iter().rev().find(|m| !matches!(m,Message::Notice(n) if !n.is_idle()) && !matches!(self.unsent.state(m.id()),Some(send_failed::State::Waiting|send_failed::State::Unconfirmed|send_failed::State::Failed)));
         matches!(last,Some(Message::User{..})) || matches!(last,Some(Message::Assistant(a)) if a.completed.is_none() && a.error.is_none())
     }
     fn working_label_for(&self, session: &str) -> Option<&'static str> {
@@ -225,6 +226,9 @@ impl session_view::TimelineHost for App {
     }
     fn tool_row_action(&self, p: &palette::Pal, session: &str, call: &session_view::tools::Call) -> Option<rune::El> {
         tool_open::action(self, p, session, call)
+    }
+    fn widget(&self, p: &palette::Pal, session: &str, message: &str, call: &session_view::tools::Call) -> Option<rune::El> {
+        crate::session::widgets::view(self, p, session, message, call)
     }
     fn tool_row_action_version(&self, id: &str) -> u64 {
         u64::from(self.tool_step_showing(id))

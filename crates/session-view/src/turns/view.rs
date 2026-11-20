@@ -290,6 +290,13 @@ pub fn calls<S: TimelineHost>(s: &S, p: &Pal, session: &str, kind: Calls, steps:
     }
 }
 
+/// An agent widget's call on its row, drawn in the call's place ([`crate::tools::widget`]).
+pub fn widget<S: TimelineHost>(s: &S, p: &Pal, session: &str, message: &str, step: &Step, live: bool) -> El {
+    let cx = crate::tools::Ctx { session, live, sticky: crate::style::sticky_top() };
+    let Some(c) = call(step) else { return col() };
+    col().key(format!("step-{}", c.id)).w_full().child(crate::tools::widget(s, p, cx, message, &c))
+}
+
 /// A subagent's event on its row (`timeline-subagent`): nothing while its call is still being
 /// written.
 pub fn subagent<S: TimelineHost>(s: &S, p: &Pal, session: &str, step: &Step) -> El {

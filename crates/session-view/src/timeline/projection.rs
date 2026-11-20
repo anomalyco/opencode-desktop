@@ -470,7 +470,7 @@ fn shape(m: &Message, detail: &crate::detail::Detail) -> u64 {
             (2u8, id).hash(&mut h);
             step(&mut h, s);
         }
-        Message::Notice(n) => (3u8, &n.id, std::mem::discriminant(&n.kind), crate::detail::notice_placement(n, detail), crate::turn_errors::is_divider(n)).hash(&mut h),
+        Message::Notice(n) => (3u8, &n.id, std::mem::discriminant(&n.kind), crate::detail::notice_placement(n, detail), crate::turn_errors::is_divider(n), n.idle_failure().is_some()).hash(&mut h),
         Message::Compaction(c) => (4u8, &c.id, crate::compaction::pieces(c).iter().map(|p| p.key("")).collect::<Vec<_>>()).hash(&mut h),
     }
     h.finish()

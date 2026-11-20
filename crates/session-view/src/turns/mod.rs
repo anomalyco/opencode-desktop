@@ -15,7 +15,7 @@
 
 mod view;
 
-pub use view::{calls, events as events_row, group, subagent as subagent_row, thought};
+pub use view::{calls, events as events_row, group, subagent as subagent_row, thought, widget};
 
 use opencode_kit::model::{Assistant, Attachment, Notice, Part, ToolStatus};
 
@@ -118,6 +118,10 @@ pub enum Block<'a> {
     Thought { key: String, step: Step<'a>, live: bool },
     /// Calls on their own row (their kind shows separately).
     Calls { key: String, kind: Calls, steps: Vec<Step<'a>> },
+    /// An agent widget (a `widget` call of assistant message `message`), always on its own row
+    /// where the agent posted it, whatever Timeline detail says of tools: the host draws it in
+    /// the call's place ([`crate::tools::widget`]).
+    Widget { key: String, message: &'a str, step: Step<'a> },
 }
 
 /// Whether every step is a thought, or every step a notice: notices never join a run of
@@ -276,6 +280,20 @@ pub fn fold_with<'a>(entries: &[Entry<'a>], live: bool, detail: &Detail) -> Vec<
                         continue;
                     }
                     let failed = rules::failed(name, status, metadata);
+                    // A widget shows once the model wrote its call.
+                    if name == "widget" {
+                        if !matches!(status, ToolStatus::Pending) {
+                            flush(&mut out, &mut group, &mut at, &mut key);
+                            out.push(Block::Widget { key: format!("wg-{}-{id}", a.id), message: &a.id, step });
+                        }
+                        continue;
+                    }
+                    // Working on a widget's template shows as one quiet line of its own, as the TUI's.
+                    if name == "widget_template" && !failed {
+                        flush(&mut out, &mut group, &mut at, &mut key);
+                        out.push(Block::Calls { key: format!("p-{id}"), kind: Calls::One, steps: vec![step] });
+                        continue;
+                    }
                     if rule.alone {
                         if !matches!(status, ToolStatus::Pending | ToolStatus::Running) {
                             flush(&mut out, &mut group, &mut at, &mut key);
