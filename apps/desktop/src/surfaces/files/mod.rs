@@ -2,6 +2,7 @@
 
 pub use opencode_feature_files::*;
 
+pub(crate) mod reply;
 mod link_tip_stories;
 mod markdown_stories;
 mod stories;
