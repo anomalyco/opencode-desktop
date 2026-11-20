@@ -67,9 +67,9 @@ pub use policy::{
 pub use profile::shared_profile_dir;
 pub use protocol::CursorKind;
 pub use protocol::{
-    AuthChallenge, ContextKind, ContextMenuCommand, DialogKind, DownloadFile, DownloadState,
-    PageContextMenu, PageDialog, PermissionKind, PermissionPrompt, PreviewKindTag, PreviewSpec,
-    RemoteProxyConfig,
+    AuthChallenge, ContextKind, ContextMenuCommand, DialogKind, DownloadFile, DownloadSaveRequest,
+    DownloadState, PageContextMenu, PageDialog, PermissionKind, PermissionPrompt, PreviewKindTag,
+    PreviewSpec, RemoteProxyConfig,
 };
 pub use preview::{PreviewFetchRequest, PreviewResponder};
 pub use protocol::PickedElement;

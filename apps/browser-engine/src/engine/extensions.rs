@@ -206,8 +206,9 @@ impl EngineManager {
                         self.permissions.on_tab_closed(engine_tab_id);
                         tab.menu.cancel_all();
                         tab.prompts.dismiss_all();
+                        tab.download_alive.store(false, Ordering::Release);
                         tab.host.close_browser(1);
-                        self.downloads.close_tab(engine_tab_id);
+                        self.downloads.close_tab(engine_tab_id, tab.download_gen);
                         self.contexts.release_tab(engine_tab_id);
                         if engine_tab_id >= 1_000_000 {
                             self.unmanaged_ext_tabs = self.unmanaged_ext_tabs.saturating_sub(1);
@@ -276,8 +277,9 @@ impl EngineManager {
                             if let Some(tab) = self.tabs.remove(&pid) {
                                 tab.menu.cancel_all();
                                 tab.prompts.dismiss_all();
+                                tab.download_alive.store(false, Ordering::Release);
                                 tab.host.close_browser(1);
-                                self.downloads.close_tab(pid);
+                                self.downloads.close_tab(pid, tab.download_gen);
                                 let _ = self.out_tx.send(EngineMsg::TabClosed { tab_id: pid });
                             }
                         }
@@ -392,12 +394,17 @@ impl EngineManager {
             diagnostics,
             null_out.clone(),
         );
+        let download_gen = self.downloads.alloc_tab_gen();
+        let download_alive = Arc::new(AtomicBool::new(true));
         let download = crate::downloads::TabDownloadHandler::new(
             u64::MAX,
+            download_gen,
+            download_alive,
             file_roots.clone(),
             true,
             false,
             context_ready.clone(),
+            prompts.clone(),
             self.downloads.clone(),
             null_out.clone(),
         );

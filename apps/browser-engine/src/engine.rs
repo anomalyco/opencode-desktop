@@ -44,6 +44,8 @@ pub(super) struct ManagedTab {
     pending_clears: Arc<Mutex<Vec<PendingClear>>>,
     pub(super) prompts: Arc<crate::prompts::TabPrompts>,
     menu: Arc<crate::menu::TabMenuState>,
+    download_gen: u64,
+    download_alive: Arc<AtomicBool>,
     context: crate::wire::ContextKind,
     generation: u64,
     deferred_initial: Arc<AtomicBool>,
@@ -99,7 +101,7 @@ impl EngineManager {
     /// Windows: `gpu` is the D3D11 device frames are copied on (None renders on the CPU).
     pub fn new(
         out_tx: crate::output::Output,
-        downloads: std::path::PathBuf,
+        downloads: crate::downloads::DownloadRoots,
         events: std::sync::mpsc::Sender<crate::Event>,
         previews: Arc<PreviewRegistry>,
         #[cfg(windows)] gpu: Option<Arc<crate::d3d_frames::Gpu>>,
@@ -148,6 +150,7 @@ impl EngineManager {
 
     pub fn on_host_disconnected(&mut self) {
         self.previews.cancel_all_proxies();
+        self.downloads.cancel_all_pending_saves();
     }
 
     pub fn poll_picks(&mut self) {
@@ -262,9 +265,10 @@ impl EngineManager {
 
     pub fn handle(&mut self, msg: HostMsg) -> bool {
         match msg {
-            HostMsg::Hello { mach_service, prompts, extensions, .. } => {
+            HostMsg::Hello { mach_service, prompts, extensions, download_save, .. } => {
                 self.prompt_shared.enabled.store(prompts, Ordering::Relaxed);
                 self.app_handles_ext_tabs = extensions;
+                self.downloads.set_download_save_enabled(download_save);
                 #[cfg(not(target_os = "macos"))]
                 let _ = mach_service;
                 #[cfg(target_os = "macos")]
@@ -787,6 +791,10 @@ impl EngineManager {
                     t.prompts.answer_auth(id, username.as_deref(), password.as_deref());
                 }
             }
+            HostMsg::AnswerDownloadSave { tab_id, id, path } => {
+                let ready = self.tabs.contains_key(&tab_id) && self.contexts.is_tab_ready(tab_id);
+                self.downloads.answer_save(tab_id, id, path.as_deref(), ready);
+            }
             HostMsg::SetAgentDriven { tab_id, agent_driven } => {
                 self.handle_set_agent_driven(tab_id, agent_driven);
             }
@@ -838,7 +846,24 @@ impl EngineManager {
                         return true;
                     }
                     let roots = t.file_roots.lock().unwrap().clone();
-                    t.menu.execute(id, action, &t.browser, &t.host, &roots, t.preview.is_some());
+                    let block_downloads = t.preview.is_some()
+                        || matches!(
+                            t.context,
+                            crate::wire::ContextKind::Preview { .. }
+                                | crate::wire::ContextKind::Artifact { .. }
+                        );
+                    t.menu.execute(
+                        tab_id,
+                        t.download_gen,
+                        id,
+                        action,
+                        &t.browser,
+                        &t.host,
+                        &roots,
+                        block_downloads,
+                        t.context.is_isolated(),
+                        &self.downloads,
+                    );
                 }
             }
             HostMsg::SetPartitionProxy { server_id, proxy } => {
@@ -861,6 +886,7 @@ impl EngineManager {
                         // Transient proxy loss: keep live tabs & unsaved state intact while blocking
                         // every request/CDP/menu/navigation fail-closed until a new proxy arrives.
                         for tid in tabs {
+                            self.downloads.cancel_pending_saves_for_tab(tid);
                             if let Some(t) = self.tabs.get_mut(&tid) {
                                 if let crate::wire::ContextKind::RemoteServer { proxy: cur, .. } = &mut t.context {
                                     *cur = None;
@@ -909,8 +935,10 @@ impl EngineManager {
                     self.release_preview(tab_id, t.preview.as_ref());
                     t.menu.cancel_all();
                     t.prompts.dismiss_all();
+                    t.download_alive.store(false, Ordering::Release);
                     t.host.close_browser(1);
                 }
+                self.downloads.close_all();
                 self.previews.cancel_all_proxies();
                 self.contexts.release_all();
                 return false;
@@ -950,8 +978,9 @@ impl EngineManager {
             self.release_preview(tab_id, prev.preview.as_ref());
             prev.menu.cancel_all();
             prev.prompts.dismiss_all();
+            prev.download_alive.store(false, Ordering::Release);
             prev.host.close_browser(1);
-            self.downloads.close_tab(tab_id);
+            self.downloads.close_tab(tab_id, prev.download_gen);
             self.contexts.release_tab(tab_id);
             if !prev.isolated && !prev.is_popup
                 && let Some(ext) = &mut self.extensions
@@ -1185,12 +1214,23 @@ impl EngineManager {
             diagnostics,
             self.out_tx.clone(),
         );
+        let download_gen = self.downloads.alloc_tab_gen();
+        let download_alive = Arc::new(AtomicBool::new(true));
+        let block_downloads = is_popup
+            || is_preview
+            || matches!(
+                effective_context,
+                crate::wire::ContextKind::Preview { .. } | crate::wire::ContextKind::Artifact { .. }
+            );
         let download = crate::downloads::TabDownloadHandler::new(
             tab_id,
+            download_gen,
+            download_alive.clone(),
             file_roots.clone(),
-            is_popup,
-            is_preview,
+            block_downloads,
+            effective_context.is_isolated(),
             context_ready.clone(),
+            prompts.clone(),
             self.downloads.clone(),
             self.out_tx.clone(),
         );
@@ -1365,6 +1405,8 @@ impl EngineManager {
                 pending_clears,
                 prompts,
                 menu: menu_state,
+                download_gen,
+                download_alive,
                 context: effective_context,
                 generation: tab_generation,
                 deferred_initial,
@@ -1390,8 +1432,9 @@ impl EngineManager {
             self.release_preview(tab_id, tab.preview.as_ref());
             tab.menu.cancel_all();
             tab.prompts.dismiss_all();
+            tab.download_alive.store(false, Ordering::Release);
             tab.host.close_browser(1);
-            self.downloads.close_tab(tab_id);
+            self.downloads.close_tab(tab_id, tab.download_gen);
             self.contexts.release_tab(tab_id);
             if !tab.isolated && !tab.is_popup
                 && let Some(ext) = &mut self.extensions
@@ -1427,6 +1470,7 @@ impl EngineManager {
 impl Drop for EngineManager {
     fn drop(&mut self) {
         self.permissions.shutdown();
+        self.downloads.close_all();
     }
 }
 

@@ -311,12 +311,24 @@ fn exec_files_get(att: &mut SessionAttachment, app: &App, cmd: &Command) -> Step
                 "Download path failed confinement verification.",
             ));
         };
-        let Ok(bytes) = std::fs::read(&verified) else {
+        let max_bytes = opencode_kit::browser_rpc::MAX_FILE_BYTES as u64;
+        let mut bytes = Vec::new();
+        let read_res = std::fs::File::open(&verified).and_then(|f| {
+            use std::io::Read as _;
+            f.take(max_bytes + 1).read_to_end(&mut bytes)
+        });
+        if read_res.is_err() {
             return StepOutcome::Done(Outcome::fail(
                 failure_code::OPERATION_FAILED,
                 "Could not read verified download file.",
             ));
-        };
+        }
+        if bytes.len() as u64 > max_bytes {
+            return StepOutcome::Done(Outcome::fail(
+                failure_code::OPERATION_FAILED,
+                "Download file exceeds the 5 MiB transfer limit.",
+            ));
+        }
         return match WireFile::from_bytes(df.id.clone(), df.name.clone(), df.mime.clone(), &bytes) {
             Ok(wf) => StepOutcome::Done(Outcome::ok(json!({ "tab": tab }), vec![wf])),
             Err(e) => StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, e)),

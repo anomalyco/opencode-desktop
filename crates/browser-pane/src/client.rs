@@ -78,10 +78,6 @@ impl BrowserTab {
     }
 }
 
-/// The engine profile's downloads folder (the engine's `downloads::DIR_NAME`).
-#[cfg(feature = "engine")]
-const DOWNLOADS_DIR: &str = "opencode-page-downloads";
-
 /// A tab's downloads at most (the engine's `downloads::MAX_TAB_FILES`).
 pub const MAX_TAB_FILES: usize = 64;
 
@@ -134,6 +130,7 @@ pub struct BrowserHost {
     picked: VecDeque<PickedElement>,
     pub(crate) popup_opens: VecDeque<crate::prompts::PopupRequest>,
     pub(crate) context_menus: VecDeque<(u64, crate::protocol::PageContextMenu)>,
+    pub(crate) download_save_requests: VecDeque<crate::protocol::DownloadSaveRequest>,
     pub(crate) diagnostics: VecDeque<crate::find::PageDiagnostic>,
     /// Tab IDs closed by the engine (`EngineMsg::TabClosed`) paired with `fatal_close` (`true` only
     /// on unrecoverable proxy/context failure, never explicit `DropContext` of a suspended tab).
@@ -198,6 +195,7 @@ impl BrowserHost {
             picked: VecDeque::new(),
             popup_opens: VecDeque::new(),
             context_menus: VecDeque::new(),
+            download_save_requests: VecDeque::new(),
             diagnostics: VecDeque::new(),
             closed_tabs: VecDeque::new(),
             remote_proxies: HashMap::new(),
@@ -258,30 +256,6 @@ impl BrowserHost {
     /// Whether the connected engine serves isolated `oc-preview://` tabs.
     pub fn engine_preview(&self) -> bool {
         self.caps.preview()
-    }
-
-    /// Where tab `tab_id`'s download `file` is, when it's where the engine keeps it: the engine
-    /// profile's `opencode-page-downloads\<tab>\<file id>\` (or a throwaway profile's beside it).
-    /// None for any other path the engine named: the app opens no file another process points at.
-    pub fn download_path(&self, tab_id: u64, file: &DownloadFile) -> Option<PathBuf> {
-        #[cfg(feature = "engine")]
-        {
-            let profile = std::fs::canonicalize(crate::profile::for_spawn(self.profile_dir.as_deref())?).ok()?;
-            let path = std::fs::canonicalize(&file.path).ok()?;
-            let folder = path.parent()?;
-            let tab = folder.parent()?;
-            let dir = tab.parent()?;
-            let root = dir.parent()?;
-            let named = folder.file_name()? == file.id.as_str() && tab.file_name()? == tab_id.to_string().as_str() && dir.file_name()? == DOWNLOADS_DIR;
-            let throwaway = profile.file_name().map(|n| format!("{}-throwaway", n.to_string_lossy()));
-            let ours = root == profile || (root.parent().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()) == throwaway && root.parent()?.parent() == profile.parent());
-            (named && ours && path.is_file()).then_some(path)
-        }
-        #[cfg(not(feature = "engine"))]
-        {
-            let _ = (tab_id, file);
-            None
-        }
     }
 
     pub fn set_profile_dir(&mut self, dir: PathBuf) {
@@ -491,6 +465,18 @@ impl BrowserHost {
             removed.surface.clear();
             self.surfaces.lock().unwrap_or_else(PoisonError::into_inner).remove(&id);
             self.pending_opens.retain(|(tid, _)| *tid != id);
+            let mut cancel_saves = Vec::new();
+            self.download_save_requests.retain(|r| {
+                if r.tab_id == id {
+                    cancel_saves.push(r.id);
+                    false
+                } else {
+                    true
+                }
+            });
+            for req_id in cancel_saves {
+                self.send(HostMsg::AnswerDownloadSave { tab_id: id, id: req_id, path: None });
+            }
             self.send(HostMsg::CloseTab { tab_id: id });
             if self.focused_tab == Some(id) {
                 self.focused_tab = if self.tabs.is_empty() {
@@ -947,6 +933,7 @@ impl BrowserHost {
                     self.sync_site_permissions();
                     // A new engine starts with an empty downloads folder and numbers its files
                     // from 1 again: the last one's files are gone. Held prompts replay if live.
+                    self.download_save_requests.clear();
                     for t in &mut self.tabs {
                         t.files.clear();
                         t.prompts.reset_for_engine();
@@ -1067,8 +1054,14 @@ impl BrowserHost {
                         .insert(request_id, if ok { Ok(result) } else { Err(result) });
                     changed = true;
                 }
-                EngineMsg::Download { tab_id, file } => {
+                EngineMsg::Download { tab_id, mut file } => {
+                    file.name = crate::policy::sanitize_download_name(&file.name);
                     if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
+                        // Never expose human-tab downloads in `BrowserTab.files` (defense in depth
+                        // for older engines before `DownloadSaveRequest`).
+                        if !t.prompts.agent_driven {
+                            continue;
+                        }
                         match t.files.iter().position(|f| f.id == file.id) {
                             Some(known) => t.files[known] = file,
                             // The engine keeps at most MAX_TAB_FILES a tab; the list holds those and
@@ -1080,6 +1073,28 @@ impl BrowserHost {
                                 }
                             }
                         }
+                        changed = true;
+                    }
+                }
+                EngineMsg::DownloadSaveRequest { tab_id, id, name, mime, executable } => {
+                    let known = self.tabs.iter().any(|t| t.id == tab_id);
+                    if !known || self.download_save_requests.len() >= 16 {
+                        self.send(HostMsg::AnswerDownloadSave { tab_id, id, path: None });
+                    } else {
+                        let clean_mime = crate::policy::sanitize_download_mime(&mime);
+                        let dangerous = executable || crate::policy::is_dangerous_download(&name, &clean_mime);
+                        let safe = if dangerous {
+                            crate::policy::neutralize_download_name(&name, &clean_mime)
+                        } else {
+                            crate::policy::sanitize_download_name(&name)
+                        };
+                        self.download_save_requests.push_back(crate::protocol::DownloadSaveRequest {
+                            tab_id,
+                            id,
+                            name: safe,
+                            mime: clean_mime,
+                            executable: dangerous,
+                        });
                         changed = true;
                     }
                 }

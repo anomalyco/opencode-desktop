@@ -136,6 +136,8 @@ mod native {
         pub pending_app_links: std::cell::RefCell<std::collections::VecDeque<(u64, String)>>,
         /// Persistent SQLite browsing history store (`history.sqlite`, lazily opened).
         pub history: std::cell::RefCell<Option<browser_pane::history::HistoryStore>>,
+        /// Serializes human download OS Save dialogs (`EngineMsg::DownloadSaveRequest`) one at a time.
+        pub save_dialog_open: bool,
     }
 
     /// App-level shortcuts that a focused web page must yield to OpenCode (Rune) rather than swallow,

@@ -17,11 +17,17 @@
 #![cfg_attr(not(target_arch = "wasm32"), deny(unsafe_code))]
 
 mod app_links;
+mod download;
 mod local_fs;
 mod local_path;
 pub mod preview;
 mod workspace_root;
 pub use app_links::{AppSchemeAction, AppSchemeSource, classify_app_link};
+pub use download::{
+    MAX_DOWNLOAD_NAME_CHARS, download_url_allowed, is_bidi_control, is_dangerous_download,
+    is_dangerous_download_extension, is_dangerous_download_mime, neutralize_download_name,
+    sanitize_download_mime, sanitize_download_name,
+};
 pub use local_fs::{
     LocalPathError, VerifiedLocalPath, is_local_fixed_drive, is_macos_bundle,
     reveal_in_file_manager, verify_local_path, verify_within_root,
