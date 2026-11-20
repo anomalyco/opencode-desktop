@@ -215,7 +215,7 @@ pub fn toggle_activity(host: &mut dyn SubagentsHost, tx: &mut Tx) {
 /// "2 subagents · 1 shell" over the composer while anything below the session or one of its
 /// background shells runs; it opens a list. Desktop's capsule (`activity-chips.tsx`): a 28pt
 /// hairline capsule filled like the composer (layer 1 in dark, the page in light) with its
-/// raised shadow, 10pt insets, the 16pt spinner and the counts in 13pt text, the separator faint
+/// raised shadow, 8pt in at the start and 10 at the end, the 16pt spinner and the counts in 13pt text, the separator faint
 /// (`session.activity.summary`). The fill's strength is the "Capsule fill" knob.
 pub fn capsule<H: SubagentsHost + 'static>(host: &H, p: &Pal, id: &str) -> Option<El> {
     let (subs, sh) = counts(host, id);
@@ -232,17 +232,20 @@ fn counts(host: &dyn SubagentsHost, id: &str) -> (usize, usize) {
 
 fn build_capsule_shell(host: &dyn SubagentsHost, p: &Pal, id: &str, subs: usize, sh: usize) -> El {
     let summary = activity::summary(subs, sh);
-    let mut chip = chip(host, p, "activity-chip", summary.label, host.shells().activity.is_open()).child(activity_ring_sized(p, 16.0));
+    // A leading glyph sits 8 in and 6 from the words, which keep their own 8 apart
+    // (`composer-lane.css:62-66`, `session-activity-summary`'s `gap-2`).
+    let chip = chip(host, p, "activity-chip", summary.label, host.shells().activity.is_open()).pl(8.0).gap(6.0).child(activity_ring_sized(p, 16.0));
+    let mut words = row().key("chip-summary").gap(8.0).center_y();
     if subs > 0 {
-        chip = chip.child(odometer(format!("chip-count-{id}"), summary.subagents, subs as f64, UI, p.text));
+        words = words.child(odometer(format!("chip-count-{id}"), summary.subagents, subs as f64, UI, p.text));
     }
     if subs > 0 && sh > 0 {
-        chip = chip.child(text(summary.between).key("chip-between").font(UI).color(p.faint));
+        words = words.child(text(summary.between).key("chip-between").font(UI).color(p.faint));
     }
     if sh > 0 {
-        chip = chip.child(odometer(format!("chip-shells-{id}"), summary.shells, sh as f64, UI, p.text));
+        words = words.child(odometer(format!("chip-shells-{id}"), summary.shells, sh as f64, UI, p.text));
     }
-    chip
+    chip.child(words)
 }
 
 /// The capsule every pill over the composer shares (`[data-composer-pill]`,
@@ -352,10 +355,10 @@ fn prepare_panel_layout(host: &dyn SubagentsHost, id: &str) -> Option<PanelLayou
     let label_w = items.iter().map(|it| width(&it.label, UI)).fold(0.0, f32::max);
     // A shell's command spans the agent and task columns and the gap between them.
     let command_w = shell_items.iter().map(|sh| width(&sh.command, shells_view::COMMAND)).fold(0.0, f32::max);
-    let span = (agent_w + 8.0 + label_w).max(command_w);
-    // Panel inset 4 + hairline 0.5, row inset 6, then the mark, agent and task (or command) and
-    // time, 8 apart, with 8 more before the time.
-    let natural = 2.0 * (PANEL_PAD + 0.5 + 6.0) + 16.0 + 8.0 + span + 16.0 + time_w + if session_view::style::hover_none() { 46.0 } else { 0.0 };
+    let span = (agent_w + 6.0 + label_w).max(command_w);
+    // Panel inset 4 + hairline 0.5, row inset 4, then the mark, agent and task (or command) and
+    // time, 6 apart, with 8 more before the time (`activity-chips.css:9-64`).
+    let natural = 2.0 * (PANEL_PAD + 0.5 + 4.0) + 16.0 + 6.0 + span + 14.0 + time_w + if session_view::style::hover_none() { 46.0 } else { 0.0 };
     let n = items.len() + shell_items.len();
     let h = (n as f32 * panel_row() + 2.0 * PANEL_PAD).min(PANEL_MAX_H);
     let label = if items.is_empty() { opencode_i18n::t!("session.activity.section.shells") } else { opencode_i18n::t!("session.activity.section.subagents") };
@@ -373,8 +376,8 @@ fn build_subagent_row_shell(p: &Pal, it: &Running, name: String, agent_w: f32, e
         .label(format!("{name} {}", it.label))
         .w_full()
         .h(panel_row())
-        .px(6.0)
-        .gap(8.0)
+        .px(4.0)
+        .gap(6.0)
         .center_y()
         .radius(4.0)
         .hover(p.hover)

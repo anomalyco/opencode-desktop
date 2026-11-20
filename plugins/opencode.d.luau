@@ -1,4 +1,4 @@
--- OpenCode plugin contract 1.4: global types for luau-lsp.
+-- OpenCode plugin contract 1.5: global types for luau-lsp.
 -- Generated from crates/opencode-plugin-spec/contract.json by `cargo run -p opencode-plugin-spec -- --write`. Do not edit.
 -- Load it with `luau-lsp analyze --definitions=@opencode=plugins/opencode.d.luau`.
 
@@ -67,7 +67,7 @@ export type Channel = "local" | "dev" | "beta" | "prod"
 export type ColorScheme = "light" | "dark"
 
 --- A status color for an icon or a pill.
-export type Tone = "success" | "warning" | "danger"
+export type Tone = "success" | "warning" | "danger" | "accent"
 
 --- A toast's tone.
 export type ToastVariant = "default" | "success" | "error" | "loading"
@@ -4552,7 +4552,7 @@ export type ComposerPillView = {
     icon: IconName?,
     --- Colors the icon.
     tone: Tone?,
-    --- The accessible name and the popover heading, when it differs from `label`.
+    --- The accessible name, when it differs from `label`. It names the popover `renderMenu` fills, which has no heading of the host's.
     title: string?,
     --- The menu it opens, when the pill has no `renderMenu`.
     rows: { ComposerPillRow }?,
@@ -4566,7 +4566,7 @@ export type ComposerPillSpec = {
     order: number?,
     --- What it shows above this session's composer, or nil for nothing. It must not yield.
     show: (props: ComposerPillProps) -> ComposerPillView?,
-    --- Content for the popover the pill opens. The host owns the capsule, the popover, its heading and its dismissal.
+    --- Content for the popover the pill opens. The host owns the capsule and the popover's frame (its width, a 4 pt inset, placement, focus and dismissal); everything inside, any heading included, is yours.
     renderMenu: ((view: View, props: ComposerPillProps) -> UiNode?)?,
     --- Runs on a click when the pill has no menu.
     run: ((props: ComposerPillProps) -> ())?,

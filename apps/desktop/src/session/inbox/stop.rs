@@ -193,6 +193,13 @@ pub fn escape_stops(s: &App) -> bool {
     s.composer.focused && (s.busy(id) || s.stopping(id))
 }
 
+/// Whether the palette offers Stop session (`prompt.stop`, `composer/model.ts`): the open
+/// session runs or its stop settles.
+pub fn offered(s: &App) -> bool {
+    let Route::Session { id, .. } = &*s.route else { return false };
+    s.has_composer() && (s.busy(id) || s.stopping(id))
+}
+
 /// Esc or ⌃G in the composer while the open session runs, as Desktop's: stops it. Again while
 /// that stop settles, it does nothing more (Esc doesn't fall through and leave the composer).
 pub fn key(s: &mut App, ev: &rune::KeyEvent, tx: &mut rune::Tx) -> bool {

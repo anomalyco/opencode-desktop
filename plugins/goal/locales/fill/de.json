@@ -1,8 +1,12 @@
 {
+  "active": "Ziel wird verfolgt",
   "clear": "Löschen",
-  "met": "Ziel erreicht",
+  "dismiss": "Schließen",
   "pause": "Pausieren",
   "paused": "Ziel pausiert",
+  "reached": "Ziel erreicht",
   "resume": "Fortsetzen",
-  "title": "Ziel"
+  "statusActive": "Aktiv",
+  "statusFinished": "Abgeschlossen",
+  "statusPaused": "Pausiert"
 }

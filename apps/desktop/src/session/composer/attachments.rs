@@ -217,6 +217,18 @@ impl Feature<App> for ComposerInputFeature {
             )
             .when(|s| s.has_composer() && s.kernel.slots.get(&crate::add_menu::ADD_MENU).shell()),
         );
+        // Stop session (`composer/model.ts`'s `prompt.stop`): in the palette while the session
+        // runs. Its Esc / ⌃G stay the composer's own (`stop::key`).
+        builder.add_command(
+            CommandEntry::<App>::from_key(
+                "prompt.stop",
+                opencode_i18n::key!("rune.command.session.stop"),
+                crate::commands::order::PROMPT_STOP,
+                crate::stop::press,
+            )
+            .bind_id(Bind::Stop.id())
+            .when(crate::stop::offered),
+        );
         builder.add_command(
             CommandEntry::<App>::from_key(
                 "context.addSelection",

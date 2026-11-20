@@ -1,8 +1,12 @@
 {
+  "active": "正在追踪目标",
   "clear": "清除",
-  "met": "目标已达成",
+  "dismiss": "关闭",
   "pause": "暂停",
   "paused": "目标已暂停",
+  "reached": "目标已达成",
   "resume": "继续",
-  "title": "目标"
+  "statusActive": "进行中",
+  "statusFinished": "已完成",
+  "statusPaused": "已暂停"
 }

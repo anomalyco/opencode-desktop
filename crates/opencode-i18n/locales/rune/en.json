@@ -66,7 +66,7 @@
   "rune.command.prompt.submitAlternate": "Send the other way (steer or queue)",
   "rune.command.question.submit": "Next question or submit",
   "rune.command.session.find": "Find in session",
-  "rune.command.session.stop": "Stop the session",
+  "rune.command.session.stop": "Stop session",
   "rune.command.tab.goTo": "Go to tab {{number}}",
   "rune.command.tab.next": "Next tab",
   "rune.command.tab.previous": "Previous tab",

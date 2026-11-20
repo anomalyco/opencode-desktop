@@ -74,6 +74,7 @@ pub const ZOOM_RESET: u16 = 470;
 pub const PROMPT_MODE_TOGGLE: u16 = 480;
 pub const PROMPT_MODE_SHELL: u16 = 490;
 pub const PROMPT_MODE_NORMAL: u16 = 500;
+pub const PROMPT_STOP: u16 = 505;
 pub const PROVIDER_CONNECT: u16 = 510;
 pub const EGG_PLAY: u16 = 520;
 #[cfg(not(target_arch = "wasm32"))]

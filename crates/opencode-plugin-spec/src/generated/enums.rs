@@ -60,6 +60,8 @@ string_enum! {
         Warning = "warning",
         /// Failed or blocked.
         Danger = "danger",
+        /// Under way, in the accent color.
+        Accent = "accent",
     }
 }
 

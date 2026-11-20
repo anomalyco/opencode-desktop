@@ -1,8 +1,12 @@
 {
+  "active": "목표 진행 중",
   "clear": "지우기",
-  "met": "목표 달성",
+  "dismiss": "닫기",
   "pause": "일시 중지",
   "paused": "목표 일시 중지됨",
+  "reached": "목표 달성",
   "resume": "재개",
-  "title": "목표"
+  "statusActive": "활성",
+  "statusFinished": "완료",
+  "statusPaused": "일시 중지됨"
 }
