@@ -59,8 +59,10 @@ pub struct BrowserTab {
     pub(crate) scale: f32,
     pub(crate) sent_resize: Option<(f32, f32, f32)>,
     /// Whether this tab has an open (or queued) backing tab in the engine (`false` for fail-closed
-    /// unproxied/unsupported tabs so subsequent `navigate` never hangs waiting on a ghost tab).
+    /// unproxied/unsupported/refused-open tabs so subsequent `navigate` promotes cleanly).
     pub(crate) has_engine_tab: bool,
+    /// True once the engine has emitted at least one `TabUpdate`/`TabList` snapshot for this tab.
+    pub(crate) engine_confirmed: bool,
 }
 
 impl BrowserTab {
@@ -120,9 +122,9 @@ pub struct BrowserHost {
     pub(crate) popup_opens: VecDeque<crate::prompts::PopupRequest>,
     pub(crate) context_menus: VecDeque<(u64, crate::protocol::PageContextMenu)>,
     pub(crate) diagnostics: VecDeque<crate::find::PageDiagnostic>,
-    /// Tab IDs closed by the engine (`EngineMsg::TabClosed`) along with any refusal recorded right
-    /// before closure so the shell can prune `session_tabs`/strip and surface the refusal notice.
-    pub(crate) closed_tabs: VecDeque<(u64, Option<String>)>,
+    /// Tab IDs closed by the engine (`EngineMsg::TabClosed`) paired with `fatal_close` (`true` only
+    /// on unrecoverable proxy/context failure, never explicit `DropContext` of a suspended tab).
+    pub(crate) closed_tabs: VecDeque<(u64, bool)>,
     /// Live loopback tunnel proxy configs registered per remote server identity (`ServerKey::as_str()`).
     pub(crate) remote_proxies: HashMap<String, crate::protocol::RemoteProxyConfig>,
     pub(crate) site_permissions: crate::prompts::SitePermissions,
@@ -375,6 +377,7 @@ impl BrowserHost {
             scale: 2.0,
             sent_resize: None,
             has_engine_tab: false,
+            engine_confirmed: false,
         });
         self.focused_tab = Some(id);
         self.last_polled_status = status.clone();
@@ -453,31 +456,7 @@ impl BrowserHost {
         };
         // Resolve & strictly validate cached loopback proxy for `RemoteServer`; fail closed if missing/invalid.
         let mut context = context;
-        let mut proxy_err: Option<&'static str> = None;
-        if let crate::protocol::ContextKind::RemoteServer { server_id, proxy } = &mut context {
-            let sid = server_id.trim().to_owned();
-            *server_id = sid.clone();
-            if sid.is_empty() {
-                proxy_err = Some("browser.context.invalid");
-            } else {
-                if proxy.is_none() {
-                    *proxy = self.remote_proxies.get(&sid).cloned();
-                }
-                match proxy.as_ref() {
-                    Some(cfg) => {
-                        if let Err(reason) = crate::policy::validate_proxy_endpoint(
-                            &cfg.host,
-                            cfg.port,
-                            cfg.username.as_deref(),
-                            cfg.password.as_deref(),
-                        ) {
-                            proxy_err = Some(reason);
-                        }
-                    }
-                    None => proxy_err = Some("browser.proxy.required"),
-                }
-            }
-        }
+        let proxy_err = self.resolve_remote_context(&mut context);
         let candidate = if from_address { resolve_address(raw_url) } else { crate::policy::with_scheme(raw_url) };
         let connected = self.is_connected();
         let ready = self.status() == EngineStatus::Ready;
@@ -530,6 +509,7 @@ impl BrowserHost {
             scale,
             sent_resize: (can_open_in_engine && connected && (context.is_default() || ready)).then_some((width_pt, height_pt, scale)),
             has_engine_tab: can_open_in_engine,
+            engine_confirmed: false,
         });
         self.focused_tab = Some(id);
 
@@ -1123,6 +1103,17 @@ impl BrowserHost {
                 EngineMsg::Refused { tab_id, reason } => {
                     if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
                         t.loading = false;
+                        if !t.engine_confirmed
+                            && matches!(
+                                reason.as_str(),
+                                "browser.proxy.required"
+                                    | "browser.proxy.invalid"
+                                    | "browser.context.invalid"
+                                    | "browser.context.unavailable"
+                            )
+                        {
+                            t.has_engine_tab = false;
+                        }
                         t.refusal = Some(reason);
                         t.rejected += 1;
                         changed = true;
@@ -1142,7 +1133,7 @@ impl BrowserHost {
                 }
                 EngineMsg::TabClosed { tab_id } => {
                     self.pending_opens.retain(|(id, _)| *id != tab_id);
-                    let refusal = if let Some(pos) = self.tabs.iter().position(|t| t.id == tab_id) {
+                    let fatal_close = if let Some(pos) = self.tabs.iter().position(|t| t.id == tab_id) {
                         let removed = self.tabs.remove(pos);
                         removed.surface.clear();
                         self.surfaces.lock().unwrap_or_else(PoisonError::into_inner).remove(&tab_id);
@@ -1150,11 +1141,14 @@ impl BrowserHost {
                             self.focused_tab = self.tabs.last().map(|t| t.id);
                         }
                         changed = true;
-                        removed.refusal
+                        matches!(
+                            removed.refusal.as_deref(),
+                            Some("browser.proxy.invalid" | "browser.context.unavailable")
+                        )
                     } else {
-                        None
+                        false
                     };
-                    self.closed_tabs.push_back((tab_id, refusal));
+                    self.closed_tabs.push_back((tab_id, fatal_close));
                 }
                 EngineMsg::InspectState { tab_id, active, picked } => {
                     if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
@@ -1416,6 +1410,7 @@ impl BrowserHost {
             t.load_error = snap.load_error;
             t.favicon = snap.favicon;
             t.has_engine_tab = true;
+            t.engine_confirmed = true;
             let mut changed = changed;
             if new_site && !t.context.is_isolated() {
                 changed |= (t.zoom - want_zoom).abs() > 0.001;
@@ -1474,6 +1469,7 @@ impl BrowserHost {
             scale: 2.0,
             sent_resize: None,
             has_engine_tab: true,
+            engine_confirmed: true,
         });
         true
     }

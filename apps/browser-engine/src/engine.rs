@@ -427,7 +427,14 @@ impl EngineManager {
                                     }
                                 }
                             }
-                            Ok(false) => {}
+                            Ok(false) => {
+                                if let Some(t) = self.tabs.get(&tab_id) {
+                                    t.deferred_initial.store(
+                                        !url.trim().eq_ignore_ascii_case("about:blank"),
+                                        Ordering::Release,
+                                    );
+                                }
+                            }
                             Err("browser.proxy.required") => {
                                 // Transient proxy suspension: hold navigation & report refusal
                                 // without destroying the user's open page.
@@ -901,14 +908,17 @@ impl EngineManager {
             HostMsg::SetPartitionProxy { server_id, proxy } => {
                 let sid = server_id.trim();
                 match self.contexts.set_partition_proxy(sid, proxy) {
-                    Ok(crate::context::ProxyUpdate::Applied(applied)) => {
+                    Ok(crate::context::ProxyUpdate::Applied { config, activate_ready }) => {
                         for t in self.tabs.values_mut() {
                             if let crate::wire::ContextKind::RemoteServer { server_id: id, proxy: cur } = &mut t.context
                                 && id.trim() == sid
                             {
-                                *cur = Some(applied.clone());
-                                *t.prompts.proxy.lock().unwrap() = Some(applied.clone());
+                                *cur = Some(config.clone());
+                                *t.prompts.proxy.lock().unwrap() = Some(config.clone());
                             }
+                        }
+                        if let Some(ready) = activate_ready {
+                            ready.store(true, Ordering::Release);
                         }
                     }
                     Ok(crate::context::ProxyUpdate::Suspended(tabs)) => {
@@ -1074,6 +1084,19 @@ impl EngineManager {
                     return;
                 }
             };
+            if let Some((sid, applied, activate_ready)) = resolved_ctx.proxy_updated {
+                for t in self.tabs.values_mut() {
+                    if let crate::wire::ContextKind::RemoteServer { server_id: id, proxy: cur } = &mut t.context
+                        && id.trim() == sid
+                    {
+                        *cur = Some(applied.clone());
+                        *t.prompts.proxy.lock().unwrap() = Some(applied.clone());
+                    }
+                }
+                if let Some(ready) = activate_ready {
+                    ready.store(true, Ordering::Release);
+                }
+            }
             proxy_cfg = resolved_ctx.proxy;
             req_ctx = resolved_ctx.request_context;
             context_ready = resolved_ctx.ready;
@@ -1166,6 +1189,7 @@ impl EngineManager {
             tab_id,
             file_roots.clone(),
             is_preview,
+            context_ready.clone(),
             self.downloads.clone(),
             self.out_tx.clone(),
         );

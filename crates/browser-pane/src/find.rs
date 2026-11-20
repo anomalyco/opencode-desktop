@@ -110,15 +110,62 @@ impl crate::BrowserHost {
         self.remote_proxies.get(server_id.trim())
     }
 
-    /// Drains `(tab_id, last_refusal)` closed by the engine (`EngineMsg::TabClosed`) so the desktop
-    /// shell can prune `session_tabs`, close dead side-panel tabs, and surface any refusal reason.
-    pub fn drain_closed_tabs(&mut self) -> impl Iterator<Item = (u64, Option<String>)> + '_ {
+    /// Drains `(tab_id, fatal_close)` for tabs closed by the engine (`EngineMsg::TabClosed`) so the
+    /// desktop shell can prune `session_tabs`/strip and show a notice only on fatal proxy/context loss.
+    pub fn drain_closed_tabs(&mut self) -> impl Iterator<Item = (u64, bool)> + '_ {
         self.closed_tabs.drain(..)
+    }
+
+    /// Resolves & validates a `RemoteServer` context's loopback proxy before opening a tab;
+    /// when a valid explicit `Some(cfg)` updates `remote_proxies`, clears suspended banners on
+    /// existing tabs for that server.
+    pub(crate) fn resolve_remote_context(
+        &mut self,
+        context: &mut crate::protocol::ContextKind,
+    ) -> Option<&'static str> {
+        let crate::protocol::ContextKind::RemoteServer { server_id, proxy } = context else {
+            return None;
+        };
+        let sid = server_id.trim().to_owned();
+        *server_id = sid.clone();
+        if sid.is_empty() {
+            return Some("browser.context.invalid");
+        }
+        let explicit = proxy.is_some();
+        if !explicit {
+            *proxy = self.remote_proxies.get(&sid).cloned();
+        }
+        let Some(cfg) = proxy.as_ref() else {
+            return Some("browser.proxy.required");
+        };
+        if let Err(reason) = crate::policy::validate_proxy_endpoint(
+            &cfg.host,
+            cfg.port,
+            cfg.username.as_deref(),
+            cfg.password.as_deref(),
+        ) {
+            return Some(reason);
+        }
+        if explicit {
+            self.remote_proxies.insert(sid.clone(), cfg.clone());
+            for t in &mut self.tabs {
+                if let crate::protocol::ContextKind::RemoteServer { server_id: id, proxy: cur } = &mut t.context
+                    && id.trim() == sid
+                {
+                    *cur = Some(cfg.clone());
+                    if t.refusal.as_deref() == Some("browser.proxy.required") {
+                        t.refusal = None;
+                    }
+                }
+            }
+        }
+        None
     }
 
     /// Updates or suspends the local loopback tunnel proxy on a remote server partition.
     /// Rejects invalid proxy configs (must be a strict loopback IP literal + non-empty Basic creds).
-    /// Clearing (`None`) suspends live tabs in the engine without destroying unsaved user state.
+    /// Clearing (`None`) suspends live tabs in the engine without destroying unsaved user state;
+    /// supplying `Some(cfg)` clears the suspended refusal banner on matching tabs.
     pub fn set_partition_proxy(
         &mut self,
         server_id: &str,
@@ -148,6 +195,9 @@ impl crate::BrowserHost {
                 && id.trim() == sid
             {
                 *cur = proxy.clone();
+                if proxy.is_some() && t.refusal.as_deref() == Some("browser.proxy.required") {
+                    t.refusal = None;
+                }
             }
         }
         if self.is_connected() && self.engine_partitions() && self.engine_remote_proxy() {

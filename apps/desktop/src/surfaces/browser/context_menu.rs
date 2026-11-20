@@ -38,12 +38,23 @@ fn open_page_menu(app: &mut App, tab_id: u64, info: PageContextMenu, tx: &mut Tx
         app.workspace_panes.browser.host.run_context_menu_action(tab_id, info.id, None);
         return;
     };
+    if tab.refusal.as_deref() == Some("browser.proxy.required") {
+        // Suspended remote tab: cancel immediately rather than showing non-functional commands.
+        app.workspace_panes.browser.host.run_context_menu_action(tab_id, info.id, None);
+        return;
+    }
     let can_back = tab.can_go_back;
     let can_forward = tab.can_go_forward;
     let (ox, oy) = tab.surface_origin;
     let z = tab.view_zoom.max(0.01);
     let anchor = (ox + (info.x as f32) / z, oy + (info.y as f32) / z);
     let can_open_page = app.browser_tab_external_url(tab_id).is_some();
+    let captured_opener = app.browser_context_for_opener(tab_id);
+    let captured_sid = app.browser_tab_session(tab_id).map(str::to_owned);
+    let captured_external_link_ok = info
+        .link_url
+        .as_deref()
+        .is_some_and(|u| app.external_url_allowed_for_tab(tab_id, u));
 
     let mut groups: Vec<Vec<Item>> = Vec::new();
 
@@ -132,9 +143,17 @@ fn open_page_menu(app: &mut App, tab_id: u64, info: PageContextMenu, tx: &mut Tx
             Some("hard-reload") => engine_cmd = Some(ContextMenuCommand::HardReload),
             Some("open-page") => s.open_browser_tab_externally(tab_id, tx),
             Some("open-link") => {
-                if let Some(url) = link_url {
-                    let sid = s.browser_tab_session(tab_id).map(str::to_owned);
-                    let (agent, ctx) = s.browser_context_for_opener(tab_id);
+                if let Some(url) = link_url
+                    && s.workspace_panes.browser.host.tab(tab_id).is_some()
+                    && let Some((agent, mut ctx)) = captured_opener.clone()
+                {
+                    if let browser_pane::ContextKind::RemoteServer { server_id, proxy } = &mut ctx {
+                        *proxy = s.workspace_panes.browser.host.remote_proxy(server_id.trim()).cloned();
+                        if proxy.is_none() {
+                            return;
+                        }
+                    }
+                    let sid = s.browser_tab_session(tab_id).map(str::to_owned).or_else(|| captured_sid.clone());
                     let new_id = s.open_new_browser_tab_with_context(sid.as_deref(), &url, None, true, false, ctx);
                     if agent {
                         s.workspace_panes.browser.host.set_agent_driven(new_id, true);
@@ -142,7 +161,10 @@ fn open_page_menu(app: &mut App, tab_id: u64, info: PageContextMenu, tx: &mut Tx
                 }
             }
             Some("external-link") => {
-                if let Some(url) = link_url && s.external_url_allowed_for_tab(tab_id, &url) {
+                if let Some(url) = link_url
+                    && captured_external_link_ok
+                    && s.external_url_allowed_for_tab(tab_id, &url)
+                {
                     crate::open_in::open_external(tx, &url);
                 }
             }
@@ -152,9 +174,17 @@ fn open_page_menu(app: &mut App, tab_id: u64, info: PageContextMenu, tx: &mut Tx
                 }
             }
             Some("open-image") => {
-                if let Some(url) = src_url {
-                    let sid = s.browser_tab_session(tab_id).map(str::to_owned);
-                    let (agent, ctx) = s.browser_context_for_opener(tab_id);
+                if let Some(url) = src_url
+                    && s.workspace_panes.browser.host.tab(tab_id).is_some()
+                    && let Some((agent, mut ctx)) = captured_opener.clone()
+                {
+                    if let browser_pane::ContextKind::RemoteServer { server_id, proxy } = &mut ctx {
+                        *proxy = s.workspace_panes.browser.host.remote_proxy(server_id.trim()).cloned();
+                        if proxy.is_none() {
+                            return;
+                        }
+                    }
+                    let sid = s.browser_tab_session(tab_id).map(str::to_owned).or_else(|| captured_sid.clone());
                     let new_id = s.open_new_browser_tab_with_context(sid.as_deref(), &url, None, true, false, ctx);
                     if agent {
                         s.workspace_panes.browser.host.set_agent_driven(new_id, true);

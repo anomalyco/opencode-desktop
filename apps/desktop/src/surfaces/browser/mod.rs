@@ -376,11 +376,9 @@ mod native {
         /// - Live `RemoteServer` opener -> same `RemoteServer` with current registered loopback proxy.
         /// - Live `Preview` / `Artifact` / `Private` opener -> fresh `ContextKind::Private`.
         /// - Live `Default` opener -> `ContextKind::Default` (never active server).
-        /// - Already-closed opener -> fail closed to `(false, ContextKind::Private)`.
-        pub fn browser_context_for_opener(&self, opener_tab_id: u64) -> (bool, browser_pane::ContextKind) {
-            let Some(t) = self.workspace_panes.browser.host.tab(opener_tab_id) else {
-                return (false, browser_pane::ContextKind::Private);
-            };
+        /// - Already-closed opener -> `None` (refuse the open; NEVER downgrade to direct `Private`).
+        pub fn browser_context_for_opener(&self, opener_tab_id: u64) -> Option<(bool, browser_pane::ContextKind)> {
+            let t = self.workspace_panes.browser.host.tab(opener_tab_id)?;
             let ctx = match &t.context {
                 browser_pane::ContextKind::RemoteServer { server_id, proxy } => {
                     let sid = server_id.trim();
@@ -400,7 +398,7 @@ mod native {
                 | browser_pane::ContextKind::Private => browser_pane::ContextKind::Private,
                 browser_pane::ContextKind::Default => browser_pane::ContextKind::Default,
             };
-            (t.prompts.agent_driven, ctx)
+            Some((t.prompts.agent_driven, ctx))
         }
 
         pub fn open_new_browser_tab(&mut self, url: &str) -> u64 {
@@ -557,10 +555,10 @@ mod native {
             // Every poll comes here: the pane is written only when the engine has something.
             let mut changed = !self.workspace_panes.browser.host.quiet() && self.workspace_panes.browser.host.poll();
             // Prune `session_tabs` and side-panel strip entries for any tab closed by the engine,
-            // surfacing a toast if the tab carried a fatal refusal reason before closing.
-            let engine_closed: Vec<(u64, Option<String>)> =
+            // surfacing a plain-language toast only for fatal proxy/context teardown (never `DropContext`).
+            let engine_closed: Vec<(u64, bool)> =
                 self.workspace_panes.browser.host.drain_closed_tabs().collect();
-            for (closed_id, refusal) in engine_closed {
+            for (closed_id, fatal_close) in engine_closed {
                 let owner_sid = self.browser_tab_session(closed_id).map(str::to_owned);
                 for ids in self.workspace_panes.browser.session_tabs.values_mut() {
                     ids.retain(|&x| x != closed_id);
@@ -574,11 +572,11 @@ mod native {
                     }
                     changed = true;
                 }
-                if let Some(reason) = refusal {
+                if fatal_close {
                     crate::status_toast::fail(
                         self,
-                        opencode_i18n::t!("rune.openIn.failed").to_owned(),
-                        reason,
+                        opencode_i18n::t!("rune.browser.proxy.closed").to_owned(),
+                        String::new(),
                     );
                     changed = true;
                 }
@@ -586,8 +584,11 @@ mod native {
             if self.workspace_panes.browser.host.has_popup_opens() {
                 let popups: Vec<_> = self.workspace_panes.browser.host.drain_popup_opens().collect();
                 for popup in popups {
+                    let Some((agent, opener_ctx)) = self.browser_context_for_opener(popup.opener_tab_id) else {
+                        // Opener closed before drain: refuse rather than downgrading to direct `Private`.
+                        continue;
+                    };
                     let sid = self.browser_tab_session(popup.opener_tab_id).map(str::to_owned);
-                    let (agent, opener_ctx) = self.browser_context_for_opener(popup.opener_tab_id);
                     let new_id = self.open_new_browser_tab_with_context(
                         sid.as_deref(),
                         &popup.url,

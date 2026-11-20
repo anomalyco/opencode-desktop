@@ -293,8 +293,12 @@ impl DeferredOutcome {
 
 /// Result of updating a remote server's loopback proxy via `set_partition_proxy`.
 pub enum ProxyUpdate {
-    /// New proxy verified and applied to the remote server (unsuspends live tabs if suspended).
-    Applied(RemoteProxyConfig),
+    /// New proxy verified and applied (and old connections closed); caller MUST sync
+    /// `t.prompts.proxy` and `t.context` on live tabs BEFORE calling `activate_ready.store(true)`.
+    Applied {
+        config: RemoteProxyConfig,
+        activate_ready: Option<Arc<AtomicBool>>,
+    },
     /// Transient proxy loss (`proxy: None`): live tabs are suspended (`ready = false`, network
     /// blocked fail-closed) without destroying open pages or unsaved user state.
     Suspended(Vec<u64>),
@@ -498,6 +502,10 @@ pub struct ResolvedContext {
     pub generation: u64,
     /// When `true`, open on `about:blank` and defer `initial_url` until context preferences verify.
     pub defer_initial_load: bool,
+    /// Present when `resolve_with_hooks` rotated/unsuspended an existing `RemoteServer` context's
+    /// proxy: `(server_id, new_config, activate_ready)`. Caller MUST sync `t.context` and
+    /// `t.prompts.proxy` on all matching live tabs BEFORE flipping `activate_ready` to `true`.
+    pub proxy_updated: Option<(String, RemoteProxyConfig, Option<Arc<AtomicBool>>)>,
 }
 
 impl ContextPool {
@@ -616,6 +624,7 @@ impl ContextPool {
                     deferred_initial: Arc::new(AtomicBool::new(false)),
                     generation,
                     defer_initial_load: false,
+                    proxy_updated: None,
                 });
             }
             ContextKind::Preview { workspace, grant } => {
@@ -666,6 +675,7 @@ impl ContextPool {
             }
         };
 
+        let mut proxy_updated: Option<(String, RemoteProxyConfig, Option<Arc<AtomicBool>>)> = None;
         if !self.entries.contains_key(&key) {
             let entry = create_isolated_context(
                 explicit_proxy.clone(),
@@ -677,25 +687,31 @@ impl ContextPool {
             .map_err(fatal)?;
             self.entries.insert(key.clone(), entry);
         } else if let Some(cfg) = explicit_proxy {
-            let needs_teardown = {
+            let sid = match &key {
+                ContextKey::RemoteServer(s) => s.clone(),
+                _ => String::new(),
+            };
+            let (needs_teardown, updated) = {
                 let existing = self.entries.get_mut(&key).unwrap();
                 let changed = existing.proxy.lock().unwrap().as_ref() != Some(&cfg)
                     || existing.suspended.load(Ordering::Acquire);
                 if changed {
                     *existing.proxy.lock().unwrap() = Some(cfg.clone());
                     if existing.initialized.load(Ordering::Acquire) {
+                        // Gate off BEFORE rotating prefs and closing old connections; caller flips
+                        // `ready = true` LAST only after syncing `t.prompts.proxy` on all tabs.
+                        existing.ready.store(false, Ordering::Release);
                         let ok = apply_context_prefs(&existing.ctx, Some(&cfg), true);
                         existing.prefs_ok.store(ok, Ordering::Release);
                         existing.suspended.store(!ok, Ordering::Release);
-                        existing.ready.store(ok, Ordering::Release);
                         close_connections(&existing.ctx);
-                        !ok
+                        (!ok, ok.then(|| (sid, cfg, Some(existing.ready.clone()))))
                     } else {
                         existing.suspended.store(false, Ordering::Release);
-                        false
+                        (false, Some((sid, cfg, None)))
                     }
                 } else {
-                    false
+                    (false, None)
                 }
             };
             if needs_teardown {
@@ -705,6 +721,7 @@ impl ContextPool {
                     close_tabs,
                 });
             }
+            proxy_updated = updated;
         }
 
         let is_init = self.entries.get(&key).unwrap().initialized.load(Ordering::Acquire);
@@ -750,6 +767,7 @@ impl ContextPool {
             deferred_initial: Arc::new(AtomicBool::new(defer_non_blank)),
             generation,
             defer_initial_load: need_defer,
+            proxy_updated,
         })
     }
 
@@ -863,21 +881,23 @@ impl ContextPool {
             close_tabs: Vec::new(),
         })?;
         self.remote_proxies.insert(sid.to_owned(), cfg.clone());
-        let failed = if let Some(entry) = self.entries.get_mut(&key) {
+        let (failed, activate_ready) = if let Some(entry) = self.entries.get_mut(&key) {
             *entry.proxy.lock().unwrap() = Some(cfg.clone());
             if entry.initialized.load(Ordering::Acquire) {
+                // Gate off BEFORE applying new proxy & closing old sockets; caller flips
+                // `ready = true` LAST only after syncing `t.prompts.proxy` on every live tab.
+                entry.ready.store(false, Ordering::Release);
                 let ok = apply_context_prefs(&entry.ctx, Some(&cfg), true);
                 entry.prefs_ok.store(ok, Ordering::Release);
                 entry.suspended.store(!ok, Ordering::Release);
-                entry.ready.store(ok, Ordering::Release);
                 close_connections(&entry.ctx);
-                !ok
+                (!ok, ok.then(|| entry.ready.clone()))
             } else {
                 entry.suspended.store(false, Ordering::Release);
-                false
+                (false, None)
             }
         } else {
-            false
+            (false, None)
         };
         if failed {
             let close_tabs = self.teardown_key(&key);
@@ -886,7 +906,10 @@ impl ContextPool {
                 close_tabs,
             });
         }
-        Ok(ProxyUpdate::Applied(cfg))
+        Ok(ProxyUpdate::Applied {
+            config: cfg,
+            activate_ready,
+        })
     }
 
     /// Lists all live `tab_id`s currently attached to `kind`'s pooled context.

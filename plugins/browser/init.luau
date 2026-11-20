@@ -768,7 +768,7 @@ return plugin.defineWindow(function(ctx)
                 url = url,
                 zoom = tab:Zoom(),
                 inspectable = url ~= "" and tab:LoadError() == nil,
-                suspended = false,
+                suspended = tab:Refusal() == "browser.proxy.required",
                 failed = tab:LoadError() ~= nil,
                 serverFile = isServerFile(url),
                 canOpenExternal = reachable(url, tab),
