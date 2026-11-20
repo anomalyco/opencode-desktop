@@ -98,27 +98,22 @@ impl Default for BrowserRpcState {
     }
 }
 
-/// Whether `server_key` currently has at least one live `experimental.browser` v4 attachment.
-pub fn is_server_attached(app: &App, server_key: &ServerKey) -> bool {
-    app.kernel
-        .slots
-        .get(&BROWSER_RPC)
-        .sessions
-        .iter()
-        .any(|((k, _), att)| k == server_key && att.attach.is_attached())
-}
-
-/// Whether `session_id` (or its `server_key`) currently uses `experimental.browser` v4 RPC.
-pub fn is_session_or_server_attached(app: &App, server_key: &ServerKey, session_id: &str) -> bool {
+/// Whether local `rune_mcp` `browser_*` / native MCP `Browser:*` bindings must be refused for
+/// `(server_key, session_id)`: true while attached AND sticky across transient `Backoff` /
+/// `Connecting` reconnects so a modern server never re-admits raw `browser_cdp`.
+pub fn is_mcp_browser_suppressed(app: &App, server_key: &ServerKey, session_id: Option<&str>) -> bool {
     let st = app.kernel.slots.get(&BROWSER_RPC);
-    if st
-        .sessions
-        .get(&(server_key.clone(), session_id.to_owned()))
-        .is_some_and(|att| att.attach.is_attached())
+    if let Some(sid) = session_id
+        && st
+            .sessions
+            .get(&(server_key.clone(), sid.to_owned()))
+            .is_some_and(|att| att.attach.suppresses_local_mcp())
     {
         return true;
     }
-    is_server_attached(app, server_key)
+    st.sessions
+        .iter()
+        .any(|((k, _), att)| k == server_key && att.attach.suppresses_local_mcp())
 }
 
 /// Whether `session_id` on `server_key` has settled its attachment attempt for `BuiltinPromptGate`.
@@ -297,10 +292,12 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
     changed |= reconcile_sessions(app, now);
 
     // 3. Route any CDP events from BrowserHost into TabDiagnostics and TabFrameState (OOPIFs +
-    //    main-world execution contexts), auto-enabling Page/Runtime/Target on attached OOPIFs.
+    //    main-world execution contexts), auto-enabling non-extension OOPIFs, immediately detaching
+    //    extension OOPIFs, and bumping generation on top-level reloads/navigations.
     if app.workspace_panes.browser.host.has_cdp_events() {
         let events: Vec<_> = app.workspace_panes.browser.host.drain_cdp_events().collect();
         let mut oopif_enables: Vec<(u64, String)> = Vec::new();
+        let mut oopif_detaches: Vec<(u64, String)> = Vec::new();
         {
             let st = app.kernel.slots.get_mut(&BROWSER_RPC);
             for ev in events {
@@ -308,17 +305,34 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
                     if let Some(diag) = att.diagnostics.get_mut(&ev.tab_id) {
                         diag.ingest_cdp_event(&ev.method, &ev.params, ev.session_id.as_deref());
                     }
+                    let mut main_nav = false;
                     if let Some(fr) = att.frames.get_mut(&ev.tab_id) {
-                        for child_sid in fr.ingest_cdp_event(&ev.method, &ev.params, ev.session_id.as_deref()) {
+                        let eff = fr.ingest_cdp_event(&ev.method, &ev.params, ev.session_id.as_deref());
+                        for child_sid in eff.enable_sessions {
                             oopif_enables.push((ev.tab_id, child_sid));
                         }
+                        for ext_sid in eff.detach_sessions {
+                            oopif_detaches.push((ev.tab_id, ext_sid));
+                        }
+                        main_nav = eff.main_navigated;
+                    }
+                    if main_nav && att.host_to_wire.contains_key(&ev.tab_id) {
+                        att.bump_generation(ev.tab_id);
                     }
                 }
             }
         }
         if app.workspace_panes.browser.host.engine_agent_tools() {
+            let host = &mut app.workspace_panes.browser.host;
+            for (tab_id, ext_sid) in oopif_detaches {
+                let _ = host.send_typed_cdp(
+                    tab_id,
+                    "Target.detachFromTarget",
+                    serde_json::json!({ "sessionId": ext_sid }),
+                    None,
+                );
+            }
             for (tab_id, child_sid) in oopif_enables {
-                let host = &mut app.workspace_panes.browser.host;
                 let _ = host.send_typed_cdp(tab_id, "Page.enable", serde_json::json!({}), Some(child_sid.clone()));
                 let _ = host.send_typed_cdp(tab_id, "Runtime.enable", serde_json::json!({}), Some(child_sid.clone()));
                 let _ = host.send_typed_cdp(
@@ -367,6 +381,16 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
     let mut tick_effects = Vec::new();
     let mut earliest_wake: Option<Instant> = None;
     for (key, att) in &mut sessions {
+        att.drain_bootstrap_frames(app);
+        // Cleanly close any cancelled `close_on_fail` tabs queued during SSE `on_control_event`
+        // (eliminating ghost tabs in `session_tabs` and side-panel UI).
+        if !att.pending_close_tabs.is_empty() {
+            let sid = att.session_id.clone();
+            for hid in std::mem::take(&mut att.pending_close_tabs) {
+                app.close_browser_tab_for_session(&sid, hid, tx);
+            }
+            changed = true;
+        }
         let (cmd_changed, cmd_wake) =
             exec::poll_commands(att, app, now, &mut ref_counter, waker.clone(), tx);
         changed |= cmd_changed;
@@ -525,30 +549,31 @@ pub(super) fn reconcile_sessions(app: &mut App, now: Instant) -> bool {
 }
 
 fn sync_mcp_suppression(app: &mut App) {
+    let window_id = app.kernel.slots.get(&crate::rune_mcp::RUNE_MCP).window_id();
     let st = app.kernel.slots.get_mut(&BROWSER_RPC);
     let mut current: BTreeMap<ServerKey, (Server, bool)> = BTreeMap::new();
     for ((k, _), att) in &st.sessions {
-        let attached = att.attach.is_attached();
+        let suppressed = att.attach.suppresses_local_mcp();
         current
             .entry(k.clone())
-            .and_modify(|(_, a)| *a |= attached)
-            .or_insert_with(|| (att.server.clone(), attached));
+            .and_modify(|(_, s)| *s |= suppressed)
+            .or_insert_with(|| (att.server.clone(), suppressed));
     }
     let mut updates: Vec<(Server, bool)> = Vec::new();
-    for (k, (srv, attached)) in &current {
-        let prev = st.mcp_suppressed.get(k).map(|(_, a)| *a);
-        if prev != Some(*attached) {
-            updates.push((srv.clone(), *attached));
+    for (k, (srv, suppressed)) in &current {
+        let prev = st.mcp_suppressed.get(k).map(|(_, s)| *s);
+        if prev != Some(*suppressed) {
+            updates.push((srv.clone(), *suppressed));
         }
     }
-    for (k, (srv, was_attached)) in &st.mcp_suppressed {
-        if !current.contains_key(k) && *was_attached {
+    for (k, (srv, was_suppressed)) in &st.mcp_suppressed {
+        if !current.contains_key(k) && *was_suppressed {
             updates.push((srv.clone(), false));
         }
     }
     st.mcp_suppressed = current;
-    for (srv, attached) in updates {
-        crate::rune_mcp::set_browser_rpc_attached(&srv, attached);
+    for (srv, suppressed) in updates {
+        crate::rune_mcp::set_browser_rpc_attached(window_id, &srv, suppressed);
     }
 }
 
@@ -649,7 +674,7 @@ pub(super) fn apply_batch_effects(
                     let mut kept = Vec::with_capacity(att.active_commands.len());
                     for mut cmd in att.active_commands.drain(..) {
                         if request_ids.iter().any(|id| id == &cmd.request_id) {
-                            cmd.cancel_cleanup(app, &sid, tx_opt.as_deref_mut());
+                            cmd.cancel_cleanup(app, &sid, tx_opt.as_deref_mut(), &mut att.pending_close_tabs);
                         } else {
                             kept.push(cmd);
                         }

@@ -678,6 +678,17 @@ impl BrowserHost {
         params: Value,
         session_id: Option<String>,
     ) -> Result<u64, String> {
+        if session_id.is_some() {
+            return Err("DevTools CdpCall does not permit targeting a child sessionId.".into());
+        }
+        if self
+            .tabs
+            .iter()
+            .find(|t| t.id == tab_id)
+            .is_some_and(|t| crate::policy::extension_origin(&t.url))
+        {
+            return Err("DevTools calls are not permitted on extension pages.".into());
+        }
         let method = method.into();
         crate::policy::check_cdp(&method, &params, self.engine_policy())?;
         let request_id = self.next_req_id;
@@ -687,7 +698,7 @@ impl BrowserHost {
             request_id,
             method,
             params,
-            session_id,
+            session_id: None,
         });
         Ok(request_id)
     }
@@ -725,13 +736,22 @@ impl BrowserHost {
     }
 
     pub fn take_cdp_response(&mut self, request_id: u64) -> Option<Result<Value, Value>> {
-        self.cdp_responses.remove(&request_id)
+        let out = self.cdp_responses.remove(&request_id);
+        if out.is_some()
+            && let Some(pos) = self.cdp_response_order.iter().position(|&id| id == request_id)
+        {
+            self.cdp_response_order.remove(pos);
+        }
+        out
     }
 
     /// Discards any buffered or future CDP response for `request_id` so cancelled commands never
     /// leak orphaned entries in `cdp_responses`.
     pub fn cancel_cdp(&mut self, request_id: u64) {
         self.cdp_responses.remove(&request_id);
+        if let Some(pos) = self.cdp_response_order.iter().position(|&id| id == request_id) {
+            self.cdp_response_order.remove(pos);
+        }
         if self.cancelled_cdp.len() >= 1_024 {
             self.cancelled_cdp.pop_front();
         }

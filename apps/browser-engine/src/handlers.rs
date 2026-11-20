@@ -10,7 +10,8 @@ use std::sync::{Arc, Mutex};
 use cef::rc::Rc as _;
 use cef::{
     AcceleratedPaintInfo, AuthCallback, Browser, Callback, CefString, CefStringList, CursorInfo,
-    CursorType, DevToolsMessageObserver, DisplayHandler, Errorcode, Frame, ImplDevToolsMessageObserver,
+    CursorType, DevToolsMessageObserver, DisplayHandler, Errorcode, Frame, ImplBrowser,
+    ImplBrowserHost, ImplDevToolsMessageObserver,
     ImplDisplayHandler, ImplFrame, ImplLoadHandler, ImplRenderHandler, ImplRequest,
     ImplRequestHandler, ImplResourceRequestHandler, ImplSelectClientCertificateCallback,
     LoadHandler, PaintElementType, Rect, RenderHandler, Request, RequestHandler,
@@ -776,6 +777,7 @@ wrap_dev_tools_message_observer! {
         id_map: Arc<Mutex<HashMap<i32, CdpPending>>>,
         internal_picked: Arc<Mutex<Vec<i64>>>,
         pending_clears: Arc<Mutex<Vec<PendingClear>>>,
+        cdp_ledger: Arc<Mutex<crate::cdp_ledger::EngineCdpLedger>>,
         out_tx: Output,
     }
 
@@ -848,7 +850,7 @@ wrap_dev_tools_message_observer! {
 
         fn on_dev_tools_message(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             message: Option<&[u8]>,
         ) -> ::std::os::raw::c_int {
             let Some(raw) = message else { return 0 };
@@ -878,6 +880,23 @@ wrap_dev_tools_message_observer! {
             };
             let params = val.get("params").cloned().unwrap_or(Value::Null);
             let session_id = val.get("sessionId").and_then(Value::as_str).map(str::to_owned);
+            // Update engine-authoritative CDP ledger and immediately detach any extension OOPIF.
+            let detach_sid = self
+                .cdp_ledger
+                .lock()
+                .unwrap()
+                .observe_event(&method, &params, session_id.as_deref());
+            if let Some(ext_sid) = detach_sid
+                && let Some(host) = browser.and_then(|b| b.host())
+            {
+                let detach = serde_json::json!({
+                    "id": -1,
+                    "method": "Target.detachFromTarget",
+                    "params": { "sessionId": ext_sid },
+                })
+                .to_string();
+                let _ = host.send_dev_tools_message(Some(detach.as_bytes()));
+            }
             if method == "Overlay.inspectNodeRequested"
                 && let Some(backend_id) = params["backendNodeId"].as_i64()
             {

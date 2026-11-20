@@ -1,5 +1,5 @@
-//! Target inspection (`inspect: true` & pre-execution `command.target` verification),
-//! `frameID`-aware + `contextId`-pinned JavaScript `evaluate`, and deadline-safe `wait`.
+//! Live target inspection (`inspect: true` & pre/post-execution `command.target` verification),
+//! fail-closed `frameID` + `contextId`-pinned JavaScript `evaluate`, and deadline-safe `wait`.
 
 use std::time::Duration;
 
@@ -8,13 +8,20 @@ use opencode_kit::browser_rpc::{Command, MAX_WAIT_MS, Outcome, TargetMeta, failu
 use rune::time::Instant;
 use serde_json::{Value, json};
 
+use super::super::frames::EvalTargetError;
 use super::super::session::SessionAttachment;
-use super::{ExecPhase, StepOutcome, cdp_err_msg, check_page_guards};
+use super::{ExecPhase, StepOutcome, cdp_err_msg, check_page_guards, send_rpc_cdp};
 use crate::App;
 
 const WAIT_POLL_INTERVAL: Duration = Duration::from_millis(120);
 /// Hard cap on serialized JSON returned by `browser.evaluate` (`chromium.ts:1552`).
 const MAX_EVAL_JSON_CHARS: usize = 512_000;
+
+pub(super) struct InspectState {
+    pub host_id: u64,
+    pub cdp_req: u64,
+    pub cmd: Command,
+}
 
 pub(super) struct EvalState {
     pub host_id: u64,
@@ -31,7 +38,8 @@ impl EvalState {
             }
             EvalStage::CallOnRef { object_id, cdp_req } => {
                 app.workspace_panes.browser.host.cancel_cdp(*cdp_req);
-                let _ = app.workspace_panes.browser.host.send_cdp(
+                let _ = send_rpc_cdp(
+                    app,
                     self.host_id,
                     "Runtime.releaseObject",
                     json!({ "objectId": object_id }),
@@ -68,9 +76,64 @@ impl WaitState {
     }
 }
 
+/// Canonicalizes a URL for server permission matching: adds default `https://` scheme, lowercases
+/// scheme & host, strips default `:80`/`:443` ports, and normalizes `.`/`..` path segments.
+pub(super) fn canonical_target_url(raw: &str) -> String {
+    let with_s = with_scheme(raw.trim());
+    let Some((scheme_raw, rest)) = with_s.split_once("://") else {
+        return with_s;
+    };
+    let scheme = scheme_raw.to_ascii_lowercase();
+    if !matches!(scheme.as_str(), "http" | "https") {
+        return with_s;
+    }
+    let (before_frag, frag) = match rest.split_once('#') {
+        Some((a, b)) => (a, Some(b)),
+        None => (rest, None),
+    };
+    let (before_q, query) = match before_frag.split_once('?') {
+        Some((a, b)) => (a, Some(b)),
+        None => (before_frag, None),
+    };
+    let (auth_raw, path_raw) = match before_q.find('/') {
+        Some(idx) => (&before_q[..idx], &before_q[idx..]),
+        None => (before_q, ""),
+    };
+    let auth_lower = auth_raw.to_ascii_lowercase();
+    let default_port = if scheme == "http" { ":80" } else { ":443" };
+    let auth = auth_lower.strip_suffix(default_port).unwrap_or(&auth_lower);
+    let mut segs: Vec<&str> = Vec::new();
+    let trailing_slash = path_raw.ends_with('/') && path_raw.len() > 1;
+    for seg in path_raw.split('/') {
+        match seg {
+            "" | "." => {}
+            ".." => {
+                segs.pop();
+            }
+            other => segs.push(other),
+        }
+    }
+    let mut out = format!("{scheme}://{auth}");
+    if !segs.is_empty() || path_raw.starts_with('/') {
+        out.push('/');
+        out.push_str(&segs.join("/"));
+        if trailing_slash && !segs.is_empty() {
+            out.push('/');
+        }
+    }
+    if let Some(q) = query {
+        out.push('?');
+        out.push_str(q);
+    }
+    if let Some(f) = frag {
+        out.push('#');
+        out.push_str(f);
+    }
+    out
+}
+
 /// Computes metadata-only authorization target (`resources`, `key`) for `cmd`
-/// (`chromium.ts:1956-2002`). Shared by `inspect: true` and pre-execution `command.target`
-/// enforcement. Never reads page text, headers, bodies, or file bytes.
+/// (`chromium.ts:1956-2002`). Shared by `inspect: true` and pre/post-execution enforcement.
 pub(super) fn compute_target(
     att: &SessionAttachment,
     app: &App,
@@ -82,7 +145,7 @@ pub(super) fn compute_target(
         if let Some(u) = cmd.action.get("url").and_then(Value::as_str) {
             let trimmed = u.trim();
             if !trimmed.is_empty() {
-                resources.push(with_scheme(trimmed));
+                resources.push(canonical_target_url(trimmed));
             }
         } else if let Some(p) = cmd.action.get("path").and_then(Value::as_str) {
             resources.push(p.to_owned());
@@ -99,18 +162,25 @@ pub(super) fn compute_target(
     };
     let generation = att.generation_of(host_id);
     let mut target = if ty == "dialog" {
+        let resources = att
+            .source_urls(app, host_id)
+            .map_err(|e| Outcome::fail(failure_code::OPERATION_FAILED, e))?;
         let key = match tab.prompts.dialog.open() {
             Some(open) => format!("dialog:{generation}:{}", open.id),
             None => format!("dialog:{generation}:none"),
         };
-        TargetMeta { resources: att.source_urls(app, host_id), key }
+        TargetMeta { resources, key }
     } else if let Some(file_id) = cmd.action.get("fileID").and_then(Value::as_str) {
-        let resources = att
+        let resources = match att
             .captures
             .get(&host_id)
             .and_then(|list| list.iter().find(|c| c.id == file_id))
-            .map(|c| c.resources.clone())
-            .unwrap_or_else(|| att.download_resources(app, host_id, file_id));
+        {
+            Some(c) => c.resources.clone(),
+            None => att
+                .download_resources(app, host_id, file_id)
+                .map_err(|e| Outcome::fail(failure_code::OPERATION_FAILED, e))?,
+        };
         TargetMeta { resources, key: format!("file:{file_id}") }
     } else if ty == "network.get" {
         let req_id = cmd.action.get("id").and_then(Value::as_str).unwrap_or("");
@@ -126,9 +196,17 @@ pub(super) fn compute_target(
             .action
             .get("url")
             .and_then(Value::as_str)
-            .map(|u| with_scheme(u.trim()))
+            .map(canonical_target_url)
             .unwrap_or_else(|| tab.url.clone());
         TargetMeta { resources: vec![norm.clone()], key: format!("navigate:{norm}") }
+    } else if ty == "navigate.path" {
+        let path = cmd
+            .action
+            .get("path")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_owned();
+        TargetMeta { resources: vec![path.clone()], key: format!("navigate.path:{generation}:{path}") }
     } else if let Some(fid) = cmd.action.get("frameID").and_then(Value::as_str) {
         let frame_url = att
             .frames
@@ -142,23 +220,52 @@ pub(super) fn compute_target(
         }
         TargetMeta { resources, key: format!("frame:{generation}:{fid}") }
     } else {
-        // Include ALL document + cross-origin iframe URLs (`sourceURLs()`) so server deny rules
-        // apply across framed documents for `screenshot`, `snapshot`, `find`, `evaluate`, etc.
-        TargetMeta {
-            resources: att.source_urls(app, host_id),
-            key: format!("tab:{generation}"),
-        }
+        let resources = att
+            .source_urls(app, host_id)
+            .map_err(|e| Outcome::fail(failure_code::OPERATION_FAILED, e))?;
+        TargetMeta { resources, key: format!("tab:{generation}") }
     };
     target.resources.sort();
     target.resources.dedup();
     Ok(target)
 }
 
-/// Handles `command.inspect == true` metadata-only authorization probes (`chromium.ts:1956-2002`).
-pub(super) fn inspect_target(att: &SessionAttachment, app: &App, cmd: &Command) -> Outcome {
-    match compute_target(att, app, cmd) {
-        Ok(target) => Outcome::ok(serde_json::to_value(target).unwrap_or(Value::Null), Vec::new()),
-        Err(err) => err,
+/// Starts `inspect: true`: refreshes live `Page.getFrameTree` on tab-scoped calls that inspect
+/// page content so pre-existing in-process child iframes are never missed from `resources`.
+pub(super) fn start_inspect(att: &mut SessionAttachment, app: &mut App, cmd: Command) -> StepOutcome {
+    let ty = cmd.action_type().unwrap_or("");
+    let needs_live_frames = cmd.tab_id().is_some()
+        && !matches!(ty, "navigate" | "navigate.path" | "network.get" | "files.get");
+    if needs_live_frames
+        && let Some(wire_id) = cmd.tab_id()
+        && let Ok(host_id) = att.resolve_tab(app, wire_id)
+        && app.workspace_panes.browser.host.tab_open_in_engine(host_id)
+        && let Ok(cdp_req) = app
+            .workspace_panes
+            .browser
+            .host
+            .send_cdp(host_id, "Page.getFrameTree", json!({}), None)
+    {
+        return StepOutcome::Pending(ExecPhase::Inspect(InspectState { host_id, cdp_req, cmd }));
+    }
+    match compute_target(att, app, &cmd) {
+        Ok(target) => StepOutcome::Done(Outcome::ok(serde_json::to_value(target).unwrap_or(Value::Null), Vec::new())),
+        Err(err) => StepOutcome::Done(err),
+    }
+}
+
+pub(super) fn step_inspect(
+    att: &mut SessionAttachment,
+    app: &mut App,
+    st: &InspectState,
+) -> Option<Outcome> {
+    let resp = app.workspace_panes.browser.host.take_cdp_response(st.cdp_req)?;
+    if let Ok(val) = resp {
+        att.frames.entry(st.host_id).or_default().ingest_frame_tree(&val, None);
+    }
+    match compute_target(att, app, &st.cmd) {
+        Ok(target) => Some(Outcome::ok(serde_json::to_value(target).unwrap_or(Value::Null), Vec::new())),
+        Err(err) => Some(err),
     }
 }
 
@@ -172,6 +279,13 @@ pub(super) fn try_start(
         "evaluate" => Some(start_evaluate(att, app, cmd)),
         "wait" => Some(start_wait(att, app, cmd, now)),
         _ => None,
+    }
+}
+
+fn eval_target_outcome(err: EvalTargetError) -> Outcome {
+    match err {
+        EvalTargetError::DocumentChanged(msg) => Outcome::fail(failure_code::DOCUMENT_CHANGED, msg),
+        EvalTargetError::Failed(msg) => Outcome::fail(failure_code::OPERATION_FAILED, msg),
     }
 }
 
@@ -189,17 +303,11 @@ fn send_eval_cdp(
         "returnByValue": true,
         "userGesture": false,
     });
-    if let Some(cid) = context_id
-        && app.workspace_panes.browser.host.engine_agent_tools()
-    {
+    if app.workspace_panes.browser.host.engine_agent_tools() {
+        let Some(cid) = context_id else {
+            return Err("Refusing unpinned Runtime.evaluate without a verified contextId.".into());
+        };
         params["contextId"] = json!(cid);
-        return app
-            .workspace_panes
-            .browser
-            .host
-            .send_typed_cdp(host_id, "Runtime.evaluate", params, cdp_session);
-    }
-    if cdp_session.is_some() && app.workspace_panes.browser.host.engine_agent_tools() {
         return app
             .workspace_panes
             .browser
@@ -209,7 +317,7 @@ fn send_eval_cdp(
     app.workspace_panes
         .browser
         .host
-        .send_cdp(host_id, "Runtime.evaluate", params, cdp_session)
+        .send_cdp(host_id, "Runtime.evaluate", params, None)
 }
 
 fn start_evaluate(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> StepOutcome {
@@ -238,49 +346,50 @@ fn start_evaluate(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> 
     att.ensure_tab_cdp(app, host_id);
 
     if let Some(r) = ref_arg {
-        let Some(bid) = att.refs.get(&host_id).and_then(|t| t.resolve(r)) else {
+        let Some((bid, ref_session)) = att.refs.get(&host_id).and_then(|t| t.resolve(r)) else {
             return StepOutcome::Done(Outcome::fail(
                 failure_code::STALE_REF,
                 format!("Element ref {r} is stale or absent. Refresh the snapshot first."),
             ));
         };
-        match app.workspace_panes.browser.host.send_cdp(
+        match send_rpc_cdp(
+            app,
             host_id,
             "DOM.resolveNode",
             json!({ "backendNodeId": bid }),
-            None,
+            ref_session.clone(),
         ) {
             Ok(cdp_req) => StepOutcome::Pending(ExecPhase::Eval(EvalState {
                 host_id,
                 script: script.to_owned(),
-                cdp_session: None,
+                cdp_session: ref_session,
                 stage: EvalStage::ResolveRef { cdp_req },
             })),
             Err(e) => StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, e)),
         }
     } else {
+        let require_pinned = app.workspace_panes.browser.host.engine_agent_tools();
         let (context_id, cdp_session) = match att
             .frames
             .get(&host_id)
-            .map(|f| f.resolve_eval_target(frame_arg))
-            .transpose()
+            .map(|f| f.resolve_eval_target(frame_arg, require_pinned))
         {
-            Ok(Some(v)) => v,
-            Ok(None) if frame_arg.is_some() => {
+            Some(Ok(v)) => v,
+            Some(Err(err)) => return StepOutcome::Done(eval_target_outcome(err)),
+            None if require_pinned => {
+                return StepOutcome::Done(Outcome::fail(
+                    failure_code::DOCUMENT_CHANGED,
+                    "Frame context is not ready yet. Refresh state and retry.",
+                ));
+            }
+            None if frame_arg.is_some() => {
                 return StepOutcome::Done(Outcome::fail(
                     failure_code::OPERATION_FAILED,
                     "Frame ID was not found in this tab. Call browser.frames({tabID}) first.",
                 ));
             }
-            Ok(None) => (None, None),
-            Err(msg) => return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, msg)),
+            None => (None, None),
         };
-        if frame_arg.is_some() && context_id.is_none() && cdp_session.is_none() {
-            return StepOutcome::Done(Outcome::fail(
-                failure_code::OPERATION_FAILED,
-                "Frame context is unavailable. Call browser.frames({tabID}) and use a current frameID.",
-            ));
-        }
         match send_eval_cdp(app, host_id, script, true, context_id, cdp_session.clone()) {
             Ok(cdp_req) => StepOutcome::Pending(ExecPhase::Eval(EvalState {
                 host_id,
@@ -340,21 +449,27 @@ fn start_wait(att: &mut SessionAttachment, app: &mut App, cmd: &Command, now: In
         ));
     }
     let (context_id, cdp_session) = if matches!(condition.as_str(), "text" | "textGone") {
+        let require_pinned = app.workspace_panes.browser.host.engine_agent_tools();
         match att
             .frames
             .get(&host_id)
-            .map(|f| f.resolve_eval_target(frame_arg))
-            .transpose()
+            .map(|f| f.resolve_eval_target(frame_arg, require_pinned))
         {
-            Ok(Some(v)) => v,
-            Ok(None) if frame_arg.is_some() => {
+            Some(Ok(v)) => v,
+            Some(Err(err)) => return StepOutcome::Done(eval_target_outcome(err)),
+            None if require_pinned => {
+                return StepOutcome::Done(Outcome::fail(
+                    failure_code::DOCUMENT_CHANGED,
+                    "Frame context is not ready yet. Refresh state and retry.",
+                ));
+            }
+            None if frame_arg.is_some() => {
                 return StepOutcome::Done(Outcome::fail(
                     failure_code::OPERATION_FAILED,
                     "Frame ID was not found in this tab. Call browser.frames({tabID}) first.",
                 ));
             }
-            Ok(None) => (None, None),
-            Err(msg) => return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, msg)),
+            None => (None, None),
         }
     } else {
         (None, None)
@@ -401,7 +516,8 @@ pub(super) fn step_eval(att: &SessionAttachment, app: &mut App, st: &mut EvalSta
                 "function(...args) {{ if (!this.isConnected) throw new Error('browser.detached_ref'); return ({}\n).apply(this, args); }}",
                 st.script
             );
-            match app.workspace_panes.browser.host.send_cdp(
+            match send_rpc_cdp(
+                app,
                 st.host_id,
                 "Runtime.callFunctionOn",
                 json!({
@@ -423,7 +539,8 @@ pub(super) fn step_eval(att: &SessionAttachment, app: &mut App, st: &mut EvalSta
         }
         EvalStage::CallOnRef { object_id, cdp_req } => {
             let resp = app.workspace_panes.browser.host.take_cdp_response(*cdp_req)?;
-            let _ = app.workspace_panes.browser.host.send_cdp(
+            let _ = send_rpc_cdp(
+                app,
                 st.host_id,
                 "Runtime.releaseObject",
                 json!({ "objectId": object_id }),
@@ -542,8 +659,6 @@ pub(super) fn step_wait(
         }
         return None;
     }
-    // Check deadline BEFORE taking any pending CDP response so a stalled page JS loop can NEVER
-    // hang past `timeoutMs` or spin the UI thread at 100% CPU.
     if now >= st.deadline {
         st.cancel_cleanup(app);
         return Some(Outcome::fail(
@@ -553,7 +668,6 @@ pub(super) fn step_wait(
     }
     if let Some(req) = st.cdp_req {
         let Some(resp) = app.workspace_panes.browser.host.take_cdp_response(req) else {
-            // Keep `next_poll` ahead of `now` while awaiting CDP so `wake_after` does not spin.
             st.next_poll = (now + WAIT_POLL_INTERVAL).min(st.deadline);
             return None;
         };

@@ -1,6 +1,6 @@
 //! Explicit non-blocking command executor state machine and per-tab safeguard guards
-//! (server authorization target/generation checks, local deadlines, dialogs, HTTP auth,
-//! extension-origin isolation, and clean cancellation teardown).
+//! (server authorization target/generation checks, live inspect refresh, local deadlines,
+//! dialogs, HTTP auth, extension-origin isolation, and clean cancellation teardown).
 
 pub(super) mod capture;
 pub(super) mod nav;
@@ -10,14 +10,14 @@ pub(super) mod snapshot;
 use std::time::Duration;
 
 use browser_pane::policy::{extension_origin, extension_page_refusal};
-use opencode_kit::browser_rpc::{AttachEvent, Command, Outcome, failure_code};
+use opencode_kit::browser_rpc::{AttachEvent, Command, Outcome, TargetMeta, failure_code};
 use rune::time::Instant;
 use rune::{Tx, Waker};
 use serde_json::Value;
 
 use self::capture::ScreenshotState;
 use self::nav::WaitLoadState;
-use self::read::{EvalState, WaitState};
+use self::read::{EvalState, InspectState, WaitState};
 use self::snapshot::{FramesState, SnapshotState};
 use super::session::SessionAttachment;
 use crate::App;
@@ -27,6 +27,7 @@ const MAX_WAIT_CMD_TIMEOUT: Duration = Duration::from_secs(31);
 
 /// Explicit non-blocking execution state of one in-flight `experimental.browser` command.
 enum ExecPhase {
+    Inspect(InspectState),
     WaitLoad(WaitLoadState),
     Frames(FramesState),
     Snapshot(SnapshotState),
@@ -38,6 +39,7 @@ enum ExecPhase {
 impl ExecPhase {
     pub fn target_host_tab(&self) -> u64 {
         match self {
+            Self::Inspect(s) => s.host_id,
             Self::WaitLoad(s) => s.host_id,
             Self::Frames(s) => s.host_id,
             Self::Snapshot(s) => s.host_id,
@@ -61,15 +63,26 @@ impl ExecPhase {
         }
     }
 
-    pub fn cancel_cleanup(&mut self, app: &mut App, session_id: &str, tx: Option<&mut Tx>) {
+    pub fn cancel_cleanup(
+        &mut self,
+        app: &mut App,
+        session_id: &str,
+        tx: Option<&mut Tx>,
+        pending_close_tabs: &mut Vec<u64>,
+    ) {
         match self {
+            Self::Inspect(st) => {
+                app.workspace_panes.browser.host.cancel_cdp(st.cdp_req);
+            }
             Self::WaitLoad(st) => {
                 app.workspace_panes.browser.host.stop(st.host_id);
                 if st.close_on_fail {
                     if let Some(tx) = tx {
                         app.close_browser_tab_for_session(session_id, st.host_id, tx);
                     } else {
-                        app.workspace_panes.browser.host.close_tab(st.host_id);
+                        // Queue full session+UI close for the next `poll` tick so `session_tabs`
+                        // and the side-panel tab never leak a ghost entry.
+                        pending_close_tabs.push(st.host_id);
                     }
                 }
             }
@@ -98,8 +111,15 @@ pub(super) struct ActiveCommand {
 }
 
 impl ActiveCommand {
-    pub fn cancel_cleanup(&mut self, app: &mut App, session_id: &str, tx: Option<&mut Tx>) {
-        self.phase.cancel_cleanup(app, session_id, tx);
+    pub fn cancel_cleanup(
+        &mut self,
+        app: &mut App,
+        session_id: &str,
+        tx: Option<&mut Tx>,
+        pending_close_tabs: &mut Vec<u64>,
+    ) {
+        self.phase
+            .cancel_cleanup(app, session_id, tx, pending_close_tabs);
     }
 }
 
@@ -136,15 +156,16 @@ pub(super) fn check_page_guards(app: &App, host_id: u64, action_type: &str) -> R
     Ok(())
 }
 
-/// Verifies server-authorized `command.generation` and `command.target` right before execution
-/// (`chromium.ts:1518-1531`) so a page cannot bypass server deny rules by redirecting or framing
-/// between `inspect: true` and the real command.
-fn verify_authorized_target(
+/// Verifies server-authorized `command.generation` and `command.target` (`chromium.ts:1518-1531`).
+/// Called both right before execution AND right before returning async capture/snapshot outputs.
+pub(super) fn verify_authorized_state(
     att: &SessionAttachment,
     app: &App,
     cmd: &Command,
+    expected_gen: Option<u64>,
+    expected_target: Option<&TargetMeta>,
 ) -> Result<(), Outcome> {
-    if let Some(expected_gen) = cmd.generation {
+    if let Some(want_gen) = expected_gen {
         let Some(wire_id) = cmd.tab_id() else {
             return Err(Outcome::fail(
                 failure_code::DOCUMENT_CHANGED,
@@ -154,19 +175,19 @@ fn verify_authorized_target(
         let host_id = att
             .resolve_tab(app, wire_id)
             .map_err(|msg| Outcome::fail(failure_code::OPERATION_FAILED, msg))?;
-        if att.generation_of(host_id) != expected_gen {
+        if att.generation_of(host_id) != want_gen {
             return Err(Outcome::fail(
                 failure_code::DOCUMENT_CHANGED,
                 "The tab navigated or changed documents after authorization. Refresh state and retry.",
             ));
         }
     }
-    if let Some(expected_target) = &cmd.target {
+    if let Some(want_target) = expected_target {
         let actual = read::compute_target(att, app, cmd)?;
-        let mut expected_res = expected_target.resources.clone();
+        let mut expected_res = want_target.resources.clone();
         expected_res.sort();
         expected_res.dedup();
-        if actual.key != expected_target.key || actual.resources != expected_res {
+        if actual.key != want_target.key || actual.resources != expected_res {
             return Err(Outcome::fail(
                 failure_code::DOCUMENT_CHANGED,
                 "The page or its frames changed after authorization. Retry so permissions can re-check the current URLs.",
@@ -177,7 +198,6 @@ fn verify_authorized_target(
 }
 
 /// Starts one fetched `experimental.browser` command for `att`.
-/// Immediately replies on synchronous actions or registers a non-blocking [`ActiveCommand`].
 pub(super) fn start_command(
     att: &mut SessionAttachment,
     app: &mut App,
@@ -191,14 +211,25 @@ pub(super) fn start_command(
     if !att.attach.is_request_in_flight(&connection_id, &request_id) {
         return;
     }
-    // Sync tabs first so `generation` and `source_urls` reflect any recent navigation.
     let _ = att.sync_tabs(app);
     if cmd.is_inspect() {
-        let outcome = read::inspect_target(att, app, &cmd);
-        finish_and_reply(att, app, &connection_id, request_id, outcome, now);
+        match read::start_inspect(att, app, cmd) {
+            StepOutcome::Done(outcome) => {
+                finish_and_reply(att, app, &connection_id, request_id, outcome, now);
+            }
+            StepOutcome::Pending(phase) => {
+                att.active_commands.push(ActiveCommand {
+                    connection_id,
+                    request_id,
+                    is_dialog: true,
+                    deadline: now + DEFAULT_CMD_TIMEOUT,
+                    phase,
+                });
+            }
+        }
         return;
     }
-    if let Err(outcome) = verify_authorized_target(att, app, &cmd) {
+    if let Err(outcome) = verify_authorized_state(att, app, &cmd, cmd.generation, cmd.target.as_ref()) {
         finish_and_reply(att, app, &connection_id, request_id, outcome, now);
         return;
     }
@@ -251,9 +282,8 @@ pub(super) fn poll_commands(
     let sid = att.session_id.clone();
 
     for mut cmd in cmds.drain(..) {
-        // Hard cancellation invariant: never post a late result after cancel or disconnect.
         if !att.attach.is_request_in_flight(&cmd.connection_id, &cmd.request_id) {
-            cmd.cancel_cleanup(app, &sid, Some(tx));
+            cmd.cancel_cleanup(app, &sid, Some(tx), &mut att.pending_close_tabs);
             changed = true;
             continue;
         }
@@ -284,16 +314,17 @@ pub(super) fn poll_commands(
         };
 
         let done = if let Some(fail) = mid_guard_fail {
-            cmd.cancel_cleanup(app, &sid, Some(tx));
+            cmd.cancel_cleanup(app, &sid, Some(tx), &mut att.pending_close_tabs);
             Some(fail)
         } else if now >= cmd.deadline && !matches!(cmd.phase, ExecPhase::Wait(_) | ExecPhase::WaitLoad(_)) {
-            cmd.cancel_cleanup(app, &sid, Some(tx));
+            cmd.cancel_cleanup(app, &sid, Some(tx), &mut att.pending_close_tabs);
             Some(Outcome::fail(
                 failure_code::OPERATION_FAILED,
                 "Browser command timed out locally.",
             ))
         } else {
             match &mut cmd.phase {
+                ExecPhase::Inspect(st) => read::step_inspect(att, app, st),
                 ExecPhase::WaitLoad(st) => nav::step_wait_load(att, app, st, now, tx),
                 ExecPhase::Frames(st) => snapshot::step_frames(att, app, st),
                 ExecPhase::Snapshot(st) => snapshot::step_snapshot(att, app, st, ref_counter),
@@ -334,8 +365,6 @@ fn finish_and_reply(
     if !att.attach.is_request_in_flight(connection_id, &request_id) {
         return;
     }
-    // Sync tab state BEFORE posting the result on the ordered FIFO queue so the server knows
-    // every tabID / generation named by the result.
     let (state, hash) = att.sync_tabs(app);
     let _ = att.attach.step(AttachEvent::StateChanged { hash }, now);
     att.enqueue_state(connection_id, state, hash);
@@ -349,4 +378,26 @@ pub(super) fn cdp_err_msg(err: &Value) -> String {
         .or_else(|| err.get("error").and_then(Value::as_str))
         .map(str::to_owned)
         .unwrap_or_else(|| err.to_string())
+}
+
+/// Sends a CDP call using `send_typed_cdp` whenever targeting an OOPIF `session_id` (since
+/// `send_cdp` strictly rejects `session_id.is_some()` for untrusted callers).
+pub(super) fn send_rpc_cdp(
+    app: &mut App,
+    host_id: u64,
+    method: &str,
+    params: Value,
+    session_id: Option<String>,
+) -> Result<u64, String> {
+    if session_id.is_some() {
+        app.workspace_panes
+            .browser
+            .host
+            .send_typed_cdp(host_id, method, params, session_id)
+    } else {
+        app.workspace_panes
+            .browser
+            .host
+            .send_cdp(host_id, method, params, None)
+    }
 }
