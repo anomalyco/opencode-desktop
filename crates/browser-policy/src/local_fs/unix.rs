@@ -5,9 +5,7 @@ use std::ffi::CString;
 use super::{LocalPathError, VerifiedLocalPath};
 use crate::local_path::{is_unix_autofs_path, safe_local_reveal_path};
 
-const MAX_ROOT_ALIAS_HOPS: u8 = 8;
-
-pub(super) struct OwnedFd(i32);
+struct OwnedFd(i32);
 impl Drop for OwnedFd {
     fn drop(&mut self) {
         if self.0 >= 0 {
@@ -84,103 +82,6 @@ fn normalize_unix_root(clean: &str) -> String {
     clean.to_owned()
 }
 
-fn readlink_at(dir_fd: i32, c_seg: &CString) -> Option<String> {
-    let mut buf = vec![0u8; 4096];
-    // SAFETY: `dir_fd` is an open directory fd, `c_seg` is NUL-terminated, and `buf` is writable.
-    let len = unsafe { libc::readlinkat(dir_fd, c_seg.as_ptr(), buf.as_mut_ptr().cast(), buf.len()) };
-    if len <= 0 || len as usize >= buf.len() {
-        return None;
-    }
-    String::from_utf8(buf[..len as usize].to_vec()).ok()
-}
-
-fn join_unix_symlink(prefix_segs: &[&str], link_target: &str, rest: &[&str]) -> Option<String> {
-    let mut stack: Vec<String> = if link_target.starts_with('/') {
-        Vec::new()
-    } else {
-        prefix_segs.iter().map(|s| (*s).to_owned()).collect()
-    };
-    for seg in link_target.split('/').chain(rest.iter().copied()) {
-        match seg {
-            "" | "." => {}
-            ".." => {
-                stack.pop();
-            }
-            s => stack.push(s.to_owned()),
-        }
-    }
-    let resolved = if stack.is_empty() { "/".to_owned() } else { format!("/{}", stack.join("/")) };
-    if is_unix_autofs_path(&resolved) {
-        return None;
-    }
-    safe_local_reveal_path(&resolved)
-}
-
-/// Resolves a local workspace root directory once up front: allows symlink aliases whose target
-/// resolves to another verified `MNT_LOCAL` / non-network directory (common on macOS), refusing
-/// autofs and network mounts BEFORE traversing them. Returns the verified directory's `OwnedFd`
-/// so callers never re-open `root` by path without `O_NOFOLLOW`.
-pub(super) fn resolve_root_open(clean: &str, hops: u8) -> Result<(VerifiedLocalPath, OwnedFd), LocalPathError> {
-    if hops >= MAX_ROOT_ALIAS_HOPS {
-        return Err(LocalPathError::SymlinkOrReparse);
-    }
-    if is_unix_autofs_path(clean) {
-        return Err(LocalPathError::NonLocalDrive);
-    }
-    let walked = normalize_unix_root(clean);
-    let root_c = CString::new("/").map_err(|_| LocalPathError::UnsafePath)?;
-    // SAFETY: constant NUL-terminated path "/".
-    let root_fd = unsafe { libc::open(root_c.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC) };
-    if root_fd < 0 {
-        return Err(LocalPathError::UnsafePath);
-    }
-    let mut held = OwnedFd(root_fd);
-    if !is_local_mount(held.0) {
-        return Err(LocalPathError::NonLocalDrive);
-    }
-    let segs: Vec<&str> = walked.split('/').filter(|s| !s.is_empty() && *s != ".").collect();
-    if segs.is_empty() {
-        return Ok((VerifiedLocalPath { path: "/".into(), is_dir: true, is_file: false }, held));
-    }
-    for (idx, seg) in segs.iter().enumerate() {
-        if *seg == ".." {
-            return Err(LocalPathError::UnsafePath);
-        }
-        let c_seg = CString::new(*seg).map_err(|_| LocalPathError::UnsafePath)?;
-        let flags = libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_DIRECTORY;
-        // SAFETY: `held.0` is an open directory fd and `c_seg` is a NUL-terminated component.
-        let next = unsafe { libc::openat(held.0, c_seg.as_ptr(), flags) };
-        if next < 0 {
-            let err = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
-            // macOS returns ELOOP (or ENOTDIR on O_DIRECTORY + symlink on some BSDs) for symlinks.
-            if err == libc::ELOOP || err == libc::ENOTDIR {
-                if let Some(target) = readlink_at(held.0, &c_seg) {
-                    let next_clean = join_unix_symlink(&segs[..idx], &target, &segs[idx + 1..])
-                        .ok_or(LocalPathError::NonLocalDrive)?;
-                    return resolve_root_open(&next_clean, hops + 1);
-                }
-            }
-            return Err(match err {
-                libc::ENOENT => LocalPathError::NotFound,
-                libc::ELOOP => LocalPathError::SymlinkOrReparse,
-                _ => LocalPathError::UnsafePath,
-            });
-        }
-        held = OwnedFd(next);
-        if !is_local_mount(held.0) {
-            return Err(LocalPathError::NonLocalDrive);
-        }
-        let st = fstat_of(held.0).ok_or(LocalPathError::UnsafePath)?;
-        if (st.st_mode & libc::S_IFMT) != libc::S_IFDIR {
-            return Err(LocalPathError::UnsafePath);
-        }
-        if idx + 1 == segs.len() {
-            return Ok((VerifiedLocalPath { path: walked, is_dir: true, is_file: false }, held));
-        }
-    }
-    Err(LocalPathError::UnsafePath)
-}
-
 fn verify_path_open(clean: &str, require_dir: bool) -> Result<(VerifiedLocalPath, OwnedFd), LocalPathError> {
     if is_unix_autofs_path(clean) {
         return Err(LocalPathError::NonLocalDrive);
@@ -246,24 +147,18 @@ pub(super) fn verify_path(clean: &str) -> Result<VerifiedLocalPath, LocalPathErr
 }
 
 pub(super) fn verify_within_root(target_lex: &str, root: &str, require_existing_leaf: bool) -> Option<String> {
-    let root_clean = safe_local_reveal_path(root)?;
-    let (verified_root, mut held) = resolve_root_open(&root_clean, 0).ok()?;
+    let (verified_root, mut held) = verify_path_open(&safe_local_reveal_path(root)?, true).ok()?;
     let target_norm = normalize_unix_root(&safe_local_reveal_path(target_lex)?);
     let root_trim = verified_root.path.trim_end_matches('/');
-    let raw_root_norm = normalize_unix_root(&root_clean);
-    let raw_root_trim = raw_root_norm.trim_end_matches('/');
-    let strip_prefix = |prefix: &str| -> Option<&str> {
-        if target_norm == prefix {
-            Some("")
-        } else {
-            target_norm.strip_prefix(&format!("{prefix}/"))
-        }
+    let rel = if target_norm == root_trim {
+        ""
+    } else {
+        let prefix = format!("{root_trim}/");
+        target_norm.strip_prefix(&prefix)?
     };
-    let rel = strip_prefix(root_trim).or_else(|| strip_prefix(raw_root_trim))?;
     if rel.is_empty() {
         return (!require_existing_leaf).then_some(verified_root.path);
     }
-    let resolved_target = format!("{root_trim}/{rel}");
     let segs: Vec<&str> = rel.split('/').filter(|s| !s.is_empty() && *s != ".").collect();
     for (idx, seg) in segs.iter().enumerate() {
         if *seg == ".." {
@@ -280,7 +175,7 @@ pub(super) fn verify_within_root(target_lex: &str, root: &str, require_existing_
         if next < 0 {
             let err = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
             if err == libc::ENOENT && !require_existing_leaf {
-                return Some(resolved_target);
+                return Some(target_norm);
             }
             return None;
         }
@@ -297,7 +192,7 @@ pub(super) fn verify_within_root(target_lex: &str, root: &str, require_existing_
             if kind != libc::S_IFREG && kind != libc::S_IFDIR {
                 return None;
             }
-            return Some(resolved_target);
+            return Some(target_norm);
         }
         if kind != libc::S_IFDIR {
             return None;

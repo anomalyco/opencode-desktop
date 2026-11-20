@@ -4,9 +4,8 @@
 //!
 //! Every caller that touches a user- or model-influenced local path (`reveal`, `open_in`,
 //! `location_card`, `images/menu`, local video playback, workspace `file://` confinement) MUST
-//! validate through [`verify_local_path`], [`resolve_local_root`], or [`verify_within_root`]
-//! BEFORE calling `exists()`, `is_dir()`, `metadata()`, `canonicalize()`, `ILCreateFromPathW`,
-//! or spawning a file manager:
+//! validate through [`verify_local_path`] or [`verify_within_root`] BEFORE calling `exists()`,
+//! `is_dir()`, `metadata()`, `canonicalize()`, `ILCreateFromPathW`, or spawning a file manager:
 //!
 //! - **Windows:** pure string validation -> `QueryDosDeviceW` (`subst`-to-UNC & network redirector
 //!   refusal before `GetDriveTypeW`) -> `GetDriveTypeW == DRIVE_FIXED` -> component-wise open walk
@@ -39,7 +38,7 @@ pub struct VerifiedLocalPath {
     pub is_file: bool,
 }
 
-/// Why [`verify_local_path`], [`resolve_local_root`], or [`reveal_in_file_manager`] refused a path.
+/// Why [`verify_local_path`] or [`reveal_in_file_manager`] refused a path.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LocalPathError {
     /// Failed pure string checks (UNC, device path, `..`, controls/bidi, autofs prefix).
@@ -117,36 +116,8 @@ pub fn verify_local_path(raw: &str) -> Result<VerifiedLocalPath, LocalPathError>
     }
 }
 
-/// Resolves a known-local workspace root directory once up front, permitting a symlink or
-/// junction alias pointing to another verified local fixed-drive / `MNT_LOCAL` directory while
-/// strictly refusing UNC, device namespaces, mapped drives, `subst`-to-UNC, autofs, or any
-/// symlink/junction whose target escapes to a network share (without ever following it onto SMB
-/// or autofs).
-pub fn resolve_local_root(raw: &str) -> Result<VerifiedLocalPath, LocalPathError> {
-    let Some(clean) = safe_local_reveal_path(raw) else {
-        return Err(LocalPathError::UnsafePath);
-    };
-    #[cfg(windows)]
-    {
-        windows::resolve_root(&clean, 0)
-    }
-    #[cfg(unix)]
-    {
-        unix::resolve_root_open(&clean, 0).map(|(verified, _)| verified)
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        let _ = clean;
-        Err(LocalPathError::UnsafePath)
-    }
-}
-
 /// Verifies that `target_lex` stays strictly inside local directory `root` with zero symlinks,
-/// junctions, or disallowed reparse points along every existing component *inside* `root`.
-///
-/// `root` itself is resolved once up front via [`resolve_local_root`] (so a workspace opened
-/// through a local symlink alias works on macOS and Windows), while every component underneath
-/// the resolved root is strictly non-reparse (`O_NOFOLLOW` / `FILE_FLAG_OPEN_REPARSE_POINT`).
+/// junctions, or disallowed reparse points along every existing component (including `root`).
 ///
 /// When `require_existing_leaf` is `true` (e.g. local video playback), the leaf must exist as a
 /// regular non-reparse file. When `false` (e.g. `file_url_within` checking a candidate path), a

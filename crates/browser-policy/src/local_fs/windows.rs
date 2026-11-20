@@ -15,19 +15,12 @@ use windows_sys::Win32::Storage::FileSystem::{
     GetDriveTypeW, GetFileInformationByHandle, GetFileInformationByHandleEx, GetFileType,
     GetFinalPathNameByHandleW, QueryDosDeviceW, VOLUME_NAME_DOS,
 };
-use windows_sys::Win32::System::IO::DeviceIoControl;
-use windows_sys::Win32::System::Ioctl::FSCTL_GET_REPARSE_POINT;
 
 use super::{LocalPathError, VerifiedLocalPath};
 use crate::local_path::{is_allowed_local_reparse_tag, safe_local_reveal_path};
 
 const DRIVE_FIXED: u32 = 3;
 const MAX_SUBST_DEPTH: u8 = 4;
-const MAX_ROOT_ALIAS_HOPS: u8 = 8;
-const IO_REPARSE_TAG_MOUNT_POINT: u32 = 0xA000_0003;
-const IO_REPARSE_TAG_SYMLINK: u32 = 0xA000_000C;
-const SYMLINK_FLAG_RELATIVE: u32 = 0x0000_0001;
-const MAX_REPARSE_BUFFER: usize = 16_384;
 
 fn wide_nul(s: &str) -> Vec<u16> {
     OsStr::new(s).encode_wide().chain([0]).collect()
@@ -105,7 +98,7 @@ fn final_dos_path(handle: HANDLE) -> Option<String> {
     Some(dos.to_owned())
 }
 
-fn open_raw_no_reparse(path: &std::path::Path) -> Result<(std::fs::File, BY_HANDLE_FILE_INFORMATION, Option<u32>), LocalPathError> {
+fn open_no_reparse(path: &std::path::Path) -> Result<(std::fs::File, BY_HANDLE_FILE_INFORMATION), LocalPathError> {
     let file = OpenOptions::new()
         .access_mode(FILE_READ_ATTRIBUTES)
         .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
@@ -123,7 +116,7 @@ fn open_raw_no_reparse(path: &std::path::Path) -> Result<(std::fs::File, BY_HAND
     if unsafe { GetFileInformationByHandle(handle, &mut info) } == 0 {
         return Err(LocalPathError::UnsafePath);
     }
-    let reparse_tag = if (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 {
+    if (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 {
         let mut tag_info: FILE_ATTRIBUTE_TAG_INFO = unsafe { std::mem::zeroed() };
         let ok = unsafe {
             GetFileInformationByHandleEx(
@@ -133,174 +126,11 @@ fn open_raw_no_reparse(path: &std::path::Path) -> Result<(std::fs::File, BY_HAND
                 std::mem::size_of::<FILE_ATTRIBUTE_TAG_INFO>() as u32,
             )
         };
-        if ok == 0 {
+        if ok == 0 || !is_allowed_local_reparse_tag(tag_info.ReparseTag) {
             return Err(LocalPathError::SymlinkOrReparse);
         }
-        Some(tag_info.ReparseTag)
-    } else {
-        None
-    };
-    Ok((file, info, reparse_tag))
-}
-
-fn open_no_reparse(path: &std::path::Path) -> Result<(std::fs::File, BY_HANDLE_FILE_INFORMATION), LocalPathError> {
-    let (file, info, tag) = open_raw_no_reparse(path)?;
-    if let Some(tag) = tag
-        && !is_allowed_local_reparse_tag(tag)
-    {
-        return Err(LocalPathError::SymlinkOrReparse);
     }
     Ok((file, info))
-}
-
-/// Reads the NTFS symlink or mount-point/junction substitute target directly from the open
-/// `FILE_FLAG_OPEN_REPARSE_POINT` handle via `FSCTL_GET_REPARSE_POINT` (pure local NTFS metadata;
-/// never traverses the target or initiates SMB/network traffic).
-fn read_reparse_target(handle: HANDLE, expected_tag: u32) -> Option<(String, bool)> {
-    if expected_tag != IO_REPARSE_TAG_MOUNT_POINT && expected_tag != IO_REPARSE_TAG_SYMLINK {
-        return None;
-    }
-    let mut buf = vec![0u8; MAX_REPARSE_BUFFER];
-    let mut returned = 0u32;
-    // SAFETY: `handle` is open on the local reparse point and `buf` is valid writable memory.
-    let ok = unsafe {
-        DeviceIoControl(
-            handle,
-            FSCTL_GET_REPARSE_POINT,
-            std::ptr::null(),
-            0,
-            buf.as_mut_ptr().cast(),
-            buf.len() as u32,
-            &raw mut returned,
-            std::ptr::null_mut(),
-        )
-    };
-    let len = returned as usize;
-    if ok == 0 || len < 16 || len > buf.len() {
-        return None;
-    }
-    let tag = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]);
-    if tag != expected_tag {
-        return None;
-    }
-    let sub_off = u16::from_le_bytes([buf[8], buf[9]]) as usize;
-    let sub_len = u16::from_le_bytes([buf[10], buf[11]]) as usize;
-    let (base, relative) = if tag == IO_REPARSE_TAG_SYMLINK {
-        if len < 20 {
-            return None;
-        }
-        let flags = u32::from_le_bytes([buf[16], buf[17], buf[18], buf[19]]);
-        (20usize, (flags & SYMLINK_FLAG_RELATIVE) != 0)
-    } else {
-        (16usize, false)
-    };
-    let start = base.checked_add(sub_off)?;
-    let end = start.checked_add(sub_len)?;
-    if sub_len == 0 || sub_len % 2 != 0 || end > len {
-        return None;
-    }
-    let wide: Vec<u16> = buf[start..end]
-        .chunks_exact(2)
-        .map(|c| u16::from_le_bytes([c[0], c[1]]))
-        .collect();
-    Some((String::from_utf16(&wide).ok()?, relative))
-}
-
-fn resolve_reparse_hop(parent_dir: &str, target: &str, relative: bool, rest: &[&str]) -> Option<String> {
-    let resolved_base = if relative {
-        if target.starts_with(['\\', '/']) || target.contains(':') {
-            return None;
-        }
-        let parent_fwd = parent_dir.replace('\\', "/");
-        if parent_fwd.len() < 3 || !parent_fwd.as_bytes()[0].is_ascii_alphabetic() || parent_fwd.as_bytes()[1] != b':' {
-            return None;
-        }
-        let drive = &parent_fwd[..2];
-        let mut stack: Vec<String> = parent_fwd[2..]
-            .split('/')
-            .filter(|s| !s.is_empty() && *s != ".")
-            .map(str::to_owned)
-            .collect();
-        for seg in target.replace('\\', "/").split('/') {
-            match seg {
-                "" | "." => {}
-                ".." => {
-                    stack.pop()?;
-                }
-                s => stack.push(s.to_owned()),
-            }
-        }
-        if stack.is_empty() {
-            format!("{drive}/")
-        } else {
-            format!("{drive}/{}", stack.join("/"))
-        }
-    } else {
-        // Strip `\??\` (NT object prefix used by local NTFS junctions/symlinks such as
-        // `\??\D:\repos\proj`). `\??\UNC\...` becomes `UNC\...` and is refused by
-        // `safe_local_reveal_path` below without ever contacting SMB.
-        let stripped = target.strip_prefix(r"\??\").unwrap_or(target);
-        stripped.replace('\\', "/")
-    };
-    let mut full = resolved_base.trim_end_matches('/').to_owned();
-    for seg in rest {
-        full.push('/');
-        full.push_str(seg);
-    }
-    if full.len() == 2 && full.as_bytes()[1] == b':' {
-        full.push('/');
-    }
-    safe_local_reveal_path(&full)
-}
-
-/// Resolves a local workspace root directory once up front: allows a symlink/junction alias whose
-/// NTFS target stays on a verified local fixed drive (common in `subst`-free dev setups), while
-/// refusing UNC/network/mapped-drive targets BEFORE following them.
-pub(super) fn resolve_root(clean: &str, hops: u8) -> Result<VerifiedLocalPath, LocalPathError> {
-    if hops >= MAX_ROOT_ALIAS_HOPS {
-        return Err(LocalPathError::SymlinkOrReparse);
-    }
-    let native = clean.replace('/', "\\");
-    if !is_safe_fixed_drive(&native, 0) {
-        return Err(LocalPathError::NonLocalDrive);
-    }
-    let drive = format!("{}:\\", native.as_bytes()[0].to_ascii_uppercase() as char);
-    let segs: Vec<&str> = native[3..].split('\\').filter(|s| !s.is_empty() && *s != ".").collect();
-    let mut cur = PathBuf::from(&drive);
-    if segs.is_empty() {
-        let (file, info) = open_no_reparse(&cur)?;
-        if (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0 {
-            return Err(LocalPathError::UnsafePath);
-        }
-        let final_path = final_dos_path(file.as_raw_handle() as HANDLE).ok_or(LocalPathError::NonLocalDrive)?;
-        return Ok(VerifiedLocalPath { path: final_path, is_dir: true, is_file: false });
-    }
-    for (idx, seg) in segs.iter().enumerate() {
-        if *seg == ".." {
-            return Err(LocalPathError::UnsafePath);
-        }
-        let parent_str = cur.to_string_lossy().into_owned();
-        cur.push(seg);
-        let (file, info, tag) = open_raw_no_reparse(&cur)?;
-        if let Some(tag) = tag
-            && !is_allowed_local_reparse_tag(tag)
-        {
-            let (target, relative) = read_reparse_target(file.as_raw_handle() as HANDLE, tag)
-                .ok_or(LocalPathError::SymlinkOrReparse)?;
-            let next_clean = resolve_reparse_hop(&parent_str, &target, relative, &segs[idx + 1..])
-                .ok_or(LocalPathError::NonLocalDrive)?;
-            return resolve_root(&next_clean, hops + 1);
-        }
-        let is_dir = (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
-        if !is_dir {
-            return Err(LocalPathError::UnsafePath);
-        }
-        if idx + 1 == segs.len() {
-            let final_path = final_dos_path(file.as_raw_handle() as HANDLE).ok_or(LocalPathError::NonLocalDrive)?;
-            return Ok(VerifiedLocalPath { path: final_path, is_dir: true, is_file: false });
-        }
-    }
-    Err(LocalPathError::UnsafePath)
 }
 
 pub(super) fn verify_path(clean: &str, depth: u8) -> Result<VerifiedLocalPath, LocalPathError> {
@@ -339,7 +169,7 @@ pub(super) fn verify_path(clean: &str, depth: u8) -> Result<VerifiedLocalPath, L
 }
 
 pub(super) fn verify_within_root(target_lex: &str, root: &str, require_existing_leaf: bool) -> Option<String> {
-    let verified_root = resolve_root(&safe_local_reveal_path(root)?, 0).ok()?;
+    let verified_root = verify_path(&safe_local_reveal_path(root)?, 0).ok()?;
     if !verified_root.is_dir {
         return None;
     }

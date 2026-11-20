@@ -4,9 +4,9 @@
 //!   cross-OS remote workspace roots (for example, a remote Linux `/remote/work` evaluated on
 //!   Windows) without touching disk or network.
 //! - [`is_safe_local_workspace_root`] is for callers about to touch a known-local root on this
-//!   machine: it refuses UNC/device namespaces, resolves a local symlink/junction alias once up
-//!   front without following network targets, and re-checks [`is_safe_workspace_root`] against
-//!   the resolved physical directory.
+//!   machine: it refuses UNC/device namespaces, verifies `root` fail-closed via
+//!   [`local_fs::verify_local_path`] (refusing symlinked/junction local roots), and re-checks
+//!   [`is_safe_workspace_root`] against the verified physical directory.
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::local_fs;
@@ -105,12 +105,13 @@ pub fn is_safe_workspace_root(root: &str, home: Option<&str>) -> bool {
 }
 
 /// Local-machine workspace root check for callers about to touch `root` on this machine's
-/// filesystem (e.g. local `file://` confinement and local sidecar `browser_file_roots`).
+/// filesystem (e.g. local `file://` confinement, local sidecar `browser_file_roots`, and
+/// engine `safe_roots`).
 ///
-/// Applies [`is_safe_workspace_root`] lexically, refuses UNC/device paths, resolves a local
-/// symlink/junction alias once up front via [`local_fs::resolve_local_root`] (never touching SMB
-/// or autofs), and re-checks [`is_safe_workspace_root`] on the resolved physical directory so a
-/// symlinked workspace works while an alias pointing at a broad/system folder is still refused.
+/// Applies [`is_safe_workspace_root`] lexically, refuses UNC/device paths, verifies `root`
+/// fail-closed via [`local_fs::verify_local_path`] (refusing symlinks/junctions, mapped drives,
+/// `subst`-to-UNC, and autofs without touching network shares), and re-checks
+/// [`is_safe_workspace_root`] on the verified physical directory.
 pub fn is_safe_local_workspace_root(root: &str, home: Option<&str>) -> bool {
     if !is_safe_workspace_root(root, home) {
         return false;
@@ -120,13 +121,13 @@ pub fn is_safe_local_workspace_root(root: &str, home: Option<&str>) -> bool {
         if is_unc_or_device_path(root) {
             return false;
         }
-        match local_fs::resolve_local_root(root) {
+        match local_fs::verify_local_path(root) {
             Ok(verified) => {
                 if !is_safe_workspace_root(&verified.path, home) {
                     return false;
                 }
                 if let Some(h_raw) = home
-                    && let Ok(canon_home) = local_fs::resolve_local_root(h_raw)
+                    && let Ok(canon_home) = local_fs::verify_local_path(h_raw)
                     && !is_safe_workspace_root(&verified.path, Some(&canon_home.path))
                 {
                     return false;
@@ -211,7 +212,7 @@ fn is_home_broad_lex(lex: &str, home_lex: &str) -> bool {
         } else {
             format!("{home_lex}{suffix}")
         };
-        if cfg!(windows) {
+        if cfg!(any(windows, target_os = "macos")) {
             lex.eq_ignore_ascii_case(&candidate)
         } else {
             lex == candidate
