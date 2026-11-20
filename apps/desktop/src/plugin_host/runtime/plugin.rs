@@ -16,6 +16,7 @@ use crate::plugin_host::cx::Dep;
 pub struct Half {
     pub id: Rc<str>,
     pub kind: Kind,
+    pub tier: crate::plugin_host::Tier,
     /// Ownership token tracked by process-wide services (`askpass`) to prune entries when dropped.
     pub token: Rc<()>,
     /// A migrated bundled half explicitly invalidates its surfaces; other 1.0 plugins keep the implicit redraw.
@@ -57,6 +58,7 @@ impl Half {
         Rc::new(Half {
             id: id.into(),
             kind,
+            tier,
             token: Rc::new(()),
             owns_redraw: super::redraw::explicit(tier, id),
             made: RefCell::default(),
@@ -75,6 +77,12 @@ impl Half {
             sessions_read: Cell::default(),
             failed: RefCell::default(),
         })
+    }
+
+    /// Whether this half belongs to the genuinely bundled built-in plugin `id` (`Tier::Bundled`,
+    /// never a user, override, or dev plugin replacing that id).
+    pub fn is_builtin(&self, id: &str) -> bool {
+        self.tier == crate::plugin_host::Tier::Bundled && &*self.id == id
     }
 
     /// Takes what VM `vm` contributed, if its setup is the one that ran last. Forgets the

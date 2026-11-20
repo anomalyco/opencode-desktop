@@ -541,16 +541,23 @@ pub fn markdown_view_find<S: TimelineHost>(s: &S, p: &Pal, row_key: &str, src: &
             markdown_with_highlights::<S>(p, body, fade, streaming, p.text, crate::genui::width(s), highlights, crate::copied::current(s), Some(media.clone()), &tips, prompt, links.clone())
         })
     };
-    let el = crate::video::reply(s, p, row_key, src, streaming, |range| {
+    let el = crate::video::reply(s, p, row_key, src, streaming, |range, suffix| {
         let marks = crate::genui::hits_in(hits, &range);
         let active = marks.iter().position(|(_, _, on)| *on);
         let ranges: Vec<_> = marks.iter().map(|(_, m, _)| m.clone()).collect();
         let highlights = marks.iter().map(|(i, m, on)| (m.as_slice(), crate::style::markdown_mark(p, *i, *on))).collect();
+        let owned;
+        let segment = if suffix.is_empty() {
+            &src[range.clone()]
+        } else {
+            owned = format!("{}{suffix}", &src[range.clone()]);
+            owned.as_str()
+        };
         // Only segments with a generated UI block need its own Find ranges.
-        if let Some(view) = crate::genui::reply(s, p, &src[range.clone()], fade, streaming, hits.map(|_| (ranges.as_slice(), active)), &tips, links.clone()) {
+        if let Some(view) = crate::genui::reply(s, p, segment, fade, streaming, hits.map(|_| (ranges.as_slice(), active)), &tips, links.clone()) {
             return view;
         }
-        markdown_with_highlights::<S>(p, &src[range], fade, streaming, p.text, crate::genui::width(s), highlights, crate::copied::current(s), Some(media.clone()), &tips, prompt, links.clone())
+        markdown_with_highlights::<S>(p, segment, fade, streaming, p.text, crate::genui::width(s), highlights, crate::copied::current(s), Some(media.clone()), &tips, prompt, links.clone())
     }).unwrap_or_else(|| render(src, hits, s.find_markdown_highlights(p, row_key)));
     match message {
         Some(id) => crate::images::menu::on_message::<S>(el, "", id),

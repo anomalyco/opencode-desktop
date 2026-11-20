@@ -71,5 +71,5 @@ pub use protocol::{
     RemoteProxyConfig,
 };
 pub use protocol::PickedElement;
-pub use prompts::{PermissionDecision, PermissionStore, SiteDecision, SitePermissions, SiteSetting};
+pub use prompts::{PermissionDecision, PermissionStore, SiteDecision, SitePermissions, SiteSetting, TabDriver};
 pub use site_zoom::ZoomStore;

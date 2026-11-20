@@ -214,20 +214,13 @@ impl EngineManager {
                         roots,
                         ctx,
                         tab.preview_spec,
+                        was_agent,
                         tab.isolated,
                         allow_ext,
                         tab.is_popup,
                         None,
                     );
-                    if let Some(reopened) = self.tabs.get(&tab_id) {
-                        reopened.prompts.agent_driven.store(was_agent, Ordering::Release);
-                        if was_agent {
-                            reopened.allowed_ext_ids.lock().unwrap().clear();
-                            if let Some(ext) = &mut self.extensions {
-                                ext.set_tab_agent_driven(tab_id, true);
-                            }
-                        }
-                    } else {
+                    if !self.tabs.contains_key(&tab_id) {
                         self.contexts.release_tab(tab_id);
                     }
                 }
@@ -423,6 +416,7 @@ impl EngineManager {
                 file_roots,
                 context,
                 preview,
+                agent_driven,
                 isolated,
                 allow_extension_pages,
                 is_popup,
@@ -444,6 +438,7 @@ impl EngineManager {
                     roots,
                     context,
                     preview,
+                    agent_driven,
                     isolated,
                     allow_extension_pages,
                     is_popup,
@@ -944,6 +939,7 @@ impl EngineManager {
         file_roots: Vec<String>,
         context: crate::wire::ContextKind,
         preview_spec: Option<PreviewSpec>,
+        agent_driven: bool,
         isolated_flag: bool,
         allow_extension_pages: bool,
         is_popup: bool,
@@ -1014,7 +1010,7 @@ impl EngineManager {
             (init, display, true, false, false)
         } else {
             let isolated = effective_context.is_isolated();
-            let allow_ext = allow_extension_pages && !isolated;
+            let allow_ext = allow_extension_pages && !isolated && !agent_driven;
             let is_popup_valid = is_popup && allow_ext;
             let loaded_ext_list: Vec<String> = if allow_ext {
                 self.extensions
@@ -1101,6 +1097,7 @@ impl EngineManager {
             favicon: None,
             context: effective_context.redacted(),
             preview: preview_grant.as_ref().map(|g| g.kind.tag()),
+            agent_driven,
         }));
         #[cfg(windows)]
         let frames: FrameRing = self
@@ -1128,6 +1125,7 @@ impl EngineManager {
             (),
         );
         let prompts = Arc::new(crate::prompts::TabPrompts::default());
+        prompts.agent_driven.store(agent_driven, Ordering::Release);
         *prompts.proxy.lock().unwrap() = proxy_cfg;
         let favicon = Arc::new(crate::favicon::TabFavicon::default());
         let diagnostics = Arc::new(crate::diagnostics::TabDiagnostics::default());
@@ -1365,7 +1363,7 @@ impl EngineManager {
             },
         );
         if !isolated && !is_preview && !is_popup {
-            self.notify_ext_tab_opened(tab_id, &initial_url, width_pt, height_pt, focused, ext_open_request_id);
+            self.notify_ext_tab_opened(tab_id, &initial_url, width_pt, height_pt, focused, ext_open_request_id, agent_driven);
         }
         if let Some(reason) = refused_reason {
             let _ = self.out_tx.send(EngineMsg::Refused { tab_id, reason });
