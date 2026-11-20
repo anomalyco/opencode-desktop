@@ -289,10 +289,16 @@ fn translate(catalogs: &Catalogs, key: &str, args: Option<&Table>) -> String {
     // its full stop and numbers in order, as the app's own untranslated messages do (rune-i18n).
     let rtl = direction() == spec::TextDirection::Rtl;
     let english = |t: std::borrow::Cow<'static, str>| if rtl { format!("\u{2066}{t}\u{2069}") } else { t.into_owned() };
-    let lookup = |k: &str| catalogs.get(lang, k).map(|s| s.into_owned()).or_else(|| catalogs.get("en", k).map(english)).or_else(|| opencode_i18n::lookup(k).map(str::to_owned));
+    let own = |k: &str| catalogs.get(lang, k).map(|s| s.into_owned()).or_else(|| catalogs.get("en", k).map(english));
+    let host_plural = |n: f64| opencode_i18n::lookup_plural(key, n.abs().round() as u64).map(str::to_owned);
     let text = count
-        .and_then(|n| lookup(&format!("{key}.{}", category(n))).or_else(|| lookup(&format!("{key}.other"))))
-        .or_else(|| lookup(key))
+        .and_then(|n| {
+            own(&format!("{key}.{}", category(n)))
+                .or_else(|| own(&format!("{key}.other")))
+                .or_else(|| host_plural(n))
+        })
+        .or_else(|| own(key))
+        .or_else(|| opencode_i18n::lookup(key).map(str::to_owned))
         .unwrap_or_else(|| key.to_owned());
     fill(&text, args)
 }
