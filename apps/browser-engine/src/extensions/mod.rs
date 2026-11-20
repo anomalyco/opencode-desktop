@@ -19,8 +19,10 @@
 #![deny(unsafe_code)]
 
 mod cdp;
+pub mod frame_guard;
 pub mod integrity;
 pub mod manifest;
+pub mod mask_queue;
 pub mod pipe;
 mod png;
 mod rpc;

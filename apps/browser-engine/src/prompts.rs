@@ -63,6 +63,8 @@ enum HeldPermission {
     },
 }
 
+const MAX_PENDING_EXT_SUBFRAMES: usize = 128;
+
 /// Per-tab held CEF prompt callbacks and agent-driven isolation flag.
 #[derive(Default)]
 pub struct TabPrompts {
@@ -76,9 +78,15 @@ pub struct TabPrompts {
     /// frame identifier until commit, cancel/error, main-frame nav, or renderer crash — NO
     /// time-out that fails open (`review-rd274.md` Round-4 ruling).
     pending_ext_subframes: Mutex<HashSet<String>>,
+    /// Set fail-closed if `pending_ext_subframes` exceeds `MAX_PENDING_EXT_SUBFRAMES`; cleared
+    /// only on main-frame commit or renderer crash (`review-rd274.md` Round-6 §3).
+    pending_overflow: AtomicBool,
     /// Tracks extension frames observed via real CDP `frameId` (`devtools_frame_token`) in
     /// `TabCdpObserver::on_dev_tools_event` (`Page.frameNavigated` / `frameDetached`).
     cdp_ext_frames: Mutex<HashSet<String>>,
+    /// Latched when `on_render_process_terminated` runs so `EngineManager::poll_mask_jobs`
+    /// fails closed any in-flight `TabMaskQueue` operations immediately instead of hanging.
+    renderer_crashed: AtomicBool,
 }
 
 impl TabPrompts {
@@ -91,9 +99,15 @@ impl TabPrompts {
     }
 
     pub fn mark_pending_ext_subframe(&self, frame_id: String) {
-        if !frame_id.is_empty() {
-            self.pending_ext_subframes.lock().unwrap().insert(frame_id);
+        if frame_id.is_empty() {
+            return;
         }
+        let mut set = self.pending_ext_subframes.lock().unwrap();
+        if set.len() >= MAX_PENDING_EXT_SUBFRAMES && !set.contains(&frame_id) {
+            self.pending_overflow.store(true, Ordering::Release);
+            return;
+        }
+        set.insert(frame_id);
     }
 
     pub fn clear_pending_ext_subframe(&self, frame_id: &str) {
@@ -104,12 +118,13 @@ impl TabPrompts {
 
     pub fn clear_all_ext_frame_tracking(&self) {
         self.pending_ext_subframes.lock().unwrap().clear();
+        self.pending_overflow.store(false, Ordering::Release);
         self.cdp_ext_frames.lock().unwrap().clear();
     }
 
     /// Retains only pending extension sub-frames whose `RenderFrameHost` is still alive and has
     /// not yet committed as an extension scheme (zero fail-open TTL). Returns `true` if any
-    /// pre-commit extension sub-frame navigation is still in flight.
+    /// pre-commit extension sub-frame navigation is still in flight (or if overflow latched).
     pub fn has_pending_ext_subframes(&self, live_frames: &HashMap<String, String>) -> bool {
         let mut set = self.pending_ext_subframes.lock().unwrap();
         set.retain(|id| {
@@ -117,11 +132,7 @@ impl TabPrompts {
                 .get(id)
                 .is_some_and(|url| !crate::extensions::manifest::is_extension_scheme(url))
         });
-        !set.is_empty()
-    }
-
-    pub fn has_any_pending_ext_subframes(&self) -> bool {
-        !self.pending_ext_subframes.lock().unwrap().is_empty()
+        self.pending_overflow.load(Ordering::Acquire) || !set.is_empty()
     }
 
     pub fn set_cdp_ext_frame(&self, cdp_frame_id: &str, is_ext: bool) {
@@ -140,8 +151,12 @@ impl TabPrompts {
         self.cdp_ext_frames.lock().unwrap().clear();
     }
 
-    pub fn has_cdp_ext_frames(&self) -> bool {
-        !self.cdp_ext_frames.lock().unwrap().is_empty()
+    pub fn cdp_ext_frames_snapshot(&self) -> HashSet<String> {
+        self.cdp_ext_frames.lock().unwrap().clone()
+    }
+
+    pub fn take_renderer_crashed(&self) -> bool {
+        self.renderer_crashed.swap(false, Ordering::AcqRel)
     }
 
     pub fn answer_dialog(&self, id: u64, accept: bool, text: &str) -> bool {
@@ -244,6 +259,7 @@ impl TabPrompts {
     }
 
     pub fn reset_on_crash(&self, tab_id: u64, out_tx: &Output) {
+        self.renderer_crashed.store(true, Ordering::Release);
         self.set_pending_top_url(None);
         self.clear_all_ext_frame_tracking();
         let dialogs = std::mem::take(&mut *self.dialogs.lock().unwrap());

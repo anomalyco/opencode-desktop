@@ -1027,7 +1027,8 @@ wrap_request_handler! {
 }
 
 pub enum CdpPending {
-    Raw(u64),
+    Raw { request_id: u64, redact_ext: bool },
+    MaskStep { job_id: u64 },
     CookieCount(u64),
     ClearSite { request_id: u64, origin: String },
 }
@@ -1047,8 +1048,10 @@ wrap_dev_tools_message_observer! {
         id_map: Arc<Mutex<HashMap<i32, CdpPending>>>,
         internal_picked: Arc<Mutex<Vec<i64>>>,
         pending_clears: Arc<Mutex<Vec<PendingClear>>>,
+        mask_replies: Arc<Mutex<Vec<crate::extensions::mask_queue::MaskReply>>>,
         prompts: Arc<crate::prompts::TabPrompts>,
         out_tx: Output,
+        events: std::sync::mpsc::Sender<crate::Event>,
     }
 
     impl DevToolsMessageObserver {
@@ -1066,16 +1069,18 @@ wrap_dev_tools_message_observer! {
                 .and_then(|b| serde_json::from_slice::<Value>(b).ok())
                 .unwrap_or(Value::Null);
             match pending {
-                CdpPending::Raw(req_id) => {
-                    // Re-check extension surface at reply time so an extension frame appearing
-                    // mid-flight (e.g. during `Page.captureScreenshot` or awaited eval) can never
-                    // leak into the CDP response (`review-rd274.md` Round-5 §2).
-                    if crate::engine::browser_has_extension_surface(
+                CdpPending::Raw { request_id: req_id, redact_ext } => {
+                    // Fast-path calls run ONLY when the tab was clean at dispatch time; if ANY
+                    // extension surface (main OR sub-frame) appeared mid-flight, fail closed so
+                    // unmasked data can never leak (`review-rd274.md` Round-5 §2 & Round-6 §2).
+                    if !crate::extensions::frame_guard::classify_surface(
                         browser.as_deref(),
                         self.is_popup,
                         &self.snap,
                         &self.prompts,
-                    ) {
+                    )
+                    .is_clean()
+                    {
                         let _ = self.out_tx.send(EngineMsg::CdpResponse {
                             tab_id: self.tab_id,
                             request_id: req_id,
@@ -1086,12 +1091,27 @@ wrap_dev_tools_message_observer! {
                         });
                         return;
                     }
+                    let mut val = val;
+                    if redact_ext {
+                        crate::extensions::frame_guard::redact_ext_strings(&mut val);
+                    }
                     let _ = self.out_tx.send(EngineMsg::CdpResponse {
                         tab_id: self.tab_id,
                         request_id: req_id,
                         ok: success != 0,
                         result: val,
                     });
+                }
+                CdpPending::MaskStep { job_id } => {
+                    self.mask_replies.lock().unwrap().push(
+                        crate::extensions::mask_queue::MaskReply {
+                            tab_id: self.tab_id,
+                            job_id,
+                            ok: success != 0,
+                            result: val,
+                        },
+                    );
+                    let _ = self.events.send(crate::Event::Pump(0));
                 }
                 CdpPending::CookieCount(req_id) => {
                     let count = val.get("cookies").and_then(Value::as_array).map_or(0, Vec::len);
@@ -1190,6 +1210,8 @@ wrap_dev_tools_message_observer! {
             if m.starts_with("Page.") {
                 return;
             }
+            let mut val = val;
+            crate::extensions::frame_guard::redact_ext_strings(&mut val);
             let session_id = val["sessionId"].as_str().map(str::to_owned);
             let _ = self.out_tx.send(EngineMsg::CdpEvent {
                 tab_id: self.tab_id,
