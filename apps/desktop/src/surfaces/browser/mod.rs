@@ -54,6 +54,14 @@ mod web {
         pub fn open_new_browser_tab_for_session(&mut self, _: Option<&str>, _: &str, _: Option<SessionPane>, _: bool) -> u64 {
             0
         }
+
+        pub fn browser_links_enabled(&self) -> bool {
+            false
+        }
+
+        pub fn browser_agent_pages_enabled(&self) -> bool {
+            true
+        }
     }
 }
 
@@ -88,6 +96,8 @@ mod native {
         pub session_tabs: HashMap<String, Vec<u64>>,
         /// DevTools calls a plugin waits on, by the engine's request id.
         pub devtools: HashMap<u64, PendingDevtools>,
+        /// Last observed Luau store version for `plugin.browser/rune.sitePermissions`.
+        pub site_permissions_version: u64,
     }
 
     /// App-level shortcuts that a focused web page must yield to OpenCode (Rune) rather than swallow,
@@ -154,9 +164,30 @@ mod native {
                 });
                 self.workspace_panes.browser.host.remember_site_permissions(browser_pane::PermissionStore {
                     read: Box::new(|| crate::storage::text("plugin.browser", "rune.sitePermissions").map(|t| t.to_string())),
-                    write: Box::new(|json| crate::storage::set("plugin.browser", "rune.sitePermissions", json)),
+                    write: Box::new(|json| {
+                        crate::storage::set("plugin.browser", "rune.sitePermissions", json);
+                        crate::plugin_host::services::store::store_changed("browser", "rune.sitePermissions");
+                    }),
                 });
+                self.workspace_panes.browser.site_permissions_version =
+                    crate::plugin_host::services::store::store_version("browser", "rune.sitePermissions");
             }
+        }
+
+        /// Whether "Open links in OpenCode" (`Settings > Browser`) is enabled (defaults to `true`).
+        pub fn browser_links_enabled(&self) -> bool {
+            crate::storage::text("plugin.browser", "preferences")
+                .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+                .and_then(|v| v.get("links").and_then(serde_json::Value::as_bool))
+                .unwrap_or(true)
+        }
+
+        /// Whether "Open browser automatically" (`Settings > Browser`) is enabled (defaults to `true`).
+        pub fn browser_agent_pages_enabled(&self) -> bool {
+            crate::storage::text("plugin.browser", "preferences")
+                .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+                .and_then(|v| v.get("agentPages").and_then(serde_json::Value::as_bool))
+                .unwrap_or(true)
         }
 
         /// No engine drives live tabs in this build: they show the unsupported card and have no address
@@ -410,6 +441,20 @@ mod native {
                         self.workspace_panes.browser.host.set_agent_driven(new_id, true);
                     }
                     changed = true;
+                }
+            }
+            // Reload persisted site permissions when Settings > Browser edits `rune.sitePermissions`.
+            let perm_ver = crate::plugin_host::services::store::store_version("browser", "rune.sitePermissions");
+            if perm_ver != self.workspace_panes.browser.site_permissions_version {
+                self.workspace_panes.browser.site_permissions_version = perm_ver;
+                if self.persists() {
+                    self.workspace_panes.browser.host.remember_site_permissions(browser_pane::PermissionStore {
+                        read: Box::new(|| crate::storage::text("plugin.browser", "rune.sitePermissions").map(|t| t.to_string())),
+                        write: Box::new(|json| {
+                            crate::storage::set("plugin.browser", "rune.sitePermissions", json);
+                            crate::plugin_host::services::store::store_changed("browser", "rune.sitePermissions");
+                        }),
+                    });
                 }
             }
             // The engine paints only its focused tab, so the page on screen must be that tab (after a
