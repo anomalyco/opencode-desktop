@@ -32,6 +32,7 @@ pub const MAX_TOTAL_BYTES: u64 = 256 * 1024 * 1024;
 pub const MAX_PATH_BYTES: usize = 1024;
 pub const MAX_SEGMENT_BYTES: usize = 255;
 pub const MAX_DEPTH: usize = 64;
+pub const MAX_SEEN_DIRS: usize = 65_536;
 
 /// Flag bits that must agree between central directory and local file header:
 /// bit 0 (encrypted), bit 3 (data descriptor), bit 6 (strong encryption), bit 11 (UTF-8).
@@ -75,7 +76,7 @@ pub fn entry_path(name: &str) -> Option<Vec<String>> {
             return None;
         }
         let stem = seg.split('.').next().unwrap_or(seg);
-        if browser_policy::is_windows_device_name(stem) || is_windows_short_name(seg) {
+        if browser_policy::is_windows_device_name(stem) {
             return None;
         }
         segments.push(seg.to_owned());
@@ -86,20 +87,161 @@ pub fn entry_path(name: &str) -> Option<Vec<String>> {
     Some(segments)
 }
 
-/// Detects Windows 8.3 short-name alias patterns (`NAME~1.EXT`) so an archive cannot pair a long
-/// filename with its 8.3 alias on NTFS/FAT volumes that generate short names.
-fn is_windows_short_name(seg: &str) -> bool {
-    let (stem, ext) = match seg.split_once('.') {
-        Some((s, e)) => (s, Some(e)),
-        None => (seg, None),
+/// Validates an optional ZIP64 EOCD + Locator sitting cleanly between `cd_end` and `eocd`
+/// (accepts small archives written with forced ZIP64 while requiring every ZIP64 EOCD field to
+/// agree exactly with the 32-bit EOCD, and rejecting unreferenced gaps and multi-disk / >4 GiB
+/// archives).
+fn valid_zip64_trailer(
+    zip: &[u8],
+    cd_start: usize,
+    cd_size: u32,
+    count: usize,
+    cd_end: usize,
+    eocd: usize,
+) -> bool {
+    if cd_end == eocd {
+        return true;
+    }
+    // ZIP64 EOCD Locator is 20 bytes immediately preceding EOCD (`PK\x06\x07`).
+    let Some(loc_off) = eocd.checked_sub(20) else {
+        return false;
     };
-    if stem.len() > 8 || ext.is_some_and(|e| e.len() > 3 || e.contains('.')) {
+    if loc_off < cd_end || read_u32_le(zip, loc_off) != Some(0x0706_4b50) {
         return false;
     }
-    let Some((prefix, digits)) = stem.rsplit_once('~') else {
+    let Some(z64_disk) = read_u32_le(zip, loc_off + 4) else { return false };
+    let Some(z64_off) = read_u64_le(zip, loc_off + 8) else { return false };
+    let Some(total_disks) = read_u32_le(zip, loc_off + 16) else { return false };
+    if z64_disk != 0 || total_disks != 1 || z64_off != cd_end as u64 {
+        return false;
+    }
+    // ZIP64 EOCD record starts at `cd_end` (`PK\x06\x06`, minimum 56 bytes) and ends flush at `loc_off`.
+    if read_u32_le(zip, cd_end) != Some(0x0606_4b50) {
+        return false;
+    }
+    let Some(rec_len_tail) = read_u64_le(zip, cd_end + 4) else { return false };
+    let Some(rec_end) = (cd_end as u64).checked_add(12).and_then(|v| v.checked_add(rec_len_tail)) else {
         return false;
     };
-    !prefix.is_empty() && !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())
+    if rec_len_tail < 44 || rec_end != loc_off as u64 {
+        return false;
+    }
+    let Some(z64_disk_num) = read_u32_le(zip, cd_end + 16) else { return false };
+    let Some(z64_cd_disk) = read_u32_le(zip, cd_end + 20) else { return false };
+    let Some(z64_disk_entries) = read_u64_le(zip, cd_end + 24) else { return false };
+    let Some(z64_total_entries) = read_u64_le(zip, cd_end + 32) else { return false };
+    let Some(z64_cd_size) = read_u64_le(zip, cd_end + 40) else { return false };
+    let Some(z64_cd_offset) = read_u64_le(zip, cd_end + 48) else { return false };
+    z64_disk_num == 0
+        && z64_cd_disk == 0
+        && z64_disk_entries == count as u64
+        && z64_total_entries == count as u64
+        && z64_cd_size == u64::from(cd_size)
+        && z64_cd_offset == cd_start as u64
+}
+
+/// Parses a syntactic Windows 8.3 short-name alias (`PREFIX~N[.EXT]`, `stem <= 8`, `ext <= 3`).
+fn parse_windows_83_alias(name: &str) -> Option<(String, u32, String)> {
+    let (stem, ext) = match name.split_once('.') {
+        Some((s, e)) => (s, e),
+        None => (name, ""),
+    };
+    if stem.len() > 8 || ext.len() > 3 || ext.contains('.') {
+        return None;
+    }
+    let (prefix, digits) = stem.rsplit_once('~')?;
+    if prefix.is_empty() || digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let num = digits.parse::<u32>().ok()?;
+    if num == 0 {
+        return None;
+    }
+    Some((prefix.to_ascii_uppercase(), num, ext.to_ascii_uppercase()))
+}
+
+/// Returns the NTFS/FAT 8.3 short-name basis `(stripped_upper_stem, upper_ext3)` if and only if
+/// `name` is NOT already a valid 8.3 filename (so Windows would synthesize a `~N` alias for it).
+fn windows_83_long_basis(name: &str) -> Option<(String, String)> {
+    let valid_83_char = |b: u8| {
+        b.is_ascii_alphanumeric()
+            || matches!(b, b'!' | b'#' | b'$' | b'%' | b'&' | b'\'' | b'(' | b')' | b'-' | b'@' | b'^' | b'_' | b'`' | b'{' | b'}' | b'~')
+    };
+    let already_83 = match name.split_once('.') {
+        Some((s, e)) => {
+            !s.is_empty()
+                && s.len() <= 8
+                && !e.is_empty()
+                && e.len() <= 3
+                && !e.contains('.')
+                && s.bytes().all(valid_83_char)
+                && e.bytes().all(valid_83_char)
+        }
+        None => !name.is_empty() && name.len() <= 8 && name.bytes().all(valid_83_char),
+    };
+    if already_83 {
+        return None;
+    }
+    let (raw_stem, raw_ext) = match name.rsplit_once('.') {
+        Some((s, e)) => (s, e),
+        None => (name, ""),
+    };
+    let clean_stem: String = raw_stem
+        .bytes()
+        .filter(|&b| valid_83_char(b) && b != b'.' && b != b' ')
+        .map(|b| (b as char).to_ascii_uppercase())
+        .collect();
+    let clean_ext: String = raw_ext
+        .bytes()
+        .filter(|&b| valid_83_char(b) && b != b'.' && b != b' ')
+        .take(3)
+        .map(|b| (b as char).to_ascii_uppercase())
+        .collect();
+    Some((clean_stem, clean_ext))
+}
+
+/// Detects actual Windows 8.3 alias collisions within the same directory (e.g. `background.js` +
+/// `BACKGR~1.JS` or `manifest.json` + `MANIFE~1.JSO`), while allowing non-colliding filenames like
+/// standalone Webpack chunks (`app~1.js`).
+fn has_windows_83_collision(entries: &[String]) -> bool {
+    let mut long_bases: Vec<(String, String)> = Vec::new();
+    let mut aliases: Vec<(String, u32, String)> = Vec::new();
+    for name in entries {
+        if let Some(alias) = parse_windows_83_alias(name) {
+            aliases.push(alias);
+        } else if let Some(basis) = windows_83_long_basis(name) {
+            long_bases.push(basis);
+        }
+    }
+    if aliases.is_empty() || long_bases.is_empty() {
+        return false;
+    }
+    for (prefix, num, ext) in &aliases {
+        for (long_stem, long_ext) in &long_bases {
+            if long_ext != ext {
+                continue;
+            }
+            if *num <= 4 {
+                let expected_len = long_stem.len().min(6);
+                if prefix.as_str() == &long_stem[..expected_len] {
+                    return true;
+                }
+            } else {
+                // NTFS switches to 2-char stem prefix + 4 hex hash chars starting at `~5`.
+                let min_prefix = long_stem.len().min(2);
+                if min_prefix > 0 && prefix.starts_with(&long_stem[..min_prefix]) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+fn read_u64_le(data: &[u8], off: usize) -> Option<u64> {
+    let end = off.checked_add(8)?;
+    let b = data.get(off..end)?;
+    Some(u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]))
 }
 
 /// Parses and validates all entries of `zip` before touching disk (`extensions.ts:394-445`).
@@ -134,8 +276,9 @@ pub fn read_zip(zip: &[u8]) -> Option<Vec<ZipEntry>> {
     }
     let cd_start = cd_offset as usize;
     let cd_end = cd_start.checked_add(cd_size as usize)?;
-    // Require central directory to sit flush against EOCD (no unreferenced gap bytes).
-    if cd_end != eocd {
+    // Require central directory to sit flush against EOCD (or a verified single-disk ZIP64
+    // EOCD + Locator trailer for small archives written with forced ZIP64; zero unreferenced gaps).
+    if !valid_zip64_trailer(zip, cd_start, cd_size, count, cd_end, eocd) {
         return None;
     }
 
@@ -147,6 +290,8 @@ pub fn read_zip(zip: &[u8]) -> Option<Vec<ZipEntry>> {
     // collisions and macOS APFS/HFS+ NFC/NFD collisions before touching disk).
     let mut seen_kind: HashMap<String, bool> = HashMap::with_capacity(count);
     let mut seen_dirs: HashSet<String> = HashSet::new();
+    // Per-directory raw leaf names for collision-only Windows 8.3 short-name checking.
+    let mut dir_children: HashMap<String, Vec<String>> = HashMap::new();
 
     for _ in 0..count {
         let (entry, next) = parse_cd_entry(zip, offset, cd_start)?;
@@ -171,6 +316,14 @@ pub fn read_zip(zip: &[u8]) -> Option<Vec<ZipEntry>> {
                 }
             } else {
                 seen_kind.insert(key.clone(), entry.directory);
+                let parent_key = if norm_segs.len() > 1 {
+                    norm_segs[..norm_segs.len() - 1].join("/")
+                } else {
+                    String::new()
+                };
+                if let Some(leaf) = entry.segments.last() {
+                    dir_children.entry(parent_key).or_default().push(leaf.clone());
+                }
             }
             // Ensure no ancestor prefix was already declared as a file; insert only unseen prefixes.
             let mut prefix = String::with_capacity(key.len());
@@ -183,6 +336,9 @@ pub fn read_zip(zip: &[u8]) -> Option<Vec<ZipEntry>> {
                     return None;
                 }
                 if !seen_dirs.contains(&prefix) {
+                    if seen_dirs.len() >= MAX_SEEN_DIRS {
+                        return None;
+                    }
                     seen_dirs.insert(prefix.clone());
                 }
             }
@@ -196,6 +352,11 @@ pub fn read_zip(zip: &[u8]) -> Option<Vec<ZipEntry>> {
     if offset != cd_end {
         return None;
     }
+    // Reject only actual Windows 8.3 short-name collisions within the same directory (e.g.
+    // `background.js` + `BACKGR~1.JS`), allowing non-colliding filenames like Webpack `app~1.js`.
+    if dir_children.values().any(|names| has_windows_83_collision(names)) {
+        return None;
+    }
     Some(list)
 }
 
@@ -207,7 +368,7 @@ pub fn unpack_zip(zip: &[u8], dest_dir: &Path) -> Result<(), String> {
     std::fs::create_dir_all(dest_dir).map_err(|e| format!("Could not create staging folder: {e}"))?;
     let root_meta = std::fs::symlink_metadata(dest_dir)
         .map_err(|e| format!("Could not verify staging folder: {e}"))?;
-    if !root_meta.is_dir() || root_meta.file_type().is_symlink() {
+    if !root_meta.is_dir() || crate::integrity::is_reparse_or_symlink(&root_meta) {
         return Err("Staging folder is not a regular directory.".into());
     }
 
@@ -294,7 +455,7 @@ fn create_dir_no_symlink(
         cur.push(seg);
         match std::fs::symlink_metadata(&cur) {
             Ok(meta) => {
-                if !meta.is_dir() || meta.file_type().is_symlink() {
+                if !meta.is_dir() || crate::integrity::is_reparse_or_symlink(&meta) {
                     return Err("Refusing to traverse non-directory or symlink while unpacking.".into());
                 }
             }

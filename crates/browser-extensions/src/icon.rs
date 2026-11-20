@@ -125,20 +125,66 @@ pub fn inspect_raster_icon(bytes: &[u8]) -> Option<(&'static str, u32, u32)> {
         }
         return None;
     }
-    // ICO: reserved=0, type=1, count in 1..=64, check directory entries.
+    // ICO: reserved=0, type=1, count in 1..=64; inspect EVERY embedded PNG IHDR or BMP DIB
+    // payload header (never trust the 1-byte nominal directory size alone, blocking ICO-wrapped
+    // 65535x65535 PNG/BMP pixel bombs).
     if bytes.len() >= 6 && &bytes[0..4] == b"\x00\x00\x01\x00" {
         let count = u16::from_le_bytes([bytes[4], bytes[5]]) as usize;
-        if count == 0 || count > 64 || bytes.len() < 6usize.checked_add(count.checked_mul(16)?)? {
+        let header_end = 6usize.checked_add(count.checked_mul(16)?)?;
+        if count == 0 || count > 64 || bytes.len() < header_end {
             return None;
         }
         let mut max_w = 0u32;
         let mut max_h = 0u32;
         for idx in 0..count {
             let base = 6 + idx * 16;
-            let w = if bytes[base] == 0 { 256 } else { u32::from(bytes[base]) };
-            let h = if bytes[base + 1] == 0 { 256 } else { u32::from(bytes[base + 1]) };
-            max_w = max_w.max(w);
-            max_h = max_h.max(h);
+            let bytes_in_res = usize::try_from(u32::from_le_bytes([
+                bytes[base + 8],
+                bytes[base + 9],
+                bytes[base + 10],
+                bytes[base + 11],
+            ]))
+            .ok()?;
+            let img_off = usize::try_from(u32::from_le_bytes([
+                bytes[base + 12],
+                bytes[base + 13],
+                bytes[base + 14],
+                bytes[base + 15],
+            ]))
+            .ok()?;
+            let img_end = img_off.checked_add(bytes_in_res)?;
+            if img_off < header_end || img_end > bytes.len() || bytes_in_res < 24 {
+                return None;
+            }
+            let payload = &bytes[img_off..img_end];
+            let (ew, eh) = if payload.len() >= 24 && &payload[0..8] == b"\x89PNG\r\n\x1a\n" {
+                if &payload[8..16] != b"\x00\x00\x00\x0dIHDR" {
+                    return None;
+                }
+                let w = u32::from_be_bytes([payload[16], payload[17], payload[18], payload[19]]);
+                let h = u32::from_be_bytes([payload[20], payload[21], payload[22], payload[23]]);
+                (w, h)
+            } else if payload.len() >= 40 {
+                let dib_size = u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]);
+                if dib_size < 40 || (dib_size as usize) > payload.len() {
+                    return None;
+                }
+                let raw_w = i32::from_le_bytes([payload[4], payload[5], payload[6], payload[7]]);
+                let raw_h = i32::from_le_bytes([payload[8], payload[9], payload[10], payload[11]]);
+                if raw_w <= 0 || raw_h == 0 || !raw_h.unsigned_abs().is_multiple_of(2) {
+                    return None;
+                }
+                // ICO BMP DIB stores height = 2 * actual height (XOR color mask + AND mask).
+                let h = raw_h.unsigned_abs() / 2;
+                (raw_w as u32, h)
+            } else {
+                return None;
+            };
+            if ew == 0 || eh == 0 {
+                return None;
+            }
+            max_w = max_w.max(ew);
+            max_h = max_h.max(eh);
         }
         return Some(("image/x-icon", max_w, max_h));
     }
@@ -163,7 +209,7 @@ pub fn within_root(root: &Path, rel: &str) -> Option<PathBuf> {
             Component::Normal(seg) => {
                 pushed = true;
                 cur.push(seg);
-                if std::fs::symlink_metadata(&cur).ok()?.file_type().is_symlink() {
+                if crate::integrity::is_reparse_or_symlink(&std::fs::symlink_metadata(&cur).ok()?) {
                     return None;
                 }
             }

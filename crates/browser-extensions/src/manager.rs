@@ -25,7 +25,7 @@ use crate::crx::{
 use crate::integrity::{
     copy_dir_safe, create_dir_user_only, derive_id_from_manifest_bytes,
     ensure_dir_no_symlink_user_only, extension_tree_digest, extension_tree_digest_and_manifest,
-    pin_manifest_key, strip_metadata_dir, verify_extension_dir,
+    is_real_dir, pin_manifest_key, strip_metadata_dir, verify_extension_dir,
 };
 use crate::manifest::{
     display_name, extension_access, extension_compatibility, extension_icon_data_url,
@@ -41,9 +41,9 @@ use crate::{
 
 const STAGING_PREFIX: &str = ".staging-";
 
-/// Staged package prepared for user review; consumed by value once by
-/// [`ExtensionManager::approve_staged`].
-#[derive(Clone, Debug)]
+/// Move-only staged package prepared for user review; consumed once by value by
+/// [`ExtensionManager::approve_staged`] (intentionally does NOT implement `Clone`).
+#[derive(Debug)]
 pub struct StagedInstall {
     pub token: String,
     pub staged_dir: PathBuf,
@@ -78,16 +78,40 @@ impl ExtensionManager {
         Self { root }
     }
 
+    /// Production constructor anchored inside the application's per-user `user_data_dir`
+    /// (`%LOCALAPPDATA%/...` on Windows, `~/Library/Application Support/...` on macOS,
+    /// `$XDG_DATA_HOME/...` on Linux). Refuses symlinks/reparse points and shared world-writable
+    /// Windows locations so the managed directory inherits the per-user profile DACL on Windows
+    /// and is enforced `0o700` on Unix.
+    pub fn in_user_data(user_data_dir: &Path) -> Result<Self, String> {
+        if !is_real_dir(user_data_dir) {
+            return Err("Browser user data directory is missing or is a symbolic link.".into());
+        }
+        let canon = std::fs::canonicalize(user_data_dir)
+            .map_err(|e| format!("Could not resolve user data directory: {e}"))?;
+        #[cfg(windows)]
+        {
+            let lower = canon.to_string_lossy().to_ascii_lowercase().replace('/', "\\");
+            let shared = lower.contains("\\users\\public\\")
+                || lower.ends_with("\\users\\public")
+                || lower.contains("\\programdata\\")
+                || lower.ends_with("\\programdata")
+                || lower.contains("\\windows\\temp\\")
+                || lower.ends_with("\\windows\\temp");
+            if shared {
+                return Err("Refusing shared or world-writable extensions root on Windows.".into());
+            }
+        }
+        Ok(Self { root: canon.join("browser-extensions") })
+    }
+
     pub fn root(&self) -> &Path {
         &self.root
     }
 
     /// Removes leftover `.staging-*` directories from earlier crashes (`install.ts:123-131`).
     pub fn sweep_staging(&self) {
-        let Ok(root_meta) = std::fs::symlink_metadata(&self.root) else {
-            return;
-        };
-        if !root_meta.is_dir() || root_meta.file_type().is_symlink() {
+        if !is_real_dir(&self.root) {
             return;
         }
         let Ok(entries) = std::fs::read_dir(&self.root) else {
@@ -97,7 +121,7 @@ impl ExtensionManager {
             let name = entry.file_name();
             if let Some(s) = name.to_str()
                 && s.starts_with(STAGING_PREFIX)
-                && entry.file_type().is_ok_and(|ft| !ft.is_symlink())
+                && is_real_dir(&entry.path())
             {
                 std::fs::remove_dir_all(entry.path()).ok();
             }
@@ -108,9 +132,11 @@ impl ExtensionManager {
     /// to `opencode-browser-engine` (`profile/index.ts:228-246`).
     pub fn verify_enabled_for_startup(&self, stored: &[StoredExtension]) -> StartupVerification {
         let mut out = StartupVerification::default();
-        let root_ok = std::fs::symlink_metadata(&self.root)
-            .is_ok_and(|m| m.is_dir() && !m.file_type().is_symlink());
-        let canon_root = if root_ok { std::fs::canonicalize(&self.root).ok() } else { None };
+        let canon_root = if is_real_dir(&self.root) {
+            std::fs::canonicalize(&self.root).ok()
+        } else {
+            None
+        };
         let Some(canon_root) = canon_root else {
             for rec in stored.iter().filter(|r| r.enabled) {
                 out.changed_ids.push(rec.id.clone());
@@ -265,8 +291,7 @@ impl ExtensionManager {
         folder: &Path,
         stored: &[StoredExtension],
     ) -> Result<StagedInstall, (InstallFailure, Option<String>)> {
-        let meta = std::fs::symlink_metadata(folder).map_err(|_| (InstallFailure::Manifest, None))?;
-        if !meta.is_dir() || meta.file_type().is_symlink() {
+        if !is_real_dir(folder) {
             return Err((InstallFailure::Manifest, None));
         }
         let canon = std::fs::canonicalize(folder).map_err(|_| (InstallFailure::Manifest, None))?;
@@ -431,7 +456,26 @@ impl ExtensionManager {
         Ok(StagedInstall { token, staged_dir: staging, record, review })
     }
 
-    /// Consumes a [`StagedInstall`] by value, verifies `approval_token` in constant time,
+    /// Removes a staging directory strictly confined to a direct `.staging-*` child of non-symlink `self.root`.
+    pub fn remove_staging_dir(&self, dir: &Path) {
+        if !is_real_dir(&self.root) {
+            return;
+        }
+        if let (Ok(canon_root), Ok(canon_dir)) = (
+            std::fs::canonicalize(&self.root),
+            std::fs::canonicalize(dir),
+        ) && canon_dir.parent() == Some(canon_root.as_path())
+            && canon_dir
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with(STAGING_PREFIX))
+        {
+            std::fs::remove_dir_all(canon_dir).ok();
+        }
+    }
+
+    /// Consumes a move-only [`StagedInstall`] by value, verifies `approval_token` in constant time,
+    /// verifies `staged.staged_dir` is a `.staging-*` direct child of non-symlink `self.root`,
     /// re-verifies the staged directory's SHA-256 tree digest (detecting any swap between review
     /// display and user click), and atomically swaps it into `<root>/<id>` with backup/rollback.
     ///
@@ -443,10 +487,11 @@ impl ExtensionManager {
         approval_token: &str,
     ) -> Result<SwappedInstall, InstallFailure> {
         if !is_valid_ext_id(&staged.record.id)
+            || Path::new(&staged.record.directory) != self.root.join(&staged.record.id)
             || !constant_time_eq(staged.token.as_bytes(), approval_token.as_bytes())
             || !constant_time_eq(staged.review.token.as_bytes(), approval_token.as_bytes())
         {
-            std::fs::remove_dir_all(&staged.staged_dir).ok();
+            self.remove_staging_dir(&staged.staged_dir);
             return Err(InstallFailure::Expired);
         }
         if matches!(
@@ -456,19 +501,34 @@ impl ExtensionManager {
                     | crate::UnsupportedCause::DisallowedPermission
             )
         ) {
-            std::fs::remove_dir_all(&staged.staged_dir).ok();
+            self.remove_staging_dir(&staged.staged_dir);
             return Err(InstallFailure::Load);
         }
         if ensure_dir_no_symlink_user_only(&self.root).is_err() {
-            std::fs::remove_dir_all(&staged.staged_dir).ok();
+            self.remove_staging_dir(&staged.staged_dir);
             return Err(InstallFailure::Manifest);
         }
+        // Verify `staged.staged_dir` is strictly a direct `.staging-*` child of `self.root`.
+        let staged_contained = is_real_dir(&staged.staged_dir)
+            && std::fs::canonicalize(&self.root)
+                .ok()
+                .zip(std::fs::canonicalize(&staged.staged_dir).ok())
+                .is_some_and(|(cr, cs)| {
+                    cs.parent() == Some(cr.as_path())
+                        && cs
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .is_some_and(|n| n.starts_with(STAGING_PREFIX))
+                });
+        if !staged_contained {
+            return Err(InstallFailure::Expired);
+        }
         let Some(expected_digest) = staged.record.digest.as_deref() else {
-            std::fs::remove_dir_all(&staged.staged_dir).ok();
+            self.remove_staging_dir(&staged.staged_dir);
             return Err(InstallFailure::Expired);
         };
         if !verify_extension_dir(&staged.staged_dir, &staged.record.id, expected_digest) {
-            std::fs::remove_dir_all(&staged.staged_dir).ok();
+            self.remove_staging_dir(&staged.staged_dir);
             return Err(InstallFailure::Expired);
         }
         let target = self.root.join(&staged.record.id);
@@ -484,12 +544,12 @@ impl ExtensionManager {
             Ok(()) => true,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
             Err(_) => {
-                std::fs::remove_dir_all(&staged.staged_dir).ok();
+                self.remove_staging_dir(&staged.staged_dir);
                 return Err(InstallFailure::Manifest);
             }
         };
         if std::fs::rename(&staged.staged_dir, &target).is_err() {
-            std::fs::remove_dir_all(&staged.staged_dir).ok();
+            self.remove_staging_dir(&staged.staged_dir);
             if had_existing {
                 std::fs::rename(&backup, &target).ok();
             }
@@ -511,25 +571,15 @@ impl ExtensionManager {
 
     /// Removes the backup created by [`approve_staged`] after the engine successfully loads it.
     pub fn finalize_swap(&self, swap: &SwappedInstall) {
-        if let Some(backup) = &swap.backup_dir
-            && let (Ok(canon_root), Ok(canon_backup)) = (
-                std::fs::canonicalize(&self.root),
-                std::fs::canonicalize(backup),
-            )
-            && canon_backup.parent() == Some(canon_root.as_path())
-            && canon_backup
-                .file_name()
-                .and_then(|n| n.to_str())
-                .is_some_and(|n| n.starts_with(STAGING_PREFIX))
-        {
-            std::fs::remove_dir_all(canon_backup).ok();
+        if let Some(backup) = &swap.backup_dir {
+            self.remove_staging_dir(backup);
         }
     }
 
     /// Rolls back a swapped install if Chromium fails to load it (`profile/index.ts:404-410`).
-    /// Strictly validates `swap.record.id` and `self.root` containment before deleting anything.
+    /// Strictly validates `swap.record.id` and non-symlink `self.root` containment before deleting.
     pub fn rollback_swap(&self, swap: &SwappedInstall) {
-        if !is_valid_ext_id(&swap.record.id) {
+        if !is_valid_ext_id(&swap.record.id) || !is_real_dir(&self.root) {
             return;
         }
         let expected = self.root.join(&swap.record.id);
@@ -553,10 +603,10 @@ impl ExtensionManager {
         }
     }
 
-    /// Deletes a managed extension directory strictly inside `self.root` (`profile/index.ts:617`).
+    /// Deletes a managed extension directory strictly inside non-symlink `self.root` (`profile/index.ts:617`).
     /// Never deletes a user's source folder outside `self.root`.
     pub fn remove_managed_dir(&self, record: &StoredExtension) {
-        if !is_valid_ext_id(&record.id) {
+        if !is_valid_ext_id(&record.id) || !is_real_dir(&self.root) {
             return;
         }
         if record.source == ExtensionSource::Folder && record.local_key.is_none() {

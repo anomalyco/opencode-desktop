@@ -113,24 +113,31 @@ pub fn parse_manifest(raw: &str) -> Option<Manifest> {
         .or_else(|| obj.get("options_page").and_then(Value::as_str))
         .map(str::to_owned);
 
-    let permissions = sanitized_string_array(obj.get("permissions"));
-    let host_permissions = sanitized_string_array(obj.get("host_permissions"));
-    let optional_permissions = sanitized_string_array(obj.get("optional_permissions"));
-    let optional_host_permissions = sanitized_string_array(obj.get("optional_host_permissions"));
+    let permissions = checked_string_array(obj.get("permissions"))?;
+    let host_permissions = checked_string_array(obj.get("host_permissions"))?;
+    let optional_permissions = checked_string_array(obj.get("optional_permissions"))?;
+    let optional_host_permissions = checked_string_array(obj.get("optional_host_permissions"))?;
 
     let mut content_script_matches = Vec::new();
-    if let Some(scripts) = obj.get("content_scripts").and_then(Value::as_array) {
+    if let Some(cs_val) = obj.get("content_scripts")
+        && !cs_val.is_null()
+    {
+        let scripts = cs_val.as_array()?;
+        if scripts.len() > MAX_LIST_ITEMS {
+            return None;
+        }
         for script in scripts {
-            for m in sanitized_string_array(script.get("matches")) {
-                if content_script_matches.len() < MAX_LIST_ITEMS {
-                    content_script_matches.push(m);
-                }
+            let script_obj = script.as_object()?;
+            let matches = checked_string_array(script_obj.get("matches"))?;
+            if content_script_matches.len().checked_add(matches.len())? > MAX_LIST_ITEMS {
+                return None;
             }
+            content_script_matches.extend(matches);
         }
     }
 
-    let externally_connectable = parse_externally_connectable(obj.get("externally_connectable"));
-    let web_accessible_resources = parse_web_accessible_resources(obj.get("web_accessible_resources"));
+    let externally_connectable = parse_externally_connectable(obj.get("externally_connectable"))?;
+    let web_accessible_resources = parse_web_accessible_resources(obj.get("web_accessible_resources"))?;
 
     Some(Manifest {
         manifest_version,
@@ -295,11 +302,9 @@ const SUPPORTED_PERMS: &[&str] = &[
     "declarativeNetRequestFeedback",
     "declarativeNetRequestWithHostAccess",
     "idle",
-    "management",
     "notifications",
     "offscreen",
     "power",
-    "proxy",
     "scripting",
     "storage",
     "system.display",
@@ -399,7 +404,7 @@ fn permission_feature(perm: &str) -> Option<ExtensionFeature> {
         return None;
     }
     Some(match perm {
-        "webRequestAuthProvider" => ExtensionFeature::Network,
+        "webRequestAuthProvider" | "proxy" => ExtensionFeature::Network,
         "nativeMessaging" => ExtensionFeature::Native,
         "identity" | "identity.email" => ExtensionFeature::Signin,
         "sidePanel" => ExtensionFeature::SidePanel,
@@ -420,7 +425,8 @@ fn permission_feature(perm: &str) -> Option<ExtensionFeature> {
 }
 
 /// Deduplicated, breadth-sorted host patterns from `host_permissions`, `permissions`, and
-/// `content_scripts[].matches` (`compatibility.ts:130-142`), bounded to `MAX_LIST_ITEMS`.
+/// `content_scripts[].matches` (`compatibility.ts:130-142`). Never truncates — `parse_manifest`
+/// fails closed if any source list exceeds `MAX_LIST_ITEMS`.
 pub fn review_hosts(manifest: &Manifest) -> Vec<String> {
     let mut set = HashSet::new();
     for item in manifest
@@ -429,9 +435,6 @@ pub fn review_hosts(manifest: &Manifest) -> Vec<String> {
         .chain(manifest.permissions.iter())
         .chain(manifest.content_script_matches.iter())
     {
-        if set.len() >= MAX_LIST_ITEMS {
-            break;
-        }
         if item == "<all_urls>" || item.contains("://") {
             set.insert(item.clone());
         }
@@ -530,12 +533,14 @@ pub fn covers_pattern(granted: &str, requested: &str) -> bool {
     };
     inner.schemes.iter().all(|s| outer.schemes.contains(s))
         && host_covers(&outer.host, &inner.host)
+        && port_covers(outer.port.as_deref(), inner.port.as_deref())
         && glob_match(&outer.path, &inner.path)
 }
 
 struct ParsedPattern {
     schemes: Vec<String>,
     host: String,
+    port: Option<String>,
     path: String,
 }
 
@@ -544,6 +549,7 @@ fn parse_pattern(pattern: &str) -> Option<ParsedPattern> {
         return Some(ParsedPattern {
             schemes: ["http", "https", "ws", "wss", "file", "ftp"].iter().map(|s| (*s).to_owned()).collect(),
             host: "*".into(),
+            port: None,
             path: "/*".into(),
         });
     }
@@ -557,14 +563,23 @@ fn parse_pattern(pattern: &str) -> Option<ParsedPattern> {
     };
     let slash = rest.find('/')?;
     let authority = &rest[..slash];
-    // Strip optional port/wildcard port so `https://*:*/*` normalizes host to `*`.
-    let raw_host = match authority.split_once(':') {
-        Some((h, port)) if port == "*" || (!port.is_empty() && port.bytes().all(|b| b.is_ascii_digit())) => h,
-        _ => authority,
+    let (raw_host, port) = match authority.split_once(':') {
+        Some((h, p)) if p == "*" || (!p.is_empty() && p.bytes().all(|b| b.is_ascii_digit())) => {
+            (h, Some(p.to_owned()))
+        }
+        Some(_) => return None,
+        None => (authority, None),
     };
     let host = raw_host.to_ascii_lowercase();
     let path = rest[slash..].to_owned();
-    Some(ParsedPattern { schemes, host, path })
+    Some(ParsedPattern { schemes, host, port, path })
+}
+
+fn port_covers(outer: Option<&str>, inner: Option<&str>) -> bool {
+    match outer {
+        None | Some("*") => true,
+        Some(p) => inner == Some(p),
+    }
 }
 
 fn host_covers(outer: &str, inner: &str) -> bool {
@@ -611,60 +626,74 @@ fn glob_match(pattern: &str, text: &str) -> bool {
     pi == p.len()
 }
 
-fn parse_externally_connectable(v: Option<&Value>) -> Vec<String> {
-    let Some(obj) = v.and_then(Value::as_object) else {
-        return Vec::new();
+fn parse_externally_connectable(v: Option<&Value>) -> Option<Vec<String>> {
+    let Some(v) = v.filter(|v| !v.is_null()) else {
+        return Some(Vec::new());
     };
+    let obj = v.as_object()?;
     let mut out = Vec::new();
-    for m in sanitized_string_array(obj.get("matches")) {
-        if out.len() < MAX_LIST_ITEMS {
-            out.push(format!("match:{m}"));
+    for m in checked_string_array(obj.get("matches"))? {
+        if out.len() >= MAX_LIST_ITEMS {
+            return None;
         }
+        out.push(format!("match:{m}"));
     }
-    for id in sanitized_string_array(obj.get("ids")) {
-        if out.len() < MAX_LIST_ITEMS {
-            out.push(format!("id:{id}"));
+    for id in checked_string_array(obj.get("ids"))? {
+        if out.len() >= MAX_LIST_ITEMS {
+            return None;
         }
+        out.push(format!("id:{id}"));
     }
-    if obj.get("accepts_tls_channel_id").and_then(Value::as_bool) == Some(true)
-        && out.len() < MAX_LIST_ITEMS
-    {
+    if obj.get("accepts_tls_channel_id").and_then(Value::as_bool) == Some(true) {
+        if out.len() >= MAX_LIST_ITEMS {
+            return None;
+        }
         out.push("accepts_tls_channel_id".to_owned());
     }
     out.sort();
     out.dedup();
-    out
+    Some(out)
 }
 
-fn parse_web_accessible_resources(v: Option<&Value>) -> Vec<String> {
-    let Some(arr) = v.and_then(Value::as_array) else {
-        return Vec::new();
+fn parse_web_accessible_resources(v: Option<&Value>) -> Option<Vec<String>> {
+    let Some(v) = v.filter(|v| !v.is_null()) else {
+        return Some(Vec::new());
     };
+    let arr = v.as_array()?;
+    if arr.len() > MAX_LIST_ITEMS {
+        return None;
+    }
     let mut out = Vec::new();
     for item in arr {
-        if out.len() >= MAX_LIST_ITEMS {
-            break;
-        }
         if let Some(s) = item.as_str() {
-            let clean = sanitize_label_capped(s, MAX_ITEM_CHARS);
-            if !clean.is_empty() {
-                out.push(clean);
+            let clean = checked_item_str(s)?;
+            if out.len() >= MAX_LIST_ITEMS {
+                return None;
             }
-        } else if let Some(obj) = item.as_object() {
-            let resources = sanitized_string_array(obj.get("resources"));
-            let matches = sanitized_string_array(obj.get("matches"));
+            out.push(clean);
+        } else {
+            let obj = item.as_object()?;
+            let resources = checked_string_array(obj.get("resources"))?;
+            let matches = checked_string_array(obj.get("matches"))?;
+            let ext_ids = checked_string_array(obj.get("extension_ids"))?;
             for r in resources {
-                if out.len() >= MAX_LIST_ITEMS {
-                    break;
-                }
-                if matches.is_empty() {
+                if matches.is_empty() && ext_ids.is_empty() {
+                    if out.len() >= MAX_LIST_ITEMS {
+                        return None;
+                    }
                     out.push(r);
                 } else {
                     for m in &matches {
                         if out.len() >= MAX_LIST_ITEMS {
-                            break;
+                            return None;
                         }
                         out.push(format!("{r} @ {m}"));
+                    }
+                    for id in &ext_ids {
+                        if out.len() >= MAX_LIST_ITEMS {
+                            return None;
+                        }
+                        out.push(format!("{r} @ ext:{id}"));
                     }
                 }
             }
@@ -672,22 +701,37 @@ fn parse_web_accessible_resources(v: Option<&Value>) -> Vec<String> {
     }
     out.sort();
     out.dedup();
-    out
+    Some(out)
 }
 
-fn sanitized_string_array(v: Option<&Value>) -> Vec<String> {
-    v.and_then(Value::as_array)
-        .map(|arr| {
-            arr.iter()
-                .filter_map(Value::as_str)
-                .filter_map(|s| {
-                    let clean = sanitize_label_capped(s, MAX_ITEM_CHARS);
-                    (!clean.is_empty()).then_some(clean)
-                })
-                .take(MAX_LIST_ITEMS)
-                .collect()
-        })
-        .unwrap_or_default()
+/// Strictly validates a security-relevant manifest string array: NEVER silently truncates.
+/// Returns `None` (refusing the package) if the field is not an array, exceeds `MAX_LIST_ITEMS`,
+/// or contains any non-string, overlong (`> MAX_ITEM_CHARS`), empty, or control/bidi element.
+fn checked_string_array(v: Option<&Value>) -> Option<Vec<String>> {
+    let Some(v) = v.filter(|v| !v.is_null()) else {
+        return Some(Vec::new());
+    };
+    let arr = v.as_array()?;
+    if arr.len() > MAX_LIST_ITEMS {
+        return None;
+    }
+    let mut out = Vec::with_capacity(arr.len());
+    for item in arr {
+        let s = item.as_str()?;
+        out.push(checked_item_str(s)?);
+    }
+    Some(out)
+}
+
+fn checked_item_str(s: &str) -> Option<String> {
+    let trimmed = s.trim();
+    if trimmed.is_empty()
+        || trimmed.len() > MAX_ITEM_CHARS
+        || trimmed.chars().any(is_disallowed_ui_char)
+    {
+        return None;
+    }
+    Some(trimmed.to_owned())
 }
 
 fn string_map(v: Option<&Value>) -> HashMap<String, String> {

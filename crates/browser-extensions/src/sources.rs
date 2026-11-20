@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::crx::is_valid_ext_id;
-use crate::integrity::read_regular_file_bounded;
+use crate::integrity::{is_real_dir, read_regular_file_bounded};
 use crate::manifest::{
     compare_versions, display_name, extension_access, extension_compatibility,
     extension_icon_data_url, extension_label, read_manifest,
@@ -177,10 +177,6 @@ pub fn list_browser_extensions(
     out
 }
 
-fn is_real_dir(path: &Path) -> bool {
-    std::fs::symlink_metadata(path).is_ok_and(|m| m.is_dir() && !m.file_type().is_symlink())
-}
-
 fn locate_profiles(def: &BrowserDef) -> Vec<(String, String, PathBuf)> {
     if !is_real_dir(&def.root) {
         return Vec::new();
@@ -285,6 +281,8 @@ fn browser_definitions(dirs: &PlatformDirs) -> Vec<BrowserDef> {
             defs.push(BrowserDef { id: "helium", name: "Helium", root: support.join("net.imput.helium"), flat: false });
             defs.push(BrowserDef { id: "brave", name: "Brave", root: support.join("BraveSoftware/Brave-Browser"), flat: false });
             defs.push(BrowserDef { id: "arc", name: "Arc", root: support.join("Arc/User Data"), flat: false });
+            defs.push(BrowserDef { id: "dia", name: "Dia", root: support.join("Dia/User Data"), flat: false });
+            defs.push(BrowserDef { id: "comet", name: "Comet", root: support.join("Comet"), flat: false });
             defs.push(BrowserDef { id: "vivaldi", name: "Vivaldi", root: support.join("Vivaldi"), flat: false });
             defs.push(BrowserDef { id: "chromium", name: "Chromium", root: support.join("Chromium"), flat: false });
             defs.push(BrowserDef { id: "opera", name: "Opera", root: support.join("com.operasoftware.Opera"), flat: true });

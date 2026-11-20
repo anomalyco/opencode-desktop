@@ -34,11 +34,33 @@ struct FileJob {
     is_root_manifest: bool,
 }
 
+/// Returns `true` if `meta` refers to a symlink (all platforms) or any Windows reparse point
+/// (symlinks, NTFS junctions, mount points, `AppExecLink`).
+pub(crate) fn is_reparse_or_symlink(meta: &std::fs::Metadata) -> bool {
+    if meta.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt as _;
+        if (meta.file_attributes() & 0x0400) != 0 {
+            return true;
+        }
+    }
+    false
+}
+
+/// Returns `true` if `path` exists as a regular directory and is NOT a symlink or reparse point.
+pub(crate) fn is_real_dir(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|m| m.is_dir() && !is_reparse_or_symlink(&m))
+}
+
 /// Opens a regular non-symlink file for reading (`O_NOFOLLOW` + `lstat`/`fstat` `(dev, ino)` match
-/// on Unix), returning the handle and its observed byte size.
+/// on Unix; `FILE_FLAG_OPEN_REPARSE_POINT` + post-open `FILE_ATTRIBUTE_REPARSE_POINT` rejection on
+/// Windows), returning the handle and its observed byte size.
 pub(crate) fn open_regular_no_follow(path: &Path) -> Option<(File, u64)> {
     let lmeta = std::fs::symlink_metadata(path).ok()?;
-    if !lmeta.is_file() || lmeta.file_type().is_symlink() {
+    if !lmeta.is_file() || is_reparse_or_symlink(&lmeta) {
         return None;
     }
     let mut opts = OpenOptions::new();
@@ -48,9 +70,15 @@ pub(crate) fn open_regular_no_follow(path: &Path) -> Option<(File, u64)> {
         use std::os::unix::fs::OpenOptionsExt as _;
         opts.custom_flags(libc::O_NOFOLLOW);
     }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt as _;
+        // FILE_FLAG_OPEN_REPARSE_POINT (0x0020_0000): opens the link itself rather than following.
+        opts.custom_flags(0x0020_0000);
+    }
     let file = opts.open(path).ok()?;
     let fmeta = file.metadata().ok()?;
-    if !fmeta.is_file() {
+    if !fmeta.is_file() || is_reparse_or_symlink(&fmeta) {
         return None;
     }
     #[cfg(unix)]
@@ -91,19 +119,32 @@ pub(crate) fn create_dir_user_only(path: &Path) -> io::Result<()> {
     }
 }
 
-/// Ensures `dir` exists as a regular non-symlink directory with user-only permissions on Unix.
+/// Ensures `dir` exists as a regular non-symlink/non-reparse directory with user-only permissions
+/// on Unix (created atomically with `0o700`, and tightened via `fchmod` on an `O_NOFOLLOW |
+/// O_DIRECTORY` handle so `chmod` never follows a symlink).
 pub(crate) fn ensure_dir_no_symlink_user_only(dir: &Path) -> Result<(), String> {
     match std::fs::symlink_metadata(dir) {
         Ok(meta) => {
-            if !meta.is_dir() || meta.file_type().is_symlink() {
+            if !meta.is_dir() || is_reparse_or_symlink(&meta) {
                 return Err("Directory is missing or is a symbolic link.".into());
             }
         }
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
-            std::fs::create_dir_all(dir).map_err(|e| format!("Could not create directory: {e}"))?;
+            if let Some(parent) = dir.parent()
+                && !parent.as_os_str().is_empty()
+                && !parent.exists()
+            {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| format!("Could not create parent directory: {e}"))?;
+            }
+            match create_dir_user_only(dir) {
+                Ok(()) => {}
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
+                Err(e) => return Err(format!("Could not create directory: {e}")),
+            }
             let meta = std::fs::symlink_metadata(dir)
                 .map_err(|e| format!("Could not inspect directory: {e}"))?;
-            if !meta.is_dir() || meta.file_type().is_symlink() {
+            if !meta.is_dir() || is_reparse_or_symlink(&meta) {
                 return Err("Created path is not a regular directory.".into());
             }
         }
@@ -111,19 +152,24 @@ pub(crate) fn ensure_dir_no_symlink_user_only(dir: &Path) -> Result<(), String> 
     }
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt as _;
-        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+        use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
+        let fd = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_DIRECTORY)
+            .open(dir)
+            .map_err(|e| format!("Could not open directory without following symlinks: {e}"))?;
+        fd.set_permissions(std::fs::Permissions::from_mode(0o700))
             .map_err(|e| format!("Could not set user-only permissions: {e}"))?;
     }
     Ok(())
 }
 
-/// Removes Chromium's `_metadata` cache directory if present (refusing symlinks).
+/// Removes Chromium's `_metadata` cache directory if present (refusing symlinks/reparse points).
 pub fn strip_metadata_dir(dir: &Path) -> bool {
     let metadata_dir = dir.join("_metadata");
     match std::fs::symlink_metadata(&metadata_dir) {
         Ok(meta) => {
-            if meta.file_type().is_symlink() {
+            if is_reparse_or_symlink(&meta) {
                 return false;
             }
             std::fs::remove_dir_all(&metadata_dir).is_ok()
@@ -147,7 +193,7 @@ pub fn verify_extension_dir(dir: &Path, expected_id: &str, expected_sha256: &str
     let Ok(root_meta) = std::fs::symlink_metadata(dir) else {
         return false;
     };
-    if !root_meta.is_dir() || root_meta.file_type().is_symlink() || !strip_metadata_dir(dir) {
+    if !root_meta.is_dir() || is_reparse_or_symlink(&root_meta) || !strip_metadata_dir(dir) {
         return false;
     }
     let Some((actual_digest, Some(manifest_bytes))) = extension_tree_digest_and_manifest(dir) else {
@@ -183,7 +229,7 @@ pub fn extension_tree_digest_and_manifest(root: &Path) -> Option<(String, Option
         let Ok(meta) = std::fs::symlink_metadata(folder) else {
             return false;
         };
-        if !meta.is_dir() || meta.file_type().is_symlink() {
+        if !meta.is_dir() || is_reparse_or_symlink(&meta) {
             return false;
         }
         let Ok(entries) = std::fs::read_dir(folder) else {
@@ -220,7 +266,7 @@ pub fn extension_tree_digest_and_manifest(root: &Path) -> Option<(String, Option
                 return false;
             };
             let size = info.len();
-            if !info.is_file() || info.file_type().is_symlink() || size > MAX_FILE_BYTES {
+            if !info.is_file() || is_reparse_or_symlink(&info) || size > MAX_FILE_BYTES {
                 return false;
             }
             *total_bytes = total_bytes.saturating_add(size);
@@ -351,7 +397,7 @@ fn hash_file_job(job: &FileJob, chunk: &mut [u8]) -> Option<(String, Option<Vec<
 /// (`Read::take` + `create_new`, zero `std::fs::copy` symlink/size TOCTOU).
 pub fn copy_dir_safe(src: &Path, dst: &Path) -> Result<(), String> {
     let src_meta = std::fs::symlink_metadata(src).map_err(|e| format!("Could not inspect source folder: {e}"))?;
-    if !src_meta.is_dir() || src_meta.file_type().is_symlink() {
+    if !src_meta.is_dir() || is_reparse_or_symlink(&src_meta) {
         return Err("Extension source is not a directory.".into());
     }
     ensure_dir_no_symlink_user_only(dst)?;
@@ -375,7 +421,7 @@ pub fn copy_dir_safe(src: &Path, dst: &Path) -> Result<(), String> {
             return Err("Extension folder exceeds maximum nesting depth.".into());
         }
         let dir_meta = std::fs::symlink_metadata(src).map_err(|e| format!("Could not inspect folder: {e}"))?;
-        if !dir_meta.is_dir() || dir_meta.file_type().is_symlink() {
+        if !dir_meta.is_dir() || is_reparse_or_symlink(&dir_meta) {
             return Err("Extension source directory changed or became a symlink.".into());
         }
         let entries = std::fs::read_dir(src).map_err(|e| format!("Could not read extension folder: {e}"))?;
@@ -471,13 +517,27 @@ pub fn pin_manifest_key(dir: &Path, spki_der: &[u8]) -> Result<(), String> {
     let rendered = serde_json::to_string_pretty(&val)
         .map_err(|_| "Could not serialize manifest.json.".to_owned())?;
     let mut opts = OpenOptions::new();
-    opts.write(true).truncate(true);
+    opts.write(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt as _;
         opts.custom_flags(libc::O_NOFOLLOW);
     }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt as _;
+        // FILE_FLAG_OPEN_REPARSE_POINT (0x0020_0000): opens the link itself without following.
+        opts.custom_flags(0x0020_0000);
+    }
     let mut out = opts.open(&file).map_err(|e| format!("Could not open manifest.json: {e}"))?;
+    let fmeta = out
+        .metadata()
+        .map_err(|e| format!("Could not inspect manifest.json: {e}"))?;
+    if !fmeta.is_file() || is_reparse_or_symlink(&fmeta) {
+        return Err("Refusing to write manifest.json through a symlink or reparse point.".into());
+    }
+    out.set_len(0)
+        .map_err(|e| format!("Could not truncate manifest.json: {e}"))?;
     out.write_all(rendered.as_bytes())
         .map_err(|e| format!("Could not write manifest.json: {e}"))
 }

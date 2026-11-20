@@ -242,7 +242,27 @@ fn registrable_domain(host: &str) -> Option<String> {
 }
 
 /// Explicit state machine governing the one-at-a-time extension staging and permission review
-/// lifecycle (`AGENTS.md`: explicit `enum State` + `step(&mut State, Event, now_ms) -> Effects`).
+/// lifecycle (`AGENTS.md`: explicit `enum State` + `step(&mut InstallMachine, Event, now_ms) -> Effects`).
+#[derive(Clone, Debug, Default)]
+pub struct InstallMachine {
+    pub state: InstallState,
+    last_generation: u64,
+}
+
+impl InstallMachine {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn last_generation(&self) -> u64 {
+        self.last_generation
+    }
+
+    pub fn step(&mut self, event: InstallEvent, now_ms: u64) -> Vec<InstallEffect> {
+        step_machine(self, event, now_ms)
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub enum InstallState {
     #[default]
@@ -252,10 +272,11 @@ pub enum InstallState {
         generation: u64,
         source: ExtensionSource,
     },
-    /// Staged copy verified and awaiting user confirmation via its single-use `token` before
-    /// `expires_at_ms`.
+    /// Staged copy verified and awaiting user confirmation via its single-use `token` within
+    /// `[created_at_ms, expires_at_ms)` (fails closed on clock rollback or overflow).
     Reviewing {
         token: String,
+        created_at_ms: u64,
         expires_at_ms: u64,
         staged_dir: PathBuf,
         record: Box<StoredExtension>,
@@ -274,7 +295,7 @@ pub enum InstallState {
     },
 }
 
-/// Input events driving [`InstallState`].
+/// Input events driving [`InstallMachine`] / [`InstallState`].
 #[derive(Clone, Debug)]
 pub enum InstallEvent {
     BeginStage {
@@ -312,47 +333,77 @@ pub enum InstallEvent {
 pub enum InstallEffect {
     RemoveStagingDir(PathBuf),
     VerifyAndSwap {
+        token: String,
         staged_dir: PathBuf,
         record: Box<StoredExtension>,
+        review: Box<InstallReview>,
     },
     RejectApproval(InstallFailure),
 }
 
 /// Pure state transition function for the extension install/review flow.
-/// Guarantees illegal states (double-approval, expired/stale-token swap, preempting an in-flight
-/// swap, stale staging hijack, leaked staging dir) are impossible.
-pub fn step(state: &mut InstallState, event: InstallEvent, now_ms: u64) -> Vec<InstallEffect> {
+/// Guarantees illegal states (double-approval, expired/clock-rolled-back/stale-token swap,
+/// non-monotonic generation reuse, preempting an in-flight swap, stale staging hijack, leaked
+/// staging dir) are impossible.
+pub fn step(machine: &mut InstallMachine, event: InstallEvent, now_ms: u64) -> Vec<InstallEffect> {
+    step_machine(machine, event, now_ms)
+}
+
+fn step_machine(machine: &mut InstallMachine, event: InstallEvent, now_ms: u64) -> Vec<InstallEffect> {
     let mut effects = Vec::new();
     match event {
         InstallEvent::BeginStage { generation, source } => {
-            if matches!(state, InstallState::Swapping { .. }) {
+            if matches!(machine.state, InstallState::Swapping { .. }) {
                 return effects;
             }
-            if let InstallState::Reviewing { staged_dir, .. } = std::mem::take(state) {
+            if generation == 0 || generation <= machine.last_generation {
+                return effects;
+            }
+            machine.last_generation = generation;
+            if let InstallState::Reviewing { staged_dir, .. } = std::mem::take(&mut machine.state) {
                 effects.push(InstallEffect::RemoveStagingDir(staged_dir));
             }
-            *state = InstallState::Staging { generation, source };
+            machine.state = InstallState::Staging { generation, source };
         }
         InstallEvent::Staged { generation, token, staged_dir, record, review } => {
-            if matches!(state, InstallState::Staging { generation: g, .. } if *g == generation) {
-                *state = InstallState::Reviewing {
-                    token,
-                    expires_at_ms: now_ms.saturating_add(REVIEW_TTL_MS),
-                    staged_dir,
-                    record,
-                    review,
-                };
+            if matches!(machine.state, InstallState::Staging { generation: g, .. } if g == generation) {
+                match now_ms.checked_add(REVIEW_TTL_MS) {
+                    Some(expires_at_ms) => {
+                        machine.state = InstallState::Reviewing {
+                            token,
+                            created_at_ms: now_ms,
+                            expires_at_ms,
+                            staged_dir,
+                            record,
+                            review,
+                        };
+                    }
+                    None => {
+                        effects.push(InstallEffect::RemoveStagingDir(staged_dir));
+                        machine.state = InstallState::Failed {
+                            reason: InstallFailure::Expired,
+                            message: None,
+                        };
+                    }
+                }
             } else {
                 effects.push(InstallEffect::RemoveStagingDir(staged_dir));
             }
         }
         InstallEvent::StageFailed { generation, reason, message } => {
-            if matches!(state, InstallState::Staging { generation: g, .. } if *g == generation) {
-                *state = InstallState::Failed { reason, message };
+            if matches!(machine.state, InstallState::Staging { generation: g, .. } if g == generation) {
+                machine.state = InstallState::Failed { reason, message };
             }
         }
-        InstallEvent::Approve { token } => match std::mem::take(state) {
-            InstallState::Reviewing { token: expected, expires_at_ms, staged_dir, record, review } => {
+        InstallEvent::Approve { token } => match std::mem::take(&mut machine.state) {
+            InstallState::Reviewing {
+                token: expected,
+                created_at_ms,
+                expires_at_ms,
+                staged_dir,
+                record,
+                review,
+            } => {
                 if matches!(
                     review.compatibility.cause,
                     Some(
@@ -362,7 +413,7 @@ pub fn step(state: &mut InstallState, event: InstallEvent, now_ms: u64) -> Vec<I
                 ) {
                     effects.push(InstallEffect::RemoveStagingDir(staged_dir));
                     effects.push(InstallEffect::RejectApproval(InstallFailure::Load));
-                    *state = InstallState::Failed {
+                    machine.state = InstallState::Failed {
                         reason: InstallFailure::Load,
                         message: Some(if review.compatibility.cause == Some(crate::UnsupportedCause::ManifestV2) {
                             "Manifest V2 extensions are not supported in Chromium 156.".into()
@@ -370,55 +421,58 @@ pub fn step(state: &mut InstallState, event: InstallEvent, now_ms: u64) -> Vec<I
                             "This extension requires a disallowed browser permission.".into()
                         }),
                     };
-                } else if now_ms > expires_at_ms
+                } else if now_ms < created_at_ms
+                    || now_ms >= expires_at_ms
                     || !constant_time_eq(expected.as_bytes(), token.as_bytes())
                 {
                     effects.push(InstallEffect::RemoveStagingDir(staged_dir));
                     effects.push(InstallEffect::RejectApproval(InstallFailure::Expired));
-                    *state = InstallState::Failed {
+                    machine.state = InstallState::Failed {
                         reason: InstallFailure::Expired,
                         message: None,
                     };
                 } else {
                     effects.push(InstallEffect::VerifyAndSwap {
+                        token: expected,
                         staged_dir: staged_dir.clone(),
                         record: record.clone(),
+                        review,
                     });
-                    *state = InstallState::Swapping { staged_dir, record };
+                    machine.state = InstallState::Swapping { staged_dir, record };
                 }
             }
             other => {
-                *state = other;
+                machine.state = other;
                 effects.push(InstallEffect::RejectApproval(InstallFailure::Expired));
             }
         },
         InstallEvent::SwapSucceeded => {
-            if matches!(state, InstallState::Swapping { .. }) {
-                *state = InstallState::Idle;
+            if matches!(machine.state, InstallState::Swapping { .. }) {
+                machine.state = InstallState::Idle;
             }
         }
         InstallEvent::SwapFailed { reason, message } => {
-            if let InstallState::Swapping { staged_dir, .. } = state {
+            if let InstallState::Swapping { staged_dir, .. } = &machine.state {
                 effects.push(InstallEffect::RemoveStagingDir(staged_dir.clone()));
-                *state = InstallState::Failed { reason, message };
+                machine.state = InstallState::Failed { reason, message };
             }
         }
         InstallEvent::Cancel => {
-            if matches!(state, InstallState::Swapping { .. }) {
+            if matches!(machine.state, InstallState::Swapping { .. }) {
                 return effects;
             }
-            if let InstallState::Reviewing { staged_dir, .. } = std::mem::take(state) {
+            if let InstallState::Reviewing { staged_dir, .. } = std::mem::take(&mut machine.state) {
                 effects.push(InstallEffect::RemoveStagingDir(staged_dir));
             }
-            *state = InstallState::Idle;
+            machine.state = InstallState::Idle;
         }
         InstallEvent::ExtensionRemoved { id } => {
-            if let InstallState::Reviewing { record, .. } = state
+            if let InstallState::Reviewing { record, .. } = &machine.state
                 && record.id == id
-                && let InstallState::Reviewing { staged_dir, .. } = std::mem::take(state)
+                && let InstallState::Reviewing { staged_dir, .. } = std::mem::take(&mut machine.state)
             {
                 effects.push(InstallEffect::RemoveStagingDir(staged_dir));
-                *state = InstallState::Idle;
+                machine.state = InstallState::Idle;
             }
         }
     }
