@@ -172,10 +172,15 @@ pub fn appearance() -> (f32, bool) {
     APPEARANCE.get()
 }
 
-/// Whether node `n` holds a canvas or shader that fills the height left in full screen.
+/// Whether a canvas or shader `fill` grows in full screen: by default, unless `fill: false`.
+pub(crate) fn grows(fill: Option<bool>) -> bool {
+    fill != Some(false)
+}
+
+/// Whether node `n` holds a canvas or shader that grows into the height left in full screen.
 pub(crate) fn fills(n: &Node) -> bool {
     let mut any = false;
-    n.walk(&mut |n| any |= matches!(n, Node::Canvas { fill: Some(true), .. } | Node::Shader { fill: Some(true), .. }));
+    n.walk(&mut |n| any |= matches!(n, Node::Canvas { fill, .. } | Node::Shader { fill, .. } if grows(*fill)));
     any
 }
 

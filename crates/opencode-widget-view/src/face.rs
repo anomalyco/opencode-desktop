@@ -275,20 +275,21 @@ pub fn screen<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, 
         _ => vec![row().key("loading").gap(8.0).items_center().child(Loader::new().size(14.0).build(k))],
     };
     let words = look.words.exit_fullscreen.clone();
+    // No title bar: only a small close button floating in the top corner.
     let close = el()
         .key("close")
-        .size(32.0, 32.0)
-        .radius(8.0)
+        .size(26.0, 26.0)
+        .radius(13.0)
         .center()
         .cursor(rune::Cursor::Pointer)
-        .fill(c.bg_base)
+        .fill(c.bg_base.alpha(0.7))
         .border(0.5, c.border_weak)
         .hover(c.surface_weak)
         .role("button")
         .label(words.clone())
         .help(words)
         .on_press_tx(move |s: &mut S, tx: &mut Tx| close(s, tx))
-        .child(icon(k.glyph.close, 14.0).color(c.icon_base));
+        .child(icon(k.glyph.close, 12.0).color(c.icon_base));
     let root = el().key("widget-screen");
     let root = match hooks {
         Some(h) if live => keyboard(look, local, h, root),
@@ -307,5 +308,5 @@ pub fn screen<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, 
                 .scroll(rune::ScrollSpec { stick_bottom: false })
                 .child(col().key("body").w_full().min_h(height.max(0.0)).padding(PAD).gap(12.0).children(content)),
         )
-        .child(close.pin(None, Some(12.0), Some(12.0), None))
+        .child(close.pin(None, Some(8.0), Some(8.0), None))
 }

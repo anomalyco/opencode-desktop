@@ -154,7 +154,8 @@ const FULLSCREEN_SOURCE: &str = r##"function init(data) {
 function view(state, data) {
   return ui.column({ gap: 2 }, [
     ui.text(state.full ? "Starfield, full screen" : "Starfield", { style: "title" }),
-    ui.canvas({ key: "sky", height: 180, fps: 30, fill: true, alt: "A starfield" }),
+    ui.canvas({ key: "sky", height: 180, fps: 30, alt: "A starfield" }),
+    ui.canvas({ key: "bar", height: 28, fill: false, alt: "A status bar that keeps its height" }),
     !state.full && ui.text("Hover the widget and press the expand button.", { style: "caption", tone: "muted" }),
   ])
 }
@@ -165,6 +166,11 @@ function onFullscreen(state, on) {
 
 function draw(state, data, frame) {
   const g = ui.draw()
+  if (frame.key === "bar") {
+    g.rrect(0, 0, frame.width, frame.height, 6, "surface")
+    g.text(12, 19, (frame.fullscreen ? "Full screen" : "Inline") + " · this bar keeps its 28 pt (fill: false)", { size: 12, color: "muted" })
+    return g
+  }
   g.rect(0, 0, frame.width, frame.height, { fill: { linear: [0, 0, 0, frame.height], stops: [[0, "#0b1026"], [1, "#3b1d5c"]] } })
   for (let i = 0; i < data.stars; i++) {
     const x = (Math.sin(i * 12.9898) * 43758.5453) % 1 + (Math.sin(i * 12.9898) < 0 ? 1 : 0)

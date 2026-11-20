@@ -236,7 +236,8 @@ pub enum Node {
         duration: Option<f64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         alt: Option<String>,
-        /// In full screen, grows to take the remaining height (`height` is the minimum).
+        /// In full screen it grows to share the remaining height (`height` is the minimum) unless
+        /// `false`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         fill: Option<bool>,
         /// On the root: offer full screen (`true`), never (`false`); absent, offered for live
