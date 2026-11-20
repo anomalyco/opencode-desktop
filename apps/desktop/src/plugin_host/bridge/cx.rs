@@ -78,7 +78,7 @@ pub enum Request {
     /// A folder on a server to open a draft in (`Layout:OpenProject`).
     OpenProject { server: String, title: String },
     RunCommand { id: String, input: Option<String> },
-    OpenLink { href: String },
+    OpenLink { href: String, tool_sid: Option<Option<String>>, in_tool: bool },
     OpenExternal(String),
     Reveal(String),
     CopyText(String),

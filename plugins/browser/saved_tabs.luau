@@ -111,7 +111,9 @@ function savedTabs.save(saved: SavedStore, session: string, tabs: { Reported }):
     end
     local nextList: { SavedTab } = {}
     for _, tab in tabs do
-        if tab.url ~= "" and tab.url ~= "about:blank" then
+        local lower = string.lower(tab.url)
+        -- Only persist regular HTTP(S) web tabs; never previews, artifacts, or local `file://`.
+        if string.match(lower, "^https?://") ~= nil then
             local before: SavedTab? = nil
             for _, item in earlier do
                 if item.id == tab.id then

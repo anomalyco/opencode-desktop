@@ -70,7 +70,7 @@ impl TabMenuState {
         action: Option<ContextMenuCommand>,
         browser: &Browser,
         host: &BrowserHost,
-        file_roots: &[String],
+        _file_roots: &[String],
         is_preview: bool,
     ) {
         let matched = {
@@ -119,10 +119,7 @@ impl TabMenuState {
                 }
             }
             ContextMenuCommand::SaveImage { url } => {
-                if !is_preview
-                    && (browser_policy::destination_origin(&url).is_some()
-                        || browser_policy::file_url_within(&url, file_roots))
-                {
+                if !is_preview && browser_policy::destination_origin(&url).is_some() {
                     host.start_download(Some(&CefString::from(url.as_str())));
                 }
             }
@@ -138,7 +135,7 @@ impl TabMenuState {
 
 fn allowed_menu_url(
     raw: &str,
-    roots: &[String],
+    _roots: &[String],
     preview: Option<&Arc<crate::preview::PreviewGrant>>,
 ) -> Option<String> {
     let trimmed = raw.trim();
@@ -153,13 +150,9 @@ fn allowed_menu_url(
             .is_some()
             .then(|| trimmed.to_owned());
     }
-    if browser_policy::destination_origin(trimmed).is_some()
-        || browser_policy::file_url_within(trimmed, roots)
-    {
-        Some(trimmed.to_owned())
-    } else {
-        None
-    }
+    browser_policy::destination_origin(trimmed)
+        .is_some()
+        .then(|| trimmed.to_owned())
 }
 
 wrap_context_menu_handler! {

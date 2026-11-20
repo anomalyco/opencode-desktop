@@ -100,6 +100,7 @@ impl EngineManager {
         out_tx: crate::output::Output,
         downloads: std::path::PathBuf,
         events: std::sync::mpsc::Sender<crate::Event>,
+        previews: Arc<PreviewRegistry>,
         #[cfg(windows)] gpu: Option<Arc<crate::d3d_frames::Gpu>>,
         #[cfg(target_os = "linux")] transport: crate::dmabuf_frames::Transport,
         extensions: Option<crate::extensions::ExtensionHost>,
@@ -126,7 +127,7 @@ impl EngineManager {
             home: crate::profile::home_dir(),
             downloads: crate::downloads::Downloads::open(&downloads),
             prompt_shared: crate::prompts::PromptShared::default(),
-            previews: PreviewRegistry::new(),
+            previews,
             contexts: crate::context::ContextPool::new(events),
             #[cfg(windows)]
             gpu,
@@ -365,6 +366,7 @@ impl EngineManager {
                     remote_proxy: true,
                     agent_tools: true,
                     preview: true,
+                    preview_credit: true,
                     extensions: true,
                 });
                 for (&tab_id, t) in &self.tabs {
@@ -410,7 +412,7 @@ impl EngineManager {
                 height_pt,
                 scale,
                 focused,
-                file_roots,
+                file_roots: _,
                 context,
                 preview,
                 agent_driven,
@@ -419,12 +421,8 @@ impl EngineManager {
                 is_popup,
                 ext_open_request_id,
             } => {
-                // Only `Default` non-preview, non-isolated tabs receive local `file://` roots.
-                let roots = if preview.is_some() || context.is_isolated() || isolated {
-                    Vec::new()
-                } else {
-                    self.safe_roots(file_roots)
-                };
+                // Raw `file://` is banned unconditionally engine-wide; local workspace previews use
+                // isolated `oc-preview://` grants instead of `file_roots`.
                 self.open_tab(
                     tab_id,
                     &url,
@@ -432,7 +430,7 @@ impl EngineManager {
                     height_pt,
                     scale,
                     focused,
-                    roots,
+                    Vec::new(),
                     context,
                     preview,
                     agent_driven,
@@ -448,14 +446,9 @@ impl EngineManager {
             HostMsg::ReloadExtension { ext_id } => self.cmd_reload_extension(&ext_id),
             HostMsg::CancelExtensionOpenTab { request_id } => self.cmd_cancel_extension_open_tab(request_id),
             HostMsg::ExtensionMetrics { request_id } => self.cmd_extension_metrics(request_id),
-            HostMsg::SetTabPolicy { tab_id, file_roots } => {
+            HostMsg::SetTabPolicy { tab_id, file_roots: _ } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
-                    if t.preview.is_some() || t.context.is_isolated() {
-                        t.file_roots.lock().unwrap().clear();
-                    } else {
-                        let roots = self.safe_roots(file_roots);
-                        *t.file_roots.lock().unwrap() = roots;
-                    }
+                    t.file_roots.lock().unwrap().clear();
                 }
             }
             HostMsg::CloseTab { tab_id } => self.close_managed_tab(tab_id),
@@ -1449,13 +1442,6 @@ impl EngineManager {
             reason: reason.to_owned(),
         });
         self.close_managed_tab(tab_id);
-    }
-
-    fn safe_roots(&self, roots: Vec<String>) -> Vec<String> {
-        roots
-            .into_iter()
-            .filter(|r| browser_policy::is_safe_local_workspace_root(r, self.home.as_deref()))
-            .collect()
     }
 
     fn send_color_scheme(&self, host: &BrowserHost, dark: bool) {

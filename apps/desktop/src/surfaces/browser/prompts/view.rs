@@ -98,11 +98,16 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
     }
 
     if let Some((url, count, _armed)) = tab.prompts.popup.blocked() {
-        let host = short_host(url);
+        let isolated = tab.preview.is_some() || tab.context.is_isolated();
+        let dest = if isolated {
+            bounded_origin_url(url)
+        } else {
+            short_host(url)
+        };
         let msg = if count > 1 {
-            format!("{} ({count}) — {host}", t!("rune.browser.prompt.popup.blocked"))
-        } else if !host.is_empty() {
-            format!("{} — {host}", t!("rune.browser.prompt.popup.blocked"))
+            format!("{} ({count}) — {dest}", t!("rune.browser.prompt.popup.blocked"))
+        } else if !dest.is_empty() {
+            format!("{} — {dest}", t!("rune.browser.prompt.popup.blocked"))
         } else {
             t!("rune.browser.prompt.popup.blocked").to_owned()
         };
@@ -112,6 +117,8 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
             .on_press(move |app: &mut App| {
                 // `take_blocked_popup_url` enforces the 500 ms activation delay.
                 if let Some(url) = app.workspace_panes.browser.host.take_blocked_popup_url(tab_id)
+                    && url.len() <= 16_384
+                    && browser_pane::policy::destination_origin(&url).is_some()
                     && let Some((driver, ctx)) = app.browser_context_for_opener(tab_id)
                 {
                     let sid = app.browser_tab_session(tab_id).map(str::to_owned);
@@ -148,7 +155,9 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
     if let Some(queued) = tab.prompts.permission.active() {
         let req_id = queued.request.id;
         let agent = queued.agent_driven;
-        let preview = queued.request.origin.to_ascii_lowercase().starts_with("oc-preview:");
+        let preview = tab.preview.is_some()
+            || tab.context.is_isolated()
+            || queued.request.origin.to_ascii_lowercase().starts_with("oc-preview:");
         let can_remember = !agent && !preview;
         let waiting = tab.prompts.permission.waiting_count();
         let sentence = permission_sentence(&queued.request.origin, &queued.request.kinds);
@@ -560,6 +569,28 @@ fn modal_frame(
             }
         })
         .child(card)
+}
+
+/// Full-origin + bounded path display (max 96 chars) for blocked pop-ups from isolated/preview
+/// tabs so the user sees the complete scheme, host, and port before clicking Open.
+fn bounded_origin_url(url: &str) -> String {
+    let origin = browser_pane::policy::destination_origin(url);
+    let shown = origin.as_deref().unwrap_or(url);
+    let tail = origin
+        .as_deref()
+        .and_then(|o| url.get(o.len()..))
+        .unwrap_or("");
+    let full = if tail.is_empty() || tail == "/" {
+        shown.to_owned()
+    } else {
+        format!("{shown}{tail}")
+    };
+    if full.chars().count() > 96 {
+        let head: String = full.chars().take(95).collect();
+        format!("{head}…")
+    } else {
+        full
+    }
 }
 
 /// UTF-8 safe left-elided authority display (up to 64 characters, keeping the registrable tail).
