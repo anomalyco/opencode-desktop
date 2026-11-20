@@ -399,21 +399,75 @@ pub fn resolve_address(input: &str) -> String {
 }
 
 pub fn loopback_host(hostname: &str) -> bool {
-    let h = hostname.trim_end_matches('.');
-    if h.eq_ignore_ascii_case("localhost") || h == "::1" || h == "[::1]" {
+    let h = hostname.trim().trim_end_matches('.');
+    if h.eq_ignore_ascii_case("localhost") {
         return true;
     }
     if h.len() > 10 && h.as_bytes()[h.len() - 10..].eq_ignore_ascii_case(b".localhost") {
         return true;
     }
-    let mut parts = h.split('.');
-    if let (Some(a), Some(b), Some(c), Some(d), None) = (parts.next(), parts.next(), parts.next(), parts.next(), parts.next())
-        && a == "127"
-        && [b, c, d].into_iter().all(|p| p.parse::<u8>().is_ok())
-    {
+    let unbracketed = h.strip_prefix('[').and_then(|s| s.strip_suffix(']')).unwrap_or(h);
+    if let Ok(v6) = unbracketed.parse::<std::net::Ipv6Addr>() {
+        return v6.is_loopback()
+            || v6.to_ipv4_mapped().is_some_and(|v4| v4.is_loopback())
+            || v6.to_ipv4().is_some_and(|v4| v4.is_loopback());
+    }
+    parse_ipv4_u32(unbracketed).is_some_and(|ip| (ip >> 24) == 127)
+}
+
+/// Like [`loopback_host`], also matching unspecified addresses (`0.0.0.0`, `::`, `::ffff:0.0.0.0`)
+/// which route to localhost on Unix/macOS/Linux and should not open in the user's external browser
+/// from a remote server.
+pub fn is_loopback_or_unspecified_host(hostname: &str) -> bool {
+    if loopback_host(hostname) {
         return true;
     }
-    false
+    let h = hostname.trim().trim_end_matches('.');
+    let unbracketed = h.strip_prefix('[').and_then(|s| s.strip_suffix(']')).unwrap_or(h);
+    if let Ok(v6) = unbracketed.parse::<std::net::Ipv6Addr>() {
+        return v6.is_unspecified() || v6.to_ipv4_mapped().is_some_and(|v4| v4.is_unspecified());
+    }
+    parse_ipv4_u32(unbracketed).is_some_and(|ip| ip == 0)
+}
+
+/// Parses WHATWG/BSD IPv4 address forms (dotted decimal, shorthand `127.1`, single decimal
+/// `2130706433`, hex `0x7f000001`, octal `0177.0.0.1`) into a big-endian `u32`.
+fn parse_ipv4_u32(input: &str) -> Option<u32> {
+    if input.is_empty() {
+        return None;
+    }
+    let parts: Vec<&str> = input.split('.').collect();
+    if parts.is_empty() || parts.len() > 4 {
+        return None;
+    }
+    let mut nums = Vec::with_capacity(parts.len());
+    for part in &parts {
+        if part.is_empty() {
+            return None;
+        }
+        let n = if let Some(hex) = part.strip_prefix("0x").or_else(|| part.strip_prefix("0X")) {
+            if hex.is_empty() { return None; }
+            u64::from_str_radix(hex, 16).ok()?
+        } else if part.len() > 1 && part.starts_with('0') {
+            u64::from_str_radix(part, 8).ok()?
+        } else {
+            part.parse::<u64>().ok()?
+        };
+        nums.push(n);
+    }
+    let last = *nums.last()?;
+    let limit = 1u64 << (8 * (5 - nums.len()));
+    if last >= limit {
+        return None;
+    }
+    let mut ip = last;
+    for (i, &n) in nums[..nums.len() - 1].iter().enumerate() {
+        if n > 255 {
+            return None;
+        }
+        ip |= n << (8 * (3 - i));
+    }
+    u32::try_from(ip).ok()
 }
 
 fn is_loopback_authority(value: &str) -> bool {
