@@ -92,12 +92,16 @@ wrap_download_handler! {
     pub struct TabDownloadHandler {
         tab_id: u64,
         file_roots: Arc<Mutex<Vec<String>>>,
+        is_preview: bool,
         downloads: Arc<Downloads>,
         out_tx: Output,
     }
 
     impl DownloadHandler {
         fn can_download(&self, _browser: Option<&mut Browser>, url: Option<&CefString>, _method: Option<&CefString>) -> ::std::os::raw::c_int {
+            if self.is_preview {
+                return 0;
+            }
             let url = url.map(CefString::to_string).unwrap_or_default();
             let roots = self.file_roots.lock().unwrap().clone();
             if !browser_policy::subresource_allowed(&url, &roots) || browser_policy::is_http_with_credentials(&url) {
@@ -106,7 +110,9 @@ wrap_download_handler! {
             1
         }
 
-        // Where it goes, with no dialog. Returning 1 says the callback is taken; 0 cancels it.
+        // Where it goes, with no dialog. Returning 1 says the callback is taken; returning 1
+        // without calling `callback.cont()` cancels the download (e.g. for preview tabs, even if
+        // `host.start_download` bypassed `can_download`).
         fn on_before_download(
             &self,
             _browser: Option<&mut Browser>,
@@ -114,6 +120,9 @@ wrap_download_handler! {
             suggested_name: Option<&CefString>,
             callback: Option<&mut BeforeDownloadCallback>,
         ) -> ::std::os::raw::c_int {
+            if self.is_preview {
+                return 1;
+            }
             let (Some(item), Some(callback)) = (item, callback) else { return 0 };
             let name = suggested_name.map(|n| n.to_string()).filter(|n| !n.is_empty()).unwrap_or_else(|| "file".to_owned());
             let id = format!("file_{}", self.downloads.next.fetch_add(1, Ordering::Relaxed));
@@ -143,6 +152,12 @@ wrap_download_handler! {
         }
 
         fn on_download_updated(&self, _browser: Option<&mut Browser>, item: Option<&mut DownloadItem>, callback: Option<&mut DownloadItemCallback>) {
+            if self.is_preview {
+                if let Some(callback) = callback {
+                    callback.cancel();
+                }
+                return;
+            }
             let Some(item) = item else { return };
             if self.downloads.closed.lock().unwrap().contains(&self.tab_id) {
                 if let Some(callback) = callback {
