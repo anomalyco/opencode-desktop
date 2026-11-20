@@ -121,8 +121,8 @@ fn owner(all: &[Panel], tab: &str) -> Option<usize> {
     all.iter().position(|p| p.list.is_none() && p.spec.id == tab).or_else(|| all.iter().position(|p| p.list.is_some()))
 }
 
-fn icon_of(spec: &PanelSpec) -> &'static rune::Icon {
-    resolve("", spec.icon.as_deref().unwrap_or("window-analytics"))
+fn icon_of(plugin: &str, spec: &PanelSpec) -> &'static rune::Icon {
+    resolve(plugin, spec.icon.as_deref().unwrap_or("window-analytics"))
 }
 
 /// The plugin's tabs for the routed session: one per single panel, and the instance panels'
@@ -136,7 +136,7 @@ pub fn list(app: &App, ctx: &PanelSessionCtx) -> Vec<PanelTabDesc> {
                 Some(Data::String(t)) => t,
                 _ => p.spec.title.clone(),
             };
-            let mut tab = PanelTabDesc::new(p.spec.id.clone(), title).icon(icon_of(&p.spec));
+            let mut tab = PanelTabDesc::new(p.spec.id.clone(), title).icon(icon_of(ctx.plugin, &p.spec));
             if p.spec.transient == Some(true) {
                 tab = tab.transient();
             }
@@ -155,7 +155,7 @@ pub fn list(app: &App, ctx: &PanelSessionCtx) -> Vec<PanelTabDesc> {
         }
         let tabs = listed(app, &app.plugins.list[i], list, ctx.plugin, &p.spec.id, ctx.session_id, &open);
         let group = intern(&p.spec.id);
-        out.extend(tabs.into_iter().filter(|t| open.contains(&t.instance)).map(|t| instance_tab(&p.spec, group, t)));
+        out.extend(tabs.into_iter().filter(|t| open.contains(&t.instance)).map(|t| instance_tab(ctx.plugin, &p.spec, group, t)));
     }
     out
 }
@@ -193,11 +193,11 @@ fn listed(app: &App, owner: &Plugin, list: &Function, plugin: &str, panel: &str,
     tabs
 }
 
-fn instance_tab(spec: &PanelSpec, group: &'static str, t: PanelTab) -> PanelTabDesc {
+fn instance_tab(plugin: &str, spec: &PanelSpec, group: &'static str, t: PanelTab) -> PanelTabDesc {
     let icon = match (&t.icon, &t.file) {
-        (Some(name), _) => resolve("", name),
+        (Some(name), _) => resolve(plugin, name),
         (None, Some(file)) => rune_theme_opencode::file_icons::file(opencode_kit::path::basename(file)),
-        (None, None) => icon_of(spec),
+        (None, None) => icon_of(plugin, spec),
     };
     let mut tab = PanelTabDesc::new(t.instance, t.title).icon(icon).group(group).missing(t.missing == Some(true));
     if let Some(file) = t.file {
@@ -303,7 +303,7 @@ pub fn launchers(app: &App, ctx: &PanelSessionCtx) -> Vec<PanelLauncherDesc> {
     let manifest = &app.plugins.list[i].manifest;
     let own = all.iter().filter(|p| p.list.is_none() && p.spec.launcher != Some(false) && offered(app, i, p, ctx.session_id)).map(|p| {
         let description = p.spec.description.clone().or_else(|| manifest.description.clone());
-        PanelLauncherDesc::new(intern(&p.spec.id), p.spec.title.clone(), icon_of(&p.spec), p.spec.order.unwrap_or(0) as i32)
+        PanelLauncherDesc::new(intern(&p.spec.id), p.spec.title.clone(), icon_of(ctx.plugin, &p.spec), p.spec.order.unwrap_or(0) as i32)
             .description(description)
             .opened(ctx.open_ids.contains(&p.spec.id))
     });
@@ -328,7 +328,7 @@ fn asleep_launchers(app: &App, ctx: &PanelSessionCtx) -> Vec<PanelLauncherDesc> 
         .filter(|q| !fns(q.key, "list") && !fns(q.key, "enabled") && q.spec.launcher != Some(false) && q.spec.enabled != Some(false))
         .map(|q| {
             let description = q.spec.description.clone().or_else(|| p.manifest.description.clone());
-            PanelLauncherDesc::new(intern(&q.spec.id), q.spec.title.clone(), icon_of(&q.spec), q.spec.order.unwrap_or(0) as i32).description(description).opened(ctx.open_ids.contains(&q.spec.id))
+            PanelLauncherDesc::new(intern(&q.spec.id), q.spec.title.clone(), icon_of(id, &q.spec), q.spec.order.unwrap_or(0) as i32).description(description).opened(ctx.open_ids.contains(&q.spec.id))
         })
         .collect();
     drop(c);
@@ -397,7 +397,14 @@ pub fn closed_info(app: &App, plugin: &str, session: &str, tab: &PanelTabDesc) -
             None => return ClosedTabInfo::Default,
         },
     };
-    ClosedTabInfo::Allow(ClosedPanelTab { title: closed.title, icon_name: closed.icon, detail: closed.detail, data: closed.data })
+    let icon_name = closed.icon.map(|name| {
+        if !name.contains(':') && crate::plugin_host::icons::has_icon(plugin, &name) {
+            format!("{plugin}:{name}")
+        } else {
+            name
+        }
+    });
+    ClosedTabInfo::Allow(ClosedPanelTab { title: closed.title, icon_name, detail: closed.detail, data: closed.data })
 }
 
 /// Brings `tab` of `session` back from Recently closed with its panel's `restore`; false when

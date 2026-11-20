@@ -107,6 +107,12 @@ pub trait PanelsHost: opencode_kernel::AppEnv {
         None
     }
 
+    /// Resolves a stored closed-tab icon without waking dormant plugin VMs.
+    fn resolve_closed_icon(&self, key: &str, name: Option<&str>) -> &'static rune::Icon {
+        let _ = key;
+        crate::icon_by_name(name)
+    }
+
     /// Monotonic version of plugin-contributed panel surfaces for region memoization.
     fn plugin_surfaces_version(&self) -> u64 {
         0

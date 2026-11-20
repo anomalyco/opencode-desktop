@@ -76,23 +76,93 @@ pub fn intern_icon(plugin: &str, name: &str, body: &str, view: f32) -> u32 {
     id
 }
 
-/// Moves whenever a plugin names an icon, so a name [`resolve`] remembered resolves again.
+/// Hard cap on distinct icon files one plugin may register.
+pub const MAX_ICONS_PER_PLUGIN: usize = 64;
+
+/// Moves whenever a plugin names or withdraws an icon, so a name [`resolve`] remembered resolves again.
 static NAMED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-/// Interns plugin `plugin`'s SVG file as its icon `name`: the `<svg>` element's content, sized
-/// by its `viewBox` width (else its `width`, else 16). False when it isn't an `<svg>`.
-pub fn intern_svg(plugin: &str, name: &str, svg: &str) -> bool {
-    let Some(open) = svg.find("<svg") else { return false };
-    let Some(end) = svg[open..].find('>').map(|e| open + e + 1) else { return false };
-    let Some(close) = svg.rfind("</svg>").filter(|c| *c >= end) else { return false };
-    let tag = &svg[open..end];
-    let attr = |key: &str| tag.split(&format!("{key}=\"")).nth(1).and_then(|rest| rest.split('"').next());
-    let view = attr("viewBox")
-        .and_then(|v| v.split_whitespace().nth(2))
-        .or_else(|| attr("width"))
-        .and_then(|w| w.trim_end_matches("px").parse::<f32>().ok())
-        .unwrap_or(16.0);
-    intern_icon(plugin, name, svg[end..close].trim(), view) != 0
+/// Sanitizes and interns plugin `plugin`'s SVG file as its icon `name`, returning an error reason
+/// without interning anything when the SVG fails hostile-input checks.
+pub fn intern_svg(plugin: &str, name: &str, svg: &str) -> Result<(), &'static str> {
+    let clean = crate::svg::sanitize(svg)?;
+    if intern_icon(plugin, name, &clean.body, clean.view) == 0 {
+        return Err("failed to intern sanitized icon");
+    }
+    Ok(())
+}
+
+/// Replaces all icons registered for `plugin` with sanitized entries from `(name, svg)` pairs.
+/// Withdraws icons no longer present, enforces [`MAX_ICONS_PER_PLUGIN`], and returns any rejected
+/// `(name, reason)` entries so the host can log them to the plugin console.
+pub fn replace_plugin(plugin: &str, entries: &[(&str, &str)]) -> Vec<(String, &'static str)> {
+    let mut rejected = Vec::new();
+    let mut next_ids: Vec<(String, u32)> = Vec::new();
+    for &(name, svg) in entries {
+        if next_ids.len() >= MAX_ICONS_PER_PLUGIN {
+            rejected.push((name.to_owned(), "plugin exceeds 64 icon limit"));
+            continue;
+        }
+        match crate::svg::sanitize(svg) {
+            Ok(clean) => {
+                let id = intern_icon_raw(plugin, name, &clean.body, clean.view);
+                if id != 0 {
+                    next_ids.push((name.to_owned(), id));
+                }
+            }
+            Err(why) => rejected.push((name.to_owned(), why)),
+        }
+    }
+    let mut guard = pool();
+    let pool = guard.get_or_insert_with(Pool::default);
+    if next_ids.is_empty() {
+        pool.named.remove(plugin);
+    } else {
+        let map = pool.named.entry(plugin.to_owned()).or_default();
+        map.clear();
+        for (name, id) in next_ids {
+            map.insert(name, id);
+        }
+    }
+    NAMED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    rejected
+}
+
+/// Withdraws all icons registered for `plugin` (on unload, disable, or trust revocation).
+pub fn clear_plugin(plugin: &str) {
+    let mut guard = pool();
+    if let Some(pool) = guard.as_mut()
+        && pool.named.remove(plugin).is_some()
+    {
+        NAMED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// Whether `plugin` currently has a registered icon named `name`.
+pub fn has_icon(plugin: &str, name: &str) -> bool {
+    !plugin.is_empty() && intern_icon(plugin, name, "", 0.0) != 0
+}
+
+fn intern_icon_raw(plugin: &str, name: &str, body: &str, view: f32) -> u32 {
+    if body.is_empty() {
+        return 0;
+    }
+    let mut h = std::hash::DefaultHasher::new();
+    (plugin, name, body, view.to_bits()).hash(&mut h);
+    let content = h.finish();
+    let icon_name = intern(&format!("plugin-{plugin}-{name}-{content:016x}"));
+    let body = intern(body);
+    let mut guard = pool();
+    let pool = guard.get_or_insert_with(Pool::default);
+    match pool.by_content.get(&content) {
+        Some(&id) => id,
+        None => {
+            pool.icons.push(Box::leak(Box::new(Icon { name: icon_name, view: if view > 0.0 { view } else { 16.0 }, body })));
+            let id = pool.icons.len() as u32;
+            pool.by_content.insert(content, id);
+            id
+        }
+    }
 }
 
 /// The icon with id `id`.
@@ -151,6 +221,14 @@ pub fn panel_icon(name: &str) -> &'static Icon {
 }
 
 fn resolve_fresh(plugin: &str, name: &str) -> &'static Icon {
+    // `<owner>:<icon>`: explicit plugin-qualified icon name for cross-surface persistence
+    // (such as closed tabs or menus). Never falls through to another plugin's icon when unloaded.
+    if let Some((owner, icon_name)) = name.split_once(':')
+        && !owner.is_empty()
+        && !icon_name.is_empty()
+    {
+        return icon(intern_icon(owner, icon_name, "", 0.0)).unwrap_or_else(|| panel_icon(icon_name));
+    }
     let own = intern_icon(plugin, name, "", 0.0);
     // Icons the host made itself (a QR code) go by the empty plugin.
     let host = || intern_icon("", name, "", 0.0);

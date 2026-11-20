@@ -27,6 +27,7 @@ pub mod redraw;
 pub mod reveal;
 pub mod server_sources;
 pub mod sources;
+pub mod svg;
 pub mod tasks;
 pub mod theme;
 pub mod ui_nodes;
