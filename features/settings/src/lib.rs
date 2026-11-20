@@ -107,8 +107,9 @@ pub struct Settings {
     /// Questions take the keyboard-first dock instead of Classic (Desktop's `general.newQuestionUI`,
     /// Settings › Experimental › New question UI). Off unless turned on, as there.
     pub new_question_ui: bool,
-    /// Experimental side tab groups (`general.tabGroups`, #64407): `None` until set, defaulting to
-    /// on in local/dev desktop builds only (`settings/model.tsx`).
+    /// Experimental side tab groups (`general.tabGroups`, #64407): `None` until toggled,
+    /// defaulting to `false` across all packaged builds (`local`, `dev`, `beta`, `prod`) to match
+    /// upstream `settings/model.tsx:460-463` (`import.meta.env.DEV && VITE_OPENCODE_TEST_FIXTURES !== "1"`).
     pub tab_groups: Option<bool>,
     /// Ease a live delivery into place: the Pending label, the tray's room and joined prompts.
     pub smooth_timeline: bool,
@@ -220,9 +221,10 @@ impl Settings {
         v
     }
 
-    /// Experimental › Tab groups, with local/dev desktop fallback (`general.tabGroups`, #64407).
+    /// Experimental › Tab groups (`general.tabGroups`, #64407): opt-in (`false` by default) in
+    /// every build while preserving any explicit `Some(true)` / `Some(false)` saved by the user.
     pub fn tab_groups(&self) -> bool {
-        self.tab_groups.unwrap_or(!cfg!(target_arch = "wasm32") && matches!(build_channel(), "local" | "dev"))
+        self.tab_groups.unwrap_or(false)
     }
 
     fn to_json_base(&self) -> Value {
