@@ -48,6 +48,10 @@ pub trait TipsHost: opencode_kernel::AppEnv {
     fn is_connected(&self) -> bool;
     /// Whether this window is focused and visible (eligible to display a tip toast).
     fn is_window_open(&self) -> bool;
+    /// Whether the pointer cannot hover (`(hover: none)` in `packages/app/src/tips/model.ts`, #64583).
+    fn is_touch_device(&self) -> bool {
+        false
+    }
     /// Opaque key for the currently shown route; changes count as user activity.
     fn route_key(&self) -> TipRoute;
     /// Whether the server's MCP list contains `browse`; `None` until the list has been fetched.
@@ -166,6 +170,7 @@ fn poll_with(host: &mut dyn TipsHost, focused: bool) -> bool {
         hex_installed: Some(false),
         #[cfg(not(target_arch = "wasm32"))]
         hex_installed: HEX_INSTALLED.get().copied(),
+        touch: host.is_touch_device(),
         online: host.is_connected(),
         open: host.is_window_open(),
         acted,
