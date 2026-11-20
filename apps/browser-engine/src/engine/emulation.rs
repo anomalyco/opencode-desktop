@@ -37,11 +37,15 @@ pub(super) fn apply(device: Option<&Device>, scale: f32, mut send: impl FnMut(&s
     let Some(d) = device else {
         return send("Emulation.clearDeviceMetricsOverride", json!({}));
     };
-    let mut metrics = json!({"width":d.width,"height":d.height,"scale":scale,"mobile":mobile,"deviceScaleFactor":0,"dontSetVisibleSize":true});
+    // Stand alone against a modified host (`notes/for-dax.md` §0): bound CSS dimensions and scale.
+    let width = d.width.clamp(1, 4096);
+    let height = d.height.clamp(1, 4096);
+    let scale = if scale.is_finite() { scale.clamp(0.25, 4.0) } else { 1.0 };
+    let mut metrics = json!({"width":width,"height":height,"scale":scale,"mobile":mobile,"deviceScaleFactor":0,"dontSetVisibleSize":true});
     if mobile {
-        metrics["screenWidth"] = d.width.into();
-        metrics["screenHeight"] = d.height.into();
-        let landscape = d.width > d.height;
+        metrics["screenWidth"] = width.into();
+        metrics["screenHeight"] = height.into();
+        let landscape = width > height;
         metrics["screenOrientation"] = json!({"type":if landscape { "landscapePrimary" } else { "portraitPrimary" },"angle":if landscape { 90 } else { 0 }});
     }
     send("Emulation.setDeviceMetricsOverride", metrics);

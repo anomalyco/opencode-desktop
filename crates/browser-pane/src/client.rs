@@ -706,7 +706,7 @@ impl BrowserHost {
                 deferred.push((tab_id, url));
                 continue;
             }
-            let (open_url, ((width_pt, height_pt), scale), file_roots) =
+            let (open_url, ((width_pt, height_pt), scale), file_roots, emulate) =
                 if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
                     t.sent_resize = Some((t.viewport_pt.0, t.viewport_pt.1, t.scale));
                     let open_url = if crate::policy::is_file_scheme(&url) && !engine_policy {
@@ -719,9 +719,10 @@ impl BrowserHost {
                         url
                     };
                     let roots = if engine_policy { t.file_roots.clone() } else { Vec::new() };
-                    (open_url, (t.viewport_pt, t.scale), roots)
+                    let emulate = t.device.as_ref().map(|d| (d.clone(), d.fit([t.viewport_pt.0, t.viewport_pt.1])));
+                    (open_url, (t.viewport_pt, t.scale), roots, emulate)
                 } else {
-                    (url, ((800.0, 600.0), 2.0), Vec::new())
+                    (url, ((800.0, 600.0), 2.0), Vec::new(), None)
                 };
             self.send(HostMsg::OpenTab {
                 tab_id,
@@ -732,6 +733,9 @@ impl BrowserHost {
                 focused: self.focused_tab == Some(tab_id),
                 file_roots,
             });
+            if let Some((device, emu_scale)) = emulate {
+                self.send(HostMsg::Emulate { tab_id, device: Some(device), scale: emu_scale });
+            }
         }
         self.pending_opens = deferred;
     }
@@ -804,21 +808,24 @@ impl BrowserHost {
                         s => self.send(HostMsg::SetColorScheme { dark: s == 2 }),
                     }
 
-                    // Tabs opened before it: their size and policy roots again (a reconnect forgets them).
-                    let roots_to_sync: Vec<(u64, Vec<String>)> = self
+                    // Tabs opened before it: their size, policy roots, and device emulation again
+                    // (a reconnect forgets them; `notes/for-dax.md` §0).
+                    let tabs_to_sync: Vec<(u64, Vec<String>, Option<(crate::device::Device, f32)>)> = self
                         .tabs
                         .iter_mut()
                         .filter(|t| !self.pending_opens.iter().any(|(id, _)| *id == t.id))
                         .map(|t| {
                             t.sent_resize = None;
-                            (t.id, t.file_roots.clone())
+                            let emu = t.device.as_ref().map(|d| (d.clone(), d.fit([t.viewport_pt.0, t.viewport_pt.1])));
+                            (t.id, t.file_roots.clone(), emu)
                         })
                         .collect();
-                    if policy {
-                        for (tab_id, file_roots) in roots_to_sync {
-                            if !file_roots.is_empty() {
-                                self.send(HostMsg::SetTabPolicy { tab_id, file_roots });
-                            }
+                    for (tab_id, file_roots, emulate) in tabs_to_sync {
+                        if policy && !file_roots.is_empty() {
+                            self.send(HostMsg::SetTabPolicy { tab_id, file_roots });
+                        }
+                        if let Some((device, scale)) = emulate {
+                            self.send(HostMsg::Emulate { tab_id, device: Some(device), scale });
                         }
                     }
                     self.flush_pending_opens();

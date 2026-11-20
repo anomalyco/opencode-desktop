@@ -69,6 +69,23 @@ fn state_dir() -> PathBuf {
 }
 
 
+/// The user's home directory, used to reject overly broad workspace `file_roots`.
+pub fn home_dir() -> Option<String> {
+    #[cfg(windows)]
+    {
+        std::env::var_os("USERPROFILE")
+            .or_else(|| std::env::var_os("HOME"))
+            .and_then(|v| v.into_string().ok())
+            .filter(|s| !s.is_empty())
+    }
+    #[cfg(not(windows))]
+    {
+        std::env::var_os("HOME")
+            .and_then(|v| v.into_string().ok())
+            .filter(|s| !s.is_empty())
+    }
+}
+
 /// An exclusive lock on `root`, held until the returned file closes (the process exits).
 fn lock(root: &Path) -> Option<File> {
     std::fs::create_dir_all(root).ok()?;

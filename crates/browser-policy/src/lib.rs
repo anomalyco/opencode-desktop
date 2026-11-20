@@ -585,7 +585,87 @@ fn lex_within(target: &str, root_lex: &str) -> bool {
             && cmp_target.as_bytes()[root_lex.len()] == b'/')
 }
 
+/// Whether `root` is a narrow enough workspace directory to confine `file://` URLs
+/// (`review-browser-policy.md` §5, matching `#63002` `disk/preview-scope.ts:25-31`).
+///
+/// Refuses filesystem roots (`/`), Windows drive roots (`C:\`), UNC share roots (`\\server\share`),
+/// and (when `home` is provided) the user's home directory and its top-level system directories
+/// (`Desktop`, `Documents`, `Downloads`, `AppData`, `AppData/Local`, `AppData/Roaming`, `Library`).
+pub fn is_safe_workspace_root(root: &str, home: Option<&str>) -> bool {
+    let Some(lex) = normalize_root_lex(root) else { return false };
+    if is_broad_root_lex(&lex) {
+        return false;
+    }
+    let home_lex = home.and_then(normalize_root_lex);
+    if home_lex.as_deref().is_some_and(|h| is_home_broad_lex(&lex, h)) {
+        return false;
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        if let Ok(canon) = std::fs::canonicalize(root)
+            && let Some(canon_lex) = normalize_root_lex(&canon.to_string_lossy())
+        {
+            if is_broad_root_lex(&canon_lex) {
+                return false;
+            }
+            if home_lex.as_deref().is_some_and(|h| is_home_broad_lex(&canon_lex, h)) {
+                return false;
+            }
+            if let Some(h_raw) = home
+                && let Ok(canon_home) = std::fs::canonicalize(h_raw)
+                && let Some(ch_lex) = normalize_root_lex(&canon_home.to_string_lossy())
+                && is_home_broad_lex(&canon_lex, &ch_lex)
+            {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+fn is_broad_root_lex(lex: &str) -> bool {
+    if lex == "/" {
+        return true;
+    }
+    if lex.len() == 2 && lex.as_bytes()[0].is_ascii_alphabetic() && lex.as_bytes()[1] == b':' {
+        return true;
+    }
+    if let Some(rest) = lex.strip_prefix("//") {
+        // UNC server (`//server`) or share root (`//server/share`).
+        return rest.split('/').filter(|s| !s.is_empty()).count() <= 2;
+    }
+    false
+}
+
+fn is_home_broad_lex(lex: &str, home_lex: &str) -> bool {
+    const SYSTEM_SUFFIXES: &[&str] = &[
+        "",
+        "/Desktop",
+        "/Documents",
+        "/Downloads",
+        "/AppData",
+        "/AppData/Local",
+        "/AppData/Roaming",
+        "/Library",
+    ];
+    SYSTEM_SUFFIXES.iter().any(|suffix| {
+        let candidate = if suffix.is_empty() {
+            home_lex.to_owned()
+        } else {
+            format!("{home_lex}{suffix}")
+        };
+        if cfg!(windows) {
+            lex.eq_ignore_ascii_case(&candidate)
+        } else {
+            lex == candidate
+        }
+    })
+}
+
 fn path_within_root(target_lex: &str, root: &str) -> bool {
+    if !is_safe_workspace_root(root, None) {
+        return false;
+    }
     let Some(root_lex) = normalize_root_lex(root) else { return false };
     #[cfg(target_arch = "wasm32")]
     {

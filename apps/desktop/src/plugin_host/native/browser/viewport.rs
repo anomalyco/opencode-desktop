@@ -1,6 +1,6 @@
 //! Native portion of the device preview. CEF receives the displayed surface's actual
 //! window-point bounds; the requested CSS dimensions travel separately in the protocol.
-use super::{App, Dep, El, Lua, NodeArgs, Table, col, cx, id_of, later, with_app};
+use super::{App, Dep, El, Lua, NodeArgs, Table, col, cx, id_of, later, scope, with_app};
 use browser_pane::device::{Device, Profile};
 use rune::{Cursor, Drag, Phase, Tx, el};
 
@@ -10,7 +10,9 @@ pub(super) fn methods(lua: &Lua, m: &Table) -> mlua::Result<()> {
         lua.create_function(|lua, this: Table| {
             cx::read(Dep::Browser);
             let id = id_of(&this)?;
+            let scope = scope::TabScope::capture(lua);
             with_app("BrowserTab:Viewport", |app| {
+                scope.check_tab(app, id, false).map_err(mlua::Error::runtime)?;
                 let Some(d) = app.workspace_panes.browser.host.tab(id).and_then(|t| t.device.as_ref()) else {
                     return Ok(None);
                 };
@@ -34,14 +36,14 @@ pub(super) fn methods(lua: &Lua, m: &Table) -> mlua::Result<()> {
     )?;
     m.raw_set(
         "SetViewport",
-        lua.create_function(|_, (this, viewport): (Table, Option<Table>)| {
+        lua.create_function(|lua, (this, viewport): (Table, Option<Table>)| {
             if !matches!(crate::updater::build_channel(), "local" | "dev") {
                 return Err(mlua::Error::runtime(
                     "device previews require a development build",
                 ));
             }
             let device = viewport.map(decode).transpose()?;
-            later(&this, "BrowserTab:SetViewport", move |s, id, _| {
+            later(lua, &this, "BrowserTab:SetViewport", move |s, id, _| {
                 if device.is_none()
                     || s.workspace_panes.browser
                         .host
