@@ -80,19 +80,19 @@ pub(super) enum ServerRpcVerdict {
 }
 
 pub struct BrowserRpcState {
-    pub(super) sessions: BTreeMap<(ServerKey, String), SessionAttachment>,
+    sessions: BTreeMap<(ServerKey, String), SessionAttachment>,
     /// Sessions the user actually routed into on this window (`model.ts:664-689`). Restored or
     /// background tabs sitting in `app.tabs` are not attached until routed.
     routed_sessions: BTreeSet<(ServerKey, String)>,
     sse_connected: BTreeMap<ServerKey, bool>,
     /// Per-server endpoint capability verdict (`LegacyAllowed` stays sticky across empty
     /// sessions/tab close/slow SSE until reconnect or `plugin.updated`).
-    pub(super) server_verdicts: BTreeMap<ServerKey, (Server, u64, ServerRpcVerdict)>,
-    pub(super) probe_gen: u64,
-    pub(super) mcp_suppressed: BTreeMap<ServerKey, (Server, bool)>,
-    pub(super) worker_tx: Sender<WorkerMsg>,
+    server_verdicts: BTreeMap<ServerKey, (Server, u64, ServerRpcVerdict)>,
+    probe_gen: u64,
+    mcp_suppressed: BTreeMap<ServerKey, (Server, bool)>,
+    worker_tx: Sender<WorkerMsg>,
     worker_rx: Receiver<WorkerMsg>,
-    pub(super) waker: Option<Waker>,
+    waker: Option<Waker>,
     next_diag_scope: u64,
     ref_counter: u64,
 }

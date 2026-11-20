@@ -44,8 +44,12 @@ pub(super) struct TabFrameState {
 
 impl TabFrameState {
     fn record_frame_url(&mut self, fid: &str, url: &str) -> bool {
-        if self.frame_urls.contains_key(fid) {
-            self.frame_urls.insert(fid.to_owned(), url.to_owned());
+        if let Some(existing) = self.frame_urls.get_mut(fid) {
+            // Never overwrite a committed URL with Chromium's empty `""` cross-process stub
+            // from an ancestor target's `Page.getFrameTree` (real blank frames report `"about:blank"`).
+            if !url.is_empty() || existing.is_empty() {
+                *existing = url.to_owned();
+            }
             return true;
         }
         if self.frame_urls.len() >= MAX_TRACKED_FRAMES {
