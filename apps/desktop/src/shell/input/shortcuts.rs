@@ -49,6 +49,7 @@ struct Entry {
     bind: Bind,
     phase: Phase,
     /// Whether a focused embedded browser page yields this shortcut to the app shell.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     claims_from_browser: bool,
     target: Target,
 }
