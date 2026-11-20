@@ -24,7 +24,7 @@ pub(crate) mod runtime;
 pub mod services;
 pub(crate) mod ui;
 
-pub use opencode_plugin_runtime::{catalogs, flyout, icons, images, machines, process, reveal, tasks};
+pub use opencode_plugin_runtime::{catalogs, flyout, icons, images, machines, process, tasks};
 
 pub use bridge::{commands, console, cx, project_request, requests, server_sources, servers, stores};
 pub(crate) use bridge::contrib;
@@ -52,7 +52,6 @@ pub use contrib::{
 pub use flyout::{Flyout, FlyoutEvent, Overlay};
 pub use machines::{Hot, HotEffect, Life, LifeEffect, LifeEvent, Trust, TrustEffect, TrustEvent};
 pub use plugin::Half;
-pub use reveal::reveal;
 pub use runtime::boot::{boot_builtin, doze_owed, first_frame, setup};
 pub use runtime::lifecycle::{drive, fire_named, poll, reload, step_trust, toggle};
 pub use servers::{

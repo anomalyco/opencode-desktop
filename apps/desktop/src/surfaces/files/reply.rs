@@ -1,5 +1,7 @@
 //! Native actions for links in assistant Markdown. Follow the file plugin's resolve-link.ts
-//! and browser policy; never reinterpret a remote session's paths on the client.
+//! and browser policy; never reinterpret a remote session's paths on the client, never probe
+//! UNC/mapped/subst/reparse paths before showing a menu, and never execute local files via the OS
+//! default handler.
 use crate::App;
 use crate::files::{FilesHost, Link, links, video};
 use crate::popup::{self, Item, Menu};
@@ -8,6 +10,9 @@ use opencode_i18n::t;
 use rune::{PointerPress, Tx};
 
 fn target(app: &App, href: &str) -> Option<(String, Link)> {
+    if browser_policy::is_raw_unc_href(href) {
+        return None;
+    }
     let href = href.strip_prefix(opencode_ui::style::CODE_LINK).unwrap_or(href).trim();
     let dir = links::link_directory(app, app.active_session_id()?);
     if is_file_scheme(href) {
@@ -33,13 +38,10 @@ pub(crate) fn video(app: &App, href: &str) -> Option<String> {
     if !cfg!(any(target_os = "macos", target_os = "windows")) { return None; }
     let (dir, link) = target(app, href)?;
     match link {
-        Link::Web(url) if web_url(&url) => {
-            let (_, rest) = url.split_once("://")?;
-            let (_, path) = rest.split(['?', '#']).next()?.split_once('/')?;
-            video::is_video(path).then_some(url)
-        }
-        Link::Inside { path, .. } if video::is_video(&path) => Some(video::source(app.live_server(), &dir, &path)),
-        Link::Outside { path } if app.can_open_in() && video::is_video(&path) => Some(path),
+        // Confine zero-click inline video auto-load on display to verified regular files inside
+        // the session workspace. `Link::Web` (`http(s)`) and `Link::Outside` render as ordinary
+        // links until click-to-load and remote-server host policy land in a follow-up PR.
+        Link::Inside { path, .. } if video::is_video(&path) => video::source(app.live_server(), &dir, &path),
         _ => None,
     }
 }
@@ -57,26 +59,38 @@ pub(crate) fn menu(app: &mut App, href: &str, press: PointerPress, tx: &mut Tx) 
         });
         return true;
     }
-    if !app.can_open_in() { return false; }
+    if !app.can_reveal_outside() { return false; }
     let Some((dir, link)) = target(app, href) else { return false };
-    let path = match link {
-        Link::Inside { path, .. } => opencode_kit::path::absolute(&dir, &path),
-        Link::Outside { path } => path,
+    let (inside, path) = match link {
+        Link::Inside { path, .. } => (true, opencode_kit::path::absolute(&dir, &path)),
+        Link::Outside { path } => (false, path),
         _ => return false,
     };
-    let Ok(meta) = std::fs::metadata(&path) else { return false };
+    // Verify local fixed drive / MNT_LOCAL and zero reparse points BEFORE touching disk so
+    // right-clicking a mapped drive, subst-to-UNC, junction, or autofs link never leaks credentials.
+    let Ok(verified) = browser_policy::verify_local_path(&path) else { return false };
+    let is_plain_dir = verified.is_dir
+        && !browser_policy::is_macos_bundle(&verified.path)
+        && !browser_policy::is_clsid_folder_name(&verified.path);
     let manager = crate::open_in::finder_label(app);
-    let menu = if meta.is_dir() {
+    let menu = if is_plain_dir {
         menu.item(Item::new("manager", t!("plugin.file.open.ariaLabel", app = manager)))
-    } else if meta.is_file() {
+    } else if inside && verified.is_file {
+        // Inside-workspace files open in the built-in viewer (never OS default-app execution).
         menu.item(Item::new("open", t!("ui.sessionReview.openFile")))
             .item(Item::new("manager", t!("plugin.file.view.reveal", app = manager)))
+    } else if verified.is_file || verified.is_dir {
+        // Outside-workspace files and bundles offer reveal only — never OS default-app execution.
+        menu.item(Item::new("manager", t!("plugin.file.view.reveal", app = manager)))
     } else {
         return false;
     };
-    popup::open(app, menu, press, tx, move |app, id, _| match id {
-        Some("open") if app.can_open_in() => crate::open_in::open_default(app, path),
-        Some("manager") => app.open_in_at(crate::open_in::FINDER, &path),
+    let reveal_path = verified.path;
+    let open_href = href.to_owned();
+    popup::open(app, menu, press, tx, move |app, id, tx| match id {
+        Some("open") if inside => app.open_reply_link(&open_href, tx),
+        Some("manager") if is_plain_dir && app.can_open_in() => app.open_in_at(crate::open_in::FINDER, &reveal_path),
+        Some("manager") => crate::open_in::reveal_abs(app, reveal_path),
         _ => {}
     });
     true
