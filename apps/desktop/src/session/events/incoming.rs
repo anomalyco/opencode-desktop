@@ -131,7 +131,9 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             crate::rewind::read_sessions(s);
         }
         Incoming::Info(mut info) => {
-            s.recent_page.merge_info(&mut info);
+            if rune::Tracked::untracked(&s.recent_page).would_record_info(&info) {
+                s.recent_page.record_info(&info);
+            }
             let recent_changed = rune::Tracked::untracked(&s.recent_page).would_observe(&info);
             if recent_changed {
                 s.recent_page.observe(&info);

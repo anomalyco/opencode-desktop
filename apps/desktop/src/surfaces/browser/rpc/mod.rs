@@ -380,10 +380,12 @@ fn reconcile_sessions(app: &mut App, now: Instant) -> bool {
     if let Route::Session { server: rk, id } = &*app.route
         && *rk == active_server
     {
+        let key = (active_server.clone(), id.clone());
         let dir = session_directory(app, id, "");
         if !dir.is_empty() {
-            let key = (active_server.clone(), id.clone());
             open_dirs.insert(key.clone(), dir);
+            routed_now = Some(key);
+        } else if open_dirs.contains_key(&key) {
             routed_now = Some(key);
         }
     }

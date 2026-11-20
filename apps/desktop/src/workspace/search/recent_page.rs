@@ -39,19 +39,37 @@ impl Page {
         self.range = self.times.values().min().zip(self.times.values().max()).map(|(&min, &max)| (min, max));
     }
 
-    /// Ports `mergeRootSessionIndex` (`packages/app/src/runtime/server/session-index.ts:4-20`):
-    /// passive metadata reads (opening a tab, browser permission grant `writePermissions`, rename,
-    /// model/agent switches) keep the indexed `updated` time; only a completed run
-    /// (`info.idle > indexed_idle`) advances an already-indexed session's recency.
-    pub fn merge_info(&mut self, info: &mut SessionInfo) {
-        let Some(&indexed_updated) = self.times.get(&info.id) else { return };
+    /// Whether `record_info(info)` would advance an indexed session's `idle` recency.
+    pub fn would_record_info(&self, info: &SessionInfo) -> bool {
+        if !self.times.contains_key(&info.id) {
+            return false;
+        }
         let indexed_idle = self.idles.get(&info.id).copied().unwrap_or(0);
+        info.idle.unwrap_or(0) > indexed_idle
+    }
+
+    /// Ports `mergeRootSessionIndex` (`packages/app/src/runtime/server/session-index.ts:4-20`)
+    /// without mutating `SessionInfo` in `app.sessions`: records a newer completed-run `idle`
+    /// timestamp when `info.idle > indexed_idle`, keeping raw `info.updated` intact for transcript
+    /// cache invalidation (`pages/mod.rs:519,589`) and plugin `Sessions:Get`.
+    pub fn record_info(&mut self, info: &SessionInfo) {
+        if !self.would_record_info(info) {
+            return;
+        }
         let next_idle = info.idle.unwrap_or(0);
-        if next_idle > indexed_idle {
-            self.idles.insert(info.id.clone(), next_idle);
-            self.times.insert(info.id.clone(), info.active_ms());
-        } else if info.updated != indexed_updated {
-            info.updated = indexed_updated;
+        self.idles.insert(info.id.clone(), next_idle);
+        self.times.insert(info.id.clone(), info.active_ms());
+    }
+
+    fn clamped_ms(&self, session: &SessionInfo) -> i64 {
+        let Some(&indexed_updated) = self.times.get(&session.id) else {
+            return session.active_ms();
+        };
+        let indexed_idle = self.idles.get(&session.id).copied().unwrap_or(0);
+        if session.idle.unwrap_or(0) > indexed_idle {
+            session.active_ms()
+        } else {
+            indexed_updated
         }
     }
 
@@ -94,13 +112,13 @@ impl Page {
     }
 
     pub fn active_ms(&self, session: &SessionInfo) -> i64 {
-        self.project(&session.id, session.active_ms())
+        self.project(&session.id, self.clamped_ms(session))
     }
 
     pub fn time(&self, session: &SessionInfo) -> i64 {
         // A known session past the page stays behind its oldest row. A new one may join it.
         let snapshot = match (self.times.get(&session.id), self.range) {
-            (Some(time), _) => *time,
+            (Some(_), _) => self.clamped_ms(session),
             (None, Some((oldest, newest))) if session.created <= newest => session.active_ms().min(oldest),
             _ => session.active_ms(),
         };

@@ -59,7 +59,11 @@ impl SwitcherHost for App {
     }
 
     fn sessions_version(&self) -> (u32, u64) {
-        (rune::Tracked::id(&self.sessions), rune::Tracked::version(&self.sessions))
+        (
+            rune::Tracked::id(&self.sessions),
+            rune::Tracked::version(&self.sessions)
+                .wrapping_add(rune::Tracked::version(&self.recent_page)),
+        )
     }
 
     fn projects_version(&self) -> (u32, u64) {
@@ -138,12 +142,16 @@ impl SwitcherHost for App {
                     Source::Fixture => None,
                 };
                 let known: Vec<SessionInfo> = s.sessions.iter().filter(|i| i.parent.is_none()).cloned().collect();
-                (conn, known, (*s.projects).clone())
+                let indexed: std::collections::HashMap<String, (i64, i64)> = known
+                    .iter()
+                    .map(|i| (i.id.clone(), (s.recent_page.active_ms(i), i.idle.unwrap_or(0))))
+                    .collect();
+                (conn, known, indexed, (*s.projects).clone())
             };
-            let Some((Some(conn), known, projects)) = crate::servers::runtime::with_server(self, &key, read) else {
+            let Some((Some(conn), known, indexed, projects)) = crate::servers::runtime::with_server(self, &key, read) else {
                 continue;
             };
-            out.push(RemoteSeed { server: key, tag, conn, known, projects });
+            out.push(RemoteSeed { server: key, tag, conn, known, indexed, projects });
         }
         out
     }

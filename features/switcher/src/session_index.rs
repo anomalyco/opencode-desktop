@@ -24,14 +24,14 @@ pub(crate) fn session_matches(host: &dyn SwitcherHost, q: &str, group: &'static 
     let found: Vec<&SessionInfo> = sw.loaded.iter().filter(|s| (s.archived.is_some()) == archived && search_index::search_session(host, &s.id).is_none()).collect();
     if !found.is_empty() {
         if q.trim().is_empty() {
-            hits.extend(found.iter().filter(|s| !is_automation(&s.title)).map(|s| (0, s.active_ms(), *s)));
+            hits.extend(found.iter().filter(|s| !is_automation(&s.title)).map(|s| (0, host.session_active_ms(s), *s)));
         } else {
             let mut arena = SearchArena::default();
             for s in &found {
                 // Titles only, as the server matched them (`title LIKE`).
                 arena.push(&title_of(s));
             }
-            let context = |i: usize| Some((0, found[i].active_ms()));
+            let context = |i: usize| Some((0, host.session_active_ms(found[i])));
             let ranked = if titles { arena.ranked_titles(q, MATCHES, context) } else { arena.ranked_scored(q, MATCHES, context) };
             hits.extend(ranked.into_iter().map(|(score, updated, i)| (score, updated, found[i])));
         }
@@ -44,7 +44,7 @@ pub(crate) fn session_matches(host: &dyn SwitcherHost, q: &str, group: &'static 
         if !hits.iter().any(|(_, _, s)| s.id == r.session)
             && let Some(s) = search_index::search_session(host, &r.session).or(r.fallback.as_ref())
         {
-            hits.push((0, s.active_ms(), s));
+            hits.push((0, host.session_active_ms(s), s));
         }
     }
     hits.into_iter()
