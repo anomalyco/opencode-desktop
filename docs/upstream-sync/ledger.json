@@ -2,12 +2,12 @@
   "generated_at": "2026-11-20",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "92aa3b32e6341324ce4d0ed29cd17390dc4b123e",
+  "upstream_head": "bf683129fa6671b9f2ff9c8de91dbc0e751c6346",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "5f83182bc7c1c2fdb49b8803d206a04daff607d8",
-  "post_1114_commit_count": 318,
-  "post_1114_in_ledger": 105,
+  "rune_desktop_head": "259837b2332e16b9b4a687bb757e0f7522eb9907",
+  "post_1114_commit_count": 319,
+  "post_1114_in_ledger": 106,
   "post_1114_skipped": 213,
   "post_1114_skipped_breakdown": {
     "test-only": 14,
@@ -18,11 +18,11 @@
     "server-core-ai-codemode-internal": 135
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 120,
+  "total_ledger_rows": 122,
   "status_counts": {
-    "have it": 53,
-    "partly": 13,
-    "missing": 40,
+    "have it": 60,
+    "partly": 9,
+    "missing": 39,
     "not applicable": 13,
     "differs on purpose": 1
   },
@@ -184,11 +184,12 @@
       ],
       "summary": "Remove remaining foreground-subagent status copy and treat every subagent item in the running-work activity list as stoppable (matching always-background subagents from #63382).",
       "size": "S",
-      "status": "partly",
-      "status_evidence": "No waitingAgent strings remain in Rust, but features/subagents/src/activity.rs still needs verification/alignment with always-stoppable row hover/stop behavior (done together with #64790).",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #249 (259837b2): removed leftover foreground subagent matching from blocking_calls (apps/desktop/src/shell/appearance/background.rs) and enabled Delete/Backspace stop across all running-work rows.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "WS-4"
+      "workstream": "none",
+      "rune_pr": "#249"
     },
     {
       "id": "PRE-08",
@@ -251,11 +252,12 @@
       ],
       "summary": "When the user hits the OpenCode Zen free-tier limit, replace the composer with a 'Free limit reached' panel showing reset time, Connect provider, and Subscribe to Go ($10/mo) actions.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "No FreeLimitPanel component or `session.freeLimit.*` handling exists in apps/desktop/src/shell/view/composer.rs or features/connect.",
+      "status": "have it",
+      "status_evidence": "Ported in rune-desktop #248 (a4cf8714): explicit free_limit::State machine in StateSlots (apps/desktop/src/session/composer/free_limit.rs), persisted resetAt via opencode-storage, Pickers::has_paid_provider early clear, and SessionFreeLimitPanel replacing composer in apps/desktop/src/shell/view/composer.rs.",
       "depends_on": "none",
       "risks": "Persists free-limit reset timestamp in local storage.",
-      "workstream": "WS-5"
+      "workstream": "none",
+      "rune_pr": "#248"
     },
     {
       "id": "PRE-11",
@@ -1608,12 +1610,12 @@
       ],
       "summary": "Add `codemode` job kind (`JobCodeMode`) to server job listing and events so slow Code Mode scripts can move to the background behind `full_codemode`.",
       "size": "M",
-      "status": "partly",
-      "status_evidence": "Typed JobInfo / JobKind::CodeMode, Server::list_jobs / cancel_job (404/405/501 -> Unsupported), and experimental.job.updated SSE decoding landed in #242 (e6a530c4, crates/opencode-kit/src/{model/job.rs,client/jobs.rs}); UI/activity capsule wiring remains in WS-4 Batch 2.",
+      "status": "have it",
+      "status_evidence": "Ported in #242 (e6a530c4, crates/opencode-kit JobInfo/JobKind::CodeMode + /api/experimental/job + SSE) and wired into features/subagents/src/jobs.rs + activity capsule in #249 (259837b2) with 404/405/501 Unsupported caching.",
       "depends_on": "Server with `/api/experimental/job` and `codemode` job support (degrades gracefully on older servers returning 404)",
       "risks": "none",
-      "workstream": "WS-4",
-      "rune_pr": "#242 (model/client)"
+      "workstream": "none",
+      "rune_pr": "#242, #249"
     },
     {
       "id": "UP-051",
@@ -2314,12 +2316,12 @@
       ],
       "summary": "Add an experimental video generation tool and `JobVideo` (`kind: \"video\"`) variant to `JobInfo` and config schema.",
       "size": "S",
-      "status": "partly",
-      "status_evidence": "JobKind::Video variant landed in #242 (e6a530c4, crates/opencode-kit/src/model/job.rs); activity capsule wiring remains in WS-4 Batch 2.",
+      "status": "have it",
+      "status_evidence": "Ported in #242 (e6a530c4, JobKind::Video) and handled cleanly by per-server JobTracker in #249 (259837b2).",
       "depends_on": "UP-050 (#64343), UP-082 (#64790)",
       "risks": "none",
-      "workstream": "WS-4",
-      "rune_pr": "#242 (model/client)"
+      "workstream": "none",
+      "rune_pr": "#242, #249"
     },
     {
       "id": "UP-078",
@@ -2444,12 +2446,13 @@
       ],
       "summary": "Query `/api/experimental/job` and subscribe to `job.updated` SSE events to show running Code Mode scripts and subagents' background work inside the activity capsule, with per-item Stop cancellation.",
       "size": "L",
-      "status": "missing",
-      "status_evidence": "crates/opencode-kit and features/subagents only track subagent sessions and background shells; no `/api/experimental/job` client, `job.updated` handler, or `script` activity item exists.",
+      "status": "have it",
+      "status_evidence": "Ported in #249 (259837b2): activity capsule shows subagents/scripts/shells counts, renders Code Mode scripts, keeps idle subagents with running job trees listed and stoppable, hides shells covered by foreground execute scripts, and isolates pills/ACTIVITY_CLOCK outside timeline-area.",
       "depends_on": "Server `/api/experimental/job` + `job.updated` (fall back gracefully to shell+subagent-only on older servers); UP-050 (#64343), UP-090 (#64966)",
       "risks": "Backward compatibility: must keep working seamlessly when connected to an older OpenCode server lacking `/api/experimental/job`.",
-      "workstream": "WS-4",
-      "open_pr_note": "unmerged PR #229"
+      "workstream": "none",
+      "open_pr_note": "unmerged PR #229",
+      "rune_pr": "#242, #249"
     },
     {
       "id": "UP-083",
@@ -2565,12 +2568,13 @@
       ],
       "summary": "Remove the secondary background-work count subtitle under idle subagent rows in the running-work activity menu.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Follow-up to #64790 — omit the subtitle when implementing WS-4.",
+      "status": "have it",
+      "status_evidence": "Ported in #249 (259837b2): idle subagent rows owning background work render cleanly in the activity list without a secondary subtitle.",
       "depends_on": "UP-082 (#64790)",
       "risks": "none",
-      "workstream": "WS-4",
-      "open_pr_note": "unmerged PR #229"
+      "workstream": "none",
+      "open_pr_note": "unmerged PR #229",
+      "rune_pr": "#249"
     },
     {
       "id": "UP-088",
@@ -2645,12 +2649,12 @@
       ],
       "summary": "Merge `job.updated` SSE events that arrive while `/api/experimental/job` is in flight onto the returned list so live job transitions are never dropped.",
       "size": "S",
-      "status": "partly",
-      "status_evidence": "merge_job_list and explicit JobTracker state machine landed in #242 (e6a530c4, crates/opencode-kit/src/model/job.rs); desktop session/subagents integration remains in WS-4 Batch 2.",
+      "status": "have it",
+      "status_evidence": "Ported in #242 (e6a530c4, merge_job_list + JobTracker) and wired into features/subagents/src/jobs.rs in #249 (259837b2) so concurrent experimental.job.updated events merge cleanly over in-flight HTTP list responses.",
       "depends_on": "UP-082 (#64790)",
       "risks": "none",
-      "workstream": "WS-4",
-      "rune_pr": "#242 (model/client)",
+      "workstream": "none",
+      "rune_pr": "#242, #249",
       "open_pr_note": "unmerged PR #229"
     },
     {
@@ -2789,7 +2793,7 @@
         "packages/session-ui/src/components/markdown-cache.tsx",
         "packages/desktop/electron-builder.config.ts"
       ],
-      "summary": "Overhaul the desktop browser pane with one encrypted persistent profile, cookie import from 15 browsers + site chooser, remote partition/sharing, Settings > Browser, `oc-preview://` local/remote workspace & artifact previews, chat/terminal link routing + app-link review, full browser chrome (right-click, find, hard reload, pop-up blocking, notices, plain errors), in-app JS dialogs/permissions/HTTP auth, signed Chrome extensions with review & popups, and hardened/upgraded agent browser tools (`tabs.open({ path })` replacing `browser.preview`, deep snapshots with field-value redaction, hidden screenshots, BuiltinPromptGate, deny rules, agent-driven tab isolation).",
+      "summary": "Overhaul the desktop browser pane with one encrypted persistent profile, cookie import from 15 browsers + site chooser, remote partition/sharing, Settings > Browser, `oc-preview://` local/remote workspace & artifact previews, chat/terminal link routing + app-link review, full browser chrome (right-click, find, hard reload, pop-up blocking, notices, plain errors), in-app JS dialogs/permissions/HTTP auth, and hardened/upgraded agent browser tools (`tabs.open({ path })` replacing `browser.preview`, deep snapshots with field-value redaction, hidden screenshots, BuiltinPromptGate, deny rules, agent-driven tab isolation). (Chrome extensions tracked separately in UP-095-EXT under WS-9.)",
       "size": "XL",
       "status": "partly",
       "status_evidence": "Rune has: out-of-process CEF 156 sidecar (`apps/browser-engine`, `crates/browser-pane`) with GPU frames on macOS/Windows/Linux (#107), per-app persistent profile, strict URL + canonical `file://` policy (`0b540fd8`), 22-method CDP allow-list (`a5a71a0d`), confined page downloads (`2832a9cd`/`344a2087`), site-info cookie count/clear, `@eN` picker, device toolbar (`#162`), and local `rune_mcp` `browser_*` tools. Missing: everything new in #63002 (cookie import/encryption/remote-sharing/passkey gate, Settings > Browser, `oc-preview://` local/remote/artifact scheme replacing `file://`, chat/terminal/OSC-8/app-link routing, page right-click/find/hard-reload/pop-ups/refusal-notices/host-elision/menu-reorg, in-app JS dialogs/permissions/HTTP auth/client-cert cancel, CRX3 extensions, upgraded agent tools/snapshots/hidden captures/prompt-gate/agent-driven tab safeguards). Full item-by-item gap in plan.md. Hardening landed in #239 (bf343867, shared browser-policy + Windows superscript device names) and #245 (5f83182b: --disable-extensions, per-session tab isolation, safe workspace root checks).",
@@ -2848,11 +2852,11 @@
       "summary": "Wrap server background-work completion notices (shell, subagent, codemode, image) in one unified `<background-result kind=\"...\" ...>` XML block and parse it in timeline/session-ui.",
       "size": "S",
       "status": "partly",
-      "status_evidence": "parse_background_result accepting unified <background-result kind=\"...\"> and legacy <shell>/<subagent>/<codemode>/<image>/<video> blocks landed in #242 (e6a530c4, crates/opencode-kit/src/model/background_result.rs); wiring into notice.rs and session-view remains in WS-4 Batch 2.",
+      "status_evidence": "parse_background_result accepting unified <background-result kind=\"...\"> and legacy <shell>/<subagent>/<codemode>/<image>/<video> blocks landed in #242 (e6a530c4, crates/opencode-kit/src/model/background_result.rs); wiring into notice.rs and session-view remains in WS-4 Batch 3.",
       "depends_on": "Newer OpenCode server (must keep accepting legacy `<shell>`/`<subagent>` format for older servers)",
       "risks": "Backward compatibility with older OpenCode servers.",
       "workstream": "WS-4",
-      "rune_pr": "#242 (model/client)"
+      "rune_pr": "#242 (parser)"
     },
     {
       "id": "UP-098",
@@ -3032,6 +3036,58 @@
       "depends_on": "none",
       "risks": "none",
       "workstream": "none"
+    },
+    {
+      "id": "UP-095-EXT",
+      "window": "1114-1120",
+      "pr": 63002,
+      "sha": "cd0d037d68",
+      "title": "feat(desktop): browser Chrome extensions (CRX3, review, integrity, popups, APIs) [split from #63002]",
+      "merged": "2026-11-19",
+      "packages": [
+        "desktop",
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/browser/extensions/store.ts",
+        "packages/gui-plugins/src/browser/extensions/crx.ts",
+        "packages/gui-plugins/src/browser/extensions/review.tsx",
+        "packages/gui-plugins/src/browser/extensions/popup.tsx",
+        "packages/desktop/src/main/browser/extensions.ts"
+      ],
+      "summary": "Support Chrome extensions in the embedded browser pane: CRX3 store download + RSA/ECDSA signature and listing-ID check, import from other browsers, unpacked developer folder, permission review modal with one-use token, startup file-digest integrity check, toolbar Extensions button + anchored popups, core extension APIs, private-tab redaction, and ad-blocker startup wait.",
+      "size": "XL",
+      "status": "missing",
+      "status_evidence": "Split out of UP-095 (#63002) for dedicated WS-9 ownership; apps/browser-engine currently passes --disable-extensions (#245) until managed extension loading is built.",
+      "depends_on": "UP-095 (#63002 browser engine & settings hooks)",
+      "risks": "CEF 156 OSR extension runtime constraints (popup APIs, service-worker shim, private-tab redaction, per-server isolation, and engine publishing).",
+      "workstream": "WS-9"
+    },
+    {
+      "id": "UP-106",
+      "window": "post-1120",
+      "pr": 65073,
+      "sha": "bf683129fa",
+      "title": "feat(browser): import browsing history and complete the address bar from it",
+      "merged": "2026-11-20",
+      "packages": [
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/browser/address-machine.ts",
+        "packages/gui-plugins/src/browser/history/store.ts",
+        "packages/gui-plugins/src/browser/history/match.ts",
+        "packages/gui-plugins/src/browser/history/search.ts",
+        "packages/gui-plugins/src/browser/profile/history.ts",
+        "packages/gui-plugins/src/browser/panel.tsx"
+      ],
+      "summary": "Import browsing history from installed browsers alongside sign-ins and provide ranked address-bar autocomplete suggestions from browsing history.",
+      "size": "L",
+      "status": "missing",
+      "status_evidence": "Verified on dev: Rune browser pane does not yet import browser history or autocomplete address-bar entries from browsing history.",
+      "depends_on": "UP-095 (#63002 browser profile & importer)",
+      "risks": "Red flag: gui-plugins/browser; history import touches local browser profile databases and must store history via opencode-storage with site/clear-data controls.",
+      "workstream": "WS-1"
     }
   ]
 }
