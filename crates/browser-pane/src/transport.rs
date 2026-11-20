@@ -277,7 +277,7 @@ fn discard(engine: &Installed) {
 
 /// Blocks until the engine has stopped running. On Windows that's its main thread's end: a
 /// killed or crashed engine's main thread ends within ~20 ms, while its process, its exit code
-/// and its socket wait until Windows has finished tearing it down (12-60 s measured on blade,
+/// and its socket wait until Windows has finished tearing it down (12-60 s measured on a Windows dev box,
 /// with one of its threads still held in the kernel), and the engine's work all runs on its main
 /// thread, whose end is the process's. Like the process, the thread is a handle to wait on: no
 /// timer, no wake until it ends.

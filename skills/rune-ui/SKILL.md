@@ -87,8 +87,8 @@ screen Hex settings
 
 ```ui
 phone iPhone
-  from WRAITH
-  say Kit {voice}: filter Seer to Hex
+  from Harbor
+  say Alex {voice}: filter Lumen to Hex
   field Message
 ```
 
@@ -98,7 +98,7 @@ phone iPhone
 row
   box Agent
   arrow
-  box Seer
+  box Lumen
 ```
 
 ### `title Words` — a short heading inside a frame
@@ -128,16 +128,16 @@ box
 ```ui
 box
   kv Status: {proposal} Nothing built · yet
-  kv Owner: t1108
+  kv Owner: #108
 ```
 
 ### `say Who [{how}]: words` — a chat line: you on the right, others left
 
 ```ui
 screen Desktop
-  say Kit {voice}: filter Seer to Hex
-  say build {claude-opus-5-5}: Filtered. t1096 waits on a pick.
-    tools wisp, seer
+  say Alex {voice}: filter Lumen to Hex
+  say build {claude-opus-5-5}: Filtered. #96 waits on a pick.
+    tools harbor, lumen
 ```
 
 ### `tools a, b` — the tools the chat line above used
@@ -145,14 +145,14 @@ screen Desktop
 ```ui
 screen
   say build: Done.
-    tools wisp, seer
+    tools harbor, lumen
 ```
 
 ### `from Name` — who a phone thread is from, as its header
 
 ```ui
 phone
-  from WRAITH
+  from Harbor
 ```
 
 ### `toggle {on|off} Label` — a switch, right-aligned beside its label

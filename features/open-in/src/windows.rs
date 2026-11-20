@@ -152,7 +152,7 @@ fn resolve(app: &str, var: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf>
 
 /// What `where` finds for `app` on the `PATH`, in order: each folder of `PATH` with each
 /// `PATHEXT` extension (and the name as given, when it has one), as `where.exe` searches, without
-/// starting it (a process each: 7,600-26,500 µs on blade, five at every launch). Each folder is
+/// starting it (a process each: 7,600-26,500 µs on a Windows dev box, five at every launch). Each folder is
 /// asked once for the names starting `app.` rather than once per extension (14 apps x the
 /// `PATH`'s folders x 11 extensions opened 6,309 files, 184 ms off the UI thread).
 fn where_is(app: &str) -> Vec<PathBuf> {

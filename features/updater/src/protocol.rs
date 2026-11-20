@@ -1,5 +1,5 @@
 //! Anomaly Release protocol v1 (`https://anoma.ly/release`) manifest parser and update decision
-//! rules (`anomalyco/release/docs/protocol.md`). Versions are display text and never ordered:
+//! rules. Versions are display text and never ordered:
 //! an install updates whenever the channel's current release differs from the running build.
 
 use serde_json::Value;

@@ -1,4 +1,4 @@
-//! The composer's agent, model and effort live in `session_view::pickers`, shared with Seer.
+//! The composer's agent, model and effort live in `session_view::pickers`, shared with other Rune apps.
 //! This module is the app's side: where picks are kept, what the open session runs with, the
 //! project picker, and the server's word on a switch.
 use rune::{El, KeyEvent, Tx};

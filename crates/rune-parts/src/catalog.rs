@@ -1,5 +1,5 @@
 //! The catalog: every part an outline may use, what it takes, and one example. The parser, the
-//! checker, `seer parts` and the stories all read it, so a part added here works everywhere.
+//! checker, CLI help and the stories all read it, so a part added here works everywhere.
 
 /// What may sit indented under a part.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -40,15 +40,15 @@ pub static CATALOG: &[PartSpec] = &[
     PartSpec { name: "col", syntax: "col", about: "kids stacked, as one column of a row", kids: C, example: "row\n  col\n    title Left\n    text Stacked under it\n  col\n    title Right\n    text Also stacked" },
     PartSpec { name: "box", syntax: "box [Title]", about: "a quiet filled frame, its title a faint label", kids: C, example: "box Status\n  item {done} Parser · landed\n  item {working} Views · on a branch" },
     PartSpec { name: "screen", syntax: "screen [Title]", about: "a desktop window around its kids", kids: C, example: "screen Hex settings\n  title Microphone\n  toggle {on} Skip a closed laptop's mic" },
-    PartSpec { name: "phone", syntax: "phone [Title]", about: "an iPhone-shaped frame around its kids", kids: C, example: "phone iPhone\n  from WRAITH\n  say Kit {voice}: filter Seer to Hex\n  field Message" },
-    PartSpec { name: "arrow", syntax: "arrow", about: "points from the kid before to the next", kids: L, example: "row\n  box Agent\n  arrow\n  box Seer" },
+    PartSpec { name: "phone", syntax: "phone [Title]", about: "an iPhone-shaped frame around its kids", kids: C, example: "phone iPhone\n  from Harbor\n  say Alex {voice}: filter Lumen to Hex\n  field Message" },
+    PartSpec { name: "arrow", syntax: "arrow", about: "points from the kid before to the next", kids: L, example: "row\n  box Agent\n  arrow\n  box Lumen" },
     PartSpec { name: "title", syntax: "title Words", about: "a short heading inside a frame", kids: L, example: "box\n  title Microphone" },
     PartSpec { name: "text", syntax: "text Words", about: "a sentence; Markdown, PRs and cards draw as chips", kids: L, example: "box\n  text The closed laptop's mic drops out of the list." },
     PartSpec { name: "item", syntax: "item [{tone}] Label [· detail]", about: "a row with a status mark and a quiet detail", kids: L, example: "box\n  item {done} Studio Display mic · in use\n  item {risk} MacBook Pro mic · lid closed" },
-    PartSpec { name: "kv", syntax: "kv Label: [{tone}] value [· detail]", about: "a label and its value, ruled like facts", kids: L, example: "box\n  kv Status: {proposal} Nothing built · yet\n  kv Owner: t1108" },
-    PartSpec { name: "say", syntax: "say Who [{how}]: words", about: "a chat line: you on the right, others left", kids: Kids::Only(&["tools"]), example: "screen Desktop\n  say Kit {voice}: filter Seer to Hex\n  say build {claude-opus-5-5}: Filtered. t1096 waits on a pick.\n    tools wisp, seer" },
-    PartSpec { name: "tools", syntax: "tools a, b", about: "the tools the chat line above used", kids: L, example: "screen\n  say build: Done.\n    tools wisp, seer" },
-    PartSpec { name: "from", syntax: "from Name", about: "who a phone thread is from, as its header", kids: L, example: "phone\n  from WRAITH" },
+    PartSpec { name: "kv", syntax: "kv Label: [{tone}] value [· detail]", about: "a label and its value, ruled like facts", kids: L, example: "box\n  kv Status: {proposal} Nothing built · yet\n  kv Owner: #108" },
+    PartSpec { name: "say", syntax: "say Who [{how}]: words", about: "a chat line: you on the right, others left", kids: Kids::Only(&["tools"]), example: "screen Desktop\n  say Alex {voice}: filter Lumen to Hex\n  say build {claude-opus-5-5}: Filtered. #96 waits on a pick.\n    tools harbor, lumen" },
+    PartSpec { name: "tools", syntax: "tools a, b", about: "the tools the chat line above used", kids: L, example: "screen\n  say build: Done.\n    tools harbor, lumen" },
+    PartSpec { name: "from", syntax: "from Name", about: "who a phone thread is from, as its header", kids: L, example: "phone\n  from Harbor" },
     PartSpec { name: "toggle", syntax: "toggle {on|off} Label", about: "a switch, right-aligned beside its label", kids: L, example: "screen Settings\n  toggle {on} Skip a closed laptop's mic\n  toggle {off} Ask before switching" },
     PartSpec { name: "button", syntax: "button [{primary}] Label", about: "a pill button", kids: L, example: "box\n  button {primary} Ship\n  button Hold" },
     PartSpec { name: "field", syntax: "field [Placeholder]", about: "a text field with its placeholder", kids: L, example: "phone\n  field Message" },
@@ -104,7 +104,7 @@ pub fn docs(part: Option<&str>) -> Result<String, String> {
         out.push_str(
             "A ```ui fence holds an outline: a part name first on every line, kids indented two spaces.\n\
              No sizes or colours: colour comes only from {tone} words (done, risk, proposal, working, accent).\n\
-             `seer` checks the outline before posting and names any part it doesn't know.\n\n",
+             The checker validates the outline before posting and names any part it doesn't know.\n\n",
         );
     }
     let w = list.iter().map(|s| s.syntax.len()).max().unwrap_or(0);

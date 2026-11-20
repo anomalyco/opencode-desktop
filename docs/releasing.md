@@ -1,6 +1,6 @@
 # Releasing OpenCode (Rune)
 
-`.github/workflows/release.yml` builds, signs and publishes the desktop app to `https://anoma.ly/release` (app `opencode`, artifact `desktop-rune`: `opencode/desktop-rune/<channel>`). It follows the [infrastructure guide](https://anoma.ly/team/abattoir/guides/infrastructure), with Hex as the closest example.
+`.github/workflows/release.yml` builds, signs and publishes the desktop app to `https://anoma.ly/release` (app `opencode`, artifact `desktop-rune`: `opencode/desktop-rune/<channel>`).
 
 ## Channels
 
@@ -53,9 +53,9 @@ The desktop starts without CEF. The embedded browser has a separate delivery pat
 ## Security boundary
 
 - Build and verify jobs run repository code with no environment, secrets or `id-token`.
-- Sign and publish jobs use the `release` environment, which can deploy only from `dev`. They sparse-check out only `.github/release/` at `github.sha` and treat artifacts as data, checked against the SHA256SUMS digest the job that built them reported.
-- Secrets live in AWS Secrets Manager (`anomaly-secrets`, `604439173067`). GitHub OIDC assumes `github/rune-desktop-release`, pinned to `release.yml@refs/heads/dev` and environment `release` in `anomalyco/secrets` `config.ts`. The Apple certificate and notary key are `shared/APPLE_SIGNING_CERTIFICATE` and `shared/APPLE_NOTARY_KEY`. They're read in the one step that uses them (`.github/release/with-secrets.sh`) and never reach `$GITHUB_ENV`.
-- The `release` environment holds only non-secret variables: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_TRUSTED_SIGNING_ENDPOINT`, `AZURE_TRUSTED_SIGNING_ACCOUNT_NAME`, `AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE`, `APPLE_NOTARY_KEY_ID` and `APPLE_NOTARY_ISSUER_ID`. Repository and environment secrets stay empty.
-- The release service accepts publishes only from `anomalyco/rune-desktop`, `.github/workflows/release.yml`, `refs/heads/dev` and environment `release` (`anomalyco/release` `registry/opencode.json`).
-- Changes to `.github/` need Dax (`.github/CODEOWNERS` and the `release boundary (.github needs Dax)` ruleset).
+- Sign and publish jobs use the protected `release` environment, which can deploy only from `dev`. They sparse-check out only `.github/release/` at `github.sha` and treat artifacts as data, checked against the SHA256SUMS digest the job that built them reported.
+- Signing credentials are stored outside the repository and fetched via GitHub OIDC only inside the step that uses them (`.github/release/with-secrets.sh`), never exported into `$GITHUB_ENV`.
+- The `release` environment holds only non-secret identifiers (`AZURE_*` and Apple notary IDs); repository and environment secrets stay empty.
+- The release service authorizes publishes via GitHub OIDC restricted to `anomalyco/rune-desktop`, `.github/workflows/release.yml`, `refs/heads/dev` and the `release` environment.
+- Changes to `.github/` require code-owner approval (`.github/CODEOWNERS`).
 - PR builds are never signed with release credentials. Their macOS app is ad-hoc signed.

@@ -1,6 +1,6 @@
 # OpenCode (Rune) (`rune-desktop`)
 
-`anomalyco/rune-desktop` houses **OpenCode (Rune)** (`apps/desktop`, `apps/web`, `apps/installer`) and the shared Rust crates (`crates/*`) that any Rune app (including `anomalyco/seer`) can embed by git dependency.
+`anomalyco/rune-desktop` houses **OpenCode (Rune)** (`apps/desktop`, `apps/web`, `apps/installer`) and the shared Rust crates (`crates/*`) that any Rune app can embed by git dependency.
 
 ## Layout (Progressive Disclosure)
 
@@ -8,7 +8,7 @@ Start at the top and go deeper only when a feature needs lower-level control. Se
 
 - **`plugins/`** (Tier 1 — default): `--!strict` Luau plugins targeting `opencode-plugin-spec`, hot-reloaded in place with zero Rust edits.
 - **`features/`** (Tier 2): decoupled Rust feature crates (`opencode-feature-*`) with zero cross-feature dependencies and non-generic `&mut dyn *Host` boundaries. Scaffold new plugins or features with `scripts/new-feature.sh` (or `pwsh scripts/new-feature.ps1`).
-- **`crates/`** (Tier 3): shell kernel (`opencode-kernel`), bottom-layer UI design-system foundation (`opencode-ui`, zero `session-view` dependency), headless runtime (`opencode-runtime`), platform/storage/search/i18n/plugin-runtime libraries, and embeddable crates (`session-view` built on `opencode-ui`, `opencode-code-view`, `opencode-kit`, `rune-parts`, `terminal`, `browser-pane`, `office-preview`, `project-icon`, `hex-client`, `otlp-lite`). Keep `session-view` free of `opencode-desktop`-only window/tab/sidebar assumptions and `opencode-kit` free of app-specific concepts so Seer and other Rune apps can embed them directly.
+- **`crates/`** (Tier 3): shell kernel (`opencode-kernel`), bottom-layer UI design-system foundation (`opencode-ui`, zero `session-view` dependency), headless runtime (`opencode-runtime`), platform/storage/search/i18n/plugin-runtime libraries, and embeddable crates (`session-view` built on `opencode-ui`, `opencode-code-view`, `opencode-kit`, `rune-parts`, `terminal`, `browser-pane`, `office-preview`, `project-icon`, `hex-client`, `otlp-lite`). Keep `session-view` free of `opencode-desktop`-only window/tab/sidebar assumptions and `opencode-kit` free of app-specific concepts so other Rune apps can embed them directly.
 - **`apps/`** (Tier 4):
   - `apps/desktop` (`opencode-desktop`): shared desktop library (`opencode_desktop`) plus thin native binary (`main.rs`), organized into root entry/wiring files and domain folders (`shell/`, `session/`, `workspace/`, `surfaces/`, `dialogs/`, `plugin_host/`, `stories/`). Legacy `App` fields are clustered in `shell/app_state.rs`; new feature state goes in `opencode_kernel::StateSlots` and modal dialogs, Escape layers, commands, and per-frame polls register in `Feature::register`.
   - `apps/web` (`opencode-web`): thin `wasm32`/WebGPU browser entrypoint depending directly on `opencode-desktop` with zero duplicated `features/*` dependencies.

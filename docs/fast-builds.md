@@ -1,6 +1,6 @@
 # Fast Builds
 
-Keep local and mesh compile times, RAM usage, and `target/` churn low without changing production release quality.
+Keep local and multi-machine compile times, RAM usage, and `target/` churn low without changing production release quality.
 
 ## 1. Fastest loop (0 s Rust compile)
 
@@ -17,7 +17,7 @@ opencode-desktop --live --plugin-hot
 opencode-desktop --live --plugin-dir ./plugins --plugin-hot
 ```
 
-**Across mesh devices:** build once (or pull a dev build), sync only `plugins/` across machines, and launch with `--live --plugin-dir <path> --plugin-hot`. Zero Rust compiles on remote devices.
+**Across multiple machines:** build once (or pull a dev build), sync only `plugins/` across machines, and launch with `--live --plugin-dir <path> --plugin-hot`. Zero Rust compiles on remote machines.
 
 ## 2. Fast Rust dev loop
 
@@ -46,26 +46,26 @@ All profiles defined in the root `Cargo.toml`:
 | Profile | Key settings | Peak RAM (`rustc`) | Clean build | Use case / scripts |
 | --- | --- | --- | --- | --- |
 | `dev` | `opt-level=0` workspace, `debug=2`, `opt-level=1` / `debug=false` deps (`opt-level=3` on hot crates) | ~2–4 GB | ~1–3 min | Debugger (`lldb`/WinDbg), full stack traces, `apps/desktop/scripts/dev.sh` |
-| `dev-fast` | `inherits = "dev"`, `debug=0`, `codegen-units=64` | ~1.5–3 GB | ~1–2 min (fast relink) | Default local & mesh Rust iteration (`scripts/dev-fast.sh`, `scripts/dev-fast.ps1`) |
+| `dev-fast` | `inherits = "dev"`, `debug=0`, `codegen-units=64` | ~1.5–3 GB | ~1–2 min (fast relink) | Default local Rust iteration (`scripts/dev-fast.sh`, `scripts/dev-fast.ps1`) |
 | `release-quick` | `inherits = "release"`, `lto=false`, `codegen-units=16` (`opt-level=3`, `incremental=false`) | ~3–5 GB | ~2–5 min | Fast optimized iteration, quick perf checks, Linux release packaging (`.github/workflows/release.yml` + `apps/desktop/scripts/package-linux.sh`) |
-| `release-thin` | `inherits = "release"`, `lto="thin"`, `codegen-units=16` (`opt-level=3`, `incremental=false`) | ~4–6 GB | ~4–10 min | Near-release speed for perf checks and mesh dogfooding |
+| `release-thin` | `inherits = "release"`, `lto="thin"`, `codegen-units=16` (`opt-level=3`, `incremental=false`) | ~4–6 GB | ~4–10 min | Near-release speed for perf checks and daily dogfooding |
 | `perf` | `inherits = "release-quick"`, `incremental=false`, `debug=1` | ~3–5 GB | ~2–5 min | Native profiler symbols without fat-LTO cost |
 | `release` | `opt-level=3`, `lto="fat"`, `codegen-units=1`, `incremental=false` | ~10 GB | ~25–60 min | Shipped binaries & PGO builds (`apps/desktop/scripts/release.ps1` on Windows x64, `apps/desktop/scripts/build-app.sh` on macOS, `apps/desktop/scripts/dev.sh --release`) |
 
-## 4. Mesh-wide build caching, fast linkers, and disk cleanup
+## 4. Shared build caching, fast linkers, and disk cleanup
 
 Configure these in your **user** `~/.cargo/config.toml` or environment — do **not** edit the repo's `.cargo/config.toml` (it pins `git-fetch-with-cli`, Windows `+crt-static`, WASM `getrandom_backend="wasm_js"` + `+simd128`, and `LIBSQLITE3_FLAGS`).
 
 ### Shared `sccache` (Windows / macOS / Linux)
 
-Install once per device (`cargo install sccache --locked`, `brew install sccache`, or `winget install Mozilla.sccache`), then enable in `~/.cargo/config.toml`:
+Install once per machine (`cargo install sccache --locked`, `brew install sccache`, or `winget install Mozilla.sccache`), then enable in `~/.cargo/config.toml`:
 
 ```toml
 [build]
 rustc-wrapper = "sccache"
 ```
 
-Point every mesh device at one shared cache backend:
+Point each machine at one shared cache backend:
 
 | Backend | Required env vars |
 | --- | --- |
@@ -77,7 +77,7 @@ Point every mesh device at one shared cache backend:
 sccache --show-stats
 ```
 
-External crates never build incrementally, so `sccache` shares the full dependency graph even during incremental dev builds. For cold CI/mesh pre-warm runs, set `CARGO_INCREMENTAL=0` so workspace crates populate the cache too.
+External crates never build incrementally, so `sccache` shares the full dependency graph even during incremental dev builds. For cold CI or shared-cache pre-warm runs, set `CARGO_INCREMENTAL=0` so workspace crates populate the cache too.
 
 ### Fast linkers
 

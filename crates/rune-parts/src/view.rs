@@ -1,5 +1,5 @@
 //! Outlines drawn as Rune elements. Each app passes its colours ([`PartsTheme`]) and how it draws
-//! rich words and glyphs ([`PartsResolver`]); nothing here knows about Seer or OpenCode.
+//! rich words and glyphs ([`PartsResolver`]); nothing here knows about a specific host app.
 
 use rune::{Color, El, Icon, TextStyle, col, el, icon, row, spacer, text};
 

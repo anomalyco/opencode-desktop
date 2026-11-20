@@ -3,8 +3,8 @@
 use std::fmt::Write;
 
 pub const BUILD_STREAM: &[u8] = b"\
-\x1b]2;zsh \xe2\x80\x94 seer\x07\
-\x1b[1;34m~/code/seer\x1b[0m \x1b[38;5;244mon\x1b[0m \x1b[1;35m\xe2\x8e\x87 main\x1b[0m \x1b[1;32m\xe2\x9d\xaf\x1b[0m cargo test --locked -p terminal\r\n\
+\x1b]2;zsh \xe2\x80\x94 lumen\x07\
+\x1b[1;34m~/code/lumen\x1b[0m \x1b[38;5;244mon\x1b[0m \x1b[1;35m\xe2\x8e\x87 main\x1b[0m \x1b[1;32m\xe2\x9d\xaf\x1b[0m cargo test --locked -p terminal\r\n\
 \x1b[1;32m   Compiling\x1b[0m terminal v0.0.1 (crates/terminal)\r\n\
 \x1b[1;32m    Finished\x1b[0m `test` profile [optimized] target(s) in 0.42s\r\n\
 \x1b[1;32m     Running\x1b[0m unittests src/lib.rs\r\n\r\n\
@@ -16,13 +16,13 @@ test vt_tests::wide_cjk_and_zwj_emoji_graphemes ... \x1b[32mok\x1b[0m\r\n\
 test vt_tests::row_ids_persist_across_scrollback ... \x1b[32mok\x1b[0m\r\n\
 test pty_tests::server_pty_speaks_connect_token ... \x1b[32mok\x1b[0m\r\n\r\n\
 test result: \x1b[1;32mok\x1b[0m. 11 passed; 0 failed; finished in 0.18s\r\n\
-\x1b[2mDocs:\x1b[0m \x1b]8;;https://ghostty.org/docs\x07\x1b[4;38;2;97;175;239mhttps://ghostty.org/docs\x1b[0m\x1b]8;;\x07\r\n\r\n\
-\x1b[1;34m~/code/seer\x1b[0m \x1b[38;5;244mon\x1b[0m \x1b[1;35m\xe2\x8e\x87 main\x1b[0m \x1b[1;32m\xe2\x9d\xaf\x1b[0m ";
+\x1b[2mDocs:\x1b[0m \x1b]8;;https://ghostty.org/docs\x07\x1b[4;38;2;97;175;239mhttps://ghostty.org/docs\x07\x1b]8;;\x07\r\n\r\n\
+\x1b[1;34m~/code/lumen\x1b[0m \x1b[38;5;244mon\x1b[0m \x1b[1;35m\xe2\x8e\x87 main\x1b[0m \x1b[1;32m\xe2\x9d\xaf\x1b[0m ";
 
 pub const BUILD_BURST: &[u8] = b"git status -sb\r\n\
 \x1b[1;32m##\x1b[0m main...origin/main\r\n\
 \x1b[32m M\x1b[0m features/terminal-surface/src/grid/mod.rs\r\n\
-\x1b[1;34m~/code/seer\x1b[0m \x1b[38;5;244mon\x1b[0m \x1b[1;35m\xe2\x8e\x87 main\x1b[0m \x1b[1;32m\xe2\x9d\xaf\x1b[0m ";
+\x1b[1;34m~/code/lumen\x1b[0m \x1b[38;5;244mon\x1b[0m \x1b[1;35m\xe2\x8e\x87 main\x1b[0m \x1b[1;32m\xe2\x9d\xaf\x1b[0m ";
 
 pub const HTOP_STREAM: &[u8] = b"\
 \x1b[?1049h\x1b[?25l\x1b[H\x1b[2J\

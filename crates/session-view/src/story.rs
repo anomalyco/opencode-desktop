@@ -1,7 +1,7 @@
 //! Reference read-only [`TimelineHost`] and storybook scenes for `crates/session-view` (`p255`).
 //!
 //! Stores its [`Transcript`] in a [`RefCell`] and feeds virtual rows through
-//! [`TimelineHost::with_transcript`], mirroring how Seer (`apps/sketch/src/session_view.rs`) holds
+//! [`TimelineHost::with_transcript`], mirroring how an embedder host holds
 //! its live and fixture transcripts.
 
 use std::cell::RefCell;
@@ -19,7 +19,7 @@ use crate::palette::{Pal, pal};
 use crate::style::INSTANT;
 use crate::{TimelineHost, ViewState};
 
-pub const DIAGRAM_SRC: &str = "graph LR\n  Kit[opencode-kit] --> View[session-view]\n  View --> Desktop[opencode-desktop]\n  View --> Seer[seer-sketch]\n";
+pub const DIAGRAM_SRC: &str = "graph LR\n  Kit[opencode-kit] --> View[session-view]\n  View --> Desktop[opencode-desktop]\n  View --> Embed[embedder-app]\n";
 
 /// Standalone read-only host state for scenes and stories.
 pub struct Host {
@@ -328,7 +328,7 @@ pub fn arrive(s: &mut Host) {
             a.completed = Some(at);
         }
         t.messages.extend(opencode_kit::model::parse_messages(&serde_json::json!({"data": [
-            {"id": "msg_m3", "type": "user", "time": {"created": at}, "text": "Nice. Does Seer get it too?"},
+            {"id": "msg_m3", "type": "user", "time": {"created": at}, "text": "Nice. Does any embedder get it too?"},
         ]})));
         s.arrivals.landed(seen.as_ref(), t, s.clock);
     }

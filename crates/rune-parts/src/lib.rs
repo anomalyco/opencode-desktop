@@ -1,19 +1,19 @@
 //! Parts agents compose into notes and chat replies: one catalog, one outline grammar, one checker.
 //!
 //! A ```` ```ui ```` fence holds an outline, a part name first on every line and kids indented two
-//! spaces under it. Seer cards and OpenCode (Rune) sessions draw the same outline with their own
+//! spaces under it. Compact cards and OpenCode (Rune) sessions draw the same outline with their own
 //! theme ([`view`], behind the `view` feature), and the checker gives agents errors they can act on.
 //!
 //! ```text
 //! row
 //!   box Today
-//!     item {risk} Voice reply · pasted into Kit's bubble
+//!     item {risk} Voice reply · pasted into the bubble
 //!   arrow
 //!   box After
-//!     say Kit {voice}: filter Seer to Hex
+//!     say Alex {voice}: filter Lumen to Hex
 //! ```
 //!
-//! Without `view` the crate is plain Rust, so the `seer` CLI, Workers and Wasm link it too.
+//! Without `view` the crate is plain Rust, so CLIs, Workers and Wasm link it too.
 
 mod catalog;
 mod check;

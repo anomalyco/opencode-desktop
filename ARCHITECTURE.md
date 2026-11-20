@@ -50,7 +50,7 @@ Decoupled Rust feature crates in a flat, parallel layer with zero cross-feature 
 
 ### Tier 3: `crates/`
 
-Shell kernel, UI foundation, headless runtime, platform utilities, and embeddable libraries shared with `anomalyco/seer` and other Rune apps.
+Shell kernel, UI foundation, headless runtime, platform utilities, and embeddable libraries shared with other Rune apps.
 
 | Path | Crate | Scope |
 | --- | --- | --- |
@@ -119,7 +119,7 @@ Pick the first lane that fits. Do not add fields to `struct App` or edit central
 | --- | --- | --- | --- |
 | **Lane A (Default)** | `plugins/<id>/` | Dialogs, panels, settings pages, composer pills, popovers, commands, slash actions, MCP tools, server sources | 0 ms Rust (Luau hot reload) |
 | **Lane B** | `features/<id>/` | GPU shaders, frame recorders, heavy local indexing, OS-specific engines, or sub-ms hot paths | Leaf crate only |
-| **Lane C** | `crates/<id>/` | Reusable libraries or embeddable surfaces shared with `anomalyco/seer` or other Rune apps | Leaf crate only |
+| **Lane C** | `crates/<id>/` | Reusable libraries or embeddable surfaces shared with other Rune apps | Leaf crate only |
 
 Do not bridge a new Lane B Rust engine through a thin Lane A Luau shell: keep engine-backed UI in Lane B and reserve `contract.json` additions for reusable primitives and general services (see **Tier 1: `plugins/`**).
 

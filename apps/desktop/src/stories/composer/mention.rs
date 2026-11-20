@@ -64,7 +64,7 @@ fn prompt(s: &mut App, tx: &mut Tx) {
 }
 
 /// Timeline › Session mention (p279): Kit's prompt naming a known session and one this window
-/// hasn't loaded, with the stale offsets a local echo once left (`the @SEER …`, five bytes at
+/// hasn't loaded, with the stale offsets a local echo once left (`the @WORK …`, five bytes at
 /// 4). Each reads as one badge, its title or short id; pressing one opens that session.
 pub const SESSION_KEYS: &[Trigger] = &[replay(open_sessions)];
 

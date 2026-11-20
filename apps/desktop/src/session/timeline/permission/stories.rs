@@ -33,7 +33,7 @@ pub(crate) fn asked(v: usize) -> (&'static str, Vec<String>) {
             "packages/session-ui/src/components/dock-prompt/permission-patterns-that-run-long.tsx",
             "docs/reconnect.md",
         ].map(String::from).into()),
-        2 => ("github_create_issue", vec!["anomalyco/seer".into()]),
+        2 => ("github_create_issue", vec!["acme/lumen".into()]),
         3 => ("bash", vec!["git commit -am 'Backoff: cap at 30 s, reset after a success, keep jitter in range' && bun run typecheck && bun test test/net/backoff.test.ts --timeout 20000".into()]),
         _ => ("bash", vec!["bun test test/net/backoff.test.ts".into()]),
     }

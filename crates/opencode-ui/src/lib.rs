@@ -3,8 +3,8 @@
 //! (`scroller`), rolling odometers (`odometer`), bottom sheets (`sheet`), popovers (`popover`),
 //! provider marks (`provider_mark`), shortcut keymap (`keymap`), reusable controls (`widgets`),
 //! file/review panel chrome (`panel_chrome`), popup/context menus (`popup`), and toast
-//! notifications (`toast`) for Rune apps (`apps/desktop`, `apps/web`, `features/*`, and embedders
-//! such as Seer).
+//! notifications (`toast`) for Rune apps (`apps/desktop`, `apps/web`, `features/*`, and other
+//! embedder apps).
 
 #![forbid(unsafe_code)]
 

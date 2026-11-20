@@ -21,7 +21,7 @@ pub struct BudgetProfile {
 }
 
 impl BudgetProfile {
-    /// A Seer card: read at a glance.
+    /// A compact card: read at a glance.
     pub const CARD: BudgetProfile = BudgetProfile { words: Some(150), leaf_words: 22, depth: 3, nodes: 60 };
     /// A chat reply in OpenCode (Rune): more room, still one screen.
     pub const CHAT: BudgetProfile = BudgetProfile { words: None, leaf_words: 32, depth: 4, nodes: 120 };

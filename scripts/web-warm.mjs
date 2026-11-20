@@ -12,8 +12,8 @@
 //
 // The list (apps/web/warm.txt) holds keys of the functions' names, so it outlives a build; a name the
 // module no longer has is skipped, and a function new to the path compiles on the page as before.
-// operation-detox's harness/web/warm-list.mjs makes it from wasm-bindgen's output (names kept): the order from a
-// trace of the page, and without the functions that ran on (or ran long) when called this way.
+// Generated from wasm-bindgen's output (names kept): the order comes from a
+// trace of the page, excluding functions that ran on (or ran long) when called this way.
 //
 // Usage: node (or bun) scripts/web-warm.mjs <app_bg.wasm> <warm.txt> [--keep-names]
 import { readFileSync, writeFileSync } from 'node:fs';

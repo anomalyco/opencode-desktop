@@ -59,7 +59,7 @@ use persist::StoredWorkspace;
 pub const MAX_TERMINAL_WORKSPACES: usize = 20;
 
 /// Default workspace key used by Storybook terminal stages.
-pub const STORY_WORKSPACE_KEY: &str = "story\0/workspace/seer";
+pub const STORY_WORKSPACE_KEY: &str = "story\0/workspace/lumen";
 
 /// Tab title style matching Desktop's tabular panel strip (`tabs.css:313`).
 pub const TAB_UI: TextStyle = opencode_ui::style::UI.features("tnum");

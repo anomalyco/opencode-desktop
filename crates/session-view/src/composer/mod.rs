@@ -203,7 +203,7 @@ impl ComposerState {
     }
 }
 
-/// Host hooks for the shared session composer. Defaults give a minimal host (like Seer) auto-grow,
+/// Host hooks for the shared session composer. Defaults give a minimal host auto-grow,
 /// attachment chips, image paste, `+` attach button, and Send / Stop with ~20 lines of glue,
 /// while letting OpenCode (Rune) plug in its pickers, slash/mention menus, queue face, and dictation.
 /// The prompt's name and the suggestion row it names, for a screen reader: built only while one
