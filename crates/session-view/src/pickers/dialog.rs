@@ -57,7 +57,11 @@ pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
 
 fn dialog<S: PickerHost>(s: &S, p: &Pal) -> El {
     let pk = s.pickers();
+    let active_desc = flyout::active_option_key(s)
+        .or_else(|| s.picker_active().map(|k| format!("option-{k}")));
     let field = pop::search_field(p, "picker-search", &pk.search, opencode_i18n::t!("dialog.model.search.placeholder"))
+        .label_static(opencode_i18n::t!("dialog.model.search.placeholder"))
+        .active_descendant(active_desc.unwrap_or_default())
         .on_edit(|s: &mut S| &mut s.pickers_mut().search)
         .on_input_change(|s: &mut S, _: &mut Tx| s.pickers_mut().query_changed())
         .on_input_key(|s: &mut S, ev, tx| s.picker_key(ev, tx) || s.picker_search_key(ev, tx));
@@ -124,17 +128,39 @@ fn model_row<S: PickerHost>(s: &S, p: &Pal, item: &Item, lit: bool, selected: bo
         .children((!item.note.is_empty()).then(|| text(item.note.clone()).key("note").font(UI).color(p.faint).shrink().truncate()))
         .children(item.free.then(|| pop::badge(p, opencode_i18n::t!("model.tag.free"))))
         .children(item.latest.then(|| pop::badge(p, opencode_i18n::t!("model.tag.latest"))));
-    let variant = lit.then(|| {
+    let budget = s.model_budget(&key);
+    let effort_label = lit.then(|| {
         let effort = s.model_effort(&key).unwrap_or_default();
-        let label = if effort.is_empty() { opencode_i18n::t!("common.default").to_owned() } else { capitalize(&effort) };
+        if effort.is_empty() { opencode_i18n::t!("common.default").to_owned() } else { capitalize(&effort) }
+    });
+    let variant = effort_label.as_ref().map(|label| {
         row().key("variant").shrink().min_w(0.0).max_w(VARIANT_W).center_y()
-            .child(text(label).font(UI).color(p.muted).shrink().truncate())
+            .child(text(label.clone()).font(UI).color(p.muted).shrink().truncate())
             .child(icon(&ic::CHEVRON_RIGHT, SMALL).mirror_in_rtl().color(p.icon_muted).offset(0.0, 0.5))
     });
-    let r = row()
+    // `Role::ListBoxOption` is a leaf in Rune's accessibility tree, so include budget, provider
+    // note, tags, and current effort in the row's accessible description.
+    let mut desc_parts: Vec<&str> = Vec::new();
+    if !item.note.is_empty() {
+        desc_parts.push(&item.note);
+    }
+    if item.free {
+        desc_parts.push(opencode_i18n::t!("model.tag.free"));
+    }
+    if item.latest {
+        desc_parts.push(opencode_i18n::t!("model.tag.latest"));
+    }
+    if let Some(label) = effort_label.as_deref() {
+        desc_parts.push(label);
+    }
+    if let Some((label, _)) = budget.as_ref() {
+        desc_parts.push(label.as_str());
+    }
+    let mut r = row()
         .key(format!("option-{key}"))
         .role("option")
         .label(item.label.clone())
+        .checked(selected)
         .transition(Transition::none())
         .h(LIST.row_h)
         .w_full()
@@ -146,9 +172,12 @@ fn model_row<S: PickerHost>(s: &S, p: &Pal, item: &Item, lit: bool, selected: bo
         .on_press_tx(move |s: &mut S, tx: &mut Tx| s.choose_picker_tx(&pick, tx))
         .child(row().key("check").size(pop::SLOT, pop::SLOT).center().children(selected.then(|| icon(&ic::CHECK, SMALL).color(p.icon))))
         .child(words)
-        .children((!lit).then(|| s.model_budget(&key)).flatten().map(|(label, reached)|
-            text(label).font(UI).color(if reached { p.v2.danger.fg } else { p.faint })))
+        .children((!lit).then_some(budget.as_ref()).flatten().map(|(label, reached)|
+            text(label.clone()).font(UI).color(if *reached { p.v2.danger.fg } else { p.faint })))
         .children(variant);
+    if !desc_parts.is_empty() {
+        r = r.description(desc_parts.join(", "));
+    }
     // The pointer on it, and its hover change (not `on_hover`: its commit would animate the
     // highlight from row to row), are the flyout's (`hover::row`).
     hover::row::<S>(r, &key).children(flyout::anchor(s, &key))
