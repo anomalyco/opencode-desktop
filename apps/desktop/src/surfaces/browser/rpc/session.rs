@@ -237,16 +237,29 @@ impl SessionAttachment {
     }
 
     /// Drains any completed bootstrap `Page.getFrameTree` responses into `self.frames`.
-    pub fn drain_bootstrap_frames(&mut self, app: &mut App) {
+    /// Returns `true` when an isolated context was still initializing and should retry bootstrap.
+    pub fn drain_bootstrap_frames(&mut self, app: &mut App) -> bool {
+        let mut retry_needed = false;
         let pending: Vec<(u64, u64)> = self.bootstrap_frame_reqs.iter().map(|(&h, &r)| (h, r)).collect();
         for (host_id, req_id) in pending {
             if let Some(resp) = app.workspace_panes.browser.host.take_cdp_response(req_id) {
                 self.bootstrap_frame_reqs.remove(&host_id);
-                if let Ok(val) = resp {
-                    self.frames.entry(host_id).or_default().ingest_frame_tree(&val, None);
+                match resp {
+                    Ok(val) => {
+                        self.frames.entry(host_id).or_default().ingest_frame_tree(&val, None);
+                    }
+                    Err(err)
+                        if err.get("message").and_then(serde_json::Value::as_str)
+                            == Some("browser.context.initializing") =>
+                    {
+                        self.cdp_bootstrapped.remove(&host_id);
+                        retry_needed = true;
+                    }
+                    Err(_) => {}
                 }
             }
         }
+        retry_needed
     }
 
     /// Returns all known document URLs in `host_id` (main document + all in-process & OOPIF
