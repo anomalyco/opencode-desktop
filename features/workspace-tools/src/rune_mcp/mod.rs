@@ -40,11 +40,12 @@ pub fn is_browser_tool(name: &str) -> bool {
     name.starts_with("browser_")
 }
 
-/// Announces whether `server` currently has an active `experimental.browser` v4 attachment,
-/// suppressing or restoring `browser_*` tools in place via `ClientMcp::set_tools`
-/// (`notifications/tools/list_changed`) while leaving non-browser tools untouched.
-pub fn set_browser_rpc_attached(server: &Server, attached: bool) {
-    global_hub().set_browser_rpc_attached(server, attached);
+/// Announces whether `window_id` currently suppresses local `browser_*` tools on `server`
+/// (because `experimental.browser` v4 is attached or in sticky transient reconnect), updating
+/// `ClientMcp::set_tools` (`notifications/tools/list_changed`) in place without affecting other
+/// windows attached to the same endpoint.
+pub fn set_browser_rpc_attached(window_id: u64, server: &Server, attached: bool) {
+    global_hub().set_browser_rpc_attached(window_id, server, attached);
 }
 
 static NEXT_WINDOW_ID: AtomicU64 = AtomicU64::new(1);
@@ -139,8 +140,8 @@ struct HubInner {
     /// Open connections and whether `browser_*` tools were suppressed in the last pushed catalog.
     connections: HashMap<FolderKey, (ClientMcp, bool)>,
     routers: HashMap<EndpointKey, Sender<McpCall>>,
-    /// Endpoints currently holding a live `experimental.browser` v4 attachment.
-    browser_rpc_attached: HashSet<EndpointKey>,
+    /// `(window_id, EndpointKey)` pairs holding an active (or sticky-reconnecting) `experimental.browser` v4 attachment.
+    browser_rpc_attached: HashSet<(u64, EndpointKey)>,
     /// The plugin tools generation the open connections listed (`tools::generation`).
     tools_generation: u64,
     reconnect_min: Duration,
@@ -173,14 +174,14 @@ impl RuneMcpHub {
         })
     }
 
-    pub fn set_browser_rpc_attached(self: &Arc<Self>, server: &Server, attached: bool) {
+    pub fn set_browser_rpc_attached(self: &Arc<Self>, window_id: u64, server: &Server, attached: bool) {
         let ep = server.endpoint_key();
         let to_drop = {
             let mut inner = lock(&self.inner);
             let changed = if attached {
-                inner.browser_rpc_attached.insert(ep)
+                inner.browser_rpc_attached.insert((window_id, ep))
             } else {
-                inner.browser_rpc_attached.remove(&ep)
+                inner.browser_rpc_attached.remove(&(window_id, ep))
             };
             if !changed {
                 return;
@@ -205,7 +206,8 @@ impl RuneMcpHub {
         }
         inner
             .browser_rpc_attached
-            .contains(&ep)
+            .iter()
+            .any(|(_, k)| *k == ep)
             .then_some(RPC_ATTACHED_BROWSER_MCP_ERROR)
     }
 
@@ -232,9 +234,11 @@ impl RuneMcpHub {
     fn remove_window(self: &Arc<Self>, window_id: u64) {
         let to_drop = {
             let mut inner = lock(&self.inner);
-            let before = inner.windows.len();
+            let before_w = inner.windows.len();
+            let before_s = inner.browser_rpc_attached.len();
             inner.windows.retain(|(w, _), _| *w != window_id);
-            if inner.windows.len() == before {
+            inner.browser_rpc_attached.retain(|(w, _)| *w != window_id);
+            if inner.windows.len() == before_w && inner.browser_rpc_attached.len() == before_s {
                 return;
             }
             Self::reconcile_locked(self, &mut inner)
@@ -268,7 +272,8 @@ impl RuneMcpHub {
             .cloned()
             .collect();
         let suppress_for = |ep: &EndpointKey| -> bool {
-            remote_endpoints.contains(ep) || inner.browser_rpc_attached.contains(ep)
+            remote_endpoints.contains(ep)
+                || inner.browser_rpc_attached.iter().any(|(_, k)| k == ep)
         };
 
         // OpenCode's attached MCP client refreshes on `notifications/tools/list_changed`
@@ -538,6 +543,10 @@ pub struct WindowMcp {
 }
 
 impl WindowMcp {
+    pub fn window_id(&self) -> u64 {
+        self.window_id
+    }
+
     pub fn force_enabled(&self) -> bool {
         self.force_enabled
     }

@@ -676,6 +676,17 @@ impl BrowserHost {
         params: Value,
         session_id: Option<String>,
     ) -> Result<u64, String> {
+        if session_id.is_some() {
+            return Err("DevTools CdpCall does not permit targeting a child sessionId.".into());
+        }
+        if self
+            .tabs
+            .iter()
+            .find(|t| t.id == tab_id)
+            .is_some_and(|t| crate::policy::extension_origin(&t.url))
+        {
+            return Err("DevTools calls are not permitted on extension pages.".into());
+        }
         let method = method.into();
         crate::policy::check_cdp(&method, &params, self.engine_policy())?;
         let request_id = self.next_req_id;
@@ -685,7 +696,7 @@ impl BrowserHost {
             request_id,
             method,
             params,
-            session_id,
+            session_id: None,
         });
         Ok(request_id)
     }
