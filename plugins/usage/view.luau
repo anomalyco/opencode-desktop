@@ -94,16 +94,17 @@ local function roundInt(n: number): number
     return math.ceil(n - 0.5)
 end
 
-local function line(words: string, style: UiTextProps, color: Color, extra: UiTextProps?): UiNode
+local function line(dir: TextDirection, words: string, style: UiTextProps, color: Color, extra: UiTextProps?): UiNode
     if extra ~= nil then
         local props = table.clone(extra) :: any
         props.color = color
+        props.dir = dir
         props.truncate = true
         props.shrink = true
         props.minW = 0
         return ui.text(words, style, props)
     end
-    return ui.text(words, style, { color = color, truncate = true, shrink = true, minW = 0 })
+    return ui.text(words, style, { color = color, dir = dir, truncate = true, shrink = true, minW = 0 })
 end
 
 -- `Panel`: 8 pt corners, a 0.5 `border-base` edge on `bg-base`, 16 above and below.
@@ -119,22 +120,22 @@ local function panel(gap: number, children: { UiNode }): UiNode
     }, children)
 end
 
-local function message(title: string, body: string): UiNode
+local function message(dir: TextDirection, title: string, body: string): UiNode
     return panel(8, {
         ui.col({ w = "full", px = 16, gap = 4 }, {
-            line(title, LINE_MED, "text-chrome"),
-            ui.text(body, BODY, { color = "text-muted" }),
+            line(dir, title, LINE_MED, "text-chrome"),
+            ui.text(body, BODY, { color = "text-muted", dir = dir }),
         }),
     })
 end
 
 -- `Spend`: the status, a 1.125 pt dot, then the detail.
-local function spend(status: string, detail: string, isReached: boolean): UiNode
+local function spend(dir: TextDirection, status: string, detail: string, isReached: boolean): UiNode
     local ink: Color = if isReached then "status-danger-strong" else "text-chrome"
     return ui.row({ gap = 6, align = "center" }, {
-        ui.text(status, LINE_MED, { tabular = true, truncate = true, shrink = true, minW = 0, color = ink }),
+        ui.text(status, LINE_MED, { tabular = true, truncate = true, shrink = true, minW = 0, color = ink, dir = dir }),
         ui.box(DOT_BOX, { ui.box(DOT) }),
-        line(detail, LINE, "text-muted"),
+        line(dir, detail, LINE, "text-muted"),
     })
 end
 
@@ -149,13 +150,13 @@ local function track(fill: number, isReached: boolean): UiNode
 end
 
 -- `Section`: its muted label (and the workspace's badge) over its panel, 12 apart.
-local function section(labelText: string, badge: string?, dimmed: boolean, bodyNode: UiNode): UiNode
-    local headChildren: { UiNode } = { line(labelText, LINE, "text-muted") }
+local function section(dir: TextDirection, labelText: string, badge: string?, dimmed: boolean, bodyNode: UiNode): UiNode
+    local headChildren: { UiNode } = { line(dir, labelText, LINE, "text-muted") }
     if badge ~= nil then
         table.insert(
             headChildren,
             ui.row({ h = 16, px = 4, radius = 2, align = "center", fill = "surface-3" }, {
-                ui.text(badge, BADGE_TEXT),
+                ui.text(badge, BADGE_TEXT, { dir = dir }),
             })
         )
     end
@@ -229,7 +230,7 @@ local function scopeText(I18n: I18nService, r: limits.Row, workspace: string): s
     return table.concat(parts, " · ")
 end
 
-local function budgetRow(I18n: I18nService, r: limits.Row, workspace: string): UiNode
+local function budgetRow(I18n: I18nService, dir: TextDirection, r: limits.Row, workspace: string): UiNode
     local status: string
     local detail: string
     if r.reached then
@@ -245,16 +246,16 @@ local function budgetRow(I18n: I18nService, r: limits.Row, workspace: string): U
     return ui.col(ITEM, {
         ui.row({ w = "full", align = "start" }, {
             ui.col({ grow = 1, shrink = true, minW = 0, gap = 2 }, {
-                line(budgetLabelText(I18n, r.label), LINE_MED, "text-chrome"),
-                ui.text(scopeText(I18n, r, workspace), LINE, { color = "text-muted", wrap = true, w = "full" }),
+                line(dir, budgetLabelText(I18n, r.label), LINE_MED, "text-chrome"),
+                ui.text(scopeText(I18n, r, workspace), LINE, { color = "text-muted", dir = dir, wrap = true, w = "full" }),
             }),
-            spend(status, detail, r.reached),
+            spend(dir, status, detail, r.reached),
         }),
         track(r.fill, r.reached),
     })
 end
 
-local function calloutNode(I18n: I18nService, c: limits.Callout, workspace: string): UiNode
+local function calloutNode(I18n: I18nService, dir: TextDirection, c: limits.Callout, workspace: string): UiNode
     local title: string
     local body: string
     if c.kind == "credits" then
@@ -278,13 +279,13 @@ local function calloutNode(I18n: I18nService, c: limits.Callout, workspace: stri
             corners = { 0, 6, 6, 0 },
             fill = "status-danger-bg",
         }, {
-            line(title, LINE_MED, "status-danger-strong"),
-            ui.text(body, BODY, { color = "status-danger-strong", wrap = true, w = "full" }),
+            line(dir, title, LINE_MED, "status-danger-strong"),
+            ui.text(body, BODY, { color = "status-danger-strong", dir = dir, wrap = true, w = "full" }),
         }),
     })
 end
 
-local function actionRow(I18n: I18nService, a: limits.Action, onSwitch: UiHandler): UiNode
+local function actionRow(I18n: I18nService, dir: TextDirection, a: limits.Action, onSwitch: UiHandler): UiNode
     local title: string
     local body: string
     if a.kind == "other-models" then
@@ -309,8 +310,8 @@ local function actionRow(I18n: I18nService, a: limits.Action, onSwitch: UiHandle
     end
     return ui.row({ key = "usage-action", w = "full", px = 16, gap = 16, align = "center" }, {
         ui.col({ grow = 1, shrink = true, minW = 0, gap = 4 }, {
-            line(title, LINE_MED, "text-chrome"),
-            ui.text(body, BODY, { color = "text-muted", wrap = true, w = "full" }),
+            line(dir, title, LINE_MED, "text-chrome"),
+            ui.text(body, BODY, { color = "text-muted", dir = dir, wrap = true, w = "full" }),
         }),
         ui.button({
             key = "usage-switch",
@@ -322,7 +323,7 @@ local function actionRow(I18n: I18nService, a: limits.Action, onSwitch: UiHandle
     })
 end
 
-local function footerRow(I18n: I18nService, v: limits.UsageView, onDetails: UiHandler): UiNode
+local function footerRow(I18n: I18nService, dir: TextDirection, v: limits.UsageView, onDetails: UiHandler): UiNode
     local words: string
     if v.footer.kind == "credits-only" then
         local workspace = v.workspace or I18n:T("usage.workspace.fallback")
@@ -335,7 +336,7 @@ local function footerRow(I18n: I18nService, v: limits.UsageView, onDetails: UiHa
     local detailsLabel = I18n:T("usage.footer.details")
     return ui.row({ key = "usage-footer", w = "full", pad = 16, gap = 8, align = "center" }, {
         ui.row({ grow = 1, shrink = true, minW = 0, h = 28, align = "center" }, {
-            line(words, LINE, "text-faint"),
+            line(dir, words, LINE, "text-faint"),
         }),
         ui.row({
             key = "usage-details",
@@ -349,17 +350,17 @@ local function footerRow(I18n: I18nService, v: limits.UsageView, onDetails: UiHa
             press = "surface-press",
             onPress = onDetails,
         }, {
-            ui.text(detailsLabel, BODY_MED, { color = "text-muted" }),
+            ui.text(detailsLabel, BODY_MED, { color = "text-muted", dir = dir }),
         }),
     })
 end
 
-local function contentNode(I18n: I18nService, v: limits.UsageView, nowMs: number, onSwitch: UiHandler): UiNode
+local function contentNode(I18n: I18nService, dir: TextDirection, v: limits.UsageView, nowMs: number, onSwitch: UiHandler): UiNode
     local workspace = v.workspace or I18n:T("usage.workspace.fallback")
     local children: { UiNode } = {}
 
     if v.callout ~= nil then
-        table.insert(children, calloutNode(I18n, v.callout, workspace))
+        table.insert(children, calloutNode(I18n, dir, v.callout, workspace))
     end
 
     if v.go ~= nil then
@@ -378,47 +379,47 @@ local function contentNode(I18n: I18nService, v: limits.UsageView, nowMs: number
                 goChildren,
                 ui.col(ITEM, {
                     ui.row({ w = "full", align = "center" }, {
-                        line(title, LINE_MED, "text-chrome", { grow = 1 }),
-                        spend(status, resets, g.meter.limited),
+                        line(dir, title, LINE_MED, "text-chrome", { grow = 1 }),
+                        spend(dir, status, resets, g.meter.limited),
                     }),
                     track(g.meter.percent / 100, g.meter.limited),
                 })
             )
         end
-        table.insert(children, section(I18n:T("usage.section.go"), nil, false, panel(16, goChildren)))
+        table.insert(children, section(dir, I18n:T("usage.section.go"), nil, false, panel(16, goChildren)))
     end
 
     local budgetsNode: UiNode
     if #v.budgets == 0 then
-        budgetsNode = message(I18n:T("usage.empty.title"), I18n:T("usage.empty.body", { workspace = workspace }))
+        budgetsNode = message(dir, I18n:T("usage.empty.title"), I18n:T("usage.empty.body", { workspace = workspace }))
     else
         local budgetChildren: { UiNode } = {}
         for k, r in v.budgets do
             if k > 1 then
                 table.insert(budgetChildren, ui.box(DIVIDER))
             end
-            table.insert(budgetChildren, budgetRow(I18n, r, workspace))
+            table.insert(budgetChildren, budgetRow(I18n, dir, r, workspace))
         end
         if v.action ~= nil then
-            table.insert(budgetChildren, actionRow(I18n, v.action, onSwitch))
+            table.insert(budgetChildren, actionRow(I18n, dir, v.action, onSwitch))
         end
         budgetsNode = panel(16, budgetChildren)
     end
-    table.insert(children, section(I18n:T("usage.section.console"), v.workspace, v.dimmed, budgetsNode))
+    table.insert(children, section(dir, I18n:T("usage.section.console"), v.workspace, v.dimmed, budgetsNode))
 
     return ui.col({ key = "usage-content", w = "full", gap = 16 }, children)
 end
 
-local function fallbackNode(I18n: I18nService, load: machine.Load, onRetry: UiHandler): UiNode
+local function fallbackNode(I18n: I18nService, dir: TextDirection, load: machine.Load, onRetry: UiHandler): UiNode
     if load.status == "signed-out" then
         return ui.col({ key = "usage-state", w = "full", px = 12, pb = 12 }, {
-            message(I18n:T("usage.signedOut.title"), I18n:T("usage.signedOut.body")),
+            message(dir, I18n:T("usage.signedOut.title"), I18n:T("usage.signedOut.body")),
         })
     end
     local inner: UiNode
     if load.status == "failed" then
         inner = ui.col({ gap = 12, align = "center" }, {
-            ui.text(I18n:T("usage.error"), LINE, { color = "text-muted" }),
+            ui.text(I18n:T("usage.error"), LINE, { color = "text-muted", dir = dir }),
             ui.button({
                 key = "usage-retry",
                 text = I18n:T("usage.retry"),
@@ -441,14 +442,15 @@ function view.render(
     nowMs: number,
     callbacks: Callbacks
 ): UiNode
+    local dir = I18n:Direction()
     local body: UiNode
     local foot: UiNode? = nil
     if load.status == "ready" or load.status == "refreshing" then
         local v = limits.view(load.info, model, credits)
-        body = contentNode(I18n, v, nowMs, callbacks.onSwitch)
-        foot = footerRow(I18n, v, callbacks.onDetails)
+        body = contentNode(I18n, dir, v, nowMs, callbacks.onSwitch)
+        foot = footerRow(I18n, dir, v, callbacks.onDetails)
     else
-        body = fallbackNode(I18n, load, callbacks.onRetry)
+        body = fallbackNode(I18n, dir, load, callbacks.onRetry)
     end
 
     return ui.col({ w = "full" }, {
