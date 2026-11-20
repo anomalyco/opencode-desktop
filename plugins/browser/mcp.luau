@@ -163,6 +163,9 @@ function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutServ
         if code == "browser.preview.unsupported" then
             return "This preview requires an updated browser engine."
         end
+        if code == "browser.controlled.inherited_permission" then
+            return "Controlled browser actions are blocked on this site because it holds a profile permission."
+        end
         return "Only HTTP, HTTPS, and about:blank URLs are supported."
     end
 
