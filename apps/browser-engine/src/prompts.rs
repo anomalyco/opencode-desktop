@@ -120,6 +120,10 @@ impl TabPrompts {
         !set.is_empty()
     }
 
+    pub fn has_any_pending_ext_subframes(&self) -> bool {
+        !self.pending_ext_subframes.lock().unwrap().is_empty()
+    }
+
     pub fn set_cdp_ext_frame(&self, cdp_frame_id: &str, is_ext: bool) {
         if cdp_frame_id.is_empty() {
             return;

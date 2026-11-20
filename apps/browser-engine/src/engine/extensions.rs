@@ -529,34 +529,46 @@ impl EngineManager {
     }
 }
 
-/// Fail-closed whole-tab extension guard checked at dispatch time for every `HostMsg::CdpCall`,
-/// `SetInspect`, and `HighlightNode` (`review-rd274.md` Round-4 ruling).
+/// Fail-closed whole-tab extension guard checked at dispatch AND reply time for `HostMsg::CdpCall`,
+/// `HostMsg::Find`, `SetInspect`, and `HighlightNode` (`review-rd274.md` Round-4 & Round-5).
 pub(super) fn tab_is_extension_surface(t: &ManagedTab) -> bool {
-    if t.is_popup {
+    browser_has_extension_surface(Some(&t.browser), t.is_popup, &t.snap, &t.prompts)
+}
+
+pub(crate) fn browser_has_extension_surface(
+    browser: Option<&cef::Browser>,
+    is_popup: bool,
+    snap: &Mutex<TabSnapshot>,
+    prompts: &TabPrompts,
+) -> bool {
+    if is_popup {
         return true;
     }
-    if crate::extensions::manifest::is_extension_scheme(&t.snap.lock().unwrap().url) {
+    if crate::extensions::manifest::is_extension_scheme(&snap.lock().unwrap().url) {
         return true;
     }
-    if let Some(pending) = t.prompts.pending_top_url()
+    if let Some(pending) = prompts.pending_top_url()
         && crate::extensions::manifest::is_extension_scheme(&pending)
     {
         return true;
     }
-    if t.prompts.has_cdp_ext_frames() {
+    if prompts.has_cdp_ext_frames() {
         return true;
     }
-    if let Some(frame) = t.browser.main_frame() {
+    let Some(browser) = browser else {
+        return prompts.has_any_pending_ext_subframes();
+    };
+    if let Some(frame) = browser.main_frame() {
         let live_url = CefString::from(&frame.url()).to_string();
         if crate::extensions::manifest::is_extension_scheme(&live_url) {
             return true;
         }
     }
     let mut ids = cef::CefStringList::new();
-    t.browser.frame_identifiers(Some(&mut ids));
+    browser.frame_identifiers(Some(&mut ids));
     let mut live_frames: HashMap<String, String> = HashMap::new();
     for id in ids {
-        let Some(frame) = t.browser.frame_by_identifier(Some(&CefString::from(id.as_str()))) else {
+        let Some(frame) = browser.frame_by_identifier(Some(&CefString::from(id.as_str()))) else {
             continue;
         };
         let furl = CefString::from(&frame.url()).to_string();
@@ -565,5 +577,5 @@ pub(super) fn tab_is_extension_surface(t: &ManagedTab) -> bool {
         }
         live_frames.insert(id, furl);
     }
-    t.prompts.has_pending_ext_subframes(&live_frames)
+    prompts.has_pending_ext_subframes(&live_frames)
 }

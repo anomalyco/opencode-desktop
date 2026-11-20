@@ -937,6 +937,10 @@ impl EngineManager {
             }
             HostMsg::Find { tab_id, query, forward, match_case, find_next } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
+                    if !self.contexts.is_tab_ready(tab_id) || extensions::tab_is_extension_surface(t) {
+                        t.host.stop_finding(1);
+                        return true;
+                    }
                     if query.is_empty() {
                         t.host.stop_finding(1);
                     } else {
@@ -1382,6 +1386,8 @@ impl EngineManager {
         let pending_clears = Arc::new(Mutex::new(Vec::new()));
         let mut observer = TabCdpObserver::new(
             tab_id,
+            is_popup,
+            snap.clone(),
             cdp_id_map.clone(),
             internal_picked.clone(),
             pending_clears.clone(),
@@ -1474,6 +1480,8 @@ impl EngineManager {
         let _ = host.send_dev_tools_message(Some(raw.as_bytes()));
     }
 }
+
+pub(crate) use extensions::browser_has_extension_surface;
 
 mod emulation;
 mod extensions;
