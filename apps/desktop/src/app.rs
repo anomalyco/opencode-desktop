@@ -526,10 +526,18 @@ impl App {
             for id in &gone { transcripts.remove(id); }
         }
         // A closed session's diffs and open files (their source lines, highlight chunks, images).
-        if !review_gone.is_empty() {
-            let review = s.kernel.slots.get_mut(&crate::review::REVIEW);
-            for id in &review_gone { review.sessions.remove(id); }
+        let keep_dirs: HashSet<String> = s
+            .sessions
+            .iter()
+            .filter(|sess| kept_ids.contains(&sess.id))
+            .map(|sess| crate::review::dir_key(&sess.directory))
+            .filter(|d| !d.is_empty())
+            .collect();
+        let review = s.kernel.slots.get_mut(&crate::review::REVIEW);
+        for id in &review_gone {
+            review.sessions.remove(id);
         }
+        review.prune_cache(&shown, &keep_dirs);
         if !files_gone.is_empty() {
             for id in &files_gone {
                 let f = s.kernel.slots.get_mut(&files::FILES);

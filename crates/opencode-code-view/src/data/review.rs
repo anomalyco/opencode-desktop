@@ -100,8 +100,17 @@ pub struct PreparedReview {
     pub narrow: Vec<(String, PreparedDiffDoc)>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FetchedVcs {
+    pub branch_current: Option<String>,
+    pub branch_default: Option<String>,
+    pub lacks_provider: bool,
+}
+
 pub struct FetchedDiffs {
     pub session_id: String,
+    pub directory: String,
+    pub server_base: String,
     pub mode: ChangeMode,
     pub revision: u64,
     /// The prepared diff state, or why it couldn't be read.
@@ -431,34 +440,39 @@ pub fn prepare_narrow_paths(paths: &[String], files: &[FileDiff]) -> Vec<(String
         .collect()
 }
 
-pub fn fetch_live_diffs(server: &Server, spec: ReviewFetchSpec) -> FetchedDiffs {
-    let loc = format!("location%5Bdirectory%5D={}", encode_uri_component(&spec.directory));
-    let vcs_val = server.get(&format!("/api/vcs?{loc}")).ok();
-    let branch_current = vcs_val
-        .as_ref()
-        .and_then(|v| v["data"]["branch"]["current"].as_str().or_else(|| v["branch"]["current"].as_str()))
+/// Reads branch metadata and provider presence for `directory` (`/api/vcs`), independent of
+/// `/api/vcs/diff` so review diffs never wait on VCS metadata (`packages/client/src/solid/data.ts:1596`,
+/// `packages/gui-plugins/src/review/model.ts:183, 241-253`).
+pub fn fetch_live_vcs(server: &Server, directory: &str) -> Option<FetchedVcs> {
+    if directory.is_empty() {
+        return None;
+    }
+    let loc = format!("location%5Bdirectory%5D={}", encode_uri_component(directory));
+    let vcs_val = server.get(&format!("/api/vcs?{loc}")).ok()?;
+    let branch_current = vcs_val["data"]["branch"]["current"]
+        .as_str()
+        .or_else(|| vcs_val["branch"]["current"].as_str())
         .map(str::to_owned);
-    let branch_default = vcs_val
-        .as_ref()
-        .and_then(|v| v["data"]["branch"]["default"].as_str().or_else(|| v["branch"]["default"].as_str()))
+    let branch_default = vcs_val["data"]["branch"]["default"]
+        .as_str()
+        .or_else(|| vcs_val["branch"]["default"].as_str())
         .map(str::to_owned);
-    let provider = vcs_val
-        .as_ref()
-        .and_then(|v| v["data"]["provider"].as_str().or_else(|| v["provider"].as_str()));
-    let lacks_provider = vcs_val.is_some() && provider.is_none() && branch_current.is_none();
+    let provider = vcs_val["data"]["provider"]
+        .as_str()
+        .or_else(|| vcs_val["provider"].as_str());
+    let lacks_provider = provider.is_none() && branch_current.is_none();
+    Some(FetchedVcs { branch_current, branch_default, lacks_provider })
+}
 
+/// Fetches and prepares only the diff list (`/api/vcs/diff` or `/api/session/:id/diff`),
+/// without blocking on `/api/vcs`.
+pub fn fetch_live_diff_only(server: &Server, spec: ReviewFetchSpec) -> FetchedDiffs {
+    let loc = format!("location%5Bdirectory%5D={}", encode_uri_component(&spec.directory));
     let raw_diff = match spec.mode {
         ChangeMode::Turn => server.get(&format!("/api/session/{}/diff", encode_uri_component(&spec.session_id))),
         ChangeMode::Branch => server.get(&format!("/api/vcs/diff?{loc}&mode=branch&untracked=folders")),
         ChangeMode::Git => server.get(&format!("/api/vcs/diff?{loc}&mode=working&untracked=folders")),
     };
-
-    // The location may acquire its VCS provider between these two reads. A working-tree
-    // listing with real changes must not be obscured by the earlier no-provider result.
-    let no_git = lacks_provider
-        && raw_diff.as_ref().is_ok_and(|v| {
-            v["data"].as_array().or_else(|| v.as_array()).is_some_and(Vec::is_empty)
-        });
 
     let changes = raw_diff.map(|v| {
         let parsed = ChangeList::read(v);
@@ -496,13 +510,44 @@ pub fn fetch_live_diffs(server: &Server, spec: ReviewFetchSpec) -> FetchedDiffs 
 
     FetchedDiffs {
         session_id: spec.session_id,
+        directory: spec.directory,
+        server_base: server.base.clone(),
         mode: spec.mode,
         revision: spec.revision,
         changes,
-        branch_current,
-        branch_default,
-        no_git,
+        branch_current: None,
+        branch_default: None,
+        no_git: false,
     }
+}
+
+/// Fetches `/api/vcs` and `/api/vcs/diff` concurrently on native targets (sequentially on wasm32)
+/// and combines them into one [`FetchedDiffs`].
+pub fn fetch_live_diffs(server: &Server, spec: ReviewFetchSpec) -> FetchedDiffs {
+    #[cfg(not(target_arch = "wasm32"))]
+    let (vcs, mut diff) = std::thread::scope(|scope| {
+        let dir = spec.directory.clone();
+        let srv = server.clone();
+        let vcs_handle = scope.spawn(move || fetch_live_vcs(&srv, &dir));
+        let diff = fetch_live_diff_only(server, spec);
+        let vcs = vcs_handle.join().ok().flatten();
+        (vcs, diff)
+    });
+    #[cfg(target_arch = "wasm32")]
+    let (vcs, mut diff) = {
+        let vcs = fetch_live_vcs(server, &spec.directory);
+        let diff = fetch_live_diff_only(server, spec);
+        (vcs, diff)
+    };
+
+    if let Some(vcs) = vcs {
+        // The location may acquire its VCS provider between these two reads. A working-tree
+        // listing with real changes must not be obscured by an earlier no-provider result.
+        diff.no_git = vcs.lacks_provider && diff.changes.as_ref().is_ok_and(|p| p.count == 0);
+        diff.branch_current = vcs.branch_current;
+        diff.branch_default = vcs.branch_default;
+    }
+    diff
 }
 
 pub fn encode_fs_path(path: &str) -> String {

@@ -567,7 +567,8 @@ impl App {
                 let branch = data["branch"].as_str().map(str::to_owned);
                 let server = crate::servers::runtime::active(self).clone();
                 self.sidebar_inbox.branches.updated(&server, dir, branch.clone());
-                crate::view::location_card::branch_updated(self, &server, dir, branch);
+                crate::view::location_card::branch_updated(self, &server, dir, branch.clone());
+                self.note_review_branch_updated(dir, branch);
                 true
             }
             "permission.asked" | "form.created" => {
