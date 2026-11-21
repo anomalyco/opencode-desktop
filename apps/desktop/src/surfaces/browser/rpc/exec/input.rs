@@ -2,14 +2,20 @@
 //! `select`, `check`, `press`, and `scroll`).
 
 use std::collections::VecDeque;
+use std::time::Duration;
 
 use browser_pane::tools::keys::{CdpKeySpec, parse_key_chord};
 use opencode_kit::browser_rpc::{Command, Outcome, failure_code};
+use rune::time::Instant;
 use serde_json::{Value, json};
 
 use super::super::session::SessionAttachment;
+use super::point::PointResolver;
 use super::{ExecPhase, StepOutcome, cdp_err_msg, check_page_guards};
 use crate::App;
+
+const DRAG_INTERCEPT_WAIT: Duration = Duration::from_secs(2);
+const CHECK_DRAGGABLE_JS: &str = "function() { return Boolean(this.draggable); }";
 
 const CHECK_EDITABLE_JS: &str = r#"function() {
   if (!this.isConnected) throw new Error('browser.detached_ref');
@@ -69,12 +75,15 @@ const CHECK_POST_JS: &str = r#"function() {
 type Target = (i64, Option<String>, Option<String>);
 
 pub(super) enum InputStep {
-    ScrollIntoView(Target),
-    GetCenter(Target),
+    ResolvePoint(Target),
     StoreFromCenter,
     HitTestSaved,
     DispatchMouse { kind: &'static str, button: String, click_count: u32, modifiers: u32 },
-    DispatchDragPath,
+    CheckDraggable,
+    SetInterceptDrags(bool),
+    DispatchDragMotion,
+    WaitDragData,
+    FinishDrag,
     ResolveNode(Target),
     CheckEditable { bid: Target, text: String },
     SetStructured { text: String },
@@ -93,17 +102,43 @@ pub(super) struct InputState {
     pub host_id: u64,
     steps: VecDeque<InputStep>,
     current: Option<(InputStep, u64)>,
+    point: Option<PointResolver>,
     saved_pos: Option<(f64, f64)>,
     saved_from: Option<(f64, f64)>,
     saved_obj: Option<String>,
     obj_session: Option<String>,
     obj_frame: Option<String>,
+    html5_drag: bool,
+    intercepting_drags: bool,
+    drag_data: Option<Value>,
+    drag_deadline: Option<Instant>,
 }
 
 impl InputState {
+    pub fn next_wake(&self) -> Option<Instant> {
+        self.drag_deadline
+    }
+
+    pub fn ingest_drag_intercepted(&mut self, data: Value) {
+        self.drag_data = Some(data);
+        self.drag_deadline = None;
+    }
+
     pub fn cancel_cleanup(&mut self, app: &mut App) {
+        if let Some(mut p) = self.point.take() {
+            p.cancel_cleanup(app);
+        }
         if let Some((_, req_id)) = self.current.take() {
             app.workspace_panes.browser.host.cancel_cdp(req_id);
+        }
+        if self.intercepting_drags {
+            self.intercepting_drags = false;
+            let _ = app.workspace_panes.browser.host.send_typed_cdp(
+                self.host_id,
+                "Input.setInterceptDrags",
+                json!({ "enabled": false }),
+                None,
+            );
         }
         release_saved_obj(app, self);
     }
@@ -181,7 +216,7 @@ fn start_click(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> Ste
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
     let mut steps = VecDeque::new();
     push_click_steps(&mut steps, bid, button, count, modifiers);
-    launch_steps(app, host_id, steps)
+    launch_steps(att, app, host_id, steps)
 }
 
 fn start_hover(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> StepOutcome {
@@ -195,11 +230,10 @@ fn start_hover(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> Ste
     };
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
     let mut steps = VecDeque::new();
-    steps.push_back(InputStep::ScrollIntoView(bid.clone()));
-    steps.push_back(InputStep::GetCenter(bid));
+    steps.push_back(InputStep::ResolvePoint(bid));
     steps.push_back(InputStep::HitTestSaved);
     steps.push_back(InputStep::DispatchMouse { kind: "mouseMoved", button: "none".into(), click_count: 0, modifiers: 0 });
-    launch_steps(app, host_id, steps)
+    launch_steps(att, app, host_id, steps)
 }
 
 fn start_drag(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> StepOutcome {
@@ -217,15 +251,19 @@ fn start_drag(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> Step
     };
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
     let mut steps = VecDeque::new();
-    steps.push_back(InputStep::ScrollIntoView(from_bid.clone()));
-    steps.push_back(InputStep::GetCenter(from_bid));
+    steps.push_back(InputStep::ResolvePoint(from_bid.clone()));
     steps.push_back(InputStep::HitTestSaved);
     steps.push_back(InputStep::StoreFromCenter);
-    steps.push_back(InputStep::ScrollIntoView(to_bid.clone()));
-    steps.push_back(InputStep::GetCenter(to_bid));
+    steps.push_back(InputStep::ResolvePoint(to_bid));
     steps.push_back(InputStep::HitTestSaved);
-    steps.push_back(InputStep::DispatchDragPath);
-    launch_steps(app, host_id, steps)
+    steps.push_back(InputStep::ResolveNode(from_bid));
+    steps.push_back(InputStep::CheckDraggable);
+    steps.push_back(InputStep::ReleaseObject);
+    steps.push_back(InputStep::SetInterceptDrags(true));
+    steps.push_back(InputStep::DispatchDragMotion);
+    steps.push_back(InputStep::WaitDragData);
+    steps.push_back(InputStep::FinishDrag);
+    launch_steps(att, app, host_id, steps)
 }
 
 fn start_fill(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> StepOutcome {
@@ -243,7 +281,7 @@ fn start_fill(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> Step
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
     let mut steps = VecDeque::new();
     push_fill_steps(&mut steps, bid, text.to_owned());
-    launch_steps(app, host_id, steps)
+    launch_steps(att, app, host_id, steps)
 }
 
 fn start_select(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> StepOutcome {
@@ -262,7 +300,7 @@ fn start_select(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> St
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
     let mut steps = VecDeque::new();
     push_select_steps(&mut steps, bid, values);
-    launch_steps(app, host_id, steps)
+    launch_steps(att, app, host_id, steps)
 }
 
 fn start_check(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> StepOutcome {
@@ -280,7 +318,7 @@ fn start_check(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> Ste
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
     let mut steps = VecDeque::new();
     push_check_steps(&mut steps, bid, checked);
-    launch_steps(app, host_id, steps)
+    launch_steps(att, app, host_id, steps)
 }
 
 fn start_fill_form(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> StepOutcome {
@@ -316,7 +354,7 @@ fn start_fill_form(att: &mut SessionAttachment, app: &mut App, cmd: &Command) ->
         };
         return StepOutcome::Done(Outcome::ok(serde_json::to_value(tab).unwrap_or(Value::Null), Vec::new()));
     }
-    launch_steps(app, host_id, steps)
+    launch_steps(att, app, host_id, steps)
 }
 
 fn start_press(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> StepOutcome {
@@ -332,7 +370,7 @@ fn start_press(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> Ste
         Err(msg) => return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, msg)),
     };
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
-    launch_steps(app, host_id, VecDeque::from([InputStep::DispatchKey(spec)]))
+    launch_steps(att, app, host_id, VecDeque::from([InputStep::DispatchKey(spec)]))
 }
 
 fn start_scroll(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> StepOutcome {
@@ -343,12 +381,11 @@ fn start_scroll(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> St
     let dx = cmd.action.get("deltaX").and_then(Value::as_i64).unwrap_or(0).clamp(-10_000, 10_000);
     let dy = cmd.action.get("deltaY").and_then(Value::as_i64).unwrap_or(0).clamp(-10_000, 10_000);
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
-    launch_steps(app, host_id, VecDeque::from([InputStep::GetViewportCenter, InputStep::DispatchWheel { dx, dy }]))
+    launch_steps(att, app, host_id, VecDeque::from([InputStep::GetViewportCenter, InputStep::DispatchWheel { dx, dy }]))
 }
 
 fn push_click_steps(steps: &mut VecDeque<InputStep>, bid: Target, button: String, count: u32, modifiers: u32) {
-    steps.push_back(InputStep::ScrollIntoView(bid.clone()));
-    steps.push_back(InputStep::GetCenter(bid));
+    steps.push_back(InputStep::ResolvePoint(bid));
     steps.push_back(InputStep::HitTestSaved);
     steps.push_back(InputStep::DispatchMouse { kind: "mouseMoved", button: "none".into(), click_count: 0, modifiers });
     for click_count in 1..=count {
@@ -373,38 +410,73 @@ fn push_check_steps(steps: &mut VecDeque<InputStep>, bid: Target, checked: bool)
     steps.push_back(InputStep::CallCheckPre { bid, checked });
 }
 
-fn launch_steps(app: &mut App, host_id: u64, steps: VecDeque<InputStep>) -> StepOutcome {
-    let mut state = InputState { host_id, steps, current: None, saved_pos: None, saved_from: None, saved_obj: None, obj_session: None, obj_frame: None };
-    if let Some(err) = dispatch_next_step(app, &mut state) {
+fn launch_steps(att: &SessionAttachment, app: &mut App, host_id: u64, steps: VecDeque<InputStep>) -> StepOutcome {
+    let mut state = InputState {
+        host_id,
+        steps,
+        current: None,
+        point: None,
+        saved_pos: None,
+        saved_from: None,
+        saved_obj: None,
+        obj_session: None,
+        obj_frame: None,
+        html5_drag: false,
+        intercepting_drags: false,
+        drag_data: None,
+        drag_deadline: None,
+    };
+    if let Some(err) = dispatch_next_step(att, app, &mut state, Instant::now()) {
+        state.cancel_cleanup(app);
         return StepOutcome::Done(err);
     }
     StepOutcome::Pending(ExecPhase::Input(state))
 }
 
-pub(super) fn step_input(att: &SessionAttachment, app: &mut App, st: &mut InputState) -> Option<Outcome> {
+pub(super) fn step_input(att: &SessionAttachment, app: &mut App, st: &mut InputState, now: Instant) -> Option<Outcome> {
+    if let Some(mut resolver) = st.point.take() {
+        match resolver.step(app) {
+            None => {
+                st.point = Some(resolver);
+                return None;
+            }
+            Some(Ok(pt)) => st.saved_pos = Some(pt),
+            Some(Err(outcome)) => {
+                st.cancel_cleanup(app);
+                return Some(outcome);
+            }
+        }
+    }
+    if let Some(deadline) = st.drag_deadline {
+        if st.drag_data.is_some() || now >= deadline {
+            st.drag_deadline = None;
+        } else {
+            return None;
+        }
+    }
     if let Some((step, req_id)) = st.current.take() {
         let Some(resp) = app.workspace_panes.browser.host.take_cdp_response(req_id) else {
             st.current = Some((step, req_id));
             return None;
         };
         if let Err(outcome) = handle_step_response(st, step, resp) {
-            release_saved_obj(app, st);
+            st.cancel_cleanup(app);
             return Some(outcome);
         }
     }
     loop {
         if st.steps.is_empty() {
-            release_saved_obj(app, st);
+            st.cancel_cleanup(app);
             let Some(tab) = att.wire_tab(app, st.host_id) else {
                 return Some(Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable."));
             };
             return Some(Outcome::ok(serde_json::to_value(tab).unwrap_or(Value::Null), Vec::new()));
         }
-        if let Some(err) = dispatch_next_step(app, st) {
-            release_saved_obj(app, st);
+        if let Some(err) = dispatch_next_step(att, app, st, now) {
+            st.cancel_cleanup(app);
             return Some(err);
         }
-        if st.current.is_some() {
+        if st.current.is_some() || st.point.is_some() || st.drag_deadline.is_some() {
             return None;
         }
     }
@@ -426,20 +498,17 @@ fn call_fn(app: &mut App, st: &InputState, decl: &str, arg: Option<Value>) -> Re
     app.workspace_panes.browser.host.send_typed_cdp_in_frame(st.host_id, "Runtime.callFunctionOn", params, st.obj_session.clone(), st.obj_frame.clone()).map(Some)
 }
 
-fn dispatch_next_step(app: &mut App, st: &mut InputState) -> Option<Outcome> {
+fn dispatch_next_step(att: &SessionAttachment, app: &mut App, st: &mut InputState, now: Instant) -> Option<Outcome> {
     let step = st.steps.pop_front()?;
     let hid = st.host_id;
-    let host = &mut app.workspace_panes.browser.host;
     let res: Result<Option<u64>, String> = match &step {
-        // Page coordinates come from the page's own session; a cross-origin frame's quads are its own.
-        InputStep::ScrollIntoView((_, Some(_), _)) | InputStep::GetCenter((_, Some(_), _)) => {
-            return Some(Outcome::fail(
-                failure_code::OPERATION_FAILED,
-                "Pointer input inside a cross-origin frame is not supported yet. Use fill, select or evaluate with its frameID.",
-            ));
-        }
-        InputStep::ScrollIntoView((bid, None, fid)) => host.send_typed_cdp_in_frame(hid, "DOM.scrollIntoViewIfNeeded", json!({ "backendNodeId": bid }), None, fid.clone()).map(Some),
-        InputStep::GetCenter((bid, None, fid)) => host.send_typed_cdp_in_frame(hid, "DOM.getContentQuads", json!({ "backendNodeId": bid }), None, fid.clone()).map(Some),
+        InputStep::ResolvePoint(target) => match PointResolver::start(att, app, hid, target.clone()) {
+            Ok(resolver) => {
+                st.point = Some(resolver);
+                return None;
+            }
+            Err(o) => return Some(o),
+        },
         InputStep::StoreFromCenter => {
             st.saved_from = st.saved_pos;
             return None;
@@ -448,7 +517,7 @@ fn dispatch_next_step(app: &mut App, st: &mut InputState) -> Option<Outcome> {
             let Some((x, y)) = st.saved_pos else {
                 return Some(Outcome::fail(failure_code::OPERATION_FAILED, "Missing element coordinates."));
             };
-            host.send_typed_cdp(
+            app.workspace_panes.browser.host.send_typed_cdp(
                 hid,
                 "DOM.getNodeForLocation",
                 json!({ "x": x.round() as i64, "y": y.round() as i64, "ignorePointerEventsNone": false }),
@@ -464,30 +533,68 @@ fn dispatch_next_step(app: &mut App, st: &mut InputState) -> Option<Outcome> {
                 params["button"] = json!(button);
                 params["clickCount"] = json!(click_count);
             }
-            host.send_typed_cdp(hid, "Input.dispatchMouseEvent", params, None).map(Some)
+            app.workspace_panes.browser.host.send_typed_cdp(hid, "Input.dispatchMouseEvent", params, None).map(Some)
         }
-        InputStep::DispatchDragPath => {
+        InputStep::CheckDraggable => call_fn(app, st, CHECK_DRAGGABLE_JS, None),
+        InputStep::SetInterceptDrags(enabled) => {
+            st.intercepting_drags = *enabled;
+            app.workspace_panes.browser.host.send_typed_cdp(
+                hid,
+                "Input.setInterceptDrags",
+                json!({ "enabled": enabled }),
+                None,
+            ).map(Some)
+        }
+        InputStep::DispatchDragMotion => {
             let (Some((fx, fy)), Some((tx, ty))) = (st.saved_from, st.saved_pos) else {
                 return Some(Outcome::fail(failure_code::OPERATION_FAILED, "Missing drag endpoints."));
             };
+            let host = &mut app.workspace_panes.browser.host;
             let _ = host.send_typed_cdp(hid, "Input.dispatchMouseEvent", json!({ "type": "mouseMoved", "x": fx.round(), "y": fy.round() }), None);
-            let _ = host.send_typed_cdp(hid, "Input.dispatchMouseEvent", json!({ "type": "mousePressed", "x": fx.round(), "y": fy.round(), "button": "left", "clickCount": 1 }), None);
-            for i in 1..=4 {
-                let t = f64::from(i) / 4.0;
+            let _ = host.send_typed_cdp(hid, "Input.dispatchMouseEvent", json!({ "type": "mousePressed", "x": fx.round(), "y": fy.round(), "button": "left", "buttons": 1, "clickCount": 1 }), None);
+            for i in 1..10 {
+                let t = f64::from(i) / 10.0;
                 let (mx, my) = (fx + (tx - fx) * t, fy + (ty - fy) * t);
                 let _ = host.send_typed_cdp(hid, "Input.dispatchMouseEvent", json!({ "type": "mouseMoved", "x": mx.round(), "y": my.round(), "button": "left", "buttons": 1 }), None);
+            }
+            host.send_typed_cdp(hid, "Input.dispatchMouseEvent", json!({ "type": "mouseMoved", "x": tx.round(), "y": ty.round(), "button": "left", "buttons": 1 }), None).map(Some)
+        }
+        InputStep::WaitDragData => {
+            if st.html5_drag && st.drag_data.is_none() {
+                st.drag_deadline = Some(now + DRAG_INTERCEPT_WAIT);
+            }
+            return None;
+        }
+        InputStep::FinishDrag => {
+            let Some((tx, ty)) = st.saved_pos else {
+                return Some(Outcome::fail(failure_code::OPERATION_FAILED, "Missing drag target coordinates."));
+            };
+            let host = &mut app.workspace_panes.browser.host;
+            if let Some(data) = st.drag_data.take() {
+                for kind in ["dragEnter", "dragOver", "drop"] {
+                    let _ = host.send_typed_cdp(
+                        hid,
+                        "Input.dispatchDragEvent",
+                        json!({ "type": kind, "x": tx.round(), "y": ty.round(), "data": data }),
+                        None,
+                    );
+                }
+            }
+            if st.intercepting_drags {
+                st.intercepting_drags = false;
+                let _ = host.send_typed_cdp(hid, "Input.setInterceptDrags", json!({ "enabled": false }), None);
             }
             host.send_typed_cdp(hid, "Input.dispatchMouseEvent", json!({ "type": "mouseReleased", "x": tx.round(), "y": ty.round(), "button": "left", "clickCount": 1 }), None).map(Some)
         }
         InputStep::ResolveNode((bid, sid, fid)) => {
             st.obj_session = sid.clone();
             st.obj_frame = fid.clone();
-            host.send_typed_cdp_in_frame(hid, "DOM.resolveNode", json!({ "backendNodeId": bid }), sid.clone(), fid.clone()).map(Some)
+            app.workspace_panes.browser.host.send_typed_cdp_in_frame(hid, "DOM.resolveNode", json!({ "backendNodeId": bid }), sid.clone(), fid.clone()).map(Some)
         }
         InputStep::CheckEditable { .. } => call_fn(app, st, CHECK_EDITABLE_JS, None),
         InputStep::SetStructured { text } => call_fn(app, st, SET_STRUCTURED_JS, Some(json!(text))),
-        InputStep::FocusNode((bid, sid, fid)) => host.send_typed_cdp_in_frame(hid, "DOM.focus", json!({ "backendNodeId": bid }), sid.clone(), fid.clone()).map(Some),
-        InputStep::InsertText(text) => host.send_typed_cdp(hid, "Input.insertText", json!({ "text": text }), None).map(Some),
+        InputStep::FocusNode((bid, sid, fid)) => app.workspace_panes.browser.host.send_typed_cdp_in_frame(hid, "DOM.focus", json!({ "backendNodeId": bid }), sid.clone(), fid.clone()).map(Some),
+        InputStep::InsertText(text) => app.workspace_panes.browser.host.send_typed_cdp(hid, "Input.insertText", json!({ "text": text }), None).map(Some),
         InputStep::DispatchKey(spec) => {
             let mut down = json!({ "type": "keyDown", "key": spec.key, "windowsVirtualKeyCode": spec.windows_virtual_key_code, "modifiers": spec.modifiers });
             let mut up = json!({ "type": "keyUp", "key": spec.key, "windowsVirtualKeyCode": spec.windows_virtual_key_code, "modifiers": spec.modifiers });
@@ -498,6 +605,7 @@ fn dispatch_next_step(app: &mut App, st: &mut InputState) -> Option<Outcome> {
             if let Some(txt) = &spec.text {
                 down["text"] = json!(txt);
             }
+            let host = &mut app.workspace_panes.browser.host;
             let _ = host.send_typed_cdp(hid, "Input.dispatchKeyEvent", down, None);
             host.send_typed_cdp(hid, "Input.dispatchKeyEvent", up, None).map(Some)
         }
@@ -508,10 +616,10 @@ fn dispatch_next_step(app: &mut App, st: &mut InputState) -> Option<Outcome> {
             release_saved_obj(app, st);
             return None;
         }
-        InputStep::GetViewportCenter => host.send_typed_cdp(hid, "Page.getLayoutMetrics", json!({}), None).map(Some),
+        InputStep::GetViewportCenter => app.workspace_panes.browser.host.send_typed_cdp(hid, "Page.getLayoutMetrics", json!({}), None).map(Some),
         InputStep::DispatchWheel { dx, dy } => {
             let (x, y) = st.saved_pos.unwrap_or((400.0, 300.0));
-            host.send_typed_cdp(hid, "Input.dispatchMouseEvent", json!({ "type": "mouseWheel", "x": x.round(), "y": y.round(), "deltaX": dx, "deltaY": dy }), None).map(Some)
+            app.workspace_panes.browser.host.send_typed_cdp(hid, "Input.dispatchMouseEvent", json!({ "type": "mouseWheel", "x": x.round(), "y": y.round(), "deltaX": dx, "deltaY": dy }), None).map(Some)
         }
     };
     match res {
@@ -528,7 +636,7 @@ fn handle_step_response(st: &mut InputState, step: InputStep, resp: Result<Value
     let val = match resp {
         Ok(v) => v,
         Err(e) => {
-            let code = if matches!(step, InputStep::ScrollIntoView(_) | InputStep::GetCenter(_) | InputStep::ResolveNode(_)) {
+            let code = if matches!(step, InputStep::ResolveNode(_)) {
                 failure_code::STALE_REF
             } else {
                 failure_code::OPERATION_FAILED
@@ -550,11 +658,8 @@ fn handle_step_response(st: &mut InputState, step: InputStep, resp: Result<Value
         return Err(Outcome::fail(failure_code::OPERATION_FAILED, cleaned.lines().next().unwrap_or(cleaned)));
     }
     match step {
-        InputStep::GetCenter(_) => {
-            let Some(pt) = quad_center(&val) else {
-                return Err(Outcome::fail(failure_code::STALE_REF, "Element has no visible layout box. Refresh the snapshot first."));
-            };
-            st.saved_pos = Some(pt);
+        InputStep::CheckDraggable => {
+            st.html5_drag = val.get("result").and_then(|r| r.get("value")).and_then(Value::as_bool).unwrap_or(false);
         }
         InputStep::HitTestSaved => {
             if val.get("backendNodeId").and_then(Value::as_i64).is_none() {
@@ -636,18 +741,6 @@ fn release_saved_obj(app: &mut App, st: &mut InputState) {
     if let Some(oid) = st.saved_obj.take() {
         let _ = app.workspace_panes.browser.host.send_typed_cdp_in_frame(st.host_id, "Runtime.releaseObject", json!({ "objectId": oid }), st.obj_session.clone(), st.obj_frame.clone());
     }
-}
-
-pub(super) fn quad_center(v: &Value) -> Option<(f64, f64)> {
-    let quad = v.get("quads")?.as_array()?.first()?.as_array()?;
-    if quad.len() < 8 {
-        return None;
-    }
-    let xs = [0, 2, 4, 6].map(|i| quad[i].as_f64().unwrap_or(0.0));
-    let ys = [1, 3, 5, 7].map(|i| quad[i].as_f64().unwrap_or(0.0));
-    let (min_x, max_x) = (xs.into_iter().fold(f64::INFINITY, f64::min), xs.into_iter().fold(f64::NEG_INFINITY, f64::max));
-    let (min_y, max_y) = (ys.into_iter().fold(f64::INFINITY, f64::min), ys.into_iter().fold(f64::NEG_INFINITY, f64::max));
-    (max_x > min_x && max_y > min_y).then_some(((min_x + max_x) / 2.0, (min_y + max_y) / 2.0))
 }
 
 fn str_array(v: Option<&Value>) -> Vec<String> {
