@@ -20,10 +20,10 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 164,
   "status_counts": {
-    "have it": 105,
+    "have it": 107,
     "partly": 6,
     "not applicable": 23,
-    "missing": 29,
+    "missing": 27,
     "differs on purpose": 1
   },
   "rows": [
@@ -3735,11 +3735,12 @@
       ],
       "summary": "Add background-open action to the Home session row context menu (refined by UP-129 #65212).",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Home search supports modifier background open (home/search.rs:208), but the Home session row context menu does not yet expose Open / Open in background.",
+      "status": "have it",
+      "status_evidence": "Code merged on dev in rune-desktop #345: the Home session row menu leads with Open (as a click: clears Home search, opens) and Open in background (a tab behind the current page), then a separator, Rename, Export..., Mark as read/unread, separator, Delete... (features/session-menu open_home; home.sessions.openInBackground).",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "WS-2"
+      "workstream": "WS-2",
+      "rune_pr": "#345"
     },
     {
       "id": "UP-129",
@@ -3757,11 +3758,12 @@
       ],
       "summary": "Show separate 'Open' and 'Open in background' items above a separator in the Home session row menu (i18n key home.sessions.openInBackground).",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Paired with UP-128 (#65209): add 'Open' and 'Open in background' items to Home session row menu.",
+      "status": "have it",
+      "status_evidence": "Code merged on dev in rune-desktop #345: the Home session row menu leads with Open (as a click: clears Home search, opens) and Open in background (a tab behind the current page), then a separator, Rename, Export..., Mark as read/unread, separator, Delete... (features/session-menu open_home; home.sessions.openInBackground).",
       "depends_on": "UP-128 (#65209)",
       "risks": "none",
-      "workstream": "WS-2"
+      "workstream": "WS-2",
+      "rune_pr": "#345"
     },
     {
       "id": "UP-130",
