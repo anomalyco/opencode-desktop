@@ -70,11 +70,14 @@ pub struct ViewState {
     pub line_hold: line_reveal::Hold,
     pub ends: jump::Ends,
     pub composer: composer::ComposerState,
+    /// This window's part in display math: its wake and what it has seen finish.
+    pub math: rune_kit::math::Client,
 }
 
 impl ViewState {
-    /// Connects the background waker for media decoding.
+    /// Connects the background waker for media decoding and display math.
     pub fn setup(&mut self, waker: Waker, _headless: bool) {
+        self.math.set_waker(waker.clone());
         self.media.set_waker(waker);
     }
 }
@@ -97,6 +100,7 @@ macro_rules! delegate_view_state {
         fn line_hold_mut(&mut self) -> &mut $crate::line_reveal::Hold { &mut self.$field.line_hold }
         fn ends(&self) -> &$crate::jump::Ends { &self.$field.ends }
         fn ends_mut(&mut self) -> &mut $crate::jump::Ends { &mut self.$field.ends }
+        fn math_client(&self) -> Option<&rune_kit::math::Client> { Some(&self.$field.math) }
     };
 }
 
@@ -244,6 +248,13 @@ pub trait TimelineHost: Sized + 'static {
 
     fn ends(&self) -> &jump::Ends;
     fn ends_mut(&mut self) -> &mut jump::Ends;
+
+    /// This window's display math client (`rune_kit::math::Client`): its wake when an equation
+    /// finishes rendering, and its say in when cached bitmaps go. `None`: the host doesn't follow
+    /// renders, and equations show once something else builds their row.
+    fn math_client(&self) -> Option<&rune_kit::math::Client> {
+        None
+    }
 
     fn fold_user_messages(&self) -> bool {
         true
@@ -517,22 +528,15 @@ pub fn poll<S: TimelineHost>(s: &mut S, now: f64, tx: &mut Tx) -> bool {
     changed |= copied::poll(s, now, tx);
     changed |= diagram::poll(s, now, tx);
     changed |= images::poll(s, now, tx);
-    changed |= poll_math();
+    changed |= poll_math(s);
     changed
 }
 
-/// Reports true on the frame a background LaTeX math render finishes so settled timelines swap
-/// from the code fallback to the rendered equation without waiting for user input.
-fn poll_math() -> bool {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static SEEN: AtomicU64 = AtomicU64::new(0);
-    let now = rune_kit::math::generation();
-    let prev = SEEN.load(Ordering::Relaxed);
-    if now != prev {
-        SEEN.store(now, Ordering::Relaxed);
-        return true;
-    }
-    false
+/// True on this window's frame after background LaTeX renders finish, so the rows that drew them
+/// (only those: `rune_kit::math::version`) swap from the code fallback to the rendered equation
+/// without waiting for user input.
+pub fn poll_math<S: TimelineHost>(s: &S) -> bool {
+    s.math_client().is_some_and(rune_kit::math::Client::changed)
 }
 
 /// All ⌘⇧K knob groups owned by `session-view`.

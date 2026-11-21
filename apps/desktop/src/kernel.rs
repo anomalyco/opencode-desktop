@@ -441,6 +441,8 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
     b.schedule(stage::DERIVE_TIMELINE, "timeline.images", |s, now, tx| {
         session_view::images::poll(s, now, tx)
     });
+    // An equation finished rendering: this window's rows that drew it build again.
+    b.schedule(stage::DERIVE_TIMELINE, "timeline.math", |s, _, _| session_view::poll_math(s));
     b.schedule(stage::DERIVE_TIMELINE, "model_picker.hover", |s, now, tx| {
         crate::model_picker::hover::poll(s, now, tx)
     });

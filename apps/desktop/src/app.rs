@@ -535,7 +535,8 @@ impl App {
         // their pixels.
         if s.tabs.is_empty() && !matches!(&*s.route, Route::Session { .. }) {
             s.composer_ext.attach.store.rest_pixels();
-            rune_kit::math::rest();
+            // Equations' bitmaps go only once no other window shows any either.
+            s.timeline_fx.math.rest();
         }
         if has_rest_hooks {
             scheduler.run_rest(s, &|id| kept_ids.contains(id));

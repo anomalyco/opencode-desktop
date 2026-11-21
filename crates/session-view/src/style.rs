@@ -81,10 +81,12 @@ pub struct CodeWrap {
 
 impl CodeWrap {
     pub fn of<S: TimelineHost>(s: &S, scope: &str) -> Self {
+        // Only this scope's toggles (`<scope>:<n>`), not every block's the window has.
         let overrides = s
             .code_wrap_overrides()
+            .map(|m| m.iter().filter(|(k, _)| k.strip_prefix(scope).is_some_and(|rest| rest.starts_with(':'))).map(|(k, &on)| (k.clone(), on)).collect::<std::collections::HashMap<_, _>>())
             .filter(|m| !m.is_empty())
-            .map(|m| std::rc::Rc::new(m.clone()));
+            .map(std::rc::Rc::new);
         Self { default: s.wrap_code_blocks(), scope: std::rc::Rc::from(scope), overrides }
     }
 }

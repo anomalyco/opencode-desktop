@@ -213,7 +213,7 @@ pub fn subagent<S: TimelineHost>(s: &S, p: &Pal, session: &str, e: &Event) -> El
         .children((!title.is_empty()).then(|| text(title.clone()).key("title").font(UI).color(p.text).truncate_fade().shrink().min_w(0.0)));
     let Some(child) = child else { return row().w_full().child(line.role("group")) };
     let (parent, agent) = (session.to_owned(), e.agent.clone().unwrap_or_default());
-    let line = line.role("link").radius(4.0).focus_default(p)
+    let line = line.role("link").radius(4.0).cursor(rune::Cursor::Pointer).focus_default(p)
         .on_press_tx(move |s: &mut S, tx: &mut Tx| {
             // A click with a modifier opens nothing (`event-row.tsx`).
             if crate::plain_click(tx) {
