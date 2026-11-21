@@ -18,6 +18,7 @@ pub const WARM: usize = 6;
 const NEAR_TOP: f32 = 200.0;
 
 mod machines;
+mod shown;
 
 pub use machines::{History, Key, LATEST, OpenEvent, Opening};
 use machines::{HOLD, Histories, HistoryEffect, HistoryEvent, Stall};
@@ -458,30 +459,6 @@ impl crate::App {
         }
     }
 
-    /// A window that shows a session with no messages and nothing reading them (a window restored
-    /// or imported whose open never ran) reads them now, as a click on its tab does. Its loading
-    /// row then ends in the messages or a stated error with Retry, never in a spinner that lasts.
-    /// Once per session: the row's Retry asks again (`retry_open`).
-    fn read_shown_session(&mut self, tx: &mut rune::Tx) -> bool {
-        let crate::Route::Session { id, server } = &*self.route else { return false };
-        if *server != *crate::servers::runtime::active(self) || !self.live() || self.pages.pool.is_none() || self.opening.is_some() || self.transcripts.contains_key(id) {
-            return false;
-        }
-        if self.launch.shown_read.as_deref() == Some(id.as_str()) {
-            return false;
-        }
-        let id = id.clone();
-        self.launch.shown_read = Some(id.clone());
-        self.begin_open(&id, tx);
-        true
-    }
-
-    /// The loading row's Retry: the session's messages are read again.
-    pub fn retry_open(&mut self, id: &str, tx: &mut rune::Tx) {
-        *self.opening = None;
-        self.launch.shown_read = None;
-        self.begin_open(id, tx);
-    }
     pub fn begin_open(&mut self, id: &str, tx: &mut rune::Tx) {
         self.close_picker(false);
         crate::subagents::shells::set_open(self, false);
