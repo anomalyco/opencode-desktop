@@ -116,25 +116,27 @@ fn start_tabs_open(
         "about:blank".to_owned()
     };
 
-    let host_id = match app.resolve_preview_target(Some(&att.session_id), &target_url, true) {
-        crate::browser::preview::PreviewTarget::Preview { display_url, spec } => app
-            .open_resolved_preview_tab(
-                Some(&att.session_id),
-                &display_url,
-                spec,
-                None,
-                focus,
-                Some(browser_pane::TabDriver::Agent),
-            ),
-        crate::browser::preview::PreviewTarget::Refused(_) => {
-            return StepOutcome::Done(Outcome::fail(
-                failure_code::NAVIGATION_FAILED,
-                "The workspace file is outside this session's workspace or cannot be read.",
-            ));
-        }
+    let sid = att.session_id.clone();
+    let open = |app: &mut App| match app.resolve_preview_target(Some(&sid), &target_url, true) {
+        crate::browser::preview::PreviewTarget::Preview { display_url, spec } => Some(app.open_resolved_preview_tab(
+            Some(&sid),
+            &display_url,
+            spec,
+            None,
+            focus,
+            Some(browser_pane::TabDriver::Agent),
+        )),
+        crate::browser::preview::PreviewTarget::Refused(_) => None,
         crate::browser::preview::PreviewTarget::NotPreview => {
-            app.open_new_agent_browser_tab_for_session(Some(&att.session_id), &target_url, None, focus)
+            Some(app.open_new_agent_browser_tab_for_session(Some(&sid), &target_url, None, focus))
         }
+    };
+    let opened = if focus { open(app) } else { open_in_background(app, &sid, open) };
+    let Some(host_id) = opened else {
+        return StepOutcome::Done(Outcome::fail(
+            failure_code::NAVIGATION_FAILED,
+            "The workspace file is outside this session's workspace or cannot be read.",
+        ));
     };
     att.ensure_tab_cdp(app, host_id);
     let _ = att.sync_tabs(app);
@@ -164,6 +166,32 @@ fn start_tabs_open(
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
     }))
+}
+
+/// `tabs.open` with `focus: false` keeps the new tab in the background (`agentTabShow`,
+/// `packages/gui-plugins/src/browser/policy.ts:146-150` at `b9a60d9d`): it joins the session's
+/// strip, while the pane's open state, the tab it shows and the focused page stay as they were.
+fn open_in_background(app: &mut App, sid: &str, open: impl FnOnce(&mut App) -> Option<u64>) -> Option<u64> {
+    let focused = app.workspace_panes.browser.host.focused_tab_id();
+    let (before, shared_open, pane_focus) = {
+        let side = app.kernel.slots.get(&crate::panels::SIDE);
+        (side.sessions.get(sid).cloned(), side.shared_open, side.active_pane_focus)
+    };
+    // `focus: false` already opens it keeping the keyboard (`attach_browser_tab_to_session`).
+    let id = open(app)?;
+    let key = crate::panels::panel_key(crate::surfaces::browser::PLUGIN, &id.to_string());
+    let side = app.kernel.slots.get_mut(&crate::panels::SIDE);
+    side.shared_open = shared_open;
+    side.active_pane_focus = pane_focus;
+    let mut kept = before.unwrap_or_default();
+    if !kept.tab_state.tabs.all.contains(&key) {
+        kept.tab_state.tabs.all.push(key);
+    }
+    side.sessions.insert(sid.to_owned(), kept);
+    if let Some(prev) = focused.filter(|prev| *prev != id) {
+        app.workspace_panes.browser.host.focus_tab(prev);
+    }
+    Some(id)
 }
 
 fn exec_tabs_focus(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> StepOutcome {
