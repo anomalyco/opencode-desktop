@@ -51,31 +51,42 @@ pub struct CookieJobs {
     count: CookieCount,
 }
 
-/// Clear browsing data's engine half (`profile/index.ts:518-540` `clear`): every cookie and the
-/// open sites' stored data, through `#286`'s `ClearProfileData`.
+/// Clear browsing data's engine half (`profile/index.ts:523-540` `clear`): every cookie, HTTP sign-in,
+/// site's stored data and the HTTP cache, through `ClearProfileData`.
 struct ClearJob {
     done: Completer,
     asked: Option<u64>,
     deadline: Instant,
 }
 
-/// The profile's cookie count (`profile/index.ts:517-522` `summary`): read from the engine while
-/// it runs, when Settings > Browser asks and the last read is older than `COUNT_FRESH` or an
-/// import or clear changed the store. `None` until a read lands.
+/// The profile's cookie count (`profile/index.ts:517-522` `summary`: every cookie of the shared`n/// profile, session cookies included, never a remote server's). While the engine runs it is asked,
+/// when Settings > Browser asks and the last read is older than `COUNT_FRESH` or an import or clear
+/// changed the store. While it is idle the count comes from the profile's own cookie store on disk
+/// (`disk`), read once and kept until the engine next runs or a clear. `None` until a read lands.
 #[derive(Default)]
 struct CookieCount {
     value: Option<usize>,
     asked: Option<u64>,
     read_at: Option<Instant>,
     stale: bool,
+    disk: Arc<Mutex<DiskCount>>,
+}
+
+/// The on-disk count: whether a read finished since the engine last ran or a clear (`done`),
+/// what it found (`None` when the store could not be read), and whether one is on its worker now.
+#[derive(Default)]
+struct DiskCount {
+    done: bool,
+    value: Option<usize>,
+    reading: bool,
 }
 
 const COUNT_FRESH: Duration = Duration::from_secs(5);
 
 impl CookieJobs {
     /// The last count read: part of `Dep::Browser`'s version, so Settings > Browser draws it once it lands.
-    pub fn counted(&self) -> Option<usize> {
-        self.count.value
+    pub fn counted(&self) -> (Option<usize>, Option<usize>) {
+        (self.count.value, self.count.disk.lock().ok().and_then(|d| d.value))
     }
 }
 
@@ -249,7 +260,44 @@ impl App {
                 }
             }));
         }
-        jobs.count.value.filter(|_| host.engine_cookies())
+        if host.engine_cookies() {
+            return jobs.count.value;
+        }
+        self.disk_cookie_count()
+    }
+
+    /// The count from the profile's cookie store while the engine is idle: a read-only snapshot of
+    /// `Default/Network/Cookies` (`snapshot_database`: no lock on the live file, no `-shm` beside
+    /// it) and `SELECT COUNT(*)`, as no value needs decrypting; the engine's own persistence probe
+    /// cookie is not counted, as its listing leaves it out. Read on a worker, once.
+    fn disk_cookie_count(&self) -> Option<usize> {
+        let disk = self.workspace_panes.browser.cookies.count.disk.clone();
+        let mut d = disk.lock().ok()?;
+        if d.done || d.reading {
+            return d.value;
+        }
+        let profile = self.workspace_panes.browser.host.engine_profile_dir()?;
+        d.reading = true;
+        drop(d);
+        let waker = (*self.waker).clone();
+        let filled = disk.clone();
+        let spawned = std::thread::Builder::new().name("browser-cookie-count".into()).spawn(move || {
+            let count = read_disk_count(&profile);
+            if let Ok(mut d) = filled.lock() {
+                d.reading = false;
+                d.done = true;
+                d.value = count;
+            }
+            if let Some(w) = &waker {
+                w();
+            }
+        });
+        if spawned.is_err()
+            && let Ok(mut d) = disk.lock()
+        {
+            d.reading = false;
+        }
+        None
     }
 
     /// Clears every cookie and the open sites' stored data, starting the engine if it is idle;
@@ -270,8 +318,17 @@ impl App {
     pub(crate) fn pump_cookie_import(&mut self) -> bool {
         let imported = self.pump_import();
         let cleared = self.pump_clear();
+        let count = &mut self.workspace_panes.browser.cookies.count;
         if imported || cleared {
-            self.workspace_panes.browser.cookies.count.stale = true;
+            count.stale = true;
+        }
+        // The engine runs (or a clear ran): what the disk said is old by the time it is idle again.
+        if (cleared || self.workspace_panes.browser.host.engine_cookies())
+            && let Ok(mut d) = count.disk.lock()
+            && !d.reading
+        {
+            d.done = false;
+            d.value = None;
         }
         let counted = self.pump_count();
         imported || cleared || counted
@@ -388,3 +445,26 @@ impl App {
         true
     }
 }
+
+/// The shared profile's cookie count on disk (`Default/Network/Cookies`, else Chromium's older
+/// `Default/Cookies`): 0 when there is no store yet, `None` when it cannot be read.
+fn read_disk_count(profile: &std::path::Path) -> Option<usize> {
+    let default = profile.join("Default");
+    let Some(file) = [default.join("Network").join("Cookies"), default.join("Cookies")].into_iter().find(|f| f.is_file()) else {
+        return Some(0);
+    };
+    let scratch = SnapshotScratch::new(SnapshotScratch::default_dir());
+    browser_pane::cookies::database::snapshot_database(&file, &scratch, |conn| {
+        conn.query_row(
+            "SELECT COUNT(*) FROM cookies WHERE NOT (trim(host_key, '.') = ?1 AND name = ?2)",
+            [PROBE_COOKIE_HOST, PROBE_COOKIE_NAME],
+            |r| r.get::<_, i64>(0),
+        )
+    })
+    .ok()
+    .and_then(|n| usize::try_from(n).ok())
+}
+
+/// The engine's persistence probe cookie (`apps/browser-engine/src/cookies.rs`), never counted.
+const PROBE_COOKIE_HOST: &str = "cookie-check.opencode.invalid";
+const PROBE_COOKIE_NAME: &str = "opencode_cookie_check";

@@ -10,16 +10,17 @@
 //!   this same partition. The open tabs' sites still lose theirs through the per-tab clear beside it.
 //!
 //! A context with no page to speak DevTools through (the shared profile with no tab open) gets a
-//! hidden `about:blank` browser for the call, closed once it answers.
+//! hidden `about:blank` browser for the call: sent once that page has loaded (DevTools drops a
+//! message sent before), and the browser closed once it answers.
 
 use std::sync::{Arc, Mutex};
 
 use cef::rc::Rc;
 use cef::{
     Browser, BrowserHost, BrowserSettings, CefString, Client, DevToolsMessageObserver, ImplBrowser,
-    ImplBrowserHost, ImplClient, ImplDevToolsMessageObserver, ImplRenderHandler, Rect, Registration,
-    RenderHandler, WindowInfo, WrapClient, WrapDevToolsMessageObserver, WrapRenderHandler, wrap_client,
-    wrap_dev_tools_message_observer, wrap_render_handler,
+    ImplBrowserHost, ImplClient, ImplDevToolsMessageObserver, ImplLoadHandler, ImplRenderHandler, LoadHandler, Rect,
+    Registration, RenderHandler, WindowInfo, WrapClient, WrapDevToolsMessageObserver, WrapLoadHandler,
+    WrapRenderHandler, wrap_client, wrap_dev_tools_message_observer, wrap_load_handler, wrap_render_handler,
 };
 use serde_json::json;
 
@@ -33,12 +34,24 @@ type Done = Box<dyn FnOnce(bool) + Send>;
 /// registration and, for a hidden browser, the browser).
 struct Pending {
     id: i32,
+    message: String,
+    sent: std::sync::atomic::AtomicBool,
     done: Mutex<Option<Done>>,
     registration: Mutex<Option<Registration>>,
     hidden: Mutex<Option<BrowserHost>>,
 }
 
 impl Pending {
+    /// Sends the call through `host`, once.
+    fn send(&self, host: &BrowserHost) {
+        if self.sent.swap(true, std::sync::atomic::Ordering::AcqRel) {
+            return;
+        }
+        if host.send_dev_tools_message(Some(self.message.as_bytes())) == 0 {
+            self.finish(false);
+        }
+    }
+
     fn finish(&self, ok: bool) {
         let done = self.done.lock().unwrap().take();
         self.registration.lock().unwrap().take();
@@ -82,13 +95,16 @@ wrap_dev_tools_message_observer! {
 /// Clears every site's stored data in the context `host` belongs to; `done` gets whether DevTools
 /// answered success.
 pub fn clear_all_sites(host: &BrowserHost, keep_workers: bool, id: i32, done: Done) {
-    run(host, None, keep_workers, id, done);
+    let pending = pending(id, keep_workers, done);
+    observe(host, &pending);
+    pending.send(host);
 }
 
 /// As `clear_all_sites`, for the shared profile when no tab of it is open: through a hidden
 /// `about:blank` browser in the global context.
 pub fn clear_all_sites_hidden(keep_workers: bool, id: i32, done: Done) {
-    let mut client = HiddenClient::new(HiddenRender::new());
+    let pending = pending(id, keep_workers, done);
+    let mut client = HiddenClient::new(HiddenRender::new(), HiddenLoad::new(pending.clone()));
     let mut window = WindowInfo::default().set_as_windowless(Default::default());
     window.shared_texture_enabled = 0;
     let settings = BrowserSettings { windowless_frame_rate: 1, ..Default::default() };
@@ -101,25 +117,48 @@ pub fn clear_all_sites_hidden(keep_workers: bool, id: i32, done: Done) {
         None,
     )
     .and_then(|b| b.host());
-    let Some(host) = host else { return done(false) };
+    let Some(host) = host else { return pending.finish(false) };
     host.was_hidden(1);
-    run(&host.clone(), Some(host), keep_workers, id, done);
+    *pending.hidden.lock().unwrap() = Some(host.clone());
+    observe(&host, &pending);
 }
 
-fn run(host: &BrowserHost, hidden: Option<BrowserHost>, keep_workers: bool, id: i32, done: Done) {
-    let pending = Arc::new(Pending {
+fn pending(id: i32, keep_workers: bool, done: Done) -> Arc<Pending> {
+    let types = if keep_workers { WITHOUT_WORKERS } else { "all" };
+    Arc::new(Pending {
         id,
+        message: json!({ "id": id, "method": "Storage.clearDataForOrigin", "params": { "origin": "", "storageTypes": types } }).to_string(),
+        sent: std::sync::atomic::AtomicBool::new(false),
         done: Mutex::new(Some(done)),
         registration: Mutex::new(None),
-        hidden: Mutex::new(hidden),
-    });
+        hidden: Mutex::new(None),
+    })
+}
+
+fn observe(host: &BrowserHost, pending: &Arc<Pending>) {
     let mut observer = ClearObserver::new(pending.clone());
-    let registration = host.add_dev_tools_message_observer(Some(&mut observer));
-    *pending.registration.lock().unwrap() = registration;
-    let types = if keep_workers { WITHOUT_WORKERS } else { "all" };
-    let raw = json!({ "id": id, "method": "Storage.clearDataForOrigin", "params": { "origin": "", "storageTypes": types } }).to_string();
-    if host.send_dev_tools_message(Some(raw.as_bytes())) == 0 {
-        pending.finish(false);
+    *pending.registration.lock().unwrap() = host.add_dev_tools_message_observer(Some(&mut observer));
+}
+
+wrap_load_handler! {
+    struct HiddenLoad {
+        pending: Arc<Pending>,
+    }
+
+    impl LoadHandler {
+        fn on_loading_state_change(
+            &self,
+            browser: Option<&mut Browser>,
+            is_loading: ::std::os::raw::c_int,
+            _can_go_back: ::std::os::raw::c_int,
+            _can_go_forward: ::std::os::raw::c_int,
+        ) {
+            if is_loading == 0
+                && let Some(host) = browser.and_then(|b| b.host())
+            {
+                self.pending.send(&host);
+            }
+        }
     }
 }
 
@@ -138,11 +177,15 @@ wrap_render_handler! {
 wrap_client! {
     struct HiddenClient {
         render: RenderHandler,
+        load: LoadHandler,
     }
 
     impl Client {
         fn render_handler(&self) -> Option<RenderHandler> {
             Some(self.render.clone())
+        }
+        fn load_handler(&self) -> Option<LoadHandler> {
+            Some(self.load.clone())
         }
     }
 }

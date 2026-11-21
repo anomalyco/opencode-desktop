@@ -13,6 +13,13 @@ impl BrowserHost {
         matches!(self.caps, EngineCaps::Known { cookies: true, .. })
     }
 
+    /// The profile folder the engine is (or would be) started with: `OPENCODE_BROWSER_PROFILE`,
+    /// else the app's chosen one, else the app's own (`profile::for_spawn`). Its shared profile's
+    /// cookie store is `Default/Network/Cookies` in it.
+    #[cfg(feature = "engine")]
+    pub fn engine_profile_dir(&self) -> Option<std::path::PathBuf> {
+        crate::profile::for_spawn(self.profile_dir.as_deref())
+    }
     /// Whether two-way cookie sharing between the default profile and remote server partitions
     /// is currently enabled (off by default).
     pub fn share_sign_ins(&self) -> bool {

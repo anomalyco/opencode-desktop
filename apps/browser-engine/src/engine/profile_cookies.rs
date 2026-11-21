@@ -4,6 +4,8 @@
 use serde_json::json;
 
 use super::EngineManager;
+use cef::ImplRequestContext;
+
 use crate::wire::{EngineMsg, HostMsg};
 
 impl EngineManager {
