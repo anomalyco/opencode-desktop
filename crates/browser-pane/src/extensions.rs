@@ -283,6 +283,11 @@ pub(crate) struct BrowserExtensionsState {
     pub launched_ext_ids: HashSet<String>,
     pub actions: Vec<ExtensionActionSnapshot>,
     pub popup: PopupState,
+    pub popup_focused: bool,
+    pub popup_needs_focus: bool,
+    pub popup_refocus_page: bool,
+    pub pane_size: Option<(f32, f32)>,
+    pub window_size: Option<(f32, f32)>,
     pub filter_gate: FilterGateState,
     pub open_requests: VecDeque<ExtensionOpenRequest>,
     pub focus_requests: VecDeque<u64>,
@@ -404,10 +409,16 @@ impl BrowserHost {
 
     /// Closes any open anchored extension popup and releases its OSR browser & surface.
     pub fn close_extension_popup(&mut self) -> bool {
+        let was_focused = self.extensions.popup_focused;
+        self.extensions.popup_focused = false;
+        self.extensions.popup_needs_focus = false;
         match std::mem::replace(&mut self.extensions.popup, PopupState::Closed) {
             PopupState::Closed => false,
             PopupState::AwaitingUrl { .. } => true,
             PopupState::Open { tab_id, surface, .. } => {
+                if was_focused {
+                    self.extensions.popup_refocus_page = true;
+                }
                 surface.clear();
                 self.surfaces
                     .lock()
@@ -429,11 +440,48 @@ impl BrowserHost {
         false
     }
 
-    pub(crate) fn popup_tab_id(&self) -> Option<u64> {
+    pub fn popup_tab_id(&self) -> Option<u64> {
         match &self.extensions.popup {
             PopupState::Open { tab_id, .. } => Some(*tab_id),
             _ => None,
         }
+    }
+
+    pub fn popup_focused(&self) -> bool {
+        self.extensions.popup_focused && self.popup_tab_id().is_some()
+    }
+
+    pub fn set_popup_focused(&mut self, focused: bool) {
+        self.extensions.popup_focused = focused && self.popup_tab_id().is_some();
+    }
+
+    pub fn take_popup_needs_focus(&mut self) -> bool {
+        std::mem::take(&mut self.extensions.popup_needs_focus) && self.popup_tab_id().is_some()
+    }
+
+    pub fn take_popup_refocus_page(&mut self) -> bool {
+        std::mem::take(&mut self.extensions.popup_refocus_page) && self.popup_tab_id().is_none()
+    }
+
+    pub fn set_pane_size(&mut self, width: f32, height: f32) {
+        if width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0 {
+            self.extensions.pane_size = Some((width, height));
+        }
+    }
+
+    /// Closes any open extension popup when the host window resizes (`popup.ts:55`).
+    pub fn observe_window_size(&mut self, width: f32, height: f32) -> bool {
+        if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
+            return false;
+        }
+        let prev = self.extensions.window_size.replace((width, height));
+        if let Some((pw, ph)) = prev
+            && ((pw - width).abs() >= 1.0 || (ph - height).abs() >= 1.0)
+            && self.popup_tab_id().is_some()
+        {
+            return self.close_extension_popup();
+        }
+        false
     }
 
     /// Active anchored extension popup for layout/rendering, if one is open.
@@ -544,12 +592,18 @@ impl BrowserHost {
         view_zoom: f32,
         access: fn(&mut S) -> &mut BrowserHost,
     ) -> Option<El> {
-        let PopupState::Open { tab_id, surface, size, .. } = &self.extensions.popup else {
+        let PopupState::Open { tab_id, surface, size, placement, .. } = &self.extensions.popup else {
             return None;
         };
         let tab_id = *tab_id;
         let z = view_zoom.max(0.01);
-        let (w_pt, h_pt) = (size.0 as f32, size.1 as f32);
+        let (w_pt, h_pt) = if let Some((pw, ph)) = self.extensions.pane_size {
+            let content = ((pw - 16.0).max(POPUP_MIN_W as f32), (ph - 12.0).max(POPUP_MIN_H as f32));
+            let rect = popup_bounds(*placement, *size, content);
+            (rect.width.max(POPUP_MIN_W) as f32, rect.height.max(POPUP_MIN_H) as f32)
+        } else {
+            (size.0 as f32, size.1 as f32)
+        };
         let node = el()
             .key(key.into())
             .w(w_pt)
@@ -560,6 +614,9 @@ impl BrowserHost {
             frame::draw(node, surface)
                 .surface_anchor(Align::Start, Align::Start)
                 .surface_unscaled(true)
+                .on_focus(move |s: &mut S, focused: bool, _| {
+                    access(s).set_popup_focused(focused);
+                })
                 .on_layout(move |s: &mut S, [_, _, w, h]| {
                     let host = access(s);
                     let width_pt = (w * z).max(POPUP_MIN_W as f32);
@@ -702,6 +759,9 @@ impl BrowserHost {
                     about_tab,
                     surface,
                 };
+                self.extensions.popup_needs_focus = true;
+                self.extensions.popup_focused = true;
+                self.extensions.popup_refocus_page = false;
                 self.send(HostMsg::OpenTab {
                     tab_id,
                     url,

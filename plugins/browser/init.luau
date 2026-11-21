@@ -937,7 +937,7 @@ return plugin.defineWindow(function(ctx)
                     local bAny = Browser :: any
                     if type(bAny.ExtClick) == "function" then
                         local optUrl = if item.options and item.options ~= "" and (item.popup == nil or item.popup == "")
-                            then `chrome-extension://{item.id}/{item.options}`
+                            then (if string.sub(item.options, 1, 19) == "chrome-extension://" then item.options else `chrome-extension://{item.id}/{item.options}`)
                             else nil
                         bAny:ExtClick(item.id, tabId, optUrl)
                     end

@@ -1219,7 +1219,7 @@ impl BrowserHost {
     }
 
     pub fn ime(&self, ime: &Ime) -> bool {
-        let Some(tab_id) = self.popup_tab_id().or(self.focused_tab) else {
+        let Some(tab_id) = self.popup_tab_id().filter(|_| self.popup_focused()).or(self.focused_tab) else {
             return false;
         };
         match ime {

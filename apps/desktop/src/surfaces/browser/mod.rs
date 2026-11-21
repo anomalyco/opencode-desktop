@@ -346,6 +346,7 @@ mod native {
         /// A press on page `id`: the keyboard is in its pane now, as a click inside Desktop's side
         /// region makes it, so ⌘W, ⌘L and ⌘T act on the browser rather than the session's tab.
         pub fn focus_browser_page(&mut self, id: u64) {
+            self.workspace_panes.browser.host.close_extension_popup();
             let Some(sid) = self.browser_tab_session(id).map(str::to_owned) else { return };
             let key = panel_key(PLUGIN, &id.to_string());
             let side = self.kernel.slots.get_mut(&crate::panels::SIDE);
