@@ -351,7 +351,7 @@ fn build_provider_header(p: &Pal, root_crumb: El, provider_crumb: El, remote: Op
         .gap(4.0)
         .center_y()
         .child(root_crumb)
-        .child(icon(&ic::CHEVRON_RIGHT, 14.0).mirror_in_rtl().color(p.icon_muted))
+        .child(icon(&ic::CHEVRON_RIGHT, 16.0).mirror_in_rtl().color(p.icon_muted))
         .child(provider_crumb);
     row()
         .key("connect-header")
