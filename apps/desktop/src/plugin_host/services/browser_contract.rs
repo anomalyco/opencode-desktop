@@ -13,8 +13,14 @@
 //! Security boundary:
 //! - Never exposes raw `BrowserTab` handles, DevTools/CDP, `ReadFileAsync`, `SiteCookiesAsync`,
 //!   or raw `oc-preview://` minting.
+//! - Only window halves get it, and only while the built-in browser plugin runs in a wide window
+//!   (`browser.ts:56`, `model.ts:731-732`); every call is for the routed session on the window's
+//!   server (`model.ts:755`).
 //! - Each consumer plugin VM owns its own isolated `ExperimentalBrowserTab` handles (`btab_<uuid>`),
-//!   revoked on plugin reload/unload (`revoke_owner`), tab close, or user/agent takeover navigation.
+//!   bound to its window's half: revoked on that half's reload/unload or window close, on tab
+//!   close, and on the first input or navigation the person sends the tab or an agent's touch
+//!   (`pane.ts:846,1076,1113,1245`, `plugin-tabs.ts:5-26`).
+//! - Opens are bounded: `OPEN_BURST` a second per VM, `MAX_LIVE_TABS` live tabs per plugin.
 //! - Inactive (`State() == "pending"`, `Get() == nil`) on web (`wasm32`) or when the browser is off.
 
 use std::rc::Rc;
@@ -28,9 +34,10 @@ use super::method;
 #[cfg(not(target_arch = "wasm32"))]
 mod native {
     use std::cell::RefCell;
-    use std::collections::HashMap;
+    use std::collections::{HashMap, VecDeque};
     use std::path::Path;
-    use std::rc::Rc;
+    use std::rc::{Rc, Weak};
+    use std::time::{Duration, Instant};
 
     use browser_pane::policy::{extension_origin, refusal};
     use mlua::{Lua, Table, Value};
@@ -44,33 +51,50 @@ mod native {
     use crate::surfaces::browser::preview::PreviewTarget;
 
     const MAX_HANDLES_PER_VM: usize = 64;
+    /// Live tabs one plugin may have opened in a window at once (`open`, `openFile` and `experimental.open`).
+    const MAX_LIVE_TABS: usize = 16;
+    /// Opens one VM may start per `OPEN_WINDOW`.
+    const OPEN_BURST: usize = 4;
+    const OPEN_WINDOW: Duration = Duration::from_secs(1);
 
     struct OwnedPluginTab {
         plugin_id: String,
         vm_id: u64,
+        /// The owning half's token: one plugin in one window. Dead once that window closes.
+        half: Weak<()>,
         session_id: String,
         driver_name: String,
         host_tab_id: Option<u64>,
+        /// The tab's `user_takeovers` when it opened; any change since is the person's takeover.
+        takeovers: u64,
     }
 
     thread_local! {
         static OWNED_TABS: RefCell<HashMap<String, OwnedPluginTab>> = RefCell::default();
+        static OPENS: RefCell<HashMap<u64, VecDeque<Instant>>> = RefCell::default();
     }
 
     pub(super) fn available_now() -> bool {
-        with_app("Contracts.browser.available", |app| Ok(!app.browser_unsupported())).unwrap_or(false)
+        with_app("Contracts.browser.available", |app| Ok(app.browser_plugin_ready())).unwrap_or(false)
     }
 
-    pub(super) fn revoke_owner(owner: &str, keep_vm: Option<u64>) {
+    /// Forgets the handles of `half`'s VMs other than `keep_vm`; other windows' halves keep theirs.
+    pub(super) fn revoke_half(half: &Rc<()>, keep_vm: Option<u64>) {
         OWNED_TABS.with_borrow_mut(|tabs| {
-            tabs.retain(|_, t| t.plugin_id != owner || Some(t.vm_id) == keep_vm);
+            tabs.retain(|_, t| {
+                t.half.strong_count() > 0 && (!t.half.upgrade().is_some_and(|h| Rc::ptr_eq(&h, half)) || Some(t.vm_id) == keep_vm)
+            });
         });
     }
 
-    pub(super) fn revoke_tab(host_id: u64) {
+    pub(super) fn revoke_tab(app: &App, host_id: u64) {
         OWNED_TABS.with_borrow_mut(|tabs| {
-            tabs.retain(|_, t| t.host_tab_id != Some(host_id));
+            tabs.retain(|_, t| t.half.strong_count() > 0 && !(t.host_tab_id == Some(host_id) && in_window(app, &t.half)));
         });
+    }
+
+    fn in_window(app: &App, half: &Weak<()>) -> bool {
+        half.upgrade().is_some_and(|h| app.plugins.list.iter().any(|p| Rc::ptr_eq(&p.half.token, &h)))
     }
 
     enum OpenTarget {
@@ -78,49 +102,83 @@ mod native {
         Preview { display_url: String, spec: browser_pane::PreviewSpec },
     }
 
-    fn parse_session_arg(v: Value) -> Option<String> {
-        let raw = match v {
-            Value::String(s) => s.to_str().ok()?.to_owned(),
-            Value::Table(t) => t
-                .get::<Option<String>>("id")
-                .ok()
-                .flatten()
-                .or_else(|| t.get::<Option<String>>("sessionID").ok().flatten())
-                .or_else(|| {
-                    t.get::<Option<String>>("key")
-                        .ok()
-                        .flatten()
-                        .map(|k| k.rsplit('\n').next().unwrap_or(&k).to_owned())
-                })?,
+    /// A `SessionRef`: its id, and its server when the caller named one (`key` is `server\nid`).
+    struct SessionArg {
+        id: String,
+        server: Option<String>,
+    }
+
+    fn parse_session_arg(v: Value) -> Option<SessionArg> {
+        let split = |raw: &str| match raw.trim().rsplit_once('\n') {
+            Some((server, id)) => (id.trim().to_owned(), Some(server.trim().to_owned())),
+            None => (raw.trim().to_owned(), None),
+        };
+        let (id, server) = match v {
+            Value::String(s) => split(&s.to_str().ok()?.to_owned()),
+            Value::Table(t) => {
+                let named = t.get::<Option<String>>("server").ok().flatten();
+                match t.get::<Option<String>>("id").ok().flatten().or_else(|| t.get::<Option<String>>("sessionID").ok().flatten()) {
+                    Some(id) => (id.trim().to_owned(), named),
+                    None => {
+                        let (id, keyed) = split(&t.get::<Option<String>>("key").ok().flatten()?);
+                        (id, keyed.or(named))
+                    }
+                }
+            }
             _ => return None,
         };
-        let trimmed = raw.trim();
-        (!trimmed.is_empty()).then(|| trimmed.to_owned())
+        (!id.is_empty()).then_some(SessionArg { id, server })
     }
 
-    fn same_machine_local(app: &App) -> bool {
-        let server_key = crate::servers::runtime::active(app);
-        server_key.is_sidecar()
-            && match &*app.source {
-                crate::Source::Live { server, .. } => server.is_local(),
-                crate::Source::Fixture => true,
-            }
-    }
-
-    fn caller_may_access_session(lua: &Lua, app: &App, sid: &str) -> bool {
-        if app.browser_unsupported() {
+    /// The caller may act only on the routed session, on the window's server, while the built-in
+    /// browser runs in a wide window, and from a tool call only for that call's own session.
+    fn routed_session(lua: &Lua, app: &App, arg: &SessionArg) -> bool {
+        if !app.browser_plugin_ready() || app.active_session_id() != Some(arg.id.as_str()) {
             return false;
         }
         let (tool_sid, in_flight) = current_tool_scope(lua);
         if let Some(caller) = tool_sid {
-            if caller.as_deref() != Some(sid) {
+            if caller.as_deref() != Some(arg.id.as_str()) {
                 return false;
             }
-        } else if !in_flight.iter().all(|s| s == sid) {
+        } else if !in_flight.iter().all(|s| *s == arg.id) {
             return false;
         }
-        app.active_session_id() == Some(sid)
-            || app.tabs.iter().any(|t| !t.is_draft() && t.id == sid)
+        let active = crate::servers::runtime::active(app);
+        !app.tabs.iter().any(|t| t.id == arg.id && (t.is_draft() || t.server != *active))
+            && arg.server.as_deref().is_none_or(|s| s == super::super::session::server_id(active))
+    }
+
+    /// Refuses an open past `OPEN_BURST` a second for this VM or `MAX_LIVE_TABS` live tabs for this plugin.
+    fn admit_open(app: &App, vm_id: u64, driver: &browser_pane::TabDriver) -> mlua::Result<()> {
+        let live = app.workspace_panes.browser.host.tabs().iter().filter(|t| t.prompts.driver.as_ref() == Some(driver)).count();
+        if live >= MAX_LIVE_TABS {
+            return Err(mlua::Error::runtime("browser.pane.tooManyTabs"));
+        }
+        let now = Instant::now();
+        OPENS.with_borrow_mut(|opens| {
+            opens.retain(|_, times| {
+                times.retain(|at| now.duration_since(*at) < OPEN_WINDOW);
+                !times.is_empty()
+            });
+            let times = opens.entry(vm_id).or_default();
+            if times.len() >= OPEN_BURST {
+                return Err(mlua::Error::runtime("browser.pane.rateLimited"));
+            }
+            times.push_back(now);
+            Ok(())
+        })
+    }
+
+    /// The plugin still holds tab `host_id`: same session, still its driver, no takeover since.
+    fn still_owned(app: &App, host_id: u64, session_id: &str, driver: &browser_pane::TabDriver, takeovers: u64) -> bool {
+        app.browser_tab_session(host_id) == Some(session_id)
+            && app
+                .workspace_panes
+                .browser
+                .host
+                .tab(host_id)
+                .is_some_and(|t| t.prompts.driver.as_ref() == Some(driver) && t.prompts.user_takeovers == takeovers)
     }
 
     fn plugin_driver_name(app: &App, plugin_id: &str) -> String {
@@ -178,8 +236,11 @@ mod native {
     fn resolve_open_url(app: &App, sid: &str, raw: &str) -> Result<OpenTarget, String> {
         let trimmed = raw.trim();
         if trimmed.get(..5).is_some_and(|s| s.eq_ignore_ascii_case("file:")) {
-            if !same_machine_local(app) {
+            if !app.session_server_is_local(Some(sid)) {
                 return Err("file:// URLs are only allowed on the built-in local server; use openFile for workspace files.".into());
+            }
+            if !app.browser_preview_supported() {
+                return Err("Previews require an updated browser engine.".into());
             }
             return match app.resolve_preview_target(Some(sid), trimmed, true) {
                 PreviewTarget::Preview { display_url, spec } => Ok(OpenTarget::Preview { display_url, spec }),
@@ -222,19 +283,19 @@ mod native {
 
         method(lua, &out, "attached", |lua, session: Value| {
             cx::read(Dep::Browser);
-            let Some(sid) = parse_session_arg(session) else {
+            let Some(arg) = parse_session_arg(session) else {
                 return Ok(false);
             };
-            with_app("Contracts.browser.attached", |app| Ok(caller_may_access_session(lua, app, &sid)))
+            with_app("Contracts.browser.attached", |app| Ok(routed_session(lua, app, &arg)))
         })?;
 
         method(lua, &out, "canOpen", |lua, (session, path): (Value, Option<String>)| {
             cx::read(Dep::Browser);
-            let Some(sid) = parse_session_arg(session) else {
+            let Some(arg) = parse_session_arg(session) else {
                 return Ok(false);
             };
             with_app("Contracts.browser.canOpen", |app| {
-                if !caller_may_access_session(lua, app, &sid) {
+                if !routed_session(lua, app, &arg) {
                     return Ok(false);
                 }
                 let Some(raw) = path else {
@@ -248,104 +309,97 @@ mod native {
                     || trimmed.get(..8).is_some_and(|s| s.eq_ignore_ascii_case("https://"))
                     || trimmed.get(..5).is_some_and(|s| s.eq_ignore_ascii_case("file:"))
                 {
-                    Ok(resolve_open_url(app, &sid, trimmed).is_ok())
+                    Ok(resolve_open_url(app, &arg.id, trimmed).is_ok())
                 } else {
-                    Ok(resolve_open_file(app, &sid, trimmed).is_ok())
+                    Ok(resolve_open_file(app, &arg.id, trimmed).is_ok())
                 }
             })
         })?;
 
-        let pid_open = plugin_id.clone();
-        method(lua, &out, "open", move |lua, (session, url): (Value, String)| {
-            let sid = parse_session_arg(session)
-                .ok_or_else(|| mlua::Error::runtime("browser.open requires a session reference."))?;
-            with_app("Contracts.browser.open", |app| {
-                if !caller_may_access_session(lua, app, &sid) {
-                    return Err(mlua::Error::runtime("browser.pane.unavailable"));
-                }
-                let target = resolve_open_url(app, &sid, &url).map_err(mlua::Error::runtime)?;
-                let driver = browser_pane::TabDriver::plugin(&plugin_driver_name(app, &pid_open));
-                let sid_owned = sid.clone();
-                app.later(Box::new(move |s, tx| {
-                    tx.instant();
-                    let _ = open_target_now(s, &sid_owned, target, driver);
-                }));
-                Ok(())
-            })
-        })?;
-
-        let pid_file = plugin_id.clone();
-        method(lua, &out, "openFile", move |lua, (session, path): (Value, String)| {
-            let sid = parse_session_arg(session)
-                .ok_or_else(|| mlua::Error::runtime("browser.openFile requires a session reference."))?;
-            with_app("Contracts.browser.openFile", |app| {
-                if !caller_may_access_session(lua, app, &sid) {
-                    return Err(mlua::Error::runtime("browser.pane.unavailable"));
-                }
-                let target = resolve_open_file(app, &sid, &path).map_err(mlua::Error::runtime)?;
-                let driver = browser_pane::TabDriver::plugin(&plugin_driver_name(app, &pid_file));
-                let sid_owned = sid.clone();
-                app.later(Box::new(move |s, tx| {
-                    tx.instant();
-                    let _ = open_target_now(s, &sid_owned, target, driver);
-                }));
-                Ok(())
-            })
-        })?;
+        for (name, file) in [("open", false), ("openFile", true)] {
+            let pid = plugin_id.clone();
+            let vmx = vmx.clone();
+            method(lua, &out, name, move |lua, (session, raw): (Value, String)| {
+                let arg = parse_session_arg(session)
+                    .ok_or_else(|| mlua::Error::runtime(format!("browser.{name} requires a session reference.")))?;
+                let vm_id = vmx.vm.get();
+                with_app("Contracts.browser.open", |app| {
+                    if !routed_session(lua, app, &arg) {
+                        return Err(mlua::Error::runtime("browser.pane.unavailable"));
+                    }
+                    let target = if file { resolve_open_file(app, &arg.id, &raw) } else { resolve_open_url(app, &arg.id, &raw) }
+                        .map_err(mlua::Error::runtime)?;
+                    let driver = browser_pane::TabDriver::plugin(&plugin_driver_name(app, &pid));
+                    admit_open(app, vm_id, &driver)?;
+                    let (sid, pid) = (arg.id, pid.clone());
+                    app.later(Box::new(move |s, tx| {
+                        // The plugin reloaded or stopped, or the person routed elsewhere, before this ran.
+                        let running = s.plugins.list.iter().any(|p| *p.half.id == *pid && p.script().is_some_and(|sc| sc.vm_id() == Some(vm_id)));
+                        if !running || s.active_session_id() != Some(sid.as_str()) {
+                            return;
+                        }
+                        tx.instant();
+                        let _ = open_target_now(s, &sid, target, driver);
+                    }));
+                    Ok(())
+                })
+            })?;
+        }
 
         let exp = lua.create_table()?;
         let v_open = vmx.clone();
         let pid_exp_open = plugin_id.clone();
         method(lua, &exp, "open", move |lua, (session, url): (Value, String)| {
-            let sid = parse_session_arg(session)
+            let arg = parse_session_arg(session)
                 .ok_or_else(|| mlua::Error::runtime("browser.experimental.open requires a session reference."))?;
             let vm_id = v_open.vm.get();
             with_app("Contracts.browser.experimental.open", |app| {
-                if !caller_may_access_session(lua, app, &sid) {
+                if !app.browser_plugin_ready() {
                     return Err(mlua::Error::runtime("browser.pane.unavailable"));
                 }
-                if app.active_session_id() != Some(sid.as_str()) {
+                if !routed_session(lua, app, &arg) {
                     return Err(mlua::Error::runtime("browser.pane.notOnScreen"));
                 }
-                let target = resolve_open_url(app, &sid, &url).map_err(mlua::Error::runtime)?;
+                let target = resolve_open_url(app, &arg.id, &url).map_err(mlua::Error::runtime)?;
                 let driver_name = plugin_driver_name(app, &pid_exp_open);
                 let driver = browser_pane::TabDriver::plugin(&driver_name);
+                let held = OWNED_TABS.with_borrow(|tabs| {
+                    tabs.values().filter(|t| t.plugin_id == pid_exp_open && t.vm_id == vm_id && t.half.strong_count() > 0).count()
+                });
+                if held >= MAX_HANDLES_PER_VM {
+                    return Err(mlua::Error::runtime("Too many open experimental browser tab handles for this plugin."));
+                }
+                admit_open(app, vm_id, &driver)?;
                 let handle = opencode_kit::browser_rpc::new_tab_id().replacen("tab_", "btab_", 1);
-                let inserted = OWNED_TABS.with_borrow_mut(|tabs| {
-                    let owned_count = tabs.values().filter(|t| t.plugin_id == pid_exp_open && t.vm_id == vm_id).count();
-                    if owned_count >= MAX_HANDLES_PER_VM {
-                        return false;
-                    }
+                OWNED_TABS.with_borrow_mut(|tabs| {
                     tabs.insert(
                         handle.clone(),
                         OwnedPluginTab {
                             plugin_id: pid_exp_open.clone(),
                             vm_id,
-                            session_id: sid.clone(),
+                            half: Rc::downgrade(&v_open.half.token),
+                            session_id: arg.id.clone(),
                             driver_name,
                             host_tab_id: None,
+                            takeovers: 0,
                         },
                     );
-                    true
                 });
-                if !inserted {
-                    return Err(mlua::Error::runtime("Too many open experimental browser tab handles for this plugin."));
-                }
                 let handle_for_cb = handle.clone();
-                let sid_owned = sid.clone();
+                let sid = arg.id;
                 app.later(Box::new(move |s, tx| {
-                    let still_valid = OWNED_TABS.with_borrow(|tabs| tabs.contains_key(&handle_for_cb));
-                    if !still_valid || s.active_session_id() != Some(sid_owned.as_str()) {
-                        OWNED_TABS.with_borrow_mut(|tabs| {
-                            tabs.remove(&handle_for_cb);
-                        });
+                    let live = OWNED_TABS.with_borrow(|tabs| tabs.get(&handle_for_cb).is_some_and(|t| t.half.strong_count() > 0));
+                    if !live || s.active_session_id() != Some(sid.as_str()) {
+                        OWNED_TABS.with_borrow_mut(|tabs| tabs.remove(&handle_for_cb));
                         return;
                     }
                     tx.instant();
-                    let host_id = open_target_now(s, &sid_owned, target, driver);
+                    let host_id = open_target_now(s, &sid, target, driver);
+                    let takeovers = s.workspace_panes.browser.host.tab(host_id).map_or(0, |t| t.prompts.user_takeovers);
                     OWNED_TABS.with_borrow_mut(|tabs| {
                         if let Some(entry) = tabs.get_mut(&handle_for_cb) {
                             entry.host_tab_id = Some(host_id);
+                            entry.takeovers = takeovers;
                         }
                     });
                 }));
@@ -357,40 +411,38 @@ mod native {
         let pid_exp_close = plugin_id;
         method(lua, &exp, "close", move |_, handle: String| {
             let vm_id = v_close.vm.get();
-            let entry = OWNED_TABS.with_borrow_mut(|tabs| {
-                let matches = tabs
-                    .get(&handle)
-                    .is_some_and(|t| t.plugin_id == pid_exp_close && t.vm_id == vm_id);
-                if matches { tabs.remove(&handle) } else { None }
+            let entry = OWNED_TABS.with_borrow(|tabs| {
+                tabs.get(&handle)
+                    .filter(|t| t.plugin_id == pid_exp_close && t.vm_id == vm_id && t.half.strong_count() > 0)
+                    .map(|t| (t.host_tab_id, t.session_id.clone(), t.driver_name.clone(), t.takeovers))
             });
-            let Some(entry) = entry else {
+            let Some((host_id, sid, driver_name, takeovers)) = entry else {
                 return Ok(false);
             };
-            let Some(host_id) = entry.host_tab_id else {
+            let Some(host_id) = host_id else {
                 // Closed before `app.later` ran; removing the entry cancels the pending open.
+                OWNED_TABS.with_borrow_mut(|tabs| tabs.remove(&handle));
                 return Ok(true);
             };
-            let expected_driver = browser_pane::TabDriver::plugin(&entry.driver_name);
+            let driver = browser_pane::TabDriver::plugin(&driver_name);
             with_app("Contracts.browser.experimental.close", |app| {
-                if app.browser_tab_session(host_id) != Some(entry.session_id.as_str()) {
+                // The person's input or navigation, or an agent's touch, ended this plugin's right.
+                if !still_owned(app, host_id, &sid, &driver, takeovers) {
+                    OWNED_TABS.with_borrow_mut(|tabs| tabs.remove(&handle));
                     return Ok(false);
                 }
-                let Some(tab) = app.workspace_panes.browser.host.tab(host_id) else {
-                    return Ok(false);
-                };
-                // Refuse close if taken over by user/agent navigation or blocked by beforeunload.
-                if tab.prompts.driver.as_ref() != Some(&expected_driver)
-                    || tab
-                        .prompts
-                        .dialog
-                        .open()
-                        .is_some_and(|d| d.kind == browser_pane::DialogKind::Leave)
-                {
+                // A tab waiting on the person (a page dialog, "Leave site?", a sign-in, a permission)
+                // is theirs to answer; the handle stays.
+                if app.workspace_panes.browser.host.tab(host_id).is_some_and(|t| t.prompts.waiting_on_user()) {
                     return Ok(false);
                 }
-                let sid = entry.session_id.clone();
+                // No takeover since the tab opened means the person never gave this page input, so it
+                // holds none of their work, and Chromium shows no "Leave site?" to a page without a
+                // user activation: closing now is what official's `leave()` answers for such a page.
+                OWNED_TABS.with_borrow_mut(|tabs| tabs.remove(&handle));
                 app.later(Box::new(move |s, tx| {
-                    if s.browser_tab_session(host_id) == Some(sid.as_str()) {
+                    let waiting = s.workspace_panes.browser.host.tab(host_id).is_some_and(|t| t.prompts.waiting_on_user());
+                    if still_owned(s, host_id, &sid, &driver, takeovers) && !waiting {
                         tx.instant();
                         s.close_browser_tab_for_session(&sid, host_id, tx);
                     }
@@ -415,23 +467,24 @@ pub fn available() -> bool {
     }
 }
 
-pub fn revoke_owner(owner: &str, keep_vm: Option<u64>) {
+/// Forgets the handles of `half`'s VMs other than `keep_vm` (its reload, stop or window close).
+pub fn revoke_half(half: &Rc<()>, keep_vm: Option<u64>) {
     #[cfg(not(target_arch = "wasm32"))]
-    native::revoke_owner(owner, keep_vm);
+    native::revoke_half(half, keep_vm);
     #[cfg(target_arch = "wasm32")]
     {
-        let _ = (owner, keep_vm);
+        let _ = (half, keep_vm);
     }
 }
 
-/// Revokes any third-party `ExperimentalBrowserTab` handle pointing to `host_id` (on tab close or
-/// user takeover navigation, matching `packages/plugin/src/gui/browser.ts:43`).
-pub fn revoke_tab(host_id: u64) {
+/// Revokes this window's `ExperimentalBrowserTab` handles for `host_id` (tab close or address-bar
+/// takeover, `packages/plugin/src/gui/browser.ts:43`); other takeovers fail `close`'s own check.
+pub fn revoke_tab(app: &crate::App, host_id: u64) {
     #[cfg(not(target_arch = "wasm32"))]
-    native::revoke_tab(host_id);
+    native::revoke_tab(app, host_id);
     #[cfg(target_arch = "wasm32")]
     {
-        let _ = host_id;
+        let _ = (app, host_id);
     }
 }
 
@@ -442,18 +495,20 @@ pub fn use_handle(
     make_signal: impl Fn(&Lua, &str) -> mlua::Result<Value>,
 ) -> mlua::Result<Table> {
     let o = lua.create_table()?;
-    method(lua, &o, "State", |_, ()| {
+    // Pane tabs belong to a window: an app half (`app.luau`) never gets the contract.
+    let window = vmx.half.kind == crate::plugin_host::plugin::Kind::Window;
+    method(lua, &o, "State", move |_, ()| {
         cx::read(Dep::Browser);
-        Ok(if available() { "active" } else { "pending" })
+        Ok(if window && available() { "active" } else { "pending" })
     })?;
-    method(lua, &o, "Generation", |_, ()| {
+    method(lua, &o, "Generation", move |_, ()| {
         cx::read(Dep::Browser);
-        Ok(if available() { 1.0 } else { 0.0 })
+        Ok(if window && available() { 1.0 } else { 0.0 })
     })?;
     let v_get = vmx.clone();
     method(lua, &o, "Get", move |lua, ()| {
         cx::read(Dep::Browser);
-        if !available() {
+        if !window || !available() {
             return Ok(Value::Nil);
         }
         #[cfg(not(target_arch = "wasm32"))]

@@ -190,7 +190,6 @@ pub fn contract_generation(id: &str) -> u64 {
 
 /// Forgets what plugin `owner`'s `kind` half provided from any VM but `keep`.
 pub fn withdraw_owner(owner: &str, kind: Kind, keep: Option<u64>) {
-    super::browser_contract::revoke_owner(owner, keep);
     if opencode_plugin_runtime::contracts::withdraw_owner(owner, kind, keep) {
         crate::plugin_host::bump();
     }
