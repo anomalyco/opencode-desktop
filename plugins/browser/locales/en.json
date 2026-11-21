@@ -219,6 +219,7 @@
   "extensions.compat.feature.signin": "Signing in with a browser account",
   "extensions.compat.feature.sidePanel": "Side panel",
   "extensions.compat.feature.browserData": "History, bookmarks, and downloads",
+  "extensions.compat.feature.management": "Managing other extensions",
   "extensions.compat.feature.settings": "Changing browser settings",
   "extensions.compat.feature.addressBar": "Shortcuts in the address bar",
   "extensions.compat.feature.newTab": "Replacing the new tab page",

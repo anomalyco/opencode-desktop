@@ -936,6 +936,8 @@ impl EngineManager {
             t.snap.lock().unwrap().agent_driven = agent_driven;
             sync_file_choosers(t);
             if agent_driven {
+                // The person's unused media-gate Allow is theirs: the agent never inherits it.
+                t.prompts.clear_media_gate_allows();
                 // Agent-driven tabs permanently refuse WebAuthn/passkeys (`chromium.ts:834-845`).
                 for raw in t.passkeys.enforce_messages() {
                     t.host.send_dev_tools_message(Some(raw.as_bytes()));
