@@ -56,6 +56,11 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
         };
         let can_reopen = !reopen_url.is_empty()
             && !reopen_url.eq_ignore_ascii_case("about:blank")
+            && tab.preview.is_none()
+            && !matches!(
+                tab.context,
+                browser_pane::ContextKind::Preview { .. } | browser_pane::ContextKind::Artifact { .. }
+            )
             && tab.refusal.as_deref() != Some("browser.proxy.required");
         let mut actions = row().gap(4.0).center_y();
         if can_reopen {
@@ -66,6 +71,15 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
             )
             .size(rune_kit::ButtonSize::Small)
             .on_press(move |app: &mut App| {
+                if !app
+                    .workspace_panes
+                    .browser
+                    .host
+                    .tab(tab_id)
+                    .is_some_and(|t| t.prompts.blocked_guard_armed())
+                {
+                    return;
+                }
                 if let Some((_, mut ctx)) = app.browser_context_for_opener(tab_id) {
                     let url = reopen_url.clone();
                     let proxy_ok = match &mut ctx {
@@ -431,7 +445,11 @@ pub fn view_modal(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
         );
         body = body.child(footer);
 
-        let refocus = if kind == DialogKind::Prompt { PROMPT_INPUT_KEY } else { PROMPT_OK_KEY };
+        let refocus = match kind {
+            DialogKind::Prompt => PROMPT_INPUT_KEY,
+            DialogKind::Alert => PROMPT_CARD_KEY,
+            DialogKind::Confirm | DialogKind::Leave => PROMPT_CANCEL_KEY,
+        };
         return Some(modal_frame(p, tab_id, PROMPT_CARD_KEY, refocus, title, body));
     }
 
@@ -660,16 +678,18 @@ fn bounded_origin_url(url: &str) -> String {
     }
 }
 
-/// UTF-8 safe left-elided authority display (up to 64 characters, keeping the registrable tail).
+/// UTF-8 safe left-elided authority display (up to 64 characters, keeping the registrable tail),
+/// with bidi overrides and control characters stripped.
 fn short_host(url: &str) -> String {
     let rest = url.split_once("://").map_or(url, |(_, r)| r);
     let authority = rest.split(['/', '?', '#']).next().unwrap_or(rest);
-    let count = authority.chars().count();
+    let clean = browser_pane::prompts::sanitize_single_line_prompt(authority, 256);
+    let count = clean.chars().count();
     if count > 64 {
-        let tail: String = authority.chars().skip(count - 63).collect();
+        let tail: String = clean.chars().skip(count - 63).collect();
         format!("…{tail}")
     } else {
-        authority.to_owned()
+        clean
     }
 }
 
@@ -679,7 +699,9 @@ fn prompt_site(origin: &str, top_url: &str) -> String {
     let embedded = if orig.is_some() {
         orig != top
     } else {
-        !origin.is_empty() && origin != top_url
+        // Empty, `about:srcdoc`, `data:`, or `blob:` dialog origins on a web page come from an
+        // embedded/sandboxed frame rather than the top-level site (`review-rd-engine.md`).
+        top.is_some() || (!origin.is_empty() && origin != top_url)
     };
     let lower = origin.to_ascii_lowercase();
     if lower.starts_with("file:") || lower.starts_with("oc-preview:") {
