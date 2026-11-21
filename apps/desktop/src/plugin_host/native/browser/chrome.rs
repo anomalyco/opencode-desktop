@@ -11,7 +11,22 @@ use super::{App, DEVTOOLS_TIMEOUT, Vmx, id_of, later, map, not_running, read_tab
 pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
     // App-scheme link reviews are rendered natively by the host (`surfaces/browser/prompts/app_link.rs`)
     // so review tokens never cross into Luau; keep `TakeAppLinkReview` returning nil for compatibility.
-    t.raw_set("TakeAppLinkReview", lua.create_function(|_, ()| Ok(mlua::Value::Nil))?)
+    t.raw_set("TakeAppLinkReview", lua.create_function(|_, ()| Ok(mlua::Value::Nil))?)?;
+    t.raw_set(
+        "SetSiteDetailed",
+        lua.create_function(|lua, (_this, detailed): (Table, bool)| {
+            let sc = scope::TabScope::capture(lua);
+            if !sc.is_builtin_browser || sc.tool_sid.is_some() {
+                return Ok(());
+            }
+            with_app("Browser:SetSiteDetailed", |app| {
+                app.later(Box::new(move |s: &mut App, _: &mut Tx| {
+                    s.workspace_panes.browser.site_detailed = detailed;
+                }));
+                Ok(())
+            })
+        })?,
+    )
 }
 
 pub(super) fn asyncs(host: &Host<'_>, t: &Table) -> mlua::Result<()> {
@@ -108,6 +123,23 @@ pub(super) fn tab_methods(lua: &Lua, m: &Table) -> mlua::Result<()> {
         "Unnamed",
         lua.create_function(|lua, this: Table| {
             read_tab(lua, &this, "BrowserTab:Unnamed", |app, id| Ok(app.browser_tab_unnamed(id)))
+        })?,
+    )?;
+    // Shift+Click on the toolbar Reload button triggers hard reload (`panel.tsx:973`).
+    m.raw_set(
+        "ReloadFromClick",
+        lua.create_function(|lua, this: Table| {
+            let sc = scope::TabScope::capture(lua);
+            if !sc.is_builtin_browser || sc.tool_sid.is_some() {
+                return Ok(());
+            }
+            later(lua, &this, "BrowserTab:ReloadFromClick", move |s, id, tx| {
+                if tx.mods().shift {
+                    s.workspace_panes.browser.host.reload_ignore_cache(id);
+                } else {
+                    s.workspace_panes.browser.host.reload(id);
+                }
+            })
         })?,
     )?;
     // Opens the floating "Add page to session" note editor (`panel.tsx:1615-1665`).

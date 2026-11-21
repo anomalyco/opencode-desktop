@@ -153,6 +153,8 @@ mod native {
         pub openers: super::openers::TabOpeners,
         /// Floating element-comment spotlight/editor and whole-page note editor (`panel.tsx:1525-1665`).
         pub overlay: super::comment::BrowserOverlay,
+        /// True while Site information popover is on View 2 ("Site settings") so Escape steps back.
+        pub site_detailed: bool,
     }
 
     pub use super::keys::claims_app_shortcut;
