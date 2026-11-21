@@ -30,12 +30,7 @@ impl Profile {
             .map(PathBuf::from)
             .unwrap_or_else(|| state_dir().join("browser-profile"));
         let isolated_downloads_base = isolated_downloads_dir(&lasting_root);
-        #[cfg(target_os = "macos")]
-        let key = crate::mac_app::decide_cookie_key();
-        let lasting = acquire_lock(&lasting_root);
-        #[cfg(target_os = "macos")]
-        let lasting = lasting.filter(|_| cookie_key_fits(&lasting_root, key));
-        if let Some(lock) = lasting {
+        if let Some(lock) = acquire_lock(&lasting_root) {
             return Self {
                 cache: lasting_root.join("Default"),
                 root: lasting_root.clone(),
@@ -78,32 +73,6 @@ fn state_dir() -> PathBuf {
 fn state_dir() -> PathBuf {
     let home = PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".into()));
     home.join("Library/Application Support/co.anomaly.opencode")
-}
-
-/// macOS: whether this run may use the lasting profile. The key that encrypts its cookies is
-/// recorded beside them (`opencode-cookie-key`). A run with the other key (an unsigned or
-/// re-signed build, `OPENCODE_BROWSER_MOCK_KEYCHAIN=1`, a locked or missing login keychain)
-/// could read none of the saved sign-ins and would write ones the next normal run cannot read, so
-/// it gets a throwaway profile and leaves the lasting one untouched (READER-9 #378 should-fix 3).
-#[cfg(target_os = "macos")]
-fn cookie_key_fits(root: &Path, key: crate::mac_app::CookieKey) -> bool {
-    let marker = root.join("opencode-cookie-key");
-    let recorded = std::fs::read_to_string(&marker)
-        .ok()
-        .and_then(|s| crate::mac_app::CookieKey::parse(s.trim()))
-        // A profile from before the record: written with the key this build is meant to use (the
-        // Keychain on Developer ID builds since `156.0.26-3`, the mock key on local builds).
-        .or_else(|| root.join("Default").join("Cookies").exists().then(crate::mac_app::intended_cookie_key));
-    if let Some(recorded) = recorded.filter(|r| *r != key) {
-        eprintln!(
-            "engine-profile: the profile's cookies use the {} key and this run the {} key; using a throwaway profile",
-            recorded.name(),
-            key.name()
-        );
-        return false;
-    }
-    let _ = std::fs::write(&marker, key.name());
-    true
 }
 
 /// Throwaway profiles go beside the lasting one, under the same root.

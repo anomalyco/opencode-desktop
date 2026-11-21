@@ -97,13 +97,6 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
                 .no_focus_ring()
                 .items_start()
                 .padding(10.0)
-                .on_press_tx(move |s: &mut S, tx: &mut Tx| {
-                    let Some(f) = asking(s) else { return };
-                    let (tab, _) = place(s, &f);
-                    select(s, &f, tab, i);
-                    let d = dock(s, &f);
-                    (d.focus, d.keyboard) = (i, tx.focus_visible());
-                })
                 .child(mark(p, multi, picked, d.keyboard))
                 .child(
                     col()
@@ -115,6 +108,17 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
                         .children((!desc.is_empty()).then(|| text(desc.clone()).key("description").font(DESC).color(p.muted).wrap_anywhere())),
                 )
                 .children((i < 9).then(|| shortcut(p, i + 1, picked, d.keyboard)));
+            let card = if live {
+                card.cursor(rune::Cursor::Pointer).on_press_tx(move |s: &mut S, tx: &mut Tx| {
+                    let Some(f) = asking(s) else { return };
+                    let (tab, _) = place(s, &f);
+                    select(s, &f, tab, i);
+                    let d = dock(s, &f);
+                    (d.focus, d.keyboard) = (i, tx.focus_visible());
+                })
+            } else {
+                card.disabled(true).focusable(false)
+            };
             answers = answers.child(card);
         }
         if has_custom(field) {
@@ -166,34 +170,34 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
         .paint_order(-1)
         .center_y()
         .transition(fade())
-        .child(button(p, "q-dismiss", opencode_i18n::t!("ui.common.dismiss"), Variant::GhostMuted, None, live).help(format!("{} Esc", opencode_i18n::t!("ui.common.dismiss"))).on_press_tx(|s: &mut S, tx: &mut Tx| {
-            if let Some(f) = asking(s) {
-                dismiss(s, &f, tx)
-            }
-        }))
+        .child({
+            let b = button(p, "q-dismiss", opencode_i18n::t!("ui.common.dismiss"), Variant::GhostMuted, None, live).help(format!("{} Esc", opencode_i18n::t!("ui.common.dismiss")));
+            if live { b.on_press_tx(|s: &mut S, tx: &mut Tx| if let Some(f) = asking(s) { dismiss(s, &f, tx) }) } else { b }
+        })
         .child(spacer())
         .child(
             row()
                 .key("q-actions")
                 .gap(8.0)
                 .children((tab > 0).then(|| {
-                    button(p, "q-back", opencode_i18n::t!("ui.common.back"), Variant::Neutral, None, live).help(format!("{} {back}", opencode_i18n::t!("ui.common.back"))).on_press_tx(|s: &mut S, tx: &mut Tx| {
-                        let Some(f) = asking(s) else { return };
-                        let (tab, _) = place(s, &f);
-                        jump(s, &f, tab.saturating_sub(1), tx);
-                    })
+                    let b = button(p, "q-back", opencode_i18n::t!("ui.common.back"), Variant::Neutral, None, live).help(format!("{} {back}", opencode_i18n::t!("ui.common.back")));
+                    if live {
+                        b.on_press_tx(|s: &mut S, tx: &mut Tx| {
+                            let Some(f) = asking(s) else { return };
+                            let (tab, _) = place(s, &f);
+                            jump(s, &f, tab.saturating_sub(1), tx);
+                        })
+                    } else {
+                        b
+                    }
                 }))
                 .child({
                     let label = if last { opencode_i18n::t!("ui.common.submit") } else { opencode_i18n::t!("ui.common.next") };
-                    button(p, "q-next", label, if last { Variant::Contrast } else { Variant::Neutral }, None, live)
+                    let b = button(p, "q-next", label, if last { Variant::Contrast } else { Variant::Neutral }, None, live)
                         .w(advance_w)
                         .justify_center()
-                        .help(format!("{label} {submit}"))
-                        .on_press_tx(|s: &mut S, tx: &mut Tx| {
-                            if let Some(f) = asking(s) {
-                                next(s, &f, tx)
-                            }
-                        })
+                        .help(format!("{label} {submit}"));
+                    if live { b.on_press_tx(|s: &mut S, tx: &mut Tx| if let Some(f) = asking(s) { next(s, &f, tx) }) } else { b }
                 }),
         );
     Some(vec![body, footer])
@@ -241,7 +245,7 @@ fn progress<S: DockHost>(s: &S, p: &Pal, f: &Form, tab: usize, live: bool) -> El
             .center()
             .child(el().key("bar").size(14.0, 2.0).fill(color));
         if live {
-            seg.hover(p.hover).on_press_tx(move |s: &mut S, tx: &mut Tx| {
+            seg.cursor(rune::Cursor::Pointer).hover(p.hover).on_press_tx(move |s: &mut S, tx: &mut Tx| {
                 if let Some(f) = asking(s) {
                     jump(s, &f, i, tx)
                 }
@@ -264,7 +268,7 @@ fn chevron<S: DockHost>(p: &Pal, minimized: bool, live: bool) -> El {
         .center()
         .child(icon(&ic::CHEVRON_DOWN, 16.0).color(p.icon_muted).rotate(if minimized { PI } else { 0.0 }).rotate_motion(FOLD));
     if live {
-        b.hover(p.hover).press(p.pressed).on_press_tx(|s: &mut S, tx: &mut Tx| {
+        b.cursor(rune::Cursor::Pointer).hover(p.hover).press(p.pressed).on_press_tx(|s: &mut S, tx: &mut Tx| {
             let Some(f) = asking(s) else { return };
             tx.motion_curve(FOLD);
             let (tab, _) = place(s, &f);
@@ -317,6 +321,7 @@ fn shortcut(p: &Pal, n: usize, picked: bool, keyboard: bool) -> El {
 /// "Type your own answer" (`question-option[data-custom]`): its mark, the field in an answer's
 /// place, and its number key.
 fn custom<S: DockHost>(s: &S, p: &Pal, f: &Form, tab: usize, multi: bool, editing: bool, ring: bool) -> El {
+    let live = !super::busy(s, f);
     let field = &f.fields[tab];
     let k = f.key(tab);
     let i = rows(field).len();
@@ -366,7 +371,18 @@ fn custom<S: DockHost>(s: &S, p: &Pal, f: &Form, tab: usize, multi: bool, editin
         row().key("q-field").grow(1.0).min_w(0.0).h(28.0).center_y().child(input)
     };
     let keyboard = s.dock().keyboard;
-    card(p, on, ring, keyboard)
+    let mark_el = mark(p, multi, on, keyboard).role(if multi { "checkbox" } else { "radio" }).label(custom_label());
+    let mark_el = if live {
+        mark_el.cursor(rune::Cursor::Pointer).on_press_tx(|s: &mut S, _: &mut Tx| {
+            let Some(f) = asking(s) else { return };
+            let (tab, _) = place(s, &f);
+            toggle_custom(s, &f, tab);
+            dock(s, &f).keyboard = false;
+        })
+    } else {
+        mark_el.disabled(true).focusable(false)
+    };
+    let row_card = card(p, on, ring, keyboard)
         .key("q-custom")
         .role(if multi { "checkbox" } else { "radio" })
         .label(custom_label())
@@ -375,20 +391,19 @@ fn custom<S: DockHost>(s: &S, p: &Pal, f: &Form, tab: usize, multi: bool, editin
         .h(40.0)
         .px(10.0)
         .center_y()
-        .on_press_tx(|s: &mut S, _: &mut Tx| {
+        .child(mark_el)
+        .child(input)
+        .children((i < 9).then(|| shortcut(p, i + 1, on, keyboard)));
+    if live {
+        row_card.cursor(rune::Cursor::Pointer).on_press_tx(|s: &mut S, _: &mut Tx| {
             let Some(f) = asking(s) else { return };
             let (tab, _) = place(s, &f);
             start_typing(s, &f, tab);
             dock(s, &f).keyboard = false;
         })
-        .child(mark(p, multi, on, keyboard).role(if multi { "checkbox" } else { "radio" }).label(custom_label()).on_press_tx(|s: &mut S, _: &mut Tx| {
-            let Some(f) = asking(s) else { return };
-            let (tab, _) = place(s, &f);
-            toggle_custom(s, &f, tab);
-            dock(s, &f).keyboard = false;
-        }))
-        .child(input)
-        .children((i < 9).then(|| shortcut(p, i + 1, on, keyboard)))
+    } else {
+        row_card.disabled(true).focusable(false)
+    }
 }
 
 /// Back: ⌘[ on a Mac, Alt+← elsewhere.

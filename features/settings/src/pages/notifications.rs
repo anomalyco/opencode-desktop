@@ -7,7 +7,7 @@ use opencode_ui::popup::PopupHost;
 use rune::{El, Tx, col};
 use opencode_ui::palette::Pal;
 
-use super::{header, page_with, select};
+use super::{header, page_with, select_preview};
 use crate::host::SettingsHost;
 use crate::prefs;
 use crate::types::NotifyKind;
@@ -20,6 +20,12 @@ fn toggle_notify(s: &mut dyn SettingsHost, kind: NotifyKind) {
 
 fn toggle_interface_sound(s: &mut dyn SettingsHost) {
     change_settings(s, |x| x.sounds.interface = !x.sounds.interface);
+}
+
+fn preview_sound(s: &mut dyn SettingsHost, id: &str) {
+    if id != "none" {
+        s.play_sound(id);
+    }
 }
 
 fn pick_agent_sound(s: &mut dyn SettingsHost, id: &str, tx: &mut Tx) {
@@ -67,7 +73,7 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
                 "settings-sounds-agent",
                 t!("settings.general.sounds.agent.title"),
                 t!("settings.general.sounds.agent.description"),
-                select(s, p, "settings-sounds-agent-select", t!("settings.general.sounds.agent.title"), options(), &current(&st.sounds.agent), pick_agent_sound),
+                select_preview(s, p, "settings-sounds-agent-select", t!("settings.general.sounds.agent.title"), options(), &current(&st.sounds.agent), pick_agent_sound, preview_sound),
             ),
         ),
         (
@@ -77,7 +83,7 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
                 "settings-sounds-permissions",
                 t!("settings.general.sounds.permissions.title"),
                 t!("settings.general.sounds.permissions.description"),
-                select(
+                select_preview(
                     s,
                     p,
                     "settings-sounds-permissions-select",
@@ -85,6 +91,7 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
                     options(),
                     &current(&st.sounds.permissions),
                     pick_permissions_sound,
+                    preview_sound,
                 ),
             ),
         ),
@@ -95,7 +102,7 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
                 "settings-sounds-questions",
                 t!("settings.general.sounds.questions.title"),
                 t!("settings.general.sounds.questions.description"),
-                select(
+                select_preview(
                     s,
                     p,
                     "settings-sounds-questions-select",
@@ -103,6 +110,7 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
                     options(),
                     &current(&st.sounds.questions),
                     pick_questions_sound,
+                    preview_sound,
                 ),
             ),
         ),
@@ -113,7 +121,7 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
                 "settings-sounds-errors",
                 t!("settings.general.sounds.errors.title"),
                 t!("settings.general.sounds.errors.description"),
-                select(s, p, "settings-sounds-errors-select", t!("settings.general.sounds.errors.title"), options(), &current(&st.sounds.errors), pick_errors_sound),
+                select_preview(s, p, "settings-sounds-errors-select", t!("settings.general.sounds.errors.title"), options(), &current(&st.sounds.errors), pick_errors_sound, preview_sound),
             ),
         ),
         (
