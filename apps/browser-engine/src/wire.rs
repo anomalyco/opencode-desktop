@@ -365,6 +365,9 @@ pub enum EngineMsg {
         /// The engine enforces the WebAuthn / passkey gate (`TabPasskeyGate`) and emits `PasskeyRefused`.
         #[serde(default)]
         passkeys: bool,
+        /// The engine enforces committed-main-frame renderer PID trace isolation and a single engine-wide trace lock.
+        #[serde(default)]
+        trace_isolation: bool,
     },
     ProfileCookies { request_id: u64, cookies: Vec<WireCookie> },
     ProfileCookiesImported { request_id: u64, imported: u32, failed: u32 },
