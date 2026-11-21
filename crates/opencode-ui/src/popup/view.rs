@@ -9,7 +9,7 @@ use super::keys::key;
 use super::menu::{Entry, Glyph, Look, Menu, hug_width, key_at, row_key};
 use super::rows::{self, CHEVRON, detail_row, diff_note};
 use super::search::{SEARCH_H, search_field};
-use super::state::{choose, choose_at, close, hover_focus, moved, open_sub_at};
+use super::state::{choose, choose_at, close, hover_focus, left, moved, open_sub_at};
 use super::{CARD, CONTEXT_MIN_W, GAP, GROUP, GROUP_H, PRESS_ON_DOWN, PopupHost, SURFACE, focus, standard};
 
 /// The drawn menu and the scrim under it that dismisses it, for the window's top layer.
@@ -263,6 +263,8 @@ fn build<S: PopupHost + 'static>(
         Some(_) if holds_focus => surface.focusable(true).tab_index(-1).no_focus_ring().on_key(|s: &mut S, ev, tx: &mut Tx| key(s, ev, tx)),
         _ => surface,
     };
+    // A menu under an editing field is a Kobalte menu: the row the pointer lit goes dark as it leaves.
+    let surface = if !nested && s.is_some_and(|s| s.popup().edits()) { surface.on_hover_change(|s: &mut S, inside, tx: &mut Tx| if !inside { left(s, tx) }) } else { surface };
     // A submenu is as wide as its widest row (`w-max`), its rows laid out apart from it.
     let width = menu.width.or_else(|| nested.then(|| hug_width(menu).max(menu.min_w)));
     let surface = match width {

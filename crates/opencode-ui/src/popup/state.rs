@@ -430,6 +430,15 @@ fn apply<S: PopupHost + 'static>(s: &mut S, effect: super::submenu::Effect, tx: 
 
 /// The pointer moved over the drawn menu, to `at` in window points. Only a pointer on its way into
 /// a submenu acts on it; otherwise nothing redraws.
+/// The pointer left a menu under an editing field: the row it lit goes dark, as a Kobalte item's
+/// `onPointerLeave` does. A submenu open from it keeps its row.
+pub(super) fn left<S: PopupHost + 'static>(s: &mut S, tx: &mut Tx) {
+    if let Some(shown) = s.popup_mut().shown.as_mut().filter(|m| m.subs.is_empty() && m.active.is_some()) {
+        tx.instant();
+        shown.active = None;
+    }
+}
+
 pub(super) fn moved<S: PopupHost + 'static>(s: &mut S, at: [f32; 2], tx: &mut Tx) {
     let [_, last] = s.popup().pointer.get();
     s.popup().pointer.set([last, at]);
