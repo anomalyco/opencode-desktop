@@ -280,6 +280,12 @@ wrap_app! {
             ] {
                 cmd.append_switch(Some(&sw.into()));
             }
+            // Background fetch and periodic background sync, which official's permission check
+            // handler denies (N12); their content settings crash CEF 156 when set, so the APIs go.
+            cmd.append_switch_with_value(
+                Some(&"disable-blink-features".into()),
+                Some(&"BackgroundFetch,PeriodicBackgroundSync".into()),
+            );
             // Disable Cast/DIAL discovery (UDP 5353/1900), mDNS local-IP responder (UDP 5353),
             // and `ConnectionAllowlists` (Spotify CEF 156.0.26 ships with `dcheck_always_on`,
             // where `services/network/network_context.cc:3616` hits `DCHECK(matcher.has_value())`
