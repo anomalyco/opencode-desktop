@@ -667,7 +667,16 @@ pub(super) fn step_wait_load(
         };
         return Some(Outcome::fail(failure_code::NAVIGATION_FAILED, msg));
     }
-    let settled = (!tab.loading && (st.saw_loading || now >= st.started_at + LOAD_SETTLE_GRACE))
+    // A history entry's DevTools navigation events can come after its address: until the frame
+    // tracker has the new document, an agent's next call would be authorized against the old one
+    // and fail as `document_changed` when they land.
+    let frames_caught_up = st.history_from.as_ref().is_none_or(|(old_url, ..)| {
+        *old_url == tab.url
+            || att.frames.get(&st.host_id).is_none_or(|f| {
+                f.main_frame_id.as_ref().and_then(|id| f.frame_urls.get(id)).is_none_or(|u| u != old_url)
+            })
+    });
+    let settled = (!tab.loading && frames_caught_up && (st.saw_loading || now >= st.started_at + LOAD_SETTLE_GRACE))
         || now >= st.deadline;
     if !settled {
         return None;
