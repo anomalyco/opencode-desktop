@@ -71,9 +71,9 @@ fn wrap<S: PickerHost>(s: &S, p: &Pal, kind: Kind, button: El) -> El {
     if !open_here && !(crate::style::narrow() && kind != Kind::Project) {
         button = button.help(kind.choose_label()).help_above();
         if let Some(bind) = match kind {
-            Kind::Agent => Some(crate::keymap::Bind::Agent),
-            Kind::Model => Some(crate::keymap::Bind::Model),
-            Kind::Effort => Some(crate::keymap::Bind::Variant),
+            Kind::Agent => Some(opencode_ui::keymap::Bind::Agent),
+            Kind::Model => Some(opencode_ui::keymap::Bind::Model),
+            Kind::Effort => Some(opencode_ui::keymap::Bind::Variant),
             Kind::Project => None,
         } {
             button = button.help_keys(bind.keycaps());

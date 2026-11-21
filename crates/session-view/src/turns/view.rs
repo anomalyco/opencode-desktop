@@ -109,7 +109,7 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &
                 col().w_full().pt(if j == 0 { 0.0 } else { GROUP_GAP }).child(built).fold_glide(crate::disclosure::fold(s.knobs())).fold_feather(feather)
             })
             .virtual_rows_version(version);
-        let rail = crate::style::nested_rail(p, GROUP_GAP + 6.0, 6.0, crate::disclosure::toggle_group::<S>(key.to_owned()));
+        let rail = crate::style::nested_rail(&p, GROUP_GAP + 6.0, 6.0, crate::disclosure::toggle_group::<S>(key.to_owned()));
         let list = col().key("steps").w_full().pt(GROUP_GAP).pb(pb).pl(14.0).transition(rune::Transition::none()).child(rail).child(list);
 
         // Shutting, the steps stay laid out below a row that's only the header, and the row's
