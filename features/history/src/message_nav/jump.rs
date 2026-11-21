@@ -552,7 +552,7 @@ fn dialog_shell(p: &Pal, w: f32, scroll_h: f32, search: El, note: &'static str, 
         .transition(Transition::none())
         .motion(Spring::NONE)
         .child(col().key("jump-search").w_full().pt(6.0).px(6.0).child(search))
-        .child(el().key("jump-divider").w_full().h(0.5).mt(8.5).fill(p.border_muted))
+        .child(rune::hairline(p.border).key("jump-divider").w_full().mt(6.0).mb(2.0))
         .child(
             row()
                 .key("jump-desc")

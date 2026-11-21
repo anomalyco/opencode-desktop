@@ -89,7 +89,7 @@ pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
         .child(row().key("field").h(32.0).w_full().pl(8.0).pr(8.0).gap(8.0).center_y()
             .child(icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted))
             .child(field));
-    let hairline = el().key("manage-models-rule").w_full().h(0.5).mt(8.0).fill(p.border_muted);
+    let hairline = rune::hairline(p.border).key("manage-models-rule").w_full().mt(8.0);
 
     let mut body = col().key("manage-models-list").w_full().padding(8.0).gap(8.0);
     if groups.is_empty() {

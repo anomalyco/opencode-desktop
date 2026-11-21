@@ -408,7 +408,7 @@ fn build_picker_frame(p: &Pal, field: El, sections: Vec<El>) -> El {
         .w_full()
         .gap(6.0)
         .child(field)
-        .child(el().key("connect-search-rule").h(0.5).mx(-6.0).fill(p.border_muted));
+        .child(rune::hairline(p.border).key("connect-search-rule").mx(-6.0));
     let mut list = col().key("connect-groups").w_full().gap(2.0).pb(32.0);
     if sections.is_empty() {
         list = list.child(row().key("connect-empty").w_full().h(96.0).center().child(text(opencode_i18n::t!("dialog.provider.empty")).font(BODY).color(p.muted)));
