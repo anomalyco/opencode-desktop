@@ -311,7 +311,7 @@ pub fn filtered_files_view<H: FilesHost + 'static>(
         .key("files-filter-rows")
         .w_full()
         .px(8.0)
-        .pb(8.0)
+        .pb(12.0)
         .growth(GrowthSpec::default())
         .role("listbox")
         .virtual_rows(
@@ -368,8 +368,11 @@ pub fn filtered_files_view<H: FilesHost + 'static>(
                 attach_open_in_context::<H>(r, path.clone())
             },
         );
-    // The filter's rows in the same Pierre tree as the folders, with its bar.
-    tree_scroll::<H>(p, "files-filter-scroll", list)
+    // The filter's flat list isn't Pierre's tree: it scrolls in the sidebar's own viewport
+    // (`padding: 4px 8px 12px; overflow: auto`, session-ui `session-review-v2.css`), with
+    // `scrollbar.css`'s bar, so its rows reach the pane's 8 px inset.
+    let scroll = opencode_ui::scroller::scroller("files-filter-scroll").build::<H>(p, col().w_full().grow(1.0).min_h(0.0), list);
+    col().w_full().grow(1.0).min_h(0.0).child(scroll)
 }
 
 /// A Pierre tree's scroller keyed `key` with the tree's bar, in a box that takes the padding a
