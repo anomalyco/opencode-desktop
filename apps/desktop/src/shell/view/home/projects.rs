@@ -73,7 +73,7 @@ pub(super) fn utility(p: &Pal, stacked: bool) -> El {
     row().w_full().gap(4.0).justify_between().child(settings).child(help)
 }
 
-/// `HomeProjectNavButton`: 28 tall, `px-1.5 gap-2`, the small (14 pt) icon in icon-muted, the
+/// `HomeProjectNavButton`: 28 tall, `px-1.5 gap-2`, the normal (16 pt) icon in icon-muted, the
 /// label muted at 440 going to the text colour over the layer-01 hover.
 fn nav_row(p: &Pal, key: &str, glyph: &'static Icon, label: &str) -> El {
     row()
@@ -88,7 +88,7 @@ fn nav_row(p: &Pal, key: &str, glyph: &'static Icon, label: &str) -> El {
         .focus_inset(p)
         .hover_group()
         .hover(p.layer1)
-        .child(icon(glyph, 14.0).key("icon").color(p.icon_muted))
+        .child(icon(glyph, 16.0).key("icon").color(p.icon_muted))
         // `text-left` on a `flex-1` label: at the left edge right to left too.
         .child(text(label).font(HOME).color(p.muted).group_color(p.text).grow(1.0).shrink().truncate().align(text_left()))
 }
