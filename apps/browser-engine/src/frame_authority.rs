@@ -56,6 +56,9 @@ pub enum Dispatch {
 #[derive(Clone, Debug)]
 pub enum Reach {
     Frames(Vec<String>),
+    /// These frames and every frame of `session` when checked, so a same-process frame attached
+    /// while the call is in flight is still checked at reply time.
+    Session { session: Option<String>, frames: Vec<String> },
     WholeTab,
 }
 
@@ -172,7 +175,8 @@ impl EngineCdpLedger {
     /// reading the renderer as a whole (`DOM.getDocument`, the heap and CPU profilers, tracing),
     /// reaches every frame of its session (READER-12 #451 critical 1).
     pub fn reach(&self, method: &str, session: Option<&str>, frame_id: Option<&str>, params: &Value) -> Reach {
-        if method.starts_with("Input.") || params.get("uniqueContextId").is_some() {
+        // A screenshot captures every frame's pixels, out-of-process ones included.
+        if method.starts_with("Input.") || method == "Page.captureScreenshot" || params.get("uniqueContextId").is_some() {
             return Reach::WholeTab;
         }
         let sess = session.map(str::to_owned);
@@ -193,14 +197,23 @@ impl EngineCdpLedger {
             frames.push(fid);
             frames.extend(self.objects.get(oid).map(|(_, f)| f.clone()));
         }
-        let renderer_wide = ["DOM.getDocument", "DOM.getFlattenedDocument", "HeapProfiler.", "Profiler.", "Tracing."]
-            .iter()
-            .any(|m| method.starts_with(m));
+        // A network request id names any request of the session's process, like a node id.
+        let renderer_wide = [
+            "DOM.getDocument",
+            "DOM.getFlattenedDocument",
+            "HeapProfiler.",
+            "Profiler.",
+            "Tracing.",
+            "Network.getResponseBody",
+            "Network.getRequestPostData",
+        ]
+        .iter()
+        .any(|m| method.starts_with(m));
         let node_ids = ["backendNodeId", "nodeId", "nodeIds", "backendNodeIds"].iter().any(|k| params.get(k).is_some());
-        if renderer_wide || node_ids {
-            frames.extend(self.frames.iter().filter(|(_, f)| f.session == sess).map(|(id, _)| id.clone()));
-        }
         frames.extend(self.session_root(session));
+        if renderer_wide || node_ids {
+            return Reach::Session { session: sess, frames };
+        }
         Reach::Frames(frames)
     }
 
@@ -217,8 +230,13 @@ impl EngineCdpLedger {
         if self.overflow {
             return Some(None);
         }
+        let known = |ids: &Vec<String>| !ids.is_empty() && ids.iter().all(|id| self.frames.contains_key(id));
         let ids: Vec<&String> = match reach {
-            Reach::Frames(ids) if !ids.is_empty() && ids.iter().all(|id| self.frames.contains_key(id)) => ids.iter().collect(),
+            Reach::Frames(ids) if known(ids) => ids.iter().collect(),
+            Reach::Session { session, frames } if known(frames) => frames
+                .iter()
+                .chain(self.frames.iter().filter(|(_, f)| f.session == *session).map(|(id, _)| id))
+                .collect(),
             _ => self.frames.keys().collect(),
         };
         ids.into_iter().find_map(|id| match self.frame_origins(id) {
@@ -250,7 +268,10 @@ impl EngineCdpLedger {
             }
             match &f.parent {
                 Some(p) => id = p,
-                None if out.is_empty() && id != frame_id => return None,
+                // Only the tab's own main frame may end the walk with no origin (an opaque
+                // top-level document); any other parentless frame is one the engine has not
+                // placed yet, such as an out-of-process frame attached before its tree arrived.
+                None if out.is_empty() && (f.session.is_some() || Some(id) != self.main_frame.as_deref()) => return None,
                 None => return Some(out),
             }
         }
@@ -726,6 +747,7 @@ impl EngineCdpLedger {
                             self.frames.remove(id);
                         }
                         self.contexts.retain(|_, f| f != id);
+                        self.context_origins.remove(id);
                     }
                 }
             }
@@ -866,6 +888,11 @@ impl EngineCdpLedger {
         }
         let url = frame.get("url").and_then(Value::as_str).filter(|u| !u.is_empty()).map(str::to_owned);
         let origin = frame.get("securityOrigin").and_then(Value::as_str).unwrap_or("").to_owned();
+        // A document with its own origin replaces the last one's context origin; a blank or
+        // `srcdoc` document keeps it until its own context reports (`on_context`).
+        if url.as_deref().is_some_and(|u| !inherits_origin(u)) {
+            self.context_origins.remove(id);
+        }
         let was_excluded = self.excluded(id);
         self.upsert(id, parent, session, url.clone(), origin, from_extension);
         if self.excluded(id) && !was_excluded {
