@@ -3,17 +3,16 @@
 //!
 //! | Variable | Builds | What it does |
 //! | --- | --- | --- |
-//! | `OPENCODE_RUNE_UPDATE_FEED` | debug (Windows) | The feed's base URL, such as a local feed served by `bun`; turns the updater on in a development build, and lets an unsigned update from a loopback feed (`http://127.0.0.1:`, `localhost`, `[::1]`) install. Any other URL gets the release's publisher check. |
-//! | `OPENCODE_RUNE_UPDATE_FEED` | all (Linux) | The feed's base URL; turns the check on in a development build. |
-//! | `OPENCODE_RUNE_RELEASE_URL` | all (macOS, Linux) | The feed's base URL. |
+//! | `OPENCODE_RUNE_UPDATE_FEED` | debug | The feed's base URL, such as a local loopback feed served by `bun`; turns the updater on in a development build, and on Windows lets an unsigned update from a loopback feed (`http://127.0.0.1:`, `localhost`, `[::1]`) install. Non-loopback `http://` is always refused. |
+//! | `OPENCODE_RUNE_RELEASE_URL` | debug (macOS, Linux) | Legacy alias for `OPENCODE_RUNE_UPDATE_FEED`; ignored in release builds. |
 //! | `OPENCODE_RUNE_UPDATE_CHANNEL` | all | The feed channel (`dev`, `stable`). |
 //! | `OPENCODE_RUNE_UPDATE_INITIAL_DELAY_MS` | all | How long after launch the first check waits (10 s). |
 //! | `OPENCODE_RUNE_AUTO_INSTALL_ON_READY` | all (macOS) | `1`: install as soon as an update is ready. |
-//! | `OPENCODE_RUNE_SKIP_GATEKEEPER` | all (macOS) | `1`, with a loopback feed and an unsigned running bundle: skip the signing team and Gatekeeper checks. |
+//! | `OPENCODE_RUNE_SKIP_GATEKEEPER` | debug (macOS) | `1`, with a loopback feed and an unsigned running bundle: skip the signing team and Gatekeeper checks. Ignored in release builds. |
 
 use std::time::Duration;
 
-#[cfg_attr(not(any(target_os = "macos", windows)), allow(unused_imports))]
+#[cfg_attr(not(any(target_os = "macos", target_os = "linux", windows)), allow(unused_imports))]
 pub use super::protocol::DEFAULT_SERVICE_URL;
 
 /// The feed Windows builds read: the release workflow publishes each signed build's install
@@ -55,10 +54,27 @@ pub fn initial_delay() -> Duration {
     env("OPENCODE_RUNE_UPDATE_INITIAL_DELAY_MS").and_then(|v| v.parse::<u64>().ok()).map_or(INITIAL_DELAY, Duration::from_millis)
 }
 
-/// The local test feed, honoured only by debug builds.
+/// The local test feed (`OPENCODE_RUNE_UPDATE_FEED`), honoured only by debug builds.
 #[cfg_attr(not(windows), allow(dead_code))]
 pub fn debug_feed() -> Option<String> {
     if cfg!(debug_assertions) { env("OPENCODE_RUNE_UPDATE_FEED") } else { None }
+}
+
+/// The local test feed (`OPENCODE_RUNE_UPDATE_FEED` or legacy `OPENCODE_RUNE_RELEASE_URL`),
+/// honoured only by debug builds. Release builds always use [`DEFAULT_SERVICE_URL`].
+#[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(dead_code))]
+pub fn debug_release_url() -> Option<String> {
+    if cfg!(debug_assertions) {
+        env("OPENCODE_RUNE_UPDATE_FEED").or_else(|| env("OPENCODE_RUNE_RELEASE_URL"))
+    } else {
+        None
+    }
+}
+
+/// Skips macOS signing-team and Gatekeeper checks for an unsigned loopback test build; debug only.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn debug_skip_gatekeeper() -> bool {
+    cfg!(debug_assertions) && env("OPENCODE_RUNE_SKIP_GATEKEEPER").as_deref() == Some("1")
 }
 
 /// A variable's trimmed value, when set and not empty.
@@ -67,8 +83,37 @@ pub fn env(name: &str) -> Option<String> {
     std::env::var(name).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty())
 }
 
-/// True for an `http://` feed on this machine.
-#[cfg_attr(not(any(target_os = "macos", windows)), allow(dead_code))]
+/// True for an `http://` URL whose authority targets loopback (`127.0.0.1`, `localhost`, `[::1]`)
+/// with no userinfo.
 pub fn loopback(url: &str) -> bool {
-    ["http://127.0.0.1:", "http://localhost:", "http://[::1]:"].iter().any(|p| url.starts_with(p))
+    let Some(rest) = url.strip_prefix("http://") else {
+        return false;
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    if authority.contains('@') {
+        return false;
+    }
+    let host = if let Some(after) = authority.strip_prefix('[') {
+        let Some((h, tail)) = after.split_once(']') else {
+            return false;
+        };
+        if !tail.is_empty() && !tail.starts_with(':') {
+            return false;
+        }
+        h
+    } else {
+        authority.split(':').next().unwrap_or_default()
+    };
+    matches!(host, "127.0.0.1" | "localhost" | "::1")
+}
+
+/// True when `url` is permitted for update manifest or payload fetches: `https://` everywhere,
+/// plus loopback `http://` in debug builds only. Non-loopback `http://` is always refused.
+pub fn allowed_update_url(url: &str) -> bool {
+    url.starts_with("https://") || (cfg!(debug_assertions) && loopback(url))
+}
+
+/// Whether the HTTP transport must enforce HTTPS-only (including across redirects).
+pub fn requires_https(url: &str) -> bool {
+    !(cfg!(debug_assertions) && loopback(url))
 }

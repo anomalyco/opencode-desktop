@@ -641,8 +641,8 @@ fn dialog_shell(p: &Pal, w: f32, scroll_h: f32, search: El, scroll: El) -> El {
         .motion(Spring::NONE)
         .child(col().key("fork-search").w_full().pt(6.0).px(6.0).child(search))
         // `::after`: a 1 pt rule drawn at half its height (`scaleY(0.5)`) across the dialog, 6
-        // under the field and 2 above the section.
-        .child(col().key("fork-divider").w_full().h(1.0).mt(6.0).mb(2.0).py(0.25).child(el().w_full().h(0.5).fill(p.border_muted)))
+        // under the field and 2 above the section (`commands/dialog.css:152-158`).
+        .child(rune::hairline(p.border).key("fork-divider").w_full().mt(6.0).mb(2.0))
         .child(
             row()
                 .key("fork-desc")

@@ -308,15 +308,56 @@ pub fn download_crx(target: &StoreTarget, chrome_version: &str) -> Option<Vec<u8
     None
 }
 
+/// Chrome Web Store CRX3 ECDSA P-256 publisher key SPKI SHA-256 (`"ecdsa_2017_public"`),
+/// defined in Chromium `components/crx_file/crx_verifier.cc` (`kPublisherKeyHash`).
+#[cfg(not(target_arch = "wasm32"))]
+const CHROME_WEB_STORE_PUBLISHER_KEY_SHA256: [u8; 32] = [
+    0x61, 0xf7, 0xf2, 0xa6, 0xbf, 0xcf, 0x74, 0xcd, 0x0b, 0xc1, 0xfe, 0x24, 0x97, 0xcc, 0x9b, 0x04,
+    0x25, 0x4c, 0x65, 0x8f, 0x79, 0xf2, 0x14, 0x53, 0x92, 0x86, 0x7e, 0xa8, 0x36, 0x63, 0x67, 0xcf,
+];
+
+/// Microsoft Edge Add-ons CRX3 ECDSA P-256 publisher key SPKI SHA-256 (verified across live
+/// Edge Add-ons store CRX3 packages).
+#[cfg(not(target_arch = "wasm32"))]
+const EDGE_ADDONS_PUBLISHER_KEY_SHA256: [u8; 32] = [
+    0x67, 0x5b, 0xd8, 0xed, 0xdd, 0x38, 0x50, 0x20, 0x17, 0x7c, 0xcf, 0xed, 0xa2, 0x51, 0x03, 0x89,
+    0x57, 0x99, 0xfe, 0x41, 0xec, 0xa5, 0xc9, 0x4e, 0x61, 0xdc, 0x13, 0xdf, 0x35, 0x9d, 0xa1, 0xdc,
+];
+
+#[cfg(not(target_arch = "wasm32"))]
+fn pinned_publisher_key_sha256(store: StoreKind) -> &'static [u8; 32] {
+    match store {
+        StoreKind::Chrome => &CHROME_WEB_STORE_PUBLISHER_KEY_SHA256,
+        StoreKind::Edge => &EDGE_ADDONS_PUBLISHER_KEY_SHA256,
+    }
+}
+
+/// Parses and cryptographically verifies a CRX3 package against `expected_id` without trusting
+/// legacy RSA-1024 keys (`store = None`).
+#[cfg(not(target_arch = "wasm32"))]
+pub fn parse_crx<'a>(bytes: &'a [u8], expected_id: &str) -> Option<VerifiedCrx<'a>> {
+    parse_crx_for_store(bytes, expected_id, None)
+}
+
 /// Parses and cryptographically verifies a CRX3 package against `expected_id`
-/// (`extensions.ts:259-304`, Chromium `crx_verifier.cc`).
+/// (`extensions.ts:259-304`, Chromium `components/crx_file/crx_verifier.cc`).
 ///
 /// Every RSA-SHA256 (field 2) and ECDSA-P256-SHA256 (field 3) proof in the header is verified over
 /// `"CRX3 SignedData\0" || LE32(signed_header_data.len()) || signed_header_data || zip`.
 /// Keys must be strictly canonical DER SPKI. Returns `Some(VerifiedCrx)` only when every proof
 /// verifies AND at least one verified key derives `expected_id` matching `signed_header_data.crx_id`.
+///
+/// Legacy pre-2013 store extensions (e.g. LastPass) may carry an RSA-1024 developer proof;
+/// RSA-1024 is accepted ONLY when `store` is `Some` AND the CRX3 header also carries a verified
+/// ECDSA P-256 proof matching that store's pinned publisher key SPKI SHA-256. Any RSA-1024 CRX3
+/// lacking the pinned store publisher proof (including attacker-added throwaway P-256/RSA-2048
+/// proofs or cross-store proofs) is refused.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn parse_crx<'a>(bytes: &'a [u8], expected_id: &str) -> Option<VerifiedCrx<'a>> {
+pub fn parse_crx_for_store<'a>(
+    bytes: &'a [u8],
+    expected_id: &str,
+    store: Option<StoreKind>,
+) -> Option<VerifiedCrx<'a>> {
     use ring::signature::{
         ECDSA_P256_SHA256_ASN1, RSA_PKCS1_1024_8192_SHA256_FOR_LEGACY_USE_ONLY,
         RSA_PKCS1_2048_8192_SHA256, UnparsedPublicKey,
@@ -361,12 +402,10 @@ pub fn parse_crx<'a>(bytes: &'a [u8], expected_id: &str) -> Option<VerifiedCrx<'
     signed_msg.extend_from_slice(signed_data);
     signed_msg.extend_from_slice(zip);
 
+    let pinned_pub = store.map(pinned_publisher_key_sha256);
     let mut developer_key: Option<Vec<u8>> = None;
-    // Legacy pre-2013 Chrome Web Store extensions (e.g. LastPass) still carry an RSA-1024
-    // developer key alongside Chrome Web Store's own RSA-2048 and ECDSA-P256 publisher proofs.
-    // Accept RSA-1024 only when the CRX3 header also carries at least one verified >=2048-bit RSA
-    // or ECDSA-P256 proof.
-    let mut has_strong_proof = false;
+    let mut used_legacy_rsa1024 = false;
+    let mut has_pinned_publisher_proof = false;
     for &(field_num, proof_bytes) in &proofs {
         let pfields = protobuf_fields(proof_bytes)?;
         let key_spki = single_field(&pfields, 1)?;
@@ -380,20 +419,27 @@ pub fn parse_crx<'a>(bytes: &'a [u8], expected_id: &str) -> Option<VerifiedCrx<'
                 .verify(&signed_msg, sig)
                 .is_ok()
             {
-                has_strong_proof = true;
                 true
-            } else {
-                UnparsedPublicKey::new(&RSA_PKCS1_1024_8192_SHA256_FOR_LEGACY_USE_ONLY, rsa_pkcs1)
+            } else if pinned_pub.is_some()
+                && UnparsedPublicKey::new(&RSA_PKCS1_1024_8192_SHA256_FOR_LEGACY_USE_ONLY, rsa_pkcs1)
                     .verify(&signed_msg, sig)
                     .is_ok()
+            {
+                used_legacy_rsa1024 = true;
+                true
+            } else {
+                false
             }
         } else {
             let ec_point = parse_canonical_p256_spki(key_spki)?;
             let valid = UnparsedPublicKey::new(&ECDSA_P256_SHA256_ASN1, ec_point)
                 .verify(&signed_msg, sig)
                 .is_ok();
-            if valid {
-                has_strong_proof = true;
+            if valid
+                && let Some(expected_hash) = pinned_pub
+                && constant_time_eq(Sha256::digest(key_spki).as_slice(), expected_hash)
+            {
+                has_pinned_publisher_proof = true;
             }
             valid
         };
@@ -405,7 +451,7 @@ pub fn parse_crx<'a>(bytes: &'a [u8], expected_id: &str) -> Option<VerifiedCrx<'
         }
     }
 
-    if !has_strong_proof {
+    if used_legacy_rsa1024 && !has_pinned_publisher_proof {
         return None;
     }
     developer_key.map(|key| VerifiedCrx { zip, key })

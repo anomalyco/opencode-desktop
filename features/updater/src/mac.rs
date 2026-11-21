@@ -63,8 +63,11 @@ pub fn platform(exe: &Path, build_channel: &str, updates: PathBuf) -> Option<Mac
     if !is_updatable_bundle_id(&bundle.id) {
         return None;
     }
-    let service = feed::env("OPENCODE_RUNE_RELEASE_URL").unwrap_or_else(|| feed::DEFAULT_SERVICE_URL.to_owned());
-    let local_loopback_test = feed::loopback(&service) && bundle.team.is_none() && feed::env("OPENCODE_RUNE_SKIP_GATEKEEPER").as_deref() == Some("1");
+    let service = feed::debug_release_url().unwrap_or_else(|| feed::DEFAULT_SERVICE_URL.to_owned());
+    if !feed::allowed_update_url(&service) {
+        return None;
+    }
+    let local_loopback_test = feed::debug_skip_gatekeeper() && feed::loopback(&service) && bundle.team.is_none();
     let (check_team, check_gatekeeper) = if local_loopback_test { (None, false) } else { (bundle.team.clone().or_else(|| Some(EXPECTED_SIGNING_TEAM.to_owned())), true) };
     sweep_old_stages(&updates);
     sync_installed_receipt(&updates, &exe, &app.join(&exe_rel));
