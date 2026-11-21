@@ -296,11 +296,153 @@ impl crate::BrowserHost {
         true
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn open_tab_full(
+        &mut self,
+        raw_url: &str,
+        _file_roots: Vec<String>,
+        context: crate::protocol::ContextKind,
+        from_address: bool,
+        agent_driven: bool,
+        allow_extension_pages: bool,
+        ext_open_request_id: Option<u64>,
+    ) -> u64 {
+        rune::marks::mark("browser.tab.open");
+        self.opened.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let mut context = context;
+        let proxy_err = self.resolve_remote_context(&mut context);
+        let candidate = if from_address {
+            crate::address::resolve_address(raw_url)
+        } else {
+            crate::policy::with_scheme(raw_url)
+        };
+        let connected = self.is_connected();
+        let ready = self.status() == crate::installer::EngineStatus::Ready;
+        let ctx_ok = !ready || context.is_supported(self.engine_partitions(), self.engine_remote_proxy());
+        let allow_extension_pages = allow_extension_pages && !context.is_isolated() && !agent_driven;
+        let allowed_ext = allow_extension_pages
+            && self.is_loaded_extension_url(&candidate)
+            && (self.engine_extensions() || !connected);
+        let refused = if let Some(err) = proxy_err {
+            Some(err.to_owned())
+        } else if !ctx_ok {
+            Some("browser.partitions.unsupported".to_owned())
+        } else if allowed_ext {
+            None
+        } else {
+            crate::policy::refusal(&candidate, &[]).map(|r| r.code().to_owned())
+        };
+        let url = if refused.is_some() { "about:blank".to_owned() } else { candidate };
+        let can_open_in_engine = proxy_err.is_none() && ctx_ok;
+        let id = self.alloc_tab_id();
+        let surface = crate::frame::TabSurface::new();
+        if let Some(w) = &self.waker {
+            crate::frame::wake_window(&surface, w);
+        }
+        self.surfaces
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(id, surface.clone());
+        if !context.is_isolated() {
+            self.site_zoom.prepare();
+        }
+        let ((width_pt, height_pt), scale) = self.last_viewport;
+        let mut prompts = crate::prompts::TabPromptState::default();
+        prompts.agent_driven = agent_driven;
+        self.tabs.push(crate::client::BrowserTab {
+            id,
+            url: url.clone(),
+            title: "New tab".into(),
+            loading: refused.is_none(),
+            can_go_back: false,
+            can_go_forward: false,
+            zoom: 1.0,
+            cursor: crate::protocol::CursorKind::Default,
+            load_error: None,
+            favicon: None,
+            preview: None,
+            preview_spec: None,
+            refusal: refused.clone(),
+            rejected: u64::from(refused.is_some()),
+            inspecting: false,
+            files: Vec::new(),
+            prompts,
+            find: Default::default(),
+            surface,
+            surface_origin: (0.0, 0.0),
+            view_zoom: 1.0,
+            context: context.clone(),
+            allow_extension_pages,
+            file_roots: Vec::new(),
+            viewport_pt: (width_pt, height_pt),
+            device: None,
+            scale,
+            sent_resize: (can_open_in_engine && connected && (context.is_default() || ready))
+                .then_some((width_pt, height_pt, scale)),
+            has_engine_tab: can_open_in_engine,
+            engine_confirmed: false,
+        });
+        self.focused_tab = Some(id);
+
+        if can_open_in_engine {
+            if connected && (context.is_default() || ready) {
+                self.send_open_tab_with_ext(
+                    id,
+                    url,
+                    width_pt,
+                    height_pt,
+                    scale,
+                    true,
+                    Vec::new(),
+                    context,
+                    None,
+                    agent_driven,
+                    allow_extension_pages,
+                    ext_open_request_id,
+                );
+            } else {
+                self.pending_opens.push((id, url));
+                self.ensure_connected();
+            }
+        }
+        id
+    }
+
     /// Sends `HostMsg::OpenTab` (carrying `agent_driven`) and mirrors `HostMsg::SetAgentDriven`
     /// when `agent_driven` is true so older engines without `OpenTab.agent_driven` still guard the tab.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn send_open_tab(
-        &self,
+        &mut self,
+        tab_id: u64,
+        url: String,
+        width_pt: f32,
+        height_pt: f32,
+        scale: f32,
+        focused: bool,
+        file_roots: Vec<String>,
+        context: crate::protocol::ContextKind,
+        preview: Option<crate::protocol::PreviewSpec>,
+        agent_driven: bool,
+    ) {
+        self.send_open_tab_with_ext(
+            tab_id,
+            url,
+            width_pt,
+            height_pt,
+            scale,
+            focused,
+            file_roots,
+            context,
+            preview,
+            agent_driven,
+            false,
+            None,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn send_open_tab_with_ext(
+        &mut self,
         tab_id: u64,
         url: String,
         width_pt: f32,
@@ -311,10 +453,21 @@ impl crate::BrowserHost {
         context: crate::protocol::ContextKind,
         preview: Option<crate::protocol::PreviewSpec>,
         agent_driven: bool,
+        allow_extension_pages: bool,
+        ext_open_request_id: Option<u64>,
     ) {
+        let initial_url = if !context.is_isolated()
+            && preview.is_none()
+            && self.extensions.filter_gate.maybe_hold(tab_id, &url)
+        {
+            "about:blank".to_owned()
+        } else {
+            url
+        };
+        let allow_extension_pages = allow_extension_pages && !context.is_isolated() && !agent_driven;
         self.send(crate::protocol::HostMsg::OpenTab {
             tab_id,
-            url,
+            url: initial_url,
             width_pt,
             height_pt,
             scale,
@@ -323,6 +476,9 @@ impl crate::BrowserHost {
             context,
             preview,
             agent_driven,
+            allow_extension_pages,
+            is_popup: false,
+            ext_open_request_id,
         });
         if agent_driven {
             self.send(crate::protocol::HostMsg::SetAgentDriven { tab_id, agent_driven: true });
@@ -330,42 +486,62 @@ impl crate::BrowserHost {
     }
 
     /// What `flush_pending_opens` would send for the tabs that wait now, for a connect to send
-    /// itself. `file:` and isolated/remote/preview tabs wait for `Ready` so an older engine never opens one.
+    /// itself. `file:`, `chrome-extension:`, and isolated/remote/preview tabs wait for `Ready`
+    /// so an older engine never opens one.
     #[cfg_attr(not(feature = "engine"), allow(dead_code))]
-    pub(crate) fn pending_open_msgs(&self) -> Vec<(u64, crate::protocol::HostMsg)> {
+    pub(crate) fn pending_open_msgs(&mut self) -> Vec<(u64, crate::protocol::HostMsg)> {
         let focused = self.focused_tab;
-        self.pending_opens
+        let candidates: Vec<(u64, String)> = self
+            .pending_opens
             .iter()
             .filter(|(tab_id, url)| {
                 !crate::policy::is_file_scheme(url)
-                    && self.tabs.iter().any(|t| t.id == *tab_id && t.context.is_default() && t.preview_spec.is_none())
+                    && !crate::policy::extension_origin(url)
+                    && self
+                        .tabs
+                        .iter()
+                        .any(|t| t.id == *tab_id && t.context.is_default() && t.preview_spec.is_none())
             })
             .cloned()
-            .map(|(tab_id, url)| {
-                let (((width_pt, height_pt), scale), agent_driven) = self
-                    .tabs
-                    .iter()
-                    .find(|t| t.id == tab_id)
-                    .map_or((((800.0, 600.0), 2.0), false), |t| {
-                        ((t.viewport_pt, t.scale), t.prompts.agent_driven)
-                    });
-                (
+            .collect();
+        let mut out = Vec::with_capacity(candidates.len());
+        for (tab_id, url) in candidates {
+            let (((width_pt, height_pt), scale), agent_driven, allow_extension_pages) = self
+                .tabs
+                .iter()
+                .find(|t| t.id == tab_id)
+                .map_or((((800.0, 600.0), 2.0), false, false), |t| {
+                    (
+                        (t.viewport_pt, t.scale),
+                        t.prompts.agent_driven,
+                        t.allow_extension_pages && !t.prompts.agent_driven,
+                    )
+                });
+            let initial_url = if self.extensions.filter_gate.maybe_hold(tab_id, &url) {
+                "about:blank".to_owned()
+            } else {
+                url
+            };
+            out.push((
+                tab_id,
+                crate::protocol::HostMsg::OpenTab {
                     tab_id,
-                    crate::protocol::HostMsg::OpenTab {
-                        tab_id,
-                        url,
-                        width_pt,
-                        height_pt,
-                        scale,
-                        focused: focused == Some(tab_id),
-                        file_roots: Vec::new(),
-                        context: crate::protocol::ContextKind::Default,
-                        preview: None,
-                        agent_driven,
-                    },
-                )
-            })
-            .collect()
+                    url: initial_url,
+                    width_pt,
+                    height_pt,
+                    scale,
+                    focused: focused == Some(tab_id),
+                    file_roots: Vec::new(),
+                    context: crate::protocol::ContextKind::Default,
+                    preview: None,
+                    agent_driven,
+                    allow_extension_pages,
+                    is_popup: false,
+                    ext_open_request_id: None,
+                },
+            ));
+        }
+        out
     }
 
     /// Closes connections and releases a non-default preview or remote server context in the engine.

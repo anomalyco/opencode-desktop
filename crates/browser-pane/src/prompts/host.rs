@@ -82,6 +82,7 @@ impl crate::BrowserHost {
     /// the engine if `agent_driven` was not yet enabled. `Agent` takes precedence over `Plugin`.
     pub fn set_tab_driver(&mut self, tab_id: u64, driver: TabDriver) {
         let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) else { return };
+        t.allow_extension_pages = false;
         if t.prompts.driver != Some(TabDriver::Agent) {
             t.prompts.driver = Some(driver);
         }

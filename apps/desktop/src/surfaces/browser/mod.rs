@@ -12,6 +12,8 @@ mod activity;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod context_menu;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod extensions;
+#[cfg(not(target_arch = "wasm32"))]
 mod openers;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod preview;

@@ -26,6 +26,8 @@ pub use composer::composer;
 #[cfg(not(target_arch = "wasm32"))]
 mod cookies;
 #[cfg(not(target_arch = "wasm32"))]
+mod extensions;
+#[cfg(not(target_arch = "wasm32"))]
 mod history;
 #[cfg(not(target_arch = "wasm32"))]
 mod scope;
@@ -180,6 +182,7 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
                     ("policy", Data::Bool(app.workspace_panes.browser.host.engine_policy())),
                     ("preview", Data::Bool(app.workspace_panes.browser.host.engine_preview() || app.use_mock_browser())),
                     ("find", Data::Bool(app.workspace_panes.browser.host.engine_find())),
+                    ("extensions", Data::Bool(app.workspace_panes.browser.host.engine_extensions())),
                     ("permissionSync", Data::Bool(app.workspace_panes.browser.host.engine_permission_sync())),
                     ("cookies", Data::Bool(app.workspace_panes.browser.host.engine_cookies())),
                     ("clearCache", Data::Bool(app.workspace_panes.browser.host.engine_policy())),
@@ -195,20 +198,16 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
             scope.check_local_mcp_allowed(app).map_err(mlua::Error::runtime)?;
             let target = scope.target_session(app, sid.as_deref());
             if !scope.is_builtin_browser {
-                return browser_pane::normalize_url(&browser_pane::with_scheme(&url), &[])
-                    .map_err(mlua::Error::runtime);
+                return browser_pane::normalize_url(&browser_pane::with_scheme(&url), &[]).map_err(mlua::Error::runtime);
             }
-            app.normalize_browser_url_for_session(target.as_deref(), &url, true)
-                .map_err(mlua::Error::runtime)
+            app.normalize_browser_url_for_session(target.as_deref(), &url, true).map_err(mlua::Error::runtime)
         })
     })?;
     method(lua, t, "Prepare", |_, seconds: Option<f64>| {
         let hold = Duration::from_secs_f64(seconds.unwrap_or(PREPARE_HOLD_S).clamp(1.0, PREPARE_HOLD_MAX_S));
         with_app("Browser:Prepare", |app| {
             app.later(Box::new(move |s: &mut App, _: &mut Tx| {
-                if !s.use_mock_browser() && !s.browser_unsupported() {
-                    s.workspace_panes.browser.host.prepare(hold);
-                }
+                if !s.use_mock_browser() && !s.browser_unsupported() { s.workspace_panes.browser.host.prepare(hold); }
             }));
             Ok(())
         })
@@ -216,6 +215,7 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     chrome::service_methods(lua, t)?;
     history::service_methods(lua, t)?;
     cookies::service_methods(lua, t)?;
+    extensions::service_methods(lua, vmx, t)?;
     let raw: Function = vmx.asyncs.raw_get("Browser.OpenAsync")?;
     let open: Function = lua.load("local raw = ... return function(self, spec) local id = raw(spec) return if id then self:Get(id) else nil end").set_name("=Browser:OpenAsync").call(raw)?;
     t.raw_set("OpenAsync", open)?;
@@ -229,6 +229,7 @@ pub fn asyncs(host: &Host<'_>, t: &Table) -> mlua::Result<()> {
     t.raw_set("BrowserTab.DevtoolsAsync", host.async_function("BrowserTab:DevtoolsAsync", devtools)?)?;
     t.raw_set("BrowserTab.SiteCookiesAsync", host.async_function("BrowserTab:SiteCookiesAsync", site_cookies)?)?;
     t.raw_set("BrowserTab.ClearSiteAsync", host.async_function("BrowserTab:ClearSiteAsync", clear_site)?)?;
+    extensions::asyncs(host, t)?;
     chrome::asyncs(host, t)
 }
 
