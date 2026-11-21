@@ -61,11 +61,12 @@ pub fn view<S: PopupHost + 'static>(s: &S, p: &Pal) -> Vec<El> {
     let mut layer = vec![scrim];
     layer.extend(point);
     if shown.menu.look == Look::Standard {
+        let hair = s.hairline();
         let first = shown.subs.first().copied();
-        layer.push(popover::place(s.knobs(), standard::root::<S>(p, &shown.menu, shown.active, first), &anchor, side, align, gap));
+        layer.push(popover::place(s.knobs(), standard::root::<S>(p, &shown.menu, shown.active, first, hair), &anchor, side, align, gap));
         let sub = first.and_then(|o| Some((o, shown.menu.entries.get(o.at)?)));
         if let Some((o, Entry::Sub(sub))) = sub {
-            layer.push(popover::place(s.knobs(), standard::sub::<S>(p, &sub.menu, o.active), &row_key(&sub.id), Side::Right, Align::Start, 0.0));
+            layer.push(popover::place(s.knobs(), standard::sub::<S>(p, &sub.menu, o.active, hair), &row_key(&sub.id), Side::Right, Align::Start, 0.0));
         }
         return layer;
     }

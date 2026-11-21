@@ -14,7 +14,6 @@ use super::view::takes_focus;
 use super::{PopupHost, SubOpen};
 
 const PAD: f32 = 4.0;
-const BORDER: f32 = 1.0;
 const RADIUS: f32 = 6.0;
 const ROW_RADIUS: f32 = 4.0;
 const ROW_X: f32 = 8.0;
@@ -33,7 +32,7 @@ static CHEVRON: Icon = Icon {
 };
 
 /// The menu, row `active` lit, and the row whose submenu `sub` is open.
-pub(super) fn root<S: PopupHost + 'static>(p: &Pal, menu: &Menu, active: Option<usize>, sub: Option<SubOpen>) -> El {
+pub(super) fn root<S: PopupHost + 'static>(p: &Pal, menu: &Menu, active: Option<usize>, sub: Option<SubOpen>, hair: f32) -> El {
     let rows = menu.entries.iter().enumerate().map(|(n, entry)| {
         let lit = active == Some(n) || sub.is_some_and(|o| o.at == n);
         match entry {
@@ -46,12 +45,12 @@ pub(super) fn root<S: PopupHost + 'static>(p: &Pal, menu: &Menu, active: Option<
                 .on_press_tx(move |s: &mut S, tx: &mut Tx| open_sub(s, n, false, tx)),
             Entry::Sub(sub) => item(p, &row_key(&sub.id), &sub.title, None, false, false)
                 .child(icon(&CHEVRON, 16.0).key("chevron").color(p.standard.icon).mirror_in_rtl()),
-            Entry::Separator => rule(p, n),
+            Entry::Separator => rule(p, n, hair),
             Entry::Group(title) => heading(p, n, title),
         }
     });
     // It holds focus and takes the keys from there, as Kobalte's menus do (`menu-v2-content`).
-    surface::<S>(p, "popup-menu", menu)
+    surface::<S>(p, "popup-menu", menu, hair)
         .w(menu.min_w)
         .on_pointer_move_local(|s: &mut S, e: rune::PointerEvent, tx: &mut Tx| moved(s, [e.window_x, e.window_y], tx))
         .focusable(true)
@@ -62,18 +61,18 @@ pub(super) fn root<S: PopupHost + 'static>(p: &Pal, menu: &Menu, active: Option<
 }
 
 /// A submenu, row `active` lit.
-pub(super) fn sub<S: PopupHost + 'static>(p: &Pal, menu: &Menu, active: Option<usize>) -> El {
+pub(super) fn sub<S: PopupHost + 'static>(p: &Pal, menu: &Menu, active: Option<usize>, hair: f32) -> El {
     let rows = menu.entries.iter().enumerate().map(|(m, entry)| match entry {
         Entry::Item(i) => item(p, &row_key(&i.id), &i.title, i.shortcut.as_deref(), i.enabled, active == Some(m))
             .on_hover_change(move |s: &mut S, inside, tx: &mut Tx| enter(s, inside, 1, tx, |s, tx| hover_sub(s, m, tx)))
             .on_press_tx(move |s: &mut S, tx: &mut Tx| choose_sub(s, m, tx)),
-        Entry::Separator => rule(p, m),
+        Entry::Separator => rule(p, m, hair),
         Entry::Group(title) => heading(p, m, title),
         // One level deep, as Desktop's app menu is.
         Entry::Sub(_) => el(),
     });
-    let w = (2.0 * (PAD + BORDER) + menu.entries.iter().map(row_w).fold(0.0, f32::max)).max(SUB_MIN_W);
-    surface::<S>(p, "popup-submenu", menu).w(w).on_pointer_move_local(|s: &mut S, e: rune::PointerEvent, tx: &mut Tx| moved(s, [e.window_x, e.window_y], tx)).children(rows.collect::<Vec<_>>())
+    let w = (2.0 * (PAD + hair) + menu.entries.iter().map(row_w).fold(0.0, f32::max)).max(SUB_MIN_W);
+    surface::<S>(p, "popup-submenu", menu, hair).w(w).on_pointer_move_local(|s: &mut S, e: rune::PointerEvent, tx: &mut Tx| moved(s, [e.window_x, e.window_y], tx)).children(rows.collect::<Vec<_>>())
 }
 
 /// A row's width with nothing to squeeze it: its label, its shortcut 8 pt after, and its padding.
@@ -99,7 +98,7 @@ fn enter<S: PopupHost + 'static>(s: &mut S, inside: bool, level: usize, tx: &mut
     }
 }
 
-fn surface<S: 'static>(p: &Pal, key: &str, menu: &Menu) -> El {
+fn surface<S: 'static>(p: &Pal, key: &str, menu: &Menu, hair: f32) -> El {
     let shadow = |y, blur, spread, light, dark| Shadow {
         y,
         blur,
@@ -111,12 +110,12 @@ fn surface<S: 'static>(p: &Pal, key: &str, menu: &Menu) -> El {
         .key(key.to_owned())
         .role("menu")
         .label(menu.label.clone())
-        .padding(PAD + BORDER)
+        .padding(PAD + hair)
         .radius(RADIUS)
-        .border(BORDER, p.border_muted)
+        .border(hair, p.border_muted)
         // Desktop clips its background to the padding box. The translucent stroke sees
         // the surface under the menu, not another layer of the menu's own opaque fill.
-        .child(el().pin(Some(BORDER), Some(BORDER), Some(BORDER), Some(BORDER)).radius(RADIUS - BORDER).fill(p.standard.surface))
+        .child(el().pin(Some(hair), Some(hair), Some(hair), Some(hair)).radius(RADIUS - hair).fill(p.standard.surface))
         // `shadow-md`.
         .box_shadow(shadow(6.0, 12.0, -2.0, 0.075, 0.1))
         .box_shadow(shadow(4.0, 8.0, -2.0, 0.075, 0.15))
@@ -156,6 +155,6 @@ fn heading(p: &Pal, n: usize, title: &str) -> El {
 }
 
 /// A one-pixel rule across the whole surface, 4 pt above and below.
-fn rule(p: &Pal, n: usize) -> El {
-    col().key(format!("popup-sep-{n}")).h(1.0).my(PAD).mx(-PAD).child(el().w_full().h(BORDER).fill(p.border_muted))
+fn rule(p: &Pal, n: usize, hair: f32) -> El {
+    col().key(format!("popup-sep-{n}")).h(1.0).my(PAD).mx(-PAD).child(el().w_full().h(hair).fill(p.border_muted))
 }
