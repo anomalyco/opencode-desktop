@@ -77,7 +77,8 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El, with_header: bo
                     opencode_kit::model::SessionInfo { id: t.id.clone(), title: t.title.clone(), directory: t.directory.clone(), ..Default::default() }
                 });
                 let head = with_header.then(|| header(s, p, s.session(shown).or(saved.as_ref()), t));
-                let scroll = session_view::timeline::timeline(s, p, shown, t, lane, head);
+                // Its ring is the page's `timeline-ring`, drawn over the header and the dock.
+                let scroll = session_view::timeline::timeline(s, p, shown, t, lane, head).no_focus_ring();
                 session_view::jump::timeline_scroll(s, p, shown, scroll, has_pills)
             });
             // Previous and Next message read the prompt in view from where it lies (`message_nav`).
@@ -114,8 +115,25 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El, with_header: bo
         // refusal contains real, selectable output and a working Copy preview action.
         .child(if s.opening.as_ref().is_some_and(|o| !o.loading()) { timeline.inert() } else { timeline })
         .child(composer_dock(s, p));
-    page = page.children(s.diag.debug.then(|| status_bar(s, p, info)));
+    page = page.children(s.diag.debug.then(|| status_bar(s, p, info))).children(s.displayed_session(id).and_then(|shown| timeline_ring(p, shown)));
     page
+}
+
+/// The timeline's keyboard focus ring (`session-timeline-visible::after`, opencode#65192): drawn
+/// over the timeline's visible area after the dock, as the header and the dock would cover the
+/// region's own edges and its fade would erase them, and rounded as the session frame that clips
+/// its corners. It takes the timeline's place as the last frame laid it out in the page.
+fn timeline_ring(p: &Pal, shown: &str) -> Option<El> {
+    let key = format!("scroll-{shown}");
+    let r = rune::memo::layout_with(&key, |r| r)?;
+    let page = rune::memo::layout_with("session", |r| r)?;
+    Some(
+        el().key("timeline-ring")
+            .pin(Some(r[0] - page[0]), Some(r[1] - page[1]), None, None)
+            .size(r[2], r[3])
+            .radius(10.0)
+            .focus_ring_for(key, opencode_ui::focus::WIDTH, opencode_ui::focus::INSET, opencode_ui::focus::color(p)),
+    )
 }
 
 /// The pills over the composer: the subagent capsule, then the todo pill beside it.
