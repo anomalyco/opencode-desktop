@@ -24,6 +24,8 @@ mod chrome;
 mod composer;
 pub use composer::composer;
 #[cfg(not(target_arch = "wasm32"))]
+mod cookies;
+#[cfg(not(target_arch = "wasm32"))]
 mod history;
 #[cfg(not(target_arch = "wasm32"))]
 mod scope;
@@ -179,6 +181,7 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
                     ("preview", Data::Bool(app.workspace_panes.browser.host.engine_preview() || app.use_mock_browser())),
                     ("find", Data::Bool(app.workspace_panes.browser.host.engine_find())),
                     ("permissionSync", Data::Bool(app.workspace_panes.browser.host.engine_permission_sync())),
+                    ("cookies", Data::Bool(app.workspace_panes.browser.host.engine_cookies())),
                     ("clearCache", Data::Bool(app.workspace_panes.browser.host.engine_policy())),
                     ("hardReload", Data::Bool(true)),
                 ]),
@@ -212,6 +215,7 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     })?;
     chrome::service_methods(lua, t)?;
     history::service_methods(lua, t)?;
+    cookies::service_methods(lua, t)?;
     let raw: Function = vmx.asyncs.raw_get("Browser.OpenAsync")?;
     let open: Function = lua.load("local raw = ... return function(self, spec) local id = raw(spec) return if id then self:Get(id) else nil end").set_name("=Browser:OpenAsync").call(raw)?;
     t.raw_set("OpenAsync", open)?;
@@ -307,7 +311,11 @@ fn devtools(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
             // Every `BrowserTab:DevtoolsAsync` caller (agent MCP tools and third-party Luau plugins)
             // marks the tab controlled so OS file choosers, HTTP auth, and permissions stay guarded.
             let driver = scope.driver(s).unwrap_or(browser_pane::TabDriver::Agent);
+            let is_agent = matches!(driver, browser_pane::TabDriver::Agent);
             s.workspace_panes.browser.host.set_tab_driver(id, driver);
+            if is_agent {
+                s.mark_browser_tab_unseen(id);
+            }
             let is_dialog = cdp == "Page.handleJavaScriptDialog";
             if !is_dialog && s.workspace_panes.browser.host.tab(id).is_some_and(|t| t.prompts.dialog.open().is_some()) {
                 return done.complete(failed(format!("[browser.dialog_open] A JavaScript dialog is open in tab {id}. Answer or dismiss the dialog before continuing.")));
@@ -661,6 +669,9 @@ pub fn version(app: &App) -> u64 {
     app.workspace_panes.browser.host.engine_downloads().hash(&mut h);
     app.workspace_panes.browser.host.engine_policy().hash(&mut h);
     app.workspace_panes.browser.host.engine_permission_sync().hash(&mut h);
+    app.workspace_panes.browser.host.engine_caps_known().hash(&mut h);
+    app.workspace_panes.browser.host.engine_cookies().hash(&mut h);
+    app.workspace_panes.browser.host.share_sign_ins().hash(&mut h);
     app.workspace_panes.browser.host.engine_preview().hash(&mut h);
     for t in app.workspace_panes.browser.host.tabs() {
         if let Some(d) = &t.device { (&d.preset, d.width, d.height, d.scale.map(f32::to_bits)).hash(&mut h); }
@@ -673,6 +684,9 @@ pub fn version(app: &App) -> u64 {
     }
     app.workspace_panes.browser.host.focused_tab_id().hash(&mut h);
     app.workspace_panes.browser.pending_app_links.borrow().len().hash(&mut h);
+    let mut unseen: Vec<u64> = app.workspace_panes.browser.unseen_tabs.iter().copied().collect();
+    unseen.sort_unstable();
+    unseen.hash(&mut h);
     let mut sessions: Vec<_> = app.workspace_panes.browser.session_tabs.iter().collect();
     sessions.sort();
     sessions.hash(&mut h);

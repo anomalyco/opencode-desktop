@@ -465,6 +465,9 @@ impl BrowserHost {
 
     pub fn focus_tab(&mut self, id: u64) {
         if self.tabs.iter().any(|t| t.id == id) {
+            if self.focused_tab != Some(id) {
+                self.rearm_tab_prompts(id);
+            }
             self.focused_tab = Some(id);
             self.send(HostMsg::FocusTab { tab_id: id });
         }
@@ -910,6 +913,7 @@ impl BrowserHost {
                     agent_tools,
                     preview,
                     permission_sync,
+                    frame_authority,
                     cookies,
                     ..
                 } => {
@@ -931,6 +935,7 @@ impl BrowserHost {
                         agent_tools,
                         preview,
                         permission_sync,
+                        frame_authority,
                         cookies,
                     };
                     self.sync_site_permissions();
@@ -1013,8 +1018,10 @@ impl BrowserHost {
                         t.refusal = Some("browser.controlled.inherited_permission".to_owned());
                         t.rejected += 1;
                         if t.prompts.agent_driven {
-                            t.prompts.blocked_guard_notice =
-                                Some(crate::prompts::BlockedGuardReason::InheritedPermission { url });
+                            t.prompts.set_blocked_guard_notice(
+                                crate::prompts::BlockedGuardReason::InheritedPermission { url },
+                                rune::time::Instant::now(),
+                            );
                         }
                         changed = true;
                     }
@@ -1142,14 +1149,8 @@ impl BrowserHost {
                         });
                     }
                 }
-                EngineMsg::ContextMenu { tab_id, menu } => {
-                    self.context_menus.push_back((tab_id, menu));
-                    changed = true;
-                }
-                EngineMsg::PageDiagnostic { tab_id, level, event, fields } => {
-                    self.diagnostics.push_back(crate::find::PageDiagnostic { tab_id, level, event, fields });
-                    changed = true;
-                }
+                EngineMsg::ContextMenu { tab_id, menu } => { self.push_context_menu(tab_id, menu); changed = true; }
+                EngineMsg::PageDiagnostic { tab_id, level, event, fields } => { self.push_diagnostic(tab_id, level, event, fields); changed = true; }
                 EngineMsg::ProfileCookies { request_id, cookies } => {
                     self.profile_events.push_back(crate::cookies::ProfileEvent::CookiesListed {
                         request_id,
@@ -1231,6 +1232,7 @@ impl BrowserHost {
         {
             let status = self.status();
             if status != self.last_polled_status {
+                if !self.is_connected() { self.clear_prompts_on_disconnect(); }
                 self.last_polled_status = status;
                 changed = true;
             }
@@ -1357,16 +1359,17 @@ impl BrowserHost {
             let new_site = site_of(&snap.url).is_some() && site_of(&t.url) != site_of(&snap.url);
             let clear_refusal =
                 !blank_after_inherited && (url_changed || snap.load_error.is_some()) && t.refusal.is_some();
+            t.prompts.on_snapshot_document(snap.document);
             let preserved_notice = blank_after_inherited
-                .then(|| t.prompts.blocked_guard_notice.clone())
-                .flatten();
+                .then(|| (t.prompts.blocked_guard_notice.clone(), t.prompts.blocked_guard_input));
             let (cancel_perms, cancel_auth) = if url_changed {
-                t.prompts.on_document_committed(&t.url, &snap.url)
+                t.prompts.on_document_committed(&t.url, &snap.url, snap.document == 0)
             } else {
                 (Vec::new(), Vec::new())
             };
-            if let Some(notice) = preserved_notice {
+            if let Some((Some(notice), guard)) = preserved_notice {
                 t.prompts.blocked_guard_notice = Some(notice);
+                t.prompts.blocked_guard_input = guard;
             }
             let changed = url_changed
                 || t.title != snap.title

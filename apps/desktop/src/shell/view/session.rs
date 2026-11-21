@@ -83,13 +83,12 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El, with_header: bo
             // Previous and Next message read the prompt in view from where it lies (`message_nav`).
             session_view::jump::over_scroll(s, p, shown, scroll_fade, pill_list, top).on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| {
                 s.kernel.slots.get_mut(&crate::message_nav::MESSAGE_NAV).view = Some(r);
-                if let Some((id, row, y)) = s.layout.narrow.reading.borrow_mut().take()
+                if let Some((id, row, place_y)) = s.layout.narrow.reading.borrow_mut().take()
                     && s.narrow() && s.active_session_id() == Some(id.as_str()) && !s.timeline_fx.ends.due(&id)
                 {
-                    // Preserve the scroller's `scrollTop` across the wide->narrow crossing as
-                    // Desktop's single DOM scroller does: narrow hides `HEADER_H` inside the
-                    // scroller while adding narrow chrome above it (`y` is relative to wide view top).
-                    tx.scroll_key_to(row, y - session_view::style::HEADER_H);
+                    // Official preserves `scrollTop` across the wide-to-narrow crossing while
+                    // dropping the 48 pt wide header offset (`virtualizer.tsx:155,1206`: 64 -> 16).
+                    tx.scroll_key_to(row, place_y - session_view::style::HEADER_H);
                     return;
                 }
                 tx.live_only();

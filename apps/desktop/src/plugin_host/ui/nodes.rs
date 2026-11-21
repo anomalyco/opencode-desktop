@@ -266,10 +266,17 @@ fn settings_list(a: &mut NodeArgs) -> Result<El, String> {
     })
 }
 
-/// A popover row that opens popover `popover` beside itself, as Session details' Extensions rows
-/// do (`session-summary-row session-service-trigger`, details.css): its icon, label, a danger dot
-/// (`alert`), the count (`detail`) and the chevron, lit while its list shows. The pointer
-/// coming onto it, or a click, shows its list ([`crate::plugin_host::Flyout`]).
+/// Official `Menu.SubTrigger` right-pointing triangle (`menu.tsx:53-63`: `M6 4L10 8L6 12V4Z`).
+static MENU_SUB_TRIANGLE: rune::Icon = rune::Icon {
+    name: "oc-menu-sub-triangle",
+    view: 16.0,
+    body: r#"<path d="M6 4L10 8L6 12V4Z" fill="currentColor"/>"#,
+};
+
+/// A popover row that opens popover `popover` beside itself: either a Session details service row
+/// (`icon` set -> `chevron-right`) or a `Menu.SubTrigger` row (`icon` omitted -> filled `▸`
+/// triangle from `menu.tsx:53-63`). The pointer coming onto it, or a click, shows its list
+/// ([`crate::plugin_host::Flyout`]).
 fn flyout_row(a: &mut NodeArgs) -> Result<El, String> {
     let pal = p(a);
     let words = a.string("text").unwrap_or_default().to_owned();
@@ -279,31 +286,41 @@ fn flyout_row(a: &mut NodeArgs) -> Result<El, String> {
         cx::read(cx::Dep::Flyout(plugin.clone()));
         cx::with_app(|app| app.plugins.overlay.flyout_row(plugin) == Some(key.as_str())).unwrap_or(false)
     });
+    let lead_icon = a.string("icon").map(str::to_owned);
+    let menu_style = lead_icon.is_none();
+    let height = a.number("h").map_or(28.0, |n| n as f32);
+    let pl = a.number("pl").map_or(12.0, |n| n as f32);
+    let pr = a.number("pr").map_or(if menu_style { 6.0 } else { 8.0 }, |n| n as f32);
+    let radius = a.number("radius").map_or(4.0, |n| n as f32);
     let mut r = row()
         .role("button")
         .label(words.clone())
         .w_full()
-        .min_h(28.0)
-        .pl(12.0)
-        .pr(8.0)
-        .py(4.0)
+        .h(height)
+        .pl(pl)
+        .pr(pr)
         .gap(8.0)
         .center_y()
-        .radius(4.0)
+        .radius(radius)
         .hover_motion(rune::Anim::INSTANT, rune::Anim::INSTANT);
     // An open row's fill is the hover fill (`[data-expanded]`), which the pointer doesn't add to.
     r = if expanded { r.fill(pal.hover) } else { r.hover(pal.hover) };
-    if let Some(name) = a.string("icon") {
+    if let Some(name) = lead_icon.as_deref() {
         r = r.child(rune::icon(named_icon(name), 16.0).color(pal.icon_muted));
     }
-    r = r.child(text(words).font(TextStyle::new(13.0, 440.0).lh(16.0)).color(pal.text).truncate().grow(1.0).shrink().min_w(0.0));
+    let font = if menu_style { crate::view::UI } else { TextStyle::new(13.0, 440.0).lh(16.0) };
+    r = r.child(text(words).font(font).color(pal.text).truncate().grow(1.0).shrink().min_w(0.0));
     if a.flag("alert") {
         r = r.child(el().w(6.0).h(16.0).center().child(el().size(6.0, 6.0).radius(3.0).fill(crate::widgets::status_ink(&pal, "failed"))));
     }
     if let Some(detail) = a.string("detail").filter(|d| !d.is_empty()) {
         r = r.child(text(detail.to_owned()).font(TextStyle::new(12.0, 440.0).lh(16.0).features("\"tnum\"")).color(pal.faint).single_line());
     }
-    r = r.child(rune::icon(crate::plugin_host::icons::resolve("", "chevron-right"), 16.0).color(pal.icon_muted).ml(4.0));
+    r = if menu_style {
+        r.child(rune::icon(&MENU_SUB_TRIANGLE, 16.0).color(pal.faint))
+    } else {
+        r.child(rune::icon(crate::plugin_host::icons::resolve("", "chevron-right"), 16.0).color(pal.icon_muted).ml(4.0))
+    };
     let (Some(plugin), Some(popover)) = (plugin, a.string("popover").map(str::to_owned)) else { return Ok(r) };
     let side = match a.string("side") {
         Some("left") => rune::Side::Left,

@@ -193,6 +193,7 @@ impl EngineManager {
                     preview: true,
                     permission_sync: true,
                     preview_credit: true,
+                    frame_authority: true,
                     extensions: true,
                     cookies: true,
                 });
@@ -435,6 +436,7 @@ impl EngineManager {
             HostMsg::Stop { tab_id } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
                     t.browser.stop_load();
+                    t.prompts.clear_auth_on_nav(tab_id, &self.out_tx);
                 }
             }
             HostMsg::SetZoom { tab_id, factor } => {
@@ -513,6 +515,7 @@ impl EngineManager {
                     } else {
                         t.held_buttons |= flag;
                         t.host.set_focus(1);
+                        t.prompts.popup_credit.store(true, Ordering::Release);
                         t.prompts.user_reclaimed.store(true, Ordering::Release);
                     }
                     let ev = MouseEvent {
@@ -537,6 +540,7 @@ impl EngineManager {
             HostMsg::Key { tab_id, down, text, named, mods } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
                     if down {
+                        t.prompts.popup_credit.store(true, Ordering::Release);
                         t.prompts.user_reclaimed.store(true, Ordering::Release);
                     }
                     send_key(&t.host, down, text.as_deref(), named.as_deref(), cef_mods(mods));
@@ -579,6 +583,9 @@ impl EngineManager {
             HostMsg::HighlightNode { tab_id, backend_node_id } => self.handle_highlight_node(tab_id, backend_node_id),
             HostMsg::CdpCall { tab_id, request_id, method, params, session_id } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
+                    if method.starts_with("Input.") {
+                        t.prompts.popup_credit.store(true, Ordering::Release);
+                    }
                     t.prompts.user_reclaimed.store(false, Ordering::Release);
                 }
                 self.handle_cdp_call(tab_id, request_id, method, params, session_id);
@@ -693,8 +700,11 @@ impl EngineManager {
             HostMsg::SetAgentDriven { tab_id, agent_driven } => {
                 self.handle_set_agent_driven(tab_id, agent_driven);
             }
-            HostMsg::TypedCdpCall { tab_id, request_id, method, params, session_id } => {
+            HostMsg::TypedCdpCall { tab_id, request_id, method, params, session_id, frame_id } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
+                    if method.starts_with("Input.") {
+                        t.prompts.popup_credit.store(true, Ordering::Release);
+                    }
                     t.prompts.user_reclaimed.store(false, Ordering::Release);
                     let not_ready = (!self.contexts.is_tab_ready(tab_id)).then(|| self.contexts.not_ready_reason(tab_id));
                     crate::cdp_ledger::handle_typed_cdp_call(
@@ -704,9 +714,11 @@ impl EngineManager {
                         t,
                         &self.next_cdp_id,
                         &self.out_tx,
+                        self.extensions.is_some(),
                         method,
                         params,
                         session_id,
+                        frame_id,
                     );
                 }
             }
@@ -1065,6 +1077,7 @@ impl EngineManager {
             context: effective_context.redacted(),
             preview: preview_grant.as_ref().map(|g| g.kind.tag()),
             agent_driven,
+            document: 0,
         }));
         #[cfg(windows)]
         let frames: FrameRing = self
@@ -1166,6 +1179,7 @@ impl EngineManager {
             tab_id,
             is_preview,
             context_ready.clone(),
+            prompts.clone(),
             self.out_tx.clone(),
         );
         let jsdialog = crate::prompts::TabDialogHandler::new(
@@ -1189,7 +1203,13 @@ impl EngineManager {
             prompts.clone(),
             self.out_tx.clone(),
         );
-        let find = crate::find::TabFindHandler::new(tab_id, self.out_tx.clone());
+        let find = crate::find::TabFindHandler::new(
+            tab_id,
+            self.out_tx.clone(),
+            std::sync::atomic::AtomicI32::new(-1),
+            std::sync::atomic::AtomicI32::new(0),
+            std::sync::atomic::AtomicI32::new(0),
+        );
         let context_menu = crate::menu::TabContextMenuHandler::new(
             tab_id,
             self.prompt_shared.clone(),
@@ -1309,11 +1329,11 @@ impl EngineManager {
             self.out_tx.clone(),
         );
         let cdp_reg = host.add_dev_tools_message_observer(Some(&mut observer));
-        if !isolated && self.extensions.is_some() {
-            // Enable `Page.frameNavigated` / `Page.frameDetached` notifications on non-isolated
-            // tabs when extensions are active so `TabCdpObserver` tracks real CDP `frameId`s
-            // (`devtools_frame_token`) cleanly (`review-rd274.md` Round-4 ruling).
-            self.send_internal_cdp(&host, "Page.enable", json!({}));
+        // Every tab is armed, as official arms every page (`chromium.ts:1391-1398`). The lock is
+        // released first: CEF may deliver the observer callback inside the send.
+        let arm = cdp_ledger.lock().unwrap().arm();
+        for raw in arm {
+            host.send_dev_tools_message(Some(raw.as_bytes()));
         }
         if let Some(dark) = self.dark {
             self.send_color_scheme(&host, dark);
@@ -1417,7 +1437,7 @@ impl Drop for EngineManager {
     }
 }
 
-pub(crate) use extensions::{browser_has_extension_surface, tab_is_extension_surface};
+pub(crate) use extensions::{Surface, classify_surface};
 mod emulation;
 mod extensions;
 mod frames;

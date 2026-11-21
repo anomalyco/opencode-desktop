@@ -8,6 +8,8 @@
 
 pub mod links;
 #[cfg(not(target_arch = "wasm32"))]
+mod activity;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod context_menu;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod preview;
@@ -138,6 +140,8 @@ mod native {
         pub history: std::cell::RefCell<Option<browser_pane::history::HistoryStore>>,
         /// Serializes human download OS Save dialogs (`EngineMsg::DownloadSaveRequest`) one at a time.
         pub save_dialog_open: bool,
+        /// Tabs an agent opened or drove while hidden (`machine.ts` `unseen`, blue `tab.activity` dot).
+        pub unseen_tabs: std::collections::HashSet<u64>,
     }
 
     /// App-level shortcuts that a focused web page must yield to OpenCode (Rune) rather than swallow,
@@ -560,10 +564,14 @@ mod native {
                     .host
                     .open_tab_with_context(url, roots, context, from_address, agent_driven)
             };
+            let is_agent = matches!(driver, Some(browser_pane::TabDriver::Agent));
             if let Some(driver) = driver {
                 self.workspace_panes.browser.host.set_tab_driver(id, driver);
             }
             self.attach_browser_tab_to_session(sid, id, target_pane, steal_focus);
+            if is_agent {
+                self.mark_browser_tab_unseen(id);
+            }
             id
         }
 
@@ -782,6 +790,7 @@ mod native {
                 self.workspace_panes.browser.host.focus_tab(id);
                 changed = true;
             }
+            changed |= self.prune_browser_unseen();
             changed
         }
     }

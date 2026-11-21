@@ -76,6 +76,39 @@ impl TabFrameState {
     ) -> FrameEventEffects {
         let mut eff = FrameEventEffects::default();
         match method {
+            // The engine took this frame out of the agent's reach (no URL is sent): drop it, its
+            // descendants, its session and its contexts from this routing cache.
+            "Rune.frameExcluded" => {
+                if let Some(fid) = params.get("frameId").and_then(Value::as_str) {
+                    let mut drop_ids = vec![fid.to_owned()];
+                    let mut i = 0;
+                    while i < drop_ids.len() {
+                        let parent = drop_ids[i].clone();
+                        for (child, p) in &self.frame_parents {
+                            if p == &parent && !drop_ids.contains(child) {
+                                drop_ids.push(child.clone());
+                            }
+                        }
+                        i += 1;
+                    }
+                    for id in drop_ids {
+                        self.extension_frames.insert(id.clone());
+                        self.frame_urls.remove(&id);
+                        self.frame_parents.remove(&id);
+                        self.frame_names.remove(&id);
+                        self.main_contexts.remove(&id);
+                        if let Some(sid) = self.frame_sessions.remove(&id) {
+                            self.extension_sessions.insert(sid.clone(), id);
+                            self.main_contexts.retain(|_, (_, s)| s.as_deref() != Some(sid.as_str()));
+                        }
+                    }
+                    if let Some(sid) = params.get("sessionId").and_then(Value::as_str) {
+                        self.extension_sessions.insert(sid.to_owned(), fid.to_owned());
+                        self.frame_sessions.retain(|_, s| s != sid);
+                        self.main_contexts.retain(|_, (_, s)| s.as_deref() != Some(sid));
+                    }
+                }
+            }
             "Target.attachedToTarget" => {
                 let Some(info) = params.get("targetInfo") else { return eff };
                 if info.get("type").and_then(Value::as_str) != Some("iframe") {

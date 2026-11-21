@@ -394,36 +394,21 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
         }
         if app.workspace_panes.browser.host.engine_agent_tools() {
             let host = &mut app.workspace_panes.browser.host;
-            for (tab_id, ext_sid) in oopif_detaches {
-                let _ = host.send_typed_cdp(
-                    tab_id,
-                    "Target.detachFromTarget",
-                    serde_json::json!({ "sessionId": ext_sid }),
-                    None,
-                );
+            let engine_auth = host.engine_frame_authority();
+            if !engine_auth {
+                for (tab_id, ext_sid) in oopif_detaches {
+                    let _ = host.send_typed_cdp(tab_id, "Target.detachFromTarget", serde_json::json!({ "sessionId": ext_sid }), None);
+                }
             }
             let mut oopif_frame_reqs: Vec<(u64, u64, String)> = Vec::new();
+            let auto_attach = serde_json::json!({ "autoAttach": true, "waitForDebuggerOnStart": false, "flatten": true });
             for (tab_id, child_sid) in oopif_enables {
-                let _ = host.send_typed_cdp(tab_id, "Page.enable", serde_json::json!({}), Some(child_sid.clone()));
+                if !engine_auth {
+                    let _ = host.send_typed_cdp(tab_id, "Page.enable", serde_json::json!({}), Some(child_sid.clone()));
+                    let _ = host.send_typed_cdp(tab_id, "Target.setAutoAttach", auto_attach.clone(), Some(child_sid.clone()));
+                }
                 let _ = host.send_typed_cdp(tab_id, "Runtime.enable", serde_json::json!({}), Some(child_sid.clone()));
-                let _ = host.send_typed_cdp(
-                    tab_id,
-                    "Target.setAutoAttach",
-                    serde_json::json!({
-                        "autoAttach": true,
-                        "waitForDebuggerOnStart": false,
-                        "flatten": true,
-                    }),
-                    Some(child_sid.clone()),
-                );
-                // Immediately enumerate any already-loaded same-process child iframes inside the
-                // OOPIF so `source_urls()` and `frameID` authorization never miss them.
-                if let Ok(req_id) = host.send_typed_cdp(
-                    tab_id,
-                    "Page.getFrameTree",
-                    serde_json::json!({}),
-                    Some(child_sid.clone()),
-                ) {
+                if let Ok(req_id) = host.send_typed_cdp(tab_id, "Page.getFrameTree", serde_json::json!({}), Some(child_sid.clone())) {
                     oopif_frame_reqs.push((tab_id, req_id, child_sid));
                 }
             }

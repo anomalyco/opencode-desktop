@@ -1,7 +1,7 @@
 //! Shell: "Shell" and its command; open, Desktop's console card (`ConsoleOutput`) of the command
 //! over its output, which Execute's output row opens too.
 
-use rune::{Color, El, ScrollFade, Tx, col, el, row, text};
+use rune::{Color, El, Tx, col, el, row, text};
 
 use super::plain::one_line;
 use super::log::{self, Excerpt};
@@ -88,8 +88,6 @@ pub fn console_open<S: TimelineHost>(s: &S, c: &Call) -> bool {
     crate::disclosure::is_open(s, &super::key(c.id), super::default_open(s, c))
 }
 
-/// A console's command scrolls past this, eight lines and its padding.
-const COMMAND_MAX_H: f32 = 8.0 * 20.0 + 2.0 * PAD;
 /// The inset of a section's text, kept while it scrolls.
 const PAD: f32 = 12.0;
 const RADIUS: f32 = 6.0;
@@ -97,34 +95,46 @@ const RADIUS: f32 = 6.0;
 /// sections sit inside it, rounded concentrically.
 const RING: f32 = 0.5;
 
-/// Desktop's console card: the command over its result, each with a copy button. Each section
-/// scrolls on its own past its cap, its text held 12 pt in from every edge and fading where
-/// it's cut; the ring stays whole round all four corners, the sections inside it. The card shows
-/// as much as Desktop's does: its sections stand at most [`MAX_H`] together (`bash-scroll`'s
-/// `max-height`, which takes the command and the output in one region), the output giving way.
+/// Desktop's console card (`ConsoleOutput`, `message-part.css:801-918`): the command over its
+/// result, each with a copy button, scrolling together inside one region capped at [`MAX_H`]
+/// (`bash-scroll`, no scroll bar). The ring stays whole round all four corners, the scroll
+/// viewport clipped concentrically inside it.
 pub fn console<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, command: Option<&str>, out: &str) -> El {
     // A terminal reads left to right in any window; its Copy buttons stay at its right.
     // `border: 0.5px solid border-base` (`message-part.css:806`) takes its device pixel in layout, as
     // Chromium's does, so the sections' fills never round onto it at a fractional offset.
     let ring = crate::scroller::border_width(RING);
-    let mut card = col().key("console").dir(rune::Direction::Ltr).w_full().max_h(MAX_H + 2.0 * ring).radius(RADIUS).border(RING, p.border).border_layout().fill(p.bg_base).hover_group()
+    let card = col()
+        .key("console")
+        .dir(rune::Direction::Ltr)
+        .w_full()
+        .max_h(MAX_H + 2.0 * ring)
+        .radius(RADIUS)
+        .border(RING, p.border)
+        .border_layout()
+        .fill(p.bg_base)
+        .hover_group()
         // Its Copy fades in and out over 0.15 s ease (`message-part.css:796-800`'s `bash-copy`).
         .hover_motion(crate::style::HOVER_FADE, crate::style::HOVER_FADE);
-    let inner = RADIUS - ring;
+    let inner = (RADIUS - ring).max(0.0);
     let result = !out.is_empty();
+    let mut stack = col().key("bash-body").w_full();
     if let Some(cmd) = command {
         let words = text(cmd.to_owned()).font(TOOL_CODE).color(p.text).wrap_anywhere();
-        let corners = [inner, inner, if result { 0.0 } else { inner }, if result { 0.0 } else { inner }];
-        card = card.child(section(s, p, session, id, Part { name: "command", fill: p.bg_base, label: opencode_i18n::t!("ui.message.copy"), corners, cap: COMMAND_MAX_H, rule: false }, words));
+        stack = stack.child(section(s, p, session, id, Part { name: "command", fill: p.bg_base, label: opencode_i18n::t!("ui.message.copy"), rule: false }, words));
     }
     if result {
         // A line break that ends the output opens no empty line, as in a `pre`.
         let words = output_view::<S>(p, session, id, out, true);
-        let top = if command.is_some() { 0.0 } else { inner };
-        let corners = [top, top, inner, inner];
-        card = card.child(section(s, p, session, id, Part { name: "result", fill: p.layer1, label: opencode_i18n::t!("ui.message.copyOutput"), corners, cap: MAX_H, rule: command.is_some() }, words));
+        stack = stack.child(section(s, p, session, id, Part { name: "result", fill: p.layer1, label: opencode_i18n::t!("ui.message.copyOutput"), rule: command.is_some() }, words));
     }
-    card
+    // `bash-scroll`: one region at most `MAX_H` tall scrolling command and output together, with
+    // no scroll bar (`message-part.css:815-824`).
+    let viewport = crate::scroller::scroller("scroll").hidden(
+        col().w_full().max_h(MAX_H).shrink().min_h(0.0).corners([inner; 4]).clip_corners([inner; 4]),
+        stack,
+    );
+    card.child(viewport)
 }
 
 /// Resolve by identity on a user action; mounting the card never clones a whole raw output.
@@ -176,19 +186,13 @@ struct Part {
     name: &'static str,
     fill: Color,
     label: &'static str,
-    /// `[top_left, top_right, bottom_right, bottom_left]`, concentric with the ring.
-    corners: [f32; 4],
-    /// Its height, past which its text scrolls.
-    cap: f32,
     /// A hairline over it, as it follows the command.
     rule: bool,
 }
 
-/// One section of the console: its text on its fill, 12 pt in from each edge, in a viewport
-/// capped at its height that scrolls the rest and feathers its text out into the padding where
-/// it's cut, and its copy button 4 pt in from the top right, still while the text scrolls. A
-/// backdrop of the section's fill sits behind the button, fading out to its left, top and
-/// bottom, so text under it softens rather than being cut.
+/// One section of the console: its text on its fill, 12 pt in from each edge, and its copy
+/// button 4 pt in from the top right. A backdrop of the section's fill sits behind the button,
+/// fading out to its left, top and bottom, so text under it softens rather than being cut.
 fn section<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, part: Part, words: El) -> El {
     let copy_key = format!("copy-tool-{id}-{}", part.name);
     let (session, id, field_name, fill, label) = (session.to_owned(), id.to_owned(), part.name, part.fill, part.label);
@@ -219,13 +223,7 @@ fn section<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, part: Part,
     let backdrop = el().key("backdrop").absolute(-24.0, -4.0).size(52.0, 36.0).clip_fade_linear(24.0, 8.0, 0.0, 8.0).child(el().w_full().h_full().fill(fill));
     let holder = crate::style::hover_reveal(el().key("copy-holder").size(24.0, 24.0).pin(None, Some(4.0), Some(4.0), None)).child(backdrop).child(button);
     let inset = col().key("text").w_full().padding(PAD).child(readable(p, words).w_full());
-    // `bash-scroll`: no bar, as Desktop hides it (`message-part.css:815-824`).
-    let viewport = crate::scroller::scroller("scroll").hidden(col().w_full().max_h(part.cap).shrink().min_h(0.0).scroll_fade(ScrollFade::feather(PAD + 4.0)), inset);
-    let mut sec = col().key(part.name).w_full().fill(fill).corners(part.corners).clip_corners(part.corners).child(viewport).child(holder);
-    // The output gives way to the command within the card's cap.
-    if part.name == "result" {
-        sec = sec.shrink().min_h(0.0);
-    }
+    let mut sec = col().key(part.name).w_full().fill(fill).child(inset).child(holder);
     // `border-block-start: 0.5px solid border-base` (`message-part.css:908`): one whole device
     // pixel, drawn after the copy button's backdrop, which stops below it.
     if part.rule {

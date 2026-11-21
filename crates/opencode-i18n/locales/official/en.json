@@ -399,6 +399,7 @@
   "home.sessions.group.yesterday": "Yesterday",
   "home.sessions.load.failed": "Couldn't load sessions",
   "home.sessions.load.timeout": "The server took too long to answer",
+  "home.sessions.openInBackground": "Open in background",
   "home.sessions.search.noResults": "No sessions found for {{query}}",
   "home.sessions.search.placeholder": "Search sessions",
   "home.sessions.search.placeholder.scoped": "Search sessions in {{scope}}",

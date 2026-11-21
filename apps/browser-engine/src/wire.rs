@@ -62,6 +62,10 @@ pub struct TabSnapshot {
     /// Whether this tab is agent-driven (preserved across reconnects so file choosers / HTTP auth stay guarded).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub agent_driven: bool,
+    /// Counts main-frame document loads (`on_load_start`); unchanged by `history.pushState`,
+    /// `replaceState` and hash changes. `0` from engines before it existed.
+    #[serde(default)]
+    pub document: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -270,7 +274,16 @@ pub enum HostMsg {
     SetAgentDriven { tab_id: u64, agent_driven: bool },
     /// Typed CDP call issued strictly by Rune's native Rust `experimental.browser` executors
     /// (`browser_policy::check_typed_cdp`), never exposed to untrusted Luau plugins.
-    TypedCdpCall { tab_id: u64, request_id: u64, method: String, params: Value, session_id: Option<String> },
+    TypedCdpCall {
+        tab_id: u64,
+        request_id: u64,
+        method: String,
+        params: Value,
+        session_id: Option<String>,
+        /// The frame an element ref came from; the engine checks it belongs to `session_id`.
+        #[serde(default)]
+        frame_id: Option<String>,
+    },
     /// App-proxied response headers for a remote workspace or artifact `EngineMsg::PreviewFetch`.
     PreviewResponseHead {
         req_id: u64,
@@ -326,6 +339,9 @@ pub enum EngineMsg {
         permission_sync: bool,
         #[serde(default)]
         preview_credit: bool,
+        /// The engine owns `Target.setAutoAttach` / frame exclusion authority (`EngineCdpLedger`).
+        #[serde(default)]
+        frame_authority: bool,
         #[serde(default)]
         extensions: bool,
         /// The engine exposes `CefCookieManager` list/import/delete/probe/clear & two-way remote cookie mirroring.
