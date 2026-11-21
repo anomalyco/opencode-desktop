@@ -222,7 +222,7 @@ fn general<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, x: &Project) -
             .radius(4.0)
             .cursor(Cursor::Pointer)
             .focus_default(p)
-            .hover_group()
+            .hover_group_focus()
             .on_press_tx(|s: &mut H, tx: &mut Tx| super::open_page(s, Page::Servers, tx))
             .child(text(server_name).font(super::NAME_REGULAR).color(p.muted).group_color(p.text).truncate())
             .child(el().pin(Some(0.0), None, Some(0.0), Some(0.0)).h(1.0).fill(p.text).group_opacity(0.0, 1.0))
@@ -395,7 +395,7 @@ fn icon_button<H: SettingsHost + 'static>(s: &H, p: &Pal, x: &Project) -> El {
         .clip_rounded(6.0)
         .cursor(Cursor::Pointer)
         .focus_default(p)
-        .hover_group()
+        .hover_group_focus()
         .hover_motion(opencode_ui::style::HOVER_FADE, opencode_ui::style::HOVER_FADE)
         .on_press_tx(move |s: &mut H, tx: &mut Tx| {
             tx.instant();
