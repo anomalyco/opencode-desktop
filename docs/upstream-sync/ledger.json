@@ -20,10 +20,10 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 164,
   "status_counts": {
-    "have it": 123,
+    "have it": 130,
     "partly": 3,
     "not applicable": 23,
-    "missing": 14,
+    "missing": 7,
     "differs on purpose": 1
   },
   "rows": [
@@ -3410,8 +3410,8 @@
       ],
       "summary": "Keep text field, search bar, palette search, and line-comment focus rings and borders visible under forced-colors / Windows High Contrast mode.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Rune maps Windows Contrast themes via opencode-ui::themes::contrast; text fields, search inputs, and line comment boxes need forced-colors border/invalid/focus-ring verification and parity.",
+      "status": "have it",
+      "status_evidence": "Rune Kit::forced (#1310), set by the app in the system contrast theme: kit text fields draw a text-colour edge (2 pt dashed when invalid) and focus as a 2 pt highlight ring 2 out; the find bar does the same; the line-comment field's focus is a border-focus border with a 1 px outline, not a shadow (PR #347)",
       "depends_on": "UP-088 (#64909)",
       "risks": "none",
       "workstream": "WS-8"
@@ -3598,8 +3598,8 @@
       ],
       "summary": "Size pinned group rename input to 100% width and suppress its focus ring outside forced-colors mode.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "apps/desktop/src/shell/view/sidebar/pinned_area.rs:296 renders pin-group-name via session_view::style::field; verify width containment and no unwanted focus ring in non-contrast mode (keep ring in contrast mode).",
+      "status": "have it",
+      "status_evidence": "The group name field (inline rename, from the group menu's Rename) fills its row and draws no focus ring; rune-desktop's group menu renames inline rather than in a field inside the menu (official's GroupEditor), a UP-072 difference (PR #347)",
       "depends_on": "UP-072 (#64668), UP-088 (#64909)",
       "risks": "none",
       "workstream": "WS-8"
@@ -3805,8 +3805,8 @@
       ],
       "summary": "Keep the side panel '+' add trigger reachable in Tab order and place the settled open panel's review toggle in the panel strip's Tab order (and reveal hover-hidden triggers on focus-visible).",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Audit side-panel add button and review toggle Tab order and focus-visible reveal in features/panels and apps/desktop.",
+      "status": "have it",
+      "status_evidence": "The '+' after the side strip's tabs is a Tab stop, and while the side region is open the review toggle sits in its first strip's reserved slot, so Tab reaches it after '+' (driven: prompt, add, agent, model, effort, submit, the strip's tabs, '+', Toggle review); open and closed look pixel-identical (PR #351)",
       "depends_on": "UP-088 (#64909)",
       "risks": "none",
       "workstream": "WS-8"
@@ -3974,12 +3974,11 @@
       ],
       "summary": "Render file diff cards produced by a completed Code Mode script directly below its execute block in the timeline.",
       "size": "L",
-      "status": "missing",
-      "status_evidence": "Rune renders finished Code Mode scripts (#252), but does not yet render per-file diff cards emitted by a script below its execute block.",
+      "status": "have it",
+      "status_evidence": "Script file changes render below the execute call as Change steps (rules::script_changes, tools/script.rs, files::group one-file patch cards) (PR #317, 18b0cacd).",
       "depends_on": "UP-049 (#64334)",
       "risks": "none",
-      "workstream": "WS-3",
-      "open_pr_note": "unmerged PR #317"
+      "workstream": "WS-3"
     },
     {
       "id": "UP-137",
@@ -4053,12 +4052,11 @@
       ],
       "summary": "Stream and display file diff cards emitted by an in-flight Code Mode script while it is still running.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Follow-on to UP-136 (#65002): display live script diff cards before script completion.",
+      "status": "have it",
+      "status_evidence": "A running execute call shows its metadata.files changes as they arrive (shows_changes accepts any non-Pending status; projection stamps include each script change count) (PR #317, 18b0cacd).",
       "depends_on": "UP-136 (#65002)",
       "risks": "none",
-      "workstream": "WS-3",
-      "open_pr_note": "unmerged PR #317"
+      "workstream": "WS-3"
     },
     {
       "id": "UP-140",
@@ -4101,12 +4099,11 @@
       ],
       "summary": "Apply spacing between script diff cards rendered below an execute block.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Apply matching spacing when implementing UP-136 (#65002) script diff cards.",
+      "status": "have it",
+      "status_evidence": "Consecutive script diff cards sit 16 pt apart (tools/script.rs CARD_GAP, --timeline-gap-s) (PR #317, 18b0cacd).",
       "depends_on": "UP-136 (#65002)",
       "risks": "none",
-      "workstream": "WS-3",
-      "open_pr_note": "unmerged PR #317"
+      "workstream": "WS-3"
     },
     {
       "id": "UP-142",
@@ -4123,8 +4120,8 @@
       ],
       "summary": "Preserve focus on a focused programmatic/non-tabbable panel container when surrounding page nodes change instead of rescuing focus away.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Audit Rune focus rescue / panel focus preservation when surrounding content updates in WS-8.",
+      "status": "have it",
+      "status_evidence": "Rune's rescue runs only when the focused element leaves or can no longer take focus; a focused tab_index(-1) region (Settings' page, the side panel) still takes it, so it keeps focus as its page changes around it (PR #351)",
       "depends_on": "UP-088 (#64909)",
       "risks": "none",
       "workstream": "WS-8"

@@ -122,6 +122,7 @@ impl EngineManager {
         if let Some(global) = cef::request_context_get_global_context() {
             crate::permissions::block_device_permission_guards(&global);
             crate::permissions::scrub_legacy_content_settings(&global);
+            crate::context::disable_non_proxied_udp(&global);
         }
         Self {
             tabs: HashMap::new(),
@@ -1335,6 +1336,7 @@ impl EngineManager {
             prompts.clone(),
             self.permissions.clone(),
             self.extensions.is_some(),
+            self.events.clone(),
             self.out_tx.clone(),
         );
         let cdp_reg = host.add_dev_tools_message_observer(Some(&mut observer));

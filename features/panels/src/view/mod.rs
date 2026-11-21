@@ -322,30 +322,46 @@ pub(crate) fn resize_pill(p: &Pal, dragging: bool, horizontal: bool) -> El {
 }
 
 /// Floating top-right toggle button (`SessionReviewToggle` in `screen.tsx:408`), kept outside panel motion.
+/// While the side region is open its first strip holds the toggle instead ([`strip_toggle`]), so Tab
+/// reaches it after that strip's `+` rather than before the chat (opencode#65213).
 pub fn side_toggle<H: PanelsHost + 'static>(host: &H, p: &Pal) -> Option<El> {
+    if toggle_in_strip(host) {
+        return None;
+    }
     Some(
-        side_toggle_shell(host, p)?
+        side_toggle_shell(host, p, true)?
             .on_press_tx(|s: &mut H, tx: &mut Tx| toggle_side_region(s, tx)),
     )
 }
 
-fn side_toggle_shell(host: &dyn PanelsHost, p: &Pal) -> Option<El> {
+/// The toggle at the end of the side region's first strip, in its reserved slot.
+pub(crate) fn strip_toggle<H: PanelsHost + 'static>(host: &H, p: &Pal) -> Option<El> {
+    Some(side_toggle_shell(host, p, false)?.on_press_tx(|s: &mut H, tx: &mut Tx| toggle_side_region(s, tx)))
+}
+
+/// Whether the open side region's first strip holds the toggle (it reserves the slot then).
+pub(crate) fn toggle_in_strip(host: &dyn PanelsHost) -> bool {
+    side_open(host) && !host.stage_active()
+}
+
+fn side_toggle_shell(host: &dyn PanelsHost, p: &Pal, pinned: bool) -> Option<El> {
     // A narrow window has none (`screen.tsx:456`).
     let sid = host.active_session_id()?;
     if host.settings_open() || host.narrow() || !host.session_has_header(sid) {
         return None;
     }
     let open = side_open(host);
+    let toggle = el().key("side-toggle");
+    // On the session header's centre line, 12pt in from the panel's edge.
+    let toggle = if pinned { toggle.pin(None, Some(host.panel_chrome().top + 10.0), Some(20.0), None) } else { toggle };
     Some(
-        el().key("side-toggle")
+        toggle
             .role("button")
             // `SessionHeaderActions`: "Toggle review" and its keybind in the tooltip under it.
             .label_static(opencode_i18n::t!("command.review.toggle"))
             .expanded(open)
             .help(opencode_i18n::t!("command.review.toggle"))
             .help_keys(Bind::SideToggle.keycaps())
-            // On the session header's centre line, 12pt in from the panel's edge.
-            .pin(None, Some(host.panel_chrome().top + 10.0), Some(20.0), None)
             .size(28.0, 28.0)
             .radius(6.0)
             .center()

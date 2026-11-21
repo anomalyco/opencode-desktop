@@ -10,9 +10,7 @@ use crate::{
     narrow, palette, pickers, plugin_host, popup, queue, quote, rewind, send_failed, settings,
     speech, subagents, tool_open, working,
 };
-
-/// Per-code-block soft-wrap overrides keyed by `"{row_key}:{block_index}"`.
-static CODE_WRAP: opencode_kernel::Slot<std::collections::HashMap<String, bool>> = opencode_kernel::Slot::new();
+use crate::app::CODE_WRAP;
 
 impl session_view::TimelineHost for App {
     fn knobs(&self) -> &rune_knobs::Knobs {

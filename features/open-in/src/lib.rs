@@ -579,6 +579,65 @@ pub fn open_external(tx: &mut Tx, url: &str) -> bool {
     tx.open_url(trimmed).is_ok()
 }
 
+/// Launches a user-confirmed app-scheme URL (`slack:`, `figma:`, `obsidian:`, `mailto:`, etc.)
+/// strictly after the user pressed Open on the 500 ms guarded native review bar (128-bit CSPRNG
+/// single-use review token with 60 s TTL and `fits()` full-visibility verified by the host). Only
+/// strict RFC 3986 URIs in `browser_policy`'s `APPS` + page-only `PAGE_ONLY` table are accepted.
+pub fn open_confirmed_app_url(tx: &mut Tx, url: &str, source: browser_policy::AppSchemeSource) -> bool {
+    let trimmed = url.trim();
+    if trimmed != url
+        || !browser_policy::is_strict_rfc3986_uri(trimmed)
+        || !browser_policy::is_confirmed_app_scheme_url(trimmed, source)
+    {
+        return false;
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    if allow_harness_log() && let Some(log) = std::env::var_os("HARNESS_OPEN_EXTERNAL_LOG").filter(|v| !v.is_empty()) {
+        use std::io::Write as _;
+        let path = Path::new(&log);
+        if let Some(parent) = path.parent() { drop(std::fs::create_dir_all(parent)); }
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+            drop(writeln!(f, "{}", json!({ "pid": std::process::id(), "kind": "openConfirmedApp", "url": trimmed })));
+        }
+        return true;
+    }
+    if trimmed.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("mailto:")) {
+        return tx.open_url(trimmed).is_ok();
+    }
+    if rune::is_headless() {
+        return true;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        return windows::open_app_uri(trimmed);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return std::process::Command::new("/usr/bin/open")
+            .args(["--", trimmed])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .is_ok();
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        return std::process::Command::new("xdg-open")
+            .arg(trimmed)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .is_ok();
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = tx;
+        false
+    }
+}
+
 /// Strips a trailing ` (os error N)` suffix and normalizes known transport error wording.
 pub fn plain_error(raw: &str) -> String {
     let e = raw.trim();

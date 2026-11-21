@@ -35,11 +35,17 @@ pub(crate) fn max_cdp_response_bytes(method: &str) -> usize {
 }
 
 /// Sends what a tab's observer queued (resumes, nested auto-attach, frame-tree fetches) after
-/// each `cef::do_message_loop_work`, so no child target waits on the app.
+/// each `cef::do_message_loop_work`, looping until empty (capped at 16 passes) in case a send
+/// synchronously delivers another callback into `outbox`.
 pub(crate) fn flush_outbox(ledger: &Mutex<EngineCdpLedger>, host: &cef::BrowserHost) {
-    let out = std::mem::take(&mut ledger.lock().unwrap().outbox);
-    for m in out {
-        host.send_dev_tools_message(Some(m.as_bytes()));
+    for _ in 0..16 {
+        let out = std::mem::take(&mut ledger.lock().unwrap().outbox);
+        if out.is_empty() {
+            break;
+        }
+        for m in out {
+            host.send_dev_tools_message(Some(m.as_bytes()));
+        }
     }
 }
 
@@ -317,6 +323,7 @@ wrap_dev_tools_message_observer! {
         prompts: Arc<crate::prompts::TabPrompts>,
         permissions: Arc<crate::permissions::PermissionTracker>,
         extensions_active: bool,
+        events: std::sync::mpsc::Sender<crate::Event>,
         out_tx: Output,
     }
 
@@ -573,10 +580,12 @@ impl TabCdpObserver {
     }
 
     /// CEF's DevTools observer list forbids re-entrancy, so nothing is sent from a callback: the
-    /// messages wait in the ledger's outbox for [`flush_outbox`] after this loop turn.
+    /// messages wait in the ledger's outbox for [`flush_outbox`] after this loop turn, and an
+    /// immediate `Event::Pump(0)` wakes the loop outside busy windows (e.g. macOS idle).
     fn send_all(&self, _browser: Option<&Browser>, messages: Vec<String>) {
         if !messages.is_empty() {
             self.cdp_ledger.lock().unwrap().outbox.extend(messages);
+            let _ = self.events.send(crate::Event::Pump(0));
         }
     }
 
@@ -600,13 +609,19 @@ impl TabCdpObserver {
             None => surface != crate::engine::Surface::Clean,
             Some(_) => surface == crate::engine::Surface::WholeTab,
         };
-        let checked = if refused {
-            Err(EXTENSION_SURFACE.to_owned())
+        let (checked, wake) = if refused {
+            (Err(EXTENSION_SURFACE.to_owned()), false)
         } else if let (Some((post, sid)), true) = (&typed, ok) {
-            self.cdp_ledger.lock().unwrap().finish_typed(post, sid.as_deref(), &mut val)
+            let mut ledger = self.cdp_ledger.lock().unwrap();
+            let before = ledger.outbox.len();
+            let res = ledger.finish_typed(post, sid.as_deref(), &mut val);
+            (res, ledger.outbox.len() > before)
         } else {
-            Ok(())
+            (Ok(()), false)
         };
+        if wake {
+            let _ = self.events.send(crate::Event::Pump(0));
+        }
         let (ok, result) = match checked {
             Ok(()) => (ok, val),
             Err(message) => (false, serde_json::json!({ "message": message })),

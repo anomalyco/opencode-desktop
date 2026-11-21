@@ -389,6 +389,9 @@ pub enum EngineMsg {
     AuthAgentRequired { tab_id: u64, origin: String },
     PopupOpen { tab_id: u64, url: String, background: bool },
     PopupBlocked { tab_id: u64, url: String },
+    /// A user-activated non-agent page click on an allow-listed app scheme (`slack:`, `vscode:`,
+    /// `mailto:`, etc.) was cancelled in CEF and forwarded to the desktop review bar.
+    AppLinkBlocked { tab_id: u64, url: String },
     FileChooserBlocked { tab_id: u64 },
     FindResult { tab_id: u64, count: u32, active_match: u32, final_update: bool },
     ContextMenu { tab_id: u64, menu: PageContextMenu },

@@ -3,34 +3,15 @@
 
 use mlua::{Function, Lua, MultiValue, Table};
 use rune::Tx;
-use rune_luau::{Completer, Data, Host};
 use rune::time::Instant;
+use rune_luau::{Completer, Data, Host};
 
-use super::{App, DEVTOOLS_TIMEOUT, Dep, Vmx, cx, id_of, later, map, not_running, read_tab, scope, with_app};
+use super::{App, DEVTOOLS_TIMEOUT, Vmx, id_of, later, map, not_running, read_tab, scope, with_app};
 
 pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
-    t.raw_set(
-        "TakeAppLinkReview",
-        lua.create_function(|lua, ()| {
-            let cap = scope::TabScope::capture(lua);
-            if !cap.is_builtin_browser || cap.tool_sid.is_some() {
-                return Err(mlua::Error::runtime(
-                    "Browser:TakeAppLinkReview is restricted to the built-in browser.",
-                ));
-            }
-            cx::read(Dep::Browser);
-            let next = with_app("Browser:TakeAppLinkReview", |app| {
-                Ok(app.workspace_panes.browser.pending_app_links.borrow_mut().pop_front())
-            })?;
-            match next {
-                Some((tab_id, url)) => mlua::IntoLua::into_lua(
-                    map([("tabId", Data::String(tab_id.to_string())), ("url", Data::String(url))]),
-                    lua,
-                ),
-                None => Ok(mlua::Value::Nil),
-            }
-        })?,
-    )
+    // App-scheme link reviews are rendered natively by the host (`surfaces/browser/prompts/app_link.rs`)
+    // so review tokens never cross into Luau; keep `TakeAppLinkReview` returning nil for compatibility.
+    t.raw_set("TakeAppLinkReview", lua.create_function(|_, ()| Ok(mlua::Value::Nil))?)
 }
 
 pub(super) fn asyncs(host: &Host<'_>, t: &Table) -> mlua::Result<()> {

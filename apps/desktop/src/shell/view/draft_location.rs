@@ -38,7 +38,8 @@ pub(in crate::shell::view) fn location(s: &App, p: &Pal, width: f32) -> El {
             s.open_project_switcher();
         })
         .child(crate::icons::badge(s, p, project, &name))
-        .child(text(name.clone()).font(UI).color(p.muted).group_color(p.text).truncate_fade());
+        .child(text(name.clone()).font(UI).color(p.muted).group_color(p.text).truncate_fade())
+        .child(icon(&ic::CHEVRON_DOWN, 16.0).color(p.icon_muted));
     let branch = s.sidebar_inbox.branches.get(dir);
     // `workspace/selector.tsx`: the checkout branch opens the location dialog. Local is a
     // destination in the dialog, not a second button next to the branch.
@@ -48,7 +49,8 @@ pub(in crate::shell::view) fn location(s: &App, p: &Pal, width: f32) -> El {
         }
         let label = s.draft_base().or(branch).unwrap_or_else(|| t!("session.location.noBranch"));
         let id = project.id.clone();
-        let help = if used() { t!("session.location.worktree").to_owned() } else {
+        let onboarding = !used();
+        let help = if !onboarding { t!("session.location.worktree").to_owned() } else {
             format!("{}\n{}\n{}", t!("workspace.onboarding.title"), t!("workspace.onboarding.description"), t!("session.location.worktree"))
         };
         trigger("location-branch", label).max_w(220.0).help(help).help_keys(crate::keymap::Bind::LocationSelect.keycaps())
@@ -58,7 +60,8 @@ pub(in crate::shell::view) fn location(s: &App, p: &Pal, width: f32) -> El {
                 s.open_project_worktrees(&id, tx);
             })
             .child(icon(&ic::BRANCH, 16.0).color(p.icon_muted))
-            .child(text(label.to_owned()).font(UI).color(p.faint).group_color(p.text).truncate_fade())
+            .child(text(label.to_owned()).font(UI).color(p.muted).group_color(p.text).truncate_fade())
+            .children(onboarding.then(|| el().key("workspace-onboarding-dot").size(6.0, 6.0).radius(3.0).fill(p.accent)))
     });
     let pickers = row()
         .key("location-pickers")

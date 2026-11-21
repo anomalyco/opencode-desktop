@@ -99,6 +99,12 @@ impl CefRuntime {
                 .map(|l| if l.starts_with("en") { format!("{l},en") } else { format!("{l},en-US,en") })
                 .map(|list| CefString::from(list.as_str()))
                 .unwrap_or_default(),
+            // Dedicated macOS Keychain item name (CEF PR #4247) so OSCrypt creates and owns its
+            // own item under our Developer ID identity instead of colliding with `"Chromium Safe Storage"`.
+            #[cfg(target_os = "macos")]
+            keychain_service_name: CefString::from("OpenCode Browser Safe Storage"),
+            #[cfg(target_os = "macos")]
+            keychain_account_name: CefString::from("OpenCode Browser"),
             ..Default::default()
         };
         let ok = cef::initialize(Some(&main_args), Some(&settings), Some(&mut app), std::ptr::null_mut());
@@ -182,6 +188,7 @@ wrap_app! {
                     "js-flags",
                     "renderer-cmd-prefix",
                     "utility-cmd-prefix",
+                    "force-webrtc-ip-handling-policy",
                 ] {
                     cmd.remove_switch(Some(&sw.into()));
                 }
@@ -212,13 +219,19 @@ wrap_app! {
             cmd.append_switch(Some(&"disable-popup-blocking".into()));
             cmd.append_switch(Some(&"mute-audio".into()));
             // Windows keeps real DPAPI cookie encryption (silent, logon-bound).
-            // macOS restores `--use-mock-keychain` until the `-67030` process-requirement /
-            // dedicated Keychain service name fix lands in a follow-up PR, so the first load never
-            // raises a `SecurityAgent` prompt or stalls.
-            // Linux sets `--password-store=basic` so a locked or absent Secret Service / KWallet
-            // keyring can never prompt or stall the first load.
+            // macOS uses real Keychain encryption under `"OpenCode Browser Safe Storage"` (CEF PR #4247)
+            // on real certificate-signed builds (`has_team_code_signature()`), while keeping
+            // `--use-mock-keychain` for unsigned/ad-hoc local dev builds and explicit
+            // `OPENCODE_BROWSER_MOCK_KEYCHAIN=1` runs so changing ad-hoc signatures never prompt.
+            // Linux stays on `--password-store=basic` because Secret Service / KWallet can prompt
+            // or stall when a keyring is locked or absent on desktop/headless Linux.
             #[cfg(target_os = "macos")]
-            cmd.append_switch(Some(&"use-mock-keychain".into()));
+            if std::env::var_os("OPENCODE_BROWSER_MOCK_KEYCHAIN").as_deref()
+                == Some(std::ffi::OsStr::new("1"))
+                || !crate::mac_app::has_team_code_signature()
+            {
+                cmd.append_switch(Some(&"use-mock-keychain".into()));
+            }
             #[cfg(target_os = "linux")]
             cmd.append_switch_with_value(Some(&"password-store".into()), Some(&"basic".into()));
             cmd.append_switch(Some(&"no-startup-window".into()));
@@ -229,6 +242,34 @@ wrap_app! {
             // background fetches, which cost network, disk and CPU while nothing is open.
             cmd.append_switch(Some(&"disable-component-update".into()));
             cmd.append_switch(Some(&"disable-background-networking".into()));
+            // Disable Cast/DIAL discovery (UDP 5353/1900) and mDNS local-IP responder (UDP 5353),
+            // and enforce `disable_non_proxied_udp` globally so `NetworkService` never opens
+            // non-loopback UDP listeners (avoiding Windows Defender Firewall and macOS incoming
+            // connection prompts) and never exposes local LAN IPs to pages.
+            const DISABLED_NET_FEATURES: [&str; 4] = [
+                "MediaRouter",
+                "DialMediaRouteProvider",
+                "CastMediaRouteProvider",
+                "WebRtcHideLocalIpsWithMdns",
+            ];
+            let existing = CefString::from(&cmd.switch_value(Some(&"disable-features".into()))).to_string();
+            cmd.remove_switch(Some(&"disable-features".into()));
+            let mut features: Vec<&str> = existing
+                .split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .collect();
+            for feat in DISABLED_NET_FEATURES {
+                if !features.contains(&feat) {
+                    features.push(feat);
+                }
+            }
+            let merged = features.join(",");
+            cmd.append_switch_with_value(Some(&"disable-features".into()), Some(&merged.as_str().into()));
+            cmd.append_switch_with_value(
+                Some(&"force-webrtc-ip-handling-policy".into()),
+                Some(&"disable_non_proxied_udp".into()),
+            );
             if let Some(luid) = &self.adapter_luid {
                 cmd.append_switch_with_value(Some(&"use-adapter-luid".into()), Some(&luid.as_str().into()));
             }

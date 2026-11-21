@@ -6,6 +6,7 @@
 //! first-class Rune focus/key isolation without inflating `contract.json` or adding fields to
 //! `struct App`.
 
+mod app_link;
 mod keys;
 mod view;
 
@@ -15,6 +16,7 @@ use rune::{KeyEvent, TextEdit, Tx};
 
 use crate::App;
 
+pub use app_link::app_link_review_bar;
 pub use view::{view_bars, view_modal};
 
 pub(super) const PROMPT_CARD_KEY: &str = "browser-prompt-card";
@@ -54,6 +56,7 @@ impl Feature<App> for BrowserFeature {
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
         builder.register_slot(&BROWSER_PROMPTS);
+        builder.register_slot(&super::extensions::BROWSER_EXTENSIONS);
         // Page JS dialogs and HTTP auth challenges isolate keys inside the MODAL band so shell
         // shortcuts cannot leak behind them (`prompt-keys.ts`).
         builder.register_overlay(
@@ -102,6 +105,7 @@ pub fn poll(s: &mut App, tx: &mut Tx, now: rune::time::Instant) -> bool {
     if let Some(at) = wake {
         tx.wake_after(at.saturating_duration_since(now));
     }
+    changed |= super::extensions::poll(s);
     sync_ui(s, tx);
     if !s.workspace_panes.browser.devtools.is_empty() {
         let blocked: Vec<u64> = s
