@@ -68,6 +68,7 @@ fn thumb<S: TimelineHost>(s: &S, p: &Pal, message: &str, i: usize, f: &Attachmen
             let retry = f.clone();
             tile.role("button")
                 .label(opencode_i18n::t!("ui.fileMedia.state.error", kind = opencode_i18n::t!("ui.fileMedia.kind.image")))
+                .cursor(rune::Cursor::Pointer)
                 .center()
                 .on_press_tx(move |s: &mut S, tx: &mut Tx| {
                     tx.instant();
@@ -89,6 +90,7 @@ fn file_card<S: TimelineHost>(p: &Pal, i: usize, f: &Attachment) -> El {
         .key(format!("file-{i}"))
         .role("button")
         .focusable(true)
+        .cursor(rune::Cursor::Pointer)
         .help(f.name.clone())
         .on_press_tx(move |s: &mut S, tx: &mut Tx| open(s, &file, tx))
 }
