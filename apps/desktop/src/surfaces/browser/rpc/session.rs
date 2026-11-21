@@ -88,14 +88,28 @@ pub(super) struct CapturedFile {
     pub resources: Vec<String>,
 }
 
-/// In-flight Chromium performance trace buffer for one tab.
+/// In-flight or auto-stopped Chromium performance trace for one tab (`profiling-machine.ts`).
 pub(super) struct TraceRecording {
     pub host_id: u64,
     pub started_at: Instant,
+    pub duration_ms: u64,
+    pub stop_at: Option<Instant>,
     pub events: Vec<Value>,
     pub resources: Vec<String>,
     pub complete: bool,
     pub data_loss: bool,
+    pub auto_stop_req: Option<u64>,
+    pub auto_stop_ended: bool,
+    pub auto_stopped: Option<Result<(opencode_kit::browser_rpc::WireFile, f64, bool), String>>,
+}
+
+/// In-flight or auto-stopped V8 CPU profile for one tab (`CPU_MAX_DURATION_MS = 30 s`).
+pub(super) struct CpuRecording {
+    pub started_at: Instant,
+    pub stop_at: Option<Instant>,
+    pub resources: Vec<String>,
+    pub auto_stop_req: Option<u64>,
+    pub auto_stopped: Option<Result<(opencode_kit::browser_rpc::WireFile, f64), String>>,
 }
 
 /// Complete per-session state for one `experimental.browser` v4 attachment.
@@ -120,7 +134,7 @@ pub(super) struct SessionAttachment {
     pub captures: HashMap<u64, Vec<CapturedFile>>,
     pub download_wire_ids: HashMap<(u64, String), String>,
     pub trace_recording: Option<TraceRecording>,
-    pub cpu_started: HashMap<u64, (Instant, Vec<String>)>,
+    pub cpu_started: HashMap<u64, CpuRecording>,
     pub heap_chunks: HashMap<u64, (String, bool)>,
     pub download_origins: HashMap<(u64, String), Vec<String>>,
     pub pending_close_tabs: Vec<u64>,

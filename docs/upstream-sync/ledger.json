@@ -20,8 +20,8 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 164,
   "status_counts": {
-    "have it": 130,
-    "partly": 3,
+    "have it": 131,
+    "partly": 2,
     "not applicable": 23,
     "missing": 7,
     "differs on purpose": 1
@@ -3379,14 +3379,13 @@
       ],
       "summary": "Replace local rune_mcp browser tools on modern servers with pure-Rust experimental.browser v4 RPC client, 45 typed executors, <=1 s durable PromptGate, and authenticated remote tunnel proxy.",
       "size": "XL",
-      "status": "partly",
-      "rune_pr": "#275, #287, #301, #296, #298, #302, #331, #333",
-      "status_evidence": "experimental.browser v4 client (#275 c397d0b9), session-isolated nav/read runtime (#287 a974a664), official routed-session attach (#301 6522f112), legacy rune_mcp browser suppression + Half::is_builtin + hardened check_cdp (#296 95cb36a8), RPC auth/bounds/OOPIFs/wait spin (#298 d6cf8659), remote TunnelProxy hardening/wiring (#302 8b42a094), tabs.open focus:false (#331 5aa677f7), and BrowserTab:Asking() (#333 11dca016) are merged on dev; acting/dialog/files/profiling PR 3 in flight; narrow 3P browser contract tracked in UP-095-3P-CONTRACT.",
+      "status": "have it",
+      "rune_pr": "#275, #287, #301, #296, #298, #302, #325, #331, #333, #386",
+      "status_evidence": "All 43 non-Lighthouse experimental.browser v4 typed operations complete on dev: nav/read/snapshot/screenshot (#275, #287, #298, #331), routed attach & suppression (#301, #296), remote TunnelProxy (#302), prompt gate (#325), prompt.tab data (#333), acting/dialog/confined uploads/diagnostics/profiling (#386), plus OOPIF pointer coords, HTML5 drag interception, OOPIF upload/drop, request post-data fallback, and trace/cpu auto-stop timers; profiling-with-extensions refusal and lighthouse unsupported recorded in ours.md. Narrow 3P contract tracked separately in UP-095-3P-CONTRACT.",
       "depends_on": "UP-095 (#63002), PRE-08 (#63500)",
       "risks": "Remote server attachment must fail closed until engine Ready.remote_proxy lands (WS-1 Phase 3a); older servers must keep full rune_mcp fallback.",
       "workstream": "BROWSER-TOOLS",
-      "reviewed": "#301, #296, #298, #302, #325, #331, #333 merged on dev; acting/dialog/files/profiling PR 3 in flight",
-      "open_pr_note": "Acting, dialog, confined upload/drop, network response bodies, and profiling executors (PR 3)"
+      "reviewed": "Complete through PR 4; 3P contract next in UP-095-3P-CONTRACT"
     },
     {
       "id": "UP-114",

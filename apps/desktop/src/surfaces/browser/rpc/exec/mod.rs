@@ -7,7 +7,9 @@ pub(super) mod dialog;
 pub(super) mod files;
 pub(super) mod input;
 pub(super) mod nav;
+mod point;
 pub(super) mod profile;
+mod profile_analyze;
 pub(super) mod read;
 pub(super) mod snapshot;
 mod target_url;
@@ -80,6 +82,7 @@ impl ExecPhase {
                 }
             }
             Self::Wait(s) => Some(s.next_poll.min(s.deadline)),
+            Self::Input(s) => s.next_wake(),
             _ => None,
         }
     }
@@ -126,7 +129,7 @@ impl ExecPhase {
             Self::NetworkGet(st) => app.workspace_panes.browser.host.cancel_cdp(st.cdp_req),
             Self::Input(st) => st.cancel_cleanup(app),
             Self::Dialog(st) => app.workspace_panes.browser.host.cancel_cdp(st.cdp_req),
-            Self::Upload(st) => app.workspace_panes.browser.host.cancel_cdp(st.stage.cdp_req()),
+            Self::Upload(st) => st.cancel_cleanup(app),
             Self::Profile(st) => app.workspace_panes.browser.host.cancel_cdp(st.stage.cdp_req()),
         }
     }
@@ -442,7 +445,7 @@ pub(super) fn poll_commands(
                 ExecPhase::Wait(st) => read::step_wait(att, app, st, now),
                 ExecPhase::Screenshot(st) => capture::step_screenshot(att, app, st, waker.clone()),
                 ExecPhase::NetworkGet(st) => capture::step_network_get(att, app, st),
-                ExecPhase::Input(st) => input::step_input(att, app, st),
+                ExecPhase::Input(st) => input::step_input(att, app, st, now),
                 ExecPhase::Dialog(st) => dialog::step_dialog(att, app, st),
                 ExecPhase::Upload(st) => files::step_upload(att, app, st),
                 ExecPhase::Profile(st) => profile::step_profile(att, app, st, now),
@@ -467,6 +470,18 @@ pub(super) fn poll_commands(
 
     att.active_commands = still_running;
     (changed, earliest)
+}
+
+/// Forwards `Input.dragIntercepted` drag payload to any active `drag` command on `tab_id`.
+pub(super) fn ingest_drag_intercepted(att: &mut SessionAttachment, tab_id: u64, data: Value) {
+    for cmd in &mut att.active_commands {
+        if let ExecPhase::Input(st) = &mut cmd.phase
+            && st.host_id == tab_id
+        {
+            st.ingest_drag_intercepted(data);
+            break;
+        }
+    }
 }
 
 fn finish_and_reply(

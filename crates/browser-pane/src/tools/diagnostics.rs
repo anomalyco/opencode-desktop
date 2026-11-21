@@ -408,6 +408,7 @@ impl TabDiagnostics {
         include_body: bool,
         include_response_body: bool,
         max_body_chars: usize,
+        fetched_request: Option<Result<String, &'static str>>,
         fetched_response: Option<Result<String, &'static str>>,
     ) -> Value {
         let req_headers: Vec<Value> = hop
@@ -425,6 +426,15 @@ impl TabDiagnostics {
         } else if let Some(data) = &hop.post_data {
             let truncated = hop.post_data_truncated || data.chars().count() > max_body_chars;
             json!({ "state": "text", "text": truncate_chars(data, max_body_chars), "truncated": truncated })
+        } else if let Some(Ok(data)) = fetched_request {
+            if data.is_empty() {
+                json!({ "state": "empty" })
+            } else {
+                let truncated = data.chars().count() > max_body_chars;
+                json!({ "state": "text", "text": truncate_chars(&data, max_body_chars), "truncated": truncated })
+            }
+        } else if let Some(Err(reason)) = fetched_request {
+            json!({ "state": "unavailable", "reason": reason })
         } else if hop.has_post_data {
             json!({ "state": "unavailable", "reason": "notCaptured" })
         } else {

@@ -196,6 +196,20 @@ impl EngineCdpLedger {
         }
     }
 
+    /// Verifies an OOPIF or frame target before `DOM.setFileInputFiles` (`UploadFiles`).
+    pub fn check_upload_target(&self, session: Option<&str>, frame_id: Option<&str>) -> Result<(), String> {
+        if let Some(sid) = session
+            && !self.web_sessions.contains_key(sid)
+        {
+            return Err("UploadFiles sessionId is not an engine-verified web iframe session.".into());
+        }
+        let target_frame = frame_id.map(str::to_owned).or_else(|| self.session_root(session));
+        if let Some(fid) = target_frame {
+            self.check_frame(&fid, session)?;
+        }
+        Ok(())
+    }
+
     fn post_check(&self, frame_id: &str) -> Result<(), String> {
         match self.access(frame_id) {
             Access::Frame => Ok(()),

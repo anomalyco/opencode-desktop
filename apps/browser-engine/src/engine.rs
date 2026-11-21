@@ -720,10 +720,10 @@ impl EngineManager {
                     );
                 }
             }
-            HostMsg::UploadFiles { tab_id, request_id, backend_node_id, files } => {
+            HostMsg::UploadFiles { tab_id, request_id, backend_node_id, files, session_id, frame_id } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
                     let not_ready = (!self.contexts.is_tab_ready(tab_id)).then(|| self.contexts.not_ready_reason(tab_id));
-                    crate::agent::handle_upload_files(t, &self.profile_dir, tab_id, request_id, not_ready, backend_node_id, &files, &self.next_cdp_id, &self.out_tx);
+                    crate::agent::handle_upload_files(t, &self.profile_dir, tab_id, request_id, not_ready, backend_node_id, &files, session_id, frame_id, &self.next_cdp_id, &self.out_tx);
                 }
             }
             HostMsg::DropFiles { tab_id, request_id, x, y, files } => {

@@ -285,7 +285,16 @@ pub enum HostMsg {
         frame_id: Option<String>,
     },
     /// Sets files on a `<input type="file">` strictly from `<profile>/opencode-page-uploads/<tab_id>/`.
-    UploadFiles { tab_id: u64, request_id: u64, backend_node_id: i64, files: Vec<String> },
+    UploadFiles {
+        tab_id: u64,
+        request_id: u64,
+        backend_node_id: i64,
+        files: Vec<String>,
+        #[serde(default)]
+        session_id: Option<String>,
+        #[serde(default)]
+        frame_id: Option<String>,
+    },
     /// Drops staged files onto `(x, y)` strictly from `<profile>/opencode-page-uploads/<tab_id>/`.
     DropFiles { tab_id: u64, request_id: u64, x: f64, y: f64, files: Vec<String> },
     /// App-proxied response headers for a remote workspace or artifact `EngineMsg::PreviewFetch`.
