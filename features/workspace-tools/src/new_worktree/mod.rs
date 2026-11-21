@@ -18,13 +18,14 @@ use rune_theme_opencode::icons as ic;
 use opencode_ui::palette::{Elevate as _, Pal};
 use opencode_ui::style::UI;
 
-/// Where Settings › Default environment says a new draft starts (`workspaces.defaultDestination`).
+/// Which checkout Settings › Worktree says a new draft of the current project uses
+/// (`workspaces.worktree`); a draft in the server's default directory uses its folder.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum DefaultDestination {
+pub enum DraftWorktree {
     #[default]
-    LastUsed,
-    Local,
+    Default,
     New,
+    LastUsed,
 }
 
 /// Object-safe host boundary for new-worktree draft selection, worktree inventory, and the branch picker.
@@ -56,7 +57,7 @@ pub trait NewWorktreeHost {
     fn mark_worktree_onboarding_used(&mut self) {}
     fn invalidate_session_search(&mut self) {}
 
-    fn default_destination(&self) -> DefaultDestination { DefaultDestination::LastUsed }
+    fn draft_worktree(&self) -> DraftWorktree { DraftWorktree::Default }
     fn last_used_destination(&self, _project_id: &str) -> Option<&str> { None }
     fn set_last_used_destination(&mut self, _project_id: String, _place: &str) {}
 
@@ -81,7 +82,7 @@ pub struct NewWorktree {
 #[derive(Clone, Debug, PartialEq)]
 enum Place {
     /// The project's own checkout (`main`).
-    Local,
+    Checkout,
     /// A new worktree (`create`).
     New,
     Existing(String),
@@ -192,8 +193,8 @@ pub fn draft_location_key(host: &mut dyn NewWorktreeHost, ev: &KeyEvent, tx: &mu
     false
 }
 
-/// Local, then New worktree, then the worktree last used if the inventory still has it,
-/// then Local again (`cycleNewSessionWorktree`).
+/// The project's checkout, then New worktree, then the worktree last used if the inventory
+/// still has it, then the checkout again (`cycleNewSessionWorktree`).
 fn cycle_location(host: &mut dyn NewWorktreeHost, project: &str, root: String) {
     let place = draft_place(host, project, &root);
     if let Place::Existing(dir) = &place {
@@ -212,7 +213,7 @@ fn cycle_location(host: &mut dyn NewWorktreeHost, project: &str, root: String) {
         picker.search.focused = false;
     }
     match (place, existing) {
-        (Place::Local, _) => choose_new_worktree(host, project, root),
+        (Place::Checkout, _) => choose_new_worktree(host, project, root),
         (Place::New, Some(dir)) => host.set_draft_dir(dir),
         (Place::New, None) | (Place::Existing(_), _) => host.set_draft_dir(root),
     }
@@ -226,7 +227,7 @@ fn draft_place(host: &dyn NewWorktreeHost, project: &str, root: &str) -> Place {
     if project_worktrees(host, project, root).iter().any(|w| path::trim(w) == path::trim(dir)) {
         return Place::Existing(dir.to_owned());
     }
-    Place::Local
+    Place::Checkout
 }
 
 /// A draft of `project` runs in its existing worktree `dir`: Cycle session location comes
@@ -243,16 +244,16 @@ pub fn note_destination(host: &mut dyn NewWorktreeHost, dir: &str, place: &str) 
     }
 }
 
-/// A new draft starts where Settings › Default environment says: its folder, a new
-/// worktree, or wherever its project's last session started.
+/// A new draft starts where Settings › Worktree says: its folder, a new worktree, or wherever
+/// its project's last session started.
 pub fn apply_default_destination(host: &mut dyn NewWorktreeHost) {
     let Some(id) = host.draft_id().map(str::to_owned) else { return };
     let dir = host.draft_dir().to_owned();
     let Some(project_id) = host.project_at(&dir).map(|p| p.id.clone()) else { return };
-    let new = match host.default_destination() {
-        DefaultDestination::New => true,
-        DefaultDestination::Local => false,
-        DefaultDestination::LastUsed => host.last_used_destination(&project_id) == Some("workspace"),
+    let new = match host.draft_worktree() {
+        DraftWorktree::New => true,
+        DraftWorktree::Default => false,
+        DraftWorktree::LastUsed => host.last_used_destination(&project_id) == Some("workspace"),
     };
     if new {
         host.new_worktree_mut().drafts.insert(id, None);
