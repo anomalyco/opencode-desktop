@@ -301,7 +301,8 @@ fn section_header_trigger<H: SettingsHost + 'static>(
         .child(
             el().size(20.0, 20.0)
                 .center()
-                .child(icon(&ic::CHEVRON_DOWN, 14.0).color(p.icon_muted).rotate(if open { 0.0 } else { -std::f32::consts::FRAC_PI_2 }).mirror_in_rtl()),
+                // `.settings-models-group-chevron` (`provider-group.tsx:100`): default 16 pt `<Icon name="chevron-down" />`.
+                .child(icon(&ic::CHEVRON_DOWN, 16.0).color(p.icon_muted).rotate(if open { 0.0 } else { -std::f32::consts::FRAC_PI_2 }).mirror_in_rtl()),
         )
         .child(label);
     if searching {
