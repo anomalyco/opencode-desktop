@@ -229,6 +229,11 @@ pub fn poll(app: &mut App, fresh: bool, tx: &mut Tx) -> bool {
     // it asked writes what that changes).
     let asked = app.plugins.asked.replace(false);
     let mut changed = false;
+    let focused_pill = tx.focused().and_then(|k| k.strip_prefix("plugin-titlebar-"));
+    if app.plugins.titlebar_focus.as_deref() != focused_pill {
+        app.plugins.titlebar_focus = focused_pill.map(str::to_owned);
+        changed = true;
+    }
     changed |= dormant::poll(app, tx);
     if app.plugins.boot.later().is_empty() {
         dormant::save(app);

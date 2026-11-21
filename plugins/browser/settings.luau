@@ -172,14 +172,14 @@ function settings.entries(i18n: I18nService, caps: Capabilities): { SettingEntry
 end
 
 -- `settings.tsx` `Note`: 12 / 16 in the faint ink, under a section's card.
-local NOTE = table.freeze({ size = 12, weight = "regular", lineHeight = 16, color = "text-faint", wrap = true })
-local MUTED = table.freeze({ size = 13, weight = "regular", lineHeight = 20, color = "text-muted", wrap = true })
+local NOTE: UiTextProps = table.freeze({ size = 12, weight = "regular", lineHeight = 16, color = "text-faint", wrap = true } :: UiTextProps)
+local MUTED: UiTextProps = table.freeze({ size = 13, weight = "regular", lineHeight = 20, color = "text-muted", wrap = true } :: UiTextProps)
 -- `.settings-section-title`, as the Advanced heading's text.
-local HEADING = table.freeze({ size = 13, weight = "medium", lineHeight = 16, color = "text-chrome", noWrap = true })
+local HEADING: UiTextProps = table.freeze({ size = 13, weight = "medium", lineHeight = 16, color = "text-chrome", noWrap = true } :: UiTextProps)
 -- A settings row's title (`SettingsRow`), for rows that draw their own subject.
-local ROW_TITLE = table.freeze({ size = 13, weight = "medium", lineHeight = 16, tracking = -0.04, color = "text-chrome", truncate = true })
-local ASIDE = table.freeze({ size = 13, weight = "regular", lineHeight = 16, color = "text-muted", truncate = true, shrink = true, minW = 0 })
-local SUBLINE = table.freeze({ size = 13, weight = "regular", lineHeight = 20, color = "text-muted", wrap = true })
+local ROW_TITLE: UiTextProps = table.freeze({ size = 13, weight = "medium", lineHeight = 16, tracking = -0.04, color = "text-chrome", truncate = true } :: UiTextProps)
+local ASIDE: UiTextProps = table.freeze({ size = 13, weight = "regular", lineHeight = 16, color = "text-muted", truncate = true, shrink = true, minW = 0 } :: UiTextProps)
+local SUBLINE: UiTextProps = table.freeze({ size = 13, weight = "regular", lineHeight = 20, color = "text-muted", wrap = true } :: UiTextProps)
 
 -- Official's summary names the remote-server and cookie-file rows too; it is shown only once both exist.
 local function advancedSummary(i18n: I18nService, caps: Capabilities): string
@@ -578,7 +578,7 @@ function settings.create(env: Env, refresh: () -> ())
     return { render = render }
 end
 
-local DIALOG_TITLE = table.freeze({ size = 15, weight = "medium", lineHeight = 20, color = "text-chrome", noWrap = true })
+local DIALOG_TITLE: UiTextProps = table.freeze({ size = 15, weight = "medium", lineHeight = 20, color = "text-chrome", noWrap = true } :: UiTextProps)
 
 -- Confirmation dialog body for Clear browsing data (`UP-117` `#65124`).
 function settings.renderClearConfirm(i18n: I18nService, view: View, onCancel: () -> (), onConfirm: () -> ()): ui.Node

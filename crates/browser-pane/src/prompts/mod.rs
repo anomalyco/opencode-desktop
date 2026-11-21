@@ -666,9 +666,18 @@ pub struct TabPromptState {
     /// Last seen main-frame `on_load_start` counter (`TabSnapshot::document`), immune to
     /// `history.replaceState` / `pushState` / hash changes.
     pub document: u64,
+    /// True once the host has forwarded real user pointer/key input to the current document
+    /// (cleared on navigation/reload/context switch; matches official `chromium.ts:377,399,424,871,887,907`).
+    pub document_input: bool,
 }
 
 impl TabPromptState {
+    pub fn record_document_input(&mut self) {
+        if !self.agent_driven {
+            self.document_input = true;
+        }
+    }
+
     pub fn set_blocked_guard_notice(&mut self, reason: BlockedGuardReason, now: Instant) {
         if self.blocked_guard_notice.as_ref() != Some(&reason) {
             self.blocked_guard_notice = Some(reason);
@@ -703,6 +712,7 @@ impl TabPromptState {
         if snap_doc > 0 && snap_doc != self.document {
             if self.document > 0 {
                 self.dialog.on_document_committed();
+                self.document_input = false;
             }
             self.document = snap_doc;
         }
@@ -737,6 +747,7 @@ impl TabPromptState {
         self.auth = AuthGate::Idle;
         self.popup = PopupGate::Idle;
         self.document = 0;
+        self.document_input = false;
     }
 
     /// Context switched (`reopen_tab_as_preview` / `reopen_tab_as_web`): clears visit-scoped
@@ -755,6 +766,7 @@ impl TabPromptState {
         self.auth_attempts.clear();
         self.auth_dismissed.clear();
         self.popup.dismiss();
+        self.document_input = false;
     }
 
     /// Top-level URL changed: allow scripted dialogs again only on a new document (`new_document`:
@@ -774,6 +786,7 @@ impl TabPromptState {
         self.popup.dismiss();
         self.agent_auth_required = None;
         self.clear_blocked_guard_notice();
+        self.document_input = false;
         let same_origin = crate::policy::destination_origin(old_url)
             == crate::policy::destination_origin(new_url);
         if same_origin {

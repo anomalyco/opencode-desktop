@@ -850,10 +850,20 @@ wrap_request_handler! {
             }
             let roots = self.file_roots.lock().unwrap().clone();
             if let Some(why) = browser_policy::frame_guard(&url, is_main, &roots) {
-                let _ = self.out_tx.send(EngineMsg::Refused {
-                    tab_id: self.tab_id,
-                    reason: why.code().to_owned(),
-                });
+                if is_main
+                    && user_gesture != 0
+                    && !is_agent
+                    && !self.ext_policy.isolated
+                    && self.ext_policy.popup_ext_id.is_none()
+                    && browser_policy::classify_app_link(&url, browser_policy::AppSchemeSource::Page).is_some()
+                {
+                    let _ = self.out_tx.send(EngineMsg::AppLinkBlocked { tab_id: self.tab_id, url });
+                } else {
+                    let _ = self.out_tx.send(EngineMsg::Refused {
+                        tab_id: self.tab_id,
+                        reason: why.code().to_owned(),
+                    });
+                }
                 return 1;
             }
             if is_main {
@@ -968,10 +978,19 @@ wrap_request_handler! {
                 return 1;
             }
             if let Some(why) = browser_policy::frame_guard(&url, true, &roots) {
-                let _ = self.out_tx.send(EngineMsg::Refused {
-                    tab_id: self.tab_id,
-                    reason: why.code().to_owned(),
-                });
+                if user_gesture != 0
+                    && !is_agent
+                    && !self.ext_policy.isolated
+                    && self.ext_policy.popup_ext_id.is_none()
+                    && browser_policy::classify_app_link(&url, browser_policy::AppSchemeSource::Page).is_some()
+                {
+                    let _ = self.out_tx.send(EngineMsg::AppLinkBlocked { tab_id: self.tab_id, url });
+                } else {
+                    let _ = self.out_tx.send(EngineMsg::Refused {
+                        tab_id: self.tab_id,
+                        reason: why.code().to_owned(),
+                    });
+                }
                 return 1;
             }
             if opens_new_tab {

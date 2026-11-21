@@ -364,6 +364,9 @@ pub struct FilesPane {
     pub(crate) dir_fetch: Latest<DirListing>,
     /// Each file's reads (`content`).
     pub reads: content::Reads,
+    /// Authenticated remote video downloads (`Authorization` header -> `TempMediaFile`).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) auth_videos: video::AuthVideoDownloads,
     /// The server watches the open files hold (`watch`).
     pub watches: watch::Watches,
     /// The file tab shown last, so a tab that comes to show arms its watch again.
@@ -396,6 +399,8 @@ impl Default for FilesPane {
             wrap: markdown::WrapPrefs::default(),
             dir_fetch: Latest::default(),
             reads: Default::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            auth_videos: Default::default(),
             watches: Default::default(),
             shown: None,
             shown_session: None,

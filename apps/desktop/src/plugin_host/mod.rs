@@ -90,6 +90,9 @@ pub fn surfaces_version(app: &App) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::hash::DefaultHasher::new();
     epoch().hash(&mut h);
+    crate::updater::revision(app).hash(&mut h);
+    app.plugins.titlebar_hover.hash(&mut h);
+    app.plugins.titlebar_focus.hash(&mut h);
     for p in app.plugins.list.iter() {
         p.half.surface_version(p.script()).hash(&mut h);
     }
@@ -179,6 +182,8 @@ pub struct PluginHost {
     pub dialog: Option<OpenDialog>,
     /// The titlebar item the pointer is over, whose pill opens to show its label.
     pub titlebar_hover: Option<&'static str>,
+    /// The titlebar item holding keyboard focus, whose pill opens to show its label (`focus-within`).
+    pub titlebar_focus: Option<String>,
     /// The window lost the system's focus (`ctx.FocusChanged`); a new window has it.
     pub window_blurred: Cell<bool>,
     pub editors: editors::Editors,

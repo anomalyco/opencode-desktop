@@ -20,11 +20,11 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 164,
   "status_counts": {
-    "have it": 125,
-    "partly": 3,
+    "have it": 129,
     "not applicable": 23,
-    "missing": 12,
-    "differs on purpose": 1
+    "missing": 8,
+    "differs on purpose": 1,
+    "partly": 3
   },
   "rows": [
     {
@@ -3410,8 +3410,8 @@
       ],
       "summary": "Keep text field, search bar, palette search, and line-comment focus rings and borders visible under forced-colors / Windows High Contrast mode.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Rune maps Windows Contrast themes via opencode-ui::themes::contrast; text fields, search inputs, and line comment boxes need forced-colors border/invalid/focus-ring verification and parity.",
+      "status": "have it",
+      "status_evidence": "Rune Kit::forced (#1310), set by the app in the system contrast theme: kit text fields draw a text-colour edge (2 pt dashed when invalid) and focus as a 2 pt highlight ring 2 out; the find bar does the same; the line-comment field's focus is a border-focus border with a 1 px outline, not a shadow (PR #347)",
       "depends_on": "UP-088 (#64909)",
       "risks": "none",
       "workstream": "WS-8"
@@ -3598,8 +3598,8 @@
       ],
       "summary": "Size pinned group rename input to 100% width and suppress its focus ring outside forced-colors mode.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "apps/desktop/src/shell/view/sidebar/pinned_area.rs:296 renders pin-group-name via session_view::style::field; verify width containment and no unwanted focus ring in non-contrast mode (keep ring in contrast mode).",
+      "status": "have it",
+      "status_evidence": "The group name field (inline rename, from the group menu's Rename) fills its row and draws no focus ring; rune-desktop's group menu renames inline rather than in a field inside the menu (official's GroupEditor), a UP-072 difference (PR #347)",
       "depends_on": "UP-072 (#64668), UP-088 (#64909)",
       "risks": "none",
       "workstream": "WS-8"
@@ -3805,8 +3805,8 @@
       ],
       "summary": "Keep the side panel '+' add trigger reachable in Tab order and place the settled open panel's review toggle in the panel strip's Tab order (and reveal hover-hidden triggers on focus-visible).",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Audit side-panel add button and review toggle Tab order and focus-visible reveal in features/panels and apps/desktop.",
+      "status": "have it",
+      "status_evidence": "The '+' after the side strip's tabs is a Tab stop, and while the side region is open the review toggle sits in its first strip's reserved slot, so Tab reaches it after '+' (driven: prompt, add, agent, model, effort, submit, the strip's tabs, '+', Toggle review); open and closed look pixel-identical (PR #351)",
       "depends_on": "UP-088 (#64909)",
       "risks": "none",
       "workstream": "WS-8"
@@ -4119,8 +4119,8 @@
       ],
       "summary": "Preserve focus on a focused programmatic/non-tabbable panel container when surrounding page nodes change instead of rescuing focus away.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Audit Rune focus rescue / panel focus preservation when surrounding content updates in WS-8.",
+      "status": "have it",
+      "status_evidence": "Rune's rescue runs only when the focused element leaves or can no longer take focus; a focused tab_index(-1) region (Settings' page, the side panel) still takes it, so it keeps focus as its page changes around it (PR #351)",
       "depends_on": "UP-088 (#64909)",
       "risks": "none",
       "workstream": "WS-8"

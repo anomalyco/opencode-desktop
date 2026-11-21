@@ -22,31 +22,103 @@ use crate::FilesHost;
 
 pub use opencode_kit::path::is_video;
 
-/// Workspace movie source shared by the file viewer and chat; never fetch the entire file, and
+/// Builds the `/api/fs/read/...` path and lowercase file extension for downloading remote media
+/// via `Authorization` HTTP headers (never `auth_token` query parameters).
+pub fn remote_read_request(directory: &str, path: &str) -> (String, String) {
+    use opencode_search::query::{encode_fs_path, percent_encode};
+    let req = format!(
+        "/api/fs/read/{}?location%5Bdirectory%5D={}",
+        encode_fs_path(path),
+        percent_encode(directory)
+    );
+    let ext = path.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+    (req, ext)
+}
+
+/// Workspace movie source shared by the file viewer and chat; never fetch the entire file, never
+/// embed credentials (`auth_token`) in URLs (`packages/app/src/runtime/server/api.ts:45-56`), and
 /// verify local files stay inside `directory` without symlinks/junctions before handing a local
 /// path to `rune::Player`. On native local servers (or with no server), a rejected path returns
 /// `None` with no fallback to `/api/fs/read/...` so symlinks and junctions cannot bypass
-/// confinement.
+/// confinement. On password-protected remote servers, returns `None` so callers download media
+/// via `Authorization` headers (`TempMediaFile`) instead.
 pub fn source(server: Option<&opencode_kit::client::Server>, directory: &str, path: &str) -> Option<String> {
-    use opencode_search::query::{encode_fs_path, percent_encode};
     let stream_url = |s: &opencode_kit::client::Server| {
-        s.stream_url(&format!(
-            "/api/fs/read/{}?location%5Bdirectory%5D={}",
-            encode_fs_path(path),
-            percent_encode(directory)
-        ))
+        let (req, _) = remote_read_request(directory, path);
+        s.stream_url(&req)
     };
     #[cfg(target_arch = "wasm32")]
     {
-        return server.map(stream_url);
+        return server.and_then(stream_url);
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
         if let Some(s) = server.filter(|s| !s.is_local()) {
-            return Some(stream_url(s));
+            return stream_url(s);
         }
         let candidate = std::path::Path::new(directory).join(path).to_string_lossy().into_owned();
         browser_policy::verify_within_root(&candidate, directory, true)
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+type AuthVideoDone = (String, String, Result<opencode_kit::client::TempMediaFile, String>);
+
+/// Background authenticated remote video downloads (`Authorization` header -> owner-only
+/// `TempMediaFile`, never `auth_token` query parameters).
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) struct AuthVideoDownloads {
+    tx: std::sync::mpsc::Sender<AuthVideoDone>,
+    rx: std::sync::mpsc::Receiver<AuthVideoDone>,
+    in_flight: std::collections::HashSet<(String, String)>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Default for AuthVideoDownloads {
+    fn default() -> Self {
+        let (tx, rx) = std::sync::mpsc::channel();
+        Self { tx, rx, in_flight: std::collections::HashSet::new() }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl AuthVideoDownloads {
+    pub(crate) fn start(
+        &mut self,
+        server: &opencode_kit::client::Server,
+        directory: &str,
+        sid: &str,
+        path: &str,
+        waker: Option<rune::Waker>,
+    ) {
+        let key = (sid.to_owned(), path.to_owned());
+        if !self.in_flight.insert(key) {
+            return;
+        }
+        let srv = server.clone();
+        let (req, ext) = remote_read_request(directory, path);
+        let sid = sid.to_owned();
+        let path = path.to_owned();
+        let tx = self.tx.clone();
+        std::thread::Builder::new()
+            .name("opencode-auth-video".into())
+            .spawn(move || {
+                let res = srv.download_media_temp(&req, &ext);
+                let _ = tx.send((sid, path, res));
+                if let Some(w) = waker {
+                    w();
+                }
+            })
+            .ok();
+    }
+
+    pub(crate) fn drain(&mut self) -> Vec<AuthVideoDone> {
+        let mut out = Vec::new();
+        while let Ok(item) = self.rx.try_recv() {
+            self.in_flight.remove(&(item.0.clone(), item.1.clone()));
+            out.push(item);
+        }
+        out
     }
 }
 
@@ -74,6 +146,9 @@ pub struct FileVideo {
     pub scrub: Scrub,
     /// It can't play, and the file was read as any other instead (`poll`).
     read_instead: bool,
+    /// Keeps an authenticated remote download alive on disk until this player drops.
+    #[cfg(not(target_arch = "wasm32"))]
+    _temp_file: Option<opencode_kit::client::TempMediaFile>,
 }
 
 impl FileVideo {
@@ -90,7 +165,17 @@ impl FileVideo {
             overlay: Overlay::default(),
             scrub: Scrub::Idle,
             read_instead: false,
+            #[cfg(not(target_arch = "wasm32"))]
+            _temp_file: None,
         }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn with_temp(temp: opencode_kit::client::TempMediaFile, waker: Option<rune::Waker>) -> Option<FileVideo> {
+        let path = temp.path_str()?.to_owned();
+        let mut clip = Self::new(&path, waker);
+        clip._temp_file = Some(temp);
+        Some(clip)
     }
 
     /// It can't play (Desktop's `decode.failed`).
@@ -128,11 +213,38 @@ fn apply(effect: Option<Effect>, tx: &mut Tx) {
 
 /// Folds each open video's playback into its overlay, and moves a playing one's time on.
 pub fn poll(host: &mut dyn FilesHost, tx: &mut Tx) -> bool {
+    let mut changed = false;
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let finished = host.files_mut().auth_videos.drain();
+        for (sid, path, res) in finished {
+            changed = true;
+            let waker = host.files().waker.clone();
+            let wrap = host.files().wrap;
+            match res.ok().and_then(|temp| FileVideo::with_temp(temp, waker)) {
+                Some(clip) => {
+                    let ws = host.files_mut().sessions.entry(sid).or_default();
+                    let mut doc = wrap.doc(&path, "");
+                    doc.set_binary(0);
+                    ws.docs.insert(path.clone(), doc);
+                    ws.videos.insert(path, clip);
+                }
+                None => {
+                    if let Some(ws) = host.files_mut().sessions.get_mut(&sid) {
+                        ws.docs.remove(&path);
+                    }
+                    crate::ops::read_file(host, &sid, &path, true);
+                }
+            }
+        }
+    }
     if host.files().sessions.values().all(|ws| ws.videos.is_empty()) {
-        return false;
+        if changed {
+            tx.instant();
+        }
+        return changed;
     }
     let now = tx.clock();
-    let mut changed = false;
     let mut playing = false;
     let mut read = Vec::new();
     for (sid, ws) in host.files_mut().sessions.iter_mut() {

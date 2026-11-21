@@ -673,6 +673,9 @@ fn kit_from(p: &Pal) -> Kit {
     for (state, theirs, fg) in [(&mut c.success, v.success, p.diff_add), (&mut c.danger, v.danger, p.diff_del), (&mut c.warning, v.warning, p.warning), (&mut c.info, v.info, p.info)] {
         *state = rune_kit::StateColors { fg, icon: fg, ..theirs };
     }
+    // The system contrast theme (`forced-colors: active`): fields draw a text-colour edge and
+    // focus as a ring in its highlight, the accent there (opencode#65100).
+    k.forced = crate::themes::all().get(p.theme).is_some_and(|i| i.id == crate::themes::CONTRAST).then_some(p.bg_accent);
     k
 }
 

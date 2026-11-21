@@ -24,7 +24,7 @@ pub mod preview;
 mod workspace_root;
 pub use app_links::{
     AppSchemeAction, AppSchemeSource, classify_app_link, is_confirmed_app_scheme_url,
-    is_safe_os_external_url, is_strict_rfc3986_uri,
+    is_page_only_app_scheme, is_safe_os_external_url, is_strict_rfc3986_uri,
 };
 pub use download::{
     MAX_DOWNLOAD_NAME_CHARS, download_url_allowed, is_bidi_control, is_dangerous_download,
@@ -329,7 +329,8 @@ pub fn resolve_address(input: &str) -> String {
 
 mod network;
 pub use network::{
-    is_local_or_loopback_host, is_strict_loopback_ip, loopback_host, validate_proxy_endpoint,
+    is_local_or_loopback_host, is_public_http_url, is_public_ip, is_public_ipv4, is_public_ipv6,
+    is_strict_loopback_ip, loopback_host, validate_proxy_endpoint,
 };
 
 fn is_loopback_authority(value: &str) -> bool {

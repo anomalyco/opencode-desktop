@@ -82,6 +82,7 @@ impl crate::BrowserHost {
     /// the engine if `agent_driven` was not yet enabled. `Agent` takes precedence over `Plugin`.
     pub fn set_tab_driver(&mut self, tab_id: u64, driver: TabDriver) {
         let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) else { return };
+        t.allow_extension_pages = false;
         if t.prompts.driver != Some(TabDriver::Agent) {
             t.prompts.driver = Some(driver);
         }
@@ -233,6 +234,14 @@ impl crate::BrowserHost {
 
     pub fn drain_popup_opens(&mut self) -> impl Iterator<Item = PopupRequest> + '_ {
         self.popup_opens.drain(..)
+    }
+
+    pub fn has_app_links(&self) -> bool {
+        !self.app_links.is_empty()
+    }
+
+    pub fn drain_app_links(&mut self) -> impl Iterator<Item = (u64, String)> + '_ {
+        self.app_links.drain(..)
     }
 
     /// Arms guarded prompt buttons and expires timed-out agent permission prompts.
@@ -388,6 +397,17 @@ impl crate::BrowserHost {
             EngineMsg::PopupBlocked { tab_id, url } => {
                 if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
                     t.prompts.popup.record(url, now);
+                    true
+                } else {
+                    false
+                }
+            }
+            EngineMsg::AppLinkBlocked { tab_id, url } => {
+                if self.tabs.iter().any(|t| t.id == tab_id) {
+                    if self.app_links.len() >= 64 {
+                        self.app_links.pop_front();
+                    }
+                    self.app_links.push_back((tab_id, url));
                     true
                 } else {
                     false

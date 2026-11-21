@@ -230,12 +230,21 @@ pub(crate) fn execute_check_code_path(srv: &Server, dir: &str, target: &str) -> 
 /// `checkFileLinkExists` with no base: `~` (the server's home, which the app can't expand) and
 /// network shares are no; an absolute path is listed in its folder; any other is searched for.
 fn reply_path_exists(srv: &Server, dir: &str, code: &str) -> bool {
+    if browser_policy::is_raw_unc_href(code) {
+        return false;
+    }
     let (path, _) = file_link(code);
-    if path.is_empty() || path.starts_with('~') || path.starts_with("//") {
+    if path.is_empty() || path.starts_with('~') || path.starts_with("//") || browser_policy::is_raw_unc_href(&path) {
         return false;
     }
     if !is_absolute_link(&path) {
         return execute_resolve_code_link(srv, dir, &path).is_some();
+    }
+    // On a local server, verify fixed-drive/MNT_LOCAL and zero reparse points BEFORE asking the
+    // server to list an absolute parent directory (prevents zero-click SMB/autofs probes on
+    // mapped drives, `subst`-to-UNC, junctions, or `/net/`).
+    if srv.is_local() {
+        return browser_policy::verify_local_path(&path).is_ok_and(|v| v.is_file);
     }
     // Lists the folder instead of reading the file, so a check moves no content.
     let name = opencode_kit::path::basename(&path);

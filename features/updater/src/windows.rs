@@ -21,10 +21,10 @@
 //! A check reads the feed's `windows-x64` (or `windows-arm64`) target: a zip of the install
 //! folder. The download's size and SHA-256 must match the manifest's, every program and library
 //! in it must carry a trusted Authenticode signature from [`EXPECTED_PUBLISHER`], and it unpacks
-//! beside the root. Restart to update (or quitting with an update ready) copies the staged
-//! version's own executable into the updates folder and starts it as the helper
-//! (`--apply-update`, see `apply.rs`), which waits for this process to exit, swaps the folders
-//! and, for a restart, starts the new version with the same arguments.
+//! beside the root. Clicking Update / Install and restart copies the staged version's own
+//! executable into the updates folder and starts it as the helper (`--apply-update`, see
+//! `apply.rs`), which waits for this process to exit, swaps the folders and starts the new
+//! version with the same arguments. Windows never installs on plain quit (`platform.ts:30`).
 
 pub(super) mod bundle;
 pub(super) mod receipt;
@@ -176,12 +176,6 @@ impl Platform for Windows {
 
     fn install(&self) -> Result<(), String> {
         self.hand_off(true)
-    }
-
-    fn install_on_quit(&self) {
-        if let Err(e) = self.hand_off(false) {
-            log(&format!("updater: couldn't install on quit: {e}"));
-        }
     }
 
     fn take_last_error(&self) -> Option<String> {

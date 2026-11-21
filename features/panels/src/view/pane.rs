@@ -121,7 +121,7 @@ fn compute_bar_hash(
         (
             preview_key,
             shown_new.map(|n| n.id.as_str()),
-            reserve_toggle,
+            (reserve_toggle, super::toggle_in_strip(host)),
             focused,
             host.side().pane_drag.dragging(),
             entries.len(),
