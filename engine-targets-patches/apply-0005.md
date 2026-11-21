@@ -25,5 +25,5 @@ git push -u origin ci/pr-build-browser-engine
 ```
 
 - **Patch SHA-256:** `f571c627fde0a75c4fd8a8004c368e7b98662541b12939b8d8ea39ef5f2728f7` (`8992` B)
-- **Expected diffstat:** `2 files changed, 80 insertions(+), 5 deletions(-)`
+- **Expected diffstat:** `2 files changed, 87 insertions(+), 4 deletions(-)`
 - **Expected `HEAD:.github` (on `98544f6b5ddb84384400e9d1f3c7095544e4452a`):** `8277b1b7ab2949fecadcc4e35acd5f790d591669`
