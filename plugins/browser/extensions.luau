@@ -125,18 +125,18 @@ export type DialogEnv = {
     onClose: () -> (),
 }
 
-local TITLE = table.freeze({ size = 13, weight = "medium", lineHeight = 16, color = "text-chrome", truncate = true })
-local BODY = table.freeze({ size = 13, weight = "regular", lineHeight = 18, color = "text-muted", wrap = true })
-local BODY_SINGLE = table.freeze({ size = 13, weight = "regular", lineHeight = 18, color = "text-muted", noWrap = true })
-local NOTE = table.freeze({ size = 12, weight = "regular", lineHeight = 16, color = "text-faint", wrap = true })
-local SUB_MUTED = table.freeze({ size = 12, weight = "regular", lineHeight = 16, color = "text-muted", noWrap = true })
-local SUB_WARN = table.freeze({ size = 12, weight = "regular", lineHeight = 16, color = "status-warning", noWrap = true })
-local WARN_LINE = table.freeze({ size = 13, weight = "regular", lineHeight = 18, color = "status-warning", noWrap = true })
-local DANGER_LINE = table.freeze({ size = 13, weight = "regular", lineHeight = 18, color = "status-danger", wrap = true })
-local DIALOG_TITLE = table.freeze({ size = 15, weight = "medium", lineHeight = 20, color = "text-chrome", wrap = true })
-local SECTION_LABEL = table.freeze({ size = 13, weight = "medium", lineHeight = 16, color = "text-chrome", noWrap = true })
-local WARN_LABEL = table.freeze({ size = 13, weight = "medium", lineHeight = 18, color = "status-warning", wrap = true })
-local STRONG_LINE = table.freeze({ size = 13, weight = "medium", lineHeight = 18, color = "text-chrome", wrap = true })
+local TITLE: UiTextProps = table.freeze({ size = 13, weight = "medium", lineHeight = 16, color = "text-chrome", truncate = true } :: UiTextProps)
+local BODY: UiTextProps = table.freeze({ size = 13, weight = "regular", lineHeight = 18, color = "text-muted", wrap = true } :: UiTextProps)
+local BODY_SINGLE: UiTextProps = table.freeze({ size = 13, weight = "regular", lineHeight = 18, color = "text-muted", noWrap = true } :: UiTextProps)
+local NOTE: UiTextProps = table.freeze({ size = 12, weight = "regular", lineHeight = 16, color = "text-faint", wrap = true } :: UiTextProps)
+local SUB_MUTED: UiTextProps = table.freeze({ size = 12, weight = "regular", lineHeight = 16, color = "text-muted", noWrap = true } :: UiTextProps)
+local SUB_WARN: UiTextProps = table.freeze({ size = 12, weight = "regular", lineHeight = 16, color = "status-warning", noWrap = true } :: UiTextProps)
+local WARN_LINE: UiTextProps = table.freeze({ size = 13, weight = "regular", lineHeight = 18, color = "status-warning", noWrap = true } :: UiTextProps)
+local DANGER_LINE: UiTextProps = table.freeze({ size = 13, weight = "regular", lineHeight = 18, color = "status-danger", wrap = true } :: UiTextProps)
+local DIALOG_TITLE: UiTextProps = table.freeze({ size = 15, weight = "medium", lineHeight = 20, color = "text-chrome", wrap = true } :: UiTextProps)
+local SECTION_LABEL: UiTextProps = table.freeze({ size = 13, weight = "medium", lineHeight = 16, color = "text-chrome", noWrap = true } :: UiTextProps)
+local WARN_LABEL: UiTextProps = table.freeze({ size = 13, weight = "medium", lineHeight = 18, color = "status-warning", wrap = true } :: UiTextProps)
+local STRONG_LINE: UiTextProps = table.freeze({ size = 13, weight = "medium", lineHeight = 18, color = "text-chrome", wrap = true } :: UiTextProps)
 
 function extensions.flattenChoices(sources: { BrowserSource }): { ProfileChoice }
     local out: { ProfileChoice } = {}
@@ -235,7 +235,7 @@ local function compatTooltip(i18n: I18nService, compat: Compatibility?): string?
             table.insert(lines, causeText)
         end
     end
-    local missing = compat.missing or {}
+    local missing: { string } = compat.missing or {}
     if #missing > 0 then
         table.insert(lines, i18n:T("extensions.compat.missing"))
         for _, feat in missing do
@@ -387,8 +387,8 @@ local function renderInstallReview(env: DialogEnv, view: View, rev: InstallRevie
     local i18n = env.I18n
     local st = env.state
     local hardBlocked = extensions.isHardBlocked(rev.compatibility)
-    local access = (rev.grants and rev.grants.access) or {}
-    local sites = rev.sites or {}
+    local access: { string } = (rev.grants and rev.grants.access) or {}
+    local sites: { string } = rev.sites or {}
     local hasAllSites = false
     for _, item in access do
         if item == "allSites" then
@@ -438,8 +438,8 @@ local function renderInstallReview(env: DialogEnv, view: View, rev: InstallRevie
     end
 
     if rev.added ~= nil then
-        local addedAccess = rev.added.access or {}
-        local addedHosts = rev.added.hosts or {}
+        local addedAccess: { string } = rev.added.access or {}
+        local addedHosts: { string } = rev.added.hosts or {}
         local addedBullets: { ui.Node } = {}
         local mentionsSites = false
         for idx, item in addedAccess do

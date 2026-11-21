@@ -155,9 +155,9 @@ function settings.entries(i18n: I18nService, caps: Capabilities): { SettingEntry
     return out
 end
 
-local NOTE = table.freeze({ size = 12, weight = "regular", lineHeight = 16, color = "text-faint", wrap = true })
-local MUTED = table.freeze({ size = 13, weight = "regular", lineHeight = 18, color = "text-muted", wrap = true })
-local HEADING = table.freeze({ size = 13, weight = "medium", lineHeight = 16, color = "text-chrome", noWrap = true })
+local NOTE: UiTextProps = table.freeze({ size = 12, weight = "regular", lineHeight = 16, color = "text-faint", wrap = true } :: UiTextProps)
+local MUTED: UiTextProps = table.freeze({ size = 13, weight = "regular", lineHeight = 18, color = "text-muted", wrap = true } :: UiTextProps)
+local HEADING: UiTextProps = table.freeze({ size = 13, weight = "medium", lineHeight = 16, color = "text-chrome", noWrap = true } :: UiTextProps)
 
 local function advancedSummary(i18n: I18nService, caps: Capabilities): string
     if caps.remoteSignIns and caps.cookieFile then
@@ -455,7 +455,7 @@ function settings.create(env: Env, refresh: () -> ())
     return { render = render }
 end
 
-local DIALOG_TITLE = table.freeze({ size = 15, weight = "medium", lineHeight = 20, color = "text-chrome", noWrap = true })
+local DIALOG_TITLE: UiTextProps = table.freeze({ size = 15, weight = "medium", lineHeight = 20, color = "text-chrome", noWrap = true } :: UiTextProps)
 
 -- Confirmation dialog body for Clear browsing data (`UP-117` `#65124`).
 function settings.renderClearConfirm(i18n: I18nService, view: View, onCancel: () -> (), onConfirm: () -> ()): ui.Node
