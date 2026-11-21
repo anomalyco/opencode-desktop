@@ -506,9 +506,12 @@ fn finish_and_reply(
     if !att.attach.is_request_in_flight(connection_id, &request_id) {
         return;
     }
+    // The tabs as the command left them go first, but only when they changed: an unchanged state is
+    // one more request to the server before every result (official sends state on change too).
     let (state, hash) = att.sync_tabs(app);
-    let _ = att.attach.step(AttachEvent::StateChanged { hash }, now);
-    att.enqueue_state(connection_id, state, hash);
+    if !att.attach.step(AttachEvent::StateChanged { hash }, now).is_empty() {
+        att.enqueue_state(connection_id, state, hash);
+    }
     att.enqueue_result(connection_id, request_id.clone(), outcome);
     let _ = att.attach.step(AttachEvent::CommandFinished { request_id }, now);
 }
