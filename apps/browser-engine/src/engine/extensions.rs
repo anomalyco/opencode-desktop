@@ -39,7 +39,24 @@ impl EngineManager {
             Some(ext) => ext.on_startup_verified(startup),
             None => return,
         };
+        self.refresh_ext_clipboard_write_ids();
         self.run_ext_effects(effects);
+    }
+
+    fn refresh_ext_clipboard_write_ids(&self) {
+        let next = self.extensions.as_ref().map(|e| e.clipboard_write_ext_ids()).unwrap_or_default();
+        *self.ext_clipboard_write_ids.lock().unwrap() = next;
+    }
+
+    fn push_ext_clipboard_write_for_tabs(&self, ext_id: &str, allowed: bool) {
+        for t in self.tabs.values() {
+            let cur_url = t.snap.lock().unwrap().url.clone();
+            if crate::extensions::manifest::extension_id_from_url(&cur_url) == Some(ext_id) {
+                for raw in t.clipboard_gate.sync_ext_contexts_for(ext_id, allowed) {
+                    t.host.send_dev_tools_message(Some(raw.as_bytes()));
+                }
+            }
+        }
     }
 
     pub fn poll_extensions(&mut self) -> bool {
@@ -252,6 +269,7 @@ impl EngineManager {
                     let _ = self.out_tx.send(EngineMsg::ExtensionAction { action });
                 }
                 ExtEffect::ExtensionsSynced(extensions) => {
+                    self.refresh_ext_clipboard_write_ids();
                     let _ = self.out_tx.send(EngineMsg::ExtensionsState {
                         request_id: None,
                         extensions,
@@ -264,6 +282,8 @@ impl EngineManager {
                     if !self.rejected_exts.contains(&ext_id) {
                         self.rejected_exts.push(ext_id.clone());
                     }
+                    self.ext_clipboard_write_ids.lock().unwrap().remove(&ext_id);
+                    self.push_ext_clipboard_write_for_tabs(&ext_id, false);
                     let _ = self.out_tx.send(EngineMsg::ExtensionIntegrityFailed { ext_id });
                 }
                 ExtEffect::PopupResized { ext_id, width, height } => {
@@ -274,6 +294,7 @@ impl EngineManager {
                 }
                 ExtEffect::ExtensionUninstalled { ext_id, ok, error } => {
                     if ok {
+                        self.ext_clipboard_write_ids.lock().unwrap().remove(&ext_id);
                         let prefix = format!("chrome-extension://{ext_id}/");
                         let stale_popups: Vec<u64> = self
                             .tabs
@@ -294,10 +315,23 @@ impl EngineManager {
                         for t in self.tabs.values() {
                             t.allowed_ext_ids.lock().unwrap().retain(|id| id != &ext_id);
                         }
+                        self.push_ext_clipboard_write_for_tabs(&ext_id, false);
                     }
                     let _ = self.out_tx.send(EngineMsg::ExtensionUninstalled { ext_id, ok, error });
                 }
                 ExtEffect::ExtensionReloaded { ext_id, ok, error } => {
+                    if ok {
+                        let has_cw = self.extensions.as_ref().is_some_and(|e| e.has_clipboard_write(&ext_id));
+                        {
+                            let mut set = self.ext_clipboard_write_ids.lock().unwrap();
+                            if has_cw {
+                                set.insert(ext_id.clone());
+                            } else {
+                                set.remove(&ext_id);
+                            }
+                        }
+                        self.push_ext_clipboard_write_for_tabs(&ext_id, has_cw);
+                    }
                     let _ = self.out_tx.send(EngineMsg::ExtensionReloaded { ext_id, ok, error });
                 }
                 ExtEffect::NotificationShow { ext_id, ext_name, notif_id, body } => {
@@ -305,6 +339,31 @@ impl EngineManager {
                 }
                 ExtEffect::NotificationClear { ext_id, notif_id } => {
                     let _ = self.out_tx.send(EngineMsg::ExtensionNotificationClear { ext_id, notif_id });
+                }
+                ExtEffect::WakeExtensionWorker { ext_id } => {
+                    if !self.extensions.as_ref().is_some_and(|e| e.is_loaded_extension(&ext_id)) {
+                        continue;
+                    }
+                    static SW_WAKE_SEQ: AtomicU64 = AtomicU64::new(0);
+                    let host = self
+                        .tabs
+                        .values()
+                        .find(|t| !t.isolated && !t.prompts.agent_driven.load(Ordering::Acquire))
+                        .or_else(|| self.tabs.values().find(|t| !t.isolated))
+                        .map(|t| t.host.clone())
+                        .or_else(|| self.seed_probe.clone());
+                    if let Some(host) = host {
+                        let base = crate::extensions::sw_wake::SW_WAKE_ID_BASE
+                            + ((SW_WAKE_SEQ.fetch_add(2, Ordering::Relaxed) % 9_000_000) as i32);
+                        let scope = format!("chrome-extension://{ext_id}/");
+                        for msg in [
+                            json!({ "id": base, "method": "ServiceWorker.enable", "params": {} }),
+                            json!({ "id": base + 1, "method": "ServiceWorker.startWorker", "params": { "scopeURL": scope } }),
+                        ] {
+                            let raw = msg.to_string();
+                            let _ = host.send_dev_tools_message(Some(raw.as_bytes()));
+                        }
+                    }
                 }
             }
         }
@@ -632,7 +691,14 @@ impl EngineManager {
         };
         if let Some(disable) = disable {
             t.host.send_dev_tools_message(Some(disable.as_bytes()));
-            for binding in [t.passkeys.binding_msg(None), t.media_gate.binding_msg(None)] {
+            for binding in [
+                Some(t.passkeys.binding_msg(None)),
+                Some(t.media_gate.binding_msg(None)),
+                t.clipboard_gate.binding_msg(None),
+            ]
+            .into_iter()
+            .flatten()
+            {
                 t.host.send_dev_tools_message(Some(binding.as_bytes()));
             }
         }
@@ -932,6 +998,7 @@ impl EngineManager {
             t.prompts.user_reclaimed.store(false, Ordering::Release);
             t.snap.lock().unwrap().agent_driven = agent_driven;
             sync_file_choosers(t);
+            sync_clipboard_gate(t);
             if agent_driven {
                 // The person's unused media-gate Allow is theirs: the agent never inherits it.
                 t.prompts.clear_media_gate_allows();
@@ -1178,6 +1245,17 @@ pub(super) fn sync_file_choosers(t: &ManagedTab) {
     let child_sids = t.cdp_ledger.lock().unwrap().web_session_ids();
     for sid in child_sids {
         let raw = t.passkeys.file_chooser_intercept_msg(enabled, Some(&sid));
+        t.host.send_dev_tools_message(Some(raw.as_bytes()));
+    }
+}
+
+/// Keeps `TabClipboardGate` aligned with `is_preview || agent_driven` across all live
+/// execution contexts and sessions (official `site-permissions.ts:152-157`, `policy.ts:132-135`,
+/// READER-7 N5). Deliberately ignores `user_reclaimed` so human takeover never re-enables page
+/// clipboard writes on an agent-driven tab.
+pub(super) fn sync_clipboard_gate(t: &ManagedTab) {
+    let blocked = t.preview.is_some() || t.prompts.agent_driven.load(Ordering::Acquire);
+    for raw in t.clipboard_gate.set_blocked_messages(blocked) {
         t.host.send_dev_tools_message(Some(raw.as_bytes()));
     }
 }

@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use cef::{
-    Browser, BrowserHost, BrowserSettings, CefString, ImplBrowser, ImplBrowserHost, ImplFrame,
+    Browser, BrowserHost, CefString, ImplBrowser, ImplBrowserHost, ImplFrame,
     MouseButtonType, MouseEvent, PaintElementType, Registration, RequestContext, WindowInfo, sys,
 };
 use serde_json::{Value, json};
@@ -43,6 +43,7 @@ pub(crate) struct ManagedTab {
     pub(crate) cdp_ledger: Arc<Mutex<crate::cdp_ledger::EngineCdpLedger>>,
     pub(crate) passkeys: Arc<crate::passkeys::TabPasskeyGate>,
     pub(crate) media_gate: Arc<crate::media_gate::TabMediaGate>,
+    pub(crate) clipboard_gate: Arc<crate::clipboard_gate::TabClipboardGate>,
     pub(crate) input_guard: Arc<Mutex<crate::input_guard::InputGuard>>,
     pub(crate) emulation_scale: Arc<std::sync::atomic::AtomicU32>,
     internal_picked: Arc<Mutex<Vec<i64>>>,
@@ -82,6 +83,7 @@ pub struct EngineManager {
     next_eref: u64,
     /// Agent commands waiting, in arrival order, for their tab's `WebAuthn.enable` reply.
     passkey_held: Vec<HostMsg>,
+    pub(super) ext_clipboard_write_ids: Arc<Mutex<std::collections::HashSet<String>>>,
     /// The app's scheme, once it said (`HostMsg::SetColorScheme`).
     dark: Option<bool>,
     /// The user's home directory, for filtering overly broad workspace `file_roots`.
@@ -128,6 +130,7 @@ impl EngineManager {
             crate::permissions::scrub_legacy_content_settings(&global);
             crate::context::disable_non_proxied_udp(&global);
         }
+        let ext_clipboard_write_ids = Arc::new(Mutex::new(extensions.as_ref().map(|e| e.clipboard_write_ext_ids()).unwrap_or_default()));
         Self {
             tabs: HashMap::new(),
             mach_port: Arc::new(AtomicU32::new(0)),
@@ -144,6 +147,7 @@ impl EngineManager {
             next_cdp_id: Arc::new(AtomicI32::new(100)),
             next_eref: 1,
             passkey_held: Vec::new(),
+            ext_clipboard_write_ids,
             dark: None,
             home: crate::profile::home_dir(),
             downloads: crate::downloads::Downloads::open(&downloads),
@@ -791,7 +795,8 @@ impl EngineManager {
                                 && t.preview.is_none()
                                 && let Some(ext) = self.extensions.as_mut()
                             {
-                                ext.on_context_menu_clicked(tab_id, &ext_id, &item_id, &target);
+                                let effects = ext.on_context_menu_clicked(tab_id, &ext_id, &item_id, &target);
+                                self.run_ext_effects(effects);
                             }
                         }
                         Some(crate::menu::MenuFollowUp::CopyImage { url, frame_id }) => {
@@ -886,7 +891,8 @@ impl EngineManager {
             }
             HostMsg::ExtensionNotificationEvent { ext_id, notif_id, clicked, by_user } => {
                 if let Some(ext) = &mut self.extensions {
-                    ext.on_notification_event(&ext_id, &notif_id, clicked, by_user);
+                    let effects = ext.on_notification_event(&ext_id, &notif_id, clicked, by_user);
+                    self.run_ext_effects(effects);
                 }
             }
             HostMsg::SetNotificationsEnabled { enabled } => {
@@ -1269,11 +1275,7 @@ impl EngineManager {
         win_info.shared_texture_enabled = i32::from(shared_texture);
         win_info.external_begin_frame_enabled = 0;
 
-        let browser_settings = BrowserSettings {
-            windowless_frame_rate: 60,
-            background_color: BASE_COLOR,
-            ..Default::default()
-        };
+        let browser_settings = crate::clipboard_gate::browser_settings(BASE_COLOR, is_preview || agent_driven);
 
         // Hard fail-closed invariant: an isolated or preview tab must NEVER open without a
         // dedicated `CefRequestContext` (falling back to `None` would open it inside `Default`).
@@ -1348,12 +1350,14 @@ impl EngineManager {
         let cdp_ledger = Arc::new(Mutex::new(crate::cdp_ledger::EngineCdpLedger::default()));
         let passkeys = Arc::new(crate::passkeys::TabPasskeyGate::new(tab_id, agent_driven));
         let media_gate = Arc::new(crate::media_gate::TabMediaGate::new());
+        let ext_cw = is_allowed_ext_url.as_deref().is_some_and(|id| self.ext_clipboard_write_ids.lock().unwrap().contains(id));
+        let clipboard_gate = Arc::new(crate::clipboard_gate::TabClipboardGate::new(is_popup, is_preview, agent_driven, ext_cw, self.ext_clipboard_write_ids.clone()));
         let internal_picked = Arc::new(Mutex::new(Vec::new()));
         let pending_clears = Arc::new(Mutex::new(Vec::new()));
         let mut observer = TabCdpObserver::new(
             tab_id, is_popup, isolated, is_preview, preview_grant.clone(), snap.clone(), cdp_id_map.clone(),
             internal_picked.clone(), pending_clears.clone(), cdp_ledger.clone(), passkeys.clone(),
-            media_gate.clone(), context_ready, self.prompt_shared.clone(), input_guard.clone(), emulation_scale.clone(),
+            media_gate.clone(), clipboard_gate.clone(), allowed_ext_ids.clone(), context_ready, self.prompt_shared.clone(), input_guard.clone(), emulation_scale.clone(),
             self.next_cdp_id.clone(), prompts.clone(), self.permissions.clone(),
             self.extensions.is_some(), self.events.clone(), self.out_tx.clone(),
         );
@@ -1363,6 +1367,7 @@ impl EngineManager {
         let mut arm = cdp_ledger.lock().unwrap().arm();
         arm.extend(passkeys.attach_messages(None));
         arm.extend(media_gate.attach_messages(None));
+        arm.extend(clipboard_gate.attach_messages(None));
         if agent_driven || is_preview {
             arm.push(passkeys.file_chooser_intercept_msg(true, None));
         }
@@ -1396,6 +1401,7 @@ impl EngineManager {
                 cdp_ledger,
                 passkeys,
                 media_gate,
+                clipboard_gate,
                 input_guard,
                 emulation_scale,
                 internal_picked,
