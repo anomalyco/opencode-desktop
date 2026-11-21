@@ -401,7 +401,7 @@ impl EngineManager {
             self.downloads.clone(),
             null_out.clone(),
         );
-        let life_span = TabLifeSpanHandler::new(u64::MAX, false, context_ready.clone(), null_out.clone());
+        let life_span = TabLifeSpanHandler::new(u64::MAX, false, context_ready.clone(), prompts.clone(), null_out.clone());
         let jsdialog = TabDialogHandler::new(
             u64::MAX,
             prompt_shared.clone(),

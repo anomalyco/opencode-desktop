@@ -67,6 +67,9 @@ enum HeldPermission {
 #[derive(Default)]
 pub struct TabPrompts {
     pub agent_driven: AtomicBool,
+    /// One pop-up per input event, as Chromium's blocker allows per user activation (it is off:
+    /// `--disable-popup-blocking`). Set by the person's click/key and the agent's `Input.*` command.
+    pub popup_credit: AtomicBool,
     pub proxy: Mutex<Option<RemoteProxyConfig>>,
     dialogs: Mutex<Vec<(PageDialog, JsdialogCallback)>>,
     permissions: Mutex<Vec<HeldPermission>>,
@@ -467,6 +470,7 @@ wrap_life_span_handler! {
         tab_id: u64,
         is_preview: bool,
         context_ready: Arc<AtomicBool>,
+        prompts: Arc<TabPrompts>,
         out_tx: Output,
     }
 
@@ -517,7 +521,9 @@ wrap_life_span_handler! {
                 }
                 return 1;
             }
-            if user_gesture != 0 {
+            // A gesture opens one pop-up; a page that opens more from the same click gets the
+            // "Pop-up blocked" notice for the rest.
+            if user_gesture != 0 && self.prompts.popup_credit.swap(false, Ordering::AcqRel) {
                 let background = *target_disposition.as_ref()
                     == sys::cef_window_open_disposition_t::CEF_WOD_NEW_BACKGROUND_TAB;
                 let _ = self.out_tx.send(EngineMsg::PopupOpen {
