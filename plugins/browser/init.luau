@@ -1006,7 +1006,23 @@ return plugin.defineWindow(function(ctx)
                     maxW = 160,
                 }),
             }
-            if unseenTabs[id] then
+            local tAny = tab :: any
+            local asking = type(tAny.Asking) == "function" and tAny:Asking() == true
+            local unseen = not asking
+                and (unseenTabs[id] == true or (type(tAny.Unseen) == "function" and tAny:Unseen() == true))
+            -- Official `renderer.tsx:536-538`: amber `prompt.tab` ("Waiting for you") takes precedence
+            -- over blue `tab.activity` ("The agent used this tab"), both 6×6 rounded dots.
+            if asking then
+                table.insert(children, ui.box({
+                    key = `browser-tab-dot-{id}`,
+                    role = "img",
+                    label = I18n:T("prompt.tab"),
+                    w = 6,
+                    h = 6,
+                    radius = 3,
+                    fill = "status-warning",
+                }))
+            elseif unseen then
                 table.insert(children, ui.box({
                     key = `browser-tab-dot-{id}`,
                     role = "img",
