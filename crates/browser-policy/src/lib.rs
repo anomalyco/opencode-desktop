@@ -26,14 +26,17 @@ pub use app_links::{
     is_safe_os_external_url, is_strict_rfc3986_uri,
 };
 pub use local_fs::{
-    LocalPathError, VerifiedLocalPath, is_local_fixed_drive, is_macos_bundle,
+    LocalPathError, VerifiedLocalPath, is_local_fixed_drive, is_macos_bundle, resolve_local_root,
     reveal_in_file_manager, verify_local_path, verify_within_root,
 };
 pub use local_path::{
     is_allowed_local_reparse_tag, is_clsid_folder_name, is_macos_bundle_path, is_raw_unc_href,
     is_unc_or_device_path, is_unc_or_device_path_for, is_unix_autofs_path, safe_local_reveal_path,
 };
-pub use workspace_root::{is_safe_local_workspace_root, is_safe_workspace_root};
+pub use workspace_root::{
+    is_safe_local_workspace_root, is_safe_workspace_root, resolve_local_home,
+    resolve_safe_local_workspace_root,
+};
 use workspace_root::path_within_root;
 
 /// Why a navigation was refused (`policy.ts:68-83`, `chromium.ts:442`).
