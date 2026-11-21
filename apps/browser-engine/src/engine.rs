@@ -1256,6 +1256,7 @@ impl EngineManager {
             dialog,
             find,
             context_menu,
+            prompts.clone(),
         );
 
         let mut win_info = WindowInfo::default().set_as_windowless(Default::default());

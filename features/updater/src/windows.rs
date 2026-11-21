@@ -89,6 +89,10 @@ pub fn platform(exe: &Path, version: &str, build_channel: &str, updates: PathBuf
         None if release_signed(exe, build_channel) => (feed::WINDOWS_SERVICE_URL.to_owned(), Trust::Publisher),
         None => return None,
     };
+    if !feed::allowed_update_url(&service) {
+        log(&format!("updater: off: refusing insecure feed URL {service}"));
+        return None;
+    }
     let root = exe.parent()?.to_path_buf();
     sweep(&root, &updates);
     let _ = receipt::at(&root);

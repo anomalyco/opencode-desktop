@@ -252,6 +252,13 @@ impl TabPasskeyGate {
         vec![add_binding, add_script]
     }
 
+    /// `Runtime.addBinding` for the wrapper's report channel on `session_id`. A `Runtime.disable`
+    /// on that session drops it (V8 `V8RuntimeAgentImpl::disable` removes `globalBindings`), so
+    /// the engine sends it again after each `Runtime.disable` it sends.
+    pub fn binding_msg(&self, session_id: Option<&str>) -> String {
+        self.build_cdp("Runtime.addBinding", json!({ "name": self.report }), session_id).1
+    }
+
     /// Builds `Page.setInterceptFileChooserDialog` (`file-choosers.ts:19`) for root (`None`) or
     /// an OOPIF session (`Some(sid)`), suppressing HTML file inputs & File System Access pickers
     /// in Blink while the tab is agent-driven or a preview.

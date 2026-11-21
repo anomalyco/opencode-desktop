@@ -122,8 +122,13 @@ impl App {
     fn taskbar_summary(&self) -> Summary {
         let server = crate::servers::runtime::active(self);
         self.tabs.iter().filter(|t| !t.is_draft() && t.server == *server).fold(Summary::default(), |mut sum, t| {
-            let marks = self.marks(&t.id);
-            let ended = marks.unread && !marks.attention;
+            // As Desktop's `useWindowTabActivity` (opencode#65317): a muted session never waits
+            // or ends unread, and one still working hasn't ended.
+            let mut marks = self.marks(&t.id);
+            if crate::session_menu::preferences::muted(&t.server, &t.id) {
+                (marks.attention, marks.unread) = (false, false);
+            }
+            let ended = marks.unread && !marks.attention && !marks.busy;
             sum.waiting += u32::from(marks.attention);
             sum.unread += u32::from(ended);
             sum.failed |= ended && self.session(&t.id).is_some_and(|s| s.outcome.as_deref() == Some("failed"));

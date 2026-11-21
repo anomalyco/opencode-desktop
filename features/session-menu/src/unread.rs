@@ -5,7 +5,6 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
-use opencode_kit::client::Write;
 use opencode_kit::servers::ServerKey;
 
 use crate::host::SessionMenuHost;
@@ -82,6 +81,11 @@ pub fn poll(host: &mut dyn SessionMenuHost) -> bool {
     true
 }
 
+/// Whether the manual unread marks have loaded (`manualReady`).
+pub fn ready(host: &dyn SessionMenuHost) -> bool {
+    host.menus().unread_generation != 0
+}
+
 /// Whether `(server, id)` is manually marked unread.
 pub fn manual(host: &dyn SessionMenuHost, server: &ServerKey, id: &str) -> bool {
     host.menus().unread_generation != 0
@@ -98,18 +102,10 @@ pub fn set(host: &mut dyn SessionMenuHost, server: &ServerKey, root: &str, on: b
 }
 
 /// Marks `id`'s root session as read on the currently checked-out server (clearing any manual
-/// unread mark and advancing the server's viewed watermark if unread).
+/// unread mark and advancing the server's viewed watermark if unread, `markRead`).
 pub fn read(host: &mut dyn SessionMenuHost, id: &str) {
     let root = host.root_of(id).to_owned();
     let server = host.active_server();
     set(host, &server, &root, false);
-    let mark_idle = host.session(&root).and_then(|info| info.unread().then_some(info.idle).flatten());
-    if let Some(idle) = mark_idle {
-        if let Some(sessions) = host.sessions_mut()
-            && let Some(info) = sessions.iter_mut().find(|i| i.id == root)
-        {
-            info.viewed = Some(idle);
-        }
-        host.write_server(Write::View { session: root, idle });
-    }
+    host.mark_viewed(&root);
 }

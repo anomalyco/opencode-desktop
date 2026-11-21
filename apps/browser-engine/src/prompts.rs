@@ -14,7 +14,7 @@
 //! - Native file choosers on agent-driven tabs are cancelled immediately (`FileChooserBlocked`).
 
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use cef::rc::Rc as _;
@@ -73,6 +73,11 @@ pub struct TabPrompts {
     /// The person's own click or key on a controlled tab hands its downloads back to them until
     /// the agent acts again (official `policy.ts:121-125, 175-177` `control: "reclaimed"`).
     pub user_reclaimed: AtomicBool,
+    /// Authoritative OS PID of this tab's current main-frame renderer process (`0` until reported
+    /// by `opencode-browser-engine-helper`). Used to isolate browser-wide CDP traces to this tab.
+    pub renderer_pid: AtomicU32,
+    /// Renderer OS PID locked when `Tracing.start` succeeded on this tab (`0` when not tracing).
+    pub trace_pid: AtomicU32,
     pub proxy: Mutex<Option<RemoteProxyConfig>>,
     dialogs: Mutex<Vec<(PageDialog, JsdialogCallback)>>,
     permissions: Mutex<Vec<HeldPermission>>,
@@ -279,6 +284,7 @@ impl TabPrompts {
     }
 
     pub fn reset_on_crash(&self, tab_id: u64, out_tx: &Output) {
+        self.renderer_pid.store(0, Ordering::Release);
         self.set_pending_top_url(None);
         self.clear_all_ext_frame_tracking();
         let dialogs = std::mem::take(&mut *self.dialogs.lock().unwrap());
@@ -294,6 +300,7 @@ impl TabPrompts {
     }
 
     pub fn dismiss_all(&self) {
+        self.trace_pid.store(0, Ordering::Release);
         for (_, cb) in std::mem::take(&mut *self.dialogs.lock().unwrap()) {
             cb.cont(0, None);
         }
