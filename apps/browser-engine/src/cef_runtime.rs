@@ -181,6 +181,7 @@ wrap_app! {
                     "js-flags",
                     "renderer-cmd-prefix",
                     "utility-cmd-prefix",
+                    "force-webrtc-ip-handling-policy",
                 ] {
                     cmd.remove_switch(Some(&sw.into()));
                 }
@@ -228,6 +229,34 @@ wrap_app! {
             // background fetches, which cost network, disk and CPU while nothing is open.
             cmd.append_switch(Some(&"disable-component-update".into()));
             cmd.append_switch(Some(&"disable-background-networking".into()));
+            // Disable Cast/DIAL discovery (UDP 5353/1900) and mDNS local-IP responder (UDP 5353),
+            // and enforce `disable_non_proxied_udp` globally so `NetworkService` never opens
+            // non-loopback UDP listeners (avoiding Windows Defender Firewall and macOS incoming
+            // connection prompts) and never exposes local LAN IPs to pages.
+            const DISABLED_NET_FEATURES: [&str; 4] = [
+                "MediaRouter",
+                "DialMediaRouteProvider",
+                "CastMediaRouteProvider",
+                "WebRtcHideLocalIpsWithMdns",
+            ];
+            let existing = CefString::from(&cmd.switch_value(Some(&"disable-features".into()))).to_string();
+            cmd.remove_switch(Some(&"disable-features".into()));
+            let mut features: Vec<&str> = existing
+                .split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .collect();
+            for feat in DISABLED_NET_FEATURES {
+                if !features.contains(&feat) {
+                    features.push(feat);
+                }
+            }
+            let merged = features.join(",");
+            cmd.append_switch_with_value(Some(&"disable-features".into()), Some(&merged.as_str().into()));
+            cmd.append_switch_with_value(
+                Some(&"force-webrtc-ip-handling-policy".into()),
+                Some(&"disable_non_proxied_udp".into()),
+            );
             if let Some(luid) = &self.adapter_luid {
                 cmd.append_switch_with_value(Some(&"use-adapter-luid".into()), Some(&luid.as_str().into()));
             }

@@ -120,6 +120,7 @@ impl EngineManager {
         if let Some(global) = cef::request_context_get_global_context() {
             crate::permissions::block_device_permission_guards(&global);
             crate::permissions::scrub_legacy_content_settings(&global);
+            crate::context::disable_non_proxied_udp(&global);
         }
         Self {
             tabs: HashMap::new(),
