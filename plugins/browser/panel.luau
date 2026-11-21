@@ -235,7 +235,7 @@ local function field(env: Env, view: View, tab: BrowserTab, bar: address.View, z
         end
     end
     local body: { ui.Node } = {}
-    local textAvail = math.max(80, fieldWidth - 44 - (if zoomed then 48 else 0))
+    local textAvail = math.max(16, fieldWidth - 44 - (if zoomed then 48 else 0))
     if bar.editing then
         table.insert(body, ui.field({
             key = "browser-address-input",
@@ -259,7 +259,7 @@ local function field(env: Env, view: View, tab: BrowserTab, bar: address.View, z
     else
         table.insert(body, text(env.I18n:T("address.search"), "text-faint", { truncate = true, shrink = true, minW = 0 }))
     end
-    table.insert(items, ui.box({ key = "browser-address-text", grow = 1, shrink = true, minW = 0, h = "full", align = "center" }, { ui.row({ w = "full", h = "full", align = "center" }, body) }))
+    table.insert(items, ui.box({ key = "browser-address-text", grow = 1, shrink = true, minW = 0, h = "full", clip = true, align = "center" }, { ui.row({ w = "full", h = "full", clip = true, align = "center" }, body) }))
     -- Any zoom but 100% stays in sight; a click resets it.
     if zoomed then
         table.insert(items, ui.row({
