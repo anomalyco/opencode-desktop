@@ -16,9 +16,9 @@ pub const RENDER_LIMIT: usize = 1024 * 1024;
 pub use delimited::Table;
 pub use label_find::{Document, LabelDoc, LabelFind, TableFind};
 pub use review::{
-    ChangeList, ChangeMode, FetchedDiffs, PreparedReview, ReviewFetchSpec, ReviewFileMeta,
-    build_change_tree, collapsed_folders, encode_fs_path, encode_uri_component, fetch_live_diffs,
-    fetch_live_file_text, filter_review_files, insert_folder_nodes, listed_paths,
-    load_fixture_diffs, normalize_path, parse_diff_entry, parse_diff_list, prepare_narrow_paths,
-    sort_review_paths,
+    ChangeList, ChangeMode, FetchedDiffs, FetchedVcs, PreparedReview, ReviewFetchSpec, ReviewFileMeta,
+    build_change_tree, collapsed_folders, encode_fs_path, encode_uri_component, fetch_live_diff_only,
+    fetch_live_diffs, fetch_live_file_text, fetch_live_vcs, filter_review_files, insert_folder_nodes,
+    listed_paths, load_fixture_diffs, normalize_path, parse_diff_entry, parse_diff_list,
+    prepare_narrow_paths, sort_review_paths,
 };
