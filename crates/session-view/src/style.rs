@@ -10,6 +10,7 @@ use rune_kit::{Markdown, MarkdownStyle};
 use rune_theme_opencode::icons as ic;
 
 use crate::TimelineHost;
+use crate::focus::FocusExt;
 use crate::palette::Pal;
 
 pub use opencode_ui::style::*;
@@ -52,6 +53,9 @@ pub fn reasoning<S: TimelineHost>(s: &S, p: &Pal, key: &str, body: &str, secs: O
         .h(28.0)
         .gap(6.0)
         .center_y()
+        .radius(4.0)
+        .cursor(rune::Cursor::Pointer)
+        .focus_default(p)
         .hover_group()
         // The triangle fades in under the pointer (`collapsible.css:26-29`).
         .hover_motion(HOVER_FADE, HOVER_FADE)

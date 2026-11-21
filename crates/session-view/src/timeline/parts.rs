@@ -59,7 +59,7 @@ pub fn default_user_menu<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str) 
 /// pressed fill while its menu is `open`, which no hover or press adds to, as
 /// `:not([data-expanded])` keeps Desktop's hover off it. The host adds the glyph and the press.
 pub fn user_menu_button(p: &Pal, key: String, label: &str, open: bool) -> El {
-    let b = row().key(key).role("button").label(label.to_owned()).size(20.0, 20.0).center().radius(4.0);
+    let b = row().key(key).role("button").label(label.to_owned()).size(20.0, 20.0).center().radius(4.0).cursor(rune::Cursor::Pointer);
     if open { b.fill(p.pressed) } else { b.hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT) }
 }
 
@@ -311,7 +311,7 @@ pub fn turn_footer<S: TimelineHost>(s: &S, p: &Pal, t: &Transcript, message: usi
     let done = crate::copied::is_copied(s, &copy_key);
     let label = if done { opencode_i18n::t!("ui.message.copied") } else { opencode_i18n::t!("ui.message.copyResponse") };
     let button = row().key("copy").role("button").label_static(label).help(label).help_above().help_open(done)
-        .size(COPY, COPY).center().radius(4.0).hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT)
+        .size(COPY, COPY).center().radius(4.0).cursor(rune::Cursor::Pointer).hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT)
         .on_press_tx(move |s: &mut S, tx: &mut Tx| {
             tx.copy(body.clone());
             crate::copied::mark_copied(s, key.clone(), tx);
@@ -415,7 +415,7 @@ pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, _asking: bool, 
     let copy_key = format!("copy-{}", message.id());
     use crate::working::{COPY, COPY_AT, COPY_GLYPH};
     let mut button = row().key("copy").role("button").label_static(opencode_i18n::t!("ui.message.copyResponse"))
-        .size(COPY, COPY).center().radius(4.0).hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT)
+        .size(COPY, COPY).center().radius(4.0).cursor(rune::Cursor::Pointer).hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT)
         .opacity(if busy || !has_text { 0.0 } else { 1.0 })
         .opacity_motion(INSTANT)
         .child(crate::copied::glyph(s, &copy_key, COPY_GLYPH, p.icon_muted));
