@@ -118,6 +118,9 @@ pub struct SessionReview {
     /// The file the preview shows: the one picked, else the server's first.
     pub active_path: Option<String>,
     pub load: Load,
+    /// Pending jump target when `open_for_session` requested a file not yet in a hydrated cache
+    /// while a background refresh is in flight.
+    pub(crate) pending_focus: Option<(String, Option<Anchor>)>,
     pub branch_current: Option<String>,
     pub branch_default: Option<String>,
     /// The narrow window's Changes view: its open files (`mobile`).
@@ -139,6 +142,7 @@ impl Default for SessionReview {
             tree: TreeModel::new().key("review-tree"),
             active_path: None,
             load: Load::Loading { focus: None },
+            pending_focus: None,
             branch_current: None,
             branch_default: None,
             narrow: mobile::NarrowReview::default(),
@@ -187,6 +191,7 @@ impl SessionReview {
         self.narrow = mobile::NarrowReview::default();
         self.root_count = 0;
         self.active_path = None;
+        self.pending_focus = None;
         self.load.restart();
         self.stamp += 1;
     }

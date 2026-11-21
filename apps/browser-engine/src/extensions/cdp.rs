@@ -290,6 +290,9 @@ impl ExtensionHost {
         let mut effects = Vec::new();
         self.probe_in_flight.clear();
         self.pending_rpcs.clear();
+        for (ext_id, ids) in std::mem::take(&mut self.notifications) {
+            effects.extend(ids.into_iter().map(|notif_id| ExtEffect::NotificationClear { ext_id: ext_id.clone(), notif_id }));
+        }
         if !self.filters_ready_emitted {
             self.filters_ready_emitted = true;
             effects.push(ExtEffect::FiltersReady);
@@ -441,6 +444,7 @@ impl ExtensionHost {
                 if loaded_id != expected_id {
                     self.uninstall_inert_stub(&expected_id);
                 }
+                effects.extend(self.forget_notifications(&expected_id));
                 effects.push(ExtEffect::IntegrityFailed { ext_id: expected_id.clone() });
             }
             self.pending_filter_ids.remove(&expected_id);
@@ -475,11 +479,7 @@ impl ExtensionHost {
                 self.extensions.remove(&ext_id);
                 self.actions.remove(&ext_id);
                 self.context_menus.lock().unwrap().remove_extension(&ext_id);
-                if let Some(ids) = self.notifications.remove(&ext_id) {
-                    for notif_id in ids {
-                        effects.push(ExtEffect::NotificationClear { ext_id: ext_id.clone(), notif_id });
-                    }
-                }
+                effects.extend(self.forget_notifications(&ext_id));
                 self.ext_tab_ids.remove(&ext_id);
                 self.ext_last_known_session_id.remove(&ext_id);
                 self.probe_in_flight.remove(&ext_id);
@@ -523,6 +523,7 @@ impl ExtensionHost {
                 if is_valid_ext_id(&loaded_id) {
                     let _ = self.send_cdp("Extensions.uninstall", json!({ "id": loaded_id }), None);
                 }
+                effects.extend(self.forget_notifications(&expected_id));
                 effects.push(ExtEffect::ExtensionReloaded {
                     ext_id: expected_id,
                     ok: false,
