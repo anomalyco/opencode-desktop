@@ -165,6 +165,27 @@ pub struct ServerPeer {
     wakers: Arc<Mutex<Vec<(u64, rune::Waker)>>>,
 }
 
+impl ServerPeer {
+    /// Every user message id in this server's transcripts while its vault is at home (another
+    /// server's window resting must not prune user-message metadata belonging to this server).
+    pub fn user_message_ids(&self) -> Vec<String> {
+        let vault = self.vault.borrow();
+        if vault.at != At::Home {
+            return Vec::new();
+        }
+        vault
+            .data
+            .transcripts
+            .values()
+            .flat_map(|t| t.messages.iter())
+            .filter_map(|m| match m {
+                opencode_kit::model::Message::User { id, .. } => Some(id.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+}
+
 /// Whether a window's turn changed the copy from what only it heard.
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 enum Edit {
