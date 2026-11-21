@@ -8,7 +8,7 @@ use rune::{Anim, Color, El, KeyEvent, Shadow, SpringPair, TextStyle, Transition,
 
 use crate::composer::ComposerHost;
 use crate::focus::FocusExt;
-use crate::palette::Pal;
+use crate::palette::{Elevate as _, Pal};
 
 pub mod knobs;
 pub mod permission;
@@ -149,7 +149,7 @@ pub fn button(p: &Pal, key: &str, label: &str, variant: Variant, hint: Option<&s
     b = if live { b.cursor(rune::Cursor::Pointer).focus_default(p).hover(hover).press(pressed) } else { b.opacity(dim).disabled(true).focusable(false) };
     match variant {
         Variant::Ghost | Variant::GhostMuted => {}
-        Variant::Neutral => b = b.box_shadow(Pal::ring_out(p.q.neutral_ring)).shadow(1.0, 1.5, p.q.neutral_shadow),
+        Variant::Neutral => b = b.elevate(opencode_ui::toast::neutral_lift(p)),
         // `--v2-elevation-button-contrast` under the top-lit highlight (`--submit-highlight`,
         // brighter on dark's light Submit fill).
         Variant::Submit | Variant::Contrast => {
