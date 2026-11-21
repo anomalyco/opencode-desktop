@@ -25,8 +25,8 @@ pub(super) fn field(s: &App, p: &Pal, selected: Option<&model::Project>, width: 
         .hover(p.layer2)
         .child(icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted))
         .child(
-            // The input's 24 line (13/24, `home-sessions`), which its selection fills.
-            session_view::style::field(&s.search, UI.lh(24.0))
+            // The input's 24 line (13/24, `home-sessions`, no negative tracking), which its selection fills.
+            session_view::style::field(&s.search, HOME)
                 .key("search-input")
                 // Named by its placeholder, which goes once a letter is typed.
                 .label(placeholder.to_owned())
