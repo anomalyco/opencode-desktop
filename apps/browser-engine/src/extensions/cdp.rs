@@ -132,14 +132,15 @@ impl ExtensionHost {
                         sess.pause_started = None;
                         sess.pending_shim_eval_id = None;
                         sess.was_paused = true;
+                        sess.fetch_confirmed = false;
                         sess.shimmed = false;
                         sess.kind
                     })
                 {
                     self.execution_contexts.retain(|(s, _), _| s != &sid);
-                    self.pending_fetch_resume.retain(|_, s| s != &sid);
+                    self.pending_fetch_resume.retain(|_, (s, _)| s != &sid);
                     let fetch_id = self.alloc_id();
-                    self.pending_fetch_resume.insert(fetch_id, sid.clone());
+                    self.pending_fetch_resume.insert(fetch_id, (sid.clone(), true));
                     let batch = match kind {
                         SessionKind::ServiceWorker => vec![
                             json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.enable", "params": {} }),
@@ -324,10 +325,24 @@ impl ExtensionHost {
     }
 
     fn cleanup_detached_session(&mut self, sid: &str) {
-        self.sessions.remove(sid);
+        if let Some(removed) = self.sessions.remove(sid)
+            && removed.kind == SessionKind::ServiceWorker
+            && !removed.target_id.is_empty()
+            && let Some(dups) = self.deferred_dup_sw_detaches.remove(&removed.target_id)
+        {
+            // Primary SW detached before `Fetch.enable` confirmed: detach any queued duplicate
+            // sessions WITHOUT sending `Runtime.runIfWaitingForDebugger` (fail closed).
+            for (dup_sid, _) in dups {
+                let _ = self.send_cdp("Target.detachFromTarget", json!({ "sessionId": dup_sid }), None);
+            }
+        }
+        self.deferred_dup_sw_detaches.retain(|_, list| {
+            list.retain(|(dup_sid, _)| dup_sid != sid);
+            !list.is_empty()
+        });
         self.execution_contexts.retain(|(s, _), _| s != sid);
-        self.pending_fetch_resume.retain(|_, s| s != sid);
-        self.pending_loaded_resume.retain(|s| s != sid);
+        self.pending_fetch_resume.retain(|_, (s, _)| s != sid);
+        self.pending_loaded_resume.retain(|(s, _)| s != sid);
         self.failed_probe_sessions.remove(sid);
         let detached_probe_ext = self
             .probe_in_flight
@@ -349,19 +364,22 @@ impl ExtensionHost {
 
     fn handle_cdp_reply(&mut self, id: i64, msg: &Value) -> Vec<ExtEffect> {
         let mut effects = Vec::new();
-        if let Some(sid) = self.pending_fetch_resume.remove(&id) {
+        if let Some((sid, should_resume)) = self.pending_fetch_resume.remove(&id) {
             // Fail closed if `Fetch.enable` returned an error: NEVER resume an unguarded target
-            // (`review-rd274.md` Round-3 §1). Because `auto_attach_cmd` precedes `fetch_enable_cmd`
-            // in the batch, a non-error reply strictly guarantees both completed before JS runs.
+            // (`review-rd274.md` Round-3 §1), and keep `fetch_confirmed = false` so neither this
+            // session nor any queued or future duplicate SW attach can ever unpause the worker.
             // Also hold resume until `ext.loaded == true` (after post-load
             // `verify_extension_file_access_disabled` passes; READER-7 F2).
             if msg.get("error").is_none()
-                && let Some(ext_id) = self.sessions.get(&sid).map(|s| s.ext_id.clone())
+                && let Some(ext_id) = self.sessions.get_mut(&sid).map(|sess| {
+                    sess.fetch_confirmed = true;
+                    sess.ext_id.clone()
+                })
             {
                 if self.extensions.get(&ext_id).is_some_and(|e| e.loaded) {
-                    let _ = self.send_cdp("Runtime.runIfWaitingForDebugger", json!({}), Some(&sid));
-                } else if !self.pending_loaded_resume.iter().any(|s| s == &sid) {
-                    self.pending_loaded_resume.push(sid);
+                    self.resume_confirmed_session(&sid, should_resume);
+                } else if !self.pending_loaded_resume.iter().any(|(s, _)| s == &sid) {
+                    self.pending_loaded_resume.push((sid, should_resume));
                 }
             }
             return effects;
@@ -646,13 +664,31 @@ impl ExtensionHost {
             // Never attach a second concurrent CDP session to the same service-worker target
             // (e.g. from a child page's `Target.setAutoAttach` when the browser target already
             // attached it), which causes competing `Debugger`/`Runtime.evaluate` races.
-            // Detach ONLY (never send `Runtime.runIfWaitingForDebugger` on the duplicate session)
-            // so this session releases only its own auto-attach throttle without prematurely
-            // unpausing the worker before the primary session's `Fetch.enable` confirms.
+            // Until BOTH the primary session's `Fetch.enable` confirms (`fetch_confirmed == true`)
+            // AND post-load `verify_extension_file_access_disabled` passes (`ext.loaded == true`),
+            // hold this duplicate quiet (never resuming it); if either fails or never confirms,
+            // the worker stays paused forever (fail closed).
             if !target_id.is_empty()
-                && self.sessions.values().any(|s| s.kind == SessionKind::ServiceWorker && s.target_id == target_id)
+                && let Some(primary_fetch_confirmed) = self
+                    .sessions
+                    .values()
+                    .find(|s| s.kind == SessionKind::ServiceWorker && s.target_id == target_id)
+                    .map(|s| s.fetch_confirmed)
             {
-                let _ = self.send_cdp("Target.detachFromTarget", json!({ "sessionId": sid }), None);
+                let ext_loaded = self.extensions.get(ext_id).is_some_and(|e| e.loaded);
+                if !primary_fetch_confirmed || !ext_loaded {
+                    let list = self.deferred_dup_sw_detaches.entry(target_id).or_default();
+                    if list.len() < 64 {
+                        list.push((sid.to_owned(), waiting));
+                    }
+                } else {
+                    let mut batch = Vec::new();
+                    if waiting {
+                        batch.push(json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.runIfWaitingForDebugger", "params": {} }));
+                    }
+                    batch.push(json!({ "id": self.alloc_id(), "method": "Target.detachFromTarget", "params": { "sessionId": sid } }));
+                    self.pipe.send_batch(&batch);
+                }
                 return effects;
             }
             let ext_id = ext_id.to_owned();
@@ -670,12 +706,13 @@ impl ExtensionHost {
                     pause_started: None,
                     pending_shim_eval_id: None,
                     was_paused: waiting,
+                    fetch_confirmed: false,
                     shimmed: false,
                 },
             );
             if waiting {
                 let fetch_id = self.alloc_id();
-                self.pending_fetch_resume.insert(fetch_id, sid.to_owned());
+                self.pending_fetch_resume.insert(fetch_id, (sid.to_owned(), true));
                 // Put `Fetch.enable` LAST in the batch so `Debugger.enable` and
                 // `EventBreakpoints.setInstrumentationBreakpoint` are guaranteed processed by
                 // Chromium BEFORE `fetch_id` confirms and sends `Runtime.runIfWaitingForDebugger`.
@@ -690,6 +727,8 @@ impl ExtensionHost {
                 // Resume happens strictly in `handle_cdp_reply` after `fetch_id` confirms.
                 self.pipe.send_batch(&batch);
             } else {
+                let fetch_id = self.alloc_id();
+                self.pending_fetch_resume.insert(fetch_id, (sid.to_owned(), false));
                 let eval_id = self.alloc_id();
                 if let Some(s) = self.sessions.get_mut(sid) {
                     s.pause_started = Some(Instant::now());
@@ -700,7 +739,7 @@ impl ExtensionHost {
                 let batch = vec![
                     json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.enable", "params": {} }),
                     auto_attach_cmd(self.alloc_id(), sid),
-                    fetch_enable_cmd(self.alloc_id(), sid),
+                    fetch_enable_cmd(fetch_id, sid),
                     json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.addBinding", "params": { "name": "__ocExtCall" } }),
                     json!({ "id": eval_id, "sessionId": sid, "method": "Runtime.evaluate", "params": { "expression": code, "returnByValue": true } }),
                 ];
@@ -732,12 +771,13 @@ impl ExtensionHost {
                     pause_started: None,
                     pending_shim_eval_id: None,
                     was_paused: false,
+                    fetch_confirmed: false,
                     shimmed: false,
                 },
             );
             let fetch_id = self.alloc_id();
             if waiting {
-                self.pending_fetch_resume.insert(fetch_id, sid.to_owned());
+                self.pending_fetch_resume.insert(fetch_id, (sid.to_owned(), true));
             }
             let mut batch = vec![auto_attach_cmd(self.alloc_id(), sid)];
             if ttype == "iframe" {
@@ -772,7 +812,7 @@ impl ExtensionHost {
                 }
             });
             Some((ext_id.to_owned(), kind))
-        } else if ttype == "other" && url.is_empty() {
+        } else if is_page_like && (url.is_empty() || url == "about:blank") {
             match self.expected_targets.pop_front() {
                 Some(ExpectedTarget::Popup { ext_id }) if self.extensions.contains_key(&ext_id) => {
                     Some((ext_id, SessionKind::PopupPage))
@@ -804,12 +844,13 @@ impl ExtensionHost {
                     pause_started: None,
                     pending_shim_eval_id: None,
                     was_paused: false,
+                    fetch_confirmed: false,
                     shimmed: false,
                 },
             );
             let fetch_id = self.alloc_id();
             if waiting {
-                self.pending_fetch_resume.insert(fetch_id, sid.to_owned());
+                self.pending_fetch_resume.insert(fetch_id, (sid.to_owned(), true));
             }
             let mut batch = vec![
                 json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.enable", "params": {} }),
@@ -836,6 +877,18 @@ impl ExtensionHost {
         }
 
         // Regular web tabs, isolated tabs, iframes, site workers: resume & detach immediately.
+        // Consume one matching queued `WebTab`/`IsolatedTab` when a page-like non-empty web tab
+        // attaches so stale web expectations never desync a later pre-commit extension page.
+        if is_page_like
+            && !url.is_empty()
+            && url != "about:blank"
+            && let Some(pos) = self
+                .expected_targets
+                .iter()
+                .position(|t| matches!(t, ExpectedTarget::WebTab | ExpectedTarget::IsolatedTab))
+        {
+            self.expected_targets.remove(pos);
+        }
         let mut batch = Vec::new();
         if waiting {
             batch.push(json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.runIfWaitingForDebugger", "params": {} }));
@@ -1165,25 +1218,51 @@ impl ExtensionHost {
         }
         effects
     }
+    fn resume_confirmed_session(&mut self, sid: &str, should_resume: bool) {
+        let sw_tid = self
+            .sessions
+            .get(sid)
+            .filter(|s| s.kind == SessionKind::ServiceWorker && !s.target_id.is_empty())
+            .map(|s| s.target_id.clone());
+        if should_resume {
+            let _ = self.send_cdp("Runtime.runIfWaitingForDebugger", json!({}), Some(sid));
+        }
+        // Now that BOTH `Fetch.enable` + `scriptFirstStatement` AND post-load verification
+        // (`ext.loaded == true`) have confirmed, safely release and detach any duplicate SW
+        // sessions held for this target so Chromium's waitForDebugger throttle never deadlocks.
+        if let Some(tid) = sw_tid
+            && let Some(dups) = self.deferred_dup_sw_detaches.remove(&tid)
+        {
+            let mut batch = Vec::new();
+            for (dup_sid, dup_waiting) in dups {
+                if dup_waiting {
+                    batch.push(json!({ "id": self.alloc_id(), "sessionId": dup_sid, "method": "Runtime.runIfWaitingForDebugger", "params": {} }));
+                }
+                batch.push(json!({ "id": self.alloc_id(), "method": "Target.detachFromTarget", "params": { "sessionId": dup_sid } }));
+            }
+            self.pipe.send_batch(&batch);
+        }
+    }
+
     fn resume_sessions_loaded_for(&mut self, ext_id: &str) {
         let mut remaining = Vec::new();
         let mut to_resume = Vec::new();
-        for sid in std::mem::take(&mut self.pending_loaded_resume) {
+        for (sid, should_resume) in std::mem::take(&mut self.pending_loaded_resume) {
             if self.sessions.get(&sid).is_some_and(|s| s.ext_id == ext_id) {
-                to_resume.push(sid);
+                to_resume.push((sid, should_resume));
             } else if self.sessions.contains_key(&sid) {
-                remaining.push(sid);
+                remaining.push((sid, should_resume));
             }
         }
         self.pending_loaded_resume = remaining;
-        for sid in to_resume {
-            let _ = self.send_cdp("Runtime.runIfWaitingForDebugger", json!({}), Some(&sid));
+        for (sid, should_resume) in to_resume {
+            self.resume_confirmed_session(&sid, should_resume);
         }
     }
 
     fn drop_loaded_resumes_for(&mut self, ext_id: &str) {
         self.pending_loaded_resume
-            .retain(|sid| self.sessions.get(sid).is_some_and(|s| s.ext_id != ext_id));
+            .retain(|(sid, _)| self.sessions.get(sid).is_some_and(|s| s.ext_id != ext_id));
     }
 }
 

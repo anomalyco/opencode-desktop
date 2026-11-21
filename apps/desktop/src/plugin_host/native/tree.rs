@@ -241,7 +241,9 @@ fn change_tree(app: &App, p: &Pal, sid: &str, kinds: Rc<HashMap<String, String>>
                 let glyph = (!dir).then(|| tree_icons::file(node.name.as_str()));
                 let on = selected.as_deref() == Some(tr.id);
                 let sr = &s.kernel.slots.get(&crate::review::REVIEW).sessions[&sid_rows];
-                let row = chrome::tree_row(&pal, node.name.as_str(), tr.depth, dir.then(|| sr.tree.is_expanded(tr.id)), glyph, on)
+                // Review uses the same `@pierre/trees` component (`12px`, weight `500`) as Files
+                // (`packages/gui-plugins/src/review/panel.tsx:473`, `file/pierre-tree.tsx:37, 79`).
+                let row = chrome::tree_row_in(&pal, node.name.as_str(), tr.depth, dir.then(|| sr.tree.is_expanded(tr.id)), glyph, on, chrome::PIERRE)
                     .position_in_set(i + 1, count)
                     .children((!dir).then(|| kinds.get(tr.id).and_then(|k| letter(&pal, k))).flatten())
                     .children(sr.folder_label(tr.id).map(|label| text(label).font(MONO_COUNT).color(pal.faint)));

@@ -471,7 +471,6 @@ local function renderInstallReview(env: DialogEnv, view: View, rev: InstallRevie
         contextMenus = true,
         cookies = true,
         declarativeNetRequest = true,
-        declarativeNetRequestFeedback = true,
         declarativeNetRequestWithHostAccess = true,
         idle = true,
         notifications = true,
@@ -483,8 +482,6 @@ local function renderInstallReview(env: DialogEnv, view: View, rev: InstallRevie
         tabs = true,
         unlimitedStorage = true,
         webNavigation = true,
-        webRequest = true,
-        webRequestBlocking = true,
     }
     local grantedPermissions: { string } = {}
     for _, p in permissions do

@@ -642,6 +642,19 @@
       events: ["onCommand", "onChanged"],
     },
     {
+      // MV3 `webRequest` is stripped in C++ (matching Electron 44 where MV3 SW listeners hear no
+      // requests and cannot observe `Default` agent-tab URLs/tabIds); expose inert no-op events
+      // when declared so extensions like Bitwarden never throw at startup.
+      path: "webRequest",
+      permissions: ["webRequest"],
+      methods: [],
+      events: [
+        "onBeforeRequest", "onBeforeSendHeaders", "onSendHeaders", "onHeadersReceived",
+        "onResponseStarted", "onBeforeRedirect", "onCompleted", "onErrorOccurred",
+      ],
+      stubEvents: true,
+    },
+    {
       path: "extension",
       methods: ["isAllowedFileSchemeAccess", "isAllowedIncognitoAccess", "setUpdateUrlData"],
     },
@@ -784,6 +797,10 @@
     try {
       const wr = root.webRequest;
       if (wr && typeof wr === "object") lockUndefined(wr, "onAuthRequired");
+    } catch {}
+    try {
+      const dnr = root.declarativeNetRequest;
+      if (dnr && typeof dnr === "object") lockUndefined(dnr, "onRuleMatchedDebug");
     } catch {}
   }
 

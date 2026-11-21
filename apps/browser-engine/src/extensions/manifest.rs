@@ -20,14 +20,12 @@ const MAX_ITEM_CHARS: usize = 256;
 
 /// Single deny-by-default allow-list of Chromium C++ API permissions permitted to reach
 /// Chromium's `Extension::permissions_data()` (`compatibility.ts:14-33` + `policy.ts:93-95`,
-/// excluding APIs implemented or stubbed by our own Rust host and excluding `proxy`).
+/// excluding APIs implemented or stubbed by our own Rust host and excluding `proxy`,
+/// `webRequest*` — which observes all `Default` agent-tab traffic/tabIds in CEF 156 unlike
+/// Electron 44 MV3 SW — and `declarativeNetRequestFeedback`, whose `onRuleMatchedDebug` leaks
+/// agent-tab URLs/tabIds under `Extensions.loadUnpacked`).
 ///
-/// DENY BY DEFAULT: every non-host-pattern permission outside this exact list — including
-/// `nativeMessaging`, `downloads*`, `management`, `contentSettings`, `desktopCapture`,
-/// `tabCapture`, `pageCapture`, `webAuthenticationProxy`, `history`, `bookmarks`, `sessions`,
-/// `privacy`, `fontSettings`, `identity*`, `sidePanel`, `search`, `notifications`, `contextMenus`,
-/// `webNavigation`, `browsingData`, `system.{storage,cpu,memory}`, `geolocation`, `userScripts`,
-/// `webRequestAuthProvider`, `tts*`, `debugger`, `proxy`, and any future Chromium API — is
+/// DENY BY DEFAULT: every non-host-pattern permission outside this exact 16-item list is
 /// stripped from Chromium's staged manifest (both required and optional), refused at
 /// `permissions.request`, and asserted absent in Chromium's `ExtensionPrefs` post-load.
 pub const ALLOWED_CHROMIUM_PERMS: &[&str] = &[
@@ -38,7 +36,6 @@ pub const ALLOWED_CHROMIUM_PERMS: &[&str] = &[
     "clipboardWrite",
     "cookies",
     "declarativeNetRequest",
-    "declarativeNetRequestFeedback",
     "declarativeNetRequestWithHostAccess",
     "idle",
     "offscreen",
@@ -48,8 +45,6 @@ pub const ALLOWED_CHROMIUM_PERMS: &[&str] = &[
     "system.display",
     "tabs",
     "unlimitedStorage",
-    "webRequest",
-    "webRequestBlocking",
 ];
 
 /// Permissions implemented safely by our own extension host (stripped from Chromium C++ so child
