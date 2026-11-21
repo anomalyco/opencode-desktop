@@ -429,7 +429,7 @@ impl App {
                 continue;
             };
             let sid = self.browser_tab_session(popup.opener_tab_id).map(str::to_owned);
-            let _ = self.open_new_browser_tab_beside(
+            let opened = self.open_new_browser_tab_beside(
                 sid.as_deref(),
                 &popup.url,
                 popup.opener_tab_id,
@@ -437,6 +437,7 @@ impl App {
                 opener_ctx,
                 driver,
             );
+            self.workspace_panes.browser.page_opened_tabs.insert(opened);
             changed = true;
         }
         changed

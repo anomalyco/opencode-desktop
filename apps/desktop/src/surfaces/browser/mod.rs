@@ -161,6 +161,9 @@ mod native {
         pub unseen_tabs: std::collections::HashSet<u64>,
         /// Tabs whose strip close is in flight (`UP-148` `strip.closing`) so reconciliation never re-adds them.
         pub closing_tabs: std::collections::HashSet<u64>,
+        /// Tabs a page opened (`PopupOpen`): one whose first navigation only became a download
+        /// closes itself once the download has its place (official `closesUnshown`).
+        pub page_opened_tabs: std::collections::HashSet<u64>,
         /// Chrome-style opener chains and initial `"New tab"` title holds (`UP-118`).
         pub openers: super::openers::TabOpeners,
         /// Floating element-comment spotlight/editor and whole-page note editor (`panel.tsx:1525-1665`).
@@ -733,6 +736,7 @@ mod native {
                 self.workspace_panes.browser.host.drain_closed_tabs().collect();
             for (closed_id, fatal_close) in engine_closed {
                 self.workspace_panes.browser.closing_tabs.remove(&closed_id);
+                self.workspace_panes.browser.page_opened_tabs.remove(&closed_id);
                 self.workspace_panes.browser.active_app_reviews.borrow_mut().remove(&closed_id);
                 self.revoke_preview_binding(closed_id);
                 let owner_sid = self.browser_tab_session(closed_id).map(str::to_owned);
@@ -759,6 +763,17 @@ mod native {
             }
             changed |= self.drain_browser_popups();
             changed |= self.poll_app_link_reviews();
+            // A tab a page opened whose first navigation only became the person's download closes
+            // once the download has its place (official `chromium.ts:1076-1083`, `closesUnshown`).
+            let download_only: Vec<u64> = self.workspace_panes.browser.host.drain_download_only_tabs().collect();
+            for tab_id in download_only {
+                if self.workspace_panes.browser.page_opened_tabs.remove(&tab_id)
+                    && let Some(sid) = self.browser_tab_session(tab_id).map(str::to_owned)
+                {
+                    self.later(Box::new(move |s: &mut App, tx: &mut Tx| s.close_browser_tab_for_session(&sid, tab_id, tx)));
+                    changed = true;
+                }
+            }
             // Reload persisted site permissions when Settings > Browser edits `rune.sitePermissions`.
             let perm_ver = crate::plugin_host::services::store::store_version("browser", "rune.sitePermissions");
             if perm_ver != self.workspace_panes.browser.site_permissions_version {
