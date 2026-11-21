@@ -24,6 +24,10 @@ mod chrome;
 mod composer;
 pub use composer::composer;
 #[cfg(not(target_arch = "wasm32"))]
+mod cookies;
+#[cfg(not(target_arch = "wasm32"))]
+mod extensions;
+#[cfg(not(target_arch = "wasm32"))]
 mod history;
 #[cfg(not(target_arch = "wasm32"))]
 mod scope;
@@ -178,7 +182,9 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
                     ("policy", Data::Bool(app.workspace_panes.browser.host.engine_policy())),
                     ("preview", Data::Bool(app.workspace_panes.browser.host.engine_preview() || app.use_mock_browser())),
                     ("find", Data::Bool(app.workspace_panes.browser.host.engine_find())),
+                    ("extensions", Data::Bool(app.workspace_panes.browser.host.engine_extensions())),
                     ("permissionSync", Data::Bool(app.workspace_panes.browser.host.engine_permission_sync())),
+                    ("cookies", Data::Bool(app.workspace_panes.browser.host.engine_cookies())),
                     ("clearCache", Data::Bool(app.workspace_panes.browser.host.engine_policy())),
                     ("hardReload", Data::Bool(true)),
                 ]),
@@ -192,26 +198,24 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
             scope.check_local_mcp_allowed(app).map_err(mlua::Error::runtime)?;
             let target = scope.target_session(app, sid.as_deref());
             if !scope.is_builtin_browser {
-                return browser_pane::normalize_url(&browser_pane::with_scheme(&url), &[])
-                    .map_err(mlua::Error::runtime);
+                return browser_pane::normalize_url(&browser_pane::with_scheme(&url), &[]).map_err(mlua::Error::runtime);
             }
-            app.normalize_browser_url_for_session(target.as_deref(), &url, true)
-                .map_err(mlua::Error::runtime)
+            app.normalize_browser_url_for_session(target.as_deref(), &url, true).map_err(mlua::Error::runtime)
         })
     })?;
     method(lua, t, "Prepare", |_, seconds: Option<f64>| {
         let hold = Duration::from_secs_f64(seconds.unwrap_or(PREPARE_HOLD_S).clamp(1.0, PREPARE_HOLD_MAX_S));
         with_app("Browser:Prepare", |app| {
             app.later(Box::new(move |s: &mut App, _: &mut Tx| {
-                if !s.use_mock_browser() && !s.browser_unsupported() {
-                    s.workspace_panes.browser.host.prepare(hold);
-                }
+                if !s.use_mock_browser() && !s.browser_unsupported() { s.workspace_panes.browser.host.prepare(hold); }
             }));
             Ok(())
         })
     })?;
     chrome::service_methods(lua, t)?;
     history::service_methods(lua, t)?;
+    cookies::service_methods(lua, t)?;
+    extensions::service_methods(lua, vmx, t)?;
     let raw: Function = vmx.asyncs.raw_get("Browser.OpenAsync")?;
     let open: Function = lua.load("local raw = ... return function(self, spec) local id = raw(spec) return if id then self:Get(id) else nil end").set_name("=Browser:OpenAsync").call(raw)?;
     t.raw_set("OpenAsync", open)?;
@@ -225,6 +229,7 @@ pub fn asyncs(host: &Host<'_>, t: &Table) -> mlua::Result<()> {
     t.raw_set("BrowserTab.DevtoolsAsync", host.async_function("BrowserTab:DevtoolsAsync", devtools)?)?;
     t.raw_set("BrowserTab.SiteCookiesAsync", host.async_function("BrowserTab:SiteCookiesAsync", site_cookies)?)?;
     t.raw_set("BrowserTab.ClearSiteAsync", host.async_function("BrowserTab:ClearSiteAsync", clear_site)?)?;
+    extensions::asyncs(host, t)?;
     chrome::asyncs(host, t)
 }
 
@@ -307,7 +312,11 @@ fn devtools(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
             // Every `BrowserTab:DevtoolsAsync` caller (agent MCP tools and third-party Luau plugins)
             // marks the tab controlled so OS file choosers, HTTP auth, and permissions stay guarded.
             let driver = scope.driver(s).unwrap_or(browser_pane::TabDriver::Agent);
+            let is_agent = matches!(driver, browser_pane::TabDriver::Agent);
             s.workspace_panes.browser.host.set_tab_driver(id, driver);
+            if is_agent {
+                s.mark_browser_tab_unseen(id);
+            }
             let is_dialog = cdp == "Page.handleJavaScriptDialog";
             if !is_dialog && s.workspace_panes.browser.host.tab(id).is_some_and(|t| t.prompts.dialog.open().is_some()) {
                 return done.complete(failed(format!("[browser.dialog_open] A JavaScript dialog is open in tab {id}. Answer or dismiss the dialog before continuing.")));
@@ -433,7 +442,7 @@ fn id_of(this: &Table) -> mlua::Result<u64> {
 fn later(lua: &Lua, this: &Table, what: &str, f: impl FnOnce(&mut App, u64, &mut Tx) + Send + 'static) -> mlua::Result<()> {
     let id = id_of(this)?;
     let scope = scope::TabScope::capture(lua);
-    let mark_driven = what != "BrowserTab:Close";
+    let mark_driven = scope::TabScope::marks_tab_driven(what);
     with_app(what, |app| {
         scope.check_tab(app, id, true).map_err(mlua::Error::runtime)?;
         app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
@@ -661,6 +670,9 @@ pub fn version(app: &App) -> u64 {
     app.workspace_panes.browser.host.engine_downloads().hash(&mut h);
     app.workspace_panes.browser.host.engine_policy().hash(&mut h);
     app.workspace_panes.browser.host.engine_permission_sync().hash(&mut h);
+    app.workspace_panes.browser.host.engine_caps_known().hash(&mut h);
+    app.workspace_panes.browser.host.engine_cookies().hash(&mut h);
+    app.workspace_panes.browser.host.share_sign_ins().hash(&mut h);
     app.workspace_panes.browser.host.engine_preview().hash(&mut h);
     for t in app.workspace_panes.browser.host.tabs() {
         if let Some(d) = &t.device { (&d.preset, d.width, d.height, d.scale.map(f32::to_bits)).hash(&mut h); }
@@ -672,7 +684,16 @@ pub fn version(app: &App) -> u64 {
         t.files.iter().for_each(|f| (&f.id, f.bytes, f.state as u8, &f.error).hash(&mut h));
     }
     app.workspace_panes.browser.host.focused_tab_id().hash(&mut h);
-    app.workspace_panes.browser.pending_app_links.borrow().len().hash(&mut h);
+    app.workspace_panes.browser.openers.unnamed_ids_sorted().hash(&mut h);
+    {
+        let reviews = app.workspace_panes.browser.active_app_reviews.borrow();
+        let mut keys: Vec<_> = reviews.iter().map(|(&id, r)| (id, r.token.as_str(), r.target_fits, r.action as u8)).collect();
+        keys.sort_unstable();
+        keys.hash(&mut h);
+    }
+    let mut unseen: Vec<u64> = app.workspace_panes.browser.unseen_tabs.iter().copied().collect();
+    unseen.sort_unstable();
+    unseen.hash(&mut h);
     let mut sessions: Vec<_> = app.workspace_panes.browser.session_tabs.iter().collect();
     sessions.sort();
     sessions.hash(&mut h);
@@ -695,19 +716,11 @@ pub fn pages(app: &App, include_find: bool) -> Vec<(String, u64)> {
         .iter()
         .map(|t| {
             let mut h = std::hash::DefaultHasher::new();
-            (&t.url, &t.title, t.loading, t.preview.map(|p| p as u8), &t.refusal, t.rejected, &t.favicon).hash(&mut h);
+            (&t.url, &t.title, t.loading, t.preview.map(|p| p as u8), &t.refusal, t.rejected, &t.favicon, app.browser_tab_unnamed(t.id)).hash(&mut h);
             if include_find {
                 t.find.hash_state(&mut h);
+                app.workspace_panes.browser.active_app_reviews.borrow().get(&t.id).map(|r| r.token.as_str()).hash(&mut h);
             }
-            let pending_links = app
-                .workspace_panes
-                .browser
-                .pending_app_links
-                .borrow()
-                .iter()
-                .filter(|(id, _)| *id == t.id)
-                .count();
-            pending_links.hash(&mut h);
             (t.id.to_string(), h.finish())
         })
         // The built-in plugin also hears "" when the engine's state (`Browser:Engine().state`)

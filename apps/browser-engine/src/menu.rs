@@ -48,6 +48,7 @@ pub fn read_cef_string_list(list: &CefStringList) -> Vec<String> {
 
 struct HeldMenu {
     id: u64,
+    src_url: Option<String>,
     callback: RunContextMenuCallback,
 }
 
@@ -64,14 +65,18 @@ impl TabMenuState {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn execute(
         &self,
+        tab_id: u64,
+        tab_gen: u64,
         id: u64,
         action: Option<ContextMenuCommand>,
         browser: &Browser,
         host: &BrowserHost,
         _file_roots: &[String],
-        is_preview: bool,
+        block_downloads: bool,
+        downloads: &crate::downloads::Downloads,
     ) {
         let matched = {
             let mut slot = self.held.lock().unwrap();
@@ -81,12 +86,13 @@ impl TabMenuState {
                 None
             }
         };
-        if let Some(held) = matched {
+        let held_src_url = if let Some(held) = matched {
             // Always cancel CEF's native menu runner; we execute the chosen action directly.
             held.callback.cancel();
+            held.src_url
         } else {
             return;
-        }
+        };
         let Some(cmd) = action else { return };
         match cmd {
             ContextMenuCommand::Back => browser.go_back(),
@@ -119,7 +125,11 @@ impl TabMenuState {
                 }
             }
             ContextMenuCommand::SaveImage { url } => {
-                if !is_preview && browser_policy::destination_origin(&url).is_some() {
+                if !block_downloads
+                    && held_src_url.as_deref() == Some(url.as_str())
+                    && browser_policy::download_url_allowed(&url)
+                {
+                    downloads.mark_pending_save_image(tab_id, tab_gen, &url);
                     host.start_download(Some(&CefString::from(url.as_str())));
                 }
             }
@@ -211,7 +221,11 @@ wrap_context_menu_handler! {
             let suggestions = if !misspelled_raw.is_empty()
                 && params.dictionary_suggestions(Some(&mut sugg_list)) != 0
             {
-                sugg_list.into_iter().take(5).collect()
+                sugg_list
+                    .into_iter()
+                    .take(5)
+                    .map(|s| crate::prompts::sanitize_wire_line(&s, 128))
+                    .collect()
             } else {
                 Vec::new()
             };
@@ -223,12 +237,14 @@ wrap_context_menu_handler! {
                 id,
                 x: params.xcoord(),
                 y: params.ycoord(),
-                page_url,
-                frame_url,
-                link_url: allowed_menu_url(&raw_link, &roots, self.preview.as_ref()),
+                page_url: crate::prompts::sanitize_wire_line(&page_url, 4096),
+                frame_url: crate::prompts::sanitize_wire_line(&frame_url, 4096),
+                link_url: allowed_menu_url(&raw_link, &roots, self.preview.as_ref())
+                    .filter(|u| u.len() <= crate::prompts::MAX_POPUP_URL_BYTES),
                 // Never expose `src_url` / `SaveImage` on preview tabs (`notes/review-rd281.md` #5).
                 src_url: if is_image && self.preview.is_none() {
                     allowed_menu_url(&raw_src, &roots, None)
+                        .filter(|u| u.len() <= crate::prompts::MAX_POPUP_URL_BYTES)
                 } else {
                     None
                 },
@@ -240,11 +256,13 @@ wrap_context_menu_handler! {
                 can_copy: (edit & sys::cef_context_menu_edit_state_flags_t::CM_EDITFLAG_CAN_COPY.0 as u32) != 0,
                 can_paste: (edit & sys::cef_context_menu_edit_state_flags_t::CM_EDITFLAG_CAN_PASTE.0 as u32) != 0,
                 can_select_all: (edit & sys::cef_context_menu_edit_state_flags_t::CM_EDITFLAG_CAN_SELECT_ALL.0 as u32) != 0,
-                misspelled_word: (!misspelled_raw.is_empty()).then_some(misspelled_raw),
+                misspelled_word: (!misspelled_raw.is_empty())
+                    .then(|| crate::prompts::sanitize_wire_line(&misspelled_raw, 256)),
                 suggestions,
             };
             if let Some(prev) = self.menu_state.held.lock().unwrap().replace(HeldMenu {
                 id,
+                src_url: menu.src_url.clone(),
                 callback: callback.clone(),
             }) {
                 prev.callback.cancel();

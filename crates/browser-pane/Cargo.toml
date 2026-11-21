@@ -9,14 +9,15 @@ license.workspace = true
 # Off by default, so `--workspace` builds don't turn it on for the app where no engine ships.
 default = []
 # Download, start and talk to the CEF engine over a Unix socket (AF_UNIX on Windows too). Without it,
-# the pane keeps its tab model and reports `EngineStatus::Unsupported`. The app turns it on for macOS
-# and Windows, and for Linux x86_64.
+# the pane keeps its tab model and reports `EngineStatus::Unsupported`. The app turns it on for macOS,
+# Windows, and Linux.
 engine = ["dep:authenticode", "dep:libc", "dep:memchr", "dep:ring", "dep:rusqlite", "dep:security-framework", "dep:sha2", "dep:ureq", "dep:uds_windows", "dep:windows", "dep:zstd"]
 # Harness builds: injected faults (`unpack.rs`), never in a release.
 faults = ["engine"]
 
 [dependencies]
 base64.workspace = true
+browser-extensions = { path = "../browser-extensions" }
 browser-policy = { path = "../browser-policy" }
 opencode-i18n = { path = "../opencode-i18n" }
 rune.workspace = true

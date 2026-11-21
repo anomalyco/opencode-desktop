@@ -65,6 +65,26 @@ pub fn set_project_sandboxes(id: &str, sandboxes: Vec<String>) {
     }
 }
 
+/// Ensures `sandbox` is recorded for project `id` immediately when a new worktree is created,
+/// before the asynchronous worktree list refresh settles.
+pub fn add_project_sandbox(id: &str, sandbox: String) {
+    if id.is_empty() || sandbox.is_empty() {
+        return;
+    }
+    let norm = |d: &str| {
+        let d = d.trim_end_matches(['/', '\\']).replace('\\', "/");
+        if cfg!(windows) { d.to_lowercase() } else { d }
+    };
+    let needle = norm(&sandbox);
+    let mut store = sandbox_store().lock().unwrap_or_else(PoisonError::into_inner);
+    let entry = store.entry(id.to_owned()).or_default();
+    if entry.iter().any(|existing| norm(existing) == needle) {
+        return;
+    }
+    entry.push(sandbox);
+    SANDBOX_VERSION.fetch_add(1, Ordering::Release);
+}
+
 fn git_store() -> &'static Mutex<HashMap<String, bool>> {
     static STORE: OnceLock<Mutex<HashMap<String, bool>>> = OnceLock::new();
     STORE.get_or_init(Default::default)

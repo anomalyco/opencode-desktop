@@ -61,6 +61,18 @@ impl TabScope {
         }
     }
 
+    pub(super) fn marks_tab_driven(what: &str) -> bool {
+        !matches!(
+            what,
+            "BrowserTab:Close"
+                | "BrowserTab:Show"
+                | "BrowserTab:SetZoom"
+                | "BrowserTab:Find"
+                | "BrowserTab:StopFinding"
+                | "BrowserTab:SetViewport"
+        )
+    }
+
     /// Central enforcement for Luau access to `Browser:*` / `BrowserTab:*`:
     /// - Built-in `browser` plugin UI callbacks outside MCP tool calls (`tool_sid.is_none() &&
     ///   in_flight.is_empty()`) are permitted so the browser pane chrome stays functional.

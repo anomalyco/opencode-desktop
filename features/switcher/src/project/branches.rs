@@ -3,13 +3,12 @@
 //! its rows under a new search. Picking a branch changes the proposal on the worktrees step;
 //! only picking New worktree copies it to the draft.
 
-use opencode_i18n::t;
 use opencode_kit::model::project_git;
 use opencode_kit::servers::ServerKey;
 use rune::Tx;
 use rune::machine::{Attempt, Seq};
 
-use super::{ProjectSwitcherHost, RowKind, StepMode, SwitcherRow, location, location_event, matches_query, open_worktrees};
+use super::{ProjectSwitcherHost, RowKind, StepMode, SwitcherRow, matches_query, open_worktrees};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum List {
@@ -73,32 +72,18 @@ pub(super) fn checkout<'a>(host: &'a dyn ProjectSwitcherHost, server: Option<&Se
     host.checkout_branch(directory)
 }
 
+/// Filters the worktrees step by query (`new-session/location/dialog.tsx:180-202`). Base branch
+/// selection lives in its own `BaseBranchPicker` popover (`features/workspace-tools/src/new_worktree`)
+/// once New worktree is chosen, rather than as a row inside the worktree picker.
 pub(super) fn worktree_rows(host: &dyn ProjectSwitcherHost, mut rows: Vec<SwitcherRow>, q: &str) -> Vec<SwitcherRow> {
-    let Some(StepMode::Worktrees { base, .. }) = host.project_switcher().mode() else { return rows };
-    if let Some(SwitcherRow { kind: RowKind::Worktree { project_id, directory, server, main: true }, .. }) = rows.first()
-        && project_git(project_id)
-    {
-        let branch = base.as_deref().or_else(|| checkout(host, server.as_ref(), directory)).unwrap_or_else(|| t!("session.location.noBranch"));
-        let entry = SwitcherRow {
-            key: "base".into(),
-            title: t!("session.new.workspace.fromBranch", branch = branch),
-            subtitle: t!("command.session.branch.choose").into(),
-            section: "Worktrees",
-            kind: RowKind::Base { directory: directory.clone() },
-        };
-        rows.insert(2, entry);
+    if !matches!(host.project_switcher().mode(), Some(StepMode::Worktrees { .. })) {
+        return rows;
     }
     rows.retain(|r| match &r.kind {
         RowKind::Worktree { directory, main: true, server, .. } => matches_query(q, &[&r.title, directory, checkout(host, server.as_ref(), directory).unwrap_or("")]),
-        RowKind::Base { directory } => matches_query(q, &[&r.title, directory]),
         _ => matches_query(q, &[&r.title, &r.subtitle]),
     });
     rows
-}
-
-pub(super) fn open_base(host: &mut dyn ProjectSwitcherHost, directory: String, tx: &mut Tx) {
-    location_event(host, location::Event::Base { directory }, tx);
-    search(host, tx);
 }
 
 pub fn open_git_location(host: &mut dyn ProjectSwitcherHost, base: bool, tx: &mut Tx) {

@@ -18,6 +18,8 @@ export type Preferences = {
     agentPages: boolean,
     advanced: boolean,
     welcomed: boolean,
+    -- `profile/index.ts:118` `remote-sign-ins`: off until the person turns it on.
+    remoteSignIns: boolean,
 }
 
 export type SiteDecision = {
@@ -72,7 +74,8 @@ export type Env = {
     -- Optional contract-backed sections provided by WS-9 (extensions) or WS-1 (cookies/remote).
     renderImport: ((view: View) -> ui.Node?)?,
     renderExtensions: ((view: View) -> ui.Node?)?,
-    remoteSignInsEnabled: (() -> boolean)?,
+    -- nil while the engine's cookie store is unknown (`settings.tsx:208-209`).
+    remoteSignInsEnabled: (() -> boolean?)?,
     setRemoteSignIns: ((enabled: boolean) -> ())?,
     pickCookieFile: (() -> ())?,
 }
@@ -90,6 +93,7 @@ local DEFAULT_PREFS: Preferences = table.freeze({
     agentPages = true,
     advanced = false,
     welcomed = false,
+    remoteSignIns = false,
 })
 
 function settings.normalizePreferences(raw: any): Preferences
@@ -101,6 +105,7 @@ function settings.normalizePreferences(raw: any): Preferences
         agentPages = raw.agentPages ~= false,
         advanced = raw.advanced == true,
         welcomed = raw.welcomed == true,
+        remoteSignIns = raw.remoteSignIns == true,
     }
 end
 
@@ -166,14 +171,14 @@ function settings.entries(i18n: I18nService, caps: Capabilities): { SettingEntry
 end
 
 -- `settings.tsx` `Note`: 12 / 16 in the faint ink, under a section's card.
-local NOTE = table.freeze({ size = 12, weight = "regular", lineHeight = 16, color = "text-faint", wrap = true })
-local MUTED = table.freeze({ size = 13, weight = "regular", lineHeight = 20, color = "text-muted", wrap = true })
+local NOTE: UiTextProps = table.freeze({ size = 12, weight = "regular", lineHeight = 16, color = "text-faint", wrap = true } :: UiTextProps)
+local MUTED: UiTextProps = table.freeze({ size = 13, weight = "regular", lineHeight = 20, color = "text-muted", wrap = true } :: UiTextProps)
 -- `.settings-section-title`, as the Advanced heading's text.
-local HEADING = table.freeze({ size = 13, weight = "medium", lineHeight = 16, color = "text-chrome", noWrap = true })
+local HEADING: UiTextProps = table.freeze({ size = 13, weight = "medium", lineHeight = 16, color = "text-chrome", noWrap = true } :: UiTextProps)
 -- A settings row's title (`SettingsRow`), for rows that draw their own subject.
-local ROW_TITLE = table.freeze({ size = 13, weight = "medium", lineHeight = 16, tracking = -0.04, color = "text-chrome", truncate = true })
-local ASIDE = table.freeze({ size = 13, weight = "regular", lineHeight = 16, color = "text-muted", truncate = true, shrink = true, minW = 0 })
-local SUBLINE = table.freeze({ size = 13, weight = "regular", lineHeight = 20, color = "text-muted", wrap = true })
+local ROW_TITLE: UiTextProps = table.freeze({ size = 13, weight = "medium", lineHeight = 16, tracking = -0.04, color = "text-chrome", truncate = true } :: UiTextProps)
+local ASIDE: UiTextProps = table.freeze({ size = 13, weight = "regular", lineHeight = 16, color = "text-muted", truncate = true, shrink = true, minW = 0 } :: UiTextProps)
+local SUBLINE: UiTextProps = table.freeze({ size = 13, weight = "regular", lineHeight = 20, color = "text-muted", wrap = true } :: UiTextProps)
 
 -- Official's summary names the remote-server and cookie-file rows too; it is shown only once both exist.
 local function advancedSummary(i18n: I18nService, caps: Capabilities): string
@@ -370,6 +375,8 @@ function settings.create(env: Env, refresh: () -> ())
             -- 4a. Behavior rows (Remote sign-in sharing if capable + Agent pages toggle)
             local advRows: { ui.Node } = {}
             if caps.remoteSignIns and env.remoteSignInsEnabled and env.setRemoteSignIns then
+                -- `settings.tsx:200-212`: first row of the Advanced card.
+                local shared = env.remoteSignInsEnabled()
                 table.insert(advRows, ui.settingsRow(
                     {
                         id = "settings-browser-remote",
@@ -379,7 +386,8 @@ function settings.create(env: Env, refresh: () -> ())
                     ui.switch({
                         key = "settings-browser-remote-switch",
                         label = i18n:T("settings.remote.title"),
-                        checked = env.remoteSignInsEnabled(),
+                        checked = shared == true,
+                        disabled = shared == nil,
                         onChange = view:Handler(function(event)
                             if env.setRemoteSignIns then
                                 env.setRemoteSignIns((event :: any).checked == true)
@@ -562,7 +570,7 @@ function settings.create(env: Env, refresh: () -> ())
     return { render = render }
 end
 
-local DIALOG_TITLE = table.freeze({ size = 15, weight = "medium", lineHeight = 20, color = "text-chrome", noWrap = true })
+local DIALOG_TITLE: UiTextProps = table.freeze({ size = 15, weight = "medium", lineHeight = 20, color = "text-chrome", noWrap = true } :: UiTextProps)
 
 -- Confirmation dialog body for Clear browsing data (`UP-117` `#65124`).
 function settings.renderClearConfirm(i18n: I18nService, view: View, onCancel: () -> (), onConfirm: () -> ()): ui.Node

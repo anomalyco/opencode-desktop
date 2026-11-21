@@ -67,6 +67,8 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
                 ("policy", Data::Bool(false)),
                 ("preview", Data::Bool(false)),
                 ("find", Data::Bool(false)),
+                ("extensions", Data::Bool(false)),
+                ("cookies", Data::Bool(false)),
                 ("clearCache", Data::Bool(false)),
                 ("hardReload", Data::Bool(false)),
             ]),
@@ -92,6 +94,31 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
         tbl.raw_set("error", "Browser history import is available in the desktop app.")?;
         Ok(tbl)
     })?;
+    method(lua, t, "ExtAvailable", |_, ()| Ok(false))?;
+    method(lua, t, "ExtList", |lua, _: Value| lua.create_table())?;
+    method(lua, t, "ExtBrowserSources", |lua, ()| lua.create_table())?;
+    method(lua, t, "ExtBrowserList", |lua, _: mlua::MultiValue| lua.create_table())?;
+    method(lua, t, "ExtCancelReview", |_, ()| Ok(()))?;
+    method(lua, t, "ExtSetEnabled", |lua, _: mlua::MultiValue| {
+        mlua::IntoLua::into_lua(map([("ok", Data::Bool(false))]), lua)
+    })?;
+    method(lua, t, "ExtRemove", |lua, _: mlua::MultiValue| {
+        mlua::IntoLua::into_lua(map([("ok", Data::Bool(false))]), lua)
+    })?;
+    method(lua, t, "ExtSync", |_, _: mlua::MultiValue| Ok(()))?;
+    for (method_name, async_key) in [
+        ("ExtStageStoreAsync", "Browser.ExtStageStoreAsync"),
+        ("ExtStageBrowserAsync", "Browser.ExtStageBrowserAsync"),
+        ("ExtStageFolderAsync", "Browser.ExtStageFolderAsync"),
+        ("ExtApproveAsync", "Browser.ExtApproveAsync"),
+    ] {
+        let raw: Function = vmx.asyncs.raw_get(async_key)?;
+        let wrapped: Function = lua
+            .load("local raw = ... return function(_self, ...) return raw(...) end")
+            .set_name(format!("=Browser:{method_name}"))
+            .call(raw)?;
+        t.raw_set(method_name, wrapped)?;
+    }
     let raw: Function = vmx.asyncs.raw_get("Browser.OpenAsync")?;
     let open: Function = lua
         .load("local raw = ... return function(self, spec) local id = raw(spec) return if id then self:Get(id) else nil end")
@@ -109,6 +136,23 @@ pub fn asyncs(host: &Host<'_>, t: &Table) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
+    for name in [
+        "Browser.ExtStageStoreAsync",
+        "Browser.ExtStageBrowserAsync",
+        "Browser.ExtStageFolderAsync",
+        "Browser.ExtApproveAsync",
+    ] {
+        t.raw_set(
+            name,
+            host.async_function(name, |_, _: MultiValue, done: Completer| {
+                done.complete(map([
+                    ("type", Data::String("failed".into())),
+                    ("reason", Data::String("load".into())),
+                ]));
+                Ok(())
+            })?,
+        )?;
+    }
     for name in [
         "BrowserTab.DevtoolsAsync",
         "BrowserTab.SiteCookiesAsync",

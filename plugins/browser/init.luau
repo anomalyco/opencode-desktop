@@ -9,6 +9,7 @@ local plugin = require("@opencode/plugin")
 local ui = require("@opencode/ui")
 local address = require("@self/address")
 local createDevice = require("@self/device")
+local extensions = require("@self/extensions")
 local failure = require("@self/failure")
 local find = require("@self/find")
 local history = require("@self/history")
@@ -44,12 +45,14 @@ return plugin.defineWindow(function(ctx)
     local Menu = ctx:GetService("Menu")
     local Workspace = ctx:GetService("Workspace")
 
-    -- The window's address field and find field.
+    -- The window's address field, find field, and extension store link field.
     local editor = ctx:CreateEditor("")
     local findEditor = ctx:CreateEditor("")
+    local extLinkEditor = ctx:CreateEditor("")
     local stored = Store:Value("history", { visits = {} })
     local prefsStore = Store:Value("preferences", { links = true, agentPages = true, advanced = false, welcomed = false })
     local sitePermsStore = Store:Value("rune.sitePermissions", {})
+    local extensionsStore = Store:Value("extensions", {})
     local savedTabsStore = Store:Value("savedTabs", { sessions = {} })
     local recorder = Contracts:Use("browser.history")
     local extContract = Contracts:Use("browser.extensions")
@@ -385,32 +388,6 @@ return plugin.defineWindow(function(ctx)
         end
     end)
 
-    -- Drains any queued conversation app-scheme link reviews into timestamped guarded notices.
-    local function drainAppLinkReviews()
-        local bAny = Browser :: any
-        if type(bAny.TakeAppLinkReview) ~= "function" then
-            return
-        end
-        while true do
-            local review = bAny:TakeAppLinkReview()
-            if review == nil or type(review.tabId) ~= "string" or type(review.url) ~= "string" then
-                break
-            end
-            local action = refusal.externalTarget(review.url, "conversation")
-            if action ~= nil then
-                nextNoticeId += 1
-                refusalNotices[review.tabId] = {
-                    token = `app:{nextNoticeId}`,
-                    origin = I18n:T("notice.conversation"),
-                    text = I18n:T("refused.scheme"),
-                    target = review.url,
-                    action = action,
-                    shownAtMs = System:Now(),
-                }
-            end
-        end
-    end
-
     -- Syncs a tab's policy refusal into a timestamped `refusal.Notice` for the 500 ms guard.
     local function syncRefusal(tab: BrowserTab, navigated: boolean)
         local code = tab:Refusal()
@@ -441,7 +418,6 @@ return plugin.defineWindow(function(ctx)
 
     -- A page that moved: its counts, refusal notice, activity dot, history once loaded, and pane.
     Browser.Changed:Connect(function(id: string)
-        drainAppLinkReviews()
         local tab = Browser:Get(id)
         if tab == nil then
             epochs[id] = nil
@@ -483,7 +459,9 @@ return plugin.defineWindow(function(ctx)
         -- Private/isolated preview tabs and internal server files NEVER write to history.
         if not isPrivate and not previewTab and not tab:Loading() and history.recordable(url) and not isServerFile(url) then
             local title = tab:Title()
+            local liveFav: string? = if type(tAny.Favicon) == "function" then tAny:Favicon() else nil
             local visit = `{url}\n{title}`
+            local visitWithIcon = `{visit}\n{liveFav or ""}`
             local keeper = recorder:Get()
             local bAny = Browser :: any
             if recorded[id] ~= visit then
@@ -491,7 +469,7 @@ return plugin.defineWindow(function(ctx)
                 recorded[id] = visit
                 recordedUrl[id] = url
                 if keeper then
-                    keeper.remember(url, title)
+                    keeper.remember(url, title, liveFav)
                 end
                 ensureAdopted()
                 if sameUrl then
@@ -504,6 +482,11 @@ return plugin.defineWindow(function(ctx)
                     if type(bAny.HistoryVisit) == "function" then
                         bAny:HistoryVisit(url, title, wasTyped, id)
                     end
+                end
+            elseif liveFav ~= nil and liveFav ~= "" and recorded[`icon:{id}`] ~= visitWithIcon then
+                recorded[`icon:{id}`] = visitWithIcon
+                if keeper then
+                    keeper.remember(url, title, liveFav)
                 end
             end
         end
@@ -784,12 +767,10 @@ return plugin.defineWindow(function(ctx)
         elseif what == "refusal.action" then
             local notice = arg :: refusal.Notice?
             if notice and notice.target then
-                if notice.action == "open" then
-                    System:OpenExternal(notice.target)
-                else
-                    System:CopyText(notice.target)
-                    Toast:Info(I18n:T("common.copied"))
-                end
+                -- Plugin refusal notices are strictly copy-only; OS app launches occur exclusively
+                -- through the native host-rendered review bar (`surfaces/browser/prompts/app_link.rs`).
+                System:CopyText(notice.target)
+                Toast:Info(I18n:T("common.copied"))
             end
             dismissedRefusals[tab.Id] = tab:Rejected()
             refusalNotices[tab.Id] = nil
@@ -918,13 +899,19 @@ return plugin.defineWindow(function(ctx)
         act = act,
     }
 
-    -- A tab's label: "New tab" for a blank page, else live/saved title (loading hold), else host/URL.
+    -- A tab's label: "New tab" for a blank or unnamed link-opened page, else live/saved title, else host/URL.
     local function label(sid: string, info: BrowserTabInfo): string
         if info.url == "" then
             return I18n:T("tab.new")
         end
         local saved = savedTabs.find(savedTabs.normalize(savedTabsStore:Get()), sid, info.id)
         local live = Browser:Get(info.id)
+        if live ~= nil then
+            local liveAny = live :: any
+            if type(liveAny.Unnamed) == "function" and liveAny:Unnamed() == true then
+                return I18n:T("tab.new")
+            end
+        end
         local held = savedTabs.tabTitle(info.url, info.title, if live then live:Loading() else true, saved)
         if held ~= nil then
             return held
@@ -935,7 +922,8 @@ return plugin.defineWindow(function(ctx)
 
     local function tabText(sid: string, tab: BrowserTab): string
         local url = pageUrl(tab)
-        if url == "" then
+        local tAny = tab :: any
+        if url == "" or (type(tAny.Unnamed) == "function" and tAny:Unnamed() == true) then
             return I18n:T("tab.new")
         end
         local saved = savedTabs.find(savedTabs.normalize(savedTabsStore:Get()), sid, tab.Id)
@@ -957,8 +945,7 @@ return plugin.defineWindow(function(ctx)
             local out: { PanelTab } = {}
             for _, info in Browser:List(sid, open) do
                 if info.open then
-                    local tabIcon: IconName = if isPreviewUrl(info.url) then "folder" else "globe"
-                    table.insert(out, { instance = info.id, title = label(sid, info), icon = tabIcon, fallback = true })
+                    table.insert(out, { instance = info.id, title = label(sid, info), icon = "globe", fallback = true })
                 end
             end
             return out
@@ -971,22 +958,18 @@ return plugin.defineWindow(function(ctx)
             end
             local sid = props.sessionId or ""
             local title = tabText(sid, tab)
-            local preview = isPreviewTab(tab)
+            local labelColor: Color = if props.active then "text-chrome" else "text-muted"
             local iconNode: ui.Node
-            if preview then
-                iconNode = ui.icon("folder", { size = 16, color = "icon-weak" })
+            local tAny = tab :: any
+            local liveFav = if type(tAny.Favicon) == "function" then tAny:Favicon() else nil
+            local saved = savedTabs.find(savedTabs.normalize(savedTabsStore:Get()), sid, id)
+            local fav = savedTabs.tabIcon(pageUrl(tab), liveFav, saved)
+            if fav ~= nil then
+                iconNode = ui.image({ src = fav, w = 16, h = 16 }, {
+                    ui.icon("globe", { size = 16, color = labelColor }),
+                })
             else
-                local tAny = tab :: any
-                local liveFav = if type(tAny.Favicon) == "function" then tAny:Favicon() else nil
-                local saved = savedTabs.find(savedTabs.normalize(savedTabsStore:Get()), sid, id)
-                local fav = savedTabs.tabIcon(pageUrl(tab), liveFav, saved)
-                if fav ~= nil then
-                    iconNode = ui.image({ src = fav, w = 16, h = 16, radius = 2 }, {
-                        ui.icon("globe", { size = 16, color = "icon-weak" }),
-                    })
-                else
-                    iconNode = ui.icon("globe", { size = 16, color = "icon-weak" })
-                end
+                iconNode = ui.icon("globe", { size = 16, color = labelColor })
             end
             local children: { ui.Node } = {
                 iconNode,
@@ -994,14 +977,33 @@ return plugin.defineWindow(function(ctx)
                     size = 13,
                     weight = "regular",
                     lineHeight = 16,
-                    color = if props.active then "text-chrome" else "text-muted",
+                    tracking = -0.04,
+                    tabular = true,
+                    noWrap = true,
+                    color = labelColor,
                     truncate = true,
                     shrink = true,
                     minW = 0,
                     maxW = 160,
                 }),
             }
-            if unseenTabs[id] then
+            local tAny = tab :: any
+            local asking = type(tAny.Asking) == "function" and tAny:Asking() == true
+            local unseen = not asking
+                and (unseenTabs[id] == true or (type(tAny.Unseen) == "function" and tAny:Unseen() == true))
+            -- Official `renderer.tsx:536-538`: amber `prompt.tab` ("Waiting for you") takes precedence
+            -- over blue `tab.activity` ("The agent used this tab"), both 6×6 rounded dots.
+            if asking then
+                table.insert(children, ui.box({
+                    key = `browser-tab-dot-{id}`,
+                    role = "img",
+                    label = I18n:T("prompt.tab"),
+                    w = 6,
+                    h = 6,
+                    radius = 3,
+                    fill = "status-warning",
+                }))
+            elseif unseen then
                 table.insert(children, ui.box({
                     key = `browser-tab-dot-{id}`,
                     role = "img",
@@ -1228,12 +1230,14 @@ return plugin.defineWindow(function(ctx)
             end
             local origin = if source == "conversation" then I18n:T("notice.conversation") else I18n:T("notice.page")
             nextNoticeId += 1
+            -- External contract notices are copy-only: OS app launches require a single-use
+            -- host-minted review token from `Browser:TakeAppLinkReview()` (never a plugin call).
             refusalNotices[tabId] = {
                 token = `ext:{tabId}:{nextNoticeId}`,
                 origin = origin,
                 text = I18n:T("refused.scheme"),
                 target = target,
-                action = action,
+                action = "copy",
                 shownAtMs = System:Now(),
             }
             refresh()
@@ -1301,6 +1305,24 @@ return plugin.defineWindow(function(ctx)
         sitePermsStore:Set(nextList :: any)
     end
 
+    local function storedExtensions(): { any }
+        local raw = extensionsStore:Get()
+        return if type(raw) == "table" then raw :: { any } else {}
+    end
+
+    local function extNativeAvailable(): boolean
+        local bAny = Browser :: any
+        return type(bAny.ExtAvailable) == "function" and bAny:ExtAvailable() == true
+    end
+
+    -- Sync verified on-disk startup extension specs once on window boot (never discovers other browsers).
+    if extNativeAvailable() then
+        local bAny = Browser :: any
+        if type(bAny.ExtSync) == "function" then
+            bAny:ExtSync(storedExtensions(), false)
+        end
+    end
+
     local function settingsCapabilities(): settings.Capabilities
         local prof = profileContract:Get()
         local ext = extContract:Get()
@@ -1308,14 +1330,15 @@ return plugin.defineWindow(function(ctx)
         return {
             available = avail,
             import = avail,
-            extensions = type(ext) == "table" and type(ext.renderSettings) == "function",
-            remoteSignIns = type(prof) == "table" and type(prof.remoteSignIns) == "function" and type(prof.setRemoteSignIns) == "function",
+            extensions = extNativeAvailable() or (type(ext) == "table" and type(ext.renderSettings) == "function"),
+            remoteSignIns = avail and type((Browser :: any).ShareSignIns) == "function",
             cookieFile = type(prof) == "table" and type(prof.pickCookieFile) == "function",
         }
     end
 
     local settingsHandle: Contribution? = nil
     local importDialogHandle: Contribution? = nil
+    local extDialogHandle: Contribution? = nil
     local clearNoticeText: string? = nil
     -- Browsers are listed only while Settings > Browser draws (never at startup), read again once a
     -- listing is a few seconds old, so a visit sees browsers installed since the last one.
@@ -1325,6 +1348,19 @@ return plugin.defineWindow(function(ctx)
     local importTarget: { browser: string, profile: string, label: string }? = nil
     local importFailure: settings.ImportMessage? = nil
     local importResults: { [string]: settings.ImportMessage } = {}
+    local extDialogState: extensions.DialogState = {
+        busy = nil,
+        installingId = nil,
+        choices = {},
+        selectedKey = nil,
+        candidates = {},
+        candidatesLoaded = false,
+        devOpen = false,
+        review = nil,
+        showAllSites = false,
+        approving = false,
+        message = nil,
+    }
 
     local function listImportSources(): { settings.ImportBrowser }
         local now = System:Now()
@@ -1341,6 +1377,257 @@ return plugin.defineWindow(function(ctx)
             settingsHandle:Refresh()
         end
     end
+
+    local function refreshExtDialog()
+        if extDialogHandle then
+            extDialogHandle:Refresh()
+        end
+    end
+
+    extensionsStore.Changed:Connect(function()
+        refreshSettings()
+    end)
+
+    extLinkEditor.Changed:Connect(function()
+        refreshExtDialog()
+    end)
+
+    local function reloadExtCandidates()
+        local choice = extensions.findChoice(extDialogState.choices, extDialogState.selectedKey)
+        if choice == nil then
+            extDialogState.candidates = {}
+            extDialogState.candidatesLoaded = true
+            return
+        end
+        local bAny = Browser :: any
+        local list = if type(bAny.ExtBrowserList) == "function"
+            then bAny:ExtBrowserList(choice.sourceId, choice.profileId, storedExtensions())
+            else {}
+        extDialogState.candidates = if type(list) == "table" then list :: any else {}
+        extDialogState.candidatesLoaded = true
+    end
+
+    local function openAddExtensionDialog()
+        local bAny = Browser :: any
+        local rawSources = if type(bAny.ExtBrowserSources) == "function" then bAny:ExtBrowserSources() else {}
+        local sources: { extensions.BrowserSource } = if type(rawSources) == "table" then rawSources :: any else {}
+        local choices = extensions.flattenChoices(sources)
+        extDialogState = {
+            busy = nil,
+            installingId = nil,
+            choices = choices,
+            selectedKey = if #choices > 0 then extensions.choiceKey(choices[1]) else nil,
+            candidates = {},
+            candidatesLoaded = false,
+            devOpen = false,
+            review = nil,
+            showAllSites = false,
+            approving = false,
+            message = nil,
+        }
+        extLinkEditor:SetText("")
+        reloadExtCandidates()
+        Dialog:Open("add-extension")
+        extLinkEditor:Focus()
+    end
+
+    local function handleStageResult(res: any)
+        extDialogState.busy = nil
+        extDialogState.installingId = nil
+        if type(res) == "table" and res.type == "review" and type(res.review) == "table" then
+            extDialogState.review = res.review :: any
+            extDialogState.showAllSites = false
+            extDialogState.message = nil
+        elseif type(res) == "table" and res.type == "cancelled" then
+            -- User dismissed folder dialog or superseded an older stage.
+        elseif type(res) == "table" and res.type == "failed" then
+            extDialogState.message = {
+                text = extensions.failureMessage(I18n, res.reason),
+                error = true,
+                compatibility = nil,
+            }
+        else
+            extDialogState.message = {
+                text = I18n:T("settings.failed.install"),
+                error = true,
+                compatibility = nil,
+            }
+        end
+        refreshExtDialog()
+    end
+
+    local function startStoreInstall()
+        if extDialogState.busy ~= nil or extDialogState.approving then
+            return
+        end
+        local url = string.match(extLinkEditor:Text(), "^%s*(.-)%s*$") or ""
+        if url == "" then
+            return
+        end
+        extDialogState.busy = "install-store"
+        extDialogState.installingId = nil
+        extDialogState.message = nil
+        extLinkEditor:SetText("")
+        refreshExtDialog()
+        task.spawn(function()
+            local bAny = Browser :: any
+            local ok, res = pcall(function()
+                return bAny:ExtStageStoreAsync(url, storedExtensions())
+            end)
+            handleStageResult(if ok then res else nil)
+        end)
+    end
+
+    local function startBrowserInstall(sourceId: string, profileId: string, extId: string)
+        if extDialogState.busy ~= nil or extDialogState.approving then
+            return
+        end
+        extDialogState.busy = "install-browser"
+        extDialogState.installingId = extId
+        extDialogState.message = nil
+        refreshExtDialog()
+        task.spawn(function()
+            local bAny = Browser :: any
+            local ok, res = pcall(function()
+                return bAny:ExtStageBrowserAsync(sourceId, profileId, extId, storedExtensions())
+            end)
+            handleStageResult(if ok then res else nil)
+        end)
+    end
+
+    local function startFolderInstall()
+        if extDialogState.busy ~= nil or extDialogState.approving then
+            return
+        end
+        extDialogState.busy = "install-folder"
+        extDialogState.installingId = nil
+        extDialogState.message = nil
+        refreshExtDialog()
+        local pickTitle = I18n:T("settings.extensions.folder.pick")
+        task.spawn(function()
+            local bAny = Browser :: any
+            local ok, res = pcall(function()
+                return bAny:ExtStageFolderAsync(pickTitle, storedExtensions())
+            end)
+            handleStageResult(if ok then res else nil)
+        end)
+    end
+
+    local function approveExtReview(token: string)
+        if extDialogState.approving then
+            return
+        end
+        extDialogState.approving = true
+        refreshExtDialog()
+        task.spawn(function()
+            local bAny = Browser :: any
+            local ok, res = pcall(function()
+                return bAny:ExtApproveAsync(token, storedExtensions())
+            end)
+            extDialogState.approving = false
+            extDialogState.review = nil
+            extDialogState.showAllSites = false
+            if ok and type(res) == "table" and res.type == "installed" and type(res.records) == "table" then
+                extensionsStore:Set(res.records)
+                if type(bAny.ExtSync) == "function" then
+                    bAny:ExtSync(res.records, true)
+                end
+                if type(res.extension) == "table" then
+                    extDialogState.message = extensions.installedMessage(I18n, res.extension :: any)
+                end
+                reloadExtCandidates()
+                refreshSettings()
+            else
+                local reason = if ok and type(res) == "table" then res.reason else nil
+                extDialogState.message = {
+                    text = extensions.failureMessage(I18n, reason),
+                    error = true,
+                    compatibility = nil,
+                }
+            end
+            refreshExtDialog()
+        end)
+    end
+
+    local function cancelExtReview()
+        local bAny = Browser :: any
+        if type(bAny.ExtCancelReview) == "function" then
+            bAny:ExtCancelReview()
+        end
+        extDialogState.review = nil
+        extDialogState.showAllSites = false
+        refreshExtDialog()
+    end
+
+    ctx:AddPopover({
+        id = "ext-browser-profile",
+        title = I18n:T("settings.extensions.browser.select"),
+        render = function(view)
+            return extensions.renderProfileMenu(extDialogState.choices, extDialogState.selectedKey, view, function(key: string)
+                Popover:Close()
+                extDialogState.selectedKey = key
+                reloadExtCandidates()
+                refreshExtDialog()
+            end)
+        end,
+    })
+
+    extDialogHandle = ctx:AddDialog({
+        id = "add-extension",
+        title = I18n:T("settings.extensions.add.title"),
+        size = "normal",
+        render = function(view)
+            return extensions.renderAddDialog({
+                I18n = I18n,
+                linkEditor = extLinkEditor,
+                state = extDialogState,
+                onAddLink = startStoreInstall,
+                onSelectProfile = function(key: string)
+                    extDialogState.selectedKey = key
+                    reloadExtCandidates()
+                    refreshExtDialog()
+                end,
+                onOpenProfileMenu = function()
+                    Popover:Toggle({
+                        id = "ext-browser-profile",
+                        anchorKey = "ext-browser-profile-btn",
+                        side = "bottom",
+                        align = "end",
+                        gap = 4,
+                    })
+                end,
+                onAddFromBrowser = startBrowserInstall,
+                onToggleDev = function()
+                    extDialogState.devOpen = not extDialogState.devOpen
+                    refreshExtDialog()
+                end,
+                onPickFolder = startFolderInstall,
+                onToggleSites = function()
+                    extDialogState.showAllSites = not extDialogState.showAllSites
+                    refreshExtDialog()
+                end,
+                onApprove = approveExtReview,
+                onCancelReview = cancelExtReview,
+                onClose = function()
+                    Dialog:Close()
+                end,
+            }, view)
+        end,
+        onDismiss = function()
+            Popover:Close()
+            local bAny = Browser :: any
+            if type(bAny.ExtCancelReview) == "function" then
+                bAny:ExtCancelReview()
+            end
+            extDialogState.review = nil
+            extDialogState.showAllSites = false
+            extDialogState.approving = false
+            extDialogState.busy = nil
+            extDialogState.installingId = nil
+            extDialogState.message = nil
+            extLinkEditor:SetText("")
+        end,
+    })
 
     local function runClearBrowsingData()
         local bAny = Browser :: any
@@ -1488,17 +1775,55 @@ return plugin.defineWindow(function(ctx)
             if type(ext) == "table" and type(ext.renderSettings) == "function" then
                 return ext.renderSettings(view)
             end
-            return nil
+            if not extNativeAvailable() then
+                return nil
+            end
+            local bAny = Browser :: any
+            local rawList = if type(bAny.ExtList) == "function" then bAny:ExtList(storedExtensions()) else {}
+            local list: { extensions.ProfileExtension } = if type(rawList) == "table" then rawList :: any else {}
+            return extensions.renderSettingsSection({
+                I18n = I18n,
+                available = Browser:Available(),
+                busy = extDialogState.busy ~= nil or extDialogState.approving,
+                list = list,
+                onOpenAdd = openAddExtensionDialog,
+                onToggle = function(id: string, enabled: boolean)
+                    local res = if type(bAny.ExtSetEnabled) == "function"
+                        then bAny:ExtSetEnabled(id, enabled, storedExtensions())
+                        else nil
+                    if type(res) == "table" and res.ok == true and type(res.records) == "table" then
+                        extensionsStore:Set(res.records)
+                    else
+                        Toast:Error(I18n:T("settings.failed.extension"))
+                    end
+                    refreshSettings()
+                end,
+                onRemove = function(id: string)
+                    local res = if type(bAny.ExtRemove) == "function"
+                        then bAny:ExtRemove(id, storedExtensions())
+                        else nil
+                    if type(res) == "table" and res.ok == true and type(res.records) == "table" then
+                        extensionsStore:Set(res.records)
+                    else
+                        Toast:Error(I18n:T("settings.failed.extension"))
+                    end
+                    refreshSettings()
+                end,
+            }, view)
         end,
-        remoteSignInsEnabled = function()
-            local prof = profileContract:Get()
-            return type(prof) == "table" and type(prof.remoteSignIns) == "function" and prof.remoteSignIns() == true
+        remoteSignInsEnabled = function(): boolean?
+            local bAny = Browser :: any
+            if type(bAny.ShareSignIns) ~= "function" or bAny:ShareSignIns() == nil then
+                return nil
+            end
+            return preferences().remoteSignIns
         end,
         setRemoteSignIns = function(enabled: boolean)
-            local prof = profileContract:Get()
-            if type(prof) == "table" and type(prof.setRemoteSignIns) == "function" then
-                prof.setRemoteSignIns(enabled)
-            end
+            -- Kept across restarts as official keeps `remote-sign-ins` (`profile/index.ts:118,657-661`).
+            local bAny = Browser :: any
+            updatePreferences({ remoteSignIns = enabled })
+            bAny:SetShareSignIns(enabled)
+            refreshSettings()
         end,
         pickCookieFile = function()
             local prof = profileContract:Get()
@@ -1507,6 +1832,22 @@ return plugin.defineWindow(function(ctx)
             end
         end,
     }, refreshSettings)
+
+    -- The host re-sends it to every engine that starts with a cookie store (`#286`), so setting it
+    -- once here carries the person's choice across restarts without starting the engine.
+    local function syncRemoteSignIns()
+        local bAny = Browser :: any
+        if type(bAny.SetShareSignIns) == "function" then
+            bAny:SetShareSignIns(preferences().remoteSignIns)
+        end
+    end
+    if preferences().remoteSignIns then
+        syncRemoteSignIns()
+    end
+    prefsStore.Changed:Connect(function()
+        syncRemoteSignIns()
+        refreshSettings()
+    end)
 
     settingsHandle = ctx:AddSettingsPage({
         id = "browser",

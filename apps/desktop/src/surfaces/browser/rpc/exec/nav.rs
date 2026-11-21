@@ -191,6 +191,7 @@ fn open_in_background(app: &mut App, sid: &str, open: impl FnOnce(&mut App) -> O
     if let Some(prev) = focused.filter(|prev| *prev != id) {
         app.workspace_panes.browser.host.focus_tab(prev);
     }
+    app.mark_browser_tab_unseen(id);
     Some(id)
 }
 
@@ -267,6 +268,7 @@ fn start_navigate(
         }
     };
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
+    app.mark_browser_tab_unseen(host_id);
     let prev_rejected = app.workspace_panes.browser.host.tab(host_id).map_or(0, |t| t.rejected);
     match app.resolve_preview_target(Some(&att.session_id), &candidate, true) {
         crate::browser::preview::PreviewTarget::Preview { display_url, spec } => {
@@ -320,6 +322,7 @@ fn start_history(
         return StepOutcome::Done(outcome);
     }
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
+    app.mark_browser_tab_unseen(host_id);
     let prev_rejected = app.workspace_panes.browser.host.tab(host_id).map_or(0, |t| t.rejected);
     if is_back {
         app.workspace_panes.browser.host.back(host_id);
@@ -363,6 +366,7 @@ fn start_reload(
         return StepOutcome::Done(outcome);
     }
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
+    app.mark_browser_tab_unseen(host_id);
     let prev_rejected = app.workspace_panes.browser.host.tab(host_id).map_or(0, |t| t.rejected);
     if ignore_cache {
         app.workspace_panes.browser.host.reload_ignore_cache(host_id);
