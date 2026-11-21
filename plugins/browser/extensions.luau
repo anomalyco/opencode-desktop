@@ -660,9 +660,11 @@ function extensions.renderAddDialog(env: DialogEnv, view: View): ui.Node
     end
 
     if selected ~= nil then
-        local headerRight: ui.Node
+        local headerChildren: { ui.Node } = {
+            ui.text(i18n:T("settings.extensions.browser.title"), SECTION_LABEL),
+        }
         if #st.choices > 1 then
-            headerRight = ui.row({
+            table.insert(headerChildren, ui.row({
                 key = "ext-browser-profile-btn",
                 role = "button",
                 label = i18n:T("settings.extensions.browser.select"),
@@ -681,9 +683,7 @@ function extensions.renderAddDialog(env: DialogEnv, view: View): ui.Node
             }, {
                 ui.text(extensions.choiceLabel(selected), SECTION_LABEL),
                 ui.icon("chevron-down", { size = 14, color = "icon-weak" }),
-            })
-        else
-            headerRight = ui.text(extensions.choiceLabel(selected), BODY_SINGLE)
+            }))
         end
 
         local listItems: { ui.Node } = {}
@@ -737,10 +737,7 @@ function extensions.renderAddDialog(env: DialogEnv, view: View): ui.Node
         end
 
         table.insert(middle, ui.col({ key = "ext-from-browsers", w = "full", gap = 4 }, {
-            ui.row({ w = "full", h = 28, align = "center", justify = "between", gap = 8 }, {
-                ui.text(i18n:T("settings.extensions.browser.title"), SECTION_LABEL),
-                headerRight,
-            }),
+            ui.row({ w = "full", h = 28, align = "center", justify = "between", gap = 8 }, headerChildren),
             ui.col({ w = "full", gap = 0 }, listItems),
         }))
     end
