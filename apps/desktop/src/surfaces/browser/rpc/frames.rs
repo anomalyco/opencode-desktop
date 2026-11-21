@@ -400,6 +400,38 @@ impl TabFrameState {
         main_reloaded
     }
 
+    /// Nearest ancestor CDP `sessionId` owning `frame_id` (`None` = top-level target), matching
+    /// official `sessionFor` (`packages/gui-plugins/src/browser/chromium.ts`).
+    pub fn session_for(&self, frame_id: &str) -> Option<String> {
+        let mut cur = Some(frame_id);
+        for _ in 0..=self.frame_parents.len() {
+            let id = cur?;
+            if let Some(sid) = self.frame_sessions.get(id) {
+                return Some(sid.clone());
+            }
+            cur = self.frame_parents.get(id).map(String::as_str);
+        }
+        None
+    }
+
+    /// Returns `(child_frame_id, parent_frame_id, parent_cdp_session)` from `start_frame` up to
+    /// the top-level document for mapping iframe-local rects to page coordinates (`chromium.ts`).
+    pub fn ancestor_owners(&self, start_frame: Option<&str>) -> Vec<(String, String, Option<String>)> {
+        let Some(mut cur) = start_frame.map(str::to_owned) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for _ in 0..self.frame_parents.len().min(MAX_TRACKED_FRAMES) {
+            let Some(parent) = self.frame_parents.get(&cur).cloned() else {
+                break;
+            };
+            let parent_session = self.session_for(&parent);
+            out.push((cur, parent.clone(), parent_session));
+            cur = parent;
+        }
+        out
+    }
+
     /// Returns unique active non-extension OOPIF CDP `sessionId`s tracked on this tab.
     pub fn oopif_sessions(&self) -> Vec<String> {
         let mut seen = HashSet::new();

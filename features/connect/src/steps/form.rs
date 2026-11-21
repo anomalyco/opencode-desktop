@@ -63,7 +63,7 @@ pub(super) fn view<H: ConnectHost + 'static>(s: &H, p: &Pal) -> El {
 }
 
 fn build_form_layout(p: &Pal, f: &form::Form, controls: El) -> El {
-    let mut e = col().key(format!("connect-form-{}", f.key())).px(12.0).gap(16.0);
+    let mut e = col().key(format!("connect-form-{}", f.key())).px(8.0).gap(16.0);
     // `dialog.tsx:619` (`#63829`): text steps render their own field label & description directly.
     if !matches!(f.step.kind, form::Kind::Text { .. }) {
         let mut head = col().w_full().gap(4.0).child(text(f.title()).font(BODY_MED).color(p.text).wrap());

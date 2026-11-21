@@ -19,7 +19,7 @@
 
 use rune::{TaskbarProgress, WindowHandle};
 
-use crate::App;
+use crate::{App, TabStatus};
 
 /// What the window's tabs need.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -118,21 +118,33 @@ impl Taskbar {
 }
 
 impl App {
-    /// The window's tabs on the server it's checked out on, as their avatars mark them.
+    /// Every session tab in the window, on any server, as their avatars mark them: Desktop's
+    /// `useWindowTabActivity` (opencode#65317) reads each tab on its own server. A tab on a server
+    /// the window isn't checked out on counts as its mark was when the window last read it there.
     fn taskbar_summary(&self) -> Summary {
         let server = crate::servers::runtime::active(self);
-        self.tabs.iter().filter(|t| !t.is_draft() && t.server == *server).fold(Summary::default(), |mut sum, t| {
-            // As Desktop's `useWindowTabActivity` (opencode#65317): a muted session never waits
-            // or ends unread, and one still working hasn't ended.
-            let mut marks = self.marks(&t.id);
+        self.tabs.iter().filter(|t| !t.is_draft()).fold(Summary::default(), |mut sum, t| {
+            let (mut attention, mut unread, busy, failed) = if t.server == *server {
+                let marks = self.marks(&t.id);
+                (marks.attention, marks.unread, marks.busy, self.session(&t.id).is_some_and(|s| s.outcome.as_deref() == Some("failed")))
+            } else {
+                match self.checkout.snap(&t.server, &t.id) {
+                    Some(TabStatus::Busy) => (false, false, true, false),
+                    Some(TabStatus::Attention) => (true, true, false, false),
+                    Some(TabStatus::Unread) => (false, true, false, false),
+                    Some(TabStatus::Failed) => (false, true, false, true),
+                    None => (false, false, false, false),
+                }
+            };
+            // A muted session never waits or ends unread, and one still working hasn't ended.
             if crate::session_menu::preferences::muted(&t.server, &t.id) {
-                (marks.attention, marks.unread) = (false, false);
+                (attention, unread) = (false, false);
             }
-            let ended = marks.unread && !marks.attention && !marks.busy;
-            sum.waiting += u32::from(marks.attention);
+            let ended = unread && !attention && !busy;
+            sum.waiting += u32::from(attention);
             sum.unread += u32::from(ended);
-            sum.failed |= ended && self.session(&t.id).is_some_and(|s| s.outcome.as_deref() == Some("failed"));
-            sum.busy |= marks.busy;
+            sum.failed |= ended && failed;
+            sum.busy |= busy;
             sum
         })
     }

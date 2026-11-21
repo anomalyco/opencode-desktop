@@ -196,7 +196,7 @@ pub(super) fn priority(level: i32) {
         windows_sys::Win32::System::Threading::SetThreadPriority(windows_sys::Win32::System::Threading::GetCurrentThread(), level);
     }
     #[cfg(not(windows))]
-    drop(level);
+    let _ = level;
 }
 
 fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket), gate: &Gate) -> (Storage, BootReport) {

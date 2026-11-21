@@ -32,7 +32,7 @@ pub(crate) struct ManagedTab {
     allowed_ext_ids: Arc<Mutex<Vec<String>>>,
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     allow_extension_pages: bool,
-    pub(super) isolated: bool,
+    pub(crate) isolated: bool,
     pub(crate) is_popup: bool,
     pub(crate) preview: Option<Arc<PreviewGrant>>,
     #[cfg(target_os = "linux")]
@@ -739,10 +739,10 @@ impl EngineManager {
                     );
                 }
             }
-            HostMsg::UploadFiles { tab_id, request_id, backend_node_id, files } => {
+            HostMsg::UploadFiles { tab_id, request_id, backend_node_id, files, session_id, frame_id } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
                     let not_ready = (!self.contexts.is_tab_ready(tab_id)).then(|| self.contexts.not_ready_reason(tab_id));
-                    crate::agent::handle_upload_files(t, &self.profile_dir, tab_id, request_id, not_ready, backend_node_id, &files, &self.next_cdp_id, &self.out_tx);
+                    crate::agent::handle_upload_files(t, &self.permissions, &self.profile_dir, tab_id, request_id, not_ready, backend_node_id, &files, session_id, frame_id, &self.next_cdp_id, &self.out_tx);
                 }
             }
             HostMsg::DropFiles { tab_id, request_id, x, y, files } => {
@@ -805,17 +805,13 @@ impl EngineManager {
                             crate::wire::ContextKind::Preview { .. }
                                 | crate::wire::ContextKind::Artifact { .. }
                         );
-                    t.menu.execute(
-                        tab_id,
-                        t.download_gen,
-                        id,
-                        action,
-                        &t.browser,
-                        &t.host,
-                        &roots,
-                        block_downloads,
-                        &self.downloads,
-                    );
+                    let ext_click = t.menu.execute(tab_id, t.download_gen, id, action, &t.browser, &t.host, &roots, block_downloads, &self.downloads);
+                    if let Some((ext_id, item_id, target)) = ext_click
+                        && !t.isolated && !t.is_popup && t.preview.is_none()
+                        && let Some(ext) = self.extensions.as_mut()
+                    {
+                        ext.on_context_menu_clicked(tab_id, &ext_id, &item_id, &target);
+                    }
                 }
             }
             HostMsg::SetPartitionProxy { server_id, proxy } => {
@@ -1237,11 +1233,16 @@ impl EngineManager {
             self.out_tx.clone(),
             std::sync::Arc::new(crate::find::FindState::default()),
         );
+        let ext_menus = (!isolated && !is_popup && preview_grant.is_none())
+            .then(|| self.extensions.as_ref().map(|e| e.context_menu_catalog()))
+            .flatten();
         let context_menu = crate::menu::TabContextMenuHandler::new(
             tab_id,
             self.prompt_shared.clone(),
+            prompts.clone(),
             file_roots.clone(),
             preview_grant.clone(),
+            ext_menus,
             menu_state.clone(),
             self.out_tx.clone(),
         );
