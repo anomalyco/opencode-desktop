@@ -2633,7 +2633,7 @@
       "summary": "Unify the keyboard focus ring token/rendering across all interactive controls, add missing `:focus-visible` states app-wide, and install Focus Rescue so removing a focused item moves focus to a neighbor.",
       "size": "XL",
       "status": "have it",
-      "status_evidence": "Focus rings (#262, #269, Rune #1296), rescue (Rune #1298, #1302, #1304) and field rings: composer frame and Home search ring only when the keys put focus there (PR #0)",
+      "status_evidence": "Focus rings (#262, #269, Rune #1296), rescue (Rune #1298, #1302, #1304) and field rings: composer frame and Home search ring only when the keys put focus there (PR #326)",
       "depends_on": "Rune focus-rescue / scope-based fallback focus API",
       "risks": "Must preserve Rune's existing accessibility tree, screen-reader announcements, and zero-allocation idle path.",
       "workstream": "WS-8",
@@ -2737,7 +2737,7 @@
       "summary": "Show the composer's keyboard focus ring only when focus arrives via keyboard navigation or shortcuts, not on pointer clicks or mode toggles.",
       "size": "M",
       "status": "have it",
-      "status_evidence": "Composer frame rings 2 in via Rune focus_visible_within_ring only on keyboard entry; ^L rings only from the keys (PR #0)",
+      "status_evidence": "Composer frame rings 2 in via Rune focus_visible_within_ring only on keyboard entry; ^L rings only from the keys (PR #326)",
       "depends_on": "UP-088 (#64909); Rune focus-visible / programmatic focus origin tracking",
       "risks": "none",
       "workstream": "WS-8"
@@ -3053,7 +3053,7 @@
       "summary": "Suppress the composer keyboard focus ring when focus returns to the already-active composer upon switching back to the app window.",
       "size": "S",
       "status": "have it",
-      "status_evidence": "The composer ring follows Rune's focus-visible origin, which a return to the window doesn't set (Rune #1297) (PR #0)",
+      "status_evidence": "The composer ring follows Rune's focus-visible origin, which a return to the window doesn't set (Rune #1297) (PR #326)",
       "depends_on": "UP-092 (#64976)",
       "risks": "none",
       "workstream": "WS-8"
@@ -3779,7 +3779,7 @@
       "summary": "Use focusField(..., ring) during focus rescue so mouse clicks on queued prompt Steer/Remove hand focus to the composer without showing the keyboard-only focus ring.",
       "size": "S",
       "status": "have it",
-      "status_evidence": "A click on Steer/Remove hands focus to the composer by Rune's rescue with the click's origin, so no ring (PR #0)",
+      "status_evidence": "A click on Steer/Remove hands focus to the composer by Rune's rescue with the click's origin, so no ring (PR #326)",
       "depends_on": "UP-092 (#64976)",
       "risks": "none",
       "workstream": "WS-8"
