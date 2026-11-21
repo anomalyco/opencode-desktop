@@ -74,6 +74,7 @@ pub fn card_with<S: TimelineHost>(s: &S, p: &Pal, session: &str, c: &Call, defau
         .role("button")
         .label(label)
         .help(label)
+        .help_open(done)
         .size(24.0, 24.0)
         .center()
         .radius(6.0)
