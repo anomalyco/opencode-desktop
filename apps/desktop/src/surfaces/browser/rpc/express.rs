@@ -3,7 +3,8 @@
 //! blade, per command; the command frames also come to their own subscription here, woken by
 //! the browser's quiet waker (`launch::browser_waker`). The frame's poll sees each again
 //! (`on_control_event`), where the attachment ignores a request it already took, as it ignores
-//! the server's replays.
+//! the server's replays. A cancel comes this way too, so it never overtakes its command, nor a
+//! command the cleanup of one cancelled before it.
 
 use std::sync::mpsc::Receiver;
 
@@ -22,8 +23,8 @@ struct Express {
     sub: Option<(String, Receiver<Incoming>)>,
 }
 
-/// The browser's quiet poll: starts the command frames the window's server announced since the
-/// last, subscribing on the first poll after the window joins a server (or moves to another).
+/// The browser's quiet poll: starts (or cancels) the commands the window's server announced since
+/// the last, in order, subscribing on the first poll after the window joins a server (or moves to another).
 pub fn poll(s: &mut App) {
     let current = peer::base(s).map(str::to_owned);
     let st = s.kernel.slots.get_or_default(&EXPRESS);
@@ -38,7 +39,7 @@ pub fn poll(s: &mut App) {
     let frames: Vec<serde_json::Value> = rx
         .try_iter()
         .filter_map(|m| match m {
-            Incoming::Event { data, .. } if data["type"] == "command" => Some(data),
+            Incoming::Event { data, .. } if matches!(data["type"].as_str(), Some("command" | "cancel")) => Some(data),
             _ => None,
         })
         .collect();
