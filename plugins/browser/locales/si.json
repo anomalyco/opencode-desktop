@@ -64,5 +64,6 @@
   "zoom.reset": "විශාලනය යළි පිහිටුවන්න",
   "zoom.percent": "{{percent}}%",
   "link.copy": "සබැඳිය පිටපත් කරන්න",
-  "history.clear": "ඉතිහාසය ඉවත් කරන්න"
+  "history.clear": "ඉතිහාසය ඉවත් කරන්න",
+  "extensions.compat.feature.management": "වෙනත් දිගු කළමනාකරණය කිරීම"
 }

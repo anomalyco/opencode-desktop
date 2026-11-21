@@ -64,5 +64,6 @@
   "zoom.reset": "Lähtesta suum",
   "zoom.percent": "{{percent}}%",
   "link.copy": "Kopeeri link",
-  "history.clear": "Tühjenda ajalugu"
+  "history.clear": "Tühjenda ajalugu",
+  "extensions.compat.feature.management": "Teiste laienduste haldamine"
 }

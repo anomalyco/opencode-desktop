@@ -64,5 +64,6 @@
   "zoom.reset": "Masştaby täzeden düz",
   "zoom.percent": "{{percent}} %",
   "link.copy": "Baglanyşygy göçüriň",
-  "history.clear": "Taryhy arassalaň"
+  "history.clear": "Taryhy arassalaň",
+  "extensions.compat.feature.management": "Beýleki giňeltmeleri dolandyrmak"
 }

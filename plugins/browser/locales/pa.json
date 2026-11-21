@@ -64,5 +64,6 @@
   "zoom.reset": "زوم ری سیٹ کرو",
   "zoom.percent": "⁨{{percent}}⁩%",
   "link.copy": "لنک کاپی کرو",
-  "history.clear": "تاریخ صاف کرو"
+  "history.clear": "تاریخ صاف کرو",
+  "extensions.compat.feature.management": "ਹੋਰ ਐਕਸਟੈਂਸ਼ਨਾਂ ਦਾ ਪ੍ਰਬੰਧਨ"
 }
