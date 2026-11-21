@@ -138,6 +138,6 @@ pub fn seek_active(s: &mut dyn FindHost, tx: &mut Tx) {
         // the text range, already inset by half the leading. Centre the line, not an 18 pt
         // glyph box with its top mistaken for the line's (3–4 device pixels low at 1.875x).
         let line = if row_key.starts_with("u-") { session_view::style::BUBBLE } else { session_view::style::MD };
-        tx.scroll_key_to(ACTIVE_KEY, (page_y + page_h - top - line.line_px()) / 2.0 + 0.25);
+        tx.scroll_key_to(ACTIVE_KEY, (page_y + page_h - top - line.line_px()) / 2.0 + 1.0);
     }
 }
