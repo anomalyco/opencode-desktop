@@ -164,8 +164,8 @@ fn bare_field(a: &NodeArgs, edit: &rune::TextEdit, plugin: String, index: usize)
     input = input.dir(dir(a).unwrap_or(if a.flag("secure") { rune::Direction::Ltr } else { rune::Direction::Auto }));
     if !handed.is_empty() {
         input = input.on_input_key(move |app: &mut App, ev: &rune::KeyEvent, tx: &mut Tx| {
-            let Some(&(_, _, name)) = handed.iter().find(|&&(key, shift, _)| {
-                ev.key == key && ev.mods.shift == shift && !ev.mods.cmd && !ev.mods.ctrl && !ev.mods.alt
+            let Some(&(_, _, name)) = handed.iter().find(|(key, shift, _)| {
+                ev.key == *key && ev.mods.shift == *shift && !ev.mods.cmd && !ev.mods.ctrl && !ev.mods.alt
             }) else {
                 return false;
             };
