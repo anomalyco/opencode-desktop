@@ -232,12 +232,7 @@ impl EngineCdpLedger {
                 Err(format!("DevTools method '{method}' is owned by the browser engine."))
             }
             "Page.enable" if session.is_none() => Ok(Dispatch::ReplayWebTargets {
-                replay: self
-                    .web_sessions
-                    .values()
-                    .filter(|w| w.announced)
-                    .map(|w| (w.attach.clone(), w.parent_session.clone()))
-                    .collect(),
+                replay: self.ordered_web_targets(),
             }),
             "Runtime.enable" => Ok(Dispatch::ReEnable),
             "Accessibility.getFullAXTree" => {
@@ -265,7 +260,20 @@ impl EngineCdpLedger {
             | "DOM.querySelector"
             | "DOM.querySelectorAll"
             | "Accessibility.getPartialAXTree" => {
-                let fid = node_frame().ok_or(UNAVAILABLE_FRAME)?;
+                let fid = if let Some(oid) = params.get("objectId").and_then(Value::as_str) {
+                    let Some((osid, ofid)) = self.objects.get(oid).cloned() else {
+                        return Err("TypedCdpCall objectId was not produced by an engine-verified DOM.resolveNode.".into());
+                    };
+                    if osid.as_deref() != session {
+                        return Err("TypedCdpCall objectId belongs to another session.".into());
+                    }
+                    if frame_id.is_some_and(|claimed| claimed != ofid) {
+                        return Err(UNAVAILABLE_FRAME.into());
+                    }
+                    ofid
+                } else {
+                    node_frame().ok_or(UNAVAILABLE_FRAME)?
+                };
                 self.check_frame(&fid, session)?;
                 Ok(Dispatch::Send(if method == "DOM.resolveNode" { Post::Resolve(fid) } else { Post::Frame(fid) }))
             }
@@ -314,8 +322,15 @@ impl EngineCdpLedger {
             Post::None => Ok(()),
             Post::Frame(fid) => self.post_check(fid),
             Post::Resolve(fid) => {
-                self.post_check(fid)?;
-                if let Some(oid) = result.get("object").and_then(|o| o.get("objectId")).and_then(Value::as_str) {
+                let oid = result.get("object").and_then(|o| o.get("objectId")).and_then(Value::as_str);
+                if let Err(err) = self.post_check(fid) {
+                    if let Some(oid) = oid {
+                        let release = self.msg("Runtime.releaseObject", json!({ "objectId": oid }), session, None);
+                        self.outbox.push(release);
+                    }
+                    return Err(err);
+                }
+                if let Some(oid) = oid {
                     if self.objects.len() >= MAX_OBJECTS
                         && let Some(old) = self.object_order.pop_front()
                     {
@@ -328,7 +343,7 @@ impl EngineCdpLedger {
             }
             Post::Hit => match result.get("frameId").and_then(Value::as_str) {
                 Some(fid) => self.post_check(fid),
-                None => Ok(()),
+                None => Err(UNAVAILABLE_FRAME.into()),
             },
             Post::Tree => {
                 self.ingest_tree(result, session);
@@ -542,7 +557,13 @@ impl EngineCdpLedger {
                 return obs;
             }
             _ if method.starts_with("Network.") => {
-                let urls = [&params["request"]["url"], &params["response"]["url"], &params["documentURL"], &params["initiator"]["url"]];
+                let urls = [
+                    &params["request"]["url"],
+                    &params["response"]["url"],
+                    &params["redirectResponse"]["url"],
+                    &params["documentURL"],
+                    &params["initiator"]["url"],
+                ];
                 obs.forward = known
                     && !from_extension
                     && !urls.iter().any(|u| u.as_str().is_some_and(extension_origin))
@@ -618,8 +639,9 @@ impl EngineCdpLedger {
         let parent = frame.get("parentId").and_then(Value::as_str).map(str::to_owned);
         self.revision += 1;
         if session.is_none() && parent.is_none() {
-            // The main frame committed: a fresh document, so a fresh frame set; re-arm if the last
-            // preparation failed, refetch the tree if the first fetch failed.
+            // The main frame committed: a fresh document, so drop stale root-owned frames and
+            // root-owned extension contexts; re-arm if needed, refetch tree if the first fetch failed.
+            self.extension_contexts.retain(|fid| self.frames.get(fid).is_some_and(|f| f.session.is_some()));
             self.frames.retain(|_, f| f.session.is_some());
             self.overflow = false;
             self.main_frame = Some(id.to_owned());
@@ -729,6 +751,35 @@ impl EngineCdpLedger {
     pub fn runtime_disable(&mut self, session: Option<&str>) -> String {
         self.msg("Runtime.disable", json!({}), session, None)
     }
+
+    /// Returns announced web OOPIFs ordered parents-before-children so nested clean OOPIFs attach
+    /// under an already-known parent session in `TabFrameState`.
+    fn ordered_web_targets(&self) -> Vec<(Value, Option<String>)> {
+        let mut emitted: HashSet<&str> = HashSet::new();
+        let mut out: Vec<(Value, Option<String>)> = Vec::with_capacity(self.web_sessions.len());
+        loop {
+            let before = out.len();
+            for (sid, w) in &self.web_sessions {
+                if !w.announced || emitted.contains(sid.as_str()) {
+                    continue;
+                }
+                let parent_ready = w.parent_session.as_deref().is_none_or(|p| emitted.contains(p));
+                if parent_ready {
+                    emitted.insert(sid.as_str());
+                    out.push((w.attach.clone(), w.parent_session.clone()));
+                }
+            }
+            if out.len() == before {
+                break;
+            }
+        }
+        for (sid, w) in &self.web_sessions {
+            if w.announced && emitted.insert(sid.as_str()) {
+                out.push((w.attach.clone(), w.parent_session.clone()));
+            }
+        }
+        out
+    }
 }
 
 fn auto_attach(on: bool) -> Value {
@@ -754,10 +805,22 @@ fn input_document(url: &str, origin: &str) -> bool {
             .any(|p| l.strip_prefix(p).is_some_and(|rest| rest.is_empty() || rest.starts_with(['?', '#'])))
 }
 
-/// A stack with any extension frame marks an extension's message (`diagnostics.ts:103-104`).
+/// Direct or async caller attributed to an extension (`diagnostics-machine.ts:344-349`).
+/// Walks `stack["parent"]` up to 64 hops, failing closed if a deeper/cyclic chain appears.
 fn extension_stack(stack: &Value) -> bool {
-    stack
-        .get("callFrames")
-        .and_then(Value::as_array)
-        .is_some_and(|frames| frames.iter().any(|f| f.get("url").and_then(Value::as_str).is_some_and(extension_origin)))
+    let mut cur = stack;
+    for _ in 0..64 {
+        if cur
+            .get("callFrames")
+            .and_then(Value::as_array)
+            .is_some_and(|frames| frames.iter().any(|f| f.get("url").and_then(Value::as_str).is_some_and(extension_origin)))
+        {
+            return true;
+        }
+        let Some(parent) = cur.get("parent").filter(|p| p.is_object()) else {
+            return false;
+        };
+        cur = parent;
+    }
+    true
 }
