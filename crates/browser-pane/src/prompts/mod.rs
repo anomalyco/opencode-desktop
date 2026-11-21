@@ -668,11 +668,20 @@ impl TabPromptState {
         self.popup.dismiss();
     }
 
-    /// Top-level URL changed: allow scripted dialogs on the new document, clear visit permissions
-    /// and auth/permission prompts on origin change (`prompt-machine.ts:189`, `dialog-machine.ts:182`).
+    /// Top-level URL changed: allow scripted dialogs again only on a new document (`new_document`:
+    /// the change came with a load, not `history.replaceState`/`pushState` or a hash change, which
+    /// a page could use to undo "stop dialogs"), clear visit permissions and auth/permission
+    /// prompts on origin change (`prompt-machine.ts:189`, `dialog-machine.ts:182`).
     /// Returns `(cancel_permission_ids, cancel_auth_ids)` to settle in the engine.
-    pub fn on_document_committed(&mut self, old_url: &str, new_url: &str) -> (Vec<u64>, Vec<u64>) {
-        self.dialog.on_document_committed();
+    pub fn on_document_committed(
+        &mut self,
+        old_url: &str,
+        new_url: &str,
+        new_document: bool,
+    ) -> (Vec<u64>, Vec<u64>) {
+        if new_document {
+            self.dialog.on_document_committed();
+        }
         self.popup.dismiss();
         self.agent_auth_required = None;
         self.blocked_guard_notice = false;

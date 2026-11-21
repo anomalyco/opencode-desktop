@@ -1297,7 +1297,7 @@ impl BrowserHost {
             let new_site = site_of(&snap.url).is_some() && site_of(&t.url) != site_of(&snap.url);
             let clear_refusal = (url_changed || snap.load_error.is_some()) && t.refusal.is_some();
             let (cancel_perms, cancel_auth) = if url_changed {
-                t.prompts.on_document_committed(&t.url, &snap.url)
+                t.prompts.on_document_committed(&t.url, &snap.url, snap.loading)
             } else {
                 (Vec::new(), Vec::new())
             };
