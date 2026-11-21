@@ -515,7 +515,9 @@ wrap_dev_tools_message_observer! {
                 return;
             }
             if let CdpPending::CopyImageContent { .. } | CdpPending::CopyImageWorld { .. } | CdpPending::CopyImageEncode = pending {
-                if success != 0 {
+                // A reply larger than any image the engine sends on is dropped before it is parsed.
+                let fits = result.is_some_and(|b| b.len() <= crate::menu_extras::MAX_COPIED_IMAGE_B64 + 65_536);
+                if success != 0 && fits {
                     let val = result.and_then(|b| serde_json::from_slice::<Value>(b).ok()).unwrap_or(Value::Null);
                     self.copy_image_step(browser.as_deref(), pending, &val);
                 }
