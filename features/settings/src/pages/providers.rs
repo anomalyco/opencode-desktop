@@ -222,9 +222,23 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
     let console_connected = console.is_some_and(|i| !i.connections.is_empty());
     let paid = |id: &str| s.models().iter().any(|m| m.provider == id && !m.free);
     let provider_rows = s.provider_rows(None);
-    let mut connected: Vec<&ProviderRow> = provider_rows.iter().filter(|pi| pi.id != "opencode" || console_connected || paid(&pi.id)).collect();
+    let managed = super::models::console_group(s);
+    let mut connected: Vec<&ProviderRow> = provider_rows
+        .iter()
+        .filter(|pi| pi.id != "opencode" || managed.is_some() || console_connected || paid(&pi.id))
+        .collect();
     connected.sort_by_key(|pi| pi.id != "opencode-go");
-    let rows: Vec<El> = connected.iter().map(|pi| connected_row(s, p, pi, integration(pi))).collect();
+    let displayed: Vec<&ProviderRow> = match &managed {
+        Some(cg) => connected.iter().copied().filter(|pi| pi.id == cg.root_id || !cg.ids.contains(&pi.id)).collect(),
+        None => connected.clone(),
+    };
+    let rows: Vec<El> = displayed
+        .iter()
+        .map(|pi| match &managed {
+            Some(cg) if cg.root_id == pi.id => console_row(s, p, pi, cg, integration(pi)),
+            _ => connected_row(s, p, pi, integration(pi)),
+        })
+        .collect();
     let connected_list = if rows.is_empty() {
         catalog(p, "connected-providers", vec![el().py(16.0).child(text(t!("settings.providers.connected.empty")).font(super::NAME_REGULAR).color(p.muted))])
     } else {
@@ -271,6 +285,138 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
                 .child(more),
         );
     page(p, "settings-providers-page", header_with(p, t!("settings.providers.title"), t!("settings.providers.description"), super::servers::switcher(s, p)), body)
+}
+
+fn toggle_console_providers(s: &mut dyn SettingsHost, tx: &mut Tx) {
+    tx.instant();
+    let pages = s.settings_pages_mut();
+    pages.console_expanded = !pages.console_expanded;
+}
+
+/// Connected OpenCode Console workspace row (`providers.tsx:551-612`, `settings.css:1079-1200`):
+/// `OpenCode` + workspace badge, expandable provider list where clicking any provider jumps to
+/// Settings › Models, expands its section, and scrolls/focuses it.
+fn console_row<H: SettingsHost + PopupHost + 'static>(
+    s: &H,
+    p: &Pal,
+    pi: &ProviderRow,
+    cg: &super::models::ConsoleGroup,
+    integration: Option<&Integration>,
+) -> El {
+    let expanded = s.settings_pages().console_expanded;
+    let display = t!("provider.connect.opencode.name");
+    let toggle = (cg.providers.len() > 1).then(|| {
+        let count_label = opencode_i18n::plural!("settings.providers.console.available", cg.providers.len());
+        row()
+            .key("settings-provider-console-toggle")
+            .role("button")
+            .label(count_label.clone())
+            .expanded(expanded)
+            .h(28.0)
+            .px(4.0)
+            .gap(2.0)
+            .center_y()
+            .radius(4.0)
+            .cursor(Cursor::Pointer)
+            .focus_default(p)
+            .hover_group()
+            .hover(p.hover)
+            .on_press_tx(|s: &mut H, tx: &mut Tx| toggle_console_providers(s, tx))
+            .child(text(count_label).font(super::NAME_REGULAR).color(p.muted).group_color(p.text))
+            .child(
+                icon(&ic::CHEVRON_DOWN, 14.0)
+                    .color(p.icon_muted)
+                    .rotate(if expanded { 0.0 } else { -std::f32::consts::FRAC_PI_2 })
+                    .mirror_in_rtl(),
+            )
+    });
+    let summary = row()
+        .gap(4.0)
+        .shrink()
+        .min_w(0.0)
+        .wrap()
+        .center_y()
+        .child(
+            row()
+                .gap(8.0)
+                .shrink()
+                .min_w(0.0)
+                .center_y()
+                .child(text(display).font(NAME).color(p.text).truncate())
+                .child(badge(p, &cg.workspace)),
+        )
+        .children(toggle);
+    let lead = row()
+        .grow(1.0)
+        .shrink()
+        .min_w(0.0)
+        .gap(8.0)
+        .center_y()
+        .child(widgets::provider_mark("opencode", if p.dark { Color::WHITE } else { Color::BLACK }))
+        .child(summary);
+    let accounts = integration.map(Integration::accounts).unwrap_or_default();
+    let id = pi.integration.clone().unwrap_or_else(|| pi.id.clone());
+    let trailing = if !accounts.is_empty() {
+        account_menu(s, p, &pi.id, &id, display, integration)
+    } else {
+        let id_owned = id.clone();
+        button(t!("common.disconnect"), ButtonVariant::GhostMuted)
+            .on_press_tx(move |s: &mut H, tx: &mut Tx| ask_disconnect_provider(s, &id_owned, display, tx))
+            .build(kit(p))
+    };
+    let mut header = row()
+        .key("settings-provider-console-header")
+        .w_full()
+        .min_h(48.0)
+        .py(10.0)
+        .gap(16.0)
+        .center_y()
+        .child(lead)
+        .child(trailing);
+    if crate::rows_wrap() {
+        header = header.wrap();
+    }
+    let mut block = col().key(format!("settings-provider-{}", pi.id)).w_full().child(header);
+    if expanded {
+        let mut list = col()
+            .key("settings-provider-console-list")
+            .w_full()
+            .gap(2.0)
+            .pb(10.0)
+            .child(el().w_full().h(0.5).mb(6.0).fill(p.border));
+        for prov in &cg.providers {
+            let label = prov.name.strip_prefix(&cg.prefix).unwrap_or(&prov.name).to_owned();
+            let pid = prov.id.clone();
+            list = list.child(
+                row()
+                    .key(format!("settings-provider-console-item-{}", prov.id))
+                    .role("button")
+                    .label(label.clone())
+                    .w_full()
+                    .min_h(24.0)
+                    .px(10.0)
+                    .gap(2.0)
+                    .center_y()
+                    .radius(4.0)
+                    .cursor(Cursor::Pointer)
+                    .focus_default(p)
+                    .hover(p.hover)
+                    .hover_group()
+                    .hover_group_focus()
+                    .on_press_tx(move |s: &mut H, tx: &mut Tx| super::models::open_for_provider(s, &pid, tx))
+                    .child(text(label).font(super::NAME_REGULAR).color(p.text).truncate())
+                    .child(
+                        icon(&ic::CHEVRON_DOWN, 14.0)
+                            .color(p.icon)
+                            .rotate(-std::f32::consts::FRAC_PI_2)
+                            .mirror_in_rtl()
+                            .group_opacity(0.0, 1.0),
+                    ),
+            );
+        }
+        block = block.child(list);
+    }
+    block
 }
 
 fn connected_row<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, pi: &ProviderRow, integration: Option<&Integration>) -> El {

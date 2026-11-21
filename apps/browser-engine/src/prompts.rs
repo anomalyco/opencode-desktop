@@ -67,12 +67,13 @@ enum HeldPermission {
 #[derive(Default)]
 pub struct TabPrompts {
     pub agent_driven: AtomicBool,
-    /// One pop-up per real user input event (`MouseButton` / `Key`); agent `Input.*` never arms
-    /// this so hostile pages cannot spawn unchecked pop-up tabs (`review-rd-tools.md` Critical #7).
+    /// One pop-up per input event, as Chromium's blocker allows per user activation (it is off:
+    /// `--disable-popup-blocking`). Set only by the person's click/key; the agent's `Input.*` clears
+    /// it, so a page cannot open a tab off the agent's input (official `window-open.ts:78-80,106`).
     pub popup_credit: AtomicBool,
-    /// Suppresses the app's native right-click context menu after agent `Input.*` until the next
-    /// real user `MouseButton` or `Key` (`chromium.ts:2509-2510`; `review-rd-tools.md` Critical #7).
-    pub suppress_context_menu: AtomicBool,
+    /// Set by the agent's `Input.*`, cleared by the person's next press or key: until then the page
+    /// gets no native context menu (official `chromium.ts:2500-2501`, `nativeMenu`).
+    pub menu_suppressed: AtomicBool,
     /// The person's own click or key on a controlled tab hands its downloads back to them until
     /// the agent acts again (official `policy.ts:121-125, 175-177` `control: "reclaimed"`).
     pub user_reclaimed: AtomicBool,
@@ -93,6 +94,12 @@ pub struct TabPrompts {
 }
 
 impl TabPrompts {
+    /// The agent sent the page input: no pop-up and no native menu off it until the person's own press or key.
+    pub fn agent_input(&self) {
+        self.popup_credit.store(false, Ordering::Release);
+        self.menu_suppressed.store(true, Ordering::Release);
+    }
+
     /// Whether the agent owns the tab's native dialogs now: driven by the agent and not taken back
     /// by the person's own input since its last command (official `policy.ts:175-177`
     /// `activityOwner`; `control: "reclaimed"` is `user_reclaimed`). File pickers follow this, not

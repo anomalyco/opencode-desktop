@@ -554,7 +554,7 @@ fn dispatch_next_step(att: &SessionAttachment, app: &mut App, st: &mut InputStat
                     _ => {}
                 }
             }
-            app.workspace_panes.browser.host.send_typed_cdp(hid, method, params.clone(), None).map(Some)
+            app.workspace_panes.browser.host.send_typed_cdp(hid, *method, params.clone(), None).map(Some)
         }
         InputStep::CheckDraggable => call_fn(app, st, CHECK_DRAGGABLE_JS, None),
         InputStep::SetInterceptDrags(enabled) => {

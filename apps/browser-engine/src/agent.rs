@@ -14,6 +14,7 @@ use cef::ImplBrowserHost;
 use serde_json::{Value, json};
 
 use crate::engine::ManagedTab;
+use crate::frame_authority::Reach;
 use crate::handlers::CdpPending;
 use crate::output::Output;
 use crate::wire::EngineMsg;
@@ -62,15 +63,8 @@ pub fn handle_upload_files(
         send_err(out_tx, tab_id, request_id, "Agent browser tools cannot upload files into extension pages or tabs with extension frames.");
         return;
     }
-    if !t.isolated
-        && t.preview.is_none()
-        && t.prompts.agent_driven.load(Ordering::Acquire)
-        && t.cdp_ledger
-            .lock()
-            .unwrap()
-            .target_frame_url(session_id.as_deref(), frame_id.as_deref(), &Value::Null)
-            .is_some_and(|u| permissions.has_inherited_default_grant(&u))
-    {
+    let reach = t.cdp_ledger.lock().unwrap().reach("DOM.setFileInputFiles", session_id.as_deref(), frame_id.as_deref(), &Value::Null);
+    if crate::cdp_ledger::grant_gated(t) && crate::cdp_ledger::granted_origin(t, permissions, &reach).is_some() {
         send_err(out_tx, tab_id, request_id, crate::permissions::INHERITED_PERMISSION_MSG);
         return;
     }
@@ -94,6 +88,7 @@ pub fn handle_upload_files(
         "DOM.setFileInputFiles",
         json!({ "backendNodeId": backend_node_id, "files": verified }),
         session_id,
+        reach,
         next_cdp_id,
         out_tx,
     );
@@ -123,14 +118,8 @@ pub fn handle_drop_files(
         send_err(out_tx, tab_id, request_id, "Agent browser tools cannot drop files onto extension pages or tabs with extension frames.");
         return;
     }
-    if !t.isolated
-        && t.preview.is_none()
-        && t.prompts.agent_driven.load(Ordering::Acquire)
-        && t.cdp_ledger
-            .lock()
-            .unwrap()
-            .target_frame_url(None, None, &Value::Null)
-            .is_some_and(|u| permissions.has_inherited_default_grant(&u))
+    if crate::cdp_ledger::grant_gated(t)
+        && crate::cdp_ledger::granted_origin(t, permissions, &Reach::WholeTab).is_some()
     {
         send_err(out_tx, tab_id, request_id, crate::permissions::INHERITED_PERMISSION_MSG);
         return;
@@ -152,32 +141,29 @@ pub fn handle_drop_files(
         return;
     }
     let drag_data = json!({ "items": [], "files": verified, "dragOperationsMask": 1 });
-    // Route all 3 `Input.dispatchDragEvent` steps through the serialized `InputGuard` so
-    // `DropFiles` gets the exact same hit-test, frame-owner, scroll-offset, emulation-scale, and
-    // prompt-cover enforcement as `TypedCdpCall` (`chromium.ts:2025-2034`; READER-12 Blocker #3).
+    // Route all 3 `Input.dispatchDragEvent` steps through the serialized `InputGuard` atomically
+    // so `DropFiles` gets the exact same hit-test, frame-owner, scroll-offset, emulation-scale,
+    // inherited-grant, and prompt-cover enforcement as `TypedCdpCall` (`chromium.ts:2025-2034`;
+    // READER-12 Blocker #3 + Round-2 Should-Fix #4).
     t.cdp_ledger.lock().unwrap().app_attached = true;
     let enqueued = {
         let mut g = t.input_guard.lock().unwrap();
         let group_id = g.alloc_group_id();
-        let steps = [
+        let calls = [
             ("dragEnter", true),
             ("dragOver", true),
             ("drop", false),
-        ];
-        let mut ok = Ok(());
-        for (kind, silent) in steps {
-            if let Err(msg) = g.enqueue(crate::input_guard::InputCall {
-                request_id,
-                method: "Input.dispatchDragEvent".into(),
-                params: json!({ "type": kind, "x": x, "y": y, "data": drag_data }),
-                silent,
-                group_id,
-            }) {
-                ok = Err(msg);
-                break;
-            }
-        }
-        ok
+        ]
+        .into_iter()
+        .map(|(kind, silent)| crate::input_guard::InputCall {
+            request_id,
+            method: "Input.dispatchDragEvent".into(),
+            params: json!({ "type": kind, "x": x, "y": y, "data": drag_data }),
+            silent,
+            group_id,
+        })
+        .collect();
+        g.enqueue_group(calls)
     };
     if let Err(msg) = enqueued {
         send_err(out_tx, tab_id, request_id, msg);
@@ -189,8 +175,11 @@ pub fn handle_drop_files(
         &t.browser,
         &t.host,
         t.is_popup,
+        t.isolated,
+        t.preview.is_some(),
         &t.snap,
         &t.prompts,
+        permissions,
         &t.cdp_ledger,
         &t.emulation_scale,
         &t.cdp_id_map,
@@ -241,11 +230,14 @@ fn dispatch_cdp(
     method: &str,
     params: Value,
     session_id: Option<String>,
+    reach: Reach,
     next_cdp_id: &AtomicI32,
     out_tx: &Output,
 ) {
     let msg_id = next_cdp_id.fetch_add(1, Ordering::Relaxed);
-    t.cdp_id_map.lock().unwrap().insert(msg_id, CdpPending::Raw { request_id, max_bytes: 64 * 1024, typed: None });
+    // Checked against inherited grants again at reply time (`TabCdpObserver::refuse_reply`).
+    let reach = Some(reach);
+    t.cdp_id_map.lock().unwrap().insert(msg_id, CdpPending::Raw { request_id, max_bytes: 64 * 1024, typed: None, reach });
     let mut payload = json!({
         "id": msg_id,
         "method": method,

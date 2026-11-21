@@ -79,18 +79,11 @@ impl BrowserTab {
         (px(self.viewport_pt.0), px(self.viewport_pt.1))
     }
 
-    /// Active device-emulation scale (`Emulation.setDeviceMetricsOverride.scale`, `chromium.ts:2496`).
-    pub fn emulation_scale(&self) -> f64 {
-        self.device
-            .as_ref()
-            .map_or(1.0, |d| f64::from(d.fit([self.viewport_pt.0, self.viewport_pt.1])).clamp(0.25, 4.0))
-    }
-
-    /// Whether a mobile/tablet device preset is currently emulated (`chromium.ts:2487`).
-    pub fn is_mobile_emulation(&self) -> bool {
-        self.device
-            .as_ref()
-            .is_some_and(|d| d.profile != crate::device::Profile::Desktop)
+    /// Active `(emulation_scale, is_mobile)` for pointer resolution (`chromium.ts:2486-2499`).
+    pub fn emulation_info(&self) -> (f64, bool) {
+        self.device.as_ref().map_or((1.0, false), |d| {
+            (f64::from(d.fit([self.viewport_pt.0, self.viewport_pt.1])).clamp(0.25, 4.0), d.profile != crate::device::Profile::Desktop)
+        })
     }
 }
 
@@ -1232,12 +1225,15 @@ impl BrowserHost {
         changed
     }
 
-    pub fn ime(&self, ime: &Ime) -> bool {
+    pub fn ime(&mut self, ime: &Ime) -> bool {
         let Some(tab_id) = self.popup_tab_id().filter(|_| self.popup_focused()).or(self.focused_tab) else {
             return false;
         };
         match ime {
             Ime::Commit(s) => {
+                if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
+                    t.prompts.record_document_input();
+                }
                 self.send(HostMsg::Ime { tab_id, commit: Some(s.clone()), preedit: None });
                 true
             }

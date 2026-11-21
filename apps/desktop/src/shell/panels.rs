@@ -212,6 +212,10 @@ impl PanelsHost for App {
         crate::plugin_host::panels::open_entry(self, plugin, id, pane, tx);
     }
 
+    fn ensure_panel_plugin(&mut self, plugin: &str) {
+        crate::plugin_host::ensure_plugin_running(self, plugin);
+    }
+
     fn hover_panel_entry(&mut self, plugin: &str, id: &str, tx: &mut Tx) {
         crate::plugin_host::panels::hover_entry(self, plugin, id, tx);
     }

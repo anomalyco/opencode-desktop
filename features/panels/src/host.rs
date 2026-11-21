@@ -150,6 +150,11 @@ pub trait PanelsHost: opencode_kernel::AppEnv {
     fn open_panel_entry(&mut self, plugin: &str, id: &str, pane: SessionPane, tx: &mut Tx) {
         let _ = (plugin, id, pane, tx);
     }
+    /// Ensures `plugin` is running before opening or showing one of its tabs (waking a dormant or
+    /// deferred built-in synchronously so the tab strip never opens empty).
+    fn ensure_panel_plugin(&mut self, plugin: &str) {
+        let _ = plugin;
+    }
     /// Handles pointer hover over launcher entry `id` of `plugin`.
     fn hover_panel_entry(&mut self, plugin: &str, id: &str, tx: &mut Tx) {
         let _ = (plugin, id, tx);

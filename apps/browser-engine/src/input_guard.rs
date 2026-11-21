@@ -1,7 +1,8 @@
 //! Serialized per-tab `Input.*` guard for `HostMsg::TypedCdpCall`, `HostMsg::CdpCall`, and
-//! `HostMsg::DropFiles`, matching official's `dispatchInput` (`packages/gui-plugins/src/browser/chromium.ts:2494-2561`,
-//! `edacc868`) with Chromium scroll-offset + device-emulation scale verification, scoped frame
-//! revisions, paired `mouseReleased`, and deadlock-free crash/detach/timeout cleanup.
+//! `HostMsg::DropFiles`, matching official's `dispatchInput` (`packages/gui-plugins/src/browser/chromium.ts:2503-2584`,
+//! `edacc868`) 1:1 on every pointer/drag/key event with Chromium scroll-offset + device-emulation
+//! scale verification, scoped frame revisions, inherited-grant checks, and deadlock-free
+//! crash/detach/timeout cleanup.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
@@ -14,9 +15,10 @@ use serde_json::{Value, json};
 use crate::cdp_ledger::CdpPending;
 use crate::engine::{Surface, classify_surface};
 use crate::frame_authority::{
-    Access, EXTENSION_FRAME, EngineCdpLedger, UNAVAILABLE_FRAME, UNPREPARED, input_document,
+    Access, EXTENSION_FRAME, EngineCdpLedger, Reach, UNAVAILABLE_FRAME, UNPREPARED, input_document,
 };
 use crate::output::Output;
+use crate::permissions::{INHERITED_PERMISSION_MSG, PermissionTracker};
 use crate::prompts::TabPrompts;
 use crate::wire::{EngineMsg, TabSnapshot};
 
@@ -180,9 +182,6 @@ pub(crate) struct InputGuard {
     pending_send: Option<QueuedBatch>,
     queue: VecDeque<InputCall>,
     next_group_id: u64,
-    /// Button currently held down by a verified `mousePressed` (paired with its `mouseReleased` so
-    /// a `mousedown` DOM mutation never leaves the button stuck down).
-    active_press: Option<String>,
 }
 
 impl InputGuard {
@@ -196,6 +195,16 @@ impl InputGuard {
             return Err("Too many queued input commands on this tab.");
         }
         self.queue.push_back(call);
+        Ok(())
+    }
+
+    /// Atomically enqueues a multi-step input group (e.g. `DropFiles`'s 3 drag events) or rejects
+    /// all of them without leaving orphan steps queued (READER-12 Round-2 Should-Fix #4).
+    pub(crate) fn enqueue_group(&mut self, calls: Vec<InputCall>) -> Result<(), &'static str> {
+        if self.queue.len().saturating_add(calls.len()) > MAX_QUEUED {
+            return Err("Too many queued input commands on this tab.");
+        }
+        self.queue.extend(calls);
         Ok(())
     }
 
@@ -262,7 +271,6 @@ impl InputGuard {
 
     /// Fails all in-flight and queued calls (e.g. on renderer crash; READER-12 #444 Blocker #5).
     pub(crate) fn reset_all(&mut self, tab_id: u64, out_tx: &Output, reason: &str) {
-        self.active_press = None;
         let mut failed_reqs = Vec::new();
         if let Some(op) = self.active.take() {
             failed_reqs.push(op.stage.request_id());
@@ -366,11 +374,13 @@ impl InputGuard {
                     fail(self, call.request_id, call.group_id, CHANGED);
                     return !self.queue.is_empty();
                 };
-                let (access, session, start_frame_rev, hit_url) = {
+                let (access, session, start_frame_rev, granted) = {
                     let l = ledger.lock().unwrap();
                     let sid = l.session_for_frame(&frame_id);
-                    let url = l.target_frame_url(sid.as_deref(), Some(&frame_id), &Value::Null);
-                    (l.access(&frame_id), sid, l.frame_chain_rev(&frame_id), url)
+                    let g = is_grant_gated(isolated, is_preview, prompts)
+                        && (l.granted_origin(&Reach::WholeTab, &|o| permissions.has_inherited_default_grant(o)).is_some()
+                            || l.granted_origin(&Reach::Frames(vec![frame_id.clone()]), &|o| permissions.has_inherited_default_grant(o)).is_some());
+                    (l.access(&frame_id), sid, l.frame_chain_rev(&frame_id), g)
                 };
                 match access {
                     Access::Frame => {}
@@ -383,12 +393,8 @@ impl InputGuard {
                         return !self.queue.is_empty();
                     }
                 }
-                if !isolated
-                    && !is_preview
-                    && prompts.agent_driven.load(Ordering::Acquire)
-                    && hit_url.is_some_and(|u| permissions.has_inherited_default_grant(&u))
-                {
-                    fail(self, call.request_id, call.group_id, crate::permissions::INHERITED_PERMISSION_MSG);
+                if granted {
+                    fail(self, call.request_id, call.group_id, INHERITED_PERMISSION_MSG);
                     return !self.queue.is_empty();
                 }
                 let Some(start_frame_rev) = start_frame_rev else {
@@ -526,14 +532,22 @@ impl InputGuard {
                 let scale2 = read_emulation_scale(emulation_scale);
                 let scroll_ok = m2.is_ok_and(|vp2| vp1.matches(vp2)) && (scale2 - scale1).abs() < 1e-4;
                 let hit2_ok = h2.is_ok_and(|(b2, f2)| b2 == backend_id && f2 == frame_id);
-                let ledger_ok = {
+                let (ledger_ok, granted) = {
                     let l = ledger.lock().unwrap();
-                    !l.is_unprepared()
+                    let ok = !l.is_unprepared()
                         && l.exclusion_revision == start_excl_rev
                         && l.frame_chain_rev(&frame_id) == Some(start_frame_rev)
                         && l.access(&frame_id) == Access::Frame
-                        && l.main_frame_input_ok()
+                        && l.main_frame_input_ok();
+                    let g = is_grant_gated(isolated, is_preview, prompts)
+                        && (l.granted_origin(&Reach::WholeTab, &|o| permissions.has_inherited_default_grant(o)).is_some()
+                            || l.granted_origin(&Reach::Frames(vec![frame_id.clone()]), &|o| permissions.has_inherited_default_grant(o)).is_some());
+                    (ok, g)
                 };
+                if granted {
+                    fail(self, call.request_id, call.group_id, INHERITED_PERMISSION_MSG);
+                    return !self.queue.is_empty();
+                }
                 let surface_ok = classify_surface(browser, is_popup, snap, prompts, ledger) != Surface::WholeTab;
                 let main_ok = browser_main_input_ok(browser, ledger);
                 if !scroll_ok || !hit2_ok || !ledger_ok || !surface_ok || !main_ok {
@@ -541,13 +555,7 @@ impl InputGuard {
                     return !self.queue.is_empty();
                 }
                 set_rounded_coords(&mut call.params, rx, ry);
-                prompts.suppress_context_menu.store(true, Ordering::Release);
-                if call.method == "Input.dispatchMouseEvent"
-                    && call.params.get("type").and_then(Value::as_str) == Some("mousePressed")
-                {
-                    let btn = call.params.get("button").and_then(Value::as_str).unwrap_or("left");
-                    self.active_press = Some(btn.to_owned());
-                }
+                prompts.agent_input();
                 let id = next_cdp_id.fetch_add(1, Ordering::Relaxed);
                 let raw = json!({ "id": id, "method": call.method, "params": call.params }).to_string();
                 self.pending_send = Some(QueuedBatch {
@@ -573,8 +581,11 @@ pub(crate) fn pump(
     browser: &Browser,
     host: &BrowserHost,
     is_popup: bool,
+    isolated: bool,
+    is_preview: bool,
     snap: &Mutex<TabSnapshot>,
     prompts: &TabPrompts,
+    permissions: &PermissionTracker,
     ledger: &Mutex<EngineCdpLedger>,
     emulation_scale: &AtomicU32,
     cdp_id_map: &Mutex<HashMap<i32, CdpPending>>,
@@ -618,12 +629,14 @@ pub(crate) fn pump(
             } else {
                 let Some(mut call) = g.queue.pop_front() else { return };
                 match prepare_call(
-                    &mut g.active_press,
                     &mut call,
                     browser,
                     is_popup,
+                    isolated,
+                    is_preview,
                     snap,
                     prompts,
+                    permissions,
                     ledger,
                     emulation_scale,
                     next_cdp_id,
@@ -692,12 +705,14 @@ pub(crate) fn pump(
 
 #[allow(clippy::too_many_arguments)]
 fn prepare_call(
-    active_press: &mut Option<String>,
     call: &mut InputCall,
     browser: &Browser,
     is_popup: bool,
+    isolated: bool,
+    is_preview: bool,
     snap: &Mutex<TabSnapshot>,
     prompts: &TabPrompts,
+    permissions: &PermissionTracker,
     ledger: &Mutex<EngineCdpLedger>,
     emulation_scale: &AtomicU32,
     next_cdp_id: &AtomicI32,
@@ -706,18 +721,21 @@ fn prepare_call(
         return Err(COVERED);
     }
     if classify_surface(Some(browser), is_popup, snap, prompts, ledger) == Surface::WholeTab {
-        *active_press = None;
         return Err(WHOLE_TAB);
     }
-    let (unprepared, start_excl_rev) = {
+    let (unprepared, start_excl_rev, whole_tab_granted) = {
         let l = ledger.lock().unwrap();
-        (l.is_unprepared(), l.exclusion_revision)
+        let g = is_grant_gated(isolated, is_preview, prompts)
+            && l.granted_origin(&Reach::WholeTab, &|o| permissions.has_inherited_default_grant(o)).is_some();
+        (l.is_unprepared(), l.exclusion_revision, g)
     };
+    if whole_tab_granted {
+        return Err(INHERITED_PERMISSION_MSG);
+    }
     if unprepared {
         return Err(UNPREPARED);
     }
     if !browser_main_input_ok(Some(browser), ledger) {
-        *active_press = None;
         return Err(CHANGED);
     }
     match call.method.as_str() {
@@ -729,28 +747,6 @@ fn prepare_call(
                 return Err(CHANGED);
             };
             let (rx, ry) = (x.round(), y.round());
-            // Paired `mouseReleased` for an active verified `mousePressed` on the same button:
-            // dispatches directly after synchronous safety checks so a `mousedown` DOM change
-            // never leaves the button stuck down.
-            if call.method == "Input.dispatchMouseEvent"
-                && call.params.get("type").and_then(Value::as_str) == Some("mouseReleased")
-                && let Some(btn) = call.params.get("button").and_then(Value::as_str)
-                && active_press.as_deref() == Some(btn)
-            {
-                *active_press = None;
-                prompts.suppress_context_menu.store(true, Ordering::Release);
-                set_rounded_coords(&mut call.params, rx, ry);
-                let id = next_cdp_id.fetch_add(1, Ordering::Relaxed);
-                let raw = json!({ "id": id, "method": call.method, "params": call.params }).to_string();
-                return Ok(QueuedBatch {
-                    messages: vec![(id, raw)],
-                    stage: Stage::Dispatched {
-                        request_id: call.request_id,
-                        silent: call.silent,
-                        group_id: call.group_id,
-                    },
-                });
-            }
             let scale1 = read_emulation_scale(emulation_scale);
             let id = next_cdp_id.fetch_add(1, Ordering::Relaxed);
             let raw = json!({ "id": id, "method": "Page.getLayoutMetrics", "params": {} }).to_string();
@@ -768,7 +764,7 @@ fn prepare_call(
         }
         "Input.dispatchKeyEvent" | "Input.insertText" => {
             check_focused_frame(browser, ledger, prompts)?;
-            prompts.suppress_context_menu.store(true, Ordering::Release);
+            prompts.agent_input();
             let id = next_cdp_id.fetch_add(1, Ordering::Relaxed);
             let raw = json!({ "id": id, "method": call.method, "params": call.params }).to_string();
             Ok(QueuedBatch {
@@ -796,6 +792,10 @@ fn prepare_call(
     }
 }
 
+fn is_grant_gated(isolated: bool, is_preview: bool, prompts: &TabPrompts) -> bool {
+    !isolated && !is_preview && prompts.agent_driven.load(Ordering::Acquire)
+}
+
 fn read_emulation_scale(scale: &AtomicU32) -> f64 {
     let s = f64::from(f32::from_bits(scale.load(Ordering::Acquire)));
     if s.is_finite() && s >= 0.25 && s <= 4.0 { s } else { 1.0 }
@@ -807,18 +807,29 @@ fn browser_main_input_ok(browser: Option<&Browser>, ledger: &Mutex<EngineCdpLedg
     input_document(&url, "") && ledger.lock().unwrap().main_frame_input_ok()
 }
 
-fn is_blank_or_srcdoc(url: &str) -> bool {
+/// Returns `true` for URLs whose security origin is inherited from a creator/parent rather than
+/// carried in the URL string itself (including query/fragment forms like `about:blank#x` or
+/// `about:srcdoc?q`, plus `javascript:`, `data:`, and `blob:null/`; READER-12 Round-2 Blocker #2).
+fn is_ambiguous_focused_url(url: &str) -> bool {
     let t = url.trim();
-    t.is_empty()
-        || t.eq_ignore_ascii_case("about:blank")
-        || t.eq_ignore_ascii_case("about:srcdoc")
-        || (t.len() >= 11 && t.as_bytes()[..11].eq_ignore_ascii_case(b"javascript:"))
+    if t.is_empty() {
+        return true;
+    }
+    let lower = t.to_ascii_lowercase();
+    for prefix in ["about:blank", "about:srcdoc"] {
+        if let Some(rest) = lower.strip_prefix(prefix)
+            && (rest.is_empty() || rest.starts_with('?') || rest.starts_with('#'))
+        {
+            return true;
+        }
+    }
+    lower.starts_with("javascript:") || lower.starts_with("data:") || lower.starts_with("blob:null/")
 }
 
 /// Walks `browser.focused_frame()` through `frame.parent()` to `browser.main_frame()`, checking
 /// every ancestor's `url()` with `input_document` AND consulting `EngineCdpLedger`/`TabPrompts` so
-/// `about:blank`/`about:srcdoc` frames that inherited a `chrome-extension://` origin fail closed
-/// (`chromium.ts:1121-1124, 2552`; READER-12 #444 Blocker #4).
+/// `about:blank`/`about:srcdoc` (including `?`/`#`) frames that inherited a `chrome-extension://`
+/// origin fail closed (`chromium.ts:1121-1124, 2552`; READER-12 #444 Blocker #4 & Round-2 #2).
 fn check_focused_frame(
     browser: &Browser,
     ledger: &Mutex<EngineCdpLedger>,
@@ -836,7 +847,7 @@ fn check_focused_frame(
         if !input_document(&url, "") {
             return Err(CHANGED);
         }
-        if is_blank_or_srcdoc(&url) && has_ext_risk {
+        if is_ambiguous_focused_url(&url) && has_ext_risk {
             return Err(CHANGED);
         }
         match cur.parent() {

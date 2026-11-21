@@ -366,7 +366,7 @@ impl PointResolver {
                 .browser
                 .host
                 .tab(self.host_id)
-                .map_or((1.0, false), |t| (t.emulation_scale(), t.is_mobile_emulation()));
+                .map_or((1.0, false), |t| t.emulation_info());
             if is_mobile {
                 match app.workspace_panes.browser.host.send_typed_cdp(
                     self.host_id,

@@ -10,6 +10,7 @@
 
 pub(super) mod app;
 pub mod askpass;
+pub mod browser_contract;
 pub mod diag;
 mod i18n;
 pub mod images;

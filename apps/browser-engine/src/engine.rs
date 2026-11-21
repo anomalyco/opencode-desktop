@@ -481,11 +481,7 @@ impl EngineManager {
                 if let Some(t) = self.tabs.get(&tab_id)
                     && self.contexts.is_tab_ready(tab_id)
                 {
-                    let applied = if device.is_some() {
-                        if scale.is_finite() { scale.clamp(0.25, 4.0) } else { 1.0 }
-                    } else {
-                        1.0
-                    };
+                    let applied = if device.is_some() && scale.is_finite() { scale.clamp(0.25, 4.0) } else { 1.0 };
                     t.emulation_scale.store(applied.to_bits(), Ordering::Release);
                     emulation::apply(device.as_ref(), scale, |method, params| self.send_internal_cdp(&t.host, method, params));
                 }
@@ -548,7 +544,7 @@ impl EngineManager {
                         t.held_buttons |= flag;
                         t.host.set_focus(1);
                         t.prompts.popup_credit.store(true, Ordering::Release);
-                        t.prompts.suppress_context_menu.store(false, Ordering::Release);
+                        t.prompts.menu_suppressed.store(false, Ordering::Release);
                     }
                     let ev = MouseEvent {
                         x: x.round() as i32,
@@ -576,7 +572,7 @@ impl EngineManager {
                 if let Some(t) = self.tabs.get(&tab_id) {
                     if down {
                         t.prompts.popup_credit.store(true, Ordering::Release);
-                        t.prompts.suppress_context_menu.store(false, Ordering::Release);
+                        t.prompts.menu_suppressed.store(false, Ordering::Release);
                     }
                     send_key(&t.host, down, text.as_deref(), named.as_deref(), cef_mods(mods));
                 }
@@ -618,6 +614,11 @@ impl EngineManager {
             HostMsg::HighlightNode { tab_id, backend_node_id } => self.handle_highlight_node(tab_id, backend_node_id),
             HostMsg::CdpCall { tab_id, request_id, method, params, session_id } => {
                 self.set_user_reclaimed(tab_id, false);
+                if let Some(t) = self.tabs.get(&tab_id)
+                    && method.starts_with("Input.")
+                {
+                    t.prompts.agent_input();
+                }
                 self.handle_cdp_call(tab_id, request_id, method, params, session_id);
             }
             HostMsg::SiteCookies { tab_id, request_id } => {
@@ -626,50 +627,7 @@ impl EngineManager {
                     crate::cdp_ledger::handle_site_cookies(tab_id, request_id, not_ready, t, &self.next_cdp_id, &self.out_tx);
                 }
             }
-            HostMsg::ClearSite { tab_id, request_id } => {
-                if let Some(t) = self.tabs.get(&tab_id) {
-                    if !self.contexts.is_tab_ready(tab_id) {
-                        let reason = self.contexts.not_ready_reason(tab_id);
-                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                            tab_id,
-                            request_id,
-                            ok: false,
-                            result: json!({ "message": reason }),
-                        });
-                        return true;
-                    }
-                    let url = t.snap.lock().unwrap().url.clone();
-                    let Some(origin) = browser_policy::destination_origin(&url) else {
-                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                            tab_id,
-                            request_id,
-                            ok: true,
-                            result: json!({}),
-                        });
-                        return true;
-                    };
-                    let msg_id = self.next_cdp_id.fetch_add(1, Ordering::Relaxed);
-                    t.cdp_id_map
-                        .lock()
-                        .unwrap()
-                        .insert(msg_id, CdpPending::ClearSite { request_id, origin });
-                    let raw = json!({
-                        "id": msg_id,
-                        "method": "Network.getCookies",
-                        "params": { "urls": [url] },
-                    })
-                    .to_string();
-                    if t.host.send_dev_tools_message(Some(raw.as_bytes())) != 1 {
-                        t.cdp_id_map.lock().unwrap().remove(&msg_id);
-                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                            tab_id,
-                            request_id,
-                            ok: false,
-                            result: json!({ "message": "send_dev_tools_message rejected" }),
-                        });
-                    }
-                }
-            }
+            HostMsg::ClearSite { tab_id, request_id } => self.handle_clear_site(tab_id, request_id),
             #[cfg(target_os = "linux")]
             HostMsg::FrameRead { tab_id, pool, frame_id } => {
                 if let Some(ring) = self.tabs.get(&tab_id).and_then(|t| t.frames.as_ref()) {
@@ -733,6 +691,9 @@ impl EngineManager {
             HostMsg::TypedCdpCall { tab_id, request_id, method, params, session_id, frame_id } => {
                 self.set_user_reclaimed(tab_id, false);
                 if let Some(t) = self.tabs.get(&tab_id) {
+                    if method.starts_with("Input.") {
+                        t.prompts.agent_input();
+                    }
                     let not_ready = (!self.contexts.is_tab_ready(tab_id)).then(|| self.contexts.not_ready_reason(tab_id));
                     crate::cdp_ledger::handle_typed_cdp_call(
                         tab_id, request_id, not_ready, t, &self.permissions, &self.next_cdp_id, &self.out_tx,
@@ -748,7 +709,10 @@ impl EngineManager {
             }
             HostMsg::DropFiles { tab_id, request_id, x, y, files } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
-                    let not_ready = (!self.contexts.is_tab_ready(tab_id)).then(|| self.contexts.not_ready_reason(tab_id));
+                    t.prompts.agent_input();
+                    let not_ready = (!self.contexts.is_tab_ready(tab_id))
+                        .then(|| self.contexts.not_ready_reason(tab_id))
+                        .or_else(|| self.whole_tab_granted(t));
                     crate::agent::handle_drop_files(t, &self.permissions, &self.profile_dir, tab_id, request_id, not_ready, x, y, &files, &self.next_cdp_id, &self.out_tx);
                 }
             }
