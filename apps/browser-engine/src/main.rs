@@ -31,6 +31,7 @@ mod cdp_ledger;
 mod cef_runtime;
 mod diagnostics;
 mod favicon;
+mod frame_authority;
 mod find;
 mod menu;
 mod preview;

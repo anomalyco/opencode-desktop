@@ -927,6 +927,7 @@ impl BrowserHost {
                     agent_tools,
                     preview,
                     permission_sync,
+                    frame_authority,
                     ..
                 } => {
                     if !matches!(
@@ -947,6 +948,7 @@ impl BrowserHost {
                         agent_tools,
                         preview,
                         permission_sync,
+                        frame_authority,
                     };
                     self.sync_site_permissions();
                     // A new engine starts with an empty downloads folder and numbers its files
