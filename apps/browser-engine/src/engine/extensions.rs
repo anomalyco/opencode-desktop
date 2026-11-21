@@ -541,6 +541,38 @@ impl EngineManager {
             });
             return;
         }
+        // Route raw `Input.*` calls through the same serialized `InputGuard` as `TypedCdpCall` so
+        // no raw caller can bypass hit-test, frame-owner, focused-frame, or prompt-cover checks.
+        if method.starts_with("Input.") {
+            t.cdp_ledger.lock().unwrap().app_attached = true;
+            if let Err(msg) = t.input_guard.lock().unwrap().enqueue(crate::input_guard::InputCall {
+                request_id,
+                method,
+                params,
+            }) {
+                let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                    tab_id,
+                    request_id,
+                    ok: false,
+                    result: json!({ "message": msg }),
+                });
+                return;
+            }
+            crate::input_guard::pump(
+                tab_id,
+                &t.input_guard,
+                &t.browser,
+                &t.host,
+                t.is_popup,
+                &t.snap,
+                &t.prompts,
+                &t.cdp_ledger,
+                &t.cdp_id_map,
+                &self.next_cdp_id,
+                &self.out_tx,
+            );
+            return;
+        }
         // The engine enabled `Runtime` when it armed the tab: disable it first so Chromium
         // reports the existing contexts to this caller too.
         let disable = {

@@ -11,8 +11,21 @@ use crate::wire::{EngineMsg, PickedElement};
 
 impl EngineManager {
     pub fn poll_picks(&mut self) {
-        for t in self.tabs.values() {
+        for (&tab_id, t) in &self.tabs {
             crate::cdp_ledger::flush_outbox(&t.cdp_ledger, &t.host);
+            crate::input_guard::pump(
+                tab_id,
+                &t.input_guard,
+                &t.browser,
+                &t.host,
+                t.is_popup,
+                &t.snap,
+                &t.prompts,
+                &t.cdp_ledger,
+                &t.cdp_id_map,
+                &self.next_cdp_id,
+                &self.out_tx,
+            );
         }
         for outcome in self.contexts.drain_ready_loads() {
             match outcome {

@@ -16,9 +16,9 @@ const MAX_OBJECTS: usize = 512;
 /// Engine-sent message ids start here, far above the app's ids (CEF refuses negative ids).
 pub const INTERNAL_ID_BASE: i32 = 1_600_000_000;
 
-const EXTENSION_FRAME: &str = "Agent browser tools cannot use extension frames: the frame shows an extension's document, which runs with that extension's privileges. Omit frameID to use the page around it, or use another frame from browser.frames({tabID}).";
-const UNAVAILABLE_FRAME: &str = "Frame is unavailable. Call browser.frames({tabID}) and use a current frameID from this tab; omit frameID for the main frame.";
-const UNPREPARED: &str = "This page's frames could not be prepared for agent browser tools. Reload the page and retry.";
+pub(crate) const EXTENSION_FRAME: &str = "Agent browser tools cannot use extension frames: the frame shows an extension's document, which runs with that extension's privileges. Omit frameID to use the page around it, or use another frame from browser.frames({tabID}).";
+pub(crate) const UNAVAILABLE_FRAME: &str = "Frame is unavailable. Call browser.frames({tabID}) and use a current frameID from this tab; omit frameID for the main frame.";
+pub(crate) const UNPREPARED: &str = "This page's frames could not be prepared for agent browser tools. Reload the page and retry.";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Access {
@@ -168,6 +168,14 @@ impl EngineCdpLedger {
         f.url
             .clone()
             .or_else(|| (!f.origin.is_empty() && f.origin != "null").then(|| f.origin.clone()))
+    }
+
+    pub fn is_unprepared(&self) -> bool {
+        self.state == ArmState::Unprepared
+    }
+
+    pub fn session_for_frame(&self, frame_id: &str) -> Option<String> {
+        self.frames.get(frame_id).and_then(|f| f.session.clone())
     }
 
     fn msg(&mut self, method: &str, params: Value, session: Option<&str>, track: Option<Internal>) -> String {
@@ -827,7 +835,7 @@ fn auto_attach(on: bool) -> Value {
 }
 
 /// Documents that may receive agent input (`policy.ts:216-222`), without `file://` (`#303` bans it).
-fn input_document(url: &str, origin: &str) -> bool {
+pub(crate) fn input_document(url: &str, origin: &str) -> bool {
     if extension_origin(origin) || extension_origin(url) {
         return false;
     }

@@ -42,6 +42,7 @@ pub(crate) struct ManagedTab {
     pub(crate) cdp_id_map: Arc<Mutex<HashMap<i32, CdpPending>>>,
     pub(crate) cdp_ledger: Arc<Mutex<crate::cdp_ledger::EngineCdpLedger>>,
     pub(crate) passkeys: Arc<crate::passkeys::TabPasskeyGate>,
+    pub(crate) input_guard: Arc<Mutex<crate::input_guard::InputGuard>>,
     internal_picked: Arc<Mutex<Vec<i64>>>,
     pending_clears: Arc<Mutex<Vec<PendingClear>>>,
     pub(crate) prompts: Arc<crate::prompts::TabPrompts>,
@@ -76,7 +77,7 @@ pub struct EngineManager {
     unmanaged_ext_tabs: usize,
     seed_probe: Option<BrowserHost>,
     next_ext_tab_id: u64,
-    next_cdp_id: AtomicI32,
+    pub(super) next_cdp_id: Arc<AtomicI32>,
     next_eref: u64,
     /// Agent commands waiting, in arrival order, for their tab's `WebAuthn.enable` reply.
     passkey_held: Vec<HostMsg>,
@@ -141,7 +142,7 @@ impl EngineManager {
             unmanaged_ext_tabs: 0,
             seed_probe: None,
             next_ext_tab_id: 1_000_000,
-            next_cdp_id: AtomicI32::new(100),
+            next_cdp_id: Arc::new(AtomicI32::new(100)),
             next_eref: 1,
             passkey_held: Vec::new(),
             dark: None,
@@ -1341,6 +1342,7 @@ impl EngineManager {
         let cdp_id_map = Arc::new(Mutex::new(HashMap::new()));
         let cdp_ledger = Arc::new(Mutex::new(crate::cdp_ledger::EngineCdpLedger::default()));
         let passkeys = Arc::new(crate::passkeys::TabPasskeyGate::new(tab_id, agent_driven));
+        let input_guard = Arc::new(Mutex::new(crate::input_guard::InputGuard::default()));
         let internal_picked = Arc::new(Mutex::new(Vec::new()));
         let pending_clears = Arc::new(Mutex::new(Vec::new()));
         let mut observer = TabCdpObserver::new(
@@ -1354,6 +1356,8 @@ impl EngineManager {
             pending_clears.clone(),
             cdp_ledger.clone(),
             passkeys.clone(),
+            input_guard.clone(),
+            self.next_cdp_id.clone(),
             prompts.clone(),
             self.permissions.clone(),
             self.extensions.is_some(),
@@ -1397,6 +1401,7 @@ impl EngineManager {
                 cdp_id_map,
                 cdp_ledger,
                 passkeys,
+                input_guard,
                 internal_picked,
                 pending_clears,
                 prompts,

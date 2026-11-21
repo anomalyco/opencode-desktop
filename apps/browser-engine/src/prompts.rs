@@ -137,6 +137,10 @@ impl TabPrompts {
     }
 
 
+    pub fn is_covered(&self) -> bool {
+        !self.dialogs.lock().unwrap().is_empty() || !self.auth.lock().unwrap().is_empty()
+    }
+
     pub fn answer_dialog(&self, id: u64, accept: bool, text: &str) -> bool {
         let cb = {
             let mut list = self.dialogs.lock().unwrap();
