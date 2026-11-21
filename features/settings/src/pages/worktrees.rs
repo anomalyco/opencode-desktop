@@ -143,31 +143,45 @@ fn selection(s: &dyn SettingsHost, only: Option<&str>) -> Option<String> {
 pub fn view_for<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, only: Option<&str>) -> El {
     let selected = selection(s, only);
     let list = worktrees(s, selected.as_deref());
-    let body = if list.is_empty() {
-        col()
-            .key("settings-workspaces-empty")
-            .w_full()
-            .gap(4.0)
-            .child(text(t!("settings.workspaces.empty")).font(NAME).color(p.text))
-            .child(text(t!("settings.workspaces.empty.description")).font(BODY).color(p.muted))
+    let empty = list.is_empty();
+    let active = s.active_session_directory();
+    let n = list.len();
+    let closing = |w: &Worktree| s.settings_pages().worktrees.delete.row(&w.key()).1;
+    let rows: Vec<El> = list
+        .iter()
+        .enumerate()
+        .map(|(i, w)| {
+            let divided = i + 1 < n && !(i + 2 == n && closing(&list[i + 1]));
+            worktree_row(s, p, w, active.as_deref(), i + 1 < n, divided, selected.is_some())
+        })
+        .collect();
+    // Keep the empty-state wrapper mounted so deleting the last worktree smoothly animates it
+    // open over 150 ms ease-out while fading opacity over 120 ms (`settings.css:1967-1999`).
+    let empty_content = col()
+        .key("settings-workspaces-empty")
+        .w_full()
+        .gap(4.0)
+        .child(text(t!("settings.workspaces.empty")).font(NAME).color(p.text).wrap())
+        .child(text(t!("settings.workspaces.empty.description")).font(BODY).color(p.muted).wrap());
+    let empty_motion = col()
+        .key("settings-workspaces-empty-motion")
+        .w_full()
+        .clip_soft(0.0)
+        .opacity(if empty { 1.0 } else { 0.0 })
+        .opacity_motion(FADE)
+        .child(empty_content);
+    let empty_motion = if empty { empty_motion } else { empty_motion.h(0.0) };
+    let pad = if crate::rows_wrap() { 14.0 } else { 16.0 };
+    let inventory = col().key("settings-workspaces-inventory").w_full().child(empty_motion).children(rows);
+    let inventory = if empty {
+        inventory
     } else {
-        let n = list.len();
-        let active = s.active_session_directory();
-        let closing = |w: &Worktree| s.settings_pages().worktrees.delete.row(&w.key()).1;
-        let rows: Vec<El> = list
-            .iter()
-            .enumerate()
-            .map(|(i, w)| {
-                let divided = i + 1 < n && !(i + 2 == n && closing(&list[i + 1]));
-                worktree_row(s, p, w, active.as_deref(), i + 1 < n, divided, selected.is_some())
-            })
-            .collect();
-        let pad = if crate::rows_wrap() { 14.0 } else { 16.0 };
-        col()
-            .w_full()
-            .child(toolbar(s, p, &list, active, only.is_none().then_some(selected.as_deref())))
-            .child(col().key("settings-workspaces-inventory").w_full().padding(pad).radius(8.0).fill(p.layer1).box_shadow(Pal::ring_in(p.border)).children(rows))
+        inventory.padding(pad).radius(8.0).fill(p.layer1).box_shadow(Pal::ring_in(p.border))
     };
+    let body = col()
+        .w_full()
+        .children((!empty).then(|| toolbar(s, p, &list, active, only.is_none().then_some(selected.as_deref()))))
+        .child(inventory);
     let body = if s.narrow_sm() || !s.narrow() { body } else { col().w_full().px(12.0).child(body) };
     let switcher = if only.is_none() { super::servers::switcher(s, p) } else { None };
     page(p, "settings-workspaces-page", header_with(p, t!("settings.tab.workspaces"), t!("settings.workspaces.description"), switcher), body)
@@ -451,7 +465,11 @@ pub fn poll(s: &mut dyn SettingsHost, tx: &mut Tx) -> bool {
         let event = match *d {
             Due::Inspect(attempt) => Event::InspectTimedOut { attempt },
             Due::Delete(attempt) => Event::DeleteTimedOut { attempt },
-            Due::Collapse(attempt) => Event::CollapseCompleted { attempt },
+            Due::Collapse(attempt) => {
+                // Animate the empty-state wrapper opening when the last collapsed row leaves.
+                tx.motion_curve(COLLAPSE);
+                Event::CollapseCompleted { attempt }
+            }
         };
         dispatch(s, event);
     }
