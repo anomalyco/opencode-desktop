@@ -250,10 +250,11 @@ wrap_app! {
             // Also enforce `disable_non_proxied_udp` globally so `NetworkService` never opens
             // non-loopback UDP listeners (avoiding Windows Defender Firewall and macOS incoming
             // connection prompts) and never exposes local LAN IPs to pages.
-            // `AutofillServerCommunication` and `NetworkTimeServiceQuerying`: the Chrome runtime
-            // still sent each visited page's form signatures to `content-autofill.googleapis.com`
-            // and polled `clients2.google.com/time` (NetLog, 21 Nov); Electron (official) does neither.
-            const DISABLED_NET_FEATURES: [&str; 7] = [
+            // `AutofillServerCommunication`, `NetworkTimeServiceQuerying`, `AimEnabled`: the Chrome
+            // runtime still sent each visited page's form signatures to
+            // `content-autofill.googleapis.com`, polled `clients2.google.com/time`, and fetched
+            // `www.google.com/async/folae` (NetLog, 21 Nov); Electron (official) makes none of these.
+            const DISABLED_NET_FEATURES: [&str; 8] = [
                 "MediaRouter",
                 "DialMediaRouteProvider",
                 "CastMediaRouteProvider",
@@ -261,6 +262,7 @@ wrap_app! {
                 "ConnectionAllowlists",
                 "AutofillServerCommunication",
                 "NetworkTimeServiceQuerying",
+                "AimEnabled",
             ];
             let existing = CefString::from(&cmd.switch_value(Some(&"disable-features".into()))).to_string();
             cmd.remove_switch(Some(&"disable-features".into()));
