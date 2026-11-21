@@ -292,6 +292,11 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             s.apply_project_opened(location, projects, session, tx);
         }
         Incoming::Settled { ticket, result } => settled(s, ticket, result, tx),
+        #[cfg(not(target_arch = "wasm32"))]
+        Incoming::PromptGate { session, directory, release } => {
+            crate::surfaces::browser::rpc::hold_start_gate(s, &session, &directory, release);
+            return false;
+        }
         Incoming::Created(info) if s.queue.starts.has(&info.id) => {
             s.started(info, tx);
         }
