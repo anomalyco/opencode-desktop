@@ -161,7 +161,7 @@ local function row(icon: string, title: string, detail: string?, action: ui.Node
     end
     local items: { ui.Node } = {
         ui.row({ w = 16, h = 20, center = true }, { ui.icon(icon :: any, { size = 16, color = "icon-weak" }) }),
-        ui.col({ grow = 1, shrink = true, minW = 0 }, lines),
+        ui.col({ grow = 1, shrink = true, minW = 0, gap = 2 }, lines),
     }
     if action then
         table.insert(items, ui.col({ h = "full", justify = "center" }, { action }))
