@@ -3,7 +3,7 @@
 //! that this build has none).
 
 use browser_pane::{Distrust, ENGINE_DOWNLOAD_MB, EngineStatus, Fault, Net};
-use rune::{Anim, Cursor, El, Spring, col, el, icon, row, text};
+use rune::{Anim, Cursor, El, Spring, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
 
 use crate::App;
@@ -13,52 +13,77 @@ use crate::view::{UI_MED, UI_SMALL};
 
 const INSTANT: Anim = Anim::INSTANT;
 
+/// Neutral button opening `tab_id`'s requested web URL in the OS default browser when one exists
+/// and passes `external_url_allowed_for_tab`.
+fn open_external_btn(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
+    s.browser_tab_external_url(tab_id)?;
+    let label = opencode_i18n::t!("plugin.browser.external.open");
+    Some(
+        el().key("browser-open-external-btn")
+            .role("button")
+            .label_static(label)
+            .h(30.0)
+            .px(14.0)
+            .radius(6.0)
+            .center()
+            .cursor(Cursor::Pointer)
+            .fill(p.q.neutral)
+            .box_shadow(Pal::ring_out(p.q.neutral_ring))
+            .hover(p.hover)
+            .hover_motion(INSTANT, INSTANT)
+            .on_press_tx(move |s: &mut App, tx: &mut Tx| s.open_browser_tab_externally(tab_id, tx))
+            .child(text(label).font(UI_MED).color(p.text)),
+    )
+}
+
+/// The address "Open in system browser" opens, in text: the views without an engine hide the
+/// address bar, and the button must not open something the person can't see.
+fn requested_url(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
+    let url = s.browser_tab_external_url(tab_id)?;
+    Some(text(url).key("browser-requested-url").font(UI_SMALL).color(p.text).wrap().align(rune::Align::Center).max_w(360.0))
+}
+
 /// Page `tab_id`'s surface, `scale` device pixels a point, or the engine's state while it can't
 /// show pages; `None` when the engine is ready and the page isn't open.
 pub fn surface(s: &App, p: &Pal, tab_id: u64, scale: f32) -> Option<El> {
+    let ext_btn = open_external_btn(s, p, tab_id);
     Some(match s.workspace_panes.browser.host.status() {
-        EngineStatus::Unsupported => unsupported(p),
+        EngineStatus::Unsupported => unsupported(p, requested_url(s, p, tab_id), ext_btn),
         // The background download, when the pane opens on it, shows here and goes on.
         EngineStatus::Downloading { downloaded_bytes, total_bytes } => {
             let frac = total_bytes.filter(|&t| t > 0).map_or(0.25, |t| (downloaded_bytes as f32 / t as f32).clamp(0.03, 1.0));
-            progress(p, opencode_i18n::t!("rune.browser.engine.downloading"), Some((downloaded_bytes, total_bytes)), frac)
+            progress(p, opencode_i18n::t!("rune.browser.engine.downloading"), Some((downloaded_bytes, total_bytes)), frac, ext_btn)
         }
-        EngineStatus::Verifying => progress(p, opencode_i18n::t!("rune.browser.engine.verifying"), None, 1.0),
-        EngineStatus::Paused(reason) => progress(p, reason.describe(), None, 0.25),
-        EngineStatus::NotInstalled => col()
-            .key("browser-download-prompt")
-            .grow(1.0)
-            .w_full()
-            .center()
-            .padding(28.0)
-            .gap(14.0)
-            .child(icon(&ic::GLOBE, 22.0).color(p.icon_muted))
-            .child(text(opencode_i18n::t!("rune.browser.engine.needsDownload", size = ENGINE_DOWNLOAD_MB)).font(UI_MED).color(p.text).truncate_fade())
-            .child(
-                el().key("browser-download-btn")
-                    .role("button")
-                    .label_static(opencode_i18n::t!("rune.browser.engine.download"))
-                    .h(30.0)
-                    .px(14.0)
-                    .radius(6.0)
-                    .center()
-                    .cursor(Cursor::Pointer)
-                    .fill(p.q.submit)
-                    .box_shadow(Pal::ring_out(p.q.submit_ring))
-                    .hover_motion(INSTANT, INSTANT)
-                    .on_press(|s: &mut App| s.start_browser_install())
-                    .child(text(opencode_i18n::t!("plugin.file.view.download")).font(UI_MED).color(p.q.submit_text)),
-            ),
-        EngineStatus::Failed(failure) => col()
-            .key("browser-download-failed")
-            .grow(1.0)
-            .w_full()
-            .center()
-            .padding(28.0)
-            .gap(14.0)
-            .child(icon(&ic::WARNING, 20.0).color(p.icon_muted))
-            .child(text(fault_text(&failure.fault)).font(UI_SMALL).color(p.muted).wrap().align(rune::Align::Center).max_w(320.0))
-            .children(failure.fault.retryable().then(|| {
+        EngineStatus::Verifying => progress(p, opencode_i18n::t!("rune.browser.engine.verifying"), None, 1.0, ext_btn),
+        EngineStatus::Paused(reason) => progress(p, reason.describe(), None, 0.25, ext_btn),
+        EngineStatus::NotInstalled => {
+            let dl_btn = el()
+                .key("browser-download-btn")
+                .role("button")
+                .label_static(opencode_i18n::t!("rune.browser.engine.download"))
+                .h(30.0)
+                .px(14.0)
+                .radius(6.0)
+                .center()
+                .cursor(Cursor::Pointer)
+                .fill(p.q.submit)
+                .box_shadow(Pal::ring_out(p.q.submit_ring))
+                .hover_motion(INSTANT, INSTANT)
+                .on_press(|s: &mut App| s.start_browser_install())
+                .child(text(opencode_i18n::t!("plugin.file.view.download")).font(UI_MED).color(p.q.submit_text));
+            col()
+                .key("browser-download-prompt")
+                .grow(1.0)
+                .w_full()
+                .center()
+                .padding(28.0)
+                .gap(14.0)
+                .child(icon(&ic::GLOBE, 22.0).color(p.icon_muted))
+                .child(text(opencode_i18n::t!("rune.browser.engine.needsDownload", size = ENGINE_DOWNLOAD_MB)).font(UI_MED).color(p.text).truncate_fade())
+                .child(row().gap(8.0).center_y().child(dl_btn).children(ext_btn))
+        }
+        EngineStatus::Failed(failure) => {
+            let retry_btn = failure.fault.retryable().then(|| {
                 el().key("browser-retry-btn")
                     .role("button")
                     .label_static(opencode_i18n::t!("rune.browser.engine.retryDownload"))
@@ -73,7 +98,22 @@ pub fn surface(s: &App, p: &Pal, tab_id: u64, scale: f32) -> Option<El> {
                     .hover_motion(INSTANT, INSTANT)
                     .on_press(|s: &mut App| s.start_browser_install())
                     .child(text(opencode_i18n::t!("rune.home.noServer.retryShort")).font(UI_MED).color(p.text))
-            })),
+            });
+            let actions = (retry_btn.is_some() || ext_btn.is_some())
+                .then(|| row().gap(8.0).center_y().children(retry_btn).children(ext_btn));
+            let url = (failure.fault == Fault::NotPublished).then(|| requested_url(s, p, tab_id)).flatten();
+            col()
+                .key("browser-download-failed")
+                .grow(1.0)
+                .w_full()
+                .center()
+                .padding(28.0)
+                .gap(14.0)
+                .child(icon(&ic::WARNING, 20.0).color(p.icon_muted))
+                .child(text(fault_text(&failure.fault)).font(UI_SMALL).color(p.muted).wrap().align(rune::Align::Center).max_w(320.0))
+                .children(url)
+                .children(actions)
+        }
         EngineStatus::Unchecked | EngineStatus::Installed | EngineStatus::Connecting | EngineStatus::Ready => {
             let tab = s.workspace_panes.browser.host.tab(tab_id)?;
             let bars = super::prompts::view_bars(s, p, tab.id);
@@ -135,7 +175,7 @@ pub fn fault_text(fault: &Fault) -> String {
 
 /// The engine download's progress: a label, the megabytes so far (rolling) when known, and a bar
 /// filled to `frac`.
-fn progress(p: &Pal, label: &str, bytes: Option<(u64, Option<u64>)>, frac: f32) -> El {
+fn progress(p: &Pal, label: &str, bytes: Option<(u64, Option<u64>)>, frac: f32, ext_btn: Option<El>) -> El {
     let bar_w = 240.0;
     let odometer = bytes.map(|(downloaded_bytes, total_bytes)| {
         let done_mb = (downloaded_bytes as f64 / 1_000_000.0).floor();
@@ -163,10 +203,11 @@ fn progress(p: &Pal, label: &str, bytes: Option<(u64, Option<u64>)>, frac: f32) 
                 .fill(p.layer3)
                 .child(el().key("browser-dl-fill").w(bar_w * frac).h(5.0).radius(2.5).fill(p.icon).motion(Spring::new(0.25, 0.0))),
         )
+        .children(ext_btn.map(|b| b.mt(4.0)))
 }
 
 /// This build has no browser engine for its platform: no address bar, nothing to download.
-fn unsupported(p: &Pal) -> El {
+fn unsupported(p: &Pal, url: Option<El>, ext_btn: Option<El>) -> El {
     col()
         .key("browser-unsupported")
         .grow(1.0)
@@ -177,4 +218,6 @@ fn unsupported(p: &Pal) -> El {
         .child(icon(&ic::GLOBE, 22.0).color(p.icon_muted))
         .child(text(opencode_i18n::t!("rune.browser.unsupported.title")).font(UI_MED).color(p.text).truncate_fade())
         .child(text(opencode_i18n::t!("rune.browser.unsupported.description")).font(UI_SMALL).color(p.muted).wrap().align(rune::Align::Center).max_w(320.0))
+        .children(url.map(|u| u.mt(6.0)))
+        .children(ext_btn.map(|b| b.mt(6.0)))
 }
