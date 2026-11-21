@@ -78,7 +78,7 @@ fn controls<S: TimelineHost>(c: &Rc<Clip>, name: &str) -> El {
         .child(buttons)
         .child(seek::view::<S>(c, name).pin(Some(0.0), Some(0.0), Some(0.0), None));
     el().key("hud").pin(Some(10.0), None, Some(10.0), Some(8.0)).h(HUD_HEIGHT)
-        .hover_group().hover_motion(INSTANT, HOVER_FADE).child(hud)
+        .hover_group_focus().hover_motion(INSTANT, HOVER_FADE).child(hud)
 }
 
 pub(super) fn stage<S: TimelineHost>(p: &Pal, c: Rc<Clip>, name: &str) -> El {
