@@ -48,7 +48,9 @@ pub enum OpenPhase {
     /// wall clock (a live window), `clock` the app's (a story's); `received`: its page landed.
     Held { started: Instant, clock: f64, received: bool },
     /// The hold passed: the target shows, loading.
-    Loading { received: bool },
+    Loading { since: Instant, clock: f64, received: bool },
+    /// Loading outlasted [`LOAD_TIMEOUT`]: stops animating until messages arrive or Retry runs.
+    Stalled,
     /// Its read failed: the target shows the error.
     Failed { error: String },
     Partial { error: String, head: Arc<str> },
@@ -59,6 +61,8 @@ pub enum OpenEvent {
     Received,
     /// The hold passed.
     Expired,
+    /// Loading outlasted [`LOAD_TIMEOUT`].
+    Stalled,
     Failed(String),
     Partial(String, Arc<str>),
 }
@@ -72,31 +76,48 @@ impl<R> Opening<R> {
     pub fn step(&mut self, event: OpenEvent) -> bool {
         let next = match (&self.phase, event) {
             (OpenPhase::Held { started, clock, .. }, OpenEvent::Received) => OpenPhase::Held { started: *started, clock: *clock, received: true },
-            (OpenPhase::Loading { .. }, OpenEvent::Received) => OpenPhase::Loading { received: true },
-            (OpenPhase::Held { received, .. }, OpenEvent::Expired) => OpenPhase::Loading { received: *received },
-            (OpenPhase::Held { .. } | OpenPhase::Loading { .. }, OpenEvent::Failed(error)) => OpenPhase::Failed { error },
+            (OpenPhase::Loading { since, clock, .. }, OpenEvent::Received) => OpenPhase::Loading { since: *since, clock: *clock, received: true },
+            (OpenPhase::Stalled, OpenEvent::Received) => OpenPhase::Loading { since: Instant::now(), clock: 0.0, received: true },
+            (OpenPhase::Held { clock, received, .. }, OpenEvent::Expired) => OpenPhase::Loading { since: Instant::now(), clock: *clock + HOLD.as_secs_f64(), received: *received },
+            (OpenPhase::Loading { received: false, .. }, OpenEvent::Stalled) => OpenPhase::Stalled,
+            (OpenPhase::Held { .. } | OpenPhase::Loading { .. } | OpenPhase::Stalled, OpenEvent::Failed(error)) => OpenPhase::Failed { error },
             (_, OpenEvent::Partial(error, head)) => OpenPhase::Partial { error, head },
             _ => return false,
         };
-        let changed = matches!((&self.phase, &next), (OpenPhase::Held { .. }, OpenPhase::Loading { .. } | OpenPhase::Failed { .. }))
-            || matches!(next, OpenPhase::Partial { .. });
+        let changed = matches!(
+            (&self.phase, &next),
+            (OpenPhase::Held { .. }, OpenPhase::Loading { .. } | OpenPhase::Failed { .. })
+                | (OpenPhase::Loading { .. }, OpenPhase::Stalled | OpenPhase::Failed { .. })
+                | (OpenPhase::Stalled, OpenPhase::Failed { .. } | OpenPhase::Loading { .. })
+        ) || matches!(next, OpenPhase::Partial { .. });
         self.phase = next;
         changed
     }
 
     /// Its latest page landed.
     pub fn received(&self) -> bool {
-        matches!(self.phase, OpenPhase::Held { received: true, .. } | OpenPhase::Loading { received: true })
+        matches!(self.phase, OpenPhase::Held { received: true, .. } | OpenPhase::Loading { received: true, .. })
     }
 
-    /// The target shows (loading, or its error), not the page it left.
+    /// The target shows (loading, stalled, or its error), not the page it left.
     pub fn loading(&self) -> bool {
         !matches!(self.phase, OpenPhase::Held { .. })
+    }
+
+    /// Actively loading (not held, not stalled, not failed): the spinner may turn.
+    pub fn actively_loading(&self) -> bool {
+        matches!(self.phase, OpenPhase::Loading { .. })
+    }
+
+    /// Loading stalled past [`LOAD_TIMEOUT`]: stops animating.
+    pub fn stalled(&self) -> bool {
+        matches!(self.phase, OpenPhase::Stalled)
     }
 
     pub fn error(&self) -> Option<&str> {
         match &self.phase {
             OpenPhase::Failed { error } | OpenPhase::Partial { error, .. } => Some(error),
+            OpenPhase::Stalled => Some("OpenCode isn't answering."),
             _ => None,
         }
     }
@@ -113,6 +134,16 @@ impl<R> Opening<R> {
     pub fn expired(&self, live: bool, clock: f64) -> bool {
         match &self.phase {
             OpenPhase::Held { started, clock: at, .. } => if live { started.elapsed() >= HOLD } else { clock >= at + HOLD.as_secs_f64() },
+            _ => false,
+        }
+    }
+
+    /// Loading has outlasted [`LOAD_TIMEOUT`] without receiving messages.
+    pub fn loading_stalled(&self, live: bool, clock: f64) -> bool {
+        match &self.phase {
+            OpenPhase::Loading { since, clock: at, received: false } => {
+                if live { since.elapsed() >= LOAD_TIMEOUT } else { clock >= at + LOAD_TIMEOUT.as_secs_f64() }
+            }
             _ => false,
         }
     }

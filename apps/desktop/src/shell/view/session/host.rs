@@ -292,7 +292,7 @@ impl session_view::TimelineHost for App {
         self.opening.as_ref().filter(|o| o.id == session).and_then(|o| o.error())
     }
     fn loading_in_flight(&self, session: &str) -> bool {
-        self.loading_session(session)
+        self.loading_in_flight_session(session)
     }
     fn retry_loading(&mut self, session: &str, tx: &mut Tx) {
         self.retry_open(session, tx);

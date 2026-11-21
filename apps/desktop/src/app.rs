@@ -499,7 +499,16 @@ impl App {
     pub(crate) fn rest(s: &mut App, _: &mut rune::Tx) -> bool {
         let scheduler = s.kernel.scheduler.clone();
         let has_rest_hooks = scheduler.rest_names().next().is_some();
-        let shown: HashSet<&str> = s.tabs.iter().map(|t| t.id.as_str()).chain(match &*s.route { Route::Session { id, .. } => Some(id.as_str()), _ => None }).chain(s.running.iter().map(String::as_str)).collect();
+        let active_server = crate::servers::runtime::active(s).clone();
+        let other_shown = windows::other_windows_shown(&s.window.id, &active_server);
+        let shown: HashSet<&str> = s
+            .tabs
+            .iter()
+            .map(|t| t.id.as_str())
+            .chain(match &*s.route { Route::Session { id, .. } => Some(id.as_str()), _ => None })
+            .chain(s.running.iter().map(String::as_str))
+            .chain(other_shown.iter().map(String::as_str))
+            .collect();
         let kept = |id: &str| s.ancestors(id).any(|a| shown.contains(a));
         let gone: Vec<String> = s.transcripts.keys().filter(|id| !kept(id)).cloned().collect();
         let review_gone: Vec<String> = s.kernel.slots.get(&crate::review::REVIEW).sessions.keys().filter(|id| !kept(id)).cloned().collect();
@@ -529,9 +538,17 @@ impl App {
             }
         }
         // What `opencode_kit` keeps beside each user message (files, mentions, comments, times):
-        // only for the messages of the transcripts left.
+        // only for the messages of the transcripts left (across this server and all other peers).
         let cached = s.pages.user_message_ids();
-        let messages: HashSet<&str> = s.transcripts.values().flat_map(|t| t.messages.iter()).filter_map(|m| match m { opencode_kit::model::Message::User { id, .. } => Some(id.as_str()), _ => None }).chain(cached.iter().map(String::as_str)).collect();
+        let other_peer_msgs = crate::servers::runtime::other_peer_user_message_ids(&active_server);
+        let messages: HashSet<&str> = s
+            .transcripts
+            .values()
+            .flat_map(|t| t.messages.iter())
+            .filter_map(|m| match m { opencode_kit::model::Message::User { id, .. } => Some(id.as_str()), _ => None })
+            .chain(cached.iter().map(String::as_str))
+            .chain(other_peer_msgs.iter().map(String::as_str))
+            .collect();
         opencode_kit::model::retain_user_messages(&|id| messages.contains(id));
         s.composer_ext.attach.store.rest();
         // No session tab or draft and not on a session: pictures keep their encoded bytes, not

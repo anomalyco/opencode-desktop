@@ -1,7 +1,6 @@
 //! Latest-page prefetch into a bounded in-memory cache (as Desktop keeps none on disk; a restored
 //! tab's first screen comes from the storage's session preview). Two read lanes keep a foreground
 //! click independent of speculative reads. Neither lane writes to the server or to a file.
-use crate::pickers::PickerHost as _;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Condvar, Mutex, PoisonError, mpsc::{Receiver, Sender, channel}};
 use std::time::Duration;
@@ -21,7 +20,7 @@ mod machines;
 mod shown;
 
 pub use machines::{History, Key, LATEST, OpenEvent, Opening};
-use machines::{HOLD, Histories, HistoryEffect, HistoryEvent, Stall};
+use machines::{Histories, HistoryEffect, HistoryEvent, Stall};
 
 /// Session-page prefetch pool, each session's history above its latest page, and older pages
 /// on scroll.
@@ -69,6 +68,10 @@ impl State {
 
     pub fn has_pool(&self) -> bool {
         self.pool.is_some()
+    }
+
+    pub(super) fn is_stalled(&self) -> bool {
+        self.pool.as_ref().and_then(Pages::stalled_for).is_some_and(|d| d >= STALL_AFTER)
     }
 
     /// The server the pool reads (its base URL; empty for a fixture's).
@@ -451,51 +454,6 @@ fn pause(q: &Shared, total: Duration) -> bool {
 }
 
 impl crate::App {
-    pub fn cancel_open(&mut self, tx: &mut rune::Tx) {
-        if let Some(opening) = self.opening.take() {
-            *self.route = opening.from;
-            let _ = self.show_draft();
-            session_view::jump::settle(self, tx);
-        }
-    }
-
-    pub fn begin_open(&mut self, id: &str, tx: &mut rune::Tx) {
-        self.close_picker(false);
-        crate::subagents::shells::set_open(self, false);
-        *self.kernel.slots.get_mut(&crate::todos::TODO_OPEN) = false;
-        let from = self.opening.as_ref().filter(|o| !o.loading()).map_or_else(|| (*self.route).clone(), |o| o.from.clone());
-        *self.opening = Some(Opening::new(id, from, self.transcripts.contains_key(id), *self.clock));
-        self.open_now(id, tx);
-        self.open_page(id, tx);
-        self.poll_open(tx);
-        if self.opening.is_some() { tx.wake_after(HOLD); }
-    }
-
-    fn poll_open(&mut self, tx: &mut rune::Tx) -> bool {
-        let Some(opening) = &*self.opening else { return false };
-        if self.route != opening.from && self.route != crate::Route::here(opening.id.clone()) {
-            *self.opening = None;
-            return false;
-        }
-        let id = opening.id.clone();
-        let ready = opening.received() && self.transcripts.get(&id).is_some_and(|t| self.composer_ext.attach.transcript_ready(t));
-        if ready {
-            *self.opening = None;
-            // Mount the finished transcript at its end, or where it was read, without
-            // resetting input or focus.
-            session_view::jump::settle(self, tx);
-            self.land_place(&id, tx);
-            if let Some(page) = self.pages.pool.as_ref().and_then(|p| p.peek(&id)) { self.schedule_history(&page, tx); }
-            return true;
-        }
-        let expired = opening.expired(self.live(), *self.clock);
-        if expired && self.opening.as_mut().is_some_and(|o| o.step(OpenEvent::Expired)) {
-            session_view::jump::settle(self, tx);
-            return true;
-        }
-        false
-    }
-
     /// The session on screen with its messages painted (not held, not loading), for traces.
     pub fn painted_session(&self) -> Option<(&str, usize)> {
         let crate::Route::Session { id, .. } = &*self.route else { return None };

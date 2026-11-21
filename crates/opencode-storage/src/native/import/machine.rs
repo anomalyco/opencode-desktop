@@ -103,8 +103,9 @@ fn transition(state: ImportState, event: ImportEvent) -> (ImportState, Effects<I
         (S::MigratingSchema, Ev::SchemaReady { pending: false, .. }) => (S::Ready, Effects::none()),
         (S::MigratingSchema, Ev::SchemaReady { pending: true, seed_settled }) => (S::ScanningSources { seed_settled }, Effects::one(E::Scan)),
         (S::ScanningSources { .. }, Ev::FoundRuneFiles { files }) => (S::ImportingLegacyFiles { files }, Effects::one(E::Import)),
-        // Nothing of Rune's to import: a fresh profile may still take Desktop's state.
-        (S::ScanningSources { seed_settled: false }, Ev::NoRuneFiles { fresh: true }) => (S::SeedDeferred, Effects::one(E::MarkGroupsSettled)),
+        // Nothing of Rune's to import: seed a fresh profile from Desktop before the first boot
+        // packet is built so windows, frames, tabs, settings.v3, and global state arrive on frame 0.
+        (S::ScanningSources { seed_settled: false }, Ev::NoRuneFiles { fresh: true }) => (S::SeedingFromOfficial, Effects::two(E::MarkGroupsSettled, E::Seed)),
         (S::ScanningSources { .. }, Ev::NoRuneFiles { .. }) => (S::Ready, Effects::two(E::MarkGroupsSettled, E::MarkSeedSettled)),
         (S::ImportingLegacyFiles { files }, Ev::CommittedAndCheckpointed) => (S::VerifyingImport { files }, Effects::one(E::Verify)),
         (S::ImportingLegacyFiles { .. }, Ev::ImportFailed { error }) => (S::Ready, Effects::one(E::Report(format!("legacy import failed, files kept: {error}")))),

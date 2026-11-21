@@ -99,6 +99,11 @@ struct Open {
     life: life::Life,
     /// When it last came to the front (`FOCUSES`): of windows under one point, the latest is on top.
     focused: u64,
+    /// Stamp of `(tabs, route)` when `shown` was last refreshed.
+    shown_stamp: u64,
+    /// Every `(server, session_id)` this window holds in its tabs or active route, so another
+    /// window resting (`App::rest`) never evicts a session still open here.
+    shown: Vec<(opencode_kit::servers::ServerKey, String)>,
 }
 
 thread_local! {
@@ -166,9 +171,50 @@ pub fn register(id: &str, handle: WindowHandle, app: AppHandle<App>, life: life:
     OPEN.with(|o| {
         let mut o = o.borrow_mut();
         o.retain(|w| w.id != id);
-        o.push(Open { id: id.to_owned(), handle, app, strip: None, life, focused: 0 });
+        o.push(Open { id: id.to_owned(), handle, app, strip: None, life, focused: 0, shown_stamp: 0, shown: Vec::new() });
     });
     focused(id);
+}
+
+/// Records the `(server, session_id)` entries this window holds in its open tabs and active route
+/// when either has changed, so another window's `App::rest` never evicts them from the shared peer.
+pub fn sync_shown(s: &App) {
+    if s.window.id.is_empty() {
+        return;
+    }
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let mut h = DefaultHasher::new();
+    rune::Tracked::version(&s.tabs).hash(&mut h);
+    rune::Tracked::version(&s.route).hash(&mut h);
+    let stamp = h.finish().max(1);
+    OPEN.with(|o| {
+        let mut o = o.borrow_mut();
+        let Some(w) = o.iter_mut().find(|w| w.id == s.window.id) else { return };
+        if w.shown_stamp == stamp {
+            return;
+        }
+        w.shown_stamp = stamp;
+        w.shown.clear();
+        for t in s.tabs.iter().filter(|t| !t.is_draft()) {
+            w.shown.push((t.server.clone(), t.id.clone()));
+        }
+        if let crate::Route::Session { server, id } = &*s.route
+            && !w.shown.iter().any(|(srv, sid)| srv == server && sid == id)
+        {
+            w.shown.push((server.clone(), id.clone()));
+        }
+    });
+}
+
+/// Every session id open in a tab or active route of any OTHER open window on `server`.
+pub fn other_windows_shown(exclude_id: &str, server: &opencode_kit::servers::ServerKey) -> Vec<String> {
+    OPEN.with(|o| {
+        o.borrow()
+            .iter()
+            .filter(|w| w.id != exclude_id)
+            .flat_map(|w| w.shown.iter().filter(|(srv, _)| srv == server).map(|(_, sid)| sid.clone()))
+            .collect()
+    })
 }
 
 /// Window `id` came to the front.

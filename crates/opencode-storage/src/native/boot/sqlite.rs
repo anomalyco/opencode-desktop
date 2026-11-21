@@ -223,7 +223,7 @@ pub(super) fn stage_b(
     let mut cache = read(&conn, report)?;
     // What was offered is what's stored: putting the same bytes back writes nothing.
     cache.cache_sums.extend(sums);
-    cache.complete = report.created && report.import.rows == 0;
+    cache.complete = report.created && report.import.rows == 0 && report.import.seeded_rows == 0;
     if cache.complete {
         cache.outbox = OutboxCache::Loaded(BTreeMap::new());
     }
