@@ -327,6 +327,7 @@ pub fn filtered_files_view<H: FilesHost + 'static>(
                     .sessions
                     .get(&sid_rows)
                     .and_then(|w| w.highlighted_filter_path.as_deref())
+                    .filter(|hp| filtered.iter().any(|p| p == hp))
                     .map_or(i == 0, |hp| hp == path);
                 let active = act_owned.as_deref() == Some(path.as_str());
                 let on = active || highlighted;
@@ -361,6 +362,7 @@ pub fn filtered_files_view<H: FilesHost + 'static>(
                     .hover_motion(INSTANT, INSTANT)
                     .cursor(Cursor::Pointer)
                     .role("option")
+                    .checked(highlighted)
                     .on_press_tx(move |s: &mut H, tx: &mut Tx| ops::open_workspace_file_or_page(s, &click_p, true, tx))
                     .on_double_press_tx(move |s: &mut H, tx: &mut Tx| ops::open_workspace_file_or_page(s, &dbl_p, false, tx))
                     .child(icon(t.icon(), 16.0).color(if on { t.color(pal.dark) } else { pal.icon_muted }))
