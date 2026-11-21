@@ -896,13 +896,19 @@ return plugin.defineWindow(function(ctx)
         act = act,
     }
 
-    -- A tab's label: "New tab" for a blank page, else live/saved title (loading hold), else host/URL.
+    -- A tab's label: "New tab" for a blank or unnamed link-opened page, else live/saved title, else host/URL.
     local function label(sid: string, info: BrowserTabInfo): string
         if info.url == "" then
             return I18n:T("tab.new")
         end
         local saved = savedTabs.find(savedTabs.normalize(savedTabsStore:Get()), sid, info.id)
         local live = Browser:Get(info.id)
+        if live ~= nil then
+            local liveAny = live :: any
+            if type(liveAny.Unnamed) == "function" and liveAny:Unnamed() == true then
+                return I18n:T("tab.new")
+            end
+        end
         local held = savedTabs.tabTitle(info.url, info.title, if live then live:Loading() else true, saved)
         if held ~= nil then
             return held
@@ -913,7 +919,8 @@ return plugin.defineWindow(function(ctx)
 
     local function tabText(sid: string, tab: BrowserTab): string
         local url = pageUrl(tab)
-        if url == "" then
+        local tAny = tab :: any
+        if url == "" or (type(tAny.Unnamed) == "function" and tAny:Unnamed() == true) then
             return I18n:T("tab.new")
         end
         local saved = savedTabs.find(savedTabs.normalize(savedTabsStore:Get()), sid, tab.Id)

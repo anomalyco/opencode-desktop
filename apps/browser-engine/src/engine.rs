@@ -120,6 +120,7 @@ impl EngineManager {
         if let Some(global) = cef::request_context_get_global_context() {
             crate::permissions::block_device_permission_guards(&global);
             crate::permissions::scrub_legacy_content_settings(&global);
+            crate::context::disable_non_proxied_udp(&global);
         }
         Self {
             tabs: HashMap::new(),
@@ -1206,9 +1207,7 @@ impl EngineManager {
         let find = crate::find::TabFindHandler::new(
             tab_id,
             self.out_tx.clone(),
-            std::sync::atomic::AtomicI32::new(-1),
-            std::sync::atomic::AtomicI32::new(0),
-            std::sync::atomic::AtomicI32::new(0),
+            std::sync::Arc::new(crate::find::FindState::default()),
         );
         let context_menu = crate::menu::TabContextMenuHandler::new(
             tab_id,

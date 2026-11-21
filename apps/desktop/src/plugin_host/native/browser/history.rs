@@ -7,7 +7,15 @@ use browser_pane::history::{HistoryStore, discover_sources, read_profile_history
 use mlua::{IntoLua, Lua, Table, Value};
 use rune_luau::Data;
 
-use super::{App, map, method, with_app};
+use super::{App, map, method, scope, with_app};
+
+fn require_builtin_browser(lua: &Lua, what: &str) -> mlua::Result<()> {
+    let cap = scope::TabScope::capture(lua);
+    if cap.is_builtin_browser && cap.tool_sid.is_none() {
+        return Ok(());
+    }
+    Err(mlua::Error::runtime(format!("{what} is restricted to the built-in browser.")))
+}
 
 fn with_store<R>(app: &App, f: impl FnOnce(&mut HistoryStore) -> R) -> Option<R> {
     let mut cell = app.workspace_panes.browser.history.borrow_mut();
@@ -26,13 +34,15 @@ fn with_store<R>(app: &App, f: impl FnOnce(&mut HistoryStore) -> R) -> Option<R>
 }
 
 pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
-    method(lua, t, "HistoryPrepare", |_, ()| {
+    method(lua, t, "HistoryPrepare", |lua, ()| {
+        require_builtin_browser(lua, "Browser:HistoryPrepare")?;
         with_app("Browser:HistoryPrepare", |app| {
             with_store(app, |store| store.prepare());
             Ok(())
         })
     })?;
     method(lua, t, "HistorySearch", |lua, (query, limit): (String, Option<usize>)| {
+        require_builtin_browser(lua, "Browser:HistorySearch")?;
         let cap = limit.unwrap_or(8).min(32);
         let found = with_app("Browser:HistorySearch", |app| {
             Ok(with_store(app, |store| store.search(&query, cap)).unwrap_or_default())
@@ -49,7 +59,8 @@ pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
             .collect();
         Data::List(list).into_lua(lua)
     })?;
-    method(lua, t, "HistoryVisit", |_, (url, title, typed, tab_id): (String, String, Option<bool>, Option<String>)| {
+    method(lua, t, "HistoryVisit", |lua, (url, title, typed, tab_id): (String, String, Option<bool>, Option<String>)| {
+        require_builtin_browser(lua, "Browser:HistoryVisit")?;
         with_app("Browser:HistoryVisit", |app| {
             // Never record history from isolated/preview tabs or non-HTTP(S) URLs.
             if browser_pane::policy::destination_origin(&url).is_none() {
@@ -65,7 +76,8 @@ pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
             Ok(())
         })
     })?;
-    method(lua, t, "HistoryRetitle", |_, (url, title): (String, String)| {
+    method(lua, t, "HistoryRetitle", |lua, (url, title): (String, String)| {
+        require_builtin_browser(lua, "Browser:HistoryRetitle")?;
         with_app("Browser:HistoryRetitle", |app| {
             if browser_pane::policy::destination_origin(&url).is_none() {
                 return Ok(());
@@ -74,7 +86,8 @@ pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
             Ok(())
         })
     })?;
-    method(lua, t, "HistoryAdopt", |_, visits: Value| {
+    method(lua, t, "HistoryAdopt", |lua, visits: Value| {
+        require_builtin_browser(lua, "Browser:HistoryAdopt")?;
         let mut pairs: Vec<(String, String)> = Vec::new();
         if let Value::Table(tbl) = visits {
             for item in tbl.sequence_values::<Table>().flatten() {
@@ -90,22 +103,26 @@ pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
             Ok(())
         })
     })?;
-    method(lua, t, "HistoryForget", |_, url: String| {
+    method(lua, t, "HistoryForget", |lua, url: String| {
+        require_builtin_browser(lua, "Browser:HistoryForget")?;
         with_app("Browser:HistoryForget", |app| {
             Ok(with_store(app, |store| store.remove(&url)).unwrap_or(false))
         })
     })?;
-    method(lua, t, "HistoryClear", |_, ()| {
+    method(lua, t, "HistoryClear", |lua, ()| {
+        require_builtin_browser(lua, "Browser:HistoryClear")?;
         with_app("Browser:HistoryClear", |app| {
             Ok(with_store(app, |store| store.clear().is_ok()).unwrap_or(false))
         })
     })?;
-    method(lua, t, "HistoryCount", |_, ()| {
+    method(lua, t, "HistoryCount", |lua, ()| {
+        require_builtin_browser(lua, "Browser:HistoryCount")?;
         with_app("Browser:HistoryCount", |app| {
             Ok(with_store(app, |store| store.count() as i64).unwrap_or(0))
         })
     })?;
     method(lua, t, "HistoryImportSources", |lua, ()| {
+        require_builtin_browser(lua, "Browser:HistoryImportSources")?;
         let sources = discover_sources();
         let list: Vec<Data> = sources
             .into_iter()
@@ -126,6 +143,7 @@ pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
         Data::List(list).into_lua(lua)
     })?;
     method(lua, t, "HistoryImportProfile", |lua, (browser_id, profile_id): (String, String)| {
+        require_builtin_browser(lua, "Browser:HistoryImportProfile")?;
         // Resolve browser/profile exclusively through `discover_sources()` so plugins cannot
         // supply arbitrary filesystem paths.
         let sources = discover_sources();

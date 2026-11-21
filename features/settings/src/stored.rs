@@ -18,7 +18,7 @@ const RUNE: &str = "rune.settings";
 const LANGUAGE: &str = "language";
 
 /// The flat keys kept in `settings.v3`, and where: (flat key, v3 section, v3 key).
-const SHARED: [(&str, &str, &str); 25] = [
+const SHARED: [(&str, &str, &str); 26] = [
     ("showAgentPicker", "general", "showCustomAgents"),
     ("tabGroups", "general", "tabGroups"),
     ("foldUserMessages", "general", "foldUserMessages"),
@@ -32,6 +32,7 @@ const SHARED: [(&str, &str, &str); 25] = [
     ("timelineWidth", "general", "timelineWidth"),
     ("backgroundActivity", "general", "backgroundActivity"),
     ("showTurnDiffs", "general", "showTurnDiffs"),
+    ("wrapCodeBlocks", "general", "wrapCodeBlocks"),
     ("tabLayout", "appearance", "tabLayout"),
     ("navigation", "appearance", "navigation"),
     ("reduceMotion", "appearance", "reduceMotion"),

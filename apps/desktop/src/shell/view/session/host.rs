@@ -11,6 +11,9 @@ use crate::{
     speech, subagents, tool_open, working,
 };
 
+/// Per-code-block soft-wrap overrides keyed by `"{row_key}:{block_index}"`.
+static CODE_WRAP: opencode_kernel::Slot<std::collections::HashMap<String, bool>> = opencode_kernel::Slot::new();
+
 impl session_view::TimelineHost for App {
     fn knobs(&self) -> &rune_knobs::Knobs {
         &self.diag.knobs
@@ -56,6 +59,18 @@ impl session_view::TimelineHost for App {
     }
     fn turn_diffs(&self) -> bool {
         self.settings.turn_diffs
+    }
+    fn wrap_code_blocks(&self) -> bool {
+        self.settings.wrap_code_blocks
+    }
+    fn code_wrap_overrides(&self) -> Option<&std::collections::HashMap<String, bool>> {
+        Some(self.kernel.slots.get(&CODE_WRAP))
+    }
+    fn set_code_wrap_override(&mut self, key: String, value: Option<bool>) {
+        match value {
+            Some(v) => { self.kernel.slots.get_mut(&CODE_WRAP).insert(key, v); }
+            None => { self.kernel.slots.get_mut(&CODE_WRAP).remove(&key); }
+        }
     }
     fn turn_diff(&self, session: &str, from: &str) -> session_view::turn_diff::State<'_> {
         self.turn_diffs.view(session, from)

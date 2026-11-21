@@ -214,7 +214,7 @@ fn open_page_menu(app: &mut App, tab_id: u64, info: PageContextMenu, tx: &mut Tx
                     };
                     if proxy_ok {
                         let sid = s.browser_tab_session(tab_id).map(str::to_owned).or_else(|| captured_sid.clone());
-                        s.open_new_browser_tab_with_context(sid.as_deref(), &url, None, true, false, ctx, driver);
+                        s.open_new_browser_tab_beside(sid.as_deref(), &url, tab_id, true, ctx, driver);
                     }
                 }
             }
@@ -246,7 +246,7 @@ fn open_page_menu(app: &mut App, tab_id: u64, info: PageContextMenu, tx: &mut Tx
                     };
                     if proxy_ok {
                         let sid = s.browser_tab_session(tab_id).map(str::to_owned).or_else(|| captured_sid.clone());
-                        s.open_new_browser_tab_with_context(sid.as_deref(), &url, None, true, false, ctx, driver);
+                        s.open_new_browser_tab_beside(sid.as_deref(), &url, tab_id, true, ctx, driver);
                     }
                 }
             }

@@ -12,6 +12,8 @@ mod activity;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod context_menu;
 #[cfg(not(target_arch = "wasm32"))]
+mod openers;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod preview;
 #[cfg(not(target_arch = "wasm32"))]
 mod preview_pool;
@@ -142,6 +144,8 @@ mod native {
         pub save_dialog_open: bool,
         /// Tabs an agent opened or drove while hidden (`machine.ts` `unseen`, blue `tab.activity` dot).
         pub unseen_tabs: std::collections::HashSet<u64>,
+        /// Chrome-style opener chains and initial `"New tab"` title holds (`UP-118`).
+        pub openers: super::openers::TabOpeners,
     }
 
     /// App-level shortcuts that a focused web page must yield to OpenCode (Rune) rather than swallow,
@@ -582,6 +586,9 @@ mod native {
         }
 
         pub fn navigate_browser_tab_with_agent(&mut self, id: u64, url: &str, agent: bool) {
+            if !agent {
+                self.note_browser_addressed(id);
+            }
             let sid = self.browser_tab_session(id).map(str::to_owned);
             let resolved = browser_pane::resolve_address(url);
             match self.resolve_preview_target(sid.as_deref(), &resolved, agent) {
@@ -681,6 +688,7 @@ mod native {
         /// Page `id`'s tab left its strip: the page closes and any preview server binding revokes.
         pub fn forget_browser_tab(&mut self, id: u64) {
             self.workspace_panes.browser.active_app_reviews.borrow_mut().remove(&id);
+            self.workspace_panes.browser.openers.on_close(id);
             self.revoke_preview_binding(id);
             for ids in self.workspace_panes.browser.session_tabs.values_mut() {
                 ids.retain(|&x| x != id);
@@ -749,18 +757,7 @@ mod native {
                     changed = true;
                 }
             }
-            if self.workspace_panes.browser.host.has_popup_opens() {
-                let popups: Vec<_> = self.workspace_panes.browser.host.drain_popup_opens().collect();
-                for popup in popups {
-                    let Some((driver, opener_ctx)) = self.browser_context_for_opener(popup.opener_tab_id) else {
-                        // Opener closed before drain: refuse rather than downgrading to direct `Private`.
-                        continue;
-                    };
-                    let sid = self.browser_tab_session(popup.opener_tab_id).map(str::to_owned);
-                    let _ = self.open_new_browser_tab_with_context(sid.as_deref(), &popup.url, None, !popup.background, false, opener_ctx, driver);
-                    changed = true;
-                }
-            }
+            changed |= self.drain_browser_popups();
             changed |= self.poll_app_link_reviews();
             // Reload persisted site permissions when Settings > Browser edits `rune.sitePermissions`.
             let perm_ver = crate::plugin_host::services::store::store_version("browser", "rune.sitePermissions");
@@ -786,6 +783,7 @@ mod native {
                 changed = true;
             }
             changed |= self.prune_browser_unseen();
+            changed |= self.sync_browser_openers();
             changed
         }
     }

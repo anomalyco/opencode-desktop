@@ -314,6 +314,10 @@ pub trait ComposerHost: TimelineHost {
     fn composer_on_key(&mut self, _ev: &KeyEvent, _tx: &mut Tx) -> bool {
         false
     }
+    /// Right-click on an inline mention pill inside the composer (`El::on_pill_secondary`).
+    fn composer_on_pill_secondary(&mut self, _id: &str, _press: rune::PointerPress, _tx: &mut Tx) -> bool {
+        false
+    }
 }
 
 /// Whether the composer holds something to send: words (whitespace doesn't count), or files,
@@ -516,6 +520,7 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
                                     .spellcheck(s.composer_spellcheck() && !s.composer_shell_mode())
                                     .on_edit(S::composer_edit_mut)
                                     .pill_style(mention_pill_style(p))
+                                    .on_pill_secondary(S::composer_on_pill_secondary)
                                     .on_input_change(S::composer_on_change)
                                     .on_input_key(S::composer_on_key)
                                     .on_input_paste(attachments::paste::<S>)
