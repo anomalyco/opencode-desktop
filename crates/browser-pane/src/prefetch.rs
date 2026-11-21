@@ -253,10 +253,10 @@ impl Job {
         }
         let done = result.and_then(|()| {
             let dest = root.join(release.version.to_string());
-            // A half-installed folder (missing executable or unaccepted trust marker), or a stray
-            // file at `dest`, makes way for this verified install — never following links/junctions.
+            // A half-installed folder (missing executable/DLL or unaccepted trust marker), or a
+            // stray file at `dest`, makes way for this verified install — never following links/junctions.
             if std::fs::symlink_metadata(&dest).is_ok()
-                && (!source::accepts_install(&dest) || !installer::bin_in(&dest).is_file())
+                && (!source::accepts_install(&dest) || !installer::is_complete(&dest))
             {
                 if installer::is_reparse_or_symlink(&dest) {
                     return Err(Cut::Failed(Fault::Write("refusing to replace a link at the engine install path".into())));
@@ -266,7 +266,7 @@ impl Job {
             match std::fs::rename(&staging, &dest) {
                 Ok(()) => Ok(()),
                 // Another app installed the same version meanwhile.
-                Err(_) if !installer::is_reparse_or_symlink(&dest) && installer::bin_in(&dest).is_file() && source::accepts_install(&dest) => Ok(()),
+                Err(_) if installer::is_complete(&dest) && source::accepts_install(&dest) => Ok(()),
                 Err(e) => Err(Cut::Failed(err_write(&e))),
             }
         });
