@@ -112,6 +112,8 @@ pub(super) struct InputState {
     intercepting_drags: bool,
     drag_data: Option<Value>,
     drag_deadline: Option<Instant>,
+    /// A button this command pressed and has not released: where, and which.
+    pressed: Option<(f64, f64, String)>,
 }
 
 impl InputState {
@@ -119,7 +121,11 @@ impl InputState {
         self.drag_deadline
     }
 
+    /// Only a drag that is intercepting takes the page's drag data.
     pub fn ingest_drag_intercepted(&mut self, data: Value) {
+        if !self.intercepting_drags {
+            return;
+        }
         self.drag_data = Some(data);
         self.drag_deadline = None;
     }
@@ -130,6 +136,15 @@ impl InputState {
         }
         if let Some((_, req_id)) = self.current.take() {
             app.workspace_panes.browser.host.cancel_cdp(req_id);
+        }
+        // A cancelled or failed press never leaves the button down (official `chromium.ts:1852-1856`).
+        if let Some((x, y, button)) = self.pressed.take() {
+            let _ = app.workspace_panes.browser.host.send_typed_cdp(
+                self.host_id,
+                "Input.dispatchMouseEvent",
+                json!({ "type": "mouseReleased", "x": x.round(), "y": y.round(), "button": button, "clickCount": 1 }),
+                None,
+            );
         }
         if self.intercepting_drags {
             self.intercepting_drags = false;
@@ -425,6 +440,7 @@ fn launch_steps(att: &SessionAttachment, app: &mut App, host_id: u64, steps: Vec
         intercepting_drags: false,
         drag_data: None,
         drag_deadline: None,
+        pressed: None,
     };
     if let Some(err) = dispatch_next_step(att, app, &mut state, Instant::now()) {
         state.cancel_cleanup(app);
@@ -533,7 +549,13 @@ fn dispatch_next_step(att: &SessionAttachment, app: &mut App, st: &mut InputStat
                 params["button"] = json!(button);
                 params["clickCount"] = json!(click_count);
             }
-            app.workspace_panes.browser.host.send_typed_cdp(hid, "Input.dispatchMouseEvent", params, None).map(Some)
+            let sent = app.workspace_panes.browser.host.send_typed_cdp(hid, "Input.dispatchMouseEvent", params, None);
+            match *kind {
+                "mousePressed" if sent.is_ok() => st.pressed = Some((x, y, button.clone())),
+                "mouseReleased" => st.pressed = None,
+                _ => {}
+            }
+            sent.map(Some)
         }
         InputStep::CheckDraggable => call_fn(app, st, CHECK_DRAGGABLE_JS, None),
         InputStep::SetInterceptDrags(enabled) => {
@@ -550,14 +572,21 @@ fn dispatch_next_step(att: &SessionAttachment, app: &mut App, st: &mut InputStat
                 return Some(Outcome::fail(failure_code::OPERATION_FAILED, "Missing drag endpoints."));
             };
             let host = &mut app.workspace_panes.browser.host;
-            let _ = host.send_typed_cdp(hid, "Input.dispatchMouseEvent", json!({ "type": "mouseMoved", "x": fx.round(), "y": fy.round() }), None);
-            let _ = host.send_typed_cdp(hid, "Input.dispatchMouseEvent", json!({ "type": "mousePressed", "x": fx.round(), "y": fy.round(), "button": "left", "buttons": 1, "clickCount": 1 }), None);
+            let mut sent = host
+                .send_typed_cdp(hid, "Input.dispatchMouseEvent", json!({ "type": "mouseMoved", "x": fx.round(), "y": fy.round() }), None)
+                .and_then(|_| host.send_typed_cdp(hid, "Input.dispatchMouseEvent", json!({ "type": "mousePressed", "x": fx.round(), "y": fy.round(), "button": "left", "buttons": 1, "clickCount": 1 }), None));
+            if sent.is_ok() {
+                st.pressed = Some((fx, fy, "left".to_owned()));
+            }
             for i in 1..10 {
                 let t = f64::from(i) / 10.0;
                 let (mx, my) = (fx + (tx - fx) * t, fy + (ty - fy) * t);
-                let _ = host.send_typed_cdp(hid, "Input.dispatchMouseEvent", json!({ "type": "mouseMoved", "x": mx.round(), "y": my.round(), "button": "left", "buttons": 1 }), None);
+                sent = sent.and_then(|_| host.send_typed_cdp(hid, "Input.dispatchMouseEvent", json!({ "type": "mouseMoved", "x": mx.round(), "y": my.round(), "button": "left", "buttons": 1 }), None));
             }
-            host.send_typed_cdp(hid, "Input.dispatchMouseEvent", json!({ "type": "mouseMoved", "x": tx.round(), "y": ty.round(), "button": "left", "buttons": 1 }), None).map(Some)
+            if let Some(p) = st.pressed.as_mut() {
+                (p.0, p.1) = (tx, ty);
+            }
+            sent.and_then(|_| host.send_typed_cdp(hid, "Input.dispatchMouseEvent", json!({ "type": "mouseMoved", "x": tx.round(), "y": ty.round(), "button": "left", "buttons": 1 }), None)).map(Some)
         }
         InputStep::WaitDragData => {
             if st.html5_drag && st.drag_data.is_none() {
@@ -570,21 +599,26 @@ fn dispatch_next_step(att: &SessionAttachment, app: &mut App, st: &mut InputStat
                 return Some(Outcome::fail(failure_code::OPERATION_FAILED, "Missing drag target coordinates."));
             };
             let host = &mut app.workspace_panes.browser.host;
+            let mut dropped = Ok(0);
             if let Some(data) = st.drag_data.take() {
                 for kind in ["dragEnter", "dragOver", "drop"] {
-                    let _ = host.send_typed_cdp(
-                        hid,
-                        "Input.dispatchDragEvent",
-                        json!({ "type": kind, "x": tx.round(), "y": ty.round(), "data": data }),
-                        None,
-                    );
+                    dropped = dropped.and_then(|_| {
+                        host.send_typed_cdp(
+                            hid,
+                            "Input.dispatchDragEvent",
+                            json!({ "type": kind, "x": tx.round(), "y": ty.round(), "data": data }),
+                            None,
+                        )
+                    });
                 }
             }
             if st.intercepting_drags {
                 st.intercepting_drags = false;
                 let _ = host.send_typed_cdp(hid, "Input.setInterceptDrags", json!({ "enabled": false }), None);
             }
-            host.send_typed_cdp(hid, "Input.dispatchMouseEvent", json!({ "type": "mouseReleased", "x": tx.round(), "y": ty.round(), "button": "left", "clickCount": 1 }), None).map(Some)
+            st.pressed = None;
+            let released = host.send_typed_cdp(hid, "Input.dispatchMouseEvent", json!({ "type": "mouseReleased", "x": tx.round(), "y": ty.round(), "button": "left", "clickCount": 1 }), None);
+            dropped.and(released).map(Some)
         }
         InputStep::ResolveNode((bid, sid, fid)) => {
             st.obj_session = sid.clone();

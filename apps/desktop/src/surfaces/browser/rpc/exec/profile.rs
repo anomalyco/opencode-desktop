@@ -49,7 +49,8 @@ impl ProfileStage {
 
 const MAX_TRACE_EVENTS: usize = 250_000;
 const MAX_HEAP_RAW_BYTES: usize = 64 * 1024 * 1024;
-const TRACE_DEFAULT_DURATION_MS: u64 = 30_000;
+/// Official `profiling.ts:301`: `startTrace(durationMs = 10_000)`.
+const TRACE_DEFAULT_DURATION_MS: u64 = 10_000;
 const CPU_MAX_DURATION_MS: u64 = 30_000;
 
 /// Routes trace data and heap snapshot chunks from the tab's CDP events into bounded buffers.
