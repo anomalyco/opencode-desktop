@@ -432,7 +432,7 @@ impl ExtensionHost {
             if ok {
                 self.extensions.remove(&ext_id);
                 self.actions.remove(&ext_id);
-                self.context_menus.remove(&ext_id);
+                self.context_menus.lock().unwrap().remove_extension(&ext_id);
                 self.ext_tab_ids.remove(&ext_id);
                 self.ext_last_known_session_id.remove(&ext_id);
                 self.probe_in_flight.remove(&ext_id);
