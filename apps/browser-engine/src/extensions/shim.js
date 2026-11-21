@@ -38,7 +38,6 @@
   if (globalThis.location) {
     const href = String(globalThis.location.href || "");
     const origin = String(globalThis.location.origin || "");
-    const extId = globalThis.chrome?.runtime?.id;
     // Neutralize chrome.tabs/windows/etc. in ANY child subframe (about:blank, about:srcdoc,
     // same-origin iframe, <object>, <embed>) instead of leaving native APIs reachable (READER-12 C2).
     if (isSubframe || href === "about:blank" || href === "about:srcdoc" || origin === "null") {
@@ -46,11 +45,20 @@
       sweepFrames(globalThis);
       return "NEUTRALIZED";
     }
-    if (!extId || origin !== "chrome-extension://" + extId) {
+    if (!origin.startsWith("chrome-extension://")) {
       return "DENIED";
     }
   }
+  // Must check `getManifest` BEFORE matching `chrome.runtime.id`: service workers' initial
+  // `Runtime.executionContextCreated` fires before Chromium attaches `chrome.runtime`, so
+  // returning `"WAIT"` keeps `cdp.rs` attached until `scriptFirstStatement` rather than detaching.
   if (!globalThis.chrome?.runtime?.getManifest) return "WAIT";
+  if (globalThis.location) {
+    const extId = globalThis.chrome?.runtime?.id;
+    if (!extId || String(globalThis.location.origin || "") !== "chrome-extension://" + extId) {
+      return "DENIED";
+    }
+  }
   if (globalThis.__ocExtInstalled) return "ALREADY";
   globalThis.__ocExtInstalled = true;
 
