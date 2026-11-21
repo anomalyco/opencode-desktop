@@ -20,10 +20,10 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 164,
   "status_counts": {
-    "have it": 107,
-    "partly": 5,
+    "have it": 111,
+    "partly": 4,
     "not applicable": 23,
-    "missing": 28,
+    "missing": 25,
     "differs on purpose": 1
   },
   "rows": [
@@ -2632,8 +2632,8 @@
       ],
       "summary": "Unify the keyboard focus ring token/rendering across all interactive controls, add missing `:focus-visible` states app-wide, and install Focus Rescue so removing a focused item moves focus to a neighbor.",
       "size": "XL",
-      "status": "partly",
-      "status_evidence": "Unified 2 pt focus ring & dark blue-400 border-focus (#262), Rune kit rings (#265/Rune #1296), settings mode cards / swatches / project rows / sidebar pins (#269), and disabled-control / region / Tab-stop / roving-group focus rescue (#282/Rune #1298, #293/Rune #1302, #300 3bc6ecf2/Rune #1304 fixing tab-strip Close-tab -> next tab rescue) are live on dev; whole-row within-rings and field select rings remain in WS-8.",
+      "status": "have it",
+      "status_evidence": "Focus rings (#262, #269, Rune #1296), rescue (Rune #1298, #1302, #1304) and field rings: composer frame and Home search ring only when the keys put focus there (PR #326)",
       "depends_on": "Rune focus-rescue / scope-based fallback focus API",
       "risks": "Must preserve Rune's existing accessibility tree, screen-reader announcements, and zero-allocation idle path.",
       "workstream": "WS-8",
@@ -2736,8 +2736,8 @@
       ],
       "summary": "Show the composer's keyboard focus ring only when focus arrives via keyboard navigation or shortcuts, not on pointer clicks or mode toggles.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Rune #1297 (El::focus_visible_within_ring + Entry tracking) is now live on dev via #282 (ce53bfa4); WS-8 to wire composer frame & Home search keyboard-only rings and handOffFocus paths.",
+      "status": "have it",
+      "status_evidence": "Composer frame rings 2 in via Rune focus_visible_within_ring only on keyboard entry; ^L rings only from the keys (PR #326)",
       "depends_on": "UP-088 (#64909); Rune focus-visible / programmatic focus origin tracking",
       "risks": "none",
       "workstream": "WS-8"
@@ -3052,8 +3052,8 @@
       ],
       "summary": "Suppress the composer keyboard focus ring when focus returns to the already-active composer upon switching back to the app window.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Rune #1297 (WindowReturned focus event suppressing focus-visible ring on window return) is now live on dev via #282 (ce53bfa4); WS-8 to wire composer & Home search fields.",
+      "status": "have it",
+      "status_evidence": "The composer ring follows Rune's focus-visible origin, which a return to the window doesn't set (Rune #1297) (PR #326)",
       "depends_on": "UP-092 (#64976)",
       "risks": "none",
       "workstream": "WS-8"
@@ -3778,8 +3778,8 @@
       ],
       "summary": "Use focusField(..., ring) during focus rescue so mouse clicks on queued prompt Steer/Remove hand focus to the composer without showing the keyboard-only focus ring.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Verify composer focus handoff after mouse clicks on Steer/Remove suppresses keyboard-only ring once WS-8 wires Rune #1297 focus_visible_within_ring.",
+      "status": "have it",
+      "status_evidence": "A click on Steer/Remove hands focus to the composer by Rune's rescue with the click's origin, so no ring (PR #326)",
       "depends_on": "UP-092 (#64976)",
       "risks": "none",
       "workstream": "WS-8"

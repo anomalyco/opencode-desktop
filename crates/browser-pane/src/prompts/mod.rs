@@ -602,6 +602,16 @@ impl TabDriver {
     }
 }
 
+/// Why the controlled-tab notice bar (`#306` / stopgap) is currently shown on a tab.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum BlockedGuardReason {
+    /// Sign-in prompt or file picker was suppressed while a driver controls the tab.
+    Action,
+    /// Controlled actions were refused because the top-level origin holds clipboard, location, or
+    /// notification access in the default profile; carries the refused URL for "Open in new tab".
+    InheritedPermission { url: Option<String> },
+}
+
 /// All prompt, permission, auth, and pop-up states owned by one `BrowserTab`.
 #[derive(Clone, Debug, Default)]
 pub struct TabPromptState {
@@ -622,8 +632,8 @@ pub struct TabPromptState {
     pub agent_auth_required: Option<String>,
     /// Count of blocked native file choosers on agent-driven tabs.
     pub file_chooser_blocked: u64,
-    /// True after a sign-in prompt or file picker was blocked on this document (dismissible UI notice).
-    pub blocked_guard_notice: bool,
+    /// Active dismissible controlled-tab notice reason on this document.
+    pub blocked_guard_notice: Option<BlockedGuardReason>,
 }
 
 impl TabPromptState {
@@ -657,7 +667,7 @@ impl TabPromptState {
         self.auth_attempts.clear();
         self.auth_dismissed.clear();
         self.agent_auth_required = None;
-        self.blocked_guard_notice = false;
+        self.blocked_guard_notice = None;
         self.reset_for_engine();
     }
 
@@ -675,7 +685,7 @@ impl TabPromptState {
         self.dialog.on_document_committed();
         self.popup.dismiss();
         self.agent_auth_required = None;
-        self.blocked_guard_notice = false;
+        self.blocked_guard_notice = None;
         let same_origin = crate::policy::destination_origin(old_url)
             == crate::policy::destination_origin(new_url);
         if same_origin {

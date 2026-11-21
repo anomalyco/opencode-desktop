@@ -342,6 +342,11 @@ pub fn ready(s: &mut App, tx: &mut Tx) -> bool {
     // The menu bar was built before the saved shortcuts loaded.
     crate::menubar::refresh();
     crate::updater::start_if_packaged(s);
+    // Whether this platform has an engine to download, known before the first link is clicked.
+    #[cfg(not(target_arch = "wasm32"))]
+    if !s.use_mock_browser() {
+        s.workspace_panes.browser.host.probe_availability();
+    }
     // Which install this is, for the toasts' clicks; it reads the registry, so after the first frame and off the UI thread.
     crate::notifications::settle_identity();
     last_exit::presented();
