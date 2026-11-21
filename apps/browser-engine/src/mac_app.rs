@@ -64,46 +64,63 @@ pub fn ensure_ns_application() {
 unsafe extern "C" {
     static kCFRunLoopDefaultMode: *const c_void;
     fn CFRunLoopRunInMode(mode: *const c_void, seconds: f64, return_after_source_handled: u8) -> i32;
-    fn CFDictionaryGetValue(the_dict: *const c_void, key: *const c_void) -> *const c_void;
-    fn CFArrayGetCount(the_array: *const c_void) -> isize;
-    fn CFStringGetLength(the_string: *const c_void) -> isize;
+    fn CFStringCreateWithBytes(
+        alloc: *const c_void,
+        bytes: *const u8,
+        num_bytes: isize,
+        encoding: u32,
+        is_external_representation: u8,
+    ) -> *const c_void;
     fn CFRelease(cf: *const c_void);
 }
 
 #[link(name = "Security", kind = "framework")]
 unsafe extern "C" {
-    static kSecCodeInfoTeamIdentifier: *const c_void;
-    static kSecCodeInfoCertificates: *const c_void;
     fn SecCodeCopySelf(flags: u32, self_code: *mut *const c_void) -> i32;
-    fn SecCodeCopySigningInformation(code: *const c_void, flags: u32, info: *mut *const c_void) -> i32;
+    fn SecRequirementCreateWithString(text: *const c_void, flags: u32, requirement: *mut *const c_void) -> i32;
+    fn SecCodeCheckValidity(code: *const c_void, flags: u32, requirement: *const c_void) -> i32;
 }
 
-/// Returns `true` iff the running process is code-signed with a real Apple certificate chain and
-/// Team Identifier (e.g. Developer ID `5NZ4Q7NXJ4`), as opposed to unsigned or ad-hoc signed.
-/// Used to gate real macOS Keychain access so ad-hoc local dev builds stay on `--use-mock-keychain`
-/// instead of polluting `"OpenCode Browser Safe Storage"` with a changing per-build CDHash.
-pub fn has_team_code_signature() -> bool {
+/// A Developer ID Application signature from Anomaly's team: Apple's Developer ID intermediate
+/// (`1.2.840.113635.100.6.2.6`) and leaf (`1.2.840.113635.100.6.1.13`) marker extensions, and
+/// team `5NZ4Q7NXJ4` (the shape `apps/desktop/update-requirement.txt` pins for the app).
+const DEVELOPER_ID_REQUIREMENT: &str = "anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = \"5NZ4Q7NXJ4\"";
+
+/// Whether the running engine is a valid Developer ID build signed by Anomaly's team
+/// (`SecCodeCheckValidity` against [`DEVELOPER_ID_REQUIREMENT`]). Only such a build opens the real
+/// Keychain item `"OpenCode Browser Safe Storage"`, whose access list names that signature. Ad-hoc,
+/// "Apple Development", other-team or self-signed builds, and a signed build whose signature no
+/// longer validates, would make macOS ask the person for their password (`SecurityAgent`) or
+/// re-ACL the item, so they stay on `--use-mock-keychain` (READER-9 #378 should-fix 1).
+pub fn is_developer_id_signed() -> bool {
     const K_SEC_CS_DEFAULT_FLAGS: u32 = 0;
-    const K_SEC_CS_SIGNING_INFORMATION: u32 = 2;
+    const K_CF_STRING_ENCODING_UTF8: u32 = 0x0800_0100;
     unsafe {
+        let text = CFStringCreateWithBytes(
+            std::ptr::null(),
+            DEVELOPER_ID_REQUIREMENT.as_ptr(),
+            DEVELOPER_ID_REQUIREMENT.len() as isize,
+            K_CF_STRING_ENCODING_UTF8,
+            0,
+        );
+        if text.is_null() {
+            return false;
+        }
+        let mut requirement: *const c_void = std::ptr::null();
+        let created = SecRequirementCreateWithString(text, K_SEC_CS_DEFAULT_FLAGS, &mut requirement);
+        CFRelease(text);
+        if created != 0 || requirement.is_null() {
+            return false;
+        }
         let mut self_code: *const c_void = std::ptr::null();
         if SecCodeCopySelf(K_SEC_CS_DEFAULT_FLAGS, &mut self_code) != 0 || self_code.is_null() {
+            CFRelease(requirement);
             return false;
         }
-        let mut info: *const c_void = std::ptr::null();
-        let status = SecCodeCopySigningInformation(self_code, K_SEC_CS_SIGNING_INFORMATION, &mut info);
+        let status = SecCodeCheckValidity(self_code, K_SEC_CS_DEFAULT_FLAGS, requirement);
         CFRelease(self_code);
-        if status != 0 || info.is_null() {
-            return false;
-        }
-        let team = CFDictionaryGetValue(info, kSecCodeInfoTeamIdentifier);
-        let certs = CFDictionaryGetValue(info, kSecCodeInfoCertificates);
-        let ok = !team.is_null()
-            && CFStringGetLength(team) > 0
-            && !certs.is_null()
-            && CFArrayGetCount(certs) > 0;
-        CFRelease(info);
-        ok
+        CFRelease(requirement);
+        status == 0
     }
 }
 
