@@ -246,6 +246,9 @@ impl session_view::TimelineHost for App {
             self.open_picker(pickers::Kind::Model);
         }
     }
+    fn focus_composer(&mut self, tx: &mut Tx) {
+        App::focus_composer(self, tx);
+    }
     fn model_name(&self, model: &opencode_kit::model::ModelRef) -> String {
         self.composer_ext.pickers.model_name(model)
     }

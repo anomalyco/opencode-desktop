@@ -503,10 +503,23 @@ pub(super) fn mark(host: &PluginHost, now: f64) {
     eprintln!("luau metrics: mark at {now:.2} s");
 }
 
-/// Esc closes the open plugin popover.
+/// Esc closes the open plugin popover (stepping back from Site settings view 2 to view 1 first).
 pub fn popover_key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if ev.key != rune::Key::Escape || !app.plugins.overlay.is_open() {
         return false;
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    if matches!(&app.plugins.overlay, Overlay::Popover { plugin, id, .. } if &**plugin == "browser" && id == "site")
+        && app.workspace_panes.browser.site_detailed
+    {
+        app.workspace_panes.browser.site_detailed = false;
+        for i in 0..app.plugins.list.len() {
+            if app.plugins.list[i].half.is_builtin("browser") {
+                let _ = runtime::lifecycle::fire_named(app, i, "Browser.SiteBack", rune_luau::Data::Nil);
+            }
+        }
+        tx.instant();
+        return true;
     }
     requests::close_popover(app, tx);
     true

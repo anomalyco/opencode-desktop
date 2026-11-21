@@ -317,7 +317,18 @@ pub fn over_scroll<S: TimelineHost>(s: &S, p: &Pal, id: &str, scroll_fade: El, p
         .opacity_motion(curve)
         .offset(0.0, rise)
         .offset_motion(curve)
-        .on_press_tx(move |_: &mut S, tx: &mut Tx| tx.scroll_to_bottom(target.clone()));
+        .on_press_tx(move |s: &mut S, tx: &mut Tx| {
+            // Instant snap under reduced motion (`virtualizer.tsx:1168`); keyboard activation
+            // moves focus to the composer before this button becomes inert (`virtualizer.tsx:1171`).
+            if s.reduced_motion() {
+                tx.scroll_to_bottom_instant(target.clone());
+            } else {
+                tx.scroll_to_bottom(target.clone());
+            }
+            if tx.by_keys() {
+                s.focus_composer(tx);
+            }
+        });
     if !shown {
         button = button.inert();
     }

@@ -305,6 +305,7 @@ pub fn turn_footer<S: TimelineHost>(s: &S, p: &Pal, t: &Transcript, message: usi
         Some(Part::Text { text }) => text.clone(),
         _ => String::new(),
     };
+    let code_tail = if ends_with_code(&body) { 16.0 } else { 0.0 };
     let copy_key = format!("copy-{}-{part}", a.id);
     let key = copy_key.clone();
     let done = crate::copied::is_copied(s, &copy_key);
@@ -329,7 +330,6 @@ pub fn turn_footer<S: TimelineHost>(s: &S, p: &Pal, t: &Transcript, message: usi
         }
         meta = meta.child(text(label).key(format!("item{k}")).font(META).color(p.faint));
     }
-    let code_tail = if ends_with_code(&body) { 16.0 } else { 0.0 };
     let wrapper = row().key("reply-footer").h(COPY).mt(COPY_AT.1 + code_tail).gap(4.0).center_y();
     let wrapper = if interrupted { wrapper.w_full().child(rune::spacer()) } else { wrapper };
     if keep_copy {
@@ -415,7 +415,7 @@ pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, _asking: bool, 
     let copy_key = format!("copy-{}", message.id());
     use crate::working::{COPY, COPY_AT, COPY_GLYPH};
     let mut button = row().key("copy").role("button").label_static(opencode_i18n::t!("ui.message.copyResponse"))
-        .size(COPY, COPY).center().radius(4.0).hover(p.hover).press(p.pressed)
+        .size(COPY, COPY).center().radius(4.0).hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT)
         .opacity(if busy || !has_text { 0.0 } else { 1.0 })
         .opacity_motion(INSTANT)
         .child(crate::copied::glyph(s, &copy_key, COPY_GLYPH, p.icon_muted));

@@ -56,6 +56,15 @@ fn with_store<R>(app: &App, f: impl FnOnce(&mut HistoryStore) -> R) -> Option<R>
     cell.as_mut().map(f)
 }
 
+fn is_recordable_tab(app: &App, tab_id: Option<&str>) -> bool {
+    let Some(id) = tab_id.and_then(|s| s.parse::<u64>().ok()) else {
+        return false;
+    };
+    app.workspace_panes.browser.host.tab(id).is_some_and(|tab| {
+        !tab.context.is_isolated() && tab.preview.is_none() && !tab.prompts.agent_driven
+    })
+}
+
 pub(super) fn service_methods(lua: &Lua, vmx: &Vmx, t: &Table) -> mlua::Result<()> {
     method(lua, t, "HistoryPrepare", |lua, ()| {
         require_builtin_browser(lua, "Browser:HistoryPrepare")?;
@@ -90,26 +99,17 @@ pub(super) fn service_methods(lua: &Lua, vmx: &Vmx, t: &Table) -> mlua::Result<(
         with_app("Browser:HistoryVisit", |app| {
             // Only record top-level HTTP(S) visits from a live default-context non-agent,
             // non-preview tab (never isolated/private/remote/preview/agent navigations).
-            if browser_pane::policy::destination_origin(&url).is_none() {
-                return Ok(());
-            }
-            let Some(id) = tab_id.as_deref().and_then(|s| s.parse::<u64>().ok()) else {
-                return Ok(());
-            };
-            let Some(tab) = app.workspace_panes.browser.host.tab(id) else {
-                return Ok(());
-            };
-            if tab.context.is_isolated() || tab.preview.is_some() || tab.prompts.agent_driven {
+            if browser_pane::policy::destination_origin(&url).is_none() || !is_recordable_tab(app, tab_id.as_deref()) {
                 return Ok(());
             }
             with_store(app, |store| store.visit(&url, &title, typed.unwrap_or(false)));
             Ok(())
         })
     })?;
-    method(lua, t, "HistoryRetitle", |lua, (url, title): (String, String)| {
+    method(lua, t, "HistoryRetitle", |lua, (url, title, tab_id): (String, String, Option<String>)| {
         require_builtin_browser(lua, "Browser:HistoryRetitle")?;
         with_app("Browser:HistoryRetitle", |app| {
-            if browser_pane::policy::destination_origin(&url).is_none() {
+            if browser_pane::policy::destination_origin(&url).is_none() || !is_recordable_tab(app, tab_id.as_deref()) {
                 return Ok(());
             }
             with_store(app, |store| store.retitle(&url, &title));

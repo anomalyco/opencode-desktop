@@ -65,7 +65,10 @@ pub fn reasoning<S: TimelineHost>(s: &S, p: &Pal, key: &str, body: &str, secs: O
     if open && !body.trim().is_empty() {
         let style = markdown_style(p, p.muted, content_w() - 48.0).body_font(THOUGHT).heading_font(1, THOUGHT).heading_font(2, THOUGHT).heading_font(3, THOUGHT).heading_font(4, THOUGHT);
         let md = markdown_styled::<S, (&[Range<usize>], rune_kit::Highlight)>(p, body, fade, streaming, style, Vec::new(), Vec::new(), None, &[], None, None);
-        c = c.child(crate::disclosure::reveal(s.knobs(), nested(p, NESTED_GAP, col().key("thought").w_full().child(md))));
+        c = c.child(crate::disclosure::reveal(
+            s.knobs(),
+            nested_collapsible(p, NESTED_GAP, col().key("thought").w_full().child(md), crate::disclosure::set::<S>(key.to_owned(), true, format!("{key}/trigger"))),
+        ));
     }
     c
 }

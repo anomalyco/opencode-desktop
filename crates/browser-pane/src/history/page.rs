@@ -29,12 +29,20 @@ pub struct FoundPage {
     pub score: f64,
 }
 
+fn is_forbidden_control_or_bidi(c: char) -> bool {
+    c.is_control()
+        || matches!(
+            c,
+            '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}'
+        )
+}
+
 /// Canonical `(key, host)` for an `http(s)` web URL without credentials and within [`MAX_URL_LENGTH`].
 ///
 /// Key = lowercased authority without `www.` + pathname without trailing `/` + query + fragment,
 /// so `http`, `https`, `www.`, and trailing slash collapse onto one row.
 /// Returns `None` for non-web schemes (`file:`, `workspace:`, `artifact:`, `oc-preview:`, `about:`,
-/// `data:`, `chrome-extension:`, etc.), malformed hosts, or URLs carrying `user:pass@`.
+/// `data:`, `chrome-extension:`, etc.), malformed hosts, C0/C1/bidi controls, or URLs carrying `user:pass@`.
 pub fn web_page(url: &str) -> Option<(String, String)> {
     if url.len() > MAX_URL_LENGTH || url.is_empty() {
         return None;
@@ -46,7 +54,7 @@ pub fn web_page(url: &str) -> Option<(String, String)> {
     } else {
         return None;
     };
-    if rest.bytes().any(|b| b <= 0x20 || b == 0x7f) {
+    if rest.chars().any(|c| c == ' ' || is_forbidden_control_or_bidi(c)) {
         return None;
     }
     let auth_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
@@ -71,13 +79,15 @@ pub fn page_key(url: &str) -> Option<String> {
     web_page(url).map(|(k, _)| k)
 }
 
-/// Trims and bounds a page title to [`MAX_TITLE_LENGTH`] Unicode scalar values.
+/// Strips C0/C1 controls and Unicode bidi overrides, trims, and bounds a page title to
+/// [`MAX_TITLE_LENGTH`] Unicode scalar values.
 pub fn page_title(title: &str) -> String {
-    let trimmed = title.trim();
-    if trimmed.chars().count() <= MAX_TITLE_LENGTH {
-        return trimmed.to_owned();
-    }
-    trimmed.chars().take(MAX_TITLE_LENGTH).collect()
+    title
+        .trim()
+        .chars()
+        .filter(|&c| !is_forbidden_control_or_bidi(c))
+        .take(MAX_TITLE_LENGTH)
+        .collect()
 }
 
 /// Strips `http://` / `https://` and a leading `www.` (ASCII case-insensitive).

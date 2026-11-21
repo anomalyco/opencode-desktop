@@ -381,10 +381,19 @@ return plugin.defineWindow(function(ctx)
         end
     end)
     findEditor.KeyPressed:Connect(function(key: string)
-        if key == "Escape" and activeFindTab ~= nil then
-            local tab = Browser:Get(activeFindTab)
-            if tab then
-                closeFind(tab)
+        if activeFindTab == nil then
+            return
+        end
+        local tab = Browser:Get(activeFindTab)
+        if tab == nil then
+            return
+        end
+        if key == "Escape" then
+            closeFind(tab)
+        elseif key == "Shift+Enter" then
+            local cur = getFind(activeFindTab)
+            if cur.query ~= "" then
+                runFind(tab, cur.query, false, true)
             end
         end
     end)
@@ -475,11 +484,19 @@ return plugin.defineWindow(function(ctx)
                 ensureAdopted()
                 if sameUrl then
                     if type(bAny.HistoryRetitle) == "function" then
-                        bAny:HistoryRetitle(url, title)
+                        bAny:HistoryRetitle(url, title, id)
                     end
                 else
-                    local wasTyped = typedNavs[id] ~= nil
+                    local typedTarget = typedNavs[id]
                     typedNavs[id] = nil
+                    -- Only credit double-frecency `typed` when the settled host matches what the
+                    -- user typed (stripping `www.`), so redirects cannot steal typed frecency.
+                    local wasTyped = false
+                    if typedTarget ~= nil then
+                        local wantHost = string.gsub(string.lower(hostDisplay.displayHost(typedTarget)), "^www%.", "")
+                        local gotHost = string.gsub(string.lower(hostDisplay.displayHost(url)), "^www%.", "")
+                        wasTyped = wantHost ~= "" and wantHost == gotHost
+                    end
                     if type(bAny.HistoryVisit) == "function" then
                         bAny:HistoryVisit(url, title, wasTyped, id)
                     end
@@ -531,10 +548,7 @@ return plugin.defineWindow(function(ctx)
         refresh()
     end)
 
-    -- A picked element goes into the composer as a pill naming its `@eN` ref and selector.
-    Browser.Picked:Connect(function(pick: BrowserPick)
-        Composer:InsertPill(`browser:{pick.ref}`, `{pick.ref} ({pick.selector})`)
-    end)
+    -- Picked elements open the native spotlight + comment editor (`surfaces/browser/comment.rs`).
 
     -- A loopback address opens on the machine that runs the server; the system browser here
     -- reaches it only when the server runs here too (authoritative Rust policy via CanOpenExternally).
@@ -579,10 +593,25 @@ return plugin.defineWindow(function(ctx)
     -- Site information: the page it describes, and its two-view cookie/cache state machine.
     local siteState: site.State = site.initial
     local sitePage: { tab: string, url: string }? = nil
+    local serverConnected = true
+    if Server.Connected ~= nil then
+        Server.Connected:Connect(function(up: boolean)
+            serverConnected = up
+            refresh()
+        end)
+    end
+
+    local function syncSiteDetailed(detailed: boolean)
+        local bAny = Browser :: any
+        if type(bAny.SetSiteDetailed) == "function" then
+            bAny:SetSiteDetailed(detailed)
+        end
+    end
 
     local function siteDispatch(event: site.Event)
         local nextState, effects = site.step(siteState, event)
         siteState = nextState
+        syncSiteDetailed(siteState.detailed)
         for _, effect in effects do
             local described = sitePage
             if effect.type == "notify-clear-failed" then
@@ -659,6 +688,15 @@ return plugin.defineWindow(function(ctx)
         end,
     }
 
+    local bSig = Browser :: any
+    if bSig.SiteBack ~= nil then
+        bSig.SiteBack:Connect(function()
+            if siteState.detailed then
+                siteDispatch({ type = "details", shown = false })
+            end
+        end)
+    end
+
     ctx:AddPopover({
         id = "site",
         title = I18n:T("site.info"),
@@ -691,11 +729,16 @@ return plugin.defineWindow(function(ctx)
             tab:SetZoom(arg :: any)
         elseif what == "page" then
             Popover:Close()
-            local url = pageUrl(tab)
-            local shownHost = hostDisplay.displayHost(url)
-            local title = tab:Title()
-            local labelText = if title ~= "" then title elseif shownHost ~= "" then shownHost else url
-            Composer:InsertPill(`browser:{url}`, `{labelText} ({url})`)
+            local tAny = tab :: any
+            if type(tAny.OpenNote) == "function" then
+                tAny:OpenNote()
+            else
+                local url = pageUrl(tab)
+                local shownHost = hostDisplay.displayHost(url)
+                local title = tab:Title()
+                local labelText = if title ~= "" then title elseif shownHost ~= "" then shownHost else url
+                Composer:InsertPill(`browser:{url}`, `{labelText} ({url})`)
+            end
         elseif what == "link.copy" then
             Popover:Close()
             local url = pageUrl(tab)
@@ -804,6 +847,7 @@ return plugin.defineWindow(function(ctx)
                 canFind = canFind,
                 canHardReload = true,
                 canClearHistory = #visits() > 0,
+                paneWidth = if type(arg) == "number" then arg else nil,
             }
             Popover:Toggle({
                 id = "options",
@@ -934,6 +978,9 @@ return plugin.defineWindow(function(ctx)
         extMenuOpen = function()
             return Popover:IsOpen("extensions")
         end,
+        serverConnected = function()
+            return serverConnected
+        end,
         refusalNotice = function(tab: BrowserTab)
             return refusalNotices[tab.Id]
         end,
@@ -1049,7 +1096,6 @@ return plugin.defineWindow(function(ctx)
                     maxW = 160,
                 }),
             }
-            local tAny = tab :: any
             local asking = type(tAny.Asking) == "function" and tAny:Asking() == true
             local unseen = not asking
                 and (unseenTabs[id] == true or (type(tAny.Unseen) == "function" and tAny:Unseen() == true))
@@ -1203,14 +1249,14 @@ return plugin.defineWindow(function(ctx)
         openFind(tab)
         return true
     end)
-    scoped("find.next", "mod+g", false, I18n:T("find.next"), function(tab)
+    scoped("find.next", if App.Platform == "macos" then "mod+g" else "mod+g,f3", false, I18n:T("find.next"), function(tab)
         if pageUrl(tab) == "" or tab:LoadError() ~= nil then
             return false
         end
         act("find.next", tab)
         return true
     end)
-    scoped("find.previous", "mod+shift+g", false, I18n:T("find.previous"), function(tab)
+    scoped("find.previous", if App.Platform == "macos" then "mod+shift+g" else "mod+shift+g,shift+f3", false, I18n:T("find.previous"), function(tab)
         if pageUrl(tab) == "" or tab:LoadError() ~= nil then
             return false
         end

@@ -139,6 +139,37 @@ impl EngineCdpLedger {
             || self.frames.values().any(|f| f.extension)
     }
 
+    /// Returns currently attached web OOPIF session IDs so per-tab renderer gates (e.g.
+    /// `Page.setInterceptFileChooserDialog`) can update every live child target.
+    pub fn web_session_ids(&self) -> Vec<String> {
+        self.web_sessions.keys().cloned().collect()
+    }
+
+    /// Resolves the target frame URL (or origin fallback) of a typed CDP call so controlled
+    /// `Default` tabs can also reject OOPIF calls into origins holding an inherited grant
+    /// (READER-9 `#319` follow-up #1).
+    pub fn target_frame_url(&self, session: Option<&str>, frame_id: Option<&str>, params: &Value) -> Option<String> {
+        let fid = frame_id
+            .map(str::to_owned)
+            .or_else(|| {
+                params
+                    .get("contextId")
+                    .and_then(Value::as_i64)
+                    .and_then(|cid| self.contexts.get(&(cid, session.map(str::to_owned))).cloned())
+            })
+            .or_else(|| {
+                params
+                    .get("objectId")
+                    .and_then(Value::as_str)
+                    .and_then(|oid| self.objects.get(oid).map(|(_, f)| f.clone()))
+            })
+            .or_else(|| self.session_root(session))?;
+        let f = self.frames.get(&fid)?;
+        f.url
+            .clone()
+            .or_else(|| (!f.origin.is_empty() && f.origin != "null").then(|| f.origin.clone()))
+    }
+
     fn msg(&mut self, method: &str, params: Value, session: Option<&str>, track: Option<Internal>) -> String {
         self.next_internal = (self.next_internal + 1) % 500_000_000;
         let id = INTERNAL_ID_BASE + self.next_internal as i32;

@@ -68,7 +68,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
         .center_y()
         .child(text(title).key("q-title").font(HEAD).color(p.muted).wrap_anywhere().shrink())
         .child(spacer())
-        .child(row().key("q-header-actions").gap(8.0).center_y().children((total > 1).then(|| progress(s, p, &f, tab))).child(chevron::<S>(p, minimized)));
+        .child(row().key("q-header-actions").gap(8.0).center_y().children((total > 1).then(|| progress(s, p, &f, tab, live))).child(chevron::<S>(p, minimized, live)));
     let text_of = if field.description.is_empty() { &field.title } else { &field.description };
     let question = text(text_of.clone()).key("q-text").font(QUESTION).color(p.text).wrap_anywhere();
     let question = readable(p, if minimized { question.max_lines(3) } else { question });
@@ -228,38 +228,43 @@ fn card(p: &Pal, picked: bool, ring: bool, keyboard: bool) -> El {
 }
 
 /// The header's progress: a bar per question, accent once answered, muted on the current one.
-fn progress<S: DockHost>(s: &S, p: &Pal, f: &Form, tab: usize) -> El {
+fn progress<S: DockHost>(s: &S, p: &Pal, f: &Form, tab: usize, live: bool) -> El {
     row().key("q-progress").gap(2.0).center_y().children((0..f.fields.len()).map(|i| {
         let color = if i == tab { p.icon_muted } else if answered(s, f, i) { p.bg_accent } else { p.q.layer4 };
-        el().key(format!("q-seg-{i}"))
+        let seg = el()
+            .key(format!("q-seg-{i}"))
             .role("button")
             .label(opencode_i18n::t!("ui.tool.questions.numbered", number = i + 1))
             .size(20.0, 20.0)
             .radius(4.0)
             .focus_inset(p)
             .center()
-            .hover(p.hover)
-            .on_press_tx(move |s: &mut S, tx: &mut Tx| {
+            .child(el().key("bar").size(14.0, 2.0).fill(color));
+        if live {
+            seg.hover(p.hover).on_press_tx(move |s: &mut S, tx: &mut Tx| {
                 if let Some(f) = asking(s) {
                     jump(s, &f, i, tx)
                 }
             })
-            .child(el().key("bar").size(14.0, 2.0).fill(color))
+        } else {
+            seg.disabled(true).focusable(false)
+        }
     }))
 }
 
 /// The header's chevron (`icon-button-v2`, ghost, large): folds the dock to its question and back,
 /// turning over as it does.
-fn chevron<S: DockHost>(p: &Pal, minimized: bool) -> El {
-    el().key("q-minimize")
+fn chevron<S: DockHost>(p: &Pal, minimized: bool, live: bool) -> El {
+    let b = el()
+        .key("q-minimize")
         .role("button")
         .label(if minimized { opencode_i18n::t!("session.question.restore") } else { opencode_i18n::t!("session.question.minimize") })
         .size(28.0, 28.0)
         .radius(6.0)
         .center()
-        .hover(p.hover)
-        .press(p.pressed)
-        .on_press_tx(|s: &mut S, tx: &mut Tx| {
+        .child(icon(&ic::CHEVRON_DOWN, 16.0).color(p.icon_muted).rotate(if minimized { PI } else { 0.0 }).rotate_motion(FOLD));
+    if live {
+        b.hover(p.hover).press(p.pressed).on_press_tx(|s: &mut S, tx: &mut Tx| {
             let Some(f) = asking(s) else { return };
             tx.motion_curve(FOLD);
             let (tab, _) = place(s, &f);
@@ -270,7 +275,9 @@ fn chevron<S: DockHost>(p: &Pal, minimized: bool) -> El {
             d.focus = focus;
             d.keyboard = false;
         })
-        .child(icon(&ic::CHEVRON_DOWN, 16.0).color(p.icon_muted).rotate(if minimized { PI } else { 0.0 }).rotate_motion(FOLD))
+    } else {
+        b.opacity(0.5).disabled(true).focusable(false)
+    }
 }
 
 /// An answer's mark (`question-option-check`): a circle for one answer, a square for many,
@@ -405,22 +412,24 @@ pub fn key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
     let n = rows(field).len();
     let count = count(field);
     let minimized = s.dock().minimized;
-    dock(s, &f).keyboard = true;
     // A reply on its way: Esc, Back and the advance key do nothing, and the rest aren't the dock's.
     if super::busy(s, &f) {
         return ev.key == Key::Escape || back(ev) || advance(ev);
     }
     if ev.key == Key::Escape {
+        dock(s, &f).keyboard = true;
         dismiss(s, &f, tx);
         return true;
     }
     if back(ev) {
+        dock(s, &f).keyboard = true;
         if tab > 0 {
             jump(s, &f, tab - 1, tx);
         }
         return true;
     }
     if advance(ev) {
+        dock(s, &f).keyboard = true;
         next(s, &f, tx);
         return true;
     }
@@ -436,6 +445,7 @@ pub fn key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
         if minimized || i >= count {
             return false;
         }
+        dock(s, &f).keyboard = true;
         // A pick's mark fades in, and opening the typed answer's field moves its words in by the
         // field's padding, on the springs rather than at once.
         if i == n {
@@ -447,8 +457,9 @@ pub fn key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
         reveal(s, tx);
         return true;
     }
-    // The rest move and pick among the answers, which a folded dock hides.
-    if minimized {
+    // The rest move and pick among the answers, which a folded dock hides; header and footer
+    // buttons keep their own Space/Enter/arrows (`session-question-dock-classic.tsx:354-396`).
+    if minimized || !focus_in_options(tx.focused()) {
         return false;
     }
     let rtl = opencode_i18n::direction() == opencode_i18n::Direction::Rtl;
@@ -463,11 +474,13 @@ pub fn key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
     };
     if let Some(to) = to {
         tx.instant();
-        dock(s, &f).focus = to;
+        let d = dock(s, &f);
+        (d.focus, d.keyboard) = (to, true);
         reveal(s, tx);
         return true;
     }
     if matches!(&ev.key, Key::Text(t) if t == " ") || (ev.key == Key::Enter && !m.shift) {
+        dock(s, &f).keyboard = true;
         if focus >= n { toggle_custom(s, &f, tab) } else { select(s, &f, tab, focus) }
         return true;
     }
@@ -485,6 +498,7 @@ fn typed_key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
         stop_typing(s, &f, tab);
         let d = dock(s, &f);
         (d.focus, d.keyboard) = (n, true);
+        reveal(s, tx);
         return true;
     }
     if advance(ev) || back(ev) {

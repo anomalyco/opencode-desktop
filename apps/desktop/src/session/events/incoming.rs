@@ -258,10 +258,15 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
         }
         Incoming::Pending { session, items } => {
             let inbox = !s.sidebar_inbox.settled() && s.sidebar_inbox.heard_pending(&session);
-            let drop_any = s.pending.iter().any(|p| p.session() == session && !items.iter().any(|i| i.id() == p.id()));
-            if drop_any {
+            let drop_pending = s.pending.iter().any(|p| p.session() == session && !items.iter().any(|i| i.id() == p.id()));
+            if drop_pending {
                 s.pending.retain(|p| p.session() != session || items.iter().any(|i| i.id() == p.id()));
             }
+            let drop_requests = s.requests.iter().any(|(sid, id)| *sid == session && !items.iter().any(|i| i.id() == id));
+            if drop_requests {
+                s.requests.retain(|(sid, id)| *sid != session || items.iter().any(|i| i.id() == id));
+            }
+            let drop_any = drop_pending || drop_requests;
             let mut added = false;
             for p in items {
                 added |= s.add_pending(p);

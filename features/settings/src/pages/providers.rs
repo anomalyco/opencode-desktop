@@ -263,7 +263,8 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
         .role("button")
         .font(NAME)
         .color(p.accent)
-        .mt(20.0)
+        // Inside `.settings-section` (`gap: 16px`) plus `.settings-providers-view-all { margin-top: 20px }` (`settings.css`).
+        .mt(36.0)
         .on_press_tx(|s: &mut H, tx: &mut Tx| open_connect_from_settings(s, None, tx));
     let body = col()
         .key("settings-providers")

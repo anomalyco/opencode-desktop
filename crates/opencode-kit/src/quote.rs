@@ -8,12 +8,13 @@ use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use serde_json::Value;
 
-/// One comment a prompt carries (Desktop's `PromptComment` less notes).
+/// One comment a prompt carries (Desktop's `PromptComment`: quote, file line comment, or note).
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
 pub enum PromptComment {
     Quote(Quote),
     File(FileComment),
+    Note(NoteComment),
 }
 
 impl From<Quote> for PromptComment {
@@ -28,12 +29,19 @@ impl From<FileComment> for PromptComment {
     }
 }
 
+impl From<NoteComment> for PromptComment {
+    fn from(n: NoteComment) -> Self {
+        PromptComment::Note(n)
+    }
+}
+
 impl PromptComment {
-    /// What the model reads (`formatQuoteComment`, `formatCommentNote`).
+    /// What the model reads (`formatQuoteComment`, `formatCommentNote`, `formatNoteComment`).
     pub fn prompt_text(&self) -> String {
         match self {
             PromptComment::Quote(q) => q.prompt_text(),
             PromptComment::File(f) => f.prompt_text(),
+            PromptComment::Note(n) => n.prompt_text(),
         }
     }
 
@@ -42,6 +50,7 @@ impl PromptComment {
         match self {
             PromptComment::Quote(q) => q.comment(),
             PromptComment::File(f) => Some(f.comment.trim()).filter(|c| !c.is_empty()),
+            PromptComment::Note(n) => Some(n.comment.trim()).filter(|c| !c.is_empty()),
         }
     }
 
@@ -49,34 +58,124 @@ impl PromptComment {
         match self {
             PromptComment::Quote(q) => q.json(),
             PromptComment::File(f) => f.json(),
+            PromptComment::Note(n) => n.json(),
         }
     }
 
-    /// A `metadata.comments` entry (`decodePromptComment`): a quote, or a file comment; notes
-    /// and anything else are skipped.
+    /// A `metadata.comments` entry (`decodePromptComment`): a note, quote, or file comment.
     pub fn parse(v: &Value) -> Option<PromptComment> {
-        Quote::parse(v).map(PromptComment::Quote).or_else(|| FileComment::parse(v).map(PromptComment::File))
+        NoteComment::parse(v)
+            .map(PromptComment::Note)
+            .or_else(|| Quote::parse(v).map(PromptComment::Quote))
+            .or_else(|| FileComment::parse(v).map(PromptComment::File))
     }
 
     pub fn quote(&self) -> Option<&Quote> {
         match self {
             PromptComment::Quote(q) => Some(q),
-            PromptComment::File(_) => None,
+            PromptComment::File(_) | PromptComment::Note(_) => None,
         }
     }
 
     pub fn quote_mut(&mut self) -> Option<&mut Quote> {
         match self {
             PromptComment::Quote(q) => Some(q),
-            PromptComment::File(_) => None,
+            PromptComment::File(_) | PromptComment::Note(_) => None,
         }
     }
 
     pub fn file(&self) -> Option<&FileComment> {
         match self {
             PromptComment::File(f) => Some(f),
-            PromptComment::Quote(_) => None,
+            PromptComment::Quote(_) | PromptComment::Note(_) => None,
         }
+    }
+
+    pub fn note(&self) -> Option<&NoteComment> {
+        match self {
+            PromptComment::Note(n) => Some(n),
+            PromptComment::Quote(_) | PromptComment::File(_) => None,
+        }
+    }
+}
+
+/// A note attached by a plugin (Desktop's `NoteComment`, `composer/schema.ts`, `browser/comment.ts`):
+/// an element annotation or whole-page browser note with optional live ref subject kept in-process.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct NoteComment {
+    pub origin: String,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subtitle: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    pub subject: String,
+    #[serde(default)]
+    pub comment: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub href: Option<String>,
+    /// Live subject carrying an in-process browser `@eN` ref; never serialized to wire metadata.
+    #[serde(skip)]
+    pub live_subject: Option<String>,
+    /// Live href (`<tabId>#<ref>`) for revealing/highlighting while live; never serialized.
+    #[serde(skip)]
+    pub live_href: Option<String>,
+}
+
+impl NoteComment {
+    /// `formatNoteComment` (`packages/app/src/composer/comment-note.ts:55-58`).
+    pub fn prompt_text(&self) -> String {
+        let subject = self.live_subject.as_deref().unwrap_or(&self.subject);
+        let trimmed = self.comment.trim();
+        if trimmed.is_empty() {
+            format!("The user referenced {subject}.")
+        } else {
+            format!("The user made the following comment regarding {subject}: {trimmed}")
+        }
+    }
+
+    /// Durable `metadata.comments` entry (omits process-local `live_*` fields).
+    pub fn json(&self) -> Value {
+        let mut v = serde_json::json!({
+            "type": "note",
+            "origin": self.origin,
+            "label": self.label,
+            "subject": self.subject,
+            "comment": self.comment.trim(),
+        });
+        if let Some(t) = &self.title {
+            v["title"] = t.clone().into();
+        }
+        if let Some(s) = &self.subtitle {
+            v["subtitle"] = s.clone().into();
+        }
+        if let Some(i) = &self.icon {
+            v["icon"] = i.clone().into();
+        }
+        if let Some(h) = &self.href {
+            v["href"] = h.clone().into();
+        }
+        v
+    }
+
+    pub fn parse(v: &Value) -> Option<NoteComment> {
+        if v["type"] != "note" {
+            return None;
+        }
+        Some(NoteComment {
+            origin: v["origin"].as_str()?.to_owned(),
+            label: v["label"].as_str()?.to_owned(),
+            title: v["title"].as_str().map(str::to_owned),
+            subtitle: v["subtitle"].as_str().map(str::to_owned),
+            icon: v["icon"].as_str().map(str::to_owned),
+            subject: v["subject"].as_str()?.to_owned(),
+            comment: v["comment"].as_str().unwrap_or_default().to_owned(),
+            href: v["href"].as_str().map(str::to_owned),
+            live_subject: None,
+            live_href: None,
+        })
     }
 }
 
