@@ -118,11 +118,12 @@ impl ProjectSwitcherHost for App {
     }
 
     fn enqueue_branch_dir(&mut self, directory: String) {
-        self.sidebar_inbox.branches.enqueue([directory]);
+        let server = crate::servers::runtime::active(self).clone();
+        self.sidebar_inbox.branches.enqueue(&server, [directory]);
     }
 
     fn checkout_branch(&self, directory: &str) -> Option<&str> {
-        self.sidebar_inbox.branches.get(directory)
+        self.sidebar_inbox.branches.get(crate::servers::runtime::active(self), directory)
     }
 
     fn fetch_branches(&mut self, server: Option<&ServerKey>, directory: String, query: String, attempt: Attempt) -> bool {
@@ -169,10 +170,11 @@ impl ProjectSwitcherHost for App {
                     .iter()
                     .filter_map(|id| s.project(id).map(|p| (id.clone(), s.project_worktrees(id, &p.directory))))
                     .collect();
+                let active = crate::servers::runtime::active(s);
                 let branch = drilled
                     .as_ref()
                     .and_then(|id| s.project(id))
-                    .and_then(|p| s.sidebar_inbox.branches.get(&p.directory).map(|b| (p.directory.clone(), b.to_owned())));
+                    .and_then(|p| s.sidebar_inbox.branches.get(active, &p.directory).map(|b| (p.directory.clone(), b.to_owned())));
                 (used, others, worktrees, branch)
             };
             let Some((used, others, worktrees, checkout_branch)) = crate::servers::runtime::with_server(self, &key, read) else {
@@ -197,7 +199,8 @@ impl ProjectSwitcherHost for App {
         crate::servers::runtime::with_server(self, &key, |s| {
             s.list_worktrees(project_id);
             if let Some(dir) = s.project(project_id).map(|p| p.directory.clone()) {
-                s.sidebar_inbox.branches.enqueue([dir]);
+                let active = crate::servers::runtime::active(s).clone();
+                s.sidebar_inbox.branches.enqueue(&active, [dir]);
             }
         });
     }
