@@ -241,8 +241,7 @@ wrap_app! {
             cmd.append_switch(Some(&"disable-background-networking".into()));
             // Chrome services official's Electron does not contain (READER-7, `review-rd274.md`):
             // Safe Browsing (N1), sync (N3), the testing field-trial config and variations seed
-            // that turn experimental features on at every boot of a non-official build (N6b),
-            // print preview (N8).
+            // that turn experimental features on at every boot of a non-official build (N6b).
             // The component updater still asked `update.googleapis.com` for the on-device model
             // manifest (`ceofaddefefcbblgcgnibnonglccbfja`) and fetched it from `edgedl.me.gvt1.com`
             // despite `--disable-component-update` (Playwright #42910): its update source is moved
@@ -258,7 +257,6 @@ wrap_app! {
                 "disable-sync",
                 "disable-field-trial-config",
                 "disable-variations-seed-fetch",
-                "disable-print-preview",
             ] {
                 cmd.append_switch(Some(&sw.into()));
             }

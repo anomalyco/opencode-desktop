@@ -306,7 +306,7 @@ fn set_optional_int_pref(ctx: &RequestContext, name: &str, value: i32) -> bool {
 /// context. A pref this build registers but will not take fails the whole call, so the caller
 /// refuses the context instead of running with the service on (N9). Returns `false` on failure.
 pub fn lock_chrome_services(ctx: &RequestContext) -> bool {
-    const OFF: [&str; 20] = [
+    const OFF: [&str; 19] = [
         // N1 Safe Browsing.
         "safebrowsing.enabled",
         "safebrowsing.enhanced",
@@ -322,8 +322,6 @@ pub fn lock_chrome_services(ctx: &RequestContext) -> bool {
         "privacy_sandbox.m1.fledge_enabled",
         "privacy_sandbox.m1.ad_measurement_enabled",
         "privacy_sandbox.apis_enabled",
-        // N8 printing.
-        "printing.enabled",
         // N11 Translate and the spelling service (spellcheck stays on, with local dictionaries).
         "translate.enabled",
         "spellcheck.use_spelling_service",
