@@ -99,6 +99,10 @@ impl crate::BrowserHost {
         self.caps.context_menu()
     }
 
+    pub fn engine_menu_extras(&self) -> bool {
+        self.caps.menu_extras()
+    }
+
     pub fn engine_partitions(&self) -> bool {
         self.caps.partitions()
     }
@@ -195,6 +199,11 @@ impl crate::BrowserHost {
     /// The engine stages agent files for confined `UploadFiles` and `DropFiles` (`Ready.agent_files`).
     pub fn engine_agent_files(&self) -> bool {
         self.caps.agent_files()
+    }
+
+    /// The engine isolates traces to the committed main-frame renderer OS PID and holds one engine-wide trace lock (`Ready.trace_isolation`).
+    pub fn engine_trace_isolation(&self) -> bool {
+        self.caps.trace_isolation()
     }
 
     /// Sends confined `UploadFiles` for files staged in `<profile>/opencode-page-uploads/<tab_id>/`.

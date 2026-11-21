@@ -95,6 +95,7 @@ pub fn view<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {
     let site_words = t!("settings.about.website");
     let site = text(site_words)
         .key("settings-about-site")
+        .dir(rune::Direction::Ltr)
         .font(BODY)
         .color(p.faint)
         .link(Link::new(0..site_words.len(), "https://opencode.ai").role("link").label(site_words).hover(link_hover))

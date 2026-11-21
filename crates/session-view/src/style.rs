@@ -88,10 +88,12 @@ pub struct CodeWrap {
 
 impl CodeWrap {
     pub fn of<S: TimelineHost>(s: &S, scope: &str) -> Self {
+        // Only this scope's toggles (`<scope>:<n>`), not every block's the window has.
         let overrides = s
             .code_wrap_overrides()
+            .map(|m| m.iter().filter(|(k, _)| k.strip_prefix(scope).is_some_and(|rest| rest.starts_with(':'))).map(|(k, &on)| (k.clone(), on)).collect::<std::collections::HashMap<_, _>>())
             .filter(|m| !m.is_empty())
-            .map(|m| std::rc::Rc::new(m.clone()));
+            .map(std::rc::Rc::new);
         Self { default: s.wrap_code_blocks(), scope: std::rc::Rc::from(scope), overrides }
     }
 }
@@ -223,7 +225,7 @@ pub fn markdown_styled_wrap<S: TimelineHost, H: rune_kit::markdown::HighlightIte
         None => md,
     };
     match media {
-        Some(m) => crate::images::markdown_pictures::<S>(md, m),
+        Some(m) => crate::images::markdown_pictures::<S>(p, md, m),
         None => md,
     }.build(crate::palette::kit(p)).selection_group(false)
 }
@@ -279,6 +281,8 @@ fn wrap_button<S: TimelineHost>(p: &Pal, key: String, wrapped: bool, wrap_defaul
         .size(24.0, 24.0)
         .center()
         .radius(6.0)
+        .cursor(rune::Cursor::Pointer)
+        .focus_default(p)
         .hover(p.hover)
         .press(p.pressed)
         .hover_motion(INSTANT, INSTANT)
@@ -315,6 +319,8 @@ fn copy_button<S: TimelineHost>(p: &Pal, text: &str, key: String, label: &'stati
         .size(24.0, 24.0)
         .center()
         .radius(6.0)
+        .cursor(rune::Cursor::Pointer)
+        .focus_default(p)
         .hover(p.hover)
         .press(p.pressed)
         .hover_motion(INSTANT, INSTANT)

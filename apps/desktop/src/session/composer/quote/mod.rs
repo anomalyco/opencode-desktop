@@ -51,6 +51,10 @@ impl QuoteHost for App {
         App::send_quote(self, key, tx)
     }
 
+    fn send_comment(&mut self, key: u64, tx: &mut Tx) -> Option<Option<String>> {
+        App::send_comment(self, key, false, tx)
+    }
+
     fn quote_send_result(&self, id: &str) -> Option<SendResult> {
         self.send_result(id)
     }

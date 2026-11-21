@@ -220,16 +220,14 @@ wrap_app! {
             cmd.append_switch(Some(&"mute-audio".into()));
             // Windows keeps real DPAPI cookie encryption (silent, logon-bound).
             // macOS uses real Keychain encryption under `"OpenCode Browser Safe Storage"` (CEF PR #4247)
-            // on real certificate-signed builds (`has_team_code_signature()`), while keeping
-            // `--use-mock-keychain` for unsigned/ad-hoc local dev builds and explicit
-            // `OPENCODE_BROWSER_MOCK_KEYCHAIN=1` runs so changing ad-hoc signatures never prompt.
+            // on valid Developer ID builds from Anomaly's team whose keychain is unlocked
+            // (`mac_app::decide_cookie_key`), while keeping `--use-mock-keychain` for every other
+            // signature, `OPENCODE_BROWSER_MOCK_KEYCHAIN=1` runs and a locked or missing keychain,
+            // so no run ever prompts; `Profile::open` keeps mock-key runs out of a Keychain profile.
             // Linux stays on `--password-store=basic` because Secret Service / KWallet can prompt
             // or stall when a keyring is locked or absent on desktop/headless Linux.
             #[cfg(target_os = "macos")]
-            if std::env::var_os("OPENCODE_BROWSER_MOCK_KEYCHAIN").as_deref()
-                == Some(std::ffi::OsStr::new("1"))
-                || !crate::mac_app::has_team_code_signature()
-            {
+            if crate::mac_app::cookie_key() == crate::mac_app::CookieKey::Mock {
                 cmd.append_switch(Some(&"use-mock-keychain".into()));
             }
             #[cfg(target_os = "linux")]

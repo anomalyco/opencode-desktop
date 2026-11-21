@@ -30,6 +30,8 @@ const GAP: f32 = 8.0;
 const ELEMENT_EDITOR_W: f32 = 320.0;
 const PAGE_EDITOR_W: f32 = 400.0;
 const FIELD: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0).tracking(-0.04);
+const NOTE_FIELD: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
+const META: TextStyle = TextStyle::new(11.0, 530.0).lh(14.0).tracking(0.05);
 const MONO: TextStyle = TextStyle::new(12.0, 440.0).lh(16.0).mono();
 
 pub enum Overlay {
@@ -121,11 +123,35 @@ impl BrowserOverlay {
         true
     }
 
-    pub fn version_tag(&self) -> (u8, u64) {
+    /// Hashes all rendered overlay state so the browser pane redraws on CDP resolve, typing,
+    /// `@file` mention updates, and held-Ctrl submit-button flips.
+    pub fn hash_state(&self, h: &mut impl std::hash::Hasher) {
+        use std::hash::Hash as _;
         match &self.state {
-            Overlay::Idle => (0, 0),
-            Overlay::Commenting { tab_id, .. } => (1, *tab_id),
-            Overlay::Noting { tab_id, .. } => (2, *tab_id),
+            Overlay::Idle => 0u8.hash(h),
+            Overlay::Commenting { tab_id, element, draft, field, editor_h, editor_initial_h, .. } => {
+                1u8.hash(h);
+                tab_id.hash(h);
+                element.selector.hash(h);
+                element.label.hash(h);
+                element.rect.map(f32::to_bits).hash(h);
+                editor_h.get().to_bits().hash(h);
+                editor_initial_h.get().to_bits().hash(h);
+                draft.hash(h);
+                field.alternate.hash(h);
+                field.mention.items().hash(h);
+                field.mention.active().hash(h);
+            }
+            Overlay::Noting { tab_id, url, title, draft, field } => {
+                2u8.hash(h);
+                tab_id.hash(h);
+                url.hash(h);
+                title.hash(h);
+                draft.hash(h);
+                field.alternate.hash(h);
+                field.mention.items().hash(h);
+                field.mention.active().hash(h);
+            }
         }
     }
 
@@ -298,16 +324,23 @@ fn field_config(app: &App) -> Config {
     let ov = &app.workspace_panes.browser.overlay;
     let blank = ov.draft().is_none_or(|d| d.text.trim().is_empty());
     let allow_empty = matches!(ov.state, Overlay::Commenting { .. });
-    let can_send = app.can_send_quote();
+    let can_send = app.can_send_comment();
     Config { alternate: Some(!can_send), submitting: false, allow_empty, blank }
 }
 
 fn delivery_label(app: &App) -> &'static str {
+    // Matches official `host-apis.ts:690-693` (`UP-137` `#65264`): browser comments follow Enter's
+    // delivery (`send` when idle, user's follow-up setting `steer` or `queue` when working).
     match (app.quote_session_busy(), app.quote_follow_up()) {
         (false, _) => opencode_i18n::t!("rune.browser.comment.send"),
-        (true, FollowUp::Queue) => opencode_i18n::t!("rune.browser.comment.steer"),
-        (true, FollowUp::Steer) => opencode_i18n::t!("rune.browser.comment.queue"),
+        (true, FollowUp::Steer) => opencode_i18n::t!("rune.browser.comment.steer"),
+        (true, FollowUp::Queue) => opencode_i18n::t!("rune.browser.comment.queue"),
     }
+}
+
+fn mod_enter_keys() -> [String; 2] {
+    let mod_key = if cfg!(target_os = "macos") { "⌘".to_owned() } else { opencode_i18n::t!("common.key.ctrl").to_owned() };
+    [mod_key, "⏎".to_owned()]
 }
 
 fn step_field(app: &mut App, event: FieldEvent, tx: &mut Tx) -> bool {
@@ -371,7 +404,7 @@ fn submit_overlay(app: &mut App, send: bool, tx: &mut Tx) {
     };
     let key = app.quotes_mut().push(note);
     if send {
-        if app.send_quote(key, tx).is_some() {
+        if app.send_comment(key, false, tx).is_some() {
             app.quotes_mut().remove(key);
         }
     } else if !session_view::style::touch_controls() {
@@ -515,7 +548,7 @@ pub fn view(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
 
             let input = session_view::style::field(draft, FIELD)
                 .key("browser-comment-field")
-                .label_static(opencode_i18n::t!("plugin.browser.comment.label"))
+                .label_static(opencode_i18n::t!("rune.browser.comment.label"))
                 .color(p.text)
                 .w_full()
                 .min_h(20.0)
@@ -530,18 +563,18 @@ pub fn view(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
                 .on_input_change(on_input_change)
                 .on_input_key(on_input_key);
             let mentions = mention_rows::<App>(p, &field.mention, act);
-            let field_col = col().grow(1.0).shrink().min_w(0.0).child(input).children(mentions);
+            let field_col = col().grow(1.0).shrink().min_w(0.0).gap(8.0).child(input).children(mentions);
 
             let empty = draft.text.trim().is_empty();
             let alternate = field.alternate;
-            let available = s.can_send_quote();
+            let available = s.can_send_comment();
             let primary_label = if empty {
-                opencode_i18n::t!("plugin.browser.comment.attach")
+                opencode_i18n::t!("rune.browser.comment.attach")
             } else {
-                opencode_i18n::t!("plugin.browser.comment.submit")
+                opencode_i18n::t!("rune.browser.comment.submit")
             };
             let alt_label = delivery_label(s);
-            let alt_keys = [opencode_i18n::t!("common.key.ctrl").to_owned(), "⏎".to_owned()];
+            let alt_keys = mod_enter_keys();
             let label = if alternate { alt_label } else { primary_label };
             let glyph = if alternate {
                 icon(&ic::ARROW_UP, 16.0).color(p.q.submit_text)
@@ -635,28 +668,28 @@ pub fn view(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
                 .grow(1.0)
                 .shrink()
                 .min_w(0.0)
-                .gap(6.0)
+                .gap(4.0)
                 .center_y()
                 .dir(rune::Direction::Ltr)
-                .child(icon(&ic::GLOBE, 14.0).color(p.icon_muted))
+                .child(icon(&ic::GLOBE, 14.0).color(p.icon_faint))
                 .child(
                     text(heading)
-                        .font(TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04))
-                        .color(p.muted)
+                        .font(META)
+                        .color(p.faint)
                         .truncate()
                         .grow(1.0)
                         .shrink()
                         .min_w(0.0),
                 );
 
-            let input = session_view::style::field(draft, FIELD)
+            let input = session_view::style::field(draft, NOTE_FIELD)
                 .key("browser-note-field")
                 .label_static(opencode_i18n::t!("plugin.browser.page.add"))
                 .color(p.text)
                 .w_full()
-                .min_h(80.0)
+                .min_h(64.0)
                 .max_h(160.0)
-                .placeholder(opencode_i18n::t!("plugin.browser.page.placeholder"), p.faint)
+                .placeholder(opencode_i18n::t!("rune.browser.page.placeholder"), p.faint)
                 .caret(p.text, p.selection)
                 .selection_style(p.field_selection)
                 .spellcheck(s.settings.spellcheck)
@@ -666,15 +699,15 @@ pub fn view(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
                 .on_input_change(on_input_change)
                 .on_input_key(on_input_key);
             let mentions = mention_rows::<App>(p, &field.mention, act);
-            let field_col = col().w_full().child(input).children(mentions);
+            let field_col = col().w_full().gap(8.0).child(input).children(mentions);
 
             let k = kit(p);
             let empty = draft.text.trim().is_empty();
             let alternate = field.alternate;
-            let can_send = s.can_send_quote();
+            let can_send = s.can_send_comment();
             let primary_label = opencode_i18n::t!("ui.lineComment.submit");
             let alt_label = delivery_label(s);
-            let alt_keys = [opencode_i18n::t!("common.key.ctrl").to_owned(), "⏎".to_owned()];
+            let alt_keys = mod_enter_keys();
             let submit_label = if alternate { alt_label } else { primary_label };
             let submit_disabled = empty || (alternate && !can_send);
             #[allow(deprecated)]
@@ -697,12 +730,12 @@ pub fn view(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
                 .help_above();
             let footer = row()
                 .w_full()
-                .gap(8.0)
+                .gap(4.0)
                 .center_y()
                 .child(footer_meta)
-                .child(row().gap(6.0).center_y().child(cancel_btn).child(submit_btn));
+                .child(row().gap(8.0).center_y().child(cancel_btn).child(submit_btn));
 
-            let shell = col().w_full().padding(12.0).gap(10.0).child(field_col).child(footer);
+            let shell = col().w_full().padding(12.0).gap(12.0).child(field_col).child(footer);
             let body = session_view::scroller::scroller("browser-note-scroll")
                 .bar(session_view::scroller::Bar::MenuScroll)
                 .build::<App>(p, col().w_full().max_h(max_h), shell);

@@ -533,6 +533,12 @@ pub enum EngineMsg {
         /// The engine enforces the WebAuthn / passkey gate and emits `PasskeyRefused`.
         #[serde(default)]
         passkeys: bool,
+        /// The engine enforces committed-main-frame renderer PID trace isolation and a single engine-wide trace lock.
+        #[serde(default)]
+        trace_isolation: bool,
+        /// The engine supports Copy image, spellcheck toggle, and spellcheck languages in page menus.
+        #[serde(default)]
+        menu_extras: bool,
     },
     ProfileCookies {
         request_id: u64,
@@ -992,6 +998,15 @@ pub struct PageContextMenu {
     pub misspelled_word: Option<String>,
     #[serde(default)]
     pub suggestions: Vec<String>,
+    /// Current profile spellcheck toggle state (populated when `is_editable && Ready.menu_extras`).
+    #[serde(default)]
+    pub spellcheck: bool,
+    /// Enabled spellcheck BCP-47 dictionary tags (populated when `is_editable && Ready.menu_extras`).
+    #[serde(default)]
+    pub languages: Vec<String>,
+    /// Offerable spellcheck BCP-47 dictionary tags (empty on macOS, as official).
+    #[serde(default)]
+    pub dictionaries: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub extensions: Vec<ExtensionMenuGroup>,
 }
@@ -1093,9 +1108,12 @@ pub enum ContextMenuCommand {
     Paste,
     PastePlain,
     SelectAll,
+    CopyImage,
     SaveImage { url: String },
     ReplaceMisspelling { word: String },
     AddToDictionary { word: String },
+    ToggleSpellcheck,
+    ToggleLanguage { value: String },
     ExtensionItem { ext_id: String, item_id: String },
 }
 

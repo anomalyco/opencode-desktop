@@ -216,13 +216,13 @@ pub fn subagent<S: TimelineHost>(s: &S, p: &Pal, session: &str, e: &Event) -> El
     let badge = row().key("status").gap(6.0).center_y()
         .child(el().key("bar").size(3.0, 10.0).radius(1.5).fill(ink))
         .child(text(status).key("word").font(UI_MED).color(ink));
-    let line = row().key("subagent").h(28.0).gap(6.0).center_y().shrink().min_w(0.0).label(said)
+    let line = row().key("subagent").h(28.0).gap(8.0).center_y().shrink().min_w(0.0).label(said)
         .child(badge)
         .child(text(name.clone()).key("subagent-agent").font(UI).color(p.muted))
-        .children((!title.is_empty()).then(|| text(title.clone()).key("title").font(UI).color(p.text).truncate_fade().shrink().min_w(0.0)));
+        .children((!title.is_empty()).then(|| text(title.clone()).key("title").dir(rune::Direction::Auto).font(UI).color(p.text).truncate_fade().shrink().min_w(0.0)));
     let Some(child) = child else { return row().w_full().child(line.role("group")) };
     let (parent, agent) = (session.to_owned(), e.agent.clone().unwrap_or_default());
-    let line = line.role("link").radius(4.0).focus_default(p)
+    let line = line.role("link").radius(4.0).cursor(rune::Cursor::Pointer).focus_default(p)
         .on_press_tx(move |s: &mut S, tx: &mut Tx| {
             // A click with a modifier opens nothing (`event-row.tsx`).
             if crate::plain_click(tx) {

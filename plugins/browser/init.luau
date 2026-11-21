@@ -194,10 +194,18 @@ return plugin.defineWindow(function(ctx)
         end
     end
 
+    local lastEditorField = ""
+
     local function setEditorText(text: string)
+        lastEditorField = text
         syncingEditor = true
         editor:SetText(text)
         syncingEditor = false
+    end
+
+    local function editing(): BrowserTab?
+        local e = state.edit
+        return if e.status == "editing" then Browser:Get(e.tab) else nil
     end
 
     local dispatch: (event: address.Event) -> ()
@@ -207,6 +215,16 @@ return plugin.defineWindow(function(ctx)
         for _, effect in effects do
             if effect.type == "select" then
                 editor:SelectAll()
+            elseif effect.type == "select-completion" then
+                local tab = editing()
+                if tab and type(bAny.SetAddressSelection) == "function" then
+                    local bar = address.view(state, tab.Id, epoch(tab), visits())
+                    if bar.completion ~= "" then
+                        syncingEditor = true
+                        bAny:SetAddressSelection(#bar.field, #bar.field - #bar.completion)
+                        syncingEditor = false
+                    end
+                end
             elseif effect.type == "blur" then
                 editor:Blur()
             elseif effect.type == "prepare" then
@@ -249,6 +267,15 @@ return plugin.defineWindow(function(ctx)
     dispatch = function(event: address.Event)
         local nextState, effects = address.step(state, event)
         state = nextState
+        local tab = editing()
+        if tab then
+            local bar = address.view(state, tab.Id, epoch(tab), visits())
+            if editor:Text() ~= bar.field then
+                setEditorText(bar.field)
+            else
+                lastEditorField = bar.field
+            end
+        end
         run(effects)
         refresh()
     end
@@ -264,11 +291,6 @@ return plugin.defineWindow(function(ctx)
         editor:Focus()
         run(effects)
         refresh()
-    end
-
-    local function editing(): BrowserTab?
-        local e = state.edit
-        return if e.status == "editing" then Browser:Get(e.tab) else nil
     end
 
     local editorFocused = false
@@ -287,11 +309,51 @@ return plugin.defineWindow(function(ctx)
             return
         end
         local e = state.edit
-        if e.status ~= "editing" or e.text == value then
+        if e.status ~= "editing" or value == lastEditorField then
             return
         end
-        dispatch({ type = "input", value = value, deleting = #value < #e.text, visits = visits() })
+        local bAny = Browser :: any
+        local sel = if type(bAny.AddressSelection) == "function" then bAny:AddressSelection() else nil
+        local atEnd = sel == nil or (not sel.composing and sel.start == sel.len and sel["end"] == sel.len)
+        local pasted = sel ~= nil and sel.pasted == true
+        local prevTyped = if e.typed then e.text else ""
+        local deletedCompletion = lastEditorField ~= e.text and value == e.text
+        local prevLen = utf8.len(prevTyped) or #prevTyped
+        local curLen = utf8.len(value) or #value
+        local singleAppend = curLen == prevLen + 1 and string.sub(value, 1, #prevTyped) == prevTyped
+        local deleting = deletedCompletion or pasted or not singleAppend or not atEnd
+        lastEditorField = value
+        dispatch({ type = "input", value = value, deleting = deleting, visits = visits() })
     end)
+    local bSelSig = Browser :: any
+    if bSelSig.AddressSelectionChanged ~= nil then
+        bSelSig.AddressSelectionChanged:Connect(function(sel: any)
+            if syncingEditor or type(sel) ~= "table" or sel.focused ~= true then
+                return
+            end
+            local tab = editing()
+            if not tab then
+                return
+            end
+            local bar = address.view(state, tab.Id, epoch(tab), visits())
+            if not bar.completing then
+                return
+            end
+            local value = editor:Text()
+            if value ~= bar.field or sel.len ~= #value then
+                return
+            end
+            if not sel.composing and sel.start == #bar.field - #bar.completion and sel["end"] == sel.len then
+                return
+            end
+            dispatch({
+                type = "input",
+                value = value,
+                deleting = sel.composing or not (sel.start == sel.len and sel["end"] == sel.len),
+                visits = visits(),
+            })
+        end)
+    end
     editor.Submitted:Connect(function()
         local tab = editing()
         if tab then

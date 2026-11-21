@@ -167,6 +167,10 @@ pub struct State {
     pub search: TextEdit,
     /// Providers folded shut on Models.
     pub collapsed: models::Folds,
+    /// Pending provider expand/scroll/focus started from Providers' Console list.
+    pub models_reveal: models::Reveal,
+    /// Whether the OpenCode Console workspace provider list is expanded on Providers.
+    pub console_expanded: bool,
     pub tab: ExtensionsTab,
     /// Server-wide Extensions page state (plugins, skills, Console sources, plugin update machine).
     pub extensions: extensions::State,
@@ -256,6 +260,9 @@ pub fn show_page(host: &mut dyn SettingsHost, page: Page) {
             project::load(host, &dir, *tab);
         }
         _ => {}
+    }
+    if host.settings_pages().page == Page::Models && page != Page::Models {
+        models::cancel_reveal(host);
     }
     if host.settings_pages().page == Page::About {
         host.settings_pages_mut().wordmark.activate(false);
@@ -520,16 +527,14 @@ pub fn filter_field<H: SettingsHost + 'static>(
             .radius(4.0)
             .cursor(rune::Cursor::Pointer)
             .focus_default(p)
-            .hover(p.hover)
-            .press(p.pressed)
+            .hover_group()
             .on_press_tx(move |s: &mut H, tx: &mut Tx| clear_filter_field(s, field, tx))
-            .child(icon(&ic::CIRCLE_XMARK, 16.0).color(p.icon_faint))
+            .child(icon(&ic::XMARK_SMALL, 16.0).color(p.icon_faint).group_color(p.icon))
     });
     row()
         .key(key.to_owned())
         .w_full()
         .h(36.0)
-        .mx(1.0)
         .pr(10.0)
         .gap(8.0)
         .center_y()
@@ -645,9 +650,9 @@ fn ghost_face(p: &Pal, key: &str, label: &str, glyph: Option<&'static Icon>, mut
     b.cursor(rune::Cursor::Pointer).focus_default(p).hover(p.hover).press(p.pressed)
 }
 
-/// `SettingsSearchEmpty`: "No results for" and the query in quotes (rail search).
+/// `SettingsSearchEmpty`: centred "No results for" and the query in quotes (`search.css:62-66`).
 pub fn no_results(p: &Pal, key: &str, query: &str) -> El {
-    row().key(key.to_owned()).w_full().h(28.0).pl(8.0).pr(6.0).gap(4.0).center_y().children(no_results_words(p, query))
+    row().key(key.to_owned()).w_full().h(28.0).px(18.0).gap(4.0).center().children(no_results_words(p, query))
 }
 
 /// `.settings-tab-search-empty` (`settings.css:1405-1417`): centered empty state for page filters.

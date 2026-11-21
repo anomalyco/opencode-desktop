@@ -125,12 +125,35 @@ pub fn search<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
 pub fn webfetch<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
     let d = Display::of(s, cx, c, false);
     let url = field(c.input, "url").filter(|_| d.phase != super::Phase::Pending);
-    let t = Trigger { title: opencode_i18n::t!("ui.tool.fetch").into(), link: url.map(|u| link::<S>(p, u).key("subtitle")), ..Default::default() };
+    let t = Trigger { title: opencode_i18n::t!("ui.tool.fetch").into(), link: url.map(|u| webfetch_link::<S>(p, u).key("subtitle")), ..Default::default() };
     still(trigger(s, p, cx, c, d, t, Press::None, None))
 }
 
-/// A URL that opens in the browser (`webfetch-link`): accent text, underlined under the pointer,
-/// with the way-out icon then too.
+/// `.webfetch-link` in New timeline (`timeline-next.css:195-210`): `text-base` ink with a faint
+/// 40% underline that brightens to full ink on hover, and no external arrow icon.
+fn webfetch_link<S: TimelineHost>(p: &Pal, url: &str) -> El {
+    let to = url.to_owned();
+    el().key("words")
+        .shrink()
+        .min_w(0.0)
+        .radius(4.0)
+        .role("link")
+        .label(url.to_owned())
+        .help(url.to_owned())
+        .cursor(rune::Cursor::Pointer)
+        .focus_default(p)
+        .hover_group()
+        .hover_motion(INSTANT, INSTANT)
+        .on_press_tx(move |s: &mut S, tx: &mut Tx| {
+            tx.instant();
+            s.open_link(&to, tx);
+        })
+        .child(text(url.to_owned()).font(UI).color(p.text).truncate_fade())
+        .child(el().key("underline").pin(Some(0.0), None, Some(0.0), Some(1.0)).h(1.0).fill(p.text).group_opacity(0.4, 1.0))
+}
+
+/// A search result URL that opens in the browser (`ExaOutput`): accent text, underlined under
+/// the pointer, with the way-out icon then too.
 fn link<S: TimelineHost>(p: &Pal, url: &str) -> El {
     let to = url.to_owned();
     let words = el()
@@ -144,9 +167,12 @@ fn link<S: TimelineHost>(p: &Pal, url: &str) -> El {
         .center_y()
         .shrink()
         .min_w(0.0)
+        .radius(4.0)
         .role("link")
         .label(url.to_owned())
         .help(url.to_owned())
+        .cursor(rune::Cursor::Pointer)
+        .focus_default(p)
         .hover_group()
         .hover_motion(INSTANT, INSTANT)
         .on_press_tx(move |s: &mut S, tx: &mut Tx| {
@@ -192,6 +218,9 @@ pub fn websearch<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
                 .key("more")
                 .role("button")
                 .label(more.clone())
+                .radius(4.0)
+                .cursor(rune::Cursor::Pointer)
+                .focus_default(p)
                 .hover_group()
                 .on_press_tx(crate::disclosure::toggle::<S>(more_key, format!("tool-{}", c.id)))
                 .child(text(more.clone()).font(UI).color(p.faint).group_color(p.muted))

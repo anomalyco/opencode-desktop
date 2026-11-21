@@ -3,16 +3,34 @@
 
 use std::sync::atomic::Ordering;
 
-use cef::{CefString, ImplBrowser, ImplFrame};
+use cef::{CefString, ImplBrowser, ImplBrowserHost, ImplFrame};
 use serde_json::json;
 
 use super::EngineManager;
+use crate::handlers::CdpPending;
 use crate::wire::{EngineMsg, PickedElement};
 
 impl EngineManager {
     pub fn poll_picks(&mut self) {
-        for t in self.tabs.values() {
+        for (&tab_id, t) in &self.tabs {
             crate::cdp_ledger::flush_outbox(&t.cdp_ledger, &t.host);
+            crate::input_guard::pump(
+                tab_id,
+                &t.input_guard,
+                &t.browser,
+                &t.host,
+                t.is_popup,
+                t.isolated,
+                t.preview.is_some(),
+                &t.snap,
+                &t.prompts,
+                &self.permissions,
+                &t.cdp_ledger,
+                &t.emulation_scale,
+                &t.cdp_id_map,
+                &self.next_cdp_id,
+                &self.out_tx,
+            );
         }
         for outcome in self.contexts.drain_ready_loads() {
             match outcome {
@@ -120,6 +138,50 @@ impl EngineManager {
                     text: None,
                     rect: [0.0; 4],
                 }),
+            });
+        }
+    }
+
+    pub(super) fn handle_clear_site(&mut self, tab_id: u64, request_id: u64) {
+        let Some(t) = self.tabs.get(&tab_id) else { return };
+        if !self.contexts.is_tab_ready(tab_id) {
+            let reason = self.contexts.not_ready_reason(tab_id);
+            let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                tab_id,
+                request_id,
+                ok: false,
+                result: json!({ "message": reason }),
+            });
+            return;
+        }
+        let url = t.snap.lock().unwrap().url.clone();
+        let Some(origin) = browser_policy::destination_origin(&url) else {
+            let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                tab_id,
+                request_id,
+                ok: true,
+                result: json!({}),
+            });
+            return;
+        };
+        let msg_id = self.next_cdp_id.fetch_add(1, Ordering::Relaxed);
+        t.cdp_id_map
+            .lock()
+            .unwrap()
+            .insert(msg_id, CdpPending::ClearSite { request_id, origin });
+        let raw = json!({
+            "id": msg_id,
+            "method": "Network.getCookies",
+            "params": { "urls": [url] },
+        })
+        .to_string();
+        if t.host.send_dev_tools_message(Some(raw.as_bytes())) != 1 {
+            t.cdp_id_map.lock().unwrap().remove(&msg_id);
+            let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                tab_id,
+                request_id,
+                ok: false,
+                result: json!({ "message": "send_dev_tools_message rejected" }),
             });
         }
     }

@@ -182,15 +182,16 @@ pub(crate) fn customized(s: &App, p: &Pal) -> El {
     let here = crate::servers::runtime::active(s).clone();
     let unread: Vec<String> = listed.iter().filter_map(|&i| items[i].session.filter(|ses| items[i].server == here && (ses.unread() || crate::session_menu::unread::manual(s, &here, &ses.id))).map(|ses| ses.id.clone())).collect();
 
-    let header = header(p, server_opts, projects, unread);
+    let header = header(s, p, server_opts, projects, unread);
     let viewport = col().grow(1.0).shrink().min_h(0.0);
     let scroll = session_view::scroller::scroller("customize-scroll").build::<App>(p, viewport, list);
     col().key("customize").w_full().grow(1.0).shrink().min_h(0.0).child(header).child(scroll)
 }
 
 /// The Sessions header (`sidebar-customized.tsx:675-697`): its label, View options and New session.
-fn header(p: &Pal, servers: Vec<(String, String)>, projects: Vec<(String, String)>, unread: Vec<String>) -> El {
-    let options = super::super::home::projects::icon_button(p, super::menu::TRIGGER, t!("sidebar.view.options"), &ic::OUTLINE_SLIDERS, false).menu_button(super::menu::TRIGGER, move |s: &mut App, tx: &mut Tx| {
+fn header(s: &App, p: &Pal, servers: Vec<(String, String)>, projects: Vec<(String, String)>, unread: Vec<String>) -> El {
+    let open = s.popup.open_at(super::menu::TRIGGER);
+    let options = super::super::home::projects::icon_button(p, super::menu::TRIGGER, t!("sidebar.view.options"), &ic::OUTLINE_SLIDERS, open).menu_button(super::menu::TRIGGER, move |s: &mut App, tx: &mut Tx| {
         let o = super::menu::Options { servers: servers.clone(), projects: projects.clone(), can_mark_read: !unread.is_empty(), unread: unread.clone() };
         super::menu::open(s, o, tx)
     });
@@ -218,7 +219,7 @@ fn no_match(p: &Pal) -> El {
         .gap(4.0)
         .child(text(t!("sidebar.view.noMatch")).font(UI_SMALL).color(p.faint).shrink())
         .child(
-            row().key("reset").role("button").label(t!("sidebar.view.resetFilters")).hover_group().on_press_tx(|s: &mut App, tx: &mut Tx| {
+            row().key("reset").role("button").label(t!("sidebar.view.resetFilters")).cursor(rune::Cursor::Pointer).focus_inset(p).hover_group().on_press_tx(|s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 s.project_state.customize.filters = Default::default();
             }).child(text(t!("sidebar.view.resetFilters")).font(UI_SMALL).color(p.faint).group_color(p.text)),
