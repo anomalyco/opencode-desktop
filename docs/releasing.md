@@ -44,11 +44,27 @@ Source: [official release workflow](https://github.com/anomalyco/opencode/blob/3
 
 On a fully active day the schedule can build 24 OS/architecture combinations, up from seven (five Windows x64, one Windows arm64 and one Mac arm64). The change gate keeps idle runs to one Linux planning job, and concurrency lets the active release finish with only the newest pending run per channel. If runner spend exceeds budget, reduce the number of scheduled releases while retaining every target in each publish.
 
-## Linux browser engine preview
+## Browser engine
+
+The desktop starts without CEF and downloads the embedded browser engine on first use from `https://anoma.ly/release/opencode-rune/browser-engine/stable.json` (app `opencode-rune`, artifact `browser-engine`, channel `stable`). Four targets ship an engine: `windows-x64`, `windows-arm64`, `macos-arm64`, and `linux-x64`; `macos-x64` and `linux-arm64` ship no engine.
+
+### Trust defaults (`crates/browser-pane/src/source.rs`)
+
+- **Windows (`windows-x64`, `windows-arm64`) release builds:** `publisher:Anomaly Innovations, Inc https://anoma.ly/` — verifies the Authenticode signature of every `.exe` and `.dll` in the archive against `features/updater/src/windows.rs` (`EXPECTED_PUBLISHER`). Windows debug builds keep the local stand-in (`http://127.0.0.1:47981/index.json`, `local`).
+- **macOS (`macos-arm64`):** `publisher:5NZ4Q7NXJ4` — verifies `OpenCode Browser Engine.app` with `codesign --verify --deep --strict` against Developer ID team `5NZ4Q7NXJ4`.
+- **Linux (`linux-x64`):** defaults to the index URL with an empty trust rule; the release workflow passes `OPENCODE_BROWSER_ENGINE_TRUST=sha256:<hex>` at build time. A Linux build without it fails closed at startup as `Fault::NotPublished` (no download, no Retry button, and no local `browser_*` MCP tools).
+
+### Versioning and installed-app updates
+
+An engine release version is `<cef>-<ENGINE_REVISION>` (`crates/browser-pane/src/installer.rs`).
+
+- An engine change under `apps/browser-engine/` that must reach users bumps `ENGINE_REVISION` in `crates/browser-pane/src/installer.rs`. The release workflow builds an engine only when the index lacks `<cef>-<revision>` (publishing every engine target together in one request, because the release service replaces the channel manifest whole) and refuses to republish a complete version.
+- **Higher CEF build at the same revision (`installer.rs`, `prefetch.rs`, `sidecar.rs`):** installed Windows and macOS apps check the index once per run after the first tab opens, download and install the newer engine beside the running one for the next start, and retain the newest version per revision. Installed Linux apps pin a single archive SHA-256 (`source.rs`), so they ignore a different archive hash and keep running their installed engine until the desktop app updates (fresh installs of an older pinned Linux build also need the updated desktop build).
+- **Bumped `ENGINE_REVISION` (for example, 2 to 3):** apps require exact revision equality (`version.revision == ENGINE_REVISION`), so an installed revision-2 app ignores revision 3 and continues running its installed revision-2 engine; a fresh install of an older app reports `Fault::NotPublished` until the desktop app updates.
+
+### Linux preview dispatch
 
 Dispatch `release.yml` from `dev` with `channel=engine-linux` to build the x86_64 CEF sidecar and publish a private GitHub prerelease. Its `index.json`, `.tar.zst` and `SHA256SUMS` can be downloaded together with `gh release download <tag>`. A debug desktop build accepts that local index with `OPENCODE_BROWSER_ENGINE_SOURCE=file:$PWD/index.json OPENCODE_BROWSER_ENGINE_TRUST=local`.
-
-The desktop starts without CEF. The embedded browser has a separate delivery path: `crates/browser-pane/src/source.rs` pins the public macOS arm64 archive; Windows defaults to a local preview index. Linux x64 has a private preview, but release builds have no Linux source or trust pin. The installer also needs target support for Linux arm64 and Intel Mac. To enable public delivery, publish the engine targets together (the index is replaced whole) and configure a trusted source and archive hashes in the desktop build. The Linux packages do not enable the embedded browser.
 
 ## Security boundary
 
