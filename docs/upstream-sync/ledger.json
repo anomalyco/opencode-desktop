@@ -3716,7 +3716,7 @@
       "summary": "Draw the focused timeline viewport ring on the visible session frame above header/composer with 10 px rounded corners instead of being clipped by the fade mask.",
       "size": "S",
       "status": "have it",
-      "status_evidence": "The timeline's ring is drawn by an overlay painted after the header and the composer dock (Rune El::focus_ring_for, #1313), over the timeline's visible area, 2 in, keyboard only, with the session frame's 10 pt corners (PR #0)",
+      "status_evidence": "The timeline's ring is drawn by an overlay painted after the header and the composer dock (Rune El::focus_ring_for, #1313), over the timeline's visible area, 2 in, keyboard only, with the session frame's 10 pt corners (PR #387)",
       "depends_on": "UP-088 (#64909)",
       "risks": "none",
       "workstream": "WS-8"
@@ -3901,7 +3901,7 @@
       "summary": "Prevent focus-ring clipping on timeline and settings containers and stop showing misleading outer focus rings when nested controls are focused.",
       "size": "S",
       "status": "have it",
-      "status_evidence": "Settings pages are not Tab stops of their own (tab_index -1, no ring); About's version ring is the shared ring around its hover fill, and it holds 'Copied' up; an open tool group's label draws its soft edge only while stuck, so it doesn't paint over its first row's ring at rest (PR #0)",
+      "status_evidence": "Settings pages are not Tab stops of their own (tab_index -1, no ring); About's version ring is the shared ring around its hover fill, and it holds 'Copied' up; an open tool group's label draws its soft edge only while stuck, so it doesn't paint over its first row's ring at rest (PR #387)",
       "depends_on": "UP-088 (#64909)",
       "risks": "none",
       "workstream": "WS-8"
