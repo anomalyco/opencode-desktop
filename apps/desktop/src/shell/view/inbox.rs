@@ -2,13 +2,15 @@ use super::*;
 use std::rc::Rc;
 
 use crate::inbox_model::{Entry, InboxStatus, age};
-use crate::inbox_order::{Group, Order};
+use crate::inbox_order::{Group, Open, Order};
 use crate::popup::{self, Item, Menu};
 use opencode_i18n::t;
 
 // ---------------------------------------------------------------------------------------------
 // Inbox: Desktop's Inbox layout in the sidebar (`shell/titlebar/inbox.tsx`): Needs attention,
-// Unread and Recent in a scrolling list, and Working pinned below it.
+// Unread and Recent in a scrolling list, and Working pinned below it. Beyond Desktop, which keeps
+// its archive behind a button's search: Archived is a group under Recent again, as in its first
+// inbox, and a card under the pointer has a button that archives or restores it (`archive_button`).
 
 /// A card's title (`text-[13px] leading-4 font-medium tracking-[-0.04px]`).
 const TITLE: TextStyle = TextStyle::new(13.0, 500.0).lh(16.0).tracking(-0.04);
@@ -32,15 +34,15 @@ pub(crate) fn inbox(s: &App, p: &Pal, inset: (f32, f32)) -> El {
         );
     }
     let order = s.inbox_order();
-    let expanded = s.kernel.slots.get(&crate::restore::RESTORE).inbox.recent_expanded;
-    let items = Rc::new(items(&order, expanded));
+    let open = s.inbox_open();
+    let items = Rc::new(items(&order, open));
     // Only the rows in sight are built (a virtual list), whatever Show more shows: each row is
     // its session, and its card reads the session as it stands. The rows' places stand as the
     // groups' gaps did: 2 between cards, 8 under a header, 10 under a group and 2 between groups.
     let n = items.len();
     // The last group's own 10 of padding under it, then the list's 4.
-    let pb = if matches!(items.last(), Some(Line::Card { .. } | Line::More)) { 14.0 } else { 4.0 };
-    let version = (order.generation, expanded);
+    let pb = if matches!(items.last(), Some(Line::Card { .. } | Line::More | Line::All)) { 14.0 } else { 4.0 };
+    let version = (order.generation, open);
     let (keys, built, pal) = (items.clone(), items.clone(), *p);
     let (key_order, built_order) = (order.clone(), order.clone());
     let list = col()
@@ -104,20 +106,22 @@ enum Line {
     /// Show more / Show less under Recent.
     More,
     Empty,
-    Archived,
+    /// View all under Archived's cards: the archive's search.
+    All,
 }
 
 /// The list's rows in order: the open session's card when no group shows it, then each group's
-/// header and cards (and Show more under Recent), the empty line, and Archived.
-fn items(order: &Order, expanded: bool) -> Vec<Line> {
+/// header and cards (and Show more under Recent), the empty line, and Archived: its header and,
+/// open, its newest cards and View all.
+fn items(order: &Order, open: Open) -> Vec<Line> {
     let mut out = Vec::new();
     let card = |out: &mut Vec<Line>, shows: &[usize]| {
         let size = shows.len();
         out.extend(shows.iter().enumerate().map(|(k, &at)| Line::Card { at, pos: k + 1, size }));
     };
-    card(&mut out, &order.shows(Group::Current, expanded));
+    card(&mut out, &order.shows(Group::Current, open));
     for g in [Group::Needs, Group::Unread, Group::Recent] {
-        let shows = order.shows(g, expanded);
+        let shows = order.shows(g, open);
         if shows.is_empty() {
             continue;
         }
@@ -127,11 +131,15 @@ fn items(order: &Order, expanded: bool) -> Vec<Line> {
             out.push(Line::More);
         }
     }
-    if order.is_empty() {
+    if out.is_empty() && order.group(Group::Working).is_empty() {
         out.push(Line::Empty);
     }
-    if order.archived {
-        out.push(Line::Archived);
+    if !order.group(Group::Archived).is_empty() {
+        out.push(Line::Header(Group::Archived));
+        if open.archived {
+            card(&mut out, &order.shows(Group::Archived, open));
+            out.push(Line::All);
+        }
     }
     out
 }
@@ -140,11 +148,12 @@ fn items(order: &Order, expanded: bool) -> Vec<Line> {
 /// element to focus.
 fn end_key(s: &App, last: bool) -> Option<(String, String)> {
     let order = s.inbox_order();
-    let items = items(&order, s.kernel.slots.get(&crate::restore::RESTORE).inbox.recent_expanded);
+    let items = items(&order, s.inbox_open());
     let reach = |l: &Line| match l {
         Line::Card { at, .. } => Some(order.rows[*at].key.clone()),
         Line::More => Some("inbox-more".to_owned()),
-        Line::Archived => Some("inbox-archived-button".to_owned()),
+        Line::All => Some("inbox-archived-all".to_owned()),
+        Line::Header(Group::Archived) => Some("inbox-archived-header".to_owned()),
         Line::Header(_) | Line::Empty => None,
     }
     .map(|key| (l.key(&order), key));
@@ -161,8 +170,8 @@ fn space_above(items: &[Line], i: usize) -> f32 {
     let Some(prev) = i.checked_sub(1).map(|j| items[j]) else { return 0.0 };
     match (prev, items[i]) {
         // Under a group: its 10 of padding and the list's 2.
-        (Line::Card { .. } | Line::More, Line::Header(_) | Line::Archived) => 12.0,
-        (Line::Header(_), _) | (_, Line::More) => 8.0,
+        (Line::Card { .. } | Line::More | Line::Empty, Line::Header(_)) => 12.0,
+        (Line::Header(_), _) | (_, Line::More | Line::All) => 8.0,
         _ => 2.0,
     }
 }
@@ -179,12 +188,17 @@ impl Line {
             Line::Card { at, .. } => order.rows[*at].key.clone(),
             Line::More => "inbox-more".into(),
             Line::Empty => "inbox-empty".into(),
-            Line::Archived => "inbox-archived".into(),
+            Line::All => "inbox-archived-all".into(),
         }
     }
 
     fn build(&self, s: &App, p: &Pal, order: &Order) -> El {
         match *self {
+            Line::Header(Group::Archived) => {
+                let open = s.inbox_open().archived;
+                let label = text(group_label(Group::Archived)).key("label").font(HEADER).color(p.muted).group_color(p.text);
+                fold_header(p, "archived", group_label(Group::Archived), label, open, App::toggle_inbox_archived)
+            }
             Line::Header(g) => header(p, group_id(g), group_label(g)),
             Line::Card { at, pos, size } => match s.inbox_entry_of(&order.rows[at]) {
                 Some(e) => card(s, p, &e).position_in_set(pos, size),
@@ -200,19 +214,17 @@ impl Line {
                     // Open, the button goes to the list's end, past the rows built: focus goes on
                     // to the first row it brought, which stands where the button stood.
                     let order = s.inbox_order();
-                    if opening && let Some(&at) = order.shows(Group::Recent, true).get(crate::inbox_model::RECENT_LIMIT) {
+                    if opening && let Some(&at) = order.shows(Group::Recent, s.inbox_open()).get(crate::inbox_model::RECENT_LIMIT) {
                         tx.focus(order.rows[at].key.clone(), false);
                     }
                 })
             }
             // `px-1.5 py-2`, a block whose words wrap at the sidebar's width (`inbox.tsx:421`).
             Line::Empty => col().key("inbox-empty").w_full().px(6.0).py(8.0).child(text(t!("sidebar.inbox.empty")).font(LINE).color(p.faint).wrap().w_full()),
-            Line::Archived => el().key("inbox-archived").w_full().pt(12.0).child(
-                ghost_button(p, "inbox-archived-button", t!("sidebar.inbox.section.archived")).on_press_tx(|s: &mut App, tx: &mut Tx| {
-                    s.close_settings();
-                    s.open_archived_search(tx);
-                }),
-            ),
+            Line::All => ghost_button(p, "inbox-archived-all", t!("common.viewAll")).on_press_tx(|s: &mut App, tx: &mut Tx| {
+                s.close_settings();
+                s.open_archived_search(tx);
+            }),
         }
     }
 }
@@ -223,6 +235,7 @@ fn group_id(g: Group) -> &'static str {
         Group::Needs => "needs",
         Group::Unread => "unread",
         Group::Recent => "recent",
+        Group::Archived => "archived",
         Group::Working => "working",
     }
 }
@@ -231,6 +244,7 @@ fn group_label(g: Group) -> &'static str {
     match g {
         Group::Needs => t!("sidebar.inbox.section.needsAttention"),
         Group::Unread => t!("sidebar.inbox.section.unread"),
+        Group::Archived => t!("sidebar.inbox.section.archived"),
         Group::Working => t!("sidebar.inbox.section.working"),
         Group::Current | Group::Recent => t!("sidebar.inbox.section.recent"),
     }
@@ -271,17 +285,20 @@ fn header(p: &Pal, id: &str, label: &str) -> El {
     row().key(format!("inbox-{id}-header")).h(24.0).w_full().px(8.0).gap(6.0).center_y().child(text(label).font(HEADER).color(p.muted).truncate())
 }
 
-/// The Working header: a toggle whose chevron turns shut, and whose label shimmers while shut.
+/// The Working header, whose label shimmers while shut.
 fn working_header(s: &App, p: &Pal, open: bool) -> El {
-    let label = if open {
-        text(t!("sidebar.inbox.section.working")).key("label").font(HEADER).color(p.muted).group_color(p.text)
-    } else {
-        session_view::working::shimmer(s, p, t!("sidebar.inbox.section.working"), HEADER, 0.0)
-    };
+    let name = t!("sidebar.inbox.section.working");
+    let label = if open { text(name).key("label").font(HEADER).color(p.muted).group_color(p.text) } else { session_view::working::shimmer(s, p, name, HEADER, 0.0) };
+    fold_header(p, "working", name, label, open, App::toggle_inbox_working)
+}
+
+/// A group's header that opens and shuts it (Working's, Archived's): a toggle whose chevron
+/// turns shut.
+fn fold_header(p: &Pal, id: &str, name: &'static str, label: El, open: bool, toggle: fn(&mut App)) -> El {
     row()
-        .key("inbox-working-header")
+        .key(format!("inbox-{id}-header"))
         .role("button")
-        .label_static(t!("sidebar.inbox.section.working"))
+        .label_static(name)
         .expanded(open)
         .h(24.0)
         .w_full()
@@ -291,9 +308,9 @@ fn working_header(s: &App, p: &Pal, open: bool) -> El {
         .radius(6.0)
         .focus_inset(p)
         .hover_group()
-        .on_press_tx(|s: &mut App, tx: &mut Tx| {
+        .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
-            s.toggle_inbox_working();
+            toggle(s);
         })
         .child(label)
         .child(
@@ -371,6 +388,14 @@ fn card(s: &App, p: &Pal, e: &Entry<'_>) -> El {
     let key = e.key();
     let (id, menu_id) = (key.clone(), key.clone());
     let archived = info.archived.is_some();
+    // Beyond Desktop, whose card archives only from its menu (`inbox.tsx:707`): under the pointer,
+    // a card nothing runs in or waits on shows an Archive button where its status and age are
+    // (an archived one's restores it). The card under it then takes its place, so pressing
+    // again clears the next one.
+    let action = (archived || matches!(e.status, InboxStatus::Ready | InboxStatus::Done | InboxStatus::Failed)) && !session_view::style::hover_none();
+    if action {
+        end = end.group_opacity(1.0, 0.0);
+    }
     let mut card = col()
         .key(format!("ib-{key}"))
         .role("button")
@@ -413,12 +438,44 @@ fn card(s: &App, p: &Pal, e: &Entry<'_>) -> El {
     if archived && !selected {
         card = card.opacity(0.5);
     }
+    if action {
+        card = card.hover_group().child(archive_button(p, &key, archived));
+    }
     card
+}
+
+/// A card's Archive button, at the end of its second line while the pointer is on the card,
+/// where its status and age rest: pressed, the session is archived (the toast offers it back).
+/// An archived card's restores it. Its target is 24 square around the 16 pt glyph, which ends
+/// where the age does.
+fn archive_button(p: &Pal, key: &str, archived: bool) -> El {
+    let row = key.to_owned();
+    let name = if archived { t!("sidebar.inbox.unarchive") } else { t!("common.archive") };
+    let glyph = if archived { &ic::OUTLINE_UNDO } else { &ic::ARCHIVE };
+    let button = el()
+        .key("press")
+        .role("button")
+        .label_static(name)
+        .help(name)
+        .help_side(rune::Side::Right)
+        .size(24.0, 24.0)
+        .center()
+        .radius(6.0)
+        .hover(p.hover)
+        .press(p.pressed)
+        .hover_group()
+        .on_press_tx(move |s: &mut App, tx: &mut Tx| {
+            tx.instant();
+            s.on_inbox_row(&row, |s, id| if archived { s.unarchive_session(id) } else { s.archive_session(id, tx) });
+        })
+        .child(icon(glyph, 16.0).color(p.icon_muted).group_color(p.icon));
+    el().key("archive").pin(None, None, Some(4.0), Some(4.0)).size(24.0, 24.0).group_opacity(0.0, 1.0).child(button)
 }
 
 /// A card's right-click menu: Archive (or Unarchive), then Delete…, each on the card's server.
 fn open_menu(s: &mut App, key: &str, archived: bool, at: rune::PointerPress, tx: &mut Tx) {
     let (server, id) = s.inbox_target(key);
+    crate::servers::runtime::with_server(s, &server, |s| s.adopt_archived(&id));
     let target = crate::session_menu::Target::on(&server, &id, crate::session_menu::Spot::Row);
     let read = crate::servers::runtime::with_server(s, &server, |s| crate::session_menu::lines(s, &target).into_iter().find_map(|line| match line {
         crate::session_menu::Line::Item(i) if matches!(i.id, "read" | "unread") => Some(Item::new(i.id, i.title)),

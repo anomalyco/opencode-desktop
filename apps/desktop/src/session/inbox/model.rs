@@ -18,6 +18,8 @@ use crate::{App, Route, Source};
 
 /// Recent shows this many before Show more (`RECENT_LIMIT`).
 pub const RECENT_LIMIT: usize = 10;
+/// Archived, open, shows its newest this many: View all has the rest.
+pub const ARCHIVED_SHOWN: usize = 10;
 
 /// What a root session needs from a person, across its subagent family.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -83,21 +85,10 @@ pub struct Sections<'a> {
     pub recent: Vec<Entry<'a>>,
     /// Recent has more than `RECENT_LIMIT`.
     pub more: bool,
-    /// Some session is archived: the Archived button shows.
-    pub archived: bool,
+    /// The archived sessions, the newest archived first: the Archived group under the list.
+    pub archived: Vec<Entry<'a>>,
     /// The pinned shelf below the list.
     pub working: Vec<Entry<'a>>,
-}
-
-impl Sections<'_> {
-    pub fn is_empty(&self) -> bool {
-        self.current.is_empty() && self.needs.is_empty() && self.unread.is_empty() && self.recent.is_empty() && self.working.is_empty()
-    }
-
-    /// Every row in order, the Working shelf last: the order the arrow keys rove in.
-    pub fn rows(&self) -> impl Iterator<Item = &Entry<'_>> {
-        self.current.iter().chain(&self.needs).chain(&self.unread).chain(&self.recent).chain(&self.working)
-    }
 }
 
 /// When the session's current run started (`workingSince`): none while the run it holds ended
@@ -115,7 +106,7 @@ impl App {
     /// A server that refused our credentials lists nothing until it signs in again.
     pub fn inbox_entries(&self) -> Vec<Entry<'_>> {
         let here = crate::servers::runtime::active(self);
-        let mut list: Vec<Entry<'_>> = self.sessions.iter().filter(|s| s.parent.is_none()).map(|s| self.inbox_entry(here, s)).collect();
+        let mut list: Vec<Entry<'_>> = self.sessions.iter().filter(|s| s.parent.is_none()).chain(self.archived_read()).map(|s| self.inbox_entry(here, s)).collect();
         let listed = crate::servers::runtime::listed();
         let shown = |key: &ServerKey| key != here && listed.iter().any(|l| l.key == *key && !l.signed_out);
         list.extend(self.sidebar_inbox.servers.iter().filter(|(key, _)| shown(key)).flat_map(|(server, rows)| {
@@ -129,7 +120,7 @@ impl App {
     pub fn inbox_entry_of<'a>(&'a self, shown: &crate::inbox_order::Shown) -> Option<Entry<'a>> {
         let here = crate::servers::runtime::active(self);
         if shown.server == *here {
-            return self.session(&shown.id).map(|s| self.inbox_entry(here, s));
+            return self.session(&shown.id).or_else(|| self.archived_read().find(|a| a.id == shown.id)).map(|s| self.inbox_entry(here, s));
         }
         let (server, rows) = self.sidebar_inbox.servers.iter().find(|(key, _)| *key == shown.server)?;
         let r = rows.iter().find(|r| r.session.id == shown.id)?;
@@ -181,14 +172,9 @@ impl App {
         matches!(&*self.route, Route::Session { id, server } if !self.settings_open() && server == e.server && self.root_of(id) == e.session.id)
     }
 
-    /// The groups the sidebar shows (`SidebarInbox`'s `sections`).
+    /// The groups the sidebar shows (`SidebarInbox`'s `sections`), each whole: what Recent and
+    /// Archived show of theirs is the folds' (`inbox_order::Order::shows`).
     pub fn inbox_sections(&self) -> Sections<'_> {
-        self.inbox_sections_with(self.kernel.slots.get(&crate::restore::RESTORE).inbox.recent_expanded)
-    }
-
-    /// [`App::inbox_sections`] with Recent shut or open (`expanded`) whatever the window's
-    /// toggle says.
-    pub fn inbox_sections_with(&self, expanded: bool) -> Sections<'_> {
         let list = self.inbox_entries();
         // An automation's sessions (Flow's) stay out of it; the open one still shows, as `current`.
         let active = || list.iter().filter(|e| e.session.archived.is_none() && !crate::view::is_automation(&e.session.title)).copied();
@@ -199,19 +185,16 @@ impl App {
         let mut read: Vec<_> = active().filter(|e| e.status == InboxStatus::Ready).collect();
         read.sort_by_key(|e| std::cmp::Reverse(e.since.unwrap_or(0)));
         let more = read.len() > RECENT_LIMIT;
-        if !expanded {
-            read.truncate(RECENT_LIMIT);
-        }
         // `time.updated` moves with every message of a run, so Working keeps run-start order.
         let mut working: Vec<_> = active().filter(|e| e.status == InboxStatus::Working).collect();
         working.sort_by(|a, b| {
             let start = |e: &Entry<'_>| working_since(e.session).unwrap_or(i64::MAX);
             start(a).cmp(&start(b)).then_with(|| a.session.id.cmp(&b.session.id))
         });
-        let shown = |e: &Entry<'_>| [&needs, &unread, &read, &working].iter().any(|g| g.iter().any(|x| x.server == e.server && x.session.id == e.session.id));
+        let mut archived: Vec<_> = list.iter().filter(|e| e.session.archived.is_some() && !crate::view::is_automation(&e.session.title)).copied().collect();
+        archived.sort_by_key(|e| std::cmp::Reverse(e.session.archived));
+        let shown = |e: &Entry<'_>| [&needs, &unread, &read, &working, &archived].iter().any(|g| g.iter().any(|x| x.server == e.server && x.session.id == e.session.id));
         let current = list.iter().find(|e| self.inbox_selected(e)).filter(|e| !shown(e)).copied().into_iter().collect();
-        let archived = list.iter().any(|e| e.session.archived.is_some())
-            || self.sidebar_inbox.archived.iter().any(|a| self.session(&a.id).is_none_or(|i| i.archived.is_some()));
         Sections { current, needs, unread, recent: read, more, archived, working }
     }
 
@@ -221,11 +204,14 @@ impl App {
     /// Show more / Show less under Recent (`recentExpanded`).
     pub fn toggle_inbox_recent(&mut self) { let r = &mut self.kernel.slots.get_mut(&crate::restore::RESTORE).inbox.recent_expanded; *r = !*r; }
 
+    /// The Archived group opens or shuts.
+    pub fn toggle_inbox_archived(&mut self) { let a = &mut self.kernel.slots.get_mut(&crate::restore::RESTORE).inbox.archived_expanded; *a = !*a; }
+
     /// The server and session the inbox row `key` names (`Entry::key`): a session of the server
     /// the window works against when no row of another server has that key.
     pub fn inbox_target(&self, key: &str) -> (ServerKey, String) {
         let here = crate::servers::runtime::active(self);
-        if let Some(info) = self.sessions.iter().find(|s| crate::tabs::session_uid(here, &s.id) == key) {
+        if let Some(info) = self.sessions.iter().chain(self.archived_read()).find(|s| crate::tabs::session_uid(here, &s.id) == key) {
             return (here.clone(), info.id.clone());
         }
         let found = self.sidebar_inbox.servers.iter().find_map(|(server, rows)| rows.iter().find(|r| crate::tabs::session_uid(server, &r.session.id) == key).map(|r| (server.clone(), r.session.id.clone())));
@@ -237,6 +223,7 @@ impl App {
         let (server, id) = self.inbox_target(key);
         let (title, dir) = self.sidebar_inbox.servers.iter().find(|(k, _)| *k == server).and_then(|(_, rows)| rows.iter().find(|r| r.session.id == id)).map(|r| (r.session.title.clone(), r.session.directory.clone())).unwrap_or_default();
         crate::servers::runtime::switch(self, &server);
+        self.adopt_archived(&id);
         if !self.tabs.iter().any(|t| t.is(&server, &id) && !t.is_draft()) {
             let (title, dir) = self.session(&id).map_or((title, dir), |s| (s.title.clone(), s.directory.clone()));
             self.tabs.push(crate::tabs::Tab::session(id.clone(), title, dir).on(server));
@@ -257,35 +244,10 @@ impl App {
     /// Runs `f` on the server of inbox row `key`, with its session's id.
     pub fn on_inbox_row(&mut self, key: &str, f: impl FnOnce(&mut App, &str)) {
         let (server, id) = self.inbox_target(key);
-        crate::servers::runtime::with_server(self, &server, |s| f(s, &id));
-    }
-
-    /// Archive: the session leaves the list and its tabs at once (`inbox.archive`).
-    pub fn archive_session(&mut self, id: &str, tx: &mut Tx) {
-        let now = *self.now_ms;
-        let Some(info) = self.sessions.iter_mut().find(|s| s.id == id) else { return };
-        info.archived = Some(now);
-        let here = crate::servers::runtime::active(self).clone();
-        if let Some(uid) = self.tabs.iter().find(|t| t.is(&here, id) && !t.is_draft()).map(crate::tabs::Tab::uid) {
-            self.close_tab(&uid, tx);
-        }
-        self.write(opencode_kit::client::Write::Archive(id.to_owned()));
-        // Beyond Desktop: the toast offers it back, tab and all.
-        crate::undo::offer(self, opencode_i18n::t!("rune.undo.sessionArchived"), crate::undo::Undoable::Archived { server: here, session: id.to_owned() });
-    }
-
-    /// Unarchive: it comes back to its group (`inbox.unarchive`).
-    pub fn unarchive_session(&mut self, id: &str) {
-        self.unarchive_session_locally(id);
-        self.write(opencode_kit::client::Write::Unarchive(id.to_owned()));
-    }
-
-    /// Shows the session as restored: off the archived list and not archived.
-    pub(crate) fn unarchive_session_locally(&mut self, id: &str) {
-        self.sidebar_inbox.archived.retain(|a| a.id != id);
-        if let Some(info) = self.sessions.iter_mut().find(|s| s.id == id) {
-            info.archived = None;
-        }
+        crate::servers::runtime::with_server(self, &server, |s| {
+            s.adopt_archived(&id);
+            f(s, &id)
+        });
     }
 }
 
@@ -300,10 +262,11 @@ pub struct SidebarInbox {
     pub height: f32,
     /// The age labels' last tick: seconds while something works, minutes otherwise.
     tick: i64,
-    /// The newest archived root sessions (the list leaves them out): the Archived button shows
-    /// while there are any.
+    /// The newest archived root sessions (the list leaves them out), read once from the server
+    /// `archived_on` names: the Archived group lists them.
     pub archived: Vec<SessionInfo>,
-    archived_fetch: ArchivedFetch,
+    pub(crate) archived_on: Option<ServerKey>,
+    pub(super) archived_fetch: super::archived::Fetch,
     pub branches: Branches,
     /// The root sessions of each server the window isn't checked out on, in listing order, as of
     /// its last checkout (`snap`).
@@ -371,52 +334,12 @@ impl Settle {
 #[derive(Clone, Debug, Default)]
 struct Heard { sessions: bool, read: HashSet<String> }
 
-type ArchivedSlot = Arc<Mutex<Option<Result<Vec<SessionInfo>, ()>>>>;
-
-/// One-shot fetch of the newest archived root sessions (`ARCHIVED_LIMIT`): mirrors [`Branches`]'s
-/// bounded backoff retries (`BRANCH_RETRY_LIMIT`) on failure before resting as `Failed`.
-#[derive(Default)]
-enum ArchivedFetch { #[default] Idle, Loading { failures: u32, landed: ArchivedSlot }, Retrying { failures: u32, due: f64 }, Loaded, Failed }
-enum ArchivedEvent { Poll { now: f64 }, Landed { result: Result<Vec<SessionInfo>, ()>, now: f64 }, SpawnFailed }
-enum ArchivedEffect { Spawn(ArchivedSlot), WakeAfter(Duration), Loaded(Vec<SessionInfo>) }
-
-impl ArchivedFetch {
-    fn begin(&mut self, failures: u32) -> Option<ArchivedEffect> {
-        let slot: ArchivedSlot = Arc::new(Mutex::new(None));
-        *self = Self::Loading { failures, landed: Arc::clone(&slot) };
-        Some(ArchivedEffect::Spawn(slot))
-    }
-
-    fn step(&mut self, event: ArchivedEvent) -> Option<ArchivedEffect> {
-        match (std::mem::take(self), event) {
-            (Self::Idle, ArchivedEvent::Poll { .. }) => self.begin(0),
-            (Self::Retrying { failures, due }, ArchivedEvent::Poll { now }) if due <= now + 1e-9 => self.begin(failures),
-            (Self::Retrying { failures, due }, ArchivedEvent::Poll { now }) => {
-                *self = Self::Retrying { failures, due };
-                Some(ArchivedEffect::WakeAfter(Duration::from_secs_f64((due - now).max(0.0))))
-            }
-            (Self::Loading { failures, .. }, ArchivedEvent::Landed { result, now }) => match result {
-                Ok(list) => { *self = Self::Loaded; Some(ArchivedEffect::Loaded(list)) }
-                Err(()) if failures >= BRANCH_RETRY_LIMIT => { *self = Self::Failed; None }
-                Err(()) => {
-                    let delay = (BRANCH_RETRY_DELAY * f64::from(1u32 << failures)).min(BRANCH_RETRY_MAX_DELAY);
-                    *self = Self::Retrying { failures: failures + 1, due: now + delay };
-                    Some(ArchivedEffect::WakeAfter(Duration::from_secs_f64(delay)))
-                }
-            },
-            (Self::Loading { failures: 0, .. }, ArchivedEvent::SpawnFailed) => { *self = Self::Idle; None }
-            (Self::Loading { failures, .. }, ArchivedEvent::SpawnFailed) => { *self = Self::Retrying { failures, due: 0.0 }; None }
-            (state, _) => { *self = state; None }
-        }
-    }
-}
-
 /// Branch lookups each run git on the server, so a few at a time (`BRANCH_BATCH`).
 const BRANCH_BATCH: usize = 4;
-const BRANCH_RETRY_DELAY: f64 = 1.0;
-const BRANCH_RETRY_MAX_DELAY: f64 = 4.0;
+pub(super) const BRANCH_RETRY_DELAY: f64 = 1.0;
+pub(super) const BRANCH_RETRY_MAX_DELAY: f64 = 4.0;
 /// Retries after the first failed lookup before the folder rests as failed until a reconnect.
-const BRANCH_RETRY_LIMIT: u32 = 2;
+pub(super) const BRANCH_RETRY_LIMIT: u32 = 2;
 
 /// One folder's git branch load (`InboxBranchEntry`).
 #[derive(Clone, Debug, PartialEq)]
@@ -645,7 +568,7 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         s.sidebar_inbox.redraw = false;
         changed = true;
     }
-    changed |= load_archived(s, now, tx);
+    changed |= super::archived::load(s, now, tx);
     let order = s.inbox_order();
     let working = order.rows.iter().any(|r| r.working);
     // The rows' folders go to the branch reads once per reading of the rows, not every poll.
@@ -666,38 +589,6 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     let waker = (*s.waker).clone();
     changed |= s.sidebar_inbox.branches.poll(&s.source, waker.as_ref(), now, tx);
     changed
-}
-
-/// Reads the newest archived root sessions once (`ARCHIVED_LIMIT`), retrying on failure with
-/// bounded backoff, and takes them in. True when they land.
-fn load_archived(s: &mut App, now: f64, tx: &mut Tx) -> bool {
-    let landed = match &s.sidebar_inbox.archived_fetch {
-        ArchivedFetch::Loading { landed, .. } => landed.lock().unwrap_or_else(|e| e.into_inner()).take(),
-        _ => None,
-    };
-    if let Some(result) = landed {
-        return match s.sidebar_inbox.archived_fetch.step(ArchivedEvent::Landed { result, now }) {
-            Some(ArchivedEffect::Loaded(list)) => { s.sidebar_inbox.archived = list; true }
-            Some(ArchivedEffect::WakeAfter(after)) => { tx.wake_after(after); false }
-            _ => false,
-        };
-    }
-    if !matches!(s.sidebar_inbox.archived_fetch, ArchivedFetch::Idle | ArchivedFetch::Retrying { .. }) { return false; }
-    let Source::Live { server, .. } = &*s.source else { return false };
-    let server = server.clone();
-    match s.sidebar_inbox.archived_fetch.step(ArchivedEvent::Poll { now }) {
-        Some(ArchivedEffect::Spawn(slot)) => {
-            let wake = (*s.waker).clone();
-            if rune::task::spawn("inbox-archived", move || {
-                let result = server.get("/api/session?parentID=null&archived=true&limit=50").map(|v| opencode_kit::model::parse_sessions(&v)).map_err(|_| ());
-                *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(result);
-                if let Some(w) = wake { w(); }
-            }).is_err() { s.sidebar_inbox.archived_fetch.step(ArchivedEvent::SpawnFailed); }
-        }
-        Some(ArchivedEffect::WakeAfter(after)) => tx.wake_after(after),
-        _ => {}
-    }
-    false
 }
 
 /// The runtime is about to leave the server the window is checked out on: while the inbox shows,

@@ -358,10 +358,11 @@ impl App {
     /// lead, followed by unpinned tabs or visible Recent rows), or in the inbox its rows as shown.
     pub(crate) fn nav_order(&self) -> Vec<String> {
         if self.tab_layout() == crate::layout_state::TabLayout::Inbox {
-            let sections = self.inbox_sections();
-            let shelf = if self.kernel.slots.get(&crate::restore::RESTORE).inbox.working_expanded { sections.working.len() } else { 0 };
-            let listed = sections.current.len() + sections.needs.len() + sections.unread.len() + sections.recent.len();
-            return sections.rows().take(listed + shelf).map(|e| e.session.id.clone()).collect();
+            use crate::inbox_order::Group;
+            let (order, open) = (self.inbox_order(), self.inbox_open());
+            let shelf = if self.kernel.slots.get(&crate::restore::RESTORE).inbox.working_expanded { order.groups[Group::Working as usize].clone() } else { 0..0 };
+            let listed = [Group::Current, Group::Needs, Group::Unread, Group::Recent, Group::Archived].into_iter().flat_map(|g| order.shows(g, open));
+            return listed.chain(shelf).map(|at| order.rows[at].id.clone()).collect();
         }
         if self.settings.navigation_prototype() {
             let mut order = crate::tabs::pins::visible_uids(self);

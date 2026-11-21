@@ -335,6 +335,8 @@
   "rune.undo.serverRemoved": "Server removed",
   "rune.undo.sessionArchived": "Session archived",
   "rune.undo.sessionDeleted": "Session deleted",
+  "rune.undo.sessionsArchived.one": "{{count}} session archived",
+  "rune.undo.sessionsArchived.other": "{{count}} sessions archived",
   "rune.undo.windowClosed": "Window closed",
   "rune.updater.applyFailed": "Couldn't install update {{version}} ({{why}}).",
   "rune.updater.checkFailed": "Couldn't check for updates. Try again later.",
