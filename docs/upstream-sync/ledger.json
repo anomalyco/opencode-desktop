@@ -2,28 +2,28 @@
   "generated_at": "2026-11-21",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "fe8def68544c795984d9fbdde6ca7e74299230bc",
+  "upstream_head": "b9a60d9d078d87bfb90f039e431090508f88ac02",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "3bc6ecf25140a835564611c78f6efde09cca186c",
-  "post_1114_commit_count": 364,
-  "post_1114_in_ledger": 134,
-  "post_1114_skipped": 230,
+  "rune_desktop_head": "6e98fc2b726ec52bb0f79f78c8d02d506a8ef66d",
+  "post_1114_commit_count": 377,
+  "post_1114_in_ledger": 143,
+  "post_1114_skipped": 234,
   "post_1114_skipped_breakdown": {
     "test-only": 17,
     "ci-bench-deps": 15,
     "docs-site-data": 37,
-    "tui-only": 10,
-    "cli-acp-only": 3,
-    "server-core-ai-codemode-internal": 148
+    "tui-only": 11,
+    "cli-acp-only": 4,
+    "server-core-ai-codemode-internal": 150
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 153,
+  "total_ledger_rows": 164,
   "status_counts": {
-    "have it": 104,
-    "partly": 7,
-    "not applicable": 21,
-    "missing": 20,
+    "have it": 109,
+    "partly": 5,
+    "not applicable": 23,
+    "missing": 26,
     "differs on purpose": 1
   },
   "rows": [
@@ -2632,8 +2632,8 @@
       ],
       "summary": "Unify the keyboard focus ring token/rendering across all interactive controls, add missing `:focus-visible` states app-wide, and install Focus Rescue so removing a focused item moves focus to a neighbor.",
       "size": "XL",
-      "status": "partly",
-      "status_evidence": "Unified 2 pt focus ring & dark blue-400 border-focus (#262), Rune kit rings (#265/Rune #1296), settings mode cards / swatches / project rows / sidebar pins (#269), and disabled-control / region / Tab-stop / roving-group focus rescue (#282/Rune #1298, #293/Rune #1302, #300 3bc6ecf2/Rune #1304 fixing tab-strip Close-tab -> next tab rescue) are live on dev; whole-row within-rings and field select rings remain in WS-8.",
+      "status": "have it",
+      "status_evidence": "Focus rings (#262, #269, Rune #1296), rescue (Rune #1298, #1302, #1304) and field rings: composer frame and Home search ring only when the keys put focus there (PR #326)",
       "depends_on": "Rune focus-rescue / scope-based fallback focus API",
       "risks": "Must preserve Rune's existing accessibility tree, screen-reader announcements, and zero-allocation idle path.",
       "workstream": "WS-8",
@@ -2736,8 +2736,8 @@
       ],
       "summary": "Show the composer's keyboard focus ring only when focus arrives via keyboard navigation or shortcuts, not on pointer clicks or mode toggles.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Rune #1297 (El::focus_visible_within_ring + Entry tracking) is now live on dev via #282 (ce53bfa4); WS-8 to wire composer frame & Home search keyboard-only rings and handOffFocus paths.",
+      "status": "have it",
+      "status_evidence": "Composer frame rings 2 in via Rune focus_visible_within_ring only on keyboard entry; ^L rings only from the keys (PR #326)",
       "depends_on": "UP-088 (#64909); Rune focus-visible / programmatic focus origin tracking",
       "risks": "none",
       "workstream": "WS-8"
@@ -2832,13 +2832,13 @@
       "summary": "Overhaul the desktop browser pane with one encrypted persistent profile, cookie import from 15 browsers + site chooser, remote partition/sharing, Settings > Browser, `oc-preview://` local/remote workspace & artifact previews, chat/terminal link routing + app-link review, full browser chrome (right-click, find, hard reload, pop-up blocking, notices, plain errors), in-app JS dialogs/permissions/HTTP auth, and hardened/upgraded agent browser tools (`tabs.open({ path })` replacing `browser.preview`, deep snapshots with field-value redaction, hidden screenshots, BuiltinPromptGate, deny rules, agent-driven tab isolation). (Chrome extensions tracked separately in UP-095-EXT under WS-9.)",
       "size": "XL",
       "status": "partly",
-      "status_evidence": "WS-1 engine core: Phase 1 complete (#239, #245, #268, #272) and Phase 3a hardened (#277, #288, #291, #299 5fed7fcd passing NoopCompletion to RequestContext::close_all_connections to fix CEF 156 crash); Phase 3b (PR #286) and retrospective security fix PR #292 (confirmed by security reader, ready to merge) remain open.",
+      "status_evidence": "WS-1 engine core: Phase 1 (#239, #245, #268, #272), Phase 3a (#277, #288, #291, #299), Fix PR 1 (#292 6d7a6ede remote proxy + isolation), and Fix PR 4 (#306 b5167f7e atomic OpenTab/TabSnapshot agent_driven across cold start/crash+Retry/promote/reconnect/3P plugins + TabDriver) merged on dev; Fix PR 3 (#305 site permissions, confirmed 3rd read merging new dev), controlled-tab Permissions-Policy + clipboard-write follow-up, Fix PRs 5-7, and Phase 3b (#286 OS cookie encryption) remain open.",
       "depends_on": "CEF engine updates + new signed browser engine publishes for macOS/Windows/Linux; Luau contract bump for Browser service; server `plugin-browser` alignment (or rune_mcp parity); Rune framework checks for extension popup anchoring",
       "risks": "HIGH SECURITY & ARCHITECTURE: (1) CEF OSR Alloy vs Chrome-runtime extension support spike required; (2) must NOT regress Rune's stricter URL/CDP/download security (`0b540fd8`, `a5a71a0d`, `344a2087`, `bb41d149`) and must address `no_sandbox: 1` (`engine.rs:100`); (3) cookie encryption is one-way; (4) `browser.preview` removal is breaking for scripts/prompts; (5) publishing signed macOS/Windows/Linux engines requires release signing keys and release workflow.",
       "workstream": "WS-1",
-      "open_pr_note": "unmerged PR #234 (partial: JS dialogs, snapshot, evaluate, wait); PR #286 (ws1-phase3b, held for pre-merge review); PR #292 (ws1-fix1-remote-proxy, security fix)",
-      "rune_pr": "#239, #245, #268, #272, #277, #288, #291, #299",
-      "reviewed": "NOT SOUND TO SHIP (#245/#268/#272/#277/#288 retrospective findings open; #299 crash fix merged); #292 confirmed to merge; #286 held for pre-merge review"
+      "open_pr_note": "PR #305 (ws1-fix3-permissions, merge-check fix + merging 6e98fc2b); controlled-tab stopgap / Permissions-Policy + clipboard-write follow-up; PR #286 (ws1-phase3b, held)",
+      "rune_pr": "#239, #245, #268, #272, #277, #288, #291, #299, #292, #306",
+      "reviewed": "#292 confirmed (4th read); #306 confirmed (2nd read at e79c1306); #305 confirmed 3rd read at d590a0b1 (merge check at 5551ea60 needs ~4-line reopen_tab_as_* visit_permissions clear + dev merge); NOT SOUND TO SHIP (#245/#268/#272/#277/#288 retrospective findings still open in #305 + controlled-tab stopgap/Permissions-Policy/clipboard-write + Fix PRs 5-7); #286 held"
     },
     {
       "id": "UP-096",
@@ -3052,8 +3052,8 @@
       ],
       "summary": "Suppress the composer keyboard focus ring when focus returns to the already-active composer upon switching back to the app window.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Rune #1297 (WindowReturned focus event suppressing focus-visible ring on window return) is now live on dev via #282 (ce53bfa4); WS-8 to wire composer & Home search fields.",
+      "status": "have it",
+      "status_evidence": "The composer ring follows Rune's focus-visible origin, which a return to the window doesn't set (Rune #1297) (PR #326)",
       "depends_on": "UP-092 (#64976)",
       "risks": "none",
       "workstream": "WS-8"
@@ -3100,13 +3100,13 @@
       "summary": "Support Chrome extensions in the embedded browser pane: CRX3 store download + RSA/ECDSA signature and listing-ID check, import from other browsers, unpacked developer folder, permission review modal with one-use token, startup file-digest integrity check, toolbar Extensions button + anchored popups, core extension APIs, private-tab redaction, and ad-blocker startup wait.",
       "size": "XL",
       "status": "partly",
-      "status_evidence": "Split from UP-095 (#63002) into WS-9. #![forbid(unsafe_code)] crates/browser-extensions (CRX3 RSA/ECDSA-P256, bounded ZIP, SHA-NI tree digest, MV2/downgrade refusal, InstallMachine, Chromium profile scanner, 0 new third-party deps) merged on dev in #280 (b019dad0); engine extension host (#274) and browser-pane lifecycle/DNR/popup (#283) remain open and held for pre-merge security review.",
+      "status_evidence": "Split from UP-095 (#63002) into WS-9. #![forbid(unsafe_code)] crates/browser-extensions (#280 b019dad0) and engine MV3 extension host over private anonymous CDP pipe (#274 5da64743, inert without --extension flags) are merged on dev; #312 (Find caller scoping) awaits final dev merge; masking stream (#314) is paused pending owner decision on agent-tab contexts (dedicated extension-free context vs DOM/AX masking); #283 remains held behind 4-part shipping gate + signed engine publish.",
       "depends_on": "UP-095 (#63002 browser engine & settings hooks)",
       "risks": "CEF 156 OSR extension runtime constraints (popup APIs, service-worker shim, private-tab redaction, per-server isolation, and engine publishing).",
       "workstream": "WS-9",
-      "open_pr_note": "PR #274 (ws9/pr1-engine-extensions), PR #283 (ws9/pr3-pane-extensions) — held for pre-merge security review",
-      "reviewed": "#280 confirmed (3rd read); #274, #283 held for pre-merge review",
-      "rune_pr": "#280"
+      "open_pr_note": "PR #312 (ws9/pr1b1-find-caller-scoping, merging dev after #305/#316), PR #314 (masking stream paused pending owner decision on agent-tab contexts), PR #283 (held behind 4-part shipping gate)",
+      "reviewed": "#280 confirmed (3rd read); #274 confirmed (6th read + two merge checks; macOS FD 3/4 + loadUnpacked live proof passed on macOS; Linux never run); #312 confirmed pre-merge; #314 (2nd read NOT CONFIRMED) paused pending owner decision on agent-tab contexts; #283 held",
+      "rune_pr": "#280, #274"
     },
     {
       "id": "UP-106",
@@ -3327,13 +3327,13 @@
       "summary": "App-side browser chrome polish, refusal notices, plain errors, Find UI, Settings > Browser page, and chat/terminal link routing into the browser pane.",
       "size": "L",
       "status": "have it",
-      "rune_pr": "#270, #276, #285, #297",
-      "status_evidence": "Code merged on dev: chrome polish & device toolbar (#270 17194075), Settings > Browser (#276 c6bd83d0), policy-first link routing & Phase 1c chrome wiring (#285 5a1a37ba), and inline chat video + reply browser/Finder link actions (#297 918d24f9). Security fix PR #294 confirmed to merge (with macOS compile fix).",
+      "rune_pr": "#270, #276, #285, #297, #294, #307, #316 (Rune #1307)",
+      "status_evidence": "Code merged on dev: chrome polish & device toolbar (#270 17194075), Settings > Browser (#276 c6bd83d0), policy-first link routing & Phase 1c chrome wiring (#285 5a1a37ba), inline chat video + reply link actions (#297 918d24f9), Security A1 file-link/click-to-run fix (#294 ae3e9105; known limitation: symlink/junction workspace roots refused until #308), click-to-load for all inline reply videos with web video as plain browser-pane links (#307 a1e7d0dc), and Rune #1307 strict local video opening pinned in #316 (6e98fc2b). PR #308 (alias-root) and PR #315 (A2a links/schemes) remain open.",
       "depends_on": "UP-095 (#63002)",
       "risks": "Link routing must always delegate scheme/URL decisions to crates/browser-policy.",
       "workstream": "none",
-      "reviewed": "#285 NOT SAFE TO SHIP; #297 not reviewed before merge; security findings tracked for follow-up PR #294 (closing in #294)",
-      "open_pr_note": "PR #294 (browser-ui/sec-a1-file-links, confirmed by security reader)"
+      "reviewed": "#294 confirmed (final + compile-fix + merge check; Windows live; macOS/Linux compiled only; symlink/junction roots refused); #307 confirmed (2nd read at fc3df8c5 + merge check ea183993; Windows live); #316 / Rune #1307 confirmed (1st read + macOS headless proof + full test suite; Windows Files-panel & reply click-to-load proved live); #285/#289 NOT SAFE TO SHIP (#315 A2a in rework after 2nd read; #308 in rework after 2nd read; A2b/A2c/B queued)",
+      "open_pr_note": "PR #308 (browser-ui/sec-alias-root, in rework — 2nd read), PR #315 (browser-ui/sec-a2a-links-schemes, in rework — 2nd read)"
     },
     {
       "id": "UP-095-PREVIEWS",
@@ -3353,14 +3353,13 @@
       ],
       "summary": "Serve local, remote, and artifact previews through isolated per-preview CefRequestContexts and oc-preview:// with open-handle path verification, strict CSP/Connection-Allowlist, and raw file:// ban.",
       "size": "XL",
-      "status": "partly",
-      "status_evidence": "Split from UP-095 (#63002) into PREVIEWS. PR #281 (5d50c6f7) landed oc-preview:// CefSchemeHandlerFactory, ContextPool::is_tab_ready fail-closed readiness gate + PreInitBlockResourceHandler, parent-handle NtCreateFile + Cloud Filter allow-list / Unix openat(O_NOFOLLOW), PreviewIoPool per-grant caps, and browser-policy is_safe_workspace_root hardening; PR #303 (app routing, 'no preview, show source' fallback, and unconditional engine raw file:// ban) is open and held for pre-merge security review.",
+      "status": "have it",
+      "status_evidence": "Complete on dev: #281 (5d50c6f7) landed isolated oc-preview:// CefSchemeHandlerFactory, ContextPool::is_tab_ready fail-closed gate, parent-handle NtCreateFile / openat(O_NOFOLLOW), and PreviewIoPool; #303 (6fb05ce1) landed full app routing for local/remote/artifact previews, unconditional engine-wide and app-wide raw file:// ban, older-engine show-source/unsupported fallback, Ready.preview_credit byte flow control, fair PreviewFetchPool, and 3P/agent preview guards.",
       "depends_on": "UP-095 (#63002)",
       "risks": "Security-critical: symlink/TOCTOU, loopback/LAN/WebRTC exfiltration, credential isolation, raw file:// ban; requires newly published engine binary.",
-      "workstream": "PREVIEWS",
-      "open_pr_note": "PR #303 (previews/pr2-app-routing, held for pre-merge security review)",
-      "reviewed": "#281 confirmed (third read + merge check); PR #303 held for pre-merge review",
-      "rune_pr": "#281"
+      "workstream": "none",
+      "reviewed": "#281 confirmed (3rd read + merge check; macOS handle_path live proof passed on macOS); #303 confirmed (4th read at 1e4599e9 + merge check at 1385cef3, tree 8c3ff7f1); Linux runtime never run",
+      "rune_pr": "#281, #303"
     },
     {
       "id": "UP-095-TOOLS",
@@ -3381,14 +3380,13 @@
       "summary": "Replace local rune_mcp browser tools on modern servers with pure-Rust experimental.browser v4 RPC client, 45 typed executors, <=1 s durable PromptGate, and authenticated remote tunnel proxy.",
       "size": "XL",
       "status": "partly",
-      "rune_pr": "#275, #287",
-      "status_evidence": "Pure-Rust experimental.browser v4 RPC client, AttachMachine, TunnelProxy, browser-policy::agent (#275 c397d0b9) and BrowserRpcFeature runtime, per-session tab_<uuid> isolation, deep AX snapshot + field_value secret redaction, diagnostics, and Nav/Tabs/Reading/Screenshot/Files executors (#287 a974a664) are live on dev; PR 3 (acting/uploads/profiling) and PR 4 (BuiltinPromptGate/remote tunnel/rune_mcp cutover) remain.",
+      "rune_pr": "#275, #287, #301, #296",
+      "status_evidence": "experimental.browser v4 client (#275 c397d0b9), session-isolated nav/read runtime (#287 a974a664), official routed-session attach + shared recency rule fixing #287 time_updated/Home-order regression (#301 6522f112), and legacy rune_mcp browser suppression + Half::is_builtin + hardened check_cdp (#296 95cb36a8) are merged on dev; #298 (RPC auth/bounds/OOPIFs/wait spin), #302 (split into remote TunnelProxy hardening/wiring vs separate new-session-start-only prompt gate tracked in UP-095-PROMPT-GATE), narrow 3P browser contract (UP-095-3P-CONTRACT), and acting/uploads/profiling PR 3+ remain.",
       "depends_on": "UP-095 (#63002), PRE-08 (#63500)",
       "risks": "Remote server attachment must fail closed until engine Ready.remote_proxy lands (WS-1 Phase 3a); older servers must keep full rune_mcp fallback.",
       "workstream": "BROWSER-TOOLS",
-      "reviewed": "NOT SAFE TO SHIP (#275/#287 retrospective findings open); #296, #298, #301, #302, and PR 3+ held for pre-merge review",
-      "open_pr_note": "PR #296, PR #298, PR #301 (lazy attach regression fix), PR #302 — held for pre-merge security review",
-      "open_regression": "BROWSER-TOOLS (#287): eager experimental.browser attach triggers server writePermissions mutating session time_updated=now, bucketing opened sessions into Older (18 Home screens, +7.5M restPx; fix PR #301 open)"
+      "reviewed": "#301 confirmed (4th read at 87d48dec); #296 confirmed (5th read at 4ee64ceb + merge check at cd7a85ee); NOT SAFE TO SHIP (#275/#287 retrospective findings still open in #298 and #302 tunnel); #298 updated at 1d3e757c (awaiting 3rd read) and #302 split to tunnel-only at ed01f16f (awaiting 3rd read; prompt gate moved to UP-095-PROMPT-GATE)",
+      "open_pr_note": "PR #298 (1d3e757c, awaiting 3rd read), PR #302 (ed01f16f tunnel-only split, awaiting 3rd read; new-session-start-only prompt gate in UP-095-PROMPT-GATE)"
     },
     {
       "id": "UP-114",
@@ -3780,8 +3778,8 @@
       ],
       "summary": "Use focusField(..., ring) during focus rescue so mouse clicks on queued prompt Steer/Remove hand focus to the composer without showing the keyboard-only focus ring.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Verify composer focus handoff after mouse clicks on Steer/Remove suppresses keyboard-only ring once WS-8 wires Rune #1297 focus_visible_within_ring.",
+      "status": "have it",
+      "status_evidence": "A click on Steer/Remove hands focus to the composer by Rune's rescue with the click's origin, so no ring (PR #326)",
       "depends_on": "UP-092 (#64976)",
       "risks": "none",
       "workstream": "WS-8"
@@ -3878,12 +3876,289 @@
       "depends_on": "none",
       "risks": "none",
       "workstream": "none"
+    },
+    {
+      "id": "UP-135",
+      "window": "post-1120",
+      "pr": 65215,
+      "sha": "f502a6e6cc",
+      "title": "fix(app): fix clipped and misleading focus rings in the timeline and settings",
+      "merged": "2026-11-20",
+      "packages": [
+        "app",
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/app/src/settings/shell.tsx",
+        "packages/app/src/settings/navigation.tsx",
+        "packages/app/src/settings/settings.css",
+        "packages/app/src/runtime/plugin/settings-page-view.tsx",
+        "packages/session-ui/src/timeline-next/timeline-next.css"
+      ],
+      "summary": "Prevent focus-ring clipping on timeline and settings containers and stop showing misleading outer focus rings when nested controls are focused.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Audit timeline and settings containers/navigation controls for focus-ring clipping and misleading outer rings in features/settings and crates/session-view.",
+      "depends_on": "UP-088 (#64909)",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-095-3P-CONTRACT",
+      "window": "post-1114",
+      "pr": 63002,
+      "sha": "3aa3e133b6",
+      "title": "feat(plugins): expose official's narrow browser contract to third-party plugins [known gap from #296]",
+      "merged": "2026-11-19",
+      "packages": [
+        "plugin",
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/plugin/src/gui/browser.ts"
+      ],
+      "summary": "Expose official's narrow third-party plugin browser contract (attached, canOpen, open, openFile, experimental.{open,close}); #296 refuses Browser:OpenAsync for third-party plugins on modern/remote servers until this contract exists.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Known gap from #296 (95cb36a8): third-party plugins get narrower browser access than Official until Rune exposes Official's narrow contract from packages/plugin/src/gui/browser.ts:9-57.",
+      "depends_on": "UP-095-TOOLS (#296)",
+      "risks": "Must keep third-party plugins blocked from raw CDP, ReadFileAsync, SiteCookiesAsync, and oc-preview:// minting.",
+      "workstream": "BROWSER-TOOLS",
+      "reviewed": "Tracked follow-up gap from #296 (confirmed 5th read + merge check)"
+    },
+    {
+      "id": "UP-095-PROMPT-GATE",
+      "window": "post-1114",
+      "pr": 63002,
+      "sha": "3aa3e133b6",
+      "title": "feat(browser): prompt gate: new-session start only [split from #302]",
+      "merged": "2026-11-19",
+      "packages": [
+        "app",
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/app/src/runtime/plugin/prompt-gate.ts",
+        "packages/app/src/composer/submit.ts"
+      ],
+      "summary": "Hold only new-session start (create -> attach -> prompt, <= 1 s fail-open) because #301 attaches routed sessions in 0 ms; explicit loss vs Official: reconnect-gap (~100-300 ms local / 1 RTT remote / backoff) or unrouted background outbox submit runs that turn without experimental.browser (never legacy rune_mcp via #296). Split from #302; not yet built.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Split out of #302 (tunnel-only at ed01f16f); new-session-start-only prompt gate is approved as a separate PR after #298/#302 and is not yet built.",
+      "depends_on": "UP-095-TOOLS (#301, #296, #298, #302)",
+      "risks": "Must not introduce server-switch livelocks, multi-window outbox races, or show_start Blocked::Missing races.",
+      "workstream": "BROWSER-TOOLS",
+      "reviewed": "Not yet built (split from #302 tunnel/gate)"
+    },
+    {
+      "id": "UP-136",
+      "window": "post-1120",
+      "pr": 65002,
+      "sha": "8a1501ca5e",
+      "title": "feat(codemode): show file diffs from a script below the execute block",
+      "merged": "2026-11-20",
+      "packages": [
+        "core",
+        "session-ui",
+        "tui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/timeline-next/row.tsx",
+        "packages/session-ui/src/timeline/session-timeline-row.tsx",
+        "packages/session-ui/src/tools/tool-renderer.tsx",
+        "packages/session-ui/src/timeline/facts.ts"
+      ],
+      "summary": "Render file diff cards produced by a completed Code Mode script directly below its execute block in the timeline.",
+      "size": "L",
+      "status": "missing",
+      "status_evidence": "Rune renders finished Code Mode scripts (#252), but does not yet render per-file diff cards emitted by a script below its execute block.",
+      "depends_on": "UP-049 (#64334)",
+      "risks": "none",
+      "workstream": "WS-3"
+    },
+    {
+      "id": "UP-137",
+      "window": "post-1120",
+      "pr": 65264,
+      "sha": "3bc82a19b3",
+      "title": "feat(app): send browser, file and review comments to the session with Mod+Enter",
+      "merged": "2026-11-20",
+      "packages": [
+        "app",
+        "gui-plugins",
+        "plugin",
+        "session-ui",
+        "ui"
+      ],
+      "main_files": [
+        "packages/app/src/composer/submit.ts",
+        "packages/gui-plugins/src/browser/panel.tsx",
+        "packages/gui-plugins/src/file/view.tsx",
+        "packages/gui-plugins/src/review/panel.tsx",
+        "packages/plugin/src/gui/host-apis.ts"
+      ],
+      "summary": "Allow sending inline browser, file, and review comments straight to the active session with Mod+Enter.",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "Audit line/browser/review comment editors and composer submission in features/annotations, features/files, features/review, and plugins/browser for Mod+Enter direct send.",
+      "depends_on": "UP-095-UI",
+      "risks": "Touches browser, file, and review comment flows + plugin host APIs.",
+      "workstream": "BROWSER-UI"
+    },
+    {
+      "id": "UP-138",
+      "window": "post-1120",
+      "pr": 65259,
+      "sha": "6f9d6cf575",
+      "title": "feat(server): endpoint for a machine's link",
+      "merged": "2026-11-20",
+      "packages": [
+        "protocol",
+        "server"
+      ],
+      "main_files": [
+        "packages/protocol/src/groups/machine.ts",
+        "packages/server/src/handlers/machine.ts",
+        "packages/protocol/openapi.json"
+      ],
+      "summary": "Add server endpoint and OpenAPI schema for machine link inspection.",
+      "size": "S",
+      "status": "not applicable",
+      "status_evidence": "Server-side machine link endpoint and protocol schema only; no desktop UI changes.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "none"
+    },
+    {
+      "id": "UP-139",
+      "window": "post-1120",
+      "pr": 65247,
+      "sha": "e86058a790",
+      "title": "feat(codemode): show a script's diffs while it runs",
+      "merged": "2026-11-20",
+      "packages": [
+        "core",
+        "session-ui",
+        "tui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/timeline-next/tools/context-group.tsx",
+        "packages/session-ui/src/tools/tool-renderer.tsx",
+        "packages/session-ui/src/timeline/facts.ts"
+      ],
+      "summary": "Stream and display file diff cards emitted by an in-flight Code Mode script while it is still running.",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "Follow-on to UP-136 (#65002): display live script diff cards before script completion.",
+      "depends_on": "UP-136 (#65002)",
+      "risks": "none",
+      "workstream": "WS-3"
+    },
+    {
+      "id": "UP-140",
+      "window": "post-1120",
+      "pr": 65236,
+      "sha": "1f926188ac",
+      "title": "feat(automation): give scheduled code the session's Code Mode tools",
+      "merged": "2026-11-20",
+      "packages": [
+        "codemode",
+        "core",
+        "protocol",
+        "schema"
+      ],
+      "main_files": [
+        "packages/core/src/automation/code.ts",
+        "packages/schema/src/automation.ts",
+        "packages/protocol/openapi.json"
+      ],
+      "summary": "Expose session Code Mode tools inside scheduled automation code runs on the server.",
+      "size": "S",
+      "status": "not applicable",
+      "status_evidence": "Server-side automation/codemode execution and schema only; no desktop UI changes.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "none"
+    },
+    {
+      "id": "UP-141",
+      "window": "post-1120",
+      "pr": 65270,
+      "sha": "f691e443db",
+      "title": "fix(session-ui): space a script's diff cards in the old timeline",
+      "merged": "2026-11-20",
+      "packages": [
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/components/message-part.css"
+      ],
+      "summary": "Apply spacing between script diff cards rendered below an execute block.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Apply matching spacing when implementing UP-136 (#65002) script diff cards.",
+      "depends_on": "UP-136 (#65002)",
+      "risks": "none",
+      "workstream": "WS-3"
+    },
+    {
+      "id": "UP-142",
+      "window": "post-1120",
+      "pr": 65274,
+      "sha": "494e8b6154",
+      "title": "fix(ui): keep focus on a focused tabindex=-1 panel when the page changes around it",
+      "merged": "2026-11-20",
+      "packages": [
+        "ui"
+      ],
+      "main_files": [
+        "packages/ui/src/context/focus-rescue.tsx"
+      ],
+      "summary": "Preserve focus on a focused programmatic/non-tabbable panel container when surrounding page nodes change instead of rescuing focus away.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Audit Rune focus rescue / panel focus preservation when surrounding content updates in WS-8.",
+      "depends_on": "UP-088 (#64909)",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-143",
+      "window": "post-1120",
+      "pr": 65165,
+      "sha": "b9a60d9d07",
+      "title": "fix(app): keep tab groups stable when closing a tab",
+      "merged": "2026-11-20",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/shell/titlebar/tab-groups.ts",
+        "packages/app/src/shell/titlebar/tab-groups-ui.tsx",
+        "packages/app/src/shell/titlebar/titlebar.tsx"
+      ],
+      "summary": "Keep side tab group membership and ordering stable when closing a tab inside a group.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Audit features/tab-groups close-tab behavior against upstream #65165 tab-group stability fixes.",
+      "depends_on": "UP-048 (#64407)",
+      "risks": "none",
+      "workstream": "WS-2"
     }
   ],
   "browser_security_review": {
     "confirmed_merged_prs": [
       "#280 (3rd read)",
-      "#281 (third read + merge check)"
+      "#281 (3rd read + merge check; macOS handle_path live proof on macOS)",
+      "#292 (4th read)",
+      "#294 (final + compile-fix + merge check; Windows live; macOS/Linux compiled only; symlink/junction roots refused)",
+      "#274 (6th read + two merge checks; macOS FD 3/4 live proof on macOS; Linux never run)",
+      "#307 (2nd read at fc3df8c5 + merge check ea183993; Windows live; macOS/Linux compiled only)",
+      "#306 (2nd read at e79c1306)",
+      "#301 (4th read at 87d48dec)",
+      "#296 (5th read at 4ee64ceb + merge check at cd7a85ee)",
+      "#303 (4th read at 1e4599e9 + merge check at 1385cef3)",
+      "#316 (Rune #1307 1st read + macOS headless proof + full test suite; Windows Files-panel & reply click-to-load live)"
     ],
     "retrospective_merged_prs": [
       "#245",
@@ -3897,19 +4172,18 @@
       "#289"
     ],
     "unreviewed_merged_prs": [
-      "#297 (not reviewed before merge; security findings tracked for follow-up PR #294)"
+      "#297 (not reviewed before merge; security findings closed on dev by #294 + #307 + #316)"
     ],
     "held_pre_merge_prs": [
-      "#274 (confirmed)",
-      "#283",
-      "#286",
-      "#292 (confirmed)",
-      "#294 (confirmed)",
-      "#296",
-      "#298",
-      "#301",
-      "#302",
-      "#303"
+      "#305 (confirmed 3rd read; merge-check fix + merging 6e98fc2b)",
+      "#312 (confirmed, merging dev after #305)",
+      "#308 (in rework — 2nd read)",
+      "#315 (in rework — 2nd read)",
+      "#298 (updated 1d3e757c, awaiting 3rd read)",
+      "#302 (split to tunnel-only ed01f16f, awaiting 3rd read; gate in UP-095-PROMPT-GATE)",
+      "#314 (paused pending owner decision on agent-tab contexts)",
+      "#286 (held after WS-1 Fix PRs 1-7)",
+      "#283 (held behind 4-part shipping gate)"
     ]
   }
 }

@@ -5,7 +5,7 @@
 //! `plugin.updated` / `server.connected` flow through [`AttachMachine::step`], which returns
 //! [`AttachEffect`]s for the caller to execute.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, VecDeque};
 use std::time::Duration;
 
 use rune::time::Instant;
@@ -13,6 +13,13 @@ use rune::time::Instant;
 use super::types::{
     AttachOutcome, ControlFrame, REGISTER_TIMEOUT_MS, RETRY_BASE_MS, RETRY_MAX_MS, new_connection_id,
 };
+
+/// Hard cap on concurrent in-flight commands per attached session.
+pub const MAX_IN_FLIGHT_COMMANDS: usize = 16;
+/// Bounded ring of completed/cancelled `requestID`s rejected on replay.
+const MAX_RECENT_REQUESTS: usize = 256;
+/// Minimum interval before an SSE-triggered retry (`plugin.updated` / `session.moved`) runs again.
+const MIN_EVENT_RETRY_INTERVAL: Duration = Duration::from_millis(1_000);
 
 /// Why a session is blocked from automatic re-attach until an explicit wake event.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -46,6 +53,7 @@ pub enum AttachState {
         attempt: u64,
         connection_id: String,
         in_flight: BTreeSet<String>,
+        recent: VecDeque<String>,
         published_hash: Option<u64>,
     },
     /// Transient disconnect or timeout; waiting until `next_at` to retry.
@@ -115,6 +123,12 @@ pub enum AttachEffect {
 pub struct AttachMachine {
     pub state: AttachState,
     next_attempt: u64,
+    last_attach_at: Option<Instant>,
+    rapid_retries: u32,
+    /// True once this session has attached on a modern server; keeps local `rune_mcp` `browser_*`
+    /// suppressed across transient `Backoff`/`Connecting` reconnects until `Unsupported` or
+    /// `Unavailable` proves the server no longer serves `experimental.browser`.
+    ever_attached: bool,
 }
 
 impl AttachMachine {
@@ -126,6 +140,14 @@ impl AttachMachine {
         matches!(self.state, AttachState::Attached { .. })
     }
 
+    /// Whether local `rune_mcp` `browser_*` / `browser_cdp` tools must stay suppressed for this
+    /// session: fail closed across every state (`Idle`, `Connecting`, `Attached`, `Backoff`,
+    /// `Blocked::*`, `Closed`) and allow legacy fallback ONLY once the server is proven
+    /// `Unsupported` (older `v2.2.6`/`v2.3.0`) or `Unavailable` (browser plugin disabled).
+    pub fn suppresses_local_mcp(&self) -> bool {
+        !matches!(self.state, AttachState::Unsupported | AttachState::Unavailable)
+    }
+
     pub fn is_connecting(&self) -> bool {
         matches!(self.state, AttachState::Connecting { .. })
     }
@@ -135,11 +157,13 @@ impl AttachMachine {
         self.is_attached()
     }
 
-    /// True when the prompt gate has nothing left to wait for (already attached or will not attach).
+    /// True when the prompt gate has nothing left to wait for (already attached, in backoff, or
+    /// will not attach; matches official `packages/gui-plugins/src/browser/machine.ts:507-509`).
     pub fn prompt_gate_settled(&self) -> bool {
         matches!(
             self.state,
             AttachState::Attached { .. }
+                | AttachState::Backoff { .. }
                 | AttachState::Unavailable
                 | AttachState::Unsupported
                 | AttachState::Blocked { .. }
@@ -201,16 +225,15 @@ impl AttachMachine {
                 _ => Vec::new(),
             },
             AttachEvent::PluginUpdated => match &mut self.state {
-                // PRE-08 (#63500): retry immediately when server plugins finish loading; if an
-                // attach attempt is already in flight, mark it so an `Unavailable` reply that
-                // raced ahead of `plugin.updated` retries immediately on arrival.
+                // PRE-08 (#63500): retry when server plugins finish loading, throttled so repeated
+                // `plugin.updated` SSE events cannot spin at 0 ms.
                 AttachState::Connecting { plugin_updated, .. } => {
                     *plugin_updated = true;
                     Vec::new()
                 }
                 AttachState::Unavailable
                 | AttachState::Unsupported
-                | AttachState::Backoff { .. } => self.start_attach(now),
+                | AttachState::Backoff { .. } => self.start_attach_throttled(now),
                 _ => Vec::new(),
             },
             AttachEvent::SessionCreated => match &self.state {
@@ -225,17 +248,20 @@ impl AttachMachine {
                 | AttachState::Blocked { reason: BlockReason::Replaced } => self.start_attach(now),
                 _ => Vec::new(),
             },
-            AttachEvent::SessionMoved => {
-                let mut effects = self.abort_current();
-                effects.extend(self.start_attach(now));
-                effects
-            }
+            AttachEvent::SessionMoved => match &self.state {
+                // Keep RemoteUnproxied / Replaced / Missing sticky across session moves so a
+                // remote server cannot break fail-closed blocking via SSE `session.moved`.
+                AttachState::Blocked { .. } => Vec::new(),
+                _ => self.start_attach_throttled(now),
+            },
             AttachEvent::Control { frame } => self.handle_control(frame),
             AttachEvent::AttachEnded { attempt, outcome } => self.handle_ended(attempt, outcome, now),
             AttachEvent::Tick => self.handle_tick(now),
             AttachEvent::CommandFinished { request_id } => {
-                if let AttachState::Attached { in_flight, .. } = &mut self.state {
-                    in_flight.remove(&request_id);
+                if let AttachState::Attached { in_flight, recent, .. } = &mut self.state
+                    && in_flight.remove(&request_id)
+                {
+                    record_recent(recent, request_id);
                 }
                 Vec::new()
             }
@@ -256,9 +282,26 @@ impl AttachMachine {
         self.start_attach_with_failures(now, 0)
     }
 
+    fn start_attach_throttled(&mut self, now: Instant) -> Vec<AttachEffect> {
+        if let Some(prev) = self.last_attach_at
+            && now.saturating_duration_since(prev) < MIN_EVENT_RETRY_INTERVAL
+        {
+            let mut effects = self.abort_current();
+            self.rapid_retries = self.rapid_retries.saturating_add(1);
+            let failures = self.rapid_retries;
+            let next_at = now + backoff_delay(failures);
+            self.state = AttachState::Backoff { attempt: self.next_attempt, failures, next_at };
+            effects.push(AttachEffect::ScheduleTimer { at: next_at });
+            return effects;
+        }
+        self.rapid_retries = 0;
+        self.start_attach(now)
+    }
+
     fn start_attach_with_failures(&mut self, now: Instant, failures: u32) -> Vec<AttachEffect> {
         let mut effects = self.abort_current();
         self.next_attempt = self.next_attempt.saturating_add(1);
+        self.last_attach_at = Some(now);
         let attempt = self.next_attempt;
         let connection_id = new_connection_id();
         let deadline = now + Duration::from_millis(REGISTER_TIMEOUT_MS);
@@ -279,6 +322,7 @@ impl AttachMachine {
             ControlFrame::Foreign | ControlFrame::Unrecognized { .. } => Vec::new(),
             ControlFrame::Incompatible => {
                 let mut effects = self.abort_current();
+                self.ever_attached = false;
                 self.state = AttachState::Unsupported;
                 effects.push(AttachEffect::SetMcpSuppressed { suppressed: false });
                 effects.push(AttachEffect::SettlePromptGates);
@@ -289,10 +333,13 @@ impl AttachMachine {
                     return Vec::new();
                 };
                 let (attempt, connection_id) = (*attempt, connection_id.clone());
+                self.rapid_retries = 0;
+                self.ever_attached = true;
                 self.state = AttachState::Attached {
                     attempt,
                     connection_id: connection_id.clone(),
                     in_flight: BTreeSet::new(),
+                    recent: VecDeque::new(),
                     published_hash: None,
                 };
                 vec![
@@ -302,10 +349,13 @@ impl AttachMachine {
                 ]
             }
             ControlFrame::Command { request_id } => {
-                let AttachState::Attached { connection_id, in_flight, .. } = &mut self.state else {
+                let AttachState::Attached { connection_id, in_flight, recent, .. } = &mut self.state else {
                     return Vec::new();
                 };
-                if !in_flight.insert(request_id.clone()) {
+                if recent.iter().any(|r| r == &request_id)
+                    || in_flight.len() >= MAX_IN_FLIGHT_COMMANDS
+                    || !in_flight.insert(request_id.clone())
+                {
                     return Vec::new();
                 }
                 vec![AttachEffect::FetchCommand {
@@ -314,10 +364,11 @@ impl AttachMachine {
                 }]
             }
             ControlFrame::Cancel { request_id } => {
-                let AttachState::Attached { in_flight, .. } = &mut self.state else {
+                let AttachState::Attached { in_flight, recent, .. } = &mut self.state else {
                     return Vec::new();
                 };
                 if in_flight.remove(&request_id) {
+                    record_recent(recent, request_id.clone());
                     vec![AttachEffect::CancelCommands { request_ids: vec![request_id] }]
                 } else {
                     Vec::new()
@@ -343,29 +394,40 @@ impl AttachMachine {
         if !in_flight.is_empty() {
             effects.push(AttachEffect::CancelCommands { request_ids: in_flight });
         }
-        if was_attached {
-            effects.push(AttachEffect::SetMcpSuppressed { suppressed: false });
-        }
         match outcome {
             AttachOutcome::Unsupported => {
+                self.ever_attached = false;
                 self.state = AttachState::Unsupported;
+                if was_attached {
+                    effects.push(AttachEffect::SetMcpSuppressed { suppressed: false });
+                }
             }
             AttachOutcome::Unavailable if saw_plugin_update => {
                 // `plugin.updated` arrived while this cold attach was in flight (`PRE-08`):
-                // retry immediately instead of parking in `Unavailable`.
-                effects.extend(self.start_attach(now));
+                // retry via throttled path so repeated rapid events cannot spin at 0 ms.
+                effects.extend(self.start_attach_throttled(now));
                 return effects;
             }
             AttachOutcome::Unavailable => {
+                self.ever_attached = false;
                 self.state = AttachState::Unavailable;
+                if was_attached {
+                    effects.push(AttachEffect::SetMcpSuppressed { suppressed: false });
+                }
             }
             AttachOutcome::Replaced => {
                 self.state = AttachState::Blocked { reason: BlockReason::Replaced };
             }
             AttachOutcome::Missing => {
+                self.ever_attached = false;
                 self.state = AttachState::Blocked { reason: BlockReason::Missing };
+                if was_attached {
+                    effects.push(AttachEffect::SetMcpSuppressed { suppressed: false });
+                }
             }
             AttachOutcome::Closed | AttachOutcome::Transport(_) => {
+                // Keep `ever_attached` sticky across transient Backoff/Connecting so reconnect
+                // glitches never re-advertise raw `browser_cdp` on a modern server.
                 let failures = prev_failures.saturating_add(1);
                 let delay = backoff_delay(failures);
                 let next_at = now + delay;
@@ -410,6 +472,7 @@ impl AttachMachine {
 
     fn dispose(&mut self) -> Vec<AttachEffect> {
         let mut effects = self.abort_current();
+        self.ever_attached = false;
         self.state = AttachState::Closed;
         effects.push(AttachEffect::SettlePromptGates);
         effects
@@ -433,6 +496,13 @@ impl AttachMachine {
         }
         effects
     }
+}
+
+fn record_recent(recent: &mut VecDeque<String>, request_id: String) {
+    if recent.len() >= MAX_RECENT_REQUESTS {
+        recent.pop_front();
+    }
+    recent.push_back(request_id);
 }
 
 fn backoff_delay(failures: u32) -> Duration {

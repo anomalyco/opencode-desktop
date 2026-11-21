@@ -157,6 +157,15 @@ function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutServ
         if code == "browser.address.workspace" then
             return "Only HTTP, HTTPS, about:blank, and file URLs inside the workspace are supported."
         end
+        if code == "browser.preview.restricted" then
+            return "This preview tried to load files it is not allowed to read."
+        end
+        if code == "browser.preview.unsupported" then
+            return "This preview requires an updated browser engine."
+        end
+        if code == "browser.controlled.inherited_permission" then
+            return "Controlled browser actions are blocked on this site because it holds a profile permission."
+        end
         return "Only HTTP, HTTPS, and about:blank URLs are supported."
     end
 
@@ -170,8 +179,15 @@ function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutServ
         return out
     end
 
+    -- Every tool added, so they all go when the start-up index read says nothing is published.
+    local added: { Contribution } = {}
+    local withdrawn = false
+
     local function tool(name: string, description: string, properties: { [string]: any }, required: { string }?, call: (args: { [string]: any }, sid: string) -> any)
-        ctx:AddMcpTool({
+        if withdrawn then
+            return
+        end
+        table.insert(added, ctx:AddMcpTool({
             name = name,
             description = description,
             inputSchema = { type = "object", properties = properties, required = required, additionalProperties = false },
@@ -180,7 +196,7 @@ function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutServ
                 busy[context.sessionId] = true
                 return call(args, context.sessionId)
             end,
-        })
+        }))
     end
 
     tool("browser_tabs", "List browser tabs in this session's OpenCode (Rune) side panel and which tab is focused.", {}, nil, function(_, sid)
@@ -434,6 +450,28 @@ function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutServ
         end
         return { tabID = id(tab), result = compact(result) }
     end)
+
+    -- A build with a source reads its index once after the first frame
+    -- (`BrowserHost::probe_availability`). While the engine's state is unknown ("starting") the
+    -- tools stay; once the read says nothing is published for this platform they go, as in a build
+    -- with no source. The read gives up within 30 s, so the check does too.
+    local checks = 70
+    local function followStartupRead()
+        local state = Browser:Engine().state
+        if state == "unsupported" then
+            withdrawn = true
+            for _, contribution in added do
+                contribution:Withdraw()
+            end
+            table.clear(added)
+            return
+        end
+        checks -= 1
+        if state == "starting" and checks > 0 then
+            task.delay(0.5, followStartupRead)
+        end
+    end
+    followStartupRead()
 end
 
 return mcp

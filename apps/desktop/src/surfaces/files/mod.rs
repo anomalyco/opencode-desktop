@@ -308,7 +308,19 @@ impl FilesHost for App {
         App::opens_as_page(self, path)
     }
 
+    fn open_workspace_preview(&mut self, sid: &str, rel_path: &str) {
+        self.open_workspace_preview_tab(sid, rel_path, None, true);
+    }
+
+    fn try_open_artifact_link(&mut self, sid: &str, href: &str) -> bool {
+        App::try_open_artifact_link(self, sid, href)
+    }
+
     fn open_page_tab(&mut self, sid: &str, url: &str) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.browser_unsupported() {
+            return;
+        }
         self.open_new_browser_tab_for_session(Some(sid), url, None, true);
     }
 
@@ -394,6 +406,18 @@ impl App {
         open_workspace_file_for_session(self, sid, path, preview, lines, steal_focus, tx);
     }
 
+    pub fn open_workspace_file_source(
+        &mut self,
+        sid: &str,
+        path: &str,
+        preview: bool,
+        lines: Option<(u32, u32)>,
+        steal_focus: bool,
+        tx: &mut Tx,
+    ) {
+        open_workspace_file_source(self, sid, path, preview, lines, steal_focus, tx);
+    }
+
     pub fn filtered_sidebar_files(&self, session_id: &str) -> Vec<String> {
         filtered_sidebar_files(self, session_id)
     }
@@ -420,6 +444,48 @@ impl App {
 
     pub fn open_reply_link(&mut self, href: &str, tx: &mut Tx) {
         open_reply_link(self, href, tx);
+    }
+
+    /// Handles `Links:Open` from a third-party plugin or any tool-scoped call: refuses raw UNC,
+    /// `file://`, `oc-preview://`, `workspace://`, and `artifact://` links; opens relative
+    /// workspace files strictly in the Files source viewer (never minting an `oc-preview://`
+    /// grant); ignores outside local files; and routes regular web links safely (refusing
+    /// same-server artifact URLs and marking tool-opened tabs `agent_driven`).
+    pub fn open_restricted_plugin_link(
+        &mut self,
+        sid: Option<&str>,
+        href: &str,
+        agent: bool,
+        tx: &mut Tx,
+    ) {
+        let trimmed = href.trim();
+        if trimmed.is_empty()
+            || browser_policy::is_raw_unc_href(trimmed)
+            || browser_policy::is_file_scheme(trimmed)
+            || browser_policy::preview::is_preview_scheme(trimmed)
+            || browser_policy::preview::is_workspace_scheme(trimmed)
+            || browser_policy::preview::is_artifact_scheme(trimmed)
+        {
+            return;
+        }
+        let Some(sid) = sid.map(str::to_owned) else { return };
+        let dir = link_directory(self, &sid);
+        let home = self.home.clone();
+        match crate::files::links::classify(trimmed, "", &dir, &home) {
+            crate::files::links::Link::Inside { path, lines, .. } => {
+                self.open_workspace_file_source(&sid, &path, false, lines, true, tx);
+            }
+            crate::files::links::Link::Web(url) => {
+                self.route_plugin_web_or_app_link(
+                    Some(&sid),
+                    &url,
+                    crate::browser::links::LinkSource::Chat,
+                    agent,
+                    tx,
+                );
+            }
+            crate::files::links::Link::Heading(_) | crate::files::links::Link::Outside { .. } => {}
+        }
     }
 
     pub fn open_link(&mut self, sid: &str, from: Option<&str>, href: &str, tx: &mut Tx) {

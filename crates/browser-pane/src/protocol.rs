@@ -106,6 +106,9 @@ pub struct TabSnapshot {
     /// Set on isolated `oc-preview://` tabs so browser chrome marks them as previews.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preview: Option<PreviewKindTag>,
+    /// Whether this tab is agent-driven (preserved across reconnects).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub agent_driven: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -162,6 +165,8 @@ pub enum HostMsg {
         context: ContextKind,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         preview: Option<PreviewSpec>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        agent_driven: bool,
     },
     SetTabPolicy {
         tab_id: u64,
@@ -291,6 +296,17 @@ pub enum HostMsg {
         tab_id: u64,
         id: u64,
         allow: bool,
+        #[serde(default)]
+        dismiss: bool,
+        #[serde(default)]
+        persist: bool,
+    },
+    ResetPermission {
+        origin: String,
+        kind: PermissionKind,
+    },
+    SyncSitePermissions {
+        entries: Vec<SitePermissionEntry>,
     },
     AnswerAuth {
         tab_id: u64,
@@ -312,6 +328,8 @@ pub enum HostMsg {
         forward: bool,
         match_case: bool,
         find_next: bool,
+        #[serde(default)]
+        user_initiated: bool,
     },
     StopFind {
         tab_id: u64,
@@ -329,6 +347,13 @@ pub enum HostMsg {
     },
     DropContext {
         context: ContextKind,
+    },
+    TypedCdpCall {
+        tab_id: u64,
+        request_id: u64,
+        method: String,
+        params: Value,
+        session_id: Option<String>,
     },
     /// App-proxied response headers for a remote workspace or artifact `EngineMsg::PreviewFetch`.
     PreviewResponseHead {
@@ -384,9 +409,19 @@ pub enum EngineMsg {
         /// The engine confines proxied `RemoteServer` partitions via `fixed_servers` + `<-loopback>` + WebRTC/DoH hardening.
         #[serde(default)]
         remote_proxy: bool,
+        /// The engine supports `TypedCdpCall` and flattened OOPIF `sessionId` CDP events.
+        #[serde(default)]
+        agent_tools: bool,
         /// The engine serves isolated `oc-preview://` tabs.
         #[serde(default)]
         preview: bool,
+        /// The engine resets Chromium's `HostContentSettingsMap` on one-time/revoked permissions
+        /// and supports `HostMsg::ResetPermission` + `AnswerPermission.dismiss`.
+        #[serde(default)]
+        permission_sync: bool,
+        /// The engine emits `EngineMsg::PreviewCredit` for end-to-end preview flow control.
+        #[serde(default)]
+        preview_credit: bool,
     },
     /// Requests bytes for a remote workspace or artifact preview from the app host.
     PreviewFetch {
@@ -398,6 +433,13 @@ pub enum EngineMsg {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         range: Option<String>,
     },
+    /// Byte-credit replenishment (or immediate cancellation) for an in-flight `PreviewFetch`.
+    PreviewCredit {
+        req_id: u64,
+        bytes: u32,
+        #[serde(default)]
+        cancel: bool,
+    },
     /// A preview page attempted to load a file outside its grant or a secret/hidden path.
     PreviewDenied {
         tab_id: u64,
@@ -406,6 +448,13 @@ pub enum EngineMsg {
     Refused {
         tab_id: u64,
         reason: String,
+    },
+    /// Controlled `Default`-profile tab refused due to an inherited site permission; carries the
+    /// refused URL for the notice bar and "Open in new tab" without overwriting `BrowserTab.url`.
+    ControlledPermissionRefused {
+        tab_id: u64,
+        #[serde(default)]
+        url: Option<String>,
     },
     Dialog {
         tab_id: u64,
@@ -548,6 +597,9 @@ pub struct DownloadFile {
     /// interrupt reason (`network_failed`, `file_no_space`, ...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Source URL captured by the engine in `on_before_download` before any post-download redirect.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_url: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -610,6 +662,13 @@ impl PermissionKind {
             Self::ClipboardRead => "clipboard-read",
         }
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SitePermissionEntry {
+    pub origin: String,
+    pub kind: PermissionKind,
+    pub allow: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

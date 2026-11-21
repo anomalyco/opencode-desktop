@@ -483,10 +483,21 @@ impl OpenIn {
     }
 }
 
-/// Logs a safe reveal to `HARNESS_OPEN_EXTERNAL_LOG` during headless proofs without spawning
-/// a real OS file manager window.
+/// Whether `HARNESS_OPEN_EXTERNAL_LOG` may intercept external opens and reveals: only in debug
+/// builds or headless driver runs (`--snap`, `--script`, `--tree`, …), never in a normal windowed
+/// release launch.
+#[cfg(not(target_arch = "wasm32"))]
+fn allow_harness_log() -> bool {
+    cfg!(debug_assertions) || rune::is_headless()
+}
+
+/// Logs a safe reveal to `HARNESS_OPEN_EXTERNAL_LOG` during debug or headless proofs without
+/// spawning a real OS file manager window.
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn log_harness_reveal(path: &str) -> bool {
+    if !allow_harness_log() {
+        return false;
+    }
     let Some(log) = std::env::var_os("HARNESS_OPEN_EXTERNAL_LOG").filter(|v| !v.is_empty()) else {
         return false;
     };
@@ -537,11 +548,13 @@ pub trait OpenInHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
     fn write_json(&self, ns: &str, key: &str, val: &Value);
 }
 
-/// Opens `url` in the system browser, or appends it to `HARNESS_OPEN_EXTERNAL_LOG` when a
-/// hidden-desktop capture is driving the app (matching `harness/electron-open-external-stub.cjs`).
+/// Opens `url` in the system browser, or appends it to `HARNESS_OPEN_EXTERNAL_LOG` in debug or
+/// headless driver runs (matching `harness/electron-open-external-stub.cjs`).
 pub fn open_external(tx: &mut Tx, url: &str) -> bool {
     #[cfg(not(target_arch = "wasm32"))]
-    if let Some(log) = std::env::var_os("HARNESS_OPEN_EXTERNAL_LOG").filter(|v| !v.is_empty()) {
+    if allow_harness_log()
+        && let Some(log) = std::env::var_os("HARNESS_OPEN_EXTERNAL_LOG").filter(|v| !v.is_empty())
+    {
         use std::io::Write as _;
         let path = Path::new(&log);
         if let Some(parent) = path.parent() {

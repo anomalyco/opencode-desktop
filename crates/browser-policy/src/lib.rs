@@ -160,8 +160,10 @@ pub fn file_url_within(input: &str, roots: &[String]) -> bool {
     roots.iter().any(|root| path_within_root(&target, root))
 }
 
-pub fn allowed_destination(input: &str, roots: &[String]) -> bool {
-    destination_origin(input).is_some() || file_url_within(input, roots)
+pub fn allowed_destination(input: &str, _roots: &[String]) -> bool {
+    // Raw `file://` URLs are banned unconditionally; local workspace files open exclusively via
+    // isolated `oc-preview://` grants (`#63002`, `notes/review-rd281.md` §9).
+    destination_origin(input).is_some()
 }
 
 /// Adds the missing scheme for programmatic / agent URLs (`policy.ts:86-95`), plus Rune's `:port` shorthand.
@@ -187,7 +189,7 @@ fn refusal_raw(trimmed: &str, roots: &[String]) -> Option<Refusal> {
     if is_http_with_credentials(trimmed) {
         return Some(Refusal::Credentials);
     }
-    Some(if roots.is_empty() { Refusal::Web } else { Refusal::Workspace })
+    Some(if is_file_scheme(trimmed) || !roots.is_empty() { Refusal::Workspace } else { Refusal::Web })
 }
 
 /// Why the pane refuses `input`, or `None` when allowed (`policy.ts:74-83`).
@@ -204,133 +206,33 @@ pub fn normalize_url(input: &str, roots: &[String]) -> Result<String, String> {
     }
 }
 
-/// Frame navigation & redirect guard (`chromium.ts:432-446`).
+/// Frame navigation & redirect guard (`chromium.ts:432-446`): bans raw `file:` and `oc-preview:`
+/// (and nested `view-source:`/`filesystem:`/`blob:` wrappers) unconditionally on all non-preview tabs.
 pub fn frame_guard(url: &str, is_main_frame: bool, roots: &[String]) -> Option<Refusal> {
     let trimmed = url.trim();
     if trimmed.eq_ignore_ascii_case("about:blank") {
         return None;
     }
-    if preview::is_preview_scheme(trimmed) {
-        return Some(if roots.is_empty() { Refusal::Web } else { Refusal::Workspace });
+    if preview::has_banned_scheme(trimmed) {
+        return Some(if is_file_scheme(trimmed) || !roots.is_empty() { Refusal::Workspace } else { Refusal::Web });
     }
     if is_main_frame {
         return refusal_raw(trimmed, roots);
     }
-    if !is_file_scheme(trimmed) || file_url_within(trimmed, roots) {
-        return None;
-    }
-    Some(if roots.is_empty() { Refusal::Web } else { Refusal::Workspace })
+    None
 }
 
-/// Sub-resource & download guard (`pane.ts:103-107`): no `file:` read outside `roots`, and never `oc-preview:` from non-preview tabs.
-pub fn subresource_allowed(url: &str, roots: &[String]) -> bool {
-    !preview::is_preview_scheme(url) && (!is_file_scheme(url) || file_url_within(url, roots))
+/// Sub-resource & download guard: bans raw `file:` and `oc-preview:` (including nested prefixes)
+/// unconditionally on non-preview tabs.
+pub fn subresource_allowed(url: &str, _roots: &[String]) -> bool {
+    !preview::has_banned_scheme(url)
 }
 
 mod agent;
+mod cdp;
 
 pub use agent::{check_typed_cdp, extension_origin, extension_page_refusal, matches_url};
-
-/// Validates a DevTools Protocol call against the 22-method allow-list: 17 protocol calls used by
-/// OpenCode Desktop's fixed actions (`packages/gui-plugins/src/browser/chromium.ts:592,796-880,
-/// 912,938,974,1003,1026,1205,1267-1389,1469-1484,1698-1722`) plus 5 read-only `DOM` inspection
-/// methods (`DOM.getDocument`, `DOM.getBoxModel`, `DOM.getContentQuads`, `DOM.querySelector`,
-/// `DOM.querySelectorAll`) used by Rune's tools. Enforced in both the app and the sidecar.
-pub fn check_cdp(method: &str, params: &serde_json::Value, engine_has_policy: bool) -> Result<(), String> {
-    if !engine_has_policy {
-        return match method {
-            "Accessibility.getFullAXTree" | "Page.captureScreenshot" => Ok(()),
-            "Runtime.evaluate" => check_runtime_params(method, params),
-            _ => Err(format!("DevTools method '{method}' requires an updated browser engine that enforces URL policy.")),
-        };
-    }
-    match method {
-        "Accessibility.getFullAXTree"
-        | "DOM.enable"
-        | "DOM.getDocument"
-        | "DOM.describeNode"
-        | "DOM.resolveNode"
-        | "DOM.getBoxModel"
-        | "DOM.getContentQuads"
-        | "DOM.scrollIntoViewIfNeeded"
-        | "DOM.focus"
-        | "DOM.getFrameOwner"
-        | "DOM.querySelector"
-        | "DOM.querySelectorAll"
-        | "Input.dispatchMouseEvent"
-        | "Input.insertText"
-        | "Page.getFrameTree"
-        | "Page.getLayoutMetrics"
-        | "Page.captureScreenshot"
-        | "Page.handleJavaScriptDialog"
-        | "Runtime.releaseObject" => Ok(()),
-        "Runtime.evaluate" | "Runtime.callFunctionOn" => check_runtime_params(method, params),
-        "Input.dispatchKeyEvent" => check_key_params(params),
-        _ => Err(format!("DevTools method '{method}' is not permitted in the built-in browser.")),
-    }
-}
-
-fn check_runtime_params(method: &str, params: &serde_json::Value) -> Result<(), String> {
-    if let Some(v) = params.get("includeCommandLineAPI")
-        && !v.is_null()
-        && v != &serde_json::Value::Bool(false)
-    {
-        return Err(format!("DevTools method '{method}' cannot enable includeCommandLineAPI."));
-    }
-    Ok(())
-}
-
-fn check_bounded_key_int(params: &serde_json::Value, field: &str, max: i64) -> Result<u64, String> {
-    let Some(val) = params.get(field) else { return Ok(0) };
-    if val.is_null() {
-        return Ok(0);
-    }
-    let Some(n) = val.as_i64() else {
-        return Err(format!(
-            "DevTools method 'Input.dispatchKeyEvent' requires '{field}' to be an integer in 0..={max}."
-        ));
-    };
-    if !(0..=max).contains(&n) {
-        return Err(format!(
-            "DevTools method 'Input.dispatchKeyEvent' requires '{field}' to be in 0..={max}."
-        ));
-    }
-    Ok(n as u64)
-}
-
-fn check_key_params(params: &serde_json::Value) -> Result<(), String> {
-    if params.get("commands").is_some_and(|v| !v.is_null()) {
-        return Err("DevTools method 'Input.dispatchKeyEvent' does not permit editing commands.".into());
-    }
-    let modifiers = check_bounded_key_int(params, "modifiers", 15)?;
-    let wvk = check_bounded_key_int(params, "windowsVirtualKeyCode", 255)?;
-    let nvk = check_bounded_key_int(params, "nativeVirtualKeyCode", 255)?;
-    let shortcuts = (modifiers & 6) != 0;
-    let ctrl = (modifiers & 2) != 0;
-    let shift = (modifiers & 8) != 0;
-    let key = params.get("key").and_then(serde_json::Value::as_str).unwrap_or("");
-    let code = params.get("code").and_then(serde_json::Value::as_str).unwrap_or("");
-    let is_cvx = matches!(key, "c" | "C" | "v" | "V" | "x" | "X")
-        || code.eq_ignore_ascii_case("KeyC")
-        || code.eq_ignore_ascii_case("KeyV")
-        || code.eq_ignore_ascii_case("KeyX")
-        || matches!(wvk, 67 | 86 | 88)
-        || matches!(nvk, 67 | 86 | 88);
-    let is_insert = key.eq_ignore_ascii_case("Insert")
-        || code.eq_ignore_ascii_case("Insert")
-        || wvk == 45
-        || nvk == 45;
-    let is_del_or_f10 = key.eq_ignore_ascii_case("Delete")
-        || code.eq_ignore_ascii_case("Delete")
-        || key.eq_ignore_ascii_case("F10")
-        || code.eq_ignore_ascii_case("F10")
-        || matches!(wvk, 46 | 121)
-        || matches!(nvk, 46 | 121);
-    if (shortcuts && is_cvx) || (is_insert && (shift || ctrl)) || (shift && is_del_or_f10) {
-        return Err("DevTools method 'Input.dispatchKeyEvent' cannot send clipboard or context-menu shortcuts.".into());
-    }
-    Ok(())
-}
+pub use cdp::check_cdp;
 
 /// Whether the user's address field treats `input` as a web search rather than an address (`address.ts:23-38`).
 pub fn searches(input: &str) -> bool {
@@ -345,6 +247,12 @@ pub fn searches(input: &str) -> bool {
         if scheme.eq_ignore_ascii_case("file") {
             let path_part = rest.split(['?', '#']).next().unwrap_or(rest);
             return path_part.is_empty() || path_part.chars().take_while(|&c| c != '/').any(char::is_whitespace);
+        }
+        if scheme.eq_ignore_ascii_case("workspace")
+            || scheme.eq_ignore_ascii_case("artifact")
+            || scheme.eq_ignore_ascii_case("oc-preview")
+        {
+            return rest.is_empty() || rest.chars().any(char::is_whitespace);
         }
         let authority = rest.split(['/', '\\', '?', '#']).next().unwrap_or("");
         if authority.is_empty() || authority.chars().any(|c| c.is_whitespace() || c.is_control()) {

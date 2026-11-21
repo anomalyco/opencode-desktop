@@ -187,6 +187,10 @@ fn apply_context_prefs(
     ok &= set_optional_bool_pref(ctx, "webrtc.nonproxied_udp_enabled", false);
     ok &= set_optional_string_pref(ctx, "dns_over_https.mode", "off");
     ok &= set_optional_bool_pref(ctx, "dns_prefetching.enabled", false);
+    // Lock all 7 hardware-device and File System Access guards to `BLOCK` (2) on isolated contexts.
+    for pref in crate::permissions::DEVICE_GUARD_PREFS {
+        ok &= set_optional_int_pref(ctx, pref, 2);
+    }
     ok
 }
 
@@ -275,6 +279,14 @@ fn set_optional_bool_pref(ctx: &RequestContext, name: &str, value: bool) -> bool
         return true;
     }
     set_and_verify_bool_pref(ctx, name, value)
+}
+
+fn set_optional_int_pref(ctx: &RequestContext, name: &str, value: i32) -> bool {
+    let key = CefString::from(name);
+    if ctx.has_preference(Some(&key)) == 0 || ctx.can_set_preference(Some(&key)) == 0 {
+        return true;
+    }
+    set_and_verify_int_pref(ctx, name, value)
 }
 
 /// Outcome produced once a deferred context finishes `on_request_context_initialized`.
@@ -411,9 +423,11 @@ wrap_request_context_handler! {
                 .is_some_and(|ctx| apply_context_prefs(ctx, proxy.as_ref(), self.require_proxy));
             if applied
                 && let Some(ctx) = request_context.as_deref()
-                && let Some(hook) = self.on_initialized.lock().unwrap().take()
             {
-                hook(ctx);
+                crate::preview::handler::ban_file_scheme(ctx);
+                if let Some(hook) = self.on_initialized.lock().unwrap().take() {
+                    hook(ctx);
+                }
             }
             let is_suspended = self.suspended.load(Ordering::Acquire);
             self.prefs_ok.store(applied, Ordering::Release);
@@ -466,6 +480,245 @@ wrap_request_context_handler! {
                     disable_default_handling,
                 )
             })
+        }
+    }
+}
+
+fn is_blocked_file_url(url: &str) -> bool {
+    let mut cur = url.trim();
+    while cur.len() >= 5 && cur.as_bytes()[..5].eq_ignore_ascii_case(b"blob:") {
+        cur = cur[5..].trim();
+    }
+    browser_policy::is_file_scheme(cur)
+}
+
+wrap_resource_request_handler! {
+    // Blocks all `file://` (and `blob:file://`) requests and redirects initiated by extension
+    // service workers, offscreen documents, or extension pages (`review-rd274.md` §2).
+    struct ExtensionFileBlockHandler;
+
+    impl ResourceRequestHandler {
+        fn on_before_resource_load(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            request: Option<&mut Request>,
+            _callback: Option<&mut Callback>,
+        ) -> ReturnValue {
+            let url = request.map(|r| CefString::from(&r.url()).to_string()).unwrap_or_default();
+            if is_blocked_file_url(&url) {
+                ReturnValue::CANCEL
+            } else {
+                ReturnValue::CONTINUE
+            }
+        }
+
+        fn on_resource_redirect(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            _request: Option<&mut Request>,
+            _response: Option<&mut Response>,
+            new_url: Option<&mut CefString>,
+        ) {
+            if let Some(new_url) = new_url
+                && is_blocked_file_url(&new_url.to_string())
+            {
+                *new_url = CefString::from("");
+            }
+        }
+
+        fn on_protocol_execution(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            _request: Option<&mut Request>,
+            allow_os_execution: Option<&mut ::std::os::raw::c_int>,
+        ) {
+            if let Some(allow) = allow_os_execution {
+                *allow = 0;
+            }
+        }
+    }
+}
+
+/// Returns the normalized absolute path matching Chromium's `base::MakeAbsoluteFilePath`
+/// (`\\?\` stripped and uppercase drive letter on Windows, canonical UTF-8 on Unix) so both
+/// `Extensions.loadUnpacked` and `generate_id_for_path` see the exact same path.
+pub fn canonical_extension_load_path(dir: &std::path::Path) -> Option<String> {
+    let canon = std::fs::canonicalize(dir).ok()?;
+    #[cfg(windows)]
+    {
+        let mut s = canon.to_string_lossy().into_owned();
+        if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+            s = format!(r"\\{rest}");
+        } else if let Some(rest) = s.strip_prefix(r"\\?\") {
+            s = rest.to_owned();
+        }
+        while s.len() > 3 && s.ends_with('\\') {
+            s.pop();
+        }
+        let bytes = s.as_bytes();
+        if bytes.len() >= 2 && bytes[1] == b':' && bytes[0].is_ascii_lowercase() {
+            let mut chars: Vec<char> = s.chars().collect();
+            chars[0] = chars[0].to_ascii_uppercase();
+            s = chars.into_iter().collect();
+        }
+        Some(s)
+    }
+    #[cfg(not(windows))]
+    {
+        let mut s = canon.to_str()?.to_owned();
+        while s.len() > 1 && s.ends_with('/') {
+            s.pop();
+        }
+        Some(s)
+    }
+}
+
+/// Computes Chromium's `crx_file::id_util::GenerateIdForPath(path)` directly from a normalized
+/// path string produced by [`canonical_extension_load_path`] (SHA-256 of UTF-16LE `wchar_t` code
+/// units on Windows or UTF-8 bytes on POSIX, first 16 bytes nibble-encoded as `'a'..='p'`).
+pub fn generate_id_for_normalized_path(norm: &str) -> String {
+    use sha2::{Digest as _, Sha256};
+    let bytes: Vec<u8> = {
+        #[cfg(windows)]
+        {
+            let mut out = Vec::with_capacity(norm.len() * 2);
+            for u in norm.encode_utf16() {
+                out.extend_from_slice(&u.to_le_bytes());
+            }
+            out
+        }
+        #[cfg(not(windows))]
+        {
+            norm.as_bytes().to_vec()
+        }
+    };
+    let digest = Sha256::digest(&bytes);
+    let mut id = String::with_capacity(32);
+    for &b in &digest[..16] {
+        id.push((b'a' + (b >> 4)) as char);
+        id.push((b'a' + (b & 0x0f)) as char);
+    }
+    id
+}
+
+/// Disables `file://` scheme access in Chromium's `ExtensionPrefs`
+/// (`extensions.settings.<id>.newAllowFileAccess = false`) under BOTH the path-derived ID
+/// (`GenerateIdForPath` computed directly from the single `normalized_path` string passed to
+/// `Extensions.loadUnpacked`, eliminating double-canonicalization races) AND the key-derived
+/// `ext_id`. Returns `true` only when the preference write succeeds (`review-rd274.md` Round-3 §1).
+pub fn disallow_extension_file_access(ext_id: &str, normalized_path: &str) -> bool {
+    if normalized_path.is_empty() {
+        return false;
+    }
+    let path_id = generate_id_for_normalized_path(normalized_path);
+    let Some(ctx) = cef::request_context_get_global_context() else {
+        return false;
+    };
+    let key = CefString::from("extensions.settings");
+    if ctx.has_preference(Some(&key)) == 0 || ctx.can_set_preference(Some(&key)) == 0 {
+        return false;
+    }
+    let existing = ctx.preference(Some(&key));
+    let mut root_dict = existing
+        .as_ref()
+        .and_then(|v| v.dictionary())
+        .and_then(|d| d.copy(0))
+        .or_else(cef::dictionary_value_create);
+    let Some(mut root_dict) = root_dict.take() else {
+        return false;
+    };
+    let mut target_ids = vec![path_id];
+    if !target_ids.iter().any(|id| id == ext_id) {
+        target_ids.push(ext_id.to_owned());
+    }
+    for tid in &target_ids {
+        let ext_key = CefString::from(tid.as_str());
+        let mut ext_dict = root_dict
+            .dictionary(Some(&ext_key))
+            .and_then(|d| d.copy(0))
+            .or_else(cef::dictionary_value_create);
+        let Some(mut ext_dict) = ext_dict.take() else {
+            return false;
+        };
+        ext_dict.set_bool(Some(&CefString::from("newAllowFileAccess")), 0);
+        root_dict.set_dictionary(Some(&ext_key), Some(&mut ext_dict));
+    }
+    let Some(mut val) = cef::value_create() else {
+        return false;
+    };
+    val.set_dictionary(Some(&mut root_dict));
+    let mut err = CefString::from(" ");
+    ctx.set_preference(Some(&key), Some(&mut val), Some(&mut err)) != 0
+}
+
+/// Post-load fail-closed verification (`review-rd274.md` Round-3 §1a): reads back Chromium's
+/// persisted `extensions.settings.<loaded_id>` after `Extensions.loadUnpacked` succeeds and
+/// requires BOTH:
+/// 1. `creation_flags` is present AND bit `1 << 2` (`0x4`, `Extension::ALLOW_FILE_ACCESS`) is `0`,
+/// 2. `newAllowFileAccess` is present AND `false`.
+///
+/// Catches any path-normalization drift on macOS/Linux or future Chromium versions immediately so
+/// the caller uninstalls the extension instead of failing open with `ALLOW_FILE_ACCESS`.
+pub fn verify_extension_file_access_disabled(loaded_id: &str) -> bool {
+    const EXTENSION_ALLOW_FILE_ACCESS: i32 = 1 << 2;
+    let Some(ctx) = cef::request_context_get_global_context() else {
+        return false;
+    };
+    let key = CefString::from("extensions.settings");
+    let Some(val) = ctx.preference(Some(&key)) else {
+        return false;
+    };
+    let Some(root_dict) = val.dictionary() else {
+        return false;
+    };
+    let Some(ext_dict) = root_dict.dictionary(Some(&CefString::from(loaded_id))) else {
+        return false;
+    };
+    let flags_key = CefString::from("creation_flags");
+    if ext_dict.has_key(Some(&flags_key)) == 0
+        || *ext_dict.get_type(Some(&flags_key)).as_ref() != sys::cef_value_type_t::VTYPE_INT
+    {
+        return false;
+    }
+    let creation_flags = ext_dict.int(Some(&flags_key));
+    if (creation_flags & EXTENSION_ALLOW_FILE_ACCESS) != 0 {
+        return false;
+    }
+    let allow_key = CefString::from("newAllowFileAccess");
+    if ext_dict.has_key(Some(&allow_key)) == 0
+        || *ext_dict.get_type(Some(&allow_key)).as_ref() != sys::cef_value_type_t::VTYPE_BOOL
+    {
+        return false;
+    }
+    ext_dict.bool(Some(&allow_key)) == 0
+}
+
+wrap_request_context_handler! {
+    // Attached to CEF's default/global `CefRequestContext` via
+    // `BrowserProcessHandler::default_request_context_handler`: cancels every `file://` fetch
+    // and redirect from extension service workers, offscreen documents, and extension-origin
+    // initiators (`review-rd274.md` §2).
+    pub struct DefaultRequestContextHandler;
+
+    impl RequestContextHandler {
+        fn resource_request_handler(
+            &self,
+            browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            _request: Option<&mut Request>,
+            _is_navigation: ::std::os::raw::c_int,
+            _is_download: ::std::os::raw::c_int,
+            request_initiator: Option<&CefString>,
+            _disable_default_handling: Option<&mut ::std::os::raw::c_int>,
+        ) -> Option<ResourceRequestHandler> {
+            let initiator = request_initiator.map(CefString::to_string).unwrap_or_default();
+            if browser.is_none() || browser_policy::extension_origin(&initiator) {
+                return Some(ExtensionFileBlockHandler::new());
+            }
+            None
         }
     }
 }

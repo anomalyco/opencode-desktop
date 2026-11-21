@@ -438,6 +438,10 @@ mod os {
             return Err(OpenErr::Denied);
         }
         let is_cloud = verify_reparse_tag(handle, info.dwFileAttributes)?;
+        let pre_size = ((info.nFileSizeHigh as u64) << 32) | (info.nFileSizeLow as u64);
+        if pre_size > super::MAX_PREVIEW_FILE_BYTES {
+            return Err(OpenErr::Denied);
+        }
         if is_cloud {
             // Re-open Cloud Filter placeholder relative to the same verified `cur_dir` WITHOUT
             // `FILE_OPEN_REPARSE_POINT` so `cldflt.sys` hydrates its bytes, then re-verify handle.

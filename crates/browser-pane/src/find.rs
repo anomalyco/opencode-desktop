@@ -105,6 +105,73 @@ impl crate::BrowserHost {
         self.caps.remote_proxy()
     }
 
+    pub fn engine_agent_tools(&self) -> bool {
+        self.caps.agent_tools()
+    }
+
+    /// Whether `tab_id` has been sent to a connected engine (`OpenTab` already flushed).
+    pub fn tab_open_in_engine(&self, tab_id: u64) -> bool {
+        self.is_connected()
+            && self.tabs.iter().any(|t| t.id == tab_id)
+            && !self.pending_opens.iter().any(|(id, _)| *id == tab_id)
+    }
+
+    /// Discards any buffered or future CDP response for `request_id` so cancelled commands never
+    /// leak orphaned entries in `cdp_responses`.
+    pub fn cancel_cdp(&mut self, request_id: u64) {
+        self.cdp_responses.remove(&request_id);
+        if let Some(pos) = self.cdp_response_order.iter().position(|&id| id == request_id) {
+            self.cdp_response_order.remove(pos);
+        }
+        if self.cancelled_cdp.len() >= 1_024 {
+            self.cancelled_cdp.pop_front();
+        }
+        self.cancelled_cdp.push_back(request_id);
+    }
+
+    pub fn has_cdp_events(&self) -> bool {
+        !self.cdp_events.is_empty()
+    }
+
+    pub fn drain_cdp_events(&mut self) -> impl Iterator<Item = crate::client::CdpEvent> + '_ {
+        self.cdp_events.drain(..)
+    }
+
+    /// Sends a typed CDP call allowed by [`crate::policy::check_typed_cdp`] exclusively for native
+    /// Rust `experimental.browser` executors (never exposed to untrusted Luau plugins). Falls back
+    /// to `HostMsg::CdpCall` for methods already permitted by `check_cdp`.
+    pub fn send_typed_cdp(
+        &mut self,
+        tab_id: u64,
+        method: impl Into<String>,
+        params: serde_json::Value,
+        session_id: Option<String>,
+    ) -> Result<u64, String> {
+        let method = method.into();
+        crate::policy::check_typed_cdp(&method, &params, self.engine_policy())?;
+        let request_id = self.next_req_id;
+        self.next_req_id += 1;
+        if self.engine_agent_tools() {
+            self.send(crate::protocol::HostMsg::TypedCdpCall {
+                tab_id,
+                request_id,
+                method,
+                params,
+                session_id,
+            });
+            return Ok(request_id);
+        }
+        crate::policy::check_cdp(&method, &params, self.engine_policy())?;
+        self.send(crate::protocol::HostMsg::CdpCall {
+            tab_id,
+            request_id,
+            method,
+            params,
+            session_id,
+        });
+        Ok(request_id)
+    }
+
     /// Returns the currently registered loopback tunnel proxy for `server_id`, if any.
     pub fn remote_proxy(&self, server_id: &str) -> Option<&crate::protocol::RemoteProxyConfig> {
         self.remote_proxies.get(server_id.trim())
@@ -209,10 +276,83 @@ impl crate::BrowserHost {
         true
     }
 
+    /// Sends `HostMsg::OpenTab` (carrying `agent_driven`) and mirrors `HostMsg::SetAgentDriven`
+    /// when `agent_driven` is true so older engines without `OpenTab.agent_driven` still guard the tab.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn send_open_tab(
+        &self,
+        tab_id: u64,
+        url: String,
+        width_pt: f32,
+        height_pt: f32,
+        scale: f32,
+        focused: bool,
+        _file_roots: Vec<String>,
+        context: crate::protocol::ContextKind,
+        preview: Option<crate::protocol::PreviewSpec>,
+        agent_driven: bool,
+    ) {
+        self.send(crate::protocol::HostMsg::OpenTab {
+            tab_id,
+            url,
+            width_pt,
+            height_pt,
+            scale,
+            focused,
+            file_roots: Vec::new(),
+            context,
+            preview,
+            agent_driven,
+        });
+        if agent_driven {
+            self.send(crate::protocol::HostMsg::SetAgentDriven { tab_id, agent_driven: true });
+        }
+    }
+
+    /// What `flush_pending_opens` would send for the tabs that wait now, for a connect to send
+    /// itself. `file:` and isolated/remote/preview tabs wait for `Ready` so an older engine never opens one.
+    #[cfg_attr(not(feature = "engine"), allow(dead_code))]
+    pub(crate) fn pending_open_msgs(&self) -> Vec<(u64, crate::protocol::HostMsg)> {
+        let focused = self.focused_tab;
+        self.pending_opens
+            .iter()
+            .filter(|(tab_id, url)| {
+                !crate::policy::is_file_scheme(url)
+                    && self.tabs.iter().any(|t| t.id == *tab_id && t.context.is_default() && t.preview_spec.is_none())
+            })
+            .cloned()
+            .map(|(tab_id, url)| {
+                let (((width_pt, height_pt), scale), agent_driven) = self
+                    .tabs
+                    .iter()
+                    .find(|t| t.id == tab_id)
+                    .map_or((((800.0, 600.0), 2.0), false), |t| {
+                        ((t.viewport_pt, t.scale), t.prompts.agent_driven)
+                    });
+                (
+                    tab_id,
+                    crate::protocol::HostMsg::OpenTab {
+                        tab_id,
+                        url,
+                        width_pt,
+                        height_pt,
+                        scale,
+                        focused: focused == Some(tab_id),
+                        file_roots: Vec::new(),
+                        context: crate::protocol::ContextKind::Default,
+                        preview: None,
+                        agent_driven,
+                    },
+                )
+            })
+            .collect()
+    }
+
     /// Closes connections and releases a non-default preview or remote server context in the engine.
     pub fn drop_context(&mut self, context: crate::protocol::ContextKind) {
         if let crate::protocol::ContextKind::RemoteServer { server_id, .. } = &context {
-            self.remote_proxies.remove(server_id.trim());
+            let sid = server_id.trim();
+            self.remote_proxies.remove(sid);
         }
         if !context.is_default() {
             self.send(crate::protocol::HostMsg::DropContext { context });
@@ -242,8 +382,50 @@ impl crate::BrowserHost {
         Ok(request_id)
     }
 
+    pub fn send_cdp(
+        &mut self,
+        tab_id: u64,
+        method: impl Into<String>,
+        params: serde_json::Value,
+        session_id: Option<String>,
+    ) -> Result<u64, String> {
+        if session_id.is_some() {
+            return Err("DevTools CdpCall does not permit targeting a child sessionId.".into());
+        }
+        if self
+            .tabs
+            .iter()
+            .find(|t| t.id == tab_id)
+            .is_some_and(|t| crate::policy::extension_origin(&t.url))
+        {
+            return Err("DevTools calls are not permitted on extension pages.".into());
+        }
+        let method = method.into();
+        crate::policy::check_cdp(&method, &params, self.engine_policy())?;
+        let request_id = self.next_req_id;
+        self.next_req_id += 1;
+        self.send(crate::protocol::HostMsg::CdpCall {
+            tab_id,
+            request_id,
+            method,
+            params,
+            session_id: None,
+        });
+        Ok(request_id)
+    }
+
     /// Starts or advances an in-page text search (`FindHandler`).
-    pub fn find(&mut self, tab_id: u64, query: &str, forward: bool, match_case: bool, find_next: bool) {
+    /// `user_initiated` MUST be `true` ONLY when triggered directly by the user via the bundled
+    /// built-in browser find bar (`Half::is_builtin("browser") && tool_sid.is_none()`).
+    pub fn find(
+        &mut self,
+        tab_id: u64,
+        query: &str,
+        forward: bool,
+        match_case: bool,
+        find_next: bool,
+        user_initiated: bool,
+    ) {
         if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
             t.find.step(FindEvent::Open);
             if t.find.query() != query {
@@ -259,6 +441,7 @@ impl crate::BrowserHost {
             forward,
             match_case,
             find_next,
+            user_initiated,
         });
     }
 

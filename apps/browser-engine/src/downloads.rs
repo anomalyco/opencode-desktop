@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex};
 use cef::rc::Rc as _;
 use cef::{
     BeforeDownloadCallback, Browser, CefString, DownloadHandler, DownloadInterruptReason, DownloadItem, DownloadItemCallback,
-    ImplBeforeDownloadCallback, ImplDownloadHandler, ImplDownloadItem, ImplDownloadItemCallback, WrapDownloadHandler, wrap_download_handler,
+    ImplBeforeDownloadCallback, ImplBrowser, ImplDownloadHandler, ImplDownloadItem, ImplDownloadItemCallback, ImplFrame, WrapDownloadHandler, wrap_download_handler,
 };
 
 use crate::output::Output;
@@ -94,6 +94,7 @@ wrap_download_handler! {
     pub struct TabDownloadHandler {
         tab_id: u64,
         file_roots: Arc<Mutex<Vec<String>>>,
+        is_popup: bool,
         is_preview: bool,
         context_ready: Arc<AtomicBool>,
         downloads: Arc<Downloads>,
@@ -102,10 +103,13 @@ wrap_download_handler! {
 
     impl DownloadHandler {
         fn can_download(&self, _browser: Option<&mut Browser>, url: Option<&CefString>, _method: Option<&CefString>) -> ::std::os::raw::c_int {
-            if self.is_preview || !self.context_ready.load(Ordering::Acquire) {
+            if self.is_popup || self.is_preview || !self.context_ready.load(Ordering::Acquire) {
                 return 0;
             }
             let url = url.map(CefString::to_string).unwrap_or_default();
+            if browser_policy::extension_origin(&url) {
+                return 0;
+            }
             let roots = self.file_roots.lock().unwrap().clone();
             if !browser_policy::subresource_allowed(&url, &roots) || browser_policy::is_http_with_credentials(&url) {
                 return 0;
@@ -118,19 +122,39 @@ wrap_download_handler! {
         // uninitialized/suspended contexts, even if `host.start_download` bypassed `can_download`).
         fn on_before_download(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             item: Option<&mut DownloadItem>,
             suggested_name: Option<&CefString>,
             callback: Option<&mut BeforeDownloadCallback>,
         ) -> ::std::os::raw::c_int {
-            if self.is_preview || !self.context_ready.load(Ordering::Acquire) {
+            if self.is_popup || self.is_preview || !self.context_ready.load(Ordering::Acquire) {
                 return 1;
             }
             let (Some(item), Some(callback)) = (item, callback) else { return 0 };
+            // Re-verify URL policy here (covers `BrowserHost::start_download` and post-redirect URLs
+            // that bypassed `can_download`; `review-rd274.md` Round-2 §3).
+            let url = CefString::from(&item.url()).to_string();
+            let orig_url = CefString::from(&item.original_url()).to_string();
+            if browser_policy::extension_origin(&url) || browser_policy::extension_origin(&orig_url) {
+                return 1;
+            }
+            let roots = self.file_roots.lock().unwrap().clone();
+            if !browser_policy::subresource_allowed(&url, &roots) || browser_policy::is_http_with_credentials(&url) {
+                return 1;
+            }
             let name = suggested_name.map(|n| n.to_string()).filter(|n| !n.is_empty()).unwrap_or_else(|| "file".to_owned());
             let id = format!("file_{}", self.downloads.next.fetch_add(1, Ordering::Relaxed));
             let mime = CefString::from(&item.mime_type()).to_string();
-            let mut file = DownloadFile { id, name, mime, bytes: 0, state: DownloadState::Pending, path: String::new(), error: None };
+            let item_url = CefString::from(&item.url()).to_string();
+            let source_url = if !item_url.is_empty() {
+                Some(item_url)
+            } else {
+                browser
+                    .and_then(|b| b.main_frame())
+                    .map(|f| CefString::from(&f.url()).to_string())
+                    .filter(|u| !u.is_empty())
+            };
+            let mut file = DownloadFile { id, name, mime, bytes: 0, state: DownloadState::Pending, path: String::new(), error: None, source_url };
             let held = self.downloads.files.lock().unwrap().keys().filter(|(tab, _)| *tab == self.tab_id).count();
             let fail = |mut file: DownloadFile, why: &str| {
                 file.state = DownloadState::Failed;
@@ -155,7 +179,7 @@ wrap_download_handler! {
         }
 
         fn on_download_updated(&self, _browser: Option<&mut Browser>, item: Option<&mut DownloadItem>, callback: Option<&mut DownloadItemCallback>) {
-            if self.is_preview || !self.context_ready.load(Ordering::Acquire) {
+            if self.is_popup || self.is_preview || !self.context_ready.load(Ordering::Acquire) {
                 if let Some(callback) = callback {
                     callback.cancel();
                 }

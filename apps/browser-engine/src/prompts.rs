@@ -13,20 +13,21 @@
 //!   Negotiate; agent-driven tabs cancel immediately and emit `AuthAgentRequired` (`sign_in_required`).
 //! - Native file choosers on agent-driven tabs are cancelled immediately (`FileChooserBlocked`).
 
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use cef::rc::Rc as _;
 use cef::{
     AuthCallback, Browser, BrowserSettings, CefString, CefStringList, Client, DialogHandler,
-    DictionaryValue, FileDialogCallback, FileDialogMode, Frame, ImplAuthCallback,
-    ImplDialogHandler, ImplFileDialogCallback, ImplJsdialogCallback, ImplJsdialogHandler,
+    DictionaryValue, FileDialogCallback, FileDialogMode, Frame, ImplAuthCallback, ImplBrowser, ImplDialogHandler,
+    ImplFileDialogCallback, ImplFrame, ImplJsdialogCallback, ImplJsdialogHandler,
     ImplLifeSpanHandler, ImplMediaAccessCallback, ImplPermissionHandler,
     ImplPermissionPromptCallback, JsdialogCallback, JsdialogHandler, JsdialogType, LifeSpanHandler,
     MediaAccessCallback, PermissionHandler, PermissionPromptCallback, PermissionRequestResult,
-    PopupFeatures, WindowInfo, WindowOpenDisposition, WrapDialogHandler, WrapJsdialogHandler,
-    WrapLifeSpanHandler, WrapPermissionHandler, sys, wrap_dialog_handler, wrap_jsdialog_handler,
-    wrap_life_span_handler, wrap_permission_handler,
+    PopupFeatures, RequestContext, WindowInfo, WindowOpenDisposition, WrapDialogHandler,
+    WrapJsdialogHandler, WrapLifeSpanHandler, WrapPermissionHandler, sys, wrap_dialog_handler,
+    wrap_jsdialog_handler, wrap_life_span_handler, wrap_permission_handler,
 };
 
 use crate::output::Output;
@@ -71,11 +72,76 @@ pub struct TabPrompts {
     permissions: Mutex<Vec<HeldPermission>>,
     auth: Mutex<Vec<(AuthChallenge, AuthCallback)>>,
     pending_top_url: Mutex<Option<String>>,
+    /// Tracks in-flight (pre-commit) `chrome-extension://` sub-frame navigations keyed by CEF
+    /// frame identifier until commit, cancel/error, main-frame nav, or renderer crash — NO
+    /// time-out that fails open (`review-rd274.md` Round-4 ruling).
+    pending_ext_subframes: Mutex<HashSet<String>>,
+    /// Tracks extension frames observed via real CDP `frameId` (`devtools_frame_token`) in
+    /// `TabCdpObserver::on_dev_tools_event` (`Page.frameNavigated` / `frameDetached`).
+    cdp_ext_frames: Mutex<HashSet<String>>,
 }
 
 impl TabPrompts {
     pub fn set_pending_top_url(&self, url: Option<String>) {
         *self.pending_top_url.lock().unwrap() = url;
+    }
+
+    pub fn pending_top_url(&self) -> Option<String> {
+        self.pending_top_url.lock().unwrap().clone()
+    }
+
+    pub fn mark_pending_ext_subframe(&self, frame_id: String) {
+        if !frame_id.is_empty() {
+            self.pending_ext_subframes.lock().unwrap().insert(frame_id);
+        }
+    }
+
+    pub fn clear_pending_ext_subframe(&self, frame_id: &str) {
+        if !frame_id.is_empty() {
+            self.pending_ext_subframes.lock().unwrap().remove(frame_id);
+        }
+    }
+
+    pub fn clear_all_ext_frame_tracking(&self) {
+        self.pending_ext_subframes.lock().unwrap().clear();
+        self.cdp_ext_frames.lock().unwrap().clear();
+    }
+
+    /// Retains only pending extension sub-frames whose `RenderFrameHost` is still alive and has
+    /// not yet committed as an extension scheme (zero fail-open TTL). Returns `true` if any
+    /// pre-commit extension sub-frame navigation is still in flight.
+    pub fn has_pending_ext_subframes(&self, live_frames: &HashMap<String, String>) -> bool {
+        let mut set = self.pending_ext_subframes.lock().unwrap();
+        set.retain(|id| {
+            live_frames
+                .get(id)
+                .is_some_and(|url| !crate::extensions::manifest::is_extension_scheme(url))
+        });
+        !set.is_empty()
+    }
+
+    pub fn has_any_pending_ext_subframes(&self) -> bool {
+        !self.pending_ext_subframes.lock().unwrap().is_empty()
+    }
+
+    pub fn set_cdp_ext_frame(&self, cdp_frame_id: &str, is_ext: bool) {
+        if cdp_frame_id.is_empty() {
+            return;
+        }
+        let mut set = self.cdp_ext_frames.lock().unwrap();
+        if is_ext {
+            set.insert(cdp_frame_id.to_owned());
+        } else {
+            set.remove(cdp_frame_id);
+        }
+    }
+
+    pub fn clear_cdp_ext_frames(&self) {
+        self.cdp_ext_frames.lock().unwrap().clear();
+    }
+
+    pub fn has_cdp_ext_frames(&self) -> bool {
+        !self.cdp_ext_frames.lock().unwrap().is_empty()
     }
 
     pub fn answer_dialog(&self, id: u64, accept: bool, text: &str) -> bool {
@@ -88,7 +154,18 @@ impl TabPrompts {
         true
     }
 
-    pub fn answer_permission(&self, id: u64, allow: bool) -> bool {
+    #[allow(clippy::too_many_arguments)]
+    pub fn answer_permission(
+        &self,
+        tab_id: u64,
+        id: u64,
+        allow: bool,
+        dismiss: bool,
+        persist: bool,
+        ctx_scope: Option<&str>,
+        req_ctx: Option<&RequestContext>,
+        tracker: &crate::permissions::PermissionTracker,
+    ) -> bool {
         let entry = {
             let mut list = self.permissions.lock().unwrap();
             let Some(pos) = list.iter().position(|p| match p {
@@ -100,20 +177,56 @@ impl TabPrompts {
             };
             list.remove(pos)
         };
+        let is_default = ctx_scope.is_none();
+        let effective_persist = persist && is_default;
         match entry {
-            HeldPermission::Media { requested_bits, callback, .. } => {
+            HeldPermission::Media { prompt, requested_bits, callback } => {
                 if allow {
                     callback.cont(requested_bits);
                 } else {
                     callback.cancel();
                 }
+                if let Some(ctx) = req_ctx {
+                    for &kind in &prompt.kinds {
+                        if effective_persist {
+                            crate::permissions::set_content_setting(ctx, &prompt.origin, kind, allow);
+                            tracker.record_persistent(&prompt.origin, kind, allow);
+                        } else if allow {
+                            crate::permissions::set_content_setting(ctx, &prompt.origin, kind, true);
+                            tracker.record_visit(
+                                ctx_scope.map(str::to_owned),
+                                tab_id,
+                                &prompt.origin,
+                                kind,
+                                ctx.clone(),
+                            );
+                        }
+                    }
+                }
             }
-            HeldPermission::Prompt { callback, .. } => {
+            HeldPermission::Prompt { prompt, callback, .. } => {
                 let res = if allow {
                     sys::cef_permission_request_result_t::CEF_PERMISSION_RESULT_ACCEPT
-                } else {
+                } else if effective_persist && !dismiss {
                     sys::cef_permission_request_result_t::CEF_PERMISSION_RESULT_DENY
+                } else {
+                    sys::cef_permission_request_result_t::CEF_PERMISSION_RESULT_DISMISS
                 };
+                if let Some(ctx) = req_ctx {
+                    for &kind in &prompt.kinds {
+                        if effective_persist && (allow || !dismiss) {
+                            tracker.record_persistent(&prompt.origin, kind, allow);
+                        } else if allow {
+                            tracker.record_visit(
+                                ctx_scope.map(str::to_owned),
+                                tab_id,
+                                &prompt.origin,
+                                kind,
+                                ctx.clone(),
+                            );
+                        }
+                    }
+                }
                 callback.cont(res.into());
             }
         }
@@ -169,7 +282,7 @@ impl TabPrompts {
                     prompt.id
                 }
                 HeldPermission::Prompt { prompt, callback, .. } => {
-                    callback.cont(sys::cef_permission_request_result_t::CEF_PERMISSION_RESULT_DENY.into());
+                    callback.cont(sys::cef_permission_request_result_t::CEF_PERMISSION_RESULT_DISMISS.into());
                     prompt.id
                 }
             };
@@ -179,6 +292,7 @@ impl TabPrompts {
 
     pub fn reset_on_crash(&self, tab_id: u64, out_tx: &Output) {
         self.set_pending_top_url(None);
+        self.clear_all_ext_frame_tracking();
         let dialogs = std::mem::take(&mut *self.dialogs.lock().unwrap());
         let had_dialogs = !dialogs.is_empty();
         for (_, cb) in dialogs {
@@ -199,7 +313,7 @@ impl TabPrompts {
             match p {
                 HeldPermission::Media { callback, .. } => callback.cancel(),
                 HeldPermission::Prompt { callback, .. } => {
-                    callback.cont(sys::cef_permission_request_result_t::CEF_PERMISSION_RESULT_DENY.into());
+                    callback.cont(sys::cef_permission_request_result_t::CEF_PERMISSION_RESULT_DISMISS.into());
                 }
             }
         }
@@ -532,23 +646,23 @@ wrap_permission_handler! {
     pub struct TabPermissionHandler {
         tab_id: u64,
         is_preview: bool,
+        context_ready: Arc<AtomicBool>,
         shared: PromptShared,
         prompts: Arc<TabPrompts>,
-        snap: Arc<Mutex<TabSnapshot>>,
         out_tx: Output,
     }
 
     impl PermissionHandler {
         fn on_request_media_access_permission(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             frame: Option<&mut Frame>,
             requesting_origin: Option<&CefString>,
             requested_permissions: u32,
             callback: Option<&mut MediaAccessCallback>,
         ) -> ::std::os::raw::c_int {
             let Some(callback) = callback else { return 1 };
-            if self.is_preview {
+            if self.is_preview || !self.context_ready.load(Ordering::Acquire) {
                 callback.cancel();
                 return 1;
             }
@@ -560,13 +674,20 @@ wrap_permission_handler! {
                 return 1;
             }
             let raw_origin = requesting_origin.map(CefString::to_string).unwrap_or_default();
-            let top_url = self.snap.lock().unwrap().url.clone();
-            let _ = frame;
+            let top_url = browser
+                .as_ref()
+                .and_then(|b| b.main_frame())
+                .map(|f| CefString::from(&f.url()).to_string())
+                .unwrap_or_default();
+            let frame_ok = frame
+                .as_ref()
+                .is_some_and(|f| origin_of(&CefString::from(&f.url()).to_string()) == origin_of(&raw_origin));
             let (Some(req_orig), Some(top_orig)) = (origin_of(&raw_origin), origin_of(&top_url)) else {
                 callback.cancel();
                 return 1;
             };
-            if !self.shared.enabled.load(Ordering::Relaxed)
+            if !frame_ok
+                || !self.shared.enabled.load(Ordering::Relaxed)
                 || !is_secure_origin(&req_orig)
                 || req_orig != top_orig
             {
@@ -599,7 +720,7 @@ wrap_permission_handler! {
 
         fn on_show_permission_prompt(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             prompt_id: u64,
             requesting_origin: Option<&CefString>,
             requested_permissions: u32,
@@ -607,10 +728,12 @@ wrap_permission_handler! {
         ) -> ::std::os::raw::c_int {
             let Some(callback) = callback else { return 1 };
             let deny = || {
-                callback.cont(sys::cef_permission_request_result_t::CEF_PERMISSION_RESULT_DENY.into());
+                // `DISMISS` rejects the JS request cleanly without writing a permanent `setting: 2`
+                // entry into `Default/Preferences`.
+                callback.cont(sys::cef_permission_request_result_t::CEF_PERMISSION_RESULT_DISMISS.into());
                 1
             };
-            if self.is_preview {
+            if self.is_preview || !self.context_ready.load(Ordering::Acquire) {
                 return deny();
             }
             use sys::cef_permission_request_types_t as P;
@@ -624,7 +747,11 @@ wrap_permission_handler! {
                 return deny();
             }
             let raw_origin = requesting_origin.map(CefString::to_string).unwrap_or_default();
-            let top_url = self.snap.lock().unwrap().url.clone();
+            let top_url = browser
+                .as_ref()
+                .and_then(|b| b.main_frame())
+                .map(|f| CefString::from(&f.url()).to_string())
+                .unwrap_or_default();
             let (Some(req_orig), Some(top_orig)) = (origin_of(&raw_origin), origin_of(&top_url)) else {
                 return deny();
             };

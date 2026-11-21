@@ -31,6 +31,10 @@ mod mentions;
 mod output_head;
 mod plugins;
 #[cfg(not(target_arch = "wasm32"))]
+mod preview;
+#[cfg(not(target_arch = "wasm32"))]
+pub use preview::{PreviewAbort, PreviewHttpHead};
+#[cfg(not(target_arch = "wasm32"))]
 mod reach;
 #[cfg(not(target_arch = "wasm32"))]
 mod streams;
@@ -527,12 +531,13 @@ impl Server {
         if info.id.is_empty() { Err(WireError::new("POST", "/api/session", WireKind::Shape("no session in the reply".into()))) } else { Ok(info) }
     }
 
-    /// Create and admit the first prompt. Only roll back a definitely rejected prompt:
-    /// after a lost reply the client needs the session intact to check its receipt.
-    pub fn start_as(&self, id: &str, directory: &str, prompt: &Prompt) -> Result<SessionInfo, WireError> {
+    /// Create and admit the first prompt, calling `after_create` between `POST /api/session` and
+    /// `POST /prompt` (used by the fail-open `<= 1 s` new-session browser-attach gate).
+    pub fn start_as(&self, id: &str, directory: &str, prompt: &Prompt, after_create: impl FnOnce(&SessionInfo)) -> Result<SessionInfo, WireError> {
         let created = self.create_session_as(id, directory, prompt.agent.as_deref(), prompt.model.as_ref());
         // The create already chose the agent and model, so no switches before the prompt.
-        let sent = created.as_ref().map_err(WireError::clone).and_then(|_| {
+        let sent = created.as_ref().map_err(WireError::clone).and_then(|info| {
+            after_create(info);
             let prompt = self.with_mentions(Some(directory), id, prompt);
             self.write_bytes(&format!("/api/session/{id}/prompt"), prompt.body_bytes(), Expect::Prompt(prompt.id.as_deref()))
         });
@@ -569,10 +574,11 @@ impl Server {
     }
 
     /// `StartInNewWorktree`: the worktree, then `start_as` in it.
-    pub fn start_in_new_worktree(&self, id: &str, project: &str, from: &str, branch: Option<&str>, prompt: &Prompt, made: impl FnOnce()) -> Result<SessionInfo, WireError> {
+    #[allow(clippy::too_many_arguments)]
+    pub fn start_in_new_worktree(&self, id: &str, project: &str, from: &str, branch: Option<&str>, prompt: &Prompt, made: impl FnOnce(), after_create: impl FnOnce(&SessionInfo)) -> Result<SessionInfo, WireError> {
         let directory = self.create_worktree(project, from, branch)?;
         made();
-        self.start_as(id, &directory, prompt)
+        self.start_as(id, &directory, prompt, after_create)
     }
 
     /// `vcs.branch.list`: up to 50 branches at `directory` whose names hold `search`.

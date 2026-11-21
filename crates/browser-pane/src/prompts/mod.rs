@@ -17,10 +17,12 @@ use std::time::Duration;
 
 use rune::time::Instant;
 
+#[cfg(feature = "engine")]
+pub(crate) use store::scrub_chromium_preferences_for_older_engine;
 pub use store::{
     ACTIVATION_DELAY_MS, AGENT_PERMISSION_TIMEOUT_MS, InputGuard, MAX_SIGN_IN_ATTEMPTS,
-    PROMPT_TEXT_MAX, PermissionStore, REALM_TEXT_MAX, REPEAT_DIALOG_MS, SiteDecision,
-    SitePermissions, SiteSetting, sanitize_prompt_text,
+    PROMPT_TEXT_MAX, PermissionScope, PermissionStore, REALM_TEXT_MAX, REPEAT_DIALOG_MS,
+    SiteDecision, SitePermissions, SiteSetting, sanitize_prompt_text,
 };
 
 use crate::protocol::{AuthChallenge, DialogKind, PageDialog, PermissionKind, PermissionPrompt};
@@ -243,25 +245,34 @@ impl PermissionGate {
             .min()
     }
 
-    /// Evaluates an incoming permission request against kept + visit decisions.
-    /// Returns `Some(allow)` to answer immediately without showing a bar, else enqueues/coalesces.
+    /// Evaluates an incoming permission request against scope-partitioned kept + visit decisions.
+    /// Returns `Some((allow, dismiss, persist))` to answer immediately without showing a bar, else enqueues.
     pub fn evaluate(
         &mut self,
         request: PermissionPrompt,
         agent_driven: bool,
+        scope: &PermissionScope,
         kept: &SitePermissions,
         visit: &HashMap<(String, PermissionKind), SiteSetting>,
         now: Instant,
-    ) -> Option<bool> {
+    ) -> Option<(bool, bool, bool)> {
         if request.kinds.is_empty() || request.origin != request.top_origin {
-            return Some(false);
+            return Some((false, true, false));
         }
+        let is_profile = matches!(scope, PermissionScope::Profile);
         let mut all_allowed = true;
+        let mut all_kept = true;
         for &kind in &request.kinds {
-            let kept_val = kept.get(&request.origin, kind);
+            let kept_val = kept.get_scoped(scope, &request.origin, kind);
             let visit_val = visit.get(&(request.origin.clone(), kind)).copied();
-            if kept_val == Some(SiteSetting::Block) || visit_val == Some(SiteSetting::Block) {
-                return Some(false);
+            if kept_val == Some(SiteSetting::Block) {
+                return Some((false, false, is_profile));
+            }
+            if visit_val == Some(SiteSetting::Block) {
+                return Some((false, true, false));
+            }
+            if kept_val != Some(SiteSetting::Allow) {
+                all_kept = false;
             }
             let allowed = if agent_driven {
                 // Agent tabs never inherit kept user permissions (`site-permissions.ts`).
@@ -274,7 +285,7 @@ impl PermissionGate {
             }
         }
         if all_allowed {
-            return Some(true);
+            return Some((true, false, all_kept && is_profile));
         }
         let key = permission_key(&request, agent_driven);
         let expires_at = agent_driven.then(|| now + Duration::from_millis(AGENT_PERMISSION_TIMEOUT_MS));
@@ -571,10 +582,42 @@ impl PopupGate {
     }
 }
 
+/// Who is driving a controlled browser tab (for honest UI copy in permission and notice bars).
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum TabDriver {
+    /// An AI agent (native MCP browser RPC or built-in browser MCP tools).
+    Agent,
+    /// A third-party Luau plugin, carrying its sanitized display name.
+    Plugin(String),
+}
+
+impl TabDriver {
+    pub fn plugin(name: &str) -> Self {
+        let clean: String = sanitize_prompt_text(name, 64)
+            .chars()
+            .map(|c| if c == '\n' || c == '\t' { ' ' } else { c })
+            .collect();
+        let trimmed = clean.trim();
+        Self::Plugin(if trimmed.is_empty() { "Plugin".to_owned() } else { trimmed.to_owned() })
+    }
+}
+
+/// Why the controlled-tab notice bar (`#306` / stopgap) is currently shown on a tab.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum BlockedGuardReason {
+    /// Sign-in prompt or file picker was suppressed while a driver controls the tab.
+    Action,
+    /// Controlled actions were refused because the top-level origin holds clipboard, location, or
+    /// notification access in the default profile; carries the refused URL for "Open in new tab".
+    InheritedPermission { url: Option<String> },
+}
+
 /// All prompt, permission, auth, and pop-up states owned by one `BrowserTab`.
 #[derive(Clone, Debug, Default)]
 pub struct TabPromptState {
     pub agent_driven: bool,
+    /// Honest attribution for why this tab is controlled (`Agent` vs third-party `Plugin(name)`).
+    pub driver: Option<TabDriver>,
     pub dialog: DialogGate,
     pub permission: PermissionGate,
     pub auth: AuthGate,
@@ -589,6 +632,8 @@ pub struct TabPromptState {
     pub agent_auth_required: Option<String>,
     /// Count of blocked native file choosers on agent-driven tabs.
     pub file_chooser_blocked: u64,
+    /// Active dismissible controlled-tab notice reason on this document.
+    pub blocked_guard_notice: Option<BlockedGuardReason>,
 }
 
 impl TabPromptState {
@@ -615,6 +660,17 @@ impl TabPromptState {
         self.popup = PopupGate::Idle;
     }
 
+    /// Context switched (`reopen_tab_as_preview` / `reopen_tab_as_web`): clears visit-scoped
+    /// permissions, auth state, and notices while keeping `agent_driven` and `driver`.
+    pub fn reset_for_context_switch(&mut self) {
+        self.visit_permissions.clear();
+        self.auth_attempts.clear();
+        self.auth_dismissed.clear();
+        self.agent_auth_required = None;
+        self.blocked_guard_notice = None;
+        self.reset_for_engine();
+    }
+
     /// User started a navigation/reload/back/forward: dismissed auth sites ask again (`prompt-machine.ts:182`).
     pub fn on_user_nav(&mut self) {
         self.auth_attempts.clear();
@@ -629,6 +685,7 @@ impl TabPromptState {
         self.dialog.on_document_committed();
         self.popup.dismiss();
         self.agent_auth_required = None;
+        self.blocked_guard_notice = None;
         let same_origin = crate::policy::destination_origin(old_url)
             == crate::policy::destination_origin(new_url);
         if same_origin {
@@ -658,6 +715,8 @@ impl TabPromptState {
     /// Zero-allocation state hash for `Dep::Browser` invalidation (`ours.md` §3.2).
     pub fn hash_state(&self, h: &mut impl Hasher) {
         self.agent_driven.hash(h);
+        self.driver.hash(h);
+        self.blocked_guard_notice.hash(h);
         match &self.dialog {
             DialogGate::Idle { stopped, .. } => (0u8, *stopped).hash(h),
             DialogGate::Open { dialog, queue, repeat, input } => {
