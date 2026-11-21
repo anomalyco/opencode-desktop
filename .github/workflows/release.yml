@@ -989,7 +989,7 @@ jobs:
           }
           xcrun stapler validate "$app"
           spctl --assess --type execute --verbose=2 "$app"
-          codesign --verify --deep --strict -R="=anchor apple generic and certificate leaf[subject.OU] = \"$SEER_TEAM_ID\" and notarized" "$app"
+          codesign --verify --deep --strict -R="anchor apple generic and certificate leaf[subject.OU] = \"$SEER_TEAM_ID\" and notarized" "$app"
           codesign -dv "$app" 2>&1 | grep -E '^(Identifier|TeamIdentifier|Authority=Developer)' >> "$GITHUB_STEP_SUMMARY"
 
   # ---- Publish browser engine: release environment; OIDC only ----------------

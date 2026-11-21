@@ -3599,7 +3599,7 @@
       "summary": "Size pinned group rename input to 100% width and suppress its focus ring outside forced-colors mode.",
       "size": "S",
       "status": "have it",
-      "status_evidence": "The group name field (inline rename, from the group menu's Rename) fills its row and draws no focus ring; Rune-desktop's group menu renames inline rather than in a field inside the menu (official's GroupEditor), a UP-072 difference (PR #0)",
+      "status_evidence": "The group name field (inline rename, from the group menu's Rename) fills its row and draws no focus ring; rune-desktop's group menu renames inline rather than in a field inside the menu (official's GroupEditor), a UP-072 difference (PR #0)",
       "depends_on": "UP-072 (#64668), UP-088 (#64909)",
       "risks": "none",
       "workstream": "WS-8"

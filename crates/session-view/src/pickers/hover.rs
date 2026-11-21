@@ -8,9 +8,10 @@
 //! - A safe triangle, from the pointer's last point on the flyout's row to the flyout's near
 //!   corners, keeps the flyout while the pointer crosses other rows on its way in. Resting on a
 //!   row inside it for 300 ms hands over to that row, as on macOS.
-//! - A wheel scroll lights the row it brings under the pointer and moves the flyout beside it. The
-//!   arrow keys and typing close the flyout, and rows they scroll under a still pointer leave the
-//!   highlight where the keys put it.
+//! - A wheel scroll lights the row it brings under the pointer and moves the flyout beside it.
+//! - The keys drive it too: the flyout opens beside the row the dialog opens on, and follows the
+//!   highlight as the arrow keys and typing move it; rows they scroll under a still pointer leave
+//!   the highlight where the keys put it.
 //! - A new query starts the list from the top; results that land later for the same query bring
 //!   the lit row back into view unless it's the first (`search-list.tsx:189-207`).
 
@@ -195,14 +196,15 @@ pub trait ModelHover: PickerHost + Sized + 'static {
     }
 
     /// The arrow keys moved the highlight, the query changed, a favorite was toggled or an
-    /// effort staged from the keyboard: the flyout closes, and the next waits again.
+    /// effort staged from the keyboard: the flyout shows beside the highlighted row, if any.
     fn model_list_keyed(&mut self) {
         self.model_keyed(&mut Tx::default());
     }
 
     /// [`ModelHover::model_list_keyed`] in a handler that commits what it changes.
     fn model_keyed(&mut self, tx: &mut Tx) {
-        self.flyout_event(Event::Keyboard, tx);
+        let id = self.picker_active();
+        self.flyout_event(Event::Keyboard { id: id.as_deref() }, tx);
     }
 
     /// The flyout's row moved or went without the pointer: it closes, and nothing opens at once.
@@ -261,11 +263,9 @@ pub fn poll<S: PickerHost + 'static>(s: &mut S, now: f64, tx: &mut Tx) -> bool {
     let fresh = revealed.as_ref().is_none_or(|(q, _)| *q != query);
     let changed = revealed.as_ref().is_some_and(|(q, r)| *q == query && *r != rows);
     if fresh {
-        // A new query starts from its first row at the top, the flyout shut (`search-list.tsx:132-140`,
-        // `select-dialog.tsx:689-692`).
-        if revealed.is_some() {
-            s.model_keyed(tx);
-        }
+        // A new query starts from its first row at the top, the flyout beside it
+        // (`search-list.tsx:132-140`, `select-dialog.tsx:689-692`); so does the dialog opening.
+        s.model_keyed(tx);
         s.pickers_mut().hover.navigated = false;
         tx.scroll_to_y("picker-scroll", 0.0);
     } else if changed {
@@ -275,6 +275,10 @@ pub fn poll<S: PickerHost + 'static>(s: &mut S, now: f64, tx: &mut Tx) -> bool {
         match active.filter(|a| items.first().is_some_and(|i| i.key != *a)) {
             Some(key) => tx.scroll_into_view_in("picker-scroll", format!("option-{key}")),
             None => tx.scroll_to_y("picker-scroll", 0.0),
+        }
+        // The keys' flyout follows the highlight onto the rows that landed (`onActive`).
+        if machine::keyboard_driven(&s.pickers().hover.state) {
+            s.model_keyed(tx);
         }
     }
     s.pickers_mut().hover.revealed = Some((query, rows));

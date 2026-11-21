@@ -452,6 +452,17 @@ impl App {
                 self.open_workspace_file_source(&sid, &path, false, lines, true, tx);
             }
             crate::files::links::Link::Web(url) => {
+                // A plugin's link reaches the OS only as `http(s)`: `mailto:` and app schemes are
+                // copied, never opened and never offered on the review bar.
+                let is_http = url.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("http://"))
+                    || url.get(..8).is_some_and(|s| s.eq_ignore_ascii_case("https://"));
+                if !is_http {
+                    if !agent && browser_policy::classify_app_link(&url, browser_policy::AppSchemeSource::Conversation).is_some() {
+                        tx.copy(url.clone());
+                        crate::status_toast::say(self, opencode_i18n::t!("common.copied").to_owned(), String::new());
+                    }
+                    return;
+                }
                 self.route_plugin_web_or_app_link(
                     Some(&sid),
                     &url,

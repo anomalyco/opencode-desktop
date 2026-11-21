@@ -194,7 +194,8 @@ wrap_app! {
             // host's "Pop-up blocked" bar) instead of silently swallowing them before CEF sees them.
             cmd.append_switch(Some(&"disable-popup-blocking".into()));
             cmd.append_switch(Some(&"mute-audio".into()));
-            cmd.append_switch(Some(&"use-mock-keychain".into()));
+            // Real OS cookie encryption is enabled (DPAPI on Windows, Keychain on macOS,
+            // Secret Service / KWallet on Linux); `ProfileProbeCookies` detects locked key stores.
             cmd.append_switch(Some(&"no-startup-window".into()));
             cmd.append_switch(Some(&"noerrdialogs".into()));
             cmd.append_switch(Some(&"hide-crash-restore-bubble".into()));
