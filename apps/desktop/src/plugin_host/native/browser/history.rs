@@ -1,29 +1,49 @@
 //! Native Luau bindings for `browser_pane::history::HistoryStore` and read-only user-explicit
 //! browser history import (`UP-106` `#65073`).
 
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 use browser_pane::cookies::BrowserEngineKind;
 use browser_pane::cookies::icons::{AppIcon, application, application_icon};
 use browser_pane::cookies::sources::{list_sources, source_history_database};
-use browser_pane::history::{HistoryStore, ImportEngine, read_profile_history};
-use mlua::{IntoLua, Lua, MultiValue, Table, Value};
-use rune_luau::Data;
+use browser_pane::history::{
+    HistoryStore, ImportEngine, PageVisit, read_profile_history_in, sweep_stale_import_dirs,
+};
+use mlua::{Function, IntoLua, Lua, MultiValue, Table, Value};
+use rune_luau::{Completer, Data, Host};
 
-use super::{App, map, method, scope, with_app};
+use super::{App, Vmx, map, method, scope, with_app};
 
 fn require_builtin_browser(lua: &Lua, what: &str) -> mlua::Result<()> {
     let cap = scope::TabScope::capture(lua);
-    if cap.is_builtin_browser && cap.tool_sid.is_none() {
+    if cap.is_builtin_browser && cap.tool_sid.is_none() && cap.in_flight.is_empty() {
         return Ok(());
     }
     Err(mlua::Error::runtime(format!("{what} is restricted to the built-in browser.")))
 }
 
+fn import_scratch_dir() -> Option<PathBuf> {
+    crate::dirs::data().map(|d| d.join("browser").join("import-tmp"))
+}
+
+fn staged_imports() -> &'static Mutex<HashMap<u64, Vec<PageVisit>>> {
+    static STAGED: OnceLock<Mutex<HashMap<u64, Vec<PageVisit>>>> = OnceLock::new();
+    STAGED.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn next_import_token() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
 fn with_store<R>(app: &App, f: impl FnOnce(&mut HistoryStore) -> R) -> Option<R> {
     let mut cell = app.workspace_panes.browser.history.borrow_mut();
     if cell.is_none() {
-        let store = if crate::attended() {
+        let can_persist = crate::attended() && opencode_storage::holds_profile() == Some(true);
+        let store = if can_persist {
             crate::dirs::data()
                 .map(|d| d.join("browser"))
                 .and_then(|dir| HistoryStore::open(&dir).ok())
@@ -36,9 +56,12 @@ fn with_store<R>(app: &App, f: impl FnOnce(&mut HistoryStore) -> R) -> Option<R>
     cell.as_mut().map(f)
 }
 
-pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
+pub(super) fn service_methods(lua: &Lua, vmx: &Vmx, t: &Table) -> mlua::Result<()> {
     method(lua, t, "HistoryPrepare", |lua, ()| {
         require_builtin_browser(lua, "Browser:HistoryPrepare")?;
+        if let Some(dir) = import_scratch_dir() {
+            sweep_stale_import_dirs(&dir);
+        }
         with_app("Browser:HistoryPrepare", |app| {
             with_store(app, |store| store.prepare());
             Ok(())
@@ -65,14 +88,18 @@ pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
     method(lua, t, "HistoryVisit", |lua, (url, title, typed, tab_id): (String, String, Option<bool>, Option<String>)| {
         require_builtin_browser(lua, "Browser:HistoryVisit")?;
         with_app("Browser:HistoryVisit", |app| {
-            // Never record history from isolated/preview tabs or non-HTTP(S) URLs.
+            // Only record top-level HTTP(S) visits from a live default-context non-agent,
+            // non-preview tab (never isolated/private/remote/preview/agent navigations).
             if browser_pane::policy::destination_origin(&url).is_none() {
                 return Ok(());
             }
-            if let Some(id) = tab_id.as_deref().and_then(|s| s.parse::<u64>().ok())
-                && let Some(tab) = app.workspace_panes.browser.host.tab(id)
-                && (tab.context.is_isolated() || tab.preview.is_some())
-            {
+            let Some(id) = tab_id.as_deref().and_then(|s| s.parse::<u64>().ok()) else {
+                return Ok(());
+            };
+            let Some(tab) = app.workspace_panes.browser.host.tab(id) else {
+                return Ok(());
+            };
+            if tab.context.is_isolated() || tab.preview.is_some() || tab.prompts.agent_driven {
                 return Ok(());
             }
             with_store(app, |store| store.visit(&url, &title, typed.unwrap_or(false)));
@@ -175,7 +202,8 @@ pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
             BrowserEngineKind::Firefox => ImportEngine::Firefox,
             BrowserEngineKind::Safari => ImportEngine::Safari,
         };
-        let pages = match read_profile_history(engine, Path::new(&db_path)) {
+        let scratch = import_scratch_dir();
+        let pages = match read_profile_history_in(engine, Path::new(&db_path), scratch.as_deref()) {
             Ok(p) => p,
             Err(err) => return map([("error", Data::String(err))]).into_lua(lua),
         };
@@ -187,6 +215,72 @@ pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
             Err(err) => map([("error", Data::String(err))]).into_lua(lua),
         }
     })?;
+    method(lua, t, "_HistoryApplyImport", |lua, token: u64| {
+        require_builtin_browser(lua, "Browser:HistoryImportProfileAsync")?;
+        let Some(pages) = staged_imports().lock().unwrap_or_else(|e| e.into_inner()).remove(&token) else {
+            return map([("error", Data::String("Staged history import expired".into()))]).into_lua(lua);
+        };
+        let res = with_app("Browser:HistoryImportProfileAsync", |app| {
+            Ok(with_store(app, |store| store.add(&pages)).unwrap_or_else(|| Err("History store unavailable".into())))
+        })?;
+        match res {
+            Ok(count) => map([("imported", Data::Number(count as f64))]).into_lua(lua),
+            Err(err) => map([("error", Data::String(err))]).into_lua(lua),
+        }
+    })?;
+    let raw_import: Function = vmx.asyncs.raw_get("Browser.HistoryImportProfileAsync")?;
+    let import_async: Function = lua
+        .load("local raw = ... return function(self, b, p) local r = raw(b, p) if type(r) == 'table' and type(r.token) == 'number' then return self:_HistoryApplyImport(r.token) end return r end")
+        .set_name("=Browser:HistoryImportProfileAsync")
+        .call(raw_import)?;
+    t.raw_set("HistoryImportProfileAsync", import_async)?;
+    Ok(())
+}
+
+pub(super) fn asyncs(host: &Host<'_>, t: &Table) -> mlua::Result<()> {
+    t.raw_set(
+        "Browser.HistoryImportProfileAsync",
+        host.async_function("Browser:HistoryImportProfileAsync", import_profile_async)?,
+    )
+}
+
+fn import_profile_async(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
+    require_builtin_browser(lua, "Browser:HistoryImportProfileAsync")?;
+    let (browser_id, profile_id): (String, String) = mlua::FromLuaMulti::from_lua_multi(a, lua)?;
+    let scratch = import_scratch_dir();
+    let done_slot = std::sync::Arc::new(Mutex::new(Some(done)));
+    let thread_done = done_slot.clone();
+    let finish = |slot: &Mutex<Option<Completer>>, data: Data| {
+        if let Some(c) = slot.lock().unwrap_or_else(|e| e.into_inner()).take() {
+            c.complete(data);
+        }
+    };
+    let spawned = std::thread::Builder::new().name("opencode-hist-import".into()).spawn(move || {
+        let Some((engine, db_path)) = source_history_database(&browser_id, &profile_id) else {
+            return finish(&thread_done, map([("error", Data::String("Browser profile not found".into()))]));
+        };
+        let engine = match engine {
+            BrowserEngineKind::Chromium => ImportEngine::Chromium,
+            BrowserEngineKind::Firefox => ImportEngine::Firefox,
+            BrowserEngineKind::Safari => ImportEngine::Safari,
+        };
+        match read_profile_history_in(engine, Path::new(&db_path), scratch.as_deref()) {
+            Ok(pages) => {
+                let token = next_import_token();
+                let mut map_guard = staged_imports().lock().unwrap_or_else(|e| e.into_inner());
+                if map_guard.len() >= 8 {
+                    map_guard.clear();
+                }
+                map_guard.insert(token, pages);
+                drop(map_guard);
+                finish(&thread_done, map([("token", Data::Integer(token as i64))]));
+            }
+            Err(err) => finish(&thread_done, map([("error", Data::String(err))])),
+        }
+    });
+    if spawned.is_err() {
+        finish(&done_slot, map([("error", Data::String("Could not start history import thread".into()))]));
+    }
     Ok(())
 }
 
