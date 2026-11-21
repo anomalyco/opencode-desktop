@@ -125,7 +125,7 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
         .py(8.0)
         .corners([10.0, top, end, 10.0])
         .fill(fill)
-        .hover_group()
+        .hover_group_focus()
         // The bubble stays in the timeline's direction, so its tightened corners always face the
         // timeline's outer wall; its lines read their own way inside it (`dir_by_paragraph`).
         .hover_motion(INSTANT, INSTANT);
@@ -190,7 +190,7 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
         let under = el().key("menu-under").size(20.0, 20.0).fill(fill).child(button);
         let corner = if rtl { row().pin(Some(MENU_INSET), Some(MENU_INSET), None, None).child(under).child(fade) } else { row().pin(None, Some(MENU_INSET), Some(MENU_INSET), None).child(fade).child(under) };
         let corner = corner.key("menu").unmirrored().dir(rune::Direction::Ltr).h(20.0).corners([4.0; 4]);
-        face = face.child(if open { corner.opacity(1.0).opacity_motion(INSTANT) } else { corner.group_opacity(0.0, 1.0) });
+        face = face.child(if open || crate::style::hover_none() { corner.opacity(1.0).opacity_motion(INSTANT) } else { corner.group_opacity(0.0, 1.0) });
     }
     // A right-click anywhere on the bubble opens the chevron's menu, at the pointer.
     let mut face = crate::images::menu::on_message::<S>(face, session, id);
