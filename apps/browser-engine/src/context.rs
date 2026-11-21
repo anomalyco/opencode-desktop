@@ -200,6 +200,7 @@ fn apply_context_prefs(
     for pref in crate::permissions::DEVICE_GUARD_PREFS {
         ok &= set_optional_int_pref(ctx, pref, 2);
     }
+    ok &= lock_chrome_services(ctx);
     ok
 }
 
@@ -230,50 +231,78 @@ fn set_and_verify_proxy_pref(ctx: &RequestContext, cfg: &RemoteProxyConfig) -> b
 }
 
 fn set_and_verify_string_pref(ctx: &RequestContext, name: &str, value: &str) -> bool {
-    let key = CefString::from(name);
-    if ctx.has_preference(Some(&key)) == 0 || ctx.can_set_preference(Some(&key)) == 0 {
-        return false;
-    }
-    let Some(mut val) = cef::value_create() else { return false };
-    val.set_string(Some(&CefString::from(value)));
-    let mut err = CefString::from(" ");
-    if ctx.set_preference(Some(&key), Some(&mut val), Some(&mut err)) == 0 {
-        return false;
-    }
-    ctx.preference(Some(&key))
-        .is_some_and(|v| CefString::from(&v.string()).to_string() == value)
+    set_and_verify_pref(
+        ctx,
+        name,
+        |v| {
+            v.set_string(Some(&CefString::from(value)));
+        },
+        |v| CefString::from(&v.string()).to_string() == value,
+    )
 }
 
 fn set_and_verify_bool_pref(ctx: &RequestContext, name: &str, value: bool) -> bool {
-    let key = CefString::from(name);
-    if ctx.has_preference(Some(&key)) == 0 || ctx.can_set_preference(Some(&key)) == 0 {
-        return false;
-    }
-    let Some(mut val) = cef::value_create() else { return false };
-    val.set_bool(i32::from(value));
-    let mut err = CefString::from(" ");
-    if ctx.set_preference(Some(&key), Some(&mut val), Some(&mut err)) == 0 {
-        return false;
-    }
-    ctx.preference(Some(&key))
-        .is_some_and(|v| (v.bool() != 0) == value)
+    set_and_verify_pref(
+        ctx,
+        name,
+        |v| {
+            v.set_bool(i32::from(value));
+        },
+        |v| (v.bool() != 0) == value,
+    )
 }
 
 fn set_and_verify_int_pref(ctx: &RequestContext, name: &str, value: i32) -> bool {
-    let key = CefString::from(name);
-    if ctx.has_preference(Some(&key)) == 0 || ctx.can_set_preference(Some(&key)) == 0 {
-        return false;
-    }
-    let Some(mut val) = cef::value_create() else { return false };
-    val.set_int(value);
-    let mut err = CefString::from(" ");
-    if ctx.set_preference(Some(&key), Some(&mut val), Some(&mut err)) == 0 {
-        return false;
-    }
-    ctx.preference(Some(&key))
-        .is_some_and(|v| v.int() == value)
+    set_and_verify_pref(
+        ctx,
+        name,
+        |v| {
+            v.set_int(value);
+        },
+        |v| v.int() == value,
+    )
 }
 
+/// Sets `name` and reads it back. A pref that cannot be set (a company policy, or one Chromium
+/// keeps read-only on an off-the-record context) passes only if it already holds the value: an
+/// admin who turned the service off must not lose the pane (READER-7 #624-B1). Every refusal names
+/// the pref in the engine log.
+fn set_and_verify_pref(
+    ctx: &RequestContext,
+    name: &str,
+    write: impl Fn(&mut cef::Value),
+    holds: impl Fn(&cef::Value) -> bool,
+) -> bool {
+    let key = CefString::from(name);
+    let current = || ctx.preference(Some(&key)).is_some_and(|v| holds(&v));
+    if ctx.has_preference(Some(&key)) == 0 {
+        return refuse_pref(name, "is not registered");
+    }
+    if !pref_settable(ctx, &key, name) {
+        return current() || refuse_pref(name, "is read-only at another value");
+    }
+    let Some(mut val) = cef::value_create() else { return refuse_pref(name, "has no value to write") };
+    write(&mut val);
+    let mut err = CefString::from(" ");
+    if ctx.set_preference(Some(&key), Some(&mut val), Some(&mut err)) == 0 {
+        return refuse_pref(name, &format!("could not be set ({err})"));
+    }
+    current() || refuse_pref(name, "did not keep the value")
+}
+
+fn pref_settable(ctx: &RequestContext, key: &CefString, name: &str) -> bool {
+    // Debug builds only: stands in for a policy-locked pref in the policy proof.
+    #[cfg(debug_assertions)]
+    if std::env::var("OPENCODE_BROWSER_DEBUG_READONLY_PREFS").is_ok_and(|v| v.split(',').any(|n| n == name)) {
+        return false;
+    }
+    ctx.can_set_preference(Some(key)) != 0
+}
+
+fn refuse_pref(name: &str, why: &str) -> bool {
+    eprintln!("engine-prefs: pref {name} {why}; refusing the request context");
+    false
+}
 fn set_optional_string_pref(ctx: &RequestContext, name: &str, value: &str) -> bool {
     let key = CefString::from(name);
     if ctx.has_preference(Some(&key)) == 0 {
@@ -292,10 +321,61 @@ fn set_optional_bool_pref(ctx: &RequestContext, name: &str, value: bool) -> bool
 
 fn set_optional_int_pref(ctx: &RequestContext, name: &str, value: i32) -> bool {
     let key = CefString::from(name);
-    if ctx.has_preference(Some(&key)) == 0 || ctx.can_set_preference(Some(&key)) == 0 {
+    // Absent from this build: nothing to set. Present, not settable and not already at the
+    // value: fails (READER-7 N9, #624-B1).
+    if ctx.has_preference(Some(&key)) == 0 {
         return true;
     }
     set_and_verify_int_pref(ctx, name, value)
+}
+
+/// Turns off, on `ctx`, the Chrome services official's Electron does not contain (READER-7's
+/// non-extension audit, `notes/review-rd274.md`), as prefs and content-setting locks; the
+/// switches and feature flags are in `cef_runtime.rs`. Applied to `Default` and every isolated
+/// context. A pref this build registers but will not take, and does not already hold, fails the
+/// whole call, so the caller refuses the context instead of running with the service on (N9).
+pub fn lock_chrome_services(ctx: &RequestContext) -> bool {
+    const OFF: [&str; 22] = [
+        // N1 Safe Browsing.
+        "safebrowsing.enabled",
+        "safebrowsing.enhanced",
+        "safebrowsing.scout_reporting_enabled",
+        // N3 sign-in, password manager, local autofill.
+        "signin.allowed",
+        "credentials_enable_service",
+        "credentials_enable_autosignin",
+        "autofill.profile_enabled",
+        "autofill.credit_card_enabled",
+        "autofill.enabled",
+        "signin.allowed_on_next_startup",
+        // N7 payments.
+        "payments.can_make_payment_enabled",
+        // N6a Privacy Sandbox.
+        "privacy_sandbox.m1.topics_enabled",
+        "privacy_sandbox.m1.fledge_enabled",
+        "privacy_sandbox.m1.ad_measurement_enabled",
+        "privacy_sandbox.apis_enabled",
+        // N11 Translate and the spelling service (spellcheck stays on, with local dictionaries).
+        "translate.enabled",
+        "spellcheck.use_spelling_service",
+        // N14 the rest of Google's per-page lookups.
+        "alternate_error_pages.enabled",
+        "search.suggest_enabled",
+        "url_keyed_anonymized_data_collection.enabled",
+        "domain_reliability.allowed_by_policy",
+        "dns_prefetching.enabled",
+    ];
+    let mut ok = true;
+    for name in OFF {
+        ok &= set_optional_bool_pref(ctx, name, false);
+    }
+    // 2 == NETWORK_PREDICTION_NEVER.
+    ok &= set_optional_int_pref(ctx, "net.network_prediction_options", 2);
+    // The content settings, as their default-scope prefs (`Default` also gets them directly).
+    for pref in crate::permissions::chrome_service_setting_prefs() {
+        ok &= set_optional_int_pref(ctx, &pref, 2);
+    }
+    ok
 }
 
 /// Outcome produced once a deferred context finishes `on_request_context_initialized`.
