@@ -803,4 +803,118 @@ function extensions.renderProfileMenu(
     return ui.col({ key = "ext-profile-popover", minW = 180, pad = 4, gap = 2 }, rows)
 end
 
+export type ToolbarAction = {
+    id: string,
+    name: string,
+    title: string?,
+    icon: string?,
+    badge: string?,
+    badgeColor: string?,
+    badgeTextColor: string?,
+    enabled: boolean,
+    popup: string?,
+    options: string?,
+}
+
+-- Toolbar puzzle popover (`panel.tsx:1174-1205`): 220 pt wide, 16 pt icon, truncated title,
+-- optional badge pill, hairline separator, and "Manage extensions".
+function extensions.renderToolbarMenu(
+    items: { ToolbarAction },
+    i18n: I18nService,
+    view: View,
+    onSelect: (item: ToolbarAction) -> (),
+    onManage: () -> ()
+): ui.Node
+    local rows: { ui.Node } = {}
+    for _, item in items do
+        local label = item.title or item.name
+        local enabled = item.enabled ~= false
+        local iconNode: ui.Node = if item.icon and item.icon ~= ""
+            then ui.image({ src = item.icon, w = 16, h = 16, radius = 3, fit = "contain", shrink = false })
+            else ui.icon("puzzle", { size = 16, color = if enabled then "text-muted" else "text-faint" })
+        local rowChildren: { ui.Node } = {
+            ui.row({ w = 16, h = 16, center = true, shrink = false }, { iconNode }),
+            ui.text(label, {
+                size = 13,
+                weight = "regular",
+                lineHeight = 16,
+                tracking = -0.04,
+                color = if enabled then "text-chrome" else "text-faint",
+                truncate = true,
+                grow = 1,
+                shrink = true,
+                minW = 0,
+            } :: UiTextProps),
+        }
+        if item.badge and item.badge ~= "" then
+            table.insert(rowChildren, ui.row({
+                px = 4,
+                h = 14,
+                radius = 3,
+                center = true,
+                shrink = false,
+                fill = if item.badgeColor then "accent" else "surface-2",
+            }, {
+                ui.text(item.badge, {
+                    size = 10,
+                    weight = "medium",
+                    lineHeight = 14,
+                    color = if item.badgeColor then "text-on-accent" else "text-muted",
+                    noWrap = true,
+                } :: any),
+            }))
+        end
+        table.insert(rows, ui.row({
+            key = `browser-ext-item-{item.id}`,
+            role = "button",
+            label = label,
+            w = "full",
+            h = 28,
+            px = 8,
+            gap = 8,
+            radius = 4,
+            align = "center",
+            disabled = not enabled,
+            hover = if enabled then "surface-hover" else nil,
+            press = if enabled then "surface-press" else nil,
+            hoverTransition = "instant",
+            onPress = if enabled
+                then view:Handler(function()
+                    onSelect(item)
+                end)
+                else nil,
+        }, rowChildren))
+    end
+    table.insert(rows, ui.col({ w = "full", h = 1, my = 2, fill = "border-weak" }))
+    table.insert(rows, ui.row({
+        key = "browser-ext-manage",
+        role = "button",
+        label = i18n:T("extensions.manage"),
+        w = "full",
+        h = 28,
+        px = 8,
+        radius = 4,
+        align = "center",
+        hover = "surface-hover",
+        press = "surface-press",
+        hoverTransition = "instant",
+        onPress = view:Handler(function()
+            onManage()
+        end),
+    }, {
+        ui.text(i18n:T("extensions.manage"), {
+            size = 13,
+            weight = "regular",
+            lineHeight = 16,
+            tracking = -0.04,
+            color = "text-chrome",
+            truncate = true,
+            grow = 1,
+            shrink = true,
+            minW = 0,
+        } :: UiTextProps),
+    }))
+    return ui.col({ key = "browser-ext-menu", w = 220, pad = 4, gap = 2 }, rows)
+end
+
 return extensions
