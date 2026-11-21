@@ -4,7 +4,7 @@
 
 use rune::{El, col, el, row, text};
 
-use super::{Calls, Label, Loc, Step, call, file_tool, grouped_read, label, named_skill};
+use super::{Calls, Label, Loc, Step, call, file_like, file_tool, grouped_read, label, named_skill, script_change};
 use crate::TimelineHost;
 use crate::activity::{event_row, events, label as activity};
 use crate::detail::Category;
@@ -56,7 +56,7 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &
         .on_press_tx(crate::disclosure::toggle_group::<S>(key.to_owned()));
     // A card of files in the group holds headers that stick under this one (Desktop's
     // `--sticky-accordion-top`, `message-part.css:1330-1332`).
-    let files = steps.iter().any(file_tool);
+    let files = steps.iter().any(|st| file_tool(st) || matches!(st, Step::Change { file, .. } if crate::tools::script::is_card(file)));
     if open || shutting {
         trigger = trigger.fill(p.bg_base).sticky_top(crate::style::sticky_top());
         trigger = if files {
@@ -163,7 +163,7 @@ fn plan(steps: &[Step]) -> Vec<(usize, usize)> {
         let n = match &steps[i] {
             st if is_work(st) => run(is_work),
             st @ Step::Tool { .. } if grouped_read(st) => run(grouped_read),
-            st @ Step::Tool { .. } if file_tool(st) => run(file_tool),
+            st if file_like(st) => run(file_like),
             st @ Step::Tool { .. } if named_skill(st) => run(named_skill),
             _ => 1,
         };
@@ -181,9 +181,10 @@ fn item_key(steps: &[Step], i: usize) -> String {
         Step::Notice(n) => format!("notice-{}", n.id),
         Step::Text { .. } => format!("text-{i}"),
         st @ Step::Tool { id, .. } if grouped_read(st) => format!("reads-{id}"),
-        st @ Step::Tool { id, .. } if file_tool(st) => format!("files-{id}"),
+        st if file_like(st) => format!("files-{}", file_key(st)),
         st @ Step::Tool { id, .. } if named_skill(st) => format!("skills-{id}"),
         Step::Tool { id, .. } => format!("step-{id}"),
+        Step::Change { .. } => format!("files-{}", file_key(&steps[i])),
     }
 }
 
@@ -205,7 +206,11 @@ fn step_foot<S: TimelineHost>(s: &S, session: &str, live: bool, steps: &[Step]) 
         Step::Notice(_) => 4.0,
         Step::Text { body } => if body.trim_end().ends_with("```") { 0.0 } else { crate::timeline::rhythm::prose_insets().1 },
         st @ Step::Tool { .. } if grouped_read(st) || named_skill(st) => 6.0,
-        st @ Step::Tool { .. } if file_tool(st) => 0.0,
+        _ if file_like(first) => match steps.last() {
+            // A row of counts ends 6 under its line, as a closed trigger does.
+            Some(Step::Change { file, .. }) if !crate::tools::script::is_card(file) => 6.0,
+            _ => 0.0,
+        },
         st @ Step::Tool { files, .. } => {
             if !files.is_empty() {
                 return 0.0;
@@ -213,6 +218,7 @@ fn step_foot<S: TimelineHost>(s: &S, session: &str, live: bool, steps: &[Step]) 
             let cx = crate::tools::Ctx { session, live, sticky: 0.0 };
             if call(st).is_some_and(|c| crate::tools::shows_body(s, cx, &c)) { 0.0 } else { 6.0 }
         }
+        Step::Change { .. } => 0.0,
     }
 }
 
@@ -234,10 +240,7 @@ fn step_item<S: TimelineHost>(s: &S, p: &Pal, cx: crate::tools::Ctx, group: &str
             let calls: Vec<crate::tools::Call> = steps.iter().filter_map(call).collect();
             crate::tools::cached(s, p, cx, &calls, || crate::tools::read_group(s, p, cx, &calls)).key(format!("reads-{}", calls[0].id))
         }
-        st @ Step::Tool { .. } if file_tool(st) => {
-            let calls: Vec<crate::tools::Call> = steps.iter().filter_map(call).collect();
-            col().key(format!("files-{}", calls[0].id)).w_full().child(crate::tools::cached(s, p, cx, &calls, || crate::tools::file_group(s, p, cx, &calls)))
-        }
+        st if file_like(st) => file_runs(s, p, cx, steps),
         st @ Step::Tool { .. } if named_skill(st) => {
             let calls: Vec<crate::tools::Call> = steps.iter().filter_map(call).collect();
             col().key(format!("skills-{}", calls[0].id)).w_full().child(crate::tools::cached(s, p, cx, &calls, || crate::tools::skill_group(s, p, cx, &calls)))
@@ -247,6 +250,7 @@ fn step_item<S: TimelineHost>(s: &S, p: &Pal, cx: crate::tools::Ctx, group: &str
             let step = col().key(format!("step-{id}")).w_full().child(crate::tools::view(s, p, cx, &c));
             step.children(crate::images::gallery(s, p, &format!("step-images-{id}"), files, false, None).map(|g| g.pl(22.0)))
         }
+        Step::Change { .. } => file_runs(s, p, cx, steps),
     }
 }
 
@@ -274,11 +278,14 @@ pub fn events<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: 
 /// they draw in a group: one call, plain reads sharing a line, or edits sharing a file card.
 pub fn calls<S: TimelineHost>(s: &S, p: &Pal, session: &str, kind: Calls, steps: &[Step], live: bool) -> El {
     let cx = crate::tools::Ctx { session, live, sticky: crate::style::sticky_top() };
+    if kind == Calls::Files {
+        return file_runs(s, p, cx, steps);
+    }
     let calls: Vec<crate::tools::Call> = steps.iter().filter_map(call).collect();
     let Some(first) = calls.first() else { return col() };
     match kind {
         Calls::Reads => crate::tools::cached(s, p, cx, &calls, || crate::tools::read_group(s, p, cx, &calls)).key(format!("reads-{}", first.id)),
-        Calls::Files => col().key(format!("files-{}", first.id)).w_full().child(crate::tools::cached(s, p, cx, &calls, || crate::tools::file_group(s, p, cx, &calls))),
+        Calls::Files => col(),
         Calls::One => {
             let files = match &steps[0] {
                 Step::Tool { files, .. } => *files,
@@ -294,4 +301,40 @@ pub fn calls<S: TimelineHost>(s: &S, p: &Pal, session: &str, kind: Calls, steps:
 /// written.
 pub fn subagent<S: TimelineHost>(s: &S, p: &Pal, session: &str, step: &Step) -> El {
     activity::step_event(step).map_or_else(col, |e| event_row::subagent(s, p, session, &e))
+}
+
+/// What keys a row of files: its first call's id, or its first change's.
+fn file_key(st: &Step) -> String {
+    match st {
+        Step::Change { msg, script, index, .. } => crate::tools::script::change_id(msg, script, *index),
+        Step::Tool { id, .. } => (*id).to_owned(),
+        _ => String::new(),
+    }
+}
+
+/// Edits and a script's changes in one row, as runs in the order they happened
+/// (`session-ui/src/tools/file-runs.ts`'s `fileRuns`, `FileChangeRuns`): calls one after another
+/// share one card of files, and each script's changes follow as its own cards
+/// ([`crate::tools::script::changes`]).
+fn file_runs<S: TimelineHost>(s: &S, p: &Pal, cx: crate::tools::Ctx, steps: &[Step]) -> El {
+    let Some(first) = steps.first() else { return col() };
+    let mut out = col().key(format!("files-{}", file_key(first))).w_full().gap(crate::tools::script::CARD_GAP);
+    let mut i = 0;
+    while i < steps.len() {
+        let changes = script_change(&steps[i]);
+        let n = steps[i..].iter().take_while(|st| script_change(st) == changes).count();
+        let run = &steps[i..i + n];
+        out = out.child(if changes {
+            let list: Vec<(&str, &str, usize, &serde_json::Value)> = run.iter().filter_map(|st| match st {
+                Step::Change { msg, script, index, file } => Some((*msg, *script, *index, *file)),
+                _ => None,
+            }).collect();
+            crate::tools::script::changes(s, p, cx, &list).key(format!("run-{}", file_key(&run[0])))
+        } else {
+            let calls: Vec<crate::tools::Call> = run.iter().filter_map(call).collect();
+            col().key(format!("run-{}", file_key(&run[0]))).w_full().child(crate::tools::cached(s, p, cx, &calls, || crate::tools::file_group(s, p, cx, &calls)))
+        });
+        i += n;
+    }
+    out
 }

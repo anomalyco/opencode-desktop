@@ -200,7 +200,7 @@ impl RowSpec {
                     let fold = crate::disclosure::fold(k).duration.to_bits();
                     let detail = s.timeline_detail();
                     let look = (p.theme, p.generation, p.dark, opencode_i18n::locale().id(), crate::style::hover_none());
-                    let ver = (&t.session, group_hash(&t.messages[*start..*end]), *block, *live, pt.to_bits(), look, self.streaming, (fold, crate::style::content_w().to_bits(), crate::scroller::device_scale().to_bits(), detail, s.shell_output_version(), crate::style::sticky_top().to_bits(), s.reduced_motion()));
+                    let ver = (&t.session, group_hash(&t.messages[*start..*end], &detail), *block, *live, pt.to_bits(), look, self.streaming, (fold, crate::style::content_w().to_bits(), crate::scroller::device_scale().to_bits(), detail, s.shell_output_version(), crate::style::sticky_top().to_bits(), s.reduced_motion()));
                     return rune::memo(self.key.clone(), ver, || {
                         ROW_BUILDS.set(ROW_BUILDS.get() + 1);
                         let blocks = turns::fold_with(&entries(&t.messages[*start..*end], &detail), *live, &detail);
@@ -346,9 +346,10 @@ pub fn entries<'a>(messages: &'a [Message], detail: &crate::detail::Detail) -> V
     }).collect()
 }
 
-fn group_hash(messages: &[Message]) -> u64 {
+fn group_hash(messages: &[Message], detail: &crate::detail::Detail) -> u64 {
     use std::hash::{DefaultHasher, Hash, Hasher};
     let mut h = DefaultHasher::new();
+    let edits = detail.placement(crate::detail::Category::Edit) != crate::detail::Placement::Hidden;
     for m in messages {
         if let Message::Notice(n) = m {
             (3u8, &n.id).hash(&mut h);
@@ -362,7 +363,14 @@ fn group_hash(messages: &[Message]) -> u64 {
             (&a.id, a.completed, a.parts.len(), &a.text_phases).hash(&mut h);
             for p in &a.parts {
                 match p {
-                    Part::Tool { id, name, status, .. } => (0u8, id, name, std::mem::discriminant(status)).hash(&mut h),
+                    Part::Tool { id, name, status, metadata, .. } => {
+                        (0u8, id, name, std::mem::discriminant(status)).hash(&mut h);
+                        // A script's changes name the group as they arrive; progress that adds
+                        // none keeps the row.
+                        if edits {
+                            crate::activity::rules::script_changes(name, status, metadata).for_each(|(i, f)| (i, f["file"].as_str()).hash(&mut h));
+                        }
+                    }
                     Part::Reasoning { text, completed, .. } => (1u8, text.len(), completed).hash(&mut h),
                     Part::Text { text } => (2u8, text.len()).hash(&mut h),
                 }
