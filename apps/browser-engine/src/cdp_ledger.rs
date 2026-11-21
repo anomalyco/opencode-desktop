@@ -712,6 +712,9 @@ wrap_dev_tools_message_observer! {
                     self.send_all(browser.as_deref(), send.unwrap_or_default());
                     return 1;
                 }
+                if msg_id >= crate::extensions::sw_wake::SW_WAKE_ID_BASE {
+                    return 1;
+                }
                 if msg_id >= crate::clipboard_gate::CLIPBOARD_GATE_ID_BASE {
                     if let Some(rm) = self.clipboard_gate.on_reply(msg_id, ok, Some(&payload)) {
                         self.send_all(browser.as_deref(), vec![rm]);
