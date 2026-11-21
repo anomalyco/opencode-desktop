@@ -3,6 +3,7 @@
 
 use opencode_i18n::t;
 use opencode_kit::client::{PluginEndpoint, Server};
+use opencode_kit::integration::location_query;
 use opencode_kit::model::{ConsoleMcp, PluginInfo, Project, SkillInfo, console_mcps, parse_project, plugin_labels};
 use opencode_kit::servers::ServerKey;
 use opencode_kit::wire_error::{WireError, WireKind};
@@ -51,6 +52,9 @@ pub enum SettingsRequest {
         target: String,
     },
     LoadProjectExtensions {
+        dir: String,
+    },
+    CheckProjectLocation {
         dir: String,
     },
     PatchProject {
@@ -152,6 +156,11 @@ pub enum SettingsReply {
         skills: Option<SkillPairs>,
         sources: Result<Vec<ConsoleMcp>, ()>,
         lsps: Result<(bool, Vec<Lsp>), ()>,
+    },
+    ProjectLocationChecked {
+        dir: String,
+        /// `Some(true)` only on server-reported `LocationNotFoundError`; `None` leaves prior state intact.
+        missing: Option<bool>,
     },
     ProjectPatched {
         field: ProjectField,
@@ -278,6 +287,16 @@ pub fn execute_request(srv: &Server, request: SettingsRequest) -> SettingsReply 
                 _ => Err(()),
             };
             SettingsReply::ProjectExtensionsLoaded { dir, plugins, skills, sources, lsps }
+        }
+        SettingsRequest::CheckProjectLocation { dir } => {
+            let path = format!("/api/location{}", location_query(Some(&dir)));
+            let missing = match srv.get(&path) {
+                Ok(_) => Some(false),
+                Err(WireError { kind: WireKind::Status { tag: Some(tag), .. }, .. }) if tag == "LocationNotFoundError" => Some(true),
+                // Generic errors / timeouts / offline do not prove the folder is missing (`location-machine.ts:86`).
+                Err(_) => None,
+            };
+            SettingsReply::ProjectLocationChecked { dir, missing }
         }
         SettingsRequest::PatchProject { id, field, body } => {
             let path = format!("/api/project/{}", percent_encode(&id));
@@ -453,6 +472,15 @@ pub fn apply_reply(host: &mut dyn SettingsHost, reply: SettingsReply, tx: &mut T
                 return;
             }
             st.apply_loaded(plugins, skills, sources, lsps);
+        }
+        SettingsReply::ProjectLocationChecked { dir, missing } => {
+            if host.settings_pages().project.dir != dir {
+                return;
+            }
+            if let Some(missing) = missing {
+                tx.instant();
+                host.settings_pages_mut().project.missing = missing;
+            }
         }
         SettingsReply::ProjectPatched { field, updated } => {
             tx.instant();
